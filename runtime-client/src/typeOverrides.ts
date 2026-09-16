@@ -1,4 +1,4 @@
-export type RuntimeTypeOverride = 'number' | 'number[]' | 'FixedU128';
+export type RuntimeTypeOverride = 'number' | 'number[]' | 'FixedU128' | 'mapEntries';
 
 export type RuntimeTypeOverrides = {
   fields: Record<string, RuntimeTypeOverride>;

@@ -156,6 +156,7 @@ describe('Mining network returns', () => {
     expect(stats.projectedProfit).toBe(875n);
     expect(stats.activeBidCosts).toBe(stats.aggregatedBidCosts);
     expect(stats.activeBlockRewards).toBe(stats.aggregatedBlockRewards);
+    expect(stats.activeTDR).toBe(62.5);
     expect(stats.averageAPR).toBeCloseTo(2_281.25);
     expect(stats.activeAPR).toBe(stats.averageAPR);
     expect(stats.activeAPY).toBe(stats.averageAPY);
@@ -163,6 +164,36 @@ describe('Mining network returns', () => {
     expect(mining.fetchAggregateBlockRewards).toHaveBeenCalledWith(api);
     expect(mining.fetchAggregateBidCosts).toHaveBeenCalledWith(api);
     expect(mining.fetchAggregateMicronotsStaked).toHaveBeenCalledWith(api);
+  });
+
+  it('exposes base rewards as per-block values', async () => {
+    NetworkConfig.setRuntimeOverride('mainnet', {
+      genesisTick: 0,
+      ticksBetweenFrames: 2,
+    });
+
+    const api = {};
+    const mining = {
+      prunedClientOrArchivePromise: Promise.resolve({
+        rpc: { chain: { getFinalizedHead: vi.fn().mockResolvedValue('0xfinalized') } },
+        at: vi.fn().mockResolvedValue(api),
+      }),
+      fetchActiveMinersCount: vi.fn().mockResolvedValue(4),
+      fetchAggregateBlockRewards: vi.fn().mockResolvedValue({ microgons: 1_750n, micronots: 1_000n }),
+      fetchAggregateBidCosts: vi.fn().mockResolvedValue(1_000n),
+      fetchAggregateMicronotsStaked: vi.fn().mockResolvedValue(200n),
+    };
+    const currency = {
+      load: vi.fn().mockResolvedValue(undefined),
+      convertMicronotTo: vi.fn((value: bigint) => value * 2n),
+    };
+    const stats = new GlobalMiningStats(mining as any, currency as any);
+
+    await stats.load();
+
+    expect(NetworkConfig.ticksPerCohort).toBe(20);
+    expect(stats.baseMicrogonRewardsPerBlock).toBe(87n);
+    expect(stats.baseMicronotRewardsPerBlock).toBe(50n);
   });
 
   it('returns zero rates when no active mining capital exists', async () => {
@@ -187,6 +218,7 @@ describe('Mining network returns', () => {
 
     expect(stats.averageAPR).toBe(0);
     expect(stats.averageAPY).toBe(0);
+    expect(stats.activeTDR).toBe(0);
     expect(stats.activeAPR).toBe(0);
     expect(stats.activeAPY).toBe(0);
   });

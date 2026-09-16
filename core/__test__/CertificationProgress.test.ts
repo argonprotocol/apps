@@ -100,9 +100,17 @@ describe('CertificationProgress', () => {
             microgonsIn: 14n,
           }),
         },
+        bitcoinFissions: {
+          fissionByOwnerAndId: {
+            entries: vi.fn().mockResolvedValue([]),
+          },
+        },
         bitcoinLocks: {
-          utxoIdsByOwnerAccount: {
+          lockIdsByOwnerAccount: {
             keys: vi.fn().mockResolvedValue([]),
+          },
+          locksById: {
+            multi: vi.fn().mockResolvedValue([]),
           },
         },
       },

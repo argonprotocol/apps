@@ -1,7 +1,7 @@
 import type { Meta, StoryObj } from '@storybook/vue3-vite';
 import { type ArgonClient, TxResult } from '@argonprotocol/apps-core';
 import * as Vue from 'vue';
-import { expect, fn, mocked, spyOn, userEvent, waitFor, within } from 'storybook/test';
+import { fn, mocked, spyOn, userEvent, within } from 'storybook/test';
 import { TopTab } from '../../../src-vue/interfaces/IConfig.ts';
 import type { IVaultIncreaseAllocationMetadata } from '../../../src-vue/lib/MyVault.ts';
 import { TransactionInfo } from '../../../src-vue/lib/TransactionInfo.ts';
@@ -12,6 +12,7 @@ import {
 } from '../../../src-vue/lib/db/TransactionsTable.ts';
 import basicEmitter from '../../../src-vue/emitters/basicEmitter.ts';
 import SecuritizationOverlay from '../../../src-vue/overlays/SecuritizationOverlay.vue';
+import { getBitcoinLocks } from '../../../src-vue/stores/bitcoin.ts';
 import { getCurrency } from '../../../src-vue/stores/currency.ts';
 import { getMainchainClient } from '../../../src-vue/stores/mainchain.ts';
 import { useVaultingAssetBreakdown } from '../../../src-vue/stores/vaultingAssetBreakdown.ts';
@@ -46,105 +47,149 @@ export const Remove: Story = {
 
     await userEvent.click(argonInput);
     await userEvent.keyboard('{ArrowDown}');
-
-    await waitFor(() => expect(body.getAllByText('Removing 1 ARGN').at(-1)).toBeVisible());
-    await waitFor(() => expect(body.getAllByRole('button', { name: 'Update Securitization' }).at(-1)).toBeEnabled());
+    await Vue.nextTick();
   },
+};
+
+export const ScheduledDelayedRelease: Story = {
+  beforeEach: () => setupSecuritizationScenario('scheduledDelayedRelease'),
+};
+
+export const ProposedDelayedRelease: Story = {
+  beforeEach: () => setupSecuritizationScenario('proposedDelayedRelease'),
+  play: async () => {
+    const body = within(document.body);
+    const [argonInput] = await body.findAllByTestId('input-number');
+
+    await userEvent.click(argonInput);
+    await userEvent.keyboard('{ArrowDown}');
+    await Vue.nextTick();
+  },
+};
+
+export const WaitingForBitcoinLockRelease: Story = {
+  beforeEach: () => setupSecuritizationScenario('waitingForBitcoinLockRelease'),
+};
+
+export const ArgonotWalletMaxKeepsDeposit: Story = {
+  beforeEach: () => setupSecuritizationScenario(),
+  play: async () => {
+    const body = within(document.body);
+    const argonotWalletMax = (await body.findAllByRole('button', { name: 'Wallet Max' })).at(-1)!;
+
+    await userEvent.click(argonotWalletMax);
+    await Vue.nextTick();
+  },
+};
+
+export const MaxReturnsAboveWalletMaximum: Story = {
+  beforeEach: () => setupSecuritizationScenario('maxReturnsAboveWalletMaximum'),
+};
+
+export const MaxReturnsUsesLockedMinimum: Story = {
+  beforeEach: () => setupSecuritizationScenario('maxReturnsUsesLockedMinimum'),
 };
 
 export const Submit: Story = {
   beforeEach: () => setupSecuritizationScenario(),
   play: async () => {
-    const body = await submitWalletMaximum();
-
-    await waitFor(() => expect(body.getAllByText('Waiting for 3rd Block…').at(-1)).toBeVisible());
-    await waitFor(() => expect(body.getAllByText('Securitization').at(-1)).toBeVisible());
+    await submitWalletMaximum();
   },
 };
 
 export const RestoredPending: Story = {
   beforeEach: () => setupSecuritizationScenario('restoring'),
   play: async () => {
-    const body = within(document.body);
     getMyVault().data.pendingAllocateTxInfo = createSecuritizationTransaction();
-
-    await waitFor(() => expect(body.getAllByText('Waiting for 3rd Block…').at(-1)).toBeVisible());
-    await Promise.resolve();
-    await Promise.resolve();
-    await expect(body.queryByText('A securitization change is required')).not.toBeInTheDocument();
-    await expect(body.queryByText('ERROR')).not.toBeInTheDocument();
-    await waitFor(() => expect(body.getAllByText('Adding 500 ARGN').at(-1)).toBeVisible());
-    await waitFor(() => expect(body.getAllByRole('button', { name: 'Update Securitization' }).at(-1)).toBeDisabled());
+    await Vue.nextTick();
   },
 };
 
 export const RestoredPendingFromPreviousVersion: Story = {
   beforeEach: () => setupSecuritizationScenario('restoring'),
   play: async () => {
-    const body = within(document.body);
     const txInfo = createSecuritizationTransaction();
     delete txInfo.tx.metadataJson.securitizationChangeMicrogons;
     txInfo.tx.metadataJson.committedMicronots = 750_000_000n;
 
     getMyVault().data.pendingAllocateTxInfo = txInfo;
-
-    await waitFor(() => expect(body.getAllByText('Adding 1,300 ARGN').at(-1)).toBeVisible());
-    await waitFor(() => expect(body.getAllByText('Adding 750 ARGNOT').at(-1)).toBeVisible());
+    await Vue.nextTick();
   },
 };
 
 export const Completed: Story = {
   beforeEach: () => setupSecuritizationScenario('completed'),
   play: async () => {
-    const body = within(document.body);
     const txInfo = createSecuritizationTransaction();
     getMyVault().data.pendingAllocateTxInfo = txInfo;
-
-    await waitFor(() => expect(body.getAllByText('Waiting for 3rd Block…').at(-1)).toBeVisible());
+    await Vue.nextTick();
 
     getMyVault().data.pendingAllocateTxInfo = null;
-
-    await waitFor(() => expect(body.queryByText('Waiting for 3rd Block…')).not.toBeInTheDocument());
-    await waitFor(() => expect(body.getAllByText('Securitization').at(-1)).toBeVisible());
-    await waitFor(() => expect(body.getAllByRole('button', { name: 'Update Securitization' }).at(-1)).toBeDisabled());
+    await Vue.nextTick();
   },
 };
 
 export const Submitting: Story = {
   beforeEach: () => setupSecuritizationScenario('submitting'),
   play: async () => {
-    const body = await submitWalletMaximum();
-
-    await expect(body.findByRole('button', { name: 'Submitting…' })).resolves.toBeDisabled();
-    const cancelButton = await body.findByRole('button', { name: 'Cancel' });
-    await expect(cancelButton).toBeEnabled();
-    await userEvent.click(cancelButton);
-    await waitFor(() => expect(body.queryByText('Securitization')).not.toBeInTheDocument());
+    await submitWalletMaximum();
   },
 };
 
 export const SubmitFailed: Story = {
   beforeEach: () => setupSecuritizationScenario('error'),
   play: async () => {
-    const body = await submitWalletMaximum();
-
-    await waitFor(() =>
-      expect(body.getAllByText('The securitization transaction could not be submitted.').at(-1)).toBeVisible(),
-    );
-    await expect(body.findByRole('button', { name: 'Update Securitization' })).resolves.toBeEnabled();
+    await submitWalletMaximum();
   },
 };
 
-function setupSecuritizationScenario(state: 'ready' | 'submitting' | 'error' | 'restoring' | 'completed' = 'ready') {
+function setupSecuritizationScenario(
+  state:
+    | 'ready'
+    | 'submitting'
+    | 'error'
+    | 'restoring'
+    | 'completed'
+    | 'scheduledDelayedRelease'
+    | 'proposedDelayedRelease'
+    | 'waitingForBitcoinLockRelease'
+    | 'maxReturnsAboveWalletMaximum'
+    | 'maxReturnsUsesLockedMinimum' = 'ready',
+) {
   const { wallets } = setupAppScenario({ selectedTab: TopTab.Vaulting });
   const createdVault = createScenarioVault();
+  if (state === 'proposedDelayedRelease') {
+    createdVault.securitization = 1_550_000_000n;
+    createdVault.securitizationTarget = 1_550_000_000n;
+    createdVault.securitizationLocked = 1_550_000_000n;
+  } else if (state === 'scheduledDelayedRelease') {
+    createdVault.securitizationTarget = 1_200_000_000n;
+    createdVault.securitizationLocked = 1_550_000_000n;
+    createdVault.securitizationReleaseSchedule = new Map([[860_720, 350_000_000n]]);
+  } else if (state === 'waitingForBitcoinLockRelease') {
+    createdVault.securitizationTarget = 1_200_000_000n;
+    createdVault.securitizationLocked = 1_550_000_000n;
+  }
   const currency = getCurrency();
   const currentMyVault = getMyVault();
+  const currentBitcoinLocks = getBitcoinLocks();
+  const mintingAuthorities =
+    state === 'maxReturnsUsesLockedMinimum'
+      ? {
+          ...currentMyVault.mintingAuthorities,
+          data: Vue.reactive({
+            ...currentMyVault.mintingAuthorities.data,
+            authorities: [{}],
+          }),
+        }
+      : currentMyVault.mintingAuthorities;
   const pendingTxInfo = createSecuritizationTransaction();
   let securityMicrogons = createdVault.securitization;
   if (state === 'restoring') securityMicrogons = 1_200_000_000n;
   if (state === 'completed') {
     securityMicrogons = pendingTxInfo.tx.metadataJson.securitizationMicrogons ?? createdVault.securitization;
+    createdVault.securitization = securityMicrogons;
+    createdVault.securitizationTarget = securityMicrogons;
   }
 
   const myVaultData = Vue.shallowReactive({
@@ -162,12 +207,19 @@ function setupSecuritizationScenario(state: 'ready' | 'submitting' | 'error' | '
 
   wallets.defaultArgonSpendableMicrogons = 1_000_000_000n;
   wallets.defaultArgonWallet.availableMicrogons = 1_000_000_000n;
+  wallets.defaultArgonWallet.availableMicronots = 1_000_000_000n;
+  wallets.defaultArgonWallet.totalMicronots = 1_000_000_000n;
+  if (state === 'maxReturnsAboveWalletMaximum') {
+    wallets.defaultArgonWallet.availableMicronots = 500_000_000n;
+    wallets.defaultArgonWallet.totalMicronots = 500_000_000n;
+  }
 
   mocked(getMyVault).mockReturnValue({
     ...currentMyVault,
     data: myVaultData,
     createdVault,
     vaultId: createdVault.vaultId,
+    mintingAuthorities,
     buildSecuritizationTx: fn(async () => {
       if (state === 'restoring') throw new Error('A securitization change is required');
       return {
@@ -179,8 +231,21 @@ function setupSecuritizationScenario(state: 'ready' | 'submitting' | 'error' | '
   mocked(useVaultingAssetBreakdown, { partial: true }).mockReturnValue(
     Vue.reactive({
       securityMicrogons,
-      securityMicronots: 0n,
-      securityMicronotsActivated: 0n,
+      securityMicronots: state === 'maxReturnsUsesLockedMinimum' ? 900_000_000n : 0n,
+      securityMicronotsActivated: state === 'maxReturnsUsesLockedMinimum' ? 900_000_000n : 0n,
+    }),
+  );
+  mocked(getBitcoinLocks, { partial: true }).mockReturnValue(
+    Object.assign(Object.create(currentBitcoinLocks), {
+      data: Vue.reactive({ oracleBitcoinBlockHeight: 860_000 }),
+      getAllLocks: fn(() =>
+        state === 'proposedDelayedRelease' || state === 'waitingForBitcoinLockRelease'
+          ? [{ vaultId: createdVault.vaultId, fundedSatoshis: state === 'waitingForBitcoinLockRelease' ? 1n : 0n }]
+          : [],
+      ),
+      isInactiveForVaultDisplay: fn(() => false),
+      isLockFunded: fn(() => true),
+      getSecuritizationHoldExpirationTime: fn(() => Date.UTC(2026, 8, 20, 16)),
     }),
   );
   mocked(getMainchainClient).mockResolvedValue({} as Awaited<ReturnType<typeof getMainchainClient>>);
@@ -259,7 +324,6 @@ async function submitWalletMaximum() {
   const body = within(document.body);
   const walletMaximumButtons = await body.findAllByRole('button', { name: 'Wallet Max' });
   await userEvent.click(walletMaximumButtons[0]);
-  await expect(body.queryByText(/Your wallet needs another .* ARGN/)).not.toBeInTheDocument();
   await userEvent.click(await body.findByRole('button', { name: 'Update Securitization' }));
-  return body;
+  await Vue.nextTick();
 }

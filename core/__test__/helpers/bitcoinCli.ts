@@ -62,14 +62,21 @@ export function runBtcCli(args: string[]): string {
     cwd: ARGON_DOCKER_DIR,
     env: {
       ...process.env,
+      BLS_API_KEY: process.env.BLS_API_KEY ?? '',
       COMPOSE_PROJECT_NAME: composeProjectName,
+      COMPOSE_IGNORE_ORPHANS: 'true',
+      ETHEREUM_RPC_URLS: process.env.ETHEREUM_RPC_URLS ?? '',
     },
     encoding: 'utf8',
   });
 
   if (result.status !== 0) {
-    const stderr = result.stderr?.trim() || 'unknown error';
-    throw new Error(`btc-cli failed (${args.join(' ')}): ${stderr}`);
+    let outcome = ` with exit code ${result.status ?? 'unknown'}`;
+    if (result.error) outcome = ` with process error ${result.error.message}`;
+    else if (result.signal) outcome = ` after signal ${result.signal}`;
+
+    const details = [result.stderr?.trim(), result.stdout?.trim()].filter(Boolean).join('\n') || 'no process output';
+    throw new Error(`btc-cli failed (${args.join(' ')})${outcome}:\n${details}`);
   }
 
   return result.stdout.trim();

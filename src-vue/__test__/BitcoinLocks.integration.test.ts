@@ -3,7 +3,7 @@ import docker from 'docker-compose';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 
 import { teardown } from '@argonprotocol/testing';
-import { MainchainClients, MoveTo, NetworkConfig, BitcoinLock, Vault } from '@argonprotocol/apps-core';
+import { BitcoinLock, type Vault, MainchainClients, MoveTo, NetworkConfig } from '@argonprotocol/apps-core';
 import {
   startArgonTestNetwork,
   type StartedArgonTestNetwork,
@@ -12,16 +12,15 @@ import { waitFor } from '@argonprotocol/apps-core/__test__/helpers/waitFor.ts';
 import { sudoFundWallet } from '@argonprotocol/apps-core/__test__/helpers/sudoFundWallet.ts';
 import {
   createBitcoinAddress,
-  generateBlocks as mineBitcoinBlocks,
+  runBtcCli,
   sendBitcoinToAddress,
   waitForBitcoinTransactionConfirmations,
   waitForBitcoinTransactionOutputSatoshis,
 } from '@argonprotocol/apps-core/__test__/helpers/bitcoinCli.ts';
 import { setMainchainClients } from '../stores/mainchain.ts';
 import { BitcoinLockStatus, type IBitcoinLockRecord } from '../lib/db/BitcoinLocksTable.ts';
-import { BitcoinUtxoStatus, type IBitcoinUtxoRecord } from '../lib/db/BitcoinUtxosTable.ts';
-import { createBitcoinLockProgressStore } from '../stores/bitcoinLockProgress.ts';
-import type { Db } from '../lib/Db.ts';
+import { BitcoinUtxoSpendStatus, BitcoinUtxoStatus } from '../lib/db/BitcoinUtxosTable.ts';
+import { BitcoinReleaseStatus } from '../interfaces/IBitcoinReleaseRecord.ts';
 import type { MyVault } from '../lib/MyVault.ts';
 import {
   type BitcoinLocksClientHarness as ClientHarness,
@@ -30,9 +29,11 @@ import {
   createBitcoinLocksHarness as createHarness,
   cleanupBitcoinLocksClientHarness,
   cleanupBitcoinLocksHarness as cleanupHarness,
+  shutdownBitcoinLocksClientHarness,
   walletFundingMicrogons,
 } from './helpers/bitcoinLocksHarness.ts';
 import { MyVaultRecovery } from '../lib/recovery/MyVaultRecovery.ts';
+import { BitcoinLockRelease } from '../lib/txs/BitcoinLock.release.ts';
 import { createMockWalletKeys } from './helpers/wallet.ts';
 
 const skipE2E = Boolean(JSON.parse(process.env.SKIP_E2E ?? '0'));
@@ -76,8 +77,7 @@ describe.skipIf(skipE2E).sequential('BitcoinLocks integration', { timeout: 240e3
       async () => {
         const client = await clients.get(false);
         const current = await client.query.priceIndex.current();
-        if (!current) return;
-        if (current.btcUsdPrice.isLessThanOrEqualTo(0)) return;
+        if (!current || current.btcUsdPrice.isLessThanOrEqualTo(0)) return;
         if (current.argonUsdPrice.isLessThanOrEqualTo(0)) return;
         if (current.tick <= 0) return;
         return true;
@@ -87,140 +87,302 @@ describe.skipIf(skipE2E).sequential('BitcoinLocks integration', { timeout: 240e3
     minerAddress = createBitcoinAddress();
   }, 240e3);
 
-  it('accepts a mismatch candidate and persists the accepted funding record on chain and in the db', async () => {
-    const harness = await createHarness({
+  it('imports multiple confirmed funding UTXOs from the current runtime into the app model', async () => {
+    const operator = await createHarness({
       archiveUrl: network.archiveUrl,
       esploraHost: network.networkConfigOverride.esploraHost,
       network: 'dev-docker',
     });
-    const progress = createBitcoinLockProgressStore({
-      myVault: harness.myVault,
-      bitcoinLocks: harness.bitcoinLocks,
-      miningFrames: harness.miningFrames,
-    });
 
     try {
-      const lock = await createLock(harness, harness.myVault.createdVault!);
-      const stopTracking = progress.trackLock(lock);
+      const ownerWalletKeys = createMockWalletKeys();
+      const owner = await createBitcoinLocksClientHarness({
+        archiveUrl: network.archiveUrl,
+        esploraHost: network.networkConfigOverride.esploraHost,
+        network: 'dev-docker',
+        walletKeys: ownerWalletKeys,
+      });
+      let ownerCleanupRequired = true;
 
       try {
-        const accepted = await acceptMismatchFunding(harness, lock, progress);
-
-        const dbLock = await harness.db.bitcoinLocksTable.getByUtxoId(accepted.lock.utxoId!);
-        const dbUtxos = await getDbUtxosForLock(harness.db, accepted.lock.utxoId!);
-        const dbAcceptedRecord = dbUtxos.find(record => record.id === dbLock?.fundingUtxoRecordId);
-        expect(dbLock?.fundingUtxoRecordId).toBe(accepted.acceptedRecord.id);
-        expect(dbAcceptedRecord?.status).toBe(BitcoinUtxoStatus.FundingUtxo);
-        expect(dbAcceptedRecord?.txid).toBe(accepted.candidate.txid);
-        expect(dbAcceptedRecord?.vout).toBe(accepted.candidate.vout);
-
-        const chainClient = await clients.archiveClientPromise;
-        const chainLock = await BitcoinLock.get(chainClient, accepted.lock.utxoId!);
-        expect(chainLock).toBeTruthy();
-        const chainFundingRef = await chainLock!.getFundingUtxoRef(chainClient);
-        expect(chainFundingRef?.txid).toBe(accepted.candidate.txid);
-        expect(chainFundingRef?.vout).toBe(accepted.candidate.vout);
-
-        expect(harness.bitcoinLocks.getMismatchViewState(accepted.lock).phase).toBe('none');
-      } finally {
-        stopTracking();
-      }
-    } finally {
-      await cleanupHarness(harness);
-    }
-  });
-
-  it('returns an expired mismatch funding candidate and restores vault capacity on chain and in the db', async () => {
-    const harness = await createHarness({
-      archiveUrl: network.archiveUrl,
-      esploraHost: network.networkConfigOverride.esploraHost,
-      network: 'dev-docker',
-    });
-    const progress = createBitcoinLockProgressStore({
-      myVault: harness.myVault,
-      bitcoinLocks: harness.bitcoinLocks,
-      miningFrames: harness.miningFrames,
-    });
-
-    try {
-      const initialAvailableBitcoinSpace = harness.myVault.createdVault!.availableBitcoinSpace();
-      const lock = await createLock(harness, harness.myVault.createdVault!);
-      const stopTracking = progress.trackLock(lock);
-
-      try {
-        await returnExpiredMismatchAndWaitForChainRestore(harness, lock, progress, initialAvailableBitcoinSpace);
-      } finally {
-        stopTracking();
-      }
-    } finally {
-      await cleanupHarness(harness);
-    }
-  });
-
-  it('returns a mismatch funding candidate before expiry and leaves the lock ready to resume', async () => {
-    const harness = await createHarness({
-      archiveUrl: network.archiveUrl,
-      esploraHost: network.networkConfigOverride.esploraHost,
-      network: 'dev-docker',
-    });
-    const progress = createBitcoinLockProgressStore({
-      myVault: harness.myVault,
-      bitcoinLocks: harness.bitcoinLocks,
-      miningFrames: harness.miningFrames,
-    });
-
-    try {
-      const lock = await createLock(harness, harness.myVault.createdVault!);
-      const reservedAvailableBitcoinSpace = harness.myVault.createdVault!.availableBitcoinSpace();
-      const stopTracking = progress.trackLock(lock);
-
-      try {
-        const returned = await returnMismatchAndWaitForReadyToResume(
-          harness,
-          lock,
-          progress,
-          reservedAvailableBitcoinSpace,
-        );
-        expect(returned.lock.status).toBe(BitcoinLockStatus.LockFundingReadyToResume);
-
-        await harness.bitcoinLocks.resumeWaitingForFunding(returned.lock);
-        await waitFor(30e3, 'live mismatch return resume stays pending', async () => {
-          const resumed = getCurrentLock(harness, returned.lock.utxoId!);
-          progress.updateLock(resumed);
-          const mismatchView = harness.bitcoinLocks.getMismatchViewState(resumed);
-          if (resumed.status !== BitcoinLockStatus.LockPendingFunding) return;
-          if (mismatchView.phase !== 'none') return;
-          if (
-            mismatchView.candidates.find(
-              candidate =>
-                candidate.record.id === returned.candidate.id ||
-                (candidate.record.txid === returned.candidate.txid &&
-                  candidate.record.vout === returned.candidate.vout),
-            )?.returnRecord
-          ) {
-            return;
-          }
-          if (harness.myVault.createdVault?.availableBitcoinSpace() !== reservedAvailableBitcoinSpace) return;
-
-          const chainClient = await clients.get(false);
-          const chainLock = await BitcoinLock.get(chainClient, resumed.utxoId!);
-          if (!chainLock) return;
-          const chainFundingRef = await chainLock.getFundingUtxoRef(chainClient);
-          if (chainFundingRef) return;
-          const candidateRefs = await chainClient.query.bitcoinUtxos.candidateUtxoRefsByUtxoId(resumed.utxoId!);
-          if (candidateRefs && Object.keys(candidateRefs).length > 0) return;
-
-          return true;
+        await sudoFundWallet({
+          address: ownerWalletKeys.defaultArgonAddress,
+          microgons: walletFundingMicrogons,
+          micronots: 0n,
+          archiveUrl: network.archiveUrl,
         });
+
+        const lock = await createLock(owner, operator.myVault.createdVault!);
+        const fundingAddress = owner.bitcoinLocks.formatP2wshAddress(lock.scriptDetails!.p2wshScriptHashHex);
+        const runtimeClient = await clients.get(false);
+        const watchedAddress = await runtimeClient.query.bitcoinUtxos.utxoAddressByLockId(lock.lockId!);
+        expect(watchedAddress).toMatchObject({ lockId: lock.lockId });
+        expect(watchedAddress && `0x0020${watchedAddress.scriptPubkey.value.wscriptHash.replace('0x', '')}`).toBe(
+          lock.scriptDetails!.p2wshScriptHashHex,
+        );
+
+        const { firstSatoshis, secondSatoshis, expectedTxids } = await fundLockWithTwoConfirmedUtxos(
+          owner,
+          lock,
+          fundingAddress,
+        );
+        const runtimeLock = await BitcoinLock.get(runtimeClient, lock.lockId!);
+        expect(await runtimeClient.query.bitcoinUtxos.utxoRefsByLockId(lock.lockId!)).toHaveLength(2);
+        expect(runtimeLock?.fundingUtxos.map(utxo => utxo.utxoRef.txid).sort()).toEqual(expectedTxids);
+        if (!runtimeLock) throw new Error(`Runtime Bitcoin lock ${lock.lockId} disappeared after funding`);
+        expect(runtimeLock.fundedSatoshis).toBe(lock.securitizedSatoshis);
+        expect(runtimeLock.fundingUtxos.map(utxo => utxo.satoshis).sort()).toEqual(
+          [firstSatoshis, secondSatoshis].sort(),
+        );
+
+        const appLock = await waitFor(30e3, 'app multi-UTXO funding', () => {
+          const current = owner.bitcoinLocks.getLockById(lock.lockId!);
+          if (current?.status !== BitcoinLockStatus.LockFunded) return;
+          if (current?.fundingUtxoIds.length !== 2) return;
+          if (current.fundedSatoshis !== lock.securitizedSatoshis) return;
+          return current;
+        });
+        expect(
+          owner.bitcoinLocks
+            .getFundingUtxos(appLock)
+            .map(utxo => utxo.txid)
+            .sort(),
+        ).toEqual(expectedTxids);
+
+        const [persistedLock, persistedUtxos] = await Promise.all([
+          owner.db.bitcoinLocksTable.getByLockId(lock.lockId!),
+          owner.db.bitcoinUtxosTable.fetchByLockId(lock.lockId!),
+        ]);
+        expect(persistedLock).toMatchObject({
+          fundedSatoshis: lock.securitizedSatoshis,
+          fundingUtxoIds: appLock.fundingUtxoIds,
+        });
+        expect(
+          persistedUtxos
+            .filter(utxo => utxo.status === BitcoinUtxoStatus.FundingUtxo)
+            .map(utxo => utxo.txid)
+            .sort(),
+        ).toEqual(expectedTxids);
+
+        const db = owner.db;
+        await shutdownBitcoinLocksClientHarness(owner);
+        ownerCleanupRequired = false;
+
+        let restarted: ClientHarness | undefined;
+        try {
+          restarted = await createBitcoinLocksClientHarness({
+            archiveUrl: network.archiveUrl,
+            esploraHost: network.networkConfigOverride.esploraHost,
+            network: 'dev-docker',
+            walletKeys: ownerWalletKeys,
+            db,
+          });
+          const restoredLock = restarted.bitcoinLocks.getLockById(lock.lockId!);
+          expect(restoredLock).toMatchObject({
+            fundedSatoshis: lock.securitizedSatoshis,
+            fundingUtxoIds: appLock.fundingUtxoIds,
+          });
+          expect(
+            restoredLock &&
+              restarted.bitcoinLocks
+                .getFundingUtxos(restoredLock)
+                .map(utxo => utxo.txid)
+                .sort(),
+          ).toEqual(expectedTxids);
+        } finally {
+          if (restarted) await cleanupBitcoinLocksClientHarness(restarted);
+          else await db.close();
+        }
       } finally {
-        stopTracking();
+        if (ownerCleanupRequired) await cleanupBitcoinLocksClientHarness(owner);
       }
     } finally {
-      await cleanupHarness(harness);
+      await cleanupHarness(operator);
     }
-  });
+  }, 300e3);
 
-  it('returns a mismatched deposit received before expiry through a separate vault operator', async () => {
+  it('partially releases multiple accepted funding UTXOs and resumes from durable state', async () => {
+    const operator = await createHarness({
+      archiveUrl: network.archiveUrl,
+      esploraHost: network.networkConfigOverride.esploraHost,
+      network: 'dev-docker',
+    });
+
+    try {
+      const ownerWalletKeys = createMockWalletKeys();
+      const owner = await createBitcoinLocksClientHarness({
+        archiveUrl: network.archiveUrl,
+        esploraHost: network.networkConfigOverride.esploraHost,
+        network: 'dev-docker',
+        walletKeys: ownerWalletKeys,
+      });
+      let ownerCleanupRequired = true;
+
+      try {
+        await sudoFundWallet({
+          address: ownerWalletKeys.defaultArgonAddress,
+          microgons: walletFundingMicrogons,
+          micronots: 0n,
+          archiveUrl: network.archiveUrl,
+        });
+
+        const lock = await createLock(owner, operator.myVault.createdVault!);
+        const fundingAddress = owner.bitcoinLocks.formatP2wshAddress(lock.scriptDetails!.p2wshScriptHashHex);
+        await fundLockWithTwoConfirmedUtxos(owner, lock, fundingAddress);
+        const fundedLock = await waitFor(30e3, 'app multi-UTXO funding before release', () => {
+          const current = owner.bitcoinLocks.getLockById(lock.lockId!);
+          if (current?.status !== BitcoinLockStatus.LockFunded) return;
+          if (current?.fundingUtxoIds.length !== 2) return;
+          if (current.fundedSatoshis !== lock.securitizedSatoshis) return;
+          return current;
+        });
+        const inputUtxoIds = [...fundedLock.fundingUtxoIds];
+
+        const destinationAddress = createBitcoinAddress();
+        const bitcoinNetworkFee = await owner.bitcoinLocks.calculateBitcoinNetworkFee(
+          fundedLock,
+          5n,
+          destinationAddress,
+          true,
+        );
+        const grossSatoshis = fundedLock.fundedSatoshis / 2n;
+        const destinationSatoshis = grossSatoshis - bitcoinNetworkFee;
+        const changeSatoshis = fundedLock.fundedSatoshis - grossSatoshis;
+        const operation = new BitcoinLockRelease(owner.bitcoinLocks, owner.transactionTracker);
+        await operation.load();
+        const txInfo = await operation.submit({
+          lockId: fundedLock.lockId!,
+          toScriptPubkey: destinationAddress,
+          bitcoinNetworkFee,
+          destinationSatoshis,
+          txSigner: await owner.walletKeys.getLiquidLockingKeypair(),
+        });
+        await txInfo.txResult.waitForFinalizedBlock;
+        await txInfo.waitForPostProcessing;
+
+        const requestedRelease = owner.bitcoinLocks.releases.getActiveForLock(fundedLock);
+        expect(requestedRelease).toMatchObject({
+          status: BitcoinReleaseStatus.WaitingForVaultCosign,
+          inputUtxoIds,
+          bitcoinNetworkFee,
+          destinationSatoshis,
+          changeSatoshis,
+        });
+        if (!requestedRelease) throw new Error(`Bitcoin lock ${fundedLock.lockId} has no active release`);
+        expect(owner.bitcoinLocks.releases.getInputUtxos(requestedRelease)).toHaveLength(2);
+
+        const db = owner.db;
+        await shutdownBitcoinLocksClientHarness(owner);
+        ownerCleanupRequired = false;
+
+        let restarted: ClientHarness | undefined;
+        try {
+          restarted = await createBitcoinLocksClientHarness({
+            archiveUrl: network.archiveUrl,
+            esploraHost: network.networkConfigOverride.esploraHost,
+            network: 'dev-docker',
+            walletKeys: ownerWalletKeys,
+            db,
+          });
+          const restoredLock = getCurrentLock(restarted, fundedLock.lockId!);
+          const restoredRelease = restarted.bitcoinLocks.releases.getActiveForLock(restoredLock);
+          expect(restoredRelease).toMatchObject({
+            id: requestedRelease.id,
+            status: BitcoinReleaseStatus.WaitingForVaultCosign,
+            inputUtxoIds,
+          });
+
+          await collectVaultSignatureFromAlert(operator.myVault, 0);
+          const archiveClient = await restarted.clients.archiveClientPromise;
+          const broadcastingRelease = await waitFor(60e3, 'multi-input release broadcast', async () => {
+            await restarted!.bitcoinLocks.releases.syncLockVaultCosign(restoredLock);
+            await restarted!.bitcoinLocks.releases.reconcileLockRelease(restoredLock, false);
+            const current = restarted!.bitcoinLocks.releases.getActiveForLock(restoredLock);
+            if (current?.statusError) throw new Error(current.statusError);
+            if (!current?.bitcoinTxid || current.status !== BitcoinReleaseStatus.ConfirmingOnBitcoin) return;
+            return current;
+          });
+          expect(broadcastingRelease.vaultSignatures).toHaveLength(2);
+          expect(restarted.bitcoinLocks.releases.getInputUtxos(broadcastingRelease)).toHaveLength(2);
+          if (!broadcastingRelease.bitcoinTxid) throw new Error('Multi-input release has no Bitcoin transaction ID');
+
+          const bitcoinTxid = broadcastingRelease.bitcoinTxid.replace('0x', '').match(/../g)!.reverse().join('');
+          await waitForBitcoinTransactionOutputSatoshis({
+            flowName: 'BitcoinLocks.integration.multiUtxoRelease',
+            txid: bitcoinTxid,
+            address: destinationAddress,
+            minimumSatoshis: 1n,
+            minerAddress,
+            timeoutMs: 30e3,
+            pollMs: 500,
+          });
+          await waitForBitcoinTransactionConfirmations({
+            flowName: 'BitcoinLocks.integration.multiUtxoRelease',
+            txid: bitcoinTxid,
+            minimumConfirmations: 8,
+            minerAddress,
+            mineMode: 'missing',
+            timeoutMs: 30e3,
+            pollMs: 500,
+          });
+
+          const completed = await waitFor(90e3, 'multi-input release completed on Argon', async () => {
+            await restarted!.bitcoinLocks.releases.reconcileLockRelease(restoredLock, true);
+            const currentLock = restarted!.bitcoinLocks.getLockById(restoredLock.lockId!);
+            const currentRelease = restarted!.bitcoinLocks.releases.getById(broadcastingRelease.id);
+            if (currentRelease?.statusError) throw new Error(currentRelease.statusError);
+            if (currentLock?.status !== BitcoinLockStatus.LockFunded) return;
+            if (currentLock.fundedSatoshis !== changeSatoshis || currentLock.fundingUtxoIds.length !== 1) return;
+            if (currentRelease?.status !== BitcoinReleaseStatus.Complete) return;
+            return { currentLock, currentRelease };
+          });
+          expect(completed.currentLock.activeReleaseId).toBeUndefined();
+          expect(completed.currentRelease.bitcoinTxid).toBe(broadcastingRelease.bitcoinTxid);
+          const runtimeClient = await restarted.clients.get(false);
+          expect(await BitcoinLock.get(runtimeClient, restoredLock.lockId!)).toMatchObject({
+            fundedSatoshis: changeSatoshis,
+            securitizedSatoshis: changeSatoshis,
+          });
+          expect(await BitcoinLock.getReleaseRequest(runtimeClient, restoredLock.lockId!)).toBeUndefined();
+          expect(restarted.bitcoinLocks.releases.getInputUtxos(completed.currentRelease)).toEqual([
+            expect.objectContaining({
+              id: inputUtxoIds[0],
+              spendStatus: BitcoinUtxoSpendStatus.Spent,
+              spentByReleaseId: completed.currentRelease.id,
+            }),
+            expect.objectContaining({
+              id: inputUtxoIds[1],
+              spendStatus: BitcoinUtxoSpendStatus.Spent,
+              spentByReleaseId: completed.currentRelease.id,
+            }),
+          ]);
+          expect(await db.bitcoinReleasesTable.getById(completed.currentRelease.id)).toMatchObject({
+            status: BitcoinReleaseStatus.Complete,
+            inputUtxoIds,
+            bitcoinTxid: broadcastingRelease.bitcoinTxid,
+          });
+          expect(restarted.bitcoinLocks.getFundingUtxos(completed.currentLock)).toEqual([
+            expect.objectContaining({
+              txid: broadcastingRelease.bitcoinTxid,
+              vout: 1,
+              satoshis: changeSatoshis,
+              spendStatus: BitcoinUtxoSpendStatus.Unspent,
+              createdByReleaseId: completed.currentRelease.id,
+            }),
+          ]);
+        } finally {
+          if (restarted) await cleanupBitcoinLocksClientHarness(restarted);
+          else await db.close();
+        }
+      } finally {
+        if (ownerCleanupRequired) await cleanupBitcoinLocksClientHarness(owner);
+      }
+    } finally {
+      await cleanupHarness(operator);
+    }
+  }, 420e3);
+
+  it('claims a deposit first detected while a lock release request is pending', async () => {
     const operator = await createHarness({
       archiveUrl: network.archiveUrl,
       esploraHost: network.networkConfigOverride.esploraHost,
@@ -245,150 +407,181 @@ describe.skipIf(skipE2E).sequential('BitcoinLocks integration', { timeout: 240e3
         });
 
         const lock = await createLock(owner, operator.myVault.createdVault!);
-        const progress = createBitcoinLockProgressStore({
-          myVault: operator.myVault,
-          bitcoinLocks: owner.bitcoinLocks,
-          miningFrames: owner.miningFrames,
+        const fundingAddress = owner.bitcoinLocks.formatP2wshAddress(lock.scriptDetails!.p2wshScriptHashHex);
+        await fundLockWithTwoConfirmedUtxos(owner, lock, fundingAddress);
+        const fundedLock = await waitFor(30e3, 'app funding before release request', () => {
+          const current = owner.bitcoinLocks.getLockById(lock.lockId!);
+          if (current?.status !== BitcoinLockStatus.LockFunded || current.fundingUtxoIds.length !== 2) return;
+          return current;
         });
-        const stopTracking = progress.trackLock(lock);
 
-        try {
-          const observed = await observeMismatchCandidate(
-            owner,
-            lock,
-            getMismatchFundingSatoshis(lock.satoshis),
-            progress,
-          );
+        const releaseDestination = createBitcoinAddress();
+        const releaseNetworkFee = await owner.bitcoinLocks.calculateBitcoinNetworkFee(
+          fundedLock,
+          5n,
+          releaseDestination,
+        );
+        const releaseOperation = new BitcoinLockRelease(owner.bitcoinLocks, owner.transactionTracker);
+        await releaseOperation.load();
+        const releaseTx = await releaseOperation.submit({
+          lockId: fundedLock.lockId!,
+          toScriptPubkey: releaseDestination,
+          bitcoinNetworkFee: releaseNetworkFee,
+          destinationSatoshis: fundedLock.fundedSatoshis - releaseNetworkFee,
+          txSigner: await owner.walletKeys.getLiquidLockingKeypair(),
+        });
+        await releaseTx.txResult.waitForFinalizedBlock;
+        await releaseTx.waitForPostProcessing;
+        expect(owner.bitcoinLocks.releases.getActiveForLock(fundedLock)?.status).toBe(
+          BitcoinReleaseStatus.WaitingForVaultCosign,
+        );
 
-          const expirationConfig = await BitcoinLock.getConfig(await clients.get(false));
-          const orphaningBitcoinHeight =
-            observed.lock.lockDetails.createdAtHeight + expirationConfig.pendingConfirmationExpirationBlocks + 1;
+        const txid = sendBitcoinToAddress(fundingAddress, lock.securitizedSatoshis);
+        const sentSatoshis = await waitForBitcoinTransactionOutputSatoshis({
+          flowName: 'BitcoinLocks.integration.pendingReleaseOrphanClaim',
+          txid,
+          address: fundingAddress,
+          minimumSatoshis: lock.securitizedSatoshis,
+          minerAddress,
+          timeoutMs: 30e3,
+          pollMs: 500,
+        });
+        expect(sentSatoshis).toBe(lock.securitizedSatoshis);
 
-          const preExpiryClient = await clients.get(false);
-          const preExpiryBitcoinHeight = await preExpiryClient.query.bitcoinUtxos
-            .confirmedBitcoinBlockTip()
-            .then(x => x?.blockHeight ?? 0);
-          const preExpiryChainLock = await BitcoinLock.get(preExpiryClient, observed.lock.utxoId!);
-          const preExpiryCandidates = await preExpiryClient.query.bitcoinUtxos.candidateUtxoRefsByUtxoId(
-            observed.lock.utxoId!,
-          );
-          const candidateKey = JSON.stringify({
-            txid: observed.candidate.txid,
-            outputIndex: observed.candidate.vout,
-          });
-          const candidateWasRecordedBeforeExpiry = candidateKey in preExpiryCandidates;
+        const currentLock = getCurrentLock(owner, lock.lockId!);
+        const observedFunding = await waitFor(30e3, 'release-window deposit observed by the app', async () => {
+          return await owner.bitcoinLocks.utxoTracking.observeMempoolFunding(currentLock);
+        });
+        const canonicalTxid = observedFunding.txid;
+        if (!canonicalTxid) throw new Error('Observed release-window deposit has no canonical txid.');
 
-          expect(preExpiryBitcoinHeight).toBeLessThan(orphaningBitcoinHeight);
-          expect(preExpiryChainLock).toBeTruthy();
-          expect(candidateWasRecordedBeforeExpiry).toBe(true);
+        await waitForBitcoinTransactionConfirmations({
+          flowName: 'BitcoinLocks.integration.pendingReleaseOrphanClaim',
+          txid,
+          minimumConfirmations: 8,
+          minerAddress,
+          mineMode: 'missing',
+          timeoutMs: 30e3,
+          pollMs: 500,
+        });
 
-          await waitFor(
-            60e3,
-            'separate operator lock expiration height',
-            async () => {
-              const chainClient = await clients.get(false);
-              const currentBitcoinHeight = await chainClient.query.bitcoinUtxos
-                .confirmedBitcoinBlockTip()
-                .then(x => x?.blockHeight ?? 0);
-              if (currentBitcoinHeight >= orphaningBitcoinHeight) return true;
-              mineBitcoinBlocks(orphaningBitcoinHeight - currentBitcoinHeight, minerAddress);
-              return;
-            },
-            { pollMs: 1e3 },
-          );
-
-          const orphan = await waitFor(
-            90e3,
-            'expired late deposit recorded as orphan',
-            async () => {
-              const currentLock = getCurrentLock(owner, lock.utxoId!);
-              const chainClient = await clients.get(false);
-              await owner.bitcoinLocks.utxoTracking.syncPendingFundingSignals(currentLock, chainClient);
-              progress.updateLock(currentLock);
-              return owner.bitcoinLocks.utxoTracking
-                .getUnresolvedOrphanRecords([currentLock])
-                .find(record => record.txid === observed.candidate.txid);
-            },
-            { pollMs: 1e3 },
-          );
-          expect(orphan.status).toBe(BitcoinUtxoStatus.Orphaned);
-          expect(orphan.satoshis).toBe(observed.candidate.satoshis);
-
-          const currentLock = getCurrentLock(owner, lock.utxoId!);
-          await waitFor(90e3, 'expired chain lock removed', async () => {
+        const orphan = await waitFor(
+          90e3,
+          'release-window deposit recorded as orphan',
+          async () => {
             const chainClient = await clients.get(false);
-            return !(await BitcoinLock.get(chainClient, currentLock.utxoId!));
-          });
-          expect(owner.bitcoinLocks.utxoTracking.getUnresolvedOrphanRecords([currentLock])).toContain(orphan);
+            await owner.bitcoinLocks.utxoTracking.syncPendingFundingSignals(currentLock, chainClient);
+            return owner.bitcoinLocks.utxoTracking
+              .getUnresolvedOrphanRecords([currentLock])
+              .find(record => record.txid === canonicalTxid);
+          },
+          { pollMs: 1e3 },
+        );
+        expect(orphan.status).toBe(BitcoinUtxoStatus.Orphaned);
+        expect(orphan.satoshis).toBe(lock.securitizedSatoshis);
 
-          const returnDestination = createBitcoinAddress();
-          const bitcoinNetworkFee = await owner.bitcoinLocks.calculateBitcoinNetworkFee(
-            currentLock,
-            5n,
-            returnDestination,
-          );
-          const returnTx = await owner.bitcoinLocks.orphanReleases.requestOrphanReturn({
-            lock: currentLock,
-            record: orphan,
-            toScriptPubkey: returnDestination,
-            bitcoinNetworkFee,
-          });
-          expect(returnTx).toBeTruthy();
-          await returnTx!.txResult.waitForFinalizedBlock;
+        const returnDestination = createBitcoinAddress();
+        const bitcoinNetworkFee = await owner.bitcoinLocks.calculateBitcoinNetworkFee(
+          currentLock,
+          5n,
+          returnDestination,
+        );
+        const returnTx = await owner.bitcoinOrphanRelease.submit({
+          lock: currentLock,
+          record: orphan,
+          toScriptPubkey: returnDestination,
+          bitcoinNetworkFee,
+          txSigner: await owner.walletKeys.getLiquidLockingKeypair(),
+        });
+        await returnTx.txResult.waitForFinalizedBlock;
 
-          await collectVaultSignatureFromAlert(operator.myVault, 1);
+        await collectVaultSignatureFromAlert(operator.myVault, 1);
 
-          const returningOrphan = await waitFor(
-            120e3,
-            'orphan return seen on bitcoin',
-            async () => {
-              await owner.bitcoinLocks.orphanReleases.recoverPendingCosignEvents(
-                owner.miningFrames.blockWatch.bestBlockHeader.blockNumber,
-              );
-              const current = owner.bitcoinLocks.utxoTracking.getUtxoRecord(
-                currentLock.utxoId!,
-                orphan.txid,
-                orphan.vout,
-              );
-              if (!current?.releaseTxid) return;
-              return current;
-            },
-            { pollMs: 1e3 },
-          );
-          await waitForBitcoinTransactionOutputSatoshis({
-            flowName: 'BitcoinLocks.integration.orphanReturn',
-            txid: returningOrphan.releaseTxid!,
-            address: returnDestination,
-            minimumSatoshis: 1n,
-            minerAddress,
-            timeoutMs: 30e3,
-            pollMs: 500,
-          });
-          await waitForBitcoinTransactionConfirmations({
-            flowName: 'BitcoinLocks.integration.orphanReturn',
-            txid: returningOrphan.releaseTxid!,
-            minimumConfirmations: 8,
-            minerAddress,
-            mineMode: 'missing',
-            timeoutMs: 30e3,
-            pollMs: 500,
-          });
-
-          await waitFor(90e3, 'orphan return completed', () => {
+        const cosignedRelease = await waitFor(
+          60e3,
+          'orphan cosign recovered by owner',
+          async () => {
+            await owner.bitcoinLocks.releases.recoverPendingOrphanCosignEvents(
+              owner.miningFrames.blockWatch.bestBlockHeader.blockNumber,
+            );
             const current = owner.bitcoinLocks.utxoTracking.getUtxoRecord(
-              currentLock.utxoId!,
+              currentLock.lockId!,
               orphan.txid,
               orphan.vout,
             );
-            if (current?.status !== BitcoinUtxoStatus.ReleaseComplete) return;
-            if (owner.bitcoinLocks.utxoTracking.getUnresolvedOrphanRecords([currentLock]).length) return;
-            if (operator.myVault.data.pendingOrphanCosignCount !== 0) return;
-            if (operator.myVault.collectBuilder.getNotice()?.orphanSignatureCount) return;
-            return current;
-          });
-        } finally {
-          stopTracking();
-        }
+            if (!current) return;
+            const release = owner.bitcoinLocks.releases.getActiveForUtxo(current);
+            if (release?.statusError) throw new Error(release.statusError);
+            if (!release?.vaultSignatures.length) return;
+            return release;
+          },
+          { pollMs: 1e3 },
+        );
+        await owner.bitcoinLocks.releases.reconcileOrphanReleases(currentLock);
+
+        const returningRelease = await waitFor(
+          60e3,
+          'orphan return seen on bitcoin',
+          () => {
+            const current = owner.bitcoinLocks.utxoTracking.getUtxoRecord(
+              currentLock.lockId!,
+              orphan.txid,
+              orphan.vout,
+            );
+            if (!current) return;
+            const release = owner.bitcoinLocks.releases.getActiveForUtxo(current);
+            if (release?.statusError) throw new Error(release.statusError);
+            if (!release?.bitcoinTxid) return;
+            return release;
+          },
+          { pollMs: 1e3 },
+        );
+
+        await waitForBitcoinTransactionOutputSatoshis({
+          flowName: 'BitcoinLocks.integration.pendingReleaseOrphanClaim',
+          txid: returningRelease.bitcoinTxid!,
+          address: returnDestination,
+          minimumSatoshis: 1n,
+          minerAddress,
+          timeoutMs: 30e3,
+          pollMs: 500,
+        });
+        await waitForBitcoinTransactionConfirmations({
+          flowName: 'BitcoinLocks.integration.pendingReleaseOrphanClaim',
+          txid: returningRelease.bitcoinTxid!,
+          minimumConfirmations: 8,
+          minerAddress,
+          mineMode: 'missing',
+          timeoutMs: 30e3,
+          pollMs: 500,
+        });
+
+        const completed = await waitFor(90e3, 'orphan return completed', () => {
+          const current = owner.bitcoinLocks.utxoTracking.getUtxoRecord(currentLock.lockId!, orphan.txid, orphan.vout);
+          if (!current || current.spendStatus !== BitcoinUtxoSpendStatus.Spent) return;
+          const release = owner.bitcoinLocks.releases.getById(cosignedRelease.id);
+          if (release?.status !== BitcoinReleaseStatus.Complete) return;
+          if (owner.bitcoinLocks.utxoTracking.getUnresolvedOrphanRecords([currentLock]).length) return;
+          if (operator.myVault.data.pendingOrphanCosignCount !== 0) return;
+          if (operator.myVault.collectBuilder.getNotice()?.orphanSignatureCount) return;
+          return { current, release };
+        });
+
+        const persisted = await owner.db.bitcoinUtxosTable.getByLockOutpoint(
+          completed.current.lockId,
+          completed.current.txid,
+          completed.current.vout,
+        );
+        expect(persisted).toMatchObject({
+          status: BitcoinUtxoStatus.Orphaned,
+          spendStatus: BitcoinUtxoSpendStatus.Spent,
+          spentByReleaseId: completed.release.id,
+        });
+        expect(await owner.db.bitcoinReleasesTable.getById(completed.release.id)).toMatchObject({
+          status: BitcoinReleaseStatus.Complete,
+          bitcoinTxid: returningRelease.bitcoinTxid,
+          vaultSignatures: cosignedRelease.vaultSignatures,
+        });
       } finally {
         await cleanupBitcoinLocksClientHarness(owner);
       }
@@ -396,107 +589,6 @@ describe.skipIf(skipE2E).sequential('BitcoinLocks integration', { timeout: 240e3
       await cleanupHarness(operator);
     }
   }, 420e3);
-
-  it('keeps a new funded lock isolated after a prior release and a prior mismatch return', async () => {
-    const harness = await createHarness({
-      archiveUrl: network.archiveUrl,
-      esploraHost: network.networkConfigOverride.esploraHost,
-      network: 'dev-docker',
-    });
-    const progress = createBitcoinLockProgressStore({
-      myVault: harness.myVault,
-      bitcoinLocks: harness.bitcoinLocks,
-      miningFrames: harness.miningFrames,
-    });
-
-    try {
-      const initialAvailableBitcoinSpace = harness.myVault.createdVault!.availableBitcoinSpace();
-      const firstLock = await createLock(harness, harness.myVault.createdVault!);
-      const firstStopTracking = progress.trackLock(firstLock);
-
-      let firstReleasedRecordId = 0;
-      let firstFundingTxid = '';
-      let firstReleaseTxid = '';
-      try {
-        const fundedFirst = await acceptMismatchFunding(harness, firstLock, progress);
-        await waitFor(30e3, 'vault available bitcoin space reduced after funding', () => {
-          const availableBitcoinSpace = harness.myVault.createdVault!.availableBitcoinSpace();
-          if (availableBitcoinSpace >= initialAvailableBitcoinSpace) return;
-          return availableBitcoinSpace;
-        });
-        firstFundingTxid = fundedFirst.acceptedRecord.txid;
-
-        const firstRelease = await releaseLockAndWaitForChainRestore(
-          harness,
-          fundedFirst.lock,
-          progress,
-          initialAvailableBitcoinSpace,
-        );
-        firstReleasedRecordId = firstRelease.fundingRecord.id;
-        firstReleaseTxid = firstRelease.fundingRecord.releaseTxid ?? '';
-      } finally {
-        firstStopTracking();
-      }
-
-      const secondLock = await createLock(harness, harness.myVault.createdVault!);
-      const secondStopTracking = progress.trackLock(secondLock);
-
-      let secondReturnedRecordId = 0;
-      let secondMismatchFundingTxid = '';
-      let secondReturnTxid = '';
-      try {
-        const returnedSecond = await returnExpiredMismatchAndWaitForChainRestore(
-          harness,
-          secondLock,
-          progress,
-          initialAvailableBitcoinSpace,
-        );
-        secondReturnedRecordId = returnedSecond.record.id;
-        secondMismatchFundingTxid = returnedSecond.txid;
-        secondReturnTxid = returnedSecond.releaseTxid;
-
-        await harness.bitcoinLocks.acknowledgeExpiredWaitingForFunding(returnedSecond.lock);
-        await waitFor(30e3, 'expired mismatch return notice cleared', () => {
-          const refreshed = getCurrentLock(harness, returnedSecond.lock.utxoId!);
-          if (refreshed.status !== BitcoinLockStatus.LockExpiredWaitingForFundingAcknowledged) return;
-          if (!harness.bitcoinLocks.isInactiveForVaultDisplay(refreshed)) return;
-          const activeLocks = harness.bitcoinLocks.getActiveLocks();
-          if (activeLocks.some(activeLock => activeLock.utxoId === refreshed.utxoId)) return;
-          return true;
-        });
-      } finally {
-        secondStopTracking();
-      }
-
-      const thirdLock = await createLock(harness, harness.myVault.createdVault!);
-      const thirdStopTracking = progress.trackLock(thirdLock);
-
-      try {
-        const fundedThird = await acceptMismatchFunding(harness, thirdLock, progress);
-        expect(fundedThird.acceptedRecord.id).not.toBe(firstReleasedRecordId);
-        expect(fundedThird.acceptedRecord.id).not.toBe(secondReturnedRecordId);
-        expect(fundedThird.acceptedRecord.txid).not.toBe(firstFundingTxid);
-        expect(fundedThird.acceptedRecord.txid).not.toBe(secondMismatchFundingTxid);
-        expect(harness.bitcoinLocks.getMismatchViewState(fundedThird.lock).nextCandidate?.returnRecord).toBeUndefined();
-
-        const thirdRelease = await releaseLockAndWaitForChainRestore(
-          harness,
-          fundedThird.lock,
-          progress,
-          initialAvailableBitcoinSpace,
-        );
-        expect(thirdRelease.fundingRecord.id).not.toBe(firstReleasedRecordId);
-        expect(thirdRelease.fundingRecord.id).not.toBe(secondReturnedRecordId);
-        expect(thirdRelease.fundingRecord.releaseTxid).toBeTruthy();
-        expect(thirdRelease.fundingRecord.releaseTxid).not.toBe(firstReleaseTxid);
-        expect(thirdRelease.fundingRecord.releaseTxid).not.toBe(secondReturnTxid);
-      } finally {
-        thirdStopTracking();
-      }
-    } finally {
-      await cleanupHarness(harness);
-    }
-  });
 
   describe('with the indexer stopped', () => {
     let harness: TestHarness;
@@ -548,32 +640,94 @@ describe.skipIf(skipE2E).sequential('BitcoinLocks integration', { timeout: 240e3
       });
 
       try {
-        const restoredLock = recovered.bitcoinLocks.getLockByUtxoId(activeLock.utxoId!);
+        const restoredLock = recovered.bitcoinLocks.getLockById(activeLock.lockId!);
         expect(restoredLock).toBeTruthy();
         expect(restoredLock?.isHistoryRecoveryPending).not.toBe(true);
-        expect(recovered.bitcoinLocks.getActiveLocks().map(lock => lock.utxoId)).toContain(activeLock.utxoId);
+        expect(recovered.bitcoinLocks.getActiveLocks().map(lock => lock.lockId)).toContain(activeLock.lockId);
 
         const remainingLiquidity = harness.myVault.createdVault!.availableBitcoinSpace();
         expect(remainingLiquidity).toBeGreaterThan(0n);
         const satoshis = await recovered.bitcoinLocks.satoshisForArgonLiquidity(remainingLiquidity / 2n);
-        const { pendingLock, txInfo } = await recovered.bitcoinLocks.initializeLock({
+        const txInfo = await recovered.bitcoinLockCreate.submit({
           satoshis,
           vault: harness.myVault.createdVault!,
+          txSigner: await recovered.walletKeys.getLiquidLockingKeypair(),
         });
-        await txInfo!.txResult.waitForFinalizedBlock;
-        await txInfo!.waitForPostProcessing;
+        const pendingLock = recovered.bitcoinLocks.getLockByUuid(txInfo.tx.metadataJson.bitcoin.uuid)!;
+        await txInfo.txResult.waitForFinalizedBlock;
+        await txInfo.waitForPostProcessing;
 
         const newLock = recovered.bitcoinLocks.getAllLocks().find(lock => lock.uuid === pendingLock.uuid);
-        expect(newLock?.utxoId).toBeDefined();
-        const activeUtxoIds = recovered.bitcoinLocks.getActiveLocks().map(lock => lock.utxoId);
-        expect(activeUtxoIds).toContain(activeLock.utxoId);
-        expect(activeUtxoIds).toContain(newLock?.utxoId);
+        expect(newLock?.lockId).toBeDefined();
+        const activeLockIds = recovered.bitcoinLocks.getActiveLocks().map(lock => lock.lockId);
+        expect(activeLockIds).toContain(activeLock.lockId);
+        expect(activeLockIds).toContain(newLock?.lockId);
       } finally {
         await cleanupBitcoinLocksClientHarness(recovered);
       }
     });
   });
 });
+
+async function fundLockWithTwoConfirmedUtxos(
+  owner: ClientHarness,
+  lock: IBitcoinLockRecord,
+  fundingAddress: string,
+): Promise<{ firstSatoshis: bigint; secondSatoshis: bigint; expectedTxids: string[] }> {
+  const firstSatoshis = lock.securitizedSatoshis / 3n;
+  const secondSatoshis = lock.securitizedSatoshis - firstSatoshis;
+  expect(firstSatoshis).toBeGreaterThan(546n);
+  expect(secondSatoshis).toBeGreaterThan(546n);
+
+  const firstTxid = sendBitcoinToAddress(fundingAddress, firstSatoshis);
+  const secondTxid = sendBitcoinToAddress(fundingAddress, secondSatoshis);
+  for (const [txid, satoshis] of [
+    [firstTxid, firstSatoshis],
+    [secondTxid, secondSatoshis],
+  ] as const) {
+    await waitForBitcoinTransactionOutputSatoshis({
+      flowName: 'BitcoinLocks.integration.multiUtxoFunding',
+      txid,
+      address: fundingAddress,
+      minimumSatoshis: satoshis,
+      minerAddress,
+      timeoutMs: 30e3,
+      pollMs: 500,
+    });
+  }
+  for (const txid of [firstTxid, secondTxid]) {
+    await waitForBitcoinTransactionConfirmations({
+      flowName: 'BitcoinLocks.integration.multiUtxoFunding',
+      txid,
+      minimumConfirmations: 8,
+      minerAddress,
+      mineMode: 'missing',
+      timeoutMs: 30e3,
+      pollMs: 500,
+    });
+  }
+
+  const transactionBitcoinHeights = [firstTxid, secondTxid].map(txid => {
+    const transaction = JSON.parse(runBtcCli(['getrawtransaction', txid, 'true'])) as { blockhash: string };
+    const block = JSON.parse(runBtcCli(['getblockheader', transaction.blockhash])) as { height: number };
+    return block.height;
+  });
+  const latestFundingBitcoinHeight = Math.max(...transactionBitcoinHeights);
+  const runtimeClient = await owner.clients.get(false);
+  await waitFor(60e3, 'runtime confirmed Bitcoin funding height', async () => {
+    const tip = await runtimeClient.query.bitcoinUtxos.confirmedBitcoinBlockTip();
+    if (!tip || tip.blockHeight < latestFundingBitcoinHeight) return;
+    return tip;
+  });
+  await waitFor(60e3, 'runtime synchronized Bitcoin funding height', async () => {
+    const tip = await runtimeClient.query.bitcoinUtxos.synchedBitcoinBlock();
+    if (!tip || tip.blockHeight < latestFundingBitcoinHeight) return;
+    return tip;
+  });
+
+  const expectedTxids = [firstTxid, secondTxid].map(txid => `0x${txid.match(/../g)!.reverse().join('')}`).sort();
+  return { firstSatoshis, secondSatoshis, expectedTxids };
+}
 
 async function createLock(
   harness: ClientHarness,
@@ -589,615 +743,21 @@ async function createLock(
   if (!microgonsAtTargetPerBtc) throw new Error('No eligible Bitcoin rate is available for the test lock.');
   const satoshis = await harness.bitcoinLocks.satoshisForArgonLiquidity(targetLiquidity, microgonsAtTargetPerBtc);
 
-  const { pendingLock, txInfo } = await harness.bitcoinLocks.initializeLock({
+  const txInfo = await harness.bitcoinLockCreate.submit({
     satoshis,
     vault,
     microgonsAtTargetPerBtc,
+    txSigner: await harness.walletKeys.getLiquidLockingKeypair(),
   });
-  expect(txInfo).toBeTruthy();
+  const pendingLock = harness.bitcoinLocks.getLockByUuid(txInfo.tx.metadataJson.bitcoin.uuid)!;
 
-  await txInfo!.txResult.waitForFinalizedBlock;
-  await txInfo!.waitForPostProcessing;
+  await txInfo.txResult.waitForFinalizedBlock;
+  await txInfo.waitForPostProcessing;
 
-  const lock = Object.values(harness.bitcoinLocks.data.locksByUtxoId).find(record => record.uuid === pendingLock.uuid);
+  const lock = Object.values(harness.bitcoinLocks.data.locksByLockId).find(record => record.uuid === pendingLock.uuid);
   expect(lock?.status).toBe(BitcoinLockStatus.LockPendingFunding);
   if (!lock) throw new Error('Finalized bitcoin lock was not published.');
   return lock;
-}
-
-async function observeMismatchCandidate(
-  harness: ClientHarness,
-  lock: IBitcoinLockRecord,
-  satoshis: bigint,
-  progress: ReturnType<typeof createBitcoinLockProgressStore>,
-): Promise<{ lock: IBitcoinLockRecord; candidate: IBitcoinUtxoRecord; txid: string }> {
-  await waitFor(
-    20e3,
-    'lock funding watch readiness',
-    async () => {
-      const chainClient = await clients.get(false);
-      const currentBlock = Number((await chainClient.query.system.number()).toString());
-      if (currentBlock <= lock.lockDetails.createdAtArgonBlock + 2) return;
-      return true;
-    },
-    { pollMs: 500 },
-  );
-
-  const fundingAddress = harness.bitcoinLocks.formatP2wshAddress(lock.lockDetails.p2wshScriptHashHex);
-  const txid = sendBitcoinToAddress(fundingAddress, satoshis);
-  const sentSatoshis = await waitForBitcoinTransactionOutputSatoshis({
-    flowName: 'BitcoinLocks.integration.funding',
-    txid,
-    address: fundingAddress,
-    minimumSatoshis: satoshis,
-    minerAddress,
-    timeoutMs: 30e3,
-    pollMs: 500,
-  });
-  expect(sentSatoshis).toBe(satoshis);
-  await waitForBitcoinTransactionConfirmations({
-    flowName: 'BitcoinLocks.integration.funding',
-    txid,
-    minimumConfirmations: 8,
-    minerAddress,
-    mineMode: 'missing',
-    timeoutMs: 30e3,
-    pollMs: 500,
-  });
-
-  const observed = await waitFor(
-    120e3,
-    'mismatch funding candidate',
-    async () => {
-      const currentLock = getCurrentLock(harness, lock.utxoId!);
-      await harness.bitcoinLocks.utxoTracking.syncPendingFundingSignals(currentLock);
-      progress.updateLock(currentLock);
-      const mismatchView = harness.bitcoinLocks.getMismatchViewState(currentLock);
-      const candidate = mismatchView.nextCandidate?.record;
-      if (!candidate?.firstSeenOnArgonAt) return;
-      if (mismatchView.phase === 'none') return;
-      if (harness.bitcoinLocks.getLockProcessingDetails(currentLock).confirmations < 0) return;
-      return { lock: currentLock, candidate };
-    },
-    { pollMs: 1e3 },
-  );
-
-  const dbLock = await harness.db.bitcoinLocksTable.getByUtxoId(observed.lock.utxoId!);
-  const dbUtxos = await getDbUtxosForLock(harness.db, observed.lock.utxoId!);
-  const dbCandidate = dbUtxos.find(
-    record => record.txid === observed.candidate.txid && record.vout === observed.candidate.vout,
-  );
-
-  expect(dbLock?.fundingUtxoRecordId).toBeNull();
-  expect(dbCandidate?.firstSeenOnArgonAt).toBeTruthy();
-  expect(progress.lockProcessing.value.confirmations).toBeGreaterThanOrEqual(0);
-  expect(progress.lockProcessing.value.expectedConfirmations).toBeGreaterThan(0);
-
-  return { ...observed, txid };
-}
-
-function getMismatchReturnRecord(
-  harness: TestHarness,
-  lock: IBitcoinLockRecord,
-  candidate: Pick<IBitcoinUtxoRecord, 'id'>,
-): IBitcoinUtxoRecord | undefined {
-  const mismatchRecord = harness.bitcoinLocks.getMismatchViewState(lock).candidates.find(view => {
-    return view.record.id === candidate.id;
-  })?.returnRecord;
-  if (mismatchRecord) return mismatchRecord;
-
-  const record = harness.bitcoinLocks.utxoTracking.getUtxoRecordById(candidate.id);
-  return harness.bitcoinLocks.utxoTracking.isReleaseStatus(record?.status) ? record : undefined;
-}
-
-async function waitForMismatchReturnTracked(args: {
-  timeoutMs: number;
-  label: string;
-  harness: TestHarness;
-  lock: IBitcoinLockRecord;
-  candidate: IBitcoinUtxoRecord;
-  progress: ReturnType<typeof createBitcoinLockProgressStore>;
-}): Promise<{ lock: IBitcoinLockRecord; record: IBitcoinUtxoRecord }> {
-  return await waitFor(args.timeoutMs, args.label, () => {
-    const refreshed = getCurrentLock(args.harness, args.lock.utxoId!);
-    args.progress.updateLock(refreshed);
-
-    const record = getMismatchReturnRecord(args.harness, refreshed, args.candidate);
-    if (!record) return;
-
-    if (record.status === BitcoinUtxoStatus.ReleaseIsProcessingOnArgon) {
-      if (args.progress.orphanedReturnArgon.value.confirmations < 0) return;
-      if (args.progress.orphanedReturnArgon.value.expectedConfirmations <= 0) return;
-      return { lock: refreshed, record };
-    }
-
-    if (![BitcoinUtxoStatus.ReleaseIsProcessingOnBitcoin, BitcoinUtxoStatus.ReleaseComplete].includes(record.status)) {
-      return;
-    }
-    if (!record.releaseTxid) return;
-
-    return { lock: refreshed, record };
-  });
-}
-
-async function waitForMismatchReturnSeenOnBitcoin(args: {
-  timeoutMs: number;
-  label: string;
-  harness: TestHarness;
-  lock: IBitcoinLockRecord;
-  candidate: IBitcoinUtxoRecord;
-  progress: ReturnType<typeof createBitcoinLockProgressStore>;
-}): Promise<{ lock: IBitcoinLockRecord; record: IBitcoinUtxoRecord }> {
-  return await waitFor(args.timeoutMs, args.label, () => {
-    const refreshed = getCurrentLock(args.harness, args.lock.utxoId!);
-    args.progress.updateLock(refreshed);
-
-    const record = getMismatchReturnRecord(args.harness, refreshed, args.candidate);
-    if (!record?.releaseTxid) return;
-
-    if (record.status === BitcoinUtxoStatus.ReleaseComplete) {
-      return { lock: refreshed, record };
-    }
-
-    if (record.status !== BitcoinUtxoStatus.ReleaseIsProcessingOnBitcoin) return;
-    if (args.progress.orphanedReturnBitcoin.value.confirmations < 0) return;
-    if (args.progress.orphanedReturnBitcoin.value.expectedConfirmations <= 0) return;
-
-    return { lock: refreshed, record };
-  });
-}
-
-async function returnMismatchAndWaitForReadyToResume(
-  harness: TestHarness,
-  lock: IBitcoinLockRecord,
-  progress: ReturnType<typeof createBitcoinLockProgressStore>,
-  expectedAvailableBitcoinSpace: bigint,
-): Promise<{
-  lock: IBitcoinLockRecord;
-  candidate: IBitcoinUtxoRecord;
-  record: IBitcoinUtxoRecord;
-  txid: string;
-  releaseTxid: string;
-}> {
-  const observed = await observeMismatchCandidate(harness, lock, getMismatchFundingSatoshis(lock.satoshis), progress);
-  expect(observed.candidate.firstSeenOnArgonAt).toBeTruthy();
-  const observedView = harness.bitcoinLocks.getMismatchViewState(observed.lock);
-  const observedCandidateView = observedView.candidates.find(
-    candidate => candidate.record.id === observed.candidate.id,
-  );
-  expect(observedCandidateView?.canReturn).toBe(true);
-  expect(observedCandidateView?.canAccept).toBe(true);
-
-  const returnDestination = createBitcoinAddress();
-  const bitcoinNetworkFee = await harness.bitcoinLocks.calculateBitcoinNetworkFee(observed.lock, 5n, returnDestination);
-  const returnTx = await harness.bitcoinLocks.orphanReleases.requestCandidateReturn({
-    lock: observed.lock,
-    candidateRecord: observed.candidate,
-    toScriptPubkey: returnDestination,
-    bitcoinNetworkFee,
-  });
-  expect(returnTx).toBeTruthy();
-  await returnTx!.txResult.waitForInFirstBlock;
-
-  await waitForMismatchReturnTracked({
-    timeoutMs: 30e3,
-    label: 'live mismatch return tracked',
-    harness,
-    lock: observed.lock,
-    candidate: observed.candidate,
-    progress,
-  });
-
-  await returnTx!.txResult.waitForFinalizedBlock;
-
-  const seenOnBitcoin = await waitForMismatchReturnSeenOnBitcoin({
-    timeoutMs: 60e3,
-    label: 'live mismatch return seen on bitcoin',
-    harness,
-    lock: observed.lock,
-    candidate: observed.candidate,
-    progress,
-  });
-
-  const returnedSatoshis = await waitForBitcoinTransactionOutputSatoshis({
-    flowName: 'BitcoinLocks.integration.liveOrphanReturn',
-    txid: seenOnBitcoin.record.releaseTxid!,
-    address: returnDestination,
-    minimumSatoshis: 1n,
-    minerAddress,
-    timeoutMs: 30e3,
-    pollMs: 500,
-  });
-  expect(returnedSatoshis).toBeGreaterThan(0n);
-
-  await waitForBitcoinTransactionConfirmations({
-    flowName: 'BitcoinLocks.integration.liveOrphanReturn',
-    txid: seenOnBitcoin.record.releaseTxid!,
-    minimumConfirmations: 1,
-    minerAddress,
-    mineMode: 'missing',
-    timeoutMs: 30e3,
-    pollMs: 500,
-  });
-
-  const completed = await waitFor(
-    90e3,
-    'live mismatch return finalized',
-    async () => {
-      const refreshed = getCurrentLock(harness, observed.lock.utxoId!);
-      progress.updateLock(refreshed);
-      const record = harness.bitcoinLocks.getMismatchViewState(refreshed).candidates.find(candidate => {
-        return candidate.record.id === observed.candidate.id;
-      })?.returnRecord;
-      if (!record) return;
-      if (refreshed.status !== BitcoinLockStatus.LockFundingReadyToResume) return;
-      if (record.status !== BitcoinUtxoStatus.ReleaseComplete) return;
-      if (!record.releaseTxid) return;
-      if (record.releaseCosignHeight == null) return;
-      if (!record.releaseCosignVaultSignature) return;
-      if (harness.myVault.createdVault?.availableBitcoinSpace() !== expectedAvailableBitcoinSpace) return;
-
-      const chainClient = await clients.get(false);
-      const chainLock = await BitcoinLock.get(chainClient, refreshed.utxoId!);
-      if (!chainLock) return;
-      const chainFundingRef = await chainLock.getFundingUtxoRef(chainClient);
-      if (chainFundingRef) return;
-
-      const candidateRefs = await chainClient.query.bitcoinUtxos.candidateUtxoRefsByUtxoId(refreshed.utxoId!);
-      if (candidateRefs && Object.keys(candidateRefs).length > 0) return;
-
-      const pendingCosign = await chainClient.query.vaults.pendingCosignByVaultId(refreshed.vaultId);
-      if (pendingCosign.length > 0) return;
-
-      const vault = await chainClient.query.vaults.vaultsById(refreshed.vaultId);
-      if (!vault) return;
-      if (vault.securitizationLocked <= 0n) return;
-
-      return { lock: refreshed, record };
-    },
-    { pollMs: 1e3 },
-  );
-
-  const dbLock = await harness.db.bitcoinLocksTable.getByUtxoId(completed.lock.utxoId!);
-  const dbUtxos = await getDbUtxosForLock(harness.db, completed.lock.utxoId!);
-  const dbReturnRecord = dbUtxos.find(record => record.id === completed.record.id);
-  expect(dbLock?.fundingUtxoRecordId).toBeNull();
-  expect(dbReturnRecord?.status).toBe(BitcoinUtxoStatus.ReleaseComplete);
-  expect(dbReturnRecord?.releaseTxid).toBe(completed.record.releaseTxid);
-  expect(dbReturnRecord?.releaseCosignHeight).toBe(completed.record.releaseCosignHeight);
-  expect(dbReturnRecord?.releaseCosignVaultSignature).toBeTruthy();
-
-  return {
-    lock: completed.lock,
-    candidate: observed.candidate,
-    record: completed.record,
-    txid: observed.txid,
-    releaseTxid: completed.record.releaseTxid!,
-  };
-}
-
-async function acceptMismatchFunding(
-  harness: ClientHarness,
-  lock: IBitcoinLockRecord,
-  progress: ReturnType<typeof createBitcoinLockProgressStore>,
-): Promise<{ lock: IBitcoinLockRecord; acceptedRecord: IBitcoinUtxoRecord; candidate: IBitcoinUtxoRecord }> {
-  const observed = await observeMismatchCandidate(harness, lock, getMismatchFundingSatoshis(lock.satoshis), progress);
-  const acceptTx = await harness.bitcoinLocks.acceptMismatchedFunding(observed.lock, observed.candidate);
-  expect(acceptTx).toBeTruthy();
-  await acceptTx!.txResult.waitForInFirstBlock;
-
-  await waitFor(30e3, 'mismatch accept argon progress', () => {
-    const status = acceptTx!.getStatus();
-    if (status.confirmations < 0) return;
-    if (status.expectedConfirmations <= 0) return;
-    return true;
-  });
-
-  await acceptTx!.txResult.waitForFinalizedBlock;
-
-  return await waitFor(45e3, 'accepted mismatch funding record', async () => {
-    const currentLock = getCurrentLock(harness, observed.lock.utxoId!);
-    progress.updateLock(currentLock);
-    const acceptedRecord = harness.bitcoinLocks.getAcceptedFundingRecord(currentLock);
-    if (!acceptedRecord) return;
-    if (acceptedRecord.status !== BitcoinUtxoStatus.FundingUtxo) return;
-    if (!harness.bitcoinLocks.isLockedStatus(currentLock)) return;
-
-    const chainClient = await clients.get(false);
-    const chainLock = await BitcoinLock.get(chainClient, currentLock.utxoId!);
-    if (!chainLock) return;
-    const chainFundingRef = await chainLock.getFundingUtxoRef(chainClient);
-    if (chainFundingRef?.txid !== observed.candidate.txid) return;
-    if (chainFundingRef?.vout !== observed.candidate.vout) return;
-    const chainVault = await chainClient.query.vaults.vaultsById(currentLock.vaultId);
-    if (!chainVault) return;
-    if (chainVault.securitizationLocked <= 0n) return;
-
-    return {
-      lock: currentLock,
-      acceptedRecord,
-      candidate: observed.candidate,
-    };
-  });
-}
-
-async function returnExpiredMismatchAndWaitForChainRestore(
-  harness: TestHarness,
-  lock: IBitcoinLockRecord,
-  progress: ReturnType<typeof createBitcoinLockProgressStore>,
-  expectedAvailableBitcoinSpace: bigint,
-): Promise<{
-  lock: IBitcoinLockRecord;
-  candidate: IBitcoinUtxoRecord;
-  record: IBitcoinUtxoRecord;
-  txid: string;
-  releaseTxid: string;
-}> {
-  const observed = await observeMismatchCandidate(harness, lock, getMismatchFundingSatoshis(lock.satoshis), progress);
-  const expirationConfig = await BitcoinLock.getConfig(await clients.get(false));
-  const orphaningBitcoinHeight =
-    observed.lock.lockDetails.createdAtHeight + expirationConfig.pendingConfirmationExpirationBlocks + 1;
-  await waitFor(
-    60e3,
-    'bitcoin lock expiration height',
-    async () => {
-      const chainClient = await clients.get(false);
-      const currentBitcoinHeight = await chainClient.query.bitcoinUtxos
-        .confirmedBitcoinBlockTip()
-        .then(x => x?.blockHeight ?? 0);
-      if (currentBitcoinHeight >= orphaningBitcoinHeight) return true;
-      mineBitcoinBlocks(orphaningBitcoinHeight - currentBitcoinHeight, minerAddress);
-      return;
-    },
-    { pollMs: 1e3 },
-  );
-
-  const expired = await waitFor(
-    90e3,
-    'mismatch funding expiry',
-    async () => {
-      const currentLock = getCurrentLock(harness, observed.lock.utxoId!);
-      await harness.bitcoinLocks.utxoTracking.syncPendingFundingSignals(currentLock);
-      progress.updateLock(currentLock);
-      const mismatchView = harness.bitcoinLocks.getMismatchViewState(currentLock);
-
-      const currentCandidate =
-        mismatchView.nextCandidate?.record.id === observed.candidate.id
-          ? mismatchView.nextCandidate?.record
-          : mismatchView.candidates.find(candidate => {
-              return (
-                candidate.record.txid === observed.candidate.txid && candidate.record.vout === observed.candidate.vout
-              );
-            })?.record;
-      const currentCandidateView = mismatchView.candidates.find(candidate => {
-        return candidate.record.id === currentCandidate?.id;
-      });
-
-      if (!harness.bitcoinLocks.isFundingWindowExpired(currentLock)) return;
-      if (!currentCandidate) return;
-      if (!currentCandidateView?.canReturn) return;
-      if (
-        ![
-          BitcoinLockStatus.LockExpiredWaitingForFunding,
-          BitcoinLockStatus.LockExpiredWaitingForFundingAcknowledged,
-        ].includes(currentLock.status)
-      ) {
-        return;
-      }
-
-      const chainClient = await clients.get(false);
-      const chainLock = await BitcoinLock.get(chainClient, currentLock.utxoId!);
-      if (chainLock) return;
-
-      const candidateRefs = await chainClient.query.bitcoinUtxos.candidateUtxoRefsByUtxoId(currentLock.utxoId!);
-      if (candidateRefs && Object.keys(candidateRefs).length > 0) return;
-
-      const pendingCosign = await chainClient.query.vaults.pendingCosignByVaultId(currentLock.vaultId);
-      if (pendingCosign.length > 0) return;
-
-      const vault = await chainClient.query.vaults.vaultsById(currentLock.vaultId);
-      if (!vault) return;
-      if (vault.securitizationLocked !== 0n) return;
-      if (harness.myVault.createdVault?.availableBitcoinSpace() !== expectedAvailableBitcoinSpace) return;
-
-      return {
-        lock: currentLock,
-        candidate: currentCandidate,
-      };
-    },
-    { pollMs: 1e3 },
-  );
-
-  const returnDestination = createBitcoinAddress();
-  const bitcoinNetworkFee = await harness.bitcoinLocks.calculateBitcoinNetworkFee(expired.lock, 5n, returnDestination);
-  const returnTx = await harness.bitcoinLocks.orphanReleases.requestCandidateReturn({
-    lock: expired.lock,
-    candidateRecord: expired.candidate,
-    toScriptPubkey: returnDestination,
-    bitcoinNetworkFee,
-  });
-  expect(returnTx).toBeTruthy();
-  await returnTx!.txResult.waitForInFirstBlock;
-
-  await waitForMismatchReturnTracked({
-    timeoutMs: 30e3,
-    label: 'mismatch return tracked',
-    harness,
-    lock: expired.lock,
-    candidate: expired.candidate,
-    progress,
-  });
-
-  await returnTx!.txResult.waitForFinalizedBlock;
-
-  const seenOnBitcoin = await waitForMismatchReturnSeenOnBitcoin({
-    timeoutMs: 60e3,
-    label: 'mismatch return seen on bitcoin',
-    harness,
-    lock: expired.lock,
-    candidate: expired.candidate,
-    progress,
-  });
-
-  const returnedSatoshis = await waitForBitcoinTransactionOutputSatoshis({
-    flowName: 'BitcoinLocks.integration.orphanReturn',
-    txid: seenOnBitcoin.record.releaseTxid!,
-    address: returnDestination,
-    minimumSatoshis: 1n,
-    minerAddress,
-    timeoutMs: 30e3,
-    pollMs: 500,
-  });
-  expect(returnedSatoshis).toBeGreaterThan(0n);
-
-  await waitForBitcoinTransactionConfirmations({
-    flowName: 'BitcoinLocks.integration.orphanReturn',
-    txid: seenOnBitcoin.record.releaseTxid!,
-    minimumConfirmations: 8,
-    minerAddress,
-    mineMode: 'missing',
-    timeoutMs: 30e3,
-    pollMs: 500,
-  });
-
-  const completed = await waitFor(
-    90e3,
-    'mismatch return finalized',
-    async () => {
-      const refreshed = getCurrentLock(harness, expired.lock.utxoId!);
-      progress.updateLock(refreshed);
-      const record = getMismatchReturnRecord(harness, refreshed, expired.candidate);
-      if (!record) return;
-      if (record.status !== BitcoinUtxoStatus.ReleaseComplete) return;
-      if (!record.releaseTxid) return;
-      if (record.releaseCosignHeight == null) return;
-      if (!record.releaseCosignVaultSignature) return;
-
-      const chainClient = await clients.get(false);
-      const chainLock = await BitcoinLock.get(chainClient, refreshed.utxoId!);
-      if (chainLock) return;
-
-      const mismatchView = harness.bitcoinLocks.getMismatchViewState(refreshed);
-      if (mismatchView.candidates.some(candidate => candidate.record.id === expired.candidate.id)) return;
-      if (
-        refreshed.status !== BitcoinLockStatus.LockExpiredWaitingForFunding &&
-        refreshed.status !== BitcoinLockStatus.LockExpiredWaitingForFundingAcknowledged
-      ) {
-        return;
-      }
-
-      const candidateRefs = await chainClient.query.bitcoinUtxos.candidateUtxoRefsByUtxoId(refreshed.utxoId!);
-      if (candidateRefs && Object.keys(candidateRefs).length > 0) return;
-      const pendingCosign = await chainClient.query.vaults.pendingCosignByVaultId(refreshed.vaultId);
-      if (pendingCosign.length > 0) return;
-      const vault = await chainClient.query.vaults.vaultsById(refreshed.vaultId);
-      if (!vault) return;
-      if (vault.securitizationLocked !== 0n) return;
-      if (harness.myVault.createdVault?.availableBitcoinSpace() !== expectedAvailableBitcoinSpace) return;
-      return { lock: refreshed, record };
-    },
-    { pollMs: 1e3 },
-  );
-
-  const dbLock = await harness.db.bitcoinLocksTable.getByUtxoId(completed.lock.utxoId!);
-  const dbUtxos = await getDbUtxosForLock(harness.db, completed.lock.utxoId!);
-  const dbReturnRecord = dbUtxos.find(record => record.id === completed.record.id);
-  expect(dbLock?.fundingUtxoRecordId).toBeNull();
-  expect(dbReturnRecord?.status).toBe(BitcoinUtxoStatus.ReleaseComplete);
-  expect(dbReturnRecord?.releaseTxid).toBe(completed.record.releaseTxid);
-  expect(dbReturnRecord?.releaseCosignHeight).toBe(completed.record.releaseCosignHeight);
-  expect(dbReturnRecord?.releaseCosignVaultSignature).toBeTruthy();
-
-  return {
-    lock: completed.lock,
-    candidate: observed.candidate,
-    record: completed.record,
-    txid: observed.txid,
-    releaseTxid: completed.record.releaseTxid!,
-  };
-}
-
-async function releaseLockAndWaitForChainRestore(
-  harness: TestHarness,
-  lock: IBitcoinLockRecord,
-  progress: ReturnType<typeof createBitcoinLockProgressStore>,
-  expectedAvailableBitcoinSpace: bigint,
-): Promise<{ lock: IBitcoinLockRecord; fundingRecord: IBitcoinUtxoRecord }> {
-  const currentLock = getCurrentLock(harness, lock.utxoId!);
-  const releaseAddress = createBitcoinAddress();
-  const bitcoinNetworkFee = await harness.bitcoinLocks.calculateBitcoinNetworkFee(currentLock, 5n, releaseAddress);
-  const releaseTx = await harness.bitcoinLocks.requestBitcoinRelease({
-    utxoId: currentLock.utxoId!,
-    bitcoinNetworkFee,
-    toScriptPubkey: releaseAddress,
-  });
-  expect(releaseTx).toBeTruthy();
-  await releaseTx!.txResult.waitForInFirstBlock;
-
-  await waitFor(30e3, 'release request tracked on argon', () => {
-    const refreshed = getCurrentLock(harness, currentLock.utxoId!);
-    progress.updateLock(refreshed);
-    const label = progress.getUnlockProgressLabel(refreshed.status);
-    if (!label.includes('Argon')) return;
-    if (progress.getUnlockProgressPct(refreshed.status) <= 0) return;
-    return true;
-  });
-
-  const seenOnBitcoin = await waitFor(120e3, 'release seen on bitcoin', () => {
-    const refreshed = getCurrentLock(harness, currentLock.utxoId!);
-    progress.updateLock(refreshed);
-    const fundingRecord = harness.bitcoinLocks.getAcceptedFundingRecord(refreshed);
-    if (!fundingRecord?.releaseTxid) return;
-    if (fundingRecord.status !== BitcoinUtxoStatus.ReleaseIsProcessingOnBitcoin) return;
-    const label = progress.getUnlockProgressLabel(refreshed.status);
-    if (!label.includes('Bitcoin')) return;
-    return { lock: refreshed, fundingRecord };
-  });
-
-  const releasedSatoshis = await waitForBitcoinTransactionOutputSatoshis({
-    flowName: 'BitcoinLocks.integration.release',
-    txid: seenOnBitcoin.fundingRecord.releaseTxid!,
-    address: releaseAddress,
-    minimumSatoshis: 1n,
-    minerAddress,
-    timeoutMs: 30e3,
-    pollMs: 500,
-  });
-  expect(releasedSatoshis).toBeGreaterThan(0n);
-
-  await waitForBitcoinTransactionConfirmations({
-    flowName: 'BitcoinLocks.integration.release',
-    txid: seenOnBitcoin.fundingRecord.releaseTxid!,
-    minimumConfirmations: 8,
-    minerAddress,
-    mineMode: 'missing',
-    timeoutMs: 30e3,
-    pollMs: 500,
-  });
-
-  await waitFor(60e3, 'release finalized', () => {
-    const refreshed = getCurrentLock(harness, currentLock.utxoId!);
-    progress.updateLock(refreshed);
-    const fundingRecord = harness.bitcoinLocks.getAcceptedFundingRecord(refreshed);
-    if (!fundingRecord) return;
-    if (refreshed.status !== BitcoinLockStatus.Released) return;
-    return { lock: refreshed, fundingRecord };
-  });
-
-  await waitFor(90e3, 'chain release cleanup', async () => {
-    const chainClient = await clients.get(false);
-    const chainLock = await BitcoinLock.get(chainClient, currentLock.utxoId!);
-    if (chainLock) return;
-    const pendingCosign = await chainClient.query.vaults.pendingCosignByVaultId(currentLock.vaultId);
-    const vault = await chainClient.query.vaults.vaultsById(currentLock.vaultId);
-    if (!vault) return;
-    if (vault.securitizationLocked !== 0n) return;
-    if (pendingCosign.length > 0) return;
-    if (harness.myVault.createdVault?.availableBitcoinSpace() !== expectedAvailableBitcoinSpace) return;
-    return true;
-  });
-
-  return seenOnBitcoin;
 }
 
 async function collectVaultSignatureFromAlert(
@@ -1219,24 +779,10 @@ async function collectVaultSignatureFromAlert(
   await collectTx.txResult.waitForFinalizedBlock;
 }
 
-function getCurrentLock(harness: ClientHarness, utxoId: number): IBitcoinLockRecord {
-  const lock = harness.bitcoinLocks.getLockByUtxoId(utxoId);
+function getCurrentLock(harness: ClientHarness, lockId: number): IBitcoinLockRecord {
+  const lock = harness.bitcoinLocks.getLockById(lockId);
   if (!lock) {
-    throw new Error(`Missing current lock ${utxoId}`);
+    throw new Error(`Missing current lock ${lockId}`);
   }
   return lock;
-}
-
-async function getDbUtxosForLock(db: Db, lockUtxoId: number): Promise<IBitcoinUtxoRecord[]> {
-  return (await db.bitcoinUtxosTable.fetchAll())
-    .filter(record => record.lockUtxoId === lockUtxoId)
-    .sort((a, b) => a.updatedAt.getTime() - b.updatedAt.getTime());
-}
-
-function getMismatchFundingSatoshis(lockSatoshis: bigint): bigint {
-  const mismatchDeltaSatoshis = lockSatoshis > 1_201n ? 1_200n : lockSatoshis - 1n;
-  if (mismatchDeltaSatoshis < 1_001n) {
-    throw new Error(`Lock amount ${lockSatoshis} sats is too small to create a real mismatch candidate`);
-  }
-  return lockSatoshis - mismatchDeltaSatoshis;
 }

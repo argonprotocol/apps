@@ -101,6 +101,8 @@ export class InstallerCheck {
   }
 
   public async updateInstallStatus(bypassSimulatedProgressIfFinished = false): Promise<void> {
+    if (this.hasError) return;
+
     const serverInstallStepStatuses = await this.fetchInstallStepStatuses();
     console.log('serverInstallStepStatuses', serverInstallStepStatuses);
     const serverInstallerPending = Config.getDefault('serverInstaller') as IConfigServerInstallDetails;
@@ -177,6 +179,10 @@ export class InstallerCheck {
 
       prevStep = stepNewData;
     }
+
+    // A local installer failure can be published while this status check is awaiting remote progress.
+    // That terminal state owns the workflow until the user explicitly retries it.
+    if (this.hasError) return;
 
     this.config.serverInstaller = serverInstallerPending;
     if (this.isServerInstallComplete) {

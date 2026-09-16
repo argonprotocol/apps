@@ -7,8 +7,12 @@ import { IDashboardFrameStats } from '../../interfaces/IMiningSeatStats.ts';
 
 dayjs.extend(utc);
 
+export interface IFramesTableState {
+  processedFrames: { [frameId: number]: boolean };
+}
+
 export class FramesTable extends BaseTable {
-  private processedFrames: { [frameId: number]: boolean } = {};
+  public readonly state = this.getState<IFramesTableState>(() => ({ processedFrames: {} }));
   private fieldTypes: IFieldTypes = {
     boolean: ['isProcessed'],
     bigintJson: ['microgonToUsd', 'microgonToBtc', 'microgonToArgonot'],
@@ -28,7 +32,7 @@ export class FramesTable extends BaseTable {
       `SELECT id from Frames WHERE isProcessed = 1 ORDER BY id ASC`,
     );
     for (const frame of processedFrames) {
-      this.processedFrames[frame.id] = true;
+      this.state.processedFrames[frame.id] = true;
     }
   }
 
@@ -119,7 +123,7 @@ export class FramesTable extends BaseTable {
       isProcessed,
     } = args;
     if (isProcessed) {
-      this.processedFrames[id] = true;
+      this.state.processedFrames[id] = true;
     }
     await this.db.execute(
       `UPDATE Frames SET 
@@ -164,11 +168,11 @@ export class FramesTable extends BaseTable {
   }
 
   public async fetchExistingCompleteSince(frameId: number, limit = 10): Promise<number[]> {
-    if (this.processedFrames[frameId]) {
+    if (this.state.processedFrames[frameId]) {
       const completedFrames = [];
 
       for (let id = frameId; id < frameId + limit + 1; id++) {
-        if (!this.processedFrames[id]) {
+        if (!this.state.processedFrames[id]) {
           break;
         }
         completedFrames.push(id);

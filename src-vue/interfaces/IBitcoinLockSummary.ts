@@ -5,17 +5,14 @@ export interface IBitcoinLockProcessingDetails {
   confirmations: number;
   expectedConfirmations: number;
   receivedSatoshis?: bigint;
-  isInvalidAmount?: boolean;
 }
 
 export interface IBitcoinLockSummary {
   uuid: string;
-  utxoId: number | undefined;
+  lockId: number | undefined;
   status: BitcoinLockStatus;
   statusDetails: {
     hasObservedFundingSignal: boolean;
-    showMismatchAccept: boolean;
-    showFundingMismatch: boolean;
     showReadyForBitcoin: boolean;
     isFundingSeenInMempoolOnly: boolean;
   };

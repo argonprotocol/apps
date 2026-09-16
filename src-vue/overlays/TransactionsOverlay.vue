@@ -58,7 +58,7 @@ import * as Vue from 'vue';
 import dayjs from 'dayjs';
 import utc from 'dayjs/plugin/utc';
 import relativeTime from 'dayjs/plugin/relativeTime';
-import { bigIntAbs, MoveToken } from '@argonprotocol/apps-core';
+import { bigIntAbs, MoveFrom, MoveTo, MoveToken } from '@argonprotocol/apps-core';
 import { open as openUrl } from '@tauri-apps/plugin-shell';
 import OverlayBase from './OverlayBase.vue';
 import { getCurrency } from '../stores/currency.ts';
@@ -67,10 +67,14 @@ import { getWalletKeys, useWallets } from '../stores/wallets.ts';
 import { useBasics } from '../stores/basics.ts';
 import { createNumeralHelpers } from '../lib/numeral.ts';
 import { buildWalletActivity, type IWalletActivityRecord } from '../lib/WalletActivity.ts';
-import type { IBitcoinOrphanedUtxoFundingMetadata, IBitcoinRequestLockMetadata } from '../lib/BitcoinLocks.ts';
+import type { IBitcoinRequestLockMetadata } from '../lib/BitcoinLocks.ts';
 import type { IBuyArgonotBondMetadata, IBuyVaultBondMetadata } from '../lib/ArgonBonds.ts';
 import type { ICrosschainTransferOutMetadata } from '../lib/EthereumOutboundTransferTracker.ts';
-import type { ITransactionMoveMetadata } from '../lib/MoveCapital.ts';
+import type { IMintingAuthorityRegisterMetadata } from '../lib/MintingAuthorities.ts';
+import type { ITransactionMoveMetadata } from '../lib/txs/Balance.transfer.ts';
+import type { IBitcoinLiquidCloseMetadata } from '../lib/txs/BitcoinLiquid.close.ts';
+import type { IBitcoinLiquidCreateMetadata } from '../lib/txs/BitcoinLiquid.create.ts';
+import type { IBitcoinResecuritizationMetadata } from '../lib/txs/BitcoinLock.resecuritize.ts';
 import type {
   IVaultCommittedArgonotsMetadata,
   IVaultFlexibleAssetMetadata,
@@ -118,6 +122,11 @@ async function openOverlay(): Promise<void> {
 }
 
 function activityLabel(activity: IWalletActivityRecord): string {
+  if (activity.transaction && isMiningCapitalChange(activity.transaction)) return 'Changed Mining Capital';
+  if (activity.transaction && isExternalArgonTransfer(activity.transaction)) {
+    const address = (activity.transaction.metadataJson as ITransactionMoveMetadata).externalAddress!;
+    return `Sent to ${formatAddress(address)}`;
+  }
   if (activity.transaction && activity.transaction.extrinsicType !== ExtrinsicType.Transfer) {
     return transactionLabel(activity.transaction);
   }
@@ -134,6 +143,26 @@ function activityLabel(activity: IWalletActivityRecord): string {
     default:
       return 'Wallet Activity';
   }
+}
+
+function isMiningCapitalChange(transaction: ITransactionRecord): boolean {
+  if (transaction.extrinsicType !== ExtrinsicType.Transfer) return false;
+  const allocation = (transaction.metadataJson as ITransactionMoveMetadata | undefined)?.allocationChange;
+  return !!allocation?.legs.every(
+    leg =>
+      (leg.moveFrom === MoveFrom.DefaultArgon && leg.moveTo === MoveTo.MiningBot) ||
+      (leg.moveFrom === MoveFrom.MiningBot && leg.moveTo === MoveTo.DefaultArgon),
+  );
+}
+
+function isExternalArgonTransfer(transaction: ITransactionRecord): boolean {
+  if (transaction.extrinsicType !== ExtrinsicType.Transfer) return false;
+  const metadata = transaction.metadataJson as ITransactionMoveMetadata | undefined;
+  return (
+    metadata?.moveFrom === MoveFrom.DefaultArgon &&
+    metadata.moveTo === MoveTo.External &&
+    Boolean(metadata.externalAddress)
+  );
 }
 
 function transferLabel(activity: IWalletActivityRecord, fallback: string): string {
@@ -177,6 +206,8 @@ function transactionLabel(transaction: ITransactionRecord): string {
       return 'Set Up Mining Bid Proxy';
     case ExtrinsicType.OperationalRegister:
       return 'Registered Operational Account';
+    case ExtrinsicType.OperationalSetProfileName:
+      return 'Updated Operational Profile';
     case ExtrinsicType.OperationalActivateAndClaim:
       return 'Activated Operational Account';
     case ExtrinsicType.OperationalClaimRewards:
@@ -187,8 +218,16 @@ function transactionLabel(transaction: ITransactionRecord): string {
       return 'Registered Server Recovery';
     case ExtrinsicType.BitcoinRequestLock:
       return 'Created Bitcoin Lock';
-    case ExtrinsicType.BitcoinRatchet:
-      return 'Ratcheted Bitcoin Lock';
+    case ExtrinsicType.BitcoinLiquidCreate:
+      return 'Created Bitcoin Liquid';
+    case ExtrinsicType.BitcoinLiquidClose:
+      return 'Closed Bitcoin Liquid';
+    case ExtrinsicType.BitcoinResecuritize:
+      return 'Updated Bitcoin Securitization';
+    case ExtrinsicType.BitcoinRatchet: {
+      const metadata = transaction.metadataJson as { liquidId?: number };
+      return metadata.liquidId === undefined ? 'Ratcheted Bitcoin Lock' : 'Ratcheted Bitcoin Liquid';
+    }
     case ExtrinsicType.BitcoinRequestRelease:
       return 'Requested Bitcoin Release';
     case ExtrinsicType.VaultCosignBitcoinRelease:
@@ -230,7 +269,6 @@ function transactionLabel(transaction: ITransactionRecord): string {
 }
 
 function formatAddress(address: string): string {
-  if (address === walletKeys.legacyMiningHoldAddress) return 'MiningHold';
   if (address === walletKeys.miningBotAddress) return 'MiningBot';
   if (address === walletKeys.vaultingAddress) return 'Vaulting';
 
@@ -257,12 +295,47 @@ function amountLabel(activity: IWalletActivityRecord): string {
 
   switch (transaction.extrinsicType) {
     case ExtrinsicType.BitcoinRequestLock: {
-      const metadata = transaction.metadataJson as IBitcoinRequestLockMetadata;
-      return formatBitcoinAmount(metadata.bitcoin.satoshis);
+      const metadata = transaction.metadataJson as Partial<IBitcoinRequestLockMetadata>;
+      const satoshis = metadata.bitcoin?.satoshis;
+      return satoshis === undefined ? '--' : formatBitcoinAmount(satoshis);
     }
+    case ExtrinsicType.BitcoinLiquidCreate: {
+      const metadata = transaction.metadataJson as Partial<IBitcoinLiquidCreateMetadata>;
+      if (!metadata.fissions) return '--';
+      return formatBitcoinAmount(metadata.fissions.reduce((total, fission) => total + fission.satoshis, 0n));
+    }
+    case ExtrinsicType.BitcoinLiquidClose: {
+      const metadata = transaction.metadataJson as Partial<IBitcoinLiquidCloseMetadata>;
+      return metadata.redemptionAmount === undefined ? '--' : formatTokenAmount(metadata.redemptionAmount, 'argon');
+    }
+    case ExtrinsicType.BitcoinResecuritize: {
+      const metadata = transaction.metadataJson as Partial<IBitcoinResecuritizationMetadata>;
+      const satoshis = metadata.bitcoin?.securitizedSatoshis;
+      return satoshis === undefined ? '--' : formatBitcoinAmount(satoshis);
+    }
+    case ExtrinsicType.BitcoinRatchet: {
+      const metadata = transaction.metadataJson as { addedSecuritizationMicrogons?: bigint };
+      return metadata.addedSecuritizationMicrogons === undefined
+        ? '--'
+        : formatTokenAmount(metadata.addedSecuritizationMicrogons, 'argon');
+    }
+    case ExtrinsicType.BitcoinRequestRelease:
+      return '--';
     case ExtrinsicType.BitcoinOrphanedUtxoUseAsFunding: {
-      const metadata = transaction.metadataJson as IBitcoinOrphanedUtxoFundingMetadata;
-      return formatBitcoinAmount(metadata.receivedSatoshis);
+      const metadata = transaction.metadataJson as { receivedSatoshis?: bigint };
+      return metadata.receivedSatoshis === undefined ? '--' : formatBitcoinAmount(metadata.receivedSatoshis);
+    }
+    case ExtrinsicType.OperationalActivateAndClaim: {
+      const metadata = transaction.metadataJson as { claimedMicrogons?: bigint };
+      return metadata.claimedMicrogons === undefined ? '--' : formatTokenAmount(metadata.claimedMicrogons, 'argon');
+    }
+    case ExtrinsicType.OperationalClaimRewards: {
+      const metadata = transaction.metadataJson as { amount?: bigint };
+      return metadata.amount === undefined ? '--' : formatTokenAmount(metadata.amount, 'argon');
+    }
+    case ExtrinsicType.CrosschainTransferRegisterMintingAuthority: {
+      const metadata = transaction.metadataJson as Partial<IMintingAuthorityRegisterMetadata>;
+      return formatAssetAmounts(metadata.microgonCollateral, metadata.micronotCollateral);
     }
     case ExtrinsicType.TreasuryBuyBonds: {
       const metadata = transaction.metadataJson as IBuyVaultBondMetadata;
@@ -273,6 +346,12 @@ function amountLabel(activity: IWalletActivityRecord): string {
       const metadata = transaction.metadataJson as IBuyArgonotBondMetadata;
       if (metadata.bondPurchaseMicronots === undefined) return '--';
       return formatTokenAmount(metadata.bondPurchaseMicronots, 'argonot');
+    }
+    case ExtrinsicType.TreasuryReleaseBondLot: {
+      const metadata = transaction.metadataJson as { releasedBondMicrogons?: bigint };
+      return metadata.releasedBondMicrogons === undefined
+        ? '--'
+        : formatTokenAmount(metadata.releasedBondMicrogons, 'argon');
     }
     case ExtrinsicType.VaultInitialAllocate: {
       const metadata = transaction.metadataJson as IVaultInitialAllocateMetadata;
@@ -296,6 +375,16 @@ function amountLabel(activity: IWalletActivityRecord): string {
     }
     case ExtrinsicType.Transfer: {
       const metadata = transaction.metadataJson as ITransactionMoveMetadata;
+      if (metadata.allocationChange) {
+        const amounts = metadata.allocationChange.legs.reduce(
+          (total, leg) => ({
+            microgons: total.microgons + (leg.assetsToMove.ARGN ?? 0n),
+            micronots: total.micronots + (leg.assetsToMove.ARGNOT ?? 0n),
+          }),
+          { microgons: 0n, micronots: 0n },
+        );
+        return formatAssetAmounts(amounts.microgons, amounts.micronots);
+      }
       return formatAssetAmounts(metadata.assetsToMove.ARGN, metadata.assetsToMove.ARGNOT);
     }
     case ExtrinsicType.CrosschainTransferTransferOut: {

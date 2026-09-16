@@ -10,7 +10,6 @@ import {
   TxSubmissionErrorCode,
 } from '@argonprotocol/mainchain';
 import { toRuntimeEvent, type HistoricalEvent } from '@argonprotocol/runtime-client';
-import * as Vue from 'vue';
 import { Db } from './Db.ts';
 import { getMainchainClient } from '../stores/mainchain.ts';
 import {
@@ -158,8 +157,6 @@ export class TransactionTracker {
         if (tx.isFinalized || txResult.submissionError) {
           await txResult.setFinalized();
         }
-        // Mark txResult as non-reactive to avoid issues with private fields
-        Vue.markRaw(txResult);
         this.data.txInfos.push(txInfo);
         this.data.txInfosByType[tx.extrinsicType] = txInfo;
       }
@@ -237,7 +234,9 @@ export class TransactionTracker {
   ): Promise<TransactionInfo<T>> {
     await this.load();
     const txInfo = await this.submitAttempt(args);
-    await this.watchForUpdates();
+    void this.watchForUpdates().catch(error => {
+      console.error('[TransactionTracker] Error starting transaction status watch:', error);
+    });
 
     return txInfo;
   }
@@ -327,9 +326,10 @@ export class TransactionTracker {
     return txInfo;
   }
 
-  public shutdown(): void {
+  public async shutdown(): Promise<void> {
     this.#isClosed = true;
     this.stopWatching();
+    await Promise.all(this.#statusLaneByTxId.values());
   }
 
   public createIntentForFollowOnTx<T>(txInfo: TransactionInfo): IDeferred<TransactionInfo<T>> {
@@ -542,8 +542,6 @@ export class TransactionTracker {
       txNonce,
     });
 
-    // Mark txResult as non-reactive to avoid issues with private fields
-    Vue.markRaw(txResult);
     const txInfo = new TransactionInfo<T>({ tx: record, txResult });
     this.data.txInfos.unshift(txInfo);
     this.data.txInfosByType[extrinsicType] = txInfo;
@@ -556,8 +554,6 @@ export class TransactionTracker {
 
   private async watchForUpdates() {
     this.#bestBlockNumber = this.blockWatch.bestBlockHeader.blockNumber;
-    await this.updatePendingStatuses(this.blockWatch.bestBlockHeader);
-
     this.#watchUnsubscribe ??= this.blockWatch.events.on('best-blocks', async best => {
       try {
         const bestBlockNumber = best.at(-1)!.blockNumber;
@@ -569,6 +565,7 @@ export class TransactionTracker {
         console.error('[TransactionTracker] Error watching for transaction updates:', error);
       }
     });
+    await this.updatePendingStatuses(this.blockWatch.bestBlockHeader);
   }
 
   private stopWatching() {
@@ -986,10 +983,19 @@ export class TransactionTracker {
 
       if (findTransactionResult) {
         const table = await this.getTable();
-        const { blockHash, blockTime, fee, tip, error, extrinsicEvents, extrinsicIndex } = findTransactionResult;
+        const {
+          blockNumber: includedBlockNumber,
+          blockHash,
+          blockTime,
+          fee,
+          tip,
+          error,
+          extrinsicEvents,
+          extrinsicIndex,
+        } = findTransactionResult;
 
         await table.recordInBlock(record, {
-          blockNumber,
+          blockNumber: includedBlockNumber,
           blockHash,
           blockTime: new Date(blockTime),
           feePlusTip: fee,
@@ -1000,15 +1006,18 @@ export class TransactionTracker {
         });
 
         if (isFinalized) {
-          const finalizedBlockNumber = Math.max(this.blockWatch.finalizedBlockHeader.blockNumber, blockNumber);
-          const finalizedBlockTime =
-            finalizedBlockNumber === blockNumber
+          const finalizedHeadBlockNumber = Math.max(
+            this.blockWatch.finalizedBlockHeader.blockNumber,
+            includedBlockNumber,
+          );
+          const finalizedHeadBlockTime =
+            finalizedHeadBlockNumber === includedBlockNumber
               ? new Date(blockTime)
               : new Date(this.blockWatch.finalizedBlockHeader.blockTime);
 
           await table.markFinalized(record, {
-            blockNumber: finalizedBlockNumber,
-            blockTime: finalizedBlockTime,
+            blockNumber: finalizedHeadBlockNumber,
+            blockTime: finalizedHeadBlockTime,
           });
         }
       }

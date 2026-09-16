@@ -1,6 +1,7 @@
 import { UnitOfMeasurement } from '@argonprotocol/apps-core';
 import type { Address } from 'viem';
 import type { Currency } from './Currency.ts';
+import type { IWalletRecord } from './db/WalletsTable.ts';
 
 type IOtherChain = 'ethereum' | 'base';
 
@@ -16,7 +17,18 @@ export type IOtherToken = IOtherTokenDefinition & {
   value: bigint;
 };
 
+export enum WalletType {
+  argon = 'argon',
+  bitcoin = 'bitcoin',
+  miningBot = 'miningBot',
+  operational = 'operational',
+  ethereum = 'ethereum',
+}
+
+export type IWalletType = keyof typeof WalletType;
+
 export type IWallet = {
+  type: IWalletType | 'base';
   address: string;
   availableMicrogons: bigint;
   availableMicronots: bigint;
@@ -30,16 +42,9 @@ export type IWallet = {
   balanceIsCached?: boolean;
 };
 
-export enum WalletType {
-  defaultArgon = 'defaultArgon',
-  miningBot = 'miningBot',
-  operational = 'operational',
-  ethereum = 'ethereum',
-}
+export type IWalletData<TType extends IWallet['type'] = IWallet['type']> = Omit<IWallet, 'type'> & { type: TType };
 
-export type IWalletType = keyof typeof WalletType;
-
-export const defaultWalletData: IWallet = {
+export const defaultWalletData: Omit<IWallet, 'type'> = {
   address: '',
   availableMicrogons: 0n,
   availableMicronots: 0n,
@@ -51,12 +56,49 @@ export const defaultWalletData: IWallet = {
   fetchErrorMsg: '',
 };
 
+export abstract class WalletForChain<TType extends IWallet['type']> {
+  public record?: IWalletRecord;
+  public data: IWalletData<TType>;
+
+  protected constructor({ address, type, record }: { address: string; type: TType; record?: IWalletRecord }) {
+    if (record && record.address.toLowerCase() !== address.toLowerCase()) {
+      throw new Error(`Wallet record ${record.id} does not match wallet address ${address}`);
+    }
+    this.record = record;
+    this.data = {
+      ...defaultWalletData,
+      type,
+      address,
+    };
+  }
+
+  public get address(): string {
+    return this.data.address;
+  }
+
+  public get type(): TType {
+    return this.data.type;
+  }
+
+  public setRecord(record: IWalletRecord | undefined): void {
+    if (record && record.address.toLowerCase() !== this.address.toLowerCase()) {
+      throw new Error(`Wallet record ${record.id} does not match wallet address ${this.address}`);
+    }
+    this.record = record;
+  }
+}
+
 export function getWalletTotalValue(wallet: IWallet, currency: Currency): bigint {
   const micronotValue = currency.convertMicronotTo(wallet.totalMicronots, UnitOfMeasurement.Microgon);
   const otherTokenValue = wallet.otherTokens.reduce((total, token) => {
     return total + currency.convertOtherToMicrogon(token);
   }, 0n);
   return wallet.totalMicrogons + micronotValue + otherTokenValue;
+}
+
+export function getWalletArgonValue(wallet: IWallet, currency: Currency): bigint {
+  const micronotValue = currency.convertMicronotTo(wallet.totalMicronots, UnitOfMeasurement.Microgon);
+  return wallet.totalMicrogons + micronotValue;
 }
 
 export function getEthereumWalletDisplayName(name: string): string {

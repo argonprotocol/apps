@@ -7,7 +7,7 @@ type IMyVaultWalletKeysQueryRef = Pick<
   WalletKeys,
   | 'councilSignerEthereumHdPath'
   | 'vaultingAddress'
-  | 'ethereumAddress'
+  | 'coreEthereumAddress'
   | 'getEthereumAddresses'
   | 'getMintingAuthorityEthereumHdPath'
   | 'getVaultDelegateKeypair'

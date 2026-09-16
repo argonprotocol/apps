@@ -9,7 +9,6 @@ import { clickIfVisible, pollEvery } from '../helpers/utils.ts';
 const TRANSFER_OUT_MICROGONS = 10n * BigInt(MICROGONS_PER_ARGON);
 const ETHEREUM_TRANSFER_TIMEOUT_MS = 12 * 60_000;
 const UI_TRANSITION_TIMEOUT_MS = 30_000;
-
 type ITransferOutToEthereumChainState = {
   availableMicrogons: bigint;
   amount: bigint;
@@ -88,8 +87,6 @@ export default new Operation<IVaultingFlowContext, ITransferOutToEthereumState>(
       !state.chainState.isSubmitting &&
       !state.chainState.hasPersistedTransfer
     ) {
-      const moveToEthereumTarget = `ArgonTop.startMoveToEthereum(${MoveToken.ARGN})`;
-
       if (state.chainState.availableMicrogons < TRANSFER_OUT_MICROGONS) {
         throw new Error(
           `${flowName}: vaulting wallet only has ${state.chainState.availableMicrogons.toString()} microgons available for transfer-out.`,
@@ -101,41 +98,9 @@ export default new Operation<IVaultingFlowContext, ITransferOutToEthereumState>(
         await flow.waitFor('WalletOverlay', { timeoutMs: 30_000 });
       }
 
-      await clickIfVisible(flow, 'WalletOverlay.toggleTransferOut()', { timeoutMs: 5_000 });
-      await pollEvery(
-        1_000,
-        async () => {
-          if ((await flow.isVisible(moveToEthereumTarget)).clickable) return true;
-          await clickIfVisible(
-            flow,
-            { selector: '[data-testid="WalletOverlay.transferOutPanel"] button[data-wallet-key^="ethereum:"]' },
-            { timeoutMs: 1_500 },
-          );
-          return false;
-        },
-        {
-          timeoutMs: UI_TRANSITION_TIMEOUT_MS,
-          timeoutMessage: `${flowName}: Transfer Out did not open Ethereum transfer actions.`,
-        },
-      );
-
-      await pollEvery(
-        1_000,
-        async () => {
-          if ((await flow.isVisible('WalletTransferOverlay.submitTransfer()')).visible) {
-            return true;
-          }
-
-          await clickIfVisible(flow, moveToEthereumTarget, { timeoutMs: 1_500 });
-          return false;
-        },
-        {
-          timeoutMs: UI_TRANSITION_TIMEOUT_MS,
-          timeoutMessage: `${flowName}: wallet transfer overlay did not open for Ethereum transfer.`,
-        },
-      );
-
-      await flow.type({ selector: '[data-testid="WalletTransferOverlay.amount"] [data-testid="input-number"]' }, '10', {
+      await flow.click('WalletViewMain.openSend()', { timeoutMs: 30_000 });
+      await flow.waitFor('WalletViewSend.destination', { timeoutMs: 30_000 });
+      await flow.type({ selector: '[data-testid="WalletViewSend.amount"] [data-testid="input-number"]' }, '10', {
         clear: true,
         timeoutMs: 15_000,
       });
@@ -151,7 +116,7 @@ export default new Operation<IVaultingFlowContext, ITransferOutToEthereumState>(
             return true;
           }
 
-          await clickIfVisible(flow, 'WalletTransferOverlay.submitTransfer()', { timeoutMs: 1_500 });
+          await clickIfVisible(flow, 'WalletViewSend.initiateTransfer()', { timeoutMs: 1_500 });
           return false;
         },
         {
@@ -180,13 +145,13 @@ export default new Operation<IVaultingFlowContext, ITransferOutToEthereumState>(
       },
     );
 
-    if ((await flow.isVisible('WalletTransferOverlay.close()')).clickable) {
-      await flow.click('WalletTransferOverlay.close()', { timeoutMs: 15_000 });
+    if ((await flow.isVisible('WalletOverlay.closeRight()')).clickable) {
+      await flow.click('WalletOverlay.closeRight()', { timeoutMs: 15_000 });
     }
 
-    const overlayCloseButton = await flow.isVisible('OverlayBase.clickClose()');
+    const overlayCloseButton = await flow.isVisible('WalletOverlay.closeRight()');
     if (overlayCloseButton.clickable) {
-      await flow.click('OverlayBase.clickClose()', { timeoutMs: 8_000 });
+      await flow.click('WalletOverlay.closeRight()', { timeoutMs: 8_000 });
     }
 
     flow.setData('Vaulting.op.transferOutToEthereum.completed', true);
@@ -195,7 +160,7 @@ export default new Operation<IVaultingFlowContext, ITransferOutToEthereumState>(
 
 async function readOutboundTransferState(flow: IVaultingFlowContext['flow']) {
   const state = (await flow.queryApp(
-    async (refs, args: { moveToken: MoveToken }) => {
+    async (refs, args: { moveToken: MoveToken.ARGN | MoveToken.ARGNOT }) => {
       await refs.wallets.load().catch(() => undefined);
 
       const tracker = refs.getEthereumOutboundTransferTracker();
@@ -255,13 +220,13 @@ async function readOutboundTransferState(flow: IVaultingFlowContext['flow']) {
 
 export async function openVaultingWalletOverlay(flow: IVaultingFlowContext['flow']) {
   await flow.queryApp(
-    (refs, args: { walletType: WalletType.defaultArgon }) => {
+    (refs, args: { walletType: WalletType.argon }) => {
       refs.openWalletOverlay(args.walletType);
       return true;
     },
     {
       args: {
-        walletType: WalletType.defaultArgon,
+        walletType: WalletType.argon,
       },
       timeoutMs: 15_000,
     },

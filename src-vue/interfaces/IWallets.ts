@@ -6,5 +6,8 @@ export interface IWalletsQueryRef {
   totalMiningMicrogons: bigint;
   defaultArgonWallet: IWallet;
   miningBotWallet: IWallet;
-  ethereumWallet: IWallet;
+  ethereumWallets: {
+    length: number;
+    persistedWallets: Array<{ address: string; data: IWallet }>;
+  };
 }

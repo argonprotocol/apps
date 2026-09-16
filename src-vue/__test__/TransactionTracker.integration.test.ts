@@ -82,7 +82,7 @@ describe.skipIf(skipE2E).sequential('Transaction tracker tests', { timeout: 60e3
     const transactionTracker = new TransactionTracker(Promise.resolve(db), blockwatch);
     await transactionTracker.load();
     const bob = new Keyring({ type: 'sr25519' }).addFromMnemonic('//Bob');
-    const watchSpy = vi.spyOn(transactionTracker, 'watchForUpdates' as any).mockImplementation(() => null);
+    const watchSpy = vi.spyOn(transactionTracker, 'watchForUpdates' as any).mockResolvedValue(undefined);
     const unWatchSpy = vi.spyOn(transactionTracker, 'stopWatching' as any).mockImplementation(() => null);
     {
       const { tx } = await transactionTracker.submitAndWatch({
@@ -116,7 +116,7 @@ describe.skipIf(skipE2E).sequential('Transaction tracker tests', { timeout: 60e3
     {
       const blockwatch = createTrackedBlockWatch();
       const transactionTracker2 = new TransactionTracker(Promise.resolve(db), blockwatch);
-      vi.spyOn(transactionTracker2, 'watchForUpdates' as any).mockImplementation(() => null);
+      vi.spyOn(transactionTracker2, 'watchForUpdates' as any).mockResolvedValue(undefined);
       await transactionTracker2.load();
       expect(transactionTracker2.data.txInfos).toHaveLength(1);
       expect(transactionTracker2.pendingBlockTxInfosAtLoad).toHaveLength(1);
@@ -141,7 +141,7 @@ describe.skipIf(skipE2E).sequential('Transaction tracker tests', { timeout: 60e3
     {
       const blockwatch = createTrackedBlockWatch();
       const transactionTracker2 = new TransactionTracker(Promise.resolve(db), blockwatch);
-      vi.spyOn(transactionTracker2, 'watchForUpdates' as any).mockImplementation(() => null);
+      vi.spyOn(transactionTracker2, 'watchForUpdates' as any).mockResolvedValue(undefined);
       await transactionTracker2.load();
       expect(transactionTracker2.data.txInfos).toHaveLength(1);
       expect(transactionTracker2.pendingBlockTxInfosAtLoad).toHaveLength(0);
@@ -155,7 +155,7 @@ describe.skipIf(skipE2E).sequential('Transaction tracker tests', { timeout: 60e3
     const blockwatch = createTrackedBlockWatch();
     const transactionTracker = new TransactionTracker(Promise.resolve(db), blockwatch);
     await transactionTracker.load();
-    const watchSpy = vi.spyOn(transactionTracker, 'watchForUpdates' as any).mockImplementation(() => null);
+    const watchSpy = vi.spyOn(transactionTracker, 'watchForUpdates' as any).mockResolvedValue(undefined);
 
     await transactionTracker.load();
     const bob = new Keyring({ type: 'sr25519' }).addFromMnemonic('//Bob');

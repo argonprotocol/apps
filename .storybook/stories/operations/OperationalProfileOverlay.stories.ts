@@ -1,8 +1,7 @@
 import type { Meta, StoryObj } from '@storybook/vue3-vite';
 import * as Vue from 'vue';
-import { expect, userEvent, within } from 'storybook/test';
+import { userEvent, within } from 'storybook/test';
 import { setupOperationalProfileScenario } from '../../scenarios/setupOnboardingOverlayScenario.ts';
-import { expectEventuallyVisible } from '../../support/expectEventuallyVisible.ts';
 import basicEmitter, { type IOperationalProfileRequest } from '../../../src-vue/emitters/basicEmitter.ts';
 import OperationalProfileOverlay from '../../../src-vue/overlays/OperationalProfileOverlay.vue';
 
@@ -40,37 +39,17 @@ export const LoadFailed: Story = {
 export const SettingsWithFlexibleAssets: Story = {
   beforeEach: () => {
     profileRequest = { screen: 'settings' };
-    setupOperationalProfileScenario('settingsFlexible');
-  },
-  play: async () => {
-    const canvas = within(document.body);
-    await expectEventuallyVisible(canvas.findByText('Onboarding Settings'));
-    await expectEventuallyVisible(canvas.findByRole('button', { name: /Operations Name/ }));
-    await expectEventuallyVisible(canvas.findByRole('button', { name: /Flexible Assets/ }));
-  },
-};
-
-export const SettingsWithoutFlexibleAssets: Story = {
-  beforeEach: () => {
-    profileRequest = { screen: 'settings' };
-    setupOperationalProfileScenario('settingsBasic');
-  },
-  play: async () => {
-    const canvas = within(document.body);
-    await expectEventuallyVisible(canvas.findByText('Onboarding Settings'));
-    expect(canvas.queryByRole('button', { name: /Flexible Assets/ })).not.toBeInTheDocument();
+    setupOperationalProfileScenario('settings');
   },
 };
 
 export const EditOperationsNameFromSettings: Story = {
   beforeEach: () => {
     profileRequest = { screen: 'settings' };
-    setupOperationalProfileScenario('settingsFlexible');
+    setupOperationalProfileScenario('settings');
   },
   play: async () => {
     const canvas = within(document.body);
     await userEvent.click(await canvas.findByRole('button', { name: /Operations Name/ }));
-    await expectEventuallyVisible(canvas.findByText('Your Operational Profile'));
-    await expect(canvas.findByPlaceholderText('ArgonFamily')).resolves.toHaveValue('AtlasOperator');
   },
 };

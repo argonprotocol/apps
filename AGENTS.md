@@ -12,10 +12,12 @@ These rules apply to implementation and review in this repository. Keep changes 
 ## Vue and UI
 
 - Keep rendering choices visible in Vue templates. Do not move one-use labels, class strings, markup choices, or display conditions into computed values merely to shorten a template.
+- Keep numeral conversion and formatting calls such as `microgonToArgonNm(...)` and `micronotToArgonotNm(...)` directly in Vue templates. Do not move them into script helpers such as `formatAmount` merely to shorten the template.
 - Use computed values for meaningful domain or presentation state that is reused or materially clarifies behavior.
 - When a template becomes difficult to read, reduce states and visual variants or extract a coherent component. Do not hide the same complexity in the script block.
 - Reuse established components, controls, checklist items, overlays, and status sources. Do not add duplicate affordances or fake intermediate states.
 - Reuse the repository's established spacing, typography, control sizes, and responsive patterns. Avoid page-specific size systems, arbitrary Tailwind values, and near-duplicate style variants.
+- Keep a Vue element's opening tag on one line when it has exactly one attribute, regardless of line length. If Prettier would wrap it, add `<!-- prettier-ignore -->` immediately before the element.
 - Keep directly related declarations together, with spacing between separate concerns. Do not crunch setup code into dense blocks or nested ternaries.
 
 ## Storybook UI States
@@ -32,7 +34,11 @@ These rules apply to implementation and review in this repository. Keep changes 
 
 - Name the authoritative owner for each durable or externally observed state. Do not let flags, cached projections, and UI state become competing authorities.
 - Do not patch combinations of flags when the recurring problem is a missing domain concept, transition, or ownership boundary.
+- Treat recovered history as backfill, never as the authority for current state. Start recovery only during account import, an explicit missing-data scan, or when the owning domain detects a concrete gap. Domains that require historical events must own their recovery and publish repaired canonical state. Consumers must not compare recovery checkpoints to the moving chain head, gate valid live data on global recovery coverage, or let older backfill overwrite newer live state.
+- Domain stores start their idempotent current-state load on first access. Ordinary consumers observe readiness; they do not call or await domain `load()` methods.
+- Treat background domain load failures as retryable unless application identity or durable local state is unusable. Do not route transient chain, block, or service failures through the global fatal-error dialog.
 - Map the user-visible state at every durable transition. Recovery, replay, refresh, or migration must not replace valid visible data with less information merely because newer reconstruction is incomplete. Preserve last-known-valid state when safe, identify exactly what becomes unavailable, and publish repaired state atomically at its declared boundary.
+- Historical recovery must define its coherent publication boundary. Keep reconstructed state detached until every fact required at that boundary is coherent; never expose mid-replay state, trigger alerts from replay state, or replace previously valid state with a partial reconstruction.
 - Every visible loading, pending, blocked, or recovery state must have a reachable exit: success, bounded retry, explicit quarantine, or an actionable terminal error. Verify that already-mounted consumers cannot remain stuck after the underlying state becomes valid.
 - Run the `stateful-workflow-review` skill for changes involving persistence, events, replay, recovery, retries, migrations, backfills, subscriptions, or reconstructed state.
 
@@ -43,6 +49,7 @@ These rules apply to implementation and review in this repository. Keep changes 
 - Never cast Substrate types merely to work around Polkadot.js codecs.
 - Do not unwrap trusted internal TypeScript data with bespoke validation ladders. Reserve runtime validation for external or untrusted input; otherwise use narrow types, optional chaining, and nullish defaults.
 - Pass an object shape or destructure it instead of expanding a stable shape into many positional properties.
+- Destructure object parameters such as `args` and `request` at the start of a method instead of repeatedly accessing `args.field` or `request.field` throughout the method.
 - Do not hard-code a caller-specific signer, wallet, role, or selector inside a shared helper.
 
 ## Runtime and Service Compatibility
@@ -66,6 +73,7 @@ These rules apply to implementation and review in this repository. Keep changes 
 ## Tests
 
 - Do not use test count or coverage as evidence of correctness.
+- Do not shape production models, interfaces, or dependency boundaries around what is convenient to mock in tests. Production code must use the real repository objects and domain boundaries; adapt the test at a genuine external boundary instead.
 - Do not add tests that only prove a mock returns its input, a helper calls another helper, or the implementation follows its own wiring.
 - A test must identify a production history, domain invariant, durable boundary, or previously defective behavior. It must assert the resulting durable and observable state, not merely calls made.
 - Prefer real SQLite, real state owners, and real queues. Fake external chain, indexer, network, clock, or process boundaries only where necessary.

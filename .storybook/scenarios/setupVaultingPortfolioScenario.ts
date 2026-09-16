@@ -1,5 +1,6 @@
 import * as Vue from 'vue';
 import { BondLot, MICROGONS_PER_ARGON, NetworkConfig, type IFrameBondLot } from '@argonprotocol/apps-core';
+import type { IMemberInvite } from '@argonprotocol/apps-router';
 import { fn, mocked } from 'storybook/test';
 import { BitcoinLockStatus, type IBitcoinLockRecord } from '../../src-vue/interfaces/IBitcoinLockRecord.ts';
 import { TopTab, VaultingSetupStatus } from '../../src-vue/interfaces/IConfig.ts';
@@ -8,6 +9,8 @@ import type { IExternalBitcoinLock } from '../../src-vue/lib/MyVault.ts';
 import type { IVaultRecord } from '../../src-vue/lib/db/VaultsTable.ts';
 import { getArgonBonds } from '../../src-vue/stores/argonBonds.ts';
 import { getBitcoinLocks } from '../../src-vue/stores/bitcoin.ts';
+import { getCurrency } from '../../src-vue/stores/currency.ts';
+import { useCertificationController } from '../../src-vue/stores/certificationController.ts';
 import { useFinancials } from '../../src-vue/stores/financials.ts';
 import { getMainchainClient, getMiningFrames } from '../../src-vue/stores/mainchain.ts';
 import { useVaultingAssetBreakdown } from '../../src-vue/stores/vaultingAssetBreakdown.ts';
@@ -17,6 +20,7 @@ import { setupAppScenario } from './setupAppScenario.ts';
 
 const microgonsPerArgon = BigInt(MICROGONS_PER_ARGON);
 const currentFrameId = 10_004;
+const onboardingMemberAccount = '5SyntheticOnboardingMember';
 
 export function setupVaultingPortfolioScenario() {
   setupAppScenario({
@@ -26,28 +30,49 @@ export function setupVaultingPortfolioScenario() {
       isServerAdded: true,
       isServerInstalled: true,
       hasSavedVaultingRules: true,
+      hasExtensionOperations: true,
     },
   });
 
+  useCertificationController().setOperationalInvites([
+    {
+      id: 1,
+      name: 'Morgan',
+      fromName: 'Atlas Operator',
+      inviteCode: 'synthetic-onboarding-member',
+      defaultAccountId: onboardingMemberAccount,
+      createdAt: new Date('2026-08-01T16:00:00.000Z'),
+    } satisfies IMemberInvite,
+  ]);
+
+  const currency = getCurrency();
+  currency.microgonsPer.BTC = 12_000n * microgonsPerArgon;
+  mocked(getCurrency, { partial: true }).mockReturnValue(
+    Object.assign(currency, {
+      fetchMicrogonsInCirculation: fn(async () => 10_000_000_000n),
+      fetchMicronotsInCirculation: fn(async () => 5_000_000_000n),
+    }),
+  );
+
   const createdVault = createScenarioVault({
     securitization: 2_400n * microgonsPerArgon,
-    securitizationLocked: 1_550n * microgonsPerArgon,
-    securitizationPendingActivation: 150n * microgonsPerArgon,
-    lockedSatoshis: 22_500_000n,
-    securitizedSatoshis: 22_500_000n,
+    securitizationTarget: 2_400n * microgonsPerArgon,
+    securitizationLocked: 2_400n * microgonsPerArgon,
+    securitizationPendingActivation: 0n,
+    securitizedSatoshis: 23_700_000n,
   });
   const localLocks = [
-    createLock(1, BitcoinLockStatus.LockedAndMinted, 8_000_000n, 480n * microgonsPerArgon),
-    createLock(2, BitcoinLockStatus.Releasing, 4_500_000n, 260n * microgonsPerArgon),
-    createLock(3, BitcoinLockStatus.LockPendingFunding, 3_200_000n, 190n * microgonsPerArgon),
-    createLock(4, BitcoinLockStatus.LockedAndMinted, 2_400_000n, 140n * microgonsPerArgon, true),
+    createLock(1, BitcoinLockStatus.LockFunded, 13_100_000n, 800n * microgonsPerArgon),
+    createLock(2, BitcoinLockStatus.Releasing, 4_500_000n, 450n * microgonsPerArgon),
+    createLock(3, BitcoinLockStatus.LockPendingFunding, 3_200_000n, 300n * microgonsPerArgon),
+    createLock(4, BitcoinLockStatus.LockFunded, 2_400_000n, 250n * microgonsPerArgon, true),
   ];
   const externalLocks: Record<number, IExternalBitcoinLock> = {
-    2_101: createExternalLock(2_101, 3_700_000n, 220n * microgonsPerArgon),
-    2_102: createExternalLock(2_102, 1_900_000n, 110n * microgonsPerArgon, true),
+    2_101: createExternalLock(2_101, 3_700_000n, 400n * microgonsPerArgon, false, onboardingMemberAccount),
+    2_102: createExternalLock(2_102, 1_900_000n, 200n * microgonsPerArgon, true),
   };
   const operatorBond = createBondLot({ id: 71, accountId: createdVault.operatorAccountId, bonds: 560 });
-  const externalBond = createBondLot({ id: 72, accountId: '5SyntheticExternalBondOwner', bonds: 310 });
+  const externalBond = createBondLot({ id: 72, accountId: onboardingMemberAccount, bonds: 310 });
   const pendingBond = createBondLot({ id: 73, accountId: '5SyntheticPendingBondOwner', bonds: 170 });
   const bondLots = [operatorBond, externalBond, pendingBond];
   const currentFrameBondLots = [createFrameBondLot(operatorBond, true), createFrameBondLot(externalBond, false)];
@@ -116,16 +141,22 @@ export function setupVaultingPortfolioScenario() {
   } as unknown as ReturnType<typeof getVaults>);
 
   mocked(getBitcoinLocks).mockReturnValue({
+    data: Vue.reactive({ financialRevision: 1 }),
     load: fn(async () => undefined),
     getAllLocks: fn(() => localLocks),
-    getDisplayLiquidityPromised: fn((lock: IBitcoinLockRecord) => lock.liquidityPromised),
+    getUtxosForLock: fn(() => []),
+    getDisplayLiquidityPromised: fn((lock: IBitcoinLockRecord) => lock.securitizationCoverageMicrogons ?? 0n),
+    isSecuritizationHoldExpired: fn(() => false),
     isInactiveForVaultDisplay: fn(() => false),
-    isLockedStatus: fn((lock: IBitcoinLockRecord) =>
-      [BitcoinLockStatus.LockedAndIsMinting, BitcoinLockStatus.LockedAndMinted].includes(lock.status),
-    ),
+    isLockFunded: fn((lock: IBitcoinLockRecord) => lock.status === BitcoinLockStatus.LockFunded),
     isReleaseStatus: fn((lock: IBitcoinLockRecord) =>
       [BitcoinLockStatus.Releasing, BitcoinLockStatus.Released].includes(lock.status),
     ),
+    utxoTracking: {
+      getUtxosForLock: fn(() => []),
+      getObservedFundingUtxos: fn(() => []),
+      getUnresolvedOrphanRecords: fn(() => []),
+    },
   } as unknown as ReturnType<typeof getBitcoinLocks>);
 
   mocked(getArgonBonds).mockReturnValue({
@@ -151,9 +182,9 @@ export function setupVaultingPortfolioScenario() {
     Vue.reactive({
       securityMicrogons: 2_400n * microgonsPerArgon,
       securityMicronots: 0n,
-      securityMicrogonsPending: 150n * microgonsPerArgon,
-      securityMicrogonsActivated: 1_400n * microgonsPerArgon,
-      securityMicrogonsActivatedPct: 58.33,
+      securityMicrogonsPending: 0n,
+      securityMicrogonsActivated: 2_400n * microgonsPerArgon,
+      securityMicrogonsActivatedPct: 100,
       treasuryBondCapacityMicrogons: 1_400n * microgonsPerArgon,
       treasuryBondCapacityUsedMicrogons: 1_040n * microgonsPerArgon,
       treasuryBondCapacityUsedPct: 74.29,
@@ -196,21 +227,23 @@ function createLock(
   id: number,
   status: BitcoinLockStatus,
   satoshis: bigint,
-  liquidityPromised: bigint,
+  securitizationCoverageMicrogons: bigint,
   isHistoryRecoveryPending = false,
 ): IBitcoinLockRecord {
   const createdAt = new Date(Date.UTC(2026, 7, 15 - id, 14, 0, 0));
   return {
     uuid: `synthetic-vault-lock-${id}`,
-    utxoId: 2_000 + id,
+    lockId: 2_000 + id,
     status,
-    satoshis,
-    liquidityPromised,
-    lockedTargetPrice: 6_800n * microgonsPerArgon,
-    ratchets: [],
+    securitizedSatoshis: satoshis,
+    microgonsAtTargetPerBtc: 6_800n * microgonsPerArgon,
+    securitizationCoverageMicrogons,
+    securityFees: 0n,
+    couponFeesPaid: 0n,
+    fundHoldExtensionsByBitcoinExpirationHeight: {},
+    fundedSatoshis: status === BitcoinLockStatus.LockPendingFunding ? 0n : satoshis,
+    fundingUtxoIds: [],
     cosignVersion: 'v1',
-    lockDetails: {} as IBitcoinLockRecord['lockDetails'],
-    fundingUtxoRecordId: null,
     network: 'regtest',
     hdPath: `m/84'/1'/0'/0/${id}`,
     vaultId: 7,
@@ -221,18 +254,19 @@ function createLock(
 }
 
 function createExternalLock(
-  utxoId: number,
+  lockId: number,
   satoshis: bigint,
-  liquidityPromised: bigint,
+  securitizationCoverageMicrogons: bigint,
   isPending = false,
+  ownerAccount = '5SyntheticExternalBitcoinOwner',
 ): IExternalBitcoinLock {
   return {
-    utxoId,
+    lockId,
     satoshis,
-    liquidityPromised,
+    securitizationCoverageMicrogons,
     isPending,
     isReleasing: false,
-    lockDetails: {} as IExternalBitcoinLock['lockDetails'],
+    lockDetails: { ownerAccount } as IExternalBitcoinLock['lockDetails'],
   };
 }
 

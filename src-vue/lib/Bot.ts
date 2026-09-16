@@ -2,14 +2,7 @@ import { Config } from './Config';
 import { Db } from './Db';
 import { BotStatus, BotSyncer } from './BotSyncer';
 import { ensureOnlyOneInstance } from './Utils';
-import {
-  createDeferred,
-  type IBidsFile,
-  IBotState,
-  type Mining,
-  MiningFrames,
-  waitAtLeast,
-} from '@argonprotocol/apps-core';
+import { createDeferred, IBotState, type Mining, MiningFrames, waitAtLeast } from '@argonprotocol/apps-core';
 import mitt, { type Emitter } from 'mitt';
 import Installer from './Installer';
 import { SSH } from './SSH';
@@ -19,9 +12,8 @@ import { MiningSetupStatus } from '../interfaces/IConfig.ts';
 import type { ServerApiClient } from './ServerApiClient.ts';
 
 export type IBotEmitter = {
-  'updated-cohort-data': number;
+  'updated-mining-state': number;
   'updated-cohort-history': number;
-  'updated-bids-data': IBidsFile['winningBids'];
   'updated-server-state': void;
   'status-changed': BotStatus;
 };

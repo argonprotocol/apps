@@ -1,22 +1,12 @@
 import { describe, expect, it, vi } from 'vitest';
 import { MoveTo, MoveToken, NetworkConfig } from '@argonprotocol/apps-core';
 import { getBitcoinAlertNotices } from '../lib/Alerts.ts';
+import BitcoinLocks from '../lib/BitcoinLocks.ts';
 import { BITCOIN_BLOCK_MILLIS, TICK_MILLIS } from '../lib/Env.ts';
 import type { IMintingAuthorityAuthorization, IMintingAuthorityAuthorizeMetadata } from '../lib/MintingAuthorities.ts';
-import { VaultCollectBuilder } from '../lib/VaultCollectBuilder.ts';
+import { type IVaultCollectMetadata, VaultCollectBuilder } from '../lib/VaultCollectBuilder.ts';
 import { BitcoinLockStatus, type IBitcoinLockRecord } from '../lib/db/BitcoinLocksTable.ts';
-import { BitcoinUtxoStatus, type IBitcoinUtxoRecord } from '../lib/db/BitcoinUtxosTable.ts';
 import { AppVaultOperator } from '../../e2e/actors/AppVaultOperator.ts';
-
-type TestMismatchPhase =
-  | 'none'
-  | 'review'
-  | 'accepting'
-  | 'returningOnArgon'
-  | 'returningOnBitcoin'
-  | 'returned'
-  | 'readyToResume'
-  | 'error';
 
 describe('VaultCollectBuilder.getNotice', () => {
   it('keeps the collect plan visible while a collect step is in flight', () => {
@@ -25,9 +15,17 @@ describe('VaultCollectBuilder.getNotice', () => {
         pendingCollectRevenue: 42n,
         expiringCollectAmount: 7n,
         pendingCollectTxInfo: {
-          tx: { metadataJson: { actionType: 'approveCouncil', expectedCollectRevenue: 0n, cosignedUtxoIds: [] } },
+          tx: {
+            metadataJson: {
+              vaultId: 1,
+              actionType: 'approveCouncil',
+              expectedCollectRevenue: 0n,
+              cosignedReleases: [],
+              moveTo: MoveTo.VaultingSecurity,
+            },
+          },
         },
-        pendingCosignUtxosById: new Map([[11, { targetValue: 50n }]]),
+        pendingCosignLocksById: new Map([[11, { targetValue: 50n }]]),
         globalCouncilPendingApprovals: 1,
         pendingMintingAuthorizations: [
           {
@@ -165,12 +163,29 @@ describe('VaultCollectBuilder.getNotice', () => {
     expect(notice?.transactionCount).toBe(1);
   });
 
+  it('keeps a release from the Vault owner available for explicit collect approval', () => {
+    const source = vaultSource({ pendingCosignLocksById: new Map([[11, { targetValue: 50n }]]) });
+    const notice = createCollectBuilder(source, new Set([11])).getNotice();
+
+    expect(notice?.signatureCount).toBe(1);
+    expect(notice?.transactionCount).toBe(1);
+  });
+
   it('marks revenue collection as processing only when the active submission is collecting revenue', () => {
     const notice = createCollectBuilder(
       vaultSource({
         pendingCollectRevenue: 42n,
         pendingCollectTxInfo: {
-          tx: { metadataJson: { actionType: 'collectRevenue', expectedCollectRevenue: 42n, cosignedUtxoIds: [] } },
+          tx: {
+            metadataJson: {
+              vaultId: 1,
+              actionType: 'collectRevenue',
+              expectedCollectRevenue: 42n,
+              cosignedReleases: [],
+              cosignedOrphanUtxos: [],
+              moveTo: MoveTo.VaultingSecurity,
+            },
+          },
         },
       }),
     ).getNotice();
@@ -215,20 +230,18 @@ describe('AppVaultOperator vault alert poller', () => {
 });
 
 describe('getBitcoinAlertNotices', () => {
-  it('surfaces review mismatches even before an action is available', () => {
-    const alerts = getBitcoinAlertNotices(
-      bitcoinSource({
-        locks: [lock(1)],
-        mismatches: {
-          1: { phase: 'review', candidateCount: 1 },
-        },
-      }),
-    );
+  it('ignores submitted locks until finalized script details exist', () => {
+    const source = bitcoinSource({
+      locks: [lock(2, { status: BitcoinLockStatus.LockIsProcessingOnArgon })],
+    });
+    source.unlockDeadlineTime = () => {
+      throw new Error('Submitted locks do not have script details.');
+    };
 
-    expect(alerts.map(({ kind }) => kind)).toEqual(['mismatch']);
+    expect(getBitcoinAlertNotices(source)).toEqual([]);
   });
 
-  it('only shows fundingExpiring once less than 25% of the funding window remains', () => {
+  it('only shows securitizationHoldExpiring once less than 25% of the hold remains', () => {
     const now = Date.now();
     const totalFundingWindow = 12 * BITCOIN_BLOCK_MILLIS;
 
@@ -240,7 +253,7 @@ describe('getBitcoinAlertNotices', () => {
         }),
         now,
       ).map(({ kind }) => kind),
-    ).toEqual(['fundingExpiring']);
+    ).toEqual(['securitizationHoldExpiring']);
 
     expect(
       getBitcoinAlertNotices(
@@ -261,16 +274,11 @@ describe('getBitcoinAlertNotices', () => {
       bitcoinSource({
         locks: [
           lock(14),
-          lock(13, { status: BitcoinLockStatus.LockedAndMinted }),
+          lock(13, { status: BitcoinLockStatus.LockFunded }),
           lock(12),
-          lock(11, { status: BitcoinLockStatus.LockedAndMinted }),
+          lock(11, { status: BitcoinLockStatus.LockFunded }),
         ],
-        mismatches: {
-          12: { phase: 'review', candidateCount: 1 },
-        },
-        acceptedFundingRecords: {
-          11: fundingRecord('vault cosign failed'),
-        },
+        releaseErrorsByLockId: { 11: 'vault cosign failed' },
         releaseStates: {
           11: { isReleaseStatus: true },
         },
@@ -286,9 +294,8 @@ describe('getBitcoinAlertNotices', () => {
 
     expect(alerts.map(({ kind }) => kind)).toEqual([
       'unlockNeedsAttention',
-      'mismatch',
       'unlockExpiring',
-      'fundingExpiring',
+      'securitizationHoldExpiring',
     ]);
   });
 });
@@ -299,11 +306,7 @@ function vaultSource(
     expiringCollectAmount: bigint;
     pendingCollectTxInfo: {
       tx: {
-        metadataJson: {
-          actionType: 'approveCouncil' | 'collectRevenue' | 'cosignBitcoin';
-          expectedCollectRevenue: bigint;
-          cosignedUtxoIds: number[];
-        };
+        metadataJson: IVaultCollectMetadata;
       };
     } | null;
     pendingMintingAuthorizeTxInfosByTransferId: Map<
@@ -323,9 +326,9 @@ function vaultSource(
         'moveToken' | 'mintingAuthorityTip' | 'mintingAuthorityTipShare' | 'mintingAuthorityTipValueMicrogons'
       >
     >;
-    pendingCosignUtxosById: Map<number, { targetValue: bigint }>;
+    pendingCosignLocksById: Map<number, { targetValue: bigint }>;
     pendingOrphanCosignCount: number;
-    myPendingBitcoinCosignTxInfosByUtxoId: Map<number, unknown>;
+    myPendingBitcoinCosignTxInfosByLockId: Map<number, unknown>;
     nextCollectDueDate: number;
     nextCosignDueDate: number;
   }> = {},
@@ -348,9 +351,9 @@ function vaultSource(
       pendingCollectRevenue: 0n,
       expiringCollectAmount: 0n,
       pendingCollectTxInfo: null,
-      pendingCosignUtxosById: new Map(),
+      pendingCosignLocksById: new Map(),
       pendingOrphanCosignCount: 0,
-      myPendingBitcoinCosignTxInfosByUtxoId: new Map(),
+      myPendingBitcoinCosignTxInfosByLockId: new Map(),
       nextCollectDueDate: 0,
       nextCosignDueDate: 0,
       ...data,
@@ -358,10 +361,10 @@ function vaultSource(
   };
 }
 
-function createCollectBuilder(source: ReturnType<typeof vaultSource>) {
+function createCollectBuilder(source: ReturnType<typeof vaultSource>, ownLockIds = new Set<number>()) {
   return new VaultCollectBuilder({
     createdVault: source.createdVault,
-    bitcoinLocks: { getLockByUtxoId: () => undefined },
+    bitcoinLocks: { getLockById: (lockId: number) => (ownLockIds.has(lockId) ? { lockId } : undefined) },
     globalCouncil: source.globalCouncil,
     mintingAuthorities: source.mintingAuthorities,
     data: source.data,
@@ -370,59 +373,40 @@ function createCollectBuilder(source: ReturnType<typeof vaultSource>) {
 
 function bitcoinSource(args: {
   locks: IBitcoinLockRecord[];
-  mismatches?: Record<number, Partial<{ phase: TestMismatchPhase; candidateCount: number; isFundingExpired: boolean }>>;
-  acceptedFundingRecords?: Record<number, IBitcoinUtxoRecord | undefined>;
+  releaseErrorsByLockId?: Record<number, string>;
   releaseStates?: Record<number, { isReleaseStatus: boolean }>;
   unlockDeadlines?: Record<number, number>;
   fundingDeadlines?: Record<number, number>;
 }) {
-  return {
-    config: { pendingConfirmationExpirationBlocks: 12 },
-    getLockByUtxoId: (utxoId: number) => args.locks.find(lock => lock.utxoId === utxoId),
-    getActiveLocks: () => args.locks,
-    getMismatchViewState(lock: IBitcoinLockRecord): {
-      phase: TestMismatchPhase;
-      candidateCount: number;
-      isFundingExpired: boolean;
-      error?: string;
-      nextCandidate?: {
-        canAccept: boolean;
-        canReturn: boolean;
-        record: IBitcoinUtxoRecord;
-      };
-    } {
-      return {
-        phase: 'none',
-        candidateCount: 0,
-        isFundingExpired: false,
-        error: undefined,
-        nextCandidate: undefined,
-        ...args.mismatches?.[lock.utxoId ?? 0],
-      };
-    },
-    getAcceptedFundingRecord: (lock: IBitcoinLockRecord) => args.acceptedFundingRecords?.[lock.utxoId ?? 0],
-    getLockUnlockReleaseState: (lock: IBitcoinLockRecord) =>
-      args.releaseStates?.[lock.utxoId ?? 0] ?? { isReleaseStatus: false },
-    isLockedStatus: (lock: IBitcoinLockRecord) =>
-      [BitcoinLockStatus.LockedAndIsMinting, BitcoinLockStatus.LockedAndMinted].includes(lock.status),
-    unlockDeadlineTime: (lock: IBitcoinLockRecord) => args.unlockDeadlines?.[lock.utxoId ?? 0] ?? 0,
-    verifyExpirationTime: (lock: IBitcoinLockRecord) => args.fundingDeadlines?.[lock.utxoId ?? 0] ?? 0,
-  };
+  const source = Object.create(BitcoinLocks.prototype) as BitcoinLocks;
+  Object.defineProperties(
+    source,
+    Object.getOwnPropertyDescriptors({
+      config: { securitizationHoldBlocks: 12 },
+      getLockById: (lockId: number) => args.locks.find(lock => lock.lockId === lockId),
+      getActiveLocks: () => args.locks,
+      releases: {
+        getActiveForLock: (lock: IBitcoinLockRecord) => {
+          const statusError = args.releaseErrorsByLockId?.[lock.lockId ?? 0];
+          return statusError ? { statusError } : undefined;
+        },
+        getLatestForLock: () => undefined,
+      },
+      getLockUnlockReleaseState: (lock: IBitcoinLockRecord) =>
+        args.releaseStates?.[lock.lockId ?? 0] ?? { isReleaseStatus: false },
+      isLockFunded: (lock: IBitcoinLockRecord) => lock.status === BitcoinLockStatus.LockFunded,
+      unlockDeadlineTime: (lock: IBitcoinLockRecord) => args.unlockDeadlines?.[lock.lockId ?? 0] ?? 0,
+      getSecuritizationHoldExpirationTime: (lock: IBitcoinLockRecord) => args.fundingDeadlines?.[lock.lockId ?? 0] ?? 0,
+    }),
+  );
+  return source;
 }
 
-function lock(utxoId: number, overrides: Partial<IBitcoinLockRecord> = {}): IBitcoinLockRecord {
+function lock(lockId: number, overrides: Partial<IBitcoinLockRecord> = {}): IBitcoinLockRecord {
   return {
-    utxoId,
+    lockId,
     status: BitcoinLockStatus.LockPendingFunding,
-    liquidityPromised: 1_250_000_000n,
-    createdAt: new Date(`2026-01-${String(utxoId).padStart(2, '0')}T00:00:00Z`),
+    createdAt: new Date(`2026-01-${String(lockId).padStart(2, '0')}T00:00:00Z`),
     ...overrides,
   } as IBitcoinLockRecord;
-}
-
-function fundingRecord(statusError: string): IBitcoinUtxoRecord {
-  return {
-    status: BitcoinUtxoStatus.ReleaseIsProcessingOnArgon,
-    statusError,
-  } as IBitcoinUtxoRecord;
 }

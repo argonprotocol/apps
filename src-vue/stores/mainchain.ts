@@ -1,6 +1,8 @@
 import {
   type ArgonApi,
   ArgonClient,
+  type ArgonCurrentQueryClient,
+  type ArgonQueryClient,
   BiddingCalculator,
   BiddingCalculatorData,
   type IBiddingRules,
@@ -8,6 +10,8 @@ import {
   Mining,
   MiningFrames,
 } from '@argonprotocol/apps-core';
+import { runtimeClient, type CurrentRuntimeQueries } from '@argonprotocol/runtime-client';
+import type { ApiDecoration } from '@argonprotocol/mainchain';
 import { INSTANCE_NAME, LOG_DEBUG, NETWORK_NAME, NETWORK_URL } from '../lib/Env.ts';
 import { getConfig } from './config';
 import { botEmitter } from '../lib/Bot.ts';
@@ -43,13 +47,14 @@ export function getMainchainClient(needsHistoricalAccess: boolean): Promise<Argo
   return getMainchainClients().get(needsHistoricalAccess);
 }
 
-export async function getFinalizedClient(client?: ArgonClient): Promise<ArgonApi> {
+export async function getFinalizedClient(client?: ArgonClient): Promise<ArgonCurrentQueryClient> {
   client ??= await getMainchainClient(false);
   const finalized = await client.rpc.chain.getFinalizedHead();
-  return client.at(finalized);
+  const api = await client.raw.at(finalized);
+  return runtimeClient<ApiDecoration<'promise'>, CurrentRuntimeQueries>(api);
 }
 
-export async function getEthereumGatewayPauseReason(finalizedClient?: ArgonApi): Promise<string | undefined> {
+export async function getEthereumGatewayPauseReason(finalizedClient?: ArgonQueryClient): Promise<string | undefined> {
   const client = finalizedClient ?? (await getFinalizedClient());
   const gatewaySyncPause = await client.query.crosschainTransfer.gatewaySyncPauseBySourceChain('Ethereum');
   if (!gatewaySyncPause) return;
@@ -79,6 +84,7 @@ export function refreshPrunedClientFromConfig() {
         await connectPrunedClientToConfiguredServer();
       }
     } catch (error) {
+      mainchainClients.clearPrunedClient();
       console.warn('[PRUNED_RPC] Unable to connect through the configured server', error);
     } finally {
       refreshPrunedClientPromise = undefined;
@@ -145,6 +151,9 @@ export function getMiningFrames(): MiningFrames {
       write: data => writeTextFile(storageFile, data, dir),
     });
   }
+  void miningFrames.isLoadedPromise.catch(error => {
+    console.warn('[Mining Frames] Unable to load current frame data', error);
+  });
   return miningFrames;
 }
 
@@ -168,6 +177,9 @@ export function getBiddingCalculator(): BiddingCalculator {
       });
     }
   }
+  void biddingCalculator.load().catch(error => {
+    console.warn('[Bidding Calculator] Unable to load current bidding data', error);
+  });
   return biddingCalculator;
 }
 

@@ -37,7 +37,7 @@
         </template>
       </p>
       <div class="flex flex-row justify-center items-center space-x-6 mt-14">
-        <ActiveBidsOverlayButton />
+        <BiddingBotOverlayButton />
         <BotHistoryOverlayButton />
       </div>
     </div>
@@ -49,7 +49,7 @@ import * as Vue from 'vue';
 import dayjs from 'dayjs';
 import utc from 'dayjs/plugin/utc';
 import { getConfig } from '../../stores/config.ts';
-import ActiveBidsOverlayButton from '../../overlays/ActiveBidsOverlayButton.vue';
+import BiddingBotOverlayButton from '../../overlays/mining/BiddingBotOverlayButton.vue';
 import BotHistoryOverlayButton from '../../overlays/BotHistoryOverlayButton.vue';
 import basicEmitter from '../../emitters/basicEmitter.ts';
 import { getBiddingCalculator } from '../../stores/mainchain.ts';
@@ -58,7 +58,6 @@ import { getCurrency } from '../../stores/currency.ts';
 import { createNumeralHelpers } from '../../lib/numeral.ts';
 import { bigIntMax, bigIntMin } from '@argonprotocol/apps-core';
 import { getMyMiningSeats } from '../../stores/myMiningSeats.ts';
-import { WalletType } from '../../lib/Wallet.ts';
 import { getBot } from '../../stores/bot.ts';
 
 dayjs.extend(utc);
@@ -101,7 +100,7 @@ function openBiddingBudgetOverlay() {
 }
 
 function openWalletFunding() {
-  basicEmitter.emit('openWalletOverlay', { walletType: WalletType.defaultArgon });
+  basicEmitter.emit('openWalletOverlay', { wallet: wallets.argonWallets.defaultArgonWallet });
 }
 
 Vue.onMounted(async () => {

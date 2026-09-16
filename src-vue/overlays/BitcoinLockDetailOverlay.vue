@@ -7,7 +7,7 @@
     class="BitcoinLockDetailOverlay min-h-60 w-240"
   >
     <template #title>
-      <div class="mr-6 flex grow flex-row items-center gap-2">
+      <div class="mr-6 flex min-w-0 grow items-center justify-start gap-2">
         <span class="text-xl font-bold text-slate-800/80">Bitcoin Lock Details</span>
         <template v-if="config.hasExtensionOperations">
           <span
@@ -17,7 +17,7 @@
             YOURS
           </span>
           <span v-else class="inline-block rounded bg-slate-500 px-1.5 pb-px align-middle text-sm text-white">
-            EXTERNAL
+            {{ externalMemberName ?? 'EXTERNAL' }}
           </span>
         </template>
       </div>
@@ -42,10 +42,12 @@ import { getBitcoinLocks } from '../stores/bitcoin.ts';
 import LockDetail from './bitcoin-locking/LockDetail.vue';
 import type { IExternalBitcoinLock } from '../lib/MyVault.ts';
 import { getConfig } from '../stores/config.ts';
+import { useCertificationController } from '../stores/certificationController.ts';
 
 const config = getConfig();
 const myVault = getMyVault();
 const bitcoinLocks = getBitcoinLocks();
+const controller = useCertificationController();
 
 const props = defineProps<{
   lock: IBitcoinLockRecord | IExternalBitcoinLock;
@@ -69,7 +71,7 @@ const isLocalLock = Vue.computed(() => 'uuid' in props.lock);
 const externalLock = Vue.computed<IExternalBitcoinLock | undefined>(() => {
   if ('uuid' in props.lock) return undefined;
 
-  const liveExternalLock = myVault.data.externalLocks[props.lock.utxoId];
+  const liveExternalLock = myVault.data.externalLocks[props.lock.lockId];
   if (liveExternalLock) {
     openedExternalLock.value = liveExternalLock;
   }
@@ -79,16 +81,21 @@ const externalLock = Vue.computed<IExternalBitcoinLock | undefined>(() => {
 
 const displayLock = Vue.computed(() => localLock.value ?? externalLock.value);
 
+const externalMemberName = Vue.computed(() => {
+  const ownerAccount = externalLock.value?.lockDetails.ownerAccount;
+  return controller.operationalInvites.find(invite => invite.defaultAccountId === ownerAccount)?.name;
+});
+
 const isExternalLockReleased = Vue.computed(() => {
-  const utxoId = externalLock.value?.utxoId;
-  if (utxoId == null) return false;
-  return myVault.data.releasedExternalUtxoIds.has(utxoId);
+  const lockId = externalLock.value?.lockId;
+  if (lockId == null) return false;
+  return myVault.data.releasedExternalLockIds.has(lockId);
 });
 
 const pendingCosign = Vue.computed(() => {
-  const utxoId = localLock.value?.utxoId ?? externalLock.value?.utxoId;
-  if (utxoId == null) return undefined;
-  const cosign = myVault.data.pendingCosignUtxosById.get(utxoId);
+  const lockId = localLock.value?.lockId ?? externalLock.value?.lockId;
+  if (lockId == null) return undefined;
+  const cosign = myVault.data.pendingCosignLocksById.get(lockId);
   if (!cosign) return undefined;
   return { dueFrame: cosign.dueFrame };
 });

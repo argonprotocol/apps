@@ -38,6 +38,10 @@ export class MiningFrames {
     'on-tick': (tick: number) => void;
   }>();
 
+  public get isLoadedPromise(): Promise<void> {
+    return this.load();
+  }
+
   public get frameIds(): number[] {
     return Object.keys(this.framesById)
       .map(Number)
@@ -111,8 +115,9 @@ export class MiningFrames {
           this.currentFrameId = Math.max(...this.frameIds);
         }
       }
+      const missingFrameCount = Math.max(0, this.currentFrameId + 1 - this.frameIds.length);
       console.log(
-        `[Mining Frames] Loading with current frame ID: ${this.currentFrameId} of known frames ${this.frameIds.length}`,
+        `[Mining Frames] Loading with current frame ID: ${this.currentFrameId} of known frames ${this.frameIds.length} (${missingFrameCount} missing)`,
       );
 
       if (!this.framesById[0]) {
@@ -131,9 +136,15 @@ export class MiningFrames {
           firstBlockSpecVersion: spec.specVersion.toNumber(),
         });
       }
+      const blockWatchStartedAt = Date.now();
       await this.blockWatch.start();
+      console.info(`[Mining Frames] Block watch ready in ${Date.now() - blockWatchStartedAt}ms`);
+
       realtimeWatch = this.blockWatch.events.on('best-blocks', headers => void this.onBestBlocks(headers));
+      const initialRefreshStartedAt = Date.now();
       await this.onBestBlocks(this.blockWatch.latestHeaders);
+      console.info(`[Mining Frames] Initial frame refresh ready in ${Date.now() - initialRefreshStartedAt}ms`);
+
       this.unsubscribes.push(realtimeWatch);
       realtimeWatch = undefined;
       this.loadDeferred.resolve();

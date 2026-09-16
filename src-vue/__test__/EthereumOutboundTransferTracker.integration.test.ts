@@ -1,15 +1,20 @@
 import { EventEmitter } from 'node:events';
 import * as Vue from 'vue';
-import { MoveToken } from '@argonprotocol/apps-core';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { MoveToken, NetworkConfig } from '@argonprotocol/apps-core';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { getAddress } from 'viem';
 import { EthereumOutboundTransferTracker } from '../lib/EthereumOutboundTransferTracker.ts';
+import { WalletForEthereum } from '../lib/WalletForEthereum.ts';
 import type {
   IEthereumTransactionProgress,
   IEthereumTransferOutOfArgon,
   IFinalizedEthereumTransactionProgress,
 } from '../lib/EthereumClient.ts';
-import { createCrosschainTransferProgress } from '../lib/CrosschainTransferProgress.ts';
+import {
+  createCrosschainTransferProgress,
+  OUTBOUND_TRANSFER_STEP_TITLES,
+  setOutboundEthereumStepProgress,
+} from '../lib/CrosschainTransferProgress.ts';
 import { CrosschainOutboundTransferStatus } from '../lib/db/CrosschainOutboundTransfersTable.ts';
 import { ExtrinsicType, TransactionStatus } from '../lib/db/TransactionsTable.ts';
 import { WalletType } from '../lib/Wallet.ts';
@@ -30,6 +35,34 @@ describe('EthereumOutboundTransferTracker integration', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     getEthereumGatewayPauseReasonMock.mockResolvedValue(undefined);
+    NetworkConfig.setNetwork('dev-docker');
+    NetworkConfig.setRuntimeOverride('dev-docker', {
+      ethereumNetwork: { executionRpcUrls: ['https://ethereum.test'] },
+    });
+  });
+
+  afterEach(() => NetworkConfig.clearRuntimeOverride('dev-docker'));
+
+  it('retries pending-transfer restoration after a transient database failure', async () => {
+    const db = await createTestDb();
+    const fetchAll = vi
+      .spyOn(db.crosschainOutboundTransfersTable, 'fetchAll')
+      .mockRejectedValueOnce(new Error('temporary outbound read failure'));
+    const blockWatch = createBlockWatch({
+      initialHeader: { blockNumber: 1, blockHash: '0xinitial' },
+      getApi: async () => ({}),
+    });
+    const tracker = new EthereumOutboundTransferTracker(
+      Promise.resolve(db),
+      { load: vi.fn(async () => undefined), data: { txInfos: [] } } as any,
+      blockWatch.instance as any,
+      createMockWalletKeys(),
+      undefined,
+    );
+
+    await expect(tracker.load()).rejects.toThrow('temporary outbound read failure');
+    await expect(tracker.load()).resolves.toBeUndefined();
+    expect(fetchAll).toHaveBeenCalledTimes(2);
   });
 
   it('waits for a finalized head at or after the transfer block before auto-authorizing', async () => {
@@ -117,7 +150,7 @@ describe('EthereumOutboundTransferTracker integration', () => {
                 argonAccountId: `0x${'22'.repeat(32)}`,
                 argonTransferNonce: 1n,
                 microgonsPerArgonot: 3n,
-                destinationAccount: walletKeys.ethereumAddress,
+                destinationAccount: walletKeys.coreEthereumAddress,
                 validUntilEthereumBlock: 500n,
                 amount: 100n,
                 mintingAuthorityTip: 1n,
@@ -201,7 +234,8 @@ describe('EthereumOutboundTransferTracker integration', () => {
     const activeTransfer = await tracker.startMove({
       moveToken: MoveToken.ARGN,
       amount: 100n,
-      sourceWalletType: WalletType.defaultArgon,
+      sourceWalletType: WalletType.argon,
+      ethereumWallet: new WalletForEthereum(walletKeys.coreEthereumAddress, undefined, undefined, true),
     });
 
     await vi.waitFor(async () => {
@@ -286,7 +320,7 @@ describe('EthereumOutboundTransferTracker integration', () => {
                     argonAccountId: `0x${'22'.repeat(32)}`,
                     argonTransferNonce: 1n,
                     microgonsPerArgonot: 3n,
-                    destinationAccount: walletKeys.ethereumAddress,
+                    destinationAccount: walletKeys.coreEthereumAddress,
                     validUntilEthereumBlock: 500n,
                     amount: 100n,
                     mintingAuthorityTip: 1n,
@@ -362,7 +396,8 @@ describe('EthereumOutboundTransferTracker integration', () => {
     const activeTransfer = await tracker.startMove({
       moveToken: MoveToken.ARGN,
       amount: 100n,
-      sourceWalletType: WalletType.defaultArgon,
+      sourceWalletType: WalletType.argon,
+      ethereumWallet: new WalletForEthereum(walletKeys.coreEthereumAddress, undefined, undefined, true),
     });
 
     await vi.waitFor(async () => {
@@ -405,7 +440,7 @@ describe('EthereumOutboundTransferTracker integration', () => {
       argonAccountId: `0x${'22'.repeat(32)}`,
       argonTransferNonce: 1n,
       microgonsPerArgonot: 3n,
-      destinationAccount: walletKeys.ethereumAddress,
+      destinationAccount: walletKeys.coreEthereumAddress,
       validUntilEthereumBlock: 500n,
       amount: 100n,
       mintingAuthorityTip: 1n,
@@ -490,7 +525,8 @@ describe('EthereumOutboundTransferTracker integration', () => {
     const activeTransfer = await tracker.startMove({
       moveToken: MoveToken.ARGN,
       amount: 100n,
-      sourceWalletType: WalletType.defaultArgon,
+      sourceWalletType: WalletType.argon,
+      ethereumWallet: new WalletForEthereum(walletKeys.coreEthereumAddress, undefined, undefined, true),
     });
 
     await vi.waitFor(async () => {
@@ -564,7 +600,7 @@ describe('EthereumOutboundTransferTracker integration', () => {
                     argonAccountId: `0x${'22'.repeat(32)}`,
                     argonTransferNonce: 1n,
                     microgonsPerArgonot: 3n,
-                    destinationAccount: walletKeys.ethereumAddress,
+                    destinationAccount: walletKeys.coreEthereumAddress,
                     validUntilEthereumBlock: 500n,
                     amount: 100n,
                     mintingAuthorityTip: 1n,
@@ -588,7 +624,7 @@ describe('EthereumOutboundTransferTracker integration', () => {
       token: MoveToken.ARGN,
       amount: 100n,
       argonSourceAddress: walletKeys.vaultingAddress,
-      destinationAddress: walletKeys.ethereumAddress,
+      destinationAddress: walletKeys.coreEthereumAddress,
       argonRequestTransactionId: transferOutTxInfo.tx.id,
       progressJson: createCrosschainTransferProgress([
         'Finalizing on Argon',
@@ -745,7 +781,8 @@ describe('EthereumOutboundTransferTracker integration', () => {
       await tracker.startMove({
         moveToken: MoveToken.ARGN,
         amount: 100n,
-        sourceWalletType: WalletType.defaultArgon,
+        sourceWalletType: WalletType.argon,
+        ethereumWallet: new WalletForEthereum(walletKeys.coreEthereumAddress, undefined, undefined, true),
       });
 
       await vi.waitFor(() => {
@@ -847,7 +884,8 @@ describe('EthereumOutboundTransferTracker integration', () => {
     const activeTransfer = await tracker.startMove({
       moveToken: MoveToken.ARGN,
       amount: 100n,
-      sourceWalletType: WalletType.defaultArgon,
+      sourceWalletType: WalletType.argon,
+      ethereumWallet: new WalletForEthereum(walletKeys.coreEthereumAddress, undefined, undefined, true),
     });
 
     await vi.waitFor(async () => {
@@ -892,7 +930,7 @@ describe('EthereumOutboundTransferTracker integration', () => {
       token: MoveToken.ARGN,
       amount: 10n,
       argonSourceAddress: walletKeys.vaultingAddress,
-      destinationAddress: walletKeys.ethereumAddress,
+      destinationAddress: walletKeys.coreEthereumAddress,
       argonRequestTransactionId: olderTxInfo.tx.id,
       progressJson: createCrosschainTransferProgress([
         'Finalizing on Argon',
@@ -919,7 +957,7 @@ describe('EthereumOutboundTransferTracker integration', () => {
       token: MoveToken.ARGN,
       amount: 20n,
       argonSourceAddress: walletKeys.vaultingAddress,
-      destinationAddress: walletKeys.ethereumAddress,
+      destinationAddress: walletKeys.coreEthereumAddress,
       argonRequestTransactionId: newerTxInfo.tx.id,
       progressJson: createCrosschainTransferProgress([
         'Finalizing on Argon',
@@ -1049,7 +1087,7 @@ describe('EthereumOutboundTransferTracker integration', () => {
       token: MoveToken.ARGNOT,
       amount: 10n,
       argonSourceAddress: walletKeys.defaultArgonAddress,
-      destinationAddress: walletKeys.ethereumAddress,
+      destinationAddress: walletKeys.coreEthereumAddress,
       progressJson: createCrosschainTransferProgress([
         'Finalizing on Argon',
         'Waiting for Minting Authorization',
@@ -1133,7 +1171,7 @@ describe('EthereumOutboundTransferTracker integration', () => {
       data: {
         authorities: [
           {
-            signer: walletKeys.ethereumAddress,
+            signer: walletKeys.coreEthereumAddress,
             authorityIndex: 0,
             isPendingActivation: true,
             isDeactivating: false,
@@ -1207,7 +1245,8 @@ describe('EthereumOutboundTransferTracker integration', () => {
     const activeTransfer = await tracker.startMove({
       moveToken: MoveToken.ARGN,
       amount: 100n,
-      sourceWalletType: WalletType.defaultArgon,
+      sourceWalletType: WalletType.argon,
+      ethereumWallet: new WalletForEthereum(walletKeys.coreEthereumAddress, undefined, undefined, true),
     });
 
     await vi.waitFor(async () => {
@@ -1354,7 +1393,7 @@ describe('EthereumOutboundTransferTracker integration', () => {
       token: MoveToken.ARGN,
       amount: 100n,
       argonSourceAddress: walletKeys.vaultingAddress,
-      destinationAddress: walletKeys.ethereumAddress,
+      destinationAddress: walletKeys.coreEthereumAddress,
       argonRequestTransactionId: staleTxInfo.tx.id,
       progressJson: createCrosschainTransferProgress([
         'Finalizing on Argon',
@@ -1412,7 +1451,7 @@ describe('EthereumOutboundTransferTracker integration', () => {
               argonAccountId: `0x${'22'.repeat(32)}`,
               argonTransferNonce: 1n,
               microgonsPerArgonot: 3n,
-              destinationAccount: walletKeys.ethereumAddress,
+              destinationAccount: walletKeys.coreEthereumAddress,
               validUntilEthereumBlock: 500n,
               amount: 100n,
               mintingAuthorityTip: 1n,
@@ -1485,7 +1524,7 @@ describe('EthereumOutboundTransferTracker integration', () => {
       token: MoveToken.ARGN,
       amount: 100n,
       argonSourceAddress: walletKeys.vaultingAddress,
-      destinationAddress: walletKeys.ethereumAddress,
+      destinationAddress: walletKeys.coreEthereumAddress,
       progressJson: createCrosschainTransferProgress([
         'Finalizing on Argon',
         'Waiting for Minting Authorization',
@@ -1540,7 +1579,7 @@ describe('EthereumOutboundTransferTracker integration', () => {
       token: MoveToken.ARGN,
       amount: 100n,
       argonSourceAddress: walletKeys.vaultingAddress,
-      destinationAddress: walletKeys.ethereumAddress,
+      destinationAddress: walletKeys.coreEthereumAddress,
       progressJson: createCrosschainTransferProgress([
         'Finalizing on Argon',
         'Waiting for Minting Authorization',
@@ -1585,7 +1624,7 @@ describe('EthereumOutboundTransferTracker integration', () => {
     expect(tracker.getTransfer(transferId)).toBeUndefined();
   });
 
-  it('keeps a minting-authorized transfer pending when the Ethereum wallet is short on fees', async () => {
+  it('preserves a minting-authorized transfer without Ethereum and resumes once funded', async () => {
     const db = await createTestDb();
     const walletKeys = createMockWalletKeys();
     const transferId = 'outbound-needs-eth';
@@ -1595,6 +1634,17 @@ describe('EthereumOutboundTransferTracker integration', () => {
       getApi: async () => ({}),
     });
     let ethereumBalanceWei = 0n;
+    const transactionTracker = {
+      data: { txInfos: [] },
+      pendingBlockTxInfosAtLoad: [],
+      load: vi.fn(async () => {}),
+      ensureStoredEvents: vi.fn(async () => {}),
+      findLatestTxInfo: vi.fn(() => undefined),
+    };
+    const mintingAuthorizedProgress = setOutboundEthereumStepProgress(
+      createCrosschainTransferProgress(OUTBOUND_TRANSFER_STEP_TITLES),
+      { progressPct: 0, detail: 'Minting Authorization complete.' },
+    );
 
     await db.crosschainOutboundTransfersTable.recordRequestSubmittedToArgon({
       id: transferId,
@@ -1602,7 +1652,7 @@ describe('EthereumOutboundTransferTracker integration', () => {
       token: MoveToken.ARGN,
       amount: 100n,
       argonSourceAddress: walletKeys.vaultingAddress,
-      destinationAddress: walletKeys.ethereumAddress,
+      destinationAddress: walletKeys.coreEthereumAddress,
       progressJson: createCrosschainTransferProgress([
         'Finalizing on Argon',
         'Waiting for Minting Authorization',
@@ -1627,7 +1677,7 @@ describe('EthereumOutboundTransferTracker integration', () => {
         argonTransferNonce: 1n,
         chainId: 1n,
         microgonsPerArgonot: 3n,
-        recipient: getAddress(walletKeys.ethereumAddress),
+        recipient: getAddress(walletKeys.coreEthereumAddress),
         validUntilBlock: 500n,
         token: `0x${'44'.repeat(20)}`,
         amount: 100n,
@@ -1642,22 +1692,34 @@ describe('EthereumOutboundTransferTracker integration', () => {
           },
         ],
       },
-      progressJson: createCrosschainTransferProgress([
-        'Finalizing on Argon',
-        'Waiting for Minting Authorization',
-        'Sending to Ethereum',
-      ]),
+      progressJson: mintingAuthorizedProgress,
     });
+
+    const unavailableTracker = new EthereumOutboundTransferTracker(
+      Promise.resolve(db),
+      transactionTracker as any,
+      blockWatch.instance as any,
+      walletKeys,
+      undefined,
+    );
+    await unavailableTracker.load();
+    await new Promise(resolve => setTimeout(resolve, 20));
+
+    expect(unavailableTracker.getTransfer(transferId)?.transferState).toMatchObject({
+      amount: 100n,
+      isSubmitting: true,
+      hasPersistedTransfer: true,
+      needsAttention: false,
+      error: '',
+    });
+    expect(unavailableTracker.getTransfer(transferId)?.transferState.progress.currentStepDetail).toBe(
+      'Minting Authorization complete.',
+    );
+    expect((await db.crosschainOutboundTransfersTable.get(transferId))?.failureReason).toBeUndefined();
 
     const tracker = new EthereumOutboundTransferTracker(
       Promise.resolve(db),
-      {
-        data: { txInfos: [] },
-        pendingBlockTxInfosAtLoad: [],
-        load: vi.fn(async () => {}),
-        ensureStoredEvents: vi.fn(async () => {}),
-        findLatestTxInfo: vi.fn(() => undefined),
-      } as any,
+      transactionTracker as any,
       blockWatch.instance as any,
       walletKeys,
       {
@@ -1705,7 +1767,7 @@ describe('EthereumOutboundTransferTracker integration', () => {
       const persisted = await db.crosschainOutboundTransfersTable.get(transferId);
       const transfer = tracker.getTransfer(transferId);
       expect(persisted?.status).toBe(CrosschainOutboundTransferStatus.MintingAuthorized);
-      expect(persisted?.failureReason).toBeNull();
+      expect(persisted?.failureReason).toBeUndefined();
       expect(transfer?.transferState.hasPersistedTransfer).toBe(true);
       expect(transfer?.transferState.needsAttention).toBe(false);
       expect(transfer?.transferState.isSubmitting).toBe(false);
@@ -1725,7 +1787,7 @@ describe('EthereumOutboundTransferTracker integration', () => {
     await vi.waitFor(async () => {
       const persisted = await db.crosschainOutboundTransfersTable.get(transferId);
       expect(persisted?.status).toBe(CrosschainOutboundTransferStatus.TransferFinalizedOnTargetChain);
-      expect(persisted?.failureReason).toBeNull();
+      expect(persisted?.failureReason).toBeUndefined();
       expect(tracker.getTransfer(transferId)?.transferState.error).toBe('');
     });
   });
@@ -1754,7 +1816,7 @@ describe('EthereumOutboundTransferTracker integration', () => {
       token: MoveToken.ARGN,
       amount: 100n,
       argonSourceAddress: walletKeys.vaultingAddress,
-      destinationAddress: walletKeys.ethereumAddress,
+      destinationAddress: walletKeys.coreEthereumAddress,
       progressJson: createCrosschainTransferProgress([
         'Finalizing on Argon',
         'Waiting for Minting Authorization',
@@ -1779,7 +1841,7 @@ describe('EthereumOutboundTransferTracker integration', () => {
         argonTransferNonce: 1n,
         chainId: 1n,
         microgonsPerArgonot: 3n,
-        recipient: getAddress(walletKeys.ethereumAddress),
+        recipient: getAddress(walletKeys.coreEthereumAddress),
         validUntilBlock: 500n,
         token: `0x${'44'.repeat(20)}`,
         amount: 100n,
@@ -1849,7 +1911,7 @@ describe('EthereumOutboundTransferTracker integration', () => {
       const persisted = await db.crosschainOutboundTransfersTable.get(transferId);
       const transfer = trackerBeforeRestart.getTransfer(transferId);
       expect(persisted?.status).toBe(CrosschainOutboundTransferStatus.TransferSubmittedToTargetChain);
-      expect(persisted?.failureReason).toBeNull();
+      expect(persisted?.failureReason).toBeUndefined();
       expect(transfer?.transferState.isSubmitting).toBe(true);
       expect(transfer?.transferState.needsAttention).toBe(false);
       expect(transfer?.transferState.error).toBe('');
@@ -1931,7 +1993,7 @@ describe('EthereumOutboundTransferTracker integration', () => {
       expect(isTransactionVisible).toHaveBeenCalledTimes(2);
       expect(persisted?.status).toBe(CrosschainOutboundTransferStatus.TransferFinalizedOnTargetChain);
       expect(persisted?.targetTxHash).toBe(replacementTxHash);
-      expect(persisted?.failureReason).toBeNull();
+      expect(persisted?.failureReason).toBeUndefined();
       expect(trackerAfterRestart.getTransfer(transferId)?.transferState.error).toBe('');
       expect(trackerAfterRestart.getTransfer(transferId)?.transferState.progress.overallProgressPct).toBe(100);
     });
@@ -1967,7 +2029,8 @@ describe('EthereumOutboundTransferTracker integration', () => {
         moveToken: MoveToken.ARGNOT,
         amount: 205088571428n,
         availableAmount: 205293660000n,
-        sourceWalletType: WalletType.defaultArgon,
+        sourceWalletType: WalletType.argon,
+        ethereumWallet: new WalletForEthereum('0x0000000000000000000000000000000000000001'),
       }),
     ).rejects.toThrow('A small ARGNOT tip is reserved and the account must keep its minimum balance');
   });
@@ -2042,7 +2105,7 @@ function createTransferOutTxInfo(args: {
         localTransferId: args.localTransferId ?? 'outbound-test',
         moveToken: args.moveToken,
         amount: args.amount,
-        sourceWalletType: WalletType.defaultArgon,
+        sourceWalletType: WalletType.argon,
         destinationAddress: `0x${'99'.repeat(20)}`,
       },
       blockHeight: args.blockHeight,

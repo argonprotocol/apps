@@ -413,7 +413,6 @@ import { createNumeralHelpers } from '../lib/numeral.ts';
 import { getInstaller } from '../stores/installer.ts';
 import { getBiddingCalculator } from '../stores/mainchain.ts';
 import { bigIntMax } from '@argonprotocol/apps-core';
-import { WalletType } from '../lib/Wallet.ts';
 import { MiningSetupStatus, VaultingSetupStatus } from '../interfaces/IConfig.ts';
 import { useFloatingZIndex } from '../overlays/helpers/OverlayZIndex.ts';
 
@@ -513,13 +512,13 @@ function onMouseLeave() {
 
 function openFundMiningAccountOverlay() {
   isOpen.value = false;
-  basicEmitter.emit('openWalletOverlay', { walletType: WalletType.defaultArgon });
+  basicEmitter.emit('openWalletOverlay', { wallet: wallets.argonWallets.defaultArgonWallet });
 }
 
 function openFundVaultingAccountOverlay() {
   isOpen.value = false;
   basicEmitter.emit('openWalletOverlay', {
-    walletType: WalletType.defaultArgon,
+    wallet: wallets.argonWallets.defaultArgonWallet,
     showGuidance: true,
     guidanceContext: 'vaulting',
   });

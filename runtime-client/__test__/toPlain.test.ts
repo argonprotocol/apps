@@ -68,6 +68,27 @@ describe('toPlain', () => {
     expect(toPlain(registry.createType('TestChoice', 'Empty'))).toEqual({ type: 'Empty' });
   });
 
+  it('preserves structured funding outpoints as map entries', () => {
+    const registry = new TypeRegistry();
+    registry.register({
+      TestUtxoRef: { txid: 'H256', outputIndex: 'u32' },
+      TestLock: { fundingUtxos: 'BTreeMap<TestUtxoRef,u64>' },
+    });
+    const codec = registry.createType('TestLock', {
+      fundingUtxos: new Map([
+        [{ txid: `0x${'01'.repeat(32)}`, outputIndex: 2 }, 4_000n],
+        [{ txid: `0x${'02'.repeat(32)}`, outputIndex: 0 }, 6_000n],
+      ]),
+    });
+
+    expect(toPlain(codec)).toEqual({
+      fundingUtxos: [
+        [{ txid: `0x${'01'.repeat(32)}`, outputIndex: 2 }, 4_000n],
+        [{ txid: `0x${'02'.repeat(32)}`, outputIndex: 0 }, 6_000n],
+      ],
+    });
+  });
+
   it('uses numbers for u8, u16, and u32 while wider unsigned integers stay bigint', () => {
     const registry = new TypeRegistry();
 

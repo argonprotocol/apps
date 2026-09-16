@@ -1,0 +1,4 @@
+interface:
+  display_name: "Architecture Boundary Review"
+  short_description: "Review code ownership and layer placement"
+  default_prompt: "Use $architecture-boundary-review to review this change against the repository architecture boundaries before editing."

@@ -60,7 +60,7 @@
     "generate:runtime-client": "yarn workspace @argonprotocol/runtime-client generate",
     "docker:argon:download": "tsx e2e/argon/download.ts",
     "docker:argon:chainspec": "tsx e2e/argon/chainspec.ts",
-    "docker:argon": "yarn docker:argon:download && cd e2e/argon && docker compose --env-file=.env --profile=all -f docker-compose.yml -f miners.docker-compose.yml -f upstream-server.docker-compose.yml -f indexer.docker-compose.yml -f chainspec.docker-compose.yml -f minio.docker-compose.yml",
+    "docker:argon": "yarn docker:argon:download && cd e2e/argon && docker compose --env-file=.env --profile=all -f docker-compose.yml -f miners.docker-compose.yml -f upstream-server.docker-compose.yml -f indexer.docker-compose.yml -f chainspec.docker-compose.yml",
     "docker:down": "yarn docker:argon --profile=upstream down -v --timeout=0",
     "docker:pull": "yarn docker:argon --profile=upstream pull",
     "docker:up:workspace": "yarn docker:down && yarn docker:argon -f miners.workspace.docker-compose.yml up -d --wait",
@@ -74,8 +74,8 @@
     "@actions/github": "^9.1.1",
     "@argonprotocol/apps-bot": "workspace:*",
     "@argonprotocol/apps-core": "workspace:*",
-    "@argonprotocol/bitcoin": "1.4.12",
-    "@argonprotocol/mainchain": "1.4.12",
+    "@argonprotocol/bitcoin": "1.4.12-dev.2bc449e2",
+    "@argonprotocol/mainchain": "1.4.12-dev.2bc449e2",
     "@argonprotocol/runtime-client": "workspace:*",
     "@chenfengyuan/vue-countdown": "^2.1.3",
     "@ethereumjs/rlp": "^10.1.1",
@@ -89,7 +89,7 @@
     "@polkadot/util": "^14.0.3",
     "@polkadot/util-crypto": "^14.0.3",
     "@scure/bip39": "^1.6.0",
-    "@tailwindcss/vite": "^4.1.12",
+    "@tailwindcss/vite": "^4.3.3",
     "@tauri-apps/api": "~2.11.0",
     "@tauri-apps/plugin-autostart": "^2.5.0",
     "@tauri-apps/plugin-dialog": "~2.4.0",
@@ -130,7 +130,7 @@
     "semver": "^7.7.3",
     "sortablejs": "^1.15.7",
     "tailwind-merge": "^3.3.1",
-    "tailwindcss": "^4.1.16",
+    "tailwindcss": "^4.3.3",
     "viem": "^2.48.11",
     "vue": "^3.5.20",
     "zod": "^3.25.55"
@@ -146,7 +146,7 @@
     "e2e"
   ],
   "devDependencies": {
-    "@argonprotocol/testing": "1.4.12",
+    "@argonprotocol/testing": "1.4.12-dev.2bc449e2",
     "@scure/bip39": "^1.6.0",
     "@storybook/addon-vitest": "10.5.7",
     "@storybook/vue3-vite": "^10.5.7",
@@ -201,8 +201,8 @@
     }
   },
   "resolutions": {
-    "@argonprotocol/mainchain": "1.4.12",
-    "@argonprotocol/bitcoin": "1.4.12",
+    "@argonprotocol/mainchain": "1.4.12-dev.2bc449e2",
+    "@argonprotocol/bitcoin": "1.4.12-dev.2bc449e2",
     "@polkadot/api": "16.5.6",
     "@polkadot/api-augment": "16.5.6",
     "@polkadot/api-base": "16.5.6",
@@ -223,7 +223,7 @@
     "@openzeppelin/contracts@npm:3.4.1-solc-0.7-2": "npm:3.4.2-solc-0.7",
     "axios": "1.18.1",
     "ws": "8.21.0",
-    "@argonprotocol/testing": "1.4.12"
+    "@argonprotocol/testing": "1.4.12-dev.2bc449e2"
   },
   "resolutions_disabled": {
     "@argonprotocol/testing": "portal:../mainchain/testing/nodejs",

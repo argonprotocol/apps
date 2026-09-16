@@ -1,4 +1,16 @@
-import { AbstractInt, Bool, Bytes, CodecMap, Compact, Enum, Null, Option, Raw, Struct, Text } from '@polkadot/types-codec';
+import {
+  AbstractInt,
+  Bool,
+  Bytes,
+  CodecMap,
+  Compact,
+  Enum,
+  Null,
+  Option,
+  Raw,
+  Struct,
+  Text,
+} from '@polkadot/types-codec';
 import type { Codec, INumber } from '@polkadot/types-codec/types';
 import BigNumber from 'bignumber.js';
 import { runtimeTypeOverrides } from './RuntimeQueries.generated.js';
@@ -56,6 +68,12 @@ function normalizeValue(
     );
   }
   if (value instanceof CodecMap || value instanceof Map) {
+    if (override === 'mapEntries') {
+      return [...value.entries()].map(([key, entry], index) => [
+        normalizeValue(key, `${path}[${index}][0]`),
+        normalizeValue(entry, `${path}[${index}][1]`),
+      ]);
+    }
     const result: Record<string, unknown> = Object.create(null);
     for (const [key, entry] of value.entries()) {
       const normalizedKey = mapKey(key, `${path}.<key>`);

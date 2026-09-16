@@ -1,137 +1,62 @@
-import type { IWalletRecord } from '../lib/db/WalletsTable.ts';
-import { getEthereumWalletDisplayName, WalletType } from '../lib/Wallet.ts';
+import type { WalletForArgon } from '../lib/WalletForArgon.ts';
+import type { WalletForBitcoin } from '../lib/WalletForBitcoin.ts';
+import type { WalletForEthereum } from '../lib/WalletForEthereum.ts';
 
 export const WALLET_MOVE_LABEL = 'MOVE';
 
-export type IWalletSelection =
-  | { walletType: WalletType.defaultArgon | WalletType.miningBot }
-  | { walletType: WalletType.ethereum; walletRecord: IWalletRecord };
-
-export type IWalletTransferDirection = 'in' | 'out';
 export type IWalletSetupStep = 'choice' | 'external';
-export type IWalletTransferSideState = {
-  wallet?: IWalletSelection;
-  addWalletStep?: IWalletSetupStep;
-  customArgonAddress?: boolean;
-};
+export type IWalletOverlayWallet = WalletForArgon<'argon'> | WalletForBitcoin | WalletForEthereum;
+export type IWalletConnector = WalletForBitcoin | WalletForEthereum;
+export type IWalletView = 'main' | 'send' | 'receive' | 'privateKey';
+export type IWalletOverlayCenterView =
+  | { type: 'main' }
+  | { type: 'send' }
+  | { type: 'receive' }
+  | { type: 'privateKey' }
+  | {
+      type: 'addEthereum';
+      initialStep: IWalletSetupStep;
+    };
 
 export type IWalletOverlayState = {
-  primaryWallet?: IWalletSelection;
-  primaryAddWalletStep?: IWalletSetupStep;
-  transferIn?: IWalletTransferSideState;
-  transferOut?: IWalletTransferSideState;
+  centerView: IWalletOverlayCenterView;
+  activeConnector?: IWalletConnector;
 };
 
-export function getAvailableWalletSelections(
-  walletRecords: IWalletRecord[],
-  openWallets: IWalletSelection[],
-  includeMiningWallet: boolean,
-): IWalletSelection[] {
-  const openWalletKeys = new Set(openWallets.map(getWalletSelectionKey));
-  const availableWallets: IWalletSelection[] = [{ walletType: WalletType.defaultArgon }];
-  if (includeMiningWallet) {
-    availableWallets.push({ walletType: WalletType.miningBot });
-  }
-  availableWallets.push(
-    ...walletRecords
-      .filter(record => record.walletType === 'ethereum')
-      .map<IWalletSelection>(walletRecord => ({ walletType: WalletType.ethereum, walletRecord })),
-  );
-
-  return availableWallets.filter(wallet => !openWalletKeys.has(getWalletSelectionKey(wallet)));
+export function getInitialWalletOverlayState(activeConnector?: IWalletConnector): IWalletOverlayState {
+  return { centerView: { type: 'main' }, activeConnector };
 }
 
-export function getInitialWalletOverlayState(requestedWallet: IWalletSelection): IWalletOverlayState {
-  return { primaryWallet: requestedWallet };
-}
+export function getBitcoinDepositAttention(wallet: WalletForBitcoin | undefined): string | undefined {
+  if (!wallet) return;
 
-export function selectPrimaryWallet(state: IWalletOverlayState, wallet: IWalletSelection): IWalletOverlayState {
-  return { primaryWallet: wallet };
+  const orphanCount = wallet.getUnresolvedOrphanDeposits().length;
+  if (orphanCount) return `${orphanCount} unattached Bitcoin deposit${orphanCount === 1 ? '' : 's'} need review`;
 }
 
 export function getInitialAddWalletOverlayState(initialStep: IWalletSetupStep): IWalletOverlayState {
-  return { primaryAddWalletStep: initialStep };
+  return {
+    centerView: { type: 'addEthereum', initialStep },
+  };
 }
 
-export function toggleWalletTransferDirection(
+export function showAddWalletInOverlay(state: IWalletOverlayState, initialStep: IWalletSetupStep): IWalletOverlayState {
+  return {
+    ...state,
+    centerView: { type: 'addEthereum', initialStep },
+    activeConnector: undefined,
+  };
+}
+
+export function closeWalletView(state: IWalletOverlayState): IWalletOverlayState | undefined {
+  if (state.centerView.type === 'main') return;
+  return showWalletView(state, 'main', state.activeConnector);
+}
+
+export function showWalletView(
   state: IWalletOverlayState,
-  direction: IWalletTransferDirection,
+  view: IWalletView,
+  activeConnector: IWalletConnector | undefined,
 ): IWalletOverlayState {
-  const key = direction === 'in' ? 'transferIn' : 'transferOut';
-  if (!state.primaryWallet) return state;
-  return { ...state, [key]: state[key] ? undefined : {} };
-}
-
-export function selectTransferWallet(
-  state: IWalletOverlayState,
-  direction: IWalletTransferDirection,
-  wallet: IWalletSelection,
-): IWalletOverlayState {
-  const key = direction === 'in' ? 'transferIn' : 'transferOut';
-  if (
-    !state.primaryWallet ||
-    !state[key] ||
-    getWalletSelectionKey(state.primaryWallet) === getWalletSelectionKey(wallet)
-  ) {
-    return state;
-  }
-
-  return { ...state, [key]: { wallet } };
-}
-
-export function returnToTransferWalletChooser(
-  state: IWalletOverlayState,
-  direction: IWalletTransferDirection,
-): IWalletOverlayState {
-  const key = direction === 'in' ? 'transferIn' : 'transferOut';
-  return state[key] ? { ...state, [key]: {} } : state;
-}
-
-export function showAddWalletOnTransferSide(
-  state: IWalletOverlayState,
-  direction: IWalletTransferDirection,
-  initialStep: IWalletSetupStep,
-): IWalletOverlayState {
-  const key = direction === 'in' ? 'transferIn' : 'transferOut';
-  return state[key] ? { ...state, [key]: { addWalletStep: initialStep } } : state;
-}
-
-export function showCustomArgonAddressOnTransferSide(
-  state: IWalletOverlayState,
-  direction: IWalletTransferDirection,
-): IWalletOverlayState {
-  const key = direction === 'in' ? 'transferIn' : 'transferOut';
-  return state[key] ? { ...state, [key]: { customArgonAddress: true } } : state;
-}
-
-export function getWalletSelectionKey(wallet: IWalletSelection): string {
-  if (wallet.walletType === WalletType.ethereum) {
-    return `ethereum:${wallet.walletRecord.id}`;
-  }
-
-  return wallet.walletType;
-}
-
-export function getWalletSelectionName(wallet: IWalletSelection): string {
-  if (wallet.walletType === WalletType.ethereum) {
-    return getEthereumWalletDisplayName(wallet.walletRecord.name);
-  }
-
-  return wallet.walletType === WalletType.miningBot ? 'Mining Wallet' : 'Internal App Wallet';
-}
-
-export function isEthereumWalletSelection(
-  wallet: IWalletSelection,
-): wallet is Extract<IWalletSelection, { walletType: WalletType.ethereum }> {
-  return wallet.walletType === WalletType.ethereum;
-}
-
-export function shouldLoadEthereumWalletSelection(
-  wallet: IWalletSelection,
-  activeEthereumWalletRecordId: number | undefined,
-  balanceUpdatedAt: Date | undefined,
-): wallet is Extract<IWalletSelection, { walletType: WalletType.ethereum }> {
-  return (
-    isEthereumWalletSelection(wallet) && (activeEthereumWalletRecordId !== wallet.walletRecord.id || !balanceUpdatedAt)
-  );
+  return { ...state, centerView: { type: view }, activeConnector };
 }

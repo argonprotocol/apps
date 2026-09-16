@@ -242,7 +242,7 @@ it('publishes existing server recovery and endpoint when the default account rec
 
   mocks.wallets.defaultArgonWallet.availableMicrogons = 1n;
   for (const listener of mocks.wallets.balanceListeners) {
-    listener({ availableMicrogons: 1n }, 'defaultArgon');
+    listener({ availableMicrogons: 1n }, 'argon');
   }
 
   await vi.waitFor(() => {

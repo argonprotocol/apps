@@ -1,6 +1,11 @@
 <template>
   <TooltipProvider :disableHoverableContent="true" :disableClosingTrigger="true" :delayDuration="300">
-    <TooltipRoot @update:open="handleOpen" :disableClosingTrigger="true" :disableHoverableContent="true">
+    <TooltipRoot
+      v-bind="props.open === undefined ? {} : { open: props.open }"
+      @update:open="handleOpen"
+      :disableClosingTrigger="true"
+      :disableHoverableContent="true"
+    >
       <TooltipTrigger :asChild="props.asChild || undefined" tooltip>
         <slot />
       </TooltipTrigger>
@@ -11,6 +16,7 @@
           :avoidCollisions="true"
           :collisionPadding="30"
           :style="[floatingZIndex, { width: width, maxWidth: maxWidth }]"
+          role="tooltip"
           class="data-[state=delayed-open]:data-[side=top]:animate-slideDownAndFade data-[state=delayed-open]:data-[side=right]:animate-slideLeftAndFade data-[state=delayed-open]:data-[side=left]:animate-slideRightAndFade data-[state=delayed-open]:data-[side=bottom]:animate-slideUpAndFade text-md pointer-events-none rounded-md border border-gray-800/20 bg-white px-4 py-3 text-left leading-5.5 text-gray-600 shadow-xl will-change-[transform,opacity] select-none"
         >
           <slot name="content">{{ content }}</slot>
@@ -35,14 +41,17 @@ import {
 } from 'reka-ui';
 import { useFloatingZIndex } from '../overlays/helpers/OverlayZIndex.ts';
 
-const props = defineProps<
-  TooltipRootProps & {
-    content?: string;
-    side?: 'top' | 'bottom' | 'left' | 'right';
-    asChild?: boolean;
-    calculateWidth?: () => string | undefined;
-  }
->();
+const props = withDefaults(
+  defineProps<
+    TooltipRootProps & {
+      content?: string;
+      side?: 'top' | 'bottom' | 'left' | 'right';
+      asChild?: boolean;
+      calculateWidth?: () => string | undefined;
+    }
+  >(),
+  { open: undefined },
+);
 const emits = defineEmits<TooltipRootEmits>();
 
 const width = Vue.ref('fit-content');

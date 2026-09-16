@@ -1,12 +1,11 @@
-import { type ArgonApi, bigIntMin, type ArgonClient, type MoveTo } from '@argonprotocol/apps-core';
+import { BitcoinLock, bigIntMin, type ArgonClient, type ArgonQueryClient, type MoveTo } from '@argonprotocol/apps-core';
 import { type SubmittableExtrinsic } from '@argonprotocol/mainchain';
-import { u8aToHex } from '@polkadot/util';
 import type { IMintingAuthorityAuthorizeMetadata } from './MintingAuthorities.ts';
 import type { MyVault } from './MyVault.ts';
 import { TxAttemptState } from './TransactionTracker.ts';
 
 export type ICollectOrphanCosignMetadata = {
-  lockUtxoId: number;
+  lockId: number;
   ownerAccount: string;
   txid: string;
   vout: number;
@@ -18,7 +17,7 @@ export type IVaultCollectMetadata = {
   actionType: 'approveCouncil' | 'collectRevenue' | 'cosignBitcoin';
   councilApprovalCount?: number;
   expectedCollectRevenue: bigint;
-  cosignedUtxoIds: number[];
+  cosignedReleases: { lockId: number; releaseNumber: number }[];
   cosignedOrphanUtxos?: ICollectOrphanCosignMetadata[];
   moveTo: MoveTo;
 };
@@ -26,7 +25,7 @@ export type IVaultCollectMetadata = {
 export type IVaultCollectSubmission = {
   tx: SubmittableExtrinsic;
   metadata: IVaultCollectMetadata;
-  submittedCosignUtxoIds: number[];
+  submittedCosignLockIds: number[];
 };
 
 export type IVaultCollectNotice = {
@@ -61,13 +60,7 @@ export class VaultCollectBuilder {
 
   public getNotice(): IVaultCollectNotice | null {
     const { myVault } = this;
-    const ownPendingLockUtxoIds = new Set<number>();
-    for (const utxoId of myVault.data.pendingCosignUtxosById.keys()) {
-      if (!myVault.bitcoinLocks.getLockByUtxoId(utxoId)) continue;
-      ownPendingLockUtxoIds.add(utxoId);
-    }
-
-    const manualPendingCosignEntries = getManualPendingCosignEntries(myVault, ownPendingLockUtxoIds);
+    const manualPendingCosignEntries = getManualPendingCosignEntries(myVault);
     const pendingCollectMetadata = myVault.data.pendingCollectTxInfo?.tx.metadataJson;
     const processing = getPendingCollectProcessing(pendingCollectMetadata);
 
@@ -143,7 +136,7 @@ export class VaultCollectBuilder {
 
   public async buildPendingSubmission(args: {
     client: ArgonClient;
-    finalizedClient: ArgonApi;
+    finalizedClient: ArgonQueryClient;
     moveTo: MoveTo;
   }): Promise<IVaultCollectSubmission | undefined> {
     const { myVault } = this;
@@ -153,7 +146,7 @@ export class VaultCollectBuilder {
 
     const { client, finalizedClient, moveTo } = args;
     const vaultId = myVault.createdVault.vaultId;
-    const { bitcoinTxs, cosignedUtxoIds, cosignedOrphanUtxos } = await buildCollectBitcoinTxs({
+    const { bitcoinTxs, cosignedReleases, cosignedOrphanUtxos } = await buildCollectBitcoinTxs({
       myVault,
       client,
       finalizedClient,
@@ -175,7 +168,7 @@ export class VaultCollectBuilder {
       vaultId,
       actionType: 'cosignBitcoin',
       expectedCollectRevenue,
-      cosignedUtxoIds,
+      cosignedReleases,
       cosignedOrphanUtxos,
       moveTo,
     } satisfies IVaultCollectMetadata;
@@ -195,7 +188,7 @@ export class VaultCollectBuilder {
           actionType: shouldCollectRevenue ? 'collectRevenue' : 'cosignBitcoin',
           councilApprovalCount: pendingCouncilApprovals.length,
         },
-        submittedCosignUtxoIds: cosignedUtxoIds,
+        submittedCosignLockIds: cosignedReleases.map(release => release.lockId),
       };
     }
 
@@ -208,7 +201,7 @@ export class VaultCollectBuilder {
           actionType: 'approveCouncil',
           councilApprovalCount: pendingCouncilApprovals.length,
         },
-        submittedCosignUtxoIds: [],
+        submittedCosignLockIds: [],
       };
     }
 
@@ -216,10 +209,9 @@ export class VaultCollectBuilder {
   }
 }
 
-function getManualPendingCosignEntries(myVault: MyVault, ownPendingLockUtxoIds: Set<number>) {
-  return Array.from(myVault.data.pendingCosignUtxosById.entries()).filter(([utxoId]) => {
-    if (ownPendingLockUtxoIds.has(utxoId)) return false;
-    return !myVault.data.myPendingBitcoinCosignTxInfosByUtxoId.has(utxoId);
+function getManualPendingCosignEntries(myVault: MyVault) {
+  return Array.from(myVault.data.pendingCosignLocksById.entries()).filter(([lockId]) => {
+    return !myVault.data.myPendingBitcoinCosignTxInfosByLockId.has(lockId);
   });
 }
 
@@ -237,24 +229,27 @@ function getPendingCollectProcessing(metadata?: IVaultCollectMetadata | null) {
 }
 
 function getStoredCosignCount(
-  metadata?: Pick<IVaultCollectMetadata, 'cosignedUtxoIds' | 'cosignedOrphanUtxos'> | null,
+  metadata?: Pick<IVaultCollectMetadata, 'cosignedReleases' | 'cosignedOrphanUtxos'> | null,
 ): number {
-  return (metadata?.cosignedUtxoIds?.length ?? 0) + (metadata?.cosignedOrphanUtxos?.length ?? 0);
+  return (metadata?.cosignedReleases.length ?? 0) + (metadata?.cosignedOrphanUtxos?.length ?? 0);
 }
 
 async function buildCollectBitcoinTxs(args: {
   myVault: MyVault;
   client: ArgonClient;
-  finalizedClient: ArgonApi;
+  finalizedClient: ArgonQueryClient;
   vaultId: number;
 }) {
   const { myVault, client, finalizedClient, vaultId } = args;
-  const pendingCosignUtxos = await finalizedClient.query.vaults.pendingCosignByVaultId(vaultId);
+  const pendingCosignLockIds = await finalizedClient.query.vaults.pendingCosignByVaultId(vaultId);
   const bitcoinTxs: SubmittableExtrinsic[] = [];
-  const cosignedUtxoIds: number[] = [];
+  const cosignedReleases: { lockId: number; releaseNumber: number }[] = [];
 
-  for (const utxoId of pendingCosignUtxos ?? []) {
-    const latestTxAttempt = await myVault.findLatestReleaseCosignTxAttempt(utxoId);
+  for (const lockId of pendingCosignLockIds ?? []) {
+    const pendingRelease = await finalizedClient.query.bitcoinLocks.lockReleaseRequestsById(lockId);
+    if (!pendingRelease) continue;
+
+    const latestTxAttempt = await myVault.bitcoinLockCosign.findLatestAttempt(lockId, pendingRelease.releaseNumber);
     if (
       latestTxAttempt &&
       (latestTxAttempt.txAttemptState === TxAttemptState.Pending ||
@@ -263,19 +258,21 @@ async function buildCollectBitcoinTxs(args: {
       continue;
     }
 
-    const pendingRelease = await finalizedClient.query.bitcoinLocks.lockReleaseRequestsByUtxoId(utxoId);
-    if (!pendingRelease) continue;
-    const result = await myVault.buildCosignTx({
-      utxoId,
-      releaseRequest: {
-        bitcoinNetworkFee: pendingRelease.bitcoinNetworkFee,
-        toScriptPubkey: u8aToHex(pendingRelease.toScriptPubkey),
-      },
+    const vaultSignatureHexes = await myVault.createVaultSignatureHexesForRelease({
+      lockId,
+      releaseNumber: pendingRelease.releaseNumber,
+      client: finalizedClient,
     });
-    if (!result) continue;
+    if (!vaultSignatureHexes) continue;
 
-    bitcoinTxs.push(result.tx);
-    cosignedUtxoIds.push(utxoId);
+    bitcoinTxs.push(
+      BitcoinLock.createReleaseCosignTx({
+        client,
+        lockId,
+        vaultSignatureHexes,
+      }),
+    );
+    cosignedReleases.push({ lockId, releaseNumber: pendingRelease.releaseNumber });
   }
 
   const orphanCosigns = await myVault.buildPendingOrphanCosignTxs({
@@ -287,7 +284,7 @@ async function buildCollectBitcoinTxs(args: {
   bitcoinTxs.push(...orphanCosigns.map(x => x.tx));
   return {
     bitcoinTxs,
-    cosignedUtxoIds,
+    cosignedReleases,
     cosignedOrphanUtxos: orphanCosigns.map(x => x.metadata),
   };
 }

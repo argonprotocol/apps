@@ -14,6 +14,7 @@ export enum MoveTo {
 export enum MoveToken {
   ARGN = 'ARGN',
   ARGNOT = 'ARGNOT',
+  BTC = 'BTC',
 }
 
 export function isDefaultArgonMoveFrom(value: unknown): value is MoveFrom.DefaultArgon | 'MiningHold' | 'VaultingHold' {

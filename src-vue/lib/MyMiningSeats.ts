@@ -64,6 +64,8 @@ export class MyMiningSeats {
   private isLoadedDeferred!: IDeferred<void>;
   private loadPromise?: Promise<void>;
   private serverStateRefreshPromise?: Promise<void>;
+  private pendingMiningStateFrameId?: number;
+  private miningStateRefreshPromise?: Promise<void>;
   private miningCohortsById = new Map<number, IMiningCohortFinancialRecord>();
   private hasRefreshedCompletedMiningHistory = false;
 
@@ -202,8 +204,8 @@ export class MyMiningSeats {
         this.db = await this.dbPromise;
         const dbReadyAt = performance.now();
 
-        stage = 'currency.load';
-        await this.currency.load();
+        stage = 'currency.isLoadedPromise';
+        await this.currency.isLoadedPromise;
         const currencyReadyAt = performance.now();
 
         const initialFrameId = this.latestFrameId;
@@ -221,40 +223,13 @@ export class MyMiningSeats {
         this.hasRefreshedCompletedMiningHistory = true;
         this.financialRevision += 1;
 
-        botEmitter.on('updated-cohort-data', async frameId => {
-          if (this.serverStateRefreshPromise) await this.serverStateRefreshPromise;
-
-          const isOnLatestFrame = this.selectedFrameId === this.latestFrameId;
-          if (frameId > this.latestFrameId) {
-            this.latestFrameId = frameId;
-            if (isOnLatestFrame) this.selectFrameId(frameId, { skipDashboardUpdate: true });
-          }
-
-          const fromFrameId = this.hasRefreshedCompletedMiningHistory
-            ? Math.max(0, frameId - NetworkConfig.framesPerCohort)
-            : 0;
-          await this.updateMiningSeats(fromFrameId);
-          this.hasRefreshedCompletedMiningHistory = true;
-          this.financialRevision += 1;
-
-          if (this.isSubscribedToDashboard) {
-            await this.updateDashboard();
-            this.dashboardHasUpdates = false;
-          } else {
-            this.dashboardHasUpdates = true;
-          }
-        });
+        botEmitter.on('updated-mining-state', frameId => this.queueMiningStateRefresh(frameId));
 
         botEmitter.on('updated-cohort-history', async () => {
           if (this.serverStateRefreshPromise) await this.serverStateRefreshPromise;
+          if (this.miningStateRefreshPromise) await this.miningStateRefreshPromise;
           await this.updateMiningSeats();
           this.hasRefreshedCompletedMiningHistory = true;
-          this.financialRevision += 1;
-        });
-
-        botEmitter.on('updated-bids-data', async () => {
-          if (this.serverStateRefreshPromise) await this.serverStateRefreshPromise;
-          await this.updateMiningBids();
           this.financialRevision += 1;
         });
 
@@ -344,6 +319,57 @@ export class MyMiningSeats {
     return this.dashboardSubscribers > 0;
   }
 
+  private queueMiningStateRefresh(frameId: number): void {
+    this.pendingMiningStateFrameId = Math.max(frameId, this.pendingMiningStateFrameId ?? 0);
+    if (this.miningStateRefreshPromise) return;
+
+    const refreshPromise = this.refreshPendingMiningState();
+    this.miningStateRefreshPromise = refreshPromise;
+    void refreshPromise
+      .catch(error => console.error('[MyMiningSeats] Unable to refresh current mining state', error))
+      .finally(() => {
+        if (this.miningStateRefreshPromise === refreshPromise) this.miningStateRefreshPromise = undefined;
+        const pendingFrameId = this.pendingMiningStateFrameId;
+        if (pendingFrameId !== undefined) this.queueMiningStateRefresh(pendingFrameId);
+      });
+  }
+
+  private async refreshPendingMiningState(): Promise<void> {
+    while (this.pendingMiningStateFrameId !== undefined) {
+      const frameId = this.pendingMiningStateFrameId;
+      this.pendingMiningStateFrameId = undefined;
+      if (this.serverStateRefreshPromise) await this.serverStateRefreshPromise;
+
+      const isOnLatestFrame = this.selectedFrameId === this.latestFrameId;
+      const fromFrameId = this.hasRefreshedCompletedMiningHistory
+        ? Math.max(0, frameId - NetworkConfig.framesPerCohort)
+        : 0;
+      const [miningCohorts, frameBids] = await Promise.all([
+        this.db.cohortsTable.fetchFinancialPositions(fromFrameId),
+        this.db.frameBidsTable.fetchForFrameId(frameId),
+      ]);
+      if ((this.pendingMiningStateFrameId ?? frameId) > frameId) continue;
+      if (frameId < this.latestFrameId) continue;
+
+      if (frameId > this.latestFrameId) {
+        this.latestFrameId = frameId;
+        if (isOnLatestFrame) this.selectFrameId(frameId, { skipDashboardUpdate: true });
+      }
+
+      this.publishMiningSeats(fromFrameId, miningCohorts);
+      this.publishMiningBids(frameBids);
+      this.hasRefreshedCompletedMiningHistory = true;
+      this.financialRevision += 1;
+
+      if (this.isSubscribedToDashboard) {
+        await this.updateDashboard();
+        this.dashboardHasUpdates = false;
+      } else {
+        this.dashboardHasUpdates = true;
+      }
+    }
+  }
+
   private async updateDashboard(): Promise<void> {
     const [globalStats, frames] = await Promise.all([
       this.db.cohortsTable.fetchGlobalStats(),
@@ -363,7 +389,10 @@ export class MyMiningSeats {
 
   private async updateMiningSeats(fromFrameId = 0): Promise<void> {
     const cohorts = await this.db.cohortsTable.fetchFinancialPositions(fromFrameId);
+    this.publishMiningSeats(fromFrameId, cohorts);
+  }
 
+  private publishMiningSeats(fromFrameId: number, cohorts: IMiningCohortFinancialRecord[]): void {
     for (const cohortId of this.miningCohortsById.keys()) {
       if (cohortId >= fromFrameId) this.miningCohortsById.delete(cohortId);
     }
@@ -385,8 +414,14 @@ export class MyMiningSeats {
     await this.serverStateRefreshPromise;
   }
 
-  private async updateMiningBids(): Promise<void> {
-    const frameBids = await this.db.frameBidsTable.fetchForFrameId(this.latestFrameId);
+  private async updateMiningBids(frameId = this.latestFrameId): Promise<void> {
+    const frameBids = await this.db.frameBidsTable.fetchForFrameId(frameId);
+    if (frameId !== this.latestFrameId) return;
+
+    this.publishMiningBids(frameBids);
+  }
+
+  private publishMiningBids(frameBids: IFrameBidRecord[]): void {
     this.currentFrameBids = frameBids;
     this.allWinningBids = frameBids.map(x => {
       return {

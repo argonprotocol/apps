@@ -66,34 +66,6 @@
     <section
       PendingRecord
       v-else-if="
-        lockSummary.status === BitcoinLockStatus.LockPendingFunding && lockSummary.statusDetails.showMismatchAccept
-      "
-    >
-      <BitcoinIcon MainIcon class="bitcoin-spin" />
-      <div ContentWrapper>
-        <div FirstRow>
-          <header>{{ satToBtcNm(lockSummary.satoshis).format('0,0.[00000000]') }} of BTC Is Updating on Argon</header>
-          <button PrimaryButton>View Status</button>
-        </div>
-        <div SecondRow>
-          <div v-if="mismatchAcceptProgress.error" class="mt-2 text-sm font-semibold text-red-600">
-            {{ mismatchAcceptProgress.error }}
-          </div>
-          <ProgressBar v-else :progress="mismatchAcceptProgress.progressPct" class="h-8" />
-        </div>
-      </div>
-    </section>
-
-    <BitcoinRecordMismatch
-      v-else-if="
-        lockSummary.status === BitcoinLockStatus.LockPendingFunding && lockSummary.statusDetails.showFundingMismatch
-      "
-      :lock-summary="lockSummary"
-    />
-
-    <section
-      PendingRecord
-      v-else-if="
         lockSummary.status === BitcoinLockStatus.LockPendingFunding && lockSummary.statusDetails.showReadyForBitcoin
       "
     >
@@ -107,7 +79,10 @@
         </div>
         <div SecondRow>
           <div class="fade-in-out text-argon-900/60 text-md pointer-events-none font-bold">
-            <CountdownClock :time="fundingExpirationTime" v-slot="{ days, hours, minutes, seconds, isFinished }">
+            <CountdownClock
+              :time="securitizationHoldExpirationTime"
+              v-slot="{ days, hours, minutes, seconds, isFinished }"
+            >
               <template v-if="isFinished">The time to complete this step has expired.</template>
               <template v-else>
                 You have {{ formatTimeRemaining(days, hours, minutes, seconds) }} to complete this step.
@@ -136,30 +111,6 @@
       </div>
     </section>
 
-    <section PendingRecord v-else-if="lockSummary.status === BitcoinLockStatus.LockExpiredWaitingForFunding">
-      <BitcoinAlertIcon MainIcon />
-      <div ContentWrapper>
-        <div FirstRow>
-          <header>
-            {{ satToBtcNm(lockSummary.satoshis).format('0,0.[0000]') }} of BTC Was Never Received Before Expiration
-          </header>
-          <button PrimaryButton @click.stop="acknowledgeExpiredNotice">Clear this Notice</button>
-        </div>
-        <div SecondRow>No Bitcoin was received before this lock expired. You must restart the process.</div>
-      </div>
-    </section>
-
-    <section PendingRecord v-else-if="lockSummary.status === BitcoinLockStatus.LockFundingReadyToResume">
-      <BitcoinIcon MainIcon />
-      <div ContentWrapper>
-        <div FirstRow>
-          <header>{{ satToBtcNm(lockSummary.satoshis).format('0,0.[0000]') }} of BTC Is Ready to Resume Locking</header>
-          <button PrimaryButton="">Resume Locking</button>
-        </div>
-        <div SecondRow>Your mismatched Bitcoin deposit was returned. Locking can now resume.</div>
-      </div>
-    </section>
-
     <section PendingRecord v-else-if="lockSummary.status === BitcoinLockStatus.Releasing">
       <BitcoinIcon MainIcon class="bitcoin-spin" />
       <div ContentWrapper>
@@ -182,7 +133,7 @@
 
     <section
       ActiveRecord
-      v-else-if="[BitcoinLockStatus.LockedAndIsMinting, BitcoinLockStatus.LockedAndMinted].includes(lockSummary.status)"
+      v-else-if="lockSummary.status === BitcoinLockStatus.LockFunded"
       :class="isActionHovered ? '' : 'hover:bg-slate-50'"
     >
       <BitcoinIcon MainIcon />
@@ -198,8 +149,9 @@
             @mouseleave="isActionHovered = false"
           >
             <button
+              v-if="liquidId !== undefined"
               RatchetButton
-              @click.stop="openRatchetingOverlay($event, lockSummary)"
+              @click.stop="openRatchetingOverlay($event, lockSummary, liquidId)"
               :class="[
                 displayedRatchetPercent || isRatchetPending
                   ? 'bg-argon-600 border-argon-800 hover:bg-argon-700 text-white hover:shadow-lg'
@@ -261,10 +213,9 @@ import BitcoinAlertIcon from '../../../assets/wallets/bitcoin-alert.svg?componen
 import type { IBitcoinLockSummary } from '../../../interfaces/IBitcoinLockSummary.ts';
 import numeral, { createNumeralHelpers } from '../../../lib/numeral.ts';
 import { getCurrency } from '../../../stores/currency.ts';
-import { getBitcoinLocks } from '../../../stores/bitcoin.ts';
-import { useFinancials } from '../../../stores/financials.ts';
+import { getBitcoinFissions, getBitcoinLocks, getBitcoinTransactionOperations } from '../../../stores/bitcoin.ts';
+import { useFinancialHistory } from '../../../stores/financialHistory.ts';
 import ProgressBar from '../../../components/ProgressBar.vue';
-import BitcoinRecordMismatch from './BitcoinRecordMismatch.vue';
 import Spinner from '../../../components/Spinner.vue';
 import CountdownClock from '../../../components/CountdownClock.vue';
 
@@ -272,7 +223,9 @@ dayjs.extend(utc);
 
 const currency = getCurrency();
 const bitcoinLocks = getBitcoinLocks();
-const financials = useFinancials();
+const bitcoinFissions = getBitcoinFissions();
+const { bitcoinLiquidRatchet } = getBitcoinTransactionOperations();
+const financialHistory = useFinancialHistory();
 
 const { microgonToMoneyNm, satToBtcNm, satToMoneyNm } = createNumeralHelpers(currency);
 
@@ -287,30 +240,27 @@ const props = withDefaults(
 );
 
 const emit = defineEmits<{
-  ratchet: [event: MouseEvent, lock: IBitcoinLockSummary];
+  ratchet: [event: MouseEvent, lock: IBitcoinLockSummary, liquidId: number];
   unlock: [event: MouseEvent, lock: IBitcoinLockRecord];
 }>();
 
 const isActionHovered = Vue.ref(false);
 const lockRecord = Vue.computed(() => props.lockSummary.record);
-const fundingExpirationTime = Vue.computed(() => dayjs.utc(bitcoinLocks.verifyExpirationTime(lockRecord.value)));
-const isHistoryRecoveryPaused = Vue.computed(() => financials.historyRecoveryByDomain.bitcoin.state === 'error');
+const liquidId = Vue.computed(() => {
+  if (props.lockSummary.lockId === undefined) return;
+  const liquidIds = bitcoinFissions.getLiquidIdsForLock(props.lockSummary.lockId);
+  if (liquidIds.length === 1) return liquidIds[0];
+});
+const securitizationHoldExpirationTime = Vue.computed(() =>
+  dayjs.utc(bitcoinLocks.getSecuritizationHoldExpirationTime(lockRecord.value)),
+);
+const isHistoryRecoveryPaused = Vue.computed(() => financialHistory.historyRecoveryByDomain.bitcoin.state === 'error');
 const isRatchetPending = Vue.ref(false);
 const displayedRatchetPercent = Vue.computed(() => Math.round(props.lockSummary.ratchetPercent * 100) / 100);
 const releaseState = Vue.computed(() => bitcoinLocks.getLockUnlockReleaseState(lockRecord.value));
-const mismatchAcceptProgress = Vue.computed(() => {
-  if (!lockRecord.value.utxoId) {
-    return { progressPct: 0, error: '' };
-  }
-  const txStatus = bitcoinLocks.getLatestMismatchAcceptTxInfo(lockRecord.value.utxoId)?.getStatus();
-  return {
-    progressPct: txStatus?.progressPct ?? 0,
-    error: '',
-  };
-});
-
 Vue.watchEffect(onCleanup => {
-  const pendingRatchet = bitcoinLocks.getPendingRatchetTxInfo(lockRecord.value);
+  const pendingRatchet =
+    liquidId.value === undefined ? undefined : bitcoinLiquidRatchet.getPendingRatchetTxInfo(liquidId.value);
   isRatchetPending.value = props.isRatchetPreparing || !!pendingRatchet;
   if (!pendingRatchet) return;
 
@@ -331,17 +281,12 @@ function formatTimeRemaining(days: number, hours: number, minutes: number, secon
   return parts.length > 1 ? `${parts.slice(0, -1).join(', ')} and ${parts.at(-1)}` : parts[0];
 }
 
-function openRatchetingOverlay(event: MouseEvent, lock: IBitcoinLockSummary) {
-  emit('ratchet', event, lock);
+function openRatchetingOverlay(event: MouseEvent, lock: IBitcoinLockSummary, selectedLiquidId: number) {
+  emit('ratchet', event, lock, selectedLiquidId);
 }
 
 function openUnlockingOverlay(event: MouseEvent, lock: IBitcoinLockRecord) {
   emit('unlock', event, lock);
-}
-
-async function acknowledgeExpiredNotice() {
-  await bitcoinLocks.acknowledgeExpiredWaitingForFunding(props.lockSummary.record).catch(() => undefined);
-  await bitcoinLocks.load();
 }
 </script>
 

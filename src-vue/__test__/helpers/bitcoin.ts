@@ -9,11 +9,13 @@ import { toHistoricalEvent } from '@argonprotocol/runtime-client/events';
 import BigNumber from 'bignumber.js';
 import { createHistoricalEventData } from '../../../indexer/__test__/helpers/historicalEvents.ts';
 import BitcoinLocks from '../../lib/BitcoinLocks.ts';
+import type BitcoinMempool from '../../lib/BitcoinMempool.ts';
 import type { Db } from '../../lib/Db.ts';
 import type { TransactionTracker } from '../../lib/TransactionTracker.ts';
 import type { UpstreamOperatorClient } from '../../lib/UpstreamOperatorClient.ts';
 import type { WalletKeys } from '../../lib/WalletKeys.ts';
 import { BitcoinLockStatus, type IBitcoinLockRecord } from '../../lib/db/BitcoinLocksTable.ts';
+import type { IHistoricalBitcoinLock } from '../../lib/recovery/BitcoinLockHistory.ts';
 
 export function createBitcoinLockConfig(overrides: Partial<IBitcoinLockConfig> = {}): IBitcoinLockConfig {
   const defaults = buildDefaultBitcoinLockConfig();
@@ -29,10 +31,9 @@ export const DEFAULT_BITCOIN_LOCK_CONFIG = createBitcoinLockConfig();
 function buildDefaultBitcoinLockConfig(): IBitcoinLockConfig {
   return {
     lockReleaseCosignDeadlineFrames: 1,
-    pendingConfirmationExpirationBlocks: 6,
+    securitizationHoldBlocks: 6,
     tickDurationMillis: 1_000,
     bitcoinNetwork: buildDefaultBitcoinNetwork(),
-    lockSatoshiAllowedVariance: 1_000,
   };
 }
 
@@ -51,8 +52,8 @@ export function createStore(
     blockWatch?: BlockWatch;
     db?: Db;
     transactionTracker?: TransactionTracker;
-    upstreamOperatorClient?: UpstreamOperatorClient;
     walletKeys?: WalletKeys;
+    mempool?: BitcoinMempool;
   } = {},
 ): BitcoinLocks {
   const blockWatch =
@@ -60,6 +61,7 @@ export function createStore(
     (Object.assign(Object.create(null), {
       start: async () => undefined,
       events: { on: () => () => undefined },
+      finalizedBlockHeader: { blockNumber: 0, blockHash: '0x0' },
       bestBlockHeader: { blockNumber: 0, blockHash: '0x0' },
     }) as BlockWatch);
   const currency = Object.assign(Object.create(null), {
@@ -80,14 +82,26 @@ export function createStore(
       data: { txInfos: [], txInfosByType: {} },
     }) as TransactionTracker);
 
+  const db =
+    options.db ??
+    (Object.assign(Object.create(null), {
+      bitcoinLocksTable: {
+        getByLockId: async () => undefined,
+      },
+      bitcoinSecuritizationHistoryTable: {
+        getPublishedSnapshot: async () => undefined,
+        createSnapshot: async () => ({ ownerAccount: '', snapshotId: '', asOfBlock: 0 }),
+        publishSnapshot: async () => undefined,
+      },
+    }) as Db);
+
   return new BitcoinLocks(
-    Promise.resolve(options.db ?? (Object.create(null) as Db)),
-    options.walletKeys ?? (Object.create(null) as WalletKeys),
+    Promise.resolve(db),
+    options.walletKeys ?? ({ defaultArgonAddress: '5owner' } as WalletKeys),
     blockWatch,
     currency,
     transactionTracker,
-    undefined,
-    options.upstreamOperatorClient,
+    options.mempool,
   );
 }
 
@@ -97,25 +111,43 @@ export function createLock(args: {
   status: BitcoinLockStatus;
   createdAt: string;
 }): IBitcoinLockRecord {
+  const ownerAccount = '5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY';
+  const lock = {
+    ...createHistoricalLock({ accountId: ownerAccount, liquidityPromised: 0n, lockedTargetPrice: 0n }),
+    utxoId: args.utxoId ?? 0,
+  };
   return {
     uuid: args.uuid,
-    utxoId: args.utxoId,
+    lockId: lock.utxoId,
     status: args.status,
-    satoshis: 10_000n,
-    liquidityPromised: 0n,
-    lockedTargetPrice: 0n,
-    ratchets: [],
+    securitizedSatoshis: lock.securitizedSatoshis,
+    fundedSatoshis: lock.fundedSatoshis,
+    fundingUtxoIds: [],
+    activeReleaseId: undefined,
+    ownerAccount,
+    microgonsAtTargetPerBtc: lock.lockedTargetPrice,
+    securitizationCoverageMicrogons: lock.securitizationCoverageMicrogons,
+    securitizationRatio: lock.securitizationRatio,
+    securityFees: 0n,
+    couponFeesPaid: lock.couponFeesPaid,
     cosignVersion: 'v1',
-    lockDetails: {
-      p2wshScriptHashHex: `0020${'00'.repeat(32)}`,
-      ownerAccount: '5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY',
-      createdAtHeight: 100,
-      vaultClaimHeight: 200,
-    } as IBitcoinLockRecord['lockDetails'],
-    fundingUtxoRecordId: null,
+    scriptDetails: {
+      p2wshScriptHashHex: lock.p2wshScriptHashHex,
+      vaultPubkey: lock.vaultPubkey,
+      vaultClaimPubkey: lock.vaultClaimPubkey,
+      ownerPubkey: lock.ownerPubkey,
+      vaultXpubSources: lock.vaultXpubSources,
+      vaultClaimHeight: lock.vaultClaimHeight,
+      openClaimHeight: lock.openClaimHeight,
+      createdAtHeight: lock.createdAtHeight,
+    },
+    securitizationHoldExpirationBitcoinHeight: lock.securitizationHoldExpirationBitcoinHeight,
+    isFlexible: lock.isFlexible,
+    fundHoldExtensionsByBitcoinExpirationHeight: lock.fundHoldExtensionsByBitcoinExpirationHeight,
+    createdAtArgonBlock: lock.createdAtArgonBlock,
     network: 'testnet',
     hdPath: "m/84'/0'/0'",
-    vaultId: 1,
+    vaultId: lock.vaultId,
     createdAt: new Date(args.createdAt),
     updatedAt: new Date(args.createdAt),
   };
@@ -125,7 +157,7 @@ export function createHistoricalLock(args: {
   accountId: string;
   liquidityPromised: bigint;
   lockedTargetPrice?: bigint;
-}): IBitcoinLock {
+}): IHistoricalBitcoinLock {
   return {
     utxoId: 7,
     p2wshScriptHashHex: `0020${'00'.repeat(32)}`,
@@ -135,7 +167,8 @@ export function createHistoricalLock(args: {
     liquidityPromised: args.liquidityPromised,
     ownerAccount: args.accountId,
     securitizationRatio: 1,
-    satoshis: 10_000n,
+    securitizedSatoshis: 10_000n,
+    fundedSatoshis: 10_000n,
     vaultPubkey: `02${'11'.repeat(32)}`,
     securityFees: 20n,
     couponFeesPaid: 0n,
@@ -149,9 +182,44 @@ export function createHistoricalLock(args: {
     vaultClaimHeight: 700,
     openClaimHeight: 800,
     createdAtHeight: 500,
-    isFunded: true,
+    securitizationHoldExpirationBitcoinHeight: 506,
     createdAtArgonBlock: 151,
     fundHoldExtensionsByBitcoinExpirationHeight: {},
+  };
+}
+
+export function createCurrentLock(overrides: Partial<IBitcoinLock> = {}): IBitcoinLock {
+  return {
+    lockId: 7,
+    p2wshScriptHashHex: `0020${'00'.repeat(32)}`,
+    vaultId: 1,
+    securitizedSatoshis: 10_000n,
+    microgonsAtTargetPerBtc: 1_000n,
+    securitizationCoverageMicrogons: 10_000n,
+    securitizationTick: 500,
+    fundedSatoshis: 10_000n,
+    fundingUtxos: [{ utxoRef: { txid: '0'.repeat(64), vout: 0 }, satoshis: 10_000n }],
+    fissionedSatoshis: 0n,
+    ownerAccount: '5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY',
+    securitizationRatio: 1,
+    securityFees: 20n,
+    couponFeesPaid: 0n,
+    vaultPubkey: `02${'11'.repeat(32)}`,
+    vaultClaimPubkey: `02${'22'.repeat(32)}`,
+    ownerPubkey: `02${'33'.repeat(32)}`,
+    vaultXpubSources: {
+      parentFingerprint: new Uint8Array(4),
+      cosignHdIndex: 0,
+      claimHdIndex: 0,
+    },
+    vaultClaimHeight: 700,
+    openClaimHeight: 800,
+    createdAtHeight: 500,
+    securitizationHoldExpirationBitcoinHeight: 506,
+    isFlexible: false,
+    fundHoldExtensionsByBitcoinExpirationHeight: {},
+    createdAtArgonBlock: 159,
+    ...overrides,
   };
 }
 

@@ -1,7 +1,8 @@
-// Source: @argonprotocol/mainchain 1.4.12, the last release that exported this model.
 import type {
+  VaultsVaultsByIdResult,
   VaultsVaultsByIdResultSpec157Variant13,
   VaultsVaultsByIdResultSpec158Variant14,
+  VaultsVaultsByIdResultSpec159Variant15,
 } from '@argonprotocol/runtime-client';
 import BigNumber from 'bignumber.js';
 import type { ArgonQueryClient } from './MainchainClients.js';
@@ -12,10 +13,15 @@ const FixedU128BigNumber = BigNumber.clone({
   ROUNDING_MODE: BigNumber.ROUND_HALF_DOWN,
 });
 
-type RuntimeVault = NonNullable<VaultsVaultsByIdResultSpec157Variant13 | VaultsVaultsByIdResultSpec158Variant14>;
+type RuntimeVault = NonNullable<
+  | VaultsVaultsByIdResultSpec157Variant13
+  | VaultsVaultsByIdResultSpec158Variant14
+  | VaultsVaultsByIdResultSpec159Variant15
+>;
 
 export class Vault {
   public securitization!: bigint;
+  public securitizationTarget!: bigint;
   public securitizationLocked!: bigint;
   public securitizationPendingActivation!: bigint;
   /**
@@ -32,24 +38,27 @@ export class Vault {
   public openedTick: number;
   public securitizationRatio!: number;
 
-  public lockedSatoshis!: bigint;
   public securitizedSatoshis!: bigint;
+  public ratioAdjustedSatoshis!: bigint;
   public flexibleSecuritizationLocked!: bigint;
   public reservedSecuritizationSpace!: bigint;
-  public flexibleSecuritizedSatoshis!: bigint;
+  public flexibleRatioAdjustedSatoshis!: bigint;
   public delegateAccountId?: string;
+  public operationalMinimumReleaseTick?: number;
 
   constructor(
     id: number,
     vault: RuntimeVault,
     public tickDuration: number,
   ) {
+    const compatibleVault = vault as NonNullable<VaultsVaultsByIdResult>;
     this.vaultId = id;
     this.openedTick = vault.openedTick;
     this.openedDate = new Date(this.openedTick * this.tickDuration);
     this.securitizationReleaseSchedule = new Map();
 
     this.securitization = vault.securitization;
+    this.securitizationTarget = vault.securitizationTarget;
     this.securitizationRatio = vault.securitizationRatio.toNumber();
     this.securitizationLocked = vault.securitizationLocked;
     this.securitizationPendingActivation = vault.securitizationPendingActivation;
@@ -61,17 +70,16 @@ export class Vault {
       bitcoinBaseFee: vault.terms.bitcoinBaseFee,
       treasuryProfitSharing: vault.terms.treasuryProfitSharing,
     };
-    this.lockedSatoshis = vault.lockedSatoshis;
-    this.securitizedSatoshis = vault.securitizedSatoshis;
-    if ('flexibleSecuritizationLocked' in vault) {
-      this.flexibleSecuritizationLocked = vault.flexibleSecuritizationLocked;
-      this.reservedSecuritizationSpace = vault.reservedSecuritizationSpace;
-      this.flexibleSecuritizedSatoshis = vault.flexibleSecuritizedSatoshis;
-    } else {
-      this.flexibleSecuritizationLocked = vault.backfillSecuritizationLocked;
-      this.reservedSecuritizationSpace = vault.backfillSecuritizationReserved;
-      this.flexibleSecuritizedSatoshis = vault.backfillSecuritizedSatoshis;
-    }
+    this.securitizedSatoshis = compatibleVault.lockedSatoshis ?? vault.securitizedSatoshis;
+    this.ratioAdjustedSatoshis = compatibleVault.ratioAdjustedSatoshis ?? vault.securitizedSatoshis;
+    this.flexibleSecuritizationLocked =
+      compatibleVault.flexibleSecuritizationLocked ?? compatibleVault.backfillSecuritizationLocked!;
+    this.reservedSecuritizationSpace =
+      compatibleVault.reservedSecuritizationSpace ?? compatibleVault.backfillSecuritizationReserved!;
+    this.flexibleRatioAdjustedSatoshis =
+      compatibleVault.flexibleRatioAdjustedSatoshis ??
+      compatibleVault.flexibleSecuritizedSatoshis ??
+      compatibleVault.backfillSecuritizedSatoshis!;
 
     this.operatorAccountId = vault.operatorAccountId;
     this.isClosed = vault.isClosed;
@@ -88,6 +96,7 @@ export class Vault {
       };
     }
     this.delegateAccountId = vault.delegateAccountId ?? undefined;
+    this.operationalMinimumReleaseTick = vault.operationalMinimumReleaseTick ?? undefined;
   }
 
   public availableBitcoinSpace(lockOwner?: string): bigint {
@@ -162,17 +171,18 @@ export class Vault {
     if (!rawVault) {
       throw new Error(`Vault with id ${vaultId} not found`);
     }
+    const compatibleVault = rawVault as NonNullable<VaultsVaultsByIdResult>;
     if (
       rawVault.securitization === undefined ||
       rawVault.securitizationLocked === undefined ||
       rawVault.securitizationPendingActivation === undefined ||
-      rawVault.lockedSatoshis === undefined ||
       rawVault.securitizedSatoshis === undefined ||
       rawVault.securitizationReleaseSchedule === undefined ||
       rawVault.securitizationRatio === undefined ||
       rawVault.openedTick === undefined ||
       !rawVault.terms ||
-      (!('flexibleSecuritizationLocked' in rawVault) && !('backfillSecuritizationLocked' in rawVault))
+      (compatibleVault.flexibleSecuritizationLocked === undefined &&
+        compatibleVault.backfillSecuritizationLocked === undefined)
     ) {
       throw new Error(`Vault ${vaultId} predates the supported runtime compatibility window`);
     }

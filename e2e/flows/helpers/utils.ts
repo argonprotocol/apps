@@ -2,8 +2,6 @@ import type { E2ETarget, IE2EFlowRuntime } from '../types.ts';
 import { waitFor } from '@argonprotocol/apps-core/__test__/helpers/waitFor.ts';
 
 const DECIMAL_PATTERN = /^\d+(?:\.\d+)?$/;
-export const OPEN_LOCKING_OVERLAY_SELECTOR = '[role="dialog"][data-testid="BitcoinLockingOverlay"]';
-const OPEN_LOCKING_OVERLAY_CLOSE_SELECTOR = `${OPEN_LOCKING_OVERLAY_SELECTOR} button[class*="border-slate-400"]`;
 
 export interface IPollEveryOptions {
   timeoutMs: number;
@@ -197,27 +195,6 @@ export async function clickIfVisible(
   }
 }
 
-export async function dismissOpenLockingOverlay(
-  flow: IE2EFlowRuntime,
-  preferredCloseTarget?: E2ETarget,
-): Promise<boolean> {
-  const openDialogs = await flow.count({ selector: OPEN_LOCKING_OVERLAY_SELECTOR });
-  if (openDialogs === 0) return false;
-
-  if (preferredCloseTarget && (await clickIfVisible(flow, preferredCloseTarget))) {
-    await waitForOpenDialogCountBelow(flow, openDialogs);
-    return (await flow.count({ selector: OPEN_LOCKING_OVERLAY_SELECTOR })) < openDialogs;
-  }
-
-  for (let index = 0; index < openDialogs; index += 1) {
-    if (await clickIfVisible(flow, { selector: OPEN_LOCKING_OVERLAY_CLOSE_SELECTOR, index })) {
-      await waitForOpenDialogCountBelow(flow, openDialogs);
-      return (await flow.count({ selector: OPEN_LOCKING_OVERLAY_SELECTOR })) < openDialogs;
-    }
-  }
-  return (await flow.count({ selector: OPEN_LOCKING_OVERLAY_SELECTOR })) === 0;
-}
-
 function isTransientClickFailure(error: unknown): boolean {
   const message = error instanceof Error ? error.message : String(error);
   return (
@@ -227,15 +204,4 @@ function isTransientClickFailure(error: unknown): boolean {
     message.includes('not_found') ||
     (message.includes('Target') && message.includes('not found'))
   );
-}
-
-async function waitForOpenDialogCountBelow(flow: IE2EFlowRuntime, maxCountExclusive: number): Promise<void> {
-  await pollEvery(
-    200,
-    async () => (await flow.count({ selector: OPEN_LOCKING_OVERLAY_SELECTOR })) < maxCountExclusive,
-    {
-      timeoutMs: 2_000,
-      timeoutMessage: 'Timed out waiting for locking dialog count to decrease.',
-    },
-  ).catch(() => null);
 }

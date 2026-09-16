@@ -1,4 +1,5 @@
 config/*
 data/*
+*.log
 !config/.gitkeep
 !data/.gitkeep

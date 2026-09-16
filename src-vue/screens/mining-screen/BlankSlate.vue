@@ -57,7 +57,6 @@ import { getConfig } from '../../stores/config.ts';
 import { getCurrency } from '../../stores/currency.ts';
 import numeral, { createNumeralHelpers } from '../../lib/numeral.ts';
 import { ChevronDoubleRightIcon, ArrowTopRightOnSquareIcon } from '@heroicons/vue/24/outline';
-import BlankSlateBlocks from '../network-screen/BlankSlateBlocks.vue';
 import { MiningSetupStatus } from '../../interfaces/IConfig.ts';
 import { OperationalStepId, useCertificationController } from '../../stores/certificationController.ts';
 import ArrowCalloutButton from '../../components/ArrowCalloutButton.vue';

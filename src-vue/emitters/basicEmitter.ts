@@ -1,11 +1,12 @@
 import mitt, { type Emitter } from 'mitt';
-import { WalletType } from '../lib/Wallet.ts';
 import { PortfolioTab } from '../panels/interfaces/IPortfolioTab.ts';
 import type { OperationalStepId } from '../stores/certificationController.ts';
 import { ICurrencyKey, type BondLot } from '@argonprotocol/apps-core';
 import type { IBitcoinLockRecord } from '../lib/db/BitcoinLocksTable.ts';
 import type { IVaultFlexibleAssetChanges } from '../lib/MyVault.ts';
 import type { IMemberInvite } from '@argonprotocol/apps-router';
+import type { IWalletOverlayWallet, IWalletView } from '../wallets/walletOverlayState.ts';
+import type { WalletForEthereum } from '../lib/WalletForEthereum.ts';
 
 export type IWalletGuidanceContext = 'mining' | 'vaulting';
 
@@ -17,22 +18,26 @@ export type IOperationalProfileRequest =
       onSelect: (operatorName: string) => void;
     };
 
-export type IWalletOverlayRequest = {
-  walletType: WalletType.defaultArgon | WalletType.miningBot | WalletType.ethereum;
-  ethereumWalletRecordId?: number;
+export type IWalletOverlayOptions = {
+  wallet: IWalletOverlayWallet;
+  view?: IWalletView;
+  bitcoinChannelUuid?: string;
+  bitcoinChannelVaultId?: number;
   showGuidance?: boolean;
   guidanceContext?: IWalletGuidanceContext;
 };
 
 type IBasicEmitter = {
-  openWalletOverlay: IWalletOverlayRequest;
-  openWalletDisconnectOverlay: { walletRecordId: number };
-  ethereumWalletDisconnected: { walletRecordId: number };
-  openEthereumWalletImportOverlay: 'choice' | 'external';
+  openWalletOverlay: IWalletOverlayOptions;
+  openWalletDisconnectOverlay: { wallet: WalletForEthereum };
+  ethereumWalletDisconnected: { wallet: WalletForEthereum };
+  openWalletOverlayAddConnector: 'choice' | 'external';
   openSecuritizationOverlay: { returnToInvite?: boolean } | undefined;
   openBotEditOverlay: void;
+  openMiningBiddingBotOverlay: void;
+  openMiningActiveSeatsOverlay: void;
   openServerRemoveOverlay: void;
-  openSecuritySettingsOverlay: { screen: 'overview' | 'mnemonics' | 'encrypt' | 'ethereum-export' } | undefined;
+  openSecuritySettingsOverlay: { screen: 'overview' | 'mnemonics' | 'encrypt' } | undefined;
   openProvisioningCompleteOverlay: void;
   openServerConnectPanel: void;
   closeAllOverlays: void;
@@ -76,9 +81,8 @@ type IBasicEmitter = {
         flexibleAssetChanges?: IVaultFlexibleAssetChanges;
       }
     | undefined;
-  openBitcoinLock: { lock?: IBitcoinLockRecord } | undefined;
   openBitcoinUnlock: IBitcoinLockRecord;
-  resumeBitcoinFunding: IBitcoinLockRecord;
+  openBitcoinLiquidCreationOverlay: { liquidId: number } | undefined;
 
   openBondPurchaseOverlay: void;
   openStakePurchaseOverlay: void;

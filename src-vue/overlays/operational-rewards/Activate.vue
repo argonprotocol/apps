@@ -222,7 +222,7 @@ async function activateAndClaimReward() {
       txSigner: await walletKeys.getDefaultArgonKeypair(),
       extrinsicType: ExtrinsicType.OperationalActivateAndClaim,
       metadata: {
-        rewardAccount: 'defaultArgon',
+        rewardAccount: 'argon',
         vaultLockMicrogons: controller.rewardConfig.operationalMinimumVaultSecuritization,
         rewardMicrogons: controller.rewardConfig.operationalActivationReward,
         claimedMicrogons: rewardClaimAmount,

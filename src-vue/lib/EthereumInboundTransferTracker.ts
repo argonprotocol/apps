@@ -32,7 +32,7 @@ import { getEthereumGatewayPauseReason } from '../stores/mainchain.ts';
 import { TransactionTracker } from './TransactionTracker.ts';
 import type { UpstreamOperatorClient } from './UpstreamOperatorClient.ts';
 import { WalletType } from './Wallet.ts';
-import { convertEthereumTokenBaseUnitsToRuntimeAmount } from './WalletForEthereum.ts';
+import { convertEthereumTokenBaseUnitsToRuntimeAmount, type WalletForEthereum } from './WalletForEthereum.ts';
 import type { WalletKeys } from './WalletKeys.ts';
 import type { MyVault } from './MyVault.ts';
 
@@ -45,13 +45,14 @@ export type {
 export type IEthereumInboundActiveTransfer = {
   id: string;
   moveToken: IEthereumMoveToken;
+  startedAt?: number;
+  sourceAddress?: string;
   transferState: IEthereumInboundTransferState;
   persistedRecord?: ICrosschainInboundTransferRecord;
 };
 
 type IEthereumInboundTransferClient = Pick<
   EthereumClient,
-  | 'sourceAddress'
   | 'executionRpcUrl'
   | 'startTransferToArgon'
   | 'estimateTransferToArgonFee'
@@ -90,7 +91,7 @@ export class EthereumInboundTransferTracker {
     private readonly transactionTracker: TransactionTracker,
     private readonly blockWatch: BlockWatch,
     private readonly walletKeys: WalletKeys,
-    private readonly ethereumClient: IEthereumInboundTransferClient,
+    private readonly ethereumClient: IEthereumInboundTransferClient | undefined,
     private readonly serverApiClientSource: ServerRelayClientSource,
     private readonly upstreamOperatorClient: Pick<
       UpstreamOperatorClient,
@@ -100,12 +101,14 @@ export class EthereumInboundTransferTracker {
   ) {}
 
   public async load(): Promise<void> {
-    if (this.#loadPromise) {
-      return this.#loadPromise;
-    }
+    if (this.#loadPromise) return this.#loadPromise;
 
-    this.#loadPromise = this.loadPendingMoves();
-    return this.#loadPromise;
+    const loadPromise = this.loadPendingMoves().catch(error => {
+      if (this.#loadPromise === loadPromise) this.#loadPromise = undefined;
+      throw error;
+    });
+    this.#loadPromise = loadPromise;
+    return loadPromise;
   }
 
   public getTransfer(id: string): IEthereumInboundActiveTransfer | undefined {
@@ -119,6 +122,33 @@ export class EthereumInboundTransferTracker {
     }
 
     return this.getTransferState(id);
+  }
+
+  public getPendingAmount(sourceAddress: string, moveToken: IEthereumMoveToken, balanceObservedAt?: Date): bigint {
+    const normalizedAddress = sourceAddress.toLowerCase();
+    return Object.values(this.data.transfersById).reduce((total, transfer) => {
+      const isPending =
+        !transfer.persistedRecord ||
+        transfer.persistedRecord.status === CrosschainInboundTransferStatus.SourceSubmitted ||
+        (transfer.persistedRecord.status === CrosschainInboundTransferStatus.SourceFinalized &&
+          (!balanceObservedAt || balanceObservedAt < transfer.persistedRecord.updatedAt));
+      const transferSourceAddress = transfer.persistedRecord?.sourceAddress ?? transfer.sourceAddress;
+      return isPending && transfer.moveToken === moveToken && transferSourceAddress?.toLowerCase() === normalizedAddress
+        ? total + transfer.transferState.amount
+        : total;
+    }, 0n);
+  }
+
+  public hasSignerDependentTransfer(sourceAddress: string): boolean {
+    const normalizedAddress = sourceAddress.toLowerCase();
+    return Object.values(this.data.transfersById).some(transfer => {
+      const transferSourceAddress = transfer.persistedRecord?.sourceAddress ?? transfer.sourceAddress;
+      return (
+        transfer.transferState.isSubmitting &&
+        !transfer.transferState.hasPersistedTransfer &&
+        transferSourceAddress?.toLowerCase() === normalizedAddress
+      );
+    });
   }
 
   public clearCompletedTransfer(id: string) {
@@ -155,23 +185,20 @@ export class EthereumInboundTransferTracker {
     moveToken: IEthereumMoveToken;
     amountBaseUnits: bigint;
     targetWalletType: IArgonWalletType;
+    ethereumWallet: WalletForEthereum;
   }): Promise<IEthereumInboundActiveTransfer | undefined> {
-    const { moveToken, amountBaseUnits, targetWalletType } = args;
+    const { moveToken, amountBaseUnits, targetWalletType, ethereumWallet } = args;
     await this.load();
-
-    const db = await this.dbPromise;
-    const existingTransfer = await db.crosschainInboundTransfersTable.getLatestPendingByToken('Ethereum', moveToken);
-    if (existingTransfer) {
-      void this.resumeTrackedMove(existingTransfer);
-      return this.getTransfer(existingTransfer.id);
-    }
 
     if (amountBaseUnits <= 0n) {
       return;
     }
+    this.requireEthereumClient();
 
+    const db = await this.dbPromise;
     const id = nanoid();
     const transfer = this.trackTransfer(id, moveToken);
+    transfer.sourceAddress = ethereumWallet.address;
 
     this.data.latestTransferIdByToken[moveToken] = id;
     transfer.transferState = {
@@ -192,6 +219,7 @@ export class EthereumInboundTransferTracker {
       moveToken,
       amountBaseUnits,
       targetWalletType,
+      ethereumWallet,
     });
 
     return transfer;
@@ -201,6 +229,7 @@ export class EthereumInboundTransferTracker {
     moveToken: IEthereumMoveToken;
     amountBaseUnits: bigint;
     targetWalletType: IArgonWalletType;
+    ethereumWallet: WalletForEthereum;
   }): Promise<bigint | undefined> {
     const { moveToken, amountBaseUnits, targetWalletType } = args;
     if (amountBaseUnits <= 0n) {
@@ -208,10 +237,11 @@ export class EthereumInboundTransferTracker {
     }
 
     const destinationAddress = this.walletKeys.getWalletAddress(targetWalletType);
-    return await this.ethereumClient.estimateTransferToArgonFee?.({
+    return this.requireEthereumClient().estimateTransferToArgonFee?.({
       moveToken,
       amountBaseUnits,
       destinationAddress,
+      ethereumWallet: args.ethereumWallet,
     });
   }
 
@@ -225,6 +255,7 @@ export class EthereumInboundTransferTracker {
       this.data.transfersById[id] = {
         id,
         moveToken,
+        startedAt: Date.now(),
         transferState: createEmptyTransferState(),
       };
       transfer = this.data.transfersById[id];
@@ -238,7 +269,6 @@ export class EthereumInboundTransferTracker {
       return;
     }
 
-    this.#hasLoadedPendingMoves = true;
     await this.transactionTracker.load();
     await this.blockWatch.start();
 
@@ -252,10 +282,13 @@ export class EthereumInboundTransferTracker {
       }
 
       const transfer = this.trackTransfer(record.id, moveToken);
+      transfer.startedAt = record.createdAt.getTime();
+      transfer.sourceAddress = record.sourceAddress;
       transfer.persistedRecord = record;
       this.data.latestTransferIdByToken[moveToken] ??= record.id;
       void this.resumeTrackedMove(record);
     }
+    this.#hasLoadedPendingMoves = true;
   }
 
   private async resumeTrackedMove(record: ICrosschainInboundTransferRecord) {
@@ -283,16 +316,18 @@ export class EthereumInboundTransferTracker {
     const transfer = this.trackTransfer(record.id, moveToken);
     let targetWalletType: IArgonWalletType | undefined;
     if (record.argonDestinationAddress === this.walletKeys.defaultArgonAddress) {
-      targetWalletType = WalletType.defaultArgon;
+      targetWalletType = WalletType.argon;
     } else if (record.argonDestinationAddress === this.walletKeys.miningBotAddress) {
       targetWalletType = WalletType.miningBot;
     } else if (
       record.argonDestinationAddress === this.walletKeys.vaultingAddress ||
       record.argonDestinationAddress === this.walletKeys.legacyVaultingAddress
     ) {
-      targetWalletType = WalletType.defaultArgon;
+      targetWalletType = WalletType.argon;
     }
     transfer.persistedRecord = record;
+    transfer.startedAt = record.createdAt.getTime();
+    transfer.sourceAddress = record.sourceAddress;
     if (!targetWalletType) {
       throw new InboundTransferInvariantError(
         `Unable to determine target wallet type for ${record.argonDestinationAddress}.`,
@@ -312,6 +347,7 @@ export class EthereumInboundTransferTracker {
       error: record.failureReason ?? '',
     };
 
+    if (!this.ethereumClient) return;
     await this.continueTrackedMove(transfer, moveToken, 'Unable to resume the Ethereum transfer.');
   }
 
@@ -321,8 +357,9 @@ export class EthereumInboundTransferTracker {
     moveToken: IEthereumMoveToken;
     amountBaseUnits: bigint;
     targetWalletType: IArgonWalletType;
+    ethereumWallet: WalletForEthereum;
   }) {
-    const { db, id, moveToken, amountBaseUnits, targetWalletType } = args;
+    const { db, id, moveToken, amountBaseUnits, targetWalletType, ethereumWallet } = args;
     const transfer = this.trackTransfer(id, moveToken);
     const transferState = transfer.transferState;
 
@@ -332,12 +369,14 @@ export class EthereumInboundTransferTracker {
         moveToken,
         amountBaseUnits,
         destinationAddress,
+        ethereumWallet,
       });
 
-      const submittedTransfer = await this.ethereumClient.startTransferToArgon({
+      const submittedTransfer = await this.requireEthereumClient().startTransferToArgon({
         moveToken,
         amountBaseUnits,
         destinationAddress,
+        ethereumWallet,
       });
       transferState.hasPersistedTransfer = true;
 
@@ -346,7 +385,7 @@ export class EthereumInboundTransferTracker {
         id,
         token: submittedTransfer.moveToken,
         amountBaseUnits: submittedTransfer.amountBaseUnits,
-        sourceAddress: this.ethereumClient.sourceAddress,
+        sourceAddress: submittedTransfer.sourceAddress ?? transfer.sourceAddress,
         argonDestinationAddress: submittedTransfer.destinationAddress,
         sourceTxHash: submittedTransfer.sourceTxHash,
         progressJson: transferState.progress,
@@ -365,13 +404,16 @@ export class EthereumInboundTransferTracker {
     moveToken: IEthereumMoveToken;
     amountBaseUnits: bigint;
     destinationAddress: string;
+    ethereumWallet: WalletForEthereum;
   }) {
-    const feeEstimateWei = await this.ethereumClient.estimateTransferToArgonFee({
+    const ethereumClient = this.requireEthereumClient();
+    const feeEstimateWei = await ethereumClient.estimateTransferToArgonFee({
       moveToken: args.moveToken,
       amountBaseUnits: args.amountBaseUnits,
       destinationAddress: args.destinationAddress,
+      ethereumWallet: args.ethereumWallet,
     });
-    const ethereumBalanceWei = await this.ethereumClient.getNativeBalanceWei();
+    const ethereumBalanceWei = await ethereumClient.getNativeBalanceWei(args.ethereumWallet);
     if (ethereumBalanceWei >= feeEstimateWei) {
       return;
     }
@@ -444,7 +486,7 @@ export class EthereumInboundTransferTracker {
           );
         }
 
-        await sleep(this.ethereumClient.getTransferToArgonPollMs());
+        await sleep(this.requireEthereumClient().getTransferToArgonPollMs());
       }
     } catch (error) {
       await this.failTransfer(transfer.id, error instanceof Error ? error.message : fallbackErrorMessage);
@@ -452,6 +494,8 @@ export class EthereumInboundTransferTracker {
   }
 
   private async confirmSourceTransfer(record: ICrosschainInboundTransferRecord) {
+    const moveToken = getMoveToken(record);
+    if (!moveToken) throw new InboundTransferInvariantError(`Unsupported Ethereum transfer token: ${record.token}`);
     const transferState = this.getTransferState(record.id);
     transferState.progress = setInboundEthereumStepProgress(transferState.progress, {
       progressPct: 0,
@@ -477,7 +521,8 @@ export class EthereumInboundTransferTracker {
         `Persisted inbound transfer ${record.id} is missing its source transaction hash.`,
       );
     }
-    const finalizedProgress = await this.ethereumClient.waitForTransactionFinality({
+    const ethereumClient = this.requireEthereumClient();
+    const finalizedProgress = await ethereumClient.waitForTransactionFinality({
       txHash: sourceTxHash,
       blockNumber: activeRecord.sourceBlockNumber,
       blockHash: activeRecord.sourceBlockHash,
@@ -503,11 +548,11 @@ export class EthereumInboundTransferTracker {
       },
     });
 
-    const confirmedTransfer = await this.ethereumClient.confirmTransferToArgon({
-      moveToken: activeRecord.token,
+    const confirmedTransfer = await ethereumClient.confirmTransferToArgon({
+      moveToken,
       amountBaseUnits: activeRecord.amountBaseUnits,
       destinationAddress: activeRecord.argonDestinationAddress,
-      executionRpcUrl: this.ethereumClient.executionRpcUrl,
+      executionRpcUrl: ethereumClient.executionRpcUrl,
       sourceTxHash,
       sourceBlockNumber: finalizedProgress.blockNumber,
       sourceBlockHash: finalizedProgress.blockHash,
@@ -676,7 +721,7 @@ export class EthereumInboundTransferTracker {
 
     const currentStepStartedAt =
       transfer.transferState.progress.steps[transfer.transferState.progress.currentStep - 1]?.startedAt;
-    const waitEstimateMs = this.ethereumClient.getTransferToArgonWaitEstimateMs();
+    const waitEstimateMs = this.requireEthereumClient().getTransferToArgonWaitEstimateMs();
     const hasExceededWaitEstimate = currentStepStartedAt !== undefined && now - currentStepStartedAt >= waitEstimateMs;
     const lastCatchUpRequestAt = this.#lastCatchUpRequestAt.get(record.id);
     if (lastCatchUpRequestAt !== undefined) {
@@ -767,10 +812,30 @@ export class EthereumInboundTransferTracker {
     this.#argonFinalizationStartBlockByTransferId.delete(id);
 
     if (this.data.latestTransferIdByToken[moveToken] === id) {
-      delete this.data.latestTransferIdByToken[moveToken];
+      this.recomputeLatestTransfer(moveToken, id);
     }
 
     delete this.data.transfersById[id];
+  }
+
+  private recomputeLatestTransfer(moveToken: IEthereumMoveToken, excludedId?: string) {
+    const latest = Object.values(this.data.transfersById)
+      .filter(transfer => transfer.id !== excludedId && transfer.moveToken === moveToken)
+      .sort((a, b) => {
+        const aTime = a.persistedRecord?.updatedAt.getTime() ?? a.startedAt ?? 0;
+        const bTime = b.persistedRecord?.updatedAt.getTime() ?? b.startedAt ?? 0;
+        return bTime - aTime;
+      })[0];
+
+    if (latest) this.data.latestTransferIdByToken[moveToken] = latest.id;
+    else delete this.data.latestTransferIdByToken[moveToken];
+  }
+
+  private requireEthereumClient(): IEthereumInboundTransferClient {
+    if (!this.ethereumClient) {
+      throw new Error('Ethereum execution RPC is not configured for this app instance.');
+    }
+    return this.ethereumClient;
   }
 
   private async failTransfer(id: string, errorMessage: string) {

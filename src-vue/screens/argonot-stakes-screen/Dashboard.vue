@@ -12,10 +12,7 @@
       <div class="w-1/3 border-b border-slate-400/30 py-5">
         <div class="text-argon-600 inline-flex text-5xl font-bold">
           <span>{{ currency.symbol }}</span>
-          <FormattedMoney
-            :isLoaded="isSummaryReady && financials.historyRecoveryByDomain.bonds.state === 'ready'"
-            :value="stakesSummary?.returnSummary.paidIncome ?? 0n"
-          />
+          <FormattedMoney :isLoaded="isSummaryReady" :value="stakesSummary?.returnSummary.paidIncome ?? 0n" />
         </div>
         <div>Distributed Income</div>
       </div>
@@ -68,7 +65,6 @@
             :position="stakePositionsByLotId.get(bondLot.id)"
             :returnPercent="stakeReturnsByLotId.get(bondLot.id)"
             @click="openDetail(bondLot)"
-            @liquidate="openDetail"
           />
         </section>
         <div class="relative px-0.5 pb-0.5">
@@ -100,7 +96,6 @@ import { getConfig } from '../../stores/config.ts';
 import { BondLot, NetworkConfig } from '@argonprotocol/apps-core';
 import { getArgonBonds } from '../../stores/argonBonds.ts';
 import basicEmitter from '../../emitters/basicEmitter.ts';
-import { WalletType } from '../../lib/Wallet.ts';
 import FormattedMoney from '../../components/FormattedMoney.vue';
 import { useFinancials } from '../../stores/financials.ts';
 import { calculatePositionReturn } from '../../lib/financials';
@@ -201,7 +196,7 @@ async function refreshMarketData() {
 }
 
 function openArgonWallet() {
-  basicEmitter.emit('openWalletOverlay', { walletType: WalletType.defaultArgon });
+  basicEmitter.emit('openWalletOverlay', { wallet: wallets.argonWallets.defaultArgonWallet });
 }
 
 let unsubVault: (() => void) | undefined;

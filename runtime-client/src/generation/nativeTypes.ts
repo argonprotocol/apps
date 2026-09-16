@@ -22,9 +22,9 @@ export function createNativeTypeTranslator(
       return translateType(node, declarations, enumVariants, new Set(), fieldOverrides);
     },
     translateField(name, node) {
-      const override = nativeTypeForOverride(fieldOverrides[name]);
+      const override = fieldOverrides[name];
       return override
-        ? translateOverriddenField(node, override)
+        ? translateOverriddenField(node, override, declarations, enumVariants, new Set(), fieldOverrides)
         : translateType(node, declarations, enumVariants, new Set(), fieldOverrides);
     },
   };
@@ -176,26 +176,71 @@ function translateProperties(
     if (!ts.isPropertySignature(member) || !member.type) return [];
     const name = propertyName(member.name);
     if (!name) return [];
-    const override = nativeTypeForOverride(fieldOverrides[name]);
+    const override = fieldOverrides[name];
     return [
-      `readonly ${safeProperty(name)}${member.questionToken ? '?' : ''}: ${override ? translateOverriddenField(member.type, override) : translateType(member.type, declarations, enumVariants, stack, fieldOverrides)}`,
+      `readonly ${safeProperty(name)}${member.questionToken ? '?' : ''}: ${override ? translateOverriddenField(member.type, override, declarations, enumVariants, stack, fieldOverrides) : translateType(member.type, declarations, enumVariants, stack, fieldOverrides)}`,
     ];
   });
   return fields.length ? `{ ${fields.join('; ')} }` : '{}';
 }
 
-function translateOverriddenField(node: ts.TypeNode, override: string): string {
-  if (!ts.isTypeReferenceNode(node)) return override;
+function translateOverriddenField(
+  node: ts.TypeNode,
+  override: RuntimeTypeOverride,
+  declarations: Map<string, TypeDeclaration>,
+  enumVariants: Map<string, Map<string, string>>,
+  stack: Set<string>,
+  fieldOverrides: Readonly<Record<string, RuntimeTypeOverride>>,
+): string {
+  if (!ts.isTypeReferenceNode(node)) return requiredNativeOverride(override);
 
   const name = typeReferenceName(node.typeName);
   if (name === 'Option') {
-    const inner = translateOverriddenField(requiredArg(name, node.typeArguments ?? [], 0), override);
+    const inner = translateOverriddenField(
+      requiredArg(name, node.typeArguments ?? [], 0),
+      override,
+      declarations,
+      enumVariants,
+      stack,
+      fieldOverrides,
+    );
     return `${inner} | null`;
   }
   if (name === 'Compact') {
-    return translateOverriddenField(requiredArg(name, node.typeArguments ?? [], 0), override);
+    return translateOverriddenField(
+      requiredArg(name, node.typeArguments ?? [], 0),
+      override,
+      declarations,
+      enumVariants,
+      stack,
+      fieldOverrides,
+    );
   }
-  return override;
+  if (override === 'mapEntries') {
+    if (name !== 'BTreeMap') throw new Error(`mapEntries override requires BTreeMap, received ${name}`);
+    const key = translateType(
+      requiredArg(name, node.typeArguments ?? [], 0),
+      declarations,
+      enumVariants,
+      stack,
+      fieldOverrides,
+    );
+    const value = translateType(
+      requiredArg(name, node.typeArguments ?? [], 1),
+      declarations,
+      enumVariants,
+      stack,
+      fieldOverrides,
+    );
+    return `readonly (readonly [${key}, ${value}])[]`;
+  }
+  return requiredNativeOverride(override);
+}
+
+function requiredNativeOverride(override: RuntimeTypeOverride): string {
+  const nativeType = nativeTypeForOverride(override);
+  if (!nativeType) throw new Error(`Unsupported scalar runtime type override ${override}`);
+  return nativeType;
 }
 
 export function nativeTypeForOverride(override?: RuntimeTypeOverride): string | undefined {

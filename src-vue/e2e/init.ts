@@ -1,3 +1,5 @@
+import { JsonExt } from '@argonprotocol/apps-core';
+
 import { LOGGABLE_ARG_KEYS, runCommand } from './commands';
 import { getConfig } from '../stores/config';
 
@@ -91,7 +93,7 @@ function isSupportedDriverUrl(url: URL): boolean {
 
 function sendMessage(socket: WebSocket, payload: UnknownObject): void {
   if (socket.readyState !== WebSocket.OPEN) return;
-  socket.send(JSON.stringify(payload));
+  socket.send(JsonExt.stringify(payload));
 }
 
 function formatConsoleErrorArg(value: unknown): string {
@@ -152,7 +154,7 @@ function summarizeCommandArgs(args: unknown): string {
 async function onDriverMessage(socket: WebSocket, data: string, session: string): Promise<void> {
   let payload: UnknownObject;
   try {
-    payload = JSON.parse(data) as UnknownObject;
+    payload = JsonExt.parse<UnknownObject>(data);
   } catch (error) {
     console.warn('[E2E] Ignoring non-JSON driver message', error);
     return;

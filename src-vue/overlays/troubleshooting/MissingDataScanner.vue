@@ -79,7 +79,7 @@ import { getMyVault } from '../../stores/vaults.ts';
 import { getBitcoinLocks } from '../../stores/bitcoin.ts';
 import { MyVaultRecovery } from '../../lib/recovery/MyVaultRecovery.ts';
 import { getBlockWatch, getMainchainClients, getFinalizedClient } from '../../stores/mainchain.ts';
-import { useFinancials } from '../../stores/financials.ts';
+import { useFinancialHistory } from '../../stores/financialHistory.ts';
 import { getConfig } from '../../stores/config.ts';
 import { getDbPromise } from '../../stores/helpers/dbPromise.ts';
 import Importer from '../../lib/Importer.ts';
@@ -89,7 +89,7 @@ const wallets = useWallets();
 const walletKeys = getWalletKeys();
 const myVault = getMyVault();
 const bitcoinLocks = getBitcoinLocks();
-const financials = useFinancials();
+const financialHistory = useFinancialHistory();
 const config = getConfig() as Config;
 const accountImporter = new Importer(config, walletKeys, getDbPromise());
 
@@ -101,7 +101,7 @@ const step2 = Vue.ref<InstanceType<typeof DiagnosticStep>>();
 const step3 = Vue.ref<InstanceType<typeof DiagnosticStep>>();
 const step4 = Vue.ref<InstanceType<typeof DiagnosticStep>>();
 const step5 = Vue.ref<InstanceType<typeof DiagnosticStep>>();
-let bitcoinUtxoIdsAtScanStart = new Set<number>();
+let bitcoinLockIdsAtScanStart = new Set<number>();
 
 function scrollToBottom() {
   if (containerRef.value) {
@@ -146,7 +146,7 @@ async function checkVault() {
 async function checkBitcoins() {
   await bitcoinLocks.load();
   const bitcoins = await bitcoinLocks.recovery.recoverActiveLocks();
-  const newlyFound = bitcoins.filter(bitcoin => !bitcoinUtxoIdsAtScanStart.has(bitcoin.utxoId!));
+  const newlyFound = bitcoins.filter(bitcoin => !bitcoinLockIdsAtScanStart.has(bitcoin.lockId!));
 
   return {
     isUnchanged: newlyFound.length === 0,
@@ -179,21 +179,21 @@ async function checkMintingAuthorities() {
 }
 
 async function checkFinancialHistory() {
-  await financials.restoreFinancialHistory(true);
-  if (financials.historyRecovery.state === 'error') {
-    throw new Error(financials.historyRecovery.message ?? 'Unable to restore investment history');
+  await financialHistory.restoreFinancialHistory(true);
+  if (financialHistory.historyRecovery.state === 'error') {
+    throw new Error(financialHistory.historyRecovery.message ?? 'Unable to restore investment history');
   }
 
   return {
-    isUnchanged: financials.historyRecovery.recoveredBlockCount === 0,
-    recoveredBlocks: financials.historyRecovery.recoveredBlockCount,
+    isUnchanged: financialHistory.historyRecovery.recoveredBlockCount === 0,
+    recoveredBlocks: financialHistory.historyRecovery.recoveredBlockCount,
   };
 }
 
 async function startScanning() {
   const bitcoinTable = await bitcoinLocks.getTable();
-  bitcoinUtxoIdsAtScanStart = new Set(
-    (await bitcoinTable.fetchAll()).flatMap(bitcoin => (bitcoin.utxoId === undefined ? [] : [bitcoin.utxoId])),
+  bitcoinLockIdsAtScanStart = new Set(
+    (await bitcoinTable.fetchAll()).flatMap(bitcoin => (bitcoin.lockId === undefined ? [] : [bitcoin.lockId])),
   );
   hasStarted.value = true;
   await myVault.load();

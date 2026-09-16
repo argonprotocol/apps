@@ -55,6 +55,7 @@ export class History {
     this.cohortStartingFrameId = cohortStartingFrameId;
     this.myAddresses = myAddresses;
     this.maxSeatsInPlay = this.myAddresses.size;
+    this.maxSeatsReductionReason = undefined;
   }
 
   public handleStarting() {

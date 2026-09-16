@@ -706,7 +706,7 @@ describe('TransactionTracker', () => {
       const originalStoredTx = storedTxs.find(record => record.id === originalTxInfo.tx.id)!;
       const history = await db.transactionStatusHistoryTable.fetchByTransactionId(originalTxInfo.tx.id);
       expect(storedTxs).toHaveLength(1);
-      expect(originalStoredTx.followOnTxId).toBeNull();
+      expect(originalStoredTx.followOnTxId).toBeUndefined();
       expect(originalStoredTx.status).toBe(TransactionStatus.Error);
       expect(originalStoredTx.submissionErrorJson?.message).toBe(
         'Transaction nonce was already used by another transaction.',
@@ -1104,7 +1104,7 @@ describe('TransactionTracker', () => {
     expect(tx.finalizedHeadHeight).toBe(101);
   });
 
-  it('records finalized watch updates using the watched block hash', async () => {
+  it('records finalized watch updates at the canonical block returned for the watched hash', async () => {
     const tx = createTransaction({
       id: 10,
       blockHeight: 130,
@@ -1121,7 +1121,7 @@ describe('TransactionTracker', () => {
       }
     ).recordWatchStatus.bind(tracker) as (tx: ITransactionRecord, watchUpdate: any) => Promise<void>;
     const findSpy = vi.spyOn(TransactionEvents, 'findByExtrinsicHashInBlock').mockResolvedValueOnce({
-      blockNumber: 130,
+      blockNumber: 131,
       blockHash: '0xwatched-block',
       blockTime: new Date('2026-03-20T20:10:00Z').getTime(),
       extrinsicIndex: 2,
@@ -1154,14 +1154,14 @@ describe('TransactionTracker', () => {
     expect(table.recordInBlock).toHaveBeenCalledWith(
       tx,
       expect.objectContaining({
-        blockNumber: 130,
+        blockNumber: 131,
         blockHash: '0xwatched-block',
         extrinsicIndex: 2,
         feePlusTip: 5n,
         tip: 2n,
       }),
     );
-    expect(table.markFinalized).toHaveBeenCalledWith(tx, expect.objectContaining({ blockNumber: 130 }));
+    expect(table.markFinalized).toHaveBeenCalledWith(tx, expect.objectContaining({ blockNumber: 131 }));
   });
 
   it('ignores non-block watch updates without touching finalized accessors', async () => {
@@ -1373,7 +1373,7 @@ describe('TransactionTracker', () => {
     expect(txInfo.txResult.submissionError).toBeUndefined();
   });
 
-  it('submits a signed transaction before scanning pending transaction statuses', async () => {
+  it('returns a submitted transaction without waiting for pending status reconciliation', async () => {
     const { tracker } = await createTracker({
       txs: [],
       finalizedHeight: 125,
@@ -1406,8 +1406,10 @@ describe('TransactionTracker', () => {
     });
 
     await vi.waitFor(() => expect(signedTx.send).toHaveBeenCalledOnce());
+    await expect(submission).resolves.toMatchObject({
+      tx: { status: TransactionStatus.Submitted },
+    });
     finishStatusScan();
-    await submission;
   });
 });
 

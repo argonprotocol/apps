@@ -2,7 +2,7 @@ use crate::utils::Utils;
 use include_dir::{Dir, include_dir};
 use std::fs;
 use std::net::TcpListener;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 use tauri::AppHandle;
 
@@ -41,11 +41,19 @@ pub async fn create_local_vm(app: AppHandle, env_text: String) -> Result<u16, St
 }
 
 #[tauri::command]
-pub async fn activate_local_vm(app: AppHandle) -> Result<u16, String> {
+pub fn has_local_vm(app: AppHandle) -> bool {
+    has_vm_definition(&get_vm_path(&app))
+}
+
+#[tauri::command]
+pub async fn activate_local_vm(app: AppHandle) -> Result<Option<u16>, String> {
     let vm_path = get_vm_path(&app);
+    if !has_vm_definition(&vm_path) {
+        return Ok(None);
+    }
     let work_dir = get_vm_work_dir(&app);
     let vm = Vm::activate(&vm_path, &work_dir)?;
-    Ok(vm.ssh_port)
+    Ok(Some(vm.ssh_port))
 }
 
 #[tauri::command]
@@ -63,6 +71,10 @@ fn get_vm_work_dir(app: &AppHandle) -> PathBuf {
     get_vm_path(app).join("app")
 }
 
+fn has_vm_definition(vm_path: &Path) -> bool {
+    vm_path.join("docker-compose.yml").is_file()
+}
+
 #[cfg(unix)]
 fn get_uid_gid() -> (u32, u32) {
     (unsafe { libc::getuid() }, unsafe { libc::getgid() })
@@ -75,12 +87,24 @@ fn get_uid_gid() -> (u32, u32) {
 }
 
 impl Vm {
-    pub fn activate(vm_path: &PathBuf, work_dir: &PathBuf) -> anyhow::Result<Vm, String> {
+    pub fn activate(vm_path: &Path, work_dir: &Path) -> anyhow::Result<Vm, String> {
         if !vm_path.exists() {
             return Err(format!("VM path {} does not exist", vm_path.display()));
         }
         Self::run_compose_command(vm_path, &["up", "-d"])?;
-        Self::run_compose_command(work_dir, &["up", "-d"])?;
+        let server_dir = work_dir.join("server");
+        if let Some(compose_dir) = [work_dir, server_dir.as_path()].into_iter().find(|dir| {
+            [
+                "compose.yaml",
+                "compose.yml",
+                "docker-compose.yaml",
+                "docker-compose.yml",
+            ]
+            .iter()
+            .any(|file_name| dir.join(file_name).exists())
+        }) {
+            Self::run_compose_command(compose_dir, &["up", "-d"])?;
+        }
         Self::get_vm(vm_path)
     }
 
@@ -152,7 +176,7 @@ impl Vm {
         Self::get_vm(&vm_path)
     }
 
-    pub fn get_vm(vm_path: &PathBuf) -> anyhow::Result<Vm, String> {
+    pub fn get_vm(vm_path: &Path) -> anyhow::Result<Vm, String> {
         if !vm_path.exists() {
             return Err(format!("VM path {} does not exist", vm_path.display()));
         }
@@ -166,7 +190,7 @@ impl Vm {
         Ok(Vm { ssh_port: vm_port })
     }
 
-    pub fn destroy(vm_path: &PathBuf) -> anyhow::Result<(), String> {
+    pub fn destroy(vm_path: &Path) -> anyhow::Result<(), String> {
         log::info!("Removing local VM at {}", vm_path.display());
         if !vm_path.exists() {
             return Ok(());
@@ -183,7 +207,7 @@ impl Vm {
         Ok(())
     }
 
-    fn run_compose_command(vm_path: &PathBuf, args: &[&str]) -> anyhow::Result<String, String> {
+    fn run_compose_command(vm_path: &Path, args: &[&str]) -> anyhow::Result<String, String> {
         let output = Command::new("docker")
             .args(["compose"].iter().chain(args))
             .current_dir(vm_path)
@@ -198,5 +222,32 @@ impl Vm {
             ));
         }
         Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::has_vm_definition;
+    use std::fs;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    #[test]
+    fn gateway_cert_staging_directory_is_not_an_installed_vm() {
+        let unique_id = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let test_vm_path = std::env::temp_dir().join(format!(
+            "argon-vm-definition-{}-{unique_id}",
+            std::process::id()
+        ));
+        fs::create_dir_all(test_vm_path.join("app/config/nginx-certs")).unwrap();
+
+        assert!(!has_vm_definition(&test_vm_path));
+
+        fs::write(test_vm_path.join("docker-compose.yml"), "services: {}").unwrap();
+        assert!(has_vm_definition(&test_vm_path));
+
+        fs::remove_dir_all(test_vm_path).unwrap();
     }
 }

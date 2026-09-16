@@ -1,25 +1,28 @@
 import type { ArgonClient } from '@argonprotocol/apps-core';
-import type { IBitcoinLocksQueryRef } from './IBitcoinLocks.ts';
 import type { IConfigQueryRef } from './IConfigQueryRef.ts';
 import type { IEthereumMoveTrackerQueryRef } from './IEthereumInboundTransferTracker.ts';
 import type { IMyVaultQueryRef } from './IMyVault.ts';
 import type { IWalletsQueryRef } from './IWallets.ts';
 import type { EthereumOutboundTransferTracker } from '../lib/EthereumOutboundTransferTracker.ts';
+import type { BitcoinFissions } from '../lib/BitcoinFissions.ts';
+import type BitcoinLocks from '../lib/BitcoinLocks.ts';
 import type { WalletType } from '../lib/Wallet.ts';
 
 export interface IAppQueryRefs {
   config: IConfigQueryRef;
-  bitcoinLocks: IBitcoinLocksQueryRef;
+  bitcoinLocks: BitcoinLocks;
   myVault: IMyVaultQueryRef;
   wallets: IWalletsQueryRef;
   canSign: boolean;
   defaultArgonAddress: string;
   defaultEthereumAddress: string;
+  coreEthereumAddress: string;
   overlayIsOpen: boolean;
+  getBitcoinFissions(): BitcoinFissions;
   getEthereumMoveTracker(): IEthereumMoveTrackerQueryRef;
   getEthereumOutboundTransferTracker(): EthereumOutboundTransferTracker;
   getMainchainClient(needsHistoricalAccess: boolean): Promise<ArgonClient>;
-  openWalletOverlay(walletType: WalletType.defaultArgon | WalletType.ethereum): void;
+  openWalletOverlay(walletType: WalletType.argon | WalletType.bitcoin): void;
 }
 
 export type IAppQueryFn<TResult = unknown, TArgs extends Record<string, unknown> = Record<string, never>> = (

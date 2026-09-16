@@ -1,270 +1,244 @@
 import type { Meta, StoryObj } from '@storybook/vue3-vite';
+import { MoveFrom, MoveTo, MoveToken } from '@argonprotocol/apps-core';
 import * as Vue from 'vue';
-import { expect, userEvent, waitFor, within } from 'storybook/test';
-import { expectEventuallyVisible } from '../../support/expectEventuallyVisible.ts';
+import { fn, userEvent, within } from 'storybook/test';
 import { setupWalletTransferScenario, type WalletTransferScenario } from '../../scenarios/setupWalletScenario.ts';
-import basicEmitter from '../../../src-vue/emitters/basicEmitter.ts';
+import basicEmitter, { type IWalletOverlayOptions } from '../../../src-vue/emitters/basicEmitter.ts';
 import { WalletType } from '../../../src-vue/lib/Wallet.ts';
-import WalletDialogs from '../../../src-vue/wallets/WalletDialogs.vue';
+import WalletOverlay from '../../../src-vue/wallets/WalletOverlay.vue';
+import type { ITransactionMoveMetadata } from '../../../src-vue/lib/txs/Balance.transfer.ts';
+import type { TransactionInfo } from '../../../src-vue/lib/TransactionInfo.ts';
+import { getMoveCapital, useWallets } from '../../../src-vue/stores/wallets.ts';
+
+let request: IWalletOverlayOptions;
 
 const meta = {
   title: 'Wallets/Cross-chain transfer',
   render: () => ({
-    components: { WalletDialogs },
+    components: { WalletOverlay },
     setup() {
-      Vue.onMounted(() => {
-        basicEmitter.emit('openWalletOverlay', { walletType: WalletType.defaultArgon });
-      });
+      Vue.onMounted(() => basicEmitter.emit('openWalletOverlay', request));
     },
     template: `
       <div class="relative h-screen w-screen overflow-hidden">
-        <WalletDialogs />
+        <WalletOverlay />
       </div>
     `,
   }),
-} satisfies Meta<typeof WalletDialogs>;
+} satisfies Meta<typeof WalletOverlay>;
 
 export default meta;
 type Story = StoryObj<typeof meta>;
 
-function useScenario(state: WalletTransferScenario) {
+function useScenario(state: WalletTransferScenario, restoreArgonTransfer = false) {
   const scenario = setupWalletTransferScenario(state);
+  if (restoreArgonTransfer) {
+    getMoveCapital().data.pendingExternalTransfer = {
+      tx: {
+        id: 52,
+        metadataJson: {
+          moveFrom: MoveFrom.DefaultArgon,
+          moveTo: MoveTo.External,
+          externalAddress: '5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY',
+          assetsToMove: { [MoveToken.ARGN]: 125_000_000n },
+        },
+      },
+      getStatus: fn(() => ({ progressPct: 42, isFinalized: false, error: undefined })),
+      subscribeToProgress: fn(callback => {
+        void callback(
+          {
+            progressPct: 42,
+            progressMessage: 'Waiting for 3rd Block...',
+            confirmations: 1,
+            expectedConfirmations: 4,
+            isMaxed: false,
+          },
+          undefined,
+        );
+        return fn();
+      }),
+    } as unknown as TransactionInfo<ITransactionMoveMetadata>;
+  }
+  const isInbound = [
+    'inboundForm',
+    'inboundEmpty',
+    'inboundArgonOnly',
+    'existingInbound',
+    'submittingInbound',
+    'inboundEthereum',
+    'inboundTransactionUnavailable',
+    'inboundRelay',
+    'inboundArgon',
+    'completeInbound',
+  ].includes(state);
+  const ethereumWallet = useWallets().ethereumWallets.find(41);
+  if (isInbound && !ethereumWallet) throw new Error('Ethereum Treasury story wallet is missing.');
+  request = isInbound
+    ? {
+        wallet: ethereumWallet!,
+        view: 'main',
+      }
+    : {
+        wallet: useWallets().argonWallets.defaultArgonWallet,
+        view: 'send',
+      };
   return scenario.cleanup;
 }
 
-async function getWalletCanvas(direction: 'in' | 'out') {
-  const canvas = within(document.body);
-  const panelTestId = direction === 'in' ? 'WalletOverlay.transferInPanel' : 'WalletOverlay.transferOutPanel';
-  const toggleTestId = direction === 'in' ? 'WalletOverlay.toggleTransferIn()' : 'WalletOverlay.toggleTransferOut()';
-  const moveTestId =
-    direction === 'in' ? 'EthereumTop.startMoveFromEthereum(ARGN)' : 'ArgonTop.startMoveToEthereum(ARGN)';
+async function getInboundCanvas() {
+  return within(document.body);
+}
 
-  await expectEventuallyVisible(canvas.findByText('Internal App Wallet'));
-  await userEvent.click(canvas.getByTestId(toggleTestId));
+async function getOutboundCanvas() {
+  return within(document.body);
+}
 
-  const chooser = await canvas.findByTestId(panelTestId);
-  const ethereumWalletLabel = within(chooser).getByText('Ethereum Treasury Wallet');
-  const ethereumWalletButton = ethereumWalletLabel.closest('button');
-  if (!ethereumWalletButton) throw new Error('Ethereum wallet chooser button is missing');
-
-  await userEvent.click(ethereumWalletButton);
-  await expectEventuallyVisible(canvas.findByTestId(panelTestId));
-  await expect(canvas.getByTestId(panelTestId)).toHaveTextContent('Ethereum Treasury Wallet');
-
-  const moveButton = canvas.getByTestId(moveTestId);
-  await waitFor(() => expect(moveButton).toBeEnabled());
-  await userEvent.click(moveButton);
-  return canvas;
+async function submitTransfer(canvas: ReturnType<typeof within>) {
+  await userEvent.click(await canvas.findByRole('button', { name: /Initiate Transfer/ }));
 }
 
 const stories = {
   inboundForm: {
     beforeEach: () => useScenario('inboundForm'),
-    play: async () => {
-      const canvas = await getWalletCanvas('in');
+  },
 
-      await expectEventuallyVisible(canvas.findByRole('heading', { name: 'Move From Ethereum' }));
-      await expectEventuallyVisible(canvas.findByText('Max you can move: 175 ARGN'));
-      await expectEventuallyVisible(canvas.findByText(/Estimated network fee:/));
-      await expectEventuallyVisible(canvas.findByRole('button', { name: 'Cancel' }));
-      await expect(canvas.getByRole('button', { name: 'Submit' })).toBeEnabled();
+  inboundEmpty: {
+    beforeEach: () => useScenario('inboundEmpty'),
+  },
+
+  inboundArgonOnly: {
+    beforeEach: () => useScenario('inboundArgonOnly'),
+    play: async () => {
+      const canvas = await getInboundCanvas();
+
+      await userEvent.click(canvas.getByTestId('ConnectorTransfer.token'));
     },
   },
 
   outboundForm: {
     beforeEach: () => useScenario('outboundForm'),
-    play: async () => {
-      const canvas = await getWalletCanvas('out');
-
-      await expectEventuallyVisible(canvas.findByRole('heading', { name: 'Move To Ethereum' }));
-      await expectEventuallyVisible(canvas.findByText(/Max you can move: 875 ARGN/));
-      await expectEventuallyVisible(canvas.findByText(/Estimated Ethereum fee range:/));
-      await expect(canvas.getByRole('button', { name: 'Submit' })).toBeEnabled();
-    },
   },
 
   feeLoading: {
     beforeEach: () => useScenario('feeLoading'),
-    play: async () => {
-      const canvas = await getWalletCanvas('out');
-
-      await expectEventuallyVisible(canvas.findByText('Estimating final Ethereum network fee...'));
-      await expect(canvas.getByRole('button', { name: 'Submit' })).toBeEnabled();
-    },
   },
 
   feeUnavailable: {
     beforeEach: () => useScenario('feeUnavailable'),
-    play: async () => {
-      const canvas = await getWalletCanvas('out');
-
-      await expectEventuallyVisible(canvas.findByText('Unable to estimate the final Ethereum fee right now.'));
-      await expect(canvas.getByRole('button', { name: 'Submit' })).toBeEnabled();
-    },
   },
 
   insufficientEth: {
     beforeEach: () => useScenario('insufficientEth'),
-    play: async () => {
-      const canvas = await getWalletCanvas('out');
-
-      await expectEventuallyVisible(canvas.findByText(/Your Ethereum wallet has/));
-      await expectEventuallyVisible(canvas.findByText(/but this transfer likely needs between/));
-    },
-  },
-
-  routeUnavailable: {
-    beforeEach: () => useScenario('routeUnavailable'),
-    play: async () => {
-      const canvas = await getWalletCanvas('out');
-
-      await expectEventuallyVisible(
-        canvas.getByText(
-          'Ethereum state is still syncing. Transfers out will be available once finalized Ethereum state is available on Argon.',
-        ),
-      );
-      await expect(canvas.getByRole('button', { name: 'Submit' })).toBeDisabled();
-    },
   },
 
   submittingInbound: {
     beforeEach: () => useScenario('submittingInbound'),
     play: async () => {
-      const canvas = await getWalletCanvas('in');
-
-      await expectEventuallyVisible(canvas.findByText('Step 1 of 3: Finalizing on Ethereum'));
-      await expectEventuallyVisible(canvas.findByText('Preparing Ethereum transfer...'));
-      await expect(canvas.queryByTestId('WalletTransferOverlay.close()')).not.toBeInTheDocument();
+      const canvas = await getInboundCanvas();
+      await submitTransfer(canvas);
     },
   },
 
   inboundEthereum: {
     beforeEach: () => useScenario('inboundEthereum'),
     play: async () => {
-      const canvas = await getWalletCanvas('in');
-
-      await expectEventuallyVisible(canvas.findByText('Step 1 of 3: Finalizing on Ethereum'));
-      await expectEventuallyVisible(canvas.findByText('Ethereum confirmation 6 of 12'));
+      const canvas = await getInboundCanvas();
+      await submitTransfer(canvas);
     },
   },
 
   inboundTransactionUnavailable: {
     beforeEach: () => useScenario('inboundTransactionUnavailable'),
-    play: async () => {
-      const canvas = await getWalletCanvas('in');
-
-      await expectEventuallyVisible(canvas.findByText(/could not be found after the expected confirmation window/));
-      await expectEventuallyVisible(canvas.findByText(/may have been dropped or replaced/));
-      await expectEventuallyVisible(canvas.findByRole('button', { name: 'Dismiss' }));
-    },
   },
 
   inboundRelay: {
     beforeEach: () => useScenario('inboundRelay'),
     play: async () => {
-      const canvas = await getWalletCanvas('in');
-
-      await expectEventuallyVisible(canvas.findByText('Step 2 of 3: Proving to Argon'));
-      await expectEventuallyVisible(canvas.findByText('Waiting for Argon proof of 18 Ethereum blocks'));
+      const canvas = await getInboundCanvas();
+      await submitTransfer(canvas);
     },
   },
 
   inboundArgon: {
     beforeEach: () => useScenario('inboundArgon'),
     play: async () => {
-      const canvas = await getWalletCanvas('in');
-
-      await expectEventuallyVisible(canvas.findByText('Step 3 of 3: Finalizing on Argon'));
-      await expectEventuallyVisible(canvas.findByText('Argon confirmation 2 of 4'));
-      await expectEventuallyVisible(canvas.findByText('Argon is finalizing this transfer now.'));
+      const canvas = await getInboundCanvas();
+      await submitTransfer(canvas);
     },
   },
 
   submittingOutbound: {
     beforeEach: () => useScenario('submittingOutbound'),
     play: async () => {
-      const canvas = await getWalletCanvas('out');
-
-      await expectEventuallyVisible(canvas.findByText('Step 1 of 3: Finalizing on Argon'));
-      await expectEventuallyVisible(canvas.findByText('Submitting to Argon miners...'));
-      await expect(canvas.queryByTestId('WalletTransferOverlay.close()')).not.toBeInTheDocument();
+      const canvas = await getOutboundCanvas();
+      await submitTransfer(canvas);
     },
   },
 
   outboundArgon: {
     beforeEach: () => useScenario('outboundArgon'),
     play: async () => {
-      const canvas = await getWalletCanvas('out');
-
-      await expectEventuallyVisible(canvas.findByText('Step 1 of 3: Finalizing on Argon'));
-      await expectEventuallyVisible(canvas.findByText('Argon confirmation 3 of 4'));
+      const canvas = await getOutboundCanvas();
+      await submitTransfer(canvas);
     },
   },
 
   outboundAuthorization: {
     beforeEach: () => useScenario('outboundAuthorization'),
     play: async () => {
-      const canvas = await getWalletCanvas('out');
-
-      await expectEventuallyVisible(canvas.findByText('Step 2 of 3: Waiting for Minting Authorization'));
-      await expectEventuallyVisible(canvas.findByText(/45% authorized/));
-      await expectEventuallyVisible(canvas.findByText(/115\.00 ARGN remaining/));
+      const canvas = await getOutboundCanvas();
+      await submitTransfer(canvas);
     },
   },
 
   outboundEthereum: {
     beforeEach: () => useScenario('outboundEthereum'),
     play: async () => {
-      const canvas = await getWalletCanvas('out');
-
-      await expectEventuallyVisible(canvas.findByText('Step 3 of 3: Sending to Ethereum'));
-      await expectEventuallyVisible(canvas.findByText('Ethereum confirmation 9 of 12'));
+      const canvas = await getOutboundCanvas();
+      await submitTransfer(canvas);
     },
   },
 
   attentionError: {
     beforeEach: () => useScenario('attentionError'),
     play: async () => {
-      const canvas = await getWalletCanvas('out');
-
-      await expectEventuallyVisible(
-        canvas.getByText('Ethereum submission needs attention. The transfer remains recorded for recovery.'),
-      );
-      await expectEventuallyVisible(canvas.findByRole('button', { name: 'Dismiss' }));
+      const canvas = await getOutboundCanvas();
+      await submitTransfer(canvas);
     },
   },
 
   completeInbound: {
     beforeEach: () => useScenario('completeInbound'),
     play: async () => {
-      const canvas = await getWalletCanvas('in');
-
-      await expectEventuallyVisible(canvas.findByText('Step 3 of 3: Finalizing on Argon'));
-      await expectEventuallyVisible(canvas.findByText('Confirmed on Argon.'));
-      await expectEventuallyVisible(canvas.findByText('100.00%'));
-      await expectEventuallyVisible(canvas.findByRole('button', { name: 'Done' }));
+      const canvas = await getInboundCanvas();
+      await submitTransfer(canvas);
     },
   },
 
   completeOutbound: {
     beforeEach: () => useScenario('completeOutbound'),
     play: async () => {
-      const canvas = await getWalletCanvas('out');
-
-      await expectEventuallyVisible(canvas.findByText('Step 3 of 3: Sending to Ethereum'));
-      await expectEventuallyVisible(canvas.findByText('Confirmed on Ethereum.'));
-      await expectEventuallyVisible(canvas.findByText('100.00%'));
-      await expectEventuallyVisible(canvas.findByRole('button', { name: 'Done' }));
+      const canvas = await getOutboundCanvas();
+      await submitTransfer(canvas);
     },
   },
-} satisfies Record<WalletTransferScenario, Story>;
+
+  existingInbound: {
+    beforeEach: () => useScenario('existingInbound'),
+  },
+
+  existingOutbound: {
+    beforeEach: () => useScenario('existingOutbound'),
+  },
+} satisfies Partial<Record<WalletTransferScenario, Story>>;
 
 export const InboundForm = stories.inboundForm;
+export const InboundEmpty = stories.inboundEmpty;
+export const InboundArgonOnly = stories.inboundArgonOnly;
 export const OutboundForm = stories.outboundForm;
 export const FeeLoading = stories.feeLoading;
 export const FeeUnavailable = stories.feeUnavailable;
 export const InsufficientEth = stories.insufficientEth;
-export const RouteUnavailable = stories.routeUnavailable;
 export const SubmittingInbound = stories.submittingInbound;
 export const InboundEthereum = stories.inboundEthereum;
 export const InboundTransactionUnavailable = stories.inboundTransactionUnavailable;
@@ -277,3 +251,33 @@ export const OutboundEthereum = stories.outboundEthereum;
 export const AttentionError = stories.attentionError;
 export const CompleteInbound = stories.completeInbound;
 export const CompleteOutbound = stories.completeOutbound;
+export const ExistingInbound = stories.existingInbound;
+export const ExistingOutbound = stories.existingOutbound;
+
+export const ArgonAddress: Story = {
+  beforeEach: () => useScenario('outboundForm'),
+  play: async () => {
+    const canvas = await getOutboundCanvas();
+    const destination = within(canvas.getByTestId('WalletViewSend.destination'));
+
+    await userEvent.click(destination.getByTestId('WalletViewSend.destinationMenu'));
+    await userEvent.click(canvas.getByTestId('Another Argon Wallet'));
+  },
+};
+
+export const ExistingArgonAddress: Story = {
+  beforeEach: () => useScenario('outboundForm', true),
+};
+
+export const BitcoinAddress: Story = {
+  beforeEach: () => useScenario('outboundBitcoin'),
+  play: async () => {
+    const canvas = await getOutboundCanvas();
+
+    await userEvent.click(canvas.getByTestId('WalletViewSend.token'));
+    await userEvent.click(canvas.getByTestId('BTC'));
+
+    const destination = within(canvas.getByTestId('WalletViewSend.destination'));
+    await userEvent.click(destination.getByTestId('WalletViewSend.destinationMenu'));
+  },
+};

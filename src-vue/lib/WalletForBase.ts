@@ -1,7 +1,7 @@
 import { createPublicClient, getAddress, http } from 'viem';
 import { base, baseSepolia } from 'viem/chains';
 import { fetch, NetworkConfig, UnitOfMeasurement } from '@argonprotocol/apps-core';
-import { defaultWalletData, IOtherTokenDefinition, type IWallet } from './Wallet.ts';
+import { IOtherTokenDefinition, WalletForChain } from './Wallet.ts';
 import { loadTokens } from './WalletForEthereum.ts';
 import type { Currency } from './Currency.ts';
 import { createFinancialPosition, type IBaseWalletFinancialPosition } from '../interfaces/IFinancialPosition.ts';
@@ -10,17 +10,15 @@ import {
   restoreCachedExternalWalletBalances,
   type FinancialCacheTable,
 } from './db/FinancialCacheTable.ts';
+import type { IWalletRecord } from './db/WalletsTable.ts';
 
-export class WalletForBase {
-  public data: IWallet = {
-    ...defaultWalletData,
-  };
-
+export class WalletForBase extends WalletForChain<'base'> {
   constructor(
-    public readonly address: string,
+    address: string,
     private readonly financialCache?: Promise<FinancialCacheTable>,
+    record?: IWalletRecord,
   ) {
-    this.data.address = address;
+    super({ address, type: 'base', record });
   }
 
   public createFinancialPositions(currency: Currency): IBaseWalletFinancialPosition[] {

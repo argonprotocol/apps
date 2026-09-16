@@ -61,7 +61,20 @@ export class CohortBidder {
   public txFees = 0n;
   public bidsAttempted = 0;
   public myWinningBids: IBidDetail[] = [];
+  public botCapital?: { microgons: bigint; micronots: bigint };
   public readonly myAddresses = new Set<string>();
+
+  public get currentAuctionSeatCount(): number | undefined {
+    return this.nextCohortSize;
+  }
+
+  public get currentAuctionMicronotsPerSeat(): bigint | undefined {
+    return this.nextCohortSize === undefined ? undefined : this.micronotsPerSeat;
+  }
+
+  public get seatGoalCount(): number {
+    return this.subaccounts.length;
+  }
 
   public readonly currentBids: {
     atBlockNumber: number;
@@ -81,6 +94,8 @@ export class CohortBidder {
 
   private unsubscribe?: () => void;
   private lastLoggedSeatsInBudget: number;
+  private lastReportedReductionReason?: IBidReductionReason;
+  private lastReportedBotCapital?: { microgons: bigint; micronots: bigint };
 
   private pendingRequest: Promise<any> | undefined;
   private pendingFinalizations = new Set<Promise<void>>();
@@ -367,15 +382,6 @@ export class CohortBidder {
     const bidsAtTick = this.currentBids.atTick;
     const blockNumber = this.currentBids.atBlockNumber;
     const myWinningBids = bids.filter(x => this.myAddresses.has(x.address));
-    if (myWinningBids.length >= this.subaccounts.length) {
-      this.setNextBid(undefined);
-      this.log(`No updates needed at block #${blockNumber}. Winning all remaining seats (${myWinningBids.length}).`);
-      return;
-    }
-
-    this.log(
-      `Checking bids for cohort ${this.cohortStartingFrameId} at block ${this.latestBlockNumber}, Still trying for seats: ${this.subaccounts.length}. Currently winning ${myWinningBids.length} bids.`,
-    );
 
     const beatableBids: bigint[] = [];
     if (bids.length < this.nextCohortSize!) {
@@ -395,11 +401,33 @@ export class CohortBidder {
 
     let accountBalance = await this.accountset.submitterBalance();
     if (this.isStopping || planGeneration !== this.bidPlanGeneration) return;
+    let accountMicronots = await this.accountset.accountMicronots();
+    if (this.isStopping || planGeneration !== this.bidPlanGeneration) return;
+
+    this.botCapital = {
+      microgons: accountBalance + myWinningBids.reduce((total, bid) => total + bid.bidMicrogons, 0n),
+      micronots: accountMicronots + myWinningBids.reduce((total, bid) => total + bid.micronotsStaked, 0n),
+    };
+
+    if (myWinningBids.length >= this.subaccounts.length) {
+      const didClearNextBid = this.setNextBid(undefined);
+      const botCapitalChanged =
+        this.botCapital.microgons !== this.lastReportedBotCapital?.microgons ||
+        this.botCapital.micronots !== this.lastReportedBotCapital?.micronots;
+      if (botCapitalChanged) {
+        this.lastReportedBotCapital = this.botCapital;
+        if (!didClearNextBid) this.broadcastUpdates();
+      }
+      this.log(`No updates needed at block #${blockNumber}. Winning all remaining seats (${myWinningBids.length}).`);
+      return;
+    }
+
+    this.log(
+      `Checking bids for cohort ${this.cohortStartingFrameId} at block ${this.latestBlockNumber}, Still trying for seats: ${this.subaccounts.length}. Currently winning ${myWinningBids.length} bids.`,
+    );
 
     accountBalance -= this.options.sidelinedWalletMicrogons ?? 0n;
     if (accountBalance <= 0n) accountBalance = 0n;
-    let accountMicronots = await this.accountset.accountMicronots();
-    if (this.isStopping || planGeneration !== this.bidPlanGeneration) return;
 
     accountMicronots -= this.options.sidelinedWalletMicronots ?? 0n;
     if (accountMicronots < 0n) accountMicronots = 0n;
@@ -484,22 +512,21 @@ export class CohortBidder {
       availableMicronots,
       reductionReason,
     } = bidsets[0];
-    // 3. if we have more seats than we can afford, we need to remove some
+    // 3. report changes in the number of seats the current capital can support
     if (totalSeatsAfterBid < myWinningBids.length || totalSeatsAfterBid < this.lastLoggedSeatsInBudget) {
-      this.lastLoggedSeatsInBudget = totalSeatsAfterBid;
       this.log(
         `Can only afford ${totalSeatsAfterBid} seats with next bid of ${formatArgons(nextBidAmount)} at block #${blockNumber}`,
       );
-      this.safeRecordParamsAdjusted({
-        tick: bidsAtTick,
-        blockNumber,
-        maxSeats: totalSeatsAfterBid,
-        winningBidCount: myWinningBids.length,
-        reason: reductionReason,
-        availableBalanceForBids,
-        availableMicronots,
-      });
     }
+    this.safeRecordParamsAdjusted({
+      tick: bidsAtTick,
+      blockNumber,
+      maxSeats: totalSeatsAfterBid,
+      winningBidCount: myWinningBids.length,
+      reason: reductionReason,
+      availableBalanceForBids,
+      availableMicronots,
+    });
 
     if (totalSeatsAfterBid > myWinningBids.length && accountsToBidWith.length > 0) {
       const lastBidTick = this.lastBid?.submittedAtTick ?? 0;
@@ -853,8 +880,21 @@ export class CohortBidder {
     availableBalanceForBids: bigint;
     availableMicronots: bigint;
   }) {
+    if (
+      args.maxSeats === this.lastLoggedSeatsInBudget &&
+      args.reason === this.lastReportedReductionReason &&
+      this.botCapital?.microgons === this.lastReportedBotCapital?.microgons &&
+      this.botCapital?.micronots === this.lastReportedBotCapital?.micronots
+    ) {
+      return;
+    }
+
     try {
       this.callbacks?.onBidParamsAdjusted?.(args);
+      this.lastLoggedSeatsInBudget = args.maxSeats;
+      this.lastReportedReductionReason = args.reason;
+      this.lastReportedBotCapital = this.botCapital;
+      this.broadcastUpdates();
     } catch (err) {
       this.error('Error in onBidParamsAdjusted callback:', err);
     }

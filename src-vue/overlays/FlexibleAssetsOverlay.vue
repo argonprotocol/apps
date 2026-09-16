@@ -70,22 +70,22 @@
           <div v-if="eligibleLocks.length" class="border-y border-slate-200">
             <label
               v-for="(lock, index) in eligibleLocks"
-              :key="lock.utxoId"
+              :key="lock.lockId"
               class="flex cursor-pointer items-center gap-4 border-b border-slate-100 px-2 py-3 last:border-0">
               <input
-                v-model="bitcoinSelectionByUtxoId[lock.utxoId]"
+                v-model="bitcoinSelectionByLockId[lock.lockId]"
                 type="checkbox"
                 class="sr-only"
               />
-              <Checkbox :isChecked="bitcoinSelectionByUtxoId[lock.utxoId]" :size="4" />
+              <Checkbox :isChecked="bitcoinSelectionByLockId[lock.lockId]" :size="4" />
               <span class="grow">
                 <span class="block text-sm font-semibold text-slate-800">Bitcoin lock #{{ index + 1 }}</span>
                 <span class="mt-0.5 block text-xs text-slate-400">
-                  {{ satToBtcNm(lock.satoshis).format('0,0.[00000000]') }} BTC
+                  {{ satToBtcNm(lock.securitizedSatoshis).format('0,0.[00000000]') }} BTC
                 </span>
               </span>
               <span class="font-mono text-sm font-semibold text-slate-800">
-                {{ currency.symbol }}{{ microgonToMoneyNm(lock.liquidityPromised).format('0,0.00') }}
+                {{ currency.symbol }}{{ microgonToMoneyNm(lock.securitizationCoverageMicrogons).format('0,0.00') }}
               </span>
             </label>
           </div>
@@ -138,7 +138,7 @@
 
 <script setup lang="ts">
 import * as Vue from 'vue';
-import { type BondLot, type BitcoinLock } from '@argonprotocol/apps-core';
+import { type BondLot, type IBitcoinLock } from '@argonprotocol/apps-core';
 
 import OverlayBase from './OverlayBase.vue';
 import ProgressBar from '../components/ProgressBar.vue';
@@ -167,9 +167,9 @@ const { microgonToMoneyNm, satToBtcNm } = createNumeralHelpers(currency);
 const isOpen = Vue.ref(false);
 const isLoading = Vue.ref(false);
 const returnTo = Vue.ref<'memberInvite' | 'onboardingSettings'>();
-const eligibleLocks = Vue.ref<BitcoinLock[]>([]);
+const eligibleLocks = Vue.ref<IBitcoinLock[]>([]);
 const eligibleBondLots = Vue.ref<BondLot[]>([]);
-const bitcoinSelectionByUtxoId = Vue.ref<Record<number, boolean>>({});
+const bitcoinSelectionByLockId = Vue.ref<Record<number, boolean>>({});
 const bondSelectionById = Vue.ref<Record<number, boolean>>({});
 const activeChangeCount = Vue.ref(0);
 const flexibleAssetProgressActive = Vue.ref(false);
@@ -183,7 +183,7 @@ let overlayRequestVersion = 0;
 
 const bitcoinChanges = Vue.computed(() => {
   return eligibleLocks.value.flatMap(lock => {
-    const isFlexible = bitcoinSelectionByUtxoId.value[lock.utxoId];
+    const isFlexible = bitcoinSelectionByLockId.value[lock.lockId];
     return isFlexible === lock.isFlexible ? [] : [{ lock, isFlexible }];
   });
 });
@@ -238,7 +238,7 @@ async function openOverlay(request?: {
   if (requestVersion !== overlayRequestVersion || !isOpen.value) return;
 
   for (const change of request?.flexibleAssetChanges?.bitcoinChanges ?? []) {
-    bitcoinSelectionByUtxoId.value[change.lock.utxoId] = change.isFlexible;
+    bitcoinSelectionByLockId.value[change.lock.lockId] = change.isFlexible;
   }
   for (const change of request?.flexibleAssetChanges?.bondChanges ?? []) {
     bondSelectionById.value[change.lot.id] = change.isFlexible;
@@ -306,7 +306,7 @@ async function loadFlexibleAssets() {
     eligibleBondLots.value = argonBonds
       .getVaultBonds(vault.vaultId)
       .bondLots.filter(lot => lot.isOwn && lot.programType === 'Vault' && !lot.isReleasing);
-    bitcoinSelectionByUtxoId.value = Object.fromEntries(locks.map(lock => [lock.utxoId, lock.isFlexible]));
+    bitcoinSelectionByLockId.value = Object.fromEntries(locks.map(lock => [lock.lockId, lock.isFlexible]));
     bondSelectionById.value = Object.fromEntries(eligibleBondLots.value.map(lot => [lot.id, lot.isFlexible]));
   } finally {
     if (requestVersion === overlayRequestVersion && isOpen.value) isLoading.value = false;
