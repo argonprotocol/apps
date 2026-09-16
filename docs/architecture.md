@@ -98,7 +98,9 @@ Historical recovery runs only for:
 
 - account import;
 - an explicit Find Missing Data action;
-- a concrete gap detected by the owning domain.
+- a missing historical record or historical fact identified by the owning domain.
+
+A gap in an already-loaded active workflow is not historical recovery merely because filling it requires an older event. When current authoritative state identifies the applicable event or a bounded search location, the owning domain retrieves the missing workflow fact through current reconciliation. Recovery is used only when the missing item is historical backfill: a past record or fact that is absent from the durable history the application promises to reconstruct.
 
 Recovery decodes every historical runtime or service version inside the application's supported recovery window. It constructs detached facts or records and keeps them unobservable until the smallest independently coherent publication unit is complete.
 

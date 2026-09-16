@@ -46,7 +46,6 @@ export class BitcoinFissionRecovery {
       blockWatch: Pick<BlockWatch, 'getApi'>;
       currency: Pick<Currency, 'fetchMainchainRatesAtBlock'>;
     },
-    private readonly onHistoryRecovered?: (records: readonly IBitcoinFissionRecord[]) => void | Promise<void>,
   ) {}
 
   public async beginHistoryReplay({ replace = false }: { replace?: boolean } = {}): Promise<void> {
@@ -224,19 +223,6 @@ export class BitcoinFissionRecovery {
 
       return { records, failuresByLockId };
     });
-  }
-
-  public async persistHistoryReplayUnit(
-    db: Db,
-    records: readonly IBitcoinFissionRecord[],
-  ): Promise<IBitcoinFissionRecord[]> {
-    const persisted: IBitcoinFissionRecord[] = [];
-    for (const record of records) persisted.push(await db.bitcoinFissionsTable.saveRecoveredRecord(record));
-    return persisted;
-  }
-
-  public async publishHistoryReplayUnit(records: readonly IBitcoinFissionRecord[]): Promise<void> {
-    if (records.length) await this.onHistoryRecovered?.(records);
   }
 
   public async finishHistoryReplay(): Promise<void> {

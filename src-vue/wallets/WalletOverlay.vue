@@ -72,12 +72,12 @@
                   :guidanceContext="openWallet.guidanceContext"
                   @dragStart="draggable.onMouseDown($event)"
                   @goto="showView"
-                  @openBitcoinConnector="openBitcoinConnector"
                   @close="closeWalletViewOrOverlay"
                 />
                 <WalletViewSend
                   v-else-if="openWallet.centerView.type === 'send'"
                   :isDragging="draggable.isDragging"
+                  :showBack="openWallet.showBack"
                   :activeConnector="openWallet.activeConnector"
                   :showGuidance="openWallet.showGuidance"
                   :guidanceContext="openWallet.guidanceContext"
@@ -88,6 +88,7 @@
                 <WalletViewReceive
                   v-else-if="openWallet.centerView.type === 'receive'"
                   :isDragging="draggable.isDragging"
+                  :showBack="openWallet.showBack"
                   :showGuidance="openWallet.showGuidance"
                   :guidanceContext="openWallet.guidanceContext"
                   @dragStart="draggable.onMouseDown($event)"
@@ -98,12 +99,25 @@
                 <WalletViewPrivateKey
                   v-else-if="openWallet.centerView.type === 'privateKey'"
                   :isDragging="draggable.isDragging"
+                  :showBack="openWallet.showBack"
                   :showGuidance="openWallet.showGuidance"
                   :guidanceContext="openWallet.guidanceContext"
                   @dragStart="draggable.onMouseDown($event)"
                   @goto="showView"
                   @close="closeWalletViewOrOverlay"
                 />
+                <template v-else-if="openWallet.centerView.type === 'unattachedBitcoin'">
+                  <WalletViewUnattachedBitcoin
+                    v-if="unattachedBitcoinView"
+                    :record="unattachedBitcoinView.record"
+                    :lock="unattachedBitcoinView.lock"
+                    :isDragging="draggable.isDragging"
+                    :showBack="openWallet.showBack"
+                    @dragStart="draggable.onMouseDown($event)"
+                    @goto="showView"
+                    @close="closeWalletViewOrOverlay"
+                  />
+                </template>
                 <WalletViewAddConnector
                   v-else
                   :initialStep="openWallet.centerView.initialStep"
@@ -230,6 +244,7 @@ import {
   reserveOverlayZIndex,
 } from '../overlays/helpers/OverlayZIndex.ts';
 import { useBasics } from '../stores/basics.ts';
+import { getBitcoinLocks } from '../stores/bitcoin.ts';
 import { getEthereumMoveTracker } from '../stores/moveFromEthereum.ts';
 import { getEthereumOutboundTransferTracker } from '../stores/moveToEthereum.ts';
 import { useWallets } from '../stores/wallets.ts';
@@ -242,6 +257,7 @@ import WalletViewMain from './components/WalletViewMain.vue';
 import WalletViewPrivateKey from './components/WalletViewPrivateKey.vue';
 import WalletViewReceive from './components/WalletViewReceive.vue';
 import WalletViewSend from './components/WalletViewSend.vue';
+import WalletViewUnattachedBitcoin from './components/WalletViewUnattachedBitcoin.vue';
 import {
   closeWalletView,
   getInitialAddWalletOverlayState,
@@ -263,8 +279,16 @@ type IOpenWallet = IWalletOverlayState & {
 };
 
 const basics = useBasics();
+const bitcoinLocks = getBitcoinLocks();
 const walletStore = useWallets();
 const openWallet = Vue.ref<IOpenWallet>();
+const unattachedBitcoinView = Vue.computed(() => {
+  const centerView = openWallet.value?.centerView;
+  if (centerView?.type !== 'unattachedBitcoin') return;
+  const record = bitcoinLocks.utxoTracking.getUtxoRecordById(centerView.recordId);
+  const lock = record ? bitcoinLocks.getLockById(record.lockId) : undefined;
+  return record && lock ? { record, lock } : undefined;
+});
 const ethereumWallets = Vue.computed(() => walletStore.ethereumWallets.persistedWallets);
 
 const activeConnectorId = Vue.computed<string | number | undefined>(() => {
@@ -345,7 +369,7 @@ const openWalletOverlay = async (options: IWalletOverlayOptions) => {
   if (activeConnector?.type === WalletType.ethereum) await refreshEthereumWalletIfNeeded(activeConnector);
 
   if (openWallet.value) {
-    Object.assign(openWallet.value, showWalletView(openWallet.value, options.view ?? 'main', activeConnector));
+    Object.assign(openWallet.value, getInitialWalletOverlayState(activeConnector, options.view));
     openWallet.value.bitcoinChannelUuid = options.bitcoinChannelUuid;
     openWallet.value.bitcoinChannelVaultId = options.bitcoinChannelVaultId;
     openWallet.value.showGuidance = options.showGuidance ?? false;
@@ -355,9 +379,9 @@ const openWalletOverlay = async (options: IWalletOverlayOptions) => {
   }
 
   resetOverlayPresentation();
-  const initialState = getInitialWalletOverlayState(activeConnector);
+  const initialState = getInitialWalletOverlayState(activeConnector, options.view);
   openWallet.value = {
-    ...showWalletView(initialState, options.view ?? 'main', activeConnector),
+    ...initialState,
     bitcoinChannelUuid: options.bitcoinChannelUuid,
     bitcoinChannelVaultId: options.bitcoinChannelVaultId,
     showGuidance: options.showGuidance ?? false,

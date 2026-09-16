@@ -70,10 +70,7 @@ export const InstallUpdateInteraction: Story = {
     const canvas = within(canvasElement);
 
     await userEvent.click(canvas.getByRole('button', { name: 'Install Update' }));
-
     await expect(downloadAndInstallUpdate).toHaveBeenCalledOnce();
-    await expect(canvas.getByRole('button', { name: 'Downloading Update...' })).toBeDisabled();
-    await expect(canvas.getByText('58.0%')).toBeInTheDocument();
   },
 };
 

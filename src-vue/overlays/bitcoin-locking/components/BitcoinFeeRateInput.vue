@@ -1,16 +1,7 @@
 <template>
   <div>
-    <label class="mb-2 block font-medium text-gray-700">
-      Desired Bitcoin Network Speed
-      <span class="font-light">(how much you're willing to pay)</span>
-    </label>
-    <InputMenu
-      v-model="selectedFeeRateKey"
-      :options="feeRates"
-      :dataTestid="dataTestid"
-      :disabled="disabled"
-      class="h-auto py-3 pl-3"
-    />
+    <label class="mb-1 block font-bold text-gray-500/80">Bitcoin Network Speed</label>
+    <InputMenu v-model="selectedFeeRateKey" :options="feeRates" :dataTestid="dataTestid" :disabled="disabled" />
   </div>
 </template>
 

@@ -249,7 +249,7 @@ describe.skipIf(skipE2E).sequential('My Vault tests', {}, () => {
       await bitcoinLocksRecovery.load();
       expect(Object.keys(bitcoinLocksRecovery.data.locksByLockId)).toHaveLength(1);
 
-      const bitcoins = await bitcoinLocksRecovery.recovery.recoverActiveLocks();
+      const bitcoins = await bitcoinLocksRecovery.syncCurrentLocks();
       expect(bitcoins).toHaveLength(1);
       const bitcoin = bitcoins[0];
       expect(bitcoinLocksRecovery.getLockById(bitcoin.lockId)?.scriptDetails).toEqual(bitcoinStored.scriptDetails);

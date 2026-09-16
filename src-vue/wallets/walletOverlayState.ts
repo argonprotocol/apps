@@ -7,12 +7,13 @@ export const WALLET_MOVE_LABEL = 'MOVE';
 export type IWalletSetupStep = 'choice' | 'external';
 export type IWalletOverlayWallet = WalletForArgon<'argon'> | WalletForBitcoin | WalletForEthereum;
 export type IWalletConnector = WalletForBitcoin | WalletForEthereum;
-export type IWalletView = 'main' | 'send' | 'receive' | 'privateKey';
+export type IWalletView = 'main' | 'send' | 'receive' | 'privateKey' | { type: 'unattachedBitcoin'; recordId: number };
 export type IWalletOverlayCenterView =
   | { type: 'main' }
   | { type: 'send' }
   | { type: 'receive' }
   | { type: 'privateKey' }
+  | { type: 'unattachedBitcoin'; recordId: number }
   | {
       type: 'addEthereum';
       initialStep: IWalletSetupStep;
@@ -21,10 +22,18 @@ export type IWalletOverlayCenterView =
 export type IWalletOverlayState = {
   centerView: IWalletOverlayCenterView;
   activeConnector?: IWalletConnector;
+  showBack: boolean;
 };
 
-export function getInitialWalletOverlayState(activeConnector?: IWalletConnector): IWalletOverlayState {
-  return { centerView: { type: 'main' }, activeConnector };
+export function getInitialWalletOverlayState(
+  activeConnector?: IWalletConnector,
+  view: IWalletView = 'main',
+): IWalletOverlayState {
+  return {
+    centerView: typeof view === 'string' ? { type: view } : view,
+    activeConnector,
+    showBack: false,
+  };
 }
 
 export function getBitcoinDepositAttention(wallet: WalletForBitcoin | undefined): string | undefined {
@@ -37,6 +46,7 @@ export function getBitcoinDepositAttention(wallet: WalletForBitcoin | undefined)
 export function getInitialAddWalletOverlayState(initialStep: IWalletSetupStep): IWalletOverlayState {
   return {
     centerView: { type: 'addEthereum', initialStep },
+    showBack: false,
   };
 }
 
@@ -45,6 +55,7 @@ export function showAddWalletInOverlay(state: IWalletOverlayState, initialStep: 
     ...state,
     centerView: { type: 'addEthereum', initialStep },
     activeConnector: undefined,
+    showBack: false,
   };
 }
 
@@ -58,5 +69,6 @@ export function showWalletView(
   view: IWalletView,
   activeConnector: IWalletConnector | undefined,
 ): IWalletOverlayState {
-  return { ...state, centerView: { type: view }, activeConnector };
+  const centerView = typeof view === 'string' ? { type: view } : view;
+  return { ...state, centerView, activeConnector, showBack: centerView.type !== 'main' };
 }

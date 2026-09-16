@@ -98,8 +98,12 @@ describe('BitcoinLocks Argon cosign gating', () => {
       hdPath: "m/84'/0'/0'",
       vaultId: 1,
     });
-    const record = await db.bitcoinLocksTable.finalizePending({ uuid: pending.uuid, lock: createCurrentLock() });
-    await db.bitcoinLocksTable.setStatus(record, BitcoinLockStatus.LockFunded);
+    const fundedLock = createCurrentLock({ fundedSatoshis: 10_000n });
+    const record = await db.bitcoinLocksTable.finalizePending({
+      uuid: pending.uuid,
+      lock: fundedLock,
+    });
+    await db.bitcoinLocksTable.updateFromCurrentLock(record, fundedLock);
     const fundingUtxo = {
       id: 1,
       lockId: record.lockId!,
@@ -108,7 +112,7 @@ describe('BitcoinLocks Argon cosign gating', () => {
       satoshis: 10_000n,
     } as IBitcoinUtxoRecord;
     let eventMethod = 'FissionCreated';
-    let currentLock = createCurrentLock({ fissionedSatoshis: 6_000n });
+    let currentLock = createCurrentLock({ fundedSatoshis: 10_000n, fissionedSatoshis: 6_000n });
     const blockApi = { query: { bitcoinUtxos: { confirmedBitcoinBlockTip: vi.fn().mockResolvedValue(null) } } };
     const blockWatch = {
       getHeaderByBlockNumber: vi.fn(async (blockNumber: number) => ({ blockNumber, blockHash: `0x${blockNumber}` })),
@@ -147,18 +151,16 @@ describe('BitcoinLocks Argon cosign gating', () => {
       blockHash: '0x102',
     });
     expect(record.fissionedSatoshis).toBe(6_000n);
-    expect(wallet.getSendableChannels()).toEqual([]);
-    expect(wallet.getLiquidLockedChannels()).toEqual([record]);
+    expect(wallet.getSendableChannels()).toEqual([record]);
 
     eventMethod = 'FissionClosed';
-    currentLock = createCurrentLock({ fissionedSatoshis: 0n });
+    currentLock = createCurrentLock({ fundedSatoshis: 10_000n, fissionedSatoshis: 0n });
     await (store as unknown as IBitcoinLocksTestTarget).checkIncomingArgonBlock({
       blockNumber: 103,
       blockHash: '0x103',
     });
     expect(record.fissionedSatoshis).toBe(0n);
     expect(wallet.getSendableChannels()).toEqual([record]);
-    expect(wallet.getLiquidLockedChannels()).toEqual([]);
   });
 
   it('preserves the runtime coupon amount when a member Lock is finalized', async () => {

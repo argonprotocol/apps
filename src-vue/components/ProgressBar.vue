@@ -2,10 +2,10 @@
 <template>
   <div class="Component ProgressBar" :class="twMerge('relative w-full overflow-hidden rounded-md border h-8 bg-[#F2EAF3]', props.class)" :hasError="props.hasError">
     <div Bar :style="{ width: `calc(${progress}% + 2px)` }" :data-progress="progress">
-      <span v-if="hasError" class="error">ERROR</span>
+      <span v-if="props.showLabel && hasError" class="error">ERROR</span>
       <span v-else-if="props.showLabel" class="text-inherit opacity-0" :style="{ opacity: progress / 25 }">{{ progressLabel }}</span>
     </div>
-    <span v-if="!hasError" :style="{ opacity: (50 - progress) / 90 }" class="absolute top-1/2 right-0 -translate-y-1/2 opacity-60">{{ progressLabel }}</span>
+    <span v-if="props.showLabel && !hasError" :style="{ opacity: (50 - progress) / 90 }" class="absolute top-1/2 right-0 -translate-y-1/2 opacity-60">{{ progressLabel }}</span>
   </div>
 </template>
 

@@ -164,7 +164,8 @@ CREATE TABLE BitcoinReleases (
     'WaitingForArgonRecognition',
     'Complete',
     'Cancelled',
-    'Failed'
+    'Failed',
+    'FailedAcknowledged'
   )),
   inputUtxoIds JSON NOT NULL,
   requestedReleaseAtTick INTEGER,
@@ -207,8 +208,7 @@ INSERT INTO BitcoinReleases (
   bitcoinFirstSeenAt, bitcoinFirstSeenHeight, bitcoinFirstSeenOracleHeight,
   bitcoinLastConfirmationCheckAt, bitcoinLastConfirmationCheckOracleHeight,
   bitcoinConfirmedHeight, argonCompletionBlockNumber, argonCompletionBlockHash,
-  argonCompletionBlockTime, argonCompletionExtrinsicIndex, statusError,
-  createdAt, updatedAt
+  argonCompletionBlockTime, argonCompletionExtrinsicIndex, statusError, createdAt, updatedAt
 )
 SELECT
   CASE

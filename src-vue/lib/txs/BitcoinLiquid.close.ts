@@ -1,4 +1,10 @@
-import { BitcoinFission, type Currency, type ArgonClient, type TxSigningAccount } from '@argonprotocol/apps-core';
+import {
+  BitcoinFission,
+  BitcoinLock,
+  type Currency,
+  type ArgonClient,
+  type TxSigningAccount,
+} from '@argonprotocol/apps-core';
 
 import type { BitcoinFissions } from '../BitcoinFissions.ts';
 import { ExtrinsicType } from '../db/TransactionsTable.ts';
@@ -54,6 +60,15 @@ export class BitcoinLiquidClose extends TransactionOperation<
       fission => fission.liquidId === liquidId,
     );
     if (!liquidFissions.length) throw new Error(`Liquid #${liquidId} is unavailable from current chain state.`);
+    const lockIds = [...new Set(liquidFissions.map(fission => fission.lockId))];
+    const releaseRequests = await Promise.all(
+      lockIds.map(lockId => BitcoinLock.getReleaseRequest(snapshotClient, lockId)),
+    );
+    if (releaseRequests.some(Boolean)) {
+      throw new Error(
+        "This Liquid's Bitcoin is updating internally. Close will be available when the update is complete.",
+      );
+    }
 
     const priceIndex = await this.currency.fetchPriceIndex(snapshotClient);
     const redemptionAmount = liquidFissions.reduce(

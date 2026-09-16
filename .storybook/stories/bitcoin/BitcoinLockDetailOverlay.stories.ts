@@ -95,8 +95,6 @@ export const ExternalReleased: Story = {
   beforeEach: () => {
     scenario = setupBitcoinOverlayScenario();
     const externalLock = createExternalBitcoinLock({ lockId: 802 });
-    scenario.myVault.data.externalLocks[externalLock.lockId] = externalLock;
-    scenario.myVault.data.releasedExternalLockIds.add(externalLock.lockId);
     displayLock = externalLock;
   },
 };

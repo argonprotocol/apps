@@ -1,6 +1,6 @@
 import { BitcoinLockStatus, type IBitcoinLockRecord } from '../db/BitcoinLocksTable.ts';
 import { BitcoinUtxoSpendStatus, BitcoinUtxoStatus, type IBitcoinUtxoRecord } from '../db/BitcoinUtxosTable.ts';
-import { BitcoinReleaseStatus, type IBitcoinReleaseRecord } from '../../interfaces/IBitcoinReleaseRecord.ts';
+import type { IBitcoinReleaseRecord } from '../../interfaces/IBitcoinReleaseRecord.ts';
 import type { IBitcoinSecuritizationTerm } from '../../interfaces/IBitcoinSecuritizationTerm.ts';
 import type { Db } from '../Db.ts';
 
@@ -124,6 +124,7 @@ export function createHistoricalBitcoinLockRecord(
 
 export type BitcoinHistoryReplaySession = {
   purpose: 'financial-backfill' | 'operational-repair';
+  activeLockIds: Set<number>;
   currentHistoricalUtxoId?: number;
   lockIdByHistoricalUtxoId: Map<number, number>;
   locksByLockId: Record<number, IHistoricalBitcoinLockRecord>;
@@ -160,156 +161,3 @@ export const bitcoinRecoveryEventPolicies: Readonly<Record<string, 'replay' | 'p
   SecuritizationIncreased: 'replay',
   UtxoFundedFromCandidate: 'replay',
 };
-
-export function resolveRecoveredLock(
-  durable: IBitcoinLockRecord,
-  recovered: IHistoricalBitcoinLockRecord,
-  useRecoveredStatus: boolean,
-  preserveCurrentState = false,
-): IBitcoinLockRecord {
-  const createdAt = durable.createdAt < recovered.createdAt ? durable.createdAt : recovered.createdAt;
-  if (preserveCurrentState) {
-    durable.createdAt = createdAt;
-    return durable;
-  }
-
-  const lifecycleProgress: Partial<Record<BitcoinLockStatus, number>> = {
-    [BitcoinLockStatus.LockIsProcessingOnArgon]: 0,
-    [BitcoinLockStatus.LockPendingFunding]: 1,
-    [BitcoinLockStatus.LockFunded]: 2,
-    [BitcoinLockStatus.Releasing]: 3,
-    [BitcoinLockStatus.Released]: 4,
-  };
-  const durableProgress = lifecycleProgress[durable.status];
-  const recoveredProgress = lifecycleProgress[recovered.status];
-  const status =
-    useRecoveredStatus ||
-    (durableProgress !== undefined && recoveredProgress !== undefined && recoveredProgress > durableProgress)
-      ? recovered.status
-      : durable.status;
-  const hasDurableFunding = durable.fundingUtxoIds.length > 0 || durable.fundedSatoshis > 0n;
-
-  assignIfUnset(durable, recovered, [
-    'removalBlockNumber',
-    'removalBlockHash',
-    'removalBlockTime',
-    'removalExtrinsicIndex',
-    'removalReason',
-    'btcPriceAtRemovalMicrogons',
-  ]);
-  Object.assign(durable, {
-    securitizedSatoshis: recovered.securitizedSatoshis,
-    ownerAccount: recovered.ownerAccount,
-    microgonsAtTargetPerBtc: recovered.microgonsAtTargetPerBtc ?? durable.microgonsAtTargetPerBtc,
-    securitizationCoverageMicrogons:
-      recovered.securitizationCoverageMicrogons ?? durable.securitizationCoverageMicrogons,
-    securitizationTick: recovered.securitizationTick ?? durable.securitizationTick,
-    fissionedSatoshis: recovered.fissionedSatoshis ?? durable.fissionedSatoshis,
-    securitizationRatio: recovered.securitizationRatio,
-    securityFees: recovered.securityFees,
-    couponFeesPaid: recovered.couponFeesPaid,
-    scriptDetails: recovered.scriptDetails,
-    securitizationHoldExpirationBitcoinHeight: recovered.securitizationHoldExpirationBitcoinHeight,
-    isFlexible: recovered.isFlexible,
-    fundHoldExtensionsByBitcoinExpirationHeight: recovered.fundHoldExtensionsByBitcoinExpirationHeight,
-    createdAtArgonBlock: recovered.createdAtArgonBlock,
-    createdAt,
-    status,
-  });
-  if (useRecoveredStatus || !hasDurableFunding) {
-    durable.fundingUtxoIds = [...recovered.fundingUtxoIds];
-    durable.fundedSatoshis = recovered.fundedSatoshis;
-  }
-  if (status === BitcoinLockStatus.Released) durable.activeReleaseId = undefined;
-  else durable.activeReleaseId ??= recovered.activeReleaseId;
-  return durable;
-}
-
-const releaseProgress: Partial<Record<BitcoinReleaseStatus, number>> = {
-  [BitcoinReleaseStatus.SubmittingRequestOnArgon]: 0,
-  [BitcoinReleaseStatus.WaitingForVaultCosign]: 1,
-  [BitcoinReleaseStatus.ReadyForBitcoinBroadcast]: 2,
-  [BitcoinReleaseStatus.ConfirmingOnBitcoin]: 3,
-  [BitcoinReleaseStatus.WaitingForArgonRecognition]: 4,
-  [BitcoinReleaseStatus.Complete]: 5,
-};
-
-export function resolveRecoveredRelease(
-  durable: IBitcoinReleaseRecord,
-  recovered: IBitcoinReleaseRecord,
-): IBitcoinReleaseRecord {
-  const durableProgress = releaseProgress[durable.status];
-  const recoveredProgress = releaseProgress[recovered.status];
-  if (recoveredProgress !== undefined && (durableProgress === undefined || recoveredProgress > durableProgress)) {
-    durable.status = recovered.status;
-  }
-
-  assignIfUnset(durable, recovered, [
-    'requestedReleaseAtTick',
-    'insuredMicrogons',
-    'argonTxFeeMicrogons',
-    'compensationMicrogons',
-    'cosignBlockNumber',
-    'bitcoinTxid',
-    'bitcoinFirstSeenAt',
-    'bitcoinFirstSeenHeight',
-    'bitcoinFirstSeenOracleHeight',
-    'bitcoinLastConfirmationCheckAt',
-    'bitcoinLastConfirmationCheckOracleHeight',
-    'bitcoinConfirmedHeight',
-    'argonCompletionBlockNumber',
-    'argonCompletionBlockHash',
-    'argonCompletionBlockTime',
-    'argonCompletionExtrinsicIndex',
-  ]);
-  if (!durable.inputUtxoIds.length) durable.inputUtxoIds = [...recovered.inputUtxoIds];
-  if (!durable.vaultSignatures.length) durable.vaultSignatures = [...recovered.vaultSignatures];
-  if (recovered.createdAt < durable.createdAt) durable.createdAt = recovered.createdAt;
-  if (durable.status === BitcoinReleaseStatus.Complete) durable.statusError = undefined;
-  else durable.statusError ??= recovered.statusError;
-  return durable;
-}
-
-export function resolveRecoveredUtxo(durable: IBitcoinUtxoRecord, recovered: IBitcoinUtxoRecord): IBitcoinUtxoRecord {
-  const firstSeenAt = durable.firstSeenAt < recovered.firstSeenAt ? durable.firstSeenAt : recovered.firstSeenAt;
-  const status =
-    durable.status === BitcoinUtxoStatus.FundingUtxo
-      ? durable.status
-      : recovered.status === BitcoinUtxoStatus.Orphaned
-        ? recovered.status
-        : durable.status;
-  const spendStatus =
-    durable.spendStatus === BitcoinUtxoSpendStatus.Spent || recovered.spendStatus === BitcoinUtxoSpendStatus.Spent
-      ? BitcoinUtxoSpendStatus.Spent
-      : BitcoinUtxoSpendStatus.Unspent;
-
-  assignIfUnset(durable, recovered, [
-    'mempoolObservation',
-    'firstSeenOnArgonAt',
-    'firstSeenOracleHeight',
-    'lastConfirmationCheckAt',
-    'lastConfirmationCheckOracleHeight',
-    'createdByReleaseId',
-    'spentByReleaseId',
-  ]);
-  Object.assign(durable, {
-    status,
-    spendStatus,
-    // A finalized request recovered after a local pre-finalization failure may be the first durable release link.
-    // Never replace a current link or restore one after the UTXO has been spent.
-    activeReleaseId:
-      spendStatus === BitcoinUtxoSpendStatus.Spent ? undefined : (durable.activeReleaseId ?? recovered.activeReleaseId),
-    statusError: recovered.statusError ?? durable.statusError,
-    firstSeenAt,
-    firstSeenBitcoinHeight: Math.max(durable.firstSeenBitcoinHeight, recovered.firstSeenBitcoinHeight),
-  });
-  return durable;
-}
-
-export function assignIfUnset<T extends object, K extends keyof T>(
-  target: T,
-  source: Pick<T, K>,
-  fields: readonly K[],
-): void {
-  for (const field of fields) target[field] = target[field] ?? source[field];
-}

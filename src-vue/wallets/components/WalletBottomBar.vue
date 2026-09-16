@@ -9,6 +9,12 @@
           >
             <span v-if="isLoadingTransfers">Loading transfers...</span>
             <span v-else-if="loadError && pendingTransfers.length === 0">Transfer status unavailable</span>
+            <span v-else-if="failedTransferCount">
+              {{ failedTransferCount }} {{ failedTransferCount === 1 ? 'Transfer' : 'Transfers' }} Needs Attention
+              <template v-if="activeTransferCount">
+                · {{ activeTransferCount }} {{ activeTransferCount === 1 ? 'Transfer' : 'Transfers' }} Pending
+              </template>
+            </span>
             <span v-else>
               {{ pendingTransfers.length }}
               {{ pendingTransfers.length === 1 ? 'Transfer' : 'Transfers' }} Pending
@@ -107,10 +113,12 @@ import { createNumeralHelpers } from '../../lib/numeral.ts';
 import { useFloatingZIndex } from '../../overlays/helpers/OverlayZIndex.ts';
 import { getConfig } from '../../stores/config.ts';
 import { getCurrency } from '../../stores/currency.ts';
-import { getBitcoinLocks } from '../../stores/bitcoin.ts';
+import { getBitcoinLocks, getBitcoinTransactionOperations } from '../../stores/bitcoin.ts';
+import { getBitcoinReleaseProgress } from '../../stores/bitcoinLockProgress.ts';
+import { getMiningFrames } from '../../stores/mainchain.ts';
 import { getEthereumMoveTracker } from '../../stores/moveFromEthereum.ts';
 import { getEthereumOutboundTransferTracker } from '../../stores/moveToEthereum.ts';
-import { getVaults } from '../../stores/vaults.ts';
+import { getMyVault, getVaults } from '../../stores/vaults.ts';
 import { useWallets } from '../../stores/wallets.ts';
 import {
   getCrosschainTransferProgressView,
@@ -132,7 +140,10 @@ type PendingTransfer = {
 
 const wallets = useWallets();
 const bitcoinLocks = getBitcoinLocks();
+const { bitcoinLockRelease } = getBitcoinTransactionOperations();
 const config = getConfig();
+const miningFrames = getMiningFrames();
+const myVault = getMyVault();
 const vaults = getVaults();
 const inboundTracker = getEthereumMoveTracker();
 const outboundTracker = getEthereumOutboundTransferTracker();
@@ -209,50 +220,60 @@ const pendingTransfers = Vue.computed<PendingTransfer[]>(() => {
     ];
   });
 
-  const bitcoinChannelReleases = wallets.bitcoinWallet.getPendingChannelReleases().map<PendingTransfer>(channel => {
+  const activeBitcoinReleases = wallets.bitcoinWallet.getPendingChannelReleases().flatMap(channel => {
     const release = bitcoinLocks.releases.getActiveForLock(channel);
-    const releaseDestination = release?.toScriptPubkey;
-    const releaseState = bitcoinLocks.getLockUnlockReleaseState(channel);
-    const progress = bitcoinLocks.getReleaseProcessingDetails(release);
-    let detail = 'Submitting the Bitcoin release on Argon...';
-    if (releaseState.isWaitingForVaultCosign) {
-      detail = 'Waiting for the channel co-signer';
-    } else if (releaseState.isBitcoinReleaseProcessing) {
-      detail =
-        progress.confirmations < 0
-          ? 'Bitcoin sent. Waiting for the first confirmation...'
-          : `Bitcoin confirmation ${Math.min(progress.confirmations + 1, progress.expectedConfirmations)} of ${progress.expectedConfirmations}`;
-    }
-    let destinationLabel = 'Bitcoin Network';
-    if (releaseDestination) {
+    return release ? [{ channel, release }] : [];
+  });
+  const failedBitcoinReleases = bitcoinLocks.releases.getUnacknowledgedFailedLockReleases().flatMap(release => {
+    const channel = bitcoinLocks.getLockById(release.lockId);
+    return channel ? [{ channel, release }] : [];
+  });
+  const bitcoinChannelReleases = [...activeBitcoinReleases, ...failedBitcoinReleases].map<PendingTransfer>(
+    ({ channel, release }) => {
+      const releaseDestination = release.toScriptPubkey;
+      const releaseState = bitcoinLocks.getLockUnlockReleaseState(channel);
+      const bitcoinProgress = bitcoinLocks.getReleaseProcessingDetails(release);
+      const releaseProgress = getBitcoinReleaseProgress({
+        release,
+        releaseState,
+        argonProgress: bitcoinLockRelease.getPendingReleaseTxInfo(channel.lockId!)?.getStatus(),
+        vaultProgressPct: bitcoinLocks.getRequestReleaseByVaultProgress(channel, miningFrames),
+        bitcoinProgress,
+        cosignerLabel: getBitcoinCosignerLabel(channel.vaultId),
+      });
+      let destinationLabel = 'Bitcoin Network';
       try {
         destinationLabel = abbreviateAddress(bitcoinLocks.formatAddressBytes(releaseDestination), 8);
       } catch {
         destinationLabel = abbreviateAddress(releaseDestination, 8);
       }
-    }
-    return {
-      id: channel.uuid,
-      direction: 'outbound',
-      moveToken: MoveToken.BTC,
-      amount: channel.fundedSatoshis,
-      fromLabel: getBitcoinChannelLabel(channel.vaultId),
-      toLabel: destinationLabel,
-      startedAt: (release?.bitcoinFirstSeenAt ?? release?.createdAt ?? channel.updatedAt).getTime(),
-      updatedAt: (release?.bitcoinLastConfirmationCheckAt ?? release?.updatedAt ?? channel.updatedAt).getTime(),
-      progress: {
-        progressPct: progress.progressPct,
-        stepLabel: 'Sending Bitcoin',
-        detail,
-        error: progress.releaseError ?? '',
-      },
-    };
-  });
+      return {
+        id: release.id,
+        direction: 'outbound',
+        moveToken: MoveToken.BTC,
+        amount: release.destinationSatoshis + release.bitcoinNetworkFee,
+        fromLabel: getBitcoinChannelLabel(channel.vaultId),
+        toLabel: destinationLabel,
+        startedAt: (release.bitcoinFirstSeenAt ?? release.createdAt).getTime(),
+        updatedAt: (release.bitcoinLastConfirmationCheckAt ?? release.updatedAt).getTime(),
+        progress: {
+          progressPct: releaseProgress.progressPct,
+          stepLabel: 'Sending Bitcoin',
+          detail: releaseProgress.detail,
+          error: release.statusError ?? bitcoinProgress.releaseError ?? '',
+        },
+      };
+    },
+  );
 
   return [...inboundTransfers, ...outboundTransfers, ...bitcoinChannelFundings, ...bitcoinChannelReleases].sort(
     (a, b) => b.updatedAt - a.updatedAt,
   );
 });
+const failedTransferCount = Vue.computed(
+  () => pendingTransfers.value.filter(transfer => !!transfer.progress.error).length,
+);
+const activeTransferCount = Vue.computed(() => pendingTransfers.value.length - failedTransferCount.value);
 
 function getEthereumWalletLabel(address: string) {
   const wallet = wallets.ethereumWallets.findByAddress(address);
@@ -261,11 +282,16 @@ function getEthereumWalletLabel(address: string) {
 }
 
 function getBitcoinChannelLabel(vaultId: number): string {
+  return `${getBitcoinCosignerLabel(vaultId)} Channel`;
+}
+
+function getBitcoinCosignerLabel(vaultId: number): string {
+  if (vaultId === (myVault.createdVault?.vaultId ?? myVault.vaultId)) return 'My Vault';
   const cosigner =
     vaults.operatorNamesByVaultId[vaultId] ??
     (config.upstreamOperator?.vaultId === vaultId ? config.upstreamOperator.name : undefined) ??
     `Vault ${vaultId}`;
-  return `${cosigner} Channel`;
+  return cosigner;
 }
 
 function formatAmount(value: bigint, moveToken: MoveToken) {

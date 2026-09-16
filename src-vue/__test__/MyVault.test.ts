@@ -205,24 +205,17 @@ describe('MyVault cosign recovery', () => {
     };
     const getMainchainClients = vi.spyOn(mainchainStore, 'getMainchainClients').mockReturnValue(clients as any);
     const getMainchainClient = vi.spyOn(mainchainStore, 'getMainchainClient').mockResolvedValue(eventClient as any);
-    const { myVault, blockWatchEventOn, getBlockEvents, getBlockEventsWithSpec } = createVault({
+    const { myVault, blockWatchEventOn, getBlockEventsWithSpec } = createVault({
       blockEvents,
       finalizedApi,
     });
     myVault.data.createdVault = { vaultId: 7 } as Vault;
     myVault.data.metadata = { id: 7 } as any;
     vi.spyOn(myVault as unknown as IMyVaultTestTarget, 'updateCollectDeadlines').mockImplementation(() => undefined);
+    const refreshExternalLocks = vi.spyOn(myVault, 'refreshExternalLocks').mockResolvedValue(undefined);
 
     await myVault.subscribe();
 
-    expect(myVault.data.pendingOrphanCosignCount).toBe(2);
-    expect(myVault.data.pendingCollectRevenue).toBe(42n);
-
-    const onBestBlocks = blockWatchEventOn.mock.calls.find(([event]) => event === 'best-blocks')![1];
-    onBestBlocks([{ blockNumber: 10, blockHash: '0x10' }]);
-    await vi.waitFor(() => {
-      expect(getBlockEvents).toHaveBeenCalledTimes(1);
-    });
     expect(myVault.data.pendingOrphanCosignCount).toBe(2);
     expect(myVault.data.pendingCollectRevenue).toBe(42n);
 
@@ -230,7 +223,7 @@ describe('MyVault cosign recovery', () => {
     blockEvents.splice(
       0,
       1,
-      { event: { section: 'bitcoinLocks', method: 'BitcoinLockCreated', data: { vaultId: 7 } } },
+      { event: { section: 'bitcoinLocks', method: 'BitcoinLockCreated', data: { vaultId: 8 } } },
       { event: { section: 'bitcoinLocks', method: 'OrphanedUtxoReleaseRequested', data: { vaultId: 8 } } },
       { event: { section: 'vaults', method: 'FundsLocked', data: { vaultId: 8 } } },
     );
@@ -244,16 +237,54 @@ describe('MyVault cosign recovery', () => {
 
     expect(myVault.data.pendingOrphanCosignCount).toBe(3);
     expect(myVault.data.pendingCollectRevenue).toBe(42n);
+    expect(refreshExternalLocks).toHaveBeenCalledWith(finalizedApi);
+
+    refreshExternalLocks.mockClear();
+    blockEvents.splice(0, 1, {
+      event: { section: 'bitcoinLocks', method: 'BitcoinSpentAfterRelease', data: { vaultId: 7 } },
+    });
+    await onFinalized([{ blockNumber: 11, blockHash: '0x11' }]);
+    expect(refreshExternalLocks).toHaveBeenCalledWith(finalizedApi);
 
     blockEvents.splice(0, 1, { event: vaultEvent });
-    await onFinalized([{ blockNumber: 11, blockHash: '0x11' }]);
+    await onFinalized([{ blockNumber: 12, blockHash: '0x12' }]);
 
     expect(myVault.data.pendingCollectRevenue).toBe(84n);
-    expect(getBlockEventsWithSpec).toHaveBeenCalledTimes(3);
+    expect(getBlockEventsWithSpec).toHaveBeenCalledTimes(4);
 
     myVault.unsubscribe();
     getMainchainClient.mockRestore();
     getMainchainClients.mockRestore();
+  });
+
+  it('refetches a retained external lock after its partial release changes funding', async () => {
+    const { myVault } = createVault();
+    myVault.data.metadata = { id: 7 } as any;
+    (myVault.bitcoinLocks as any).data = { locksByLockId: {} };
+    const client = {
+      query: {
+        bitcoinLocks: {
+          lockIdsByVaultId: { keys: vi.fn(async () => [{ args: [7, 11] }]) },
+        },
+      },
+    };
+    const getLocks = vi
+      .spyOn(AppsCore.BitcoinLock, 'getMany')
+      .mockResolvedValueOnce([
+        createCurrentLock({ lockId: 11, vaultId: 7, fundedSatoshis: 10_000n }) as AppsCore.BitcoinLock,
+      ])
+      .mockResolvedValueOnce([
+        createCurrentLock({ lockId: 11, vaultId: 7, fundedSatoshis: 6_000n }) as AppsCore.BitcoinLock,
+      ]);
+
+    await myVault.refreshExternalLocks(client as any);
+    expect(myVault.data.externalLocks[11].satoshis).toBe(10_000n);
+
+    await myVault.refreshExternalLocks(client as any);
+    expect(myVault.data.externalLocks[11].satoshis).toBe(6_000n);
+    expect(getLocks).toHaveBeenCalledTimes(2);
+
+    getLocks.mockRestore();
   });
 
   it('does not add the informational tip to the actual transaction fee twice', () => {
@@ -729,7 +760,6 @@ describe('MyVault cosign recovery', () => {
         cosignedOrphanUtxos: [],
         moveTo: 'VaultingHold' as any,
       },
-      submittedCosignLockIds: [],
     });
     vi.spyOn(myVault as any, 'onVaultCollect').mockRejectedValue(new Error('post-processing failed'));
 
@@ -909,7 +939,6 @@ describe('MyVault cosign recovery', () => {
         cosignedOrphanUtxos: [],
         moveTo: 'VaultingHold',
       },
-      submittedCosignLockIds: [],
     });
   });
 
@@ -981,7 +1010,6 @@ describe('MyVault cosign recovery', () => {
         cosignedOrphanUtxos: [],
         moveTo: 'VaultingHold',
       },
-      submittedCosignLockIds: [],
     });
   });
 

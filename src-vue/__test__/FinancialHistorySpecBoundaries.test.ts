@@ -50,7 +50,7 @@ describe('financial history spec boundaries', () => {
     expect(rawClient.query.bitcoinLocks.locksByUtxoId).toHaveBeenCalledOnce();
   });
 
-  it('normalizes the native spec 159 Lock shape without inventing pre-Fission liquidity', async () => {
+  it('normalizes the retained spec 159 Lock and its actual funding output after a partial release', async () => {
     const locksById = vi.fn(async () => ({
       vaultId: 3,
       securitizationBasis: {
@@ -59,11 +59,8 @@ describe('financial history spec boundaries', () => {
       },
       securitizationCoverageMicrogons: 499_433_743n,
       securitizationTick: 923_350n,
-      fundedSatoshis: 488_275n,
-      fundingUtxos: [
-        [{ txid: '00'.repeat(32), outputIndex: 0 }, 288_275n],
-        [{ txid: '11'.repeat(32), outputIndex: 1 }, 200_000n],
-      ],
+      fundedSatoshis: 200_000n,
+      fundingUtxos: [[{ txid: '11'.repeat(32), outputIndex: 1 }, 200_000n]],
       fissionedSatoshis: 200_000n,
       ownerAccount: accountId,
       securitizationRatio: new BigNumber(1),
@@ -93,18 +90,15 @@ describe('financial history spec boundaries', () => {
 
     expect(lock).toMatchObject({
       utxoId: 10,
-      securitizedSatoshis: 488_274n,
-      fundedSatoshis: 488_275n,
+      securitizedSatoshis: 200_000n,
+      fundedSatoshis: 200_000n,
       lockedTargetPrice: 516_350_021n,
       liquidityPromised: 0n,
-      securitizationCoverageMicrogons: 499_433_743n,
+      securitizationCoverageMicrogons: 204_571_098n,
       securityFees: 3_000_000n,
       couponFeesPaid: 2_000_000n,
     });
-    expect(fundingUtxos).toEqual([
-      { utxoRef: { txid: '00'.repeat(32), vout: 0 }, satoshis: 288_275n },
-      { utxoRef: { txid: '11'.repeat(32), vout: 1 }, satoshis: 200_000n },
-    ]);
+    expect(fundingUtxos).toEqual([{ utxoRef: { txid: '11'.repeat(32), vout: 1 }, satoshis: 200_000n }]);
   });
 
   it('passes supported activity through runtime boundaries while skipping only an unsupported domain block', async () => {

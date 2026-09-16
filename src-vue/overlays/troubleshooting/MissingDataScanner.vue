@@ -145,7 +145,7 @@ async function checkVault() {
 
 async function checkBitcoins() {
   await bitcoinLocks.load();
-  const bitcoins = await bitcoinLocks.recovery.recoverActiveLocks();
+  const bitcoins = await bitcoinLocks.syncCurrentLocks();
   const newlyFound = bitcoins.filter(bitcoin => !bitcoinLockIdsAtScanStart.has(bitcoin.lockId!));
 
   return {

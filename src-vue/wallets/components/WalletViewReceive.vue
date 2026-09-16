@@ -2,7 +2,7 @@
   <div class="flex h-full grow flex-col text-black/90">
     <WalletHeader
       name="Receive Into Internal"
-      :showHome="true"
+      :showHome="props.showBack"
       :isDragging="props.isDragging"
       @dragStart="emit('dragStart', $event)"
       @goto="emit('goto', $event)"
@@ -58,6 +58,7 @@ const wallets = useWallets();
 
 const props = defineProps<{
   isDragging: boolean;
+  showBack: boolean;
   showGuidance?: boolean;
   guidanceContext?: IWalletGuidanceContext;
 }>();

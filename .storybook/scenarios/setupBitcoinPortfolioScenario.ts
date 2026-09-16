@@ -1058,7 +1058,14 @@ function createLockRelease(
     inputUtxoIds: [fundingUtxo.id],
     ...overrides,
   });
-  if (![BitcoinReleaseStatus.Complete, BitcoinReleaseStatus.Cancelled, BitcoinReleaseStatus.Failed].includes(status)) {
+  if (
+    ![
+      BitcoinReleaseStatus.Complete,
+      BitcoinReleaseStatus.Cancelled,
+      BitcoinReleaseStatus.Failed,
+      BitcoinReleaseStatus.FailedAcknowledged,
+    ].includes(status)
+  ) {
     lock.activeReleaseId = release.id;
     fundingUtxo.activeReleaseId = release.id;
   }
@@ -1078,7 +1085,14 @@ function createOrphanRelease(
     inputUtxoIds: [utxo.id],
     ...overrides,
   });
-  if (![BitcoinReleaseStatus.Complete, BitcoinReleaseStatus.Cancelled, BitcoinReleaseStatus.Failed].includes(status)) {
+  if (
+    ![
+      BitcoinReleaseStatus.Complete,
+      BitcoinReleaseStatus.Cancelled,
+      BitcoinReleaseStatus.Failed,
+      BitcoinReleaseStatus.FailedAcknowledged,
+    ].includes(status)
+  ) {
     utxo.activeReleaseId = release.id;
   }
   return release;

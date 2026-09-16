@@ -5,11 +5,9 @@ import {
   type BondLot,
   type IBlockHeaderInfo,
   type IIndexerSpec,
-  type MainchainClients,
 } from '@argonprotocol/apps-core';
 import type { Db } from '../Db.ts';
 import type { IBitcoinFissionRecord } from '../../interfaces/IBitcoinFissionRecord.ts';
-import type { IBitcoinLockRecord } from '../db/BitcoinLocksTable.ts';
 import { findAddressActivity } from '../IndexerClient.ts';
 import { SyncStateKeys, type IFinancialHistoryDomain, type ISyncSchemas } from '../db/SyncStateTable.ts';
 import type { ArgonBonds } from '../ArgonBonds.ts';
@@ -17,6 +15,8 @@ import type { VaultHistory } from './MyVault.ts';
 import type { BitcoinLockRecovery } from './BitcoinLocks.ts';
 import type { BitcoinHistoryReplayLockScope, IHistoricalBitcoinLockRecord } from './BitcoinLockReplay.ts';
 import type { BitcoinFissionRecovery } from './BitcoinFissions.ts';
+import type BitcoinLocks from '../BitcoinLocks.ts';
+import type { BitcoinFissions } from '../BitcoinFissions.ts';
 
 type IIndexedActivityBlock = IIndexerSpec['/v2/activity/:address']['responseType']['blocks'][number];
 export type { IFinancialHistoryDomain } from '../db/SyncStateTable.ts';
@@ -92,12 +92,11 @@ export async function restoreFinancialHistory(args: {
   blockWatch: BlockWatch;
   accountId: string;
   argonBonds: ArgonBonds;
-  bitcoinLockRecovery?: BitcoinLockRecovery;
-  bitcoinFissionRecovery?: BitcoinFissionRecovery;
+  bitcoinLocks?: Pick<BitcoinLocks, 'recovery' | 'applyRecoveredHistory'>;
+  bitcoinFissions?: Pick<BitcoinFissions, 'recovery' | 'publishRecoveredHistory'>;
   vaultHistory: VaultHistory;
   enabledDomains: readonly IFinancialHistoryDomain[];
   recoverMissingCheckpointsFor: readonly IFinancialHistoryDomain[];
-  mainchainClients?: MainchainClients;
   force?: boolean;
   minimumAsOfBlock?: number;
   onCheckStart?: () => void;
@@ -112,7 +111,9 @@ export async function restoreFinancialHistory(args: {
   ) => void;
   onDomainComplete?: (result: { domain: IFinancialHistoryDomain; asOfBlock: number; error?: string }) => void;
 }): Promise<IFinancialHistoryRestoreResult> {
-  const { db, blockWatch, accountId, argonBonds, bitcoinLockRecovery, bitcoinFissionRecovery, vaultHistory } = args;
+  const { db, blockWatch, accountId, argonBonds, bitcoinLocks, bitcoinFissions, vaultHistory } = args;
+  const bitcoinLockRecovery = bitcoinLocks?.recovery;
+  const bitcoinFissionRecovery = bitcoinFissions?.recovery;
   const enabledDomains = [...new Set(args.enabledDomains)];
   const targetBlock = args.minimumAsOfBlock ?? blockWatch.finalizedBlockHeader.blockNumber;
   if (!enabledDomains.length) return { importedBlockCount: 0, asOfBlock: targetBlock, targetBlock };
@@ -204,7 +205,6 @@ export async function restoreFinancialHistory(args: {
           domain,
           checkpoint,
           recoverMissingCheckpointsFor: args.recoverMissingCheckpointsFor,
-          mainchainClients: args.mainchainClients,
           force: args.force,
           targetBlock,
           onActiveBitcoinLocksFound: args.onActiveBitcoinLocksFound,
@@ -222,9 +222,8 @@ export async function restoreFinancialHistory(args: {
           const lockCommitStartedAt = performance.now();
           try {
             await publishBitcoinHistoryReplay({
-              db,
-              bitcoinLockRecovery,
-              bitcoinFissionRecovery,
+              bitcoinLocks,
+              bitcoinFissions,
               asOfBlock: result.checkpoint.asOfBlock,
             });
           } catch (error) {
@@ -277,16 +276,16 @@ export async function restoreFinancialHistory(args: {
 }
 
 export async function publishBitcoinHistoryReplay({
-  db,
-  bitcoinLockRecovery,
-  bitcoinFissionRecovery,
+  bitcoinLocks,
+  bitcoinFissions,
   asOfBlock,
 }: {
-  db: Db;
-  bitcoinLockRecovery: BitcoinLockRecovery;
-  bitcoinFissionRecovery?: BitcoinFissionRecovery;
+  bitcoinLocks: Pick<BitcoinLocks, 'recovery' | 'applyRecoveredHistory'>;
+  bitcoinFissions?: Pick<BitcoinFissions, 'recovery' | 'publishRecoveredHistory'>;
   asOfBlock: number;
 }): Promise<readonly IHistoricalBitcoinLockRecord[]> {
+  const bitcoinLockRecovery = bitcoinLocks.recovery;
+  const bitcoinFissionRecovery = bitcoinFissions?.recovery;
   const preparedLocks = await bitcoinLockRecovery.prepareHistoryReplay();
   const preparedFissions = await bitcoinFissionRecovery?.prepareHistoryReplay(
     preparedLocks.records,
@@ -323,16 +322,9 @@ export async function publishBitcoinHistoryReplay({
 
     const fissions = fissionsByLockId.get(lockId) ?? [];
     try {
-      let persistedLock: IBitcoinLockRecord | undefined;
-      let persistedFissions = fissions;
-      await db.transaction(async transaction => {
-        persistedLock = await bitcoinLockRecovery.persistHistoryReplayUnit(transaction, lockId, asOfBlock);
-        if (bitcoinFissionRecovery && fissions.length) {
-          persistedFissions = await bitcoinFissionRecovery.persistHistoryReplayUnit(transaction, fissions);
-        }
-      });
-      await bitcoinLockRecovery.publishHistoryReplayUnit(persistedLock);
-      await bitcoinFissionRecovery?.publishHistoryReplayUnit(persistedFissions);
+      const unit = bitcoinLockRecovery.prepareHistoryReplayUnit(lockId, fissions);
+      if (!unit) throw new Error('Bitcoin history replay is not active');
+      await bitcoinLocks.applyRecoveredHistory(unit, asOfBlock, bitcoinFissions);
     } catch (error) {
       failedLockIds.add(lockId);
       const message = error instanceof Error ? error.message : String(error);
@@ -590,7 +582,6 @@ async function restoreFinancialHistoryDomain(args: {
   domain: IFinancialHistoryDomain;
   checkpoint?: IFinancialHistoryCheckpoint;
   recoverMissingCheckpointsFor: readonly IFinancialHistoryDomain[];
-  mainchainClients?: MainchainClients;
   force?: boolean;
   targetBlock: number;
   onActiveBitcoinLocksFound?: (count: number) => void;
@@ -623,10 +614,7 @@ async function restoreFinancialHistoryDomain(args: {
     args.force || !checkpoint || recoveryVersionChanged || shouldRestartBitcoinRecovery ? 0 : checkpoint.asOfBlock;
 
   if (domain === 'bitcoin' && bitcoinLockRecovery && afterBlock === 0) {
-    if (args.mainchainClients) {
-      const activeLocks = await bitcoinLockRecovery.recoverActiveLocks();
-      args.onActiveBitcoinLocksFound?.(activeLocks.length);
-    } else if (args.onActiveBitcoinLocksFound) {
+    if (args.onActiveBitcoinLocksFound) {
       const finalizedApi = await blockWatch.getFinalizedApi();
       const activeLockIds = await bitcoinLockRecovery.findActiveLockIds(finalizedApi);
       args.onActiveBitcoinLocksFound(activeLockIds.length);

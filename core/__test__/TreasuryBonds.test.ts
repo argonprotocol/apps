@@ -212,26 +212,6 @@ describe('TreasuryBonds', () => {
     expect(result.bondLots.map(({ id, bonds }) => ({ id, bonds }))).toEqual([{ id: 'lot:1', bonds: 3 }]);
   });
 
-  it('loads previous-runtime bond frame allocations', async () => {
-    const frameCapital = registry.createType('RuntimeSpec157PalletTreasuryFrameVaultCapital', {
-      frameId: 10,
-      vaults: {
-        1: {
-          bondLotAllocations: [{ bondLotId: 1, prorata: toFixedNumber(0.3, FIXED_U128_DECIMALS) }],
-          backfillBondsEligible: 7,
-          backfillProrata: toFixedNumber(0.7, FIXED_U128_DECIMALS),
-          eligibleBonds: 10,
-        },
-      },
-    });
-    const client = createFrameBondClient(frameCapital, displayLotsById);
-
-    const result = await TreasuryBonds.getCurrentFrameBondLots(client as any, 1, operatorAddress);
-
-    expect(result.totalActiveBonds).toBe(10);
-    expect(result.bondLots.map(({ id, bonds }) => ({ id, bonds }))).toEqual([{ id: 'lot:1', bonds: 3 }]);
-  });
-
   it('caps purchases at the market value of eligible Bitcoin security', () => {
     const oneArgon = BigInt(MICROGONS_PER_ARGON);
     const vault = createCapacityVault({
@@ -303,7 +283,8 @@ describe('TreasuryBonds', () => {
 
     expect(vault.bondEligibleSatoshis()).toBe(0n);
 
-    vault.securitizedSatoshis = 2n;
+    vault.securitizedSatoshis = 999n;
+    vault.ratioAdjustedSatoshis = 2n;
     expect(vault.bondEligibleSatoshis()).toBe(0n);
   });
 
@@ -375,30 +356,6 @@ function createVaultBondLot({
     cumulativeEarnings: 0,
     releaseFrameId: releaseReason ? 2 : null,
     releaseReason: releaseReason ?? null,
-  });
-}
-
-function createRuntimeSpec157VaultBondLot({
-  owner,
-  bonds,
-  isFlexible = false,
-}: {
-  owner: string;
-  bonds: number;
-  isFlexible?: boolean;
-}) {
-  return registry.createType('RuntimeSpec157PalletTreasuryBondLot', {
-    owner,
-    program: { Vault: { vaultId: 1, sharingPercent: 0, bonusPercent: 0 } },
-    bonds,
-    isBackfill: isFlexible,
-    createdFrameId: 1,
-    participatedFrames: 0,
-    lastFrameEarningsFrameId: null,
-    lastFrameEarnings: null,
-    cumulativeEarnings: 0,
-    releaseFrameId: null,
-    releaseReason: null,
   });
 }
 

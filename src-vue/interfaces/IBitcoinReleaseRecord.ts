@@ -12,6 +12,7 @@ export enum BitcoinReleaseStatus {
   Complete = 'Complete',
   Cancelled = 'Cancelled',
   Failed = 'Failed',
+  FailedAcknowledged = 'FailedAcknowledged',
 }
 
 export interface IBitcoinReleaseRecord {

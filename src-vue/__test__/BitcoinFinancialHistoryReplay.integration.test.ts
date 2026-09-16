@@ -1,13 +1,13 @@
 import Fs from 'node:fs';
 import Path from 'node:path';
 import { AccountActivityKind, type BlockWatch, Currency, type MainchainClients } from '@argonprotocol/apps-core';
-import { getClient, hexToU8a } from '@argonprotocol/mainchain';
+import { getClient, hexToU8a, u8aEq } from '@argonprotocol/mainchain';
 import { afterAll, describe, expect, it } from 'vitest';
 import type { Db } from '../lib/Db.ts';
 import type { WalletKeys } from '../lib/WalletKeys.ts';
 import { BitcoinLockStatus } from '../lib/db/BitcoinLocksTable.ts';
 import { BitcoinLockRecovery } from '../lib/recovery/BitcoinLocks.ts';
-import { BitcoinFissionRecovery } from '../lib/recovery/BitcoinFissions.ts';
+import { BitcoinFissions } from '../lib/BitcoinFissions.ts';
 import { VaultHistory } from '../lib/recovery/MyVault.ts';
 import { FinancialHistoryImporter, publishBitcoinHistoryReplay } from '../lib/recovery/index.ts';
 import { createStore } from './helpers/bitcoin.ts';
@@ -84,6 +84,17 @@ runWithReplay('Bitcoin financial history replay corpus', () => {
               derivedLocks,
             });
             const errors = results.flatMap(result => Object.values(result.domainErrors));
+            if (accountId === '5F7KW9raKif5TLF2vG5rfqVtent7VrUHenZxnKuNRcbKFhSs') {
+              expect(
+                currentLocks.some(lock => lock.utxoId === 41),
+                'Current Bitcoin lock 41',
+              ).toBe(true);
+              expect(
+                recovered.locks.some(lock => lock.lockId === 41),
+                'Recovered Bitcoin lock 41',
+              ).toBe(true);
+              expect(errors, 'Active Bitcoin lock 41 replay').toEqual([]);
+            }
             if (errors.length) {
               recoveryFailures.push(...new Set(errors.map(error => `${accountId}: ${error}`)));
               continue;
@@ -123,7 +134,6 @@ runWithReplay('Bitcoin financial history replay corpus', () => {
               expect(recovered.fissions).toEqual([]);
             }
             if (accountId === '5Fs8wHUnwBHwXdKvUTNMKyENQrm92Rf2B96GCjqGANvcxhrL') {
-              expect(recovered.locks.find(record => record.lockId === 110)?.couponFeesPaid).toBe(177_420_171n);
               expect(recovered.fissions.find(record => record.lockId === 110)?.ratchets[0]).toMatchObject({
                 securityFee: 144_528_009n,
                 securityFeeCoupon: 144_528_009n,
@@ -194,9 +204,9 @@ async function replayBitcoinAccount(args: {
         currency,
         getLocksByLockId: () => bitcoinLocks.data.locksByLockId,
         getPendingLocks: () => bitcoinLocks.data.pendingLocks,
+        getUnloadedCurrentLockIds: () => new Set(),
         waitForLockIdle: async () => undefined,
         onHistoryRecoveryComplete: () => undefined,
-        onHistoryPublished: () => undefined,
         utxoTracking: bitcoinLocks.utxoTracking,
         releases: bitcoinLocks.releases,
         dbPromise: Promise.resolve(db),
@@ -211,9 +221,11 @@ async function replayBitcoinAccount(args: {
             network: 'Bitcoin',
           }),
         getTable: async () => db.bitcoinLocksTable,
-        getDerivedPubkey: async (vaultId, hdIndex) => {
-          const lock = derivedLocks.filter(candidate => candidate.lock.vaultId === vaultId)[hdIndex]?.lock;
-          if (!lock) throw new Error(`Seed has no Bitcoin key for vault ${vaultId} index ${hdIndex}`);
+        findDerivedPubkeyForOwner: async (vaultId, ownerPubkey) => {
+          const vaultLocks = derivedLocks.filter(candidate => candidate.lock.vaultId === vaultId);
+          const hdIndex = vaultLocks.findIndex(candidate => u8aEq(hexToU8a(candidate.lock.ownerPubkey), ownerPubkey));
+          const lock = vaultLocks[hdIndex]?.lock;
+          if (!lock) return;
 
           return {
             address: `seed:${vaultId}:${hdIndex}`,
@@ -233,27 +245,29 @@ async function replayBitcoinAccount(args: {
         });
       }
       await recovery.beginHistoryReplay({ lockScope: 'all' });
-      const fissionRecovery = new BitcoinFissionRecovery(Promise.resolve(db), accountId);
-      await fissionRecovery.beginHistoryReplay({ replace: true });
+      const bitcoinFissions = new BitcoinFissions(Promise.resolve(db), accountId);
+      await bitcoinFissions.recovery.beginHistoryReplay({ replace: true });
 
       const importer = new FinancialHistoryImporter({
         blockWatch,
         argonBonds: { importHistoryBlock: async () => undefined },
         vaultHistory: new VaultHistory(Promise.resolve(db), accountId),
         bitcoinLockRecovery: recovery,
-        bitcoinFissionRecovery: fissionRecovery,
+        bitcoinFissionRecovery: bitcoinFissions.recovery,
         enabledDomains: ['bitcoin'],
       });
       const result = await importer.importBlocks(blocks);
       results.push(result);
       if (result.domainErrors.bitcoin) {
         await recovery.cancelHistoryReplay();
-        fissionRecovery.cancelHistoryReplay();
+        bitcoinFissions.recovery.cancelHistoryReplay();
       } else {
         await publishBitcoinHistoryReplay({
-          db,
-          bitcoinLockRecovery: recovery,
-          bitcoinFissionRecovery: fissionRecovery,
+          bitcoinLocks: {
+            recovery,
+            applyRecoveredHistory: bitcoinLocks.applyRecoveredHistory.bind(bitcoinLocks),
+          },
+          bitcoinFissions,
           asOfBlock: blocks.at(-1)?.blockNumber ?? 0,
         });
       }

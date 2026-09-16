@@ -21,7 +21,7 @@ For every changed method, class, or coherent code block that crosses a boundary,
 
 1. The domain fact or command it exists to handle.
 2. The authoritative producer: current chain state, finalized event, submitted transaction result, durable application record, historical evidence, or presentation state.
-3. Its temporal purpose: command finalization, current reconciliation, targeted gap repair, historical reconstruction, projection, or rendering.
+3. Its temporal purpose: command finalization, active-workflow reconciliation, historical gap backfill, historical reconstruction, projection, or rendering.
 4. Durable reads and writes, external side effects, in-memory mutation, and publication.
 5. The layer that owns the resulting state and the layers it may depend on.
 6. Retry, restart, concurrency, and absence semantics when those affect ownership.
@@ -35,9 +35,16 @@ Classify event access by purpose rather than age:
 - A transaction operation owns events and same-block reads caused by the command it submitted.
 - For a batch or composite transaction, the outer command owns finalization and event parsing. It publishes each normalized child result through the child domain's idempotent transition; a separate concrete transaction operation must not claim attempts submitted by the outer command.
 - A top-level domain owns ambient live events, current-state reconciliation, and retrieval of a specific finalized event needed by its active durable workflow.
-- A domain may detect a concrete gap and request scoped repair. The repaired fact must enter through the domain's idempotent transition and cannot replace newer current state.
+- A domain may detect missing historical data and request scoped historical backfill. The recovered fact must enter through the domain's declared merge and publication boundary and cannot replace newer current state.
 - `lib/recovery/` owns version-aware historical decoding, broad missing-data discovery, and detached reconstruction of records or facts absent from current state.
 - A raw historical scan is not made correct merely by placing it in `lib/recovery/`; inspect its trigger, authority, merge policy, publication boundary, and stopping condition.
+
+Before classifying any gap, name the missing item and choose exactly one category:
+
+1. An already-loaded active workflow is missing an event-only fact, and current authoritative state identifies the event or a bounded search location. This is current reconciliation owned by the top-level domain.
+2. A past record or historical fact is absent from the durable history promised by account import, Find Missing Data, or domain-triggered historical backfill. This is historical recovery.
+
+Do not use `repair`, `gap`, `missed event`, or the age of a block as a substitute for this classification.
 
 Do not classify a read as historical recovery merely because it reads an earlier block or searches several finalized blocks. When an active durable workflow needs an event-only fact, and current state identifies the applicable block or bounded interval, the owning top-level domain performs current reconciliation. Vault cosign signatures and release-settlement events are examples. `lib/recovery/` is for historical backfill or reconstructing missing historical records, not for progressing an already-loaded live workflow.
 

@@ -3,7 +3,14 @@ import docker from 'docker-compose';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 
 import { teardown } from '@argonprotocol/testing';
-import { BitcoinLock, type Vault, MainchainClients, MoveTo, NetworkConfig } from '@argonprotocol/apps-core';
+import {
+  BitcoinFission,
+  BitcoinLock,
+  type Vault,
+  MainchainClients,
+  MoveTo,
+  NetworkConfig,
+} from '@argonprotocol/apps-core';
 import {
   startArgonTestNetwork,
   type StartedArgonTestNetwork,
@@ -34,6 +41,12 @@ import {
 } from './helpers/bitcoinLocksHarness.ts';
 import { MyVaultRecovery } from '../lib/recovery/MyVaultRecovery.ts';
 import { BitcoinLockRelease } from '../lib/txs/BitcoinLock.release.ts';
+import { BitcoinFissions } from '../lib/BitcoinFissions.ts';
+import { UpstreamOperatorClient } from '../lib/UpstreamOperatorClient.ts';
+import { BitcoinLiquidCreate } from '../lib/txs/BitcoinLiquid.create.ts';
+import { BitcoinLiquidClose } from '../lib/txs/BitcoinLiquid.close.ts';
+import { BitcoinLiquidRatchet } from '../lib/txs/BitcoinLiquid.ratchet.ts';
+import { BitcoinLockResecuritize } from '../lib/txs/BitcoinLock.resecuritize.ts';
 import { createMockWalletKeys } from './helpers/wallet.ts';
 
 const skipE2E = Boolean(JSON.parse(process.env.SKIP_E2E ?? '0'));
@@ -201,7 +214,7 @@ describe.skipIf(skipE2E).sequential('BitcoinLocks integration', { timeout: 240e3
     }
   }, 300e3);
 
-  it('partially releases multiple accepted funding UTXOs and resumes from durable state', async () => {
+  it('partially releases Bitcoin above an active Fission and resumes from durable state', async () => {
     const operator = await createHarness({
       archiveUrl: network.archiveUrl,
       esploraHost: network.networkConfigOverride.esploraHost,
@@ -237,6 +250,53 @@ describe.skipIf(skipE2E).sequential('BitcoinLocks integration', { timeout: 240e3
           return current;
         });
         const inputUtxoIds = [...fundedLock.fundingUtxoIds];
+        const grossSatoshis = fundedLock.fundedSatoshis / 2n;
+        const changeSatoshis = fundedLock.fundedSatoshis - grossSatoshis;
+
+        const fissions = new BitcoinFissions(
+          Promise.resolve(owner.db),
+          owner.walletKeys.defaultArgonAddress,
+          owner.miningFrames.blockWatch,
+          owner.currency,
+        );
+        await fissions.load();
+        const upstreamOperatorClient = new UpstreamOperatorClient();
+        vi.spyOn(upstreamOperatorClient, 'getBitcoinLockCoupons').mockResolvedValue([]);
+        const resecuritize = new BitcoinLockResecuritize(
+          owner.bitcoinLocks,
+          owner.transactionTracker,
+          owner.currency,
+          upstreamOperatorClient,
+        );
+        const createLiquid = new BitcoinLiquidCreate(
+          fissions,
+          owner.transactionTracker,
+          owner.bitcoinLocks,
+          operator.vaults,
+          resecuritize,
+          upstreamOperatorClient,
+        );
+        const ratchetLiquid = new BitcoinLiquidRatchet(
+          fissions,
+          owner.transactionTracker,
+          owner.currency,
+          owner.bitcoinLocks,
+          operator.vaults,
+          resecuritize,
+          upstreamOperatorClient,
+        );
+        const closeLiquid = new BitcoinLiquidClose(fissions, owner.transactionTracker, owner.currency);
+        await Promise.all([createLiquid.load(), ratchetLiquid.load(), closeLiquid.load()]);
+        const txSigner = await owner.walletKeys.getLiquidLockingKeypair();
+        const liquidTx = await createLiquid.submit({
+          allocations: [{ lock: fundedLock, satoshis: changeSatoshis }],
+          txSigner,
+        });
+        await liquidTx.txResult.waitForFinalizedBlock;
+        await liquidTx.waitForPostProcessing;
+        expect(await BitcoinFission.getAllByOwner(await owner.clients.get(false), txSigner.address)).toEqual([
+          expect.objectContaining({ lockId: fundedLock.lockId, satoshis: changeSatoshis }),
+        ]);
 
         const destinationAddress = createBitcoinAddress();
         const bitcoinNetworkFee = await owner.bitcoinLocks.calculateBitcoinNetworkFee(
@@ -245,9 +305,7 @@ describe.skipIf(skipE2E).sequential('BitcoinLocks integration', { timeout: 240e3
           destinationAddress,
           true,
         );
-        const grossSatoshis = fundedLock.fundedSatoshis / 2n;
         const destinationSatoshis = grossSatoshis - bitcoinNetworkFee;
-        const changeSatoshis = fundedLock.fundedSatoshis - grossSatoshis;
         const operation = new BitcoinLockRelease(owner.bitcoinLocks, owner.transactionTracker);
         await operation.load();
         const txInfo = await operation.submit({
@@ -255,7 +313,7 @@ describe.skipIf(skipE2E).sequential('BitcoinLocks integration', { timeout: 240e3
           toScriptPubkey: destinationAddress,
           bitcoinNetworkFee,
           destinationSatoshis,
-          txSigner: await owner.walletKeys.getLiquidLockingKeypair(),
+          txSigner,
         });
         await txInfo.txResult.waitForFinalizedBlock;
         await txInfo.waitForPostProcessing;
@@ -270,6 +328,30 @@ describe.skipIf(skipE2E).sequential('BitcoinLocks integration', { timeout: 240e3
         });
         if (!requestedRelease) throw new Error(`Bitcoin lock ${fundedLock.lockId} has no active release`);
         expect(owner.bitcoinLocks.releases.getInputUtxos(requestedRelease)).toHaveLength(2);
+
+        const runtimeClient = await owner.clients.get(false);
+        const finalizedClient = await runtimeClient.at(await runtimeClient.rpc.chain.getFinalizedHead());
+        const rateHistory = await finalizedClient.query.bitcoinLocks.microgonPerBtcHistory();
+        const currentRate = rateHistory?.at(-1)?.[1];
+        if (currentRate === undefined) throw new Error('The current Bitcoin target rate is unavailable');
+        const ratchetPreview = await ratchetLiquid.previewRatchet(
+          liquidTx.tx.metadataJson.liquidId,
+          currentRate,
+          finalizedClient,
+          owner.currency.priceIndex,
+        );
+        expect(ratchetPreview.errors[0]).toBe(
+          "This Liquid's Bitcoin is updating internally. Ratchet will be available when the update is complete.",
+        );
+        await expect(
+          closeLiquid.prepare({
+            liquidId: liquidTx.tx.metadataJson.liquidId,
+            txSigner,
+            client: runtimeClient,
+          }),
+        ).rejects.toThrow(
+          "This Liquid's Bitcoin is updating internally. Close will be available when the update is complete.",
+        );
 
         const db = owner.db;
         await shutdownBitcoinLocksClientHarness(owner);
@@ -293,7 +375,6 @@ describe.skipIf(skipE2E).sequential('BitcoinLocks integration', { timeout: 240e3
           });
 
           await collectVaultSignatureFromAlert(operator.myVault, 0);
-          const archiveClient = await restarted.clients.archiveClientPromise;
           const broadcastingRelease = await waitFor(60e3, 'multi-input release broadcast', async () => {
             await restarted!.bitcoinLocks.releases.syncLockVaultCosign(restoredLock);
             await restarted!.bitcoinLocks.releases.reconcileLockRelease(restoredLock, false);
@@ -342,7 +423,11 @@ describe.skipIf(skipE2E).sequential('BitcoinLocks integration', { timeout: 240e3
           expect(await BitcoinLock.get(runtimeClient, restoredLock.lockId!)).toMatchObject({
             fundedSatoshis: changeSatoshis,
             securitizedSatoshis: changeSatoshis,
+            fissionedSatoshis: changeSatoshis,
           });
+          expect(await BitcoinFission.getAllByOwner(runtimeClient, txSigner.address)).toEqual([
+            expect.objectContaining({ lockId: restoredLock.lockId, satoshis: changeSatoshis }),
+          ]);
           expect(await BitcoinLock.getReleaseRequest(runtimeClient, restoredLock.lockId!)).toBeUndefined();
           expect(restarted.bitcoinLocks.releases.getInputUtxos(completed.currentRelease)).toEqual([
             expect.objectContaining({

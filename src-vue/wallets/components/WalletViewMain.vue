@@ -5,24 +5,7 @@
       :isDragging="props.isDragging"
       @dragStart="emit('dragStart', $event)"
       @close="emit('close')"
-    >
-      <template #name>
-        <span class="flex items-center">
-          Internal App Wallet
-          <Tooltip v-if="bitcoinDepositAttention" :content="bitcoinDepositAttention" side="top" :asChild="true">
-            <button
-              type="button"
-              aria-label="Review unattached Bitcoin deposits"
-              class="ml-1.5 inline-flex cursor-pointer"
-              @mousedown.stop
-              @click.stop="reviewBitcoinDeposit"
-            >
-              <AlertIcon class="size-5" />
-            </button>
-          </Tooltip>
-        </span>
-      </template>
-    </WalletHeader>
+    />
 
     <div class="mx-1 px-4 py-6 text-center">
       <div class="text-argon-700/70 flex flex-row justify-center text-6xl font-bold">
@@ -63,7 +46,7 @@
               -{{ satToBtcNm(pendingOutboundSatoshis).format('0,0.[00000000]') }} BTC
             </span>
             <button
-              v-if="walletBitcoinSections.length"
+              v-if="pendingBitcoinSends.length || walletBitcoinSections.length"
               type="button"
               data-testid="WalletViewMain.toggleBitcoinDetails()"
               class="ml-1 flex cursor-pointer items-center text-slate-500 hover:text-slate-700"
@@ -79,9 +62,111 @@
           </template>
           <template #bitcoinDetails>
             <li
-              v-if="bitcoinDetailsAreExpanded && walletBitcoinSections.length"
+              v-if="bitcoinDetailsAreExpanded && (pendingBitcoinSends.length || walletBitcoinSections.length)"
               class="mb-2 ml-4 overflow-hidden rounded-bl-lg border-b border-l border-slate-300/70 pt-2 pr-2 pb-3 pl-3"
             >
+              <section v-if="pendingBitcoinSends.length" class="pb-1">
+                <div class="mb-1 text-xs font-semibold tracking-wide text-slate-400 uppercase">Outbound transfers</div>
+                <PopoverRoot v-for="send in pendingBitcoinSends" :key="send.sendId">
+                  <PopoverTrigger as-child>
+                    <button
+                      data-testid="WalletViewMain.bitcoinSend"
+                      :data-send-id="send.sendId"
+                      type="button"
+                      class="hover:bg-argon-100/30 w-full cursor-pointer rounded px-2 py-1.5 text-left text-sm text-slate-600"
+                    >
+                      <div class="flex items-center gap-3">
+                        <span class="font-mono text-slate-700">
+                          {{ satToBtcNm(send.satoshis).format('0,0.[00000000]') }} BTC
+                        </span>
+                        <span class="ml-auto text-xs" :class="send.hasError ? 'text-red-600' : 'text-slate-500'">
+                          {{ send.hasError ? 'Needs attention' : `${send.entries.length} transactions` }}
+                        </span>
+                        <ChevronRightIcon class="size-3.5 shrink-0 text-slate-400" />
+                      </div>
+                      <ProgressBar
+                        :progress="send.progressPct"
+                        :hasError="send.hasError"
+                        :showLabel="false"
+                        class="mt-1.5 h-1.5"
+                      />
+                    </button>
+                  </PopoverTrigger>
+                  <PopoverPortal>
+                    <PopoverContent
+                      side="bottom"
+                      align="center"
+                      :sideOffset="8"
+                      :collisionPadding="24"
+                      :style="floatingZIndex"
+                      class="w-96 rounded-lg border border-slate-300 bg-white px-5 py-4 text-sm text-slate-600 shadow-2xl"
+                    >
+                      <div class="flex flex-col space-y-5 pt-2 pb-4">
+                        <p v-if="send.hasActiveRelease">
+                          Argon is processing your request to send
+                          {{ satToBtcNm(send.satoshis).format('0,0.[00000000]') }} BTC. This process requires several
+                          steps and can take between 10 and 20 minutes.
+                        </p>
+                        <p v-else>This Bitcoin send could not be submitted. Review the failed transaction below.</p>
+                        <div>
+                          <div
+                            v-for="entry in send.entries"
+                            :key="entry.release.id"
+                            class="border-t border-slate-200 py-3 first:border-t-0 first:pt-0 last:pb-0"
+                          >
+                            <div class="flex items-center gap-3">
+                              <span class="font-semibold text-slate-700">
+                                Cosigner: {{ getCosignerName(entry.lock.vaultId) }}
+                              </span>
+                              <span class="ml-auto font-mono text-slate-700">
+                                {{ satToBtcNm(entry.satoshis).format('0,0.[00000000]') }} BTC
+                              </span>
+                            </div>
+                            <ProgressBar
+                              :progress="entry.releaseProgress.progressPct"
+                              :hasError="!!entry.release.statusError"
+                              :showLabel="false"
+                              class="mt-1.5 h-1.5"
+                            />
+                            <div class="mt-1.5 flex items-center gap-3 text-xs text-slate-500">
+                              <span class="inline-flex flex-wrap items-baseline gap-x-1">
+                                <span>{{ entry.releaseProgress.detail }}</span>
+                                <CountdownClock
+                                  v-if="entry.cosignDueDate"
+                                  :time="dayjs(entry.cosignDueDate)"
+                                  v-slot="{ days, hours, minutes, isFinished }"
+                                >
+                                  <span>({{ formatReleaseDueTime(days, hours, minutes, isFinished) }})</span>
+                                </CountdownClock>
+                              </span>
+                              <span class="ml-auto">
+                                {{ numeral(entry.releaseProgress.progressPct).format('0.0') }}%
+                              </span>
+                            </div>
+                            <div v-if="entry.release.statusError" class="mt-1 text-xs text-red-600">
+                              {{ entry.release.statusError }}
+                            </div>
+                          </div>
+                        </div>
+                        <button
+                          v-if="send.hasUnacknowledgedFailure"
+                          data-testid="WalletViewMain.acknowledgeFailedBitcoinSend"
+                          type="button"
+                          class="text-argon-600 hover:text-argon-700 cursor-pointer self-end text-sm font-semibold"
+                          @click="acknowledgeFailedSend(send.sendId)"
+                        >
+                          Acknowledge
+                        </button>
+                      </div>
+                      <PopoverArrow
+                        :width="24"
+                        :height="12"
+                        class="-mt-px fill-white stroke-slate-300 stroke-[0.5px]"
+                      />
+                    </PopoverContent>
+                  </PopoverPortal>
+                </PopoverRoot>
+              </section>
               <section v-for="group in walletBitcoinSections" :key="group.key" class="py-1 first:pt-0 last:pb-0">
                 <div class="mb-1 text-xs font-semibold tracking-wide text-slate-400 uppercase">
                   {{ group.label }}
@@ -114,10 +199,7 @@
                     <span v-if="entry.address" class="font-mono text-xs text-slate-400">
                       {{ abbreviateAddress(entry.address, 6) }}
                     </span>
-                    <span v-if="entry.releaseProgressPct !== undefined" class="ml-auto text-xs text-slate-500">
-                      {{ numeral(entry.releaseProgressPct).format('0.0') }}%
-                    </span>
-                    <span v-else class="ml-auto text-xs text-slate-500">
+                    <span class="ml-auto text-xs text-slate-500">
                       {{ currency.symbol
                       }}{{ microgonToArgonNm(entry.lock.securitizationCoverageMicrogons ?? 0n).format('0,0.[00]') }}
                       insurance
@@ -139,29 +221,46 @@
         :guidanceContext="props.guidanceContext"
         :walletType="WalletType.argon"
       />
+      <button
+        v-if="unattachedBitcoinDeposits.length"
+        data-testid="WalletViewMain.unattachedBitcoinDeposit"
+        type="button"
+        class="mb-3 flex w-full cursor-pointer items-center gap-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-3 text-left text-sm text-amber-800 hover:bg-amber-100/70"
+        @click="emit('goto', { type: 'unattachedBitcoin', recordId: unattachedBitcoinDeposits[0]!.id })"
+      >
+        <AlertIcon class="size-5 shrink-0" />
+        <span class="min-w-0 grow">
+          <strong class="block">
+            {{ unattachedBitcoinDeposits.length }} unattached Bitcoin deposit{{
+              unattachedBitcoinDeposits.length === 1 ? '' : 's'
+            }}
+          </strong>
+          <span class="mt-0.5 block text-xs">Return the Bitcoin to an address you control.</span>
+        </span>
+        <ChevronRightIcon class="size-4 shrink-0" />
+      </button>
     </div>
   </div>
-  <BitcoinOrphanRecoveryOverlay
-    v-if="selectedOrphan && selectedOrphanLock"
-    :record="selectedOrphan"
-    :lock="selectedOrphanLock"
-    @close="selectedOrphan = undefined"
-    @back="selectedOrphan = undefined"
-  />
 </template>
 
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref } from 'vue';
 import { bigIntMax } from '@argonprotocol/apps-core';
 import { ChevronRightIcon, MinusIcon, PlusIcon } from '@heroicons/vue/20/solid';
+import dayjs from 'dayjs';
+import { PopoverArrow, PopoverContent, PopoverPortal, PopoverRoot, PopoverTrigger } from 'reka-ui';
 import AlertIcon from '../../assets/alert.svg?component';
 import type { IWalletGuidanceContext } from '../../emitters/basicEmitter.ts';
-import { BitcoinReleaseStatus } from '../../interfaces/IBitcoinReleaseRecord.ts';
+import {
+  BitcoinReleaseKind,
+  BitcoinReleaseStatus,
+  type IBitcoinReleaseRecord,
+} from '../../interfaces/IBitcoinReleaseRecord.ts';
 import { WalletType } from '../../lib/Wallet.ts';
 import numeral, { createNumeralHelpers } from '../../lib/numeral.ts';
 import { abbreviateAddress } from '../../lib/Utils.ts';
 import type { IBitcoinLockRecord } from '../../interfaces/IBitcoinLockRecord.ts';
-import type { IBitcoinUtxoRecord } from '../../lib/db/BitcoinUtxosTable.ts';
+import { useFloatingZIndex } from '../../overlays/helpers/OverlayZIndex.ts';
 import { getBitcoinLocks, getBitcoinTransactionOperations } from '../../stores/bitcoin.ts';
 import { getConfig } from '../../stores/config.ts';
 import { getCurrency } from '../../stores/currency.ts';
@@ -169,19 +268,36 @@ import { useFinancials } from '../../stores/financials.ts';
 import { getMiningFrames } from '../../stores/mainchain.ts';
 import { getMyVault, getVaults } from '../../stores/vaults.ts';
 import { useWallets } from '../../stores/wallets.ts';
+import { getBitcoinReleaseProgress } from '../../stores/bitcoinLockProgress.ts';
 import FormattedMoney from '../../components/FormattedMoney.vue';
-import Tooltip from '../../components/Tooltip.vue';
-import BitcoinOrphanRecoveryOverlay from '../../overlays/BitcoinOrphanRecoveryOverlay.vue';
+import ProgressBar from '../../components/ProgressBar.vue';
+import CountdownClock from '../../components/CountdownClock.vue';
 import ArgonBottom from './ArgonBottom.vue';
 import ArgonTokens from './ArgonTokens.vue';
 import ConnectorChannel from './ConnectorChannel.vue';
 import WalletHeader from './WalletHeader.vue';
-import { getBitcoinDepositAttention, type IWalletView } from '../walletOverlayState.ts';
+import type { IWalletView } from '../walletOverlayState.ts';
 
 interface IWalletBitcoinEntry {
   lock: IBitcoinLockRecord;
   satoshis: bigint;
-  releaseProgressPct?: number;
+}
+
+interface IWalletBitcoinReleaseEntry extends IWalletBitcoinEntry {
+  release: IBitcoinReleaseRecord;
+  releaseProgress: ReturnType<typeof getBitcoinReleaseProgress>;
+  cosignDueDate?: Date;
+}
+
+interface IWalletBitcoinSend {
+  sendId: string;
+  entries: IWalletBitcoinReleaseEntry[];
+  satoshis: bigint;
+  pendingSatoshis: bigint;
+  progressPct: number;
+  hasError: boolean;
+  hasActiveRelease: boolean;
+  hasUnacknowledgedFailure: boolean;
 }
 
 const props = defineProps<{
@@ -193,7 +309,6 @@ const props = defineProps<{
 const emit = defineEmits<{
   (event: 'dragStart', mouseEvent: MouseEvent): void;
   (event: 'goto', view: IWalletView): void;
-  (event: 'openBitcoinConnector'): void;
   (event: 'close'): void;
 }>();
 
@@ -209,55 +324,81 @@ const wallets = useWallets();
 const { microgonToArgonNm, satToBtcNm } = createNumeralHelpers(currency);
 const bitcoinDetailsAreExpanded = ref(false);
 const openInsuranceChannelUuid = ref<string>();
-const selectedOrphan = ref<IBitcoinUtxoRecord>();
+const floatingZIndex = useFloatingZIndex(2);
 const progressNow = ref(Date.now());
 let progressRefreshInterval: ReturnType<typeof setInterval> | undefined;
 const defaultArgonWallet = computed(() => wallets.defaultArgonWallet);
 const walletValueIsLoaded = computed(() => financials.savingsIsLoaded);
 const walletTotalValue = computed(() => financials.savingsTotalValue);
-const bitcoinDepositAttention = computed(() => {
-  return getBitcoinDepositAttention(wallets.bitcoinWallet);
+const unattachedBitcoinDeposits = computed(() => wallets.bitcoinWallet.getUnresolvedOrphanDeposits());
+const bitcoinReleasesBySendId = computed(() => {
+  const releasesBySendId = new Map<string, IBitcoinReleaseRecord[]>();
+  for (const release of Object.values(bitcoinLocks.releases.data.releasesById)) {
+    if (release.kind !== BitcoinReleaseKind.Lock) continue;
+    const releases = releasesBySendId.get(release.sendId) ?? [];
+    releases.push(release);
+    releasesBySendId.set(release.sendId, releases);
+  }
+  return releasesBySendId;
 });
-const selectedOrphanLock = computed(() => {
-  const utxoId = selectedOrphan.value?.lockId;
-  return utxoId == null ? undefined : bitcoinLocks.getLockById(utxoId);
+const visibleBitcoinSendIds = computed(() => {
+  const sendIds = new Set<string>();
+  for (const lock of bitcoinLocks.getAllLocks()) {
+    const activeRelease = bitcoinLocks.releases.getActiveForLock(lock);
+    if (activeRelease?.kind === BitcoinReleaseKind.Lock) sendIds.add(activeRelease.sendId);
+  }
+  for (const release of bitcoinLocks.releases.getUnacknowledgedFailedLockReleases()) sendIds.add(release.sendId);
+  return sendIds;
 });
-const pendingBitcoinSends = computed<IWalletBitcoinEntry[]>(() => {
+const pendingBitcoinSends = computed<IWalletBitcoinSend[]>(() => {
   void progressNow.value;
-  return bitcoinLocks.getAllLocks().flatMap(lock => {
-    const release = bitcoinLocks.releases.getActiveForLock(lock);
-    if (!release) return [];
 
-    let releaseProgressPct = 0;
-    if (release.status === BitcoinReleaseStatus.SubmittingRequestOnArgon) {
-      const argonProgress = bitcoinLockRelease.getPendingReleaseTxInfo(lock.lockId!)?.getStatus();
-      releaseProgressPct = (argonProgress?.progressPct ?? 0) * 0.33;
-      if ((argonProgress?.confirmations ?? -1) >= 0 && (argonProgress?.expectedConfirmations ?? 0) > 0) {
-        releaseProgressPct = Math.max(1, releaseProgressPct);
-      }
-    } else if (release.status === BitcoinReleaseStatus.WaitingForVaultCosign) {
-      releaseProgressPct = 33 + bitcoinLocks.getRequestReleaseByVaultProgress(lock, miningFrames) * 0.33;
-    } else if (release.status === BitcoinReleaseStatus.ReadyForBitcoinBroadcast) releaseProgressPct = 66;
-    else if (release.status === BitcoinReleaseStatus.ConfirmingOnBitcoin) {
-      releaseProgressPct = Math.round(66 + bitcoinLocks.getReleaseProcessingDetails(release).progressPct * 0.34);
-    } else if (
-      release.status === BitcoinReleaseStatus.WaitingForArgonRecognition ||
-      release.status === BitcoinReleaseStatus.Complete
-    ) {
-      releaseProgressPct = 100;
-    }
+  const sends: IWalletBitcoinSend[] = [];
+  for (const sendId of visibleBitcoinSendIds.value) {
+    const entries = (bitcoinReleasesBySendId.value.get(sendId) ?? []).flatMap(release => {
+      if (release.status === BitcoinReleaseStatus.FailedAcknowledged) return [];
+      const lock = bitcoinLocks.getLockById(release.lockId);
+      if (!lock) return [];
+      return [
+        {
+          lock,
+          release,
+          satoshis: release.destinationSatoshis + release.bitcoinNetworkFee,
+          releaseProgress: getReleaseProgress(lock, release),
+          cosignDueDate:
+            release.status === BitcoinReleaseStatus.WaitingForVaultCosign && release.cosignDueFrame
+              ? miningFrames.getFrameDate(release.cosignDueFrame)
+              : undefined,
+        },
+      ];
+    });
+    if (!entries.length) continue;
 
-    return [
-      {
-        lock,
-        satoshis: bitcoinLocks.releases.getInputUtxos(release).reduce((total, utxo) => total + utxo.satoshis, 0n),
-        releaseProgressPct,
-      },
-    ];
-  });
+    const satoshis = entries.reduce((total, entry) => total + entry.satoshis, 0n);
+    const weightedProgress = entries.reduce(
+      (total, entry) => total + entry.releaseProgress.progressPct * Number(entry.satoshis),
+      0,
+    );
+    sends.push({
+      sendId,
+      entries: entries.sort((left, right) => left.release.createdAt.getTime() - right.release.createdAt.getTime()),
+      satoshis,
+      pendingSatoshis: entries.reduce(
+        (total, entry) => total + (entry.lock.activeReleaseId === entry.release.id ? entry.satoshis : 0n),
+        0n,
+      ),
+      progressPct: satoshis > 0n ? weightedProgress / Number(satoshis) : 0,
+      hasError: entries.some(entry => !!entry.release.statusError),
+      hasActiveRelease: entries.some(entry => entry.lock.activeReleaseId === entry.release.id),
+      hasUnacknowledgedFailure: entries.some(entry => entry.release.status === BitcoinReleaseStatus.Failed),
+    });
+  }
+  return sends.sort(
+    (left, right) => right.entries[0]!.release.createdAt.getTime() - left.entries[0]!.release.createdAt.getTime(),
+  );
 });
 const pendingOutboundSatoshis = computed(() => {
-  return pendingBitcoinSends.value.reduce((total, entry) => total + entry.satoshis, 0n);
+  return pendingBitcoinSends.value.reduce((total, send) => total + send.pendingSatoshis, 0n);
 });
 const walletBitcoinSections = computed(() => {
   const locksByVaultId = new Map<number, IWalletBitcoinEntry[]>();
@@ -274,27 +415,9 @@ const walletBitcoinSections = computed(() => {
   }
 
   return [
-    ...(pendingBitcoinSends.value.length
-      ? [
-          {
-            key: 'sending',
-            label: 'Outbound transfers in progress',
-            entries: pendingBitcoinSends.value.map(entry => ({
-              ...entry,
-              address: wallets.bitcoinWallet.getChannelFundingAddress(entry.lock),
-            })),
-          },
-        ]
-      : []),
     ...[...locksByVaultId].map(([vaultId, locks]) => ({
       key: `vault-${vaultId}`,
-      label: `Cosigner: ${
-        vaultId === (myVault.createdVault?.vaultId ?? myVault.vaultId)
-          ? 'My Vault'
-          : (vaults.operatorNamesByVaultId[vaultId] ??
-            (config.upstreamOperator?.vaultId === vaultId ? config.upstreamOperator.name : undefined) ??
-            `Vault ${vaultId}`)
-      }`,
+      label: `Cosigner: ${getCosignerName(vaultId)}`,
       entries: locks.map(entry => ({
         ...entry,
         address: locks.length > 1 ? wallets.bitcoinWallet.getChannelFundingAddress(entry.lock) : undefined,
@@ -303,15 +426,43 @@ const walletBitcoinSections = computed(() => {
   ];
 });
 
-function reviewBitcoinDeposit(): void {
-  const orphan = wallets.bitcoinWallet.getUnresolvedOrphanDeposits()[0];
-  const lock = orphan ? bitcoinLocks.getLockById(orphan.lockId) : undefined;
-  if (!orphan || !lock) {
-    emit('openBitcoinConnector');
-    return;
-  }
+function getCosignerName(vaultId: number): string {
+  if (vaultId === (myVault.createdVault?.vaultId ?? myVault.vaultId)) return 'My Vault';
+  return (
+    vaults.operatorNamesByVaultId[vaultId] ??
+    (config.upstreamOperator?.vaultId === vaultId ? config.upstreamOperator.name : undefined) ??
+    `Vault ${vaultId}`
+  );
+}
 
-  selectedOrphan.value = orphan;
+function getReleaseProgress(lock: IBitcoinLockRecord, release: IBitcoinReleaseRecord) {
+  return getBitcoinReleaseProgress({
+    release,
+    releaseState: bitcoinLocks.getLockUnlockReleaseState(lock),
+    argonProgress: bitcoinLockRelease.getPendingReleaseTxInfo(lock.lockId!)?.getStatus(),
+    vaultProgressPct: bitcoinLocks.getRequestReleaseByVaultProgress(lock, miningFrames),
+    bitcoinProgress: bitcoinLocks.getReleaseProcessingDetails(release),
+    cosignerLabel: getCosignerName(lock.vaultId),
+  });
+}
+
+function formatReleaseDueTime(days: number, hours: number, minutes: number, isFinished: boolean): string {
+  if (isFinished) return 'due now';
+  if (days) return `due in ${days} day${days === 1 ? '' : 's'}`;
+
+  const time = [
+    hours ? `${hours} hour${hours === 1 ? '' : 's'}` : '',
+    minutes ? `${minutes} minute${minutes === 1 ? '' : 's'}` : '',
+  ]
+    .filter(Boolean)
+    .join(' ');
+  return `due in ${time || 'less than a minute'}`;
+}
+
+async function acknowledgeFailedSend(sendId: string): Promise<void> {
+  await bitcoinLocks.releases.acknowledgeFailedSend(sendId).catch(error => {
+    console.error(`[WalletViewMain] Unable to acknowledge failed Bitcoin send ${sendId}`, error);
+  });
 }
 
 onMounted(() => {

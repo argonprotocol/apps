@@ -3,6 +3,11 @@ import type { IWalletRecord } from '../lib/db/WalletsTable.ts';
 import { WalletForBitcoin } from '../lib/WalletForBitcoin.ts';
 import { WalletForEthereum } from '../lib/WalletForEthereum.ts';
 import { BitcoinLockStatus } from '../interfaces/IBitcoinLockRecord.ts';
+import {
+  BitcoinReleaseKind,
+  BitcoinReleaseStatus,
+  type IBitcoinReleaseRecord,
+} from '../interfaces/IBitcoinReleaseRecord.ts';
 import { BitcoinUtxoSpendStatus, BitcoinUtxoStatus } from '../interfaces/IBitcoinUtxoRecord.ts';
 import { createLock, createStore } from './helpers/bitcoin.ts';
 import {
@@ -49,13 +54,26 @@ const bitcoinWallet = new WalletForBitcoin(
 
 describe('wallet overlay state', () => {
   it('opens the default Argon main view without selecting another wallet', () => {
-    expect(getInitialWalletOverlayState()).toEqual({ centerView: { type: 'main' } });
+    expect(getInitialWalletOverlayState()).toEqual({
+      centerView: { type: 'main' },
+      activeConnector: undefined,
+      showBack: false,
+    });
   });
 
   it('opens the main view with a requested Ethereum connector', () => {
     expect(getInitialWalletOverlayState(ethereumWalletA)).toEqual({
       centerView: { type: 'main' },
       activeConnector: ethereumWalletA,
+      showBack: false,
+    });
+  });
+
+  it.each(['send', 'receive', 'privateKey'] as const)('does not show Back when opening the %s panel directly', view => {
+    expect(getInitialWalletOverlayState(ethereumWalletA, view)).toEqual({
+      centerView: { type: view },
+      activeConnector: ethereumWalletA,
+      showBack: false,
     });
   });
 
@@ -63,8 +81,13 @@ describe('wallet overlay state', () => {
     const state = getInitialAddWalletOverlayState('choice');
     expect(state).toEqual({
       centerView: { type: 'addEthereum', initialStep: 'choice' },
+      showBack: false,
     });
-    expect(closeWalletView(state)).toEqual({ centerView: { type: 'main' } });
+    expect(closeWalletView(state)).toEqual({
+      centerView: { type: 'main' },
+      activeConnector: undefined,
+      showBack: false,
+    });
   });
 
   it('returns an in-overlay Add Ethereum view to the main panel', () => {
@@ -73,10 +96,12 @@ describe('wallet overlay state', () => {
     expect(showAddWalletInOverlay(state, 'external')).toEqual({
       centerView: { type: 'addEthereum', initialStep: 'external' },
       activeConnector: undefined,
+      showBack: false,
     });
     expect(closeWalletView(showAddWalletInOverlay(state, 'external'))).toEqual({
       centerView: { type: 'main' },
       activeConnector: undefined,
+      showBack: false,
     });
   });
 
@@ -92,6 +117,7 @@ describe('wallet overlay state', () => {
       expect(closeWalletView(state)).toEqual({
         centerView: { type: 'main' },
         activeConnector: bitcoinWallet,
+        showBack: false,
       });
     },
   );
@@ -102,6 +128,7 @@ describe('wallet overlay state', () => {
     expect(showWalletView(addState, 'main', ethereumWalletB)).toEqual({
       centerView: { type: 'main' },
       activeConnector: ethereumWalletB,
+      showBack: false,
     });
   });
 
@@ -112,18 +139,41 @@ describe('wallet overlay state', () => {
     expect(sendState).toEqual({
       centerView: { type: 'send' },
       activeConnector: bitcoinWallet,
+      showBack: true,
     });
     expect(showWalletView(sendState, 'receive', sendState.activeConnector)).toEqual({
       centerView: { type: 'receive' },
       activeConnector: bitcoinWallet,
+      showBack: true,
     });
     expect(showWalletView(sendState, 'privateKey', sendState.activeConnector)).toEqual({
       centerView: { type: 'privateKey' },
       activeConnector: bitcoinWallet,
+      showBack: true,
     });
     expect(showWalletView(sendState, 'main', sendState.activeConnector)).toEqual({
       centerView: { type: 'main' },
       activeConnector: bitcoinWallet,
+      showBack: false,
+    });
+  });
+
+  it('opens an unattached Bitcoin deposit in the wallet stack and returns to main', () => {
+    const state = showWalletView(
+      getInitialWalletOverlayState(),
+      { type: 'unattachedBitcoin', recordId: 42 },
+      undefined,
+    );
+
+    expect(state).toEqual({
+      centerView: { type: 'unattachedBitcoin', recordId: 42 },
+      activeConnector: undefined,
+      showBack: true,
+    });
+    expect(closeWalletView(state)).toEqual({
+      centerView: { type: 'main' },
+      activeConnector: undefined,
+      showBack: false,
     });
   });
 
@@ -184,6 +234,60 @@ describe('wallet overlay state', () => {
 
     expect(wallet.getPendingInboundUtxos()).toEqual([observedUtxo]);
     expect(getBitcoinDepositAttention(wallet)).toBeUndefined();
+  });
+
+  it('does not show partial-release change as inbound wallet funding', () => {
+    const bitcoinLocks = createStore();
+    const lock = createLock({
+      uuid: 'partial-release-lock',
+      utxoId: 7,
+      status: BitcoinLockStatus.Releasing,
+      createdAt: '2026-09-13T00:00:00.000Z',
+    });
+    lock.activeReleaseId = 'lock:7:1';
+    bitcoinLocks.data.locksByLockId[lock.lockId!] = lock;
+
+    const firstSeenAt = new Date('2026-09-13T00:01:00.000Z');
+    const change = {
+      id: 2,
+      lockId: lock.lockId!,
+      txid: `0x${'b'.repeat(64)}`,
+      vout: 1,
+      satoshis: 4_000_000n,
+      network: 'testnet',
+      status: BitcoinUtxoStatus.SeenOnMempool,
+      spendStatus: BitcoinUtxoSpendStatus.Unspent,
+      firstSeenAt,
+      firstSeenBitcoinHeight: 101,
+      createdAt: firstSeenAt,
+      updatedAt: firstSeenAt,
+    };
+    bitcoinLocks.utxoTracking.load([change]);
+    const release = {
+      id: lock.activeReleaseId,
+      kind: BitcoinReleaseKind.Lock,
+      lockId: lock.lockId!,
+      sendId: lock.activeReleaseId,
+      releaseNumber: 1,
+      status: BitcoinReleaseStatus.ConfirmingOnBitcoin,
+      inputUtxoIds: [1],
+      toScriptPubkey: `0x0014${'a'.repeat(40)}`,
+      bitcoinNetworkFee: 1_000n,
+      destinationSatoshis: 5_999_000n,
+      expectedTransactionId: change.txid,
+      changeSatoshis: change.satoshis,
+      vaultSignatures: [],
+      createdAt: firstSeenAt,
+      updatedAt: firstSeenAt,
+    } satisfies IBitcoinReleaseRecord;
+    vi.spyOn(bitcoinLocks.releases, 'getActiveForLock').mockReturnValue(release);
+    const wallet = new WalletForBitcoin(
+      () => bitcoinLocks,
+      () => lock.ownerAccount!,
+      {} as never,
+    );
+
+    expect(wallet.getPendingInboundUtxos()).toEqual([]);
   });
 
   it('selects the current channel by its securitization hold rather than its insurance', () => {

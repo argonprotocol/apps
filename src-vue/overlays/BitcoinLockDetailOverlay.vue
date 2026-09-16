@@ -89,7 +89,7 @@ const externalMemberName = Vue.computed(() => {
 const isExternalLockReleased = Vue.computed(() => {
   const lockId = externalLock.value?.lockId;
   if (lockId == null) return false;
-  return myVault.data.releasedExternalLockIds.has(lockId);
+  return myVault.data.isLoaded && !myVault.data.externalLocks[lockId];
 });
 
 const pendingCosign = Vue.computed(() => {

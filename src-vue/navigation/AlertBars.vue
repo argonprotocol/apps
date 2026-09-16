@@ -371,6 +371,10 @@ function openBitcoinChannel(lock: IBitcoinLockRecord) {
 function openBitcoinUnlock(lock: IBitcoinLockRecord) {
   isExpanded.value = false;
   closeSharedOverlays();
+  if (bitcoinLocks.getLockUnlockReleaseState(lock).isReleaseStatus) {
+    basicEmitter.emit('openWalletOverlay', { wallet: wallets.argonWallets.defaultArgonWallet });
+    return;
+  }
   selectedUnlockLock.value = lock;
   showBitcoinUnlockingOverlay.value = true;
 }

@@ -7,6 +7,14 @@ import { formatEther } from 'viem';
 export { getPercent, percentOf };
 export { convertFromSqliteFields } from '@argonprotocol/apps-core';
 
+export function assignIfUnset<T extends object, K extends keyof T>(
+  target: T,
+  source: Pick<T, K>,
+  fields: readonly K[],
+) {
+  for (const field of fields) target[field] = target[field] ?? source[field];
+}
+
 export const OPERATOR_NAME_REQUIREMENTS =
   'Operator name must start with a capital letter, use up to 18 letters or numbers, and cannot include "Vault".';
 

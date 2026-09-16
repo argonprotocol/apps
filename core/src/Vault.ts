@@ -144,7 +144,7 @@ export class Vault {
    * displaced when activated securitization exceeds the vault's securitization.
    */
   public bondEligibleSatoshis(): bigint {
-    if (this.flexibleSecuritizationLocked === 0n) return this.securitizedSatoshis;
+    if (this.flexibleSecuritizationLocked === 0n) return this.ratioAdjustedSatoshis;
 
     const activatedSecuritization = this.activatedSecuritization();
     const displacedFlexibleCollateral = bigIntMax(0n, activatedSecuritization - this.securitization);
@@ -154,9 +154,9 @@ export class Vault {
     const eligibleFlexibleFraction = new FixedU128BigNumber(eligibleFlexibleCollateral).dividedBy(
       this.flexibleSecuritizationLocked,
     );
-    const eligibleFlexibleSatoshis = eligibleFlexibleFraction.multipliedBy(this.flexibleSecuritizedSatoshis);
+    const eligibleFlexibleSatoshis = eligibleFlexibleFraction.multipliedBy(this.flexibleRatioAdjustedSatoshis);
 
-    const eligibleRegularSatoshis = bigIntMax(0n, this.securitizedSatoshis - this.flexibleSecuritizedSatoshis);
+    const eligibleRegularSatoshis = bigIntMax(0n, this.ratioAdjustedSatoshis - this.flexibleRatioAdjustedSatoshis);
 
     return bigNumberToBigInt(new BigNumber(eligibleRegularSatoshis).plus(eligibleFlexibleSatoshis));
   }

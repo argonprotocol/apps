@@ -116,8 +116,6 @@ export class BitcoinLockCouponService {
       microgonsAtTargetPerBtc,
       feeCreditMicrogons,
     } = request;
-    await this.ensureLegacyCouponsImported();
-
     const coupon = this.db.bitcoinLockCouponsTable.fetchByOfferCode(offerCode);
     if (!coupon) throw new RouterError('Bitcoin lock coupon not found.', 404);
     if (!coupon.accountId) throw new RouterError('This invite has not been accepted yet.', 400);
