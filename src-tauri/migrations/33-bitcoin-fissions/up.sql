@@ -128,7 +128,7 @@ CREATE TABLE BitcoinSecuritizationHistory (
   snapshotId TEXT NOT NULL,
   lockId INTEGER NOT NULL,
   termIndex INTEGER NOT NULL,
-  origin TEXT NOT NULL CHECK(origin IN ('created', 'resecuritized')),
+  origin TEXT NOT NULL CHECK(origin IN ('created', 'resecuritized', 'partial-release')),
   startTick INTEGER NOT NULL,
   startBlockNumber INTEGER NOT NULL,
   startBlockHash TEXT,
@@ -141,7 +141,7 @@ CREATE TABLE BitcoinSecuritizationHistory (
   endBlockNumber INTEGER,
   endBlockHash TEXT,
   endExtrinsicIndex INTEGER,
-  endReason TEXT CHECK(endReason IN ('resecuritized', 'released')),
+  endReason TEXT CHECK(endReason IN ('resecuritized', 'partial-release', 'released')),
   PRIMARY KEY (ownerAccount, snapshotId, lockId, termIndex)
 );
 
@@ -154,6 +154,8 @@ CREATE TABLE BitcoinReleases (
   id TEXT NOT NULL PRIMARY KEY,
   kind TEXT NOT NULL CHECK(kind IN ('Lock', 'Orphan')),
   lockId INTEGER NOT NULL,
+  sendId TEXT NOT NULL,
+  releaseNumber INTEGER,
   status TEXT NOT NULL CHECK(status IN (
     'SubmittingRequestOnArgon',
     'WaitingForVaultCosign',
@@ -168,6 +170,10 @@ CREATE TABLE BitcoinReleases (
   requestedReleaseAtTick INTEGER,
   toScriptPubkey TEXT NOT NULL,
   bitcoinNetworkFee TEXT NOT NULL,
+  destinationSatoshis TEXT NOT NULL,
+  changeSatoshis TEXT NOT NULL,
+  cosignDueFrame INTEGER,
+  expectedTransactionId TEXT,
   insuredMicrogons TEXT,
   argonTxFeeMicrogons TEXT,
   compensationMicrogons TEXT,
@@ -186,12 +192,17 @@ CREATE TABLE BitcoinReleases (
   argonCompletionExtrinsicIndex INTEGER,
   statusError TEXT,
   createdAt DATETIME DEFAULT CURRENT_TIMESTAMP,
-  updatedAt DATETIME DEFAULT CURRENT_TIMESTAMP
+  updatedAt DATETIME DEFAULT CURRENT_TIMESTAMP,
+  CHECK(
+    (kind = 'Lock' AND releaseNumber IS NOT NULL) OR
+    (kind = 'Orphan' AND releaseNumber IS NULL)
+  )
 );
 
 INSERT INTO BitcoinReleases (
-  id, kind, lockId, status, inputUtxoIds, requestedReleaseAtTick,
-  toScriptPubkey, bitcoinNetworkFee, insuredMicrogons, argonTxFeeMicrogons,
+  id, kind, lockId, sendId, releaseNumber, status, inputUtxoIds, requestedReleaseAtTick,
+  toScriptPubkey, bitcoinNetworkFee, destinationSatoshis, changeSatoshis,
+  insuredMicrogons, argonTxFeeMicrogons,
   compensationMicrogons, vaultSignatures, cosignBlockNumber, bitcoinTxid,
   bitcoinFirstSeenAt, bitcoinFirstSeenHeight, bitcoinFirstSeenOracleHeight,
   bitcoinLastConfirmationCheckAt, bitcoinLastConfirmationCheckOracleHeight,
@@ -200,12 +211,22 @@ INSERT INTO BitcoinReleases (
   createdAt, updatedAt
 )
 SELECT
-  'migration-33-release-' || BitcoinUtxos.id,
+  CASE
+    WHEN BitcoinLocks.fundingUtxoRecordId = BitcoinUtxos.id
+      THEN 'lock:' || BitcoinUtxos.lockUtxoId || ':1'
+    ELSE 'migration-33-release-' || BitcoinUtxos.id
+  END,
   CASE
     WHEN BitcoinLocks.fundingUtxoRecordId = BitcoinUtxos.id THEN 'Lock'
     ELSE 'Orphan'
   END,
   BitcoinUtxos.lockUtxoId,
+  CASE
+    WHEN BitcoinLocks.fundingUtxoRecordId = BitcoinUtxos.id
+      THEN 'lock:' || BitcoinUtxos.lockUtxoId || ':1'
+    ELSE 'migration-33-release-' || BitcoinUtxos.id
+  END,
+  CASE WHEN BitcoinLocks.fundingUtxoRecordId = BitcoinUtxos.id THEN 1 END,
   CASE
     WHEN BitcoinUtxos.status = 'ReleaseCompleteAcknowledged' OR BitcoinLocks.status = 'Released' THEN 'Complete'
     WHEN BitcoinUtxos.status = 'ReleaseComplete' THEN 'WaitingForArgonRecognition'
@@ -218,6 +239,8 @@ SELECT
   BitcoinUtxos.requestedReleaseAtTick,
   BitcoinUtxos.releaseToDestinationAddress,
   CAST(BitcoinUtxos.releaseBitcoinNetworkFee AS TEXT),
+  CAST(CAST(BitcoinUtxos.satoshis AS INTEGER) - CAST(BitcoinUtxos.releaseBitcoinNetworkFee AS INTEGER) AS TEXT),
+  '0',
   NULL,
   CASE
     WHEN BitcoinLocks.fundingUtxoRecordId = BitcoinUtxos.id THEN BitcoinLocks.releaseArgonTxFeeMicrogons
@@ -263,6 +286,10 @@ WHERE BitcoinUtxos.status IN (
 
 CREATE INDEX idxBitcoinReleasesLockId ON BitcoinReleases (lockId);
 CREATE INDEX idxBitcoinReleasesStatus ON BitcoinReleases (status);
+CREATE INDEX idxBitcoinReleasesSendId ON BitcoinReleases (sendId);
+CREATE UNIQUE INDEX idxBitcoinReleasesLockNumber
+  ON BitcoinReleases (lockId, releaseNumber)
+  WHERE kind = 'Lock' AND releaseNumber IS NOT NULL;
 
 CREATE TRIGGER BitcoinReleasesUpdateTimestamp
 AFTER UPDATE ON BitcoinReleases
@@ -336,13 +363,19 @@ SELECT
   END,
   CASE WHEN source.status IN ('ReleaseComplete', 'ReleaseCompleteAcknowledged') THEN 'Spent' ELSE 'Unspent' END,
   CASE
-    WHEN source.status IN ('ReleaseIsProcessingOnArgon', 'ReleaseIsProcessingOnBitcoin', 'ReleaseComplete')
-      AND NOT EXISTS (SELECT 1 FROM BitcoinLocks WHERE fundingUtxoRecordId = source.id)
-    THEN 'migration-33-release-' || source.id
+    WHEN source.status NOT IN ('ReleaseIsProcessingOnArgon', 'ReleaseIsProcessingOnBitcoin', 'ReleaseComplete')
+      THEN NULL
+    WHEN EXISTS (SELECT 1 FROM BitcoinLocks WHERE fundingUtxoRecordId = source.id)
+      THEN 'lock:' || source.lockUtxoId || ':1'
+    ELSE 'migration-33-release-' || source.id
   END,
   NULL,
-  CASE WHEN source.status IN ('ReleaseComplete', 'ReleaseCompleteAcknowledged')
-    THEN 'migration-33-release-' || source.id END,
+  CASE
+    WHEN source.status NOT IN ('ReleaseComplete', 'ReleaseCompleteAcknowledged') THEN NULL
+    WHEN EXISTS (SELECT 1 FROM BitcoinLocks WHERE fundingUtxoRecordId = source.id)
+      THEN 'lock:' || source.lockUtxoId || ':1'
+    ELSE 'migration-33-release-' || source.id
+  END,
   CASE
     WHEN source.status IN ('ReleaseIsProcessingOnArgon', 'ReleaseIsProcessingOnBitcoin', 'ReleaseComplete', 'ReleaseCompleteAcknowledged')
     THEN NULL
@@ -613,6 +646,73 @@ WHERE extrinsicType = 'BitcoinOrphanedUtxoRelease'
     FROM BitcoinReleases
     WHERE BitcoinReleases.kind = 'Orphan'
       AND json_extract(BitcoinReleases.inputUtxoIds, '$[0]') = json_extract(Transactions.metadataJson, '$.utxoRecordId')
+  );
+
+UPDATE Transactions
+SET metadataJson = json_set(
+  metadataJson,
+  '$.releaseNumber',
+  COALESCE(
+    (
+      SELECT BitcoinReleases.releaseNumber
+      FROM BitcoinReleases
+      WHERE BitcoinReleases.kind = 'Lock'
+        AND BitcoinReleases.lockId = json_extract(Transactions.metadataJson, '$.lockId')
+      ORDER BY BitcoinReleases.createdAt DESC
+      LIMIT 1
+    ),
+    1
+  )
+)
+WHERE extrinsicType IN ('BitcoinRequestRelease', 'VaultCosignBitcoinRelease')
+  AND json_valid(metadataJson)
+  AND json_type(metadataJson, '$.lockId') IS NOT NULL
+  AND json_type(metadataJson, '$.releaseNumber') IS NULL;
+
+UPDATE Transactions
+SET metadataJson = json_set(
+  metadataJson,
+  '$.sendId',
+  COALESCE(
+    (
+      SELECT BitcoinReleases.sendId
+      FROM BitcoinReleases
+      WHERE BitcoinReleases.id = json_extract(Transactions.metadataJson, '$.releaseId')
+      LIMIT 1
+    ),
+    json_extract(metadataJson, '$.releaseId')
+  )
+)
+WHERE extrinsicType = 'BitcoinRequestRelease'
+  AND json_valid(metadataJson)
+  AND json_type(metadataJson, '$.releaseId') IS NOT NULL
+  AND json_type(metadataJson, '$.sendId') IS NULL;
+
+UPDATE Transactions
+SET metadataJson = json_remove(
+  json_set(
+    metadataJson,
+    '$.cosignedReleases',
+    json(
+      (
+        SELECT json_group_array(json_object('lockId', lockId.value, 'releaseNumber', 1))
+        FROM json_each(
+          COALESCE(
+            json_extract(Transactions.metadataJson, '$.cosignedLockIds'),
+            json_extract(Transactions.metadataJson, '$.cosignedUtxoIds')
+          )
+        ) lockId
+      )
+    )
+  ),
+  '$.cosignedLockIds',
+  '$.cosignedUtxoIds'
+)
+WHERE extrinsicType = 'VaultCollect'
+  AND json_valid(metadataJson)
+  AND (
+    json_type(metadataJson, '$.cosignedLockIds') = 'array'
+    OR json_type(metadataJson, '$.cosignedUtxoIds') = 'array'
   );
 
 UPDATE Transactions

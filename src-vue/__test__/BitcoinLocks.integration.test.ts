@@ -201,7 +201,7 @@ describe.skipIf(skipE2E).sequential('BitcoinLocks integration', { timeout: 240e3
     }
   }, 300e3);
 
-  it('releases multiple accepted funding UTXOs through one durable workflow', async () => {
+  it('partially releases multiple accepted funding UTXOs and resumes from durable state', async () => {
     const operator = await createHarness({
       archiveUrl: network.archiveUrl,
       esploraHost: network.networkConfigOverride.esploraHost,
@@ -243,13 +243,18 @@ describe.skipIf(skipE2E).sequential('BitcoinLocks integration', { timeout: 240e3
           fundedLock,
           5n,
           destinationAddress,
+          true,
         );
+        const grossSatoshis = fundedLock.fundedSatoshis / 2n;
+        const destinationSatoshis = grossSatoshis - bitcoinNetworkFee;
+        const changeSatoshis = fundedLock.fundedSatoshis - grossSatoshis;
         const operation = new BitcoinLockRelease(owner.bitcoinLocks, owner.transactionTracker);
         await operation.load();
         const txInfo = await operation.submit({
           lockId: fundedLock.lockId!,
           toScriptPubkey: destinationAddress,
           bitcoinNetworkFee,
+          destinationSatoshis,
           txSigner: await owner.walletKeys.getLiquidLockingKeypair(),
         });
         await txInfo.txResult.waitForFinalizedBlock;
@@ -260,6 +265,8 @@ describe.skipIf(skipE2E).sequential('BitcoinLocks integration', { timeout: 240e3
           status: BitcoinReleaseStatus.WaitingForVaultCosign,
           inputUtxoIds,
           bitcoinNetworkFee,
+          destinationSatoshis,
+          changeSatoshis,
         });
         if (!requestedRelease) throw new Error(`Bitcoin lock ${fundedLock.lockId} has no active release`);
         expect(owner.bitcoinLocks.releases.getInputUtxos(requestedRelease)).toHaveLength(2);
@@ -288,7 +295,7 @@ describe.skipIf(skipE2E).sequential('BitcoinLocks integration', { timeout: 240e3
           await collectVaultSignatureFromAlert(operator.myVault, 0);
           const archiveClient = await restarted.clients.archiveClientPromise;
           const broadcastingRelease = await waitFor(60e3, 'multi-input release broadcast', async () => {
-            await restarted!.bitcoinLocks.releases.syncLockVaultCosign(restoredLock, archiveClient);
+            await restarted!.bitcoinLocks.releases.syncLockVaultCosign(restoredLock);
             await restarted!.bitcoinLocks.releases.reconcileLockRelease(restoredLock, false);
             const current = restarted!.bitcoinLocks.releases.getActiveForLock(restoredLock);
             if (current?.statusError) throw new Error(current.statusError);
@@ -319,21 +326,24 @@ describe.skipIf(skipE2E).sequential('BitcoinLocks integration', { timeout: 240e3
             pollMs: 500,
           });
 
-          const runtimeClient = await restarted.clients.get(false);
-          expect(await BitcoinLock.get(runtimeClient, restoredLock.lockId!)).toBeUndefined();
-          expect(await BitcoinLock.getReleaseRequest(runtimeClient, restoredLock.lockId!)).toBeUndefined();
-
           const completed = await waitFor(90e3, 'multi-input release completed on Argon', async () => {
             await restarted!.bitcoinLocks.releases.reconcileLockRelease(restoredLock, true);
             const currentLock = restarted!.bitcoinLocks.getLockById(restoredLock.lockId!);
             const currentRelease = restarted!.bitcoinLocks.releases.getById(broadcastingRelease.id);
             if (currentRelease?.statusError) throw new Error(currentRelease.statusError);
-            if (currentLock?.status !== BitcoinLockStatus.Released) return;
+            if (currentLock?.status !== BitcoinLockStatus.LockFunded) return;
+            if (currentLock.fundedSatoshis !== changeSatoshis || currentLock.fundingUtxoIds.length !== 1) return;
             if (currentRelease?.status !== BitcoinReleaseStatus.Complete) return;
             return { currentLock, currentRelease };
           });
           expect(completed.currentLock.activeReleaseId).toBeUndefined();
           expect(completed.currentRelease.bitcoinTxid).toBe(broadcastingRelease.bitcoinTxid);
+          const runtimeClient = await restarted.clients.get(false);
+          expect(await BitcoinLock.get(runtimeClient, restoredLock.lockId!)).toMatchObject({
+            fundedSatoshis: changeSatoshis,
+            securitizedSatoshis: changeSatoshis,
+          });
+          expect(await BitcoinLock.getReleaseRequest(runtimeClient, restoredLock.lockId!)).toBeUndefined();
           expect(restarted.bitcoinLocks.releases.getInputUtxos(completed.currentRelease)).toEqual([
             expect.objectContaining({
               id: inputUtxoIds[0],
@@ -351,6 +361,15 @@ describe.skipIf(skipE2E).sequential('BitcoinLocks integration', { timeout: 240e3
             inputUtxoIds,
             bitcoinTxid: broadcastingRelease.bitcoinTxid,
           });
+          expect(restarted.bitcoinLocks.getFundingUtxos(completed.currentLock)).toEqual([
+            expect.objectContaining({
+              txid: broadcastingRelease.bitcoinTxid,
+              vout: 1,
+              satoshis: changeSatoshis,
+              spendStatus: BitcoinUtxoSpendStatus.Unspent,
+              createdByReleaseId: completed.currentRelease.id,
+            }),
+          ]);
         } finally {
           if (restarted) await cleanupBitcoinLocksClientHarness(restarted);
           else await db.close();
@@ -408,6 +427,7 @@ describe.skipIf(skipE2E).sequential('BitcoinLocks integration', { timeout: 240e3
           lockId: fundedLock.lockId!,
           toScriptPubkey: releaseDestination,
           bitcoinNetworkFee: releaseNetworkFee,
+          destinationSatoshis: fundedLock.fundedSatoshis - releaseNetworkFee,
           txSigner: await owner.walletKeys.getLiquidLockingKeypair(),
         });
         await releaseTx.txResult.waitForFinalizedBlock;

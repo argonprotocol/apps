@@ -780,6 +780,7 @@ Vue.watch(
                 const prepared = await bitcoinLockRelease.prepare({
                   lockId: channel.lockId!,
                   bitcoinNetworkFee: bitcoinFee,
+                  destinationSatoshis: channel.fundedSatoshis - bitcoinFee,
                   toScriptPubkey,
                   txSigner,
                 });

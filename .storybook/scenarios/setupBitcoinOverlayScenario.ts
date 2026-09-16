@@ -715,13 +715,17 @@ export function createBitcoinRelease(overrides: Partial<IBitcoinReleaseRecord> =
   const timestamp = new Date('2026-08-16T14:20:00.000Z');
   return {
     id: 'synthetic-bitcoin-release',
+    sendId: 'synthetic-bitcoin-release',
     kind: BitcoinReleaseKind.Lock,
     lockId: 101,
+    releaseNumber: 1,
     status: BitcoinReleaseStatus.WaitingForVaultCosign,
     inputUtxoIds: [201],
     requestedReleaseAtTick: 10_010,
     toScriptPubkey: `0014${'55'.repeat(20)}`,
     bitcoinNetworkFee: 18_000n,
+    destinationSatoshis: 12_482_000n,
+    changeSatoshis: 0n,
     vaultSignatures: [],
     createdAt: timestamp,
     updatedAt: timestamp,

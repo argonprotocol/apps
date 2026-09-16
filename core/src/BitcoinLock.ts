@@ -6,10 +6,12 @@ import type {
 import { toRuntimeEvent } from '@argonprotocol/runtime-client';
 import { hexToU8a, u8aToHex } from '@polkadot/util';
 import BigNumber from 'bignumber.js';
+import type { BlockWatch, IBlockHeaderInfo } from './BlockWatch.js';
 import type { BitcoinLockFeeCoupon } from './interfaces/IBitcoinLockCoupon.js';
 import type { ArgonClient, ArgonQueryClient } from './MainchainClients.js';
 import { TxResult, type RuntimeEvent } from './TxResult.js';
 import { TxSubmitter, type TxSigningAccount } from './TxSubmitter.js';
+import { bigIntMin, bigNumberToBigInt } from './utils.js';
 import type { Vault } from './Vault.js';
 
 export const SATS_PER_BTC = 100_000_000n;
@@ -126,32 +128,43 @@ export class BitcoinLock implements IBitcoinLock {
     if (!request) return;
 
     return {
+      ...request,
       toScriptPubkey: u8aToHex(request.toScriptPubkey),
-      bitcoinNetworkFee: request.bitcoinNetworkFee,
-      insuredMicrogons: request.securitizationAtRisk,
     };
   }
 
   public static async findVaultCosignatures(
-    client: ArgonClient,
+    blockWatch: BlockWatch,
     lockId: number,
+    releaseNumber: number,
   ): Promise<{ blockHeight: number; signatures: Uint8Array[] } | undefined> {
-    const finalizedHead = await client.rpc.chain.getFinalizedHead();
-    const finalizedClient = await client.at(finalizedHead);
-    const releaseHeight = await finalizedClient.query.bitcoinLocks.lockReleaseCosignHeightById(lockId);
+    const finalizedClient = await blockWatch.getFinalizedApi();
+    let releaseHeight = await finalizedClient.query.bitcoinLocks.lockReleaseCosignHeightById(lockId);
     if (releaseHeight === null) return;
+    let releaseBlock: IBlockHeaderInfo | undefined;
 
-    const blockHeight = releaseHeight;
-    const blockHash = await client.rpc.chain.getBlockHash(blockHeight);
-    const blockEvents = await client.at(blockHash).then(api => api.query.system.events());
+    while (releaseHeight.releaseNumber > releaseNumber) {
+      if (releaseHeight.previousCosignHeight === null) return;
+      const previousBlock = await blockWatch.getHeaderByBlockNumber(releaseHeight.previousCosignHeight);
+      const previousClient = await blockWatch.getApi(previousBlock);
+      const previousReleaseHeight = await previousClient.query.bitcoinLocks.lockReleaseCosignHeightById(lockId);
+      if (!previousReleaseHeight || typeof previousReleaseHeight === 'number') return;
+      releaseHeight = previousReleaseHeight;
+      releaseBlock = previousBlock;
+    }
+
+    if (releaseHeight.releaseNumber !== releaseNumber) return;
+
+    const blockHeight = releaseHeight.cosignHeight;
+    const block = releaseBlock ?? (await blockWatch.getHeaderByBlockNumber(blockHeight));
+    const blockEvents = await blockWatch.getEvents(block);
     for (const { event } of blockEvents) {
       const runtimeEvent = toRuntimeEvent(event);
       if (runtimeEvent?.section !== 'bitcoinLocks' || runtimeEvent.method !== 'BitcoinUtxoCosigned') continue;
 
-      const eventLockId = runtimeEvent.data.lockId ?? runtimeEvent.data.utxoId;
-      const signatures =
-        runtimeEvent.data.signatures ?? (runtimeEvent.data.signature ? [runtimeEvent.data.signature] : undefined);
-      if (eventLockId !== lockId || !signatures?.length) continue;
+      const { signatures } = runtimeEvent.data;
+      if (runtimeEvent.data.lockId !== lockId || runtimeEvent.data.releaseNumber !== releaseNumber) continue;
+      if (!signatures?.length) continue;
 
       return {
         blockHeight,
@@ -164,11 +177,12 @@ export class BitcoinLock implements IBitcoinLock {
     client: ArgonClient;
     lockId: number;
     toScriptPubkey: string;
+    destinationSatoshis: bigint;
     bitcoinNetworkFee: bigint;
   }) {
-    const { client, lockId, toScriptPubkey, bitcoinNetworkFee } = args;
+    const { client, lockId, toScriptPubkey, destinationSatoshis, bitcoinNetworkFee } = args;
     assertHexScriptPubkey(toScriptPubkey);
-    return client.tx.bitcoinLocks.requestRelease(lockId, toScriptPubkey, bitcoinNetworkFee);
+    return client.tx.bitcoinLocks.requestRelease(lockId, toScriptPubkey, destinationSatoshis, bitcoinNetworkFee);
   }
 
   public static createOrphanedReleaseTx(args: {
@@ -435,14 +449,27 @@ export class BitcoinLock implements IBitcoinLock {
   private static fromRuntime(lockId: number, lock: NonNullable<BitcoinLocksLocksByIdResultSpec159>): BitcoinLock {
     const wscriptHash = lock.utxoScriptPubkey.value.wscriptHash.replace('0x', '');
     const [fingerprint, cosignHdIndex, claimHdIndex] = lock.vaultXpubSources;
+    const securitizationBasisSatoshis = lock.securitizationBasis.satoshis;
+    const securitizedSatoshis =
+      lock.fundedSatoshis === 0n
+        ? securitizationBasisSatoshis
+        : bigIntMin(lock.fundedSatoshis, securitizationBasisSatoshis);
+    const securitizationShare =
+      securitizationBasisSatoshis === 0n
+        ? new BigNumber(0)
+        : new BigNumber(securitizedSatoshis)
+            .dividedBy(securitizationBasisSatoshis)
+            .decimalPlaces(18, BigNumber.ROUND_DOWN);
 
     return new BitcoinLock({
       lockId,
       p2wshScriptHashHex: `0x0020${wscriptHash}`,
       vaultId: lock.vaultId,
-      securitizedSatoshis: lock.securitizationBasis.satoshis,
+      securitizedSatoshis,
       microgonsAtTargetPerBtc: lock.securitizationBasis.microgonsAtTargetPerBtc,
-      securitizationCoverageMicrogons: lock.securitizationCoverageMicrogons,
+      securitizationCoverageMicrogons: bigNumberToBigInt(
+        securitizationShare.multipliedBy(lock.securitizationCoverageMicrogons),
+      ),
       securitizationTick: lock.securitizationTick,
       fundedSatoshis: lock.fundedSatoshis,
       fundingUtxos: lock.fundingUtxos.map(([utxoRef, satoshis]) => ({
@@ -485,10 +512,17 @@ export interface IBitcoinLockConfig {
 export interface IReleaseRequest {
   toScriptPubkey: string;
   bitcoinNetworkFee: bigint;
+  destinationSatoshis: bigint;
+  changeSatoshis: bigint;
 }
 
 export interface IReleaseRequestDetails extends IReleaseRequest {
-  insuredMicrogons: bigint;
+  lockId: number;
+  vaultId: number;
+  releaseNumber: number;
+  cosignDueFrame: number;
+  expectedTransactionId: string;
+  securitizationAtRisk: bigint;
 }
 
 export interface IBitcoinLock {

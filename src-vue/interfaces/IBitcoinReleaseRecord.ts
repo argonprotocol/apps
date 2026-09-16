@@ -18,11 +18,17 @@ export interface IBitcoinReleaseRecord {
   id: string;
   kind: BitcoinReleaseKind;
   lockId: number;
+  sendId: string;
+  releaseNumber?: number;
   status: BitcoinReleaseStatus;
   inputUtxoIds: number[];
   requestedReleaseAtTick?: number;
   toScriptPubkey: string;
   bitcoinNetworkFee: bigint;
+  destinationSatoshis: bigint;
+  changeSatoshis: bigint;
+  cosignDueFrame?: number;
+  expectedTransactionId?: string;
   insuredMicrogons?: bigint;
   argonTxFeeMicrogons?: bigint;
   compensationMicrogons?: bigint;

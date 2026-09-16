@@ -336,9 +336,9 @@ const releaseFeeRate = Vue.computed(() => {
       lock: props.lock,
       fundedSatoshis: props.record.satoshis,
     });
-    const oneSatFee = cosignScript.calculateFee(1n, 1, destination);
+    const oneSatFee = cosignScript.calculateFee(1n, 1, destination, false);
     const feeRate = (networkFee + oneSatFee / 2n) / oneSatFee;
-    if (cosignScript.calculateFee(feeRate, 1, destination) === networkFee) return feeRate;
+    if (cosignScript.calculateFee(feeRate, 1, destination, false) === networkFee) return feeRate;
   } catch {
     return;
   }

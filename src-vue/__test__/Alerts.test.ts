@@ -4,7 +4,7 @@ import { getBitcoinAlertNotices } from '../lib/Alerts.ts';
 import BitcoinLocks from '../lib/BitcoinLocks.ts';
 import { BITCOIN_BLOCK_MILLIS, TICK_MILLIS } from '../lib/Env.ts';
 import type { IMintingAuthorityAuthorization, IMintingAuthorityAuthorizeMetadata } from '../lib/MintingAuthorities.ts';
-import { VaultCollectBuilder } from '../lib/VaultCollectBuilder.ts';
+import { type IVaultCollectMetadata, VaultCollectBuilder } from '../lib/VaultCollectBuilder.ts';
 import { BitcoinLockStatus, type IBitcoinLockRecord } from '../lib/db/BitcoinLocksTable.ts';
 import { AppVaultOperator } from '../../e2e/actors/AppVaultOperator.ts';
 
@@ -15,7 +15,15 @@ describe('VaultCollectBuilder.getNotice', () => {
         pendingCollectRevenue: 42n,
         expiringCollectAmount: 7n,
         pendingCollectTxInfo: {
-          tx: { metadataJson: { actionType: 'approveCouncil', expectedCollectRevenue: 0n, cosignedUtxoIds: [] } },
+          tx: {
+            metadataJson: {
+              vaultId: 1,
+              actionType: 'approveCouncil',
+              expectedCollectRevenue: 0n,
+              cosignedReleases: [],
+              moveTo: MoveTo.VaultingSecurity,
+            },
+          },
         },
         pendingCosignLocksById: new Map([[11, { targetValue: 50n }]]),
         globalCouncilPendingApprovals: 1,
@@ -155,12 +163,29 @@ describe('VaultCollectBuilder.getNotice', () => {
     expect(notice?.transactionCount).toBe(1);
   });
 
+  it('keeps a release from the Vault owner available for explicit collect approval', () => {
+    const source = vaultSource({ pendingCosignLocksById: new Map([[11, { targetValue: 50n }]]) });
+    const notice = createCollectBuilder(source, new Set([11])).getNotice();
+
+    expect(notice?.signatureCount).toBe(1);
+    expect(notice?.transactionCount).toBe(1);
+  });
+
   it('marks revenue collection as processing only when the active submission is collecting revenue', () => {
     const notice = createCollectBuilder(
       vaultSource({
         pendingCollectRevenue: 42n,
         pendingCollectTxInfo: {
-          tx: { metadataJson: { actionType: 'collectRevenue', expectedCollectRevenue: 42n, cosignedUtxoIds: [] } },
+          tx: {
+            metadataJson: {
+              vaultId: 1,
+              actionType: 'collectRevenue',
+              expectedCollectRevenue: 42n,
+              cosignedReleases: [],
+              cosignedOrphanUtxos: [],
+              moveTo: MoveTo.VaultingSecurity,
+            },
+          },
         },
       }),
     ).getNotice();
@@ -281,11 +306,7 @@ function vaultSource(
     expiringCollectAmount: bigint;
     pendingCollectTxInfo: {
       tx: {
-        metadataJson: {
-          actionType: 'approveCouncil' | 'collectRevenue' | 'cosignBitcoin';
-          expectedCollectRevenue: bigint;
-          cosignedUtxoIds: number[];
-        };
+        metadataJson: IVaultCollectMetadata;
       };
     } | null;
     pendingMintingAuthorizeTxInfosByTransferId: Map<
@@ -340,10 +361,10 @@ function vaultSource(
   };
 }
 
-function createCollectBuilder(source: ReturnType<typeof vaultSource>) {
+function createCollectBuilder(source: ReturnType<typeof vaultSource>, ownLockIds = new Set<number>()) {
   return new VaultCollectBuilder({
     createdVault: source.createdVault,
-    bitcoinLocks: { getLockById: () => undefined },
+    bitcoinLocks: { getLockById: (lockId: number) => (ownLockIds.has(lockId) ? { lockId } : undefined) },
     globalCouncil: source.globalCouncil,
     mintingAuthorities: source.mintingAuthorities,
     data: source.data,

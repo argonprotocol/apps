@@ -165,7 +165,14 @@ export function resolveRecoveredLock(
   durable: IBitcoinLockRecord,
   recovered: IHistoricalBitcoinLockRecord,
   useRecoveredStatus: boolean,
+  preserveCurrentState = false,
 ): IBitcoinLockRecord {
+  const createdAt = durable.createdAt < recovered.createdAt ? durable.createdAt : recovered.createdAt;
+  if (preserveCurrentState) {
+    durable.createdAt = createdAt;
+    return durable;
+  }
+
   const lifecycleProgress: Partial<Record<BitcoinLockStatus, number>> = {
     [BitcoinLockStatus.LockIsProcessingOnArgon]: 0,
     [BitcoinLockStatus.LockPendingFunding]: 1,
@@ -180,7 +187,6 @@ export function resolveRecoveredLock(
     (durableProgress !== undefined && recoveredProgress !== undefined && recoveredProgress > durableProgress)
       ? recovered.status
       : durable.status;
-  const createdAt = durable.createdAt < recovered.createdAt ? durable.createdAt : recovered.createdAt;
   const hasDurableFunding = durable.fundingUtxoIds.length > 0 || durable.fundedSatoshis > 0n;
 
   assignIfUnset(durable, recovered, [

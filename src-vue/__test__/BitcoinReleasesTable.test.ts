@@ -8,15 +8,23 @@ import {
 import { createTestDb } from './helpers/db.ts';
 
 function createRelease(overrides: Partial<IBitcoinReleaseRecord> = {}) {
+  const kind = overrides.kind ?? BitcoinReleaseKind.Lock;
   return {
     id: overrides.id ?? 'release-1',
-    kind: overrides.kind ?? BitcoinReleaseKind.Lock,
+    kind,
     lockId: overrides.lockId ?? 7,
+    sendId: overrides.sendId ?? 'send-1',
+    releaseNumber:
+      'releaseNumber' in overrides ? overrides.releaseNumber : kind === BitcoinReleaseKind.Lock ? 2 : undefined,
     status: overrides.status ?? BitcoinReleaseStatus.WaitingForVaultCosign,
     inputUtxoIds: overrides.inputUtxoIds ?? [3, 4],
     requestedReleaseAtTick: overrides.requestedReleaseAtTick ?? 55,
     toScriptPubkey: overrides.toScriptPubkey ?? '0x0014abcd',
     bitcoinNetworkFee: overrides.bitcoinNetworkFee ?? 500n,
+    destinationSatoshis: overrides.destinationSatoshis ?? 8_000n,
+    changeSatoshis: overrides.changeSatoshis ?? 1_500n,
+    cosignDueFrame: overrides.cosignDueFrame ?? 70,
+    expectedTransactionId: overrides.expectedTransactionId ?? 'expected-tx',
     insuredMicrogons: overrides.insuredMicrogons ?? 2_000n,
     argonTxFeeMicrogons: overrides.argonTxFeeMicrogons ?? 9n,
     compensationMicrogons: overrides.compensationMicrogons,
@@ -43,6 +51,8 @@ describe('BitcoinReleasesTable', () => {
     const release = await db.bitcoinReleasesTable.insert(
       createRelease({
         bitcoinNetworkFee: 9_007_199_254_740_993n,
+        destinationSatoshis: 9_007_199_254_740_994n,
+        changeSatoshis: 9_007_199_254_740_996n,
         insuredMicrogons: 9_007_199_254_740_995n,
         vaultSignatures: [new Uint8Array([1, 2]), new Uint8Array([3, 4])],
       }),
@@ -59,8 +69,14 @@ describe('BitcoinReleasesTable', () => {
     const hydrated = await restartedDb.bitcoinReleasesTable.getById(release.id);
     expect(hydrated).toMatchObject({
       status: BitcoinReleaseStatus.ConfirmingOnBitcoin,
+      sendId: 'send-1',
+      releaseNumber: 2,
       inputUtxoIds: [3, 4],
       bitcoinNetworkFee: 9_007_199_254_740_993n,
+      destinationSatoshis: 9_007_199_254_740_994n,
+      changeSatoshis: 9_007_199_254_740_996n,
+      cosignDueFrame: 70,
+      expectedTransactionId: 'expected-tx',
       insuredMicrogons: 9_007_199_254_740_995n,
       bitcoinTxid: 'release-tx',
       bitcoinFirstSeenAt: new Date('2026-09-11T12:00:00Z'),
@@ -80,5 +96,28 @@ describe('BitcoinReleasesTable', () => {
     await expect(db.bitcoinReleasesTable.insert(createRelease({ kind: BitcoinReleaseKind.Orphan }))).rejects.toThrow(
       'already belongs to a different workflow',
     );
+  });
+
+  it('requires one unique release number for each Lock release and none for Orphans', async () => {
+    const db = await createTestDb();
+    await db.bitcoinReleasesTable.insert(createRelease({ id: 'lock:7:2' }));
+
+    await expect(
+      db.bitcoinReleasesTable.insert(createRelease({ id: 'another-lock-release', releaseNumber: 2 })),
+    ).rejects.toThrow();
+    await expect(
+      db.bitcoinReleasesTable.insert(createRelease({ id: 'unnumbered-lock', releaseNumber: undefined })),
+    ).rejects.toThrow();
+
+    const orphan = await db.bitcoinReleasesTable.insert(
+      createRelease({ id: 'orphan-release', kind: BitcoinReleaseKind.Orphan, releaseNumber: undefined }),
+    );
+    expect(orphan).toMatchObject({ kind: BitcoinReleaseKind.Orphan });
+    expect(orphan.releaseNumber).toBeUndefined();
+    await expect(
+      db.bitcoinReleasesTable.insert(
+        createRelease({ id: 'numbered-orphan', kind: BitcoinReleaseKind.Orphan, releaseNumber: 2 }),
+      ),
+    ).rejects.toThrow();
   });
 });

@@ -209,6 +209,7 @@ async function sendBitcoin(): Promise<void> {
     await bitcoinLockRelease.submit({
       lockId: lockId,
       bitcoinNetworkFee: quote.bitcoinFee,
+      destinationSatoshis: props.personalLock.fundedSatoshis - quote.bitcoinFee,
       toScriptPubkey: trimmedDestinationAddress.value,
       txSigner: await getWalletKeys().getLiquidLockingKeypair(),
     });
@@ -232,6 +233,7 @@ async function refreshArgonFeeQuote(isCancelled: () => boolean): Promise<void> {
     const prepared = await bitcoinLockRelease.prepare({
       lockId: lockId,
       bitcoinNetworkFee: bitcoinFee,
+      destinationSatoshis: props.personalLock.fundedSatoshis - bitcoinFee,
       toScriptPubkey: trimmedDestinationAddress.value,
       txSigner: await getWalletKeys().getLiquidLockingKeypair(),
     });

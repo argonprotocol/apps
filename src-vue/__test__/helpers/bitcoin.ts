@@ -9,6 +9,7 @@ import { toHistoricalEvent } from '@argonprotocol/runtime-client/events';
 import BigNumber from 'bignumber.js';
 import { createHistoricalEventData } from '../../../indexer/__test__/helpers/historicalEvents.ts';
 import BitcoinLocks from '../../lib/BitcoinLocks.ts';
+import type BitcoinMempool from '../../lib/BitcoinMempool.ts';
 import type { Db } from '../../lib/Db.ts';
 import type { TransactionTracker } from '../../lib/TransactionTracker.ts';
 import type { UpstreamOperatorClient } from '../../lib/UpstreamOperatorClient.ts';
@@ -52,6 +53,7 @@ export function createStore(
     db?: Db;
     transactionTracker?: TransactionTracker;
     walletKeys?: WalletKeys;
+    mempool?: BitcoinMempool;
   } = {},
 ): BitcoinLocks {
   const blockWatch =
@@ -99,7 +101,7 @@ export function createStore(
     blockWatch,
     currency,
     transactionTracker,
-    undefined,
+    options.mempool,
   );
 }
 

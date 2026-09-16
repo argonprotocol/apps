@@ -1,10 +1,13 @@
 import {
   BitcoinLock,
+  bigIntMin,
   type ArgonClient,
   type ArgonQueryClient,
   type BlockWatch,
   type Currency,
   type IBlockHeaderInfo,
+  type IReleaseRequest,
+  type IReleaseRequestDetails,
   type RuntimeSystemEventRecord,
 } from '@argonprotocol/apps-core';
 import { hexToU8a, u8aToHex } from '@argonprotocol/mainchain';
@@ -24,6 +27,7 @@ import {
 import type BitcoinUtxoTracking from './BitcoinUtxoTracking.ts';
 import type BitcoinLocks from './BitcoinLocks.ts';
 import type BitcoinMempool from './BitcoinMempool.ts';
+import { closeFinalizedSecuritization, recordFinalizedSecuritization } from './BitcoinSecuritizationTerms.ts';
 import type { Db } from './Db.ts';
 import { getMainchainClient } from '../stores/mainchain.ts';
 import { getTransactionFailureMessage, type TransactionInfo } from './TransactionInfo.ts';
@@ -156,11 +160,8 @@ export default class BitcoinReleases {
       const persisted = await transaction.bitcoinReleasesTable.insert(release);
       if (
         persisted.kind !== release.kind ||
-        persisted.lockId !== release.lockId ||
-        persisted.toScriptPubkey !== release.toScriptPubkey ||
-        persisted.bitcoinNetworkFee !== release.bitcoinNetworkFee ||
-        persisted.inputUtxoIds.length !== release.inputUtxoIds.length ||
-        persisted.inputUtxoIds.some((id, index) => id !== release.inputUtxoIds[index])
+        persisted.sendId !== release.sendId ||
+        !isSameLockReleaseRequest(persisted, release)
       ) {
         throw new Error(`Bitcoin release ${release.id} already contains a different request`);
       }
@@ -220,7 +221,12 @@ export default class BitcoinReleases {
   public async recordArgonRequest(
     release: IBitcoinReleaseRecord,
     facts: Pick<IBitcoinReleaseRecord, 'requestedReleaseAtTick'> &
-      Partial<Pick<IBitcoinReleaseRecord, 'insuredMicrogons' | 'argonTxFeeMicrogons'>>,
+      Partial<
+        Pick<
+          IBitcoinReleaseRecord,
+          'insuredMicrogons' | 'argonTxFeeMicrogons' | 'cosignDueFrame' | 'expectedTransactionId'
+        >
+      >,
   ): Promise<void> {
     await this.advance(release, BitcoinReleaseStatus.WaitingForVaultCosign, facts);
   }
@@ -235,6 +241,28 @@ export default class BitcoinReleases {
       );
     }
     await this.advance(release, BitcoinReleaseStatus.ReadyForBitcoinBroadcast, facts);
+  }
+
+  public async applyVaultCosignResult(args: {
+    lockId: number;
+    releaseNumber: number;
+    vaultSignatures: Uint8Array[];
+    cosignBlockNumber: number;
+  }): Promise<void> {
+    const { lockId, releaseNumber, vaultSignatures, cosignBlockNumber } = args;
+    const lock = this.bitcoinLocks.getLockById(lockId);
+    if (!lock) return;
+
+    await this.bitcoinLocks.runInQueueForLock(
+      lock,
+      async () => {
+        const release = this.getActiveForLock(lock);
+        if (release?.releaseNumber !== releaseNumber) return;
+        await this.recordVaultCosign(release, { vaultSignatures, cosignBlockNumber });
+        await this.reconcileLockRelease(lock, false);
+      },
+      { skipActionAvailability: true },
+    );
   }
 
   public async recordCompensation(release: IBitcoinReleaseRecord, compensationMicrogons: bigint): Promise<void> {
@@ -278,40 +306,33 @@ export default class BitcoinReleases {
 
   public async finalizeLockRequest(
     lock: IBitcoinLockRecord,
-    releaseId: string,
-    blockHash: Uint8Array,
-    argonTxFeeMicrogons: bigint,
+    finalized: {
+      releaseId: string;
+      request: IReleaseRequestDetails;
+      inputUtxoIds: number[];
+      requestedReleaseAtTick: number;
+      argonTxFeeMicrogons: bigint;
+    },
   ): Promise<void> {
-    await this.bitcoinLocks.runInQueueForLock(
-      lock,
-      async () => {
-        if (this.bitcoinLocks.isTerminalLock(lock)) return;
-        const release = this.getById(releaseId);
-        if (!release || lock.activeReleaseId !== release.id) return;
+    if (this.bitcoinLocks.isTerminalLock(lock)) return;
+    const release = this.getById(finalized.releaseId);
+    if (!release || lock.activeReleaseId !== release.id) return;
+    if (
+      !isSameLockReleaseRequest(release, {
+        ...finalized.request,
+        inputUtxoIds: finalized.inputUtxoIds,
+      })
+    ) {
+      throw new Error(`Bitcoin release ${release.id} does not match its finalized Argon request`);
+    }
 
-        const client = await getMainchainClient(true);
-        const api = await client.at(blockHash);
-        const request = await BitcoinLock.getReleaseRequest(api, lock.lockId!);
-        if (!request) {
-          console.warn(`[BitcoinReleases] Missing canonical release request for ${lock.uuid} after finalization`);
-          return;
-        }
-        const currentTick = await api.query.ticks.currentTick();
-        if (currentTick === null) return;
-        if (
-          request.toScriptPubkey !== release.toScriptPubkey ||
-          request.bitcoinNetworkFee !== release.bitcoinNetworkFee
-        ) {
-          throw new Error(`Bitcoin release ${release.id} does not match its finalized Argon request`);
-        }
-        await this.recordArgonRequest(release, {
-          requestedReleaseAtTick: Number(currentTick),
-          insuredMicrogons: request.insuredMicrogons,
-          argonTxFeeMicrogons,
-        });
-      },
-      { waitForHistoryRecovery: true },
-    );
+    await this.recordArgonRequest(release, {
+      requestedReleaseAtTick: finalized.requestedReleaseAtTick,
+      insuredMicrogons: finalized.request.securitizationAtRisk,
+      cosignDueFrame: finalized.request.cosignDueFrame,
+      expectedTransactionId: finalized.request.expectedTransactionId,
+      argonTxFeeMicrogons: finalized.argonTxFeeMicrogons,
+    });
     this.bitcoinLocks.publishFinancialRevision();
   }
 
@@ -344,21 +365,15 @@ export default class BitcoinReleases {
       return;
     }
 
-    let archiveClient: ArgonClient | undefined;
-    const getArchiveClient = async (): Promise<ArgonClient> => {
-      archiveClient ??= await getMainchainClient(true);
-      return archiveClient;
-    };
-
     if (release.status === BitcoinReleaseStatus.SubmittingRequestOnArgon) {
-      await this.syncLockArgonRequest(lock, await getArchiveClient()).catch(error => {
+      await this.syncLockArgonRequest(lock, await getMainchainClient(true)).catch(error => {
         console.warn(`[BitcoinReleases] Error syncing release request for ${lock.uuid}`, error);
       });
       release = this.getActiveForLock(lock) ?? release;
     }
 
     if (release.status === BitcoinReleaseStatus.WaitingForVaultCosign) {
-      await this.syncLockVaultCosign(lock, await getArchiveClient()).catch(error => {
+      await this.syncLockVaultCosign(lock).catch(error => {
         console.warn(`[BitcoinReleases] Error syncing release cosign for ${lock.uuid}`, error);
       });
       release = this.getActiveForLock(lock) ?? release;
@@ -389,10 +404,10 @@ export default class BitcoinReleases {
       release = this.getActiveForLock(lock) ?? confirmingRelease;
     }
 
-    if (release.status === BitcoinReleaseStatus.WaitingForArgonRecognition && release.cosignBlockNumber !== undefined) {
-      await this.completeCosignedLockRelease(lock, release, await getArchiveClient()).catch(async error => {
+    if (release.status === BitcoinReleaseStatus.WaitingForArgonRecognition) {
+      await this.recoverRecognizedLockRelease(lock, release).catch(async error => {
         await this.recordRetryableError(release, error);
-        console.warn(`[BitcoinReleases] Error finalizing cosigned release for ${lock.uuid}`, error);
+        console.warn(`[BitcoinReleases] Error recovering release completion for ${lock.uuid}`, error);
       });
     }
   }
@@ -575,12 +590,137 @@ export default class BitcoinReleases {
     api: ArgonQueryClient,
     eventRecord: RuntimeSystemEventRecord,
   ): Promise<void> {
+    const runtimeEvent = toRuntimeEvent(eventRecord.event);
+    const extrinsicIndex = eventRecord.phase.type === 'ApplyExtrinsic' ? eventRecord.phase.value : undefined;
+    const blockTime = new Date(block.blockTime);
+    if (runtimeEvent?.section !== 'bitcoinLocks') return;
+
+    if (release.changeSatoshis > 0n) {
+      if (
+        runtimeEvent.method !== 'BitcoinSpentAfterRelease' ||
+        runtimeEvent.data.lockId !== lock.lockId ||
+        runtimeEvent.data.releaseNumber !== release.releaseNumber
+      ) {
+        return;
+      }
+      if (runtimeEvent.data.bitcoinHeight === undefined) {
+        throw new Error(`Bitcoin release ${release.id} settlement has no Bitcoin height`);
+      }
+
+      const currentLock = await BitcoinLock.get(api, lock.lockId!);
+      if (!currentLock) {
+        throw new Error(`Bitcoin release ${release.id} did not retain its expected Lock`);
+      }
+      if (extrinsicIndex === undefined) {
+        throw new Error(`Bitcoin release ${release.id} settlement is missing its extrinsic index`);
+      }
+
+      const db = await this.dbPromise;
+      const settled = await db.transaction(async transaction => {
+        const releaseDraft = await transaction.bitcoinReleasesTable.getById(release.id);
+        const lockDraft = await transaction.bitcoinLocksTable.getByLockId(release.lockId);
+        if (!releaseDraft || !lockDraft || lockDraft.activeReleaseId !== release.id) return;
+        if (
+          releaseDraft.kind !== BitcoinReleaseKind.Lock ||
+          releaseDraft.changeSatoshis === 0n ||
+          !releaseDraft.expectedTransactionId
+        ) {
+          return;
+        }
+
+        const [changeOutput] = currentLock.fundingUtxos;
+        if (
+          currentLock.fundedSatoshis !== releaseDraft.changeSatoshis ||
+          currentLock.fundingUtxos.length !== 1 ||
+          changeOutput.satoshis !== releaseDraft.changeSatoshis ||
+          changeOutput.utxoRef.txid !== releaseDraft.expectedTransactionId ||
+          changeOutput.utxoRef.vout !== 1
+        ) {
+          throw new Error(`Bitcoin release ${release.id} does not match the retained runtime funding output`);
+        }
+
+        const previousSecuritizedSatoshis = lockDraft.securitizedSatoshis;
+        const expectedSecuritizedSatoshis = bigIntMin(previousSecuritizedSatoshis, releaseDraft.changeSatoshis);
+        if (currentLock.securitizedSatoshis !== expectedSecuritizedSatoshis) {
+          throw new Error(`Bitcoin release ${release.id} has an unexpected retained securitization`);
+        }
+
+        const inputIds = new Set(releaseDraft.inputUtxoIds);
+        const inputDrafts = (await transaction.bitcoinUtxosTable.fetchByLockId(release.lockId)).filter(input =>
+          inputIds.has(input.id),
+        );
+        if (
+          inputDrafts.length !== releaseDraft.inputUtxoIds.length ||
+          inputDrafts.some(
+            input => input.activeReleaseId !== release.id || input.spendStatus === BitcoinUtxoSpendStatus.Spent,
+          )
+        ) {
+          throw new Error(`Bitcoin release ${release.id} no longer owns its funding inputs`);
+        }
+
+        const change = await transaction.bitcoinUtxosTable.insert({
+          lockId: release.lockId,
+          txid: changeOutput.utxoRef.txid,
+          vout: changeOutput.utxoRef.vout,
+          satoshis: changeOutput.satoshis,
+          network: lockDraft.network,
+          status: BitcoinUtxoStatus.FundingUtxo,
+          spendStatus: BitcoinUtxoSpendStatus.Unspent,
+          createdByReleaseId: release.id,
+          firstSeenAt: blockTime,
+          firstSeenOnArgonAt: blockTime,
+          firstSeenBitcoinHeight: Number(runtimeEvent.data.bitcoinHeight),
+          firstSeenOracleHeight: Number(runtimeEvent.data.bitcoinHeight),
+        });
+        await transaction.bitcoinReleasesTable.update(releaseDraft, {
+          status: BitcoinReleaseStatus.Complete,
+          statusError: undefined,
+          argonCompletionBlockNumber: block.blockNumber,
+          argonCompletionBlockHash: block.blockHash,
+          argonCompletionBlockTime: blockTime,
+          argonCompletionExtrinsicIndex: extrinsicIndex,
+        });
+        for (const input of inputDrafts) await transaction.bitcoinUtxosTable.setSpent(input, release.id);
+
+        lockDraft.fundingUtxoIds = [change.id];
+        await transaction.bitcoinLocksTable.updateFromCurrentLock(lockDraft, currentLock);
+        await transaction.bitcoinLocksTable.clearActiveRelease(lockDraft, BitcoinLockStatus.LockFunded);
+        if (previousSecuritizedSatoshis !== currentLock.securitizedSatoshis) {
+          await recordFinalizedSecuritization(transaction.bitcoinSecuritizationHistoryTable, {
+            block,
+            extrinsicIndex,
+            lock: currentLock,
+            origin: 'partial-release',
+          });
+        }
+        return { releaseDraft, lockDraft, inputDrafts, change };
+      });
+      if (!settled) return;
+
+      Object.assign(release, settled.releaseDraft);
+      Object.assign(lock, settled.lockDraft);
+      for (const input of settled.inputDrafts) {
+        const published = this.utxoTracking.getUtxoRecordById(input.id);
+        if (published) Object.assign(published, input);
+      }
+      this.utxoTracking.publishUtxo(settled.change);
+      this.data.releasesById[release.id] = release;
+      this.bitcoinLocks.publishFinancialRevision();
+      return;
+    }
+
+    if (
+      runtimeEvent.method !== 'BitcoinUtxoCosigned' ||
+      runtimeEvent.data.lockId !== lock.lockId ||
+      runtimeEvent.data.releaseNumber !== release.releaseNumber
+    ) {
+      return;
+    }
+
     const rates = await this.currency.fetchMainchainRatesAtBlock({ api, block }).catch(error => {
       console.warn(`[BitcoinReleases] Unable to load removal price for ${lock.uuid}`, error);
       return undefined;
     });
-    const extrinsicIndex = eventRecord.phase.type === 'ApplyExtrinsic' ? eventRecord.phase.value : undefined;
-    const blockTime = new Date(block.blockTime);
 
     await this.completeLockRelease(
       lock,
@@ -599,13 +739,13 @@ export default class BitcoinReleases {
         removalReason: 'released',
         btcPriceAtRemovalMicrogons: rates?.BTC,
       },
+      block,
     );
   }
 
   public async buildLockBitcoinTransaction(
     lock: IBitcoinLockRecord,
     release: IBitcoinReleaseRecord,
-    addTx?: string,
   ): Promise<{ txid: string; bytes: Uint8Array }> {
     if (lock.cosignVersion !== 'v1') {
       throw new Error(`Unsupported cosign version: ${lock.cosignVersion}`);
@@ -629,6 +769,8 @@ export default class BitcoinReleases {
       releaseRequest: {
         toScriptPubkey: release.toScriptPubkey,
         bitcoinNetworkFee: release.bitcoinNetworkFee,
+        destinationSatoshis: release.destinationSatoshis,
+        changeSatoshis: release.changeSatoshis,
       },
       vaultCosignatures: release.vaultSignatures,
       utxos: fundingUtxos.map(record => ({
@@ -636,12 +778,18 @@ export default class BitcoinReleases {
         satoshis: record.satoshis,
       })),
       ownerXpriv: await this.walletKeys.getBitcoinChildXpriv(lock.hdPath, this.bitcoinLocks.bitcoinNetwork),
-      addTx,
     });
     if (!tx?.isFinal) {
       throw new Error(`Failed to build finalized release transaction for lock ${lock.lockId}`);
     }
-    return { bytes: tx.toBytes(true, true), txid: `0x${tx.hash}` };
+    const txid = `0x${tx.hash}`;
+    if (!release.expectedTransactionId) {
+      throw new Error(`Bitcoin release ${release.id} has no finalized transaction commitment`);
+    }
+    if (release.expectedTransactionId !== txid) {
+      throw new Error(`Bitcoin release ${release.id} produced a transaction other than its finalized commitment`);
+    }
+    return { bytes: tx.toBytes(true, true), txid };
   }
 
   public async completeLockRelease(
@@ -663,6 +811,7 @@ export default class BitcoinReleases {
       | 'removalReason'
       | 'btcPriceAtRemovalMicrogons'
     >,
+    finalizedBlock?: IBlockHeaderInfo,
   ): Promise<void> {
     if (release.kind !== BitcoinReleaseKind.Lock || lock.activeReleaseId !== release.id) return;
 
@@ -680,6 +829,14 @@ export default class BitcoinReleases {
       await transaction.bitcoinLocksTable.recordRemoval(lockDraft, BitcoinLockStatus.Released, removal);
       await transaction.bitcoinLocksTable.setReleased(lockDraft);
       for (const utxo of utxoDrafts) await transaction.bitcoinUtxosTable.setSpent(utxo, release.id);
+      if (finalizedBlock) {
+        await closeFinalizedSecuritization(transaction.bitcoinSecuritizationHistoryTable, {
+          ownerAccount: this.walletKeys.defaultArgonAddress,
+          lockId: release.lockId,
+          block: finalizedBlock,
+          extrinsicIndex: completion.argonCompletionExtrinsicIndex,
+        });
+      }
     });
 
     Object.assign(release, releaseDraft);
@@ -872,6 +1029,8 @@ export default class BitcoinReleases {
         releaseRequest: {
           toScriptPubkey: release.toScriptPubkey,
           bitcoinNetworkFee: release.bitcoinNetworkFee,
+          destinationSatoshis: release.destinationSatoshis,
+          changeSatoshis: 0n,
         },
         vaultCosignatures: release.vaultSignatures,
         utxos: [{ utxoRef: { txid: utxo.txid, vout: utxo.vout }, satoshis: utxo.satoshis }],
@@ -934,7 +1093,10 @@ export default class BitcoinReleases {
     const request = await BitcoinLock.getReleaseRequest(apiClient, lock.lockId!);
     if (!request) return;
 
-    const currentLock = await BitcoinLock.get(apiClient, lock.lockId!);
+    const [currentLock, currentTick] = await Promise.all([
+      BitcoinLock.get(apiClient, lock.lockId!),
+      apiClient.query.ticks.currentTick(),
+    ]);
     if (!currentLock) throw new Error(`Bitcoin lock ${lock.lockId} is unavailable while its release is active`);
     const currentInputIds = currentLock.fundingUtxos.map(fundingUtxo => {
       const record = this.utxoTracking.getUtxoRecord(lock.lockId!, fundingUtxo.utxoRef.txid, fundingUtxo.utxoRef.vout);
@@ -942,83 +1104,36 @@ export default class BitcoinReleases {
       return record.id;
     });
     if (
-      currentInputIds.length !== release.inputUtxoIds.length ||
-      currentInputIds.some((id, index) => id !== release.inputUtxoIds[index])
+      !isSameLockReleaseRequest(release, {
+        ...request,
+        inputUtxoIds: currentInputIds,
+      })
     ) {
-      throw new Error(`Bitcoin release ${release.id} no longer matches the runtime funding inputs`);
-    }
-    if (request.toScriptPubkey !== release.toScriptPubkey || request.bitcoinNetworkFee !== release.bitcoinNetworkFee) {
       throw new Error(`Bitcoin release ${release.id} does not match its runtime request`);
     }
 
-    const currentTick = await apiClient.query.ticks.currentTick();
     if (currentTick === null) return;
     await this.recordArgonRequest(release, {
       requestedReleaseAtTick: Number(currentTick),
-      insuredMicrogons: request.insuredMicrogons,
+      insuredMicrogons: request.securitizationAtRisk,
+      cosignDueFrame: request.cosignDueFrame,
+      expectedTransactionId: request.expectedTransactionId,
       argonTxFeeMicrogons: release.argonTxFeeMicrogons,
     });
   }
 
-  public async syncLockVaultCosign(lock: IBitcoinLockRecord, archiveClient: ArgonClient): Promise<void> {
+  public async syncLockVaultCosign(lock: IBitcoinLockRecord): Promise<void> {
     const release = this.getActiveForLock(lock);
     if (!release || release.status !== BitcoinReleaseStatus.WaitingForVaultCosign) return;
 
-    const cosign = await BitcoinLock.findVaultCosignatures(archiveClient, lock.lockId!);
-    if (cosign) {
-      await this.recordVaultCosign(release, {
-        vaultSignatures: cosign.signatures,
-        cosignBlockNumber: cosign.blockHeight,
-      });
-      return;
-    }
-
-    const vault = this.bitcoinLocks.myVault;
-    if (lock.vaultId !== vault?.vaultId || !this.walletKeys.canSign) return;
-
-    const result = await vault.cosignMyLock(lock);
-    if (!result?.txInfo) return;
-    const txFailure = getTransactionFailureMessage(result.txInfo);
-    if (txFailure) throw new Error(txFailure);
-
-    if (result.txInfo.txResult.blockNumber == null) {
-      void this.continueLockCosignAfterArgonInclusion(lock, release.id, result.vaultSignatures, result.txInfo);
-      return;
-    }
+    if (release.releaseNumber === undefined) return;
+    const cosign = await BitcoinLock.findVaultCosignatures(this.blockWatch, lock.lockId!, release.releaseNumber);
+    if (!cosign) return;
 
     await this.recordVaultCosign(release, {
-      vaultSignatures: result.vaultSignatures,
-      cosignBlockNumber: result.txInfo.txResult.blockNumber,
+      vaultSignatures: cosign.signatures,
+      cosignBlockNumber: cosign.blockHeight,
     });
-  }
-
-  private async continueLockCosignAfterArgonInclusion(
-    lock: IBitcoinLockRecord,
-    releaseId: string,
-    vaultSignatures: Uint8Array[],
-    txInfo: TransactionInfo,
-  ): Promise<void> {
-    try {
-      await txInfo.txResult.waitForInFirstBlock;
-      await this.bitcoinLocks.runInQueueForLock(
-        lock,
-        async () => {
-          if (this.bitcoinLocks.isTerminalLock(lock)) return;
-          const txFailure = getTransactionFailureMessage(txInfo);
-          if (txFailure || txInfo.txResult.blockNumber == null) return;
-
-          const release = this.getById(releaseId);
-          if (!release || lock.activeReleaseId !== release.id) return;
-          await this.recordVaultCosign(release, {
-            vaultSignatures,
-            cosignBlockNumber: txInfo.txResult.blockNumber,
-          });
-        },
-        { waitForHistoryRecovery: true },
-      );
-    } catch (error) {
-      console.warn(`[BitcoinReleases] Error continuing release after Argon inclusion for ${lock.uuid}`, error);
-    }
   }
 
   private async syncLockBitcoinConfirmation(release: IBitcoinReleaseRecord): Promise<void> {
@@ -1030,24 +1145,51 @@ export default class BitcoinReleases {
     });
   }
 
-  private async completeCosignedLockRelease(
-    lock: IBitcoinLockRecord,
-    release: IBitcoinReleaseRecord,
-    archiveClient: ArgonClient,
-  ): Promise<void> {
-    const cosign = await BitcoinLock.findVaultCosignatures(archiveClient, lock.lockId!);
-    if (!cosign) return;
+  private async recoverRecognizedLockRelease(lock: IBitcoinLockRecord, release: IBitcoinReleaseRecord): Promise<void> {
+    if (release.kind !== BitcoinReleaseKind.Lock || release.cosignBlockNumber === undefined) return;
 
-    const block = await this.blockWatch.getHeaderByBlockNumber(cosign.blockHeight);
-    const { api, events } = await this.blockWatch.getEventsWithSpec(block);
-    const eventRecord = events.find(({ event }) => {
-      const runtimeEvent = toRuntimeEvent(event);
-      if (runtimeEvent?.section !== 'bitcoinLocks' || runtimeEvent.method !== 'BitcoinUtxoCosigned') return false;
-      return (runtimeEvent.data.lockId ?? runtimeEvent.data.utxoId) === lock.lockId;
-    });
-    if (!eventRecord) throw new Error(`Bitcoin release ${release.id} is missing its finalized cosign event`);
+    if (release.changeSatoshis === 0n) {
+      const block = await this.blockWatch.getHeaderByBlockNumber(release.cosignBlockNumber);
+      const { api, events } = await this.blockWatch.getEventsWithSpec(block);
+      const eventRecord = events.find(({ event }) => {
+        const runtimeEvent = toRuntimeEvent(event);
+        return (
+          runtimeEvent?.section === 'bitcoinLocks' &&
+          runtimeEvent.method === 'BitcoinUtxoCosigned' &&
+          runtimeEvent.data.lockId === release.lockId &&
+          runtimeEvent.data.releaseNumber === release.releaseNumber
+        );
+      });
+      if (!eventRecord) throw new Error(`Bitcoin release ${release.id} is missing its finalized cosign event`);
 
-    await this.completeLockReleaseFromArgon(lock, release, block, api, eventRecord);
+      await this.completeLockReleaseFromArgon(lock, release, block, api, eventRecord);
+      return;
+    }
+
+    const finalizedBlock = this.blockWatch.finalizedBlockHeader;
+    const finalizedApi = await this.blockWatch.getApi(finalizedBlock);
+    const pendingRelease = await finalizedApi.query.bitcoinLocks.pendingPartialReleaseByLockId(lock.lockId!);
+    if (pendingRelease?.releaseNumber === release.releaseNumber) return;
+
+    for (let blockNumber = release.cosignBlockNumber + 1; blockNumber <= finalizedBlock.blockNumber; blockNumber += 1) {
+      const block = await this.blockWatch.getHeaderByBlockNumber(blockNumber);
+      const { api, events } = await this.blockWatch.getEventsWithSpec(block);
+      const eventRecord = events.find(({ event }) => {
+        const runtimeEvent = toRuntimeEvent(event);
+        return (
+          runtimeEvent?.section === 'bitcoinLocks' &&
+          runtimeEvent.method === 'BitcoinSpentAfterRelease' &&
+          runtimeEvent.data.lockId === release.lockId &&
+          runtimeEvent.data.releaseNumber === release.releaseNumber
+        );
+      });
+      if (!eventRecord) continue;
+
+      await this.completeLockReleaseFromArgon(lock, release, block, api, eventRecord);
+      return;
+    }
+
+    throw new Error(`Bitcoin release ${release.id} is missing its finalized settlement event`);
   }
 
   private reportMissingReleaseForLock(lock: IBitcoinLockRecord): void {
@@ -1078,10 +1220,45 @@ export default class BitcoinReleases {
     release: IBitcoinReleaseRecord,
     patch: Partial<Omit<IBitcoinReleaseRecord, 'id' | 'kind' | 'lockId' | 'createdAt'>>,
   ): Promise<void> {
-    const draft = { ...release };
     const db = await this.dbPromise;
-    await db.bitcoinReleasesTable.update(draft, patch);
-    Object.assign(release, draft);
+    const persisted = await db.transaction(async transaction => {
+      const draft = await transaction.bitcoinReleasesTable.getById(release.id);
+      if (!draft) return;
+
+      const guardedPatch = { ...patch };
+      if (guardedPatch.status !== undefined) {
+        const currentProgress = releaseProgress[draft.status];
+        const nextProgress = releaseProgress[guardedPatch.status];
+        if (currentProgress === undefined || nextProgress === undefined || nextProgress < currentProgress) {
+          delete guardedPatch.status;
+          delete guardedPatch.statusError;
+        }
+      } else if (draft.status === BitcoinReleaseStatus.Complete) {
+        delete guardedPatch.statusError;
+      }
+
+      if (!Object.keys(guardedPatch).length) return draft;
+      await transaction.bitcoinReleasesTable.update(draft, guardedPatch);
+      return draft;
+    });
+    if (!persisted) return;
+
+    Object.assign(release, persisted);
     this.data.releasesById[release.id] = release;
   }
+}
+
+type LockReleaseRequest = IReleaseRequest & Pick<IBitcoinReleaseRecord, 'lockId' | 'releaseNumber' | 'inputUtxoIds'>;
+
+function isSameLockReleaseRequest(left: LockReleaseRequest, right: LockReleaseRequest): boolean {
+  return (
+    left.lockId === right.lockId &&
+    left.releaseNumber === right.releaseNumber &&
+    left.toScriptPubkey === right.toScriptPubkey &&
+    left.bitcoinNetworkFee === right.bitcoinNetworkFee &&
+    left.destinationSatoshis === right.destinationSatoshis &&
+    left.changeSatoshis === right.changeSatoshis &&
+    left.inputUtxoIds.length === right.inputUtxoIds.length &&
+    left.inputUtxoIds.every((id, index) => id === right.inputUtxoIds[index])
+  );
 }

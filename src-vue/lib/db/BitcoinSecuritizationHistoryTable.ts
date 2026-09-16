@@ -1,5 +1,3 @@
-import { bigIntMax, type IBitcoinLock, type IBlockHeaderInfo } from '@argonprotocol/apps-core';
-
 import type { IBitcoinSecuritizationTerm } from '../../interfaces/IBitcoinSecuritizationTerm.ts';
 import { convertFromSqliteFields, toSqlParams } from '../Utils.ts';
 import { BaseTable, type IFieldTypes } from './BaseTable.ts';
@@ -26,66 +24,6 @@ export class BitcoinSecuritizationHistoryTable extends BaseTable {
       'addedNetSecurityFee',
     ] satisfies (keyof IBitcoinSecuritizationTerm)[],
   };
-
-  public async recordFinalizedSecuritization(args: {
-    ownerAccount: string;
-    block: IBlockHeaderInfo;
-    extrinsicIndex: number;
-    lock: IBitcoinLock;
-    origin: IBitcoinSecuritizationTerm['origin'];
-  }): Promise<void> {
-    const { ownerAccount, block, extrinsicIndex, lock, origin } = args;
-    const published = await this.getPublishedSnapshot(ownerAccount);
-    const terms = (published?.terms ?? []).map(term => ({ ...term }));
-    const lockTerms = terms
-      .filter(term => term.lockId === lock.lockId)
-      .sort((left, right) => left.termIndex - right.termIndex);
-    const existing = lockTerms.find(term => {
-      return term.startBlockHash === block.blockHash && term.startExtrinsicIndex === extrinsicIndex;
-    });
-    const previous = existing ? lockTerms[lockTerms.indexOf(existing) - 1] : lockTerms.at(-1);
-    const cumulativeNetSecurityFee = bigIntMax(lock.securityFees - lock.couponFeesPaid, 0n);
-    const current: IBitcoinSecuritizationTerm = {
-      lockId: lock.lockId,
-      termIndex: existing?.termIndex ?? lockTerms.length,
-      origin,
-      startTick: block.tick,
-      startBlockNumber: block.blockNumber,
-      startBlockHash: block.blockHash,
-      startExtrinsicIndex: extrinsicIndex,
-      securitizedSatoshis: lock.securitizedSatoshis,
-      securitizationCoverageMicrogons: lock.securitizationCoverageMicrogons,
-      cumulativeNetSecurityFee,
-      addedNetSecurityFee: bigIntMax(cumulativeNetSecurityFee - (previous?.cumulativeNetSecurityFee ?? 0n), 0n),
-      endTick: existing?.endTick,
-      endBlockNumber: existing?.endBlockNumber,
-      endBlockHash: existing?.endBlockHash,
-      endExtrinsicIndex: existing?.endExtrinsicIndex,
-      endReason: existing?.endReason,
-    };
-
-    if (existing) {
-      terms[terms.indexOf(existing)] = current;
-    } else {
-      if (previous && previous.endTick === undefined) {
-        Object.assign(previous, {
-          endTick: block.tick,
-          endBlockNumber: block.blockNumber,
-          endBlockHash: block.blockHash,
-          endExtrinsicIndex: extrinsicIndex,
-          endReason: 'resecuritized' as const,
-        });
-      }
-      terms.push(current);
-    }
-
-    const snapshot = await this.createSnapshot(
-      ownerAccount,
-      Math.max(published?.asOfBlock ?? 0, block.blockNumber),
-      terms.sort((left, right) => left.lockId - right.lockId || left.termIndex - right.termIndex),
-    );
-    await this.publishSnapshot(snapshot);
-  }
 
   public async createSnapshot(
     ownerAccount: string,

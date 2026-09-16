@@ -13,7 +13,7 @@ type StartProfile = 'miners' | 'bob' | 'dave' | 'all' | 'price-oracle';
 const __dirname = fileURLToPath(new URL('.', import.meta.url));
 const REPO_ROOT = Path.resolve(__dirname, '..', '..');
 const COMPOSE_DIR = Path.resolve(__dirname, '..', '..', 'e2e/argon');
-const COMPOSE_CONFIG = ['docker-compose.yml', 'indexer.docker-compose.yml', 'minio.docker-compose.yml'];
+const COMPOSE_CONFIG = ['docker-compose.yml', 'indexer.docker-compose.yml'];
 
 export interface StartArgonTestNetworkOptions {
   shouldLog?: boolean;

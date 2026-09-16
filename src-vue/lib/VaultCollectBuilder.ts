@@ -1,6 +1,5 @@
 import { BitcoinLock, bigIntMin, type ArgonClient, type ArgonQueryClient, type MoveTo } from '@argonprotocol/apps-core';
 import { type SubmittableExtrinsic } from '@argonprotocol/mainchain';
-import { u8aToHex } from '@polkadot/util';
 import type { IMintingAuthorityAuthorizeMetadata } from './MintingAuthorities.ts';
 import type { MyVault } from './MyVault.ts';
 import { TxAttemptState } from './TransactionTracker.ts';
@@ -18,7 +17,7 @@ export type IVaultCollectMetadata = {
   actionType: 'approveCouncil' | 'collectRevenue' | 'cosignBitcoin';
   councilApprovalCount?: number;
   expectedCollectRevenue: bigint;
-  cosignedLockIds: number[];
+  cosignedReleases: { lockId: number; releaseNumber: number }[];
   cosignedOrphanUtxos?: ICollectOrphanCosignMetadata[];
   moveTo: MoveTo;
 };
@@ -61,13 +60,7 @@ export class VaultCollectBuilder {
 
   public getNotice(): IVaultCollectNotice | null {
     const { myVault } = this;
-    const ownPendingLockUtxoIds = new Set<number>();
-    for (const utxoId of myVault.data.pendingCosignLocksById.keys()) {
-      if (!myVault.bitcoinLocks.getLockById(utxoId)) continue;
-      ownPendingLockUtxoIds.add(utxoId);
-    }
-
-    const manualPendingCosignEntries = getManualPendingCosignEntries(myVault, ownPendingLockUtxoIds);
+    const manualPendingCosignEntries = getManualPendingCosignEntries(myVault);
     const pendingCollectMetadata = myVault.data.pendingCollectTxInfo?.tx.metadataJson;
     const processing = getPendingCollectProcessing(pendingCollectMetadata);
 
@@ -153,7 +146,7 @@ export class VaultCollectBuilder {
 
     const { client, finalizedClient, moveTo } = args;
     const vaultId = myVault.createdVault.vaultId;
-    const { bitcoinTxs, cosignedLockIds, cosignedOrphanUtxos } = await buildCollectBitcoinTxs({
+    const { bitcoinTxs, cosignedReleases, cosignedOrphanUtxos } = await buildCollectBitcoinTxs({
       myVault,
       client,
       finalizedClient,
@@ -175,7 +168,7 @@ export class VaultCollectBuilder {
       vaultId,
       actionType: 'cosignBitcoin',
       expectedCollectRevenue,
-      cosignedLockIds,
+      cosignedReleases,
       cosignedOrphanUtxos,
       moveTo,
     } satisfies IVaultCollectMetadata;
@@ -195,7 +188,7 @@ export class VaultCollectBuilder {
           actionType: shouldCollectRevenue ? 'collectRevenue' : 'cosignBitcoin',
           councilApprovalCount: pendingCouncilApprovals.length,
         },
-        submittedCosignLockIds: cosignedLockIds,
+        submittedCosignLockIds: cosignedReleases.map(release => release.lockId),
       };
     }
 
@@ -216,10 +209,9 @@ export class VaultCollectBuilder {
   }
 }
 
-function getManualPendingCosignEntries(myVault: MyVault, ownPendingLockUtxoIds: Set<number>) {
-  return Array.from(myVault.data.pendingCosignLocksById.entries()).filter(([utxoId]) => {
-    if (ownPendingLockUtxoIds.has(utxoId)) return false;
-    return !myVault.data.myPendingBitcoinCosignTxInfosByLockId.has(utxoId);
+function getManualPendingCosignEntries(myVault: MyVault) {
+  return Array.from(myVault.data.pendingCosignLocksById.entries()).filter(([lockId]) => {
+    return !myVault.data.myPendingBitcoinCosignTxInfosByLockId.has(lockId);
   });
 }
 
@@ -237,14 +229,9 @@ function getPendingCollectProcessing(metadata?: IVaultCollectMetadata | null) {
 }
 
 function getStoredCosignCount(
-  metadata?:
-    | (Pick<IVaultCollectMetadata, 'cosignedLockIds' | 'cosignedOrphanUtxos'> & { cosignedUtxoIds?: number[] })
-    | null,
+  metadata?: Pick<IVaultCollectMetadata, 'cosignedReleases' | 'cosignedOrphanUtxos'> | null,
 ): number {
-  return (
-    (metadata?.cosignedLockIds?.length ?? metadata?.cosignedUtxoIds?.length ?? 0) +
-    (metadata?.cosignedOrphanUtxos?.length ?? 0)
-  );
+  return (metadata?.cosignedReleases.length ?? 0) + (metadata?.cosignedOrphanUtxos?.length ?? 0);
 }
 
 async function buildCollectBitcoinTxs(args: {
@@ -256,10 +243,13 @@ async function buildCollectBitcoinTxs(args: {
   const { myVault, client, finalizedClient, vaultId } = args;
   const pendingCosignLockIds = await finalizedClient.query.vaults.pendingCosignByVaultId(vaultId);
   const bitcoinTxs: SubmittableExtrinsic[] = [];
-  const cosignedLockIds: number[] = [];
+  const cosignedReleases: { lockId: number; releaseNumber: number }[] = [];
 
   for (const lockId of pendingCosignLockIds ?? []) {
-    const latestTxAttempt = await myVault.findLatestReleaseCosignTxAttempt(lockId);
+    const pendingRelease = await finalizedClient.query.bitcoinLocks.lockReleaseRequestsById(lockId);
+    if (!pendingRelease) continue;
+
+    const latestTxAttempt = await myVault.bitcoinLockCosign.findLatestAttempt(lockId, pendingRelease.releaseNumber);
     if (
       latestTxAttempt &&
       (latestTxAttempt.txAttemptState === TxAttemptState.Pending ||
@@ -268,25 +258,21 @@ async function buildCollectBitcoinTxs(args: {
       continue;
     }
 
-    const pendingRelease = await finalizedClient.query.bitcoinLocks.lockReleaseRequestsById(lockId);
-    if (!pendingRelease) continue;
-    const signatures = await myVault.createVaultSignaturesForRelease({
+    const vaultSignatureHexes = await myVault.createVaultSignatureHexesForRelease({
       lockId,
-      releaseRequest: {
-        bitcoinNetworkFee: pendingRelease.bitcoinNetworkFee,
-        toScriptPubkey: u8aToHex(pendingRelease.toScriptPubkey),
-      },
+      releaseNumber: pendingRelease.releaseNumber,
+      client: finalizedClient,
     });
-    if (!signatures) continue;
+    if (!vaultSignatureHexes) continue;
 
     bitcoinTxs.push(
       BitcoinLock.createReleaseCosignTx({
         client,
         lockId,
-        vaultSignatureHexes: signatures.vaultSignatureHexes,
+        vaultSignatureHexes,
       }),
     );
-    cosignedLockIds.push(lockId);
+    cosignedReleases.push({ lockId, releaseNumber: pendingRelease.releaseNumber });
   }
 
   const orphanCosigns = await myVault.buildPendingOrphanCosignTxs({
@@ -298,7 +284,7 @@ async function buildCollectBitcoinTxs(args: {
   bitcoinTxs.push(...orphanCosigns.map(x => x.tx));
   return {
     bitcoinTxs,
-    cosignedLockIds,
+    cosignedReleases,
     cosignedOrphanUtxos: orphanCosigns.map(x => x.metadata),
   };
 }

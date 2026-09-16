@@ -391,7 +391,8 @@ export class BitcoinLockRecovery {
       useRecoveredStatus = true;
     }
 
-    const resolved = resolveRecoveredLock(stored, recovered, useRecoveredStatus);
+    const preserveCurrentState = replay.purpose === 'financial-backfill' && !useRecoveredStatus;
+    const resolved = resolveRecoveredLock(stored, recovered, useRecoveredStatus, preserveCurrentState);
     resolved.lockId = lockId;
     await transactionTable.saveRecoveredHistory(resolved, resolved.createdAt);
 
@@ -402,11 +403,12 @@ export class BitcoinLockRecovery {
     );
     const termsByKey = new Map(
       (publishedTerms?.terms ?? [])
-        .filter(term => term.lockId !== lockId)
+        .filter(term => preserveCurrentState || term.lockId !== lockId)
         .map(term => [`${term.lockId}:${term.termIndex}`, term]),
     );
     for (const term of replay.securitizationTermsByLockId.get(lockId) ?? []) {
-      termsByKey.set(`${term.lockId}:${term.termIndex}`, term);
+      const key = `${term.lockId}:${term.termIndex}`;
+      if (!preserveCurrentState || !termsByKey.has(key)) termsByKey.set(key, term);
     }
     const snapshot = await db.bitcoinSecuritizationHistoryTable.createSnapshot(
       this.walletKeys.defaultArgonAddress,
@@ -1548,18 +1550,27 @@ export class BitcoinLockRecovery {
       : undefined;
     if (activeRelease) return activeRelease;
 
+    const lockId = this.getCanonicalLockId(lock.utxoId);
     const phase = block.blockNumber === 0 ? undefined : eventIndex;
     const outpoint = kind === BitcoinReleaseKind.Orphan ? `-${inputUtxos[0]?.txid}-${inputUtxos[0]?.vout}` : '';
-    const id = `history-${kind.toLowerCase()}-${lock.uuid}-${block.blockNumber}-${phase ?? 0}${outpoint}`;
+    const id =
+      kind === BitcoinReleaseKind.Lock
+        ? `lock:${lockId}:1`
+        : `history-${kind.toLowerCase()}-${lock.uuid}-${block.blockNumber}-${phase ?? 0}${outpoint}`;
     const now = new Date(block.blockTime);
     const release: IBitcoinReleaseRecord = {
       id,
+      sendId: id,
       kind,
-      lockId: this.getCanonicalLockId(lock.utxoId),
+      lockId,
+      releaseNumber: kind === BitcoinReleaseKind.Lock ? 1 : undefined,
       status: BitcoinReleaseStatus.SubmittingRequestOnArgon,
       inputUtxoIds: inputUtxos.map(utxo => utxo.id),
       toScriptPubkey: request.toScriptPubkey,
       bitcoinNetworkFee: request.bitcoinNetworkFee,
+      destinationSatoshis:
+        inputUtxos.reduce((total, inputUtxo) => total + inputUtxo.satoshis, 0n) - request.bitcoinNetworkFee,
+      changeSatoshis: 0n,
       insuredMicrogons: request.insuredMicrogons,
       argonTxFeeMicrogons: request.argonTxFeeMicrogons,
       vaultSignatures: [],

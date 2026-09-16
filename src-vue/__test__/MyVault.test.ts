@@ -20,6 +20,7 @@ import BigNumber from 'bignumber.js';
 import { MyVaultRecovery } from '../lib/recovery/MyVaultRecovery.ts';
 import { createCurrentLock } from './helpers/bitcoin.ts';
 import { BitcoinNetwork, CosignScript } from '@argonprotocol/bitcoin';
+import type { IBitcoinLockCosignMetadata } from '../lib/txs/BitcoinLock.cosign.ts';
 
 type IMyVaultTestTarget = {
   buildPendingOrphanCosignTxs(args: {
@@ -92,6 +93,18 @@ describe('MyVault cosign recovery', () => {
     };
     const getFinalizedClient = vi.spyOn(mainchainStore, 'getFinalizedClient').mockResolvedValue({} as any);
     const getLock = vi.spyOn(AppsCore.BitcoinLock, 'get').mockResolvedValue(lock as AppsCore.BitcoinLock);
+    const getReleaseRequest = vi.spyOn(AppsCore.BitcoinLock, 'getReleaseRequest').mockResolvedValue({
+      lockId: 7,
+      vaultId: 3,
+      releaseNumber: 2,
+      toScriptPubkey: '0014abc123',
+      bitcoinNetworkFee: 10n,
+      destinationSatoshis: 9_990n,
+      changeSatoshis: 0n,
+      cosignDueFrame: 100,
+      expectedTransactionId: '0xexpected',
+      securitizationAtRisk: 1_000n,
+    });
     const getBitcoinNetwork = vi.spyOn(myVault, 'getBitcoinNetwork').mockResolvedValue(BitcoinNetwork.Regtest);
     const getVaultXpriv = vi.spyOn(myVault as any, 'getVaultXpriv').mockResolvedValue({});
     const getCosignPsbt = vi.spyOn(CosignScript.prototype, 'getCosignPsbt').mockReturnValue(psbt as any);
@@ -99,22 +112,24 @@ describe('MyVault cosign recovery', () => {
 
     try {
       await expect(
-        myVault.createVaultSignaturesForRelease({
+        myVault.createVaultSignatureHexesForRelease({
           lockId: 7,
-          releaseRequest: { toScriptPubkey: '0014abc123', bitcoinNetworkFee: 10n },
+          releaseNumber: 2,
         }),
-      ).resolves.toEqual({
-        fundingUtxos,
-        vaultSignatures: signatures,
-        vaultSignatureHexes: ['0x01', '0x02'],
-      });
+      ).resolves.toEqual(['0x01', '0x02']);
       expect(getCosignPsbt).toHaveBeenCalledWith({
         utxos: fundingUtxos,
-        releaseRequest: { toScriptPubkey: '0014abc123', bitcoinNetworkFee: 10n },
+        releaseRequest: {
+          toScriptPubkey: '0014abc123',
+          bitcoinNetworkFee: 10n,
+          destinationSatoshis: 9_990n,
+          changeSatoshis: 0n,
+        },
       });
     } finally {
       getFinalizedClient.mockRestore();
       getLock.mockRestore();
+      getReleaseRequest.mockRestore();
       getBitcoinNetwork.mockRestore();
       getVaultXpriv.mockRestore();
       getCosignPsbt.mockRestore();
@@ -255,11 +270,11 @@ describe('MyVault cosign recovery', () => {
       status: TransactionStatus.Submitted,
       submittedAtBlockHeight: 100,
       extrinsicType: ExtrinsicType.VaultCosignBitcoinRelease,
-      metadataJson: { lockId: 11 },
+      metadataJson: { lockId: 11, releaseNumber: 1 },
     });
     const { myVault } = createVault({ txInfos: [txInfo], finalizedHeight: 101 });
 
-    const latestTxAttempt = await myVault.findLatestReleaseCosignTxAttempt(11);
+    const latestTxAttempt = await myVault.bitcoinLockCosign.findLatestAttempt(11, 1);
 
     expect(latestTxAttempt).toMatchObject({ txInfo, txAttemptState: TxAttemptState.Pending });
   });
@@ -269,11 +284,11 @@ describe('MyVault cosign recovery', () => {
       status: TransactionStatus.Submitted,
       submittedAtBlockHeight: 100,
       extrinsicType: ExtrinsicType.VaultCosignBitcoinRelease,
-      metadataJson: { lockId: 12 },
+      metadataJson: { lockId: 12, releaseNumber: 1 },
     });
     const { myVault } = createVault({ txInfos: [txInfo], finalizedHeight: 103 });
 
-    const latestTxAttempt = await myVault.findLatestReleaseCosignTxAttempt(12);
+    const latestTxAttempt = await myVault.bitcoinLockCosign.findLatestAttempt(12, 1);
 
     expect(latestTxAttempt).toMatchObject({ txInfo, txAttemptState: TxAttemptState.Replace });
   });
@@ -285,7 +300,7 @@ describe('MyVault cosign recovery', () => {
       txNonce: 7,
       submittedAtBlockHeight: 100,
       extrinsicType: ExtrinsicType.VaultCosignBitcoinRelease,
-      metadataJson: { lockId: 20 },
+      metadataJson: { lockId: 20, releaseNumber: 1 },
     });
     const { myVault } = createVault({
       txInfos: [txInfo],
@@ -295,7 +310,7 @@ describe('MyVault cosign recovery', () => {
       },
     });
 
-    const latestTxAttempt = await myVault.findLatestReleaseCosignTxAttempt(20);
+    const latestTxAttempt = await myVault.bitcoinLockCosign.findLatestAttempt(20, 1);
 
     expect(latestTxAttempt).toMatchObject({ txInfo, txAttemptState: TxAttemptState.Replace });
   });
@@ -307,7 +322,7 @@ describe('MyVault cosign recovery', () => {
       blockHeight: 100,
       blockHash: '0xold',
       extrinsicType: ExtrinsicType.VaultCosignBitcoinRelease,
-      metadataJson: { lockId: 13 },
+      metadataJson: { lockId: 13, releaseNumber: 1 },
     });
     const { myVault, blockWatch } = createVault({
       txInfos: [txInfo],
@@ -315,7 +330,7 @@ describe('MyVault cosign recovery', () => {
       headerByHeight: { 100: '0xnew' },
     });
 
-    const latestTxAttempt = await myVault.findLatestReleaseCosignTxAttempt(13);
+    const latestTxAttempt = await myVault.bitcoinLockCosign.findLatestAttempt(13, 1);
 
     expect(blockWatch.getHeader).toHaveBeenCalledWith(100);
     expect(latestTxAttempt).toMatchObject({ txInfo, txAttemptState: TxAttemptState.Replace });
@@ -330,7 +345,7 @@ describe('MyVault cosign recovery', () => {
       blockHeight: 100,
       blockHash: '0xold',
       extrinsicType: ExtrinsicType.VaultCosignBitcoinRelease,
-      metadataJson: { lockId: 23 },
+      metadataJson: { lockId: 23, releaseNumber: 1 },
     });
     const newerTxInfo = createTxInfo({
       id: 24,
@@ -339,7 +354,7 @@ describe('MyVault cosign recovery', () => {
       submittedAtBlockHeight: 101,
       accountAddress: txInfo.tx.accountAddress,
       extrinsicType: ExtrinsicType.VaultCollect,
-      metadataJson: { cosignedLockIds: [] },
+      metadataJson: { cosignedReleases: [] },
     });
     const { myVault } = createVault({
       txInfos: [txInfo, newerTxInfo],
@@ -350,7 +365,7 @@ describe('MyVault cosign recovery', () => {
       },
     });
 
-    const latestTxAttempt = await myVault.findLatestReleaseCosignTxAttempt(23);
+    const latestTxAttempt = await myVault.bitcoinLockCosign.findLatestAttempt(23, 1);
 
     expect(latestTxAttempt).toMatchObject({ txInfo, txAttemptState: TxAttemptState.Replace });
   });
@@ -360,7 +375,7 @@ describe('MyVault cosign recovery', () => {
       id: 26,
       status: TransactionStatus.Finalized,
       extrinsicType: ExtrinsicType.VaultCollect,
-      metadataJson: { cosignedLockIds: [26] },
+      metadataJson: { cosignedReleases: [{ lockId: 26, releaseNumber: 1 }] },
       blockExtrinsicErrorJson: { message: 'PendingCosignsBeforeCollect' },
     });
     const { myVault } = createVault({
@@ -368,7 +383,7 @@ describe('MyVault cosign recovery', () => {
       finalizedHeight: 101,
     });
 
-    const latestTxAttempt = await myVault.findLatestReleaseCosignTxAttempt(26);
+    const latestTxAttempt = await myVault.bitcoinLockCosign.findLatestAttempt(26, 1);
 
     expect(latestTxAttempt).toMatchObject({ txInfo, txAttemptState: TxAttemptState.Replace });
   });
@@ -377,15 +392,15 @@ describe('MyVault cosign recovery', () => {
     const txInfo = createTxInfo({
       status: TransactionStatus.Submitted,
       extrinsicType: ExtrinsicType.VaultCosignBitcoinRelease,
-      metadataJson: { lockId: 16 },
+      metadataJson: { lockId: 16, releaseNumber: 1 },
     });
     const { myVault } = createVault();
     const getMainchainClient = vi.spyOn(mainchainStore, 'getMainchainClient').mockResolvedValue({} as any);
     const testVault = myVault as unknown as IMyVaultTestTarget;
     vi.spyOn(testVault, 'updateCollectDeadlines').mockImplementation(() => undefined);
 
-    myVault.data.pendingCosignLocksById.set(16, { targetValue: 1_000n });
-    myVault.data.myPendingBitcoinCosignTxInfosByLockId.set(16, txInfo as TransactionInfo<{ lockId: number }>);
+    myVault.data.pendingCosignLocksById.set(16, { targetValue: 1_000n, releaseNumber: 1 });
+    myVault.data.myPendingBitcoinCosignTxInfosByLockId.set(16, txInfo as TransactionInfo<IBitcoinLockCosignMetadata>);
 
     await testVault.recordPendingCosignUtxos([], 0);
 
@@ -581,7 +596,7 @@ describe('MyVault cosign recovery', () => {
         vaultId: 7,
         actionType: 'collectRevenue',
         expectedCollectRevenue: 0n,
-        cosignedLockIds: [],
+        cosignedReleases: [],
         moveTo: 'VaultingHold',
       },
     }) as TransactionInfo<any>;
@@ -604,7 +619,7 @@ describe('MyVault cosign recovery', () => {
         vaultId: 7,
         actionType: 'collectRevenue',
         expectedCollectRevenue: 40n,
-        cosignedLockIds: [],
+        cosignedReleases: [],
         moveTo: 'VaultingHold',
       },
     }) as TransactionInfo<any>;
@@ -625,13 +640,23 @@ describe('MyVault cosign recovery', () => {
         id: 91,
         metadataJson: {
           vaultId: 7,
+          actionType: 'cosignBitcoin',
+          expectedCollectRevenue: 0n,
+          cosignedReleases: [{ lockId: 11, releaseNumber: 1 }],
           moveTo: 'VaultingHold',
         },
       },
       txResult: {
         waitForFinalizedBlock: Promise.resolve(new Uint8Array([1, 2, 3])),
         waitForInFirstBlock: Promise.resolve(new Uint8Array([1, 2, 3])),
-        events: [],
+        blockNumber: 101,
+        events: [
+          {
+            section: 'bitcoinLocks',
+            method: 'BitcoinUtxoCosigned',
+            data: { lockId: 11, releaseNumber: 1, signatures: [new Uint8Array([1])] },
+          },
+        ],
       },
       createPostProcessor: vi.fn(() => ({
         resolve: vi.fn(),
@@ -645,6 +670,10 @@ describe('MyVault cosign recovery', () => {
 
     vi.spyOn(myVault as any, 'updateRevenueStats').mockResolvedValue(undefined);
     vi.spyOn(myVault as unknown as IMyVaultTestTarget, 'trackTxResultFee').mockResolvedValue(undefined);
+    const applyVaultCosignResult = vi.fn().mockResolvedValue(undefined);
+    Object.assign((myVault as any).bitcoinLocks, {
+      releases: { applyVaultCosignResult },
+    });
     const getMainchainClient = vi.spyOn(mainchainStore, 'getMainchainClient').mockResolvedValue({} as any);
     const getFinalizedClient = vi.spyOn(mainchainStore, 'getFinalizedClient').mockResolvedValue({
       query: {
@@ -658,6 +687,12 @@ describe('MyVault cosign recovery', () => {
 
     expect(globalCouncil.refresh).toHaveBeenCalledTimes(1);
     expect(mintingAuthorities.refresh).toHaveBeenCalledTimes(1);
+    expect(applyVaultCosignResult).toHaveBeenCalledWith({
+      lockId: 11,
+      releaseNumber: 1,
+      vaultSignatures: [new Uint8Array([1])],
+      cosignBlockNumber: 101,
+    });
     expect(myVault.data.pendingCollectTxInfo).toBeNull();
 
     getMainchainClient.mockRestore();
@@ -671,7 +706,7 @@ describe('MyVault cosign recovery', () => {
         vaultId: 7,
         actionType: 'collectRevenue',
         expectedCollectRevenue: 40n,
-        cosignedLockIds: [],
+        cosignedReleases: [],
         moveTo: 'VaultingHold',
       },
     }) as TransactionInfo<any>;
@@ -690,7 +725,7 @@ describe('MyVault cosign recovery', () => {
         actionType: 'collectRevenue',
         councilApprovalCount: 0,
         expectedCollectRevenue: 40n,
-        cosignedLockIds: [],
+        cosignedReleases: [],
         cosignedOrphanUtxos: [],
         moveTo: 'VaultingHold' as any,
       },
@@ -870,7 +905,7 @@ describe('MyVault cosign recovery', () => {
         actionType: 'collectRevenue',
         councilApprovalCount: 2,
         expectedCollectRevenue: 40n,
-        cosignedLockIds: [],
+        cosignedReleases: [],
         cosignedOrphanUtxos: [],
         moveTo: 'VaultingHold',
       },
@@ -942,7 +977,7 @@ describe('MyVault cosign recovery', () => {
         actionType: 'collectRevenue',
         councilApprovalCount: 0,
         expectedCollectRevenue: 40n,
-        cosignedLockIds: [],
+        cosignedReleases: [],
         cosignedOrphanUtxos: [],
         moveTo: 'VaultingHold',
       },

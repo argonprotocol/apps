@@ -2066,12 +2066,16 @@ describe('financial position accounting', () => {
     vi.spyOn(bitcoinLocks, 'hasObservedFundingSignal').mockReturnValue(true);
     bitcoinLocks.releases.data.releasesById['release-1'] = {
       id: 'release-1',
+      sendId: 'release-1',
       kind: BitcoinReleaseKind.Lock,
       lockId: lock.lockId!,
+      releaseNumber: 1,
       status: BitcoinReleaseStatus.Complete,
       inputUtxoIds: [],
       toScriptPubkey: '0x0014abcd',
       bitcoinNetworkFee: 100_000n,
+      destinationSatoshis: 0n,
+      changeSatoshis: 0n,
       argonTxFeeMicrogons: 3n,
       vaultSignatures: [],
       createdAt: new Date('2026-01-02T00:00:00Z'),

@@ -521,12 +521,16 @@ describe('BitcoinLocks recovery', () => {
     ]);
     store.releases.data.releasesById['release-7'] = {
       id: 'release-7',
+      sendId: 'release-7',
       kind: BitcoinReleaseKind.Lock,
       lockId: 7,
+      releaseNumber: 1,
       status: BitcoinReleaseStatus.WaitingForVaultCosign,
       inputUtxoIds: [1],
       toScriptPubkey: '0x0014',
       bitcoinNetworkFee: 10n,
+      destinationSatoshis: 9_990n,
+      changeSatoshis: 0n,
       vaultSignatures: [],
       createdAt: releaseCreatedAt,
       updatedAt: releaseCreatedAt,
@@ -1390,12 +1394,16 @@ describe('BitcoinLocks history replay publication', () => {
     store.data.locksByLockId[7] = record;
     const release = await db.bitcoinReleasesTable.insert({
       id: 'concurrent-release',
+      sendId: 'concurrent-release',
       kind: BitcoinReleaseKind.Lock,
       lockId: 7,
+      releaseNumber: 1,
       status: BitcoinReleaseStatus.SubmittingRequestOnArgon,
       inputUtxoIds: [],
       toScriptPubkey: `0x0020${'ab'.repeat(32)}`,
       bitcoinNetworkFee: 10n,
+      destinationSatoshis: 0n,
+      changeSatoshis: 0n,
       vaultSignatures: [],
     });
     await db.bitcoinLocksTable.setActiveRelease(record, release.id);
@@ -1405,7 +1413,7 @@ describe('BitcoinLocks history replay publication', () => {
       isFlexible: true,
     });
 
-    await store.recovery.beginHistoryReplay({ lockScope: 'all' });
+    await store.recovery.beginHistoryReplay({ lockScope: 'all', purpose: 'financial-backfill' });
     await store.recovery.recoverBlock(historyBlock(200), [
       historyEvent(157, 'bitcoinLocks', 'BitcoinLockBackfillChanged', {
         utxoId: 7,
@@ -1425,7 +1433,7 @@ describe('BitcoinLocks history replay publication', () => {
       BitcoinReleaseStatus.WaitingForArgonRecognition,
     );
     expect(record.status).toBe(BitcoinLockStatus.Releasing);
-    expect(record.isFlexible).toBe(true);
+    expect(record.isFlexible).toBe(false);
   });
 
   it('uses the durable Lock revision as the history replay baseline', async () => {
@@ -1534,7 +1542,12 @@ describe('BitcoinLocks history replay publication', () => {
       }),
     ]);
     await store.recovery.recoverBlock({ ...historyBlock(180), tick: 600 }, [
-      historyEvent(159, 'bitcoinLocks', 'BitcoinSpentAfterRelease', { lockId: 7, vaultId: 1 }),
+      historyEvent(159, 'bitcoinLocks', 'BitcoinSpentAfterRelease', {
+        lockId: 7,
+        vaultId: 1,
+        releaseNumber: 1,
+        bitcoinHeight: 180,
+      }),
     ]);
     await publishRecoveredHistory(db, store.recovery);
 

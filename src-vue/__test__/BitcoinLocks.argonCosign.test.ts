@@ -29,7 +29,8 @@ vi.mock('../stores/mainchain.ts', () => ({
 }));
 
 type IBitcoinLocksTestTarget = {
-  checkIncomingArgonBlock(header: { blockHash: string; blockNumber: number }): Promise<void>;
+  checkIncomingArgonBlock(header: { blockHash: string; blockNumber: number }): Promise<boolean>;
+  checkIncomingArgonBlocks(headers: { blockHash: string; blockNumber: number }[]): Promise<void>;
   checkForMissingBitcoinLockState(lock: IBitcoinLockRecord): Promise<void>;
   failPendingLock(uuid: string, error: unknown): Promise<void>;
 };
@@ -272,20 +273,6 @@ describe('BitcoinLocks Argon cosign gating', () => {
       .spyOn(BitcoinLock, 'findVaultCosignatures')
       .mockResolvedValueOnce(undefined)
       .mockImplementation(async () => releaseCosignOnChain);
-    const cosignMyLock = vi.fn<(...args: any[]) => Promise<any>>().mockResolvedValue({
-      txInfo: {
-        tx: {
-          status: TransactionStatus.Submitted,
-        },
-        txResult: {
-          blockNumber: undefined,
-          submissionError: undefined,
-          extrinsicError: undefined,
-        },
-      },
-      vaultSignatures: [new Uint8Array([1, 2, 3])],
-    });
-
     const store = new BitcoinLocks(
       Promise.resolve({} as Db),
       { canSign: true } as WalletKeys,
@@ -295,61 +282,80 @@ describe('BitcoinLocks Argon cosign gating', () => {
     );
     vi.spyOn(store.releases, 'getActiveForLock').mockReturnValue(release);
     vi.spyOn(store.releases, 'recordVaultCosign').mockImplementation(recordVaultCosign);
-    store.myVault = { vaultId: 1, cosignMyLock } as unknown as typeof store.myVault;
-
-    await store.releases.syncLockVaultCosign(lock, {} as ArgonClient);
+    await store.releases.syncLockVaultCosign(lock);
     expect(findVaultCosignatures).toHaveBeenCalledTimes(1);
-    expect(cosignMyLock).toHaveBeenCalledTimes(1);
     expect(recordVaultCosign).not.toHaveBeenCalled();
 
-    await store.releases.syncLockVaultCosign(lock, {} as ArgonClient);
+    await store.releases.syncLockVaultCosign(lock);
     expect(findVaultCosignatures).toHaveBeenCalledTimes(2);
-    expect(cosignMyLock).toHaveBeenCalledTimes(1);
     expect(recordVaultCosign).toHaveBeenCalledWith(release, {
       vaultSignatures: releaseCosignOnChain.signatures,
       cosignBlockNumber: releaseCosignOnChain.blockHeight,
     });
   });
 
-  it('stores the cosign from the local tx as soon as it reaches its first block', async () => {
+  it('retries a failed finalized settlement block without dropping the rest of its batch', async () => {
     const lock = createLock();
     const release = createRelease();
-    const vaultSignatures = [new Uint8Array([1, 2, 3])];
-    const recordVaultCosign = vi.fn<(...args: any[]) => Promise<void>>().mockResolvedValue(undefined);
-    const findVaultCosignatures = vi.spyOn(BitcoinLock, 'findVaultCosignatures').mockResolvedValue(undefined);
-    const cosignMyLock = vi.fn<(...args: any[]) => Promise<any>>().mockResolvedValue({
-      txInfo: {
-        tx: {
-          status: TransactionStatus.InBlock,
-        },
-        txResult: {
-          blockNumber: 77,
-          submissionError: undefined,
-          extrinsicError: undefined,
-        },
+    const blockApi = {
+      query: {
+        bitcoinLocks: { orphanedUtxosByAccount: { entries: vi.fn().mockResolvedValue([]) } },
+        bitcoinUtxos: { confirmedBitcoinBlockTip: vi.fn().mockResolvedValue(null) },
       },
-      vaultSignatures,
-    });
-
+    };
+    const settlementEvent = {
+      event: {
+        section: 'bitcoinLocks',
+        method: 'BitcoinSpentAfterRelease',
+        data: { lockId: lock.lockId, releaseNumber: release.releaseNumber, bitcoinHeight: 100n },
+      },
+      phase: { type: 'ApplyExtrinsic', value: 2 },
+    };
+    const requestedBlocks: number[] = [];
+    const blockWatch = {
+      getEventsWithSpec: vi.fn(async (header: { blockNumber: number }) => {
+        requestedBlocks.push(header.blockNumber);
+        return { api: blockApi, events: header.blockNumber === 102 ? [settlementEvent] : [], specVersion: 159 };
+      }),
+    } as unknown as BlockWatch;
     const store = new BitcoinLocks(
       Promise.resolve({} as Db),
-      { canSign: true } as WalletKeys,
-      { bestBlockHeader: { blockNumber: 0 } } as BlockWatch,
-      {} as CurrencyBase,
-      {} as TransactionTracker,
+      Object.create(null) as WalletKeys,
+      blockWatch,
+      Object.create(null) as CurrencyBase,
+      Object.create(null) as TransactionTracker,
     );
-    vi.spyOn(store.releases, 'getActiveForLock').mockReturnValue(release);
-    vi.spyOn(store.releases, 'recordVaultCosign').mockImplementation(recordVaultCosign);
-    store.myVault = { vaultId: 1, cosignMyLock } as unknown as typeof store.myVault;
+    store.data.locksByLockId = { [lock.lockId!]: lock };
+    store.releases.data.releasesById = { [release.id]: release };
+    vi.spyOn(store.releases, 'recoverPendingOrphanCosignEvents').mockResolvedValue(undefined);
+    vi.spyOn(store.utxoTracking, 'syncArgonOrphans').mockResolvedValue([]);
+    vi.spyOn(store.releases, 'reconcileOrphanReleases').mockResolvedValue(undefined);
+    vi.spyOn(store.releases, 'reconcileLockRelease').mockResolvedValue(undefined);
+    vi.spyOn(
+      store as unknown as { syncPendingFundingSignals(): Promise<void> },
+      'syncPendingFundingSignals',
+    ).mockResolvedValue(undefined);
+    const settle = vi
+      .spyOn(store.releases, 'completeLockReleaseFromArgon')
+      .mockRejectedValueOnce(new Error('local settlement unavailable'))
+      .mockResolvedValue(undefined);
+    const testStore = store as unknown as IBitcoinLocksTestTarget;
 
-    await store.releases.syncLockVaultCosign(lock, {} as ArgonClient);
+    await expect(
+      testStore.checkIncomingArgonBlocks([
+        { blockNumber: 102, blockHash: '0x102' },
+        { blockNumber: 103, blockHash: '0x103' },
+        { blockNumber: 104, blockHash: '0x104' },
+      ]),
+    ).resolves.toBeUndefined();
+    expect(store.data.latestArgonBlock).toBeUndefined();
 
-    expect(findVaultCosignatures).toHaveBeenCalledTimes(1);
-    expect(cosignMyLock).toHaveBeenCalledTimes(1);
-    expect(recordVaultCosign).toHaveBeenCalledWith(release, {
-      vaultSignatures,
-      cosignBlockNumber: 77,
-    });
+    await expect(
+      testStore.checkIncomingArgonBlocks([{ blockNumber: 105, blockHash: '0x105' }]),
+    ).resolves.toBeUndefined();
+    expect(settle).toHaveBeenCalledTimes(2);
+    expect(requestedBlocks).toEqual([102, 102, 103, 104, 105]);
+    expect(store.data.latestArgonBlock).toEqual({ blockNumber: 105, blockHash: '0x105' });
   });
 
   it('subscribes to orphan counters for every vault receiving an owner return request', async () => {
@@ -425,12 +431,15 @@ describe('BitcoinLocks Argon cosign gating', () => {
     store.utxoTracking.load([orphan]);
     const release = await store.releases.createOrphanRelease(orphan, {
       id: 'self-vault-orphan-release',
+      sendId: 'self-vault-orphan-release',
       kind: BitcoinReleaseKind.Orphan,
       lockId: lock.lockId!,
       status: BitcoinReleaseStatus.SubmittingRequestOnArgon,
       inputUtxoIds: [orphan.id],
       toScriptPubkey: '0x0014abcd',
       bitcoinNetworkFee: 10n,
+      destinationSatoshis: 1_990n,
+      changeSatoshis: 0n,
       vaultSignatures: [],
     });
 
@@ -609,15 +618,21 @@ function createFundingUtxo(overrides: Partial<IBitcoinUtxoRecord> = {}): IBitcoi
 }
 
 function createRelease(overrides: Partial<IBitcoinReleaseRecord> = {}): IBitcoinReleaseRecord {
+  const kind = overrides.kind ?? BitcoinReleaseKind.Lock;
   return {
     id: overrides.id ?? 'release-1',
-    kind: overrides.kind ?? BitcoinReleaseKind.Lock,
+    sendId: overrides.sendId ?? overrides.id ?? 'release-1',
+    kind,
     lockId: overrides.lockId ?? 11,
+    releaseNumber:
+      'releaseNumber' in overrides ? overrides.releaseNumber : kind === BitcoinReleaseKind.Lock ? 1 : undefined,
     status: overrides.status ?? BitcoinReleaseStatus.WaitingForVaultCosign,
     inputUtxoIds: overrides.inputUtxoIds ?? [1],
     requestedReleaseAtTick: 10,
     toScriptPubkey: '0x0014abcd',
     bitcoinNetworkFee: 10n,
+    destinationSatoshis: overrides.destinationSatoshis ?? 9_990n,
+    changeSatoshis: overrides.changeSatoshis ?? 0n,
     vaultSignatures: overrides.vaultSignatures ?? [],
     createdAt: new Date('2026-01-01T00:00:00Z'),
     updatedAt: new Date('2026-01-01T00:00:00Z'),

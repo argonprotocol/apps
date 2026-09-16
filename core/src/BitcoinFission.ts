@@ -243,6 +243,15 @@ export class BitcoinFission implements IBitcoinFission {
   public applyCurrentSnapshot(current: BitcoinFission): void {
     this.applyCurrentFields(current);
     this.reconcilePendingMints(current.pendingMints);
+    this.closedAtArgonBlock = undefined;
+    this.closedAtTick = undefined;
+    this.closedBlockHash = undefined;
+    this.closedBlockTime = undefined;
+    this.closedExtrinsicIndex = undefined;
+    this.closeReason = undefined;
+    this.redemptionAmount = undefined;
+    this.closeTxFee = undefined;
+    this.btcPriceAtCloseMicrogons = undefined;
   }
 
   public enrichRecoveredHistory(record: IBitcoinFission): void {

@@ -20,7 +20,14 @@ type IBitcoinReleaseRow = Omit<IBitcoinReleaseRecord, 'vaultSignatures'> & {
 
 export class BitcoinReleasesTable extends BaseTable {
   private readonly fieldTypes: IFieldTypes = {
-    bigint: ['bitcoinNetworkFee', 'insuredMicrogons', 'argonTxFeeMicrogons', 'compensationMicrogons'],
+    bigint: [
+      'bitcoinNetworkFee',
+      'destinationSatoshis',
+      'changeSatoshis',
+      'insuredMicrogons',
+      'argonTxFeeMicrogons',
+      'compensationMicrogons',
+    ],
     json: ['inputUtxoIds', 'vaultSignatures'],
     date: [
       'bitcoinFirstSeenAt',
@@ -51,25 +58,32 @@ export class BitcoinReleasesTable extends BaseTable {
   public async insert(release: Omit<IBitcoinReleaseRecord, 'createdAt' | 'updatedAt'>): Promise<IBitcoinReleaseRecord> {
     const records = await this.db.select<IBitcoinReleaseRow[]>(
       `INSERT INTO BitcoinReleases (
-        id, kind, lockId, status, inputUtxoIds, requestedReleaseAtTick,
-        toScriptPubkey, bitcoinNetworkFee, insuredMicrogons, argonTxFeeMicrogons,
+        id, kind, lockId, sendId, releaseNumber, status, inputUtxoIds, requestedReleaseAtTick,
+        toScriptPubkey, bitcoinNetworkFee, destinationSatoshis, changeSatoshis,
+        cosignDueFrame, expectedTransactionId, insuredMicrogons, argonTxFeeMicrogons,
         compensationMicrogons, vaultSignatures, cosignBlockNumber, bitcoinTxid,
         bitcoinFirstSeenAt, bitcoinFirstSeenHeight, bitcoinFirstSeenOracleHeight,
         bitcoinLastConfirmationCheckAt, bitcoinLastConfirmationCheckOracleHeight,
         bitcoinConfirmedHeight, argonCompletionBlockNumber, argonCompletionBlockHash,
         argonCompletionBlockTime, argonCompletionExtrinsicIndex, statusError
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(id) DO NOTHING
       RETURNING *`,
       toSqlParams([
         release.id,
         release.kind,
         release.lockId,
+        release.sendId,
+        release.releaseNumber,
         release.status,
         release.inputUtxoIds,
         release.requestedReleaseAtTick,
         release.toScriptPubkey,
         release.bitcoinNetworkFee,
+        release.destinationSatoshis,
+        release.changeSatoshis,
+        release.cosignDueFrame,
+        release.expectedTransactionId,
         release.insuredMicrogons,
         release.argonTxFeeMicrogons,
         release.compensationMicrogons,
@@ -105,8 +119,10 @@ export class BitcoinReleasesTable extends BaseTable {
     Object.assign(release, patch);
     const records = await this.db.select<IBitcoinReleaseRow[]>(
       `UPDATE BitcoinReleases SET
-        status = ?, inputUtxoIds = ?, requestedReleaseAtTick = ?, toScriptPubkey = ?,
-        bitcoinNetworkFee = ?, insuredMicrogons = ?, argonTxFeeMicrogons = ?, compensationMicrogons = ?,
+        sendId = ?, releaseNumber = ?, status = ?, inputUtxoIds = ?, requestedReleaseAtTick = ?,
+        toScriptPubkey = ?, bitcoinNetworkFee = ?, destinationSatoshis = ?, changeSatoshis = ?,
+        cosignDueFrame = ?, expectedTransactionId = ?, insuredMicrogons = ?, argonTxFeeMicrogons = ?,
+        compensationMicrogons = ?,
         vaultSignatures = ?, cosignBlockNumber = ?, bitcoinTxid = ?, bitcoinFirstSeenAt = ?,
         bitcoinFirstSeenHeight = ?, bitcoinFirstSeenOracleHeight = ?, bitcoinLastConfirmationCheckAt = ?,
         bitcoinLastConfirmationCheckOracleHeight = ?, bitcoinConfirmedHeight = ?,
@@ -114,11 +130,17 @@ export class BitcoinReleasesTable extends BaseTable {
         argonCompletionExtrinsicIndex = ?, statusError = ?, updatedAt = CURRENT_TIMESTAMP
        WHERE id = ? RETURNING *`,
       toSqlParams([
+        release.sendId,
+        release.releaseNumber,
         release.status,
         release.inputUtxoIds,
         release.requestedReleaseAtTick,
         release.toScriptPubkey,
         release.bitcoinNetworkFee,
+        release.destinationSatoshis,
+        release.changeSatoshis,
+        release.cosignDueFrame,
+        release.expectedTransactionId,
         release.insuredMicrogons,
         release.argonTxFeeMicrogons,
         release.compensationMicrogons,

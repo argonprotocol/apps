@@ -53,7 +53,7 @@ export default class BitcoinUtxoTracking {
     this.data.utxosByKey = {};
     this.data.utxosById = {};
     this.data.utxoIdsByLockId = {};
-    for (const record of records) this.recordUtxo(record);
+    for (const record of records) this.publishUtxo(record);
   }
 
   public getUtxoRecord(lockId: number, txid: string, vout: number): IBitcoinUtxoRecord | undefined {
@@ -129,7 +129,7 @@ export default class BitcoinUtxoTracking {
       return records;
     });
 
-    const publishedRecords = records.map(record => this.recordUtxo(record));
+    const publishedRecords = records.map(record => this.publishUtxo(record));
     const updatedLock = await db.bitcoinLocksTable.getByLockId(lock.lockId);
     if (!updatedLock) throw new Error(`Bitcoin lock ${lock.lockId} does not exist`);
     Object.assign(lock, updatedLock);
@@ -376,7 +376,7 @@ export default class BitcoinUtxoTracking {
       this.getObservedStatusForUpsert(options),
       options?.mempoolObservation,
     );
-    return this.recordUtxo(record);
+    return this.publishUtxo(record);
   }
 
   private async persistUtxoRecord(
@@ -436,7 +436,7 @@ export default class BitcoinUtxoTracking {
     return record;
   }
 
-  private recordUtxo(record: IBitcoinUtxoRecord): IBitcoinUtxoRecord {
+  public publishUtxo(record: IBitcoinUtxoRecord): IBitcoinUtxoRecord {
     const existing = this.data.utxosById[record.id];
     const published = existing ?? record;
     if (existing && existing !== record) Object.assign(existing, record);

@@ -1,7 +1,7 @@
 export interface IBitcoinSecuritizationTerm {
   lockId: number;
   termIndex: number;
-  origin: 'created' | 'resecuritized';
+  origin: 'created' | 'resecuritized' | 'partial-release';
   startTick: number;
   startBlockNumber: number;
   startBlockHash?: string;
@@ -14,5 +14,5 @@ export interface IBitcoinSecuritizationTerm {
   endBlockNumber?: number;
   endBlockHash?: string;
   endExtrinsicIndex?: number;
-  endReason?: 'resecuritized' | 'released';
+  endReason?: 'resecuritized' | 'partial-release' | 'released';
 }

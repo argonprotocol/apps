@@ -60,6 +60,7 @@ export const PendingCosign: Story = {
     scenario.releaseVaultWaitProgress.value = 42;
     scenario.myVault.data.pendingCosignLocksById.set(scenario.lock.lockId!, {
       targetValue: scenario.lock.fundedSatoshis || scenario.lock.securitizedSatoshis,
+      releaseNumber: 1,
       dueFrame: 10_012,
     });
     displayLock = scenario.lock;

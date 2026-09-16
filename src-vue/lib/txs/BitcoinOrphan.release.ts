@@ -90,7 +90,7 @@ export class BitcoinOrphanRelease extends TransactionOperation<
       providedNetworkFee ??
       this.bitcoinLocks
         .createCosignScript({ lock, fundedSatoshis: record.satoshis })
-        .calculateFee(feeRatePerSatVb ?? 5n, 1, destinationScript);
+        .calculateFee(feeRatePerSatVb ?? 5n, 1, destinationScript, false);
     if (
       activeRelease &&
       (activeRelease.toScriptPubkey !== destinationScript || activeRelease.bitcoinNetworkFee !== bitcoinNetworkFee)
@@ -148,22 +148,33 @@ export class BitcoinOrphanRelease extends TransactionOperation<
     prepared: PreparedTransactionOperation<IBitcoinOrphanReleaseMetadata, BitcoinOrphanReleaseBuild>,
   ): Promise<void> {
     const metadata = prepared.metadata;
-    const record = this.bitcoinLocks.utxoTracking.getUtxoRecordById(metadata.utxoRecordId);
-    if (!record) throw new Error(`Bitcoin UTXO ${metadata.utxoRecordId} is unavailable`);
-    if (metadata.toScriptPubkey === undefined || metadata.bitcoinNetworkFee === undefined) {
-      throw new Error(`Bitcoin release ${metadata.releaseId} is missing its return request`);
-    }
+    const lock = this.bitcoinLocks.getLockById(metadata.lockId);
+    if (!lock) throw new Error(`Bitcoin lock ${metadata.lockId} is unavailable`);
+    await this.bitcoinLocks.runInQueueForLock(
+      lock,
+      async () => {
+        const record = this.bitcoinLocks.utxoTracking.getUtxoRecordById(metadata.utxoRecordId);
+        if (!record) throw new Error(`Bitcoin UTXO ${metadata.utxoRecordId} is unavailable`);
+        if (metadata.toScriptPubkey === undefined || metadata.bitcoinNetworkFee === undefined) {
+          throw new Error(`Bitcoin release ${metadata.releaseId} is missing its return request`);
+        }
 
-    await this.bitcoinLocks.releases.createOrphanRelease(record, {
-      id: metadata.releaseId,
-      kind: BitcoinReleaseKind.Orphan,
-      lockId: metadata.lockId,
-      status: BitcoinReleaseStatus.SubmittingRequestOnArgon,
-      inputUtxoIds: [metadata.utxoRecordId],
-      toScriptPubkey: addressBytesHex(metadata.toScriptPubkey, this.bitcoinLocks.bitcoinNetwork),
-      bitcoinNetworkFee: metadata.bitcoinNetworkFee,
-      vaultSignatures: [],
-    });
+        await this.bitcoinLocks.releases.createOrphanRelease(record, {
+          id: metadata.releaseId,
+          sendId: metadata.releaseId,
+          kind: BitcoinReleaseKind.Orphan,
+          lockId: metadata.lockId,
+          status: BitcoinReleaseStatus.SubmittingRequestOnArgon,
+          inputUtxoIds: [metadata.utxoRecordId],
+          toScriptPubkey: addressBytesHex(metadata.toScriptPubkey, this.bitcoinLocks.bitcoinNetwork),
+          bitcoinNetworkFee: metadata.bitcoinNetworkFee,
+          destinationSatoshis: record.satoshis - metadata.bitcoinNetworkFee,
+          changeSatoshis: 0n,
+          vaultSignatures: [],
+        });
+      },
+      { waitForHistoryRecovery: true },
+    );
   }
 
   protected async onFinalized(txInfo: TransactionInfo<IBitcoinOrphanReleaseMetadata>): Promise<void> {
@@ -209,8 +220,17 @@ export class BitcoinOrphanRelease extends TransactionOperation<
     prepared: PreparedTransactionOperation<IBitcoinOrphanReleaseMetadata, BitcoinOrphanReleaseBuild>,
     error: Error,
   ): Promise<void> {
-    const release = this.bitcoinLocks.releases.getById(prepared.metadata.releaseId);
-    if (release) await this.bitcoinLocks.releases.recordRetryableError(release, error);
+    const metadata = prepared.metadata;
+    const lock = this.bitcoinLocks.getLockById(metadata.lockId);
+    if (!lock) return;
+    await this.bitcoinLocks.runInQueueForLock(
+      lock,
+      async () => {
+        const release = this.bitcoinLocks.releases.getById(metadata.releaseId);
+        if (release) await this.bitcoinLocks.releases.recordRetryableError(release, error);
+      },
+      { waitForHistoryRecovery: true },
+    );
   }
 
   protected createInsufficientFundsError(

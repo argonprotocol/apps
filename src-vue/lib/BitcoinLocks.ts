@@ -21,6 +21,7 @@ import type { IBitcoinUnlockReleaseState, IBitcoinVaultUnlockStateDetails } from
 import BitcoinUtxoTracking from './BitcoinUtxoTracking.ts';
 import BitcoinReleases from './BitcoinReleases.ts';
 import BitcoinMempool from './BitcoinMempool.ts';
+import { recordFinalizedSecuritization } from './BitcoinSecuritizationTerms.ts';
 import { BlockProgress } from './BlockProgress.ts';
 import { BITCOIN_BLOCK_MILLIS, ESPLORA_HOST } from './Env.ts';
 import {
@@ -138,6 +139,7 @@ export default class BitcoinLocks {
   #blockQueue = new SingleFileQueue();
   #bitcoinKeyAllocationQueue = new SingleFileQueue();
   #txQueueByUuid: { [uuid: string]: SingleFileQueue } = {};
+  #pendingArgonBlocks: IBlockHeaderInfo[] = [];
   #historyRecoveryWaitersByUuid: Record<string, IDeferred<void>> = {};
   #mempool: BitcoinMempool;
   #securitizationHoldExpirationEstimateByCreatedHeight = new Map<
@@ -534,7 +536,7 @@ export default class BitcoinLocks {
       const initialFinalizedBlock = this.blockWatch.finalizedBlockHeader;
       void this.#blockQueue
         .add(async () => {
-          await this.checkIncomingArgonBlock(initialFinalizedBlock);
+          await this.checkIncomingArgonBlocks([initialFinalizedBlock]);
           await this.runPendingLoadReconciliation();
         })
         .promise.catch(error => {
@@ -550,7 +552,7 @@ export default class BitcoinLocks {
       this.#subscription?.();
       this.#subscription = this.blockWatch.events.on('finalized', async headers => {
         void this.#blockQueue.add(async () => {
-          for (const header of headers) await this.checkIncomingArgonBlock(header);
+          await this.checkIncomingArgonBlocks(headers);
           await this.runPendingLoadReconciliation();
         });
       });
@@ -839,8 +841,7 @@ export default class BitcoinLocks {
         const db = await this.dbPromise;
         const record = await db.transaction(async transaction => {
           const finalized = await transaction.bitcoinLocksTable.finalizePending({ uuid, lock });
-          await transaction.bitcoinSecuritizationHistoryTable.recordFinalizedSecuritization({
-            ownerAccount: this.walletKeys.defaultArgonAddress,
+          await recordFinalizedSecuritization(transaction.bitcoinSecuritizationHistoryTable, {
             block,
             extrinsicIndex,
             lock,
@@ -900,6 +901,7 @@ export default class BitcoinLocks {
     lock: IBitcoinLockRecord,
     feeRatePerSatVb: bigint,
     toScriptPubkey: string,
+    hasChange = false,
   ): Promise<bigint> {
     const cosignScript = this.createCosignScript({ lock, fundedSatoshis: lock.fundedSatoshis });
     toScriptPubkey = addressBytesHex(toScriptPubkey, this.bitcoinNetwork);
@@ -910,7 +912,7 @@ export default class BitcoinLocks {
       feeRatePerSatVb: feeRatePerSatVb.toString(),
       toScriptPubkey,
     });
-    return cosignScript.calculateFee(feeRatePerSatVb, inputCount, toScriptPubkey);
+    return cosignScript.calculateFee(feeRatePerSatVb, inputCount, toScriptPubkey, hasChange);
   }
 
   public formatP2wshAddress(scriptHex: string): string {
@@ -1151,8 +1153,7 @@ export default class BitcoinLocks {
     const db = await this.dbPromise;
     await db.transaction(async transaction => {
       await transaction.bitcoinLocksTable.updateFromCurrentLock(updated, currentLock);
-      await transaction.bitcoinSecuritizationHistoryTable.recordFinalizedSecuritization({
-        ownerAccount: this.walletKeys.defaultArgonAddress,
+      await recordFinalizedSecuritization(transaction.bitcoinSecuritizationHistoryTable, {
         block,
         extrinsicIndex,
         lock: currentLock,
@@ -1166,7 +1167,7 @@ export default class BitcoinLocks {
   public async runInQueueForLock<T>(
     lockRecord: Pick<IBitcoinLockRecord, 'uuid'> & Partial<Pick<IBitcoinLockRecord, 'status' | 'removalReason'>>,
     task: () => Promise<T>,
-    options: { allowOrphanRecovery?: boolean; waitForHistoryRecovery?: boolean } = {},
+    options: { allowOrphanRecovery?: boolean; waitForHistoryRecovery?: boolean; skipActionAvailability?: boolean } = {},
   ): Promise<T> {
     if (options.waitForHistoryRecovery) {
       const historyRecovery = this.waitForHistoryRecovery(lockRecord);
@@ -1179,7 +1180,7 @@ export default class BitcoinLocks {
     const { uuid } = lockRecord;
     this.#txQueueByUuid[uuid] ??= new SingleFileQueue();
     return this.#txQueueByUuid[uuid].add(async () => {
-      if (!options.waitForHistoryRecovery) {
+      if (!options.waitForHistoryRecovery && !options.skipActionAvailability) {
         this.ensureBitcoinActionsAvailable(lockRecord, { allowOrphanRecovery: options.allowOrphanRecovery });
       }
       return await task();
@@ -1204,11 +1205,26 @@ export default class BitcoinLocks {
     return { block, extrinsicIndex };
   }
 
-  private async checkIncomingArgonBlock(header: IBlockHeaderInfo): Promise<void> {
+  private async checkIncomingArgonBlocks(headers: IBlockHeaderInfo[]): Promise<void> {
+    const headersByNumber = new Map<number, IBlockHeaderInfo>();
+    for (const header of [...this.#pendingArgonBlocks, ...headers]) {
+      headersByNumber.set(header.blockNumber, header);
+    }
+    const pending = [...headersByNumber.values()].sort((left, right) => left.blockNumber - right.blockNumber);
+    this.#pendingArgonBlocks = [];
+
+    for (let index = 0; index < pending.length; index += 1) {
+      if (await this.checkIncomingArgonBlock(pending[index])) continue;
+      this.#pendingArgonBlocks = pending.slice(index);
+      return;
+    }
+  }
+
+  private async checkIncomingArgonBlock(header: IBlockHeaderInfo): Promise<boolean> {
     try {
       await this.releases.recoverPendingOrphanCosignEvents(header.blockNumber);
       if (header.blockNumber <= (this.data.latestArgonBlock?.blockNumber ?? 0)) {
-        return;
+        return true;
       }
       const archivedBitcoinBlockHeight = this.data.oracleBitcoinBlockHeight;
 
@@ -1261,12 +1277,8 @@ export default class BitcoinLocks {
         });
       }
 
-      const queueOptions = { waitForHistoryRecovery: true };
       const promises = Object.values(this.data.locksByLockId)
         .map(lockRecord => {
-          if (this.isHistoryRecoveryPendingForLock(lockRecord)) {
-            return undefined;
-          }
           if (this.isTerminalLock(lockRecord)) {
             return undefined;
           }
@@ -1279,7 +1291,10 @@ export default class BitcoinLocks {
             async () => {
               const releaseCompletionEvent = runtimeEvents.find(({ event }) => {
                 if (event.section !== 'bitcoinLocks') return false;
-                if (event.method === 'BitcoinSpentAfterRelease') return event.data.lockId === lockRecord.lockId;
+                if (event.method === 'BitcoinSpentAfterRelease') {
+                  const release = this.releases.getActiveForLock(lockRecord);
+                  return event.data.lockId === lockRecord.lockId && event.data.releaseNumber === release?.releaseNumber;
+                }
                 if (event.method === 'BitcoinLockBurned') {
                   return event.data.lockId === lockRecord.lockId && event.data.wasUtxoSpent;
                 }
@@ -1338,10 +1353,8 @@ export default class BitcoinLocks {
                 console.warn(`[BitcoinLocks] Error reconciling accepted release for utxo ${lockRecord.uuid}`, err);
               });
             },
-            queueOptions,
-          ).catch(err => {
-            console.warn(`[BitcoinLocks] Error processing lock for utxo ${lockRecord.uuid}`, err);
-          });
+            { skipActionAvailability: true },
+          );
         })
         .filter(x => x !== undefined);
       if (hasNewOracleBitcoinBlockHeight) {
@@ -1349,7 +1362,7 @@ export default class BitcoinLocks {
           console.warn('[BitcoinLocks] Error syncing orphan return processing', err);
         });
       }
-      await Promise.allSettled(promises);
+      await Promise.all(promises);
       this.data.latestArgonBlock = {
         blockNumber: header.blockNumber,
         blockHash: header.blockHash,
@@ -1358,12 +1371,14 @@ export default class BitcoinLocks {
         this.publishFinancialRevision();
       }
       if (hasFissionRefreshEvent) this.events.emit('fissions:changed', { block: header, client: clientAt, events });
+      return true;
     } catch (error) {
       console.warn('[BitcoinLocks] Failed to process incoming Argon block, will retry on the next block', {
         blockNumber: header.blockNumber,
         blockHash: header.blockHash,
         error,
       });
+      return false;
     }
   }
 

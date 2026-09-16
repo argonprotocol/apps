@@ -45,7 +45,6 @@ import { Vaults } from './Vaults.ts';
 import BitcoinLocks from './BitcoinLocks.ts';
 import { MyVaultRecovery } from './recovery/MyVaultRecovery.ts';
 import { type IBitcoinLockRecord } from './db/BitcoinLocksTable.ts';
-import { BitcoinReleaseStatus, type IBitcoinReleaseRecord } from '../interfaces/IBitcoinReleaseRecord.ts';
 import { TransactionTracker, TxAttemptState } from './TransactionTracker.ts';
 import { TransactionInfo } from './TransactionInfo.ts';
 import { ExtrinsicType } from './db/TransactionsTable.ts';
@@ -59,13 +58,14 @@ import { getSpendableDefaultArgonMicrogons } from './WalletForArgon.ts';
 import bs58check from 'bs58check';
 import { VaultHistory } from './recovery/MyVault.ts';
 import { isValidOperatorName, OPERATOR_NAME_REQUIREMENTS } from './Utils.ts';
-import { BitcoinLockCosign } from './txs/BitcoinLock.cosign.ts';
+import { BitcoinLockCosign, type IBitcoinLockCosignMetadata } from './txs/BitcoinLock.cosign.ts';
 
 export const DEFAULT_MASTER_XPUB_PATH = "m/84'/0'/0'";
 const MINIMUM_BITCOIN_BASE_FEE = BigInt(MICROGONS_PER_ARGON);
 
 type IPendingCosignUtxo = {
   targetValue: bigint;
+  releaseNumber: number;
   dueFrame?: number;
 };
 
@@ -160,7 +160,7 @@ export class MyVault {
     pendingCosignLocksById: Map<number, IPendingCosignUtxo>;
     pendingOrphanCosignCount: number;
     releasedExternalLockIds: Set<number>;
-    myPendingBitcoinCosignTxInfosByLockId: Map<number, TransactionInfo<{ lockId: number }>>;
+    myPendingBitcoinCosignTxInfosByLockId: Map<number, TransactionInfo<IBitcoinLockCosignMetadata>>;
     nextCollectDueDate: number;
     nextCosignDueDate: number;
     expiringCollectAmount: bigint;
@@ -302,6 +302,7 @@ export class MyVault {
       };
 
       await this.#transactionTracker.load();
+      await this.bitcoinLockCosign.load();
       this.#singleRunTransactions.delete(ExtrinsicType.VaultSetBitcoinLockDelegate);
 
       for (const txInfo of this.#transactionTracker.pendingBlockTxInfosAtLoad) {
@@ -633,15 +634,17 @@ export class MyVault {
       const lock = await BitcoinLock.get(client, id);
       const previousPending = previousPendingCosignsById.get(id);
       const pendingReleaseRaw = await client.query.bitcoinLocks.lockReleaseRequestsById(id);
+      const releaseNumber = pendingReleaseRaw?.releaseNumber ?? previousPending?.releaseNumber;
+      if (releaseNumber === undefined) continue;
       const dueFrame = pendingReleaseRaw?.cosignDueFrame ?? previousPending?.dueFrame;
       const targetValue = lock?.securitizationCoverageMicrogons ?? previousPending?.targetValue ?? 0n;
-      pendingCosignLocksById.set(id, { targetValue, dueFrame });
+      pendingCosignLocksById.set(id, { targetValue, releaseNumber, dueFrame });
     }
     if (updateSeq !== this.#pendingCosignUpdateSeq) {
       return;
     }
 
-    const myPendingBitcoinCosignTxInfosByLockId = new Map<number, TransactionInfo<{ lockId: number }>>();
+    const myPendingBitcoinCosignTxInfosByLockId = new Map<number, TransactionInfo<IBitcoinLockCosignMetadata>>();
     for (const [lockId, txInfo] of this.data.myPendingBitcoinCosignTxInfosByLockId) {
       if (!pendingCosignLocksById.has(lockId)) continue;
       myPendingBitcoinCosignTxInfosByLockId.set(lockId, txInfo);
@@ -650,32 +653,6 @@ export class MyVault {
     this.data.pendingCosignLocksById = pendingCosignLocksById;
     this.data.myPendingBitcoinCosignTxInfosByLockId = myPendingBitcoinCosignTxInfosByLockId;
     this.updateCollectDeadlines();
-  }
-
-  public async cosignMyLock(
-    lock: IBitcoinLockRecord,
-  ): Promise<{ txInfo: TransactionInfo; vaultSignatures: Uint8Array[] } | undefined> {
-    if (lock.vaultId !== this.createdVault?.vaultId) {
-      // this api is only to unlock our own vault's bitcoin locks
-      return;
-    }
-    try {
-      this.data.finalizeMyBitcoinError = undefined;
-      if (!lock.lockId) return;
-      const release = this.bitcoinLocks.releases.getActiveForLock(lock);
-      if (!release || release.status !== BitcoinReleaseStatus.WaitingForVaultCosign) return;
-
-      const result = await this.cosignRelease(release);
-      if (!result) {
-        // The release request can lag briefly on finalized views. Treat as retryable and
-        // let the next lock-processing poll attempt cosign again.
-        return;
-      }
-      return result;
-    } catch (error) {
-      console.error(`Error releasing bitcoin lock ${lock.lockId}`, error);
-      this.data.finalizeMyBitcoinError = { lockId: lock.lockId!, error: String(error) };
-    }
   }
 
   public async createVaultSignatureForMyOrphanedUtxoRelease(args: {
@@ -971,19 +948,18 @@ export class MyVault {
     }).promise;
   }
 
-  public async createVaultSignaturesForRelease(args: {
+  public async createVaultSignatureHexesForRelease(args: {
     lockId: number;
-    releaseRequest: { toScriptPubkey: string; bitcoinNetworkFee: bigint };
-  }): Promise<
-    | {
-        fundingUtxos: IBitcoinLock['fundingUtxos'];
-        vaultSignatures: Uint8Array[];
-        vaultSignatureHexes: string[];
-      }
-    | undefined
-  > {
-    const { lockId, releaseRequest } = args;
-    const finalizedClient = await getFinalizedClient();
+    releaseNumber: number;
+    client?: ArgonQueryClient;
+  }): Promise<string[] | undefined> {
+    const { lockId, releaseNumber } = args;
+    const finalizedClient = args.client ?? (await getFinalizedClient());
+    const releaseRequest = await BitcoinLock.getReleaseRequest(finalizedClient, lockId);
+    if (!releaseRequest) return;
+    if (releaseRequest.releaseNumber !== releaseNumber) {
+      throw new Error(`Bitcoin Lock ${lockId} no longer has release ${releaseNumber}`);
+    }
     const lock = await BitcoinLock.get(finalizedClient, lockId);
     if (!lock) {
       console.warn('No Bitcoin lock found:', lockId);
@@ -1000,6 +976,8 @@ export class MyVault {
       releaseRequest: {
         bitcoinNetworkFee: releaseRequest.bitcoinNetworkFee,
         toScriptPubkey: releaseRequest.toScriptPubkey,
+        destinationSatoshis: releaseRequest.destinationSatoshis,
+        changeSatoshis: releaseRequest.changeSatoshis,
       },
       utxos: fundingUtxos,
     });
@@ -1014,50 +992,7 @@ export class MyVault {
       }
       return vaultSignature;
     });
-    if (vaultSignatures.length !== fundingUtxos.length) {
-      throw new Error(`Bitcoin lock ${lockId} vault signature count does not match its funding UTXO count`);
-    }
-    return {
-      fundingUtxos,
-      vaultSignatures,
-      vaultSignatureHexes: vaultSignatures.map(signature => u8aToHex(signature)),
-    };
-  }
-
-  private async cosignRelease(
-    release: IBitcoinReleaseRecord,
-  ): Promise<{ txInfo: TransactionInfo; vaultSignatures: Uint8Array[] } | undefined> {
-    return await this.#cosignQueue.add(async () => {
-      const signatures = await this.createVaultSignaturesForRelease({
-        lockId: release.lockId,
-        releaseRequest: {
-          toScriptPubkey: release.toScriptPubkey,
-          bitcoinNetworkFee: release.bitcoinNetworkFee,
-        },
-      });
-      if (!signatures) return;
-
-      const inputUtxos = this.bitcoinLocks.releases.getInputUtxos(release);
-      if (
-        signatures.fundingUtxos.length !== inputUtxos.length ||
-        signatures.fundingUtxos.some((fundingUtxo, index) => {
-          const inputUtxo = inputUtxos[index];
-          return fundingUtxo.utxoRef.txid !== inputUtxo.txid || fundingUtxo.utxoRef.vout !== inputUtxo.vout;
-        })
-      ) {
-        throw new Error(`Bitcoin release ${release.id} no longer matches the runtime funding inputs`);
-      }
-
-      const client = await getMainchainClient(false);
-      const txSigner = await this.walletKeys.getVaultingKeypair();
-      const txInfo = await this.bitcoinLockCosign.submit({
-        client,
-        txSigner,
-        lockId: release.lockId,
-        vaultSignatureHexes: signatures.vaultSignatureHexes,
-      });
-      return { txInfo, vaultSignatures: signatures.vaultSignatures };
-    }).promise;
+    return vaultSignatures.map(signature => u8aToHex(signature));
   }
 
   private async onOrphanCosignResult(
@@ -1136,38 +1071,6 @@ export class MyVault {
 
       return txInfo;
     }).promise;
-  }
-
-  public async findLatestReleaseCosignTxAttempt(
-    lockId: number,
-  ): Promise<{ txInfo: TransactionInfo; txAttemptState: TxAttemptState } | undefined> {
-    const latestTxInfo = this.#transactionTracker.findLatestTxInfo(txInfo => {
-      const { extrinsicType, metadataJson } = txInfo.tx;
-      const metadata = metadataJson as any;
-
-      if (extrinsicType === ExtrinsicType.VaultCosignBitcoinRelease) {
-        return lockId === (metadata.lockId ?? metadata.utxoId);
-      }
-
-      if (extrinsicType !== ExtrinsicType.VaultCollect) {
-        return false;
-      }
-
-      const cosignedLockIds = metadata.cosignedLockIds ?? metadata.cosignedUtxoIds;
-      return Array.isArray(cosignedLockIds) && cosignedLockIds.includes(lockId);
-    });
-
-    if (!latestTxInfo) {
-      return;
-    }
-
-    return {
-      txInfo: latestTxInfo,
-      txAttemptState: await this.#transactionTracker.getTxAttemptState(
-        latestTxInfo,
-        COSIGN_ATTEMPT_CONFIRMATIONS_TO_WAIT,
-      ),
-    };
   }
 
   public async findLatestOrphanCosignTxAttempt(args: {
@@ -1309,6 +1212,8 @@ export class MyVault {
       releaseRequest: {
         bitcoinNetworkFee: args.bitcoinNetworkFee,
         toScriptPubkey: args.toScriptPubkey,
+        destinationSatoshis: args.satoshis - args.bitcoinNetworkFee,
+        changeSatoshis: 0n,
       },
       utxos: [{ utxoRef: { txid: args.txid, vout: args.vout }, satoshis: args.satoshis }],
     });
@@ -1401,6 +1306,7 @@ export class MyVault {
       const finalizedBlockHash = await txResult.waitForFinalizedBlock;
       await this.trackTxResultFee(txResult);
       await this.#transactionTracker.ensureStoredEvents(txInfo);
+      await this.recordCollectedBitcoinCosigns(txInfo);
       const collectedEvent = txResult.events.find(event => {
         return event.section === 'vaults' && event.method === 'VaultCollected' && event.data.vaultId === vaultId;
       });
@@ -1481,6 +1387,28 @@ export class MyVault {
       if (this.data.pendingCollectTxInfo?.tx.id === txInfo.tx.id) {
         this.data.pendingCollectTxInfo = null;
       }
+    }
+  }
+
+  private async recordCollectedBitcoinCosigns(txInfo: TransactionInfo<IVaultCollectMetadata>): Promise<void> {
+    const requested = new Set(
+      txInfo.tx.metadataJson.cosignedReleases.map(({ lockId, releaseNumber }) => `${lockId}:${releaseNumber}`),
+    );
+    for (const event of txInfo.txResult.events) {
+      if (event.section !== 'bitcoinLocks' || event.method !== 'BitcoinUtxoCosigned') continue;
+
+      const { lockId, releaseNumber, signatures } = event.data;
+      if (lockId === undefined || releaseNumber === undefined || !requested.has(`${lockId}:${releaseNumber}`)) continue;
+      if (!signatures?.length) continue;
+
+      const cosignBlockNumber = txInfo.txResult.blockNumber;
+      if (cosignBlockNumber === undefined) throw new Error('Finalized Vault collect has no block number');
+      await this.bitcoinLocks.releases.applyVaultCosignResult({
+        lockId,
+        releaseNumber,
+        vaultSignatures: [...signatures],
+        cosignBlockNumber,
+      });
     }
   }
 

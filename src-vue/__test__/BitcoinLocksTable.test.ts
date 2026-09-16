@@ -20,7 +20,7 @@ async function createPendingLock(overrides: Partial<IBitcoinLockRecord> = {}) {
 }
 
 describe('BitcoinLocksTable', () => {
-  it('migrates Lock funding and Orphan release state into independent records', async () => {
+  it('migrates Lock funding, full releases, and Orphan releases into independent records', async () => {
     const { db, migrateToLatest } = await createTestDbAtMigration(32);
     await db.execute(
       `INSERT INTO BitcoinLocks (
@@ -142,6 +142,31 @@ describe('BitcoinLocksTable', () => {
       ],
     );
     await db.execute(`INSERT INTO BitcoinUtxoStatusHistory (utxoRecordId, newStatus) VALUES (?, ?)`, [2, 'Orphaned']);
+    await db.execute(
+      `INSERT INTO BitcoinUtxos (
+        id, lockUtxoId, txid, vout, satoshis, network, status, firstSeenAt, firstSeenBitcoinHeight,
+        releaseToDestinationAddress, releaseBitcoinNetworkFee, releaseCosignVaultSignature,
+        releaseCosignHeight, releaseTxid, releasedAtBitcoinHeight
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        3,
+        8,
+        'released-funding-tx',
+        0,
+        900n,
+        'regtest',
+        'ReleaseCompleteAcknowledged',
+        new Date('2026-01-03T00:00:00Z'),
+        102,
+        'bcrt1qreleased',
+        25n,
+        new Uint8Array([1, 2]),
+        160,
+        'released-bitcoin-tx',
+        110,
+      ],
+    );
+    await db.execute(`UPDATE BitcoinLocks SET fundingUtxoRecordId = ? WHERE uuid = ?`, [3, 'released-liquid-lock']);
     await db.execute(`UPDATE BitcoinLocks SET fundingUtxoRecordId = ? WHERE uuid = ?`, [1, 'migration-lock']);
     await db.execute(
       `INSERT INTO Transactions (
@@ -175,6 +200,13 @@ describe('BitcoinLocksTable', () => {
         152,
       ],
     );
+    await db.execute(
+      `INSERT INTO Transactions (
+         id, extrinsicHash, extrinsicMethodJson, extrinsicType, metadataJson,
+         accountAddress, submittedAtTime, submittedAtBlockHeight
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      [4, '0x4', {}, 'VaultCollect', { cosignedUtxoIds: [7] }, 'vault', new Date('2026-01-02T00:02:00Z'), 153],
+    );
 
     await migrateToLatest();
 
@@ -188,7 +220,20 @@ describe('BitcoinLocksTable', () => {
 
     const releaseColumns = await db.select<{ name: string }[]>(`PRAGMA table_info('BitcoinReleases')`);
     expect(releaseColumns.map(column => column.name)).toEqual(
-      expect.arrayContaining(['id', 'kind', 'lockId', 'status', 'inputUtxoIds', 'vaultSignatures']),
+      expect.arrayContaining([
+        'id',
+        'kind',
+        'lockId',
+        'sendId',
+        'releaseNumber',
+        'status',
+        'inputUtxoIds',
+        'destinationSatoshis',
+        'changeSatoshis',
+        'cosignDueFrame',
+        'expectedTransactionId',
+        'vaultSignatures',
+      ]),
     );
 
     const utxos = await db.select<
@@ -198,9 +243,13 @@ describe('BitcoinLocksTable', () => {
         status: string;
         spendStatus: string;
         activeReleaseId?: string;
+        createdByReleaseId?: string;
         spentByReleaseId?: string;
       }>
-    >(`SELECT id, txid, status, spendStatus, activeReleaseId, spentByReleaseId FROM BitcoinUtxos ORDER BY id`);
+    >(
+      `SELECT id, txid, status, spendStatus, activeReleaseId, createdByReleaseId, spentByReleaseId
+       FROM BitcoinUtxos ORDER BY id`,
+    );
     expect(utxos.find(utxo => utxo.id === 1)).toMatchObject({
       id: 1,
       txid: 'funding-tx',
@@ -214,26 +263,60 @@ describe('BitcoinLocksTable', () => {
       spendStatus: 'Unspent',
       activeReleaseId: expect.any(String),
     });
+    expect(utxos.find(utxo => utxo.id === 3)).toMatchObject({
+      id: 3,
+      txid: 'released-funding-tx',
+      status: 'FundingUtxo',
+      spendStatus: 'Spent',
+      spentByReleaseId: 'lock:8:1',
+    });
     const releases = await db.select<
       Array<{
         id: string;
         kind: string;
         lockId: number;
+        sendId: string;
+        releaseNumber: number | null;
         status: string;
         inputUtxoIds: string;
+        bitcoinNetworkFee: string;
+        destinationSatoshis: string;
+        changeSatoshis: string;
         vaultSignatures: string;
       }>
-    >(`SELECT id, kind, lockId, status, inputUtxoIds, vaultSignatures FROM BitcoinReleases`);
+    >(
+      `SELECT id, kind, lockId, sendId, releaseNumber, status, inputUtxoIds,
+              bitcoinNetworkFee, destinationSatoshis, changeSatoshis, vaultSignatures
+       FROM BitcoinReleases ORDER BY lockId, id`,
+    );
     expect(releases).toEqual([
       {
-        id: utxos.find(utxo => utxo.id === 2)?.activeReleaseId,
+        id: 'migration-33-release-2',
         kind: 'Orphan',
         lockId: 7,
+        sendId: 'migration-33-release-2',
         status: 'SubmittingRequestOnArgon',
         inputUtxoIds: '[2]',
+        bitcoinNetworkFee: '12',
+        destinationSatoshis: '288',
+        changeSatoshis: '0',
         vaultSignatures: '[]',
       },
+      {
+        id: 'lock:8:1',
+        kind: 'Lock',
+        lockId: 8,
+        sendId: 'lock:8:1',
+        releaseNumber: 1,
+        status: 'Complete',
+        inputUtxoIds: '[3]',
+        bitcoinNetworkFee: '25',
+        destinationSatoshis: '875',
+        changeSatoshis: '0',
+        vaultSignatures: '["0x0102"]',
+      },
     ]);
+    expect(releases[0].releaseNumber).toBeUndefined();
 
     const lockColumns = await db.select<{ name: string }[]>(`PRAGMA table_info('BitcoinLocks')`);
     expect(lockColumns.map(column => column.name)).toEqual(
@@ -297,11 +380,17 @@ describe('BitcoinLocksTable', () => {
     });
     const transactions = await db.transactionsTable.fetchAll();
     expect(transactions.find(transaction => transaction.id === 1)?.metadataJson.bitcoin.uuid).toBe('migration-lock');
-    expect(transactions.find(transaction => transaction.id === 2)?.metadataJson).toEqual({ lockId: 7 });
+    expect(transactions.find(transaction => transaction.id === 2)?.metadataJson).toEqual({
+      lockId: 7,
+      releaseNumber: 1,
+    });
     expect(transactions.find(transaction => transaction.id === 3)?.metadataJson).toEqual({
       lockId: 7,
       utxoRecordId: 2,
       releaseId: 'migration-33-release-2',
+    });
+    expect(transactions.find(transaction => transaction.id === 4)?.metadataJson).toEqual({
+      cosignedReleases: [{ lockId: 7, releaseNumber: 1 }],
     });
   });
 

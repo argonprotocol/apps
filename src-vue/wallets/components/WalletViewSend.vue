@@ -284,6 +284,7 @@ async function initiateBitcoinTransfer(form: InstanceType<typeof WalletTransferF
         bitcoinLockRelease.submit({
           lockId: channel.lockId!,
           bitcoinNetworkFee: bitcoinFees[index]!,
+          destinationSatoshis: channel.fundedSatoshis - bitcoinFees[index]!,
           toScriptPubkey: form.destinationAddress,
           txSigner,
         }),

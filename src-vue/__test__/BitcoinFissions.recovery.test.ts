@@ -336,7 +336,7 @@ describe('Bitcoin Fission current state', () => {
     expect(stored.closedAtArgonBlock).toBeUndefined();
   });
 
-  it('does not clear an explicit close when loading or refreshing current state', async () => {
+  it('does not let a stale stored close override current active state', async () => {
     const db = await createTestDb();
     const current = createCurrentFission();
     const historical = createFissionRecord(current);
@@ -370,9 +370,9 @@ describe('Bitcoin Fission current state', () => {
 
     const [liquid] = fissions.getLiquids();
 
-    expect(fissions.getAll()).toEqual([]);
-    expect(liquid.isClosed).toBe(true);
-    expect(liquid.closeHistoryEntry).toBeDefined();
+    expect(fissions.getAll()).toEqual([expect.objectContaining({ fissionId: current.fissionId })]);
+    expect(liquid.isClosed).toBe(false);
+    expect(liquid.closeHistoryEntry).toBeUndefined();
   });
 
   it('keeps a pending mint current after its Fission closes', async () => {
