@@ -470,7 +470,7 @@ const bitcoinLockedMarketValue = Vue.computed(() => {
   let value = 0n;
 
   for (const lock of localVaultLocks.value) {
-    if (lock.isHistoryRecoveryPending) continue;
+    if (!bitcoinLocks.isLockFunded(lock) && !bitcoinLocks.isReleaseStatus(lock)) continue;
 
     value += currency.convertSatToMicrogon(lock.fundedSatoshis);
   }
@@ -535,7 +535,7 @@ const bitcoinMapItems = Vue.computed((): MapItem[] => {
 
   for (const extLock of Object.values(myVault.data.externalLocks)) {
     const microgons = bitcoinMapUsesMarketValue.value
-      ? currency.convertSatToMicrogon(extLock.satoshis)
+      ? currency.convertSatToMicrogon(extLock.isPending ? 0n : extLock.satoshis)
       : extLock.securitizationCoverageMicrogons;
     const status: TileStatus = extLock.isPending ? 'pending' : 'active';
     items.push({

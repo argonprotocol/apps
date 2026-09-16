@@ -88,6 +88,7 @@ export type IVaultInitialAllocateMetadata = {
 export type IVaultIncreaseAllocationMetadata = {
   securitizationMicrogons?: bigint;
   securitizationChangeMicrogons?: bigint;
+  securitizationTargetChangeMicrogons?: bigint;
   committedMicronots?: bigint;
   argonotChangeMicronots?: bigint;
   addedSecuritizationMicrogons?: bigint;
@@ -2024,6 +2025,7 @@ export class MyVault {
       throw new Error('No vault created to get changes needed');
     }
     const currentSecuritizationMicrogons = vault.securitization;
+    const currentSecuritizationTargetMicrogons = vault.securitizationTarget ?? vault.securitization;
     const currentCommittedMicronots = this.data.argonotCommitment.committedMicronots;
 
     const change: Parameters<MyVault['buildSecuritizationTx']>[0] = {};
@@ -2048,6 +2050,8 @@ export class MyVault {
     if (args.securitizationMicrogons !== undefined) {
       metadata.securitizationMicrogons = args.securitizationMicrogons;
       metadata.securitizationChangeMicrogons = args.securitizationMicrogons - currentSecuritizationMicrogons;
+      metadata.securitizationTargetChangeMicrogons =
+        args.securitizationMicrogons - currentSecuritizationTargetMicrogons;
     }
     if (args.committedMicronots !== undefined) {
       metadata.committedMicronots = args.committedMicronots;
@@ -2074,7 +2078,8 @@ export class MyVault {
       throw new Error('No vault created to get changes needed');
     }
     const changesSecuritization =
-      args.securitizationMicrogons !== undefined && args.securitizationMicrogons !== vault.securitization;
+      args.securitizationMicrogons !== undefined &&
+      args.securitizationMicrogons !== (vault.securitizationTarget ?? vault.securitization);
     const changesArgonotCommitment =
       args.committedMicronots !== undefined &&
       args.committedMicronots !== this.data.argonotCommitment.committedMicronots;

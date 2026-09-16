@@ -143,13 +143,15 @@
                   <span v-if="argonotReturnsExceedsWalletMaximum" class="text-gray-600/60">
                     Max Returns (above your max)
                   </span>
-                  <span v-else-if="committedMicronots === finalArgonotTarget" class="text-gray-600/60">Max Returns</span>
+                  <span v-else-if="committedMicronots === maximumReturnsMicronots" class="text-gray-600/60">
+                    Max Returns
+                  </span>
                   <button
                     v-else
                     type="button"
                     class="text-argon-600 hover:text-argon-700 cursor-pointer disabled:cursor-not-allowed disabled:text-slate-300"
                     :disabled="isProcessing"
-                    @click="committedMicronots = finalArgonotTarget"
+                    @click="committedMicronots = maximumReturnsMicronots"
                   >
                     Max Returns
                   </button>
@@ -157,11 +159,11 @@
                 </span>
                 <template #content>
                   <template v-if="argonotReturnsExceedsWalletMaximum">
-                    {{ formatArgonots(finalArgonotTarget) }} ARGNOT maximizes your vault's eligible share of mining
+                    {{ formatArgonots(maximumReturnsMicronots) }} ARGNOT maximizes your vault's eligible share of mining
                     auction returns, but exceeds your wallet maximum.
                   </template>
                   <template v-else>
-                    {{ formatArgonots(finalArgonotTarget) }} ARGNOT maximizes your vault's eligible share of mining
+                    {{ formatArgonots(maximumReturnsMicronots) }} ARGNOT maximizes your vault's eligible share of mining
                     auction returns.
                   </template>
                 </template>
@@ -368,6 +370,7 @@ const bitcoinSecuritizationShortfall = Vue.computed(() => {
   let bitcoinMarketValue = 0n;
   for (const lock of bitcoinLocks.getAllLocks({ includeHistoryRecoveryPending: true })) {
     if (lock.vaultId !== vaultId || bitcoinLocks.isInactiveForVaultDisplay(lock)) continue;
+    if (!bitcoinLocks.isLockFunded(lock) && !bitcoinLocks.isReleaseStatus(lock)) continue;
 
     bitcoinMarketValue += currency.convertSatToMicrogon(lock.fundedSatoshis);
   }
@@ -441,7 +444,7 @@ const bitcoinLockedReleaseDate = Vue.computed(() => {
   const vaultId = myVault.vaultId;
   if (vaultId === undefined) return;
 
-  for (const lock of bitcoinLocks.getAllLocks()) {
+  for (const lock of bitcoinLocks.getAllLocks({ includeHistoryRecoveryPending: true })) {
     if (lock.vaultId !== vaultId || !bitcoinLocks.isLockFunded(lock)) continue;
 
     try {
@@ -530,13 +533,17 @@ const finalArgonotTarget = Vue.computed(() => {
     totalArgonotIssuanceMicronots: totalArgonotIssuanceMicronots.value,
   });
 });
+const maximumReturnsMicronots = Vue.computed(() => {
+  return bigIntMax(finalArgonotTarget.value, minimumArgonotSecuritizationMicronots.value);
+});
 const argonotReturnsExceedsWalletMaximum = Vue.computed(() => {
-  return finalArgonotTarget.value > maximumArgonotSecuritizationMicronots.value;
+  return maximumReturnsMicronots.value > maximumArgonotSecuritizationMicronots.value;
 });
 const securitizationChangeMicrogons = Vue.computed(() => {
   if (pendingTransaction.value) {
     const metadata = pendingTransaction.value.tx.metadataJson;
     return (
+      metadata.securitizationTargetChangeMicrogons ??
       metadata.securitizationChangeMicrogons ??
       (metadata.securitizationMicrogons ?? vaultingAssets.securityMicrogons) - vaultingAssets.securityMicrogons
     );

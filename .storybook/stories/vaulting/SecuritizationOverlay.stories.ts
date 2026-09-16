@@ -86,6 +86,10 @@ export const MaxReturnsAboveWalletMaximum: Story = {
   beforeEach: () => setupSecuritizationScenario('maxReturnsAboveWalletMaximum'),
 };
 
+export const MaxReturnsUsesLockedMinimum: Story = {
+  beforeEach: () => setupSecuritizationScenario('maxReturnsUsesLockedMinimum'),
+};
+
 export const Submit: Story = {
   beforeEach: () => setupSecuritizationScenario(),
   play: async () => {
@@ -149,7 +153,8 @@ function setupSecuritizationScenario(
     | 'scheduledDelayedRelease'
     | 'proposedDelayedRelease'
     | 'waitingForBitcoinLockRelease'
-    | 'maxReturnsAboveWalletMaximum' = 'ready',
+    | 'maxReturnsAboveWalletMaximum'
+    | 'maxReturnsUsesLockedMinimum' = 'ready',
 ) {
   const { wallets } = setupAppScenario({ selectedTab: TopTab.Vaulting });
   const createdVault = createScenarioVault();
@@ -168,6 +173,16 @@ function setupSecuritizationScenario(
   const currency = getCurrency();
   const currentMyVault = getMyVault();
   const currentBitcoinLocks = getBitcoinLocks();
+  const mintingAuthorities =
+    state === 'maxReturnsUsesLockedMinimum'
+      ? {
+          ...currentMyVault.mintingAuthorities,
+          data: Vue.reactive({
+            ...currentMyVault.mintingAuthorities.data,
+            authorities: [{}],
+          }),
+        }
+      : currentMyVault.mintingAuthorities;
   const pendingTxInfo = createSecuritizationTransaction();
   let securityMicrogons = createdVault.securitization;
   if (state === 'restoring') securityMicrogons = 1_200_000_000n;
@@ -204,6 +219,7 @@ function setupSecuritizationScenario(
     data: myVaultData,
     createdVault,
     vaultId: createdVault.vaultId,
+    mintingAuthorities,
     buildSecuritizationTx: fn(async () => {
       if (state === 'restoring') throw new Error('A securitization change is required');
       return {
@@ -215,8 +231,8 @@ function setupSecuritizationScenario(
   mocked(useVaultingAssetBreakdown, { partial: true }).mockReturnValue(
     Vue.reactive({
       securityMicrogons,
-      securityMicronots: 0n,
-      securityMicronotsActivated: 0n,
+      securityMicronots: state === 'maxReturnsUsesLockedMinimum' ? 900_000_000n : 0n,
+      securityMicronotsActivated: state === 'maxReturnsUsesLockedMinimum' ? 900_000_000n : 0n,
     }),
   );
   mocked(getBitcoinLocks, { partial: true }).mockReturnValue(

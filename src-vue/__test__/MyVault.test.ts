@@ -408,6 +408,7 @@ describe('MyVault cosign recovery', () => {
     myVault.data.createdVault = {
       vaultId: 7,
       securitization: 1_000n,
+      securitizationTarget: 900n,
       securitizationRatio: 1,
     } as any;
     myVault.data.argonotCommitment.committedMicronots = 100n;
@@ -464,6 +465,7 @@ describe('MyVault cosign recovery', () => {
       metadata: {
         securitizationMicrogons: 1_100n,
         securitizationChangeMicrogons: 100n,
+        securitizationTargetChangeMicrogons: 200n,
         committedMicronots: 350n,
         argonotChangeMicronots: 250n,
         vaultId: 7,
@@ -544,6 +546,32 @@ describe('MyVault cosign recovery', () => {
     expect(client.tx.vaults.setCommittedArgonots).toHaveBeenCalledWith(80n);
     expect(client.tx.utility.batchAll).toHaveBeenCalledWith([fundingTx, commitmentTx]);
     expect(result).toBe(batchTx);
+  });
+
+  it('submits the selected final ARGN amount when it restores a scheduled release target', async () => {
+    const { myVault } = createVault();
+    const fundingTx = { id: 'funding' };
+    myVault.data.createdVault = {
+      vaultId: 7,
+      securitization: 1_000n,
+      securitizationTarget: 700n,
+      securitizationRatio: 1,
+    } as any;
+    const client = {
+      tx: {
+        vaults: {
+          modifyFunding: vi.fn(() => fundingTx),
+        },
+        utility: {
+          batchAll: vi.fn(),
+        },
+      },
+    };
+
+    const result = await myVault.buildSecuritizationTx({ securitizationMicrogons: 1_000n }, client as any);
+
+    expect(client.tx.vaults.modifyFunding).toHaveBeenCalledWith(7, 1_000n, 1_000_000_000_000_000_000n);
+    expect(result).toBe(fundingTx);
   });
 
   it('reuses the pending collect tx instead of resubmitting collect work', async () => {
