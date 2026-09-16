@@ -7,7 +7,7 @@
           <TooltipRoot>
             <TooltipTrigger as="div" box stat-box class="flex flex-col w-[20%] !py-4 group">
               <span>
-                {{ currency.symbol }}{{ microgonToMoneyNm(bitcoinLockedValue).formatIfElse('< 1_000', '0,0.00', '0,0') }}
+                {{ currency.symbol }}{{ microgonToMoneyNm(bitcoinLockedMarketValue).formatIfElse('< 1_000', '0,0.00', '0,0') }}
               </span>
               <label>Total Bitcoin Locked</label>
             </TooltipTrigger>
@@ -162,9 +162,37 @@
                       </TooltipContent>
                     </TooltipRoot>
                     <TooltipRoot :delayDuration="200">
-                      <TooltipTrigger as="div" class="cursor-help">{{ numeral(vaultingBreakdown.securityMicrogonsActivatedPct).format('0,0.[00]') }}% of Allowed BTC Is Locked</TooltipTrigger>
+                      <TooltipTrigger
+                        as="button"
+                        type="button"
+                        class="flex w-full cursor-pointer flex-col items-center justify-center gap-1 hover:underline"
+                        @click="openSecuritization"
+                      >
+                        <span
+                          class="flex items-center gap-1"
+                          :class="bitcoinMapSecuritizationShortfall ? 'text-yellow-800' : ''"
+                        >
+                          <AlertIcon
+                            v-if="bitcoinMapSecuritizationShortfall > 0n"
+                            class="size-4 shrink-0 text-yellow-700"
+                          />
+                          {{ numeral(vaultingBreakdown.securityMicrogonsActivatedPct).format('0,0.[00]') }}% of Allowed BTC Is Locked
+                        </span>
+                        <span v-if="bitcoinMapSecuritizationShortfall > 0n" class="text-xs text-yellow-800">
+                          Under Securitized
+                        </span>
+                      </TooltipTrigger>
                       <TooltipContent side="bottom" :sideOffset="4" :collisionPadding="9" class="text-md z-50 w-xs rounded-md border border-gray-800/20 bg-white px-4 py-3 text-left leading-5.5 font-light text-slate-900/60 shadow-2xl">
-                        The percentage of your vault's bitcoin security space that is currently filled with active locks.
+                        <template v-if="bitcoinMapSecuritizationShortfall > 0n">
+                          {{ numeral(vaultingBreakdown.securityMicrogonsActivatedPct).format('0,0.[00]') }}% is the
+                          securitization currently assigned to active Bitcoin locks. Their market value exceeds your
+                          current securitization by
+                          {{ microgonToArgonNm(bitcoinMapSecuritizationShortfall).format('0,0.[00]') }} ARGN. Click to
+                          update it.
+                        </template>
+                        <template v-else>
+                          The percentage of your vault's bitcoin security space that is currently filled with active locks.
+                        </template>
                         <TooltipArrow :width="27" :height="15" class="-mt-px fill-white stroke-gray-800/20 stroke-[0.5px]" />
                       </TooltipContent>
                     </TooltipRoot>
@@ -280,6 +308,7 @@ import { TopTab } from '../../interfaces/IConfig.ts';
 import { OperationalStepId, useCertificationController } from '../../stores/certificationController.ts';
 import ArrowCalloutButton from '../../components/ArrowCalloutButton.vue';
 import { useFinancials } from '../../stores/financials.ts';
+import AlertIcon from '../../assets/alert.svg?component';
 import { useWallets } from '../../stores/wallets.ts';
 
 dayjs.extend(utc);
@@ -302,7 +331,7 @@ const latestFrameId = Vue.computed(() => {
   return frameRecords.value.at(-1)?.id ?? 0;
 });
 
-const { microgonToMoneyNm } = createNumeralHelpers(currency);
+const { microgonToArgonNm, microgonToMoneyNm } = createNumeralHelpers(currency);
 
 const vaultBondState = Vue.computed<IVaultArgonBondState | undefined>(() => {
   const vaultId = myVault.vaultId;
@@ -323,10 +352,6 @@ const totalTreasuryBondMicrogons = Vue.computed(() => {
 
 const externalTreasuryBondMicrogons = Vue.computed(() => {
   return BondLot.bondsToMicrogons(TreasuryBonds.externalActiveBonds(vaultBondState.value?.bondLots ?? []));
-});
-
-const bitcoinLockedValue = Vue.computed<bigint>(() => {
-  return vaultingBreakdown.securityMicrogonsActivated;
 });
 
 const vaultingReturnToDate = Vue.computed(() => {
@@ -355,10 +380,6 @@ const potentialDailyRevenue = Vue.computed(() => {
 function formatMoney(value: bigint) {
   return `${currency.symbol}${microgonToMoneyNm(value).format('0,0')}`;
 }
-
-const bitcoinMapTotal = Vue.computed(() => {
-  return vaultingBreakdown.securityMicrogons;
-});
 
 const bitcoinMapRemainderMinimum = Vue.computed(() => {
   return currency.priceIndex.getSatoshiPriceInTargetMicrogons(1000n);
@@ -414,11 +435,6 @@ const localLocksByUuid = Vue.computed(() => {
 });
 
 function handleBondTileClick(key: string) {
-  if (key === '__remainder__') {
-    basicEmitter.emit('openTreasuryBondsOverlay');
-    return;
-  }
-
   const bondLot = currentBondMapLots.value.find(bondLot => bondLot.id === key);
   if (bondLot) {
     selectedFrameBondLot.value = bondLot;
@@ -427,11 +443,6 @@ function handleBondTileClick(key: string) {
 }
 
 function handleBitcoinTileClick(key: string) {
-  if (key === '__remainder__') {
-    openBitcoinChannel();
-    return;
-  }
-
   // Local lock
   const lock = localLocksByUuid.value[key];
   if (lock) {
@@ -454,6 +465,27 @@ function handleBitcoinTileClick(key: string) {
     }
   }
 }
+
+const bitcoinLockedMarketValue = Vue.computed(() => {
+  let value = 0n;
+
+  for (const lock of localVaultLocks.value) {
+    value += currency.convertSatToMicrogon(lock.fundedSatoshis);
+  }
+  for (const lock of Object.values(myVault.data.externalLocks)) {
+    value += currency.convertSatToMicrogon(lock.satoshis);
+  }
+
+  return value;
+});
+
+const bitcoinMapUsesMarketValue = Vue.computed(() => {
+  return bitcoinLockedMarketValue.value > vaultingBreakdown.securityMicrogons;
+});
+
+const bitcoinMapTotal = Vue.computed(() => {
+  return bigIntMax(vaultingBreakdown.securityMicrogons, bitcoinLockedMarketValue.value);
+});
 
 const bitcoinMapItems = Vue.computed((): MapItem[] => {
   // Historical frames: collapse to locked vs open aggregate
@@ -483,7 +515,9 @@ const bitcoinMapItems = Vue.computed((): MapItem[] => {
   const items: MapItem[] = [];
 
   for (const lock of localVaultLocks.value) {
-    const microgons = lock.securitizationCoverageMicrogons ?? 0n;
+    const microgons = bitcoinMapUsesMarketValue.value
+      ? currency.convertSatToMicrogon(lock.fundedSatoshis)
+      : (lock.securitizationCoverageMicrogons ?? 0n);
     const tileStatus = getLockTileStatus(lock);
     items.push({
       id: lock.uuid,
@@ -496,7 +530,9 @@ const bitcoinMapItems = Vue.computed((): MapItem[] => {
   }
 
   for (const extLock of Object.values(myVault.data.externalLocks)) {
-    const microgons = extLock.securitizationCoverageMicrogons;
+    const microgons = bitcoinMapUsesMarketValue.value
+      ? currency.convertSatToMicrogon(extLock.satoshis)
+      : extLock.securitizationCoverageMicrogons;
     const status: TileStatus = extLock.isPending ? 'pending' : 'active';
     items.push({
       id: `chain:${extLock.lockId}`,
@@ -511,9 +547,16 @@ const bitcoinMapItems = Vue.computed((): MapItem[] => {
   return items;
 });
 
+const bitcoinMapUsed = Vue.computed(() => {
+  return bitcoinMapItems.value.reduce((sum, item) => sum + item.amount, 0n);
+});
+
 const bitcoinMapRemainder = Vue.computed(() => {
-  const used = bitcoinMapItems.value.reduce((sum, item) => sum + item.amount, 0n);
-  return bitcoinMapTotal.value > used ? bitcoinMapTotal.value - used : 0n;
+  return bitcoinMapTotal.value > bitcoinMapUsed.value ? bitcoinMapTotal.value - bitcoinMapUsed.value : 0n;
+});
+
+const bitcoinMapSecuritizationShortfall = Vue.computed(() => {
+  return bigIntMax(bitcoinLockedMarketValue.value - vaultingBreakdown.securityMicrogons, 0n);
 });
 
 const bondMapTotal = Vue.computed(() => {
