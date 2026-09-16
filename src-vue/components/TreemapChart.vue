@@ -3,8 +3,7 @@
     <!-- Remainder row: always at top -->
     <div
       v-if="hasRemainder"
-      class="treemap__tile treemap__tile--remainder flex cursor-pointer items-center justify-center border border-slate-500/20 px-3 py-1.5"
-      @click="handleTileClick({ key: '__remainder__', kind: 'remainder' } as IRectNode)"
+      class="treemap__tile treemap__tile--remainder flex items-center justify-center border border-slate-500/20 px-3 py-1.5"
     >
       <span class="text-[0.88rem] opacity-60">
         <template v-if="remainderNode?.displayValue">{{ remainderNode.displayValue }}</template>
@@ -17,13 +16,14 @@
       <div
         v-for="rect in rectangles"
         :key="rect.key"
-        class="treemap__tile absolute cursor-pointer overflow-hidden border border-slate-500/20"
+        class="treemap__tile absolute overflow-hidden border border-slate-500/20"
         :class="[
           rect.kind === 'remainder'
             ? 'treemap__tile--remainder'
             : rect.emphasis === 'strong'
               ? 'treemap__tile--strong'
               : 'treemap__tile--item',
+          rect.kind === 'item' ? 'cursor-pointer' : '',
           rect.status === 'pending'
             ? 'treemap__tile--pending'
             : rect.status === 'unclaimed'
@@ -124,11 +124,7 @@ const emit = defineEmits<{
 }>();
 
 function handleTileClick(rect: IRectNode) {
-  if (rect.kind === 'remainder') {
-    emit('tileClick', '__remainder__');
-  } else {
-    emit('tileClick', rect.key);
-  }
+  if (rect.kind === 'item') emit('tileClick', rect.key);
 }
 
 const containerRef = Vue.ref<HTMLElement | null>(null);

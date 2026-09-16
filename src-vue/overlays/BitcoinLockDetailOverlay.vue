@@ -17,7 +17,7 @@
             YOURS
           </span>
           <span v-else class="inline-block rounded bg-slate-500 px-1.5 pb-px align-middle text-sm text-white">
-            EXTERNAL
+            {{ externalMemberName ?? 'EXTERNAL' }}
           </span>
         </template>
       </div>
@@ -42,10 +42,12 @@ import { getBitcoinLocks } from '../stores/bitcoin.ts';
 import LockDetail from './bitcoin-locking/LockDetail.vue';
 import type { IExternalBitcoinLock } from '../lib/MyVault.ts';
 import { getConfig } from '../stores/config.ts';
+import { useCertificationController } from '../stores/certificationController.ts';
 
 const config = getConfig();
 const myVault = getMyVault();
 const bitcoinLocks = getBitcoinLocks();
+const controller = useCertificationController();
 
 const props = defineProps<{
   lock: IBitcoinLockRecord | IExternalBitcoinLock;
@@ -78,6 +80,11 @@ const externalLock = Vue.computed<IExternalBitcoinLock | undefined>(() => {
 });
 
 const displayLock = Vue.computed(() => localLock.value ?? externalLock.value);
+
+const externalMemberName = Vue.computed(() => {
+  const ownerAccount = externalLock.value?.lockDetails.ownerAccount;
+  return controller.operationalInvites.find(invite => invite.defaultAccountId === ownerAccount)?.name;
+});
 
 const isExternalLockReleased = Vue.computed(() => {
   const lockId = externalLock.value?.lockId;
