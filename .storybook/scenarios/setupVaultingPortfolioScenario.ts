@@ -62,7 +62,7 @@ export function setupVaultingPortfolioScenario() {
     securitizedSatoshis: 23_700_000n,
   });
   const localLocks = [
-    createLock(1, BitcoinLockStatus.LockFunded, 8_000_000n, 800n * microgonsPerArgon),
+    createLock(1, BitcoinLockStatus.LockFunded, 13_100_000n, 800n * microgonsPerArgon),
     createLock(2, BitcoinLockStatus.Releasing, 4_500_000n, 450n * microgonsPerArgon),
     createLock(3, BitcoinLockStatus.LockPendingFunding, 3_200_000n, 300n * microgonsPerArgon),
     createLock(4, BitcoinLockStatus.LockFunded, 2_400_000n, 250n * microgonsPerArgon, true),
@@ -241,7 +241,7 @@ function createLock(
     securityFees: 0n,
     couponFeesPaid: 0n,
     fundHoldExtensionsByBitcoinExpirationHeight: {},
-    fundedSatoshis: satoshis,
+    fundedSatoshis: status === BitcoinLockStatus.LockPendingFunding ? 0n : satoshis,
     fundingUtxoIds: [],
     cosignVersion: 'v1',
     network: 'regtest',
