@@ -1,11 +1,11 @@
 import { loadEnvFile } from 'node:process';
-import { decodeAddress } from '@polkadot/util-crypto';
 import { DISCORD_VERIFICATION_CONFIG } from '../../core/src/DiscordVerification.ts';
+import { isValidArgonAccountAddress } from '../../core/src/utils.ts';
 import express, { type NextFunction, type Request, type Response } from 'express';
 import { z } from 'zod';
 import { DiscordBot } from './DiscordBot.ts';
 import { logApiRequests, logError, logInfo } from './Log.ts';
-import { Verifier } from './Verifier.ts';
+import { VaultDelegateNotFoundError, Verifier } from './Verifier.ts';
 
 try {
   loadEnvFile(new URL('../.env', import.meta.url));
@@ -55,28 +55,45 @@ app.use((_request, response, next) => {
 app.use(logApiRequests);
 app.use(express.json({ limit: '8kb' }));
 app.get('/health', (_request, response) => response.json({ status: 'ok' }));
+
 app.post('/role-proofs', async (request, response, next) => {
   try {
     const input = roleProofSchema.parse(request.body);
-    const { operationalAccountId, verificationCode, accessProof } = input;
-    const upstreamAccountId = accessProof?.upstreamAccount;
+    const upstreamAccountId = input.version === 1 ? input.accessProof?.upstreamAccount : undefined;
+    const treasuryMemberSeal = input.version === 2 ? input.treasuryMemberSeal : undefined;
+
     if (
-      !isValidArgonAccountAddress(operationalAccountId) ||
+      !isValidArgonAccountAddress(input.operationalAccountId) ||
       (upstreamAccountId && !isValidArgonAccountAddress(upstreamAccountId))
     ) {
       response.status(400).json({ error: 'Invalid Argon account address.' });
       return;
     }
-    verifier.getCode(verificationCode);
+
+    verifier.getCode(input.verificationCode);
     let evidence;
+
     try {
-      evidence = await verifier.checkRoleEvidence(operationalAccountId, upstreamAccountId);
+      evidence = await verifier.loadRoleEvidence(input.operationalAccountId, {
+        upstreamAccountId,
+        vaultId: treasuryMemberSeal?.vaultId,
+      });
     } catch (error) {
+      if (error instanceof VaultDelegateNotFoundError) {
+        next(error);
+        return;
+      }
+
       logError('chain_evidence_failed', error, { operation: 'connect' });
       response.status(503).json({ error: 'Finalized Argon state is temporarily unavailable.' });
       return;
     }
-    const verification = verifier.completeCode(input, accessProof, evidence);
+
+    const verification = verifier.completeCode(input, evidence.operationalAccount, Date.now(), {
+      upstreamAccount: evidence.upstreamAccount,
+      vaultDelegate: evidence.vaultDelegate,
+    });
+
     try {
       await bot.grantRoles(verification.discordUserId, verification.roles);
     } catch (error) {
@@ -86,29 +103,36 @@ app.post('/role-proofs', async (request, response, next) => {
       });
       return;
     }
+
     response.json(verification);
   } catch (error) {
     next(error);
   }
 });
+
 app.post('/role-updates', async (request, response, next) => {
   try {
     const input = roleUpdateSchema.parse(request.body);
     const { operationalAccountId } = input;
+
     if (!isValidArgonAccountAddress(operationalAccountId)) {
       response.status(400).json({ error: 'Invalid Argon account address.' });
       return;
     }
+
     verifier.getUpdateBinding(input);
     let evidence;
+
     try {
-      evidence = await verifier.checkRoleEvidence(operationalAccountId);
+      evidence = await verifier.loadOperationalAccount(operationalAccountId);
     } catch (error) {
       logError('chain_evidence_failed', error, { operation: 'update' });
       response.status(503).json({ error: 'Finalized Argon state is temporarily unavailable.' });
       return;
     }
-    const verification = verifier.completeUpdate(input, evidence.candidate);
+
+    const verification = verifier.completeUpdate(input, evidence);
+
     try {
       await bot.grantRoles(verification.discordUserId, verification.roles);
     } catch (error) {
@@ -118,25 +142,31 @@ app.post('/role-updates', async (request, response, next) => {
       });
       return;
     }
+
     response.json(verification);
   } catch (error) {
     next(error);
   }
 });
-app.use((error: unknown, _request: Request, response: Response, _next: NextFunction) => {
+
+app.use((error: unknown, request: Request, response: Response, _next: NextFunction) => {
   if (error instanceof z.ZodError) {
     response.status(400).json({ error: 'Request body is invalid.' });
     return;
   }
+
   const message = error instanceof Error ? error.message : 'Request failed.';
   let status = 400;
+
   if (message.includes('not found')) status = 404;
   else if (message.includes('not connected')) status = 404;
   else if (message.includes('expired')) status = 410;
   else if (message.includes('already bound')) status = 409;
-  logError('api_request_failed', error, { method: _request.method, path: _request.path, status });
+
+  logError('api_request_failed', error, { method: request.method, path: request.path, status });
   response.status(status).json({ error: message });
 });
+
 const server = app.listen(environment.PORT, environment.HOST, () => {
   logInfo('server_started', { port: environment.PORT });
 });
@@ -157,7 +187,7 @@ for (const signal of ['SIGINT', 'SIGTERM'] as const) {
   });
 }
 
-const roleProofSchema = z
+const legacyRoleProofSchema = z
   .object({
     version: z.literal(1),
     discordApplicationId: z.string().regex(/^\d{17,20}$/),
@@ -174,6 +204,26 @@ const roleProofSchema = z
   })
   .strict();
 
+const roleSubmissionSchema = z
+  .object({
+    version: z.literal(2),
+    discordApplicationId: z.string().regex(/^\d{17,20}$/),
+    verificationCode: z.string().regex(/^ARGON-[0-9a-f]{32}$/),
+    operationalAccountId: z.string().min(1),
+    signature: z.string().regex(/^0x[0-9a-f]+$/i),
+    treasuryMemberSeal: z
+      .object({
+        genesisHash: z.string().regex(/^0x[0-9a-f]{64}$/i),
+        vaultId: z.number().int().nonnegative().max(0xffff_ffff),
+        signature: z.string().regex(/^0x[0-9a-f]+$/i),
+      })
+      .strict()
+      .optional(),
+  })
+  .strict();
+
+const roleProofSchema = z.discriminatedUnion('version', [legacyRoleProofSchema, roleSubmissionSchema]);
+
 const roleUpdateSchema = z
   .object({
     version: z.literal(1),
@@ -183,12 +233,3 @@ const roleUpdateSchema = z
     signature: z.string().regex(/^0x[0-9a-f]+$/i),
   })
   .strict();
-
-function isValidArgonAccountAddress(address: string): boolean {
-  try {
-    decodeAddress(address);
-    return true;
-  } catch {
-    return false;
-  }
-}

@@ -81,6 +81,12 @@ server {
   }
 
   location /bot/ {
+    # Bot HTTP APIs are internal to the router. Public access is only for the
+    # authenticated Desktop WebSocket transport.
+    if ($http_upgrade !~* "^websocket$") {
+      return 404;
+    }
+
     set $auth_session_id $arg_sessionId;
     auth_request /_auth_bot;
     limit_req zone=ws_handshake_per_ip burst=5 nodelay;

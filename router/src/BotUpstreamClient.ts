@@ -1,10 +1,12 @@
 import {
   getObjectStringProperty,
   JsonExt,
+  type IDiscordRoleClaim,
   type IEthereumGatewayCatchUpRequest,
   type IEthereumGatewayCatchUpResponse,
   type IEthereumGatewayRelayStatus,
   type ISignBitcoinLockFeeCouponRequest,
+  type ITreasuryMemberSeal,
   type IBotStateStarting,
   type BitcoinLockFeeCoupon,
 } from '@argonprotocol/apps-core';
@@ -20,6 +22,14 @@ export class BotUpstreamClient {
       method: 'POST',
       headers: { 'Content-Type': 'text/plain' },
       body: JsonExt.stringify(request),
+    });
+  }
+
+  public async signTreasuryMemberSeal(claim: IDiscordRoleClaim): Promise<ITreasuryMemberSeal> {
+    return await this.request('/treasury-member-proofs/sign', {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain' },
+      body: JsonExt.stringify(claim),
     });
   }
 
@@ -44,7 +54,15 @@ export class BotUpstreamClient {
   private async request<T>(path: string, init?: RequestInit): Promise<T> {
     const response = await fetch(`${this.botInternalUrl}${path}`, init);
     const rawBody = await response.text();
-    const body = rawBody ? JsonExt.parse<T | IRouterErrorResponse>(rawBody) : undefined;
+    let body: T | IRouterErrorResponse | undefined;
+
+    if (rawBody) {
+      try {
+        body = JsonExt.parse<T | IRouterErrorResponse>(rawBody);
+      } catch (error) {
+        if (response.ok) throw error;
+      }
+    }
 
     if (!response.ok) {
       const message = getObjectStringProperty(body, 'error') ?? 'Bot request failed.';

@@ -18,7 +18,6 @@ import {
   TxSubmitter,
 } from '@argonprotocol/apps-core';
 import { DockerStatus } from '../src/DockerStatus.js';
-import { Db } from '../src/Db.ts';
 import { startArgonTestNetwork } from '@argonprotocol/apps-core/__test__/startArgonTestNetwork.js';
 import { waitFor } from '@argonprotocol/apps-core/__test__/helpers/waitFor.ts';
 import { getTestMainchainClient } from '@argonprotocol/apps-core/__test__/helpers/mainchain.ts';
@@ -118,8 +117,6 @@ it.skipIf(skipE2E)(
       };
     });
 
-    const db = new Db(botDataDir);
-    db.migrate();
     const fundingAccount = sudo();
     const useProxyBidder = true;
     const proxyKeypair = new Keyring({ type: 'sr25519' }).addFromUri('//Ferdie//mining-proxy');
@@ -135,7 +132,6 @@ it.skipIf(skipE2E)(
     await fundingSetup.waitForInFirstBlock;
 
     const bot = new Bot({
-      db,
       bitcoinInitializerDelegateKeypair: sudo(),
       fundingAccountId: fundingAccount.address,
       bidderKeypair,
@@ -283,10 +279,7 @@ it.skipIf(skipE2E)(
     // try to recover from blocks
 
     const path2 = fs.mkdtempSync(Path.join(os.tmpdir(), 'bot2-'));
-    const restartDb = new Db(path2);
-    restartDb.migrate();
     const botRestart = new Bot({
-      db: restartDb,
       bitcoinInitializerDelegateKeypair: sudo(),
       fundingAccountId: fundingAccount.address,
       bidderKeypair,

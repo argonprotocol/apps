@@ -1,3 +1,4 @@
+import type { ITreasuryMemberSeal } from '@argonprotocol/apps-core';
 import { afterEach, expect, it, vi } from 'vitest';
 import { RequestStatusError, ServerAuthClient } from '../lib/ServerAuthClient.ts';
 import { hasOperationsUpgradeRequest, UpstreamOperatorClient } from '../lib/UpstreamOperatorClient.ts';
@@ -13,6 +14,11 @@ const storeMocks = vi.hoisted(() => ({
   },
   recoverUpstreamHost: vi.fn(),
 }));
+const roleClaim = {
+  discordApplicationId: '123456789012345678',
+  verificationCode: `ARGON-${'a'.repeat(32)}`,
+  operationalAccountId: 'operational-account',
+};
 
 vi.mock('../stores/config.ts', () => ({
   getConfig: () => storeMocks.config,
@@ -120,6 +126,51 @@ it('authenticates to an upstream independently of access to the managed server',
 
   await expect(client.getMemberSessionId()).resolves.toBe('member-session');
   expect(getMemberSessionId).toHaveBeenCalledWith('https://operator.example', {});
+});
+
+it('requests a Treasury member seal with the authenticated member session', async () => {
+  const proof: ITreasuryMemberSeal = {
+    genesisHash: `0x${'11'.repeat(32)}`,
+    vaultId: 12,
+    signature: '0x1234',
+  };
+  const authClient = new ServerAuthClient(() => createMockWalletKeys('//TreasuryMemberProof'));
+  const sessionId = 'member-session';
+  vi.spyOn(authClient, 'getMemberSessionId').mockResolvedValue(sessionId);
+  const fetchMock = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) => Response.json(proof));
+  vi.stubGlobal('fetch', fetchMock);
+  const client = new UpstreamOperatorClient(authClient, () => 'https://operator.example');
+
+  await expect(client.getTreasuryMemberSeal(roleClaim)).resolves.toEqual(proof);
+  expect(fetchMock).toHaveBeenCalledOnce();
+  expect(fetchMock.mock.calls[0]?.[0]).toBe(
+    `https://operator.example/auth/member-proof?sessionId=${encodeURIComponent(sessionId)}`,
+  );
+  expect(fetchMock.mock.calls[0]?.[1]).toMatchObject({
+    method: 'POST',
+    body: JSON.stringify(roleClaim),
+  });
+});
+
+it('skips the Treasury member seal when there is no upstream operator', async () => {
+  const fetchMock = vi.fn();
+  vi.stubGlobal('fetch', fetchMock);
+  const client = new UpstreamOperatorClient(new ServerAuthClient(() => createMockWalletKeys('//NoUpstream')));
+
+  await expect(client.getTreasuryMemberSeal(roleClaim)).resolves.toBeUndefined();
+  expect(fetchMock).not.toHaveBeenCalled();
+});
+
+it('skips the Treasury member seal when the upstream router predates the endpoint', async () => {
+  const authClient = new ServerAuthClient(() => createMockWalletKeys('//LegacyUpstream'));
+  vi.spyOn(authClient, 'getMemberSessionId').mockResolvedValue('member-session');
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async () => new Response('Not Found', { status: 404 })),
+  );
+  const client = new UpstreamOperatorClient(authClient, () => 'https://operator.example');
+
+  await expect(client.getTreasuryMemberSeal(roleClaim)).resolves.toBeUndefined();
 });
 
 it('does not treat a legacy public RPC host as an upstream operator', async () => {

@@ -28,7 +28,7 @@
         </div>
       </template>
 
-      <template v-else-if="services?.config.hasConnectedDiscord">
+      <template v-else-if="config.hasConnectedDiscord">
         <div class="text-base leading-6 font-light text-slate-900">
           <div class="font-bold">Connected to Discord</div>
           <p class="mt-2">
@@ -60,11 +60,7 @@
           To connect your Discord account, run <span class="font-mono">/connect-desktop-app</span> in Discord and paste its private one-time code below.
         </p>
 
-        <div v-if="!services" class="mt-5 text-sm text-amber-700">
-          Discord verification is not configured in this build.
-        </div>
-
-        <form v-else class="mt-5" @submit.prevent="submit('connect')">
+        <form class="mt-5" @submit.prevent="submit('connect')">
           <label for="discord-verification-code" class="block text-sm font-medium text-slate-700">Verification code</label>
           <input
             id="discord-verification-code"
@@ -113,33 +109,21 @@ import {
   signDiscordRoleProof,
   signDiscordRoleUpdateProof,
   type DiscordEarnedRole,
-  type IOperationalAccessProof,
 } from '@argonprotocol/apps-core';
-import type { KeyringPair } from '@argonprotocol/mainchain';
 import basicEmitter from '../emitters/basicEmitter.ts';
-import type { Config } from '../lib/Config.ts';
-import type { WalletKeys } from '../lib/WalletKeys.ts';
 import { useBasics } from '../stores/basics.ts';
 import { getConfig } from '../stores/config.ts';
 import { getWalletKeys } from '../stores/wallets.ts';
 import { getUpstreamOperatorClient } from '../stores/upstreamOperator.ts';
 import OverlayBase from './OverlayBase.vue';
 
-interface IDiscordVerificationOverlayServices {
-  applicationId: string;
-  serviceUrl: string;
-  walletKeys: Pick<WalletKeys, 'getOperationalKeypair'>;
-  getAccessProof: () => Promise<IOperationalAccessProof | undefined>;
-  config: Pick<Config, 'hasConnectedDiscord' | 'save'>;
-}
-
 interface IDiscordVerificationResult {
   discordUserId: string;
   roles: DiscordEarnedRole[];
 }
 
-const props = defineProps<{ services?: IDiscordVerificationOverlayServices }>();
 const basics = useBasics();
+const config = getConfig();
 const isOpen = Vue.ref(false);
 const state = Vue.ref<'ready' | 'connecting' | 'updating' | 'connected' | 'updated'>('ready');
 const verificationCode = Vue.ref('');
@@ -150,7 +134,6 @@ const roleLabels: Record<DiscordEarnedRole, string> = {
   treasuryCertified: 'Treasury Certified',
   operationallyCertified: 'Operationally Certified',
 };
-const services = Vue.computed(() => props.services ?? createDefaultServices());
 const isSubmitting = Vue.computed(() => state.value === 'connecting' || state.value === 'updating');
 let requestId = 0;
 
@@ -168,75 +151,96 @@ basicEmitter.on('openDiscordVerificationOverlay', openDiscordVerificationOverlay
 Vue.onUnmounted(() => basicEmitter.off('openDiscordVerificationOverlay', openDiscordVerificationOverlay));
 
 async function submit(action: 'connect' | 'update'): Promise<void> {
-  const activeServices = services.value;
-  if (!activeServices || isSubmitting.value) return;
+  if (isSubmitting.value) return;
   const currentRequest = ++requestId;
   state.value = action === 'connect' ? 'connecting' : 'updating';
   errorMessage.value = '';
   try {
-    const operationalKey: KeyringPair = await activeServices.walletKeys.getOperationalKeypair();
-    const operationalAccountId = operationalKey.address;
     let path: string;
     let requestBody: object;
+
     if (action === 'connect') {
       const code = verificationCode.value.trim();
       if (!/^ARGON-[0-9a-f]{32}$/.test(code)) {
         throw new Error('Invalid Discord verification code.');
       }
-      const proof = {
-        version: 1,
-        discordApplicationId: activeServices.applicationId,
-        verificationCode: code,
-        operationalAccountId,
-      } as const;
-      const signature = signDiscordRoleProof(operationalKey, proof);
-      const accessProof = await activeServices.getAccessProof().catch(() => undefined);
+
       path = '/role-proofs';
-      requestBody = { ...proof, signature, ...(accessProof ? { accessProof } : {}) };
+      const operationalKey = await getWalletKeys().getOperationalKeypair();
+      const roleClaim = {
+        discordApplicationId: DISCORD_VERIFICATION_CONFIG.applicationId,
+        verificationCode: code,
+        operationalAccountId: operationalKey.address,
+      } as const;
+      const operationalProof = {
+        version: 1,
+        ...roleClaim,
+      } as const;
+
+      const treasuryMemberSeal = await getUpstreamOperatorClient()
+        .getTreasuryMemberSeal(roleClaim)
+        .catch(() => undefined);
+      if (currentRequest !== requestId) return;
+
+      requestBody = {
+        version: 2,
+        ...roleClaim,
+        signature: signDiscordRoleProof(operationalKey, operationalProof),
+        treasuryMemberSeal,
+      };
     } else {
+      const operationalKey = await getWalletKeys().getOperationalKeypair();
       const proof = {
         version: 1,
-        discordApplicationId: activeServices.applicationId,
+        discordApplicationId: DISCORD_VERIFICATION_CONFIG.applicationId,
         signedAt: Date.now(),
-        operationalAccountId,
+        operationalAccountId: operationalKey.address,
       } as const;
+
       path = '/role-updates';
       requestBody = { ...proof, signature: signDiscordRoleUpdateProof(operationalKey, proof) };
     }
+
+    if (currentRequest !== requestId) return;
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 30_000);
-    const response = await fetch(`${activeServices.serviceUrl.replace(/\/$/, '')}${path}`, {
+    const response = await fetch(`${DISCORD_VERIFICATION_CONFIG.serviceUrl}${path}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(requestBody),
       signal: controller.signal,
     }).finally(() => clearTimeout(timeout));
-    const body = (await response.json().catch(() => undefined)) as Partial<IDiscordVerificationResult> & {
-      error?: unknown;
-    };
+
+    const body = (await response.json().catch(() => undefined)) as
+      | (Partial<IDiscordVerificationResult> & { error?: unknown })
+      | undefined;
+
     if (currentRequest !== requestId) return;
+
     if (!response.ok) {
       if (action === 'update' && response.status === 404) {
-        activeServices.config.hasConnectedDiscord = false;
-        await activeServices.config.save().catch(() => undefined);
+        config.hasConnectedDiscord = false;
+        await config.save().catch(() => undefined);
       }
       throw new Error(
         typeof body?.error === 'string' ? body.error : `Discord verification failed (${response.status}).`,
       );
     }
+
+    const roles = body?.roles;
     if (
-      !/^\d{17,20}$/.test(body.discordUserId ?? '') ||
-      !Array.isArray(body.roles) ||
-      body.roles.length === 0 ||
-      body.roles.some(role => !DISCORD_ROLE_ORDER.includes(role))
+      !/^\d{17,20}$/.test(body?.discordUserId ?? '') ||
+      !Array.isArray(roles) ||
+      roles.length === 0 ||
+      roles.some(role => !DISCORD_ROLE_ORDER.includes(role))
     ) {
       throw new Error('Discord verification returned an invalid response.');
     }
     if (action === 'connect') {
-      activeServices.config.hasConnectedDiscord = true;
-      await activeServices.config.save().catch(async () => {
-        activeServices.config.hasConnectedDiscord = false;
-        await activeServices.config.save().catch(() => undefined);
+      config.hasConnectedDiscord = true;
+      await config.save().catch(async () => {
+        config.hasConnectedDiscord = false;
+        await config.save().catch(() => undefined);
         errorMessage.value = 'Discord connected, but this app could not remember the connection.';
       });
       if (currentRequest !== requestId) return;
@@ -248,22 +252,6 @@ async function submit(action: 'connect' | 'update'): Promise<void> {
     errorMessage.value = error instanceof Error ? error.message : 'Discord verification failed.';
     state.value = 'ready';
   }
-}
-
-function createDefaultServices(): IDiscordVerificationOverlayServices | undefined {
-  if (
-    !/^\d{17,20}$/.test(DISCORD_VERIFICATION_CONFIG.applicationId) ||
-    !/^https:\/\//.test(DISCORD_VERIFICATION_CONFIG.serviceUrl)
-  ) {
-    return undefined;
-  }
-  return {
-    applicationId: DISCORD_VERIFICATION_CONFIG.applicationId,
-    serviceUrl: DISCORD_VERIFICATION_CONFIG.serviceUrl,
-    walletKeys: getWalletKeys(),
-    getAccessProof: async () => (await getUpstreamOperatorClient().getMemberInvite()).accessProof ?? undefined,
-    config: getConfig(),
-  };
 }
 
 function closeOverlay(): void {

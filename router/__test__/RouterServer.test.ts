@@ -14,15 +14,11 @@ import {
   UserRole,
   type IEthereumGatewayCatchUpResponse,
   type IEthereumGatewayRelayStatus,
+  type ITreasuryMemberSeal,
   type RouterAuthRole,
   BitcoinLock,
 } from '@argonprotocol/apps-core';
-import {
-  getOfflineRegistry,
-  Keyring,
-  PriceIndex,
-  type KeyringPair,
-} from '@argonprotocol/mainchain';
+import { getOfflineRegistry, Keyring, PriceIndex, type KeyringPair } from '@argonprotocol/mainchain';
 import { Db as RouterDb } from '../src/Db.ts';
 import { RouterServer } from '../src/RouterServer.ts';
 import type { IRouterAuthServiceOptions } from '../src/RouterAuthService.ts';
@@ -695,6 +691,66 @@ describe('RouterServer', () => {
       withSessionId(`http://${started.routerAddress.host}:${started.routerAddress.port}/invites`, session.sessionId),
     );
     expect(listResponse.status).toBe(403);
+  });
+
+  it('seals a Discord role claim for an accepted member session', async () => {
+    routerDb = createDb('router-server-member-proof-');
+
+    const operator = new Keyring({ type: 'sr25519' }).addFromUri('//RouterOperator');
+    const member = new Keyring({ type: 'sr25519' }).addFromUri('//InviteMember');
+    const memberAuth = member.derive('//downstream-auth');
+    const operational = new Keyring({ type: 'sr25519' }).addFromUri('//MemberOperational');
+    const invite = insertMemberInvite(routerDb, {
+      inviteCode: 'member-invite-1',
+      name: 'Casey',
+      fromName: 'Operator One',
+    });
+    routerDb.userInvitesTable.claimInvite(invite.id, member.address, memberAuth.address);
+
+    const handleBotRequest = vi.fn(
+      (_request: BotRequest): BotResponse => ({
+        status: 200,
+        body: {
+          genesisHash: `0x${'11'.repeat(32)}`,
+          vaultId: 12,
+          signature: '0xsignature',
+        },
+      }),
+    );
+    const started = await startRouterServer(routerDb, handleBotRequest, {
+      adminOperatorAccountId: operator.address,
+      sessionTtlSeconds: 60,
+    });
+    routerServer = started.routerServer;
+    botServer = started.botServer;
+
+    const baseUrl = `http://${started.routerAddress.host}:${started.routerAddress.port}`;
+    const { session: memberSession } = await login(started.routerAddress, member, UserRole.Member, memberAuth);
+    const roleClaim = {
+      discordApplicationId: '123456789012345678',
+      verificationCode: `ARGON-${'a'.repeat(32)}`,
+      operationalAccountId: operational.address,
+    };
+
+    const response = await fetch(withSessionId(`${baseUrl}/auth/member-proof`, memberSession.sessionId), {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain' },
+      body: JsonExt.stringify(roleClaim),
+    });
+
+    expect(response.status).toBe(200);
+    const proof = JsonExt.parse<ITreasuryMemberSeal>(await response.text());
+    expect(proof).toMatchObject({
+      genesisHash: `0x${'11'.repeat(32)}`,
+      vaultId: 12,
+      signature: '0xsignature',
+    });
+    expect(handleBotRequest).toHaveBeenCalledOnce();
+    expect(handleBotRequest).toHaveBeenCalledWith({
+      method: 'POST',
+      path: '/treasury-member-proofs/sign',
+      body: roleClaim,
+    });
   });
 
   it('requires a matching member session for member coupon routes', async () => {

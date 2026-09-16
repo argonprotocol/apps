@@ -1,12 +1,8 @@
-import { existsSync } from 'node:fs';
-import { DatabaseSync } from 'node:sqlite';
 import {
   bigIntMax,
-  convertFromSqliteFields,
   type ArgonClient,
   Currency,
   MiningFrames,
-  type IBitcoinLockCouponRecord,
   type IBitcoinLockCouponStatus,
   type IBitcoinLockCouponUseRecord,
   type IBitcoinLockCouponRequest,
@@ -21,34 +17,25 @@ import { RouterError } from './RouterError.ts';
 import type { IBitcoinLockCouponRow } from './db/BitcoinLockCouponsTable.ts';
 
 export class BitcoinLockCouponService {
-  private legacyImportPromise?: Promise<void>;
   private remoteStateRefreshPromise?: Promise<void>;
 
   private readonly db: Db;
   private readonly botClient: BotUpstreamClient;
   private readonly getMainchainClient: () => Promise<ArgonClient>;
-  private readonly legacyBotDbPath?: string;
 
-  constructor(options: {
-    db: Db;
-    botClient: BotUpstreamClient;
-    getMainchainClient: () => Promise<ArgonClient>;
-    legacyBotDbPath?: string;
-  }) {
+  constructor(options: { db: Db; botClient: BotUpstreamClient; getMainchainClient: () => Promise<ArgonClient> }) {
     this.db = options.db;
     this.botClient = options.botClient;
     this.getMainchainClient = options.getMainchainClient;
-    this.legacyBotDbPath = options.legacyBotDbPath;
+    this.db.bitcoinLockCouponsTable.retireDelegatedCoupons();
+    this.db.bitcoinLockCouponsTable.failUnsignedPreparedUses();
   }
 
   public async reconcile(): Promise<void> {
-    await this.ensureLegacyCouponsImported();
     await this.refreshRemoteState();
   }
 
   public async create(request: ICreateBitcoinLockCouponRequest): Promise<IBitcoinLockCouponStatus> {
-    await this.ensureLegacyCouponsImported();
-
     if (!Number.isFinite(request.estimatedGiftUsd) || request.estimatedGiftUsd < 0) {
       throw new RouterError('Estimated gift USD must be a valid non-negative number.', 400);
     }
@@ -73,8 +60,6 @@ export class BitcoinLockCouponService {
   }
 
   public async activateLatest(userId: number, accountId: string): Promise<IBitcoinLockCouponStatus> {
-    await this.ensureLegacyCouponsImported();
-
     const coupon = this.db.bitcoinLockCouponsTable.fetchLatestByUserId(userId);
     if (!coupon) throw new RouterError('Bitcoin lock coupon not found.', 404);
     if (coupon.accountId && coupon.accountId !== accountId) {
@@ -87,13 +72,10 @@ export class BitcoinLockCouponService {
   }
 
   public async restore(coupon: Omit<IBitcoinLockCouponRow, 'id'> & { id?: number }): Promise<IBitcoinLockCouponRow> {
-    await this.ensureLegacyCouponsImported();
     return this.db.bitcoinLockCouponsTable.restore(coupon);
   }
 
   public async getByOfferCode(offerCode: string): Promise<IBitcoinLockCouponStatus> {
-    await this.ensureLegacyCouponsImported();
-
     const coupon = this.db.bitcoinLockCouponsTable.fetchByOfferCode(offerCode);
     if (!coupon) throw new RouterError('Bitcoin lock coupon not found.', 404);
     void this.refreshRemoteState();
@@ -101,14 +83,12 @@ export class BitcoinLockCouponService {
   }
 
   public async getByUserId(userId: number): Promise<IBitcoinLockCouponStatus[]> {
-    await this.ensureLegacyCouponsImported();
     void this.refreshRemoteState();
     const coupons = this.db.bitcoinLockCouponsTable.fetchByUserId(userId);
     return coupons.map(coupon => this.getStatus(coupon));
   }
 
   public async getAll(): Promise<IBitcoinLockCouponStatus[]> {
-    await this.ensureLegacyCouponsImported();
     void this.refreshRemoteState();
     return this.db.bitcoinLockCouponsTable.fetchAll().map(coupon => this.getStatus(coupon));
   }
@@ -125,8 +105,6 @@ export class BitcoinLockCouponService {
     offerCode: string,
     request: IBitcoinLockCouponRequest,
   ): Promise<{ status: IBitcoinLockCouponStatus; use: IBitcoinLockCouponUseRecord }> {
-    await this.ensureLegacyCouponsImported();
-
     const coupon = this.db.bitcoinLockCouponsTable.fetchByOfferCode(offerCode);
     if (!coupon) throw new RouterError('Bitcoin lock coupon not found.', 404);
     if (!coupon.accountId) throw new RouterError('This invite has not been accepted yet.', 400);
@@ -241,7 +219,6 @@ export class BitcoinLockCouponService {
   }
 
   public async updateExpiration(offerCode: string, expiresAfterTicks: number): Promise<IBitcoinLockCouponStatus> {
-    await this.ensureLegacyCouponsImported();
     if (!Number.isSafeInteger(expiresAfterTicks) || expiresAfterTicks < 0) {
       throw new RouterError('A non-negative coupon expiration is required.', 400);
     }
@@ -382,71 +359,6 @@ export class BitcoinLockCouponService {
       }
     } catch {
       // Unused legacy coupons can be upgraded from a later price index.
-    }
-  }
-
-  private async ensureLegacyCouponsImported(): Promise<void> {
-    this.legacyImportPromise ??= Promise.resolve().then(() => {
-      this.importLegacyCoupons();
-      this.db.bitcoinLockCouponsTable.retireDelegatedCoupons();
-      this.db.bitcoinLockCouponsTable.failUnsignedPreparedUses();
-    });
-    try {
-      await this.legacyImportPromise;
-    } catch (error) {
-      this.legacyImportPromise = undefined;
-      console.warn('[router] Unable to import legacy Bitcoin lock coupons.', error);
-      throw error;
-    }
-  }
-
-  private importLegacyCoupons(): void {
-    if (!this.legacyBotDbPath || !existsSync(this.legacyBotDbPath)) return;
-
-    const legacyDb = new DatabaseSync(this.legacyBotDbPath, { readOnly: true });
-    try {
-      const hasTable = (name: string) => {
-        return !!legacyDb.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ? LIMIT 1").get(name);
-      };
-      if (!hasTable('BitcoinLockCoupons')) return;
-
-      const delegatedCouponIds = new Set<number>();
-      if (hasTable('BitcoinLockRelays')) {
-        const relayRows = legacyDb.prepare('SELECT * FROM BitcoinLockRelays ORDER BY id ASC').all() as Array<{
-          legacyCouponId?: number;
-          couponId?: number;
-        }>;
-        for (const row of relayRows) {
-          const couponId = row.legacyCouponId ?? row.couponId;
-          if (couponId == null) continue;
-          delegatedCouponIds.add(Number(couponId));
-        }
-      }
-
-      const couponRows = legacyDb.prepare('SELECT * FROM BitcoinLockCoupons ORDER BY id ASC').all();
-      for (const row of couponRows) {
-        const userId = Number(row.userId);
-        if (!this.db.userInvitesTable.fetchById(userId)) continue;
-
-        const coupon = convertFromSqliteFields<IBitcoinLockCouponRecord>(
-          {
-            ...row,
-            sequence: row.sequence ?? 1,
-            estimatedGiftUsd: row.estimatedGiftUsd ?? 0,
-            btcPctFee: row.btcPctFee ?? 0,
-          },
-          {
-            bigint: ['maxSatoshis'],
-            date: ['createdAt', 'updatedAt'],
-          },
-        );
-        this.db.bitcoinLockCouponsTable.restore({
-          ...coupon,
-          ...(delegatedCouponIds.has(Number(row.id)) ? { feeCreditMicrogons: 0n } : {}),
-        });
-      }
-    } finally {
-      legacyDb.close();
     }
   }
 }
