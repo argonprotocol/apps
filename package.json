@@ -193,6 +193,9 @@
     "esbuild": {
       "built": true
     },
+    "sqlite3": {
+      "built": true
+    },
     "unrs-resolver": {
       "built": true
     },

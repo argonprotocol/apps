@@ -6,7 +6,7 @@ interface IReadOnlyFlowContext {
 }
 
 type IReadOnlyFlowState = IE2EOperationInspectState<
-  { archivedBitcoinLiquidId?: number },
+  { archivedBitcoinLiquidId?: number; bitcoinLiquidIds: number[] },
   {
     canSign: boolean;
     defaultArgonAddress?: string;
@@ -22,6 +22,8 @@ type IReadOnlyFlowState = IE2EOperationInspectState<
     upstreamName?: string;
     upstreamVisible: boolean;
     vaultId?: number;
+    bitcoinLiquidIds: number[];
+    expectedBitcoinLiquidIds: number[];
     archivedBitcoinLiquidVisible: boolean;
   }
 >;
@@ -32,6 +34,7 @@ export default new OperationalFlow<IReadOnlyFlowContext, IReadOnlyFlowState>(imp
   createContext: flow => ({ flow }),
   async inspect({ flow }) {
     const expectsBitcoinLiquid = flow.input.expectsBitcoinLiquid === true;
+    const expectedBitcoinLiquidIds = (flow.input.expectedBitcoinLiquidIds ?? []) as number[];
     const appState = await flow.queryApp(
       (refs, args: { expectsBitcoinLiquid: boolean }) => ({
         canSign: refs.canSign,
@@ -42,6 +45,10 @@ export default new OperationalFlow<IReadOnlyFlowContext, IReadOnlyFlowState>(imp
         recoveryInProgress: refs.config.isBootingUpPreviousWalletHistory,
         upstreamName: refs.config.upstreamOperator?.name,
         vaultId: refs.myVault.vaultId,
+        bitcoinLiquidIds: refs
+          .getBitcoinFissions()
+          .getLiquids()
+          .map(liquid => liquid.liquidId),
         archivedBitcoinLiquidId: args.expectsBitcoinLiquid
           ? refs
               .getBitcoinFissions()
@@ -69,6 +76,7 @@ export default new OperationalFlow<IReadOnlyFlowContext, IReadOnlyFlowState>(imp
     const expectsVault = flow.input.expectsVault !== false;
     const expectsOperations = flow.input.expectsOperations !== false;
     const hasRecoveredBitcoinLiquid = !expectsBitcoinLiquid || appState?.archivedBitcoinLiquidId !== undefined;
+    const hasExpectedBitcoinLiquidIds = expectedBitcoinLiquidIds.every(id => appState?.bitcoinLiquidIds.includes(id));
     const hasExpectedIdentity = expectedDefaultArgonAddress
       ? appState?.defaultArgonAddress === expectedDefaultArgonAddress
       : !!expectedEthereumAddress &&
@@ -89,10 +97,14 @@ export default new OperationalFlow<IReadOnlyFlowContext, IReadOnlyFlowState>(imp
       hasExpectedUpstreamState &&
       (!expectsVault || appState?.vaultId != null) &&
       hasRecoveredBitcoinLiquid &&
+      hasExpectedBitcoinLiquidIds &&
       archivedBitcoinLiquidVisible;
 
     return {
-      chainState: { archivedBitcoinLiquidId: appState?.archivedBitcoinLiquidId },
+      chainState: {
+        archivedBitcoinLiquidId: appState?.archivedBitcoinLiquidId,
+        bitcoinLiquidIds: appState?.bitcoinLiquidIds ?? [],
+      },
       uiState: {
         canSign: appState?.canSign ?? true,
         defaultArgonAddress: appState?.defaultArgonAddress,
@@ -107,6 +119,8 @@ export default new OperationalFlow<IReadOnlyFlowContext, IReadOnlyFlowState>(imp
         upstreamName: appState?.upstreamName,
         upstreamVisible,
         vaultId: appState?.vaultId,
+        bitcoinLiquidIds: appState?.bitcoinLiquidIds ?? [],
+        expectedBitcoinLiquidIds,
         archivedBitcoinLiquidVisible,
       },
       state: isComplete ? 'complete' : 'runnable',
@@ -122,12 +136,35 @@ export default new OperationalFlow<IReadOnlyFlowContext, IReadOnlyFlowState>(imp
         ...(hasExpectedUpstreamState ? [] : ['upstream operator state does not match the account package']),
         ...(!expectsVault || appState?.vaultId != null ? [] : ['on-chain vault state was not loaded']),
         ...(hasRecoveredBitcoinLiquid ? [] : ['archived Bitcoin Liquid was not recovered']),
+        ...(hasExpectedBitcoinLiquidIds ? [] : ['expected Bitcoin Liquid history was not loaded']),
         ...(archivedBitcoinLiquidVisible ? [] : ['archived Bitcoin Liquid row is not visible']),
       ],
     };
   },
   async run({ flow }) {
-    if (flow.input.expectsBitcoinLiquid === true) {
+    if (flow.input.historyThroughBlock !== undefined) {
+      const historyThroughBlock = Number(flow.input.historyThroughBlock);
+      if (!Number.isSafeInteger(historyThroughBlock) || historyThroughBlock < 1) {
+        throw new Error(
+          `historyThroughBlock must be a positive safe integer, got ${String(flow.input.historyThroughBlock)}`,
+        );
+      }
+      const historyRecovery = await flow.queryApp(
+        (refs, args: { throughBlock: number }) => refs.accountHistoryRecovery.recoverThrough(args.throughBlock),
+        {
+          args: { throughBlock: historyThroughBlock },
+          timeoutMs: 300_000,
+        },
+      );
+      if (!historyRecovery) {
+        throw new Error(
+          `Account history did not finish recovery through block ${historyThroughBlock.toLocaleString()}`,
+        );
+      }
+      flow.setData('historyRecovery', historyRecovery);
+    }
+
+    if (flow.input.expectsBitcoinLiquid === true || ((flow.input.expectedBitcoinLiquidIds ?? []) as number[]).length) {
       await flow.poll<IReadOnlyFlowState>(latest => !latest.uiState.recoveryInProgress, {
         pollMs: 1_000,
         timeoutMs: 60_000,

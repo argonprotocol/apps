@@ -14,6 +14,7 @@
     "build": "yarn check:operation-rules && tsc --noEmit"
   },
   "devDependencies": {
+    "@acala-network/chopsticks": "1.5.0",
     "@argonprotocol/apps-bot": "workspace:*",
     "@argonprotocol/apps-core": "workspace:*",
     "@argonprotocol/mainchain": "1.4.12-dev.2bc449e2",

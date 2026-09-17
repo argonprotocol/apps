@@ -1,6 +1,7 @@
 import { mnemonicGenerate } from '@argonprotocol/mainchain';
+import { DriverClient } from '../../driver/client.ts';
 import type { IE2EFlowRuntime, IE2EOperationInspectState } from '../types.ts';
-import { isRetryableAppConnectionError, pollEvery } from '../helpers/utils.ts';
+import { pollEvery } from '../helpers/utils.ts';
 import { Operation } from './index.ts';
 
 interface IAppFlowContext {
@@ -61,7 +62,7 @@ export default new Operation<IAppFlowContext, IPrepareAccessState>(import.meta, 
           const importButton = await flow.isVisible('WelcomeOverlay.importFromMnemonic()');
           return !importButton.exists || !importButton.visible;
         } catch (error) {
-          if (isRetryableAppConnectionError(error)) {
+          if (DriverClient.isRetryableConnectionError(error)) {
             sawReloadError = true;
             return true;
           }
@@ -102,7 +103,7 @@ export default new Operation<IAppFlowContext, IPrepareAccessState>(import.meta, 
           settledPolls += 1;
           return settledPolls >= 5;
         } catch (error) {
-          if (!isRetryableAppConnectionError(error)) {
+          if (!DriverClient.isRetryableConnectionError(error)) {
             throw error;
           }
           sawReloadError = true;

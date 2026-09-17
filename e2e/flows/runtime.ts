@@ -1,6 +1,6 @@
-import type { DriverClient } from '../driver/client.ts';
+import { DriverClient } from '../driver/client.ts';
+import { delay } from '../../scripts/utils.ts';
 import { captureE2EScreenshot, getE2EScreenshotMode } from './helpers/screenshotMode.ts';
-import { isRetryableAppConnectionError, sleep } from './helpers/utils.ts';
 import { runOperation } from './operations/index.ts';
 import {
   E2EGlobalInterruptionError,
@@ -94,7 +94,7 @@ export async function executeFlow(
       const dismissal = await driver
         .command<IE2EVisibilityState>('ui.isVisible', withCommandMeta({ selector: '[data-e2e-root-dismiss]' }))
         .catch(error => {
-          if (isRetryableAppConnectionError(error)) return undefined;
+          if (DriverClient.isRetryableConnectionError(error)) return undefined;
           throw error;
         });
       if (!dismissal?.clickable) return false;
@@ -370,10 +370,10 @@ async function waitForAppUiReadyAfterReload(
       );
       return;
     } catch (error) {
-      if (!isRetryableAppConnectionError(error)) {
+      if (!DriverClient.isRetryableConnectionError(error)) {
         throw error;
       }
-      await sleep(250);
+      await delay(250);
     }
   }
 

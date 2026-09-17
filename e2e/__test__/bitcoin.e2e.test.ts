@@ -2,17 +2,16 @@ import { copyFileSync, existsSync, mkdirSync, readFileSync, rmSync } from 'node:
 import Path from 'node:path';
 import { createArgonClient } from '@argonprotocol/apps-core';
 import { getClient, Keyring } from '@argonprotocol/mainchain';
-import { afterAll, describe, it } from 'vitest';
+import { afterAll, describe, expect, it } from 'vitest';
 import { resolveReadonlyAccount, writeReadonlyWallet } from '../../scripts/troubleshootAccount.ts';
 import { sudoSubmitAndFinalize } from '../../core/__test__/helpers/mainchain.ts';
 import { sudoFundWallet } from '../../core/__test__/helpers/sudoFundWallet.ts';
-import { createFlowSession, type IFlowSession } from '../flows/session.ts';
+import { FlowSession } from '../FlowSession.ts';
 
 const skipE2E = Boolean(JSON.parse(process.env.SKIP_E2E ?? '0'));
-
 describe.skipIf(skipE2E).sequential('Bitcoin Operation Flows', () => {
   describe.sequential('Bitcoin Liquid lifecycle and read-only recovery', () => {
-    let session: IFlowSession | undefined;
+    let session: FlowSession | undefined;
     let lifecycleCompleted = false;
     let readOnlyInstanceDirectory: string | undefined;
     let basicInstanceDirectory: string | undefined;
@@ -31,7 +30,7 @@ describe.skipIf(skipE2E).sequential('Bitcoin Operation Flows', () => {
     it(
       'creates, ratchets, and closes a Liquid',
       async () => {
-        session = await createFlowSession({
+        session = await FlowSession.start({
           useTestNetwork: true,
           useDevUpstream: true,
           sessionName: `bitcoin-liquid-spec-${process.pid}-${Date.now()}`,
@@ -121,6 +120,7 @@ describe.skipIf(skipE2E).sequential('Bitcoin Operation Flows', () => {
         };
         const generatedInstanceName = `${Path.basename(session.appInstanceDirectory)}-generated`;
         generatedInstanceDirectory = Path.join(Path.dirname(session.appInstanceDirectory), generatedInstanceName);
+        let historyThroughBlock = 0;
 
         const client = createArgonClient(await getClient(session.archiveUrl));
         try {
@@ -131,16 +131,32 @@ describe.skipIf(skipE2E).sequential('Bitcoin Operation Flows', () => {
           if (!account.operatorName) throw new Error('The E2E operational account has no operator name.');
           const accountByName = await resolveReadonlyAccount(client, { operatorName: account.operatorName });
           writeReadonlyWallet(generatedInstanceDirectory, accountByName);
+          const finalizedHead = await client.rpc.chain.getFinalizedHead();
+          historyThroughBlock = (await client.rpc.chain.getHeader(finalizedHead)).number.toNumber();
         } finally {
           await client.disconnect();
         }
 
         await session.loadInstance(generatedInstanceName);
-        await session.run('App.flow.readOnly', {
+        const readonlyResult = await session.run('App.flow.readOnly', {
           expectedDefaultArgonAddress: sourceWallet.meta.vaultingAddress,
           expectsConfiguredServer: false,
           expectsUpstream: false,
           expectsBitcoinLiquid: true,
+          historyThroughBlock,
+        });
+        expect(readonlyResult.data.historyRecovery).toMatchObject({
+          throughBlock: historyThroughBlock,
+          walletHistory: { asOfBlock: historyThroughBlock },
+          financialHistory: {
+            accountId: sourceWallet.meta.vaultingAddress,
+            asOfBlock: historyThroughBlock,
+            domainCheckpoints: {
+              bitcoin: { asOfBlock: historyThroughBlock },
+              bonds: { asOfBlock: historyThroughBlock },
+              vaulting: { asOfBlock: historyThroughBlock },
+            },
+          },
         });
       },
       60 * 60_000,
@@ -150,7 +166,7 @@ describe.skipIf(skipE2E).sequential('Bitcoin Operation Flows', () => {
   it(
     'bitcoin lock/unlock',
     async () => {
-      const session = await createFlowSession({
+      const session = await FlowSession.start({
         useTestNetwork: true,
         useDevUpstream: true,
         sessionName: 'bitcoin-spec-Bitcoin.flow.lockUnlock',

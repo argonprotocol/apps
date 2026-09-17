@@ -12,6 +12,7 @@ import { getEthereumOutboundTransferTracker } from '../stores/moveToEthereum.ts'
 import basicEmitter from '../emitters/basicEmitter.ts';
 import type { IAppQueryFn, IAppQueryRefs } from '../interfaces/IAppQueryRefs.ts';
 import { WalletType } from '../lib/Wallet.ts';
+import { AccountHistoryRecovery } from './AccountHistoryRecovery.ts';
 
 type UnknownRecord = Record<string, unknown>;
 export const LOGGABLE_ARG_KEYS = [
@@ -1220,6 +1221,7 @@ async function getAppQueryRefs(): Promise<IAppQueryRefs> {
   const bitcoinLocks = getBitcoinLocks();
   const basics = useBasics();
   const wallets = useWallets();
+  const walletKeys = getWalletKeys();
   await config.isLoadedPromise.catch(() => undefined);
   await myVault.load().catch(() => undefined);
   await bitcoinLocks.load().catch(() => undefined);
@@ -1229,15 +1231,16 @@ async function getAppQueryRefs(): Promise<IAppQueryRefs> {
     bitcoinLocks,
     myVault,
     wallets,
-    canSign: getWalletKeys().canSign,
-    defaultArgonAddress: getWalletKeys().defaultArgonAddress,
-    defaultEthereumAddress: getWalletKeys().coreEthereumAddress,
-    coreEthereumAddress: getWalletKeys().coreEthereumAddress,
+    canSign: walletKeys.canSign,
+    defaultArgonAddress: walletKeys.defaultArgonAddress,
+    defaultEthereumAddress: walletKeys.coreEthereumAddress,
+    coreEthereumAddress: walletKeys.coreEthereumAddress,
     overlayIsOpen: basics.overlayIsOpen,
     getBitcoinFissions,
     getEthereumMoveTracker,
     getEthereumOutboundTransferTracker,
     getMainchainClient,
+    accountHistoryRecovery: new AccountHistoryRecovery(),
     openWalletOverlay(walletType) {
       const wallet =
         walletType === WalletType.bitcoin ? wallets.bitcoinWallet : wallets.argonWallets.defaultArgonWallet;

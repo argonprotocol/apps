@@ -2,7 +2,9 @@
 
 import readline from 'node:readline/promises';
 import process from 'node:process';
-import type { E2EFlowAppLogsMode, E2ESessionMode, IFlowSession } from '../flows/session.ts';
+import type { E2ESessionMode } from '../AppSession.ts';
+import type { AppLogsMode } from '../AppProcessOutput.ts';
+import type { FlowSession } from '../FlowSession.ts';
 
 type OperationContextName = 'app' | 'bitcoin' | 'mining' | 'vaulting';
 type OperationMode = 'run' | 'inspect';
@@ -30,10 +32,7 @@ interface IRunStepInput {
   printInspectSummary?: boolean;
 }
 
-interface IFlowSessionRunner {
-  run: IFlowSession['run'];
-  close: IFlowSession['close'];
-}
+type FlowSessionRunner = Pick<FlowSession, 'run' | 'close'>;
 
 interface IRunStepResult {
   ok: boolean;
@@ -69,13 +68,12 @@ if (suppressPolkadotWarnings) {
 }
 
 async function main(): Promise<void> {
-  const { createFlowSession, resolveFlowSessionMode, resolveFlowSessionAppLogsMode } = await import(
-    '../flows/session.js'
-  );
+  const { AppSession } = await import('../AppSession.js');
+  const { FlowSession } = await import('../FlowSession.js');
   const { listFlows } = await import('../flows/index.js');
-  const sessionMode = resolveFlowSessionMode(process.env.E2E_SESSION_MODE);
+  const sessionMode = AppSession.resolveMode(process.env.E2E_SESSION_MODE);
   const useTestNetwork = (process.env.E2E_USE_TEST_NETWORK ?? (sessionMode === 'stateful' ? '0' : '1')).trim() === '1';
-  const appLogsMode = resolveFlowSessionAppLogsMode(process.env.E2E_CONSOLE_APP_LOGS ?? 'quiet');
+  const appLogsMode = AppSession.resolveLogsMode(process.env.E2E_CONSOLE_APP_LOGS ?? 'quiet');
   if (sessionMode === 'stateful' && useTestNetwork) {
     throw new Error('[E2E] E2E_SESSION_MODE=stateful requires E2E_USE_TEST_NETWORK=0.');
   }
@@ -88,7 +86,7 @@ async function main(): Promise<void> {
   };
   const flows = listConsoleFlows(listFlows());
 
-  const session = await createFlowSession({ sessionMode, useTestNetwork, appLogsMode });
+  const session = await FlowSession.start({ sessionMode, useTestNetwork, appLogsMode });
   const rl = readline.createInterface({
     input: process.stdin,
     output: process.stdout,
@@ -271,7 +269,7 @@ function listConsoleFlows(
 }
 
 async function runFlowStep(
-  session: IFlowSessionRunner,
+  session: FlowSessionRunner,
   state: IConsoleState,
   flowName: string,
 ): Promise<IRunStepResult> {
@@ -298,7 +296,7 @@ async function runFlowStep(
   }
 }
 
-async function runOperationsStep(session: IFlowSessionRunner, input: IRunStepInput): Promise<IRunStepResult> {
+async function runOperationsStep(session: FlowSessionRunner, input: IRunStepInput): Promise<IRunStepResult> {
   const startedAt = Date.now();
   const operationsLabel = input.operationNames.join(', ');
   try {
@@ -468,7 +466,7 @@ function validateInputKey(key: string): string | null {
   return null;
 }
 
-function printHeader(sessionMode: E2ESessionMode, useTestNetwork: boolean, appLogsMode: E2EFlowAppLogsMode): void {
+function printHeader(sessionMode: E2ESessionMode, useTestNetwork: boolean, appLogsMode: AppLogsMode): void {
   console.info(
     `[E2E] Operation console started (sessionMode=${sessionMode}, useTestNetwork=${String(useTestNetwork)}, appLogsMode=${appLogsMode}).`,
   );

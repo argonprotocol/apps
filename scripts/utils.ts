@@ -34,6 +34,23 @@ export function reserveEphemeralPort(host = '127.0.0.1'): Promise<number> {
   });
 }
 
+export async function chooseAvailablePort(preferredPort?: string | number, host = '127.0.0.1'): Promise<number> {
+  const parsedPort = typeof preferredPort === 'number' ? preferredPort : Number.parseInt(preferredPort ?? '', 10);
+  if (
+    Number.isInteger(parsedPort) &&
+    parsedPort >= 1 &&
+    parsedPort <= 65535 &&
+    (await isPortAvailable(parsedPort, host))
+  ) {
+    return parsedPort;
+  }
+  return reserveEphemeralPort(host);
+}
+
+export function delay(ms: number): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
 export function readReleaseNotes(rawVersion: string = packageVersion, logError = true): string | null {
   // normalize: strip leading v, but match with or without
   const version = rawVersion.replace(/^v/, '').trim();

@@ -7,6 +7,7 @@ import type { EthereumOutboundTransferTracker } from '../lib/EthereumOutboundTra
 import type { BitcoinFissions } from '../lib/BitcoinFissions.ts';
 import type BitcoinLocks from '../lib/BitcoinLocks.ts';
 import type { WalletType } from '../lib/Wallet.ts';
+import type { AccountHistoryRecovery } from '../e2e/AccountHistoryRecovery.ts';
 
 export interface IAppQueryRefs {
   config: IConfigQueryRef;
@@ -22,6 +23,7 @@ export interface IAppQueryRefs {
   getEthereumMoveTracker(): IEthereumMoveTrackerQueryRef;
   getEthereumOutboundTransferTracker(): EthereumOutboundTransferTracker;
   getMainchainClient(needsHistoricalAccess: boolean): Promise<ArgonClient>;
+  accountHistoryRecovery: AccountHistoryRecovery;
   openWalletOverlay(walletType: WalletType.argon | WalletType.bitcoin): void;
 }
 
