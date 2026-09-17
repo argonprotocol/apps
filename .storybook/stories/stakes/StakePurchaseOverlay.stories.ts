@@ -28,7 +28,8 @@ export const ChooseAmount: Story = {
 };
 
 export const WalletFundingRequired: Story = {
-  beforeEach: () => setupStakePurchaseScenario('fundingRequired'),
+  name: 'Wallet Limited Max',
+  beforeEach: () => setupStakePurchaseScenario('walletLimited'),
 };
 
 export const Purchasing: Story = {

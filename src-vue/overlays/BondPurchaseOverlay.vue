@@ -174,14 +174,16 @@
             <span>
               <template
                 v-if="
-                  certificationPurchaseAmount > maxPurchaseAmount && purchaseAmount === certificationPurchaseAmount
+                  certificationPurchaseAmount > vaultMaxPurchaseAmount &&
+                  purchaseAmount === certificationPurchaseAmount
                 "
               >
                 Treasury Certification needs {{ numeral(certificationPurchaseAmount).format('0,0') }} more Argon
-                Bonds. {{ vaultLabel }} can only create {{ numeral(maxPurchaseAmount).format('0,0') }} right now.
+                Bonds. {{ vaultLabel }} can only create {{ numeral(vaultMaxPurchaseAmount).format('0,0') }} right now.
               </template>
               <template v-else>
-                {{ vaultLabel }} can only create {{ numeral(maxPurchaseAmount).format('0,0') }} Argon Bonds right now.
+                {{ vaultLabel }} can only create {{ numeral(vaultMaxPurchaseAmount).format('0,0') }} Argon Bonds right
+                now.
               </template>
               Contact {{ vaultOperatorName || 'the person who invited you' }} to create more Bond space.
             </span>
@@ -358,8 +360,13 @@ const spendableWalletBalance = Vue.computed(() => {
   return getSpendableDefaultArgonMicrogons(availableMicrogons.value);
 });
 
-const maxPurchaseAmount = Vue.computed(() => {
+const vaultMaxPurchaseAmount = Vue.computed(() => {
   return Number(vaultAvailableCapacity.value / MICROGONS_PER_ARGON_BIGINT);
+});
+
+const maxPurchaseAmount = Vue.computed(() => {
+  const walletMaxPurchaseAmount = Number(spendableWalletBalance.value / MICROGONS_PER_ARGON_BIGINT);
+  return Math.min(vaultMaxPurchaseAmount.value, walletMaxPurchaseAmount);
 });
 
 const certificationPurchaseAmount = Vue.computed(() => {
@@ -370,7 +377,7 @@ const certificationPurchaseAmount = Vue.computed(() => {
   return Number((remainingMicrogons + MICROGONS_PER_ARGON_BIGINT - 1n) / MICROGONS_PER_ARGON_BIGINT);
 });
 
-const isOverVaultBondCapacity = Vue.computed(() => purchaseAmount.value > maxPurchaseAmount.value);
+const isOverVaultBondCapacity = Vue.computed(() => purchaseAmount.value > vaultMaxPurchaseAmount.value);
 
 const neededMicrogons = Vue.computed(() => {
   const purchaseMicrogons = BigInt(purchaseAmount.value) * MICROGONS_PER_ARGON_BIGINT;
