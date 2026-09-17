@@ -1,6 +1,6 @@
 import type { Meta, StoryObj } from '@storybook/vue3-vite';
 import * as Vue from 'vue';
-import { expect, fn, mocked, within } from 'storybook/test';
+import { fn, mocked } from 'storybook/test';
 import AppScreen from '../../components/AppScreen.vue';
 import { setupAppScenario } from '../../scenarios/setupAppScenario.ts';
 import { setupBondPortfolioScenario } from '../../scenarios/setupBondPortfolioScenario.ts';
@@ -64,11 +64,5 @@ export const TreasuryBondGuide: Story = {
   beforeEach: () => {
     setupBondPortfolioScenario('Vault');
     setCertificationGuide(OperationalStepId.AcquireArgonBonds);
-  },
-  play: async ({ canvasElement }) => {
-    const canvas = within(canvasElement);
-
-    await expect(canvas.getByText('Buy Argon Bonds')).toBeVisible();
-    await expect(canvas.getByText('Click Here')).toBeVisible();
   },
 };

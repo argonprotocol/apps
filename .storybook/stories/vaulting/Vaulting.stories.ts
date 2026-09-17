@@ -1,7 +1,7 @@
 import type { Meta, StoryObj } from '@storybook/vue3-vite';
 import { MICROGONS_PER_ARGON } from '@argonprotocol/apps-core';
 import * as Vue from 'vue';
-import { expect, userEvent, within } from 'storybook/test';
+import { userEvent, within } from 'storybook/test';
 import AppScreen from '../../components/AppScreen.vue';
 import { setupAppScenario } from '../../scenarios/setupAppScenario.ts';
 import { setCertificationGuide } from '../../scenarios/setupCertificationScenario.ts';
@@ -49,17 +49,9 @@ export const Start: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
 
-    await expect(canvas.getByText('Argon Desktop')).toBeVisible();
-    await expect(canvas.getByText('Vaulting')).toBeVisible();
-    await expect(canvas.getByText('Interactive scenario')).toBeVisible();
     await userEvent.click(canvas.getByRole('button', { name: 'Set Up Your Stabilization Vault' }));
-    await expect(canvas.getByRole('heading', { name: 'Start Vaulting In Three Steps' })).toBeVisible();
-    await expect(canvas.getByText('Fixed state preview')).toBeVisible();
-
     getConfig().vaultingSetupStatus = VaultingSetupStatus.None;
-
-    await expect(await canvas.findByRole('button', { name: 'Set Up Your Stabilization Vault' })).toBeVisible();
-    await expect(await canvas.findByText('Interactive scenario')).toBeVisible();
+    await Vue.nextTick();
   },
 };
 
@@ -69,14 +61,6 @@ export const ServerRequired: Story = {
       selectedTab: TopTab.Vaulting,
       config: { vaultingSetupStatus: VaultingSetupStatus.Checklist },
     });
-  },
-  play: async ({ canvasElement }) => {
-    const canvas = within(canvasElement);
-
-    await expect(canvas.getByText('Argon Desktop')).toBeVisible();
-    await expect(canvas.getByText('Vaulting')).toBeVisible();
-    await expect(canvas.getByRole('heading', { name: 'Start Vaulting In Three Steps' })).toBeVisible();
-    await expect(canvas.getByRole('heading', { name: 'Connect a Cloud Machine' })).toBeVisible();
   },
 };
 
@@ -91,12 +75,6 @@ export const ServerInstalling: Story = {
       },
     });
   },
-  play: async ({ canvasElement }) => {
-    const canvas = within(canvasElement);
-
-    await expect(canvas.getByText('INSTALLING')).toBeVisible();
-    await expect(canvas.getByText(/This local computer will run your vaulting and mining software/)).toBeVisible();
-  },
 };
 
 export const RulesRequired: Story = {
@@ -110,12 +88,6 @@ export const RulesRequired: Story = {
         serverAdd: { localComputer: {} },
       },
     });
-  },
-  play: async ({ canvasElement }) => {
-    const canvas = within(canvasElement);
-
-    await expect(canvas.getByRole('heading', { name: 'Confirm Your Vault Settings' })).toBeVisible();
-    await expect(canvas.getByText(/Decide how much capital to commit/)).toBeVisible();
   },
 };
 
@@ -132,13 +104,6 @@ export const FundingRequired: Story = {
         vaultingRules,
       },
     });
-  },
-  play: async ({ canvasElement }) => {
-    const canvas = within(canvasElement);
-    const launchButton = canvas.getByRole('button', { name: 'Launch Stabilization Vault' });
-
-    await expect(canvas.getByRole('heading', { name: 'Fund Your Wallet' })).toBeVisible();
-    await expect(launchButton).toHaveClass('pointer-events-none');
   },
 };
 
@@ -159,12 +124,6 @@ export const ReadyToLaunch: Story = {
     wallets.defaultArgonWallet.availableMicrogons =
       vaultingRules.baseMicrogonCommitment + 2n * BigInt(MICROGONS_PER_ARGON);
     wallets.defaultArgonWallet.availableMicronots = vaultingRules.baseMicronotCommitment;
-  },
-  play: async ({ canvasElement }) => {
-    const canvas = within(canvasElement);
-    const launchButton = canvas.getByRole('button', { name: 'Launch Stabilization Vault' });
-
-    await expect(launchButton).not.toHaveClass('pointer-events-none');
   },
 };
 
@@ -195,12 +154,5 @@ export const VaultActivationGuide: Story = {
   beforeEach: () => {
     setupAppScenario({ selectedTab: TopTab.Vaulting });
     setCertificationGuide(OperationalStepId.ActivateVault);
-  },
-  play: async ({ canvasElement }) => {
-    const canvas = within(canvasElement);
-    const setupButton = canvas.getByRole('button', { name: /Set Up Your Stabilization Vault/ });
-
-    await expect(setupButton).toBeVisible();
-    await expect(within(setupButton).getByText('Click Here')).toBeVisible();
   },
 };

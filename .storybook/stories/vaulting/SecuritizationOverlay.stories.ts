@@ -23,6 +23,13 @@ import { setupAppScenario } from '../../scenarios/setupAppScenario.ts';
 const meta = {
   title: 'Vaulting/Securitization',
   component: SecuritizationOverlay,
+  beforeEach: () => {
+    const dateNow = Date.now;
+    Date.now = () => Date.UTC(2026, 8, 16, 12);
+    return () => {
+      Date.now = dateNow;
+    };
+  },
   render: () => ({
     components: { SecuritizationOverlay },
     setup() {

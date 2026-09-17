@@ -86,11 +86,22 @@ function useScenario(state: WalletTransferScenario, restoreArgonTransfer = false
 }
 
 async function getInboundCanvas() {
+  await waitForWalletOverlay();
   return within(document.body);
 }
 
 async function getOutboundCanvas() {
+  await waitForWalletOverlay();
   return within(document.body);
+}
+
+async function waitForWalletOverlay() {
+  await within(document.body).findByTestId('WalletOverlay');
+}
+
+async function waitForTransferProgress(canvas: ReturnType<typeof within>) {
+  await canvas.findByRole('button', { name: 'Create Another Transaction' });
+  await new Promise(resolve => setTimeout(resolve, 350));
 }
 
 async function submitTransfer(canvas: ReturnType<typeof within>) {
@@ -100,10 +111,12 @@ async function submitTransfer(canvas: ReturnType<typeof within>) {
 const stories = {
   inboundForm: {
     beforeEach: () => useScenario('inboundForm'),
+    play: waitForWalletOverlay,
   },
 
   inboundEmpty: {
     beforeEach: () => useScenario('inboundEmpty'),
+    play: waitForWalletOverlay,
   },
 
   inboundArgonOnly: {
@@ -117,18 +130,22 @@ const stories = {
 
   outboundForm: {
     beforeEach: () => useScenario('outboundForm'),
+    play: waitForWalletOverlay,
   },
 
   feeLoading: {
     beforeEach: () => useScenario('feeLoading'),
+    play: waitForWalletOverlay,
   },
 
   feeUnavailable: {
     beforeEach: () => useScenario('feeUnavailable'),
+    play: waitForWalletOverlay,
   },
 
   insufficientEth: {
     beforeEach: () => useScenario('insufficientEth'),
+    play: waitForWalletOverlay,
   },
 
   submittingInbound: {
@@ -136,6 +153,7 @@ const stories = {
     play: async () => {
       const canvas = await getInboundCanvas();
       await submitTransfer(canvas);
+      await waitForTransferProgress(canvas);
     },
   },
 
@@ -144,11 +162,13 @@ const stories = {
     play: async () => {
       const canvas = await getInboundCanvas();
       await submitTransfer(canvas);
+      await waitForTransferProgress(canvas);
     },
   },
 
   inboundTransactionUnavailable: {
     beforeEach: () => useScenario('inboundTransactionUnavailable'),
+    play: waitForWalletOverlay,
   },
 
   inboundRelay: {
@@ -156,6 +176,7 @@ const stories = {
     play: async () => {
       const canvas = await getInboundCanvas();
       await submitTransfer(canvas);
+      await waitForTransferProgress(canvas);
     },
   },
 
@@ -164,6 +185,7 @@ const stories = {
     play: async () => {
       const canvas = await getInboundCanvas();
       await submitTransfer(canvas);
+      await waitForTransferProgress(canvas);
     },
   },
 
@@ -172,6 +194,7 @@ const stories = {
     play: async () => {
       const canvas = await getOutboundCanvas();
       await submitTransfer(canvas);
+      await waitForTransferProgress(canvas);
     },
   },
 
@@ -180,6 +203,7 @@ const stories = {
     play: async () => {
       const canvas = await getOutboundCanvas();
       await submitTransfer(canvas);
+      await waitForTransferProgress(canvas);
     },
   },
 
@@ -188,6 +212,7 @@ const stories = {
     play: async () => {
       const canvas = await getOutboundCanvas();
       await submitTransfer(canvas);
+      await waitForTransferProgress(canvas);
     },
   },
 
@@ -196,6 +221,7 @@ const stories = {
     play: async () => {
       const canvas = await getOutboundCanvas();
       await submitTransfer(canvas);
+      await waitForTransferProgress(canvas);
     },
   },
 
@@ -204,6 +230,7 @@ const stories = {
     play: async () => {
       const canvas = await getOutboundCanvas();
       await submitTransfer(canvas);
+      await waitForTransferProgress(canvas);
     },
   },
 
@@ -212,6 +239,7 @@ const stories = {
     play: async () => {
       const canvas = await getInboundCanvas();
       await submitTransfer(canvas);
+      await waitForTransferProgress(canvas);
     },
   },
 
@@ -220,15 +248,18 @@ const stories = {
     play: async () => {
       const canvas = await getOutboundCanvas();
       await submitTransfer(canvas);
+      await waitForTransferProgress(canvas);
     },
   },
 
   existingInbound: {
     beforeEach: () => useScenario('existingInbound'),
+    play: waitForWalletOverlay,
   },
 
   existingOutbound: {
     beforeEach: () => useScenario('existingOutbound'),
+    play: waitForWalletOverlay,
   },
 } satisfies Partial<Record<WalletTransferScenario, Story>>;
 

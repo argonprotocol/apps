@@ -152,6 +152,12 @@ export function setupWalletScenario(state: WalletScenario): WalletScenarioState 
   const currency = getCurrency();
   const financials = useFinancials();
   const now = new Date('2026-08-16T12:00:00.000Z');
+  mocked(BitcoinLocks.getFeeRates).mockRestore?.();
+  const getFeeRates = spyOn(BitcoinLocks, 'getFeeRates').mockResolvedValue({
+    fast: { feeRate: 3n, estimatedMinutes: 10 },
+    medium: { feeRate: 1n, estimatedMinutes: 30 },
+    slow: { feeRate: 1n, estimatedMinutes: 60 },
+  });
   if (state === 'bitcoinWalletReleaseWaiting') {
     getMiningFrames().getFrameDate = fn(() => new Date(Date.now() + 11 * 24 * 60 * 60 * 1_000));
   }
@@ -690,9 +696,12 @@ export function setupWalletScenario(state: WalletScenario): WalletScenarioState 
     createOutboundTransferTracker(undefined, 'outboundForm').tracker,
   );
 
-  const scenario: WalletScenarioState = {};
-
-  if (ethereumBalanceScan.cleanup) scenario.cleanup = ethereumBalanceScan.cleanup;
+  const scenario: WalletScenarioState = {
+    cleanup: () => {
+      ethereumBalanceScan.cleanup?.();
+      getFeeRates.mockRestore();
+    },
+  };
   return scenario;
 }
 

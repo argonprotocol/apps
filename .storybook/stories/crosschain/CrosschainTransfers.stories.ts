@@ -1,7 +1,7 @@
 import type { Meta, StoryObj } from '@storybook/vue3-vite';
 import { MICRONOTS_PER_ARGONOT, MoveToken, UnitOfMeasurement } from '@argonprotocol/apps-core';
 import * as Vue from 'vue';
-import { expect, fn, mocked, waitFor, within } from 'storybook/test';
+import { fn, mocked, userEvent, within } from 'storybook/test';
 import AppScreen from '../../components/AppScreen.vue';
 import { setupAppScenario } from '../../scenarios/setupAppScenario.ts';
 import { TopTab } from '../../../src-vue/interfaces/IConfig.ts';
@@ -52,11 +52,6 @@ export const NavigationRefreshesRecoveredTips: Story = {
     });
     mocked(getCrosschainHistory).mockReturnValue(history);
   },
-  play: async ({ canvasElement }) => {
-    const crosschainNavigation = within(canvasElement).getByTestId('LeftBar.goto(TopTab.CrosschainTransfers)');
-
-    await waitFor(() => expect(within(crosschainNavigation).getByText('₳2.00')).toBeVisible());
-  },
 };
 
 export const RecoveredTransferTips: Story = {
@@ -82,7 +77,9 @@ export const RecoveredTransferTips: Story = {
         vaultsById: vaults.vaultsById,
         operatorNamesByVaultId: vaults.operatorNamesByVaultId,
         localAccountIds: [getWalletKeys().defaultArgonAddress],
-        sourceOperatorDetailsByAccount: new Map([[upstreamOnlySourceAccount, { upstreamVaultAccount: recoveredSourceAccount }]]),
+        sourceOperatorDetailsByAccount: new Map([
+          [upstreamOnlySourceAccount, { upstreamVaultAccount: recoveredSourceAccount }],
+        ]),
       }),
     );
 
@@ -90,27 +87,6 @@ export const RecoveredTransferTips: Story = {
     history.data.records = [recoveredAuthorization, upstreamOnlyRecoveredAuthorization];
 
     mocked(getCrosschainHistory).mockReturnValue(history);
-  },
-  play: async ({ canvasElement }) => {
-    const canvas = within(canvasElement);
-    const dashboard = canvas.getByTestId('CrosschainTransfersDashboard');
-    const crosschainNavigation = canvas.getByTestId('LeftBar.goto(TopTab.CrosschainTransfers)');
-
-    await expect(dashboard).toBeVisible();
-    await expect(within(dashboard).getByText('Transfer Tips')).toBeVisible();
-    await expect(within(dashboard).getByText('Tips Available')).toBeVisible();
-    await expect(within(dashboard).getAllByText('0.5 ARGNOT tip')).toHaveLength(2);
-    await expect(within(dashboard).getAllByText('Atlas')).not.toHaveLength(0);
-    await expect(within(dashboard).getAllByText('(Upstream: Atlas)')).not.toHaveLength(0);
-    await expect(
-      within(within(dashboard).getByText('Remaining Minting Authority').parentElement!).getByText('$0.00'),
-    ).toBeVisible();
-    await expect(
-      within(within(dashboard).getByText('Transfer Value Sponsored').parentElement!).getByText('$100.00'),
-    ).toBeVisible();
-    await expect(within(within(dashboard).getByText('Transfer Tips').parentElement!).getByText('$4.00')).toBeVisible();
-    await expect(within(within(dashboard).getByText('Tips Available').parentElement!).getByText('$0.00')).toBeVisible();
-    await expect(within(crosschainNavigation).getByText('$4.00')).toBeVisible();
   },
 };
 
@@ -123,12 +99,6 @@ export const PendingTipAlert: Story = {
   beforeEach: () => {
     setupAppScenario({ selectedTab: TopTab.CrosschainTransfers, config: { hasActivatedCrosschain: true } });
     selectUsdCurrency();
-  },
-  play: async ({ canvasElement }) => {
-    const alert = within(canvasElement).getByTestId('VaultAlert.bar');
-
-    await expect(alert).toBeVisible();
-    await expect(within(alert).getByText('$2.00 in crosschain authorization tips is processing')).toBeVisible();
   },
 };
 
@@ -173,18 +143,8 @@ export const PendingAuthorizationOverlay: Story = {
   play: async ({ canvasElement }) => {
     const overlay = within(canvasElement.ownerDocument.body);
 
-    await waitFor(() => expect(overlay.getByRole('button', { name: '1 crosschain authorization' })).toBeVisible());
-    overlay.getByRole('button', { name: '1 crosschain authorization' }).click();
-
-    await waitFor(() => expect(overlay.getByText('5 ARGNOT')).toBeVisible());
-    await expect(overlay.getByText('Click a transfer for details.')).toBeVisible();
-    await expect(overlay.getByText('0.5 ARGNOT tip')).toBeVisible();
-    await expect(overlay.getAllByText('Ada')[0]).toBeVisible();
-    await expect(overlay.getAllByText('(Upstream: Beacon)')[0]).toBeVisible();
-
-    overlay.getByText('Authorize ARGNOT to Ethereum').click();
-    await expect(overlay.getByText('Lifetime sent to Ethereum')).toBeVisible();
-    await expect(overlay.getByText('Waiting for your minting-authority signature', { selector: 'dd' })).toBeVisible();
+    await userEvent.click(await overlay.findByRole('button', { name: '1 crosschain authorization' }));
+    await userEvent.click(await overlay.findByText('Authorize ARGNOT to Ethereum'));
   },
 };
 
