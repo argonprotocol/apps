@@ -208,6 +208,7 @@ import * as Vue from 'vue';
 import OverlayBase from './OverlayBase.vue';
 
 import {
+  bigIntMin,
   bigNumberToBigInt,
   MICRONOTS_PER_ARGONOT,
   NetworkConfig,
@@ -287,17 +288,10 @@ const vaultAvailableCapacity = Vue.computed(() => {
   return argonotBondCapacity.value;
 });
 
-const purchaseCapacity = Vue.computed(() => {
-  return availableMicronots.value < vaultAvailableCapacity.value
-    ? availableMicronots.value
-    : vaultAvailableCapacity.value;
-});
-
 const maxPurchaseBonds = Vue.computed(() => {
   return Number(
-    (vaultAvailableCapacity.value < argonotBondPurchaseLimit.value
-      ? vaultAvailableCapacity.value
-      : argonotBondPurchaseLimit.value) / unitsPerBond.value,
+    bigIntMin(availableMicronots.value, vaultAvailableCapacity.value, argonotBondPurchaseLimit.value) /
+      unitsPerBond.value,
   );
 });
 

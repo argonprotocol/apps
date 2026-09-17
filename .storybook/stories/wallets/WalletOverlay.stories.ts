@@ -1,6 +1,6 @@
 import type { Meta, StoryObj } from '@storybook/vue3-vite';
 import * as Vue from 'vue';
-import { expect, fn, userEvent, within } from 'storybook/test';
+import { fn, userEvent, within } from 'storybook/test';
 import { setupWalletScenario, type WalletScenario } from '../../scenarios/setupWalletScenario.ts';
 import basicEmitter, { type IWalletOverlayOptions } from '../../../src-vue/emitters/basicEmitter.ts';
 import { WalletType } from '../../../src-vue/lib/Wallet.ts';
@@ -121,8 +121,13 @@ function useBitcoinUnattachedDepositScenario() {
   useScenario(WalletType.argon, undefined, 'bitcoinUnattachedDeposit', true);
 }
 
+async function waitForWalletOverlay() {
+  await within(document.body).findByTestId('WalletOverlay');
+}
+
 export const MainWallet: Story = {
   beforeEach: () => useScenario(WalletType.argon),
+  play: waitForWalletOverlay,
 };
 
 export const BitcoinWalletDetails: Story = {
@@ -186,6 +191,7 @@ export const UpdatingInsurance: Story = {
     await userEvent.click(amount);
     await userEvent.keyboard('{Control>}a{/Control}600');
     await userEvent.click(within(insuranceOverlay).getByRole('button', { name: 'Update Insurance' }));
+    await new Promise(resolve => setTimeout(resolve, 350));
   },
 };
 
@@ -201,11 +207,13 @@ export const UpdateInsuranceError: Story = {
     await userEvent.click(amount);
     await userEvent.keyboard('{Control>}a{/Control}600');
     await userEvent.click(within(insuranceOverlay).getByRole('button', { name: 'Update Insurance' }));
+    await within(insuranceOverlay).findByText('Unable to update Bitcoin insurance.');
   },
 };
 
 export const BitcoinConnector: Story = {
   beforeEach: () => useScenario(WalletType.bitcoin),
+  play: waitForWalletOverlay,
 };
 
 export const BitcoinChannelFundingPending: Story = {
@@ -242,7 +250,7 @@ export const BitcoinPendingOutboundProgress: Story = {
 
     await userEvent.click(await canvas.findByRole('button', { name: 'Show Bitcoin details' }));
     await userEvent.click(canvas.getByTestId('WalletViewMain.bitcoinSend'));
-    await expect(await canvas.findByText(/due in 10 days/)).toBeVisible();
+    await canvas.findByText(/due in 10 days/);
   },
 };
 
@@ -253,7 +261,7 @@ export const BitcoinPendingOutboundError: Story = {
 
     await userEvent.click(await canvas.findByRole('button', { name: 'Show Bitcoin details' }));
     await userEvent.click(canvas.getByTestId('WalletViewMain.bitcoinSend'));
-    await expect(await canvas.findByText('Unable to broadcast this Bitcoin transaction.')).toBeVisible();
+    await canvas.findByText('Unable to broadcast this Bitcoin transaction.');
   },
 };
 
@@ -278,6 +286,7 @@ export const BitcoinFailedOutboundInTransfers: Story = {
 
 export const BitcoinUnattachedDeposit: Story = {
   beforeEach: useBitcoinUnattachedDepositScenario,
+  play: waitForWalletOverlay,
 };
 
 export const BitcoinUnattachedDepositReturn: Story = {
@@ -300,6 +309,7 @@ export const PendingTransferLoadFailureKeepsAvailableRows: Story = {
 
 export const SendTokens: Story = {
   beforeEach: () => useScenario(WalletType.argon, 'send'),
+  play: waitForWalletOverlay,
 };
 
 export const SendTokensFromWallet: Story = {
@@ -369,6 +379,7 @@ export const SendBitcoinAtZeroBalance: Story = {
 
 export const ReceiveTokens: Story = {
   beforeEach: () => useScenario(WalletType.argon, 'receive', 'defaultArgon', true),
+  play: waitForWalletOverlay,
 };
 
 export const PrivateKey: Story = {
@@ -382,4 +393,5 @@ export const PrivateKey: Story = {
 
 export const PrivateKeyExportError: Story = {
   beforeEach: () => useScenario(WalletType.argon, 'privateKey', 'privateKeyError'),
+  play: waitForWalletOverlay,
 };

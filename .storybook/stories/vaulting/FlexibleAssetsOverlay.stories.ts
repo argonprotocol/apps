@@ -1,5 +1,6 @@
 import type { Meta, StoryObj } from '@storybook/vue3-vite';
 import * as Vue from 'vue';
+import { within } from 'storybook/test';
 import { setupFlexibleAssetsScenario } from '../../scenarios/setupOnboardingOverlayScenario.ts';
 import basicEmitter from '../../../src-vue/emitters/basicEmitter.ts';
 import FlexibleAssetsOverlay from '../../../src-vue/overlays/FlexibleAssetsOverlay.vue';
@@ -14,6 +15,9 @@ const meta = {
     },
     template: '<FlexibleAssetsOverlay />',
   }),
+  play: async () => {
+    await within(document.body).findByRole('heading', { name: 'Manage Flexible Assets' });
+  },
 } satisfies Meta<typeof FlexibleAssetsOverlay>;
 
 export default meta;

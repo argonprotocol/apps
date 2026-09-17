@@ -91,7 +91,6 @@
           <ProgressBar
             :progress="downloadProgress * 100"
             :has-error="updaterErrorMessage !== ''"
-            :show-label="false"
             class="runtime-download-progress"
           />
         </div>

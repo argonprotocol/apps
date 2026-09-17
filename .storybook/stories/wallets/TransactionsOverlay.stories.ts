@@ -1,6 +1,6 @@
 import type { Meta, StoryObj } from '@storybook/vue3-vite';
 import * as Vue from 'vue';
-import { fn, mocked } from 'storybook/test';
+import { fn, mocked, within } from 'storybook/test';
 import { MotionGlobalConfig } from 'motion-v';
 import { setupAppScenario } from '../../scenarios/setupAppScenario.ts';
 import basicEmitter from '../../../src-vue/emitters/basicEmitter.ts';
@@ -101,6 +101,9 @@ const meta = {
     },
     template: '<TransactionsOverlay />',
   }),
+  play: async () => {
+    await within(document.body).findByRole('heading', { name: 'Transactions' });
+  },
 } satisfies Meta<typeof TransactionsOverlay>;
 
 export default meta;

@@ -40,6 +40,10 @@ export const MarketValuedCapacity: Story = {
   beforeEach: () => setupBondPurchaseScenario('available'),
 };
 
+export const WalletLimitedMax: Story = {
+  beforeEach: () => setupBondPurchaseScenario('walletLimited'),
+};
+
 export const VaultSelection: Story = {
   beforeEach: () => setupBondPurchaseScenario('selection'),
 };
