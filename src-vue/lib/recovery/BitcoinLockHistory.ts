@@ -1,24 +1,35 @@
-import type { BitcoinLocksLocksByIdResultSpec159, HistoricalQueryRecord } from '@argonprotocol/runtime-client';
+import type { HistoricalQueryRecord } from '@argonprotocol/runtime-client';
 import { hexToU8a, u8aToHex } from '@polkadot/util';
 import {
   BitcoinFission,
+  BitcoinLock,
   type ArgonApi,
   type IBitcoinLockDetails,
   type IBitcoinLockFundingUtxo,
 } from '@argonprotocol/apps-core';
 
 type HistoricalBitcoinLock = NonNullable<HistoricalQueryRecord<'bitcoinLocks', 'locksByUtxoId'>>;
-type CurrentBitcoinLock = NonNullable<BitcoinLocksLocksByIdResultSpec159>;
 
 // Historical runtimes through spec 158 enforced this window without exposing it as a constant.
 const LEGACY_PENDING_CONFIRMATION_BLOCKS = 144;
 
-export type IHistoricalBitcoinLock = NonNullable<Awaited<ReturnType<typeof getHistoricalBitcoinLock>>>;
+export type IHistoricalBitcoinLock = Omit<IBitcoinLockDetails, 'lockId' | 'fundingUtxos'> & {
+  utxoId: number;
+  lockedTargetPrice: bigint;
+  liquidityPromised: bigint;
+  securitizationCoverageMicrogons?: bigint;
+};
 
 export interface IHistoricalBitcoinReleaseRequest {
+  releaseNumber?: number;
   toScriptPubkey: string;
   bitcoinNetworkFee: bigint;
-  liquidRedemptionAmount: bigint;
+  destinationSatoshis?: bigint;
+  changeSatoshis?: bigint;
+  cosignDueFrame?: number;
+  expectedTransactionId?: string;
+  securitizationAtRisk?: bigint;
+  liquidRedemptionAmount?: bigint;
 }
 
 export function toBitcoinLockDetails(lock: IHistoricalBitcoinLock): IBitcoinLockDetails {
@@ -36,21 +47,25 @@ export function toBitcoinLockDetails(lock: IHistoricalBitcoinLock): IBitcoinLock
   };
 }
 
-export async function getHistoricalBitcoinLock(client: ArgonApi, utxoId: number) {
-  const currentLock: CurrentBitcoinLock | null = await client.query.bitcoinLocks.locksById(utxoId);
-  const historicalLock: HistoricalBitcoinLock | null = currentLock
-    ? null
-    : await client.query.bitcoinLocks.locksByUtxoId(utxoId);
-  const lock = currentLock ?? historicalLock;
+export async function getHistoricalBitcoinLock(
+  client: ArgonApi,
+  utxoId: number,
+): Promise<IHistoricalBitcoinLock | undefined> {
+  const currentLock = await BitcoinLock.get(client, utxoId);
+  if (currentLock) {
+    return {
+      ...currentLock,
+      utxoId,
+      lockedTargetPrice: currentLock.microgonsAtTargetPerBtc,
+      liquidityPromised: 0n,
+    };
+  }
+
+  const lock: HistoricalBitcoinLock | null = await client.query.bitcoinLocks.locksByUtxoId(utxoId);
   if (!lock) return;
 
-  const securitizedSatoshis = currentLock ? currentLock.securitizationBasis.satoshis : historicalLock!.satoshis;
-  const lockedTargetPrice = currentLock
-    ? currentLock.securitizationBasis.microgonsAtTargetPerBtc
-    : (historicalLock!.lockedTargetPrice ??
-      historicalLock!.lockedMarketRate ??
-      historicalLock!.peggedPrice ??
-      historicalLock!.lockPrice);
+  const securitizedSatoshis = lock.satoshis;
+  const lockedTargetPrice = lock.lockedTargetPrice ?? lock.lockedMarketRate ?? lock.peggedPrice ?? lock.lockPrice;
   if (securitizedSatoshis === undefined || lockedTargetPrice === undefined) {
     throw new Error(`Bitcoin lock ${utxoId} does not contain securitization economics`);
   }
@@ -64,12 +79,11 @@ export async function getHistoricalBitcoinLock(client: ArgonApi, utxoId: number)
     p2wshScriptHashHex: `0x0020${wscriptHash}`,
     vaultId: lock.vaultId,
     lockedTargetPrice,
-    liquidityPromised: historicalLock?.liquidityPromised ?? 0n,
-    ...(currentLock ? { securitizationCoverageMicrogons: currentLock.securitizationCoverageMicrogons } : {}),
+    liquidityPromised: lock.liquidityPromised ?? 0n,
     ownerAccount: lock.ownerAccount,
     securitizationRatio: lock.securitizationRatio?.toNumber() ?? 1,
     securitizedSatoshis,
-    fundedSatoshis: currentLock?.fundedSatoshis ?? historicalLock?.utxoSatoshis ?? 0n,
+    fundedSatoshis: lock.utxoSatoshis ?? 0n,
     vaultPubkey: lock.vaultPubkey,
     vaultClaimPubkey: lock.vaultClaimPubkey,
     ownerPubkey: lock.ownerPubkey,
@@ -81,9 +95,7 @@ export async function getHistoricalBitcoinLock(client: ArgonApi, utxoId: number)
     vaultClaimHeight: lock.vaultClaimHeight,
     openClaimHeight: lock.openClaimHeight,
     createdAtHeight,
-    securitizationHoldExpirationBitcoinHeight:
-      currentLock?.securitizationHoldExpirationBitcoinHeight ??
-      createdAtHeight + LEGACY_PENDING_CONFIRMATION_BLOCKS + 1,
+    securitizationHoldExpirationBitcoinHeight: createdAtHeight + LEGACY_PENDING_CONFIRMATION_BLOCKS + 1,
     securityFees: lock.securityFees ?? 0n,
     isFlexible: lock.isFlexible ?? lock.isBackfill ?? false,
     couponFeesPaid: lock.couponPaidFees ?? 0n,
@@ -99,12 +111,9 @@ export async function getHistoricalBitcoinFundingUtxos(
   lockId: number,
   historicalSatoshis: bigint,
 ): Promise<IBitcoinLockFundingUtxo[]> {
-  const currentLock: CurrentBitcoinLock | null = await client.query.bitcoinLocks.locksById(lockId);
+  const currentLock = await BitcoinLock.get(client, lockId);
   if (currentLock) {
-    return currentLock.fundingUtxos.map(([utxoRef, satoshis]) => ({
-      utxoRef: { txid: utxoRef.txid, vout: utxoRef.outputIndex },
-      satoshis,
-    }));
+    return currentLock.fundingUtxos;
   }
 
   const ref =
@@ -122,6 +131,10 @@ export async function getHistoricalBitcoinReleaseRequest(
   client: ArgonApi,
   utxoId: number,
 ): Promise<IHistoricalBitcoinReleaseRequest | undefined> {
+  if (client.runtimeVersion.specVersion.toNumber() >= 159) {
+    return await BitcoinLock.getReleaseRequest(client, utxoId);
+  }
+
   const request = await client.query.bitcoinLocks.lockReleaseRequestsByUtxoId(utxoId);
   if (!request) return;
 

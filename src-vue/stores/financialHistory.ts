@@ -5,7 +5,7 @@ import { getArgonBonds } from './argonBonds.ts';
 import { getBitcoinFissions, getBitcoinLocks } from './bitcoin.ts';
 import { getConfig } from './config.ts';
 import { getDbPromise } from './helpers/dbPromise.ts';
-import { getBlockWatch, getMainchainClients } from './mainchain.ts';
+import { getBlockWatch } from './mainchain.ts';
 import { getMyVault } from './vaults.ts';
 import { useWallets } from './wallets.ts';
 import {
@@ -124,12 +124,11 @@ export const useFinancialHistory = defineStore('financialHistory', () => {
         blockWatch: getBlockWatch(),
         accountId: wallets.defaultArgonWallet.address,
         argonBonds,
-        bitcoinLockRecovery: bitcoinLocks.recovery,
-        bitcoinFissionRecovery: bitcoinFissions.recovery,
+        bitcoinLocks,
+        bitcoinFissions,
         vaultHistory: myVault.history,
         enabledDomains,
         recoverMissingCheckpointsFor: force || config.walletAccountsHadPreviousLife ? enabledDomains : [],
-        mainchainClients: getMainchainClients(),
         force,
         minimumAsOfBlock: targetBlock,
         onCheckStart() {

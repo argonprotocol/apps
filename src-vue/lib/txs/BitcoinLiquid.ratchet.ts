@@ -214,6 +214,15 @@ export class BitcoinLiquidRatchet extends TransactionOperation<
 
     const minimumRatchetPercent = queryClient.consts.bitcoinFissions.minimumRatchetPercent.toBigInt();
     const errors: string[] = [];
+    const lockIds = [...new Set(liquidFissions.map(fission => fission.lockId))];
+    const releaseRequests = await Promise.all(
+      lockIds.map(lockId => BitcoinLock.getReleaseRequest(queryClient, lockId)),
+    );
+    if (releaseRequests.some(Boolean)) {
+      errors.push(
+        "This Liquid's Bitcoin is updating internally. Ratchet will be available when the update is complete.",
+      );
+    }
     const eligibleFissions: BitcoinFission[] = [];
     const skippedFissionIds: number[] = [];
     let sourceLiquidity = 0n;

@@ -85,6 +85,48 @@ describe('BitcoinReleasesTable', () => {
     expect(hydrated?.vaultSignatures).toEqual([new Uint8Array([1, 2]), new Uint8Array([3, 4])]);
   });
 
+  it('acknowledges every failed Lock release in a send without deleting its history', async () => {
+    const db = await createTestDb();
+    await db.bitcoinReleasesTable.insert(
+      createRelease({ id: 'lock:7:1', status: BitcoinReleaseStatus.Failed, statusError: 'first failed' }),
+    );
+    await db.bitcoinReleasesTable.insert(
+      createRelease({
+        id: 'lock:8:1',
+        lockId: 8,
+        releaseNumber: 1,
+        status: BitcoinReleaseStatus.Failed,
+        statusError: 'second failed',
+      }),
+    );
+    await db.bitcoinReleasesTable.insert(
+      createRelease({
+        id: 'lock:9:1',
+        lockId: 9,
+        sendId: 'another-send',
+        releaseNumber: 1,
+        status: BitcoinReleaseStatus.Failed,
+      }),
+    );
+
+    const acknowledged = await db.bitcoinReleasesTable.acknowledgeFailedSend('send-1');
+    expect(acknowledged.map(release => release.id).sort()).toEqual(['lock:7:1', 'lock:8:1']);
+    expect(acknowledged.every(release => release.status === BitcoinReleaseStatus.FailedAcknowledged)).toBe(true);
+
+    const restartedDb = new Db(db.sql, false);
+    await expect(restartedDb.bitcoinReleasesTable.getById('lock:7:1')).resolves.toMatchObject({
+      status: BitcoinReleaseStatus.FailedAcknowledged,
+      statusError: 'first failed',
+    });
+    await expect(restartedDb.bitcoinReleasesTable.getById('lock:8:1')).resolves.toMatchObject({
+      status: BitcoinReleaseStatus.FailedAcknowledged,
+      statusError: 'second failed',
+    });
+    await expect(restartedDb.bitcoinReleasesTable.getById('lock:9:1')).resolves.toMatchObject({
+      status: BitcoinReleaseStatus.Failed,
+    });
+  });
+
   it('treats the same generated ID as idempotent without merging another workflow', async () => {
     const db = await createTestDb();
     const initial = await db.bitcoinReleasesTable.insert(createRelease());

@@ -15,7 +15,7 @@ import { BitcoinLiquidClose } from '../../../src-vue/lib/txs/BitcoinLiquid.close
 import { BitcoinLiquidRatchet } from '../../../src-vue/lib/txs/BitcoinLiquid.ratchet.ts';
 import type { IBitcoinLiquidRatchetPreview } from '../../../src-vue/lib/txs/BitcoinLiquid.ratchet.ts';
 import BitcoinLiquidDetailOverlay from '../../../src-vue/overlays/BitcoinLiquidDetailOverlay.vue';
-import { getBitcoinTransactionOperations } from '../../../src-vue/stores/bitcoin.ts';
+import { getBitcoinLocks, getBitcoinTransactionOperations } from '../../../src-vue/stores/bitcoin.ts';
 import { getCurrency } from '../../../src-vue/stores/currency.ts';
 import { useFinancials } from '../../../src-vue/stores/financials.ts';
 import { getMainchainClient } from '../../../src-vue/stores/mainchain.ts';
@@ -269,11 +269,15 @@ function setupDetails(
     closeQuoteError?: string;
     closeFeeMicrogons?: bigint;
     closeAvailableWalletBalanceMicrogons?: bigint;
+    isBitcoinSettlementPending?: boolean;
     fissions?: BitcoinFission[];
     displayLiquidWithoutTerms?: boolean;
   } = {},
 ) {
   setupAppScenario({ selectedTab: TopTab.BitcoinLocks, myVaultId: args.myVaultId });
+  mocked(getBitcoinLocks().getLockById).mockImplementation(lockId =>
+    args.isBitcoinSettlementPending ? ({ lockId, activeReleaseId: 'synthetic-partial-release' } as never) : undefined,
+  );
   getCurrency().priceIndex = Vue.shallowReactive(getCurrency().priceIndex);
   const ratchetPercent = args.ratchetPercent ?? 4.75;
   const ratchetRate = BigInt(Math.round(68_000_000_000 * (1 + ratchetPercent / 100)));
@@ -540,6 +544,15 @@ export const DownRatchetHistory: Story = {
 
 export const RatchetAvailabilityLoading: Story = {
   beforeEach: () => setupDetails({ isRatchetLoading: true }),
+};
+
+export const BitcoinSettlementPending: Story = {
+  beforeEach: () =>
+    setupDetails({
+      isBitcoinSettlementPending: true,
+      isRatchetAvailable: true,
+      pendingLiquidity: 0n,
+    }),
 };
 
 export const RatchetBelowMinimum: Story = {

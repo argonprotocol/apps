@@ -1,43 +1,24 @@
 <template>
-  <OverlayBase
-    :isOpen="true"
-    data-testid="BitcoinOrphanRecoveryOverlay"
-    @close="emit('close')"
-    @pressEsc="emit('close')"
-    class="w-5/12"
-  >
-    <template #title>
-      <div class="flex items-center gap-2">
-        <button
-          type="button"
-          data-testid="BitcoinOrphanRecoveryOverlay.back"
-          aria-label="Back to Bitcoin channels"
-          class="group hover:bg-argon-100/20 flex h-8 cursor-pointer items-center rounded-md py-1 pr-2 pl-1"
-          @click="emit('back')"
-        >
-          <BackIcon class="relative -top-0.25 w-4 opacity-50 group-hover:opacity-100" />
-        </button>
-        <div class="text-xl font-bold text-slate-800/80">Return Orphaned Bitcoin</div>
-      </div>
-    </template>
+  <div data-testid="WalletViewUnattachedBitcoin" class="flex h-full grow flex-col text-black/90">
+    <WalletHeader
+      name="Return Bitcoin"
+      :showHome="props.showBack"
+      :isDragging="props.isDragging"
+      @dragStart="emit('dragStart', $event)"
+      @goto="emit('goto', $event)"
+      @close="emit('close')"
+    />
 
-    <div class="space-y-5 px-7 py-6">
-      <div class="rounded-lg bg-slate-50 px-4 py-4 ring-1 ring-slate-200">
-        <div class="text-sm font-semibold tracking-wide text-slate-500 uppercase">
-          {{ isAdditionalDeposit ? 'Additional Bitcoin received' : 'Orphaned Bitcoin received' }}
-          <span aria-hidden="true">·</span>
-          {{ vaultName }}
-        </div>
-        <div class="mt-3 grid grid-cols-2 divide-x divide-slate-200">
-          <div class="pr-4">
-            <div class="text-sm text-slate-500">Received</div>
+    <div class="min-h-0 grow space-y-5 overflow-y-auto px-5 py-4 text-sm text-slate-700">
+      <div class="rounded-lg bg-slate-50/50 px-4 py-4 ring-1 ring-slate-200">
+        <div class="flex items-start justify-between gap-4">
+          <div>
+            <div class="text-sm text-slate-500">Amount received</div>
             <div class="mt-0.5 text-lg font-semibold text-slate-900">{{ bitcoinAmount }} BTC</div>
           </div>
-          <div class="pl-4">
-            <div class="text-sm text-slate-500">
-              {{ isAdditionalDeposit ? 'Already funded with' : 'Expected for lock' }}
-            </div>
-            <div class="mt-0.5 text-lg font-semibold text-slate-900">{{ comparisonBitcoinAmount }} BTC</div>
+          <div class="text-right">
+            <div class="text-sm text-slate-500">Cosigner</div>
+            <div class="mt-0.5 text-lg font-semibold text-slate-800">{{ vaultName }}</div>
           </div>
         </div>
         <div class="mt-3 flex items-center justify-between border-t border-slate-200 pt-3 text-sm">
@@ -55,61 +36,101 @@
       </div>
 
       <div v-if="canRequestReturn" class="space-y-5">
-        <p v-if="isAdditionalDeposit" class="text-sm text-slate-700">
-          This lock was already funded before this Bitcoin arrived. Choose an address you control and return the
-          additional payment.
-        </p>
-        <p v-else class="text-sm text-slate-700">
-          This Bitcoin cannot fund a lock. Choose an address you control and request its return.
+        <p>
+          This Bitcoin could not be added to your wallet because a return was already in progress or the account had
+          reached its UTXO limit. Choose an address you control to return it.
         </p>
 
         <div>
-          <label class="mb-2 block font-medium text-gray-700">Return destination address</label>
+          <label class="mb-1 block font-bold text-gray-500/80">Return To</label>
           <input
             v-model="destinationAddress"
-            data-testid="BitcoinOrphanRecoveryOverlay.returnDestination"
+            data-testid="WalletViewUnattachedBitcoin.returnDestination"
             type="text"
+            autocomplete="off"
+            spellcheck="false"
             placeholder="bc1q..."
             :class="destinationError ? 'border-red-400 text-red-900' : 'border-slate-700/50'"
-            class="focus:ring-argon-500 w-full rounded-md border px-3 py-3 focus:border-transparent focus:ring-2"
+            class="h-[30px] w-full rounded-md border bg-white px-2 font-mono text-sm outline-none placeholder:text-gray-400"
           />
           <p class="mt-2 text-sm" :class="destinationError ? 'font-semibold text-red-700' : 'text-slate-500'">
             {{ destinationError || `Use a ${bitcoinNetworkName} address you control.` }}
           </p>
         </div>
 
-        <BitcoinFeeRateInput v-model="feeRatePerSatVb" dataTestid="BitcoinOrphanRecoveryOverlay.feeRate" />
+        <BitcoinFeeRateInput v-model="feeRatePerSatVb" dataTestid="WalletViewUnattachedBitcoin.feeRate" />
 
-        <button
-          data-testid="BitcoinOrphanRecoveryOverlay.requestReturn()"
-          :disabled="!canSubmit"
-          @click="requestReturn"
-          class="bg-argon-600 hover:bg-argon-700 w-full cursor-pointer rounded-lg px-6 py-2.5 font-bold text-white disabled:cursor-not-allowed disabled:opacity-50"
+        <div
+          v-if="trimmedDestination && !destinationError"
+          data-testid="WalletViewUnattachedBitcoin.cost"
+          class="flex flex-col gap-x-3"
         >
-          {{ isSubmitting ? 'Requesting Return...' : 'Return Bitcoin' }}
-        </button>
-        <p v-if="isCheckingArgonFee" class="text-sm text-slate-500">
-          Checking the Internal App Wallet transaction fee...
-        </p>
-        <p v-else-if="argonFeeQuote && !argonFeeQuote.canAfford" class="text-sm text-red-700">
+          <label class="mb-1 font-bold text-gray-500/80">Cost of Return</label>
+          <div class="border-b border-gray-300 text-sm">
+            <div class="flex flex-row border-t border-gray-300 py-2">
+              <div class="grow">
+                <Tooltip
+                  :asChild="true"
+                  content="The Bitcoin network fee is deducted from this deposit before it is returned."
+                >
+                  <span class="inline-flex cursor-help items-center gap-1">
+                    Bitcoin Network
+                    <InformationCircleIcon class="size-3.5 text-gray-400" />
+                  </span>
+                </Tooltip>
+              </div>
+              <div class="relative ml-4 text-right">
+                <span :class="{ 'opacity-20': isCheckingArgonFee }">
+                  {{ satToBtcNm(argonFeeQuote?.bitcoinNetworkFee ?? 0n).format('0,0.[00000000]') }} BTC ({{
+                    currency.symbol
+                  }}{{
+                    microgonToMoneyNm(currency.convertSatToMicrogon(argonFeeQuote?.bitcoinNetworkFee ?? 0n)).format(
+                      '0,0.000',
+                    )
+                  }})
+                </span>
+                <span
+                  v-if="isCheckingArgonFee"
+                  class="border-t-argon-600 absolute top-1/2 right-0 size-3 -translate-y-1/2 animate-spin rounded-full border-2 border-slate-300"
+                />
+              </div>
+            </div>
+            <div class="flex flex-row border-t border-gray-300 py-2">
+              <div class="grow">Argon Network</div>
+              <div class="relative ml-4 text-right">
+                <span :class="{ 'opacity-20': isCheckingArgonFee }">
+                  {{ formatArgon(argonFeeQuote?.txFee ?? 0n) }}
+                </span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <p v-if="argonFeeQuote && !argonFeeQuote.canAfford" class="text-sm text-red-700">
           Add
           <span class="font-mono font-semibold">{{ formatArgon(argonFeeShortfall) }}</span>
           to the Internal App Wallet to cover the Argon transaction fee.
-        </p>
-        <p v-else-if="argonFeeQuote" class="text-sm text-slate-500">
-          Argon transaction fee: approximately {{ formatArgon(argonFeeQuote.txFee) }}.
         </p>
         <div v-else-if="argonFeeQuoteError" class="flex items-center justify-between gap-3 text-sm text-red-700">
           <p>{{ argonFeeQuoteError }}</p>
           <button
             type="button"
-            data-testid="BitcoinOrphanRecoveryOverlay.retryArgonFeeQuote()"
+            data-testid="WalletViewUnattachedBitcoin.retryArgonFeeQuote()"
             class="text-argon-600 shrink-0 cursor-pointer font-semibold hover:underline"
             @click="queueArgonFeeQuote"
           >
             Try again
           </button>
         </div>
+
+        <button
+          data-testid="WalletViewUnattachedBitcoin.requestReturn()"
+          :disabled="!canSubmit"
+          @click="requestReturn"
+          class="border-argon-700 bg-argon-600 hover:bg-argon-700 w-full cursor-pointer rounded-lg border px-5 py-2 font-semibold text-white disabled:cursor-not-allowed disabled:border-gray-400 disabled:bg-gray-300 disabled:text-gray-500"
+        >
+          {{ isSubmitting ? 'Requesting Return...' : 'Return Bitcoin' }}
+        </button>
       </div>
 
       <div v-else class="space-y-4">
@@ -160,7 +181,7 @@
         </div>
 
         <div class="space-y-3 rounded-lg border border-slate-200 px-4 py-4">
-          <div class="text-sm font-semibold tracking-wide text-slate-500 uppercase">Return request details</div>
+          <div class="font-bold text-gray-500/80">Return request details</div>
           <dl class="space-y-3 text-sm">
             <div>
               <dt class="text-slate-500">Destination</dt>
@@ -197,7 +218,7 @@
         {{ requestError || release?.statusError || record.statusError }}
       </p>
     </div>
-  </OverlayBase>
+  </div>
 </template>
 
 <script setup lang="ts">
@@ -205,34 +226,41 @@ import * as Vue from 'vue';
 import dayjs from 'dayjs';
 import utc from 'dayjs/plugin/utc';
 import { MiningFrames } from '@argonprotocol/apps-core';
-import { ArrowTopRightOnSquareIcon } from '@heroicons/vue/24/outline';
-import numeral, { createNumeralHelpers } from '../lib/numeral.ts';
-import OverlayBase from './OverlayBase.vue';
-import ProgressBar from '../components/ProgressBar.vue';
-import BitcoinFeeRateInput from './bitcoin-locking/components/BitcoinFeeRateInput.vue';
-import { getBitcoinNetworkName, validateBitcoinAddressForNetwork } from '../lib/BitcoinAddressValidation.ts';
-import { getBitcoinLocks, getBitcoinTransactionOperations } from '../stores/bitcoin.ts';
-import { getConfig } from '../stores/config.ts';
-import { getCurrency } from '../stores/currency.ts';
-import { getMyVault, getVaults } from '../stores/vaults.ts';
-import { getWalletKeys, useWallets } from '../stores/wallets.ts';
-import type { IBitcoinLockRecord } from '../lib/db/BitcoinLocksTable.ts';
-import { BitcoinUtxoStatus, type IBitcoinUtxoRecord } from '../lib/db/BitcoinUtxosTable.ts';
-import { BitcoinReleaseStatus } from '../interfaces/IBitcoinReleaseRecord.ts';
-import { TransactionStatus } from '../lib/db/TransactionsTable.ts';
-import BitcoinLocks from '../lib/BitcoinLocks.ts';
-import BitcoinMempool from '../lib/BitcoinMempool.ts';
-import { ESPLORA_HOST } from '../lib/Env.ts';
-import { generateProgressLabel } from '../lib/Utils.ts';
-import BackIcon from '../assets/back.svg';
+import { ArrowTopRightOnSquareIcon, InformationCircleIcon } from '@heroicons/vue/24/outline';
+import Tooltip from '../../components/Tooltip.vue';
+import ProgressBar from '../../components/ProgressBar.vue';
+import { BitcoinReleaseStatus } from '../../interfaces/IBitcoinReleaseRecord.ts';
+import { getBitcoinNetworkName, validateBitcoinAddressForNetwork } from '../../lib/BitcoinAddressValidation.ts';
+import BitcoinLocks from '../../lib/BitcoinLocks.ts';
+import BitcoinMempool from '../../lib/BitcoinMempool.ts';
+import type { IBitcoinLockRecord } from '../../lib/db/BitcoinLocksTable.ts';
+import { TransactionStatus } from '../../lib/db/TransactionsTable.ts';
+import { BitcoinUtxoStatus, type IBitcoinUtxoRecord } from '../../lib/db/BitcoinUtxosTable.ts';
+import { ESPLORA_HOST } from '../../lib/Env.ts';
+import numeral, { createNumeralHelpers } from '../../lib/numeral.ts';
+import { generateProgressLabel } from '../../lib/Utils.ts';
+import BitcoinFeeRateInput from '../../overlays/bitcoin-locking/components/BitcoinFeeRateInput.vue';
+import { getBitcoinLocks, getBitcoinTransactionOperations } from '../../stores/bitcoin.ts';
+import { getConfig } from '../../stores/config.ts';
+import { getCurrency } from '../../stores/currency.ts';
+import { getMyVault, getVaults } from '../../stores/vaults.ts';
+import { getWalletKeys, useWallets } from '../../stores/wallets.ts';
+import type { IWalletView } from '../walletOverlayState.ts';
+import WalletHeader from './WalletHeader.vue';
 
 dayjs.extend(utc);
 
 const props = defineProps<{
   lock: IBitcoinLockRecord;
   record: IBitcoinUtxoRecord;
+  isDragging: boolean;
+  showBack: boolean;
 }>();
-const emit = defineEmits<{ back: []; close: [] }>();
+const emit = defineEmits<{
+  (event: 'dragStart', mouseEvent: MouseEvent): void;
+  (event: 'goto', view: IWalletView): void;
+  (event: 'close'): void;
+}>();
 const bitcoinLocks = getBitcoinLocks();
 const { bitcoinOrphanRelease } = getBitcoinTransactionOperations();
 const config = getConfig();
@@ -240,14 +268,19 @@ const currency = getCurrency();
 const myVault = getMyVault();
 const vaults = getVaults();
 const wallets = useWallets();
-const { microgonToArgonNm } = createNumeralHelpers(currency);
+const { microgonToArgonNm, microgonToMoneyNm, satToBtcNm } = createNumeralHelpers(currency);
 const mempool = new BitcoinMempool(ESPLORA_HOST);
 
 const destinationAddress = Vue.ref('');
 const feeRatePerSatVb = Vue.ref(5n);
 const isSubmitting = Vue.ref(false);
 const requestError = Vue.ref('');
-const argonFeeQuote = Vue.ref<{ canAfford: boolean; availableBalance: bigint; txFee: bigint }>();
+const argonFeeQuote = Vue.ref<{
+  canAfford: boolean;
+  availableBalance: bigint;
+  bitcoinNetworkFee: bigint;
+  txFee: bigint;
+}>();
 const argonFeeQuoteError = Vue.ref('');
 const isCheckingArgonFee = Vue.ref(false);
 const argonRequestProgressPct = Vue.ref(0);
@@ -262,7 +295,8 @@ const canRequestReturn = Vue.computed(
     props.record.status === BitcoinUtxoStatus.Orphaned &&
     (!release.value ||
       release.value.status === BitcoinReleaseStatus.Cancelled ||
-      release.value.status === BitcoinReleaseStatus.Failed),
+      release.value.status === BitcoinReleaseStatus.Failed ||
+      release.value.status === BitcoinReleaseStatus.FailedAcknowledged),
 );
 
 const bitcoinAmount = Vue.computed(() =>
@@ -274,21 +308,6 @@ const vaultName = Vue.computed(() => {
     vaults.operatorNamesByVaultId[props.lock.vaultId] ??
     (config.upstreamOperator?.vaultId === props.lock.vaultId ? config.upstreamOperator.name : undefined);
   return operatorName ? `${operatorName} Vault` : 'Vault';
-});
-const acceptedFundingUtxos = Vue.computed(() => bitcoinLocks.getFundingUtxos(props.lock));
-const isAdditionalDeposit = Vue.computed(() => {
-  const receivedHeight = props.record.firstSeenBitcoinHeight;
-  return acceptedFundingUtxos.value.some(fundingUtxo => {
-    if (fundingUtxo.id === props.record.id) return false;
-    const fundingHeight = fundingUtxo.firstSeenBitcoinHeight;
-    if (fundingHeight > 0 && receivedHeight > 0 && fundingHeight !== receivedHeight) {
-      return fundingHeight < receivedHeight;
-    }
-    return fundingUtxo.firstSeenAt.getTime() < props.record.firstSeenAt.getTime();
-  });
-});
-const comparisonBitcoinAmount = Vue.computed(() => {
-  return numeral(currency.convertSatToBtc(props.lock.fundedSatoshis)).format('0,0.[00000000]');
 });
 const receivedAt = Vue.computed(() => {
   const transactionBlockTime = props.record.mempoolObservation?.transactionBlockTime;
@@ -464,11 +483,12 @@ async function refreshArgonFeeQuote(runId: number): Promise<void> {
     argonFeeQuote.value = {
       canAfford: prepared.canAfford,
       availableBalance: prepared.availableBalance,
+      bitcoinNetworkFee: prepared.metadata.bitcoinNetworkFee ?? 0n,
       txFee: prepared.txFeePlusTip,
     };
   } catch (error) {
     if (runId !== feeQuoteRunId) return;
-    console.warn('[BitcoinOrphanRecoveryOverlay] Unable to check the Argon transaction fee', error);
+    console.warn('[WalletViewUnattachedBitcoin] Unable to check the Argon transaction fee', error);
     argonFeeQuoteError.value = 'Unable to check the Argon transaction fee. Please try again.';
   } finally {
     if (runId === feeQuoteRunId) isCheckingArgonFee.value = false;

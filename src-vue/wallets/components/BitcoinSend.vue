@@ -1,48 +1,9 @@
 <template>
-  <div v-if="releaseState.isReleaseComplete" class="flex flex-col items-center py-2 text-center">
-    <div class="text-lg font-semibold text-slate-700">Bitcoin sent</div>
-    <p class="mt-1 text-sm text-slate-500">
-      {{ satToBtcNm(fundedSatoshis).format('0,0.[00000000]') }} BTC was sent to this address.
-    </p>
-    <div
-      data-testid="BitcoinSend.completedAddress"
-      class="mt-5 flex w-full items-center gap-2 rounded-md border border-slate-300 bg-slate-50 px-3 py-2"
-    >
-      <span class="min-w-0 grow truncate text-left font-mono text-xs">
-        {{ releaseDestinationAddress || 'Destination unavailable' }}
-      </span>
-      <ButtonCopy v-if="releaseDestinationAddress" :address="releaseDestinationAddress" />
-    </div>
-    <a
-      v-if="releaseTxid"
-      :href="mempool.txUrl(releaseTxid)"
-      target="_blank"
-      rel="noopener noreferrer"
-      class="text-argon-600 mt-3 inline-flex items-center gap-1 self-end text-sm hover:underline"
-    >
-      View Bitcoin transaction
-      <ArrowTopRightOnSquareIcon class="h-4 w-4" />
-    </a>
-    <button
-      data-testid="BitcoinSend.done()"
-      class="bg-argon-600 hover:bg-argon-700 mt-5 w-full cursor-pointer rounded-md px-5 py-2 font-semibold text-white"
-      @click="emit('done')"
-    >
-      Done
-    </button>
-  </div>
-
-  <UnlockIsProcessing
-    v-else-if="releaseState.isReleaseStatus"
-    :personalLock="personalLock"
-    :cosignerLabel="cosignerLabel"
-  />
-
-  <form v-else class="space-y-4" @submit.prevent="sendBitcoin">
+  <form class="space-y-4" @submit.prevent="sendBitcoin">
     <div class="rounded-md bg-slate-50 px-4 py-3">
       <div class="text-sm text-slate-500">Amount to send</div>
       <div class="mt-0.5 text-xl font-bold text-slate-800">
-        {{ satToBtcNm(fundedSatoshis).format('0,0.[00000000]') }} BTC
+        {{ satToBtcNm(props.personalLock.fundedSatoshis).format('0,0.[00000000]') }} BTC
       </div>
     </div>
 
@@ -91,24 +52,17 @@
 <script setup lang="ts">
 import * as Vue from 'vue';
 import { bigIntMax, UnitOfMeasurement } from '@argonprotocol/apps-core';
-import { ArrowTopRightOnSquareIcon } from '@heroicons/vue/24/outline';
 
 import BitcoinFeeRateInput from '../../overlays/bitcoin-locking/components/BitcoinFeeRateInput.vue';
-import UnlockIsProcessing from '../../overlays/bitcoin-locking/UnlockIsProcessing.vue';
-import ButtonCopy from './ButtonCopy.vue';
 import { getBitcoinNetworkName, validateBitcoinAddressForNetwork } from '../../lib/BitcoinAddressValidation.ts';
-import BitcoinLocks from '../../lib/BitcoinLocks.ts';
-import BitcoinMempool from '../../lib/BitcoinMempool.ts';
-import { ESPLORA_HOST } from '../../lib/Env.ts';
 import { createNumeralHelpers } from '../../lib/numeral.ts';
-import { BitcoinLockStatus, type IBitcoinLockRecord } from '../../interfaces/IBitcoinLockRecord.ts';
+import type { IBitcoinLockRecord } from '../../interfaces/IBitcoinLockRecord.ts';
 import { getBitcoinLocks, getBitcoinTransactionOperations } from '../../stores/bitcoin.ts';
 import { getCurrency } from '../../stores/currency.ts';
 import { getWalletKeys, useWallets } from '../../stores/wallets.ts';
 
 const props = defineProps<{
   personalLock: IBitcoinLockRecord;
-  cosignerLabel?: string;
   externalError?: string;
 }>();
 
@@ -117,7 +71,6 @@ const emit = defineEmits<{
 }>();
 
 const bitcoinLocks = getBitcoinLocks();
-const mempool = new BitcoinMempool(ESPLORA_HOST);
 const { bitcoinLockRelease } = getBitcoinTransactionOperations();
 const currency = getCurrency();
 const wallets = useWallets();
@@ -132,13 +85,6 @@ const argonFeeQuote = Vue.ref<{ canAfford: boolean; availableBalance: bigint; tx
 const argonFeeQuoteError = Vue.ref('');
 const isCheckingArgonFee = Vue.ref(false);
 
-const releaseState = Vue.computed(() => bitcoinLocks.getLockUnlockReleaseState(props.personalLock));
-const release = Vue.computed(() =>
-  props.personalLock.status === BitcoinLockStatus.Released
-    ? bitcoinLocks.releases.getLatestForLock(props.personalLock)
-    : bitcoinLocks.releases.getActiveForLock(props.personalLock),
-);
-const fundedSatoshis = Vue.computed(() => props.personalLock.fundedSatoshis);
 const trimmedDestinationAddress = Vue.computed(() => destinationAddress.value.trim());
 const currentLockAddress = Vue.computed(() => {
   try {
@@ -154,16 +100,6 @@ const destinationAddressError = Vue.computed(() =>
   }),
 );
 const bitcoinNetworkName = Vue.computed(() => getBitcoinNetworkName(bitcoinLocks.bitcoinNetwork));
-const releaseDestinationAddress = Vue.computed(() => {
-  const destination = release.value?.toScriptPubkey;
-  if (!destination) return '';
-  try {
-    return BitcoinLocks.formatAddressBytes(destination, bitcoinLocks.bitcoinNetwork);
-  } catch {
-    return destination;
-  }
-});
-const releaseTxid = Vue.computed(() => release.value?.bitcoinTxid);
 const formError = Vue.computed(() => props.externalError || requestError.value);
 const argonFeeShortfall = Vue.computed(() => {
   if (!argonFeeQuote.value) return 0n;
@@ -181,7 +117,6 @@ const canSubmit = Vue.computed(
 Vue.watch(
   [trimmedDestinationAddress, feeRatePerSatVb, () => wallets.defaultArgonWallet.availableMicrogons],
   async (_values, _oldValues, onCleanup) => {
-    if (releaseState.value.isReleaseStatus) return;
     argonFeeQuoteError.value = '';
     requestError.value = '';
     if (!trimmedDestinationAddress.value || destinationAddressError.value) {
@@ -213,6 +148,7 @@ async function sendBitcoin(): Promise<void> {
       toScriptPubkey: trimmedDestinationAddress.value,
       txSigner: await getWalletKeys().getLiquidLockingKeypair(),
     });
+    emit('done');
   } catch (error) {
     requestError.value = error instanceof Error ? error.message : String(error);
   } finally {

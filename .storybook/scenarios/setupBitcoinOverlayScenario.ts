@@ -244,6 +244,7 @@ export function setupBitcoinOverlayScenario() {
       BitcoinReleaseStatus.Complete,
       BitcoinReleaseStatus.Cancelled,
       BitcoinReleaseStatus.Failed,
+      BitcoinReleaseStatus.FailedAcknowledged,
     ].includes(release.status);
     if (release.kind === BitcoinReleaseKind.Lock) lock.activeReleaseId = isActive ? release.id : undefined;
     if (release.kind === BitcoinReleaseKind.Orphan && inputUtxo) {
@@ -393,6 +394,7 @@ export function setupBitcoinOverlayScenario() {
     prepare: fn(async () => ({
       canAfford: true,
       availableBalance: 25_000_000n,
+      metadata: { bitcoinNetworkFee: 12_000n },
       txFeePlusTip: 125_000n,
     })),
     submit: fn(

@@ -26,7 +26,7 @@
         v-model="sliderValue"
         class="relative mt-2 flex h-5 w-full touch-none items-center select-none"
         :min="0"
-        :max="sliderMaximum"
+        :max="100"
         :step="selectedMoveToken === MoveToken.BTC ? 1 : 0.01"
         @pointerdown.capture="isSliding = true"
         @pointerup="isSliding = false"
@@ -42,83 +42,13 @@
       <div class="mt-1 flex justify-between text-xs text-stone-400">
         <span>0 {{ selectedMoveToken }}</span>
         <span v-if="selectedMoveToken === MoveToken.BTC" :data-testid="props.testIdPrefix + '.maximum'">
-          {{ satToBtcNm(maxValue).format('0,0.[00000000]') }} BTC{{
-            liquidLockedChannelDetails.length && !isBitcoinEntirelyLocked ? '*' : ''
-          }}
+          {{ satToBtcNm(maxValue).format('0,0.[00000000]') }} BTC
         </span>
         <span v-else>{{ microgonToArgonNm(maxValue).format('0,0.[00]') }} {{ selectedMoveToken }}</span>
       </div>
-      <PopoverRoot v-if="selectedMoveToken === MoveToken.BTC && liquidLockedChannelDetails.length">
-        <WalletFundingCallout v-if="isBitcoinEntirelyLocked" :showAction="false" :showArrow="false" class="text-sm">
-          <AlertIcon class="mr-2 h-4 shrink-0 text-yellow-700" />
-          <span>
-            No Bitcoin is available to send.
-            {{ satToBtcNm(liquidBackingSatoshis).format('0,0.[00000000]') }} BTC is locked in Liquids, and the remaining
-            {{ satToBtcNm(liquidBlockedRemainderSatoshis).format('0,0.[00000000]') }} BTC is unavailable to send until
-            the whole Channel is releasable.
-            <PopoverTrigger asChild>
-              <button class="cursor-pointer font-semibold hover:underline" type="button">Details</button>
-            </PopoverTrigger>
-          </span>
-        </WalletFundingCallout>
-        <PopoverTrigger v-else asChild>
-          <button type="button" class="text-argon-600 inline-flex items-center gap-1 self-end text-xs hover:underline">
-            * {{ satToBtcNm(liquidBackingSatoshis).format('0,0.[00000000]') }} BTC is locked in Liquids; the remaining
-            {{ satToBtcNm(liquidBlockedRemainderSatoshis).format('0,0.[00000000]') }} BTC is unavailable to send until
-            the whole Channel is releasable
-            <InformationCircleIcon class="h-4 w-4" />
-          </button>
-        </PopoverTrigger>
-        <PopoverPortal>
-          <PopoverContent
-            side="bottom"
-            align="end"
-            :sideOffset="6"
-            :collisionPadding="30"
-            :style="floatingZIndex"
-            class="w-80 rounded-lg shadow-2xl"
-          >
-            <div class="rounded-lg border border-black/50 bg-white p-4 text-left text-sm text-gray-700">
-              <p>Each Channel must be entirely unused by Liquids before it can be sent.</p>
-              <div class="mt-3 border-t border-slate-300 pt-3">
-                <div
-                  v-for="(detail, index) in liquidLockedChannelDetails"
-                  :key="detail.channel.uuid"
-                  :class="index ? 'mt-3' : ''"
-                >
-                  <div class="flex items-center gap-3">
-                    <span class="min-w-0 grow">Cosigner: {{ detail.cosigner }}</span>
-                    <span class="shrink-0">
-                      {{ satToBtcNm(detail.channel.fundedSatoshis).format('0,0.[00000000]') }} BTC channel
-                    </span>
-                  </div>
-                  <div class="mt-1 flex items-center gap-3 text-xs">
-                    <span v-if="detail.address" class="min-w-0 grow truncate font-mono text-slate-500">
-                      {{ detail.address }}
-                    </span>
-                    <span v-else class="grow" />
-                    <span class="shrink-0">
-                      {{ satToBtcNm(detail.channel.fissionedSatoshis ?? 0n).format('0,0.[00000000]') }} BTC Liquid
-                    </span>
-                  </div>
-                </div>
-              </div>
-              <PopoverArrow
-                :width="26"
-                :height="12"
-                class="pointer-events-none -mt-px fill-white stroke-gray-800/40 stroke-[0.5]"
-              />
-            </div>
-          </PopoverContent>
-        </PopoverPortal>
-      </PopoverRoot>
     </div>
 
-    <div
-      v-if="!isBitcoinEntirelyLocked"
-      :data-testid="props.testIdPrefix + '.destination'"
-      class="mt-6 flex flex-col gap-x-3"
-    >
+    <div :data-testid="props.testIdPrefix + '.destination'" class="mt-6 flex flex-col gap-x-3">
       <label class="mb-1 font-bold text-gray-500/80">Send To</label>
       <InputMenu
         v-if="showDestinationMenu"
@@ -148,7 +78,7 @@
       <div v-if="destinationAddressError" class="mt-2 text-sm text-red-700">{{ destinationAddressError }}</div>
     </div>
 
-    <div v-if="isBitcoinTransfer && !isBitcoinEntirelyLocked" class="mt-6 flex flex-col gap-x-3">
+    <div v-if="isBitcoinTransfer" class="mt-6 flex flex-col gap-x-3">
       <label class="mb-1 font-bold text-gray-500/80">Bitcoin Network Speed</label>
       <InputMenu
         v-model="selectedBitcoinFeeRateKey"
@@ -161,7 +91,14 @@
       <label class="mb-1 font-bold text-gray-500/80">Cost of Send</label>
       <div class="border-b border-gray-300 text-sm">
         <div v-if="isBitcoinTransfer" class="flex flex-row border-t border-gray-300 py-2">
-          <div class="grow">Bitcoin Network</div>
+          <div class="grow">
+            <Tooltip :asChild="true" content="The Bitcoin network fee is deducted from the amount you choose to send.">
+              <span class="inline-flex cursor-help items-center gap-1">
+                Bitcoin Network
+                <InformationCircleIcon class="size-3.5 text-gray-400" />
+              </span>
+            </Tooltip>
+          </div>
           <div class="relative ml-4 text-right">
             <span :class="{ 'opacity-20': isEstimatingFees }">
               {{ satToBtcNm(bitcoinFeeEstimate?.bitcoinFee ?? 0n).format('0,0.[00000000]') }} BTC ({{ currency.symbol
@@ -265,23 +202,14 @@ import {
 import { EvmContracts } from '@argonprotocol/mainchain';
 import BigNumber from 'bignumber.js';
 import { InformationCircleIcon } from '@heroicons/vue/24/outline';
-import {
-  PopoverArrow,
-  PopoverContent,
-  PopoverPortal,
-  PopoverRoot,
-  PopoverTrigger,
-  SliderRange,
-  SliderRoot,
-  SliderThumb,
-  SliderTrack,
-} from 'reka-ui';
+import { SliderRange, SliderRoot, SliderThumb, SliderTrack } from 'reka-ui';
 import AlertIcon from '../../assets/alert.svg';
 import InputMenu, { type IOption } from '../../components/InputMenu.vue';
 import InputToken from '../../components/InputToken.vue';
-import WalletFundingCallout from '../../components/WalletFundingCallout.vue';
+import Tooltip from '../../components/Tooltip.vue';
 import { validateBitcoinAddressForNetwork } from '../../lib/BitcoinAddressValidation.ts';
 import BitcoinLocks from '../../lib/BitcoinLocks.ts';
+import BitcoinReleases, { type IBitcoinSendRelease } from '../../lib/BitcoinReleases.ts';
 import type { IEthereumMoveToken } from '../../lib/EthereumClient.ts';
 import type { IArgonWalletType } from '../../interfaces/IEthereumInboundTransferTracker.ts';
 import { WalletType } from '../../lib/Wallet.ts';
@@ -289,14 +217,10 @@ import type { WalletForArgon } from '../../lib/WalletForArgon.ts';
 import type { WalletForBitcoin } from '../../lib/WalletForBitcoin.ts';
 import type { WalletForEthereum } from '../../lib/WalletForEthereum.ts';
 import { createNumeralHelpers } from '../../lib/numeral.ts';
-import { abbreviateAddress } from '../../lib/Utils.ts';
-import { useFloatingZIndex } from '../../overlays/helpers/OverlayZIndex.ts';
 import { getCurrency } from '../../stores/currency.ts';
-import { getConfig } from '../../stores/config.ts';
 import { getBitcoinLocks, getBitcoinTransactionOperations } from '../../stores/bitcoin.ts';
 import { getEthereumMoveTracker } from '../../stores/moveFromEthereum.ts';
 import { getEthereumOutboundTransferTracker } from '../../stores/moveToEthereum.ts';
-import { getMyVault, getVaults } from '../../stores/vaults.ts';
 import { getMoveCapital, getWalletKeys } from '../../stores/wallets.ts';
 
 type ITransferArgonWallet = WalletForArgon<'argon'> | WalletForArgon<'miningBot'>;
@@ -315,15 +239,11 @@ const emit = defineEmits<{
 }>();
 
 const currency = getCurrency();
-const config = getConfig();
-const vaults = getVaults();
-const myVault = getMyVault();
 const bitcoinLocks = getBitcoinLocks();
 const { bitcoinLockRelease } = getBitcoinTransactionOperations();
 const inboundTracker = getEthereumMoveTracker();
 const outboundTracker = getEthereumOutboundTransferTracker();
 const moveCapital = getMoveCapital();
-const floatingZIndex = useFloatingZIndex();
 const {
   microgonToArgonNm,
   microgonToMoneyNm,
@@ -348,8 +268,8 @@ const bitcoinFeeEstimate = Vue.ref<{
   availableArgons: bigint;
   bitcoinFee: bigint;
   canAfford: boolean;
-  networkFees: bigint[];
 }>();
+const bitcoinReleasePlan = Vue.ref<IBitcoinSendRelease[]>([]);
 const bitcoinFeeRateOptions = Vue.ref<IOption[]>([
   { name: 'Fast = ~10 min', value: 'fast', sats: 10n },
   { name: 'Medium = ~30 min', value: 'medium', sats: 5n },
@@ -368,61 +288,17 @@ const bitcoinWallet = Vue.computed(() =>
   props.toWallets.find((wallet): wallet is WalletForBitcoin => wallet.type === WalletType.bitcoin),
 );
 const sendableBitcoinChannels = Vue.computed(() => bitcoinWallet.value?.getSendableChannels() ?? []);
-const liquidLockedChannelDetails = Vue.computed(() => {
-  const wallet = bitcoinWallet.value;
-  if (!wallet) return [];
-  return wallet.getLiquidLockedChannels().map(channel => {
-    let address = '';
-    if (channel.scriptDetails) {
-      try {
-        address = abbreviateAddress(wallet.getChannelFundingAddress(channel), 8);
-      } catch {
-        // Current chain state remains usable while incomplete historical script details are repaired.
-      }
-    }
-    return {
-      channel,
-      cosigner:
-        channel.vaultId === (myVault.createdVault?.vaultId ?? myVault.vaultId)
-          ? 'My Vault'
-          : (vaults.operatorNamesByVaultId[channel.vaultId] ??
-            (config.upstreamOperator?.vaultId === channel.vaultId ? config.upstreamOperator.name : undefined) ??
-            `Vault ${channel.vaultId}`),
-      address,
-    };
-  });
-});
-const liquidBackingSatoshis = Vue.computed(() =>
-  liquidLockedChannelDetails.value.reduce((total, detail) => total + (detail.channel.fissionedSatoshis ?? 0n), 0n),
+const minimumBitcoinRetainedSatoshis = Vue.ref<bigint>();
+let minimumBitcoinRetainedSatoshisPromise: Promise<bigint> | undefined;
+const availableBitcoinSatoshis = Vue.computed(() =>
+  sendableBitcoinChannels.value.reduce((total, channel) => {
+    const fissionedSatoshis = channel.fissionedSatoshis ?? 0n;
+    if (fissionedSatoshis === 0n) return total + channel.fundedSatoshis;
+
+    const retainedSatoshis = bigIntMax(fissionedSatoshis, minimumBitcoinRetainedSatoshis.value ?? fissionedSatoshis);
+    return total + bigIntMax(channel.fundedSatoshis - retainedSatoshis, 0n);
+  }, 0n),
 );
-const liquidBlockedRemainderSatoshis = Vue.computed(() =>
-  liquidLockedChannelDetails.value.reduce(
-    (total, detail) => total + bigIntMax(detail.channel.fundedSatoshis - (detail.channel.fissionedSatoshis ?? 0n), 0n),
-    0n,
-  ),
-);
-const isBitcoinEntirelyLocked = Vue.computed(
-  () =>
-    selectedMoveToken.value === MoveToken.BTC &&
-    sendableBitcoinChannels.value.length === 0 &&
-    liquidLockedChannelDetails.value.length > 0,
-);
-const bitcoinTransferAmounts = Vue.computed(() => {
-  let total = 0n;
-  return [
-    0n,
-    ...sendableBitcoinChannels.value.map(channel => {
-      total += channel.fundedSatoshis;
-      return total;
-    }),
-  ];
-});
-const selectedBitcoinChannels = Vue.computed(() => {
-  if (selectedMoveToken.value !== MoveToken.BTC) return [];
-  const channelCount = bitcoinTransferAmounts.value.indexOf(tokensToMove.value);
-  return channelCount < 1 ? [] : sendableBitcoinChannels.value.slice(0, channelCount);
-});
-const bitcoinNetworkFees = Vue.computed(() => bitcoinFeeEstimate.value?.networkFees ?? []);
 const bitcoinFeeRatePerSatVb = Vue.computed(
   () => bitcoinFeeRateOptions.value.find(option => option.value === selectedBitcoinFeeRateKey.value)?.sats ?? 5n,
 );
@@ -499,7 +375,7 @@ const showFees = Vue.computed(
   () =>
     showEthereumFees.value ||
     (isDirectArgonTransfer.value && directArgonFeeMicrogons.value !== undefined) ||
-    (isBitcoinTransfer.value && !isBitcoinEntirelyLocked.value),
+    isBitcoinTransfer.value,
 );
 const argonFeeEstimate = Vue.computed(() => bitcoinFeeEstimate.value?.argonFee ?? feeEstimateMicrogon.value);
 const ethereumBalanceWei = Vue.computed(
@@ -526,18 +402,6 @@ const availableAmount = Vue.computed(() => {
   return rawAmount;
 });
 const maxValue = Vue.computed(() => maximumTransferOutAmount.value ?? availableAmount.value);
-const sliderMaximum = Vue.computed(() =>
-  selectedMoveToken.value === MoveToken.BTC ? Math.max(bitcoinTransferAmounts.value.length - 1, 0) : 100,
-);
-const bitcoinAmountError = Vue.computed(() => {
-  if (
-    selectedMoveToken.value !== MoveToken.BTC ||
-    tokensToMove.value === 0n ||
-    bitcoinTransferAmounts.value.includes(tokensToMove.value)
-  )
-    return '';
-  return 'Choose an amount matching the available Bitcoin channel increments.';
-});
 const hasSufficientEthereumFeeBalance = Vue.computed(
   () => !showEthereumFees.value || (feeEstimateWei.value != null && ethereumBalanceWei.value >= feeEstimateWei.value),
 );
@@ -566,7 +430,6 @@ const formError = Vue.computed(
   () =>
     submissionError.value ||
     maximumTransferError.value ||
-    bitcoinAmountError.value ||
     bitcoinDestinationError.value ||
     destinationAddressError.value,
 );
@@ -586,31 +449,15 @@ const isReady = Vue.computed(
     (!isDirectArgonTransfer.value || directArgonFeeMicrogons.value !== undefined) &&
     tokensToMove.value > 0n &&
     tokensToMove.value <= maxValue.value &&
-    !bitcoinAmountError.value &&
     (!showEthereumFees.value || (feeEstimateWei.value != null && hasSufficientEthereumFeeBalance.value)) &&
     (!isBitcoinTransfer.value || (bitcoinFeeEstimate.value != null && hasSufficientBitcoinFeeBalance.value)),
 );
 const sliderValue = Vue.computed<number[]>({
-  get: () => {
-    if (selectedMoveToken.value === MoveToken.BTC) {
-      const exactIndex = bitcoinTransferAmounts.value.indexOf(tokensToMove.value);
-      if (exactIndex >= 0) return [exactIndex];
-      return [
-        bitcoinTransferAmounts.value.reduce(
-          (selectedIndex, amount, index) => (amount < tokensToMove.value ? index : selectedIndex),
-          0,
-        ),
-      ];
-    }
-    return maxValue.value === 0n
+  get: () =>
+    maxValue.value === 0n
       ? [0]
-      : [BigNumber(tokensToMove.value.toString()).dividedBy(maxValue.value.toString()).multipliedBy(100).toNumber()];
-  },
+      : [BigNumber(tokensToMove.value.toString()).dividedBy(maxValue.value.toString()).multipliedBy(100).toNumber()],
   set: ([percentage]) => {
-    if (selectedMoveToken.value === MoveToken.BTC) {
-      tokensToMove.value = bitcoinTransferAmounts.value[Math.round(percentage ?? 0)] ?? 0n;
-      return;
-    }
     tokensToMove.value = bigNumberToBigInt(
       BigNumber(maxValue.value.toString())
         .multipliedBy(percentage ?? 0)
@@ -622,7 +469,7 @@ const sliderValue = Vue.computed<number[]>({
 function getWalletAvailableAmount(wallet: ITransferWallet, moveToken: MoveToken): bigint {
   if (moveToken === MoveToken.ARGN) return wallet.data.availableMicrogons;
   if (moveToken === MoveToken.ARGNOT) return wallet.data.availableMicronots;
-  return bitcoinTransferAmounts.value.at(-1) ?? 0n;
+  return availableBitcoinSatoshis.value;
 }
 
 function getDestinationValue(wallet: ITransferWallet): string {
@@ -755,7 +602,9 @@ Vue.watch(
       feeEstimateWei.value = undefined;
       feeEstimateMicrogon.value = undefined;
       feeEstimateMicronot.value = undefined;
-      const channels = selectedBitcoinChannels.value;
+      bitcoinReleasePlan.value = [];
+      bitcoinFeeEstimate.value = undefined;
+      const channels = sendableBitcoinChannels.value;
       const toScriptPubkey = destinationAddress.value.trim();
       if (amount <= 0n || channels.length === 0 || !toScriptPubkey || bitcoinDestinationError.value) {
         bitcoinFeeEstimate.value = undefined;
@@ -770,23 +619,40 @@ Vue.watch(
         const estimates = await raceWithTimeout(
           (async () => {
             const txSigner = await getWalletKeys().getLiquidLockingKeypair();
-            return await Promise.all(
-              channels.map(async channel => {
-                const bitcoinFee = await bitcoinLocks.calculateBitcoinNetworkFee(
-                  channel,
-                  bitcoinFeeRatePerSatVb.value,
-                  toScriptPubkey,
-                );
-                const prepared = await bitcoinLockRelease.prepare({
-                  lockId: channel.lockId!,
-                  bitcoinNetworkFee: bitcoinFee,
-                  destinationSatoshis: channel.fundedSatoshis - bitcoinFee,
+            const [minimumRetainedSatoshis, sources] = await Promise.all([
+              getMinimumBitcoinRetainedSatoshis(),
+              Promise.all(
+                channels.map(async channel => {
+                  const canFullyRelease = (channel.fissionedSatoshis ?? 0n) === 0n;
+                  const [fullReleaseFee, partialReleaseFee] = await Promise.all([
+                    canFullyRelease
+                      ? bitcoinLocks.calculateBitcoinNetworkFee(channel, bitcoinFeeRatePerSatVb.value, toScriptPubkey)
+                      : 0n,
+                    bitcoinLocks.calculateBitcoinNetworkFee(
+                      channel,
+                      bitcoinFeeRatePerSatVb.value,
+                      toScriptPubkey,
+                      true,
+                    ),
+                  ]);
+                  return { channel, fullReleaseFee, partialReleaseFee };
+                }),
+              ),
+            ]);
+            minimumBitcoinRetainedSatoshis.value = minimumRetainedSatoshis;
+            const plan = BitcoinReleases.createSendPlan(sources, amount, minimumRetainedSatoshis);
+            const prepared = await Promise.all(
+              plan.map(release =>
+                bitcoinLockRelease.prepare({
+                  lockId: release.channel.lockId!,
+                  bitcoinNetworkFee: release.bitcoinNetworkFee,
+                  destinationSatoshis: release.destinationSatoshis,
                   toScriptPubkey,
                   txSigner,
-                });
-                return { bitcoinFee, prepared };
-              }),
+                }),
+              ),
             );
+            return { plan, prepared };
           })(),
           30_000,
           () => {
@@ -794,18 +660,19 @@ Vue.watch(
           },
         );
         if (!cancelled) {
-          const argonFee = estimates.reduce((total, estimate) => total + estimate.prepared.txFeePlusTip, 0n);
-          const availableArgons = estimates[0]?.prepared.availableBalance ?? 0n;
+          const argonFee = estimates.prepared.reduce((total, prepared) => total + prepared.txFeePlusTip, 0n);
+          const availableArgons = estimates.prepared[0]?.availableBalance ?? 0n;
+          bitcoinReleasePlan.value = estimates.plan;
           bitcoinFeeEstimate.value = {
             argonFee,
             availableArgons,
-            bitcoinFee: estimates.reduce((total, estimate) => total + estimate.bitcoinFee, 0n),
+            bitcoinFee: estimates.plan.reduce((total, release) => total + release.bitcoinNetworkFee, 0n),
             canAfford: argonFee <= availableArgons,
-            networkFees: estimates.map(estimate => estimate.bitcoinFee),
           };
         }
       } catch (error) {
         if (!cancelled) {
+          bitcoinReleasePlan.value = [];
           bitcoinFeeEstimate.value = undefined;
           feeEstimateError.value = error instanceof Error ? error.message : 'Unable to estimate the transfer fees.';
         }
@@ -816,6 +683,7 @@ Vue.watch(
     }
 
     bitcoinFeeEstimate.value = undefined;
+    bitcoinReleasePlan.value = [];
     const moveToken = selectedEthereumMoveToken.value;
     const ethereumWallet = selectedEthereumWallet.value;
     if (isDirectArgonTransfer.value || amount <= 0n || !moveToken || !ethereumWallet) {
@@ -872,26 +740,43 @@ Vue.watch(
   { immediate: true },
 );
 
-Vue.onMounted(async () => {
-  try {
-    const latestFeeRates = await BitcoinLocks.getFeeRates();
-    bitcoinFeeRateOptions.value = Object.entries(latestFeeRates).map(([key, rate]) => ({
-      name: `${key.charAt(0).toUpperCase() + key.slice(1)} = ~${rate.estimatedMinutes} min`,
-      value: key,
-      sats: rate.feeRate,
-    }));
-  } catch (error) {
-    console.warn('Failed to update Bitcoin fee rates, using defaults', error);
-  }
+Vue.onMounted(() => {
+  void getMinimumBitcoinRetainedSatoshis().catch(error => {
+    console.warn('Failed to load the minimum retained Bitcoin amount', error);
+  });
+  void BitcoinLocks.getFeeRates()
+    .then(latestFeeRates => {
+      bitcoinFeeRateOptions.value = Object.entries(latestFeeRates).map(([key, rate]) => ({
+        name: `${key.charAt(0).toUpperCase() + key.slice(1)} = ~${rate.estimatedMinutes} min`,
+        value: key,
+        sats: rate.feeRate,
+      }));
+    })
+    .catch(error => {
+      console.warn('Failed to update Bitcoin fee rates, using defaults', error);
+    });
 });
+
+function getMinimumBitcoinRetainedSatoshis(): Promise<bigint> {
+  minimumBitcoinRetainedSatoshisPromise ??= bitcoinLocks
+    .minimumSatoshiPerLock()
+    .then(minimumSatoshis => {
+      minimumBitcoinRetainedSatoshis.value = minimumSatoshis;
+      return minimumSatoshis;
+    })
+    .catch(error => {
+      minimumBitcoinRetainedSatoshisPromise = undefined;
+      throw error;
+    });
+  return minimumBitcoinRetainedSatoshisPromise;
+}
 
 defineExpose({
   availableAmount,
-  bitcoinNetworkFees,
+  bitcoinReleasePlan,
   destinationAddress,
   isReady,
   selectedDestinationWallet,
-  selectedBitcoinChannels,
   selectedMoveToken,
   setFormError,
   setMoveToken,

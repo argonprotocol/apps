@@ -25,7 +25,6 @@ export type IVaultCollectMetadata = {
 export type IVaultCollectSubmission = {
   tx: SubmittableExtrinsic;
   metadata: IVaultCollectMetadata;
-  submittedCosignLockIds: number[];
 };
 
 export type IVaultCollectNotice = {
@@ -188,7 +187,6 @@ export class VaultCollectBuilder {
           actionType: shouldCollectRevenue ? 'collectRevenue' : 'cosignBitcoin',
           councilApprovalCount: pendingCouncilApprovals.length,
         },
-        submittedCosignLockIds: cosignedReleases.map(release => release.lockId),
       };
     }
 
@@ -201,7 +199,6 @@ export class VaultCollectBuilder {
           actionType: 'approveCouncil',
           councilApprovalCount: pendingCouncilApprovals.length,
         },
-        submittedCosignLockIds: [],
       };
     }
 

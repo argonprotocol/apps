@@ -2,7 +2,7 @@
   <div class="flex h-full grow flex-col text-black/90">
     <WalletHeader
       name="Private Key"
-      :showHome="true"
+      :showHome="props.showBack"
       :isDragging="props.isDragging"
       @dragStart="emit('dragStart', $event)"
       @goto="emit('goto', $event)"
@@ -60,6 +60,7 @@ import type { IWalletView } from '../walletOverlayState.ts';
 
 const props = defineProps<{
   isDragging: boolean;
+  showBack: boolean;
   showGuidance?: boolean;
   guidanceContext?: IWalletGuidanceContext;
 }>();

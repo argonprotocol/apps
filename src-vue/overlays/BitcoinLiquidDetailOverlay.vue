@@ -328,7 +328,8 @@
                               <button
                                 data-testid="BitcoinLiquidDetailOverlay.openRatchetReview"
                                 :disabled="
-                                  (!isRatchetAvailable || !ratchetPreview) && ratchetTransaction.status !== 'pending'
+                                  isBitcoinSettlementPending ||
+                                  ((!isRatchetAvailable || !ratchetPreview) && ratchetTransaction.status !== 'pending')
                                 "
                                 class="border-argon-600 text-argon-600 hover:bg-argon-600/5 inline-flex cursor-pointer items-center gap-x-1 rounded border px-3 text-sm leading-5 font-semibold whitespace-nowrap disabled:cursor-not-allowed disabled:border-slate-300 disabled:text-slate-300"
                               >
@@ -413,17 +414,44 @@
           </PopoverRoot>
           <span v-else />
           <PopoverRoot v-if="!isClosed" v-model:open="closePopoverOpen">
-            <PopoverTrigger as-child>
-              <button
-                data-testid="BitcoinLiquidDetailOverlay.openCloseReview"
-                class="border-argon-600 text-argon-600 hover:bg-argon-600/5 cursor-pointer rounded-md border px-5 py-2 font-semibold whitespace-nowrap"
-              >
-                <template v-if="closeTransaction.status === 'pending'">Closing Liquid...</template>
-                <template v-else>
-                  Repay {{ argonSymbol }}{{ microgonToArgonNm(repaymentAmount).format('0,0.00') }} &amp; Close Liquid
-                </template>
-              </button>
-            </PopoverTrigger>
+            <PopoverAnchor as-child>
+              <span class="inline-flex">
+                <TooltipProvider :delayDuration="100">
+                  <TooltipRoot>
+                    <TooltipTrigger as-child>
+                      <span class="inline-flex">
+                        <button
+                          data-testid="BitcoinLiquidDetailOverlay.openCloseReview"
+                          :disabled="isBitcoinSettlementPending"
+                          class="border-argon-600 text-argon-600 hover:bg-argon-600/5 inline-flex cursor-pointer items-center gap-x-1 rounded-md border px-5 py-2 font-semibold whitespace-nowrap disabled:cursor-not-allowed disabled:border-slate-300 disabled:text-slate-300"
+                          @click="closePopoverOpen = !closePopoverOpen"
+                        >
+                          <template v-if="closeTransaction.status === 'pending'">Closing Liquid...</template>
+                          <template v-else>
+                            Repay {{ argonSymbol }}{{ microgonToArgonNm(repaymentAmount).format('0,0.00') }} &amp; Close
+                            Liquid
+                            <InformationCircleIcon v-if="isBitcoinSettlementPending" class="size-4" />
+                          </template>
+                        </button>
+                      </span>
+                    </TooltipTrigger>
+                    <TooltipPortal v-if="isBitcoinSettlementPending">
+                      <TooltipContent
+                        side="top"
+                        align="end"
+                        :sideOffset="8"
+                        :collisionPadding="24"
+                        :style="{ zIndex: floatingZIndex }"
+                        class="w-80 rounded-md border border-gray-800/20 bg-white px-4 py-3 text-sm text-slate-600 shadow-xl"
+                      >
+                        {{ bitcoinSettlementPendingReason }}
+                        <TooltipArrow :width="18" :height="9" class="-mt-px fill-white stroke-gray-400/30" />
+                      </TooltipContent>
+                    </TooltipPortal>
+                  </TooltipRoot>
+                </TooltipProvider>
+              </span>
+            </PopoverAnchor>
             <PopoverPortal>
               <PopoverContent
                 side="top"
@@ -553,7 +581,7 @@ import { createNumeralHelpers } from '../lib/numeral.ts';
 import numeral from '../lib/numeral.ts';
 import { getCurrency } from '../stores/currency.ts';
 import { useFinancials } from '../stores/financials.ts';
-import { getBitcoinFissions, getBitcoinTransactionOperations } from '../stores/bitcoin.ts';
+import { getBitcoinFissions, getBitcoinLocks, getBitcoinTransactionOperations } from '../stores/bitcoin.ts';
 import { getMainchainClient } from '../stores/mainchain.ts';
 import { getMyVault, getVaults } from '../stores/vaults.ts';
 import { getWalletKeys } from '../stores/wallets.ts';
@@ -592,6 +620,7 @@ const emit = defineEmits<{
 const currency = getCurrency();
 const financials = useFinancials();
 const bitcoinFissions = getBitcoinFissions();
+const bitcoinLocks = getBitcoinLocks();
 const { bitcoinLiquidClose, bitcoinLiquidRatchet } = getBitcoinTransactionOperations();
 const vaults = getVaults();
 const myVault = getMyVault();
@@ -601,6 +630,11 @@ const argonSymbol = currency.recordsByKey[UnitOfMeasurement.ARGN].symbol;
 
 const liquid = Vue.toRef(props, 'liquid');
 const isClosed = Vue.computed(() => liquid.value.isClosed);
+const bitcoinSettlementPendingReason =
+  "This Liquid's Bitcoin is updating internally. Ratchet and Close will be available when the update is complete.";
+const isBitcoinSettlementPending = Vue.computed(() =>
+  liquid.value.fissions.some(fission => bitcoinLocks.getLockById(fission.lockId)?.activeReleaseId !== undefined),
+);
 const financialPosition = Vue.computed(() =>
   financials.financialPositionAggregate.groupSummaries.bitcoin.positions.find(
     (position): position is IBitcoinLiquidFinancialPosition =>
@@ -690,6 +724,7 @@ const ratchetPercent = Vue.computed(() =>
 );
 const isRatchetAvailable = Vue.computed(() => ratchetPreview.value?.canRatchet ?? false);
 const ratchetUnavailableReason = Vue.computed(() => {
+  if (isBitcoinSettlementPending.value) return bitcoinSettlementPendingReason;
   if (ratchetState.value.status === 'error') return ratchetState.value.error;
   if (ratchetState.value.status !== 'ready' || ratchetState.value.value.preview.canRatchet) return '';
 
@@ -835,6 +870,8 @@ function initializeActions(preserveLoadedState = false): void {
     trackRatchetTransaction(pendingRatchet);
     return;
   }
+
+  if (isBitcoinSettlementPending.value) return;
 
   if (ratchetState.value.status !== 'ready') ratchetState.value = { status: 'loading' };
   const currentLiquid = liquid.value;
@@ -1005,7 +1042,10 @@ async function loadCloseQuote(currentLiquid: BitcoinLiquid, currentLoadId: numbe
 }
 
 function trackRatchetTransaction<Metadata>(txInfo: TransactionInfo<Metadata>): void {
-  trackTransaction(txInfo, ratchetTransaction, initializeActions);
+  trackTransaction(txInfo, ratchetTransaction, () => {
+    ratchetPopoverOpen.value = false;
+    initializeActions();
+  });
 }
 
 function trackCloseTransaction<Metadata>(txInfo: TransactionInfo<Metadata>): void {
@@ -1091,6 +1131,7 @@ Vue.watch(
 Vue.watch(isClosed, closed => {
   if (closed) stopTracking();
 });
+Vue.watch(isBitcoinSettlementPending, () => initializeActions());
 Vue.onMounted(initializeActions);
 Vue.onUnmounted(stopTracking);
 </script>

@@ -20,7 +20,7 @@ type ILiquidRatchetState = IE2EOperationInspectState<
 
 export default new Operation<IBitcoinFlowContext, ILiquidRatchetState>(import.meta, {
   async inspect({ flow }) {
-    const [chainState, detailOverlay, ratchetReview, ratchetSubmit] = await Promise.all([
+    const [chainState, detailOverlay, ratchetReview, ratchetReviewOpen, ratchetSubmit] = await Promise.all([
       flow.queryApp(refs => {
         const fissions = refs.getBitcoinFissions();
         const activeLiquids = fissions.getLiquids().filter(liquid => !liquid.isClosed);
@@ -34,6 +34,9 @@ export default new Operation<IBitcoinFlowContext, ILiquidRatchetState>(import.me
       }),
       flow.isVisible('BitcoinLiquidDetailOverlay'),
       flow.isVisible('BitcoinLiquidDetailOverlay.openRatchetReview'),
+      flow.isVisible({
+        selector: '[data-testid="BitcoinLiquidDetailOverlay.openRatchetReview"][data-state="open"]',
+      }),
       flow.isVisible('BitcoinLiquidDetailOverlay.confirmRatchet()'),
     ]);
     const current = chainState ?? {
@@ -46,7 +49,8 @@ export default new Operation<IBitcoinFlowContext, ILiquidRatchetState>(import.me
       current.activeFissionCount === 1 &&
       current.activeLiquidCount === 1 &&
       current.ratchetNumber === 1 &&
-      current.ratchetHistoryCount === 1;
+      current.ratchetHistoryCount === 1 &&
+      !ratchetReviewOpen.visible;
     const canRun =
       !isComplete &&
       current.activeFissionCount === 1 &&
@@ -73,7 +77,7 @@ export default new Operation<IBitcoinFlowContext, ILiquidRatchetState>(import.me
         ratchetSubmitEnabled: ratchetSubmit.enabled,
       },
       state: blockers.length && !canRun ? 'uiStateMismatch' : state,
-      phase: ratchetSubmit.visible
+      phase: ratchetReviewOpen.visible
         ? 'liquid:ratchet-review'
         : ratchetReview.enabled
           ? 'liquid:ratchet-ready'
@@ -113,13 +117,10 @@ export default new Operation<IBitcoinFlowContext, ILiquidRatchetState>(import.me
       });
     }
     await flow.click('BitcoinLiquidDetailOverlay.confirmRatchet()', { timeoutMs: 20_000 });
-    await flow.poll<ILiquidRatchetState>(
-      latest => latest.chainState.ratchetNumber === 1 && latest.chainState.ratchetHistoryCount === 1,
-      {
-        pollMs: 1_000,
-        timeoutMs: 180_000,
-        timeoutMessage: `${flowName}: the ratchet did not finalize and appear in Liquid history.`,
-      },
-    );
+    await flow.poll<ILiquidRatchetState>(latest => latest.state === 'complete', {
+      pollMs: 1_000,
+      timeoutMs: 180_000,
+      timeoutMessage: `${flowName}: the ratchet did not finalize, appear in Liquid history, and close its review.`,
+    });
   },
 });

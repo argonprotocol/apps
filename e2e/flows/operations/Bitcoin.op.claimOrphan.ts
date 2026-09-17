@@ -10,20 +10,21 @@ import {
 } from '../contexts/bitcoinContext.ts';
 import { pollEvery } from '../helpers/utils.ts';
 import type { IE2EOperationInspectState } from '../types.ts';
+import { WalletType } from '../types/srcVue.ts';
 import bitcoinActivateWallet from './Bitcoin.op.activateWallet.ts';
 import { Operation } from './index.ts';
 
 type IClaimOrphanState = IE2EOperationInspectState<
   { orphanExists: boolean; returnTxid?: string; returnComplete: boolean },
-  { orphanRecordVisible: boolean; recoveryOverlayVisible: boolean }
+  { orphanRecordVisible: boolean; returnViewVisible: boolean }
 >;
 
 export default new Operation<IBitcoinFlowContext, IClaimOrphanState>(import.meta, {
   async inspect({ flow, state }) {
-    const [durableState, orphanRecord, recoveryOverlay] = await Promise.all([
+    const [durableState, orphanRecord, returnView] = await Promise.all([
       readBitcoinOrphanReturnState(flow, state.orphanDepositTxid),
-      flow.isVisible('ConnectorChannel.reviewFirstOrphan()'),
-      flow.isVisible('BitcoinOrphanRecoveryOverlay'),
+      flow.isVisible('WalletViewMain.unattachedBitcoinDeposit'),
+      flow.isVisible('WalletViewUnattachedBitcoin'),
     ]);
     const canRun = !!state.lockFundingDetails && !!state.orphanDepositTxid && !durableState.returnComplete;
 
@@ -31,7 +32,7 @@ export default new Operation<IBitcoinFlowContext, IClaimOrphanState>(import.meta
       chainState: durableState,
       uiState: {
         orphanRecordVisible: orphanRecord.visible,
-        recoveryOverlayVisible: recoveryOverlay.visible,
+        returnViewVisible: returnView.visible,
       },
       state: durableState.returnComplete ? 'complete' : canRun ? 'runnable' : 'processing',
       blockers:
@@ -57,18 +58,19 @@ export default new Operation<IBitcoinFlowContext, IClaimOrphanState>(import.meta
       { timeoutMs: 180_000, timeoutMessage: `${flowName}: late deposit was not classified as an orphan.` },
     );
 
-    if ((await flow.isVisible('BitcoinSend.done()')).visible) {
-      await flow.click('BitcoinSend.done()');
-    }
     await flow.run(bitcoinActivateWallet);
-    await flow.waitFor('ConnectorChannel.reviewFirstOrphan()', { timeoutMs: 20_000 });
-    await flow.click('ConnectorChannel.reviewFirstOrphan()');
-    await flow.waitFor('BitcoinOrphanRecoveryOverlay.returnDestination', { timeoutMs: 5_000 });
+    await flow.queryApp((refs, args: { walletType: WalletType.argon }) => refs.openWalletOverlay(args.walletType), {
+      args: { walletType: WalletType.argon },
+      timeoutMs: 10_000,
+    });
+    await flow.waitFor('WalletViewMain.unattachedBitcoinDeposit', { timeoutMs: 20_000 });
+    await flow.click('WalletViewMain.unattachedBitcoinDeposit');
+    await flow.waitFor('WalletViewUnattachedBitcoin.returnDestination', { timeoutMs: 5_000 });
     const minerAddress = createBitcoinAddress();
     const returnDestination = createBitcoinAddress();
-    await flow.type('BitcoinOrphanRecoveryOverlay.returnDestination', returnDestination, { clear: true });
-    await flow.waitFor('BitcoinOrphanRecoveryOverlay.requestReturn()', { state: 'enabled', timeoutMs: 20_000 });
-    await flow.click('BitcoinOrphanRecoveryOverlay.requestReturn()', { timeoutMs: 60_000 });
+    await flow.type('WalletViewUnattachedBitcoin.returnDestination', returnDestination, { clear: true });
+    await flow.waitFor('WalletViewUnattachedBitcoin.requestReturn()', { state: 'enabled', timeoutMs: 20_000 });
+    await flow.click('WalletViewUnattachedBitcoin.requestReturn()', { timeoutMs: 60_000 });
 
     let returnTxid: string | undefined;
     await pollEvery(

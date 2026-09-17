@@ -5,9 +5,7 @@ import { hexToU8a } from '@argonprotocol/mainchain';
 import { encodeAddress } from '@polkadot/util-crypto';
 import BigNumber from 'bignumber.js';
 import type { WalletKeys } from '../lib/WalletKeys.ts';
-import type { Db } from '../lib/Db.ts';
 import { BitcoinLockStatus, type IBitcoinLockRecord } from '../lib/db/BitcoinLocksTable.ts';
-import type { BitcoinLockRecovery } from '../lib/recovery/BitcoinLocks.ts';
 import { publishBitcoinHistoryReplay } from '../lib/recovery/index.ts';
 import { BitcoinUtxoSpendStatus, BitcoinUtxoStatus } from '../lib/db/BitcoinUtxosTable.ts';
 import { BitcoinReleaseKind, BitcoinReleaseStatus } from '../interfaces/IBitcoinReleaseRecord.ts';
@@ -27,8 +25,8 @@ vi.mock('../lib/recovery/BitcoinLockHistory.ts', async importOriginal => ({
   getHistoricalBitcoinReleaseRequest: vi.fn(),
 }));
 
-async function publishRecoveredHistory(db: Db, recovery: BitcoinLockRecovery) {
-  return publishBitcoinHistoryReplay({ db, bitcoinLockRecovery: recovery, asOfBlock: 0 });
+async function publishRecoveredHistory(store: ReturnType<typeof createStore>) {
+  return publishBitcoinHistoryReplay({ bitcoinLocks: store, asOfBlock: 0 });
 }
 
 describe('BitcoinLocks historical event replay', () => {
@@ -187,7 +185,7 @@ describe('BitcoinLocks historical event replay', () => {
       });
     await expect(store.recovery.findMissingActiveLockIds(api as never)).resolves.toEqual([8]);
 
-    const [recovered] = await publishRecoveredHistory(db, store.recovery);
+    const [recovered] = await publishRecoveredHistory(store);
     const [fundingUtxo] = await db.bitcoinUtxosTable.fetchAll();
     expect(recovered.utxoId).toBe(7);
     expect(recovered.satoshis).toBe(9_900n);
@@ -325,7 +323,7 @@ describe('BitcoinLocks historical event replay', () => {
       });
     await expect(store.recovery.findMissingActiveLockIds(api as never)).resolves.toEqual([]);
 
-    const [recovered] = await publishRecoveredHistory(db, store.recovery);
+    const [recovered] = await publishRecoveredHistory(store);
     expect(recovered).toMatchObject({
       status: BitcoinLockStatus.LockFunded,
       satoshis: 10_500n,
@@ -352,9 +350,8 @@ describe('BitcoinLocks historical event replay', () => {
     });
     record.microgonsAtTargetPerBtc = 1_100n;
     record.securitizedSatoshis = 11_000n;
+    record.isHistoryRecoveryPending = true;
     store.data.locksByLockId[7] = record;
-    const saveRecoveredHistory = vi.fn(async () => undefined);
-    vi.spyOn(store, 'getTable').mockResolvedValue({ saveRecoveredHistory } as never);
     vi.mocked(BitcoinHistory.getHistoricalBitcoinLock).mockResolvedValue(
       createHistoricalLock({ accountId, liquidityPromised: 1_000n }),
     );
@@ -364,12 +361,21 @@ describe('BitcoinLocks historical event replay', () => {
       isFlexible: true,
     });
 
+    await store.recovery.beginHistoryReplay({ lockScope: 'all' });
     await expect(store.recovery.recoverBlock(historyBlock(200), [event])).resolves.toBeUndefined();
 
-    expect(store.data.locksByLockId[7].isFlexible).toBe(true);
+    expect(store.data.locksByLockId[7].isFlexible).not.toBe(true);
     expect(record.microgonsAtTargetPerBtc).toBe(1_100n);
     expect(record.securitizedSatoshis).toBe(11_000n);
-    expect(saveRecoveredHistory).toHaveBeenCalledWith(expect.objectContaining({ isFlexible: true }));
+    await expect(store.recovery.prepareHistoryReplay()).resolves.toMatchObject({
+      records: [
+        expect.objectContaining({
+          isFlexible: true,
+          microgonsAtTargetPerBtc: 1_100n,
+          securitizedSatoshis: 11_000n,
+        }),
+      ],
+    });
   });
 
   it('recovers a down-ratchet as a full remint at the new cumulative liquidity', async () => {
@@ -419,7 +425,7 @@ describe('BitcoinLocks historical event replay', () => {
       }),
     ]);
 
-    const [recovered] = await publishRecoveredHistory(db, store.recovery);
+    const [recovered] = await publishRecoveredHistory(store);
     expect(recovered.liquidityPromised).toBe(800n);
     expect(recovered.lockedTargetPrice).toBe(800n);
     expect(recovered.ratchets).toHaveLength(2);
@@ -513,7 +519,7 @@ describe('BitcoinLocks historical event replay', () => {
       ]),
     ).rejects.toThrow('Bitcoin lock 7 up-ratchet reduced its promised liquidity');
 
-    const [recovered] = await publishRecoveredHistory(db, store.recovery);
+    const [recovered] = await publishRecoveredHistory(store);
     expect(recovered).toMatchObject({ liquidityPromised: 800n, lockedTargetPrice: 1_400n });
     expect(recovered.ratchets.at(-1)).toMatchObject({
       mintAmount: 540n,
@@ -574,7 +580,7 @@ describe('BitcoinLocks historical event replay', () => {
       historyEvent(151, 'mint', 'BitcoinMint', { accountId, utxoId: 7, amount: 400n }),
     ]);
 
-    const [recovered] = await publishRecoveredHistory(db, store.recovery);
+    const [recovered] = await publishRecoveredHistory(store);
     expect(recovered.ratchets[0].mintPending).toBe(600n);
   });
 
@@ -607,7 +613,7 @@ describe('BitcoinLocks historical event replay', () => {
     await store.recovery.recoverBlock(historyBlock(152), events);
     await store.recovery.recoverBlock(historyBlock(152), events);
 
-    const [recovered] = await publishRecoveredHistory(db, store.recovery);
+    const [recovered] = await publishRecoveredHistory(store);
     expect(recovered.ratchets[0].mintPending).toBe(600n);
   });
 
@@ -664,7 +670,7 @@ describe('BitcoinLocks historical event replay', () => {
     expect(getByLockId).toHaveBeenCalledOnce();
     expect(getByLockId).toHaveBeenCalledWith(97);
     expect(getLock).not.toHaveBeenCalled();
-    const [recovered] = await publishRecoveredHistory(db, store.recovery);
+    const [recovered] = await publishRecoveredHistory(store);
     expect(recovered.ratchets[0].mintPending).toBe(600n);
   });
 

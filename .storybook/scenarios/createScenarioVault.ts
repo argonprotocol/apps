@@ -21,11 +21,11 @@ export function createScenarioVault(overrides: Partial<Vault> = {}): Vault {
     openedDate: new Date('2026-08-01T16:00:00.000Z'),
     openedTick: 9_000,
     securitizationRatio: 1,
-    lockedSatoshis: 0n,
     securitizedSatoshis: 0n,
+    ratioAdjustedSatoshis: 0n,
     flexibleSecuritizationLocked: 0n,
     reservedSecuritizationSpace: 0n,
-    flexibleSecuritizedSatoshis: 0n,
+    flexibleRatioAdjustedSatoshis: 0n,
     ...overrides,
   });
 }

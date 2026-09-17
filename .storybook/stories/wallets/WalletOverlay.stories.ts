@@ -1,18 +1,16 @@
 import type { Meta, StoryObj } from '@storybook/vue3-vite';
 import * as Vue from 'vue';
-import { fn, userEvent, within } from 'storybook/test';
-import { setupWalletScenario } from '../../scenarios/setupWalletScenario.ts';
+import { expect, fn, userEvent, within } from 'storybook/test';
+import { setupWalletScenario, type WalletScenario } from '../../scenarios/setupWalletScenario.ts';
 import basicEmitter, { type IWalletOverlayOptions } from '../../../src-vue/emitters/basicEmitter.ts';
 import { WalletType } from '../../../src-vue/lib/Wallet.ts';
 import WalletOverlay from '../../../src-vue/wallets/WalletOverlay.vue';
 import { useWallets } from '../../../src-vue/stores/wallets.ts';
-import { getBitcoinLocks, getBitcoinTransactionOperations } from '../../../src-vue/stores/bitcoin.ts';
+import { getBitcoinLocks } from '../../../src-vue/stores/bitcoin.ts';
 import { getEthereumMoveTracker } from '../../../src-vue/stores/moveFromEthereum.ts';
 
 let request: IWalletOverlayOptions;
 let isInteractive = false;
-let finishFirstBitcoinReleaseInitiation: () => void;
-let waitForSecondBitcoinReleaseInitiation: Promise<void>;
 
 const meta = {
   title: 'Wallets/Overview',
@@ -47,20 +45,7 @@ type Story = StoryObj<typeof meta>;
 function useScenario(
   walletType: WalletType.argon | WalletType.bitcoin,
   view?: IWalletOverlayOptions['view'],
-  scenario:
-    | 'defaultArgon'
-    | 'pendingBitcoinFunding'
-    | 'pendingBitcoinRelease'
-    | 'bitcoinWalletReleaseWaiting'
-    | 'bitcoinSend'
-    | 'bitcoinSendLocked'
-    | 'bitcoinWalletDetails'
-    | 'bitcoinWalletInsurancePending'
-    | 'bitcoinWalletInsuranceUnavailable'
-    | 'bitcoinWalletInsurancePriceIncrease'
-    | 'bitcoinWalletInsuranceSubmitting'
-    | 'bitcoinWalletInsuranceError'
-    | 'privateKeyError' = 'defaultArgon',
+  scenario: WalletScenario = 'defaultArgon',
   interactive = false,
 ) {
   setupWalletScenario(scenario);
@@ -74,10 +59,6 @@ function useScenario(
 
 function useBitcoinSendScenario() {
   useScenario(WalletType.argon, 'send', 'bitcoinSend', true);
-}
-
-function useLockedBitcoinSendScenario() {
-  useScenario(WalletType.argon, 'send', 'bitcoinSendLocked', true);
 }
 
 function useBitcoinWalletDetailsScenario() {
@@ -110,25 +91,6 @@ function useBitcoinFeeErrorScenario() {
   calculateBitcoinNetworkFee.mockRejectedValueOnce(new Error('Unable to estimate network fees.'));
 }
 
-function useMultiChannelSendFailureScenario() {
-  useBitcoinSendScenario();
-  const bitcoinReleaseSubmit = getBitcoinTransactionOperations().bitcoinLockRelease.submit as ReturnType<typeof fn>;
-  let markSecondBitcoinReleaseInitiation: () => void;
-  waitForSecondBitcoinReleaseInitiation = new Promise(resolve => {
-    markSecondBitcoinReleaseInitiation = resolve;
-  });
-  bitcoinReleaseSubmit.mockImplementationOnce(
-    () =>
-      new Promise(resolve => {
-        finishFirstBitcoinReleaseInitiation = () => resolve(undefined);
-      }),
-  );
-  bitcoinReleaseSubmit.mockImplementationOnce(async () => {
-    markSecondBitcoinReleaseInitiation();
-    throw new Error('Synthetic second release initiation failure.');
-  });
-}
-
 function usePendingBitcoinFundingScenario() {
   useScenario(WalletType.argon, undefined, 'pendingBitcoinFunding', true);
 }
@@ -145,6 +107,18 @@ function usePendingBitcoinReleaseScenario() {
 
 function useBitcoinReleaseWaitingScenario() {
   useScenario(WalletType.argon, undefined, 'bitcoinWalletReleaseWaiting', true);
+}
+
+function useBitcoinReleaseErrorScenario() {
+  useScenario(WalletType.argon, undefined, 'bitcoinWalletReleaseError', true);
+}
+
+function useBitcoinReleaseFailedScenario() {
+  useScenario(WalletType.argon, undefined, 'bitcoinWalletReleaseFailed', true);
+}
+
+function useBitcoinUnattachedDepositScenario() {
+  useScenario(WalletType.argon, undefined, 'bitcoinUnattachedDeposit', true);
 }
 
 export const MainWallet: Story = {
@@ -267,7 +241,51 @@ export const BitcoinPendingOutboundProgress: Story = {
     const canvas = within(document.body);
 
     await userEvent.click(await canvas.findByRole('button', { name: 'Show Bitcoin details' }));
-    await userEvent.click(canvas.getByRole('button', { name: 'Outbound transfers in progress Channel' }));
+    await userEvent.click(canvas.getByTestId('WalletViewMain.bitcoinSend'));
+    await expect(await canvas.findByText(/due in 10 days/)).toBeVisible();
+  },
+};
+
+export const BitcoinPendingOutboundError: Story = {
+  beforeEach: useBitcoinReleaseErrorScenario,
+  play: async () => {
+    const canvas = within(document.body);
+
+    await userEvent.click(await canvas.findByRole('button', { name: 'Show Bitcoin details' }));
+    await userEvent.click(canvas.getByTestId('WalletViewMain.bitcoinSend'));
+    await expect(await canvas.findByText('Unable to broadcast this Bitcoin transaction.')).toBeVisible();
+  },
+};
+
+export const BitcoinFailedOutbound: Story = {
+  beforeEach: useBitcoinReleaseFailedScenario,
+  play: async () => {
+    const canvas = within(document.body);
+
+    await userEvent.click(await canvas.findByRole('button', { name: 'Show Bitcoin details' }));
+    await userEvent.click(canvas.getByTestId('WalletViewMain.bitcoinSend'));
+  },
+};
+
+export const BitcoinFailedOutboundInTransfers: Story = {
+  beforeEach: useBitcoinReleaseFailedScenario,
+  play: async () => {
+    const canvas = within(document.body);
+
+    await userEvent.click(await canvas.findByRole('button', { name: '1 Transfer Needs Attention' }));
+  },
+};
+
+export const BitcoinUnattachedDeposit: Story = {
+  beforeEach: useBitcoinUnattachedDepositScenario,
+};
+
+export const BitcoinUnattachedDepositReturn: Story = {
+  beforeEach: useBitcoinUnattachedDepositScenario,
+  play: async () => {
+    const canvas = within(document.body);
+
+    await userEvent.click(await canvas.findByTestId('WalletViewMain.unattachedBitcoinDeposit'));
   },
 };
 
@@ -284,6 +302,14 @@ export const SendTokens: Story = {
   beforeEach: () => useScenario(WalletType.argon, 'send'),
 };
 
+export const SendTokensFromWallet: Story = {
+  beforeEach: () => useScenario(WalletType.argon, undefined, 'defaultArgon', true),
+  play: async () => {
+    const canvas = within(document.body);
+    await userEvent.click(canvas.getByTestId('WalletViewMain.openSend()'));
+  },
+};
+
 export const SendBitcoinFromChannels: Story = {
   beforeEach: useBitcoinSendScenario,
   play: async () => {
@@ -291,6 +317,9 @@ export const SendBitcoinFromChannels: Story = {
 
     await userEvent.click(canvas.getByTestId('WalletViewSend.token'));
     await userEvent.click(canvas.getByTestId('BTC'));
+    const amount = within(canvas.getByTestId('WalletViewSend.amount')).getByTestId('input-number');
+    await userEvent.clear(amount);
+    await userEvent.type(amount, '0.025');
     await userEvent.type(
       canvas.getByTestId('WalletTransferForm.destinationAddress'),
       'bc1qxy2kgdygjrsqtzq2n0yrf2493p83kkfjhx0wlh',
@@ -309,17 +338,6 @@ export const SendBitcoinFeeError: Story = {
       canvas.getByTestId('WalletTransferForm.destinationAddress'),
       'bc1qxy2kgdygjrsqtzq2n0yrf2493p83kkfjhx0wlh',
     );
-  },
-};
-
-export const SendBitcoinLockedInLiquid: Story = {
-  beforeEach: useLockedBitcoinSendScenario,
-  play: async () => {
-    const canvas = within(document.body);
-
-    await userEvent.click(canvas.getByTestId('WalletViewSend.token'));
-    await userEvent.click(canvas.getByTestId('BTC'));
-    await userEvent.click(canvas.getByRole('button', { name: 'Details' }));
   },
 };
 
@@ -346,24 +364,6 @@ export const SendBitcoinAtZeroBalance: Story = {
 
     await userEvent.click(canvas.getByTestId('WalletViewSend.token'));
     await userEvent.click(canvas.getByTestId('BTC'));
-  },
-};
-
-export const MultiChannelSendInitiationFailure: Story = {
-  beforeEach: useMultiChannelSendFailureScenario,
-  play: async () => {
-    const canvas = within(document.body);
-
-    await userEvent.click(canvas.getByTestId('WalletViewSend.token'));
-    await userEvent.click(canvas.getByTestId('BTC'));
-    await userEvent.type(
-      canvas.getByTestId('WalletTransferForm.destinationAddress'),
-      'bc1qxy2kgdygjrsqtzq2n0yrf2493p83kkfjhx0wlh',
-    );
-    await userEvent.click(await canvas.findByRole('button', { name: /Send Bitcoin/ }));
-    await waitForSecondBitcoinReleaseInitiation;
-    finishFirstBitcoinReleaseInitiation();
-    await canvas.findByText('Synthetic second release initiation failure.');
   },
 };
 

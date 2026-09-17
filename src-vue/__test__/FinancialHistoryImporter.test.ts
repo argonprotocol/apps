@@ -250,12 +250,14 @@ describe('FinancialHistoryImporter', () => {
         blockWatch: { getFinalizedApi: vi.fn(async () => ({})) } as any,
         accountId: '5owner',
         argonBonds: {} as any,
-        bitcoinLockRecovery: {
-          hasPendingHistoryRecovery: true,
-          beginHistoryReplay: vi.fn(async () => undefined),
-          commitHistoryReplay: vi.fn(async () => undefined),
-          cancelHistoryReplay: vi.fn(async () => undefined),
-          findMissingActiveLockIds: vi.fn(async () => []),
+        bitcoinLocks: {
+          recovery: {
+            hasPendingHistoryRecovery: true,
+            beginHistoryReplay: vi.fn(async () => undefined),
+            cancelHistoryReplay: vi.fn(async () => undefined),
+            findMissingActiveLockIds: vi.fn(async () => []),
+          },
+          applyRecoveredHistory: vi.fn(async () => undefined),
         } as any,
         vaultHistory: {} as any,
         enabledDomains: ['bitcoin'],
@@ -324,9 +326,12 @@ describe('FinancialHistoryImporter', () => {
         blockWatch: {} as any,
         accountId: '5owner',
         argonBonds: {} as any,
-        bitcoinLockRecovery: {
-          hasPendingHistoryRecovery: true,
-          cancelHistoryReplay: vi.fn(async () => undefined),
+        bitcoinLocks: {
+          recovery: {
+            hasPendingHistoryRecovery: true,
+            cancelHistoryReplay: vi.fn(async () => undefined),
+          },
+          applyRecoveredHistory: vi.fn(async () => undefined),
         } as any,
         vaultHistory: {} as any,
         enabledDomains: ['bonds', 'bitcoin'],
@@ -416,15 +421,26 @@ describe('FinancialHistoryImporter', () => {
         } as any,
         accountId: '5owner',
         argonBonds: {} as any,
-        bitcoinLockRecovery: {
-          hasPendingHistoryRecovery: false,
-          beginHistoryReplay,
-          markHistoryReplayFailure,
-          recoverBlock,
-          findMissingActiveLockIds: vi.fn(async () => []),
-          prepareHistoryReplay,
-          finishHistoryReplay,
-          cancelHistoryReplay: vi.fn(),
+        bitcoinLocks: {
+          recovery: {
+            hasPendingHistoryRecovery: false,
+            beginHistoryReplay,
+            markHistoryReplayFailure,
+            recoverBlock,
+            findMissingActiveLockIds: vi.fn(async () => []),
+            prepareHistoryReplay,
+            prepareHistoryReplayUnit: vi.fn(() => ({
+              lockId: 1,
+              utxos: [],
+              releases: [],
+              fissions: [],
+              hdKeys: [],
+              securitizationTerms: [],
+            })),
+            finishHistoryReplay,
+            cancelHistoryReplay: vi.fn(),
+          },
+          applyRecoveredHistory: vi.fn(async () => undefined),
         } as any,
         vaultHistory: {} as any,
         enabledDomains: ['bitcoin'],
@@ -485,13 +501,17 @@ describe('FinancialHistoryImporter', () => {
       } as any,
       accountId: '5owner',
       argonBonds: { data: { bondLots: [] } } as any,
-      bitcoinLockRecovery: {
-        hasPendingHistoryRecovery: true,
-        beginHistoryReplay,
-        findMissingActiveLockIds: vi.fn(async () => []),
-        prepareHistoryReplay,
-        finishHistoryReplay,
-        cancelHistoryReplay: vi.fn(),
+      bitcoinLocks: {
+        recovery: {
+          hasPendingHistoryRecovery: true,
+          beginHistoryReplay,
+          findMissingActiveLockIds: vi.fn(async () => []),
+          prepareHistoryReplay,
+          prepareHistoryReplayUnit: vi.fn(),
+          finishHistoryReplay,
+          cancelHistoryReplay: vi.fn(),
+        },
+        applyRecoveredHistory: vi.fn(async () => undefined),
       } as any,
       vaultHistory: {} as any,
       enabledDomains: ['bitcoin', 'bonds'] as const,
@@ -612,11 +632,10 @@ describe('FinancialHistoryImporter', () => {
     );
   });
 
-  it('keeps active Bitcoin recovery ahead of history and preserves it when history fails', async () => {
+  it('preserves current Bitcoin state when history fails', async () => {
     const upsert = vi.fn(async () => undefined);
     const beginHistoryReplay = vi.fn();
     const recoverBlock = vi.fn(async () => undefined);
-    const recoverActiveLocks = vi.fn(async () => [{ utxoId: 12 }]);
     const prepareHistoryReplay = vi.fn(async () => emptyPreparedBitcoinHistory());
     const finishHistoryReplay = vi.fn();
     const cancelHistoryReplay = vi.fn();
@@ -675,15 +694,17 @@ describe('FinancialHistoryImporter', () => {
           importHistoryBlock: vi.fn(async () => undefined),
           refreshHistory: vi.fn(async () => undefined),
         } as any,
-        bitcoinLockRecovery: {
-          beginHistoryReplay,
-          recoverActiveLocks,
-          recoverBlock,
-          prepareHistoryReplay,
-          finishHistoryReplay,
-          cancelHistoryReplay,
+        bitcoinLocks: {
+          recovery: {
+            beginHistoryReplay,
+            recoverBlock,
+            prepareHistoryReplay,
+            prepareHistoryReplayUnit: vi.fn(),
+            finishHistoryReplay,
+            cancelHistoryReplay,
+          },
+          applyRecoveredHistory: vi.fn(async () => undefined),
         } as any,
-        mainchainClients: {} as any,
         vaultHistory: {} as any,
         enabledDomains: ['bonds', 'bitcoin'],
         recoverMissingCheckpointsFor: ['bonds', 'bitcoin'],
@@ -704,10 +725,6 @@ describe('FinancialHistoryImporter', () => {
       }),
     );
     expect(beginHistoryReplay).toHaveBeenCalledOnce();
-    expect(recoverActiveLocks).toHaveBeenCalledOnce();
-    expect(recoverActiveLocks.mock.invocationCallOrder[0]).toBeLessThan(
-      vi.mocked(findAddressActivity).mock.invocationCallOrder[1],
-    );
     expect(prepareHistoryReplay).toHaveBeenCalledOnce();
     expect(finishHistoryReplay).toHaveBeenCalledWith(new Set());
     expect(cancelHistoryReplay).toHaveBeenCalledOnce();
@@ -724,7 +741,7 @@ describe('FinancialHistoryImporter', () => {
     const cancelHistoryReplay = vi.fn();
     const onProgress = vi.fn();
     const onActiveBitcoinLocksFound = vi.fn();
-    const recoverActiveLocks = vi.fn(async () => [{ utxoId: 12 }]);
+    const findActiveLockIds = vi.fn(async () => [12]);
     const getEventsWithSpec = vi.fn(async () => ({ events: [], specVersion: 151 }));
     vi.mocked(findAddressActivity).mockResolvedValueOnce({
       asOfBlock: 100,
@@ -768,16 +785,19 @@ describe('FinancialHistoryImporter', () => {
       } as any,
       accountId: '5owner',
       argonBonds: {} as any,
-      bitcoinLockRecovery: {
-        beginHistoryReplay,
-        recoverBlock,
-        recoverActiveLocks,
-        findMissingActiveLockIds: vi.fn(async () => []),
-        prepareHistoryReplay,
-        finishHistoryReplay,
-        cancelHistoryReplay,
+      bitcoinLocks: {
+        recovery: {
+          beginHistoryReplay,
+          recoverBlock,
+          findActiveLockIds,
+          findMissingActiveLockIds: vi.fn(async () => []),
+          prepareHistoryReplay,
+          prepareHistoryReplayUnit: vi.fn(),
+          finishHistoryReplay,
+          cancelHistoryReplay,
+        },
+        applyRecoveredHistory: vi.fn(async () => undefined),
       } as any,
-      mainchainClients: {} as any,
       vaultHistory: {} as any,
       enabledDomains: ['bitcoin'],
       recoverMissingCheckpointsFor: ['bitcoin'],
@@ -818,7 +838,7 @@ describe('FinancialHistoryImporter', () => {
       totalBlockCount: 1,
     });
     expect(beginHistoryReplay.mock.invocationCallOrder[0]).toBeLessThan(recoverBlock.mock.invocationCallOrder[0]);
-    expect(recoverActiveLocks.mock.invocationCallOrder[0]).toBeLessThan(
+    expect(findActiveLockIds.mock.invocationCallOrder[0]).toBeLessThan(
       vi.mocked(findAddressActivity).mock.invocationCallOrder[0],
     );
     expect(recoverBlock.mock.invocationCallOrder[0]).toBeLessThan(prepareHistoryReplay.mock.invocationCallOrder[0]);

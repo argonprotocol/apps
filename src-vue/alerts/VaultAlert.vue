@@ -207,7 +207,7 @@
             </template>
           </CountdownClock>
         </template>
-        <template v-else>Complete the pending orphaned bitcoin return.</template>
+        <template v-else>Complete the pending unattached Bitcoin return.</template>
       </template>
 
       <template v-else>
@@ -417,7 +417,7 @@ function getCardTooltipContent(notice: IVaultCollectNotice): string {
   }
 
   if (notice.orphanSignatureCount > 0 && notice.orphanSignatureCount === notice.signatureCount) {
-    return 'Sign orphaned bitcoin return transactions.';
+    return 'Sign unattached Bitcoin return transactions.';
   }
 
   return 'Sign bitcoin transactions to avoid forfeiting vault security.';

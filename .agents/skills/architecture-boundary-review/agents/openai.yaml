@@ -1,4 +1,4 @@
 interface:
-  display_name: "Architecture Boundary Review"
-  short_description: "Review code ownership and layer placement"
-  default_prompt: "Use $architecture-boundary-review to review this change against the repository architecture boundaries before editing."
+  display_name: 'Architecture Boundary Review'
+  short_description: 'Review code ownership and layer placement'
+  default_prompt: 'Use $architecture-boundary-review to decide whether this change preserves one owner for current state and keeps historical recovery limited to missing historical records or facts. Classify every older-event read as either active-workflow reconciliation or historical backfill. Review only: return PASS, BLOCKED, or NEEDS DECISION, and give the smallest correction for each evidenced violation without proposing a replacement architecture.'

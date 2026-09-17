@@ -211,7 +211,7 @@
             suffix=" BTC"
             class="px-1 py-2 text-[17px]!"
           />
-          <WalletFundingCallout v-if="!availableSatoshis" @open-wallet="openBitcoinWallet">
+          <WalletFundingCallout v-if="!availableSatoshis" :arrow-offset="64" @open-wallet="openBitcoinWallet">
             <AlertIcon class="mr-2 h-4 shrink-0 text-yellow-700" />
             You don't have Bitcoin available in your wallet. Add Bitcoin before creating a Liquid.
           </WalletFundingCallout>

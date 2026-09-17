@@ -19,16 +19,16 @@ import {
   type IBitcoinReleaseRecord,
 } from '../../../src-vue/interfaces/IBitcoinReleaseRecord.ts';
 import { ExtrinsicType, TransactionStatus } from '../../../src-vue/interfaces/ITransactionRecord.ts';
-import BitcoinOrphanRecoveryOverlay from '../../../src-vue/overlays/BitcoinOrphanRecoveryOverlay.vue';
+import WalletViewUnattachedBitcoin from '../../../src-vue/wallets/components/WalletViewUnattachedBitcoin.vue';
 
 let scenario: BitcoinOverlayScenario;
 let orphanRecord: IBitcoinUtxoRecord;
 const isInteractive = Vue.ref(false);
 
 const meta = {
-  title: 'Bitcoin/Orphan recovery',
+  title: 'Bitcoin/Unattached deposit return',
   render: () => ({
-    components: { BitcoinOrphanRecoveryOverlay },
+    components: { WalletViewUnattachedBitcoin },
     setup() {
       document.addEventListener('click', blockExternalLink, true);
       Vue.onMounted(() => {
@@ -43,31 +43,25 @@ const meta = {
       <div class="fixed top-2 right-3 z-[10000] rounded-full border border-slate-400/40 bg-white/90 px-2.5 py-1 text-xs font-semibold text-slate-600 shadow-sm">
         {{ isInteractive ? 'Interactive preview' : 'Fixed state preview' }}
       </div>
-      <BitcoinOrphanRecoveryOverlay :lock="scenario.lock" :record="orphanRecord" />
+      <WalletViewUnattachedBitcoin
+        :lock="scenario.lock"
+        :record="orphanRecord"
+        :isDragging="false"
+        :showBack="true"
+      />
     `,
   }),
-} satisfies Meta<typeof BitcoinOrphanRecoveryOverlay>;
+} satisfies Meta;
 
 export default meta;
 type Story = StoryObj<typeof meta>;
 
-export const OrphanedDeposit: Story = {
+export const UnattachedDeposit: Story = {
   beforeEach: () => {
     isInteractive.value = false;
     scenario = setupBitcoinOverlayScenario();
     scenario.replaceUtxoRecords([]);
     orphanRecord = createOrphanRecord(401);
-  },
-};
-
-export const AdditionalDeposit: Story = {
-  beforeEach: () => {
-    isInteractive.value = false;
-    scenario = setupBitcoinOverlayScenario();
-    orphanRecord = createOrphanRecord(402, {
-      firstSeenAt: new Date('2026-08-16T15:00:00.000Z'),
-      firstSeenBitcoinHeight: 250_020,
-    });
   },
 };
 
@@ -81,7 +75,7 @@ export const InvalidDestination: Story = {
     try {
       const body = within(document.body);
       await userEvent.type(
-        await body.findByTestId('BitcoinOrphanRecoveryOverlay.returnDestination'),
+        await body.findByTestId('WalletViewUnattachedBitcoin.returnDestination'),
         'not-a-bitcoin-address',
       );
     } finally {
@@ -98,14 +92,19 @@ export const CheckingFee: Story = {
     const quote = scenario.defer();
     scenario.bitcoinOrphanRelease.prepare = fn(async () => {
       await quote.promise;
-      return { canAfford: true, availableBalance: 25_000_000n, txFeePlusTip: 125_000n } as never;
+      return {
+        canAfford: true,
+        availableBalance: 25_000_000n,
+        metadata: { bitcoinNetworkFee: 12_000n },
+        txFeePlusTip: 125_000n,
+      } as never;
     });
     return () => scenario.cleanup();
   },
   play: async () => {
     try {
       const body = within(document.body);
-      await userEvent.type(await body.findByTestId('BitcoinOrphanRecoveryOverlay.returnDestination'), returnAddress());
+      await userEvent.type(await body.findByTestId('WalletViewUnattachedBitcoin.returnDestination'), returnAddress());
     } finally {
       disablePreview();
     }
@@ -122,6 +121,7 @@ export const InsufficientArgonFee: Story = {
         ({
           canAfford: false,
           availableBalance: 25_000n,
+          metadata: { bitcoinNetworkFee: 12_000n },
           txFeePlusTip: 125_000n,
         }) as never,
     );
@@ -129,7 +129,7 @@ export const InsufficientArgonFee: Story = {
   play: async () => {
     try {
       const body = within(document.body);
-      await userEvent.type(await body.findByTestId('BitcoinOrphanRecoveryOverlay.returnDestination'), returnAddress());
+      await userEvent.type(await body.findByTestId('WalletViewUnattachedBitcoin.returnDestination'), returnAddress());
     } finally {
       disablePreview();
     }
@@ -148,7 +148,7 @@ export const FeeQuoteError: Story = {
   play: async () => {
     try {
       const body = within(document.body);
-      await userEvent.type(await body.findByTestId('BitcoinOrphanRecoveryOverlay.returnDestination'), returnAddress());
+      await userEvent.type(await body.findByTestId('WalletViewUnattachedBitcoin.returnDestination'), returnAddress());
     } finally {
       disablePreview();
     }
@@ -164,7 +164,7 @@ export const AffordableReturn: Story = {
   play: async () => {
     try {
       const body = within(document.body);
-      await userEvent.type(await body.findByTestId('BitcoinOrphanRecoveryOverlay.returnDestination'), returnAddress());
+      await userEvent.type(await body.findByTestId('WalletViewUnattachedBitcoin.returnDestination'), returnAddress());
     } finally {
       disablePreview();
     }
@@ -292,7 +292,7 @@ function returnAddress(): string {
 function blockExternalLink(event: MouseEvent): void {
   const element = event.target instanceof Element ? event.target : undefined;
   const externalLink = element?.closest('a[href^="http"]');
-  if (!externalLink?.closest('[data-testid="BitcoinOrphanRecoveryOverlay"]')) return;
+  if (!externalLink?.closest('[data-testid="WalletViewUnattachedBitcoin"]')) return;
 
   event.preventDefault();
   event.stopImmediatePropagation();
@@ -300,5 +300,5 @@ function blockExternalLink(event: MouseEvent): void {
 
 function disablePreview(): void {
   isInteractive.value = false;
-  document.querySelector('[data-testid="BitcoinOrphanRecoveryOverlay"]')?.setAttribute('inert', '');
+  document.querySelector('[data-testid="WalletViewUnattachedBitcoin"]')?.setAttribute('inert', '');
 }

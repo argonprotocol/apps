@@ -183,7 +183,6 @@ export function setupAppScenario({
     pendingCollectRevenue: 0n,
     pendingCosignLocksById: new Map(),
     pendingOrphanCosignCount: 0,
-    releasedExternalLockIds: new Set(),
     myPendingBitcoinCosignTxInfosByLockId: new Map(),
     nextCollectDueDate: 0,
     nextCosignDueDate: 0,

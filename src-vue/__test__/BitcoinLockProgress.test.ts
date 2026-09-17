@@ -75,6 +75,7 @@ describe('bitcoinLockProgress', () => {
 
     expect(store.getUnlockProgressPct(lock.status)).toBe(33);
     expect(store.getUnlockProgressLabel(lock.status)).toBe('Waiting for Vault to Cosign');
+    expect(store.getUnlockProgressLabel(lock.status, 'Testing')).toBe('Waiting for Testing to sign');
   });
 
   it('holds release progress at two thirds while the Bitcoin transaction is prepared', () => {
@@ -105,6 +106,7 @@ describe('bitcoinLockProgress', () => {
 
     expect(store.getStatusProgress(lock.status).progressPct).toBe(80);
     expect(store.getUnlockProgressPct(lock.status)).toBeCloseTo(93.2);
+    expect(store.getUnlockProgressLabel(lock.status)).toBe('Waiting for 6th Bitcoin Block...');
   });
 
   it('returns lock-processing step while pending funding', () => {

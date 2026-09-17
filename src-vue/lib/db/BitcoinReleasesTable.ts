@@ -55,6 +55,22 @@ export class BitcoinReleasesTable extends BaseTable {
     return records[0] ? this.toRecord(records[0]) : undefined;
   }
 
+  public async acknowledgeFailedSend(sendId: string): Promise<IBitcoinReleaseRecord[]> {
+    const records = await this.db.select<IBitcoinReleaseRow[]>(
+      `UPDATE BitcoinReleases
+       SET status = ?, updatedAt = CURRENT_TIMESTAMP
+       WHERE kind = ? AND sendId = ? AND status = ?
+       RETURNING *`,
+      toSqlParams([
+        BitcoinReleaseStatus.FailedAcknowledged,
+        BitcoinReleaseKind.Lock,
+        sendId,
+        BitcoinReleaseStatus.Failed,
+      ]),
+    );
+    return records.map(record => this.toRecord(record));
+  }
+
   public async insert(release: Omit<IBitcoinReleaseRecord, 'createdAt' | 'updatedAt'>): Promise<IBitcoinReleaseRecord> {
     const records = await this.db.select<IBitcoinReleaseRow[]>(
       `INSERT INTO BitcoinReleases (

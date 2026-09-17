@@ -18,13 +18,17 @@
         ]"
       />
       <span
-        class="wallet-endpoint-ripple border-argon-500/80 absolute top-1/2 size-5 -translate-y-1/2 rounded-full border"
-        :class="[
-          props.side === 'left' ? 'right-[-18px]' : 'left-[-18px]',
-          direction === 'inbound' ? 'wallet-endpoint-arrival' : 'wallet-endpoint-source',
-          activityDelayClass(index),
-        ]"
-      />
+        class="absolute top-1/2 size-5 -translate-y-1/2"
+        :class="props.side === 'left' ? 'right-[-18px]' : 'left-[-18px]'"
+      >
+        <span
+          class="wallet-endpoint-ripple border-argon-500/80 block size-full rounded-full border"
+          :class="[
+            direction === 'inbound' ? 'wallet-endpoint-arrival' : 'wallet-endpoint-source',
+            activityDelayClass(index),
+          ]"
+        />
+      </span>
     </div>
   </div>
 </template>
@@ -141,11 +145,11 @@ function activityDelayClass(index: number) {
   88%,
   100% {
     opacity: 0;
-    transform: translateY(-50%) scale(0.35);
+    transform: scale(0.35);
   }
   76% {
     opacity: 0.9;
-    transform: translateY(-50%) scale(1.25);
+    transform: scale(1.25);
   }
 }
 
@@ -154,11 +158,11 @@ function activityDelayClass(index: number) {
   20%,
   100% {
     opacity: 0;
-    transform: translateY(-50%) scale(0.35);
+    transform: scale(0.35);
   }
   10% {
     opacity: 0.9;
-    transform: translateY(-50%) scale(1.25);
+    transform: scale(1.25);
   }
 }
 

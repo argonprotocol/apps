@@ -233,11 +233,11 @@ function transactionLabel(transaction: ITransactionRecord): string {
     case ExtrinsicType.VaultCosignBitcoinRelease:
       return 'Cosigned Bitcoin Release';
     case ExtrinsicType.VaultCosignOrphanedUtxoRelease:
-      return 'Cosigned Orphaned Bitcoin Release';
+      return 'Cosigned Unattached Bitcoin Return';
     case ExtrinsicType.BitcoinOrphanedUtxoUseAsFunding:
-      return 'Used Orphaned Bitcoin as Funding';
+      return 'Used Unattached Bitcoin as Funding';
     case ExtrinsicType.BitcoinOrphanedUtxoRelease:
-      return 'Requested Orphaned Bitcoin Release';
+      return 'Requested Unattached Bitcoin Return';
     case ExtrinsicType.VaultSetFlexibleAssets: {
       const metadata = transaction.metadataJson as IVaultFlexibleAssetMetadata;
       const changes = [...metadata.bitcoinChanges, ...metadata.bondChanges];

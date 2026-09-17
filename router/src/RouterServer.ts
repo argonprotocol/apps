@@ -3,7 +3,10 @@ import type { Server } from 'node:http';
 import {
   type ArgonClient,
   createArgonClient,
+  type IDiscordRoleClaim,
   JsonExt,
+  type ITreasuryMemberSeal,
+  isValidArgonAccountAddress,
   NetworkConfig,
   UserRole,
   type IEthereumGatewayCatchUpRequest,

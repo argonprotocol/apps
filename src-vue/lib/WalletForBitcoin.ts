@@ -49,7 +49,16 @@ export class WalletForBitcoin extends WalletForChain<WalletType.bitcoin> {
     const bitcoinLocks = this.getBitcoinLocks();
     return bitcoinLocks
       .getActiveLocks()
-      .flatMap(lock => bitcoinLocks.utxoTracking.getObservedFundingUtxos(lock))
+      .flatMap(lock => {
+        const release = bitcoinLocks.releases.getActiveForLock(lock);
+        return bitcoinLocks.utxoTracking.getObservedFundingUtxos(lock).filter(record => {
+          return !(
+            release?.expectedTransactionId === record.txid &&
+            release.changeSatoshis === record.satoshis &&
+            record.vout === 1
+          );
+        });
+      })
       .sort((left, right) => right.firstSeenAt.getTime() - left.firstSeenAt.getTime());
   }
 
@@ -68,14 +77,7 @@ export class WalletForBitcoin extends WalletForChain<WalletType.bitcoin> {
     const bitcoinLocks = this.getBitcoinLocks();
     return bitcoinLocks
       .getAllLocks()
-      .filter(lock => bitcoinLocks.isLockFunded(lock) && (lock.fissionedSatoshis ?? 0n) === 0n);
-  }
-
-  public getLiquidLockedChannels(): IBitcoinLockRecord[] {
-    const bitcoinLocks = this.getBitcoinLocks();
-    return bitcoinLocks
-      .getAllLocks()
-      .filter(lock => bitcoinLocks.isLockFunded(lock) && (lock.fissionedSatoshis ?? 0n) > 0n);
+      .filter(lock => bitcoinLocks.isLockFunded(lock) && lock.fundedSatoshis > (lock.fissionedSatoshis ?? 0n));
   }
 
   public getUnresolvedOrphanDeposits(): IBitcoinUtxoRecord[] {

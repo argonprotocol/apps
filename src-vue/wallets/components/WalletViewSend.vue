@@ -2,7 +2,7 @@
   <div class="flex h-full grow flex-col text-black/90">
     <WalletHeader
       :name="activeTransfer || activeArgonTransfer ? 'Sending From Internal' : 'Send From Internal'"
-      :showHome="true"
+      :showHome="props.showBack"
       :isDragging="props.isDragging"
       @dragStart="emit('dragStart', $event)"
       @goto="emit('goto', $event)"
@@ -103,7 +103,7 @@ import { createNumeralHelpers } from '../../lib/numeral.ts';
 import numeral from '../../lib/numeral.ts';
 import { getCurrency } from '../../stores/currency.ts';
 import { getEthereumOutboundTransferTracker } from '../../stores/moveToEthereum.ts';
-import { getBitcoinTransactionOperations } from '../../stores/bitcoin.ts';
+import { getBitcoinLocks, getBitcoinTransactionOperations } from '../../stores/bitcoin.ts';
 import { getMoveCapital, getWalletKeys, useWallets } from '../../stores/wallets.ts';
 import ProgressBar from '../../components/ProgressBar.vue';
 import WalletHeader from './WalletHeader.vue';
@@ -113,6 +113,7 @@ import type { IWalletConnector, IWalletView } from '../walletOverlayState.ts';
 
 const props = defineProps<{
   isDragging: boolean;
+  showBack: boolean;
   activeConnector?: IWalletConnector;
   showGuidance?: boolean;
   guidanceContext?: IWalletGuidanceContext;
@@ -128,6 +129,7 @@ const currency = getCurrency();
 const wallets = useWallets();
 const outboundTracker = getEthereumOutboundTransferTracker();
 const moveCapital = getMoveCapital();
+const bitcoinLocks = getBitcoinLocks();
 const { bitcoinLockRelease } = getBitcoinTransactionOperations();
 const { microgonToArgonNm, micronotToArgonotNm } = createNumeralHelpers(currency);
 
@@ -271,28 +273,35 @@ async function initiateArgonTransfer(form: InstanceType<typeof WalletTransferFor
 }
 
 async function initiateBitcoinTransfer(form: InstanceType<typeof WalletTransferForm>) {
-  const channels = form.selectedBitcoinChannels;
-  const bitcoinFees = form.bitcoinNetworkFees;
-  if (channels.length === 0 || bitcoinFees.length !== channels.length) return;
+  const releasePlan = form.bitcoinReleasePlan;
+  if (releasePlan.length === 0) return;
 
   isInitiatingTransfer.value = true;
   form.setFormError('');
   try {
     const txSigner = await getWalletKeys().getLiquidLockingKeypair();
+    const sendId = crypto.randomUUID();
+    const inputs = releasePlan.map(release => ({
+      lockId: release.channel.lockId!,
+      sendId,
+      bitcoinNetworkFee: release.bitcoinNetworkFee,
+      destinationSatoshis: release.destinationSatoshis,
+      toScriptPubkey: form.destinationAddress,
+      txSigner,
+    }));
+    const prepared = await Promise.all(inputs.map(input => bitcoinLockRelease.prepare(input)));
     const releaseResults = await Promise.allSettled(
-      channels.map((channel, index) =>
-        bitcoinLockRelease.submit({
-          lockId: channel.lockId!,
-          bitcoinNetworkFee: bitcoinFees[index]!,
-          destinationSatoshis: channel.fundedSatoshis - bitcoinFees[index]!,
-          toScriptPubkey: form.destinationAddress,
-          txSigner,
-        }),
-      ),
+      inputs.map((input, index) => bitcoinLockRelease.submit(input, prepared[index])),
     );
     const failedRelease = releaseResults.find(result => result.status === 'rejected');
+    const hasPersistedRelease = prepared.some(
+      ({ metadata }) => bitcoinLocks.releases.getById(metadata.releaseId)?.sendId === sendId,
+    );
+    if (releaseResults.some(result => result.status === 'fulfilled') || hasPersistedRelease) {
+      emit('goto', 'main');
+      return;
+    }
     if (failedRelease?.status === 'rejected') throw failedRelease.reason;
-    emit('goto', 'main');
   } catch (error) {
     form.setFormError(error instanceof Error ? error.message : 'Unable to send Bitcoin.');
   } finally {

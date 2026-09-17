@@ -11,7 +11,7 @@ import {
   p2wshScriptHexToAddress,
 } from '@argonprotocol/bitcoin';
 import { Address, OutScript } from '@scure/btc-signer';
-import { formatArgons, hexToU8a, u8aToHex } from '@argonprotocol/mainchain';
+import { formatArgons, hexToU8a, u8aEq, u8aToHex } from '@argonprotocol/mainchain';
 import { toRuntimeEvent } from '@argonprotocol/runtime-client';
 import { Db } from './Db.ts';
 import { BitcoinLocksTable, BitcoinLockStatus, IBitcoinLockBlockExtrinsicError } from './db/BitcoinLocksTable.ts';
@@ -51,9 +51,12 @@ import { TransactionInfo } from './TransactionInfo.ts';
 import { ExtrinsicType } from './db/TransactionsTable.ts';
 import { MyVault } from './MyVault.ts';
 import type { IBitcoinUtxoRecord } from './db/BitcoinUtxosTable.ts';
+import type { IBitcoinFissionRecord } from '../interfaces/IBitcoinFissionRecord.ts';
 import type { IBitcoinLockProcessingDetails, IBitcoinLockSummary } from '../interfaces/IBitcoinLockSummary.ts';
-import { BitcoinLockRecovery } from './recovery/BitcoinLocks.ts';
+import { BitcoinLockRecovery, type IBitcoinHistoryReplayUnit } from './recovery/BitcoinLocks.ts';
+import type { BitcoinFissions } from './BitcoinFissions.ts';
 import { calculateBitcoinReturn, valueSatoshisAtRate } from './financials/BitcoinLocks.ts';
+import { assignIfUnset } from './Utils.ts';
 
 export type { IBitcoinUnlockReleaseState, IBitcoinVaultUnlockStateDetails };
 
@@ -141,6 +144,8 @@ export default class BitcoinLocks {
   #txQueueByUuid: { [uuid: string]: SingleFileQueue } = {};
   #pendingArgonBlocks: IBlockHeaderInfo[] = [];
   #historyRecoveryWaitersByUuid: Record<string, IDeferred<void>> = {};
+  #currentLockSyncPromise?: Promise<IBitcoinLock[]>;
+  #failedCurrentLockIds = new Set<number>();
   #mempool: BitcoinMempool;
   #securitizationHoldExpirationEstimateByCreatedHeight = new Map<
     number,
@@ -190,6 +195,7 @@ export default class BitcoinLocks {
       currency,
       getLocksByLockId: () => this.data.locksByLockId,
       getPendingLocks: () => this.data.pendingLocks,
+      getUnloadedCurrentLockIds: () => this.#failedCurrentLockIds,
       utxoTracking: this.utxoTracking,
       releases: this.releases,
       waitForLockIdle: async (lock, alreadyOwnsQueue) => {
@@ -220,11 +226,10 @@ export default class BitcoinLocks {
         return { ...status, txid };
       },
       onHistoryRecoveryComplete: (locks, didPublish) => this.resumeAfterHistoryRecovery(locks, didPublish),
-      onHistoryPublished: () => this.publishFinancialRevision(),
       insertPending: this.insertPending.bind(this),
       dbPromise,
       getTable: () => this.getTable(),
-      getDerivedPubkey: (vaultId, index) => this.getDerivedPubkey(vaultId, index),
+      findDerivedPubkeyForOwner: (vaultId, ownerPubkey) => this.findDerivedPubkeyForOwner(vaultId, ownerPubkey),
       getBitcoinNetwork: () => String(this.#config?.bitcoinNetwork ?? BitcoinNetwork[this.bitcoinNetwork]),
       trackDerivedBitcoinLockKey: (vaultId, derivedPubkey) => this.trackDerivedBitcoinLockKey(vaultId, derivedPubkey),
     });
@@ -501,13 +506,11 @@ export default class BitcoinLocks {
 
       await this.blockWatch.start();
       const hasDelegatedPendingLocks = await table.hasDelegatedPendingLocks();
-      const activeLocks = await this.recovery
-        .recoverActiveLocks({ requireComplete: hasDelegatedPendingLocks })
-        .catch(error => {
-          if (hasDelegatedPendingLocks) throw error;
-          console.warn('[BitcoinLocks] Unable to restore active locks from chain during startup', error);
-          return undefined;
-        });
+      const activeLocks = await this.syncCurrentLocks({ requireComplete: hasDelegatedPendingLocks }).catch(error => {
+        if (hasDelegatedPendingLocks) throw error;
+        console.warn('[BitcoinLocks] Unable to load current locks from chain during startup', error);
+        return undefined;
+      });
       // Delegated initialization cannot resume on the current runtime. A complete active scan protects real
       // active locks before the remaining relay-only attempts become terminal; do not restore relay polling.
       if (activeLocks) {
@@ -566,6 +569,199 @@ export default class BitcoinLocks {
       this.#waitForLoad.reject(error);
     }
     return this.#waitForLoad.promise;
+  }
+
+  public syncCurrentLocks(options?: { requireComplete?: boolean }): Promise<IBitcoinLock[]> {
+    this.#currentLockSyncPromise ??= (async () => {
+      const api = await this.blockWatch.getFinalizedApi();
+      const lockIds = await BitcoinLock.idsByOwner(api, this.walletKeys.defaultArgonAddress);
+      const activeLockIds = new Set(lockIds);
+      const locks: IBitcoinLock[] = [];
+      for (const lockId of this.#failedCurrentLockIds) {
+        if (!activeLockIds.has(lockId)) this.#failedCurrentLockIds.delete(lockId);
+      }
+
+      const table = await this.getTable();
+      const resumedReleases: IBitcoinLockRecord[] = [];
+      for (const record of Object.values(this.locksByLockId)) {
+        if (
+          record.lockId === undefined ||
+          record.status !== BitcoinLockStatus.Releasing ||
+          activeLockIds.has(record.lockId)
+        ) {
+          continue;
+        }
+        if (!this.releases.getActiveForLock(record) || !record.isHistoryRecoveryPending) continue;
+
+        await table.setHistoryRecoveryPending(record.uuid, false);
+        delete record.isHistoryRecoveryPending;
+        resumedReleases.push(record);
+      }
+      if (resumedReleases.length) this.resumeAfterHistoryRecovery(resumedReleases, true);
+
+      for (const lockId of lockIds) {
+        try {
+          const lock = await BitcoinLock.get(api, lockId);
+          if (!lock) throw new Error(`Current Bitcoin lock ${lockId} is unavailable from finalized chain state`);
+
+          this.#failedCurrentLockIds.delete(lockId);
+          await this.loadCurrentLock(lock);
+          locks.push(lock);
+        } catch (error) {
+          this.#failedCurrentLockIds.add(lockId);
+          console.warn(`Unable to load current Bitcoin lock ${lockId} from chain:`, error);
+        }
+      }
+
+      return locks.sort((left, right) => right.createdAtArgonBlock - left.createdAtArgonBlock);
+    })().finally(() => {
+      this.#currentLockSyncPromise = undefined;
+    });
+    if (!options?.requireComplete) return this.#currentLockSyncPromise;
+
+    return this.#currentLockSyncPromise.then(locks => {
+      if (this.#failedCurrentLockIds.size) throw new Error('Current Bitcoin lock loading is incomplete.');
+      return locks;
+    });
+  }
+
+  public async applyRecoveredHistory(
+    unit: IBitcoinHistoryReplayUnit,
+    asOfBlock: number,
+    bitcoinFissions?: Pick<BitcoinFissions, 'publishRecoveredHistory'>,
+  ): Promise<void> {
+    const db = await this.dbPromise;
+    const publication = await db.transaction(async transaction => {
+      const utxos: IBitcoinUtxoRecord[] = [];
+      const persistedUtxoIdByReplayId = new Map<number, number>();
+      for (const recovered of unit.utxos) {
+        const durable = await transaction.bitcoinUtxosTable.getByLockOutpoint(
+          recovered.lockId,
+          recovered.txid,
+          recovered.vout,
+        );
+        const persisted = durable
+          ? this.utxoTracking.mergeRecovered(durable, recovered)
+          : await transaction.bitcoinUtxosTable.insert(recovered);
+        if (durable) await transaction.bitcoinUtxosTable.saveRecoveredHistory(persisted);
+        utxos.push(persisted);
+        persistedUtxoIdByReplayId.set(recovered.id, persisted.id);
+      }
+
+      const releases: IBitcoinReleaseRecord[] = [];
+      for (const recovered of unit.releases) {
+        recovered.inputUtxoIds = recovered.inputUtxoIds.map(id => persistedUtxoIdByReplayId.get(id) ?? id);
+        const durable = await transaction.bitcoinReleasesTable.getById(recovered.id);
+        if (durable) {
+          this.releases.mergeRecovered(durable, recovered);
+          await transaction.bitcoinReleasesTable.update(durable, durable);
+          releases.push(durable);
+        } else {
+          releases.push(await transaction.bitcoinReleasesTable.insert(recovered));
+        }
+      }
+
+      let lock: IBitcoinLockRecord | undefined;
+      if (unit.lock) {
+        const recovered = unit.lock;
+        recovered.fundingUtxoIds = recovered.fundingUtxoIds.map(id => persistedUtxoIdByReplayId.get(id) ?? id);
+        const current = this.locksByLockId[unit.lockId];
+        let stored = await transaction.bitcoinLocksTable.getByLockId(unit.lockId);
+        if (!stored) stored = await transaction.bitcoinLocksTable.findPendingByHdPath(recovered.hdPath);
+        const isNewRecord = !stored && !current;
+        if (!stored) {
+          stored = await transaction.bitcoinLocksTable.insertPending({
+            uuid: recovered.uuid,
+            status: BitcoinLockStatus.LockIsProcessingOnArgon,
+            securitizedSatoshis: recovered.securitizedSatoshis,
+            cosignVersion: recovered.cosignVersion,
+            network: recovered.network,
+            hdPath: recovered.hdPath,
+            vaultId: recovered.vaultId,
+          });
+          if (current) Object.assign(stored, current);
+        }
+        lock = isNewRecord ? Object.assign(stored, recovered) : this.mergeRecoveredLock(stored, recovered);
+        lock.lockId = unit.lockId;
+        await transaction.bitcoinLocksTable.saveRecoveredHistory(lock, lock.createdAt);
+        for (const hdKey of unit.hdKeys) await transaction.walletHdKeysTable.upsert(hdKey);
+
+        const publishedTerms = await transaction.bitcoinSecuritizationHistoryTable.getPublishedSnapshot(
+          this.walletKeys.defaultArgonAddress,
+        );
+        const termsByKey = new Map(
+          (publishedTerms?.terms ?? []).map(term => [`${term.lockId}:${term.termIndex}`, term]),
+        );
+        for (const term of unit.securitizationTerms) {
+          const key = `${term.lockId}:${term.termIndex}`;
+          if (!termsByKey.has(key)) termsByKey.set(key, term);
+        }
+        const snapshot = await transaction.bitcoinSecuritizationHistoryTable.createSnapshot(
+          this.walletKeys.defaultArgonAddress,
+          asOfBlock,
+          [...termsByKey.values()].sort(
+            (left, right) => left.lockId - right.lockId || left.termIndex - right.termIndex,
+          ),
+        );
+        await transaction.bitcoinSecuritizationHistoryTable.publishSnapshot(snapshot);
+      }
+
+      const fissions: IBitcoinFissionRecord[] = [];
+      for (const recovered of unit.fissions) {
+        fissions.push(await transaction.bitcoinFissionsTable.saveRecoveredRecord(recovered));
+      }
+      return { lock, utxos, releases, fissions };
+    });
+    this.utxoTracking.publishRecovered(publication.utxos);
+    this.releases.publishRecovered(publication.releases);
+    if (publication.lock) this.publishRecoveredLock(publication.lock);
+    await bitcoinFissions?.publishRecoveredHistory(publication.fissions);
+    this.publishFinancialRevision();
+  }
+
+  private async loadCurrentLock(lock: IBitcoinLock): Promise<IBitcoinLockRecord> {
+    const loaded = this.locksByLockId[lock.lockId];
+    if (loaded) {
+      await this.utxoTracking.syncFundingUtxos(loaded, lock);
+      return loaded;
+    }
+
+    const table = await this.getTable();
+    let record = await table.getByLockId(lock.lockId);
+    let derivedPubkey: Awaited<ReturnType<typeof deriveBitcoinLockHdKey>> | undefined;
+    if (!record && this.walletKeys.canSign) {
+      derivedPubkey = await this.findDerivedPubkeyForOwner(lock.vaultId, lock.ownerPubkey);
+      if (!derivedPubkey) throw new Error(`Unable to recover the HD path for Bitcoin lock ${lock.lockId}`);
+      await this.trackDerivedBitcoinLockKey(lock.vaultId, derivedPubkey);
+    }
+
+    record ??= derivedPubkey ? await table.findPendingByHdPath(derivedPubkey.hdPath) : undefined;
+    if (!record) {
+      let recoveredUuid: string | undefined;
+      if (derivedPubkey) {
+        const db = await this.dbPromise;
+        const transaction = (await db.transactionsTable.fetchAll()).find(candidate => {
+          if (candidate.extrinsicType !== ExtrinsicType.BitcoinRequestLock) return false;
+
+          const metadata = candidate.metadataJson as Partial<IBitcoinRequestLockMetadata> | undefined;
+          return metadata?.bitcoin?.hdPath === derivedPubkey.hdPath && metadata.bitcoin.vaultId === lock.vaultId;
+        });
+        recoveredUuid = (transaction?.metadataJson as Partial<IBitcoinRequestLockMetadata> | undefined)?.bitcoin?.uuid;
+      }
+      record = await this.insertPending({
+        uuid: recoveredUuid ?? BitcoinLocksTable.createUuid(),
+        vaultId: lock.vaultId,
+        securitizedSatoshis: lock.securitizedSatoshis,
+        hdPath: derivedPubkey?.hdPath ?? '',
+      });
+    }
+    if (record.status === BitcoinLockStatus.LockIsProcessingOnArgon) {
+      record = await table.finalizePending({ uuid: record.uuid, lock });
+    }
+    const model: IBitcoinLockRecord = { ...record };
+    await this.utxoTracking.syncFundingUtxos(model, lock);
+    this.locksByLockId[lock.lockId] = model;
+    return model;
   }
 
   public get currentLoadPromise(): Promise<void> {
@@ -660,6 +856,13 @@ export default class BitcoinLocks {
       vaultId,
       hdIndex: index,
     });
+  }
+
+  private async findDerivedPubkeyForOwner(vaultId: number, ownerPubkey: Parameters<typeof u8aEq>[0], maxTries = 100) {
+    for (let index = 0; index < maxTries; index += 1) {
+      const derivedPubkey = await this.getDerivedPubkey(vaultId, index);
+      if (u8aEq(ownerPubkey, derivedPubkey.ownerBitcoinPubkey)) return derivedPubkey;
+    }
   }
 
   public async trackDerivedBitcoinLockKey(
@@ -1471,6 +1674,40 @@ export default class BitcoinLocks {
 
   public publishFinancialRevision(): void {
     if (this.data.readiness === 'ready') this.data.financialRevision += 1;
+  }
+
+  private mergeRecoveredLock(current: IBitcoinLockRecord, recovered: IBitcoinLockRecord): IBitcoinLockRecord {
+    const createdAt = current.createdAt < recovered.createdAt ? current.createdAt : recovered.createdAt;
+    assignIfUnset(current, recovered, [
+      'removalBlockNumber',
+      'removalBlockHash',
+      'removalBlockTime',
+      'removalExtrinsicIndex',
+      'btcPriceAtRemovalMicrogons',
+      'createdAtArgonBlock',
+    ]);
+    current.createdAt = createdAt;
+    return current;
+  }
+
+  private publishRecoveredLock(recovered: IBitcoinLockRecord): IBitcoinLockRecord {
+    const lockId = recovered.lockId;
+    if (lockId === undefined) return recovered;
+
+    const current = this.data.locksByLockId[lockId];
+    if (current) return this.mergeRecoveredLock(current, recovered);
+
+    const pendingIndex = this.data.pendingLocks.findIndex(lock => lock.uuid === recovered.uuid);
+    if (pendingIndex >= 0) {
+      const pending = this.data.pendingLocks.splice(pendingIndex, 1)[0];
+      this.mergeRecoveredLock(pending, recovered);
+      pending.lockId = lockId;
+      this.data.locksByLockId[lockId] = pending;
+      return pending;
+    }
+
+    this.data.locksByLockId[lockId] = recovered;
+    return recovered;
   }
 
   private readLockStatusDetails(

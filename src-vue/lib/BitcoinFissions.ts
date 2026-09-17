@@ -57,7 +57,6 @@ export class BitcoinFissions {
       ownerAccount,
       () => this.getAll(),
       blockWatch && this.currency ? { blockWatch, currency: this.currency } : undefined,
-      records => this.updateRecoveredState(records),
     );
   }
 
@@ -123,6 +122,11 @@ export class BitcoinFissions {
       this.coalescedRefreshPromise = undefined;
     });
     return this.coalescedRefreshPromise;
+  }
+
+  public async publishRecoveredHistory(records: readonly IBitcoinFissionRecord[]): Promise<void> {
+    if (!records.length) return;
+    await this.updateRecoveredState(records);
   }
 
   public async recordFinalizedTransaction(txInfo: TransactionInfo): Promise<void> {

@@ -9,7 +9,7 @@ import { generateProgressLabel } from '../lib/Utils.ts';
 import type { MyVault } from '../lib/MyVault.ts';
 import type BitcoinLocks from '../lib/BitcoinLocks.ts';
 import type { MiningFrames } from '@argonprotocol/apps-core';
-import { BitcoinReleaseStatus } from '../interfaces/IBitcoinReleaseRecord.ts';
+import { BitcoinReleaseStatus, type IBitcoinReleaseRecord } from '../interfaces/IBitcoinReleaseRecord.ts';
 
 export interface IStepProgress {
   progressPct: number;
@@ -30,6 +30,60 @@ const DEFAULT_PROGRESS: IStepProgress = {
   expectedConfirmations: 0,
   error: '',
 };
+
+export function getBitcoinReleaseProgress(args: {
+  release?: Pick<IBitcoinReleaseRecord, 'status' | 'statusError'>;
+  releaseState: ReturnType<BitcoinLocks['getLockUnlockReleaseState']>;
+  argonProgress?: Pick<IStepProgress, 'progressPct' | 'confirmations' | 'expectedConfirmations'>;
+  vaultProgressPct?: number;
+  bitcoinProgress?: Pick<IStepProgress, 'progressPct' | 'confirmations' | 'expectedConfirmations'>;
+  cosignerLabel?: string;
+}): { progressPct: number; detail: string } {
+  const { release, releaseState, argonProgress, vaultProgressPct = 0, bitcoinProgress, cosignerLabel } = args;
+  if (release?.statusError) return { progressPct: 0, detail: 'Needs attention' };
+
+  const status = release?.status;
+  if (
+    status === BitcoinReleaseStatus.ConfirmingOnBitcoin ||
+    status === BitcoinReleaseStatus.WaitingForArgonRecognition ||
+    (!status && releaseState.isBitcoinReleaseProcessing)
+  ) {
+    return {
+      progressPct: 66 + (bitcoinProgress?.progressPct ?? 0) * 0.34,
+      detail: generateProgressLabel(bitcoinProgress?.confirmations ?? -1, bitcoinProgress?.expectedConfirmations ?? 0, {
+        blockType: 'Bitcoin',
+      }),
+    };
+  }
+  if (status === BitcoinReleaseStatus.WaitingForVaultCosign || (!status && releaseState.isWaitingForVaultCosign)) {
+    return {
+      progressPct: 33 + vaultProgressPct * 0.33,
+      detail: cosignerLabel ? `Waiting for ${cosignerLabel} to sign` : 'Waiting for Vault to Cosign',
+    };
+  }
+  if (status === BitcoinReleaseStatus.ReadyForBitcoinBroadcast) {
+    return { progressPct: 66, detail: 'Preparing Bitcoin transaction' };
+  }
+  if (status === BitcoinReleaseStatus.SubmittingRequestOnArgon || (!status && releaseState.isArgonSubmitting)) {
+    const progressPct = (argonProgress?.progressPct ?? 0) * 0.33;
+    const hasConfirmations =
+      (argonProgress?.confirmations ?? -1) >= 0 && (argonProgress?.expectedConfirmations ?? 0) > 0;
+    return {
+      progressPct: hasConfirmations ? Math.max(1, progressPct) : progressPct,
+      detail: generateProgressLabel(argonProgress?.confirmations ?? -1, argonProgress?.expectedConfirmations ?? 0, {
+        blockType: 'Argon',
+      }),
+    };
+  }
+  if (status === BitcoinReleaseStatus.Complete || releaseState.isReleaseComplete) {
+    return { progressPct: 100, detail: 'Complete' };
+  }
+  if (status === BitcoinReleaseStatus.Cancelled) return { progressPct: 0, detail: 'Cancelled' };
+  if (status === BitcoinReleaseStatus.Failed || status === BitcoinReleaseStatus.FailedAcknowledged) {
+    return { progressPct: 0, detail: 'Failed' };
+  }
+  return { progressPct: 0, detail: 'Analyzing Network State...' };
+}
 
 export function createBitcoinLockProgressStore(deps: BitcoinLockProgressDeps) {
   const { myVault, bitcoinLocks, miningFrames } = deps;
@@ -339,44 +393,25 @@ export function createBitcoinLockProgressStore(deps: BitcoinLockProgressDeps) {
   }
 
   function getUnlockProgressPct(status: BitcoinLockStatus | null | undefined): number {
-    const releaseState = bitcoinLocks.getLockUnlockReleaseState(lock.value ?? undefined);
-    const inReleasePhase = status === BitcoinLockStatus.Releasing || releaseState.isReleaseStatus;
-    if (!inReleasePhase) return 0;
-    if (releaseState.isBitcoinReleaseProcessing) {
-      return 66 + bitcoinReleaseProgress.value.progressPct * 0.34;
-    }
-    if (releaseState.isWaitingForVaultCosign) {
-      return 33 + requestReleaseByVaultProgress.value * 0.33;
-    }
-    const release = lock.value ? bitcoinLocks.releases.getActiveForLock(lock.value) : undefined;
-    if (release?.status === BitcoinReleaseStatus.ReadyForBitcoinBroadcast) return 66;
-    if (releaseState.isArgonSubmitting) {
-      const argonPct = argonReleaseProgress.value.progressPct * 0.33;
-      if (argonReleaseProgress.value.confirmations >= 0 && argonReleaseProgress.value.expectedConfirmations > 0) {
-        return Math.max(1, argonPct);
-      }
-      return argonPct;
-    }
-    return 0;
+    return getUnlockProgress(status).progressPct;
   }
 
-  function getUnlockProgressLabel(status: BitcoinLockStatus | null | undefined): string {
+  function getUnlockProgressLabel(status: BitcoinLockStatus | null | undefined, cosignerLabel?: string): string {
+    return getUnlockProgress(status, cosignerLabel).detail;
+  }
+
+  function getUnlockProgress(status: BitcoinLockStatus | null | undefined, cosignerLabel?: string) {
     const releaseState = bitcoinLocks.getLockUnlockReleaseState(lock.value ?? undefined);
     const inReleasePhase = status === BitcoinLockStatus.Releasing || releaseState.isReleaseStatus;
-    if (!inReleasePhase) return 'Analyzing Network State...';
-    const step = getStatusProgress(status);
-    if (releaseState.isBitcoinReleaseProcessing) {
-      return generateProgressLabel(step?.confirmations ?? -1, step?.expectedConfirmations ?? 0, {
-        blockType: 'Bitcoin',
-      });
-    }
-    if (releaseState.isWaitingForVaultCosign) {
-      return 'Waiting for Vault to Cosign';
-    }
+    if (!inReleasePhase) return { progressPct: 0, detail: 'Analyzing Network State...' };
     const release = lock.value ? bitcoinLocks.releases.getActiveForLock(lock.value) : undefined;
-    if (release?.status === BitcoinReleaseStatus.ReadyForBitcoinBroadcast) return 'Preparing Bitcoin transaction';
-    return generateProgressLabel(step?.confirmations ?? -1, step?.expectedConfirmations ?? 0, {
-      blockType: 'Argon',
+    return getBitcoinReleaseProgress({
+      release,
+      releaseState,
+      argonProgress: argonReleaseProgress.value,
+      vaultProgressPct: requestReleaseByVaultProgress.value,
+      bitcoinProgress: bitcoinReleaseProgress.value,
+      cosignerLabel,
     });
   }
 

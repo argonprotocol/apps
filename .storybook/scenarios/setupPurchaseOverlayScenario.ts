@@ -27,8 +27,8 @@ export function setupBondPurchaseScenario(state: BondPurchaseState) {
         ? [
             createScenarioVault({
               securitizationLocked: 1_052_698_425n,
-              lockedSatoshis: 1_408_910n,
               securitizedSatoshis: 1_408_910n,
+              ratioAdjustedSatoshis: 1_408_910n,
             }),
           ]
         : [];

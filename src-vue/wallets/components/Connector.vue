@@ -69,31 +69,16 @@
         </template>
       </ConnectorTokensMenu>
     </div>
-    <Tooltip
-      v-else-if="securitizationHoldChannel || bitcoinDepositAttention"
-      :content="bitcoinDepositAttention"
-      :open="bitcoinDepositAttention ? undefined : false"
-      side="right"
-      :asChild="true"
-    >
+    <template v-else-if="securitizationHoldChannel">
       <div
-        :data-testid="bitcoinDepositAttention ? 'Connector.bitcoinDepositAttention' : undefined"
         class="text-md text-argon-900/70 absolute -top-2 left-1/2 -translate-x-1/2 rounded-lg border border-black/80 bg-white whitespace-nowrap"
       >
         <span class="bg-argon-900/20 flex items-center gap-1 rounded-lg px-2 inset-shadow-xs inset-shadow-white">
-          <template v-if="bitcoinDepositAttention">
-            <span class="connector-attention-pulse flex items-center gap-1">
-              <AlertIcon class="size-4" />
-              Review
-            </span>
-          </template>
-          <template v-else>
-            {{ currency.symbol
-            }}{{ microgonToMoneyNm(remainingBitcoinInsuranceMicrogons).formatIfElse('< 100', '0,0.00', '0,0') }}
-          </template>
+          {{ currency.symbol
+          }}{{ microgonToMoneyNm(remainingBitcoinInsuranceMicrogons).formatIfElse('< 100', '0,0.00', '0,0') }}
         </span>
       </div>
-    </Tooltip>
+    </template>
     <div
       v-if="props.wallet"
       class="absolute top-full left-1/2 -translate-x-1/2 translate-y-1 text-center whitespace-nowrap text-white"
@@ -124,11 +109,9 @@
 import { MoveToken } from '@argonprotocol/apps-core';
 import { CheckIcon } from '@heroicons/vue/24/outline';
 import * as Vue from 'vue';
-import AlertIcon from '../../assets/alert.svg?component';
 import CopyIcon from '../../assets/copy.svg';
 import BitcoinNetworkLogo from '../../assets/networks/bitcoin.svg';
 import CopyToClipboard from '../../components/CopyToClipboard.vue';
-import Tooltip from '../../components/Tooltip.vue';
 import EthereumNetworkLogo from '../../assets/networks/ethereum.svg';
 import ConnectorChannel from './ConnectorChannel.vue';
 import ConnectorTokensMenu from './ConnectorTokensMenu.vue';
@@ -139,7 +122,6 @@ import type { WalletForBitcoin } from '../../lib/WalletForBitcoin.ts';
 import type { WalletForEthereum } from '../../lib/WalletForEthereum.ts';
 import { createNumeralHelpers } from '../../lib/numeral.ts';
 import { abbreviateAddress } from '../../lib/Utils.ts';
-import { getBitcoinDepositAttention } from '../walletOverlayState.ts';
 import type { ICrosschainTransferDirection } from './crosschainTransferView.ts';
 
 const props = withDefaults(
@@ -177,9 +159,6 @@ const remainingBitcoinInsuranceMicrogons = Vue.computed(() => {
   const wallet = bitcoinWallet.value;
   const channel = securitizationHoldChannel.value;
   return wallet && channel ? wallet.getRemainingChannelInsurance(channel) : 0n;
-});
-const bitcoinDepositAttention = Vue.computed(() => {
-  return getBitcoinDepositAttention(bitcoinWallet.value);
 });
 const securitizationHoldChannelAddress = Vue.computed(() => {
   const channel = securitizationHoldChannel.value;
@@ -221,20 +200,6 @@ function openConnector() {
 
 .connector-transfer-pulse-both {
   animation: connector-transfer-pulse-both 5.2s ease-in-out infinite;
-}
-
-.connector-attention-pulse {
-  animation: connector-attention-pulse 1.4s ease-in-out infinite;
-}
-
-@keyframes connector-attention-pulse {
-  0%,
-  100% {
-    color: var(--color-argon-600);
-  }
-  50% {
-    color: var(--color-argon-900);
-  }
 }
 
 @keyframes connector-transfer-pulse-inbound {

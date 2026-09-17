@@ -22,6 +22,7 @@ import { BITCOIN_BLOCK_MILLIS } from './Env.ts';
 import BitcoinMempool from './BitcoinMempool.ts';
 import { Db } from './Db.ts';
 import BitcoinLocks from './BitcoinLocks.ts';
+import { assignIfUnset } from './Utils.ts';
 
 dayjs.extend(utc);
 
@@ -54,6 +55,34 @@ export default class BitcoinUtxoTracking {
     this.data.utxosById = {};
     this.data.utxoIdsByLockId = {};
     for (const record of records) this.publishUtxo(record);
+  }
+
+  public mergeRecovered(current: IBitcoinUtxoRecord, recovered: IBitcoinUtxoRecord): IBitcoinUtxoRecord {
+    assignIfUnset(current, recovered, [
+      'mempoolObservation',
+      'firstSeenOnArgonAt',
+      'firstSeenOracleHeight',
+      'lastConfirmationCheckAt',
+      'lastConfirmationCheckOracleHeight',
+      'createdByReleaseId',
+    ]);
+    if (current.spendStatus === BitcoinUtxoSpendStatus.Spent) {
+      current.spentByReleaseId ??= recovered.spentByReleaseId;
+    }
+    if (recovered.firstSeenAt < current.firstSeenAt) current.firstSeenAt = recovered.firstSeenAt;
+    return current;
+  }
+
+  public publishRecovered(records: readonly IBitcoinUtxoRecord[]): void {
+    for (const recovered of records) {
+      const current = this.data.utxosById[recovered.id];
+      if (!current) {
+        this.publishUtxo(recovered);
+        continue;
+      }
+
+      this.mergeRecovered(current, recovered);
+    }
   }
 
   public getUtxoRecord(lockId: number, txid: string, vout: number): IBitcoinUtxoRecord | undefined {

@@ -13,9 +13,8 @@
 
     <div class="px-6 py-5">
       <BitcoinSend
-        v-if="personalLock"
+        v-if="personalLock && !releaseState.isReleaseStatus && !releaseState.isReleaseComplete"
         :personalLock="personalLock"
-        :cosignerLabel="cosignerLabel"
         :externalError="myVault.data.finalizeMyBitcoinError?.error"
         @done="closeOverlay"
       />
@@ -33,8 +32,7 @@ import OverlayBase from './OverlayBase.vue';
 import BitcoinSend from '../wallets/components/BitcoinSend.vue';
 import type { IBitcoinLockRecord } from '../interfaces/IBitcoinLockRecord.ts';
 import { getBitcoinLocks } from '../stores/bitcoin.ts';
-import { getConfig } from '../stores/config.ts';
-import { getMyVault, getVaults } from '../stores/vaults.ts';
+import { getMyVault } from '../stores/vaults.ts';
 
 const props = defineProps<{
   personalLock?: IBitcoinLockRecord;
@@ -45,9 +43,7 @@ const emit = defineEmits<{
 }>();
 
 const bitcoinLocks = getBitcoinLocks();
-const config = getConfig();
 const myVault = getMyVault();
-const vaults = getVaults();
 const openedLock = Vue.ref(props.personalLock);
 
 const personalLock = Vue.computed<IBitcoinLockRecord | undefined>(() => {
@@ -63,16 +59,10 @@ const personalLock = Vue.computed<IBitcoinLockRecord | undefined>(() => {
 });
 const releaseState = Vue.computed(() => bitcoinLocks.getLockUnlockReleaseState(personalLock.value));
 const releaseE2eState = Vue.computed(() => {
-  if (!personalLock.value) return 'Unavailable';
-  if (releaseState.value.isReleaseComplete) return 'Sent';
-  if (releaseState.value.isReleaseStatus) return 'Sending';
+  if (!personalLock.value || releaseState.value.isReleaseStatus || releaseState.value.isReleaseComplete) {
+    return 'Unavailable';
+  }
   return 'Send';
-});
-const cosignerLabel = Vue.computed(() => {
-  const lock = personalLock.value;
-  if (!lock) return undefined;
-  if (lock.vaultId === myVault.vaultId) return 'your Vault';
-  return vaults.operatorNamesByVaultId[lock.vaultId] ?? config.upstreamOperator?.name ?? `Vault ${lock.vaultId}`;
 });
 
 function closeOverlay(): void {

@@ -97,19 +97,12 @@ export class BitcoinLockRelease extends TransactionOperation<
         throw new Error(`Bitcoin lock ${lockId} is missing a runtime funding input`);
       return utxo.id;
     });
-    if (
-      !inputUtxoIds.length ||
-      inputUtxoIds.length !== lock.fundingUtxoIds.length ||
-      inputUtxoIds.some((id, index) => id !== lock.fundingUtxoIds[index])
-    ) {
+    if (!inputUtxoIds.length || inputUtxoIds.toSorted().join(',') !== lock.fundingUtxoIds.toSorted().join(',')) {
       throw new Error(`Bitcoin lock ${lockId} no longer matches its runtime funding inputs`);
     }
 
     const destinationScript = addressBytesHex(toScriptPubkey, this.bitcoinLocks.bitcoinNetwork);
     const previousCosign = await client.query.bitcoinLocks.lockReleaseCosignHeightById(lockId);
-    if (typeof previousCosign === 'number') {
-      throw new Error('The current runtime did not return a Bitcoin release number.');
-    }
     const previousReleaseNumber = previousCosign?.releaseNumber ?? 0;
     const releaseNumber = activeRelease?.releaseNumber ?? previousReleaseNumber + 1;
 
@@ -270,7 +263,7 @@ export class BitcoinLockRelease extends TransactionOperation<
       lock,
       async () => {
         const release = this.bitcoinLocks.releases.getById(metadata.releaseId);
-        if (release) await this.bitcoinLocks.releases.recordRetryableError(release, error);
+        if (release) await this.bitcoinLocks.releases.failRelease(release, error);
       },
       { skipActionAvailability: true },
     );

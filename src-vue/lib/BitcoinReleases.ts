@@ -1,5 +1,6 @@
 import {
   BitcoinLock,
+  bigIntMax,
   bigIntMin,
   type ArgonClient,
   type ArgonQueryClient,
@@ -34,6 +35,7 @@ import { getTransactionFailureMessage, type TransactionInfo } from './Transactio
 import type { TransactionTracker } from './TransactionTracker.ts';
 import { ExtrinsicType, TransactionStatus } from './db/TransactionsTable.ts';
 import { isWalletSigningUnavailableError, type WalletKeys } from './WalletKeys.ts';
+import { assignIfUnset } from './Utils.ts';
 
 const releaseProgress: Partial<Record<BitcoinReleaseStatus, number>> = {
   [BitcoinReleaseStatus.SubmittingRequestOnArgon]: 0,
@@ -43,6 +45,19 @@ const releaseProgress: Partial<Record<BitcoinReleaseStatus, number>> = {
   [BitcoinReleaseStatus.WaitingForArgonRecognition]: 4,
   [BitcoinReleaseStatus.Complete]: 5,
 };
+
+export interface IBitcoinSendSource {
+  channel: Pick<IBitcoinLockRecord, 'lockId' | 'fundedSatoshis' | 'fissionedSatoshis'>;
+  fullReleaseFee: bigint;
+  partialReleaseFee: bigint;
+}
+
+export interface IBitcoinSendRelease {
+  channel: Pick<IBitcoinLockRecord, 'lockId' | 'fundedSatoshis'>;
+  bitcoinNetworkFee: bigint;
+  grossSatoshis: bigint;
+  destinationSatoshis: bigint;
+}
 
 export default class BitcoinReleases {
   public data: { releasesById: Record<string, IBitcoinReleaseRecord> } = { releasesById: {} };
@@ -62,10 +77,174 @@ export default class BitcoinReleases {
     private readonly transactionTracker: TransactionTracker,
   ) {}
 
+  public static createSendPlan(
+    sources: IBitcoinSendSource[],
+    requestedSatoshis: bigint,
+    minimumRetainedSatoshis: bigint,
+  ): IBitcoinSendRelease[] {
+    if (requestedSatoshis <= 0n) return [];
+    if (requestedSatoshis > sources.reduce((total, source) => total + source.channel.fundedSatoshis, 0n)) {
+      throw new Error('The Bitcoin send amount exceeds the available balance.');
+    }
+
+    const ordered = sources
+      .map((source, index) => ({ ...source, index }))
+      .sort((left, right) => {
+        const leftCanFullyRelease = (left.channel.fissionedSatoshis ?? 0n) === 0n;
+        const rightCanFullyRelease = (right.channel.fissionedSatoshis ?? 0n) === 0n;
+        if (leftCanFullyRelease !== rightCanFullyRelease) return leftCanFullyRelease ? -1 : 1;
+        return left.channel.fundedSatoshis < right.channel.fundedSatoshis
+          ? -1
+          : left.channel.fundedSatoshis > right.channel.fundedSatoshis
+            ? 1
+            : 0;
+      });
+
+    const exactFullRelease = ordered.find(
+      source =>
+        (source.channel.fissionedSatoshis ?? 0n) === 0n &&
+        source.channel.fundedSatoshis === requestedSatoshis &&
+        source.channel.fundedSatoshis > source.fullReleaseFee,
+    );
+    if (exactFullRelease) {
+      return [
+        {
+          channel: exactFullRelease.channel,
+          bitcoinNetworkFee: exactFullRelease.fullReleaseFee,
+          grossSatoshis: exactFullRelease.channel.fundedSatoshis,
+          destinationSatoshis: exactFullRelease.channel.fundedSatoshis - exactFullRelease.fullReleaseFee,
+        },
+      ];
+    }
+
+    let fullyReleasedSatoshis = 0n;
+    const fullReleases: Array<IBitcoinSendRelease & { index: number }> = [];
+    for (let fullCount = 0; fullCount <= ordered.length; fullCount += 1) {
+      const remainingSatoshis = requestedSatoshis - fullyReleasedSatoshis;
+      if (remainingSatoshis < 0n) break;
+
+      if (remainingSatoshis === 0n) {
+        return fullReleases
+          .sort((left, right) => left.index - right.index)
+          .map(({ index: _index, ...release }) => release);
+      }
+
+      const partialReleases = BitcoinReleases.createPartialSendPlan(
+        ordered.slice(fullCount),
+        remainingSatoshis,
+        minimumRetainedSatoshis,
+      );
+      if (partialReleases) {
+        return [...fullReleases, ...partialReleases]
+          .sort((left, right) => left.index - right.index)
+          .map(({ index: _index, ...release }) => release);
+      }
+
+      const next = ordered[fullCount];
+      if (!next || (next.channel.fissionedSatoshis ?? 0n) > 0n || next.channel.fundedSatoshis <= next.fullReleaseFee) {
+        break;
+      }
+      fullReleases.push({
+        channel: next.channel,
+        bitcoinNetworkFee: next.fullReleaseFee,
+        grossSatoshis: next.channel.fundedSatoshis,
+        destinationSatoshis: next.channel.fundedSatoshis - next.fullReleaseFee,
+        index: next.index,
+      });
+      fullyReleasedSatoshis += next.channel.fundedSatoshis;
+    }
+
+    throw new Error(
+      'That amount cannot be released after Bitcoin fees while each retained Channel keeps its required Bitcoin.',
+    );
+  }
+
   public async load(): Promise<void> {
     const db = await this.dbPromise;
     const releases = await db.bitcoinReleasesTable.fetchAll();
     this.data.releasesById = Object.fromEntries(releases.map(release => [release.id, release]));
+  }
+
+  private static createPartialSendPlan(
+    sources: Array<IBitcoinSendSource & { index: number }>,
+    requestedSatoshis: bigint,
+    minimumRetainedSatoshis: bigint,
+  ): Array<IBitcoinSendRelease & { index: number }> | undefined {
+    const candidates = sources
+      .map(source => ({
+        ...source,
+        minimumGrossSatoshis: source.partialReleaseFee + 1n,
+        maximumGrossSatoshis:
+          source.channel.fundedSatoshis - bigIntMax(minimumRetainedSatoshis, source.channel.fissionedSatoshis ?? 0n),
+      }))
+      .filter(source => source.maximumGrossSatoshis >= source.minimumGrossSatoshis)
+      .sort((left, right) => {
+        const leftCapacity = left.maximumGrossSatoshis - left.minimumGrossSatoshis;
+        const rightCapacity = right.maximumGrossSatoshis - right.minimumGrossSatoshis;
+        return rightCapacity < leftCapacity ? -1 : rightCapacity > leftCapacity ? 1 : 0;
+      });
+
+    const selected: typeof candidates = [];
+    let minimumTotal = 0n;
+    let maximumTotal = 0n;
+    for (const candidate of candidates) {
+      if (minimumTotal + candidate.minimumGrossSatoshis > requestedSatoshis) continue;
+      selected.push(candidate);
+      minimumTotal += candidate.minimumGrossSatoshis;
+      maximumTotal += candidate.maximumGrossSatoshis;
+      if (requestedSatoshis > maximumTotal) continue;
+
+      let unallocatedSatoshis = requestedSatoshis - minimumTotal;
+      return selected.map(source => {
+        const addedSatoshis = bigIntMin(unallocatedSatoshis, source.maximumGrossSatoshis - source.minimumGrossSatoshis);
+        const grossSatoshis = source.minimumGrossSatoshis + addedSatoshis;
+        unallocatedSatoshis -= addedSatoshis;
+        return {
+          channel: source.channel,
+          bitcoinNetworkFee: source.partialReleaseFee,
+          grossSatoshis,
+          destinationSatoshis: grossSatoshis - source.partialReleaseFee,
+          index: source.index,
+        };
+      });
+    }
+  }
+
+  public mergeRecovered(current: IBitcoinReleaseRecord, recovered: IBitcoinReleaseRecord): IBitcoinReleaseRecord {
+    assignIfUnset(current, recovered, [
+      'requestedReleaseAtTick',
+      'insuredMicrogons',
+      'argonTxFeeMicrogons',
+      'compensationMicrogons',
+      'cosignBlockNumber',
+      'bitcoinTxid',
+      'bitcoinFirstSeenAt',
+      'bitcoinFirstSeenHeight',
+      'bitcoinFirstSeenOracleHeight',
+      'bitcoinLastConfirmationCheckAt',
+      'bitcoinLastConfirmationCheckOracleHeight',
+      'bitcoinConfirmedHeight',
+      'argonCompletionBlockNumber',
+      'argonCompletionBlockHash',
+      'argonCompletionBlockTime',
+      'argonCompletionExtrinsicIndex',
+    ]);
+    if (!current.inputUtxoIds.length) current.inputUtxoIds = [...recovered.inputUtxoIds];
+    if (!current.vaultSignatures.length) current.vaultSignatures = [...recovered.vaultSignatures];
+    if (recovered.createdAt < current.createdAt) current.createdAt = recovered.createdAt;
+    return current;
+  }
+
+  public publishRecovered(records: readonly IBitcoinReleaseRecord[]): void {
+    for (const recovered of records) {
+      const current = this.data.releasesById[recovered.id];
+      if (!current) {
+        this.data.releasesById[recovered.id] = recovered;
+        continue;
+      }
+
+      this.mergeRecovered(current, recovered);
+    }
   }
 
   public getById(id: string): IBitcoinReleaseRecord | undefined {
@@ -89,9 +268,25 @@ export default class BitcoinReleases {
         inputUtxo?.activeReleaseId === release.id &&
         release.status !== BitcoinReleaseStatus.Complete &&
         release.status !== BitcoinReleaseStatus.Cancelled &&
-        release.status !== BitcoinReleaseStatus.Failed
+        release.status !== BitcoinReleaseStatus.Failed &&
+        release.status !== BitcoinReleaseStatus.FailedAcknowledged
       );
     });
+  }
+
+  public getUnacknowledgedFailedLockReleases(): IBitcoinReleaseRecord[] {
+    return Object.values(this.data.releasesById).filter(
+      release => release.kind === BitcoinReleaseKind.Lock && release.status === BitcoinReleaseStatus.Failed,
+    );
+  }
+
+  public async acknowledgeFailedSend(sendId: string): Promise<void> {
+    const db = await this.dbPromise;
+    const acknowledged = await db.bitcoinReleasesTable.acknowledgeFailedSend(sendId);
+    for (const persisted of acknowledged) {
+      const release = this.data.releasesById[persisted.id];
+      if (release) Object.assign(release, persisted);
+    }
   }
 
   public getLatestForLock(lock: IBitcoinLockRecord): IBitcoinReleaseRecord | undefined {
@@ -132,10 +327,7 @@ export default class BitcoinReleases {
       throw new Error(`Bitcoin lock ${lock.lockId} already has an active release`);
     }
 
-    if (
-      release.inputUtxoIds.length !== lock.fundingUtxoIds.length ||
-      release.inputUtxoIds.some((id, index) => id !== lock.fundingUtxoIds[index])
-    ) {
+    if (release.inputUtxoIds.toSorted().join(',') !== lock.fundingUtxoIds.toSorted().join(',')) {
       throw new Error(`Bitcoin release ${release.id} does not match the Lock's current funding inputs`);
     }
 
@@ -158,6 +350,13 @@ export default class BitcoinReleases {
     const utxoDrafts = inputUtxos.map(utxo => ({ ...utxo }));
     const persisted = await db.transaction(async transaction => {
       const persisted = await transaction.bitcoinReleasesTable.insert(release);
+      if (
+        persisted.status === BitcoinReleaseStatus.Failed ||
+        persisted.status === BitcoinReleaseStatus.FailedAcknowledged
+      ) {
+        const { id: _id, kind: _kind, lockId: _lockId, ...retry } = release;
+        await transaction.bitcoinReleasesTable.update(persisted, { ...retry, statusError: undefined });
+      }
       if (
         persisted.kind !== release.kind ||
         persisted.sendId !== release.sendId ||
@@ -405,9 +604,9 @@ export default class BitcoinReleases {
     }
 
     if (release.status === BitcoinReleaseStatus.WaitingForArgonRecognition) {
-      await this.recoverRecognizedLockRelease(lock, release).catch(async error => {
+      await this.reconcileRecognizedLockRelease(lock, release).catch(async error => {
         await this.recordRetryableError(release, error);
-        console.warn(`[BitcoinReleases] Error recovering release completion for ${lock.uuid}`, error);
+        console.warn(`[BitcoinReleases] Error reconciling release completion for ${lock.uuid}`, error);
       });
     }
   }
@@ -1145,7 +1344,10 @@ export default class BitcoinReleases {
     });
   }
 
-  private async recoverRecognizedLockRelease(lock: IBitcoinLockRecord, release: IBitcoinReleaseRecord): Promise<void> {
+  private async reconcileRecognizedLockRelease(
+    lock: IBitcoinLockRecord,
+    release: IBitcoinReleaseRecord,
+  ): Promise<void> {
     if (release.kind !== BitcoinReleaseKind.Lock || release.cosignBlockNumber === undefined) return;
 
     if (release.changeSatoshis === 0n) {
@@ -1258,7 +1460,6 @@ function isSameLockReleaseRequest(left: LockReleaseRequest, right: LockReleaseRe
     left.bitcoinNetworkFee === right.bitcoinNetworkFee &&
     left.destinationSatoshis === right.destinationSatoshis &&
     left.changeSatoshis === right.changeSatoshis &&
-    left.inputUtxoIds.length === right.inputUtxoIds.length &&
-    left.inputUtxoIds.every((id, index) => id === right.inputUtxoIds[index])
+    left.inputUtxoIds.toSorted().join(',') === right.inputUtxoIds.toSorted().join(',')
   );
 }

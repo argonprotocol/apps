@@ -60,7 +60,7 @@ import { getEthereumOutboundTransferTracker } from '../../src-vue/stores/moveToE
 import { getMyVault, getVaults } from '../../src-vue/stores/vaults.ts';
 import { getWalletKeys, useWallets } from '../../src-vue/stores/wallets.ts';
 import { TopTab } from '../../src-vue/interfaces/IConfig.ts';
-import { getMainchainClient } from '../../src-vue/stores/mainchain.ts';
+import { getMainchainClient, getMiningFrames } from '../../src-vue/stores/mainchain.ts';
 import { createBitcoinRelease, createScenarioTransactionInfo } from './setupBitcoinOverlayScenario.ts';
 import { createScenarioVault } from './createScenarioVault.ts';
 import { setupAppScenario } from './setupAppScenario.ts';
@@ -69,9 +69,11 @@ export type WalletScenario =
   | 'defaultArgon'
   | 'pendingBitcoinFunding'
   | 'pendingBitcoinRelease'
+  | 'bitcoinUnattachedDeposit'
   | 'bitcoinWalletReleaseWaiting'
+  | 'bitcoinWalletReleaseError'
+  | 'bitcoinWalletReleaseFailed'
   | 'bitcoinSend'
-  | 'bitcoinSendLocked'
   | 'bitcoinWalletDetails'
   | 'bitcoinWalletInsurancePending'
   | 'bitcoinWalletInsuranceUnavailable'
@@ -124,7 +126,11 @@ type WalletTransferScenarioState = {
 };
 
 export function setupWalletScenario(state: WalletScenario): WalletScenarioState {
-  const isPendingBitcoinRelease = state === 'pendingBitcoinRelease' || state === 'bitcoinWalletReleaseWaiting';
+  const isWalletRelease =
+    state === 'bitcoinWalletReleaseWaiting' ||
+    state === 'bitcoinWalletReleaseError' ||
+    state === 'bitcoinWalletReleaseFailed';
+  const isPendingBitcoinRelease = state === 'pendingBitcoinRelease' || isWalletRelease;
   const isBitcoinWalletDetails =
     state === 'bitcoinWalletDetails' ||
     state === 'bitcoinWalletInsurancePending' ||
@@ -132,7 +138,7 @@ export function setupWalletScenario(state: WalletScenario): WalletScenarioState 
     state === 'bitcoinWalletInsurancePriceIncrease' ||
     state === 'bitcoinWalletInsuranceSubmitting' ||
     state === 'bitcoinWalletInsuranceError';
-  const hasBitcoinChannelAccess = isBitcoinWalletDetails || state === 'bitcoinWalletReleaseWaiting';
+  const hasBitcoinChannelAccess = isBitcoinWalletDetails || isWalletRelease;
   const insuranceRateMicrogonsPerBtc = state === 'bitcoinWalletInsuranceUnavailable' ? 6_800_000_000n : 68_000_000_000n;
   const { wallets } = setupAppScenario({
     selectedTab: TopTab.Home,
@@ -146,6 +152,9 @@ export function setupWalletScenario(state: WalletScenario): WalletScenarioState 
   const currency = getCurrency();
   const financials = useFinancials();
   const now = new Date('2026-08-16T12:00:00.000Z');
+  if (state === 'bitcoinWalletReleaseWaiting') {
+    getMiningFrames().getFrameDate = fn(() => new Date(Date.now() + 11 * 24 * 60 * 60 * 1_000));
+  }
 
   spyOn(navigator.clipboard, 'writeText').mockResolvedValue();
   const ethereumTreasury: IWalletRecord = {
@@ -183,13 +192,11 @@ export function setupWalletScenario(state: WalletScenario): WalletScenarioState 
       createBitcoinChannel('storybook-sendable-channel-two', 102, 2_000_000n),
       createBitcoinChannel('storybook-liquid-channel', 103, 5_000_000n, 4_000_000n),
     );
-  } else if (state === 'bitcoinSendLocked') {
-    bitcoinChannels.push(createBitcoinChannel('storybook-liquid-channel', 103, 5_000_000n, 4_000_000n));
   } else if (isBitcoinWalletDetails) {
     Object.assign(getVaults().operatorNamesByVaultId, { 101: 'Testing', 103: 'Backup' });
     bitcoinChannels.push(
       createBitcoinChannel('storybook-wallet-channel-one', 101, 1_000_000n),
-      createBitcoinChannel('storybook-wallet-channel-two', 102, 2_000_000n, 0n, 101),
+      createBitcoinChannel('storybook-wallet-channel-two', 102, 2_000_000n, 0n, 101, 1),
       createBitcoinChannel('storybook-wallet-partial-channel', 103, 5_000_000n, 4_000_000n),
       createBitcoinChannel('storybook-wallet-fully-allocated-channel', 104, 5_000_000n, 5_000_000n),
     );
@@ -230,29 +237,83 @@ export function setupWalletScenario(state: WalletScenario): WalletScenarioState 
       activeReleaseId: isRelease ? fundingUtxo.activeReleaseId : undefined,
       cosignVersion: 'v1',
       network: 'bitcoin',
-      hdPath: "m/84'/0'/0'/0/4",
+      hdPath: "m/84'/0'/0'/0/0'",
       vaultId: 7,
       createdAt: new Date('2026-08-16T14:00:00.000Z'),
       updatedAt: fundingUtxo.updatedAt,
     });
     bitcoinUtxos.push(fundingUtxo);
-    if (state === 'bitcoinWalletReleaseWaiting') {
-      bitcoinChannels.push(createBitcoinChannel('storybook-available-bitcoin-channel', 102, 2_000_000n, 0n, 7));
+    if (isWalletRelease) {
+      bitcoinChannels.push(createBitcoinChannel('storybook-available-bitcoin-channel', 103, 2_000_000n, 0n, 7));
     }
+  } else if (state === 'bitcoinUnattachedDeposit') {
+    const lock = createBitcoinChannel('storybook-unattached-bitcoin-channel', 101, 5_000_000n, 0n, 7);
+    lock.fundingUtxoIds = [201];
+    bitcoinChannels.push(lock);
+    bitcoinUtxos.push(
+      {
+        id: 201,
+        lockId: lock.lockId!,
+        txid: 'synthetic-bitcoin-channel-funding',
+        vout: 0,
+        satoshis: lock.fundedSatoshis,
+        network: 'bitcoin',
+        status: BitcoinUtxoStatus.FundingUtxo,
+        spendStatus: BitcoinUtxoSpendStatus.Unspent,
+        firstSeenAt: new Date('2026-08-16T14:10:00.000Z'),
+        firstSeenBitcoinHeight: 250_010,
+        createdAt: new Date('2026-08-16T14:10:00.000Z'),
+        updatedAt: new Date('2026-08-16T14:12:00.000Z'),
+      },
+      {
+        id: 202,
+        lockId: lock.lockId!,
+        txid: 'synthetic-unattached-bitcoin-deposit',
+        vout: 1,
+        satoshis: 1_250_000n,
+        network: 'bitcoin',
+        status: BitcoinUtxoStatus.Orphaned,
+        spendStatus: BitcoinUtxoSpendStatus.Unspent,
+        firstSeenAt: new Date('2026-08-16T15:00:00.000Z'),
+        firstSeenBitcoinHeight: 250_020,
+        createdAt: new Date('2026-08-16T15:00:00.000Z'),
+        updatedAt: new Date('2026-08-16T15:02:00.000Z'),
+      },
+    );
   }
   const releases: BitcoinReleases = Object.assign(Object.create(BitcoinReleases.prototype), {
     data: Vue.reactive({ releasesById: {} }),
   });
+  Object.assign(releases, {
+    acknowledgeFailedSend: fn(async (sendId: string) => {
+      for (const release of Object.values(releases.data.releasesById)) {
+        if (release.sendId === sendId && release.status === BitcoinReleaseStatus.Failed) {
+          release.status = BitcoinReleaseStatus.FailedAcknowledged;
+        }
+      }
+    }),
+  });
   if (isPendingBitcoinRelease) {
     const isWaitingForCosigner = state === 'bitcoinWalletReleaseWaiting';
+    const hasReleaseError = state === 'bitcoinWalletReleaseError';
+    const hasFailedRelease = state === 'bitcoinWalletReleaseFailed';
+    let status = BitcoinReleaseStatus.ConfirmingOnBitcoin;
+    if (isWaitingForCosigner) status = BitcoinReleaseStatus.WaitingForVaultCosign;
+    else if (hasFailedRelease) status = BitcoinReleaseStatus.Failed;
+    else if (hasReleaseError) status = BitcoinReleaseStatus.ReadyForBitcoinBroadcast;
+    let statusError: string | undefined;
+    if (hasFailedRelease) statusError = 'Unable to submit this Bitcoin transaction.';
+    else if (hasReleaseError) statusError = 'Unable to broadcast this Bitcoin transaction.';
+
     const release = createBitcoinRelease({
       id: 'synthetic-pending-bitcoin-release',
+      sendId: isWaitingForCosigner ? 'synthetic-grouped-send' : 'synthetic-pending-bitcoin-release',
       lockId: 101,
-      status: isWaitingForCosigner
-        ? BitcoinReleaseStatus.WaitingForVaultCosign
-        : BitcoinReleaseStatus.ConfirmingOnBitcoin,
+      status,
       inputUtxoIds: [201],
       requestedReleaseAtTick: 10_001,
+      cosignDueFrame: isWaitingForCosigner ? 10_002 : undefined,
+      statusError,
       ...(isWaitingForCosigner
         ? {}
         : {
@@ -263,6 +324,47 @@ export function setupWalletScenario(state: WalletScenario): WalletScenarioState 
           }),
     });
     releases.data.releasesById[release.id] = release;
+    if (hasFailedRelease) {
+      const failedLock = bitcoinChannels.find(channel => channel.lockId === release.lockId)!;
+      const failedUtxo = bitcoinUtxos.find(utxo => utxo.id === release.inputUtxoIds[0])!;
+      failedLock.status = BitcoinLockStatus.LockFunded;
+      failedLock.activeReleaseId = undefined;
+      failedUtxo.activeReleaseId = undefined;
+    }
+    if (isWaitingForCosigner) {
+      Object.assign(getVaults().operatorNamesByVaultId, { 7: 'Testing', 103: 'Backup' });
+      const secondReleaseId = 'synthetic-second-bitcoin-release';
+      const firstUtxo = bitcoinUtxos.find(utxo => utxo.id === release.inputUtxoIds[0])!;
+      const secondUtxo: IBitcoinUtxoRecord = {
+        ...firstUtxo,
+        id: 202,
+        lockId: 102,
+        txid: 'synthetic-second-bitcoin-channel-funding',
+        satoshis: 2_000_000n,
+        activeReleaseId: secondReleaseId,
+      };
+      const secondLock = createBitcoinChannel('synthetic-second-bitcoin-channel', 102, secondUtxo.satoshis, 0n, 103, 1);
+      Object.assign(secondLock, {
+        status: BitcoinLockStatus.Releasing,
+        fundingUtxoIds: [secondUtxo.id],
+        activeReleaseId: secondReleaseId,
+      });
+      bitcoinChannels.push(secondLock);
+      bitcoinUtxos.push(secondUtxo);
+      const secondRelease = createBitcoinRelease({
+        id: secondReleaseId,
+        sendId: release.sendId,
+        lockId: secondLock.lockId,
+        releaseNumber: 1,
+        status: BitcoinReleaseStatus.ConfirmingOnBitcoin,
+        inputUtxoIds: [secondUtxo.id],
+        bitcoinNetworkFee: 12_000n,
+        destinationSatoshis: 1_988_000n,
+        changeSatoshis: 0n,
+        bitcoinTxid: 'b'.repeat(64),
+      });
+      releases.data.releasesById[secondRelease.id] = secondRelease;
+    }
   }
   const bitcoinLocks: BitcoinLocks = Object.assign(Object.create(BitcoinLocks.prototype) as BitcoinLocks, {
     data: {
@@ -273,8 +375,12 @@ export function setupWalletScenario(state: WalletScenario): WalletScenarioState 
     releases,
     utxoTracking: {
       load: fn((records: IBitcoinUtxoRecord[]) => bitcoinUtxos.splice(0, bitcoinUtxos.length, ...records)),
-      getAllOrphanLifecycleUtxos: fn(() => []),
-      getUnresolvedOrphanRecords: fn(() => []),
+      getAllOrphanLifecycleUtxos: fn(() => bitcoinUtxos.filter(utxo => utxo.status === BitcoinUtxoStatus.Orphaned)),
+      getUnresolvedOrphanRecords: fn(() =>
+        bitcoinUtxos.filter(
+          utxo => utxo.status === BitcoinUtxoStatus.Orphaned && utxo.spendStatus !== BitcoinUtxoSpendStatus.Spent,
+        ),
+      ),
       getUtxoRecordById: fn((id: number) => bitcoinUtxos.find(utxo => utxo.id === id)),
       getUtxosForLock: fn((lockId: number) => bitcoinUtxos.filter(utxo => utxo.lockId === lockId)),
       getFundingUtxos: fn((lock: IBitcoinLockRecord) =>
@@ -306,6 +412,7 @@ export function setupWalletScenario(state: WalletScenario): WalletScenarioState 
       receivedSatoshis: 5_000_000n,
     })),
     getLockProcessingError: fn(() => ''),
+    formatP2wshAddress: fn((scriptHex: string) => BitcoinLocks.formatP2wshAddress(scriptHex, BitcoinNetwork.Bitcoin)),
     argonLiquidityForSatoshis: fn((satoshis: bigint, microgonsAtTargetPerBtc = insuranceRateMicrogonsPerBtc) => {
       return (satoshis * microgonsAtTargetPerBtc) / 100_000_000n;
     }),
@@ -358,6 +465,7 @@ export function setupWalletScenario(state: WalletScenario): WalletScenarioState 
     isLockFunded: fn((lock: IBitcoinLockRecord) => lock.status === BitcoinLockStatus.LockFunded),
     getLockTermProgress: fn(() => 35),
     unlockDeadlineTime: fn(() => new Date('2026-10-16T12:00:00.000Z').getTime()),
+    minimumSatoshiPerLock: fn(async () => 100_000n),
     calculateBitcoinNetworkFee: fn(async () => 12_000n),
   });
   Object.assign(releases, { utxoTracking: bitcoinLocks.utxoTracking });
@@ -563,6 +671,17 @@ export function setupWalletScenario(state: WalletScenario): WalletScenarioState 
         txFeePlusTip: 125_000n,
       })),
       submit: fn(async () => undefined),
+      getPendingReleaseTxInfo: fn(() => undefined),
+    },
+    bitcoinOrphanRelease: {
+      prepare: fn(async () => ({
+        canAfford: true,
+        availableBalance: 880n * argon,
+        metadata: { bitcoinNetworkFee: 12_000n },
+        txFeePlusTip: 125_000n,
+      })),
+      submit: fn(async () => undefined),
+      getPendingReleaseTxInfo: fn(() => undefined),
     },
   } as never);
   getWalletKeys().getLiquidLockingKeypair = fn(async () => ({ address: '5SyntheticLiquidLockingWallet' }) as never);
@@ -583,6 +702,7 @@ function createBitcoinChannel(
   fundedSatoshis: bigint,
   fissionedSatoshis = 0n,
   vaultId = lockId,
+  hdIndex = 0,
 ): IBitcoinLockRecord {
   const now = new Date('2026-08-16T14:00:00.000Z');
   return {
@@ -609,7 +729,7 @@ function createBitcoinChannel(
     fundingUtxoIds: [],
     cosignVersion: 'v1',
     network: 'bitcoin',
-    hdPath: `m/84'/0'/0'/0/${lockId}`,
+    hdPath: `m/84'/0'/0'/0/${hdIndex}'`,
     vaultId,
     createdAt: now,
     updatedAt: now,

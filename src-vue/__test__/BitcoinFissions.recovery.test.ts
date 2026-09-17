@@ -36,13 +36,15 @@ async function publishRecoveredFissions(
   recovery: BitcoinFissionRecovery,
   migratedLocks: readonly IHistoricalBitcoinLockRecord[] = [],
   lockIdByHistoricalUtxoId: ReadonlyMap<number, number> = new Map(),
+  publish?: (records: readonly IBitcoinFissionRecord[]) => Promise<void>,
 ): Promise<IBitcoinFissionRecord[]> {
   const { records, failuresByLockId } = await recovery.prepareHistoryReplay(migratedLocks, lockIdByHistoricalUtxoId);
-  let persisted = records;
-  await db.transaction(async transaction => {
-    persisted = await recovery.persistHistoryReplayUnit(transaction, records);
+  const persisted = await db.transaction(async transaction => {
+    const result: IBitcoinFissionRecord[] = [];
+    for (const record of records) result.push(await transaction.bitcoinFissionsTable.saveRecoveredRecord(record));
+    return result;
   });
-  await recovery.publishHistoryReplayUnit(persisted);
+  await publish?.(persisted);
   await recovery.finishHistoryReplay();
 
   if (failuresByLockId.size) {
@@ -600,7 +602,9 @@ describe('Bitcoin Fission current state', () => {
         redemptionAmount: 900n,
       }),
     ]);
-    await publishRecoveredFissions(db, fissions.recovery);
+    await publishRecoveredFissions(db, fissions.recovery, [], new Map(), records =>
+      fissions.publishRecoveredHistory(records),
+    );
 
     expect(fissions.getAll()).toEqual([]);
     expect(fissions.getArchived()[0].pendingMints[0]?.remainingAmount).toBe(125n);
@@ -962,7 +966,9 @@ describe('Bitcoin Fission current state', () => {
         tip: 0n,
       }),
     ]);
-    await publishRecoveredFissions(db, fissions.recovery);
+    await publishRecoveredFissions(db, fissions.recovery, [], new Map(), records =>
+      fissions.publishRecoveredHistory(records),
+    );
 
     expect(fissions.getRecords()[0]).toBe(loaded);
     expect(fissions.getRecords()[0]).toMatchObject({
@@ -1006,10 +1012,10 @@ describe('Bitcoin Fission recovery', () => {
       walletKeys,
     });
     locks.data.locksByLockId[7] = lock;
-    const fissions = new BitcoinFissionRecovery(Promise.resolve(db), ownerAccount);
+    const fissions = new BitcoinFissions(Promise.resolve(db), ownerAccount);
 
     await locks.recovery.beginHistoryReplay({ lockScope: 'all' });
-    await fissions.beginHistoryReplay({ replace: true });
+    await fissions.recovery.beginHistoryReplay({ replace: true });
 
     const createdBlock = historyBlock(186);
     const createdEvents = [
@@ -1024,7 +1030,7 @@ describe('Bitcoin Fission recovery', () => {
       }),
     ];
     await locks.recovery.recoverBlock(createdBlock, createdEvents);
-    await fissions.recoverBlock(createdBlock, createdEvents);
+    await fissions.recovery.recoverBlock(createdBlock, createdEvents);
 
     const mintBlock = historyBlock(187);
     const mintEvents = [
@@ -1036,12 +1042,11 @@ describe('Bitcoin Fission recovery', () => {
       }),
     ];
     await locks.recovery.recoverBlock(mintBlock, mintEvents);
-    await fissions.recoverBlock(mintBlock, mintEvents);
+    await fissions.recovery.recoverBlock(mintBlock, mintEvents);
 
     await publishBitcoinHistoryReplay({
-      db,
-      bitcoinLockRecovery: locks.recovery,
-      bitcoinFissionRecovery: fissions,
+      bitcoinLocks: locks,
+      bitcoinFissions: fissions,
       asOfBlock: mintBlock.blockNumber,
     });
 
@@ -1277,7 +1282,9 @@ describe('Bitcoin Fission recovery', () => {
         amount: 250n,
       }),
     ]);
-    const [fission] = await publishRecoveredFissions(db, recovery, [lock], new Map([[7, 70]]));
+    const [fission] = await publishRecoveredFissions(db, recovery, [lock], new Map([[7, 70]]), records =>
+      fissions.publishRecoveredHistory(records),
+    );
 
     expect(fission).toEqual(
       expect.objectContaining({
@@ -1373,7 +1380,7 @@ describe('Bitcoin Fission recovery', () => {
     const recovery = new BitcoinFissionRecovery(Promise.resolve(db), ownerAccount);
     await recovery.beginHistoryReplay({ replace: true });
     const prepared = await recovery.prepareHistoryReplay([lock], new Map([[7, 70]]), new Map([[7, 900n]]));
-    await recovery.persistHistoryReplayUnit(db, prepared.records);
+    for (const record of prepared.records) await db.bitcoinFissionsTable.saveRecoveredRecord(record);
     const [fission] = prepared.records;
 
     expect(fission).toMatchObject({
@@ -1791,7 +1798,7 @@ describe('Bitcoin Fission finalized events', () => {
       ],
     });
 
-    await fissions.recovery.publishHistoryReplayUnit(prepared.records);
+    await fissions.publishRecoveredHistory(prepared.records);
     expect(fissions.getAll()[0]).toBe(published);
     expect(fissions.getAll()[0]).toMatchObject({
       lastUpdatedArgonBlock: 170,

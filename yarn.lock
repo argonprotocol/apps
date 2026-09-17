@@ -2448,7 +2448,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@polkadot/api-base@npm:16.5.6":
+"@polkadot/api-base@npm:16.5.6, @polkadot/api-base@npm:^16.5.6":
   version: 16.5.6
   resolution: "@polkadot/api-base@npm:16.5.6"
   dependencies:
@@ -2479,7 +2479,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@polkadot/api@npm:16.5.6":
+"@polkadot/api@npm:16.5.6, @polkadot/api@npm:^16.5.6":
   version: 16.5.6
   resolution: "@polkadot/api@npm:16.5.6"
   dependencies:
@@ -2504,7 +2504,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@polkadot/keyring@npm:14.0.3":
+"@polkadot/keyring@npm:^14.0.3":
   version: 14.0.3
   resolution: "@polkadot/keyring@npm:14.0.3"
   dependencies:
@@ -2518,7 +2518,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@polkadot/networks@npm:14.0.3":
+"@polkadot/networks@npm:14.0.3, @polkadot/networks@npm:^14.0.3":
   version: 14.0.3
   resolution: "@polkadot/networks@npm:14.0.3"
   dependencies:
@@ -2542,7 +2542,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@polkadot/rpc-core@npm:16.5.6":
+"@polkadot/rpc-core@npm:16.5.6, @polkadot/rpc-core@npm:^16.5.6":
   version: 16.5.6
   resolution: "@polkadot/rpc-core@npm:16.5.6"
   dependencies:
@@ -2556,7 +2556,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@polkadot/rpc-provider@npm:16.5.6":
+"@polkadot/rpc-provider@npm:16.5.6, @polkadot/rpc-provider@npm:^16.5.6":
   version: 16.5.6
   resolution: "@polkadot/rpc-provider@npm:16.5.6"
   dependencies:
@@ -2592,7 +2592,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@polkadot/types-codec@npm:16.5.6":
+"@polkadot/types-codec@npm:16.5.6, @polkadot/types-codec@npm:^16.5.6":
   version: 16.5.6
   resolution: "@polkadot/types-codec@npm:16.5.6"
   dependencies:
@@ -2638,7 +2638,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@polkadot/types@npm:16.5.6":
+"@polkadot/types@npm:16.5.6, @polkadot/types@npm:^16.5.6":
   version: 16.5.6
   resolution: "@polkadot/types@npm:16.5.6"
   dependencies:
@@ -2654,7 +2654,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@polkadot/util-crypto@npm:14.0.3":
+"@polkadot/util-crypto@npm:14.0.3, @polkadot/util-crypto@npm:^14.0.3":
   version: 14.0.3
   resolution: "@polkadot/util-crypto@npm:14.0.3"
   dependencies:
@@ -2675,7 +2675,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@polkadot/util@npm:14.0.3":
+"@polkadot/util@npm:14.0.3, @polkadot/util@npm:^14.0.3":
   version: 14.0.3
   resolution: "@polkadot/util@npm:14.0.3"
   dependencies:
@@ -5820,7 +5820,7 @@ __metadata:
     vite: "npm:^8.1.0"
     vite-plugin-top-level-await: "npm:^1.6.0"
     vite-plugin-wasm: "npm:^3.5.0"
-    vite-svg-loader: "npm:^5.1.1"
+    vite-svg-loader: "npm:^5.1.3"
     vitest: "npm:^4.1.11"
     vue: "npm:^3.5.20"
     vue-tsc: "npm:^2.2.12"
@@ -11932,9 +11932,9 @@ __metadata:
   languageName: node
   linkType: hard
 
-"svgo@npm:^3.3.3":
-  version: 3.3.3
-  resolution: "svgo@npm:3.3.3"
+"svgo@npm:^3.3.5":
+  version: 3.3.5
+  resolution: "svgo@npm:3.3.5"
   dependencies:
     commander: "npm:^7.2.0"
     css-select: "npm:^5.1.0"
@@ -11944,8 +11944,8 @@ __metadata:
     picocolors: "npm:^1.0.0"
     sax: "npm:^1.5.0"
   bin:
-    svgo: ./bin/svgo
-  checksum: 10c0/06568c6b0430f96748c557f0b17dc7de79b19fa16d13d7523527ede0ec727fc6d8e6a10e13ff106dc4372d2e6063a1dca7c455c495efb1b83857480425f9b965
+    svgo: bin/svgo
+  checksum: 10c0/c4772b2f5ff164323e37d866d28f05163b78a61c44b3412db724a37175c7cf75261a362df22607c2e4afcc40b96aad77d07e8af1970fb92e5802ee6c76ea2ea4
   languageName: node
   linkType: hard
 
@@ -12010,20 +12010,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"tar@npm:^7.4.3":
-  version: 7.5.16
-  resolution: "tar@npm:7.5.16"
-  dependencies:
-    "@isaacs/fs-minipass": "npm:^4.0.0"
-    chownr: "npm:^3.0.0"
-    minipass: "npm:^7.1.2"
-    minizlib: "npm:^3.1.0"
-    yallist: "npm:^5.0.0"
-  checksum: 10c0/4f37f3c4bd2ca2755fd736a5df1d573c1a868ec1b1e893346aeafa95ac510f9e2fd1469420bd866cc7904799e5bd4ac62b5d4f03fe27747d6e1e373b44505c5c
-  languageName: node
-  linkType: hard
-
-"tar@npm:^7.5.21":
+"tar@npm:7.5.21":
   version: 7.5.21
   resolution: "tar@npm:7.5.21"
   dependencies:
@@ -12669,15 +12656,15 @@ __metadata:
   languageName: node
   linkType: hard
 
-"vite-svg-loader@npm:^5.1.1":
-  version: 5.1.1
-  resolution: "vite-svg-loader@npm:5.1.1"
+"vite-svg-loader@npm:^5.1.3":
+  version: 5.1.3
+  resolution: "vite-svg-loader@npm:5.1.3"
   dependencies:
     debug: "npm:^4.3.4"
-    svgo: "npm:^3.3.3"
+    svgo: "npm:^3.3.5"
   peerDependencies:
     vue: ">=3.2.13"
-  checksum: 10c0/06bb67e3da9211142232d48616ca65ce7eeaac4c1a1709e5b1322f9a47ec7ce600e26b3c573948c607d8db93afc2dc7a1584a307513da8b0b6255c22d41a3a32
+  checksum: 10c0/c44a5bf85af3f30f69e7bc726f290ee259e5c66703af3f6084e2421853ab1be3593656e1a5984b259a445afdf651f78647272c58fd46d8baf56e49b6d7d6d7e3
   languageName: node
   linkType: hard
 
