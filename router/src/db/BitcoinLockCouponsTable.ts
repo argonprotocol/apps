@@ -118,21 +118,6 @@ export class BitcoinLockCouponsTable extends BaseTable {
     return this.map(record);
   }
 
-  public setFeeCredit(id: number, feeCreditMicrogons: bigint): IBitcoinLockCouponRow {
-    const record = this.db.sql
-      .prepare(
-        `
-        UPDATE BitcoinLockCoupons
-        SET feeCreditMicrogons = COALESCE(feeCreditMicrogons, $feeCreditMicrogons), updatedAt = $updatedAt
-        WHERE id = $id
-        RETURNING *
-      `,
-      )
-      .get(toSqliteParams({ id, feeCreditMicrogons, updatedAt: new Date() })) as SqlRow | undefined;
-    if (!record) throw new RouterError('Bitcoin lock coupon not found.', 404);
-    return this.map(record);
-  }
-
   public retireDelegatedCoupons(): void {
     this.db.sql
       .prepare(

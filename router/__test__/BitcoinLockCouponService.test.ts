@@ -2,7 +2,7 @@ import * as Fs from 'node:fs';
 import os from 'node:os';
 import Path from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { type ArgonClient, MiningFrames, NetworkConfig, UserRole } from '@argonprotocol/apps-core';
+import { MiningFrames, NetworkConfig, UserRole, type ArgonCurrentQueryClient } from '@argonprotocol/apps-core';
 import { BitcoinLockCouponService } from '../src/BitcoinLockCouponService.ts';
 import { BotUpstreamClient } from '../src/BotUpstreamClient.ts';
 import { Db } from '../src/Db.ts';
@@ -30,7 +30,7 @@ describe('BitcoinLockCouponService', () => {
     const service = new BitcoinLockCouponService({
       db,
       botClient: new BotUpstreamClient('http://127.0.0.1:1'),
-      getMainchainClient: unavailableMainchainClient,
+      queryFinalizedState: unavailableMainchainQuery,
     });
     const currentTick = vi.spyOn(MiningFrames, 'calculateCurrentTickFromSystemTime').mockReturnValue(120);
     const created = await service.create({
@@ -70,7 +70,7 @@ describe('BitcoinLockCouponService', () => {
       };
     });
     vi.spyOn(MiningFrames, 'calculateCurrentTickFromSystemTime').mockReturnValue(100);
-    const service = new BitcoinLockCouponService({ db, botClient, getMainchainClient: unavailableMainchainClient });
+    const service = new BitcoinLockCouponService({ db, botClient, queryFinalizedState: unavailableMainchainQuery });
     const created = await service.create({
       userId: member.id,
       vaultId: 12,
@@ -131,6 +131,65 @@ describe('BitcoinLockCouponService', () => {
     });
   });
 
+  it('checks a fresh finalized block for each signed use during reconciliation', async () => {
+    const tempDir = Fs.mkdtempSync(Path.join(os.tmpdir(), 'router-coupon-finalized-'));
+    tempDirs.push(tempDir);
+    const db = new Db(Path.join(tempDir, 'router.sqlite'));
+    db.migrate();
+    databases.push(db);
+
+    const member = db.usersTable.insertUser({ role: UserRole.Member, name: 'Casey' });
+    let finalizedUse = 0;
+    const service = new BitcoinLockCouponService({
+      db,
+      botClient: new BotUpstreamClient('http://127.0.0.1:1'),
+      queryFinalizedState: query => {
+        finalizedUse += 1;
+        return query({
+          query: {
+            bitcoinLocks: { lastFeeCouponNonceByVaultAndAccount: async () => BigInt(finalizedUse) },
+            miningSlot: { nextFrameId: async () => 2 },
+          },
+        } as unknown as ArgonCurrentQueryClient);
+      },
+    });
+    const coupon = await service.create({
+      userId: member.id,
+      vaultId: 12,
+      maxSatoshis: 25_000n,
+      estimatedGiftUsd: 16.25,
+      feeCreditMicrogons: 1_000n,
+      expiresAfterTicks: 60,
+    });
+
+    for (const nonce of [1n, 2n]) {
+      db.bitcoinLockCouponsTable.restoreUse(coupon.coupon.id, {
+        requestId: `lock-${nonce}`,
+        status: 'Submitted',
+        feeCreditMicrogons: 400n,
+        requestedSatoshis: 10_000n,
+        ownerAccountId: 'member-account',
+        ownerBitcoinPubkey: '0x1234',
+        microgonsAtTargetPerBtc: 75_000_000n,
+        feeCoupon: {
+          feeDiscount: 400n,
+          securitizationSpaceToUnreserve: 0n,
+          expiresAtFrame: 1_000n,
+          nonce,
+          signature: '0xsignature',
+        },
+        createdAt: new Date('2026-06-20T12:00:00.000Z'),
+        updatedAt: new Date('2026-06-20T12:00:00.000Z'),
+      });
+    }
+
+    await service.reconcile();
+
+    expect(db.bitcoinLockCouponsTable.fetchUseByRequestId('lock-1')?.status).toBe('Finalized');
+    expect(db.bitcoinLockCouponsTable.fetchUseByRequestId('lock-2')?.status).toBe('Finalized');
+    expect(finalizedUse).toBe(2);
+  });
+
   it('binds a resecuritization coupon to its Bitcoin Lock across retry', async () => {
     const tempDir = Fs.mkdtempSync(Path.join(os.tmpdir(), 'router-resecuritization-coupon-'));
     tempDirs.push(tempDir);
@@ -148,7 +207,7 @@ describe('BitcoinLockCouponService', () => {
       signature: '0xsignature',
     }));
     vi.spyOn(MiningFrames, 'calculateCurrentTickFromSystemTime').mockReturnValue(100);
-    const service = new BitcoinLockCouponService({ db, botClient, getMainchainClient: unavailableMainchainClient });
+    const service = new BitcoinLockCouponService({ db, botClient, queryFinalizedState: unavailableMainchainQuery });
     const created = await service.create({
       userId: member.id,
       vaultId: 12,
@@ -194,7 +253,7 @@ describe('BitcoinLockCouponService', () => {
     const service = new BitcoinLockCouponService({
       db,
       botClient: new BotUpstreamClient('http://127.0.0.1:1'),
-      getMainchainClient: unavailableMainchainClient,
+      queryFinalizedState: unavailableMainchainQuery,
     });
     const created = await service.create({
       userId: member.id,
@@ -211,7 +270,7 @@ describe('BitcoinLockCouponService', () => {
     const restartedService = new BitcoinLockCouponService({
       db,
       botClient: new BotUpstreamClient('http://127.0.0.1:1'),
-      getMainchainClient: unavailableMainchainClient,
+      queryFinalizedState: unavailableMainchainQuery,
     });
     const status = await restartedService.getByOfferCode(created.coupon.offerCode);
     expect(status).toMatchObject({ status: 'Used', originalFeeCreditMicrogons: 0n, remainingFeeCreditMicrogons: 0n });
@@ -221,6 +280,6 @@ describe('BitcoinLockCouponService', () => {
   });
 });
 
-async function unavailableMainchainClient(): Promise<ArgonClient> {
+async function unavailableMainchainQuery<T>(): Promise<T> {
   throw new Error('Mainchain is unavailable');
 }

@@ -3,7 +3,7 @@ import os from 'node:os';
 import Path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import {
-  type ArgonClient,
+  type ArgonCurrentQueryClient,
   type IBitcoinLockCouponRecord,
   type IBitcoinLockCouponUseRecord,
   signRouterAuthAccountBinding,
@@ -229,18 +229,15 @@ describe('RouterAuthService', () => {
     const couponService = new BitcoinLockCouponService({
       db: db!,
       botClient: new BotUpstreamClient('http://127.0.0.1:1'),
-      getMainchainClient: async () =>
-        ({
-          rpc: { chain: { getFinalizedHead: async () => '0xfinalized' } },
-          at: async () => ({
-            query: {
-              bitcoinLocks: {
-                lastFeeCouponNonceByVaultAndAccount: async () => 1n,
-              },
-              miningSlot: { nextFrameId: async () => 2 },
+      queryFinalizedState: async query =>
+        await query({
+          query: {
+            bitcoinLocks: {
+              lastFeeCouponNonceByVaultAndAccount: async () => 1n,
             },
-          }),
-        }) as unknown as ArgonClient,
+            miningSlot: { nextFrameId: async () => 2 },
+          },
+        } as unknown as ArgonCurrentQueryClient),
     });
     await couponService.reconcile();
 

@@ -2,9 +2,10 @@ import express, { type Request, type Response } from 'express';
 import type { Server } from 'node:http';
 import {
   type ArgonClient,
-  createArgonClient,
+  type ArgonCurrentQueryClient,
   type IDiscordRoleClaim,
   JsonExt,
+  MainchainClients,
   type ITreasuryMemberSeal,
   isValidArgonAccountAddress,
   NetworkConfig,
@@ -13,8 +14,10 @@ import {
   type IEthereumGatewayCatchUpResponse,
   type IEthereumGatewayRelayStatus,
   getBootstrapEndpointPubkey,
+  raceWithTimeout,
+  runtimeClient,
 } from '@argonprotocol/apps-core';
-import { getClient, u8aToHex } from '@argonprotocol/mainchain';
+import { u8aToHex } from '@argonprotocol/mainchain';
 import { ArgonApis } from './ArgonApis.ts';
 import { BitcoinApis } from './BitcoinApis.ts';
 import { BitcoinLockCouponService } from './BitcoinLockCouponService.ts';
@@ -65,15 +68,17 @@ interface IRouterServerOptions {
   db: Db;
   botInternalUrl: string;
   port?: number | string;
-  localNodeUrl?: string;
-  mainNodeUrl?: string;
+  localNodeUrl: string;
+  mainNodeUrl: string;
   auth?: IRouterServerAuthOptions;
 }
 
 export class RouterServer {
   private server!: Server;
   private readonly listeningPromise: Promise<void>;
-  private mainchainClientPromise?: Promise<ArgonClient>;
+  private mainchainClients!: MainchainClients;
+  private localConnectRetryTimer?: ReturnType<typeof setTimeout>;
+  private isClosing = false;
   private resolveListening!: () => void;
   private rejectListening!: (error: Error) => void;
 
@@ -89,7 +94,11 @@ export class RouterServer {
     const { botInternalUrl, db } = this.options;
     const botClient = new BotUpstreamClient(botInternalUrl);
     const inviteService = new UserInviteService(db);
-    const mainchainNodeUrl = this.options.mainNodeUrl ?? this.options.localNodeUrl;
+    this.mainchainClients = new MainchainClients(this.options.mainNodeUrl.replace(/^ws/, 'http'), () => false);
+    void this.mainchainClients.archiveClientPromise.catch(error =>
+      console.warn('[router] Archive mainchain client is unavailable.', error),
+    );
+    void this.connectLocalMainchain();
     const adminOperatorAccountId =
       this.options.auth?.adminOperatorAccountId?.trim() || ADMIN_OPERATOR_ACCOUNT_ID?.trim();
     const {
@@ -101,23 +110,10 @@ export class RouterServer {
     const currentBootstrapEndpointPubkey = bootstrapEndpointSecret
       ? u8aToHex(getBootstrapEndpointPubkey(bootstrapEndpointSecret))
       : undefined;
-    const getMainchainClient = async () => {
-      if (!mainchainNodeUrl) {
-        throw new RouterError('A mainchain node is required.', 503);
-      }
-
-      this.mainchainClientPromise ??= getClient(mainchainNodeUrl, { throwOnConnect: true })
-        .then(createArgonClient)
-        .catch(error => {
-          this.mainchainClientPromise = undefined;
-          throw error;
-        });
-      return await this.mainchainClientPromise;
-    };
     const bitcoinLockCouponService = new BitcoinLockCouponService({
       db,
       botClient,
-      getMainchainClient,
+      queryFinalizedState: this.queryFinalizedState.bind(this),
     });
     void bitcoinLockCouponService
       .reconcile()
@@ -540,11 +536,12 @@ export class RouterServer {
           .flatMap(invite =>
             invite.operationsAccessProofSignature && invite.operationalAccountId ? [invite.operationalAccountId] : [],
           );
-        const client = await getMainchainClient();
-        const operationalAccounts = await client.query.operationalAccounts.operationalAccounts.multi([
-          adminOperatorAccountId,
-          ...approvedOperationalAccountIds,
-        ]);
+        const operationalAccounts = await this.queryFinalizedState(client =>
+          client.query.operationalAccounts.operationalAccounts.multi([
+            adminOperatorAccountId,
+            ...approvedOperationalAccountIds,
+          ]),
+        );
         const upstreamAccount = operationalAccounts[0];
         if (!upstreamAccount) {
           throw new RouterError('The router operator has not registered an operational account.', 409);
@@ -729,6 +726,9 @@ export class RouterServer {
   }
 
   public async close(): Promise<void> {
+    this.isClosing = true;
+    if (this.localConnectRetryTimer) clearTimeout(this.localConnectRetryTimer);
+    this.mainchainClients.clearPrunedClient();
     await new Promise<void>((resolve, reject) => {
       this.server.close(err => {
         if (err) {
@@ -739,9 +739,74 @@ export class RouterServer {
       });
     });
 
-    await this.mainchainClientPromise
-      ?.then(client => client.disconnect().catch(() => undefined))
-      .catch(() => undefined);
+    await raceWithTimeout(this.mainchainClients.disconnect(), 1_000, () => undefined);
+  }
+
+  private async queryFinalizedState<T>(query: (client: ArgonCurrentQueryClient) => Promise<T>): Promise<T> {
+    const clients = this.mainchainClients;
+    const selectedPrunedClientPromise = clients.prunedClientPromise;
+    let selectedClient: Awaited<ReturnType<MainchainClients['get']>> | undefined;
+    let didTimeout = false;
+    const queryWithTimeout = (client: Promise<ArgonClient>) =>
+      raceWithTimeout(
+        client.then(async client => {
+          const finalizedHash = await client.rpc.chain.getFinalizedHead();
+          const api = await client.raw.at(finalizedHash);
+          return query(runtimeClient<typeof api, ArgonCurrentQueryClient['query']>(api));
+        }),
+        8_000,
+        () => {
+          didTimeout = true;
+          throw new Error('Mainchain query timed out after 8000ms');
+        },
+      );
+
+    try {
+      return await queryWithTimeout(
+        clients.get(false).then(client => {
+          selectedClient = client;
+          return client;
+        }),
+      );
+    } catch (error) {
+      if (!selectedClient && !didTimeout) return await queryWithTimeout(this.getArchiveClient());
+      if (selectedClient?.clientType !== 'pruned') throw error;
+      if ((didTimeout || !selectedClient.isConnected) && clients.prunedClientPromise === selectedPrunedClientPromise) {
+        clients.clearPrunedClient();
+        void this.connectLocalMainchain();
+      }
+      return await queryWithTimeout(this.getArchiveClient());
+    }
+  }
+
+  private async getArchiveClient(): Promise<ArgonClient> {
+    const clients = this.mainchainClients;
+    try {
+      return await clients.get(true);
+    } catch {
+      await clients.setArchiveClient(clients.archiveUrl);
+      return await clients.get(true);
+    }
+  }
+
+  private async connectLocalMainchain(): Promise<void> {
+    const clients = this.mainchainClients;
+    const localNodeUrl = this.options.localNodeUrl.replace(/^ws/, 'http');
+    if (this.isClosing) return;
+
+    try {
+      await raceWithTimeout(clients.setPrunedClient(localNodeUrl), 8_000, () => {
+        clients.clearPrunedClient();
+        throw new Error('Local mainchain connection timed out');
+      });
+    } catch (error) {
+      if (this.isClosing) return;
+      console.warn('[router] Local mainchain client is unavailable; using archive.', error);
+      this.localConnectRetryTimer = setTimeout(() => {
+        this.localConnectRetryTimer = undefined;
+        void this.connectLocalMainchain();
+      }, 5_000);
+    }
   }
 }
 
