@@ -229,8 +229,8 @@ describe('RouterAuthService', () => {
     const couponService = new BitcoinLockCouponService({
       db: db!,
       botClient: new BotUpstreamClient('http://127.0.0.1:1'),
-      getMainchainClient: async () =>
-        ({
+      queryMainchain: async query =>
+        await query({
           rpc: { chain: { getFinalizedHead: async () => '0xfinalized' } },
           at: async () => ({
             query: {
@@ -240,7 +240,7 @@ describe('RouterAuthService', () => {
               miningSlot: { nextFrameId: async () => 2 },
             },
           }),
-        }) as unknown as ArgonClient,
+        } as unknown as ArgonClient),
     });
     await couponService.reconcile();
 

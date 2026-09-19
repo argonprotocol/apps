@@ -23,6 +23,10 @@ if (!(networkName in NetworkConfigSettings)) {
 }
 NetworkConfig.setNetwork(networkName as keyof typeof NetworkConfigSettings);
 
+if (!MAIN_NODE_URL || !LOCAL_NODE_URL) {
+  throw new Error('ARGON_ARCHIVE_NODE and ARGON_LOCAL_NODE must be set');
+}
+
 const db = new Db(ROUTER_DB_PATH);
 db.migrate();
 
