@@ -3,7 +3,7 @@ import * as Http from 'node:http';
 import type { AddressInfo } from 'node:net';
 import os from 'node:os';
 import Path from 'node:path';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   createOperationalAccessProof,
   JsonExt,
@@ -18,7 +18,7 @@ import {
   type RouterAuthRole,
   BitcoinLock,
 } from '@argonprotocol/apps-core';
-import { Keyring, PriceIndex, type KeyringPair } from '@argonprotocol/mainchain';
+import { Keyring, type KeyringPair } from '@argonprotocol/mainchain';
 import { Db as RouterDb } from '../src/Db.ts';
 import { RouterServer } from '../src/RouterServer.ts';
 import type { IRouterAuthServiceOptions } from '../src/RouterAuthService.ts';
@@ -67,10 +67,22 @@ describe('RouterServer', () => {
   let routerDb: RouterDb | undefined;
   let botServer: Http.Server | undefined;
 
+  beforeEach(() => {
+    mainchainMocks.getClient.mockImplementation(async () => ({
+      disconnect: vi.fn().mockResolvedValue(undefined),
+      on: vi.fn(),
+      rpc: { chain: { getFinalizedHead: vi.fn().mockResolvedValue('0xfinalized') } },
+      at: vi.fn().mockResolvedValue({ query: { system: { number: vi.fn().mockResolvedValue(100) } }, tx: {} }),
+      tx: {},
+      query: {},
+    }));
+  });
+
   afterEach(async () => {
     await routerServer?.close().catch(() => undefined);
     routerDb?.close();
     await new Promise<void>(resolve => botServer?.close(() => resolve()) ?? resolve());
+    vi.restoreAllMocks();
     mainchainMocks.getClient.mockReset();
   });
 
@@ -189,7 +201,7 @@ describe('RouterServer', () => {
     expect(body.invites[1].bitcoinLockCoupon).toBeUndefined();
   });
 
-  it('recovers downstream coupon polling after the initial mainchain connection fails', async () => {
+  it('serves downstream coupon polling while the local-node connection remains pending at startup', async () => {
     routerDb = createDb('router-server-mainchain-recovery-');
     const invite = insertMemberInvite(routerDb, {
       inviteCode: 'member-invite-1',
@@ -206,21 +218,33 @@ describe('RouterServer', () => {
       accountId: 'member-account',
     });
 
-    mainchainMocks.getClient
-      .mockRejectedValueOnce(new Error('Mainchain is offline'))
-      .mockResolvedValue({ disconnect: vi.fn().mockResolvedValue(undefined) });
-    vi.spyOn(PriceIndex.prototype, 'load').mockImplementation(async function (this: PriceIndex) {
-      return this;
-    });
+    const archiveClient = {
+      disconnect: vi.fn().mockResolvedValue(undefined),
+      on: vi.fn(),
+      query: { priceIndex: { current: vi.fn().mockResolvedValue({}) } },
+    };
+    const localClient = {
+      disconnect: vi.fn().mockResolvedValue(undefined),
+      on: vi.fn(),
+      rpc: { chain: { getFinalizedHead: vi.fn().mockResolvedValue('0xfinalized') } },
+      at: vi.fn().mockResolvedValue({ query: { system: { number: vi.fn().mockResolvedValue(100) } }, tx: {} }),
+      tx: {},
+      query: {},
+    };
+    const localConnection = Promise.withResolvers<typeof localClient>();
+    mainchainMocks.getClient.mockImplementation((url: string) =>
+      url === 'http://local-mainchain.test' ? localConnection.promise : Promise.resolve(archiveClient),
+    );
     vi.spyOn(BitcoinLock, 'calculateRedemptionAmountFromSatoshis').mockReturnValue(4_000_000n);
 
     const started = await startRouterServer(routerDb, () => ({ status: 200, body: [] }), {
-      mainNodeUrl: 'ws://mainchain.test',
+      localNodeUrl: 'http://local-mainchain.test',
+      mainNodeUrl: 'ws://archive-mainchain.test',
     });
     routerServer = started.routerServer;
     botServer = started.botServer;
 
-    await vi.waitFor(() => expect(mainchainMocks.getClient).toHaveBeenCalledOnce());
+    await vi.waitFor(() => expect(mainchainMocks.getClient).toHaveBeenCalledTimes(2));
     await vi.waitFor(async () => {
       const response = await fetch(
         `http://${started.routerAddress.host}:${started.routerAddress.port}/bitcoin-lock-coupons/legacy-offer`,
@@ -232,6 +256,331 @@ describe('RouterServer', () => {
         status: 'Open',
       });
     });
+    expect(mainchainMocks.getClient).toHaveBeenCalledWith('ws://archive-mainchain.test', { throwOnConnect: true });
+    expect(mainchainMocks.getClient).toHaveBeenCalledWith('http://local-mainchain.test', { throwOnConnect: true });
+    expect(archiveClient.query.priceIndex.current).toHaveBeenCalled();
+    localConnection.resolve(localClient);
+    await vi.waitFor(() => expect(localClient.at).toHaveBeenCalledOnce());
+  });
+
+  it('retries a failed local connection without waiting for it before serving', async () => {
+    routerDb = createDb('router-server-local-retry-');
+    const archiveClient = { disconnect: vi.fn().mockResolvedValue(undefined), on: vi.fn() };
+    const localClient = {
+      disconnect: vi.fn().mockResolvedValue(undefined),
+      on: vi.fn(),
+      rpc: { chain: { getFinalizedHead: vi.fn().mockResolvedValue('0xfinalized') } },
+      at: vi.fn().mockResolvedValue({ query: { system: { number: vi.fn().mockResolvedValue(100) } }, tx: {} }),
+      tx: {},
+      query: {},
+    };
+    let localAttempts = 0;
+    mainchainMocks.getClient.mockImplementation(async (url: string) => {
+      if (url !== 'ws://local-mainchain.test') return archiveClient;
+      localAttempts += 1;
+      if (localAttempts === 1) throw new Error('Local node is starting');
+      return localClient;
+    });
+
+    vi.useFakeTimers();
+    try {
+      const started = await startRouterServer(routerDb, () => ({ status: 200, body: [] }), {
+        localNodeUrl: 'ws://local-mainchain.test',
+        mainNodeUrl: 'ws://archive-mainchain.test',
+      });
+      routerServer = started.routerServer;
+      botServer = started.botServer;
+
+      expect(localAttempts).toBe(1);
+      await vi.advanceTimersByTimeAsync(5_000);
+      expect(localAttempts).toBe(2);
+      expect(localClient.at).toHaveBeenCalledOnce();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('retries a timed-out local connection and disconnects a late stale client', async () => {
+    routerDb = createDb('router-server-local-timeout-');
+    const archiveClient = { disconnect: vi.fn().mockResolvedValue(undefined), on: vi.fn() };
+    const staleClient = { disconnect: vi.fn().mockResolvedValue(undefined), on: vi.fn() };
+    const localClient = {
+      disconnect: vi.fn().mockResolvedValue(undefined),
+      on: vi.fn(),
+      rpc: { chain: { getFinalizedHead: vi.fn().mockResolvedValue('0xfinalized') } },
+      at: vi.fn().mockResolvedValue({ query: { system: { number: vi.fn().mockResolvedValue(100) } }, tx: {} }),
+      tx: {},
+      query: {},
+    };
+    const stalledConnection = Promise.withResolvers<object>();
+    let localAttempts = 0;
+    mainchainMocks.getClient.mockImplementation(async (url: string) => {
+      if (url !== 'ws://local-mainchain.test') return archiveClient;
+      localAttempts += 1;
+      return localAttempts === 1 ? stalledConnection.promise : localClient;
+    });
+
+    vi.useFakeTimers();
+    try {
+      const started = await startRouterServer(routerDb, () => ({ status: 200, body: [] }), {
+        localNodeUrl: 'ws://local-mainchain.test',
+        mainNodeUrl: 'ws://archive-mainchain.test',
+      });
+      routerServer = started.routerServer;
+      botServer = started.botServer;
+
+      await vi.advanceTimersByTimeAsync(8_000);
+      await vi.advanceTimersByTimeAsync(5_000);
+      expect(localAttempts).toBe(2);
+      expect(localClient.at).toHaveBeenCalledOnce();
+
+      stalledConnection.resolve(staleClient);
+      await vi.waitFor(() => expect(staleClient.disconnect).toHaveBeenCalledOnce());
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('closes without waiting for a pending local connection', async () => {
+    routerDb = createDb('router-server-close-pending-local-');
+    const archiveClient = { disconnect: vi.fn().mockResolvedValue(undefined), on: vi.fn() };
+    const localClient = { disconnect: vi.fn().mockResolvedValue(undefined), on: vi.fn() };
+    const localConnection = Promise.withResolvers<typeof localClient>();
+    mainchainMocks.getClient.mockImplementation((url: string) =>
+      url === 'ws://local-mainchain.test' ? localConnection.promise : Promise.resolve(archiveClient),
+    );
+
+    const started = await startRouterServer(routerDb, () => ({ status: 200, body: [] }), {
+      localNodeUrl: 'ws://local-mainchain.test',
+      mainNodeUrl: 'ws://archive-mainchain.test',
+    });
+    routerServer = started.routerServer;
+    botServer = started.botServer;
+    await vi.waitFor(() => expect(mainchainMocks.getClient).toHaveBeenCalledTimes(2));
+
+    await routerServer.close();
+    routerServer = undefined;
+    localConnection.resolve(localClient);
+    await vi.waitFor(() => expect(localClient.disconnect).toHaveBeenCalledOnce());
+  });
+
+  it('reconnects to the archive after its initial connection fails', async () => {
+    routerDb = createDb('router-server-archive-recovery-');
+    const invite = insertMemberInvite(routerDb, {
+      inviteCode: 'member-invite-1',
+      name: 'Casey',
+      fromName: 'Operator One',
+    });
+    const archiveClient = {
+      disconnect: vi.fn().mockResolvedValue(undefined),
+      on: vi.fn(),
+      tx: {},
+      query: { priceIndex: { current: vi.fn().mockResolvedValue({}) } },
+    };
+    const localConnection = new Promise<never>(() => undefined);
+    let archiveAttempts = 0;
+    mainchainMocks.getClient.mockImplementation(async (url: string) => {
+      if (url === 'ws://local-mainchain.test') return localConnection;
+      archiveAttempts += 1;
+      if (archiveAttempts === 1) throw new Error('Archive is starting');
+      return archiveClient;
+    });
+    vi.spyOn(BitcoinLock, 'calculateRedemptionAmountFromSatoshis').mockReturnValue(4_000_000n);
+
+    const started = await startRouterServer(routerDb, () => ({ status: 200, body: [] }), {
+      localNodeUrl: 'ws://local-mainchain.test',
+      mainNodeUrl: 'ws://archive-mainchain.test',
+    });
+    routerServer = started.routerServer;
+    botServer = started.botServer;
+    insertCoupon(routerDb, {
+      userId: invite.id,
+      offerCode: 'legacy-offer',
+      vaultId: 12,
+      maxSatoshis: 25_000n,
+      estimatedGiftUsd: 16.25,
+      btcPctFee: 2.5,
+      accountId: 'member-account',
+    });
+
+    await vi.waitFor(async () => {
+      const response = await fetch(
+        `http://${started.routerAddress.host}:${started.routerAddress.port}/bitcoin-lock-coupons/legacy-offer`,
+      );
+      const body = JsonExt.parse<IBitcoinLockStatusResponse>(await response.text());
+      expect(body.bitcoinLock.coupon.feeCreditMicrogons).toBe(100_000n);
+    });
+    expect(archiveAttempts).toBe(2);
+    expect(archiveClient.query.priceIndex.current).toHaveBeenCalled();
+  });
+
+  it('falls back to archive after a stale local query and uses a replacement local client', async () => {
+    routerDb = createDb('router-server-stale-mainchain-recovery-');
+    const invite = insertMemberInvite(routerDb, {
+      inviteCode: 'member-invite-1',
+      name: 'Casey',
+      fromName: 'Operator One',
+    });
+    const localClient = {
+      name: 'local',
+      isConnected: false,
+      disconnect: vi.fn().mockResolvedValue(undefined),
+      on: vi.fn(),
+      rpc: { chain: { getFinalizedHead: vi.fn().mockResolvedValue('0xfinalized') } },
+      at: vi.fn().mockResolvedValue({ query: { system: { number: vi.fn().mockResolvedValue(100) } }, tx: {} }),
+      tx: {},
+      query: {
+        priceIndex: { current: vi.fn().mockRejectedValue(new Error('WebSocket is not connected')) },
+      },
+    };
+    const archiveClient = {
+      name: 'archive',
+      disconnect: vi.fn().mockResolvedValue(undefined),
+      on: vi.fn(),
+      tx: {},
+      query: {
+        priceIndex: { current: vi.fn().mockResolvedValue({}) },
+      },
+    };
+    const replacementLocalClient = {
+      disconnect: vi.fn().mockResolvedValue(undefined),
+      on: vi.fn(),
+      rpc: { chain: { getFinalizedHead: vi.fn().mockResolvedValue('0xfinalized') } },
+      at: vi.fn().mockResolvedValue({ query: { system: { number: vi.fn().mockResolvedValue(100) } }, tx: {} }),
+      tx: {},
+      query: { priceIndex: { current: vi.fn().mockResolvedValue({}) } },
+    };
+    let localAttempts = 0;
+    mainchainMocks.getClient.mockImplementation(async (url: string) => {
+      if (url !== 'ws://local-mainchain.test') return archiveClient;
+      localAttempts += 1;
+      return localAttempts === 1 ? localClient : replacementLocalClient;
+    });
+    vi.spyOn(BitcoinLock, 'calculateRedemptionAmountFromSatoshis').mockReturnValue(4_000_000n);
+
+    const started = await startRouterServer(routerDb, () => ({ status: 200, body: [] }), {
+      localNodeUrl: 'ws://local-mainchain.test',
+      mainNodeUrl: 'ws://archive-mainchain.test',
+    });
+    routerServer = started.routerServer;
+    botServer = started.botServer;
+
+    await vi.waitFor(() => expect(localClient.at).toHaveBeenCalledOnce());
+    await Promise.resolve();
+    insertCoupon(routerDb, {
+      userId: invite.id,
+      offerCode: 'legacy-offer',
+      vaultId: 12,
+      maxSatoshis: 25_000n,
+      estimatedGiftUsd: 16.25,
+      btcPctFee: 2.5,
+      accountId: 'member-account',
+    });
+
+    await vi.waitFor(async () => {
+      const response = await fetch(
+        `http://${started.routerAddress.host}:${started.routerAddress.port}/bitcoin-lock-coupons/legacy-offer`,
+      );
+      const body = JsonExt.parse<IBitcoinLockStatusResponse>(await response.text());
+      expect(body.bitcoinLock).toMatchObject({
+        coupon: { offerCode: 'legacy-offer', feeCreditMicrogons: 100_000n },
+        remainingFeeCreditMicrogons: 100_000n,
+        status: 'Open',
+      });
+    });
+    expect(localClient.query.priceIndex.current).toHaveBeenCalled();
+    expect(archiveClient.query.priceIndex.current).toHaveBeenCalled();
+    await vi.waitFor(() => expect(replacementLocalClient.at).toHaveBeenCalledOnce());
+    insertCoupon(routerDb, {
+      userId: invite.id,
+      offerCode: 'second-offer',
+      vaultId: 12,
+      maxSatoshis: 25_000n,
+      estimatedGiftUsd: 16.25,
+      btcPctFee: 2.5,
+      accountId: 'member-account',
+    });
+    await vi.waitFor(async () => {
+      const response = await fetch(
+        `http://${started.routerAddress.host}:${started.routerAddress.port}/bitcoin-lock-coupons/second-offer`,
+      );
+      const body = JsonExt.parse<IBitcoinLockStatusResponse>(await response.text());
+      expect(body.bitcoinLock.coupon.feeCreditMicrogons).toBe(100_000n);
+    });
+    expect(replacementLocalClient.query.priceIndex.current).toHaveBeenCalled();
+  });
+
+  it('falls back to archive when a local mainchain query stalls', async () => {
+    routerDb = createDb('router-server-stalled-mainchain-query-');
+    const invite = insertMemberInvite(routerDb, {
+      inviteCode: 'member-invite-1',
+      name: 'Casey',
+      fromName: 'Operator One',
+    });
+    const localQuery = vi.fn(() => new Promise<never>(() => undefined));
+    const localClient = {
+      disconnect: vi.fn().mockResolvedValue(undefined),
+      on: vi.fn(),
+      rpc: { chain: { getFinalizedHead: vi.fn().mockResolvedValue('0xfinalized') } },
+      at: vi.fn().mockResolvedValue({ query: { system: { number: vi.fn().mockResolvedValue(100) } }, tx: {} }),
+      tx: {},
+      query: { priceIndex: { current: localQuery } },
+    };
+    const archiveClient = {
+      disconnect: vi.fn().mockResolvedValue(undefined),
+      on: vi.fn(),
+      tx: {},
+      query: { priceIndex: { current: vi.fn().mockResolvedValue({}) } },
+    };
+    mainchainMocks.getClient.mockImplementation(async (url: string) =>
+      url === 'ws://local-mainchain.test' ? localClient : archiveClient,
+    );
+    vi.spyOn(BitcoinLock, 'calculateRedemptionAmountFromSatoshis').mockReturnValue(4_000_000n);
+
+    const started = await startRouterServer(routerDb, () => ({ status: 200, body: [] }), {
+      localNodeUrl: 'ws://local-mainchain.test',
+      mainNodeUrl: 'ws://archive-mainchain.test',
+    });
+    routerServer = started.routerServer;
+    botServer = started.botServer;
+    await vi.waitFor(() => expect(localClient.at).toHaveBeenCalledOnce());
+    insertCoupon(routerDb, {
+      userId: invite.id,
+      offerCode: 'legacy-offer',
+      vaultId: 12,
+      maxSatoshis: 25_000n,
+      estimatedGiftUsd: 16.25,
+      btcPctFee: 2.5,
+      accountId: 'member-account',
+    });
+
+    vi.useFakeTimers();
+    try {
+      const responsePromise = fetch(
+        `http://${started.routerAddress.host}:${started.routerAddress.port}/bitcoin-lock-coupons/legacy-offer`,
+      );
+      await vi.waitFor(() => expect(localQuery).toHaveBeenCalledOnce());
+      await vi.advanceTimersByTimeAsync(8_000);
+      await responsePromise;
+      await vi.waitFor(() =>
+        expect(routerDb!.bitcoinLockCouponsTable.fetchByOfferCode('legacy-offer')?.feeCreditMicrogons).toBe(100_000n),
+      );
+      const response = await fetch(
+        `http://${started.routerAddress.host}:${started.routerAddress.port}/bitcoin-lock-coupons/legacy-offer`,
+      );
+      const body = JsonExt.parse<IBitcoinLockStatusResponse>(await response.text());
+      expect(body.bitcoinLock).toMatchObject({
+        coupon: { offerCode: 'legacy-offer', feeCreditMicrogons: 100_000n },
+        status: 'Open',
+      });
+      expect(archiveClient.query.priceIndex.current).toHaveBeenCalled();
+      expect(localClient.disconnect).toHaveBeenCalledOnce();
+      expect(mainchainMocks.getClient.mock.calls.filter(([url]) => url === 'ws://local-mainchain.test')).toHaveLength(
+        2,
+      );
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('lists only invite and coupon metadata', async () => {
@@ -839,6 +1188,7 @@ describe('RouterServer', () => {
     );
     mainchainMocks.getClient.mockResolvedValue({
       disconnect: vi.fn().mockResolvedValue(undefined),
+      on: vi.fn(),
       query: {
         operationalAccounts: {
           operationalAccountBySubAccount: {
@@ -1065,10 +1415,15 @@ async function startRouterServer(
   handleBotRequest: (request: BotRequest) => BotResponse | Promise<BotResponse>,
   options?: Omit<IRouterAuthServiceOptions, 'db' | 'memberRestore'> & {
     restoreKey?: string;
+    localNodeUrl?: string;
     mainNodeUrl?: string;
   },
 ): Promise<{ routerAddress: IRouterAddress; routerServer: RouterServer; botServer: Http.Server }> {
-  const { mainNodeUrl, ...auth } = options ?? {};
+  const {
+    localNodeUrl = 'ws://local-mainchain.test',
+    mainNodeUrl = 'ws://archive-mainchain.test',
+    ...auth
+  } = options ?? {};
   const botServer = Http.createServer(async (req, res) => {
     const chunks: Buffer[] = [];
     for await (const chunk of req) {
@@ -1095,6 +1450,7 @@ async function startRouterServer(
     botInternalUrl: `http://127.0.0.1:${botAddress.port}`,
     port: 0,
     auth: options ? auth : undefined,
+    localNodeUrl,
     mainNodeUrl,
   });
   routerServer.start();
