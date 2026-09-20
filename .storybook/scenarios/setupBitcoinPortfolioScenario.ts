@@ -1,5 +1,5 @@
 import * as Vue from 'vue';
-import { BitcoinFission, createDeferred, SATOSHIS_PER_BITCOIN } from '@argonprotocol/apps-core';
+import { BitcoinFission, createDeferred, SATOSHIS_PER_BITCOIN, UnitOfMeasurement } from '@argonprotocol/apps-core';
 import type { IBitcoinLockCouponStatus } from '@argonprotocol/apps-router';
 import BigNumber from 'bignumber.js';
 import { fn, mocked } from 'storybook/test';
@@ -62,7 +62,7 @@ export function setupBitcoinPortfolioScenario(
     currentBitcoinPriceUsd?: number;
   } = {},
 ) {
-  setupAppScenario({
+  const { wallets } = setupAppScenario({
     selectedTab: TopTab.BitcoinLocks,
     config: {
       hasExtensionTreasury: true,
@@ -75,6 +75,10 @@ export function setupBitcoinPortfolioScenario(
   currency.isLoaded = true;
   currency.priceIndex.btcUsdPrice = BigNumber(currentBitcoinPriceUsd);
   currency.microgonsPer.BTC = currentBitcoinRate;
+  wallets.defaultArgonWallet.availableMicrogons = 12_000_000n;
+  wallets.defaultArgonWallet.availableMicronots = 3_000_000n;
+  wallets.defaultArgonWallet.totalMicrogons = 12_000_000n;
+  wallets.defaultArgonWallet.totalMicronots = 3_000_000n;
   Object.assign(getVaults().operatorNamesByVaultId, {
     7: 'Atlas Operator',
     12: 'Meridian Vault',
@@ -637,16 +641,21 @@ export function setupBitcoinPortfolioScenario(
   const bitcoinLiquidPendingMintMicrogons = liquidFissions.reduce((total, fission) => {
     return total + fission.pendingMints.reduce((mintTotal, mint) => mintTotal + mint.remainingAmount, 0n);
   }, 0n);
+  const bitcoinWalletTotalSatoshis = summaries
+    .filter(summary => summary.record.status === BitcoinLockStatus.LockFunded)
+    .reduce((total, summary) => total + (summary.satoshis - (summary.record.fissionedSatoshis ?? 0n)), 0n);
   mocked(useFinancials).mockReturnValue(
     Vue.reactive({
-      bitcoinWalletTotalSatoshis: summaries
-        .filter(summary => summary.record.status === BitcoinLockStatus.LockFunded)
-        .reduce((total, summary) => total + (summary.satoshis - (summary.record.fissionedSatoshis ?? 0n)), 0n),
+      bitcoinWalletTotalSatoshis,
+      savingsTotalValue:
+        wallets.defaultArgonWallet.availableMicrogons +
+        currency.convertMicronotTo(wallets.defaultArgonWallet.availableMicronots, UnitOfMeasurement.Microgon) +
+        bitcoinLiquidPendingMintMicrogons +
+        currency.convertSatToMicrogon(bitcoinWalletTotalSatoshis),
       liquidTotalSatoshis,
       fundedBitcoinLockSummaries: Vue.shallowRef(
         summaries.filter(summary => summary.record.status === BitcoinLockStatus.LockFunded),
       ),
-      liquidNativeBalances: Vue.shallowRef({ microgons: 12_000_000n, micronots: 3_000_000n }),
       bitcoinLiquidPendingMintMicrogons,
       liquidPerformanceReturn: 15.82,
       liquidHodlingReturn: 11.29,

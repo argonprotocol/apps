@@ -565,17 +565,22 @@ export function setupWalletScenario(state: WalletScenario): WalletScenarioState 
 
   Object.assign(currency, { isLoaded: true });
   const ethereumBalanceScan = getScanEthereumWalletBalances(state, ethereumTreasury, ethereumSavings, ethereumWallets);
+  const bitcoinWalletTotalSatoshis = bitcoinChannels.reduce(
+    (total, lock) =>
+      lock.status === BitcoinLockStatus.LockFunded
+        ? total + lock.fundedSatoshis - (lock.fissionedSatoshis ?? 0n)
+        : total,
+    0n,
+  );
   Object.assign(financials, {
     savingsIsLoaded: true,
-    savingsTotalValue: 900n * argon,
+    savingsTotalValue:
+      880n * argon +
+      currency.convertMicronotTo(300n * argonot, UnitOfMeasurement.Microgon) +
+      20n * argon +
+      currency.convertSatToMicrogon(bitcoinWalletTotalSatoshis),
     bitcoinLiquidPendingMintMicrogons: 20n * argon,
-    bitcoinWalletTotalSatoshis: bitcoinChannels.reduce(
-      (total, lock) =>
-        lock.status === BitcoinLockStatus.LockFunded
-          ? total + lock.fundedSatoshis - (lock.fissionedSatoshis ?? 0n)
-          : total,
-      0n,
-    ),
+    bitcoinWalletTotalSatoshis,
   });
   if (state === 'privateKeyError') {
     getWalletKeys().exportDefaultArgonPrivateKey = fn(async () => {
@@ -590,6 +595,7 @@ export function setupWalletScenario(state: WalletScenario): WalletScenarioState 
       type: WalletType.argon,
       address: '5StorybookInternalArgonWallet',
       availableMicrogons: 880n * argon,
+      reservedMicrogons: 20n * argon,
       availableMicronots: 300n * argonot,
       totalMicrogons: 900n * argon,
       totalMicronots: 300n * argonot,

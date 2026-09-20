@@ -70,24 +70,6 @@ export const useFinancials = defineStore('financials', () => {
     return reduceFinancialPositions(financialPositionBook.snapshots);
   });
   const accountSnapshot = Vue.shallowRef<IArgonAccountSnapshot>();
-  const liquidNativeBalances = Vue.computed(() => {
-    let microgons = 0n;
-    let micronots = 0n;
-
-    for (const position of financialPositionAggregate.value.groupSummaries.liquid.positions) {
-      if (position.kind !== 'wallet-balance' && position.kind !== 'wallet-holding') continue;
-      if (position.kind === 'wallet-holding') {
-        if (position.lifecycle === 'active') micronots += position.nativeAmount;
-        continue;
-      }
-      if (position.lifecycle === 'unavailable' || position.nativeAmount === undefined) continue;
-
-      if (position.asset === 'ARGN') microgons += position.nativeAmount;
-      if (position.asset === 'ARGNOT') micronots += position.nativeAmount;
-    }
-
-    return { microgons, micronots };
-  });
   let queuedAccountHeader: IBlockHeaderInfo | undefined;
   let queuedAccountReconciliation = false;
   let activeAccountHash = '';
@@ -520,14 +502,12 @@ export const useFinancials = defineStore('financials', () => {
   });
   const savingsTotalReadyToUse = Vue.computed(() => wallets.defaultArgonWallet.availableMicrogons);
   const savingsTotalValue = Vue.computed(() => {
-    let total =
-      bitcoinLiquidPendingMintMicrogons.value + currency.convertSatToMicrogon(bitcoinWalletTotalSatoshis.value);
-    for (const position of financialPositionAggregate.value.groupSummaries.liquid.positions) {
-      if (position.kind !== 'wallet-balance' && position.kind !== 'wallet-holding') continue;
-      if (position.accountId !== wallets.defaultArgonWallet.address || position.lifecycle === 'completed') continue;
-      total += position.currentValue ?? 0n;
-    }
-    return total;
+    return (
+      wallets.defaultArgonWallet.availableMicrogons +
+      currency.convertMicronotTo(wallets.defaultArgonWallet.availableMicronots, UnitOfMeasurement.Microgon) +
+      bitcoinLiquidPendingMintMicrogons.value +
+      currency.convertSatToMicrogon(bitcoinWalletTotalSatoshis.value)
+    );
   });
 
   const savingsAllTimeFiatKey = Vue.ref(UnitOfMeasurement.USD);
@@ -1010,7 +990,6 @@ export const useFinancials = defineStore('financials', () => {
     stableSwapPerformanceReturn,
 
     financialPositionAggregate,
-    liquidNativeBalances,
   };
 });
 
