@@ -29,6 +29,7 @@ type IDecodedAccountActivityEvent = {
   mask: number;
   accounts: string[];
   vaultIds: number[];
+  bondLotIds: number[];
   bitcoinLockIds: number[];
   mintingAuthoritySigningKeys: string[];
 };
@@ -42,6 +43,7 @@ type IAccountActivityResult = {
   accounts: { address: string; mask: number }[];
   vaults: { vaultId: number; mask: number }[];
   vaultOwners: { vaultId: number; address: string }[];
+  bondLots: { bondLotId: number; mask: number }[];
   bitcoinLocks: { utxoId: number; mask: number }[];
   bitcoinLockOwners: { utxoId: number; address: string }[];
   mintingAuthorities: { destinationSigningKey: string; mask: number }[];
@@ -56,6 +58,7 @@ export class AccountActivityDecoder {
     const accountMasks = new Map<string, number>();
     const vaultMasks = new Map<number, number>();
     const vaultOwners: { vaultId: number; address: string }[] = [];
+    const bondLotMasks = new Map<number, number>();
     const bitcoinLockMasks = new Map<number, number>();
     const bitcoinLockOwners: { utxoId: number; address: string }[] = [];
     const mintingAuthorityMasks = new Map<string, number>();
@@ -83,6 +86,10 @@ export class AccountActivityDecoder {
         const { vaultIds } = decoded;
         for (const vaultId of vaultIds) {
           vaultMasks.set(vaultId, (vaultMasks.get(vaultId) ?? 0) | mask);
+        }
+
+        for (const bondLotId of decoded.bondLotIds) {
+          bondLotMasks.set(bondLotId, (bondLotMasks.get(bondLotId) ?? 0) | mask);
         }
 
         for (const utxoId of decoded.bitcoinLockIds) {
@@ -126,6 +133,7 @@ export class AccountActivityDecoder {
       accounts: [...accountMasks].map(([address, mask]) => ({ address, mask })),
       vaults: [...vaultMasks].map(([vaultId, mask]) => ({ vaultId, mask })),
       vaultOwners,
+      bondLots: [...bondLotMasks].map(([bondLotId, mask]) => ({ bondLotId, mask })),
       bitcoinLocks: [...bitcoinLockMasks].map(([utxoId, mask]) => ({ utxoId, mask })),
       bitcoinLockOwners,
       mintingAuthorities: [...mintingAuthorityMasks].map(([destinationSigningKey, mask]) => ({
@@ -145,7 +153,7 @@ export class AccountActivityDecoder {
     const event = toHistoricalEvent(rawEvent);
     const mask = classifyEventKind(rawEvent, event, { isCustodyTransfer });
     if (!mask) {
-      return { mask, accounts: [], vaultIds: [], bitcoinLockIds: [], mintingAuthoritySigningKeys: [] };
+      return { mask, accounts: [], vaultIds: [], bondLotIds: [], bitcoinLockIds: [], mintingAuthoritySigningKeys: [] };
     }
     if (isGatewayOperationSourceEvent(rawEvent) && !sourceAccount) {
       throw new AccountActivityCoverageError(
@@ -162,6 +170,11 @@ export class AccountActivityDecoder {
       mask,
       accounts: collectEventAccounts(event, specVersion, sourceAccount),
       vaultIds: collectEventVaultIds(event),
+      bondLotIds:
+        event.section === 'treasury' &&
+        (event.method === 'BondLotFlexibilityChanged' || event.method === 'BondLotBackfillChanged')
+          ? [event.data.bondLotId]
+          : [],
       bitcoinLockIds: collectEventBitcoinLockIds(event),
       mintingAuthoritySigningKeys: collectMintingAuthoritySigningKeys(event),
     };

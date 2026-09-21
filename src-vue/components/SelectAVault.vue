@@ -30,7 +30,7 @@
             <template v-if="props.vaultNamesById?.[vault.vaultId]">
               {{ props.vaultNamesById[vault.vaultId] }}
             </template>
-            <template v-else-if="vault.vaultId === myVault.vaultId">My Vault</template>
+            <template v-else-if="vault.vaultId === myVault.vaultId">Your Vault</template>
             <template v-else-if="vaultStore.operatorNamesByVaultId[vault.vaultId]">
               {{ vaultStore.operatorNamesByVaultId[vault.vaultId] }} Vault
             </template>
@@ -184,11 +184,11 @@ Vue.watch(
   () => financials.vaultsIsLoaded,
   async isVaultsLoaded => {
     if (isLoaded.value || !isVaultsLoaded) return;
-    await loadVaultBondState(financials.vaultsActiveRecords);
+    await loadVaultBondState(displayVaults.value);
     isLoaded.value = true;
-    emit('load', financials.vaultsActiveRecords);
-    if (!props.multiple && selectedVaultId.value === null && financials.vaultsActiveRecords.length) {
-      void selectVault(financials.vaultsActiveRecords[0]);
+    emit('load', displayVaults.value);
+    if (!props.multiple && selectedVaultId.value === null && displayVaults.value.length) {
+      void selectVault(displayVaults.value[0]);
     }
   },
   { immediate: true },

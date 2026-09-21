@@ -68,6 +68,8 @@ export const useFinancialHistory = defineStore('financialHistory', () => {
     activeBitcoinLockCount.value = undefined;
     const enabledDomains = getEnabledDomains(false);
     if (!enabledDomains.length) return;
+    if (enabledDomains.includes('bonds')) await argonBonds.load();
+    const repairIncompleteBondHistory = argonBonds.needsHistoryRepair;
 
     historyRecovery.value = { state: 'checking', recoveredBlockCount: 0 };
     for (const domain of enabledDomains) {
@@ -79,7 +81,8 @@ export const useFinancialHistory = defineStore('financialHistory', () => {
       accountId: wallets.defaultArgonWallet.address,
       enabledDomains,
       bitcoinLockRecovery: bitcoinLocks.recovery,
-      recoverMissingCheckpointsFor: enabledDomains,
+      recoverMissingCheckpointsFor: config.walletAccountsHadPreviousLife ? enabledDomains : [],
+      repairIncompleteBondHistory,
     });
     if (needsRecovery) {
       await scheduler.runNow(getBlockWatch().finalizedBlockHeader.blockNumber, false);
@@ -116,7 +119,7 @@ export const useFinancialHistory = defineStore('financialHistory', () => {
       if (enabledDomains.includes('bitcoin')) {
         historyLoads.push(bitcoinLocks.currentLoadPromise, bitcoinFissions.currentLoadPromise);
       }
-      if (enabledDomains.includes('vaulting')) historyLoads.push(myVault.load());
+      if (enabledDomains.includes('bitcoin') || enabledDomains.includes('vaulting')) historyLoads.push(myVault.load());
       await Promise.all(historyLoads);
 
       const result = await restoreFinancialHistoryFromIndex({
@@ -126,9 +129,11 @@ export const useFinancialHistory = defineStore('financialHistory', () => {
         argonBonds,
         bitcoinLocks,
         bitcoinFissions,
+        ownedVaultId: myVault.vaultId,
         vaultHistory: myVault.history,
         enabledDomains,
         recoverMissingCheckpointsFor: force || config.walletAccountsHadPreviousLife ? enabledDomains : [],
+        repairIncompleteBondHistory: argonBonds.needsHistoryRepair,
         force,
         minimumAsOfBlock: targetBlock,
         onCheckStart() {
@@ -211,9 +216,6 @@ export const useFinancialHistory = defineStore('financialHistory', () => {
       throw error;
     } finally {
       const publications: Array<{ domain: IFinancialHistoryDomain; promise: Promise<unknown> }> = [];
-      if (completedDomains.has('bonds')) {
-        publications.push({ domain: 'bonds', promise: argonBonds.publishRecoveredHistory() });
-      }
       if (completedDomains.has('vaulting')) {
         publications.push({ domain: 'vaulting', promise: Promise.resolve(myVault.publishRecoveredHistory()) });
       }
@@ -245,10 +247,6 @@ export const useFinancialHistory = defineStore('financialHistory', () => {
       try {
         await Promise.all([config.isLoadedPromise, wallets.isLoadedPromise]);
         isLoaded = true;
-        if (!config.walletAccountsHadPreviousLife) {
-          hasConfirmedCoverage = true;
-          return;
-        }
         await initialize();
       } catch (error) {
         const message = error instanceof Error ? error.message : 'Unable to restore investment history';

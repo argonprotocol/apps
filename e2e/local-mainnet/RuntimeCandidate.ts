@@ -22,6 +22,53 @@ export interface CandidateRuntimeArtifact {
 }
 
 export class RuntimeCandidate {
+  public static load(attestationPath: string): CandidateRuntimeArtifact {
+    const canonicalAttestationPath = realpathSync(attestationPath);
+    if (!statSync(canonicalAttestationPath).isFile()) {
+      throw new Error(`Candidate runtime attestation is not a file: ${canonicalAttestationPath}`);
+    }
+
+    let value: unknown;
+    try {
+      value = JSON.parse(readFileSync(canonicalAttestationPath, 'utf8'));
+    } catch (error) {
+      throw new Error(`Invalid candidate runtime attestation: ${(error as Error).message}`);
+    }
+    if (!value || typeof value !== 'object' || Array.isArray(value)) {
+      throw new Error('Invalid candidate runtime attestation: expected an object');
+    }
+    const artifact = value as Record<string, unknown>;
+    if (typeof artifact.sourceDirectory !== 'string' || !Path.isAbsolute(artifact.sourceDirectory)) {
+      throw new Error('Invalid candidate runtime sourceDirectory');
+    }
+    if (typeof artifact.gitHead !== 'string' || !/^[0-9a-f]{40}$/i.test(artifact.gitHead)) {
+      throw new Error('Invalid candidate runtime gitHead');
+    }
+    if (typeof artifact.wasmPath !== 'string' || !Path.isAbsolute(artifact.wasmPath)) {
+      throw new Error('Invalid candidate runtime wasmPath');
+    }
+    if (typeof artifact.wasmSha256 !== 'string' || !/^[0-9a-f]{64}$/i.test(artifact.wasmSha256)) {
+      throw new Error('Invalid candidate runtime wasmSha256');
+    }
+    if (!Number.isSafeInteger(artifact.expectedSpecVersion) || (artifact.expectedSpecVersion as number) < 1) {
+      throw new Error('Invalid candidate runtime expectedSpecVersion');
+    }
+
+    const wasmPath = realpathSync(artifact.wasmPath);
+    if (!statSync(wasmPath).isFile()) throw new Error(`Candidate runtime WASM is not a file: ${wasmPath}`);
+    const wasmSha256 = createHash('sha256').update(readFileSync(wasmPath)).digest('hex');
+    if (wasmSha256 !== artifact.wasmSha256.toLowerCase()) {
+      throw new Error(`Candidate runtime WASM checksum mismatch: ${wasmPath}`);
+    }
+    return {
+      sourceDirectory: artifact.sourceDirectory,
+      gitHead: artifact.gitHead.toLowerCase(),
+      wasmPath,
+      wasmSha256,
+      expectedSpecVersion: artifact.expectedSpecVersion as number,
+    };
+  }
+
   public static async build(args: {
     mainchainDirectory: string;
     runDirectory: string;

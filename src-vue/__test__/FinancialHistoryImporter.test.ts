@@ -127,7 +127,7 @@ describe('FinancialHistoryImporter', () => {
         bonds: {
           asOfBlock: 99,
           definitionVersion: ACCOUNT_ACTIVITY_DEFINITION_VERSION,
-          recoveryVersion: 1,
+          recoveryVersion: 2,
           partialRecovery: true,
         },
       },
@@ -147,7 +147,7 @@ describe('FinancialHistoryImporter', () => {
       }),
     ).resolves.toBe(true);
 
-    get.mockResolvedValueOnce({
+    get.mockResolvedValue({
       accountId: '5owner',
       asOfBlock: 99,
       domains: ['bonds'],
@@ -155,7 +155,7 @@ describe('FinancialHistoryImporter', () => {
         bonds: {
           asOfBlock: 99,
           definitionVersion: ACCOUNT_ACTIVITY_DEFINITION_VERSION,
-          recoveryVersion: 1,
+          recoveryVersion: 2,
           partialRecovery: false,
         },
       },
@@ -168,6 +168,23 @@ describe('FinancialHistoryImporter', () => {
         recoverMissingCheckpointsFor: ['bonds'],
       }),
     ).resolves.toBe(false);
+    await expect(
+      needsFinancialHistoryRecovery({
+        db,
+        accountId: '5owner',
+        enabledDomains: ['bonds'],
+        recoverMissingCheckpointsFor: [],
+      }),
+    ).resolves.toBe(false);
+    await expect(
+      needsFinancialHistoryRecovery({
+        db,
+        accountId: '5owner',
+        enabledDomains: ['bonds'],
+        recoverMissingCheckpointsFor: [],
+        repairIncompleteBondHistory: true,
+      }),
+    ).resolves.toBe(true);
   });
 
   it('recovers missing checkpoints only for selected domains', async () => {
@@ -193,6 +210,178 @@ describe('FinancialHistoryImporter', () => {
         recoverMissingCheckpointsFor: ['vaulting'],
       }),
     ).resolves.toBe(true);
+  });
+
+  it('replays an unconfirmed bond timeline from the beginning despite a current checkpoint', async () => {
+    const upsert = vi.fn(async () => undefined);
+    const beginHistoryReplay = vi.fn();
+    const publishRecoveredHistory = vi.fn(async () => undefined);
+    vi.mocked(findAddressActivity).mockResolvedValueOnce({
+      asOfBlock: 100,
+      definitionVersion: ACCOUNT_ACTIVITY_DEFINITION_VERSION,
+      blocks: [],
+      coverage: { fromBlock: 0, toBlock: 100, gaps: [] },
+    });
+
+    await restoreFinancialHistory({
+      db: {
+        syncStateTable: {
+          get: vi.fn(async () => ({
+            accountId: '5owner',
+            asOfBlock: 100,
+            domains: ['bonds'],
+            domainCheckpoints: {
+              bonds: {
+                asOfBlock: 100,
+                definitionVersion: ACCOUNT_ACTIVITY_DEFINITION_VERSION,
+                recoveryVersion: 2,
+              },
+            },
+          })),
+          upsert,
+        },
+        bondLotHistoryTable: { fetchAll: vi.fn(async () => []) },
+      } as any,
+      blockWatch: { finalizedBlockHeader: { blockNumber: 100 } } as any,
+      accountId: '5owner',
+      argonBonds: {
+        data: { bondLots: [] },
+        miningFrames: { earliestWithSpec: vi.fn(() => 0) },
+        beginHistoryReplay,
+        publishRecoveredHistory,
+        hasStagedPurchase: vi.fn(() => false),
+      } as any,
+      vaultHistory: {} as any,
+      enabledDomains: ['bonds'],
+      recoverMissingCheckpointsFor: [],
+      repairIncompleteBondHistory: true,
+      minimumAsOfBlock: 100,
+    });
+
+    expect(findAddressActivity).toHaveBeenCalledWith('5owner', expect.objectContaining({ afterBlock: 0 }));
+    expect(beginHistoryReplay).toHaveBeenCalledOnce();
+    expect(publishRecoveredHistory).toHaveBeenCalledOnce();
+    expect(upsert).toHaveBeenCalledOnce();
+  });
+
+  it('replays a partial bond checkpoint even when its block already matches the finalized head', async () => {
+    const upsert = vi.fn(async () => undefined);
+    const beginHistoryReplay = vi.fn();
+    const publishRecoveredHistory = vi.fn(async () => undefined);
+    vi.mocked(findAddressActivity).mockResolvedValueOnce({
+      asOfBlock: 100,
+      definitionVersion: ACCOUNT_ACTIVITY_DEFINITION_VERSION,
+      blocks: [],
+      coverage: { fromBlock: 0, toBlock: 100, gaps: [] },
+    });
+
+    await restoreFinancialHistory({
+      db: {
+        syncStateTable: {
+          get: vi.fn(async () => ({
+            accountId: '5owner',
+            asOfBlock: 100,
+            domains: ['bonds'],
+            domainCheckpoints: {
+              bonds: {
+                asOfBlock: 100,
+                definitionVersion: ACCOUNT_ACTIVITY_DEFINITION_VERSION,
+                recoveryVersion: 2,
+                partialRecovery: true,
+              },
+            },
+          })),
+          upsert,
+        },
+        bondLotHistoryTable: { fetchAll: vi.fn(async () => []) },
+      } as any,
+      blockWatch: { finalizedBlockHeader: { blockNumber: 100 } } as any,
+      accountId: '5owner',
+      argonBonds: {
+        data: { bondLots: [] },
+        miningFrames: { earliestWithSpec: vi.fn(() => 0) },
+        beginHistoryReplay,
+        publishRecoveredHistory,
+        hasStagedPurchase: vi.fn(() => false),
+      } as any,
+      vaultHistory: {} as any,
+      enabledDomains: ['bonds'],
+      recoverMissingCheckpointsFor: [],
+      minimumAsOfBlock: 100,
+    });
+
+    expect(findAddressActivity).toHaveBeenCalledWith('5owner', expect.objectContaining({ afterBlock: 0 }));
+    expect(beginHistoryReplay).toHaveBeenCalledOnce();
+    expect(publishRecoveredHistory).toHaveBeenCalledOnce();
+    expect(upsert).toHaveBeenCalledWith(
+      SyncStateKeys.FinancialHistory,
+      expect.objectContaining({ domainCheckpoints: { bonds: expect.not.objectContaining({ partialRecovery: true }) } }),
+    );
+  });
+
+  it('keeps published bond history visible while the indexer catches up, then retries from the start', async () => {
+    const publishedHistory = [{ bondLotId: 7, cumulativeEarningsMicrogons: 5n }];
+    let savedState = {
+      accountId: '5owner',
+      asOfBlock: 90,
+      domains: ['bonds'] as const,
+      domainCheckpoints: {
+        bonds: { asOfBlock: 90, definitionVersion: ACCOUNT_ACTIVITY_DEFINITION_VERSION, recoveryVersion: 1 },
+      },
+    };
+    const upsert = vi.fn(async (_key, nextState) => {
+      savedState = nextState;
+    });
+    const discardRecoveredHistory = vi.fn();
+    const publishRecoveredHistory = vi.fn(async () => undefined);
+    const argonBonds = {
+      data: { bondLots: [], bondHistory: publishedHistory },
+      miningFrames: { earliestWithSpec: vi.fn(() => 0) },
+      beginHistoryReplay: vi.fn(),
+      discardRecoveredHistory,
+      publishRecoveredHistory,
+      hasStagedPurchase: vi.fn(() => false),
+    };
+    const db = {
+      syncStateTable: { get: vi.fn(async () => savedState), upsert },
+      bondLotHistoryTable: { fetchAll: vi.fn(async () => []) },
+    };
+    vi.mocked(findAddressActivity)
+      .mockResolvedValueOnce({
+        asOfBlock: 95,
+        definitionVersion: ACCOUNT_ACTIVITY_DEFINITION_VERSION,
+        blocks: [],
+        coverage: { fromBlock: 0, toBlock: 95, gaps: [] },
+      })
+      .mockResolvedValueOnce({
+        asOfBlock: 100,
+        definitionVersion: ACCOUNT_ACTIVITY_DEFINITION_VERSION,
+        blocks: [],
+        coverage: { fromBlock: 0, toBlock: 100, gaps: [] },
+      });
+
+    const restore = () =>
+      restoreFinancialHistory({
+        db: db as any,
+        blockWatch: { finalizedBlockHeader: { blockNumber: 100 } } as any,
+        accountId: '5owner',
+        argonBonds: argonBonds as any,
+        vaultHistory: {} as any,
+        enabledDomains: ['bonds'],
+        recoverMissingCheckpointsFor: [],
+        minimumAsOfBlock: 100,
+      });
+
+    await expect(restore()).resolves.toMatchObject({ asOfBlock: 90, targetBlock: 100 });
+    expect(argonBonds.data.bondHistory).toBe(publishedHistory);
+    expect(discardRecoveredHistory).toHaveBeenCalledOnce();
+    expect(publishRecoveredHistory).not.toHaveBeenCalled();
+    expect(savedState.domainCheckpoints.bonds).toMatchObject({ asOfBlock: 90, partialRecovery: true });
+
+    await expect(restore()).resolves.toMatchObject({ asOfBlock: 100, targetBlock: 100 });
+    expect(findAddressActivity).toHaveBeenNthCalledWith(2, '5owner', expect.objectContaining({ afterBlock: 0 }));
+    expect(publishRecoveredHistory).toHaveBeenCalledOnce();
+    expect(savedState.domainCheckpoints.bonds).not.toHaveProperty('partialRecovery');
   });
 
   it('initializes Bitcoin recovery when a loaded lock is still quarantined', async () => {
@@ -265,7 +454,7 @@ describe('FinancialHistoryImporter', () => {
         minimumAsOfBlock: 100,
       }),
     ).rejects.toThrow(
-      `Activity index definition 1 is older than the minimum compatible definition ${ACCOUNT_ACTIVITY_DEFINITION_VERSION - 1}`,
+      'Activity index definition 1 is older than the required definition 3; upgrade and rebuild the indexer before recovering bitcoin history',
     );
   });
 
@@ -274,7 +463,7 @@ describe('FinancialHistoryImporter', () => {
       accountId: '5owner',
       asOfBlock: 100,
       definitionVersion: ACCOUNT_ACTIVITY_DEFINITION_VERSION,
-      recoveryVersions: { bonds: 1 },
+      recoveryVersions: { bonds: 2 },
       domains: ['bonds'] as const,
     }));
     const onCheckStart = vi.fn();
@@ -312,7 +501,7 @@ describe('FinancialHistoryImporter', () => {
                 bonds: {
                   asOfBlock: 100,
                   definitionVersion: ACCOUNT_ACTIVITY_DEFINITION_VERSION,
-                  recoveryVersion: 1,
+                  recoveryVersion: 2,
                 },
                 bitcoin: {
                   asOfBlock: 100,
@@ -349,49 +538,8 @@ describe('FinancialHistoryImporter', () => {
     });
   });
 
-  it('retries incomplete incremental Bitcoin history from the beginning in the same recovery', async () => {
-    const beginHistoryReplay = vi.fn();
-    const prepareHistoryReplay = vi.fn(async () => emptyPreparedBitcoinHistory());
-    const finishHistoryReplay = vi.fn();
-    const markHistoryReplayFailure = vi.fn();
+  it('keeps a confirmed Bitcoin checkpoint usable during ordinary indexer lag', async () => {
     const upsert = vi.fn(async (..._args: unknown[]) => undefined);
-    const recoverBlock = vi
-      .fn()
-      .mockRejectedValueOnce(new Error('Bitcoin lock 44 pending mint exceeds recovered history'))
-      .mockResolvedValue(undefined);
-    vi.mocked(findAddressActivity)
-      .mockResolvedValueOnce({
-        asOfBlock: 100,
-        definitionVersion: ACCOUNT_ACTIVITY_DEFINITION_VERSION,
-        blocks: [
-          {
-            blockNumber: 95,
-            blockHash: '0x95',
-            specVersion: 151,
-            activityMask: AccountActivityKind.BitcoinMint,
-          },
-        ],
-        coverage: { fromBlock: 90, toBlock: 100, gaps: [] },
-      })
-      .mockResolvedValueOnce({
-        asOfBlock: 100,
-        definitionVersion: ACCOUNT_ACTIVITY_DEFINITION_VERSION,
-        blocks: [
-          {
-            blockNumber: 10,
-            blockHash: '0x10',
-            specVersion: 151,
-            activityMask: AccountActivityKind.BitcoinLock,
-          },
-          {
-            blockNumber: 95,
-            blockHash: '0x95',
-            specVersion: 151,
-            activityMask: AccountActivityKind.BitcoinMint,
-          },
-        ],
-        coverage: { fromBlock: 0, toBlock: 100, gaps: [] },
-      });
 
     await expect(
       restoreFinancialHistory({
@@ -414,69 +562,18 @@ describe('FinancialHistoryImporter', () => {
         } as any,
         blockWatch: {
           finalizedBlockHeader: { blockNumber: 100 },
-          withBackgroundArchiveRead,
-          getHeader: vi.fn(async ({ blockNumber, blockHash }) => ({ blockNumber, blockHash })),
-          getEventsWithSpec: vi.fn(async () => ({ events: [], specVersion: 151 })),
-          getFinalizedApi: vi.fn(async () => ({})),
         } as any,
         accountId: '5owner',
         argonBonds: {} as any,
-        bitcoinLocks: {
-          recovery: {
-            hasPendingHistoryRecovery: false,
-            beginHistoryReplay,
-            markHistoryReplayFailure,
-            recoverBlock,
-            findMissingActiveLockIds: vi.fn(async () => []),
-            prepareHistoryReplay,
-            prepareHistoryReplayUnit: vi.fn(() => ({
-              lockId: 1,
-              utxos: [],
-              releases: [],
-              fissions: [],
-              hdKeys: [],
-              securitizationTerms: [],
-            })),
-            finishHistoryReplay,
-            cancelHistoryReplay: vi.fn(),
-          },
-          applyRecoveredHistory: vi.fn(async () => undefined),
-        } as any,
         vaultHistory: {} as any,
         enabledDomains: ['bitcoin'],
         recoverMissingCheckpointsFor: ['bitcoin'],
         minimumAsOfBlock: 100,
       }),
-    ).resolves.toEqual({ importedBlockCount: 2, asOfBlock: 100, targetBlock: 100 });
+    ).resolves.toEqual({ importedBlockCount: 0, asOfBlock: 100, targetBlock: 100 });
 
-    expect(findAddressActivity).toHaveBeenNthCalledWith(1, '5owner', {
-      afterBlock: 90,
-      toBlock: 100,
-      activityMask: AccountActivityKind.BitcoinLock | AccountActivityKind.BitcoinMint,
-    });
-    expect(findAddressActivity).toHaveBeenNthCalledWith(2, '5owner', {
-      afterBlock: 0,
-      toBlock: 100,
-      activityMask: AccountActivityKind.BitcoinLock | AccountActivityKind.BitcoinMint,
-    });
-    expect(beginHistoryReplay).toHaveBeenNthCalledWith(1, {
-      lockScope: 'encountered',
-      purpose: 'financial-backfill',
-    });
-    expect(beginHistoryReplay).toHaveBeenNthCalledWith(2, { lockScope: 'all', purpose: 'financial-backfill' });
-    expect(markHistoryReplayFailure).toHaveBeenCalledOnce();
-    expect(prepareHistoryReplay).toHaveBeenCalledTimes(2);
-    expect(finishHistoryReplay).toHaveBeenNthCalledWith(1, new Set());
-    expect(finishHistoryReplay).toHaveBeenNthCalledWith(2, new Set());
-    expect(upsert).toHaveBeenCalledOnce();
-    expect(upsert).toHaveBeenCalledWith(
-      SyncStateKeys.FinancialHistory,
-      expect.objectContaining({
-        domainCheckpoints: {
-          bitcoin: expect.objectContaining({ asOfBlock: 100 }),
-        },
-      }),
-    );
+    expect(findAddressActivity).not.toHaveBeenCalled();
+    expect(upsert).not.toHaveBeenCalled();
   });
 
   it('repairs only pending Bitcoin locks when a fresh wallet has no recovery checkpoint', async () => {
@@ -554,7 +651,7 @@ describe('FinancialHistoryImporter', () => {
                 bonds: {
                   asOfBlock: 110,
                   definitionVersion: ACCOUNT_ACTIVITY_DEFINITION_VERSION,
-                  recoveryVersion: 1,
+                  recoveryVersion: 2,
                 },
                 vaulting: { asOfBlock: 100, definitionVersion: ACCOUNT_ACTIVITY_DEFINITION_VERSION },
               },
@@ -590,7 +687,7 @@ describe('FinancialHistoryImporter', () => {
             accountId: '5owner',
             asOfBlock: 100,
             definitionVersion: ACCOUNT_ACTIVITY_DEFINITION_VERSION,
-            recoveryVersions: { bonds: 1 },
+            recoveryVersions: { bonds: 2 },
             domains: ['bonds'],
           })),
           upsert,
@@ -624,7 +721,7 @@ describe('FinancialHistoryImporter', () => {
           bonds: {
             asOfBlock: 100,
             definitionVersion: ACCOUNT_ACTIVITY_DEFINITION_VERSION,
-            recoveryVersion: 1,
+            recoveryVersion: 2,
           },
           vaulting: { asOfBlock: 100, definitionVersion: ACCOUNT_ACTIVITY_DEFINITION_VERSION - 1 },
         },
@@ -693,6 +790,10 @@ describe('FinancialHistoryImporter', () => {
           data: { bondLots: [] },
           importHistoryBlock: vi.fn(async () => undefined),
           refreshHistory: vi.fn(async () => undefined),
+          beginHistoryReplay: vi.fn(),
+          publishRecoveredHistory: vi.fn(async () => undefined),
+          discardRecoveredHistory: vi.fn(),
+          hasStagedPurchase: vi.fn(() => false),
         } as any,
         bitcoinLocks: {
           recovery: {
@@ -719,7 +820,7 @@ describe('FinancialHistoryImporter', () => {
           bonds: {
             asOfBlock: 10,
             definitionVersion: ACCOUNT_ACTIVITY_DEFINITION_VERSION,
-            recoveryVersion: 1,
+            recoveryVersion: 2,
           },
         },
       }),
@@ -879,6 +980,9 @@ describe('FinancialHistoryImporter', () => {
           data: { bondLots: [{ id: 7, programType: 'Argonot' }], bondHistory: [] },
           miningFrames: { earliestWithSpec: vi.fn(() => 0) },
           refreshHistory: vi.fn(),
+          beginHistoryReplay: vi.fn(),
+          discardRecoveredHistory: vi.fn(),
+          hasStagedPurchase: vi.fn(() => false),
         } as any,
         vaultHistory: {} as any,
         enabledDomains: ['bonds'],
@@ -914,7 +1018,11 @@ describe('FinancialHistoryImporter', () => {
           })),
         } as any,
         accountId: '5owner',
-        argonBonds: { data: { bondLots: [], bondHistory: [] } } as any,
+        argonBonds: {
+          data: { bondLots: [], bondHistory: [] },
+          beginHistoryReplay: vi.fn(),
+          discardRecoveredHistory: vi.fn(),
+        } as any,
         vaultHistory: {} as any,
         enabledDomains: ['bonds'],
         recoverMissingCheckpointsFor: ['bonds'],

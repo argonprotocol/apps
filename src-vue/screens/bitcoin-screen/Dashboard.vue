@@ -106,7 +106,10 @@
             @click="openLiquidDetails(liquid)"
           >
             <BitcoinIcon class="text-argon-600/60 w-20" />
-            <div class="liquid-row-content min-w-0 grow pl-2">
+            <div
+              :data-testid="`BitcoinLiquid.active-${liquid.model.liquidId}`"
+              class="liquid-row-content min-w-0 grow pl-2"
+            >
               <div class="flex flex-row items-center gap-2 pt-3 pb-2 text-slate-800">
                 <span class="shrink-0 text-lg font-semibold">
                   {{ satToBtcNm(liquid.model.satoshis).format('0,0.[0000]') }} BTC Liquid
@@ -140,8 +143,15 @@
                 class="flex flex-row items-stretch border-t border-slate-400/30 pt-3 pb-3 whitespace-nowrap text-slate-500"
               >
                 <span>
-                  {{ currency.symbol
-                  }}{{ microgonToMoneyNm(liquid.model.liquidityPromised).format('0,0.00') }} liquidity
+                  <span :data-testid="`BitcoinLiquid.receivedLiquidity-${liquid.model.liquidId}`">
+                    {{ currency.symbol
+                    }}{{
+                      microgonToMoneyNm(liquid.position?.receivedLiquidity ?? liquid.model.receivedLiquidity).format(
+                        '0,0.00',
+                      )
+                    }}
+                    liquidity
+                  </span>
                   <span v-if="liquid.model.pendingLiquidity" class="ml-1 text-slate-400">
                     ({{ currency.symbol
                     }}{{ microgonToMoneyNm(liquid.model.pendingLiquidity).format('0,0.00') }} pending mint)
@@ -187,12 +197,14 @@
             <article
               v-for="liquid in closedLiquidRows"
               :key="liquid.model.liquidId"
-              :data-testid="`BitcoinLiquid.archived-${liquid.model.liquidId}`"
               class="flex cursor-pointer flex-row items-center gap-2.5 rounded border border-slate-900/20 bg-slate-50 px-3.5 py-2 opacity-60 hover:opacity-80"
               @click="openLiquidDetails(liquid)"
             >
               <BitcoinIcon class="text-argon-600/60 w-20" />
-              <div class="liquid-row-content min-w-0 grow pl-2">
+              <div
+                :data-testid="`BitcoinLiquid.archived-${liquid.model.liquidId}`"
+                class="liquid-row-content min-w-0 grow pl-2"
+              >
                 <div class="flex flex-row items-center gap-2 pt-3 pb-2 text-slate-800">
                   <span class="shrink-0 text-lg font-semibold">
                     {{ satToBtcNm(liquid.model.satoshis).format('0,0.[0000]') }} BTC Liquid
@@ -365,8 +377,10 @@ const liquidRows = Vue.computed<LiquidDisplay[]>(() =>
           lockSummaries.map(summary => {
             const vaultId = summary.record.vaultId;
             return vaultId === myVault.vaultId
-              ? 'My Vault'
-              : (vaults.operatorNamesByVaultId[vaultId] ?? `Vault ${vaultId}`);
+              ? 'Yours'
+              : (vaults.operatorNamesByVaultId[vaultId] ??
+                  (config.upstreamOperator?.vaultId === vaultId ? config.upstreamOperator.name : undefined) ??
+                  `#${vaultId}`);
           }),
         ),
       ];

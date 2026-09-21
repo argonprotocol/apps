@@ -1,6 +1,5 @@
 import { getDbPromise } from './helpers/dbPromise';
 import { reactive } from 'vue';
-import handleFatalError from './helpers/handleFatalError.ts';
 import { TransactionTracker } from '../lib/TransactionTracker.ts';
 import { getBlockWatch } from './mainchain.ts';
 
@@ -12,7 +11,10 @@ export function getTransactionTracker(): TransactionTracker {
     const blockWatch = getBlockWatch();
     transactionTracker = new TransactionTracker(dbPromise, blockWatch);
     transactionTracker.data = reactive(transactionTracker.data) as any;
-    transactionTracker.load().catch(handleFatalError.bind(transactionTracker));
+    // Operation restoration retries transient tracker-load failures after its owning domains are ready.
+    void transactionTracker.load().catch(error => {
+      console.warn('[Transactions] Initial transaction load failed; pending operations will retry', error);
+    });
   }
 
   return transactionTracker;

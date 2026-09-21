@@ -12,7 +12,7 @@ import type { HistoricalEvent } from '@argonprotocol/runtime-client/events';
 import type { IBitcoinFissionRecord, IBitcoinFissionRatchetRecord } from '../../interfaces/IBitcoinFissionRecord.ts';
 import { BitcoinLockStatus } from '../../interfaces/IBitcoinLockRecord.ts';
 import type { Db } from '../Db.ts';
-import type { IHistoricalBitcoinLockRecord } from './BitcoinLockReplay.ts';
+import type { IHistoricalBitcoinLiquidClose, IHistoricalBitcoinLockRecord } from './BitcoinLockReplay.ts';
 
 type FissionRecoveryEventRecord = RuntimeSystemEventRecord;
 type NamedFissionRecoveryEventRecord = RuntimeSystemEventRecord & { event: HistoricalEvent };
@@ -120,7 +120,7 @@ export class BitcoinFissionRecovery {
   public async prepareHistoryReplay(
     migratedLocks: readonly IHistoricalBitcoinLockRecord[] = [],
     lockIdByHistoricalUtxoId: ReadonlyMap<number, number> = new Map(),
-    historicalLiquidRedemptionByUtxoId: ReadonlyMap<number, bigint> = new Map(),
+    historicalLiquidCloseByUtxoId: ReadonlyMap<number, IHistoricalBitcoinLiquidClose> = new Map(),
   ): Promise<{ records: IBitcoinFissionRecord[]; failuresByLockId: Map<number, string> }> {
     return await this.queueHistoryWrite(async () => {
       const replay = this.requireReplay();
@@ -142,7 +142,7 @@ export class BitcoinFissionRecovery {
               ? this.createMigratedRecord(
                   lock,
                   lockIdByHistoricalUtxoId.get(lock.utxoId) ?? lock.utxoId,
-                  historicalLiquidRedemptionByUtxoId.get(lock.utxoId),
+                  historicalLiquidCloseByUtxoId.get(lock.utxoId),
                   deferred.block.blockNumber,
                   activeFission,
                 )
@@ -191,7 +191,7 @@ export class BitcoinFissionRecovery {
           ? this.createMigratedRecord(
               lock,
               lockIdByHistoricalUtxoId.get(lock.utxoId) ?? lock.utxoId,
-              historicalLiquidRedemptionByUtxoId.get(lock.utxoId),
+              historicalLiquidCloseByUtxoId.get(lock.utxoId),
               Number.MAX_SAFE_INTEGER,
               activeFission,
             )
@@ -210,7 +210,7 @@ export class BitcoinFissionRecovery {
       for (const lock of migratedLocks) {
         const lockId = lockIdByHistoricalUtxoId.get(lock.utxoId) ?? lock.utxoId;
         if (failedLockIds.has(lockId) || recoveredLockIds.has(lockId)) continue;
-        const migrated = this.createMigratedRecord(lock, lockId, historicalLiquidRedemptionByUtxoId.get(lock.utxoId));
+        const migrated = this.createMigratedRecord(lock, lockId, historicalLiquidCloseByUtxoId.get(lock.utxoId));
         if (migrated) replay.recordsByFissionId.set(migrated.fissionId, migrated);
       }
       const failuresByLockId = new Map<number, string>();
@@ -289,7 +289,7 @@ export class BitcoinFissionRecovery {
   private createMigratedRecord(
     lock: IHistoricalBitcoinLockRecord,
     lockId: number,
-    redemptionAmount?: bigint,
+    close?: IHistoricalBitcoinLiquidClose,
     observedAtBlock?: number,
     activeFission?: IBitcoinFission,
   ): IBitcoinFissionRecord | undefined {
@@ -314,6 +314,8 @@ export class BitcoinFissionRecovery {
       txFee: ratchet.txFee,
       blockNumber: ratchet.blockHeight,
       tick: ratchet.tick,
+      blockHash: ratchet.blockHash,
+      blockTime: ratchet.blockTime,
       extrinsicIndex: ratchet.extrinsicIndex,
     }));
     const lastUpdatedArgonBlock = ratchets.at(-1)?.blockNumber ?? lock.createdAtArgonBlock ?? 0;
@@ -336,6 +338,8 @@ export class BitcoinFissionRecovery {
       feeHistoryCompleteThroughBlock,
       ratchets,
       createdAtTick: ratchets[0]?.tick,
+      createdBlockHash: ratchets[0]?.blockHash,
+      createdBlockTime: ratchets[0]?.blockTime,
       ...(wasReleased || wasSpent
         ? {
             closedAtArgonBlock: lock.removalBlockNumber,
@@ -344,7 +348,8 @@ export class BitcoinFissionRecovery {
             closedBlockTime: lock.removalBlockTime,
             closedExtrinsicIndex: lock.removalExtrinsicIndex,
             closeReason: wasReleased ? ('closed' as const) : ('lock-spent' as const),
-            redemptionAmount,
+            redemptionAmount: close?.redemptionAmount,
+            closeTxFee: wasSpent ? 0n : close?.closeTxFee,
             btcPriceAtCloseMicrogons: lock.btcPriceAtRemovalMicrogons,
           }
         : {}),

@@ -240,13 +240,19 @@ export const FormWithCosignerChoice: Story = {
   beforeEach: () => {
     const cleanup = useScenario();
     scenario.myVault.data.createdVault = scenario.ownVault;
-    isInteractive = true;
     return cleanup;
   },
-  play: async () => {
-    const canvas = within(document.body);
-    await userEvent.click(await canvas.findByRole('combobox', { name: 'Cosigner' }));
-    await userEvent.click(await canvas.findByRole('option', { name: 'My Vault' }));
+};
+
+export const CosignerChoiceWithExistingAddress: Story = {
+  beforeEach: () => {
+    const cleanup = useScenario();
+    scenario.myVault.data.createdVault = scenario.ownVault;
+    scenario.lock.status = BitcoinLockStatus.LockPendingFunding;
+    scenario.lock.fundedSatoshis = 0n;
+    scenario.locks.push(scenario.lock);
+    scenario.replaceUtxoRecords([]);
+    return cleanup;
   },
 };
 
@@ -468,6 +474,7 @@ export const __namedExportsOrder = [
   'CosignerInfo',
   'FormInMyVault',
   'FormWithCosignerChoice',
+  'CosignerChoiceWithExistingAddress',
   'ExpiredRequestedChannel',
   'CreateWithoutInsurance',
   'CreatedChannelSurvivesFinalizationHandoff',

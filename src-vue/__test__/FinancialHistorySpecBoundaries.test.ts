@@ -380,7 +380,6 @@ describe('financial history spec boundaries', () => {
       new Currency({ events: { on: vi.fn() } } as any),
       { blockWatch } as any,
       { defaultArgonAddress: accountId } as any,
-      {} as any,
     );
     const eventData = createHistoricalEventData(
       specVersion,
@@ -397,6 +396,7 @@ describe('financial history spec boundaries', () => {
     await argonBonds.importHistoryBlock(block as any, [
       { event, phase: { type: 'ApplyExtrinsic', value: 2 }, topics: [] },
     ]);
+    await argonBonds.publishRecoveredHistory();
 
     expect(await db.bondLotHistoryTable.fetchAll(accountId)).toEqual([
       expect.objectContaining({

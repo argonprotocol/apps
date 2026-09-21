@@ -2,6 +2,17 @@ import type { BondLot } from '@argonprotocol/apps-core';
 import { convertFromSqliteFields, toSqlParams } from '../Utils.ts';
 import { BaseTable, type IFieldTypes } from './BaseTable.ts';
 
+export interface IBondLotFlexibilityTransition {
+  isFlexible: boolean;
+  cumulativeEarningsMicrogons: bigint;
+  source: 'purchase' | 'flexibility-change' | 'release';
+  blockNumber: number;
+  blockHash: string;
+  blockTime: Date;
+  extrinsicIndex?: number;
+  eventIndex?: number;
+}
+
 export interface IBondLotHistoryRecord {
   id: number;
   accountId: string;
@@ -28,12 +39,15 @@ export interface IBondLotHistoryRecord {
   participatedFrames?: number;
   cumulativeEarningsMicrogons?: bigint;
   closingArgonotRateMicrogons?: bigint;
+  flexibilityHistory: IBondLotFlexibilityTransition[];
+  flexibilityHistoryComplete: boolean;
   createdAt: Date;
   updatedAt: Date;
 }
 
 export class BondLotHistoryTable extends BaseTable {
   private fields: IFieldTypes = {
+    boolean: ['flexibilityHistoryComplete'] satisfies (keyof IBondLotHistoryRecord)[],
     bigint: [
       'nativePrincipal',
       'entryArgonotRateMicrogons',
@@ -41,6 +55,7 @@ export class BondLotHistoryTable extends BaseTable {
       'closingArgonotRateMicrogons',
     ] satisfies (keyof IBondLotHistoryRecord)[],
     date: ['purchaseBlockTime', 'releaseBlockTime', 'createdAt', 'updatedAt'] satisfies (keyof IBondLotHistoryRecord)[],
+    json: ['flexibilityHistory'] satisfies (keyof IBondLotHistoryRecord)[],
   };
 
   public async fetchAll(accountId: string): Promise<IBondLotHistoryRecord[]> {
@@ -50,7 +65,101 @@ export class BondLotHistoryTable extends BaseTable {
        ORDER BY bondLotId`,
       toSqlParams([accountId]),
     );
-    return convertFromSqliteFields(records, this.fields);
+    const history = convertFromSqliteFields<IBondLotHistoryRecord[]>(records, this.fields);
+    for (const record of history) {
+      record.flexibilityHistory.sort(
+        (left, right) =>
+          left.blockNumber - right.blockNumber ||
+          (left.extrinsicIndex ?? -1) - (right.extrinsicIndex ?? -1) ||
+          (left.eventIndex ?? -1) - (right.eventIndex ?? -1),
+      );
+    }
+    return history;
+  }
+
+  public async recordFlexibility(lot: BondLot, transition: IBondLotFlexibilityTransition): Promise<void> {
+    const nativePrincipal = lot.principalMicrogons;
+    if (lot.programType !== 'Vault' || nativePrincipal === undefined || lot.vaultId === undefined) {
+      throw new Error(`Flexible bond lot ${lot.id} is not attached to a vault`);
+    }
+
+    await this.db.execute(
+      `INSERT INTO BondLotHistory (
+         accountId, programType, bondLotId, vaultId, nativeAsset, nativePrincipal, createdFrame,
+         firstObservedBlockNumber, firstObservedBlockHash, flexibilityHistory
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT(accountId, programType, bondLotId) DO UPDATE SET
+         flexibilityHistory = json_insert(BondLotHistory.flexibilityHistory, '$[#]', json(?)),
+         updatedAt = CURRENT_TIMESTAMP
+       WHERE NOT EXISTS (
+         SELECT 1 FROM json_each(BondLotHistory.flexibilityHistory)
+         WHERE json_extract(value, '$.blockHash') = ?
+           AND json_extract(value, '$.extrinsicIndex') IS ?
+           AND json_extract(value, '$.eventIndex') IS ?
+           AND json_extract(value, '$.source') = ?
+           AND json_extract(value, '$.isFlexible') = ?
+       )`,
+      toSqlParams([
+        lot.accountId,
+        lot.programType,
+        lot.id,
+        lot.vaultId,
+        lot.nativeAsset,
+        nativePrincipal,
+        lot.createdFrame,
+        transition.blockNumber,
+        transition.blockHash,
+        [transition],
+        transition,
+        transition.blockHash,
+        transition.extrinsicIndex,
+        transition.eventIndex,
+        transition.source,
+        transition.isFlexible,
+      ]),
+    );
+  }
+
+  public async confirmFlexibilityHistory(accountId: string, bondLotId?: number): Promise<void> {
+    await this.db.execute(
+      `UPDATE BondLotHistory SET flexibilityHistoryComplete = 1, updatedAt = CURRENT_TIMESTAMP
+       WHERE accountId = ? AND (? IS NULL OR bondLotId = ?)`,
+      toSqlParams([accountId, bondLotId, bondLotId]),
+    );
+  }
+
+  public async recordReleaseSchedule(args: { lot: BondLot; blockNumber: number; blockHash: string }): Promise<void> {
+    const { lot, blockNumber, blockHash } = args;
+    const nativePrincipal = lot.principalMicrogons ?? lot.principalMicronots;
+    if (nativePrincipal === undefined) return;
+
+    await this.db.execute(
+      `INSERT INTO BondLotHistory (
+         accountId, programType, bondLotId, vaultId, nativeAsset, nativePrincipal, createdFrame,
+         firstObservedBlockNumber, firstObservedBlockHash, releaseFrame, releaseReason,
+         participatedFrames, cumulativeEarningsMicrogons
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT(accountId, programType, bondLotId) DO UPDATE SET
+         releaseFrame = COALESCE(BondLotHistory.releaseFrame, excluded.releaseFrame),
+         releaseReason = COALESCE(BondLotHistory.releaseReason, excluded.releaseReason),
+         updatedAt = CURRENT_TIMESTAMP
+       WHERE BondLotHistory.releaseBlockNumber IS NULL`,
+      toSqlParams([
+        lot.accountId,
+        lot.programType,
+        lot.id,
+        lot.vaultId,
+        lot.nativeAsset,
+        nativePrincipal,
+        lot.createdFrame,
+        blockNumber,
+        blockHash,
+        lot.releaseFrame,
+        lot.releaseReason,
+        lot.participatedFrames,
+        lot.lifetimeEarnings,
+      ]),
+    );
   }
 
   public async recordObservation(args: {
@@ -104,6 +213,7 @@ export class BondLotHistoryTable extends BaseTable {
        ON CONFLICT(accountId, programType, bondLotId) DO UPDATE SET
          ${updateFields},
          updatedAt = CURRENT_TIMESTAMP
+       ${purchase ? '' : 'WHERE BondLotHistory.releaseBlockNumber IS NULL'}
       RETURNING *`,
       toSqlParams([
         lot.accountId,

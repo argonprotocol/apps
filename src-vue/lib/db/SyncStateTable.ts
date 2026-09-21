@@ -8,6 +8,7 @@ export enum SyncStateKeys {
   Wallet = 'Wallet',
   WalletHistory = 'WalletHistory',
   FinancialHistory = 'FinancialHistory',
+  BondHistory = 'BondHistory',
 }
 
 export type IFinancialHistoryDomain = 'bonds' | 'bitcoin' | 'vaulting';
@@ -45,6 +46,11 @@ export interface ISyncSchemas {
         }
       >
     >;
+  };
+  [SyncStateKeys.BondHistory]: {
+    accountId: string;
+    blockNumber: number;
+    blockHash: string;
   };
 }
 

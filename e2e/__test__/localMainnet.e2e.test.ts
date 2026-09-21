@@ -74,14 +74,15 @@ describe.skipIf(!hasMigrationArtifacts)('production-derived local mainnet upgrad
         });
         const expectedFissionIds = result.before.migratableBitcoinLockIds;
 
-        expect(result.before.latestMigration).toBeLessThan(33);
+        expect(result.before.latestMigration).toBeLessThan(34);
         expect(expectedFissionIds.length).toBeGreaterThan(0);
+        expect(result.before.migratableReleasedBitcoinLockIds.length).toBeGreaterThan(0);
         expect(result.afterMigration).toMatchObject({
-          latestMigration: 33,
+          latestMigration: 34,
           quickCheck: 'ok',
           walletIdentitySha256: result.before.walletIdentitySha256,
-          fundedBitcoinLockIds: expectedFissionIds,
-          fundingBitcoinUtxoIds: expectedFissionIds,
+          fundedBitcoinLockIds: result.before.migratableFundedBitcoinLockIds,
+          fundingBitcoinUtxoLockIds: expectedFissionIds,
           migratedBitcoinFissionIds: expectedFissionIds,
         });
         expect(result.afterRestart).toEqual(result.afterMigration);
@@ -95,16 +96,18 @@ describe.skipIf(!hasMigrationArtifacts)('production-derived local mainnet upgrad
           },
           FlowSession.start,
         );
-        const readonlyResult = await readOnlySession.run('App.flow.readOnly', {
+        const historyRecovery = await readOnlySession.recoverAccountHistory(deployment.candidateBlock.number);
+        await readOnlySession.run('App.flow.accountReview', {
           expectedDefaultArgonAddress: manifest.capturedDatabase.defaultArgonAccountId,
           expectedBitcoinLiquidIds: expectedFissionIds,
+          expectedArchivedBitcoinLiquidIds: result.before.migratableReleasedBitcoinLockIds,
           expectsConfiguredServer: result.before.readonlyAccount.configuredServer,
           expectsOperations: result.before.readonlyAccount.operations,
           expectsUpstream: result.before.readonlyAccount.upstream,
           expectsVault: result.before.readonlyAccount.vault,
-          historyThroughBlock: deployment.candidateBlock.number,
+          expectsBondFinancials: true,
         });
-        expect(readonlyResult.data.historyRecovery).toMatchObject({
+        expect(historyRecovery).toMatchObject({
           accountId: manifest.capturedDatabase.defaultArgonAccountId,
           throughBlock: deployment.candidateBlock.number,
           walletHistory: { asOfBlock: deployment.candidateBlock.number },

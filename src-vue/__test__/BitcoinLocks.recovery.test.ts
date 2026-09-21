@@ -1828,19 +1828,23 @@ describe('BitcoinLocks history replay publication', () => {
     });
   });
 
-  it('reconstructs a legacy operator ratchet coupon from event-time vault ownership', async () => {
+  it('reconstructs legacy operator securitization coupons from event-time vault ownership', async () => {
     const db = await createTestDb();
     const operatorAccount = encodeAddress(new Uint8Array(32).fill(0x44));
     const createdLock = {
       ...createHistoricalLock({ accountId: operatorAccount, liquidityPromised: 100n }),
-      securityFees: 0n,
+      securityFees: 4n,
       couponFeesPaid: 0n,
     };
-    const ratchetedLock = {
+    const increasedLock = {
       ...createdLock,
+      securityFees: 7n,
+    };
+    const ratchetedLock = {
+      ...increasedLock,
       lockedTargetPrice: 1_200n,
       liquidityPromised: 130n,
-      securityFees: 3n,
+      securityFees: 10n,
       // Older storage did not preserve the operator exemption as a coupon.
       couponFeesPaid: 0n,
     };
@@ -1855,7 +1859,7 @@ describe('BitcoinLocks history replay publication', () => {
     });
     const record = await db.bitcoinLocksTable.finalizePending({
       uuid: pending.uuid,
-      lock: createCurrentLock(BitcoinHistory.toBitcoinLockDetails(createdLock)),
+      lock: createCurrentLock(BitcoinHistory.toBitcoinLockDetails(ratchetedLock)),
     });
     record.status = BitcoinLockStatus.LockFunded;
     await db.bitcoinLocksTable.saveRecoveredHistory(record);
@@ -1864,7 +1868,7 @@ describe('BitcoinLocks history replay publication', () => {
       query: {
         bitcoinUtxos: { confirmedBitcoinBlockTip: async () => ({ blockHeight: 500n }) },
         vaults: {
-          vaultsById: async () => ({ operatorAccountId: { toString: () => operatorAccount } }),
+          vaultsById: async () => ({ operatorAccountId: { toString: () => 'historical-operator' } }),
         },
       },
     };
@@ -1876,10 +1880,19 @@ describe('BitcoinLocks history replay publication', () => {
     store.data.locksByLockId[7] = record;
     vi.mocked(BitcoinHistory.getHistoricalBitcoinLock)
       .mockResolvedValueOnce(createdLock)
+      .mockResolvedValueOnce(increasedLock)
       .mockResolvedValueOnce(ratchetedLock);
 
-    await store.recovery.beginHistoryReplay({ lockScope: 'all' });
+    await store.recovery.beginHistoryReplay({ lockScope: 'all', ownedVaultId: 1 });
     await store.recovery.recoverBlock({ ...historyBlock(157), tick: 500 }, [
+      historyEvent(157, 'vaults', 'FundsLocked', {
+        vaultId: 1,
+        locker: operatorAccount,
+        liquidityPromised: 100n,
+        isRatchet: false,
+        feeRevenue: 4n,
+        didUseFeeCoupon: false,
+      }),
       historyEvent(157, 'bitcoinLocks', 'BitcoinLockCreated', {
         utxoId: 7,
         vaultId: 1,
@@ -1895,7 +1908,23 @@ describe('BitcoinLocks history replay publication', () => {
         tip: 0n,
       }),
     ]);
+    await store.recovery.recoverBlock({ ...historyBlock(158), tick: 505 }, [
+      historyEvent(158, 'bitcoinLocks', 'SecuritizationIncreased', {
+        utxoId: 7,
+        vaultId: 1,
+        newSatoshis: increasedLock.securitizedSatoshis,
+        accountId: operatorAccount,
+      }),
+    ]);
     await store.recovery.recoverBlock({ ...historyBlock(157), blockNumber: 160, tick: 510 }, [
+      historyEvent(157, 'vaults', 'FundsLocked', {
+        vaultId: 1,
+        locker: operatorAccount,
+        liquidityPromised: 130n,
+        isRatchet: true,
+        feeRevenue: 3n,
+        didUseFeeCoupon: false,
+      }),
       historyEvent(157, 'bitcoinLocks', 'BitcoinLockRatcheted', {
         utxoId: 7,
         vaultId: 1,
@@ -1920,14 +1949,14 @@ describe('BitcoinLocks history replay publication', () => {
       asOfBlock: 160,
     });
 
-    expect(await db.bitcoinLocksTable.getByLockId(7)).toMatchObject({ securityFees: 0n, couponFeesPaid: 0n });
+    expect(await db.bitcoinLocksTable.getByLockId(7)).toMatchObject({ securityFees: 10n, couponFeesPaid: 0n });
     expect((await db.bitcoinSecuritizationHistoryTable.getPublishedSnapshot(operatorAccount))?.terms).toEqual([
       expect.objectContaining({ cumulativeNetSecurityFee: 0n, addedNetSecurityFee: 0n }),
     ]);
     expect(await db.bitcoinFissionsTable.fetchAll(operatorAccount)).toEqual([
       expect.objectContaining({
         ratchets: [
-          expect.objectContaining({ securityFee: 0n, txFee: 5n }),
+          expect.objectContaining({ securityFee: 7n, securityFeeCoupon: 7n, txFee: 5n }),
           expect.objectContaining({ securityFee: 3n, securityFeeCoupon: 3n, txFee: 7n }),
         ],
       }),

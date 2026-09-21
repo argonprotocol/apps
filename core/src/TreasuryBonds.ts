@@ -10,6 +10,7 @@ import BigNumber from 'bignumber.js';
 import { BondLot, type IBondLotSource } from './BondLot.js';
 import { MICRONOTS_PER_ARGONOT } from './Currency.js';
 import type { ArgonClient, ArgonQueryClient } from './MainchainClients.js';
+import type { RuntimeSystemEventRecord } from './BlockWatch.js';
 import type { Vault } from './Vault.js';
 
 const U32_MAX = 4_294_967_295n;
@@ -283,6 +284,62 @@ export class TreasuryBonds {
     });
   }
 
+  // A failed release could historically remove a Treasury hold before provider
+  // bookkeeping failed. Only a complete same-currency release group whose
+  // principal exactly matches the hold delta proves that this lot left custody.
+  public static async didFailedReleaseRemoveHold(args: {
+    accountId: string;
+    lot: BondLot;
+    events: readonly RuntimeSystemEventRecord[];
+    parentApi: ArgonQueryClient;
+    api: ArgonQueryClient;
+  }): Promise<boolean> {
+    const { accountId, lot, events, parentApi, api } = args;
+    const releases = events.flatMap(({ event }) =>
+      event.section === 'treasury' &&
+      (event.method === 'BondLotReleased' || event.method === 'CouldNotReleaseBondLot') &&
+      event.data.accountId === accountId
+        ? [event]
+        : [],
+    );
+    if (
+      events.some(
+        ({ event }) =>
+          event.section === 'treasury' && event.method === 'BondLotPurchased' && event.data.accountId === accountId,
+      )
+    ) {
+      return false;
+    }
+
+    let expectedPrincipal = 0n;
+    for (const release of releases) {
+      const stored = await parentApi.query.treasury.bondLotById(release.data.bondLotId);
+      if (!stored) return false;
+      const releasedLot = BondLot.fromRuntime(release.data.bondLotId, stored, accountId);
+      if (releasedLot.programType !== lot.programType) continue;
+      const principal = releasedLot.principalMicrogons ?? releasedLot.principalMicronots ?? 0n;
+      if (
+        releasedLot.accountId !== accountId ||
+        principal <= 0n ||
+        (release.method === 'CouldNotReleaseBondLot'
+          ? release.data.amount !== principal
+          : release.data.bonds !== releasedLot.bonds)
+      ) {
+        return false;
+      }
+      expectedPrincipal += principal;
+    }
+    if (expectedPrincipal <= 0n) return false;
+
+    const [priorHolds, currentHolds] =
+      lot.programType === 'Argonot'
+        ? await Promise.all([parentApi.query.ownership.holds(accountId), api.query.ownership.holds(accountId)])
+        : await Promise.all([parentApi.query.balances.holds(accountId), api.query.balances.holds(accountId)]);
+    const treasuryTotal = (holds: typeof priorHolds): bigint =>
+      holds.filter(hold => hold.id.type === 'Treasury').reduce((total, hold) => total + hold.amount, 0n);
+    return treasuryTotal(priorHolds) - treasuryTotal(currentHolds) === expectedPrincipal;
+  }
+
   public static async getCurrentFrameBondLots(client: ArgonQueryClient, vaultId: number, operatorAddress: string) {
     const bondLots: IFrameBondLot[] = [];
     const frameCapitalRaw = await client.query.treasury.currentFrameVaultCapital();
@@ -290,6 +347,7 @@ export class TreasuryBonds {
       return {
         bondLots,
         totalActiveBonds: 0,
+        flexibleBondsEligible: 0,
         distributedEarnings: 0n,
       };
     }
@@ -299,11 +357,15 @@ export class TreasuryBonds {
       return {
         bondLots,
         totalActiveBonds: 0,
+        flexibleBondsEligible: 0,
         distributedEarnings: 0n,
       };
     }
 
     const totalActiveBonds = vaultCapital.eligibleBonds;
+    let flexibleBondsEligible = 0;
+    if ('flexibleBondsEligible' in vaultCapital) flexibleBondsEligible = vaultCapital.flexibleBondsEligible;
+    else if ('backfillBondsEligible' in vaultCapital) flexibleBondsEligible = vaultCapital.backfillBondsEligible;
     const allocations =
       'regularBondAllocations' in vaultCapital ? vaultCapital.regularBondAllocations : vaultCapital.bondLotAllocations;
     const bondLotIds = allocations.map(allocation => Number(allocation.bondLotId));
@@ -331,6 +393,7 @@ export class TreasuryBonds {
     return {
       bondLots,
       totalActiveBonds,
+      flexibleBondsEligible,
       distributedEarnings: 0n,
     };
   }

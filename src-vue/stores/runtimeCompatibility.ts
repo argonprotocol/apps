@@ -13,7 +13,7 @@ export type RuntimeCompatibilityPhase =
   | 'upgrade-required'
   | 'browser-unsupported';
 
-type CompatibilityInfo = { maxSpecVersion?: number; newDownloadRequired?: boolean };
+type CompatibilityInfo = { maxSpecVersion?: number };
 type Unsubscribe = () => void | Promise<void>;
 type ClientType = 'archive' | 'pruned';
 
@@ -26,7 +26,6 @@ const UPDATE_CHECK_STALE_MILLIS = 60e3;
 export const useRuntimeCompatibility = defineStore('runtimeCompatibility', () => {
   const phase = Vue.ref<RuntimeCompatibilityPhase>('disabled');
   const errorMessage = Vue.ref('');
-  const newDownloadRequired = Vue.ref(false);
   const isLoading = Vue.computed(() => phase.value === 'loading');
   const isBrowserUnsupported = Vue.computed(() => phase.value === 'browser-unsupported');
   const shouldShowCompatibilityScreen = Vue.computed(
@@ -211,14 +210,7 @@ export const useRuntimeCompatibility = defineStore('runtimeCompatibility', () =>
         const version = await updater.ensureInstalledVersion();
         const compatibilityByVersion = await loadCompatibilityByVersion();
         const compatibility = compatibilityByVersion[version];
-        const newDownloadRequiredForVersion = compatibility?.newDownloadRequired === true;
-        newDownloadRequired.value = newDownloadRequiredForVersion;
         errorMessage.value = '';
-
-        if (newDownloadRequiredForVersion) {
-          phase.value = 'upgrade-required';
-          return;
-        }
 
         if (!observedSpecVersionByClient.archive) {
           await loadObservedSpecVersion('archive');
@@ -264,7 +256,6 @@ export const useRuntimeCompatibility = defineStore('runtimeCompatibility', () =>
   return {
     phase,
     errorMessage,
-    newDownloadRequired,
     isLoading,
     isBrowserUnsupported,
     shouldShowCompatibilityScreen,

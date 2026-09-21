@@ -13,6 +13,7 @@ import type BitcoinLocks from '../BitcoinLocks.ts';
 import type { Db } from '../Db.ts';
 import type { IBitcoinSecuritizationTerm } from '../../interfaces/IBitcoinSecuritizationTerm.ts';
 import { allocateBitcoinInsuranceCosts } from './BitcoinInsurance.ts';
+import { BitcoinLiquid } from '../BitcoinLiquid.ts';
 import {
   type ArgonApi,
   bigIntMax,
@@ -195,45 +196,40 @@ export function createBitcoinLiquidPositions(
       const summary = summariesByLockId.get(fission.lockId);
       const ratchets = fission.ratchets;
       const opening = ratchets[0];
-      const latest = ratchets.at(-1);
-      if (!summary || !opening || !latest || summary.satoshis <= 0n) {
+      if (!summary || !opening || summary.satoshis <= 0n) {
         hasCompleteReturn = false;
         continue;
       }
 
       const openingTarget = getFissionTargetValue(fission, opening.microgonsAtTargetPerBtc, opening.source);
-      const latestTarget = activeFissionIds.has(fission.fissionId)
-        ? getFissionTargetValue(fission, fission.microgonsAtTargetPerBtc, 'fission')
-        : getFissionTargetValue(fission, latest.microgonsAtTargetPerBtc, latest.source);
       startingCapital += openingTarget;
-      const minted = ratchets.reduce((total, ratchet) => total + ratchet.amountMinted, 0n);
-      const burned = ratchets.reduce((total, ratchet) => total + ratchet.amountBurned, 0n);
+      performanceBitcoinValue += openingTarget;
+
+      let minted = 0n;
+      let burned = 0n;
+      let historicalPending = 0n;
+      for (const ratchet of ratchets) {
+        minted += ratchet.amountMinted;
+        burned += ratchet.amountBurned;
+        historicalPending += ratchet.mintPending;
+      }
       const pending = activeFissionIds.has(fission.fissionId)
         ? fission.pendingMints.reduce((total, mint) => total + mint.remainingAmount, 0n)
-        : ratchets.reduce((total, ratchet) => total + ratchet.mintPending, 0n);
+        : historicalPending;
       pendingLiquidity += pending;
       receivedLiquidity += bigIntMax((minted || fission.liquidityPromised) - pending - burned, 0n);
 
       if (activeFissionIds.has(fission.fissionId)) {
-        performanceBitcoinValue += openingTarget;
-        recordedPrincipal += latestTarget;
+        recordedPrincipal += getFissionTargetValue(fission, fission.microgonsAtTargetPerBtc, 'fission');
         if (args.hasCurrentPrice && args.priceIndex) {
           repaymentAmount += fission.calculateRedemptionAmount(args.priceIndex);
         }
       } else {
-        const closingPrice =
-          fission.btcPriceAtCloseMicrogons ??
-          (fission.origin === 'lock-migration' || fission.closeReason === 'lock-spent'
-            ? summary.record.btcPriceAtRemovalMicrogons
-            : undefined);
-        const closingBitcoinValue = valueSatoshisAtRate(fission.satoshis, closingPrice);
-        if (closingBitcoinValue === undefined) {
+        if (fission.closeReason === 'lock-spent') {
+          // The Bitcoin spend proceeds are not recorded here, so fees and the
+          // original lock value cannot establish a complete Liquid return.
           hasCompleteReturn = false;
         } else {
-          performanceBitcoinValue += closingBitcoinValue;
-        }
-
-        if (fission.closeReason !== 'lock-spent') {
           if (fission.redemptionAmount != null) {
             recordedPrincipal += fission.redemptionAmount;
             repaymentAmount += fission.redemptionAmount;
@@ -243,20 +239,30 @@ export function createBitcoinLiquidPositions(
         }
       }
     }
+    performanceBitcoinValue += liquid.history.reduce(
+      (total, entry) => total + (entry.kind === 'ratchet' ? entry.liquidityUnlocked : 0n),
+      0n,
+    );
 
+    let financialLiquid = liquid;
     if (!isActive) {
-      if (liquid.closeTransactionFees !== undefined) {
-        transactionFees += liquid.closeTransactionFees;
+      let closeTransactionFees = liquid.closeTransactionFees;
+      if (closeTransactionFees !== undefined) {
+        transactionFees += closeTransactionFees;
       } else if (liquidFissions.length === 1 && liquidFissions[0].origin === 'lock-migration') {
         const summary = summariesByLockId.get(liquidFissions[0].lockId);
         if (summary?.historicalTransactionFees === undefined) {
           hasCompleteTransactionFees = false;
         } else {
           // Liquid history already includes the Fission fees; add only the release fees from the lock summary.
-          transactionFees += summary.historicalTransactionFees - summary.transactionFees;
+          closeTransactionFees = bigIntMax(summary.historicalTransactionFees - summary.transactionFees, 0n);
+          transactionFees += closeTransactionFees;
         }
       } else {
         hasCompleteTransactionFees = false;
+      }
+      if (closeTransactionFees !== undefined && liquid.closeTransactionFees === undefined) {
+        financialLiquid = new BitcoinLiquid({ ...liquid, closeTransactionFees });
       }
     }
 
@@ -295,7 +301,7 @@ export function createBitcoinLiquidPositions(
           label: `Bitcoin Liquid #${liquidId}`,
           lifecycle: isActive ? 'active' : 'completed',
           liquidId,
-          liquid,
+          liquid: financialLiquid,
           locks: uniqueLocks,
           ...(knownTransactionFees === undefined ? {} : { transactionFees: knownTransactionFees }),
           ...(insuranceCost === undefined ? {} : { insuranceCost, totalFees }),

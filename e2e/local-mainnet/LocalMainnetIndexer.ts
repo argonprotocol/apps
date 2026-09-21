@@ -3,9 +3,11 @@ import { constants, copyFileSync, existsSync, mkdirSync, readFileSync } from 'no
 import Path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { u8aToHex } from '@polkadot/util';
+import { ACCOUNT_ACTIVITY_DEFINITION_VERSION } from '@argonprotocol/apps-core';
 import { IndexerServer } from '../../indexer/src/IndexerServer.ts';
 import { delay } from '../../scripts/utils.ts';
-import type { RuntimeMigrationManifest } from './manifest.ts';
+import type { LocalMainnetManifest } from './manifest.ts';
+import type { ProducedBlock } from './LocalMainnetFork.ts';
 
 const INDEXER_DATABASE_FILE = 'mainnet-activity-v2.db';
 const WAIT_TIMEOUT_MS = 30_000;
@@ -14,6 +16,7 @@ export interface LocalMainnetIndexerFacts {
   checkpoint: {
     blockNumber: number;
     blockHash: string;
+    definitionVersion: number;
   };
   blocks: Array<{
     blockNumber: number;
@@ -28,7 +31,7 @@ export class LocalMainnetIndexer {
   private stopped = false;
 
   private constructor(
-    private readonly manifest: RuntimeMigrationManifest,
+    private readonly manifest: LocalMainnetManifest,
     private readonly databasePath: string,
     private readonly server: IndexerServer,
   ) {
@@ -36,13 +39,14 @@ export class LocalMainnetIndexer {
   }
 
   public static async start(args: {
-    manifest: RuntimeMigrationManifest;
+    manifest: LocalMainnetManifest;
     forkArchiveUrl: string;
     runDirectory: string;
+    expectedCheckpoint?: Pick<ProducedBlock, 'number' | 'hash'>;
   }): Promise<LocalMainnetIndexer> {
-    const { manifest, forkArchiveUrl, runDirectory } = args;
+    const { manifest, forkArchiveUrl, runDirectory, expectedCheckpoint } = args;
     if (!Path.isAbsolute(runDirectory)) {
-      throw new Error('Runtime migration indexer runDirectory must be an absolute path');
+      throw new Error('Local mainnet indexer runDirectory must be an absolute path');
     }
 
     LocalMainnetIndexer.verifySha256(manifest.indexer.databasePath, manifest.indexer.sha256);
@@ -58,13 +62,24 @@ export class LocalMainnetIndexer {
     }
 
     const initialFacts = LocalMainnetIndexer.inspectDatabase(databasePath, manifest.archive.blockNumber);
+    if (initialFacts.checkpoint.definitionVersion !== ACCOUNT_ACTIVITY_DEFINITION_VERSION) {
+      throw new Error(
+        `Local mainnet indexer seed uses activity definition ${initialFacts.checkpoint.definitionVersion}; ` +
+          `rebuild the seed with definition ${ACCOUNT_ACTIVITY_DEFINITION_VERSION} before starting the fork`,
+      );
+    }
     const anchor = initialFacts.blocks[0];
+    const checkpoint = expectedCheckpoint ?? {
+      number: manifest.indexer.blockNumber,
+      hash: manifest.indexer.blockHash,
+    };
     if (
-      initialFacts.checkpoint.blockNumber < manifest.indexer.blockNumber ||
+      initialFacts.checkpoint.blockNumber !== checkpoint.number ||
+      initialFacts.checkpoint.blockHash !== checkpoint.hash ||
       anchor?.blockNumber !== manifest.indexer.blockNumber ||
       anchor.blockHash !== manifest.indexer.blockHash
     ) {
-      throw new Error('Copied indexer database does not match the runtime migration manifest');
+      throw new Error('Copied indexer database does not match the local mainnet manifest');
     }
 
     const server = new IndexerServer({
@@ -81,20 +96,31 @@ export class LocalMainnetIndexer {
     return LocalMainnetIndexer.inspectDatabase(this.databasePath, this.manifest.archive.blockNumber);
   }
 
-  public async waitForBlock(blockNumber: number): Promise<void> {
+  public async waitForBlock(block: ProducedBlock): Promise<void> {
     const deadline = Date.now() + WAIT_TIMEOUT_MS;
     while (Date.now() < deadline) {
       const facts = this.inspect();
-      if (facts.checkpoint.blockNumber >= blockNumber) {
-        const response = await fetch(`${this.url}/v2/activity/${this.manifest.capturedDatabase.defaultArgonAccountId}`);
-        if (response.ok) {
-          const activity = (await response.json()) as { asOfBlock?: unknown };
-          if (activity.asOfBlock === facts.checkpoint.blockNumber) return;
+      const indexedBlock = facts.blocks.find(candidate => candidate.blockNumber === block.number);
+      if (
+        facts.checkpoint.blockNumber === block.number &&
+        facts.checkpoint.blockHash === block.hash &&
+        indexedBlock?.blockHash === block.hash
+      ) {
+        try {
+          const response = await fetch(`${this.url}/v2/activity/readiness`, {
+            signal: AbortSignal.timeout(Math.min(2_000, Math.max(1, deadline - Date.now()))),
+          });
+          if (response.ok) {
+            const activity = (await response.json()) as { asOfBlock?: unknown };
+            if (activity.asOfBlock === block.number) return;
+          }
+        } catch {
+          // The indexer can briefly refuse readiness requests while its database is opening.
         }
       }
       await delay(100);
     }
-    throw new Error(`Indexer did not commit block ${blockNumber} within ${WAIT_TIMEOUT_MS}ms`);
+    throw new Error(`Indexer did not commit block ${block.number} (${block.hash}) within ${WAIT_TIMEOUT_MS}ms`);
   }
 
   public async stop(): Promise<void> {
@@ -106,9 +132,9 @@ export class LocalMainnetIndexer {
   private static inspectDatabase(databasePath: string, firstBlock: number): LocalMainnetIndexerFacts {
     const database = new DatabaseSync(databasePath, { open: true, readOnly: true });
     try {
-      const sync = database.prepare(`SELECT blockNumber FROM SyncState WHERE id = 'accountActivity'`).get() as
-        | { blockNumber: number }
-        | undefined;
+      const sync = database
+        .prepare(`SELECT blockNumber, definitionVersion FROM SyncState WHERE id = 'accountActivity'`)
+        .get() as { blockNumber: number; definitionVersion: number } | undefined;
       if (!sync) throw new Error('Indexer database has no accountActivity checkpoint');
 
       const checkpoint = database
@@ -127,6 +153,7 @@ export class LocalMainnetIndexer {
         checkpoint: {
           blockNumber: checkpoint.blockNumber,
           blockHash: u8aToHex(checkpoint.blockHash),
+          definitionVersion: sync.definitionVersion,
         },
         blocks: blocks.map(block => ({
           blockNumber: block.blockNumber,
@@ -142,6 +169,6 @@ export class LocalMainnetIndexer {
 
   private static verifySha256(path: string, expected: string): void {
     const actual = createHash('sha256').update(readFileSync(path)).digest('hex');
-    if (actual !== expected) throw new Error(`Runtime migration artifact checksum mismatch at ${path}`);
+    if (actual !== expected) throw new Error(`Local mainnet artifact checksum mismatch at ${path}`);
   }
 }

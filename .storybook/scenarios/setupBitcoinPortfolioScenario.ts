@@ -49,6 +49,7 @@ export function setupBitcoinPortfolioScenario(
   options: {
     feeWaiver?: boolean;
     feeWaiverRefreshPending?: boolean;
+    upstreamOperatorProfilePending?: boolean;
     createLiquidError?: string;
     createLiquidAvailableVaultId?: number;
     createLiquidWithoutSecuritization?: boolean;
@@ -62,11 +63,17 @@ export function setupBitcoinPortfolioScenario(
     currentBitcoinPriceUsd?: number;
   } = {},
 ) {
+  let upstreamOperator: { name: string; vaultId: number } | undefined;
+  if (options.upstreamOperatorProfilePending) {
+    upstreamOperator = { name: 'Meridian Vault', vaultId: 12 };
+  } else if (options.feeWaiver) {
+    upstreamOperator = { name: 'Atlas Operator', vaultId: 7 };
+  }
   const { wallets } = setupAppScenario({
     selectedTab: TopTab.BitcoinLocks,
     config: {
       hasExtensionTreasury: true,
-      ...(options.feeWaiver ? { upstreamOperator: { name: 'Atlas Operator', vaultId: 7 } } : {}),
+      ...(upstreamOperator ? { upstreamOperator } : {}),
     },
   });
   const currentBitcoinPriceUsd = options.currentBitcoinPriceUsd ?? 68_000;
@@ -81,7 +88,7 @@ export function setupBitcoinPortfolioScenario(
   wallets.defaultArgonWallet.totalMicronots = 3_000_000n;
   Object.assign(getVaults().operatorNamesByVaultId, {
     7: 'Atlas Operator',
-    12: 'Meridian Vault',
+    ...(!options.upstreamOperatorProfilePending ? { 12: 'Meridian Vault' } : {}),
   });
 
   const liquidSummary = createSummary(9, BitcoinLockStatus.LockFunded, {
@@ -761,6 +768,7 @@ export function setupBitcoinPortfolioScenario(
           },
         ]),
       ),
+      liquidAllRecords: [...displayRecords, ...archived],
       bitcoinLockDisplayRecords: displayRecords,
       liquidInvisibleRecords: archived,
       activeBitcoinLockCount: 2,
@@ -841,6 +849,7 @@ export function setupBitcoinEmptyScenario(
     refreshCurrent: fn(async () => []),
   });
   Object.assign(useFinancials(), {
+    liquidAllRecords: walletLock ? [walletLock] : [],
     bitcoinLockDisplayRecords: walletLock ? [walletLock] : [],
     liquidInvisibleRecords: [],
     bitcoinLiquids: [],

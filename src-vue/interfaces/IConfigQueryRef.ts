@@ -9,6 +9,7 @@ export interface IConfigQueryRef
     | 'vaultingRules'
     | 'serverAdd'
     | 'upstreamOperator'
+    | 'hasExtensionTreasury'
     | 'hasExtensionOperations'
   > {
   showWelcomeOverlay: boolean;

@@ -198,6 +198,57 @@ it('attributes council votes to the signed source account without loading unrela
   }
 });
 
+it('attributes a flexibility change to the bond owner as well as the vault operator', async () => {
+  const directory = fs.mkdtempSync(Path.join(os.tmpdir(), 'activity-bond-owner-'));
+  const db = new IndexerDb(Path.join(directory, 'test.db'));
+  const vaultOperator = encodeAddress(new Uint8Array(32).fill(3));
+  const bondOwner = encodeAddress(new Uint8Array(32).fill(4));
+  db.recordBlocks([
+    {
+      blockNumber: 1,
+      blockHash: Uint8Array.of(1),
+      specVersion: 158,
+      systemEvents: Uint8Array.of(),
+      accounts: [],
+      vaults: [],
+      vaultOwners: [{ vaultId: 7, address: vaultOperator }],
+    },
+  ]);
+  const change = {
+    section: 'treasury',
+    method: 'BondLotFlexibilityChanged',
+    data: createHistoricalEventData(158, 'treasury', 'BondLotFlexibilityChanged', {
+      vaultId: 7,
+      bondLotId: 9,
+      isFlexible: true,
+    }),
+  } as GenericEvent;
+  const runtime = eventApi(158, new Map([['0x02', [appliedEvent(change, 0)]]]), ['0x02'], bondOwner);
+  const runtimeClient = activityClient({
+    latestBlock: 2,
+    specVersions: new Map([['0x02', 158]]),
+    apis: new Map([['0x02', runtime.api]]),
+  });
+  const readHeader = vi.spyOn(BlockWatch, 'readHeader').mockReturnValue(header(2));
+  const indexer = new AccountActivityIndexer(db);
+
+  try {
+    await indexer.start(runtimeClient.client);
+    await indexer.close({ drain: true });
+
+    expect(db.findAddressActivity(bondOwner, { activityMask: 1 << 5 })).toMatchObject([
+      { blockNumber: 2, activityMask: 1 << 5 },
+    ]);
+    expect(db.findAddressActivity(vaultOperator, { activityMask: 1 << 5 })).toMatchObject([
+      { blockNumber: 2, activityMask: 1 << 5 },
+    ]);
+  } finally {
+    readHeader.mockRestore();
+    db.close();
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});
+
 function appliedEvent(event: GenericEvent, extrinsicIndex: number): FrameSystemEventRecord {
   return {
     event,
@@ -209,6 +260,7 @@ function eventApi(
   specVersion: number,
   events: ReadonlyMap<string, FrameSystemEventRecord[]>,
   allowedRawEvents: string[],
+  bondLotOwner?: string,
 ): { api: ApiDecoration<'promise'>; createType: ReturnType<typeof vi.fn> } {
   const createType = vi.fn((_type: string, rawEvents: string) => {
     if (!allowedRawEvents.includes(rawEvents)) throw new Error(`Spec ${specVersion} cannot decode ${rawEvents}`);
@@ -217,6 +269,14 @@ function eventApi(
   const api = {
     runtimeVersion: { specVersion: numberCodec(specVersion) },
     registry: { createType },
+    query: {
+      treasury: {
+        bondLotById: vi.fn(async () => ({
+          isNone: !bondLotOwner,
+          unwrap: () => ({ owner: { toString: () => bondLotOwner } }),
+        })),
+      },
+    },
   } as unknown as ApiDecoration<'promise'>;
   return { api, createType };
 }
@@ -230,9 +290,10 @@ function activityClient(args: {
   const blockHash = (blockNumber: number) => ({
     toHex: () => `0x0${blockNumber}`,
   });
-  const at = vi.fn(async (hash: { toHex(): string }) => {
-    const api = args.apis.get(hash.toHex());
-    if (!api) throw new Error(`No event API for ${hash.toHex()}`);
+  const at = vi.fn(async (hash: { toHex(): string } | string) => {
+    const hashText = typeof hash === 'string' ? hash : hash.toHex();
+    const api = args.apis.get(hashText);
+    if (!api) throw new Error(`No event API for ${hashText}`);
     return api;
   });
   const getBlock = vi.fn(async (hash: string) => {

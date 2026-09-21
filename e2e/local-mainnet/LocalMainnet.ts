@@ -4,7 +4,7 @@ import { AppSession, type AppSessionOptions } from '../AppSession.ts';
 import type { AppLogsMode } from '../AppProcessOutput.ts';
 import { LocalMainnetFork, type ProducedBlock } from './LocalMainnetFork.ts';
 import { LocalMainnetIndexer, type LocalMainnetIndexerFacts } from './LocalMainnetIndexer.ts';
-import type { RuntimeMigrationManifest } from './manifest.ts';
+import type { LocalMainnetManifest } from './manifest.ts';
 
 export interface LocalMainnetDeployment {
   upgradeTransactionHash: string;
@@ -20,6 +20,8 @@ export interface LocalMainnetAppOptions {
   instanceName: string;
   appLogsMode?: AppLogsMode;
   sourceInstancePackagePath?: string;
+  autoEnableOperations?: boolean;
+  focusAppWindow?: boolean;
 }
 
 export class LocalMainnet {
@@ -31,7 +33,7 @@ export class LocalMainnet {
   private closed = false;
 
   private constructor(
-    private readonly manifest: RuntimeMigrationManifest,
+    private readonly manifest: LocalMainnetManifest,
     private readonly runDirectory: string,
     private readonly fork: LocalMainnetFork,
     private indexer: LocalMainnetIndexer,
@@ -41,7 +43,7 @@ export class LocalMainnet {
     this.deployedBlock = deployedBlock;
   }
 
-  public static async start(args: { manifest: RuntimeMigrationManifest; runDirectory: string }): Promise<LocalMainnet> {
+  public static async start(args: { manifest: LocalMainnetManifest; runDirectory: string }): Promise<LocalMainnet> {
     const { manifest, runDirectory } = args;
     if (!Path.isAbsolute(runDirectory)) {
       throw new Error('Local mainnet runDirectory must be an absolute path');
@@ -60,7 +62,7 @@ export class LocalMainnet {
         runDirectory: Path.join(runDirectory, 'indexer'),
       });
       const deployedBlock = await fork.produceBlock('deployed');
-      await indexer.waitForBlock(deployedBlock.number);
+      await indexer.waitForBlock(deployedBlock);
       return new LocalMainnet(manifest, runDirectory, fork, indexer, deployedBlock);
     } catch (error) {
       await indexer?.stop().catch(() => undefined);
@@ -85,7 +87,14 @@ export class LocalMainnet {
   ): Promise<AppSession> {
     if (this.closed) throw new Error('Local mainnet is closed');
     if (this.activeApp) throw new Error('Close or deploy the active app before launching another Apps checkout');
-    const { appsDirectory, instanceName, appLogsMode = 'inherit', sourceInstancePackagePath } = options;
+    const {
+      appsDirectory,
+      instanceName,
+      appLogsMode = 'inherit',
+      sourceInstancePackagePath,
+      autoEnableOperations,
+      focusAppWindow,
+    } = options;
     const canonicalAppsDirectory = realpathSync(appsDirectory);
     if (
       !statSync(canonicalAppsDirectory).isDirectory() ||
@@ -121,6 +130,8 @@ export class LocalMainnet {
         sessionMode: 'stateful',
         useTestNetwork: false,
         appLogsMode,
+        autoEnableOperations,
+        focusAppWindow,
         appEnv: {
           ARGON_NETWORK_NAME: this.manifest.network,
           ARGON_NETWORK_CONFIG_OVERRIDE: JSON.stringify({
@@ -149,9 +160,11 @@ export class LocalMainnet {
   public async closeApp(): Promise<void> {
     if (!this.activeApp) return;
     const app = this.activeApp;
-    await app.checkpointDatabase();
-    await app.close();
+    const errors: unknown[] = [];
+    await app.checkpointDatabase().catch(error => errors.push(error));
+    await app.close().catch(error => errors.push(error));
     this.activeApp = undefined;
+    if (errors.length) throw new AggregateError(errors, 'Failed to checkpoint or close the app');
   }
 
   public async deployRuntime(wasm: Uint8Array): Promise<LocalMainnetDeployment> {
@@ -180,7 +193,7 @@ export class LocalMainnet {
     const upgradeBlock = await this.fork.produceBlock('upgrade');
     const migrationBlock = await this.fork.produceBlock('migration');
     const candidateBlock = await this.fork.produceBlock('candidate');
-    await this.indexer.waitForBlock(candidateBlock.number);
+    await this.indexer.waitForBlock(candidateBlock);
 
     this.deployment = {
       upgradeTransactionHash,
@@ -197,13 +210,14 @@ export class LocalMainnet {
 
   private async restartIndexer(): Promise<void> {
     if (this.closed) throw new Error('Local mainnet is closed');
+    const latestBlock = this.deployment?.candidateBlock ?? this.deployedBlock;
     await this.indexer.stop();
     this.indexer = await LocalMainnetIndexer.start({
       manifest: this.manifest,
       forkArchiveUrl: this.fork.archiveUrl,
       runDirectory: Path.join(this.runDirectory, 'indexer'),
+      expectedCheckpoint: latestBlock,
     });
-    const latestBlock = this.deployment?.candidateBlock.number ?? this.deployedBlock.number;
     await this.indexer.waitForBlock(latestBlock);
   }
 

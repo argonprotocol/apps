@@ -20,7 +20,9 @@ const DEFAULT_ETHEREUM_HD_PREFIXES = {
   mintingAuthority: "m/44'/60'/2'/0'",
 } as const;
 
-type RuntimeOperationalAccount = NonNullable<HistoricalQueryRecord<'operationalAccounts', 'operationalAccounts'>>;
+export type RuntimeOperationalAccount = NonNullable<
+  HistoricalQueryRecord<'operationalAccounts', 'operationalAccounts'>
+>;
 
 export type ReadonlyAccountLookup = { operatorName: string } | { defaultAccountId: string };
 
@@ -43,7 +45,7 @@ export async function resolveReadonlyAccount(
   const entries = (await client.query.operationalAccounts.operationalAccounts.entries()) ?? [];
   const matches = entries.flatMap(([key, profile]) => {
     if (!profile || readOperatorName(profile) !== operatorName) return [];
-    return [createReadonlyIdentity(String(key.args[0]), profile)];
+    return [readReadonlyAccountIdentity(String(key.args[0]), profile)];
   });
 
   if (!matches.length) {
@@ -133,7 +135,7 @@ async function resolveByDefaultAccount(
     throw new Error(`Operational account ${operationalAccountId} has no profile.`);
   }
 
-  const identity = createReadonlyIdentity(operationalAccountId, profile);
+  const identity = readReadonlyAccountIdentity(operationalAccountId, profile);
   if (identity.defaultAccountId !== defaultAccountId) {
     const label = identity.operatorName || identity.operationalAccountId;
     throw new Error(
@@ -143,7 +145,7 @@ async function resolveByDefaultAccount(
   return identity;
 }
 
-function createReadonlyIdentity(
+export function readReadonlyAccountIdentity(
   operationalAccountId: string,
   profile: RuntimeOperationalAccount,
 ): ReadonlyAccountIdentity {

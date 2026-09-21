@@ -37,6 +37,7 @@ import {
   createHistoricalBitcoinLockRecord,
   type BitcoinHistoryReplayLockScope,
   type BitcoinHistoryReplaySession,
+  type IHistoricalBitcoinLiquidClose,
   type IHistoricalBitcoinLockRecord,
 } from './BitcoinLockReplay.ts';
 import { assignIfUnset } from '../Utils.ts';
@@ -143,9 +144,11 @@ export class BitcoinLockRecovery {
   public async beginHistoryReplay({
     lockScope = 'encountered',
     purpose = 'operational-repair',
+    ownedVaultId,
   }: {
     lockScope?: BitcoinHistoryReplayLockScope;
     purpose?: BitcoinHistoryReplaySession['purpose'];
+    ownedVaultId?: number;
   } = {}): Promise<void> {
     if (this.historyReplay) throw new Error('Bitcoin lock history replay is already running');
     const existingSecuritizationTerms =
@@ -165,6 +168,7 @@ export class BitcoinLockRecovery {
 
     this.historyReplay = {
       purpose,
+      ownedVaultId,
       activeLockIds: new Set([
         ...Object.values(this.locksByLockId).flatMap(lock =>
           lock.lockId !== undefined && !this.isRetiredHistoryRecord(lock) ? [lock.lockId] : [],
@@ -175,7 +179,7 @@ export class BitcoinLockRecovery {
       locksByLockId: {},
       utxos: new BitcoinHistoryUtxoState(),
       releasesById: {},
-      historicalLiquidRedemptionByUtxoId: new Map(),
+      historicalLiquidCloseByUtxoId: new Map(),
       lockScope,
       hdKeys: new Map(),
       dirtyLockIds: new Set(),
@@ -211,6 +215,8 @@ export class BitcoinLockRecovery {
             burned: ratchet.amountBurned,
             blockHeight: ratchet.blockNumber,
             tick: ratchet.tick,
+            blockHash: ratchet.blockHash,
+            blockTime: ratchet.blockTime,
             extrinsicIndex: ratchet.extrinsicIndex,
             oracleBitcoinBlockHeight: 0,
           }));
@@ -256,7 +262,7 @@ export class BitcoinLockRecovery {
     failuresByLockId: Map<number, string>;
     hasUnscopedFailure: boolean;
     lockIdByHistoricalUtxoId: ReadonlyMap<number, number>;
-    historicalLiquidRedemptionByUtxoId: ReadonlyMap<number, bigint>;
+    historicalLiquidCloseByUtxoId: ReadonlyMap<number, IHistoricalBitcoinLiquidClose>;
   }> {
     const replay = this.historyReplay;
     if (!replay) {
@@ -266,7 +272,7 @@ export class BitcoinLockRecovery {
         failuresByLockId: new Map(),
         hasUnscopedFailure: false,
         lockIdByHistoricalUtxoId: new Map(),
-        historicalLiquidRedemptionByUtxoId: new Map(),
+        historicalLiquidCloseByUtxoId: new Map(),
       };
     }
 
@@ -323,11 +329,59 @@ export class BitcoinLockRecovery {
       }
     }
 
-    return {
-      records: locks.filter(lock => {
-        const lockId = replay.lockIdByHistoricalUtxoId.get(lock.utxoId);
-        return lockId !== undefined && !replay.failedLockIds.has(lockId);
+    const removalBlocks = new Map<string, Promise<IBlockHeaderInfo>>();
+    const records = await Promise.all(
+      locks.map(async lock => {
+        if (
+          lock.removalBlockNumber == null ||
+          lock.removalTick != null ||
+          (lock.removalReason !== 'released' && lock.removalReason !== 'spent') ||
+          !lock.ratchets.some(ratchet => ratchet.mintAmount > 0n)
+        ) {
+          return lock;
+        }
+
+        const blockReference = lock.removalBlockHash
+          ? { blockNumber: lock.removalBlockNumber, blockHash: lock.removalBlockHash }
+          : lock.removalBlockNumber;
+        const blockKey = `${lock.removalBlockNumber}:${lock.removalBlockHash ?? ''}`;
+        let blockPromise = removalBlocks.get(blockKey);
+        if (!blockPromise) {
+          blockPromise = this.blockWatch.withBackgroundArchiveRead(() => this.blockWatch.getHeader(blockReference));
+          removalBlocks.set(blockKey, blockPromise);
+        }
+        return { ...lock, removalTick: (await blockPromise).tick };
       }),
+    );
+
+    const preparedRecords = records.filter(lock => {
+      const lockId = replay.lockIdByHistoricalUtxoId.get(lock.utxoId);
+      return lockId !== undefined && !replay.failedLockIds.has(lockId);
+    });
+    const latestRecoveredReleaseByLockId = new Map<number, IBitcoinReleaseRecord>();
+    for (const release of Object.values(replay.releasesById)) {
+      if (release.kind !== BitcoinReleaseKind.Lock || release.lockId === undefined) continue;
+      const latest = latestRecoveredReleaseByLockId.get(release.lockId);
+      if (!latest || release.createdAt > latest.createdAt) latestRecoveredReleaseByLockId.set(release.lockId, release);
+    }
+
+    for (const lock of preparedRecords) {
+      if (lock.removalReason !== 'released') continue;
+
+      const close = replay.historicalLiquidCloseByUtxoId.get(lock.utxoId);
+      if (close?.closeTxFee !== undefined) continue;
+
+      const lockId = replay.lockIdByHistoricalUtxoId.get(lock.utxoId)!;
+      const recoveredFee = latestRecoveredReleaseByLockId.get(lockId)?.argonTxFeeMicrogons;
+      const transactionFee =
+        recoveredFee ?? this.releases.getLatestForLock(this.toDurableRecord(lock, lockId))?.argonTxFeeMicrogons;
+      if (transactionFee !== undefined) {
+        replay.historicalLiquidCloseByUtxoId.set(lock.utxoId, { ...close, closeTxFee: transactionFee });
+      }
+    }
+
+    return {
+      records: preparedRecords,
       unitLockIds: new Set([
         ...replay.dirtyLockIds,
         ...replay.utxos.records.map(utxo => utxo.lockId),
@@ -336,7 +390,7 @@ export class BitcoinLockRecovery {
       failuresByLockId,
       hasUnscopedFailure: replay.hasUnscopedFailure,
       lockIdByHistoricalUtxoId: replay.lockIdByHistoricalUtxoId,
-      historicalLiquidRedemptionByUtxoId: replay.historicalLiquidRedemptionByUtxoId,
+      historicalLiquidCloseByUtxoId: replay.historicalLiquidCloseByUtxoId,
     };
   }
 
@@ -554,6 +608,8 @@ export class BitcoinLockRecovery {
           txFee: transactionFee,
           oracleBitcoinBlockHeight: chainLock.createdAtHeight,
           tick: block.tick,
+          blockHash: block.blockHash,
+          blockTime: new Date(block.blockTime),
           extrinsicIndex,
         };
 
@@ -581,6 +637,8 @@ export class BitcoinLockRecovery {
                   ? []
                   : existing.ratchets.filter(ratchet => ratchet.blockHeight > block.blockNumber);
               recovered.ratchets = [creationEventRatchet, ...laterRatchets];
+              recovered.securityFees = recoveredChainLock.securityFees;
+              recovered.couponFeesPaid = securityFeeCoupon;
               this.assertSafePendingMint(recovered);
               await this.saveRecoveredHistory(table, recovered, new Date(block.blockTime));
               this.applyRecoveredRecord(recovered);
@@ -592,7 +650,11 @@ export class BitcoinLockRecovery {
               creationRatchet.lockedTargetPrice !== creationTargetPrice ||
               creationRatchet.mintPending !== creationRatchet.mintAmount ||
               creationRatchet.extrinsicIndex !== extrinsicIndex ||
+              creationRatchet.securityFee !== recoveredChainLock.securityFees ||
+              creationRatchet.securityFeeCoupon !== securityFeeCoupon ||
+              creationRatchet.txFee !== transactionFee ||
               existing.createdAt.getTime() !== block.blockTime ||
+              existing.securityFees !== recoveredChainLock.securityFees ||
               existing.couponFeesPaid !== securityFeeCoupon
             ) {
               const recovered = this.createDetachedRecord(existing);
@@ -601,11 +663,17 @@ export class BitcoinLockRecovery {
                 mintAmount: creationLiquidity,
                 mintPending: creationLiquidity,
                 lockedTargetPrice: creationTargetPrice,
+                securityFee: recoveredChainLock.securityFees,
+                securityFeeCoupon,
+                txFee: transactionFee,
                 tick: block.tick,
+                blockHash: block.blockHash,
+                blockTime: new Date(block.blockTime),
                 extrinsicIndex,
               };
               // The active-lock fallback stores current liquidity here; the creation event restores the real baseline.
               delete recovered.ratchets[creationRatchetIndex].liquidityPromised;
+              recovered.securityFees = recoveredChainLock.securityFees;
               recovered.couponFeesPaid = securityFeeCoupon;
               await this.saveRecoveredHistory(table, recovered, new Date(block.blockTime));
               this.applyRecoveredRecord(recovered);
@@ -627,6 +695,7 @@ export class BitcoinLockRecovery {
         recovered.satoshis = recoveredChainLock.securitizedSatoshis;
         recovered.liquidityPromised = recoveredChainLock.liquidityPromised;
         recovered.lockedTargetPrice = recoveredChainLock.lockedTargetPrice;
+        recovered.securityFees = recoveredChainLock.securityFees;
         recovered.couponFeesPaid = securityFeeCoupon;
         recovered.ratchets = [creationEventRatchet];
         this.assertSafePendingMint(recovered);
@@ -817,8 +886,11 @@ export class BitcoinLockRecovery {
         }
         const recovered = this.createDetachedRecord(record);
         const releaseArgonTxFeeMicrogons = this.readTransactionFee(eventRecords, eventIndex);
-        if (releaseRequest.liquidRedemptionAmount !== undefined) {
-          replay.historicalLiquidRedemptionByUtxoId.set(utxoId, releaseRequest.liquidRedemptionAmount);
+        if (releaseRequest.liquidRedemptionAmount !== undefined || releaseArgonTxFeeMicrogons !== undefined) {
+          replay.historicalLiquidCloseByUtxoId.set(utxoId, {
+            redemptionAmount: releaseRequest.liquidRedemptionAmount,
+            closeTxFee: releaseArgonTxFeeMicrogons,
+          });
         }
         let fundingUtxos = this.getRecoveredFundingUtxos(recovered);
         if (!fundingUtxos.length) {
@@ -869,6 +941,7 @@ export class BitcoinLockRecovery {
               removalBlockNumber: block.blockNumber,
               removalBlockHash: block.blockHash,
               removalBlockTime: new Date(block.blockTime),
+              removalTick: block.tick,
               removalExtrinsicIndex: phase.type === 'ApplyExtrinsic' ? phase.value : undefined,
               btcPriceAtRemovalMicrogons: rates.BTC,
             };
@@ -876,6 +949,7 @@ export class BitcoinLockRecovery {
               'removalBlockNumber',
               'removalBlockHash',
               'removalBlockTime',
+              'removalTick',
               'removalExtrinsicIndex',
               'btcPriceAtRemovalMicrogons',
             ]);
@@ -988,6 +1062,7 @@ export class BitcoinLockRecovery {
             removalBlockNumber: block.blockNumber,
             removalBlockHash: block.blockHash,
             removalBlockTime: new Date(block.blockTime),
+            removalTick: block.tick,
             removalExtrinsicIndex: phase.type === 'ApplyExtrinsic' ? phase.value : undefined,
             removalReason,
             btcPriceAtRemovalMicrogons: rates.BTC,
@@ -995,11 +1070,11 @@ export class BitcoinLockRecovery {
           if (!recovered.removalReason || recovered.removalReason === removal.removalReason) {
             recovered.status = status;
           }
-          recovered.removalTick ??= block.tick;
           assignIfUnset(recovered, removal, [
             'removalBlockNumber',
             'removalBlockHash',
             'removalBlockTime',
+            'removalTick',
             'removalExtrinsicIndex',
             'removalReason',
             'btcPriceAtRemovalMicrogons',
@@ -1300,6 +1375,8 @@ export class BitcoinLockRecovery {
       burned,
       blockHeight: block.blockNumber,
       tick: block.tick,
+      blockHash: block.blockHash,
+      blockTime: new Date(block.blockTime),
       extrinsicIndex,
       oracleBitcoinBlockHeight: Number(tip?.blockHeight ?? 0n),
     };
@@ -1888,14 +1965,16 @@ export class BitcoinLockRecovery {
     recordedCoupon: bigint;
   }): Promise<bigint> {
     const { api, records, eventIndex, vaultId, grossFee, recordedCoupon } = args;
+    if (this.historyReplay?.ownedVaultId === vaultId) return grossFee;
+
     const precedingEvent = records[eventIndex - 1]?.event;
     if (
       precedingEvent?.section === 'vaults' &&
       precedingEvent.method === 'FundsLocked' &&
       precedingEvent.data.vaultId === vaultId &&
-      precedingEvent.data.didUseFeeCoupon !== undefined
+      precedingEvent.data.didUseFeeCoupon === true
     ) {
-      return precedingEvent.data.didUseFeeCoupon ? grossFee : recordedCoupon;
+      return grossFee;
     }
 
     const feePayer = this.readTransactionPayer(records, eventIndex);

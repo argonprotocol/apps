@@ -266,6 +266,19 @@ describe('getBitcoinAlertNotices', () => {
     ).toEqual([]);
   });
 
+  it('keeps valid Bitcoin alerts when an old pending lock has no funding deadline', () => {
+    const now = Date.now();
+    const alerts = getBitcoinAlertNotices(
+      bitcoinSource({
+        locks: [lock(2, { securitizationHoldExpirationBitcoinHeight: undefined }), lock(3)],
+        fundingDeadlines: { 3: now + BITCOIN_BLOCK_MILLIS },
+      }),
+      now,
+    );
+
+    expect(alerts.map(alert => [alert.kind, alert.lock.lockId])).toEqual([['securitizationHoldExpiring', 3]]);
+  });
+
   it('sorts attention alerts by severity and urgency', () => {
     const now = Date.now();
     const nearUnlockDeadline = now + 10 * NetworkConfig.rewardTicksPerFrame * TICK_MILLIS - 1;
@@ -396,7 +409,15 @@ function bitcoinSource(args: {
         args.releaseStates?.[lock.lockId ?? 0] ?? { isReleaseStatus: false },
       isLockFunded: (lock: IBitcoinLockRecord) => lock.status === BitcoinLockStatus.LockFunded,
       unlockDeadlineTime: (lock: IBitcoinLockRecord) => args.unlockDeadlines?.[lock.lockId ?? 0] ?? 0,
-      getSecuritizationHoldExpirationTime: (lock: IBitcoinLockRecord) => args.fundingDeadlines?.[lock.lockId ?? 0] ?? 0,
+      getSecuritizationHoldExpirationTime: (lock: IBitcoinLockRecord) => {
+        if (
+          lock.scriptDetails?.createdAtHeight === undefined ||
+          lock.securitizationHoldExpirationBitcoinHeight === undefined
+        ) {
+          throw new Error('Bitcoin lock funding terms are unavailable.');
+        }
+        return args.fundingDeadlines?.[lock.lockId ?? 0] ?? 0;
+      },
     }),
   );
   return source;
@@ -406,6 +427,8 @@ function lock(lockId: number, overrides: Partial<IBitcoinLockRecord> = {}): IBit
   return {
     lockId,
     status: BitcoinLockStatus.LockPendingFunding,
+    scriptDetails: { createdAtHeight: 1 } as IBitcoinLockRecord['scriptDetails'],
+    securitizationHoldExpirationBitcoinHeight: 13,
     createdAt: new Date(`2026-01-${String(lockId).padStart(2, '0')}T00:00:00Z`),
     ...overrides,
   } as IBitcoinLockRecord;

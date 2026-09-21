@@ -9,5 +9,10 @@
       "icons-desktop/local/mainnet/icon.icns",
       "icons-desktop/local/mainnet/icon.ico"
     ]
+  },
+  "app": {
+    "security": {
+      "capabilities": ["default", "dev"]
+    }
   }
 }

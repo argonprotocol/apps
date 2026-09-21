@@ -5,11 +5,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { expect, it } from 'vitest';
 import { encodeAddress } from '@argonprotocol/mainchain';
 import { AccountActivityKind } from '../src/AccountActivity.ts';
-import {
-  IncompatibleAccountActivityDatabaseError,
-  IndexerDb,
-  upgradeAccountActivitySeedFromV2,
-} from '../src/IndexerDb.ts';
+import { IncompatibleAccountActivityDatabaseError, IndexerDb } from '../src/IndexerDb.ts';
 
 const alice = encodeAddress(new Uint8Array(32).fill(1));
 
@@ -221,7 +217,7 @@ it('refuses to resume an existing index with a different activity definition', (
   }
 });
 
-it('replays spec 158 while preserving the owner indexes needed to attribute it', () => {
+it('replays only blocks from the first bond-flexibility runtime when upgrading definition 3', () => {
   const directory = fs.mkdtempSync(Path.join(os.tmpdir(), 'account-activity-'));
   const databasePath = Path.join(directory, 'test.db');
   const db = new IndexerDb(databasePath);
@@ -230,59 +226,115 @@ it('replays spec 158 while preserving the owner indexes needed to attribute it',
     {
       blockNumber: 1,
       blockHash: Uint8Array.of(1),
-      specVersion: 157,
+      specVersion: 156,
       systemEvents: Uint8Array.of(),
-      accounts: [],
+      accounts: [{ address: alice, mask: AccountActivityKind.Transfer }],
       vaults: [],
       vaultOwners: [{ vaultId: 7, address: alice }],
-      bitcoinLocks: [],
-      bitcoinLockOwners: [{ utxoId: 9, address: alice }],
     },
     {
       blockNumber: 2,
       blockHash: Uint8Array.of(2),
-      specVersion: 158,
+      specVersion: 157,
       systemEvents: Uint8Array.of(),
       accounts: [],
-      vaults: [{ vaultId: 7, mask: AccountActivityKind.VaultPosition }],
+      vaults: [],
       vaultOwners: [],
-      bitcoinLocks: [{ utxoId: 9, mask: AccountActivityKind.BitcoinLock }],
-      bitcoinLockOwners: [],
+    },
+    {
+      blockNumber: 3,
+      blockHash: Uint8Array.of(3),
+      specVersion: 159,
+      systemEvents: Uint8Array.of(),
+      accounts: [{ address: alice, mask: AccountActivityKind.Transfer }],
+      vaults: [],
+      vaultOwners: [],
     },
   ]);
   db.close();
 
   const oldSeed = new DatabaseSync(databasePath);
-  oldSeed.prepare(`UPDATE SyncState SET definitionVersion = 2 WHERE id = 'accountActivity'`).run();
+  oldSeed.exec('DROP INDEX AccountBlocksByBlock');
+  oldSeed.prepare(`UPDATE SyncState SET definitionVersion = 3 WHERE id = 'accountActivity'`).run();
   oldSeed.close();
 
-  upgradeAccountActivitySeedFromV2(databasePath);
-
-  const replayed = new IndexerDb(databasePath);
   try {
-    expect(replayed.latestSyncedBlock).toBe(1);
-    replayed.recordBlocks([
+    const upgraded = new IndexerDb(databasePath);
+    expect(upgraded.latestSyncedBlock).toBe(1);
+    expect(upgraded.findAddressActivity(alice)).toMatchObject([
+      { blockNumber: 1, activityMask: AccountActivityKind.Transfer },
+    ]);
+    const inspection = new DatabaseSync(databasePath);
+    const deletionPlan = inspection.prepare('EXPLAIN QUERY PLAN DELETE FROM Blocks WHERE blockNumber >= ?').all(2) as {
+      detail: string;
+    }[];
+    expect(deletionPlan.some(step => step.detail.includes('AccountBlocksByBlock'))).toBe(true);
+    inspection.close();
+    upgraded.recordBlocks([
       {
         blockNumber: 2,
         blockHash: Uint8Array.of(2),
-        specVersion: 158,
+        specVersion: 157,
         systemEvents: Uint8Array.of(),
-        accounts: [],
-        vaults: [{ vaultId: 7, mask: AccountActivityKind.VaultPosition }],
+        accounts: [{ address: alice, mask: AccountActivityKind.BondPosition }],
+        vaults: [{ vaultId: 7, mask: AccountActivityKind.VaultRevenue }],
         vaultOwners: [],
-        bitcoinLocks: [{ utxoId: 9, mask: AccountActivityKind.BitcoinLock }],
-        bitcoinLockOwners: [],
       },
-    ]);
-
-    expect(replayed.findAddressActivity(alice)).toMatchObject([
       {
-        blockNumber: 2,
-        activityMask: AccountActivityKind.VaultPosition | AccountActivityKind.BitcoinLock,
+        blockNumber: 3,
+        blockHash: Uint8Array.of(3),
+        specVersion: 159,
+        systemEvents: Uint8Array.of(),
+        accounts: [{ address: alice, mask: AccountActivityKind.Transfer }],
+        vaults: [],
+        vaultOwners: [],
       },
     ]);
+    expect(upgraded.latestSyncedBlock).toBe(3);
+    upgraded.close();
+
+    const restarted = new IndexerDb(databasePath);
+    expect(restarted.latestSyncedBlock).toBe(3);
+    expect(restarted.findAddressActivity(alice)).toMatchObject([
+      { blockNumber: 1, activityMask: AccountActivityKind.Transfer },
+      { blockNumber: 2, activityMask: AccountActivityKind.BondPosition | AccountActivityKind.VaultRevenue },
+      { blockNumber: 3, activityMask: AccountActivityKind.Transfer },
+    ]);
+    restarted.close();
   } finally {
-    replayed.close();
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+it('keeps the existing checkpoint when definition 3 has no spec-157 blocks', () => {
+  const directory = fs.mkdtempSync(Path.join(os.tmpdir(), 'account-activity-'));
+  const databasePath = Path.join(directory, 'test.db');
+  const db = new IndexerDb(databasePath);
+  db.recordBlocks([
+    {
+      blockNumber: 1,
+      blockHash: Uint8Array.of(1),
+      specVersion: 156,
+      systemEvents: Uint8Array.of(),
+      accounts: [{ address: alice, mask: AccountActivityKind.Transfer }],
+      vaults: [],
+      vaultOwners: [],
+    },
+  ]);
+  db.close();
+
+  const oldSeed = new DatabaseSync(databasePath);
+  oldSeed.prepare(`UPDATE SyncState SET definitionVersion = 3 WHERE id = 'accountActivity'`).run();
+  oldSeed.close();
+
+  try {
+    const upgraded = new IndexerDb(databasePath);
+    expect(upgraded.latestSyncedBlock).toBe(1);
+    expect(upgraded.findAddressActivity(alice)).toMatchObject([
+      { blockNumber: 1, activityMask: AccountActivityKind.Transfer },
+    ]);
+    upgraded.close();
+  } finally {
     fs.rmSync(directory, { recursive: true, force: true });
   }
 });

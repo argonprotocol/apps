@@ -186,31 +186,53 @@ export class AccountActivityIndexer {
         );
       }),
     );
-    const blocks = blockNumbers.slice(0, blockCount).map((blockNumber, index) => {
-      const eventGroups = groupEventsByExtrinsic(eventsByBlock[index]).map(group => {
-        if (group.extrinsicIndex === undefined) return group;
+    const blocks: IAccountActivityBlock[] = [];
+    for (let start = 0; start < blockCount; start += 50) {
+      const decoded = await Promise.all(
+        blockNumbers.slice(start, Math.min(start + 50, blockCount)).map(async (blockNumber, offset) => {
+          const index = start + offset;
+          const eventGroups = groupEventsByExtrinsic(eventsByBlock[index]).map(group => {
+            if (group.extrinsicIndex === undefined) return group;
 
-        const sourceAccount = sourceAccountsByBlock[index]?.[group.extrinsicIndex];
-        return sourceAccount ? { ...group, sourceAccount } : group;
-      });
-      const activity = this.decoder.decode({
-        eventGroups,
-        specVersion,
-      });
-      return {
-        blockNumber,
-        blockHash: hexToU8a(blockHashes[index]),
-        specVersion,
-        systemEvents: hexToU8a(rawEventsByBlock[index] ?? '0x00'),
-        accounts: activity.accounts,
-        vaults: activity.vaults,
-        vaultOwners: activity.vaultOwners,
-        bitcoinLocks: activity.bitcoinLocks,
-        bitcoinLockOwners: activity.bitcoinLockOwners,
-        mintingAuthorities: activity.mintingAuthorities,
-        mintingAuthorityOwners: activity.mintingAuthorityOwners,
-      };
-    });
+            const sourceAccount = sourceAccountsByBlock[index]?.[group.extrinsicIndex];
+            return sourceAccount ? { ...group, sourceAccount } : group;
+          });
+          const activity = this.decoder.decode({
+            eventGroups,
+            specVersion,
+          });
+          if (activity.bondLots.length) {
+            const blockApi = await client.at(blockHashes[index]);
+            for (const { bondLotId, mask } of activity.bondLots) {
+              const lot = await blockApi.query.treasury.bondLotById(bondLotId);
+              if (lot.isNone) {
+                throw new AccountActivityCoverageError(
+                  `Bond lot ${bondLotId} has flexibility activity at block ${blockNumber} but no owner state`,
+                );
+              }
+              const address = lot.unwrap().owner.toString();
+              const account = activity.accounts.find(record => record.address === address);
+              if (account) account.mask |= mask;
+              else activity.accounts.push({ address, mask });
+            }
+          }
+          return {
+            blockNumber,
+            blockHash: hexToU8a(blockHashes[index]),
+            specVersion,
+            systemEvents: hexToU8a(rawEventsByBlock[index] ?? '0x00'),
+            accounts: activity.accounts,
+            vaults: activity.vaults,
+            vaultOwners: activity.vaultOwners,
+            bitcoinLocks: activity.bitcoinLocks,
+            bitcoinLockOwners: activity.bitcoinLockOwners,
+            mintingAuthorities: activity.mintingAuthorities,
+            mintingAuthorityOwners: activity.mintingAuthorityOwners,
+          };
+        }),
+      );
+      blocks.push(...decoded);
+    }
 
     return { blocks, runtimeMetadata, runtimeUpgraded: runtimeUpgradeIndex !== -1 };
   }

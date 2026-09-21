@@ -19,9 +19,10 @@ import { getBitcoinLocks, getBitcoinTransactionOperations } from '../../../src-v
 import { getCurrency } from '../../../src-vue/stores/currency.ts';
 import { useFinancials } from '../../../src-vue/stores/financials.ts';
 import { getMainchainClient } from '../../../src-vue/stores/mainchain.ts';
-import { getVaults } from '../../../src-vue/stores/vaults.ts';
+import { getMyVault, getVaults } from '../../../src-vue/stores/vaults.ts';
 import { getWalletKeys } from '../../../src-vue/stores/wallets.ts';
 import { setupAppScenario } from '../../scenarios/setupAppScenario.ts';
+import { createScenarioVault } from '../../scenarios/createScenarioVault.ts';
 
 const fissions = [
   new BitcoinFission({
@@ -271,6 +272,7 @@ function setupDetails(
     closeAvailableWalletBalanceMicrogons?: bigint;
     isBitcoinSettlementPending?: boolean;
     fissions?: BitcoinFission[];
+    flexibleLockIds?: number[];
     displayLiquidWithoutTerms?: boolean;
   } = {},
 ) {
@@ -308,20 +310,34 @@ function setupDetails(
   liquid = args.displayLiquidWithoutTerms
     ? BitcoinLiquid.create({ liquidId: scenarioFissions[0].liquidId, fissions: scenarioFissions })
     : financialLiquid;
+  const receivedLiquidity =
+    financialLiquid.history.reduce((total, entry) => total + entry.liquidityUnlocked, 0n) -
+    financialLiquid.pendingLiquidity;
   const lockSummaries = [
     {
       lockId: 101,
       satoshis: 30_000_000n,
       unlockAmount: 20_400_000_000n,
-      record: { vaultId: 11 },
+      record: { vaultId: 11, isFlexible: args.flexibleLockIds?.includes(101) ?? false },
     },
     {
       lockId: 202,
       satoshis: 20_000_000n,
       unlockAmount: 13_600_000_000n,
-      record: { vaultId: 22 },
+      record: { vaultId: 22, isFlexible: args.flexibleLockIds?.includes(202) ?? false },
     },
   ] as IBitcoinLockSummary[];
+  const hasOwnedFlexibleLock = lockSummaries.some(
+    summary => summary.record.vaultId === args.myVaultId && summary.record.isFlexible,
+  );
+  if (hasOwnedFlexibleLock) {
+    getMyVault().data.createdVault = createScenarioVault({
+      vaultId: args.myVaultId,
+      securitization: 10_000_000n,
+      securitizationLocked: 12_000_000n,
+      flexibleSecuritizationLocked: 5_000_000n,
+    });
+  }
   const position = createFinancialPosition(
     'bitcoin-liquid',
     {
@@ -334,7 +350,7 @@ function setupDetails(
       insuranceCost: 12_000_000n,
       transactionFees: 500_000n,
       totalFees: 12_500_000n,
-      receivedLiquidity: liquid.receivedLiquidity,
+      receivedLiquidity,
       pendingLiquidity: liquid.pendingLiquidity,
       repaymentAmount: 34_000_000_000n,
       totalReturn: 40.4,
@@ -357,6 +373,7 @@ function setupDetails(
           observation: { observedAt: new Date('2026-08-21T17:45:00Z'), blockNumber: 22_300 },
         },
       ]),
+      liquidAllRecords: lockSummaries,
       bitcoinLockDisplayRecords: lockSummaries,
     }) as unknown as ReturnType<typeof useFinancials>,
   );
@@ -523,6 +540,18 @@ export const LockedBitcoinInMyVault: Story = {
 
 export const LockedBitcoinAcrossVaults: Story = {
   beforeEach: () => setupDetails({ myVaultId: 11 }),
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement.ownerDocument.body);
+    await userEvent.click(canvas.getByTitle('Show locked Bitcoin details'));
+  },
+};
+
+export const FlexibleLockedBitcoinAcrossVaults: Story = {
+  beforeEach: () => setupDetails({ myVaultId: 11, flexibleLockIds: [101] }),
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement.ownerDocument.body);
+    await userEvent.click(canvas.getByTitle('Show locked Bitcoin details'));
+  },
 };
 
 export const History: Story = {

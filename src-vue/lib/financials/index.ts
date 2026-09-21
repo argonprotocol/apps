@@ -1,4 +1,8 @@
-import { calculatePerformanceReturn, type IPerformanceReturnInput } from '@argonprotocol/apps-core';
+import {
+  calculatePerformanceReturn,
+  type IPerformanceReturnInput,
+  type IPerformanceReturnOptions,
+} from '@argonprotocol/apps-core';
 import {
   financialGroups,
   type FinancialGroup,
@@ -162,6 +166,7 @@ export function reduceFinancialPositions(snapshots: readonly IFinancialGroupSnap
   let grossLiabilities = 0n;
   let usableGroupCount = 0;
   let hasUnavailableValue = false;
+  let accountObservedAt: Date | undefined;
 
   for (const group of financialGroups) {
     const snapshot = snapshotsByGroup.get(group) ?? { group, state: 'loading', positions: [] };
@@ -173,10 +178,16 @@ export function reduceFinancialPositions(snapshots: readonly IFinancialGroupSnap
 
     if (isUsable) {
       usableGroupCount += 1;
+      if (
+        groupPositions.length > 0 &&
+        snapshot.observation &&
+        (!accountObservedAt || snapshot.observation.observedAt > accountObservedAt)
+      ) {
+        accountObservedAt = snapshot.observation.observedAt;
+      }
 
       for (const position of groupPositions) {
-        const excludeFromAccountAggregate = position.kind === 'bond' && position.excludeFromAccountAggregate === true;
-        if (!excludeFromAccountAggregate) accountPositions.push(position);
+        accountPositions.push(position);
 
         if (position.currentValue === undefined) {
           hasUnavailableValue = true;
@@ -191,10 +202,10 @@ export function reduceFinancialPositions(snapshots: readonly IFinancialGroupSnap
 
         if (position.currentValue >= 0n) {
           groupAssets += position.currentValue;
-          if (!excludeFromAccountAggregate) grossAssets += position.currentValue;
+          grossAssets += position.currentValue;
         } else {
           groupLiabilities -= position.currentValue;
-          if (!excludeFromAccountAggregate) grossLiabilities -= position.currentValue;
+          grossLiabilities -= position.currentValue;
         }
       }
     }
@@ -202,9 +213,14 @@ export function reduceFinancialPositions(snapshots: readonly IFinancialGroupSnap
     // Mining RTD describes mining terms. Pending bids have not started, and
     // ARGNOT custody lots are tracked separately without repeatedly adding
     // internal collateral transitions to the term-return denominator.
-    const returnPositions =
-      group === 'mining' ? groupPositions.filter(position => position.kind === 'mining-cohort') : groupPositions;
-    const returnSummary = calculatePositionReturn(returnPositions);
+    let returnPositions = groupPositions;
+    if (group === 'mining') returnPositions = groupPositions.filter(position => position.kind === 'mining-cohort');
+    if (group === 'bonds') {
+      returnPositions = groupPositions.filter(
+        position => position.kind !== 'bond' || position.returnAttribution !== 'vault',
+      );
+    }
+    const returnSummary = calculatePositionReturn(returnPositions, { now: snapshot.observation?.observedAt });
     groups.push({
       group,
       state: snapshot.state,
@@ -232,7 +248,10 @@ export function reduceFinancialPositions(snapshots: readonly IFinancialGroupSnap
     readiness = hasUnavailableGroup || hasUnavailableValue ? 'partial' : 'ready';
   }
 
-  const accountReturn = calculatePositionReturn(accountPositions);
+  const accountReturn = calculatePositionReturn(
+    accountPositions.filter(position => position.kind !== 'bond' || position.returnAttribution !== 'vault'),
+    { now: accountObservedAt },
+  );
   const accountReturnAvailability =
     readiness === 'partial' && accountReturn.availability === 'available' ? 'partial' : accountReturn.availability;
   const groupSummaries = Object.fromEntries(groups.map(summary => [summary.group, summary])) as Record<
@@ -271,7 +290,10 @@ function doesObservationCover(observation: IFinancialObservation, required: IFin
   return true;
 }
 
-export function calculatePositionReturn(positions: readonly IFinancialPosition[]): IFinancialReturnSummary {
+export function calculatePositionReturn(
+  positions: readonly IFinancialPosition[],
+  options: IPerformanceReturnOptions = {},
+): IFinancialReturnSummary {
   const investments = positions.filter((position): position is IFinancialInvestmentPosition => {
     return (
       position.kind === 'mining-cohort' ||
@@ -300,6 +322,7 @@ export function calculatePositionReturn(positions: readonly IFinancialPosition[]
     const positionIncome = position.paidIncome;
     paidIncome += positionIncome;
     settledPrincipalValue += position.settledPrincipalValue ?? 0n;
+    if (position.kind === 'bond' && position.returnIsComplete === false) continue;
 
     const { investedCost } = position;
     if (position.lifecycle === 'unavailable') continue;
@@ -324,7 +347,10 @@ export function calculatePositionReturn(positions: readonly IFinancialPosition[]
     if (position.kind === 'mining-cohort') {
       if (position.performanceEndingCapital === undefined) continue;
       endingCapital = position.performanceEndingCapital;
-    } else if (position.kind === 'bitcoin-liquid' && position.performanceEndingCapital !== undefined) {
+    } else if (
+      (position.kind === 'bitcoin-liquid' || position.kind === 'vault') &&
+      position.performanceEndingCapital !== undefined
+    ) {
       endingCapital = position.performanceEndingCapital;
     }
 
@@ -348,7 +374,7 @@ export function calculatePositionReturn(positions: readonly IFinancialPosition[]
     };
   }
 
-  const performance = calculatePerformanceReturn(eligibleInvestments);
+  const performance = calculatePerformanceReturn(eligibleInvestments, options);
   const availability = eligibleInvestments.length === investments.length ? 'available' : 'partial';
 
   return {

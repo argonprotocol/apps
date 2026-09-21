@@ -303,7 +303,7 @@ const bitcoinAmount = Vue.computed(() =>
   numeral(currency.convertSatToBtc(props.record.satoshis)).format('0,0.[00000000]'),
 );
 const vaultName = Vue.computed(() => {
-  if (props.lock.vaultId === (myVault.createdVault?.vaultId ?? myVault.vaultId)) return 'My Vault';
+  if (props.lock.vaultId === (myVault.createdVault?.vaultId ?? myVault.vaultId)) return 'Your Vault';
   const operatorName =
     vaults.operatorNamesByVaultId[props.lock.vaultId] ??
     (config.upstreamOperator?.vaultId === props.lock.vaultId ? config.upstreamOperator.name : undefined);

@@ -194,7 +194,14 @@ export function openAccountActivityDatabase(dbDir: string, file: string): Indexe
     console.warn(`Replacing incompatible account activity database: ${error.message}`);
     for (const suffix of ['', '-shm', '-wal']) Fs.rmSync(`${databasePath}${suffix}`, { force: true });
     copySeedIfNeeded(dbDir, file);
-    return new IndexerDb(databasePath);
+    try {
+      return new IndexerDb(databasePath);
+    } catch (seedError) {
+      if (!(seedError instanceof IncompatibleAccountActivityDatabaseError)) throw seedError;
+      console.warn(`Bundled account activity seed is incompatible; rebuilding from chain: ${seedError.message}`);
+      for (const suffix of ['', '-shm', '-wal']) Fs.rmSync(`${databasePath}${suffix}`, { force: true });
+      return new IndexerDb(databasePath);
+    }
   }
 }
 

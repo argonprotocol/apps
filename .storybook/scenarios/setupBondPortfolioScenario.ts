@@ -12,7 +12,11 @@ import { setupAppScenario } from './setupAppScenario.ts';
 const microgonsPerArgon = BigInt(MICROGONS_PER_ARGON);
 const micronotsPerArgonot = BigInt(MICRONOTS_PER_ARGONOT);
 
-export function setupBondPortfolioScenario(programType: BondLot['programType']) {
+export function setupBondPortfolioScenario(
+  programType: BondLot['programType'],
+  flexibleBondDisplacementPercent = 0,
+  historyComplete = true,
+) {
   const selectedTab = programType === 'Vault' ? TopTab.ArgonBonds : TopTab.ArgonotStaking;
   const otherProgramType = programType === 'Vault' ? 'Argonot' : 'Vault';
   const lots = [
@@ -48,15 +52,37 @@ export function setupBondPortfolioScenario(programType: BondLot['programType']) 
       investedCost,
       currentValue: investedCost + BigInt(index + 1) * 1_500_000n,
       paidIncome: bondLot.lifetimeEarnings,
+      ...(programType === 'Vault' ? { returnIsComplete: historyComplete } : {}),
     };
   });
 
-  setupAppScenario({ selectedTab });
+  setupAppScenario({ selectedTab, myVaultId: 7 });
 
   mocked(getArgonBonds).mockReturnValue({
-    data: Vue.reactive({ isLoaded: true, bondLots: lots, vaultId: 7 }),
+    data: Vue.reactive({
+      isLoaded: true,
+      bondLots: lots,
+      vaultId: 7,
+      vaultsById: {
+        12: {
+          bondLots: [lots[1]],
+          ordinaryBonds: 0,
+          flexibleBonds: lots[1].bonds,
+          reservedBondSpace: 0,
+          currentFrame: {
+            frameId: 10_005,
+            vaultBonds: 24,
+            flexibleBondsEligible: 24,
+            bondLots: [],
+          },
+          isLoaded: true,
+        },
+      },
+    }),
     bondTotals: BondLot.getTotals(lots),
+    getFlexibleBondDisplacementPercent: fn(() => flexibleBondDisplacementPercent),
     load: fn(async () => undefined),
+    retryHistory: fn(async () => undefined),
     subscribeGlobal: fn(async () => undefined),
     subscribeVault: fn(async () => fn()),
   } as unknown as ReturnType<typeof getArgonBonds>);
@@ -84,11 +110,15 @@ export function setupBondPortfolioScenario(programType: BondLot['programType']) 
       bondSummariesByAsset: {
         ARGN: {
           currentValue: programType === 'Vault' ? 153_400_000n : 0n,
-          returnSummary: { paidIncome: 23_810_000n, percent: 8.42 },
+          returnSummary: {
+            paidIncome: 23_810_000n,
+            availability: historyComplete ? 'available' : 'unavailable',
+            percent: historyComplete ? 8.42 : undefined,
+          },
         },
         ARGNOT: {
           currentValue: programType === 'Argonot' ? 2_184_000_000n : 0n,
-          returnSummary: { paidIncome: 23_810_000n, percent: 11.76 },
+          returnSummary: { paidIncome: 23_810_000n, availability: 'available', percent: 11.76 },
         },
       },
       financialPositionAggregate: {

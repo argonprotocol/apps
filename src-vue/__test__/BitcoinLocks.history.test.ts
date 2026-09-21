@@ -185,20 +185,50 @@ describe('BitcoinLocks historical event replay', () => {
       });
     await expect(store.recovery.findMissingActiveLockIds(api as never)).resolves.toEqual([8]);
 
+    const prepared = await store.recovery.prepareHistoryReplay();
+    expect(prepared.historicalLiquidCloseByUtxoId.get(7)).toEqual({
+      redemptionAmount: 900n,
+      closeTxFee: 19n,
+    });
+
     const [recovered] = await publishRecoveredHistory(store);
     const [fundingUtxo] = await db.bitcoinUtxosTable.fetchAll();
     expect(recovered.utxoId).toBe(7);
     expect(recovered.satoshis).toBe(9_900n);
     expect(recovered.ratchets).toEqual([
-      expect.objectContaining({ mintAmount: 900n, mintPending: 0n, txFee: 11n, extrinsicIndex: 2 }),
-      expect.objectContaining({ mintAmount: 300n, mintPending: 0n, burned: 50n, txFee: 13n, extrinsicIndex: 2 }),
-      expect.objectContaining({ mintAmount: 200n, mintPending: 100n, burned: 25n, txFee: 17n, extrinsicIndex: 3 }),
+      expect.objectContaining({
+        mintAmount: 900n,
+        mintPending: 0n,
+        txFee: 11n,
+        blockHash: '0x151',
+        blockTime: new Date(historyBlock(151).blockTime),
+        extrinsicIndex: 2,
+      }),
+      expect.objectContaining({
+        mintAmount: 300n,
+        mintPending: 0n,
+        burned: 50n,
+        txFee: 13n,
+        blockHash: '0x153',
+        blockTime: new Date(historyBlock(153).blockTime),
+        extrinsicIndex: 2,
+      }),
+      expect.objectContaining({
+        mintAmount: 200n,
+        mintPending: 100n,
+        burned: 25n,
+        txFee: 17n,
+        blockHash: '0x153',
+        blockTime: new Date(historyBlock(153).blockTime),
+        extrinsicIndex: 3,
+      }),
     ]);
     expect(recovered.status).toBe(BitcoinLockStatus.Releasing);
     expect(recovered).toMatchObject({
       removalBlockNumber: 155,
       removalBlockHash: '0x155',
       removalBlockTime: new Date(historyBlock(155).blockTime),
+      removalTick: historyBlock(155).tick,
       removalExtrinsicIndex: 2,
       btcPriceAtRemovalMicrogons: 4_000_000n,
     });
@@ -217,6 +247,57 @@ describe('BitcoinLocks historical event replay', () => {
       }),
     ]);
     expect(ownerLockKeys).toHaveBeenCalledWith(accountId);
+  });
+
+  it('restores a missing removal tick from the recorded removal block', async () => {
+    const accountId = encodeAddress(new Uint8Array(32).fill(0x33));
+    const db = await createTestDb();
+    const removalBlock = { ...historyBlock(158), tick: 540 };
+    const getHeader = vi.fn(async () => removalBlock);
+    const withBackgroundArchiveRead = vi.fn(async <T>(read: () => Promise<T>) => await read());
+    const api = {
+      runtimeVersion: { specVersion: numberCodec(158) },
+      query: { vaults: { vaultsById: vi.fn(async () => undefined) } },
+    };
+    const store = createStore({
+      blockWatch: { getApi: vi.fn(async () => api), getHeader, withBackgroundArchiveRead } as unknown as BlockWatch,
+      db,
+      walletKeys: { defaultArgonAddress: accountId } as WalletKeys,
+    });
+    const record = createLock({
+      uuid: 'missing-removal-tick',
+      utxoId: 7,
+      status: BitcoinLockStatus.Released,
+      createdAt: '2026-01-01T00:00:00Z',
+    });
+    Object.assign(record, {
+      removalBlockNumber: 158,
+      removalBlockHash: '0x158',
+      removalBlockTime: new Date('2026-01-02T00:00:00Z'),
+      removalReason: 'released',
+    });
+    store.data.locksByLockId[7] = record;
+    vi.mocked(BitcoinHistory.getHistoricalBitcoinLock).mockResolvedValue(
+      createHistoricalLock({ accountId, liquidityPromised: 1_000n, lockedTargetPrice: 1_000n }),
+    );
+    await store.recovery.beginHistoryReplay();
+    await store.recovery.recoverBlock(historyBlock(151), [
+      historyEvent(151, 'bitcoinLocks', 'BitcoinLockCreated', {
+        utxoId: 7,
+        vaultId: 1,
+        liquidityPromised: 1_000n,
+        securitization: 1_000n,
+        lockedTargetPrice: 1_000n,
+        accountId,
+        securityFee: 20n,
+      }),
+    ]);
+
+    const prepared = await store.recovery.prepareHistoryReplay();
+
+    expect(prepared.records).toEqual([expect.objectContaining({ utxoId: 7, removalTick: 540 })]);
+    expect(withBackgroundArchiveRead).toHaveBeenCalledOnce();
+    expect(getHeader).toHaveBeenCalledWith({ blockNumber: 158, blockHash: '0x158' });
   });
 
   it('rebuilds current snapshot economics before replaying historical ratchets', async () => {

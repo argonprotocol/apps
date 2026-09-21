@@ -60,6 +60,19 @@ export const Portfolio: Story = {
   },
 };
 
+export const HistorySyncFailed: Story = {
+  beforeEach: () => {
+    setupBondPortfolioScenario('Vault');
+    getArgonBonds().data.historyError = 'Bond history stopped at block 100: archive unavailable';
+  },
+};
+
+export const IncompleteHistory: Story = {
+  beforeEach: () => {
+    setupBondPortfolioScenario('Vault', 0, false);
+  },
+};
+
 export const TreasuryBondGuide: Story = {
   beforeEach: () => {
     setupBondPortfolioScenario('Vault');

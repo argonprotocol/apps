@@ -427,7 +427,7 @@ const walletBitcoinSections = computed(() => {
 });
 
 function getCosignerName(vaultId: number): string {
-  if (vaultId === (myVault.createdVault?.vaultId ?? myVault.vaultId)) return 'My Vault';
+  if (vaultId === (myVault.createdVault?.vaultId ?? myVault.vaultId)) return 'Your Vault';
   return (
     vaults.operatorNamesByVaultId[vaultId] ??
     (config.upstreamOperator?.vaultId === vaultId ? config.upstreamOperator.name : undefined) ??

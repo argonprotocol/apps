@@ -84,7 +84,7 @@ runWithReplay('Bitcoin financial history replay corpus', () => {
               derivedLocks,
             });
             const errors = results.flatMap(result => Object.values(result.domainErrors));
-            if (accountId === '5F7KW9raKif5TLF2vG5rfqVtent7VrUHenZxnKuNRcbKFhSs') {
+            if (utxoIds.includes(41)) {
               expect(
                 currentLocks.some(lock => lock.utxoId === 41),
                 'Current Bitcoin lock 41',
@@ -123,7 +123,13 @@ runWithReplay('Bitcoin financial history replay corpus', () => {
                 ).toBeGreaterThan(0);
               }
             }
-            if (accountId === '5ERobxNTfGFsGEboBavwiHEVGDYuWquVwQTPNkhMZJAguSro') {
+            for (const fission of recovered.fissions.filter(fission => fission.origin === 'lock-migration')) {
+              expect(
+                recovered.securitization?.terms.some(term => term.lockId === fission.lockId),
+                `Migrated Bitcoin Fission ${fission.fissionId} securitization history`,
+              ).toBe(true);
+            }
+            if (utxoIds.includes(112)) {
               expect(recovered.locks).toEqual([
                 expect.objectContaining({
                   lockId: 112,
@@ -133,7 +139,7 @@ runWithReplay('Bitcoin financial history replay corpus', () => {
               ]);
               expect(recovered.fissions).toEqual([]);
             }
-            if (accountId === '5Fs8wHUnwBHwXdKvUTNMKyENQrm92Rf2B96GCjqGANvcxhrL') {
+            if (utxoIds.includes(110)) {
               expect(recovered.fissions.find(record => record.lockId === 110)?.ratchets[0]).toMatchObject({
                 securityFee: 144_528_009n,
                 securityFeeCoupon: 144_528_009n,

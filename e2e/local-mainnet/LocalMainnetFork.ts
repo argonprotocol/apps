@@ -12,9 +12,10 @@ import {
   type RuntimeVersion,
 } from '@acala-network/chopsticks';
 import { GenericExtrinsic } from '@polkadot/types';
+import type { ArgonPrimitivesTickTicker } from '@polkadot/types/lookup';
 import { stringToHex, u8aToHex } from '@polkadot/util';
 import { blake2AsHex } from '@polkadot/util-crypto';
-import type { RuntimeMigrationManifest } from './manifest.ts';
+import type { LocalMainnetManifest } from './manifest.ts';
 
 const CHOPSTICKS_FALLBACK_SLOT_MILLIS = 12_000n;
 const RUNTIME_STAGES = ['deployed', 'upgrade', 'migration', 'candidate'] as const;
@@ -44,13 +45,10 @@ export class LocalMainnetFork {
     this.archiveUrl = `ws://${chopsticks.addr}`;
   }
 
-  public static async start(args: {
-    manifest: RuntimeMigrationManifest;
-    runDirectory: string;
-  }): Promise<LocalMainnetFork> {
+  public static async start(args: { manifest: LocalMainnetManifest; runDirectory: string }): Promise<LocalMainnetFork> {
     const { manifest, runDirectory } = args;
     if (!Path.isAbsolute(runDirectory)) {
-      throw new Error('Runtime migration runDirectory must be an absolute path');
+      throw new Error('Local mainnet runDirectory must be an absolute path');
     }
     LocalMainnetFork.verifySha256(manifest.archive.chopsticksDatabasePath, manifest.archive.sha256);
 
@@ -77,7 +75,7 @@ export class LocalMainnetFork {
         chopsticks.chain.head.hash !== manifest.archive.blockHash ||
         initialRuntime.specVersion !== manifest.archive.deployedSpecVersion
       ) {
-        throw new Error('Restored Chopsticks head does not match the runtime migration manifest');
+        throw new Error('Restored Chopsticks head does not match the local mainnet manifest');
       }
 
       const inherentProviders = chopsticks.chain.getInherents();
@@ -196,7 +194,7 @@ export class LocalMainnetFork {
 
   private static verifySha256(path: string, expected: string): void {
     const actual = createHash('sha256').update(readFileSync(path)).digest('hex');
-    if (actual !== expected) throw new Error(`Runtime migration artifact checksum mismatch at ${path}`);
+    if (actual !== expected) throw new Error(`Local mainnet artifact checksum mismatch at ${path}`);
   }
 }
 
@@ -241,10 +239,8 @@ class ArgonInherents {
     const currentTick = await parent.read('u64', meta.query.ticks.currentTick);
     const tickerHex = await parent.get(compactHex(meta.query.ticks.genesisTicker()));
     const tickerType = registry.lookup.getTypeDef(meta.query.ticks.genesisTicker.meta.type.asPlain).type;
-    const ticker = registry.createType(tickerType, tickerHex);
-    const tickDuration = BigInt(
-      (ticker as unknown as { tickDurationMillis: { toString(): string } }).tickDurationMillis.toString(),
-    );
+    const ticker = registry.createType<ArgonPrimitivesTickTicker>(tickerType, tickerHex);
+    const tickDuration = ticker.tickDurationMillis.toBigInt();
     if (!timestamp || !currentTick || tickDuration <= 0n) {
       throw new Error('Unable to read the Argon timestamp and tick configuration');
     }

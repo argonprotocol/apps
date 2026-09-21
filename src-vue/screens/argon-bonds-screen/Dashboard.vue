@@ -19,10 +19,15 @@
       <div class="h-full w-px bg-slate-400/30" />
       <div class="w-1/3 border-b border-slate-400/30 py-5">
         <div class="text-argon-600 text-5xl font-bold">
-          <template v-if="bondsSummary?.returnSummary.percent !== undefined">
+          <template
+            v-if="
+              bondsSummary?.returnSummary.availability === 'available' &&
+              bondsSummary.returnSummary.percent !== undefined
+            "
+          >
             {{ numeral(bondsSummary.returnSummary.percent).format('0,0.[00]') }}%
           </template>
-          <template>--</template>
+          <template v-else>--</template>
         </div>
         <div>Return to Date</div>
       </div>
@@ -34,12 +39,12 @@
           <span class="grow">
             You have {{ bondLots.length }} bond transaction{{ bondLots.length === 1 ? '' : 's' }}...
           </span>
-          <div class="flex flex-row items-stretch gap-x-3">
-            <span class="relative">
+          <div class="flex flex-row items-center gap-x-3">
+            <span class="relative flex items-center">
               <button
                 type="button"
                 :disabled="!canBuyWithArgn"
-                class="text-md text-argon-600 cursor-pointer disabled:cursor-default disabled:opacity-40"
+                class="text-argon-600 cursor-pointer whitespace-nowrap disabled:cursor-default disabled:opacity-40"
                 @click="openBondPurchaseOverlay"
               >
                 Buy Argon Bonds
@@ -50,11 +55,21 @@
                 class="absolute top-1/2 right-0 z-50 translate-x-[calc(100%+0.75rem)] -translate-y-1/2"
               />
             </span>
-            <div class="w-px bg-slate-400/50" />
+            <div class="w-px self-stretch bg-slate-400/50" />
+            <button
+              v-if="argonBonds.data.historyError"
+              type="button"
+              title="Bond history incomplete. Retry sync"
+              class="text-argon-600 cursor-pointer whitespace-nowrap"
+              @click="retryHistory"
+            >
+              Retry History
+            </button>
+            <div v-if="argonBonds.data.historyError" class="w-px self-stretch bg-slate-400/50" />
             <a
               :href="`${NetworkConfig.websiteHost}/docs`"
               target="_blank"
-              class="text-md text-argon-600 cursor-pointer"
+              class="text-argon-600 cursor-pointer whitespace-nowrap"
             >
               View Docs
             </a>
@@ -65,8 +80,10 @@
           <BondRecord
             v-for="bondLot in bondLots"
             :key="bondLot.id"
+            :data-testid="`Bond.bond-${bondLot.id}`"
             :bondLot="bondLot"
             :isReleasing="bondLot.isReleasing"
+            :ownedVaultId="myVault.vaultId"
             :position="bondPositionsByLotId.get(bondLot.id)"
             :returnPercent="bondReturnsByLotId.get(bondLot.id)"
             @click="openDetail(bondLot)"
@@ -94,7 +111,7 @@
 import * as Vue from 'vue';
 import numeral, { createNumeralHelpers } from '../../lib/numeral.ts';
 import { getCurrency } from '../../stores/currency.ts';
-import { getVaults } from '../../stores/vaults.ts';
+import { getMyVault, getVaults } from '../../stores/vaults.ts';
 import { getWalletKeys, useWallets } from '../../stores/wallets.ts';
 import { getMainchainClient } from '../../stores/mainchain.ts';
 import { getConfig } from '../../stores/config.ts';
@@ -113,6 +130,7 @@ import type { IBondFinancialPosition } from '../../interfaces/IFinancialPosition
 const currency = getCurrency();
 const controller = useCertificationController();
 const financials = useFinancials();
+const myVault = getMyVault();
 const vaults = getVaults();
 const walletKeys = getWalletKeys();
 const wallets = useWallets();
@@ -126,7 +144,11 @@ const showBondsOverlay = Vue.ref(false);
 const showDetailOverlay = Vue.ref(false);
 const purchaseProgramType = Vue.ref<BondLot['programType']>('Vault');
 const selectedBondLot = Vue.ref<BondLot>();
-const bondLots = Vue.computed(() => argonBonds.data.bondLots.filter(bondLot => bondLot.programType === 'Vault'));
+const bondLots = Vue.computed(() =>
+  argonBonds.data.bondLots
+    .filter(bondLot => bondLot.programType === 'Vault')
+    .toSorted((left, right) => right.createdFrame - left.createdFrame || right.id - left.id),
+);
 const bondsSummary = Vue.computed(() => {
   return financials.bondSummariesByAsset.ARGN;
 });
@@ -159,6 +181,10 @@ const canBuyWithArgn = Vue.computed(() => financials.savingsTotalReadyToUse > 0n
 
 function openBondPurchaseOverlay() {
   basicEmitter.emit('openBondPurchaseOverlay');
+}
+
+function retryHistory(): void {
+  void argonBonds.retryHistory().catch(() => undefined);
 }
 
 async function onPurchaseSubmitted() {

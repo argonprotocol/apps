@@ -12,11 +12,23 @@ import { getVaults } from '../../src-vue/stores/vaults.ts';
 import { createScenarioVault } from './createScenarioVault.ts';
 import { setupAppScenario } from './setupAppScenario.ts';
 
-type BondPurchaseState = 'loading' | 'loadError' | 'ready' | 'available' | 'walletLimited' | 'selection';
+type BondPurchaseState =
+  | 'loading'
+  | 'loadError'
+  | 'ready'
+  | 'available'
+  | 'walletLimited'
+  | 'selection'
+  | 'noUpstream'
+  | 'ownedNoCapacity';
 type StakePurchaseState = 'loadError' | 'ready' | 'walletLimited' | 'progress' | 'progressError' | 'complete';
 
 export function setupBondPurchaseScenario(state: BondPurchaseState) {
-  const { wallets } = setupAppScenario({ selectedTab: TopTab.ArgonBonds });
+  const { wallets } = setupAppScenario({
+    selectedTab: TopTab.ArgonBonds,
+    config: state === 'selection' ? { upstreamOperator: { name: 'Atlas', vaultId: 7 } } : undefined,
+    myVaultId: state === 'selection' || state === 'ownedNoCapacity' ? 12 : undefined,
+  });
   const hasAvailableBondSpace = state === 'available' || state === 'walletLimited';
   if (hasAvailableBondSpace) {
     wallets.defaultArgonWallet.availableMicrogons =
@@ -28,15 +40,22 @@ export function setupBondPurchaseScenario(state: BondPurchaseState) {
           createScenarioVault({ vaultId: 7, operatorAccountId: '5AtlasVaultOperator' }),
           createScenarioVault({ vaultId: 12, operatorAccountId: '5NorthstarVaultOperator' }),
         ]
-      : hasAvailableBondSpace
+      : state === 'noUpstream'
         ? [
-            createScenarioVault({
-              securitizationLocked: 1_052_698_425n,
-              securitizedSatoshis: 1_408_910n,
-              ratioAdjustedSatoshis: 1_408_910n,
-            }),
+            createScenarioVault({ vaultId: 21, operatorAccountId: '5UnrelatedVaultOperator1' }),
+            createScenarioVault({ vaultId: 22, operatorAccountId: '5UnrelatedVaultOperator2' }),
           ]
-        : [];
+        : state === 'ownedNoCapacity'
+          ? [createScenarioVault({ vaultId: 12, operatorAccountId: '5OwnedVaultOperator' })]
+          : hasAvailableBondSpace
+            ? [
+                createScenarioVault({
+                  securitizationLocked: 1_052_698_425n,
+                  securitizedSatoshis: 1_408_910n,
+                  ratioAdjustedSatoshis: 1_408_910n,
+                }),
+              ]
+            : [];
   let refresh = fn(async () => undefined);
   if (state === 'loading') {
     refresh = fn(() => new Promise<void>(() => undefined));
@@ -53,13 +72,20 @@ export function setupBondPurchaseScenario(state: BondPurchaseState) {
     subscribeGlobal: fn(async () => undefined),
     subscribeVault: fn(async () => fn()),
     availableBondSpace: fn(vault => {
+      if (state === 'ownedNoCapacity') return 0n;
       if (hasAvailableBondSpace) return 1_026_000_000n;
       return vault.vaultId === 7 ? 120_000_000n : 80_000_000n;
     }),
   } as unknown as ReturnType<typeof getArgonBonds>);
   mocked(getVaults, { partial: true }).mockReturnValue({
     load: fn(async () => undefined),
-    operatorNamesByVaultId: Vue.reactive({ 1: 'Market Vault', 7: 'Atlas', 12: 'Northstar' }),
+    operatorNamesByVaultId: Vue.reactive({
+      1: 'Market Vault',
+      7: 'Atlas',
+      12: 'Northstar',
+      21: 'Unrelated One',
+      22: 'Unrelated Two',
+    }),
     vaultsById: Object.fromEntries(vaults.map(vault => [vault.vaultId, vault])),
     calculateArgonBondsApr: fn(vaultId => (vaultId === 7 ? 14.8 : 11.2)),
   });
@@ -85,7 +111,6 @@ export function setupStakePurchaseScenario(state: StakePurchaseState) {
     data: Vue.reactive({ isLoaded: true, bondLots: [] }),
     bondTotals: BondLot.getTotals([]),
     refreshBondLots: fn(async () => undefined),
-    saveBondPurchase: fn(),
   } as unknown as ReturnType<typeof getArgonBonds>);
   mocked(useVaultingStats).mockReturnValue(
     Vue.reactive({ argonotStakingAPR: 14.8 }) as ReturnType<typeof useVaultingStats>,
@@ -119,7 +144,9 @@ export function setupStakePurchaseScenario(state: StakePurchaseState) {
     pendingTx = createStakePurchaseTransaction(state, unitsPerStake);
   }
   mocked(getTransactionTracker).mockReturnValue({
+    data: { txInfos: pendingTx ? [pendingTx] : [], txInfosByType: {} },
     load: fn(async () => undefined),
+    pendingBlockTxInfosAtLoad: [],
     findLatestTxInfo: fn(() => pendingTx),
   } as unknown as ReturnType<typeof getTransactionTracker>);
 }
@@ -134,6 +161,7 @@ function createStakePurchaseTransaction(state: 'progress' | 'progressError' | 'c
       metadataJson: { bondPurchaseMicronots: 200n * unitsPerStake },
       status: TransactionStatus.Submitted,
     },
+    txResult: {},
     subscribeToProgress: fn((callback: (progress: object, error?: Error) => void) => {
       queueMicrotask(() => {
         if (state === 'progressError') {

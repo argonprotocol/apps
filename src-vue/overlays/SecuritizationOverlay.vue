@@ -100,14 +100,17 @@
         >
           <SliderTrack class="relative h-2 grow rounded-full bg-gray-500/30">
             <SliderRange class="bg-argon-600/50 absolute h-full rounded-full" />
-            <span
-              v-if="delayedReleaseMicrogons > 0n"
-              class="pointer-events-none absolute h-full bg-argon-200"
-              :style="{
-                left: `${securitizationSlider[0]}%`,
-                width: `${activeSecuritizationPercentage - securitizationSlider[0]}%`,
-              }"
-            />
+            <Tooltip v-if="delayedReleaseMessage" as-child :content="delayedReleaseMessage">
+              <span
+                class="pending-release absolute h-full cursor-help"
+                tabindex="0"
+                :aria-label="delayedReleaseMessage"
+                :style="{
+                  left: `${securitizationSlider[0]}%`,
+                  width: `${activeSecuritizationPercentage - securitizationSlider[0]}%`,
+                }"
+              />
+            </Tooltip>
             <span
               v-if="activeSecuritizationMicrogons > 0n && activeSecuritizationPercentage < 99"
               class="pointer-events-none absolute top-1/2 h-5 -translate-x-1/2 -translate-y-1/2 border-l border-slate-500"
@@ -480,7 +483,7 @@ const delayedReleaseDate = Vue.computed(() => {
 const delayedReleaseMessage = Vue.computed(() => {
   if (!delayedReleaseDate.value) return;
 
-  return `${microgonToArgonNm(delayedReleaseMicrogons.value).format('0,0.[00]')} ARGN locked until ${delayedReleaseDate.value.toLocaleDateString(
+  return `${microgonToArgonNm(delayedReleaseMicrogons.value).format('0,0.[00]')} ARGN is scheduled to return to your wallet by ${delayedReleaseDate.value.toLocaleDateString(
     undefined,
     {
       month: 'short',
@@ -489,34 +492,30 @@ const delayedReleaseMessage = Vue.computed(() => {
     },
   )}.`;
 });
-const lockedSecuritizationRelease = Vue.computed(() => {
-  const date = scheduledReleaseDate.value ?? bitcoinLockedReleaseDate.value;
-  if (!date) return;
-
-  return {
-    microgons:
-      scheduledReleaseMicrogons.value > 0n ? scheduledReleaseMicrogons.value : activeSecuritizationMicrogons.value,
-    date,
-  };
+const lockedReleaseDate = Vue.computed(() => {
+  const dates = [scheduledReleaseDate.value, bitcoinLockedReleaseDate.value].filter(
+    (date): date is Date => date !== undefined,
+  );
+  return dates.length ? new Date(Math.max(...dates.map(date => date.getTime()))) : undefined;
 });
 const lockedReleaseMessage = Vue.computed(() => {
-  const release = lockedSecuritizationRelease.value;
-  if (!release) return;
+  if (activeSecuritizationMicrogons.value <= 0n) return;
 
-  return `${microgonToArgonNm(release.microgons).format('0,0.[00]')} ARGN locked until ${release.date.toLocaleDateString(
-    undefined,
-    {
-      month: 'short',
-      day: 'numeric',
-      year: 'numeric',
-    },
-  )}.`;
+  const amount = microgonToArgonNm(activeSecuritizationMicrogons.value).format('0,0.[00]');
+  const date = lockedReleaseDate.value;
+  if (!date) return `${amount} ARGN locked.`;
+
+  return `${amount} ARGN locked until ${date.toLocaleDateString(undefined, {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+  })}.`;
 });
 const lockedReleaseTooltip = Vue.computed(() => {
-  const release = lockedSecuritizationRelease.value;
-  if (!release) return;
+  const date = lockedReleaseDate.value;
+  if (!date) return 'This is the minimum securitization currently locked by the vault.';
 
-  return `${microgonToArgonNm(release.microgons).format('0,0.[00]')} ARGN will return to your wallet in stages as Bitcoin releases. The final release is on ${release.date.toLocaleDateString(
+  return `${microgonToArgonNm(activeSecuritizationMicrogons.value).format('0,0.[00]')} ARGN will return to your wallet in stages as Bitcoin releases. The final release is on ${date.toLocaleDateString(
     undefined,
     {
       month: 'short',
@@ -802,3 +801,16 @@ Vue.onBeforeUnmount(() => {
   basicEmitter.off('openSecuritizationOverlay', openOverlay);
 });
 </script>
+
+<style scoped>
+.pending-release {
+  background-color: var(--color-argon-200);
+  background-image: repeating-linear-gradient(
+    135deg,
+    rgb(255 255 255 / 0.65) 0,
+    rgb(255 255 255 / 0.65) 2px,
+    transparent 2px,
+    transparent 6px
+  );
+}
+</style>

@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import { cpSync, mkdirSync, rmSync } from 'node:fs';
 import Path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
+import type { IConfig } from 'src-vue/interfaces/IConfig.ts';
 import type { LocalMainnet } from './LocalMainnet.ts';
 import type { RuntimeMigrationManifest } from './manifest.ts';
 
@@ -16,7 +17,15 @@ export interface CapturedDatabaseBeforeMigration {
   latestMigration: number;
   walletIdentitySha256: string;
   migratableBitcoinLockIds: number[];
+  migratableFundedBitcoinLockIds: number[];
+  migratableReleasedBitcoinLockIds: number[];
   readonlyAccount: ReadonlyAccountExpectations;
+}
+
+export interface MigratableLegacyBitcoinLocks {
+  all: number[];
+  funded: number[];
+  released: number[];
 }
 
 export interface CapturedDatabaseAfterMigration {
@@ -24,7 +33,7 @@ export interface CapturedDatabaseAfterMigration {
   quickCheck: string;
   walletIdentitySha256: string;
   fundedBitcoinLockIds: number[];
-  fundingBitcoinUtxoIds: number[];
+  fundingBitcoinUtxoLockIds: number[];
   migratedBitcoinFissionIds: number[];
 }
 
@@ -96,32 +105,34 @@ export class CapturedDatabaseScenario {
     }
   }
 
+  public static inspectLegacyBitcoinLocks(databasePath: string): MigratableLegacyBitcoinLocks {
+    const database = new DatabaseSync(databasePath, { open: true, readOnly: true });
+    try {
+      return CapturedDatabaseScenario.readLegacyBitcoinLocks(database);
+    } finally {
+      database.close();
+    }
+  }
+
   private static inspectBeforeMigration(databasePath: string): CapturedDatabaseBeforeMigration {
     const database = new DatabaseSync(databasePath, { open: true, readOnly: true });
     try {
       const migrations = database.prepare('SELECT MAX(version) AS version FROM _sqlx_migrations').get() as {
         version: number;
       };
-      const migratableBitcoinLockIds = CapturedDatabaseScenario.numberColumn(
-        database,
-        `SELECT utxoId AS id
-         FROM BitcoinLocks
-         WHERE utxoId IS NOT NULL
-           AND status IN ('LockedAndIsMinting', 'LockedAndMinted', 'Releasing', 'Released')
-           AND CAST(liquidityPromised AS INTEGER) > 0
-           AND json_extract(lockDetails, '$.ownerAccount') IS NOT NULL
-         ORDER BY utxoId`,
-      );
+      const legacyBitcoinLocks = CapturedDatabaseScenario.readLegacyBitcoinLocks(database);
       const vaultCount = database.prepare('SELECT COUNT(*) AS count FROM Vaults').get() as { count: number };
 
       return {
         latestMigration: migrations.version,
         walletIdentitySha256: CapturedDatabaseScenario.walletIdentitySha256(database),
-        migratableBitcoinLockIds,
+        migratableBitcoinLockIds: legacyBitcoinLocks.all,
+        migratableFundedBitcoinLockIds: legacyBitcoinLocks.funded,
+        migratableReleasedBitcoinLockIds: legacyBitcoinLocks.released,
         readonlyAccount: {
-          configuredServer: CapturedDatabaseScenario.configBoolean(database, 'isServerInstalled'),
-          operations: CapturedDatabaseScenario.configBoolean(database, 'hasExtensionOperations'),
-          upstream: CapturedDatabaseScenario.configBoolean(database, 'upstreamOperator'),
+          configuredServer: CapturedDatabaseScenario.configValue(database, 'isServerInstalled') === true,
+          operations: CapturedDatabaseScenario.configValue(database, 'hasExtensionOperations') === true,
+          upstream: CapturedDatabaseScenario.configValue(database, 'upstreamOperator') != null,
           vault: vaultCount.count > 0,
         },
       };
@@ -143,19 +154,19 @@ export class CapturedDatabaseScenario {
         walletIdentitySha256: CapturedDatabaseScenario.walletIdentitySha256(database),
         fundedBitcoinLockIds: CapturedDatabaseScenario.numberColumn(
           database,
-          `SELECT utxoId AS id
+          `SELECT lockId AS id
          FROM BitcoinLocks
          WHERE status = 'LockFunded'
-           AND utxoId IN (SELECT utxoId FROM BitcoinFissions WHERE origin = 'lock-migration')
-         ORDER BY utxoId`,
+           AND lockId IN (SELECT lockId FROM BitcoinFissions WHERE origin = 'lock-migration')
+         ORDER BY lockId`,
         ),
-        fundingBitcoinUtxoIds: CapturedDatabaseScenario.numberColumn(
+        fundingBitcoinUtxoLockIds: CapturedDatabaseScenario.numberColumn(
           database,
-          `SELECT lockUtxoId AS id
+          `SELECT DISTINCT lockId AS id
          FROM BitcoinUtxos
-         WHERE role = 'Funding'
-           AND lockUtxoId IN (SELECT utxoId FROM BitcoinFissions WHERE origin = 'lock-migration')
-         ORDER BY lockUtxoId`,
+         WHERE status = 'FundingUtxo'
+           AND lockId IN (SELECT lockId FROM BitcoinFissions WHERE origin = 'lock-migration')
+         ORDER BY lockId`,
         ),
         migratedBitcoinFissionIds: CapturedDatabaseScenario.numberColumn(
           database,
@@ -168,6 +179,27 @@ export class CapturedDatabaseScenario {
     } finally {
       database.close();
     }
+  }
+
+  private static readLegacyBitcoinLocks(database: DatabaseSync): MigratableLegacyBitcoinLocks {
+    const locks = database
+      .prepare(
+        `SELECT utxoId AS id, status
+         FROM BitcoinLocks
+         WHERE utxoId IS NOT NULL
+           AND status IN ('LockedAndIsMinting', 'LockedAndMinted', 'Releasing', 'Released')
+           AND CAST(liquidityPromised AS INTEGER) > 0
+           AND json_extract(lockDetails, '$.ownerAccount') IS NOT NULL
+         ORDER BY utxoId`,
+      )
+      .all() as unknown as Array<{ id: number; status: string }>;
+    return {
+      all: locks.map(lock => lock.id),
+      funded: locks
+        .filter(lock => lock.status === 'LockedAndIsMinting' || lock.status === 'LockedAndMinted')
+        .map(lock => lock.id),
+      released: locks.filter(lock => lock.status === 'Released').map(lock => lock.id),
+    };
   }
 
   private static numberColumn(database: DatabaseSync, query: string): number[] {
@@ -185,10 +217,8 @@ export class CapturedDatabaseScenario {
     return createHash('sha256').update(JSON.stringify(wallets)).digest('hex');
   }
 
-  private static configBoolean(database: DatabaseSync, key: string): boolean {
+  private static configValue<K extends keyof IConfig>(database: DatabaseSync, key: K): IConfig[K] | undefined {
     const record = database.prepare('SELECT value FROM Config WHERE key = ?').get(key) as { value: string } | undefined;
-    if (!record?.value) return false;
-    const value = JSON.parse(record.value) as unknown;
-    return typeof value === 'boolean' ? value : value !== null;
+    return record?.value ? (JSON.parse(record.value) as IConfig[K]) : undefined;
   }
 }

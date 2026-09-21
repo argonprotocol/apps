@@ -27,7 +27,6 @@ storybook-static
 
 /key
 bot/alice.json
-bot/caleb.json
 bot/.env
 discord-verifier/.env
 tsconfig.*.tsbuildinfo

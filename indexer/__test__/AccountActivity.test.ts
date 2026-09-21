@@ -124,6 +124,7 @@ describe('AccountActivityDecoder', () => {
       ],
       vaults: [],
       vaultOwners: [],
+      bondLots: [],
       bitcoinLocks: [],
       bitcoinLockOwners: [],
       mintingAuthorities: [],

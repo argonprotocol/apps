@@ -8,6 +8,8 @@ import type { BitcoinFissions } from '../lib/BitcoinFissions.ts';
 import type BitcoinLocks from '../lib/BitcoinLocks.ts';
 import type { WalletType } from '../lib/Wallet.ts';
 import type { AccountHistoryRecovery } from '../e2e/AccountHistoryRecovery.ts';
+import type { useFinancials } from '../stores/financials.ts';
+import type { ArgonBonds } from '../lib/ArgonBonds.ts';
 
 export interface IAppQueryRefs {
   config: IConfigQueryRef;
@@ -20,8 +22,10 @@ export interface IAppQueryRefs {
   coreEthereumAddress: string;
   overlayIsOpen: boolean;
   getBitcoinFissions(): BitcoinFissions;
+  getArgonBonds(): ArgonBonds;
   getEthereumMoveTracker(): IEthereumMoveTrackerQueryRef;
   getEthereumOutboundTransferTracker(): EthereumOutboundTransferTracker;
+  getFinancials(): Pick<ReturnType<typeof useFinancials>, 'financialPositionAggregate'>;
   getMainchainClient(needsHistoricalAccess: boolean): Promise<ArgonClient>;
   accountHistoryRecovery: AccountHistoryRecovery;
   openWalletOverlay(walletType: WalletType.argon | WalletType.bitcoin): void;

@@ -47,3 +47,11 @@ export const WalletLimitedMax: Story = {
 export const VaultSelection: Story = {
   beforeEach: () => setupBondPurchaseScenario('selection'),
 };
+
+export const NoUpstream: Story = {
+  beforeEach: () => setupBondPurchaseScenario('noUpstream'),
+};
+
+export const OwnedVaultWithoutCapacity: Story = {
+  beforeEach: () => setupBondPurchaseScenario('ownedNoCapacity'),
+};

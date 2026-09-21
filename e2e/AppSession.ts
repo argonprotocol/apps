@@ -11,6 +11,8 @@ import type { AppLogsMode } from './AppProcessOutput.ts';
 import { AppSessionDiagnostics } from './AppSessionDiagnostics.ts';
 import { DriverClient } from './driver/client.ts';
 import { type DriverServer, startDriverServer } from './driver/server.ts';
+import type { IAccountHistoryRecoveryReport } from 'src-vue/e2e/AccountHistoryRecovery.ts';
+import type { IAppQueryFn } from 'src-vue/interfaces/IAppQueryRefs.ts';
 import {
   resolveTestSessionIdentity,
   resolveTestSessionCommandEnv,
@@ -41,6 +43,8 @@ export interface AppSessionOptions {
   sessionMode?: E2ESessionMode;
   appLogsMode?: AppLogsMode;
   appEnv?: NodeJS.ProcessEnv;
+  autoEnableOperations?: boolean;
+  focusAppWindow?: boolean;
   useDevUpstream?: boolean;
 }
 
@@ -101,6 +105,31 @@ export class AppSession {
     await this.driver.command('app.checkpointDatabase', { timeoutMs: 30_000 });
   }
 
+  public async resumeDatabaseWrites(): Promise<void> {
+    await this.driver.command('app.resumeDatabaseWrites');
+  }
+
+  public async waitForReady(timeoutMs: number = APP_STARTUP_READY_TIMEOUT_MS): Promise<void> {
+    await this.driver.command('app.waitForReady', { timeoutMs });
+  }
+
+  public async recoverAccountHistory(
+    throughBlock: number,
+    timeoutMs = 300_000,
+  ): Promise<IAccountHistoryRecoveryReport> {
+    const recoverHistory: IAppQueryFn<IAccountHistoryRecoveryReport, { throughBlock: number }> = (refs, args) =>
+      refs.accountHistoryRecovery.recoverThrough(args.throughBlock);
+    const result = await this.driver.command<{ value?: IAccountHistoryRecoveryReport }>('command.queryApp', {
+      fn: recoverHistory.toString(),
+      args: { throughBlock },
+      timeoutMs,
+    });
+    if (!result.value) {
+      throw new Error(`Account history did not finish recovery through block ${throughBlock.toLocaleString()}`);
+    }
+    return result.value;
+  }
+
   public async loadInstance(name: string): Promise<void> {
     const reloadMarker = this.driver.getAppReloadMarker();
     await this.driver.command('app.loadInstance', { name, timeoutMs: 30_000 });
@@ -157,6 +186,7 @@ export class AppSession {
     const {
       appEnv = {},
       appLogsMode: requestedAppLogsMode,
+      focusAppWindow = false,
       sessionMode: requestedSessionMode,
       sessionName: requestedSessionName,
       useDevUpstream = false,
@@ -166,6 +196,7 @@ export class AppSession {
     const sessionMode = requestedSessionMode ?? AppSession.resolveMode(process.env.E2E_SESSION_MODE);
     const useTestNetwork = requestedTestNetwork ?? process.env.E2E_USE_TEST_NETWORK === '1';
     const appLogsMode = requestedAppLogsMode ?? AppSession.resolveLogsMode(process.env.E2E_FLOW_APP_LOGS);
+    const autoEnableOperations = options.autoEnableOperations ?? !useDevUpstream;
     const configuredNetworkName = appEnv.ARGON_NETWORK_NAME?.trim();
     const externalNetworkConfigOverride = !useTestNetwork ? appEnv.ARGON_NETWORK_CONFIG_OVERRIDE?.trim() : undefined;
     let externalArchiveUrl: string | undefined;
@@ -251,7 +282,8 @@ export class AppSession {
       ...commandEnv,
       ARGON_DRIVER_WS: driverServer.url,
       ARGON_E2E_HEADLESS: process.env.ARGON_E2E_HEADLESS?.trim() || '0',
-      ARGON_E2E_AUTO_ENABLE_OPERATIONS: useDevUpstream ? '0' : '1',
+      ARGON_E2E_FOCUS_APP_WINDOW: focusAppWindow ? '1' : '0',
+      ARGON_E2E_AUTO_ENABLE_OPERATIONS: autoEnableOperations ? '1' : '0',
       E2E_USE_TEST_NETWORK: useTestNetwork ? '1' : '0',
       ARGON_APP_ENABLE_AUTOUPDATE: '0',
       ARGON_APP_INSTANCE_DIR: appInstanceDirectory,

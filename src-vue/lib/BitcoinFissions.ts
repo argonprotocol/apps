@@ -360,12 +360,21 @@ export class BitcoinFissions {
   }
 
   private restoreLoadedState(records: readonly IBitcoinFissionRecord[], current: readonly BitcoinFission[]): void {
-    const retainedIds = new Set(records.map(record => record.fissionId));
+    const currentIds = new Set(current.map(fission => fission.fissionId));
+    // Migrated rows are reconstruction seeds. Load one only after the chain confirms it active or replay records its closure.
+    const recordsWithKnownLifecycle = records.filter(record => {
+      return (
+        record.origin !== 'lock-migration' ||
+        record.closedAtArgonBlock !== undefined ||
+        currentIds.has(record.fissionId)
+      );
+    });
+    const retainedIds = new Set(recordsWithKnownLifecycle.map(record => record.fissionId));
     for (const fission of current) retainedIds.add(fission.fissionId);
     for (const fission of this.getRecords()) {
       if (!retainedIds.has(fission.fissionId)) delete this.data.fissionsById[fission.fissionId];
     }
-    for (const record of records) this.updateFissionFromRecord(record);
+    for (const record of recordsWithKnownLifecycle) this.updateFissionFromRecord(record);
     for (const snapshot of current) {
       const fission = this.data.fissionsById[snapshot.fissionId];
       if (fission) fission.applyCurrentSnapshot(snapshot);

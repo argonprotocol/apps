@@ -22,7 +22,7 @@
           <template v-if="stakesSummary?.returnSummary.percent !== undefined">
             {{ numeral(stakesSummary.returnSummary.percent).format('0,0.[00]') }}%
           </template>
-          <template>--</template>
+          <template v-else>--</template>
         </div>
         <div>Return to Date</div>
       </div>
@@ -34,11 +34,11 @@
           <span class="grow">
             You have {{ stakeLots.length }} staking transaction{{ stakeLots.length === 1 ? '' : 's' }}...
           </span>
-          <div class="flex flex-row items-stretch gap-x-3">
-            <span v-if="supportsArgnotBacking" class="relative">
+          <div class="flex flex-row items-center gap-x-3">
+            <span v-if="supportsArgnotBacking" class="relative flex items-center">
               <button
                 type="button"
-                class="text-md text-argon-600 cursor-pointer disabled:cursor-default disabled:opacity-40"
+                class="text-argon-600 cursor-pointer whitespace-nowrap disabled:cursor-default disabled:opacity-40"
                 @click="openStakePurchaseOverlay"
               >
                 Buy Argonot Stakes
@@ -49,8 +49,22 @@
               <!--                  class="absolute top-1/2 right-0 z-50 translate-x-[calc(100%+0.75rem)] -translate-y-1/2"-->
               <!--                />-->
             </span>
-            <div class="w-px bg-slate-400/50" />
-            <a :href="`${NetworkConfig.websiteHost}/`" target="_blank" class="text-md text-argon-600 cursor-pointer">
+            <div v-if="supportsArgnotBacking" class="w-px self-stretch bg-slate-400/50" />
+            <button
+              v-if="argonBonds.data.historyError"
+              type="button"
+              title="Stake history incomplete. Retry sync"
+              class="text-argon-600 cursor-pointer whitespace-nowrap"
+              @click="retryHistory"
+            >
+              Retry History
+            </button>
+            <div v-if="argonBonds.data.historyError" class="w-px self-stretch bg-slate-400/50" />
+            <a
+              :href="`${NetworkConfig.websiteHost}/`"
+              target="_blank"
+              class="text-argon-600 cursor-pointer whitespace-nowrap"
+            >
               View Docs
             </a>
           </div>
@@ -60,6 +74,7 @@
           <BondRecord
             v-for="bondLot in stakeLots"
             :key="bondLot.id"
+            :data-testid="`Bond.stake-${bondLot.id}`"
             :bondLot="bondLot"
             :isReleasing="bondLot.isReleasing"
             :position="stakePositionsByLotId.get(bondLot.id)"
@@ -124,7 +139,11 @@ const showBondsOverlay = Vue.ref(false);
 const showDetailOverlay = Vue.ref(false);
 const purchaseProgramType = Vue.ref<BondLot['programType']>('Vault');
 const selectedBondLot = Vue.ref<BondLot>();
-const stakeLots = Vue.computed(() => argonBonds.data.bondLots.filter(bondLot => bondLot.programType === 'Argonot'));
+const stakeLots = Vue.computed(() =>
+  argonBonds.data.bondLots
+    .filter(bondLot => bondLot.programType === 'Argonot')
+    .toSorted((left, right) => right.createdFrame - left.createdFrame || right.id - left.id),
+);
 const stakesSummary = Vue.computed(() => {
   return financials.bondSummariesByAsset.ARGNOT;
 });
@@ -156,6 +175,10 @@ const isSummaryReady = Vue.computed(() => {
 
 function openStakePurchaseOverlay() {
   basicEmitter.emit('openStakePurchaseOverlay');
+}
+
+function retryHistory(): void {
+  void argonBonds.retryHistory().catch(() => undefined);
 }
 
 async function onPurchaseSubmitted() {

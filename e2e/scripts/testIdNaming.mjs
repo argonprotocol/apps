@@ -18,7 +18,17 @@ export function createDataTestIdNodeTransform() {
   return (node, ctx) => {
     if (node.type !== NodeTypes.ELEMENT) return;
     if (!ctx.filename) return;
-    if (node.props.some(prop => prop.type === NodeTypes.ATTRIBUTE && prop.name === 'data-testid')) return;
+    if (
+      node.props.some(
+        prop =>
+          (prop.type === NodeTypes.ATTRIBUTE && prop.name === 'data-testid') ||
+          (prop.type === NodeTypes.DIRECTIVE &&
+            prop.name === 'bind' &&
+            prop.arg?.type === NodeTypes.SIMPLE_EXPRESSION &&
+            prop.arg.content === 'data-testid'),
+      )
+    )
+      return;
 
     const pushTestId = value => {
       node.props.push({

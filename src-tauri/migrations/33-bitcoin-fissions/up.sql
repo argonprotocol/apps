@@ -509,9 +509,9 @@ SELECT
         AND BitcoinReleases.status NOT IN ('Complete', 'Cancelled', 'Failed')
     ) THEN 'Releasing'
     WHEN status IN ('LockedAndIsMinting', 'LockedAndMinted') THEN 'LockFunded'
+    WHEN status = 'LockExpiredWaitingForFundingAcknowledged' THEN 'LockFailedAcknowledged'
     WHEN status IN (
       'LockExpiredWaitingForFunding',
-      'LockExpiredWaitingForFundingAcknowledged',
       'LockFundingReadyToResume'
     ) THEN 'LockPendingFunding'
     ELSE status
