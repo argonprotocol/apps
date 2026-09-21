@@ -12,22 +12,33 @@ type IOnboardingUiState = {
   dashboardVisible: boolean;
 };
 
-type IOnboardingState = IE2EOperationInspectState<Record<string, never>, IOnboardingUiState>;
+type IOnboardingState = IE2EOperationInspectState<
+  { hasVault: boolean; hasTreasuryAccess: boolean },
+  IOnboardingUiState
+>;
 
 export default new OperationalFlow<IVaultingFlowContext, IOnboardingState>(import.meta, {
   description: 'Complete vaulting onboarding so bitcoin lock workflows can run.',
   defaultTimeoutMs: 20_000,
   createContext: createVaultingFlowContext,
   async inspect({ flow }) {
-    const dashboard = await flow.isVisible('VaultingDashboard');
+    const [dashboard, readiness] = await Promise.all([
+      flow.isVisible('VaultingDashboard'),
+      flow.queryApp(refs => ({
+        hasVault: Boolean(refs.myVault.createdVault),
+        hasTreasuryAccess: refs.config.hasExtensionTreasury,
+      })),
+    ]);
     const dashboardVisible = dashboard.visible;
-    const isComplete = dashboardVisible;
+    const hasVault = readiness?.hasVault ?? false;
+    const hasTreasuryAccess = readiness?.hasTreasuryAccess ?? false;
+    const isComplete = hasVault && hasTreasuryAccess;
     let operationState: 'complete' | 'runnable' = 'runnable';
     if (isComplete) {
       operationState = 'complete';
     }
     return {
-      chainState: {},
+      chainState: { hasVault, hasTreasuryAccess },
       uiState: {
         dashboardVisible,
       },
@@ -36,7 +47,7 @@ export default new OperationalFlow<IVaultingFlowContext, IOnboardingState>(impor
     };
   },
   async run({ flow }, state) {
-    if (state.uiState.dashboardVisible) {
+    if (state.chainState.hasVault && state.chainState.hasTreasuryAccess) {
       return;
     }
 

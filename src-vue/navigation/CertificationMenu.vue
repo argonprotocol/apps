@@ -70,6 +70,7 @@
                 <div class="mb-2 flex items-center justify-between border-b border-argon-300/20 pb-2">
                   <div class="text-xl font-bold text-argon-600">Step Completed</div>
                   <button
+                    data-e2e-root-dismiss
                     class="cursor-pointer rounded-full p-1 text-argon-600/70 hover:bg-white/70 hover:text-argon-800"
                     aria-label="Close tooltip"
                     @click="dismissCompletionNotice"
@@ -87,6 +88,7 @@
                 <div class="mb-2 flex items-center justify-between border-b border-argon-300/20 pb-2">
                   <div class="text-xl font-bold text-argon-600">Operations Activated</div>
                   <button
+                    data-e2e-root-dismiss
                     class="cursor-pointer rounded-full p-1 text-argon-600/70 hover:bg-white/70 hover:text-argon-800"
                     aria-label="Close tooltip"
                     @click="dismissActivatedTooltip"
@@ -112,6 +114,7 @@
                 <div class="mb-2 flex items-center justify-between border-b border-argon-300/20 pb-2">
                   <div class="text-xl font-bold text-argon-600">Upgrade to Operations</div>
                   <button
+                    data-e2e-root-dismiss
                     class="cursor-pointer rounded-full p-1 text-argon-600/70 hover:bg-white/70 hover:text-argon-800"
                     aria-label="Close tooltip"
                     @click="dismissUpgradeTooltip"

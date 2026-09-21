@@ -1,6 +1,6 @@
 import { OperationalFlow } from './index.ts';
 import type { IE2EFlowRuntime, IE2EOperationInspectState } from '../types.ts';
-import type { IFinancialAggregate, IFinancialGroupSummary } from 'src-vue/interfaces/IFinancialPosition.ts';
+import { calculatePositionReturn, type IFinancialAggregate } from '../types/srcVue.ts';
 
 interface IAccountReviewFlowContext {
   flow: IE2EFlowRuntime;
@@ -10,10 +10,7 @@ type IAccountReviewFlowState = IE2EOperationInspectState<
   {
     archivedBitcoinLiquidIds: number[];
     bitcoinLiquidIds: number[];
-    bitcoinReceivedLiquidityByLiquidId: Record<number, string>;
-    bitcoinReturnPercentByLiquidId: Record<number, number>;
     bondLotIds: number[];
-    bondReturnPercentByLotId: Record<string, number>;
     flexibleBondLotIds: number[];
     stakeLotIds: number[];
     historicalBondLotIds: number[];
@@ -48,8 +45,6 @@ type IAccountReviewFlowState = IE2EOperationInspectState<
     expectedVaultBitcoinMapItemCount?: number;
     expectedVaultBondMapItemCount?: number;
     dataReady: boolean;
-    financialReadiness: IFinancialAggregate['readiness'];
-    incompleteFinancialGroups: Array<Pick<IFinancialGroupSummary, 'group' | 'state' | 'message'>>;
     incompleteBitcoinLiquids: Array<{ liquidId: number; issues: string[] }>;
     incompleteBondLots: Array<{ bondLotId: number; issues: string[] }>;
     invalidFinancialReturns: string[];
@@ -73,47 +68,10 @@ export default new OperationalFlow<IAccountReviewFlowContext, IAccountReviewFlow
     const expectedVaultBitcoinMapItemCount = flow.input.expectedVaultBitcoinMapItemCount as number | undefined;
     const expectedVaultBondMapItemCount = flow.input.expectedVaultBondMapItemCount as number | undefined;
     const appState = await flow.queryApp(refs => {
-      const bitcoinLiquids = refs.getBitcoinFissions().getLiquids();
       const financials = refs.getFinancials().financialPositionAggregate;
       const allBondPositions = financials.groupSummaries.bonds.positions.filter(position => {
         return position.kind === 'bond';
       });
-      const bondPositions = allBondPositions.filter(position => {
-        return position.bondLot !== undefined && position.lifecycle !== 'completed';
-      });
-      const bitcoinReceivedLiquidityByLiquidId: Record<number, string> = {};
-      const bitcoinReturnPercentByLiquidId: Record<number, number> = {};
-      for (const position of financials.groupSummaries.bitcoin.positions) {
-        if (position.kind === 'bitcoin-liquid') {
-          bitcoinReceivedLiquidityByLiquidId[position.liquidId] = position.receivedLiquidity.toString();
-        }
-        if (
-          position.kind !== 'bitcoin-liquid' ||
-          position.investedCost === undefined ||
-          position.investedCost <= 0n ||
-          position.performanceEndingCapital === undefined
-        ) {
-          continue;
-        }
-        const profit = position.performanceEndingCapital - position.investedCost;
-        bitcoinReturnPercentByLiquidId[position.liquidId] = Number((profit * 100_000n) / position.investedCost) / 1_000;
-      }
-      const bondReturnPercentByLotId: Record<string, number> = {};
-      for (const position of bondPositions) {
-        if (
-          position.bondLot === undefined ||
-          position.returnAttribution === 'vault' ||
-          position.investedCost === undefined ||
-          position.investedCost <= 0n
-        ) {
-          continue;
-        }
-        bondReturnPercentByLotId[`${position.bondLot.programType}:${position.bondLot.id}`] =
-          Number((position.paidIncome * 100_000n) / position.investedCost) / 1_000;
-      }
-      const incompleteFinancialGroups = financials.groups
-        .filter(group => group.state !== 'ready' && group.state !== 'stale')
-        .map(({ group, state, message }) => ({ group, state, message }));
       const incompleteBitcoinLiquids = financials.groupSummaries.bitcoin.positions.flatMap(position => {
         if (position.kind !== 'bitcoin-liquid') return [];
         const issues: string[] = [];
@@ -194,50 +152,54 @@ export default new OperationalFlow<IAccountReviewFlowContext, IAccountReviewFlow
         recoveryInProgress: refs.config.isBootingUpPreviousWalletHistory,
         upstreamName: refs.config.upstreamOperator?.name,
         vaultId,
-        bitcoinLiquidIds: bitcoinLiquids.map(liquid => liquid.liquidId),
-        bitcoinReceivedLiquidityByLiquidId,
-        bitcoinReturnPercentByLiquidId,
-        archivedBitcoinLiquidIds: bitcoinLiquids.filter(liquid => liquid.isClosed).map(liquid => liquid.liquidId),
-        bondLotIds: bondPositions
-          .filter(position => position.bondLot?.programType === 'Vault')
-          .map(position => position.bondLot!.id),
-        bondReturnPercentByLotId,
-        flexibleBondLotIds: bondPositions
-          .filter(position => position.bondLot?.programType === 'Vault' && position.bondLot.isFlexible)
-          .map(position => position.bondLot!.id),
-        stakeLotIds: bondPositions
-          .filter(position => position.bondLot?.programType === 'Argonot')
-          .map(position => position.bondLot!.id),
-        historicalBondLotIds: allBondPositions.flatMap(position =>
-          position.lifecycle === 'completed' &&
-          position.history?.programType === 'Vault' &&
-          position.history.releaseBlockNumber !== undefined
-            ? [position.history.bondLotId]
-            : [],
-        ),
-        historicalStakeLotIds: allBondPositions.flatMap(position =>
-          position.lifecycle === 'completed' &&
-          position.history?.programType === 'Argonot' &&
-          position.history.releaseBlockNumber !== undefined
-            ? [position.history.bondLotId]
-            : [],
-        ),
         vaultBitcoinMapItemCount,
         vaultBondMapItemCount,
         financialSnapshot: financials,
-        financialReadiness: financials.readiness,
-        incompleteFinancialGroups,
         incompleteBitcoinLiquids,
         incompleteBondLots,
         invalidFinancialReturns,
       };
     });
+    const financialSnapshot = appState?.financialSnapshot;
+    const bitcoinLiquidPositions =
+      financialSnapshot?.groupSummaries.bitcoin.positions.filter(position => position.kind === 'bitcoin-liquid') ?? [];
+    const allBondPositions =
+      financialSnapshot?.groupSummaries.bonds.positions.filter(position => position.kind === 'bond') ?? [];
+    const bondPositions = allBondPositions.filter(position => {
+      return position.bondLot !== undefined && position.lifecycle !== 'completed';
+    });
+    const bitcoinLiquidIds = bitcoinLiquidPositions.map(position => position.liquidId);
+    const archivedBitcoinLiquidIds = bitcoinLiquidPositions
+      .filter(position => position.lifecycle === 'completed')
+      .map(position => position.liquidId);
+    const bondLotIds = bondPositions
+      .filter(position => position.bondLot?.programType === 'Vault')
+      .map(position => position.bondLot!.id);
+    const flexibleBondLotIds = bondPositions
+      .filter(position => position.bondLot?.programType === 'Vault' && position.bondLot.isFlexible)
+      .map(position => position.bondLot!.id);
+    const stakeLotIds = bondPositions
+      .filter(position => position.bondLot?.programType === 'Argonot')
+      .map(position => position.bondLot!.id);
+    const historicalBondLotIds = allBondPositions.flatMap(position =>
+      position.lifecycle === 'completed' &&
+      position.history?.programType === 'Vault' &&
+      position.history.releaseBlockNumber !== undefined
+        ? [position.history.bondLotId]
+        : [],
+    );
+    const historicalStakeLotIds = allBondPositions.flatMap(position =>
+      position.lifecycle === 'completed' &&
+      position.history?.programType === 'Argonot' &&
+      position.history.releaseBlockNumber !== undefined
+        ? [position.history.bondLotId]
+        : [],
+    );
     const [badgeVisible, serverUnavailableVisible, upstreamVisible] = await Promise.all([
       flow.isVisible({ selector: '[data-read-only]' }).then(result => result.visible),
       flow.isVisible({ selector: '[data-server-unavailable]' }).then(result => result.visible),
       flow.isVisible({ selector: '[data-upstream-operator]' }).then(result => result.visible),
     ]);
-    const archivedBitcoinLiquidIds = appState?.archivedBitcoinLiquidIds ?? [];
     const expectedDefaultArgonAddress = String(flow.input.expectedDefaultArgonAddress ?? '');
     const expectedEthereumAddress = String(flow.input.expectedEthereumAddress ?? '');
     const expectsConfiguredServer = flow.input.expectsConfiguredServer !== false;
@@ -246,30 +208,25 @@ export default new OperationalFlow<IAccountReviewFlowContext, IAccountReviewFlow
     const expectsOperations = flow.input.expectsOperations !== false;
     const expectsTreasury = flow.input.expectsTreasury !== false;
     const hasRecoveredBitcoinLiquid =
-      (!expectsBitcoinLiquid || (appState?.bitcoinLiquidIds.length ?? 0) > 0) &&
+      (!expectsBitcoinLiquid || bitcoinLiquidIds.length > 0) &&
       expectedArchivedBitcoinLiquidIds.every(id => archivedBitcoinLiquidIds.includes(id));
-    const hasExpectedBitcoinLiquidIds = expectedBitcoinLiquidIds.every(id => appState?.bitcoinLiquidIds.includes(id));
+    const hasExpectedBitcoinLiquidIds = expectedBitcoinLiquidIds.every(id => bitcoinLiquidIds.includes(id));
     const hasExpectedBondLotIds =
-      expectedBondLotIds.length === appState?.bondLotIds.length &&
-      expectedBondLotIds.every(id => appState.bondLotIds.includes(id));
+      expectedBondLotIds.length === bondLotIds.length && expectedBondLotIds.every(id => bondLotIds.includes(id));
     const hasExpectedFlexibleBondLotIds =
-      expectedFlexibleBondLotIds.length === appState?.flexibleBondLotIds.length &&
-      expectedFlexibleBondLotIds.every(id => appState.flexibleBondLotIds.includes(id));
+      expectedFlexibleBondLotIds.length === flexibleBondLotIds.length &&
+      expectedFlexibleBondLotIds.every(id => flexibleBondLotIds.includes(id));
     const hasExpectedStakeLotIds =
-      expectedStakeLotIds.length === appState?.stakeLotIds.length &&
-      expectedStakeLotIds.every(id => appState.stakeLotIds.includes(id));
-    const hasExpectedHistoricalBondLotIds = expectedHistoricalBondLotIds.every(id =>
-      appState?.historicalBondLotIds.includes(id),
-    );
+      expectedStakeLotIds.length === stakeLotIds.length && expectedStakeLotIds.every(id => stakeLotIds.includes(id));
+    const hasExpectedHistoricalBondLotIds = expectedHistoricalBondLotIds.every(id => historicalBondLotIds.includes(id));
     const hasExpectedHistoricalStakeLotIds = expectedHistoricalStakeLotIds.every(id =>
-      appState?.historicalStakeLotIds.includes(id),
+      historicalStakeLotIds.includes(id),
     );
     const hasExpectedReleasedBondLotIds = expectedReleasedBondLotIds.every(
-      id => appState?.historicalBondLotIds.includes(id) || appState?.historicalStakeLotIds.includes(id),
+      id => historicalBondLotIds.includes(id) || historicalStakeLotIds.includes(id),
     );
     const expectsBondFinancials = flow.input.expectsBondFinancials === true;
-    const hasExpectedBondFinancials =
-      !expectsBondFinancials || Boolean(appState && appState.bondLotIds.length + appState.stakeLotIds.length > 0);
+    const hasExpectedBondFinancials = !expectsBondFinancials || bondLotIds.length + stakeLotIds.length > 0;
     const hasExpectedVaultBitcoinMap =
       expectedVaultBitcoinMapItemCount === undefined ||
       (appState?.vaultBitcoinMapItemCount ?? 0) >= expectedVaultBitcoinMapItemCount;
@@ -287,17 +244,20 @@ export default new OperationalFlow<IAccountReviewFlowContext, IAccountReviewFlow
       ? !!appState?.upstreamName && upstreamVisible
       : !appState?.upstreamName && !upstreamVisible;
     const hasLoadedFinancialPositions =
-      appState?.financialReadiness === 'ready' && appState.incompleteFinancialGroups.length === 0;
+      financialSnapshot?.readiness === 'ready' &&
+      financialSnapshot.groups.every(group => group.state === 'ready' || group.state === 'stale');
     const hasCompleteBitcoinLiquids = appState?.incompleteBitcoinLiquids.length === 0;
     const hasCompleteBondLots = appState?.incompleteBondLots.length === 0;
     const hasValidFinancialReturns = appState?.invalidFinancialReturns.length === 0;
     const financialPositionBlockers: string[] = [];
     if (!hasLoadedFinancialPositions) {
-      for (const { group, state, message } of appState?.incompleteFinancialGroups ?? []) {
+      for (const { group, state, message } of financialSnapshot?.groups.filter(
+        group => group.state !== 'ready' && group.state !== 'stale',
+      ) ?? []) {
         financialPositionBlockers.push(`${group} financials are ${state}${message ? `: ${message}` : ''}`);
       }
       if (!financialPositionBlockers.length) {
-        financialPositionBlockers.push(`financial positions are ${appState?.financialReadiness ?? 'loading'}`);
+        financialPositionBlockers.push(`financial positions are ${financialSnapshot?.readiness ?? 'loading'}`);
       }
     }
     const isDataReady =
@@ -329,15 +289,12 @@ export default new OperationalFlow<IAccountReviewFlowContext, IAccountReviewFlow
     return {
       chainState: {
         archivedBitcoinLiquidIds,
-        bitcoinLiquidIds: appState?.bitcoinLiquidIds ?? [],
-        bitcoinReceivedLiquidityByLiquidId: appState?.bitcoinReceivedLiquidityByLiquidId ?? {},
-        bitcoinReturnPercentByLiquidId: appState?.bitcoinReturnPercentByLiquidId ?? {},
-        bondLotIds: appState?.bondLotIds ?? [],
-        bondReturnPercentByLotId: appState?.bondReturnPercentByLotId ?? {},
-        flexibleBondLotIds: appState?.flexibleBondLotIds ?? [],
-        stakeLotIds: appState?.stakeLotIds ?? [],
-        historicalBondLotIds: appState?.historicalBondLotIds ?? [],
-        historicalStakeLotIds: appState?.historicalStakeLotIds ?? [],
+        bitcoinLiquidIds,
+        bondLotIds,
+        flexibleBondLotIds,
+        stakeLotIds,
+        historicalBondLotIds,
+        historicalStakeLotIds,
         vaultBitcoinMapItemCount: appState?.vaultBitcoinMapItemCount ?? 0,
         vaultBondMapItemCount: appState?.vaultBondMapItemCount ?? 0,
         financialSnapshot: appState?.financialSnapshot,
@@ -368,8 +325,6 @@ export default new OperationalFlow<IAccountReviewFlowContext, IAccountReviewFlow
         expectedVaultBitcoinMapItemCount,
         expectedVaultBondMapItemCount,
         dataReady: Boolean(isDataReady),
-        financialReadiness: appState?.financialReadiness ?? 'loading',
-        incompleteFinancialGroups: appState?.incompleteFinancialGroups ?? [],
         incompleteBitcoinLiquids: appState?.incompleteBitcoinLiquids ?? [],
         incompleteBondLots: appState?.incompleteBondLots ?? [],
         invalidFinancialReturns: appState?.invalidFinancialReturns ?? [],
@@ -427,6 +382,17 @@ export default new OperationalFlow<IAccountReviewFlowContext, IAccountReviewFlow
       timeoutMs: 60_000,
       timeoutMessage: 'Account did not finish loading its readonly state.',
     });
+    const financialSnapshot = ready.chainState.financialSnapshot;
+    if (!financialSnapshot) throw new Error('Account review did not produce financial state');
+    const bitcoinLiquidPositions = financialSnapshot.groupSummaries.bitcoin.positions.filter(
+      position => position.kind === 'bitcoin-liquid',
+    );
+    const allBondPositions = financialSnapshot.groupSummaries.bonds.positions.filter(
+      position => position.kind === 'bond',
+    );
+    const bondPositions = allBondPositions.filter(position => {
+      return position.bondLot !== undefined && position.lifecycle !== 'completed';
+    });
 
     if (ready.chainState.bitcoinLiquidIds.length) {
       const bitcoinScreen = await flow.isVisible('BitcoinScreen');
@@ -451,11 +417,11 @@ export default new OperationalFlow<IAccountReviewFlowContext, IAccountReviewFlow
 
     for (const liquidId of ready.chainState.bitcoinLiquidIds) {
       const isArchived = ready.chainState.archivedBitcoinLiquidIds.includes(liquidId);
-      const expectedReceivedLiquidity = ready.chainState.bitcoinReceivedLiquidityByLiquidId[liquidId];
-      if (expectedReceivedLiquidity === undefined) {
+      const financialPosition = bitcoinLiquidPositions.find(position => position.liquidId === liquidId);
+      if (!financialPosition) {
         throw new Error(`Bitcoin Liquid ${liquidId} has no financial position liquidity`);
       }
-      const expectedReceivedCents = (BigInt(expectedReceivedLiquidity) + 5_000n) / 10_000n;
+      const expectedReceivedCents = (financialPosition.receivedLiquidity + 5_000n) / 10_000n;
       const parseRenderedCents = (text: string): bigint => {
         const amount = text.replace(/[^\d.-]/g, '');
         const [whole = '0', fraction = ''] = amount.split('.');
@@ -495,8 +461,8 @@ export default new OperationalFlow<IAccountReviewFlowContext, IAccountReviewFlow
       if (!/^-?[\d,.]+%$/.test(returnText.trim())) {
         throw new Error(`Bitcoin Liquid ${liquidId} rendered an invalid return: ${returnText.trim()}`);
       }
-      const expectedReturn = ready.chainState.bitcoinReturnPercentByLiquidId[liquidId];
-      const displayedReturn = Number(returnText.replaceAll(',', '').replace('%', ''));
+      const expectedReturn = financialPosition.totalReturn;
+      const displayedReturn = Number(returnText.replaceAll(',', '').replaceAll('%', ''));
       if (expectedReturn === undefined || Math.abs(displayedReturn - expectedReturn) > 0.011) {
         throw new Error(
           `Bitcoin Liquid ${liquidId} return ${returnText.trim()} does not match its capital and profit (${expectedReturn}%)`,
@@ -592,8 +558,11 @@ export default new OperationalFlow<IAccountReviewFlowContext, IAccountReviewFlow
               throw new Error(`${section.rowKind} lot ${bondLotId} rendered an invalid return: ${returnText.trim()}`);
             }
             const programType = section.rowKind === 'bond' ? 'Vault' : 'Argonot';
-            const expectedReturn = ready.chainState.bondReturnPercentByLotId[`${programType}:${bondLotId}`];
-            const displayedReturn = Number(returnText.replaceAll(',', '').replace('%', ''));
+            const financialPosition = bondPositions.find(
+              position => position.bondLot?.id === bondLotId && position.bondLot.programType === programType,
+            );
+            const expectedReturn = financialPosition ? calculatePositionReturn([financialPosition]).percent : undefined;
+            const displayedReturn = Number(returnText.replaceAll(',', '').replaceAll('%', ''));
             if (expectedReturn === undefined || Math.abs(displayedReturn - expectedReturn) > 0.011) {
               throw new Error(
                 `${section.rowKind} lot ${bondLotId} return ${returnText.trim()} does not match distributed income and cost basis (${expectedReturn}%)`,
@@ -641,8 +610,7 @@ export default new OperationalFlow<IAccountReviewFlowContext, IAccountReviewFlow
         }
       }
     }
-    if (!ready.chainState.financialSnapshot) throw new Error('Account review did not produce financial state');
-    flow.setData('App.flow.accountReview.snapshot', ready.chainState.financialSnapshot);
+    flow.setData('App.flow.accountReview.snapshot', financialSnapshot);
     flow.setData('App.flow.accountReview.uiValidated', true);
   },
 });

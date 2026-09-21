@@ -9,6 +9,8 @@ type IVaultingFundingInspect = {
   walletIsFullyFunded: boolean;
   walletsLoaded: boolean;
   hasMiningMachine: boolean;
+  hasVault: boolean;
+  hasTreasuryAccess: boolean;
   canStartVault: boolean;
   overlayIsOpen: boolean;
   availableMicrogons: string;
@@ -47,6 +49,8 @@ export default new Operation<IVaultingFlowContext, IFinalizeSetupState>(import.m
             walletIsFullyFunded,
             walletsLoaded,
             hasMiningMachine,
+            hasVault: Boolean(refs.myVault.createdVault),
+            hasTreasuryAccess: refs.config.hasExtensionTreasury,
             canStartVault: walletIsFullyFunded && walletsLoaded && hasMiningMachine && !refs.overlayIsOpen,
             overlayIsOpen: refs.overlayIsOpen,
             availableMicrogons: availableMicrogons.toString(),
@@ -65,8 +69,12 @@ export default new Operation<IVaultingFlowContext, IFinalizeSetupState>(import.m
     const createVaultClickable = createVaultEntry.clickable;
     const canStartVault = fundingState?.canStartVault ?? false;
     const hasFinalizeEntryPoint = createVaultVisible || installingState.visible;
-    const isComplete = dashboard.visible;
-    const canRun = !dashboard.visible && (installingState.visible || (createVaultVisible && canStartVault));
+    const hasVault = fundingState?.hasVault ?? false;
+    const hasTreasuryAccess = fundingState?.hasTreasuryAccess ?? false;
+    const isComplete = hasVault && hasTreasuryAccess;
+    const canRun =
+      (hasVault && !hasTreasuryAccess) ||
+      (!dashboard.visible && (installingState.visible || (createVaultVisible && canStartVault)));
     let operationState: 'complete' | 'runnable' | 'processing' = 'processing';
     if (isComplete) {
       operationState = 'complete';
@@ -91,6 +99,8 @@ export default new Operation<IVaultingFlowContext, IFinalizeSetupState>(import.m
         walletIsFullyFunded: false,
         walletsLoaded: false,
         hasMiningMachine: false,
+        hasVault: false,
+        hasTreasuryAccess: false,
         canStartVault: false,
         overlayIsOpen: false,
         availableMicrogons: '0',
@@ -109,10 +119,10 @@ export default new Operation<IVaultingFlowContext, IFinalizeSetupState>(import.m
     };
   },
   async run({ flow, flowName }, state) {
-    if (state.uiState.dashboardVisible) {
+    if (state.chainState.hasVault && state.chainState.hasTreasuryAccess) {
       return;
     }
-    if (!state.uiState.createVaultVisible && !state.uiState.installingVisible) {
+    if (!state.uiState.dashboardVisible && !state.uiState.createVaultVisible && !state.uiState.installingVisible) {
       return;
     }
 
@@ -131,8 +141,14 @@ export default new Operation<IVaultingFlowContext, IFinalizeSetupState>(import.m
           throw new Error(`${flowName}: vault creation failed: ${vaultInstallError}`);
         }
 
-        const dashboard = await flow.isVisible('VaultingDashboard');
-        if (dashboard.visible) return true;
+        const [dashboard, readiness] = await Promise.all([
+          flow.isVisible('VaultingDashboard'),
+          flow.queryApp(refs => ({
+            hasVault: Boolean(refs.myVault.createdVault),
+            hasTreasuryAccess: refs.config.hasExtensionTreasury,
+          })),
+        ]);
+        if (readiness?.hasVault && readiness.hasTreasuryAccess) return true;
 
         const [createVaultVisible, installingVisible] = await Promise.all([
           flow.isVisible('SetupChecklist.startCreateVault()'),

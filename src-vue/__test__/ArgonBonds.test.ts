@@ -566,7 +566,6 @@ describe('ArgonBonds', () => {
       releaseReason: 'UserLiquidation',
     });
     const failedLot = BondLot.fromRuntime(68, failedCodec, accountId);
-    const successfulLot = BondLot.fromRuntime(69, successfulCodec, accountId);
     const parent = {
       blockNumber: 99,
       blockHash: '0x99',

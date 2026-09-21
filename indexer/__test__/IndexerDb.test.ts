@@ -237,14 +237,14 @@ it('replays only blocks from the first bond-flexibility runtime when upgrading d
       blockHash: Uint8Array.of(2),
       specVersion: 157,
       systemEvents: Uint8Array.of(),
-      accounts: [],
-      vaults: [],
+      accounts: [{ address: alice, mask: AccountActivityKind.BondPosition }],
+      vaults: [{ vaultId: 7, mask: AccountActivityKind.VaultRevenue }],
       vaultOwners: [],
     },
     {
       blockNumber: 3,
       blockHash: Uint8Array.of(3),
-      specVersion: 159,
+      specVersion: 158,
       systemEvents: Uint8Array.of(),
       accounts: [{ address: alice, mask: AccountActivityKind.Transfer }],
       vaults: [],
@@ -260,30 +260,22 @@ it('replays only blocks from the first bond-flexibility runtime when upgrading d
 
   try {
     const upgraded = new IndexerDb(databasePath);
-    expect(upgraded.latestSyncedBlock).toBe(1);
+    expect(upgraded.latestSyncedBlock).toBe(2);
     expect(upgraded.findAddressActivity(alice)).toMatchObject([
       { blockNumber: 1, activityMask: AccountActivityKind.Transfer },
+      { blockNumber: 2, activityMask: AccountActivityKind.BondPosition | AccountActivityKind.VaultRevenue },
     ]);
     const inspection = new DatabaseSync(databasePath);
-    const deletionPlan = inspection.prepare('EXPLAIN QUERY PLAN DELETE FROM Blocks WHERE blockNumber >= ?').all(2) as {
+    const deletionPlan = inspection.prepare('EXPLAIN QUERY PLAN DELETE FROM Blocks WHERE blockNumber >= ?').all(3) as {
       detail: string;
     }[];
     expect(deletionPlan.some(step => step.detail.includes('AccountBlocksByBlock'))).toBe(true);
     inspection.close();
     upgraded.recordBlocks([
       {
-        blockNumber: 2,
-        blockHash: Uint8Array.of(2),
-        specVersion: 157,
-        systemEvents: Uint8Array.of(),
-        accounts: [{ address: alice, mask: AccountActivityKind.BondPosition }],
-        vaults: [{ vaultId: 7, mask: AccountActivityKind.VaultRevenue }],
-        vaultOwners: [],
-      },
-      {
         blockNumber: 3,
         blockHash: Uint8Array.of(3),
-        specVersion: 159,
+        specVersion: 158,
         systemEvents: Uint8Array.of(),
         accounts: [{ address: alice, mask: AccountActivityKind.Transfer }],
         vaults: [],
@@ -306,7 +298,7 @@ it('replays only blocks from the first bond-flexibility runtime when upgrading d
   }
 });
 
-it('keeps the existing checkpoint when definition 3 has no spec-157 blocks', () => {
+it('keeps the existing checkpoint when definition 3 has no spec-158 blocks', () => {
   const directory = fs.mkdtempSync(Path.join(os.tmpdir(), 'account-activity-'));
   const databasePath = Path.join(directory, 'test.db');
   const db = new IndexerDb(databasePath);

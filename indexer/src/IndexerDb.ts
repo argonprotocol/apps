@@ -284,9 +284,9 @@ export class IndexerDb {
     if (sync?.definitionVersion !== 3) return;
 
     // Definition 4 resolves bond flexibility events to their owner. Those
-    // events first existed in runtime spec 157; earlier activity is unchanged.
+    // events first existed in runtime spec 158; earlier activity is unchanged.
     const firstAffectedBlock = this.database
-      .prepare(`SELECT MIN(blockNumber) AS blockNumber FROM Blocks WHERE specVersion >= 157`)
+      .prepare(`SELECT MIN(blockNumber) AS blockNumber FROM Blocks WHERE specVersion >= 158`)
       .get() as { blockNumber: number | null };
     const replayFromBlock = firstAffectedBlock.blockNumber;
 
@@ -315,7 +315,7 @@ export class IndexerDb {
 
     console.info(
       replayFromBlock === null
-        ? `Upgraded account activity definition to ${ACCOUNT_ACTIVITY_DEFINITION_VERSION}; no spec-157 blocks to replay`
+        ? `Upgraded account activity definition to ${ACCOUNT_ACTIVITY_DEFINITION_VERSION}; no spec-158 blocks to replay`
         : `Upgraded account activity definition to ${ACCOUNT_ACTIVITY_DEFINITION_VERSION}; replaying from block ${replayFromBlock}`,
     );
   }

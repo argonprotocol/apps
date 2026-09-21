@@ -1400,7 +1400,7 @@ describe('financials store lifecycle', () => {
     const runtimeLot = toPlain(
       registry.createType<PalletTreasuryBondLot>('PalletTreasuryBondLot', {
         owner: `0x${'11'.repeat(32)}`,
-        program: { Vault: { vaultId: 4, sharingPercent: 0, bonusPercent: 0 } },
+        program: { Vault: { vaultId: 10, sharingPercent: 0, bonusPercent: 0 } },
         bonds: 10,
         createdFrameId: 1,
         participatedFrames: 0,
@@ -1409,6 +1409,7 @@ describe('financials store lifecycle', () => {
         cumulativeEarnings: 1_000_000,
         releaseFrameId: null,
         releaseReason: null,
+        isFlexible: true,
       }),
     ) as NonNullable<TreasuryBondLotByIdResult>;
     const treasuryHold = toPlain(
@@ -1452,7 +1453,16 @@ describe('financials store lifecycle', () => {
         createdFrame: bondLot.createdFrame,
         firstObservedBlockNumber: 1,
         firstObservedBlockHash: '0x1',
-        flexibilityHistory: [],
+        flexibilityHistory: [
+          {
+            isFlexible: true,
+            cumulativeEarningsMicrogons: 0n,
+            source: 'purchase',
+            blockNumber: 1,
+            blockHash: '0x1',
+            blockTime: new Date('2026-07-01T00:00:00Z'),
+          },
+        ],
         flexibilityHistoryComplete: true,
         createdAt: new Date('2026-07-01T00:00:00Z'),
         updatedAt: new Date('2026-07-01T00:00:00Z'),
@@ -1498,12 +1508,12 @@ describe('financials store lifecycle', () => {
     expect(financialHistory.historyRecoveryByDomain.vaulting.state).toBe('ready');
     expect(financialHistory.historyRecoveryByDomain.bitcoin.state).toBe('error');
     expect(financials.financialPositionAggregate.groupSummaries.bonds.returnSummary).toMatchObject({
-      availability: 'available',
-      investedCost: 10_000_000n,
+      availability: 'not-applicable',
+      investedCost: 0n,
     });
     expect(financials.financialPositionAggregate.groupSummaries.vaulting.returnSummary).toMatchObject({
       availability: 'available',
-      investedCost: 8_000_000n,
+      investedCost: 18_000_000n,
     });
   });
 });

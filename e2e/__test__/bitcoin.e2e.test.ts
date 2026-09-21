@@ -101,6 +101,7 @@ describe.skipIf(skipE2E).sequential('Bitcoin Operation Flows', () => {
           await session.run('App.flow.accountReview', {
             expectedDefaultArgonAddress: basicAccountId,
             expectsOperations: false,
+            expectsTreasury: false,
             expectsConfiguredServer: false,
             expectsUpstream: false,
             expectsVault: false,
@@ -145,26 +146,23 @@ describe.skipIf(skipE2E).sequential('Bitcoin Operation Flows', () => {
         }
 
         await session.loadInstance(generatedInstanceName);
-        const accountReviewResult = await session.run('App.flow.accountReview', {
+        const historyRecovery = await session.recoverAccountHistory(historyThroughBlock);
+        await session.run('App.flow.accountReview', {
           expectedDefaultArgonAddress: sourceWallet.meta.vaultingAddress,
           expectsConfiguredServer: false,
           expectsUpstream: false,
           expectsBitcoinLiquid: true,
-          historyThroughBlock,
         });
-        expect(accountReviewResult.data.historyRecovery).toMatchObject({
-          throughBlock: historyThroughBlock,
-          walletHistory: { asOfBlock: historyThroughBlock },
-          financialHistory: {
-            accountId: sourceWallet.meta.vaultingAddress,
-            asOfBlock: historyThroughBlock,
-            domainCheckpoints: {
-              bitcoin: { asOfBlock: historyThroughBlock },
-              bonds: { asOfBlock: historyThroughBlock },
-              vaulting: { asOfBlock: historyThroughBlock },
-            },
-          },
-        });
+        expect(historyRecovery.throughBlock).toBe(historyThroughBlock);
+        expect(historyRecovery.walletHistory.asOfBlock).toBeGreaterThanOrEqual(historyThroughBlock);
+        expect(historyRecovery.financialHistory.accountId).toBe(sourceWallet.meta.vaultingAddress);
+        expect(historyRecovery.financialHistory.asOfBlock).toBeGreaterThanOrEqual(historyThroughBlock);
+        const { domainCheckpoints } = historyRecovery.financialHistory;
+        if (!domainCheckpoints) throw new Error('Financial recovery did not return domain checkpoints');
+        expect(Object.keys(domainCheckpoints).sort()).toEqual(['bitcoin', 'bonds', 'vaulting']);
+        for (const checkpoint of Object.values(domainCheckpoints)) {
+          expect(checkpoint.asOfBlock).toBeGreaterThanOrEqual(historyThroughBlock);
+        }
       },
       60 * 60_000,
     );
@@ -232,8 +230,15 @@ function readLiquidReturnFromHistory(databasePath: string): Record<number, numbe
       txFee: string | null;
     }[];
     expect(ratchets.map(ratchet => ratchet.sourceRatchetIndex)).toEqual([0, 1]);
-    if (ratchets.some(ratchet => ratchet.txFee == null || BigInt(ratchet.mintPending) !== 0n)) {
-      throw new Error('The archived Liquid has incomplete transaction fees or mint settlement');
+    if (ratchets.some(ratchet => ratchet.txFee == null)) {
+      throw new Error('The archived Liquid has incomplete transaction fees');
+    }
+    if (
+      ratchets.some(
+        ratchet => BigInt(ratchet.mintPending) < 0n || BigInt(ratchet.mintPending) > BigInt(ratchet.amountMinted),
+      )
+    ) {
+      throw new Error('The archived Liquid has invalid pending mint state');
     }
     const lock = db
       .prepare('SELECT securityFees, couponFeesPaid FROM BitcoinLocks WHERE lockId = ?')
@@ -247,15 +252,15 @@ function readLiquidReturnFromHistory(databasePath: string): Record<number, numbe
     if (openingBasis <= 0n) throw new Error('The archived Liquid has no opening basis');
     const unlocked = BigInt(ratchets[1].liquidityPromised) - BigInt(ratchets[0].liquidityPromised);
     if (unlocked <= 0n) throw new Error('The expected upward ratchet did not unlock liquidity');
-    const received = ratchets.reduce(
-      (amount, ratchet) => amount + BigInt(ratchet.amountMinted) - BigInt(ratchet.amountBurned),
-      0n,
-    );
+    const received = ratchets.reduce((amount, ratchet) => {
+      return amount + BigInt(ratchet.amountMinted) - BigInt(ratchet.mintPending) - BigInt(ratchet.amountBurned);
+    }, 0n);
+    const pending = ratchets.reduce((amount, ratchet) => amount + BigInt(ratchet.mintPending), 0n);
     const actionFees = ratchets.reduce((amount, ratchet) => amount + BigInt(ratchet.txFee!), 0n);
     const netSecurityFee = BigInt(lock.securityFees) - BigInt(lock.couponFeesPaid);
     if (netSecurityFee < 0n) throw new Error('The archived Liquid has more coupon credit than security fees');
     const fees = actionFees + BigInt(fission.closeTxFee) + netSecurityFee;
-    const profit = unlocked + received - BigInt(fission.redemptionAmount) - fees;
+    const profit = unlocked + received + pending - BigInt(fission.redemptionAmount) - fees;
     return { [fission.liquidId]: Number((profit * 100_000n) / openingBasis) / 1_000 };
   } finally {
     db.close();

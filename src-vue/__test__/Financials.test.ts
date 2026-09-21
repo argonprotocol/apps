@@ -62,11 +62,6 @@ const emptyBitcoinFissionHistory = Promise.resolve({
   bitcoinFissionsTable: { fetchAll: vi.fn(async () => []) },
 }) as never;
 const bitcoinFinancials = new BitcoinFinancials({} as BitcoinLocks, emptyBitcoinFissions, emptyBitcoinFissionHistory);
-const vaultFinancials = new VaultFinancials({} as any, {
-  bondLots: [],
-  bondHistory: [],
-  isLoaded: true,
-});
 const bitcoinPriceIndex = new PriceIndex();
 bitcoinPriceIndex.btcUsdPrice = new BigNumber(1);
 bitcoinPriceIndex.argonUsdPrice = new BigNumber(1);

@@ -30,7 +30,7 @@ export default new Operation<IBitcoinFlowContext, IReadLockFundingDetailsState>(
     };
   },
 
-  async run({ flow, flowName, state }) {
+  async run({ flow, flowName, input, state }) {
     await flow.run(bitcoinActivateWallet);
     await pollEvery(
       100,
@@ -65,21 +65,34 @@ export default new Operation<IBitcoinFlowContext, IReadLockFundingDetailsState>(
     );
 
     const funding = await flow.queryApp(
-      async (refs, args: { lockUuid: string }) => {
+      async (refs, args: { lockUuid: string; minimumLockSatoshis?: bigint; minimumLockMicrogons?: bigint }) => {
         await refs.bitcoinLocks.load();
         const lock = refs.bitcoinLocks.getLockByUuid(args.lockUuid);
+        const requestedSatoshis =
+          args.minimumLockSatoshis ??
+          (args.minimumLockMicrogons
+            ? await refs.bitcoinLocks.satoshisForArgonLiquidity(args.minimumLockMicrogons)
+            : 0n);
         return lock
           ? {
               uuid: lock.uuid,
-              amountSatoshis: lock.securitizedSatoshis.toString(),
+              amountSatoshis: lock.securitizedSatoshis || requestedSatoshis,
             }
           : undefined;
       },
-      { args: { lockUuid: displayedUuid }, timeoutMs: 3_000 },
+      {
+        args: {
+          lockUuid: displayedUuid,
+          minimumLockSatoshis: input.minimumLockSatoshis,
+          minimumLockMicrogons: input.minimumLockMicrogons,
+        },
+        timeoutMs: 3_000,
+      },
     );
     if (!funding) throw new Error(`${flowName}: displayed Bitcoin channel ${displayedUuid} is unavailable.`);
 
-    const amountSatoshis = BigInt(funding.amountSatoshis);
+    const amountSatoshis = funding.amountSatoshis;
+    if (amountSatoshis <= 0n) throw new Error(`${flowName}: Bitcoin channel funding amount is unavailable.`);
     state.lockFundingDetails = {
       lockUuid: funding.uuid,
       address: copiedAddress,
