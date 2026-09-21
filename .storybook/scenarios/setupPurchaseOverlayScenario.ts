@@ -1,5 +1,5 @@
 import * as Vue from 'vue';
-import { BondLot, MICRONOTS_PER_ARGONOT } from '@argonprotocol/apps-core';
+import { BondLot, MICROGONS_PER_ARGON, MICRONOTS_PER_ARGONOT } from '@argonprotocol/apps-core';
 import { fn, mocked } from 'storybook/test';
 import { TopTab } from '../../src-vue/interfaces/IConfig.ts';
 import { ExtrinsicType, TransactionStatus } from '../../src-vue/lib/db/TransactionsTable.ts';
@@ -12,18 +12,23 @@ import { getVaults } from '../../src-vue/stores/vaults.ts';
 import { createScenarioVault } from './createScenarioVault.ts';
 import { setupAppScenario } from './setupAppScenario.ts';
 
-type BondPurchaseState = 'loading' | 'loadError' | 'ready' | 'available' | 'selection';
-type StakePurchaseState = 'loadError' | 'ready' | 'fundingRequired' | 'progress' | 'progressError' | 'complete';
+type BondPurchaseState = 'loading' | 'loadError' | 'ready' | 'available' | 'walletLimited' | 'selection';
+type StakePurchaseState = 'loadError' | 'ready' | 'walletLimited' | 'progress' | 'progressError' | 'complete';
 
 export function setupBondPurchaseScenario(state: BondPurchaseState) {
-  setupAppScenario({ selectedTab: TopTab.ArgonBonds });
+  const { wallets } = setupAppScenario({ selectedTab: TopTab.ArgonBonds });
+  const hasAvailableBondSpace = state === 'available' || state === 'walletLimited';
+  if (hasAvailableBondSpace) {
+    wallets.defaultArgonWallet.availableMicrogons =
+      (state === 'walletLimited' ? 26n : 2_000n) * BigInt(MICROGONS_PER_ARGON);
+  }
   const vaults =
     state === 'selection'
       ? [
           createScenarioVault({ vaultId: 7, operatorAccountId: '5AtlasVaultOperator' }),
           createScenarioVault({ vaultId: 12, operatorAccountId: '5NorthstarVaultOperator' }),
         ]
-      : state === 'available'
+      : hasAvailableBondSpace
         ? [
             createScenarioVault({
               securitizationLocked: 1_052_698_425n,
@@ -47,9 +52,10 @@ export function setupBondPurchaseScenario(state: BondPurchaseState) {
     refreshBondLots: fn(async () => undefined),
     subscribeGlobal: fn(async () => undefined),
     subscribeVault: fn(async () => fn()),
-    availableBondSpace: fn(vault =>
-      state === 'available' ? 1_026_000_000n : vault.vaultId === 7 ? 120_000_000n : 80_000_000n,
-    ),
+    availableBondSpace: fn(vault => {
+      if (hasAvailableBondSpace) return 1_026_000_000n;
+      return vault.vaultId === 7 ? 120_000_000n : 80_000_000n;
+    }),
   } as unknown as ReturnType<typeof getArgonBonds>);
   mocked(getVaults, { partial: true }).mockReturnValue({
     load: fn(async () => undefined),
@@ -73,7 +79,7 @@ export function setupStakePurchaseScenario(state: StakePurchaseState) {
   const { wallets } = setupAppScenario({ selectedTab: TopTab.ArgonotStaking });
   const unitsPerStake = BigInt(MICRONOTS_PER_ARGONOT);
   wallets.defaultArgonWallet.availableMicronots =
-    state === 'fundingRequired' ? 25n * unitsPerStake : 1_000n * unitsPerStake;
+    state === 'walletLimited' ? 25n * unitsPerStake : 1_000n * unitsPerStake;
 
   mocked(getArgonBonds).mockReturnValue({
     data: Vue.reactive({ isLoaded: true, bondLots: [] }),

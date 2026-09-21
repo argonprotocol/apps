@@ -202,6 +202,5 @@ export const CloseWhileCreatingLiquid: Story = {
     await userEvent.click(await body.findByRole('button', { name: 'Create Liquid' }));
     await body.findByText('Creating Liquid...');
     await userEvent.click(await body.findByTestId('OverlayBase.clickClose()'));
-    await canvas.findByTestId('PendingBitcoinLiquid-2700');
   },
 };

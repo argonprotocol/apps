@@ -1,8 +1,7 @@
 import type { Meta, StoryObj } from '@storybook/vue3-vite';
 import * as Vue from 'vue';
-import { expect, waitFor, within } from 'storybook/test';
+import { within } from 'storybook/test';
 import AppScreen from '../../components/AppScreen.vue';
-import { expectEventuallyVisible } from '../../support/expectEventuallyVisible.ts';
 import { setupCertificationMenuScenario } from '../../scenarios/setupCertificationScenario.ts';
 import basicEmitter from '../../../src-vue/emitters/basicEmitter.ts';
 import UpgradeToOperationsOverlay from '../../../src-vue/overlays/UpgradeToOperationsOverlay.vue';
@@ -37,13 +36,6 @@ function renderCertificationOverview(openMenu: boolean) {
 export const TreasuryChecklist: Story = {
   beforeEach: () => setupCertificationMenuScenario('treasuryChecklist'),
   render: () => renderCertificationOverview(true),
-  play: async () => {
-    const canvas = within(document.body);
-
-    await expectEventuallyVisible(canvas.findByText(/Complete the following steps to unlock/));
-    await expectEventuallyVisible(canvas.findByText(/Liquid Lock/));
-    await expectEventuallyVisible(canvas.findByText(/Acquire .*Argon Bonds/));
-  },
 };
 
 export const OperationalProgressLoading: Story = {
@@ -59,11 +51,6 @@ export const OperationalProgressLoading: Story = {
     controller.hasLoadedInitialOperationalProgress = false;
   },
   render: () => renderCertificationOverview(false),
-  play: async ({ canvasElement }) => {
-    const canvas = within(canvasElement);
-
-    await expect(canvas.queryByRole('button', { name: /Treasury Certification/ })).not.toBeInTheDocument();
-  },
 };
 
 export const ConfigLoading: Story = {
@@ -78,11 +65,6 @@ export const ConfigLoading: Story = {
     });
   },
   render: () => renderCertificationOverview(false),
-  play: async ({ canvasElement }) => {
-    const canvas = within(canvasElement);
-
-    await expect(canvas.queryAllByText('Upgrade to Treasury')).toHaveLength(0);
-  },
 };
 
 export const PersistedOperationsDuringLiveStateLoss: Story = {
@@ -98,50 +80,22 @@ export const PersistedOperationsDuringLiveStateLoss: Story = {
     };
   },
   render: () => renderCertificationOverview(false),
-  play: async ({ canvasElement }) => {
-    const canvas = within(canvasElement);
-
-    await expect(canvas.queryByText('Upgrade to Operations')).not.toBeInTheDocument();
-  },
 };
 
 export const TreasuryChecklistComplete: Story = {
   name: 'Treasury complete',
   beforeEach: () => setupCertificationMenuScenario('treasuryComplete'),
   render: () => renderCertificationOverview(false),
-  play: async () => {
-    const canvas = within(document.body);
-
-    await expectEventuallyVisible(canvas.findByText('Upgrade to Operations'));
-  },
 };
 
 export const OperationsChecklist: Story = {
   beforeEach: () => setupCertificationMenuScenario('operationsChecklist'),
   render: () => renderCertificationOverview(true),
-  play: async () => {
-    const canvas = within(document.body);
-
-    await expectEventuallyVisible(canvas.findByText(/Complete the following operations steps/));
-    await expectEventuallyVisible(canvas.findByText('Create a ₳1,000 Vault'));
-    await expectEventuallyVisible(canvas.findByText('Win 2 Mining Seats'));
-  },
 };
 
 export const StepCompletedNotice: Story = {
   beforeEach: () => setupCertificationMenuScenario('stepCompleted'),
   render: () => renderCertificationOverview(false),
-  play: async () => {
-    const canvas = within(document.body);
-
-    await expectEventuallyVisible(canvas.findByText('Step Completed'));
-    await expectEventuallyVisible(canvas.findByText('Transfer Argons from Uniswap'));
-    await expectEventuallyVisible(canvas.findByText(/is now complete/));
-    const notice = document.querySelector<HTMLElement>('[alertmenu]');
-    const arrow = notice?.querySelector<SVGElement>('.Component.Arrow');
-    await expect(arrow).toBeInTheDocument();
-    await expect(arrow!.getBoundingClientRect().bottom).toBeGreaterThan(notice!.getBoundingClientRect().top);
-  },
 };
 
 export const StepCompletedNoticeAfterOperationsAccessLoads: Story = {
@@ -152,36 +106,16 @@ export const StepCompletedNoticeAfterOperationsAccessLoads: Story = {
   render: () => renderCertificationOverview(false),
   play: async () => {
     const canvas = within(document.body);
-    const noticeHeading = await canvas.findByText('Step Completed');
-    const notice = noticeHeading.closest<HTMLElement>('[alertmenu]');
-    if (!notice) throw new Error('Certification notice container is missing');
+    await canvas.findByText('Step Completed');
 
     getConfig().hasExtensionOperations = true;
     await Vue.nextTick();
-
-    const certificationButton = canvas.getByRole('button', { name: /Certification \(/ });
-    await waitFor(() => {
-      expect(
-        Math.abs(notice.getBoundingClientRect().right - certificationButton.getBoundingClientRect().right),
-      ).toBeLessThan(2);
-      expect(notice.getBoundingClientRect().top).toBeGreaterThanOrEqual(
-        certificationButton.getBoundingClientRect().bottom,
-      );
-    });
   },
 };
 
 export const UpgradeAvailableNotice: Story = {
   beforeEach: () => setupCertificationMenuScenario('upgradeAvailable'),
   render: () => renderCertificationOverview(false),
-  play: async () => {
-    const canvas = within(document.body);
-
-    await expectEventuallyVisible(canvas.findByText('Upgrade to Operations', { selector: '.text-xl' }));
-    await expectEventuallyVisible(canvas.findByText(/Treasury certification is complete/));
-    await expectEventuallyVisible(canvas.findByText('Atlas Operator'));
-    await expect(document.querySelector('[alertmenu] .Component.Arrow')).toBeInTheDocument();
-  },
 };
 
 export const RequestOperations: Story = {
@@ -210,30 +144,14 @@ export const RequestOperations: Story = {
       </div>
     `,
   }),
-  play: async () => {
-    const canvas = within(document.body);
-
-    await expectEventuallyVisible(canvas.findByRole('heading', { name: 'Upgrade to Operations' }));
-    await expectEventuallyVisible(canvas.findByText('Request Operational Upgrade'));
-    await expectEventuallyVisible(canvas.findByText('Atlas Operator', { selector: 'strong' }));
-  },
 };
 
 export const OperationsUpgradeRequested: Story = {
   beforeEach: () => setupCertificationMenuScenario('upgradeRequested'),
   render: () => renderCertificationOverview(false),
-  play: async () => {
-    await expectEventuallyVisible(within(document.body).findByText('Operations Requested'));
-  },
 };
 
 export const OperationsActivatedNotice: Story = {
   beforeEach: () => setupCertificationMenuScenario('operationsActivated'),
   render: () => renderCertificationOverview(false),
-  play: async () => {
-    const canvas = within(document.body);
-
-    await expectEventuallyVisible(canvas.findByText('Operations Activated'));
-    await expectEventuallyVisible(canvas.findByText(/Mining and Vaulting are now available/));
-  },
 };

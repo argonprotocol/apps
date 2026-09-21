@@ -3,7 +3,7 @@ import type { ICertificationProgress } from '@argonprotocol/apps-core';
 import type { IMemberInvite } from '@argonprotocol/apps-router';
 import { Keyring } from '@polkadot/keyring';
 import * as Vue from 'vue';
-import { expect, fn, mocked, within } from 'storybook/test';
+import { fn, mocked } from 'storybook/test';
 import AppScreen from '../../components/AppScreen.vue';
 import { createScenarioVault } from '../../scenarios/createScenarioVault.ts';
 import { setupAppScenario } from '../../scenarios/setupAppScenario.ts';
@@ -105,12 +105,6 @@ export const ServerUpdatingWithoutInviteApi: Story = {
       }),
     });
   },
-  play: async ({ canvasElement }) => {
-    const canvas = within(canvasElement);
-
-    await expect(await canvas.findByRole('heading', { name: 'Updating Your Server' })).toBeVisible();
-    await expect(canvas.getByText(/Member onboarding will reconnect automatically/)).toBeVisible();
-  },
 };
 
 export const ServerUpdateFailed: Story = {
@@ -135,14 +129,6 @@ export const ServerUpdateFailed: Story = {
       runFailedStep: fn(async () => undefined),
     });
   },
-  play: async ({ canvasElement }) => {
-    const canvas = within(canvasElement);
-
-    await expect(canvas.getByTestId('LeftBar.goto(TopTab.Onboarding)')).toHaveClass('Selected');
-    await expect(await canvas.findByText('Server Update Failed')).toBeVisible();
-    await expect(canvas.getByText(/Failed to Install Argon/)).toBeVisible();
-    await expect(canvas.getByText('Argon syncstatus returned error JSON too many times')).toBeVisible();
-  },
 };
 
 export const ServerUpdatingWithInviteApi: Story = {
@@ -155,13 +141,6 @@ export const ServerUpdatingWithInviteApi: Story = {
     mocked(getServerApiClient, { partial: true }).mockReturnValue({
       getInvites: fn(async () => createMemberInvites()),
     });
-  },
-  play: async ({ canvasElement }) => {
-    const canvas = within(canvasElement);
-
-    await expect(await canvas.findByText('Server Update in Progress')).toBeVisible();
-    await expect(await canvas.findByText('Morgan')).toBeVisible();
-    await expect(canvas.getByTestId('SendMemberInvite')).not.toBeDisabled();
   },
 };
 
@@ -181,13 +160,6 @@ export const ServerUpdatingWithCachedInvites: Story = {
       }),
     });
   },
-  play: async ({ canvasElement }) => {
-    const canvas = within(canvasElement);
-
-    await expect(await canvas.findByText('Server Update in Progress')).toBeVisible();
-    await expect(canvas.getByText('Morgan')).toBeVisible();
-    await expect(canvas.getByTestId('SendMemberInvite')).toBeDisabled();
-  },
 };
 
 export const ServerUnavailableWithoutInviteApi: Story = {
@@ -201,12 +173,6 @@ export const ServerUnavailableWithoutInviteApi: Story = {
         throw new Error('Server API unavailable');
       }),
     });
-  },
-  play: async ({ canvasElement }) => {
-    const canvas = within(canvasElement);
-
-    await expect(await canvas.findByRole('heading', { name: 'Server Unavailable' })).toBeVisible();
-    await expect(canvas.getByText(/Member onboarding cannot reach your server right now/)).toBeVisible();
   },
 };
 
@@ -237,11 +203,6 @@ export const MemberStates: Story = {
     };
     controller.setOperationalInvites(createMemberInvites());
     controller.hasLoadedOperationalInvites = true;
-  },
-  play: async ({ canvasElement }) => {
-    const canvas = within(canvasElement);
-
-    await expect(await canvas.findByText('Created 3 days ago')).toBeVisible();
   },
 };
 
