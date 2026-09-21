@@ -113,7 +113,7 @@
                   <div v-else-if="group.isStale" class="text-sm font-normal text-slate-500">Stale</div>
                 </div>
                 <div class="font-mono font-semibold text-slate-700">
-                  {{ group.state === 'ready' || (group.state === 'stale' && group.positions.length) ? `${currency.symbol}${formatValue(group.currentValue + bitcoinWalletValue + financials.bitcoinLiquidPendingMintMicrogons)}` : '--' }}
+                  {{ group.state === 'ready' || (group.state === 'stale' && group.positions.length) ? `${currency.symbol}${formatValue(financials.savingsTotalValue)}` : '--' }}
                 </div>
               </div>
               <div v-if="internalWalletIsExpanded" class="mt-1 ml-2 border-l border-slate-300/70 pl-2">
@@ -331,7 +331,7 @@ const internalWalletIsExpanded = Vue.ref(false);
 const argonBondsAreExpanded = Vue.ref(false);
 const argonotStakesAreExpanded = Vue.ref(false);
 const bitcoinLocksAreExpanded = Vue.ref(false);
-const { financialPositionAggregate: aggregate, liquidNativeBalances, bondSummariesByAsset } = storeToRefs(financials);
+const { financialPositionAggregate: aggregate, bondSummariesByAsset } = storeToRefs(financials);
 const bondAssetRows = Vue.computed(() => {
   const bondPositions = aggregate.value.groupSummaries.bonds.positions.filter(position => position.kind === 'bond');
   const positions = bondPositions.filter(position => position.lifecycle !== 'completed');
@@ -385,13 +385,13 @@ const ethereumWalletRows = Vue.computed(() => {
 const internalWalletTokenRows = Vue.computed(() => [
   {
     symbol: 'ARGN',
-    nativeAmount: microgonToArgonNm(liquidNativeBalances.value.microgons).format('0,0.[00]'),
-    value: liquidNativeBalances.value.microgons,
+    nativeAmount: microgonToArgonNm(wallets.defaultArgonWallet.availableMicrogons).format('0,0.[00]'),
+    value: wallets.defaultArgonWallet.availableMicrogons,
   },
   {
     symbol: 'ARGNOT',
-    nativeAmount: micronotToArgonotNm(liquidNativeBalances.value.micronots).format('0,0.[00]'),
-    value: currency.convertMicronotTo(liquidNativeBalances.value.micronots, UnitOfMeasurement.Microgon),
+    nativeAmount: micronotToArgonotNm(wallets.defaultArgonWallet.availableMicronots).format('0,0.[00]'),
+    value: currency.convertMicronotTo(wallets.defaultArgonWallet.availableMicronots, UnitOfMeasurement.Microgon),
   },
   {
     symbol: 'BTC',

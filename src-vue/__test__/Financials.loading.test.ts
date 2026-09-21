@@ -316,8 +316,16 @@ describe('financials store lifecycle', () => {
     mocks.config.hasActivatedStableSwaps = false;
     mocks.config.walletAccountsHadPreviousLife = false;
     mocks.wallets.isLoadedPromise = Promise.resolve();
+    mocks.wallets.defaultArgonWallet = reactive({
+      ...mocks.wallets.defaultArgonWallet,
+      availableMicrogons: 0n,
+      reservedMicrogons: 0n,
+      availableMicronots: 0n,
+      reservedMicronots: 0n,
+    });
     mocks.currency.isLoadedPromise = Promise.resolve();
     mocks.currency.microgonsPer.ARGNOT = 0n;
+    mocks.currency.convertMicronotTo.mockReturnValue(0n);
     mocks.currency.fetchMicrogonsInCirculation.mockResolvedValue(0n);
     mocks.currency.fetchMicrogonsInCirculation.mockClear();
     mocks.currency.convertSatToMicrogon.mockReturnValue(0n);
@@ -691,6 +699,28 @@ describe('financials store lifecycle', () => {
     expect(financials.bitcoinWalletTotalSatoshis).toBe(0n);
   });
 
+  it('excludes Treasury-held ARGN from the Internal App Wallet total', async () => {
+    const registry = getOfflineRegistry();
+    const treasuryHold = toPlain(
+      registry.createType<FrameSupportTokensMiscIdAmountRuntimeHoldReason>(
+        'FrameSupportTokensMiscIdAmountRuntimeHoldReason',
+        { id: { Treasury: 'ContributedToTreasury' }, amount: 17n },
+      ),
+    ) as IArgonAccountBalance['microgonHolds'][number];
+    const snapshot = createAccountSnapshot(mocks.blockWatch.bestBlockHeader, 100n);
+    snapshot.accounts[0].reservedMicrogons = 17n;
+    snapshot.accounts[0].microgonHolds = [treasuryHold];
+    mocks.walletsForArgon.readAccountSnapshot.mockResolvedValue(snapshot);
+    mocks.wallets.defaultArgonWallet.availableMicrogons = 100n;
+    mocks.wallets.defaultArgonWallet.reservedMicrogons = 17n;
+
+    const financials = useFinancials();
+
+    await vi.waitFor(() => expect(financials.savingsIsLoaded).toBe(true));
+    expect(financials.financialPositionAggregate.groupSummaries.liquid.currentValue).toBe(117n);
+    expect(financials.savingsTotalValue).toBe(100n);
+  });
+
   it.each([
     {
       name: 'configuration',
@@ -883,12 +913,12 @@ describe('financials store lifecycle', () => {
     mocks.walletsForArgon.readAccountSnapshot
       .mockResolvedValueOnce(firstSnapshot)
       .mockResolvedValueOnce(secondSnapshot);
+    mocks.wallets.defaultArgonWallet.availableMicrogons = 50n;
 
     const financials = useFinancials();
 
     await vi.waitFor(() => expect(financials.bitcoinLiquidPendingMintMicrogons).toBe(50n));
     expect(financials.savingsTotalValue).toBe(100n);
-    expect(financials.liquidNativeBalances.micronots).toBe(0n);
     expect(financials.financialPositionAggregate.groupSummaries.bonds.currentValue).toBe(20_000_000n);
     expect(financials.bondSummariesByAsset.ARGN.currentValue).toBe(0n);
     expect(financials.bondSummariesByAsset.ARGNOT.currentValue).toBe(20_000_000n);
@@ -900,6 +930,7 @@ describe('financials store lifecycle', () => {
     mocks.blockWatch.bestBlockHeader = best2;
     mocks.blockWatch.latestHeaders = [finalized, best1, best2];
     fission.pendingMints = [];
+    mocks.wallets.defaultArgonWallet.availableMicrogons = 100n;
     const balanceListener = mocks.wallets.on.mock.calls.find(([event]) => event === 'balance-change')?.[1] as
       | (() => void)
       | undefined;
@@ -907,7 +938,6 @@ describe('financials store lifecycle', () => {
 
     await vi.waitFor(() => expect(financials.bitcoinLiquidPendingMintMicrogons).toBe(0n));
     expect(financials.savingsTotalValue).toBe(100n);
-    expect(financials.liquidNativeBalances.micronots).toBe(0n);
     expect(financials.financialPositionAggregate.groupSummaries.bonds.currentValue).toBe(20_000_000n);
     expect(financials.financialPositionAggregate.netWorth).toBe(20_000_200n);
     for (const group of ['liquid', 'mining', 'vaulting', 'bonds', 'bitcoin'] as const) {
