@@ -1,14 +1,11 @@
 import {
+  type ArgonCurrentQueryClient,
   bigIntMax,
-  type ArgonClient,
-  Currency,
   MiningFrames,
   type IBitcoinLockCouponStatus,
   type IBitcoinLockCouponUseRecord,
   type IBitcoinLockCouponRequest,
   type ICreateBitcoinLockCouponRequest,
-  percentOf,
-  BitcoinLock,
 } from '@argonprotocol/apps-core';
 import { nanoid } from 'nanoid';
 import type { BotUpstreamClient } from './BotUpstreamClient.ts';
@@ -16,18 +13,20 @@ import type { Db } from './Db.ts';
 import { RouterError } from './RouterError.ts';
 import type { IBitcoinLockCouponRow } from './db/BitcoinLockCouponsTable.ts';
 
+export type FinalizedStateQuery = <T>(query: (client: ArgonCurrentQueryClient) => Promise<T>) => Promise<T>;
+
 export class BitcoinLockCouponService {
   private remoteStateRefreshPromise?: Promise<void>;
   private authorizationLaneByVaultAndAccount = new Map<string, Promise<void>>();
 
   private readonly db: Db;
   private readonly botClient: BotUpstreamClient;
-  private readonly getMainchainClient: () => Promise<ArgonClient>;
+  private readonly queryFinalizedState: FinalizedStateQuery;
 
-  constructor(options: { db: Db; botClient: BotUpstreamClient; getMainchainClient: () => Promise<ArgonClient> }) {
+  constructor(options: { db: Db; botClient: BotUpstreamClient; queryFinalizedState: FinalizedStateQuery }) {
     this.db = options.db;
     this.botClient = options.botClient;
-    this.getMainchainClient = options.getMainchainClient;
+    this.queryFinalizedState = options.queryFinalizedState;
     this.db.bitcoinLockCouponsTable.retireDelegatedCoupons();
     this.db.bitcoinLockCouponsTable.failUnsignedPreparedUses();
   }
@@ -128,8 +127,8 @@ export class BitcoinLockCouponService {
     if (microgonsAtTargetPerBtc == null || microgonsAtTargetPerBtc <= 0n) {
       throw new RouterError('A current bitcoin price quote is required to initialize this bitcoin lock.', 400);
     }
-    // Direct locks are limited by the granted fee credit. maxSatoshis remains an invite estimate and legacy
-    // backfill input, not a separate authorization ceiling.
+    // Direct locks are limited by the granted fee credit. maxSatoshis remains an invite estimate,
+    // not a separate authorization ceiling.
     if (!coupon.feeCreditMicrogons) {
       throw new RouterError('This Bitcoin fee gift has no remaining credit.', 409);
     }
@@ -285,6 +284,7 @@ export class BitcoinLockCouponService {
 
   private getStatus(coupon: IBitcoinLockCouponRow): IBitcoinLockCouponStatus {
     const uses = this.db.bitcoinLockCouponsTable.fetchUsesByCouponId(coupon.id);
+    // Earlier router releases backfilled fee credits for older gifts; keep historical nulls readable.
     const originalFeeCreditMicrogons = coupon.feeCreditMicrogons;
     const usedFeeCreditMicrogons = uses
       .filter(use => use.status === 'Finalized')
@@ -331,70 +331,36 @@ export class BitcoinLockCouponService {
   private async refreshFeeCouponUses(couponId?: number): Promise<void> {
     const uses = this.db.bitcoinLockCouponsTable.fetchNonTerminalUses(couponId).filter(use => use.feeCoupon);
     if (!uses.length) return;
+    for (const use of uses) {
+      const feeCoupon = use.feeCoupon;
+      if (!feeCoupon) continue;
+      const coupon = this.db.bitcoinLockCouponsTable.fetchById(use.couponId);
+      if (!coupon) continue;
 
-    try {
-      const client = await this.getMainchainClient();
-      const finalizedClient = await client.at(await client.rpc.chain.getFinalizedHead());
-
-      for (const use of uses) {
-        const feeCoupon = use.feeCoupon;
-        if (!feeCoupon) continue;
-        const coupon = this.db.bitcoinLockCouponsTable.fetchById(use.couponId);
-        if (!coupon) continue;
-
-        try {
+      try {
+        const status = await this.queryFinalizedState(async client => {
           const [lastNonce, nextFrameId] = await Promise.all([
-            finalizedClient.query.bitcoinLocks.lastFeeCouponNonceByVaultAndAccount(coupon.vaultId, use.ownerAccountId),
-            finalizedClient.query.miningSlot.nextFrameId(),
+            client.query.bitcoinLocks.lastFeeCouponNonceByVaultAndAccount(coupon.vaultId, use.ownerAccountId),
+            client.query.miningSlot.nextFrameId(),
           ]);
-          if (nextFrameId === null) continue;
+          if (nextFrameId === null) return;
           const consumedNonce = lastNonce ?? 0n;
           const currentFrameId = BigInt(nextFrameId - 1);
 
-          if (consumedNonce >= feeCoupon.nonce) {
-            this.db.bitcoinLockCouponsTable.recordUse(use.requestId, { status: 'Finalized' });
-          } else if (currentFrameId > feeCoupon.expiresAtFrame) {
-            this.db.bitcoinLockCouponsTable.recordUse(use.requestId, { status: 'Failed' });
-          }
-        } catch {
-          // Other signed uses can still reconcile if one query is temporarily unavailable.
-        }
+          if (consumedNonce >= feeCoupon.nonce) return 'Finalized';
+          if (currentFrameId > feeCoupon.expiresAtFrame) return 'Failed';
+        });
+        if (status) this.db.bitcoinLockCouponsTable.recordUse(use.requestId, { status });
+      } catch {
+        // Other signed uses can still reconcile while this client query is unavailable.
       }
-    } catch {
-      // Durable coupon status remains readable while mainchain is temporarily unavailable.
     }
   }
 
   private refreshRemoteState(): Promise<void> {
-    this.remoteStateRefreshPromise ??= Promise.all([this.refreshFeeCouponUses(), this.backfillLegacyFeeCredits()])
-      .then(() => undefined)
-      .finally(() => {
-        this.remoteStateRefreshPromise = undefined;
-      });
+    this.remoteStateRefreshPromise ??= this.refreshFeeCouponUses().finally(() => {
+      this.remoteStateRefreshPromise = undefined;
+    });
     return this.remoteStateRefreshPromise;
-  }
-
-  private async backfillLegacyFeeCredits(): Promise<void> {
-    const coupons = this.db.bitcoinLockCouponsTable.fetchAll().filter(coupon => coupon.feeCreditMicrogons == null);
-    if (!coupons.length) return;
-
-    let client: ArgonClient;
-    try {
-      client = await this.getMainchainClient();
-    } catch {
-      // The legacy coupon remains readable and can be upgraded on a later client poll.
-      return;
-    }
-
-    try {
-      const priceIndex = await Currency.fetchPriceIndex(client);
-      for (const coupon of coupons) {
-        const maximumLockValue = BitcoinLock.calculateRedemptionAmountFromSatoshis(priceIndex, coupon.maxSatoshis);
-        const feeCreditMicrogons = percentOf(maximumLockValue, coupon.btcPctFee, true);
-        this.db.bitcoinLockCouponsTable.setFeeCredit(coupon.id, feeCreditMicrogons);
-      }
-    } catch {
-      // Unused legacy coupons can be upgraded from a later price index.
-    }
   }
 }

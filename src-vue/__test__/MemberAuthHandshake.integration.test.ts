@@ -412,6 +412,7 @@ describe.skipIf(skipE2E).sequential('member auth handshake integration', { timeo
       db: routerDb,
       botInternalUrl: `http://${botAddress.host}:${botAddress.port}`,
       mainNodeUrl: clients.archiveUrl,
+      localNodeUrl: clients.archiveUrl,
       port: 0,
       auth: {
         adminOperatorAccountId,
