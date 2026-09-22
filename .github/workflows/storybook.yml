@@ -28,6 +28,10 @@ jobs:
         uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd
         with:
           ref: ${{ github.event.pull_request.base.sha }}
+          fetch-depth: 0
+
+      - name: Use pull request screenshot harness
+        run: git checkout "${{ github.event.pull_request.head.sha }}" -- .storybook/visualTestSetup.ts vitest.config.ts
 
       - name: Set up Node.js
         uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444
