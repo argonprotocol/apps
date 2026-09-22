@@ -77,17 +77,17 @@ jobs:
         if: steps.baseline-tests.outcome == 'success' && steps.pull-request-tests.outcome == 'success'
         id: visual-diffs
         run: |
-          cd "$RUNNER_TEMP/visual-review"
-          yarn dlx reg-cli@0.18.16 actual expected diff \
-            --report index.html \
-            --json reg.json \
+          report_dir="$RUNNER_TEMP/visual-review"
+          yarn dlx reg-cli@0.18.16 "$report_dir/actual" "$report_dir/expected" "$report_dir/diff" \
+            --report "$report_dir/index.html" \
+            --json "$report_dir/reg.json" \
             --ignoreChange \
             --extendedErrors
 
           {
-            echo "changed=$(jq '.failedItems | length' reg.json)"
-            echo "added=$(jq '.newItems | length' reg.json)"
-            echo "removed=$(jq '.deletedItems | length' reg.json)"
+            echo "changed=$(jq '.failedItems | length' "$report_dir/reg.json")"
+            echo "added=$(jq '.newItems | length' "$report_dir/reg.json")"
+            echo "removed=$(jq '.deletedItems | length' "$report_dir/reg.json")"
           } >> "$GITHUB_OUTPUT"
 
       - name: Upload visual diff report
