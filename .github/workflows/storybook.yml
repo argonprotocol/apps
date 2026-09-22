@@ -23,6 +23,11 @@ jobs:
   visual-review:
     name: Story interactions and visual diffs (informational)
     runs-on: ubuntu-latest
+    outputs:
+      report-url: ${{ steps.visual-artifact.outputs.artifact-url }}
+      changed: ${{ steps.visual-diffs.outputs.changed }}
+      added: ${{ steps.visual-diffs.outputs.added }}
+      removed: ${{ steps.visual-diffs.outputs.removed }}
     steps:
       - name: Checkout pull request base
         uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd
@@ -94,13 +99,17 @@ jobs:
             echo "removed=$(jq '.deletedItems | length' "$report_dir/reg.json")"
           } >> "$GITHUB_OUTPUT"
 
+      - name: Inline visual review images
+        if: steps.baseline-tests.outcome == 'success' && steps.pull-request-tests.outcome == 'success'
+        run: yarn tsx scripts/inlineRegReport.ts "$RUNNER_TEMP/visual-review"
+
       - name: Upload visual diff report
         if: steps.baseline-tests.outcome == 'success' && steps.pull-request-tests.outcome == 'success'
         id: visual-artifact
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
         with:
-          name: storybook-visual-diffs-${{ github.event.pull_request.number }}
-          path: ${{ runner.temp }}/visual-review
+          path: ${{ runner.temp }}/visual-review/index.html
+          archive: false
           if-no-files-found: error
           retention-days: 14
 
@@ -116,7 +125,7 @@ jobs:
               echo
               echo "### Visual review"
               echo "Changed: ${{ steps.visual-diffs.outputs.changed }} · Added: ${{ steps.visual-diffs.outputs.added }} · Removed: ${{ steps.visual-diffs.outputs.removed }}"
-              echo "[Download the visual diff report](${{ steps.visual-artifact.outputs.artifact-url }})"
+              echo "[Open the visual diff report](${{ steps.visual-artifact.outputs.artifact-url }})"
             fi
           } >> "$GITHUB_STEP_SUMMARY"
 
@@ -126,67 +135,37 @@ jobs:
     needs: visual-review
     runs-on: ubuntu-latest
     permissions:
-      actions: read
       pull-requests: write
     steps:
       - name: Update pull request comment
         env:
-          GH_TOKEN: ${{ github.token }}
-          GH_REPO: ${{ github.repository }}
-          VISUAL_REVIEW_GITHUB_TOKEN: ${{ secrets.VISUAL_REVIEW_GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.VISUAL_REVIEW_GITHUB_TOKEN }}
+          REPORT_URL: ${{ needs.visual-review.outputs.report-url }}
+          CHANGED: ${{ needs.visual-review.outputs.changed }}
+          ADDED: ${{ needs.visual-review.outputs.added }}
+          REMOVED: ${{ needs.visual-review.outputs.removed }}
         run: |
-          report_dir="$RUNNER_TEMP/visual-review"
-          body_file="$RUNNER_TEMP/visual-review-comment.md"
           marker='<!-- storybook-visual-diffs -->'
-          attachments=()
+          body_file="$RUNNER_TEMP/visual-review-comment.md"
 
-          if gh run download "$GITHUB_RUN_ID" --name "storybook-visual-diffs-${{ github.event.pull_request.number }}" --dir "$report_dir" \
-            && [[ -f "$report_dir/reg.json" ]]; then
-            changed=$(jq '.failedItems | length' "$report_dir/reg.json")
-            added=$(jq '.newItems | length' "$report_dir/reg.json")
-            removed=$(jq '.deletedItems | length' "$report_dir/reg.json")
-            {
-              echo "$marker"
-              echo '## Storybook visual review'
-              echo
-              echo "Changed: ${changed} · Added: ${added} · Removed: ${removed}"
-            } > "$body_file"
+          if [[ -z "$GH_TOKEN" ]]; then
+            echo '::notice::Visual review comments are unavailable for pull requests from forks.'
+            exit 0
+          fi
 
-            cd "$report_dir"
-            while IFS= read -r image; do
-              path="./diff/${image}"
-              [[ -f "$path" ]] || continue
-              printf '\n### Changed: <code>%s</code>\n\n![Visual difference](%s)\n' "$image" "$path" >> "$body_file"
-              attachments+=(--attach "${path}#Visual difference for ${image}")
-            done < <(jq -r '.failedItems[:50][]' reg.json)
-
-            while (( ${#attachments[@]} < 50 )) && IFS= read -r image; do
-              path="./actual/${image}"
-              [[ -f "$path" ]] || continue
-              printf '\n### Added: <code>%s</code>\n\n![Added visual state](%s)\n' "$image" "$path" >> "$body_file"
-              attachments+=(--attach "${path}#Added visual state ${image}")
-            done < <(jq -r '.newItems[]' reg.json)
-
-            while (( ${#attachments[@]} < 50 )) && IFS= read -r image; do
-              path="./expected/${image}"
-              [[ -f "$path" ]] || continue
-              printf '\n### Removed: <code>%s</code>\n\n![Removed visual state](%s)\n' "$image" "$path" >> "$body_file"
-              attachments+=(--attach "${path}#Removed visual state ${image}")
-            done < <(jq -r '.deletedItems[]' reg.json)
+          if [[ -n "$REPORT_URL" ]]; then
+            printf '%s\n## Storybook visual review\n\nChanged: %s · Added: %s · Removed: %s\n\n[Open the visual diff report](%s)\n' \
+              "$marker" "$CHANGED" "$ADDED" "$REMOVED" "$REPORT_URL" > "$body_file"
           else
             printf '%s\n## Storybook visual review\n\nVisual comparison was unavailable because the base or pull-request story capture did not complete.\n' \
               "$marker" > "$body_file"
           fi
 
-          gh pr comment --help | grep -q -- '--attach' || {
-            echo '::error::The runner requires GitHub CLI 2.99 or newer to attach visual diffs.'
-            exit 1
-          }
+          comment_id=$(gh api "/repos/${GITHUB_REPOSITORY}/issues/${{ github.event.pull_request.number }}/comments" --paginate \
+            --jq ".[] | select(.body | contains(\"${marker}\")) | .id" | head -n 1)
 
-          gh api "/repos/${GITHUB_REPOSITORY}/issues/${{ github.event.pull_request.number }}/comments" --paginate \
-            --jq ".[] | select(.body | contains(\"${marker}\")) | .id" \
-            | while read -r comment_id; do
-                GH_TOKEN="$VISUAL_REVIEW_GITHUB_TOKEN" gh api --method DELETE "/repos/${GITHUB_REPOSITORY}/issues/comments/${comment_id}"
-              done
-
-          GH_TOKEN="$VISUAL_REVIEW_GITHUB_TOKEN" gh pr comment "${{ github.event.pull_request.number }}" --body-file "$body_file" "${attachments[@]}"
+          if [[ -n "$comment_id" ]]; then
+            gh api --method PATCH "/repos/${GITHUB_REPOSITORY}/issues/comments/${comment_id}" --raw-field body="$(<"$body_file")"
+          else
+            gh api --method POST "/repos/${GITHUB_REPOSITORY}/issues/${{ github.event.pull_request.number }}/comments" --raw-field body="$(<"$body_file")"
+          fi
