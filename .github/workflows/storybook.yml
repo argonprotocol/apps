@@ -126,9 +126,9 @@ jobs:
       pull-requests: write
     steps:
       - name: Update pull request comment
-        continue-on-error: true
         env:
           GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
         run: |
           report_dir="$RUNNER_TEMP/visual-review"
           body_file="$RUNNER_TEMP/visual-review-comment.md"
