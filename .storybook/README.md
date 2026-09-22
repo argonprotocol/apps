@@ -1,6 +1,6 @@
 # Storybook UI states
 
-Storybook is the reviewable catalog of user-visible application states. Chromatic builds these stories in CI and compares them with the pull request's merge base. The generated `storybook-static` directory is temporary output and must not be committed.
+Storybook is the reviewable catalog of user-visible application states. For each pull request, CI captures every story from both its base commit and the pull request, compares them, and posts the visual differences as images in a comment. The generated `storybook-static` directory and visual review artifacts are temporary output and must not be committed.
 
 The catalog lives under `.storybook/stories`, grouped by the same product areas shown in the Storybook sidebar. Shared synthetic state belongs in `.storybook/scenarios`; Storybook-only components and test utilities belong in `.storybook/components` and `.storybook/support`. Keep production component names in story filenames so the rendered source remains easy to locate.
 
@@ -45,6 +45,6 @@ yarn storybook:test
 yarn storybook:build
 ```
 
-`yarn storybook:test` renders every story in headless Chromium and executes the interactions needed to expose its visual state. The Storybook testing widget runs the same story interactions and marks stories that fail to render in the sidebar. Generated output belongs in `storybook-static`, which is ignored by Git.
+`yarn storybook:test` renders every story in headless Chromium and executes the interactions needed to expose its visual state. When `STORYBOOK_SCREENSHOT_DIR` is set, the same run also captures each story after its interactions complete. The Storybook testing widget runs the same story interactions and marks stories that fail to render in the sidebar. Generated output belongs in `storybook-static` or the CI artifact directories, which are not committed.
 
-The pre-commit typecheck includes Storybook configuration, fixtures, and stories. CI reports rendering or interaction failures informationally while the catalog is stabilized, and runs the full Storybook build because TypeScript alone does not validate Storybook's indexing, module mocks, Vue transforms, assets, or Vite bundle. These checks do not attempt to infer whether a UI change should have added a new story. Chromatic publishes visual changes for review without failing the job solely because snapshots changed.
+The pre-commit typecheck includes Storybook configuration, fixtures, and stories. CI reports rendering, interaction, and visual differences informationally while the catalog is stabilized. Pull-request jobs capture the base and proposed states in the same run, then upload changed, added, and removed images as a `storybook-visual-diffs` artifact. These checks do not attempt to infer whether a UI change should have added a new story and do not fail solely because screenshots changed.

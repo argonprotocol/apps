@@ -1,7 +1,7 @@
 name: Storybook
 
 on:
-  push:
+  pull_request:
     paths:
       - '.github/workflows/storybook.yml'
       - '.storybook/**'
@@ -10,6 +10,7 @@ on:
       - 'yarn.lock'
       - 'tsconfig.json'
       - 'vite.config.ts'
+      - 'vitest.config.ts'
 
 permissions:
   contents: read
@@ -19,12 +20,14 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  interaction-tests:
-    name: Story interactions (informational)
+  visual-review:
+    name: Story interactions and visual diffs (informational)
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout code
+      - name: Checkout pull request base
         uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
 
       - name: Set up Node.js
         uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444
@@ -44,100 +47,141 @@ jobs:
       - name: Install Chromium
         run: yarn playwright install --with-deps chromium
 
-      - name: Run story interactions
-        id: storybook-tests
+      - name: Capture main visual states
+        id: baseline-tests
         continue-on-error: true
         run: yarn storybook:test
+        env:
+          STORYBOOK_SCREENSHOT_DIR: ${{ runner.temp }}/visual-review/expected
+
+      - name: Checkout pull request
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd
+
+      - name: Restore pull request runtime client cache
+        uses: ./.github/actions/runtime-client-cache
+
+      - name: Install pull request dependencies
+        run: yarn install --immutable
+
+      - name: Build pull request Storybook
+        run: yarn storybook:build
+
+      - name: Capture pull request visual states
+        id: pull-request-tests
+        continue-on-error: true
+        run: yarn storybook:test
+        env:
+          STORYBOOK_SCREENSHOT_DIR: ${{ runner.temp }}/visual-review/actual
+
+      - name: Compare visual states
+        if: steps.baseline-tests.outcome == 'success' && steps.pull-request-tests.outcome == 'success'
+        id: visual-diffs
+        run: |
+          cd "$RUNNER_TEMP/visual-review"
+          yarn dlx reg-cli@0.18.16 actual expected diff \
+            --report index.html \
+            --json reg.json \
+            --ignoreChange \
+            --extendedErrors
+
+          {
+            echo "changed=$(jq '.failedItems | length' reg.json)"
+            echo "added=$(jq '.newItems | length' reg.json)"
+            echo "removed=$(jq '.deletedItems | length' reg.json)"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Upload visual diff report
+        if: steps.baseline-tests.outcome == 'success' && steps.pull-request-tests.outcome == 'success'
+        id: visual-artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: storybook-visual-diffs-${{ github.event.pull_request.number }}
+          path: ${{ runner.temp }}/visual-review
+          if-no-files-found: error
+          retention-days: 14
 
       - name: Summarize interaction tests
         if: always()
         run: |
           {
             echo "### Story interactions"
-            echo "Result: ${{ steps.storybook-tests.outcome }}"
+            echo "Main: ${{ steps.baseline-tests.outcome }}"
+            echo "Pull request: ${{ steps.pull-request-tests.outcome }}"
             echo "This check is informational while the initial story catalog is being stabilized."
+            if [[ "${{ steps.visual-artifact.outputs.artifact-url }}" != "" ]]; then
+              echo
+              echo "### Visual review"
+              echo "Changed: ${{ steps.visual-diffs.outputs.changed }} · Added: ${{ steps.visual-diffs.outputs.added }} · Removed: ${{ steps.visual-diffs.outputs.removed }}"
+              echo "[Download the visual diff report](${{ steps.visual-artifact.outputs.artifact-url }})"
+            fi
           } >> "$GITHUB_STEP_SUMMARY"
 
-  changed-ui-states:
-    name: Changed UI states
+  comment:
+    name: Link visual review
+    if: always()
+    needs: visual-review
     runs-on: ubuntu-latest
     permissions:
-      contents: read
+      actions: read
       pull-requests: write
     steps:
-      - name: Checkout code
-        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd
-        with:
-          fetch-depth: 0
-
-      - name: Set up Node.js
-        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444
-        with:
-          node-version: '24'
-          cache: 'yarn'
-
-      - name: Restore runtime client cache
-        uses: ./.github/actions/runtime-client-cache
-
-      - name: Enable Corepack
-        run: corepack enable
-
-      - name: Install dependencies
-        run: yarn install --immutable
-
-      - name: Build Storybook
-        run: yarn storybook:build
-
-      - name: Publish changed UI states
-        id: chromatic
-        uses: chromaui/action@14cfaef73576e69f95f47f60058063f46ca38719 # v18.1.0
-        with:
-          projectToken: ${{ secrets.CHROMATIC_PROJECT_TOKEN }}
-          storybookBuildDir: storybook-static
-          onlyChanged: true
-          exitZeroOnChanges: true
-          autoAcceptChanges: main
-
-      - name: Link Storybook review
-        if: always() && steps.chromatic.outputs.buildUrl != '' && steps.chromatic.outputs.storybookUrl != ''
-        run: |
-          {
-            echo "### Storybook"
-            echo "[Review changed UI states](${{ steps.chromatic.outputs.buildUrl }})"
-            echo "[Browse the complete PR Storybook](${{ steps.chromatic.outputs.storybookUrl }})"
-          } >> "$GITHUB_STEP_SUMMARY"
-
-      - name: Link Storybook in pull request
-        if: always() && steps.chromatic.outputs.buildUrl != '' && steps.chromatic.outputs.storybookUrl != ''
+      - name: Update pull request comment
         continue-on-error: true
         env:
           GH_TOKEN: ${{ github.token }}
-          CHROMATIC_BUILD_URL: ${{ steps.chromatic.outputs.buildUrl }}
-          CHROMATIC_STORYBOOK_URL: ${{ steps.chromatic.outputs.storybookUrl }}
         run: |
-          pr_number=$(gh api --method GET "/repos/${GITHUB_REPOSITORY}/pulls" \
-            -f state=open \
-            -f head="${GITHUB_REPOSITORY_OWNER}:${GITHUB_REF_NAME}" \
-            --jq 'first | .number // empty')
+          report_dir="$RUNNER_TEMP/visual-review"
+          body_file="$RUNNER_TEMP/visual-review-comment.md"
+          marker='<!-- storybook-visual-diffs -->'
+          attachments=()
 
-          if [[ -z "$pr_number" ]]; then
-            echo "::notice::No open pull request was found for ${GITHUB_REF_NAME}."
-            exit 0
-          fi
+          if gh run download "$GITHUB_RUN_ID" --name "storybook-visual-diffs-${{ github.event.pull_request.number }}" --dir "$report_dir" \
+            && [[ -f "$report_dir/reg.json" ]]; then
+            changed=$(jq '.failedItems | length' "$report_dir/reg.json")
+            added=$(jq '.newItems | length' "$report_dir/reg.json")
+            removed=$(jq '.deletedItems | length' "$report_dir/reg.json")
+            {
+              echo "$marker"
+              echo '## Storybook visual review'
+              echo
+              echo "Changed: ${changed} · Added: ${added} · Removed: ${removed}"
+            } > "$body_file"
 
-          marker='<!-- chromatic-pr-links -->'
-          body="${marker}
-          ## Storybook review
+            cd "$report_dir"
+            while IFS= read -r image; do
+              path="./diff/${image}"
+              [[ -f "$path" ]] || continue
+              printf '\n### Changed: <code>%s</code>\n\n![Visual difference](%s)\n' "$image" "$path" >> "$body_file"
+              attachments+=(--attach "${path}#Visual difference for ${image}")
+            done < <(jq -r '.failedItems[:50][]' reg.json)
 
-          - [Review changed UI states](${CHROMATIC_BUILD_URL})
-          - [Browse the complete PR Storybook](${CHROMATIC_STORYBOOK_URL})
+            while (( ${#attachments[@]} < 50 )) && IFS= read -r image; do
+              path="./actual/${image}"
+              [[ -f "$path" ]] || continue
+              printf '\n### Added: <code>%s</code>\n\n![Added visual state](%s)\n' "$image" "$path" >> "$body_file"
+              attachments+=(--attach "${path}#Added visual state ${image}")
+            done < <(jq -r '.newItems[]' reg.json)
 
-          Updated for commit \`${GITHUB_SHA:0:7}\`."
-          comment_id=$(gh api "/repos/${GITHUB_REPOSITORY}/issues/${pr_number}/comments" --paginate \
-            --jq ".[] | select(.body | contains(\"${marker}\")) | .id" | head -n 1)
-
-          if [[ -n "$comment_id" ]]; then
-            gh api --method PATCH "/repos/${GITHUB_REPOSITORY}/issues/comments/${comment_id}" -f body="$body"
+            while (( ${#attachments[@]} < 50 )) && IFS= read -r image; do
+              path="./expected/${image}"
+              [[ -f "$path" ]] || continue
+              printf '\n### Removed: <code>%s</code>\n\n![Removed visual state](%s)\n' "$image" "$path" >> "$body_file"
+              attachments+=(--attach "${path}#Removed visual state ${image}")
+            done < <(jq -r '.deletedItems[]' reg.json)
           else
-            gh api --method POST "/repos/${GITHUB_REPOSITORY}/issues/${pr_number}/comments" -f body="$body"
+            printf '%s\n## Storybook visual review\n\nVisual comparison was unavailable because the base or pull-request story capture did not complete.\n' \
+              "$marker" > "$body_file"
           fi
+
+          gh pr comment --help | grep -q -- '--attach' || {
+            echo '::error::The runner requires GitHub CLI 2.99 or newer to attach visual diffs.'
+            exit 1
+          }
+
+          gh api "/repos/${GITHUB_REPOSITORY}/issues/${{ github.event.pull_request.number }}/comments" --paginate \
+            --jq ".[] | select(.body | contains(\"${marker}\")) | .id" \
+            | while read -r comment_id; do
+                gh api --method DELETE "/repos/${GITHUB_REPOSITORY}/issues/comments/${comment_id}"
+              done
+
+          gh pr comment "${{ github.event.pull_request.number }}" --body-file "$body_file" "${attachments[@]}"

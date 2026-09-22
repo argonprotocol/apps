@@ -48,7 +48,7 @@
               {{ currency.symbol
               }}{{ microgonToMoneyNm(miningReturnSummary.returnAmount ?? 0n).formatIfElse('< 100', '0.00', '0,0') }}
             </span>
-            <label>Profit to Date</label>
+            <label>Mining Profit</label>
           </TooltipTrigger>
           <TooltipContent side="bottom" :sideOffset="-10" align="end" :collisionPadding="9" class="text-right bg-white border border-gray-800/20 rounded-md shadow-2xl z-50 p-4 w-xs text-slate-900/60">
             Value and income earned to date, less invested cost, for the mining terms included in Mining RTD.
