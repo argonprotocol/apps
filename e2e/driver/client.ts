@@ -73,6 +73,11 @@ function logDriverTrace(message: string): void {
 }
 
 export class DriverClient {
+  public static isRetryableConnectionError(error: unknown): boolean {
+    if (!(error instanceof Error)) return false;
+    return error.message.includes('[app_disconnected]') || error.message.includes('[app_not_connected]');
+  }
+
   private socket: WebSocket | null = null;
   private pending = new Map<string, PendingRequest>();
   private appHello: UnknownRecord | null = null;

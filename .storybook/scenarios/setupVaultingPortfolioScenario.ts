@@ -7,6 +7,8 @@ import { TopTab, VaultingSetupStatus } from '../../src-vue/interfaces/IConfig.ts
 import type { IVaultArgonBondState } from '../../src-vue/lib/ArgonBonds.ts';
 import type { IExternalBitcoinLock } from '../../src-vue/lib/MyVault.ts';
 import type { IVaultRecord } from '../../src-vue/lib/db/VaultsTable.ts';
+import { ArgonBondsFinancials } from '../../src-vue/lib/financials/ArgonBonds.ts';
+import { calculatePositionReturn } from '../../src-vue/lib/financials/index.ts';
 import { getArgonBonds } from '../../src-vue/stores/argonBonds.ts';
 import { getBitcoinLocks } from '../../src-vue/stores/bitcoin.ts';
 import { getCurrency } from '../../src-vue/stores/currency.ts';
@@ -21,6 +23,14 @@ import { setupAppScenario } from './setupAppScenario.ts';
 const microgonsPerArgon = BigInt(MICROGONS_PER_ARGON);
 const currentFrameId = 10_004;
 const onboardingMemberAccount = '5SyntheticOnboardingMember';
+export const onboardingMemberInvite = {
+  id: 1,
+  name: 'Northstar Member',
+  fromName: 'Atlas Operator',
+  inviteCode: 'synthetic-onboarding-member',
+  defaultAccountId: onboardingMemberAccount,
+  createdAt: new Date('2026-08-01T16:00:00.000Z'),
+} satisfies IMemberInvite;
 
 export function setupVaultingPortfolioScenario() {
   setupAppScenario({
@@ -34,16 +44,7 @@ export function setupVaultingPortfolioScenario() {
     },
   });
 
-  useCertificationController().setOperationalInvites([
-    {
-      id: 1,
-      name: 'Morgan',
-      fromName: 'Atlas Operator',
-      inviteCode: 'synthetic-onboarding-member',
-      defaultAccountId: onboardingMemberAccount,
-      createdAt: new Date('2026-08-01T16:00:00.000Z'),
-    } satisfies IMemberInvite,
-  ]);
+  useCertificationController().setOperationalInvites([onboardingMemberInvite]);
 
   const currency = getCurrency();
   currency.microgonsPer.BTC = 12_000n * microgonsPerArgon;
@@ -72,7 +73,13 @@ export function setupVaultingPortfolioScenario() {
     2_102: createExternalLock(2_102, 1_900_000n, 200n * microgonsPerArgon, true),
   };
   const operatorBond = createBondLot({ id: 71, accountId: createdVault.operatorAccountId, bonds: 560 });
-  const externalBond = createBondLot({ id: 72, accountId: onboardingMemberAccount, bonds: 310 });
+  const externalBond = createBondLot({
+    id: 72,
+    accountId: onboardingMemberAccount,
+    bonds: 310,
+    createdFrame: currentFrameId - 5,
+    lifetimeEarnings: 18n * microgonsPerArgon,
+  });
   const pendingBond = createBondLot({ id: 73, accountId: '5SyntheticPendingBondOwner', bonds: 170 });
   const bondLots = [operatorBond, externalBond, pendingBond];
   const currentFrameBondLots = [createFrameBondLot(operatorBond, true), createFrameBondLot(externalBond, false)];
@@ -84,6 +91,7 @@ export function setupVaultingPortfolioScenario() {
     currentFrame: {
       frameId: currentFrameId,
       vaultBonds: 1_040,
+      flexibleBondsEligible: 0,
       bondLots: currentFrameBondLots,
     },
     isLoaded: true,
@@ -201,6 +209,18 @@ export function setupVaultingPortfolioScenario() {
           vaulting: { returnSummary: { percent: 12.64 } },
         },
       },
+      getBondFinancialDetails: (bondLot: BondLot) => {
+        const [position] = new ArgonBondsFinancials({} as never).createFinancialPositions({
+          bondLots: [bondLot],
+          frameDates: new Map([
+            [bondLot.createdFrame, new Date(Date.UTC(2026, 7, 15 - (currentFrameId - bondLot.createdFrame), 12))],
+          ]),
+        });
+        return {
+          position,
+          returnPercent: position ? calculatePositionReturn([position]).percent : undefined,
+        };
+      },
     }) as unknown as ReturnType<typeof useFinancials>,
   );
 
@@ -212,6 +232,7 @@ export function setupVaultingPortfolioScenario() {
     currentFrameId,
     currentTick: frameStartTick + 17,
     load: fn(async () => undefined),
+    getFrameDate: fn((frameId: number) => new Date(Date.UTC(2026, 7, 15 - (currentFrameId - frameId), 12))),
     getTickStart: fn(getTickStart),
     getTickEnd: fn((frameId: number) => getTickStart(frameId) + NetworkConfig.rewardTicksPerFrame - 1),
     getCurrentFrameProgress: fn(() => 43),
@@ -270,19 +291,31 @@ function createExternalLock(
   };
 }
 
-function createBondLot({ id, accountId, bonds }: { id: number; accountId: string; bonds: number }) {
+function createBondLot({
+  id,
+  accountId,
+  bonds,
+  createdFrame = currentFrameId,
+  lifetimeEarnings = 0n,
+}: {
+  id: number;
+  accountId: string;
+  bonds: number;
+  createdFrame?: number;
+  lifetimeEarnings?: bigint;
+}) {
   return new BondLot({
     id,
     programType: 'Vault',
     accountId,
     vaultId: 7,
     bonds,
-    createdFrame: currentFrameId,
-    participatedFrames: 1,
+    createdFrame,
+    participatedFrames: currentFrameId - createdFrame + 1,
     lastEarningsFrame: null,
     lastEarnings: 0n,
-    lifetimeEarnings: 0n,
-    lifetimeBondedFrameMicrogons: BigInt(bonds) * microgonsPerArgon,
+    lifetimeEarnings,
+    lifetimeBondedFrameMicrogons: BigInt(bonds) * microgonsPerArgon * BigInt(currentFrameId - createdFrame + 1),
     sharingPercent: 20,
     bonusPercent: 0,
     releaseFrame: null,

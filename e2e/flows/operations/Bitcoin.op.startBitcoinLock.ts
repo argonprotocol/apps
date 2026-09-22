@@ -43,10 +43,31 @@ export default new Operation<IBitcoinFlowContext, IStartBitcoinLockState>(import
   async run({ flow, flowName, input }) {
     await flow.run(bitcoinActivateWallet);
 
-    let channelState = await flow.getAttribute('ConnectorChannel', 'data-e2e-state', { timeoutMs: 5_000 });
+    let channelState: string | null = await flow.getAttribute('ConnectorChannel', 'data-e2e-state', {
+      timeoutMs: 5_000,
+    });
     if (channelState === 'Overview') {
       await flow.click('ConnectorChannel.showChannelForm()');
-      channelState = await waitForChannelState(flow, 'Create');
+      channelState = await flow.getAttribute('ConnectorChannel', 'data-e2e-state', { timeoutMs: 5_000 });
+    }
+    if (channelState === 'ChooseVault') {
+      const upstreamVaultId = await flow.queryApp(refs => refs.config.upstreamOperator?.vaultId);
+      if (upstreamVaultId === undefined) {
+        throw new Error(
+          `${flowName}: Bitcoin channel requires a vault selection, but no upstream vault is configured.`,
+        );
+      }
+      await flow.click({ testId: `ConnectorChannel.selectVault-${upstreamVaultId}` });
+      await pollEvery(
+        50,
+        async () => {
+          channelState = await flow
+            .getAttribute('ConnectorChannel', 'data-e2e-state', { timeoutMs: 1_000 })
+            .catch(() => null);
+          return channelState !== 'ChooseVault';
+        },
+        { timeoutMs: 5_000, timeoutMessage: `${flowName}: Bitcoin channel did not apply the upstream vault.` },
+      );
     }
     if (channelState === 'ProcessingOnArgon') {
       await waitForChannelState(flow, 'ReadyForBitcoin', 60_000);
@@ -57,37 +78,40 @@ export default new Operation<IBitcoinFlowContext, IStartBitcoinLockState>(import
       throw new Error(`${flowName}: Bitcoin wallet cannot create a channel from state ${channelState ?? 'unknown'}.`);
     }
 
-    const calculatedMicrogons = input.minimumLockSatoshis
-      ? await flow.queryApp(
-          (refs, args: { satoshis: string }) =>
-            refs.bitcoinLocks.argonLiquidityForSatoshis(BigInt(args.satoshis)).toString(),
-          {
-            args: { satoshis: input.minimumLockSatoshis.toString() },
-            timeoutMs: 3_000,
-          },
-        )
-      : undefined;
-    const expectedMicrogons = input.minimumLockMicrogons ?? (calculatedMicrogons ? BigInt(calculatedMicrogons) : 0n);
-    if (expectedMicrogons <= 0n) {
-      throw new Error(`${flowName}: Bitcoin channel insurance amount could not be calculated.`);
-    }
+    const insuranceInput = await flow.isVisible('ConnectorChannel.insuranceAmount');
+    if (insuranceInput.visible) {
+      const calculatedMicrogons = input.minimumLockSatoshis
+        ? await flow.queryApp(
+            (refs, args: { satoshis: string }) =>
+              refs.bitcoinLocks.argonLiquidityForSatoshis(BigInt(args.satoshis)).toString(),
+            {
+              args: { satoshis: input.minimumLockSatoshis.toString() },
+              timeoutMs: 3_000,
+            },
+          )
+        : undefined;
+      const expectedMicrogons = input.minimumLockMicrogons ?? (calculatedMicrogons ? BigInt(calculatedMicrogons) : 0n);
+      if (expectedMicrogons <= 0n) {
+        throw new Error(`${flowName}: Bitcoin channel insurance amount could not be calculated.`);
+      }
 
-    await flow.type(
-      { selector: '[data-testid="ConnectorChannel.insuranceAmount"] [data-testid="input-number"]' },
-      formatUnitsToDecimal(expectedMicrogons, BigInt(MICROGONS_PER_ARGON), `${flowName}.minimumLockMicrogons`),
-      { clear: true, timeoutMs: 3_000 },
-    );
-    await pollEvery(
-      50,
-      async () =>
-        (await flow
-          .getAttribute('ConnectorChannel.insuranceAmount', 'data-microgons', { timeoutMs: 1_000 })
-          .catch(() => null)) === expectedMicrogons.toString(),
-      {
-        timeoutMs: 3_000,
-        timeoutMessage: `${flowName}: Bitcoin channel insurance did not synchronize to ${expectedMicrogons}.`,
-      },
-    );
+      await flow.type(
+        { selector: '[data-testid="ConnectorChannel.insuranceAmount"] [data-testid="input-number"]' },
+        formatUnitsToDecimal(expectedMicrogons, BigInt(MICROGONS_PER_ARGON), `${flowName}.minimumLockMicrogons`),
+        { clear: true, timeoutMs: 3_000 },
+      );
+      await pollEvery(
+        50,
+        async () =>
+          (await flow
+            .getAttribute('ConnectorChannel.insuranceAmount', 'data-microgons', { timeoutMs: 1_000 })
+            .catch(() => null)) === expectedMicrogons.toString(),
+        {
+          timeoutMs: 3_000,
+          timeoutMessage: `${flowName}: Bitcoin channel insurance did not synchronize to ${expectedMicrogons}.`,
+        },
+      );
+    }
 
     await flow.waitFor('ConnectorChannel.createChannel()', { state: 'enabled', timeoutMs: 10_000 });
     await flow.click('ConnectorChannel.createChannel()');

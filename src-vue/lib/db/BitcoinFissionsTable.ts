@@ -4,7 +4,8 @@ import { convertFromSqliteFields, toSqlParams } from '../Utils.ts';
 import type { IBitcoinFissionRatchetRecord, IBitcoinFissionRecord } from '../../interfaces/IBitcoinFissionRecord.ts';
 import { BaseTable, type IFieldTypes } from './BaseTable.ts';
 
-type StoredFissionRatchet = IBitcoinFissionRatchetRecord & Pick<IBitcoinFissionRecord, 'fissionId'>;
+type StoredFissionRatchet = IBitcoinFissionRatchetRecord &
+  Pick<IBitcoinFissionRecord, 'ownerAccount' | 'fissionId' | 'liquidId' | 'lockId' | 'updatedAt'>;
 
 export class BitcoinFissionsTable extends BaseTable {
   private readonly recordFieldTypes: IFieldTypes = {
@@ -148,9 +149,19 @@ export class BitcoinFissionsTable extends BaseTable {
        ORDER BY blockNumber, COALESCE(extrinsicIndex, -1), sourceRatchetIndex, source`,
       toSqlParams([ownerAccount, fissionId]),
     );
+    const ratchets = convertFromSqliteFields<StoredFissionRatchet[]>(storedRatchets, this.ratchetFieldTypes).map(
+      ({
+        ownerAccount: _ownerAccount,
+        fissionId: _fissionId,
+        liquidId: _liquidId,
+        lockId: _lockId,
+        updatedAt: _updatedAt,
+        ...ratchet
+      }) => ratchet,
+    );
     return {
       ...record,
-      ratchets: convertFromSqliteFields<StoredFissionRatchet[]>(storedRatchets, this.ratchetFieldTypes),
+      ratchets,
     };
   }
 

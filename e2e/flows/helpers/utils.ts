@@ -1,5 +1,6 @@
 import type { E2ETarget, IE2EFlowRuntime } from '../types.ts';
 import { waitFor } from '@argonprotocol/apps-core/__test__/helpers/waitFor.ts';
+import { DriverClient } from '../../driver/client.ts';
 
 const DECIMAL_PATTERN = /^\d+(?:\.\d+)?$/;
 
@@ -12,10 +13,6 @@ export interface IClickIfVisibleOptions {
   timeoutMs?: number;
 }
 
-export function sleep(ms: number): Promise<void> {
-  return new Promise(resolve => setTimeout(resolve, ms));
-}
-
 export async function pollEvery(
   intervalMs: number,
   check: () => Promise<boolean>,
@@ -26,11 +23,6 @@ export async function pollEvery(
     retryErrors: false,
     timeoutMessage: options.timeoutMessage,
   });
-}
-
-export function isRetryableAppConnectionError(error: unknown): boolean {
-  if (!(error instanceof Error)) return false;
-  return error.message.includes('[app_disconnected]') || error.message.includes('[app_not_connected]');
 }
 
 export function normalizeAmountInput(value: unknown, label: string): string | null {
@@ -198,7 +190,7 @@ export async function clickIfVisible(
 function isTransientClickFailure(error: unknown): boolean {
   const message = error instanceof Error ? error.message : String(error);
   return (
-    isRetryableAppConnectionError(error) ||
+    DriverClient.isRetryableConnectionError(error) ||
     message.includes('[driver_command_timeout]') ||
     message.includes('Timed out waiting for clickable') ||
     message.includes('not_found') ||

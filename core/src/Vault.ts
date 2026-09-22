@@ -6,7 +6,7 @@ import type {
 } from '@argonprotocol/runtime-client';
 import BigNumber from 'bignumber.js';
 import type { ArgonQueryClient } from './MainchainClients.js';
-import { bigIntMax } from './utils.js';
+import { bigIntMax, bigIntMin } from './utils.js';
 
 const FixedU128BigNumber = BigNumber.clone({
   DECIMAL_PLACES: 18,
@@ -138,6 +138,15 @@ export class Vault {
     return bigIntMax(0n, this.securitizationLocked - this.securitizationPendingActivation);
   }
 
+  public flexibleSecuritizationDisplacementPercent(): number | undefined {
+    if (this.flexibleSecuritizationLocked === 0n) return;
+
+    return new BigNumber(this.displacedFlexibleSecuritization())
+      .div(this.flexibleSecuritizationLocked.toString())
+      .multipliedBy(100)
+      .toNumber();
+  }
+
   /**
    * Returns the ratio-adjusted Bitcoin that can support Treasury bonds. Regular Bitcoin always
    * counts; flexible Bitcoin counts only in proportion to its collateral that has not been
@@ -146,8 +155,7 @@ export class Vault {
   public bondEligibleSatoshis(): bigint {
     if (this.flexibleSecuritizationLocked === 0n) return this.ratioAdjustedSatoshis;
 
-    const activatedSecuritization = this.activatedSecuritization();
-    const displacedFlexibleCollateral = bigIntMax(0n, activatedSecuritization - this.securitization);
+    const displacedFlexibleCollateral = this.displacedFlexibleSecuritization();
     const eligibleFlexibleCollateral = bigIntMax(0n, this.flexibleSecuritizationLocked - displacedFlexibleCollateral);
     // Flexible Bitcoin counts only in proportion to its collateral that has not been displaced.
     // FixedU128::from_rational rounds this fraction to 18 places, preferring down on a tie.
@@ -159,6 +167,13 @@ export class Vault {
     const eligibleRegularSatoshis = bigIntMax(0n, this.ratioAdjustedSatoshis - this.flexibleRatioAdjustedSatoshis);
 
     return bigNumberToBigInt(new BigNumber(eligibleRegularSatoshis).plus(eligibleFlexibleSatoshis));
+  }
+
+  private displacedFlexibleSecuritization(): bigint {
+    return bigIntMin(
+      this.flexibleSecuritizationLocked,
+      bigIntMax(0n, this.activatedSecuritization() - this.securitization),
+    );
   }
 
   public calculateBitcoinFee(amount: bigint): bigint {

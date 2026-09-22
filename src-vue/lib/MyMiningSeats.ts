@@ -398,7 +398,9 @@ export class MyMiningSeats {
     }
     for (const cohort of cohorts) this.miningCohortsById.set(cohort.id, cohort);
 
-    this.miningCohorts = [...this.miningCohortsById.values()].sort((a, b) => a.id - b.id);
+    this.miningCohorts = [...this.miningCohortsById.values()]
+      .filter(cohort => cohort.id <= this.latestFrameId)
+      .sort((a, b) => a.id - b.id);
     this.activeSeats = this.calculateActiveMiningSeats(this.miningCohorts);
   }
 

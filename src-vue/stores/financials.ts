@@ -7,6 +7,7 @@ import { getArgonBonds } from './argonBonds.ts';
 import { getBlockWatch } from './mainchain.ts';
 import {
   bigIntMax,
+  type BondLot,
   calculateRestabilizationLeverage,
   calculatePerformanceReturn,
   type IBlockHeaderInfo,
@@ -17,7 +18,11 @@ import {
 import BigNumber from 'bignumber.js';
 
 import { getVaults, getMyVault } from './vaults.ts';
-import { financialGroups, type IFinancialPosition } from '../interfaces/IFinancialPosition.ts';
+import {
+  financialGroups,
+  type IBondFinancialPosition,
+  type IFinancialPosition,
+} from '../interfaces/IFinancialPosition.ts';
 import { getDbPromise } from './helpers/dbPromise.ts';
 import { getMyMiningSeats } from './myMiningSeats.ts';
 import { calculatePositionReturn, FinancialPositionBook, reduceFinancialPositions } from '../lib/financials';
@@ -56,7 +61,7 @@ export const useFinancials = defineStore('financials', () => {
   const walletFinancials = new WalletFinancials(walletsForArgon);
   const bondFinancials = new ArgonBondsFinancials(argonBonds);
   const bitcoinFinancials = new BitcoinFinancials(bitcoinLocks, bitcoinFissions, getDbPromise());
-  const vaultFinancials = new VaultFinancials(myVault);
+  const vaultFinancials = new VaultFinancials(myVault, argonBonds.data);
   const stableSwapFinancials = new StableSwapFinancials(stableSwaps);
   let myMiningSeats: ReturnType<typeof getMyMiningSeats> | undefined;
   let miningFinancials: MiningFinancials | undefined;
@@ -201,7 +206,6 @@ export const useFinancials = defineStore('financials', () => {
     const positions = await bondFinancials.loadPositions({
       account,
       liveArgonotRateMicrogons: currency.microgonsPer.ARGNOT,
-      ownedVaultId: myVault.createdVault?.vaultId,
     });
     return { positions, claimsHolds: true };
   }
@@ -543,7 +547,9 @@ export const useFinancials = defineStore('financials', () => {
     return {
       ARGN: {
         currentValue: argonPositions.reduce((total, position) => total + (position.currentValue ?? 0n), 0n),
-        returnSummary: calculatePositionReturn(argonPositions),
+        returnSummary: calculatePositionReturn(
+          argonPositions.filter(position => position.returnAttribution !== 'vault'),
+        ),
       },
       ARGNOT: {
         currentValue: argonotPositions.reduce((total, position) => total + (position.currentValue ?? 0n), 0n),
@@ -554,6 +560,25 @@ export const useFinancials = defineStore('financials', () => {
   const bondsTotalValue = Vue.computed(() => {
     return financialPositionAggregate.value.groupSummaries.bonds.currentValue;
   });
+
+  function getBondFinancialDetails(bondLot: BondLot) {
+    const existingPosition = financialPositionAggregate.value.groupSummaries.bonds.positions.find(
+      (position): position is IBondFinancialPosition => {
+        return (
+          position.kind === 'bond' &&
+          position.lifecycle !== 'completed' &&
+          position.bondLot?.id === bondLot.id &&
+          position.bondLot.accountId === bondLot.accountId &&
+          position.bondLot.programType === bondLot.programType
+        );
+      },
+    );
+    return {
+      position: existingPosition,
+      returnPercent: existingPosition ? calculatePositionReturn([existingPosition]).percent : undefined,
+    };
+  }
+
   // Bitcoin Liquid Locks ///////////////////////////////////////////////////////////////////////////////////////////////
 
   const liquidAllRecords = Vue.ref<IBitcoinLockSummary[]>([]);
@@ -972,6 +997,7 @@ export const useFinancials = defineStore('financials', () => {
 
     bondsTotalValue,
     bondSummariesByAsset,
+    getBondFinancialDetails,
 
     liquidAllRecords,
     bitcoinLiquids,

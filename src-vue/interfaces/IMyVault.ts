@@ -26,7 +26,8 @@ type IMyVaultMintingAuthoritiesQueryRef = Pick<MintingAuthorities, 'refresh' | '
   data: Pick<MintingAuthorities['data'], 'authorities'>;
 };
 
-export type IMyVaultQueryRef = Pick<MyVault, 'collect' | 'load' | 'vaultId'> & {
+export type IMyVaultQueryRef = Pick<MyVault, 'collect' | 'load' | 'vaultId' | 'createdVault'> & {
+  data: Pick<MyVault['data'], 'externalLocks' | 'isLoaded'>;
   walletKeys: IMyVaultWalletKeysQueryRef;
   globalCouncil: IMyVaultGlobalCouncilQueryRef;
   mintingAuthorities: IMyVaultMintingAuthoritiesQueryRef;

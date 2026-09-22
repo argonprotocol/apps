@@ -12,7 +12,7 @@ import { BitcoinOrphanRelease } from '../lib/txs/BitcoinOrphan.release.ts';
 import { BitcoinLockCreate } from '../lib/txs/BitcoinLock.create.ts';
 import { BitcoinLockRelease } from '../lib/txs/BitcoinLock.release.ts';
 import { BitcoinLockResecuritize } from '../lib/txs/BitcoinLock.resecuritize.ts';
-import { loadTransactionOperations, type TransactionOperations } from '../lib/txs/index.ts';
+import type { TransactionOperations } from '../lib/txs/index.ts';
 import { getDbPromise } from './helpers/dbPromise';
 import { getBlockWatch } from './mainchain.ts';
 import { getCurrency } from './currency.ts';
@@ -37,7 +37,6 @@ export function getBitcoinFees() {
 let locks: BitcoinLocks;
 let fissions: BitcoinFissions;
 let transactionOperations: TransactionOperations;
-let transactionOperationsLoadPromise: Promise<TransactionOperations> | undefined;
 let bitcoinLockCoupons: ReturnType<typeof createBitcoinLockCouponsState>;
 let unsubscribeFissionStateRefresh: VoidFunction | undefined;
 
@@ -121,34 +120,8 @@ export function getBitcoinTransactionOperations(): TransactionOperations {
       bitcoinLockRelease: new BitcoinLockRelease(bitcoinLocks, transactionTracker),
       bitcoinLockResecuritize,
     };
-    Vue.watch(
-      () => [bitcoinLocks.data.readiness, bitcoinFissions.data.readiness] as const,
-      ([lockReadiness, fissionReadiness]) => {
-        if (lockReadiness === 'ready' && fissionReadiness === 'ready') restoreBitcoinTransactionOperations();
-      },
-      { immediate: true },
-    );
   }
-  restoreBitcoinTransactionOperations();
   return transactionOperations;
-}
-
-function restoreBitcoinTransactionOperations(): void {
-  if (
-    !transactionOperations ||
-    transactionOperationsLoadPromise ||
-    locks.data.readiness !== 'ready' ||
-    fissions.data.readiness !== 'ready'
-  ) {
-    return;
-  }
-
-  const loadPromise = loadTransactionOperations(transactionOperations);
-  transactionOperationsLoadPromise = loadPromise;
-  void loadPromise.catch(error => {
-    if (transactionOperationsLoadPromise === loadPromise) transactionOperationsLoadPromise = undefined;
-    console.error('[BitcoinTransactions] Unable to restore pending operations', error);
-  });
 }
 
 export function getBitcoinLockCoupons() {

@@ -39,3 +39,46 @@ it('replaces an incompatible persisted activity database', () => {
     fs.rmSync(directory, { recursive: true, force: true });
   }
 });
+
+it('retains pre-flexibility history when opening a definition-3 activity database', () => {
+  const directory = fs.mkdtempSync(Path.join(os.tmpdir(), 'account-activity-server-'));
+  const file = 'unseeded-test-activity-v2.db';
+  const databasePath = Path.join(directory, file);
+  const oldDb = new IndexerDb(databasePath);
+  oldDb.recordBlocks([
+    {
+      blockNumber: 1,
+      blockHash: Uint8Array.of(1),
+      specVersion: 157,
+      systemEvents: Uint8Array.of(),
+      accounts: [{ address: 'existing-account', mask: AccountActivityKind.Transfer }],
+      vaults: [],
+      vaultOwners: [],
+    },
+    {
+      blockNumber: 2,
+      blockHash: Uint8Array.of(2),
+      specVersion: 158,
+      systemEvents: Uint8Array.of(),
+      accounts: [],
+      vaults: [],
+      vaultOwners: [],
+    },
+  ]);
+  oldDb.close();
+
+  const rawDb = new DatabaseSync(databasePath);
+  rawDb.prepare(`UPDATE SyncState SET definitionVersion = 3 WHERE id = 'accountActivity'`).run();
+  rawDb.close();
+
+  try {
+    const upgraded = openAccountActivityDatabase(directory, file);
+    expect(upgraded.latestSyncedBlock).toBe(1);
+    expect(upgraded.findAddressActivity('existing-account')).toMatchObject([
+      { blockNumber: 1, activityMask: AccountActivityKind.Transfer },
+    ]);
+    upgraded.close();
+  } finally {
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});

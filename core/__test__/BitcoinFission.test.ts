@@ -5,6 +5,91 @@ import { describe, expect, it } from 'vitest';
 import { BitcoinFission } from '../src/BitcoinFission.ts';
 
 describe('BitcoinFission', () => {
+  it('repairs stale action fees and close provenance without replacing newer current state', () => {
+    const current = new BitcoinFission({
+      ownerAccount: 'owner',
+      fissionId: 4,
+      liquidId: 7,
+      lockId: 10,
+      satoshis: 50_000_000n,
+      microgonsAtTargetPerBtc: 1_200n,
+      liquidityPromised: 800n,
+      createdAtArgonBlock: 20,
+      ratchetNumber: 1,
+      lastUpdatedArgonBlock: 30,
+      closedAtArgonBlock: 25,
+      closedExtrinsicIndex: 2,
+      closeReason: 'closed',
+      redemptionAmount: 750n,
+      closeTxFee: 0n,
+      ratchets: [
+        {
+          source: 'lock',
+          sourceRatchetIndex: 0,
+          microgonsAtTargetPerBtc: 1_000n,
+          amountMinted: 700n,
+          amountBurned: 0n,
+          mintPending: 0n,
+          securityFee: 52_784_122n,
+          securityFeeCoupon: 50_720_408n,
+          txFee: 0n,
+          blockNumber: 20,
+        },
+      ],
+    });
+
+    current.mergeRecoveredRecord({
+      ownerAccount: 'owner',
+      fissionId: 4,
+      liquidId: 7,
+      lockId: 10,
+      satoshis: 50_000_000n,
+      microgonsAtTargetPerBtc: 1_000n,
+      liquidityPromised: 700n,
+      createdAtArgonBlock: 20,
+      ratchetNumber: 0,
+      lastUpdatedArgonBlock: 20,
+      feeHistoryCompleteThroughBlock: 20,
+      closedAtArgonBlock: 25,
+      closedAtTick: 525,
+      closedBlockHash: '0x25',
+      closedExtrinsicIndex: 2,
+      closeReason: 'closed',
+      redemptionAmount: 750n,
+      closeTxFee: 5n,
+      ratchets: [
+        {
+          source: 'lock',
+          sourceRatchetIndex: 0,
+          microgonsAtTargetPerBtc: 1_000n,
+          amountMinted: 700n,
+          amountBurned: 0n,
+          mintPending: 0n,
+          securityFee: 52_784_122n,
+          securityFeeCoupon: 52_784_122n,
+          txFee: 1_719n,
+          blockNumber: 20,
+        },
+      ],
+    });
+
+    expect(current).toMatchObject({
+      microgonsAtTargetPerBtc: 1_200n,
+      liquidityPromised: 800n,
+      lastUpdatedArgonBlock: 30,
+      closedAtTick: 525,
+      closedBlockHash: '0x25',
+      closeTxFee: 5n,
+      ratchets: [
+        expect.objectContaining({
+          securityFee: 52_784_122n,
+          securityFeeCoupon: 52_784_122n,
+          txFee: 1_719n,
+        }),
+      ],
+    });
+  });
+
   it('allocates Liquid Bitcoin from only the selected vaults', () => {
     const allocations = BitcoinFission.allocateSatoshis({
       locks: [

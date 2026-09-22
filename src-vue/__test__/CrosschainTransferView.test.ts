@@ -95,7 +95,7 @@ describe('CrosschainTransferView', () => {
           operatorAccountId: sourceAccount,
         },
       },
-      operatorNamesByVaultId: { 3: 'dev-docker-JC', 4: 'dev-docker-Source vault' },
+      operatorNamesByVaultId: { 3: 'dev-docker-Sponsor', 4: 'dev-docker-Source vault' },
       localAccountIds: [],
       sourceOperatorDetailsByAccount: new Map([
         [sourceAccount, { name: 'Ada', upstreamVaultAccount: sponsorVaultAccount }],
@@ -104,6 +104,6 @@ describe('CrosschainTransferView', () => {
 
     const sourceIdentity = identities.get(sourceAccount);
 
-    expect(sourceIdentity).toEqual({ name: 'Ada', kind: 'operator', upstreamName: 'JC' });
+    expect(sourceIdentity).toEqual({ name: 'Ada', kind: 'operator', upstreamName: 'Sponsor' });
   });
 });

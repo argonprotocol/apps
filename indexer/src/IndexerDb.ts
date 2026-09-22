@@ -1,4 +1,3 @@
-import Fs from 'node:fs';
 import { DatabaseSync, type StatementSync } from 'node:sqlite';
 import { ACCOUNT_ACTIVITY_DEFINITION_VERSION, type IAccountActivityQuery } from '@argonprotocol/apps-core';
 import { accountActivityKindNames } from './AccountActivity.js';
@@ -242,6 +241,8 @@ export class IndexerDb {
       );
     }
 
+    this.upgradeDefinitionFromV3();
+
     const insertKind = this.database.prepare(`INSERT OR IGNORE INTO ActivityKinds (bit, name) VALUES (:bit, :name)`);
     for (const [bit, name] of accountActivityKindNames) insertKind.run({ bit, name });
     const hasStoredBlocks = Boolean(this.database.prepare(`SELECT 1 FROM Blocks LIMIT 1`).get());
@@ -274,6 +275,49 @@ export class IndexerDb {
     for (const { destinationSigningKey, accountId } of mintingAuthorityOwners) {
       this.mintingAuthorityOwners.set(destinationSigningKey, accountId);
     }
+  }
+
+  private upgradeDefinitionFromV3(): void {
+    const sync = this.database
+      .prepare(`SELECT blockNumber, definitionVersion FROM SyncState WHERE id = ?`)
+      .get(syncStateId) as { blockNumber: number; definitionVersion: number } | undefined;
+    if (sync?.definitionVersion !== 3) return;
+
+    // Definition 4 resolves bond flexibility events to their owner. Those
+    // events first existed in runtime spec 158; earlier activity is unchanged.
+    const firstAffectedBlock = this.database
+      .prepare(`SELECT MIN(blockNumber) AS blockNumber FROM Blocks WHERE specVersion >= 158`)
+      .get() as { blockNumber: number | null };
+    const replayFromBlock = firstAffectedBlock.blockNumber;
+
+    try {
+      this.database.exec('BEGIN IMMEDIATE TRANSACTION;');
+      // Parent deletion checks the child table for each block being replayed.
+      this.database.exec('CREATE INDEX IF NOT EXISTS AccountBlocksByBlock ON AccountBlocks (blockNumber);');
+      if (replayFromBlock !== null) {
+        this.database.prepare(`DELETE FROM AccountBlocks WHERE blockNumber >= ?`).run(replayFromBlock);
+        this.database.prepare(`DELETE FROM Blocks WHERE blockNumber >= ?`).run(replayFromBlock);
+      }
+      this.database
+        .prepare(
+          `UPDATE SyncState SET blockNumber = ?, definitionVersion = ?, syncedAt = CURRENT_TIMESTAMP WHERE id = ?`,
+        )
+        .run(
+          replayFromBlock === null ? sync.blockNumber : Math.max(0, replayFromBlock - 1),
+          ACCOUNT_ACTIVITY_DEFINITION_VERSION,
+          syncStateId,
+        );
+      this.database.exec('COMMIT;');
+    } catch (error) {
+      if (this.database.isTransaction) this.database.exec('ROLLBACK;');
+      throw error;
+    }
+
+    console.info(
+      replayFromBlock === null
+        ? `Upgraded account activity definition to ${ACCOUNT_ACTIVITY_DEFINITION_VERSION}; no spec-158 blocks to replay`
+        : `Upgraded account activity definition to ${ACCOUNT_ACTIVITY_DEFINITION_VERSION}; replaying from block ${replayFromBlock}`,
+    );
   }
 
   private prepareWriteStatements(): void {
@@ -330,48 +374,6 @@ export class IndexerDb {
   }
 }
 
-export function upgradeAccountActivitySeedFromV2(databasePath: string): boolean {
-  // This correction only covers the v2 definition's missing spec-158 classifications.
-  if (ACCOUNT_ACTIVITY_DEFINITION_VERSION !== 3 || !Fs.existsSync(databasePath)) return false;
-
-  const database = new DatabaseSync(databasePath, { open: true });
-  try {
-    const sync = database
-      .prepare(`SELECT blockNumber, definitionVersion FROM SyncState WHERE id = :id`)
-      .get({ id: syncStateId }) as { blockNumber: number; definitionVersion: number } | undefined;
-    if (sync?.definitionVersion !== 2) return false;
-
-    const changedRuntime = database
-      .prepare(`SELECT MIN(blockNumber) AS blockNumber FROM Blocks WHERE specVersion = 158`)
-      .get() as { blockNumber: number | null };
-    const replayFromBlock = changedRuntime.blockNumber;
-
-    database.exec('BEGIN IMMEDIATE TRANSACTION;');
-    if (replayFromBlock !== null) {
-      database.prepare(`DELETE FROM AccountBlocks WHERE blockNumber >= ?`).run(replayFromBlock);
-      database.prepare(`DELETE FROM Blocks WHERE blockNumber >= ?`).run(replayFromBlock);
-    }
-    database
-      .prepare(
-        `UPDATE SyncState
-         SET blockNumber = ?, definitionVersion = ?, syncedAt = CURRENT_TIMESTAMP
-         WHERE id = ?`,
-      )
-      .run(
-        replayFromBlock === null ? sync.blockNumber : replayFromBlock - 1,
-        ACCOUNT_ACTIVITY_DEFINITION_VERSION,
-        syncStateId,
-      );
-    database.exec('COMMIT;');
-    return true;
-  } catch (error) {
-    if (database.isTransaction) database.exec('ROLLBACK;');
-    throw error;
-  } finally {
-    database.close();
-  }
-}
-
 const CurrentSchema = `CREATE TABLE Blocks (
     blockNumber INTEGER PRIMARY KEY,
     blockHash BLOB NOT NULL,
@@ -390,6 +392,7 @@ const CurrentSchema = `CREATE TABLE Blocks (
     activityMask INTEGER NOT NULL,
     PRIMARY KEY (accountId, blockNumber)
   ) WITHOUT ROWID;
+  CREATE INDEX AccountBlocksByBlock ON AccountBlocks (blockNumber);
   CREATE TABLE VaultOwners (
     vaultId INTEGER PRIMARY KEY,
     accountId TEXT NOT NULL

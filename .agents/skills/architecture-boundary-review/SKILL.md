@@ -15,6 +15,10 @@ Determine whether each responsibility has one authoritative owner and is impleme
 - Review responsibilities, not filenames. Moving unchanged behavior behind a helper, facade, or `recovery/` class does not change its owner.
 - Recommend the smallest ownership correction. Do not propose broad reorganization merely to make the directory tree look uniform.
 
+## New-model decision
+
+Before accepting a new authoritative model, identify the closest existing end-to-end workflow and owner. Ask which distinct identity, lifecycle, or publication invariant cannot be represented by extending that owner. If none is identified, keep the transition with the established owner and treat a new class as a collaborator only when it hides meaningful complexity. Do not infer approval for a new state owner from a convenient file location or a passing test. Require an explicit ownership decision when the change was not scoped to introduce one; do not impose this decision on ordinary classes or behavior-preserving PRs.
+
 ## Method-level review
 
 For every changed method, class, or coherent code block that crosses a boundary, establish:
@@ -79,6 +83,10 @@ If direct and composite commands can produce the same domain result, keep their 
 
 When the reviewed change also affects persistence, events, replay, retries, migrations, subscriptions, or reconstructed state, run `stateful-workflow-review` after the placement review. Use it to validate transition completeness and observer convergence; do not treat it as a substitute for this ownership review.
 
+When a change introduces or alters a durable handoff across a transaction, event, or recovery boundary, name the concrete producer, fact, durable write and identity/cursor, publication, and affected observers. Trace the failure and retry/restart path affected by that change; inspect an already-mounted observer only when publication behavior changes. Compare a bond handoff to the established Bitcoin transaction/domain handoff when relevant, explaining domain-specific differences. Do not expand this trace to unrelated transitions or require it for presentation-only and behavior-preserving edits.
+
+For an altered durable handoff, do not issue `PASS` without behavior-level evidence for the affected failure or retry path. Use the real durable database and a restart scenario when the change actually depends on persistence or restart; do not add them to every PR. A mocked handoff test that only proves method calls is not sufficient. If the stateful-workflow review is `BLOCKED` or the changed transition has no bounded route from failure to publication, the architecture verdict is also `BLOCKED`.
+
 ## Report
 
 Lead with `Architecture boundary: PASS`, `BLOCKED`, or `NEEDS DECISION`. Keep the report exception-focused and include:
@@ -88,5 +96,7 @@ Lead with `Architecture boundary: PASS`, `BLOCKED`, or `NEEDS DECISION`. Keep th
 - each violation with the symbol, present layer, actual authority, violated rule, and smallest correction;
 - unresolved ownership choices;
 - stateful-workflow follow-up required, when applicable.
+
+For a `PASS` on an altered durable handoff, include the producer-to-observer trace, the relevant failure/retry evidence, and the stateful-workflow verdict. Otherwise state the missing evidence explicitly and use `BLOCKED`.
 
 Do not reward file movement, helper extraction, test count, or naming changes unless they materially narrow authority or side effects.

@@ -70,9 +70,6 @@
 
           <h1 class="text-argon-text-primary mb-4 text-4xl leading-tight font-semibold">
             <template v-if="isBrowserUnsupported">Argon Desktop requires {{ webRuntimeRequirement.name }}.</template>
-            <template v-else-if="isNewDownloadRequired">
-              {{ APP_NAME }} is becoming Argon Desktop. Download the new app to continue.
-            </template>
             <template v-else-if="phase === 'paused'">
               The Argon Network has been upgraded and needs a new version of {{ APP_NAME }} to work properly.
             </template>
@@ -97,17 +94,7 @@
 
         <div class="flex flex-wrap items-center gap-3">
           <button
-            v-if="isNewDownloadRequired"
-            class="bg-argon-button hover:bg-argon-button-hover border-argon-button-hover cursor-pointer rounded-full border px-6 py-3 text-sm font-semibold text-white transition"
-            @click="void tauriOpenUrl(`${NetworkConfig.websiteHost}/desktop-app`)"
-          >
-            <span class="inline-flex items-center gap-2">
-              Download Argon Desktop
-              <ExternalIcon class="h-4 w-4" aria-hidden="true" />
-            </span>
-          </button>
-          <button
-            v-else-if="update && !isReadyToInstall"
+            v-if="update && !isReadyToInstall"
             :disabled="isDownloading"
             class="bg-argon-button hover:bg-argon-button-hover border-argon-button-hover cursor-pointer rounded-full border px-6 py-3 text-sm font-semibold text-white transition disabled:cursor-not-allowed disabled:opacity-60"
             @click="updater.downloadAndInstallUpdate()"
@@ -125,9 +112,6 @@
             <template v-if="isBrowserUnsupported">
               {{ webRuntimeRequirement.updateInstructions }} Then close and reopen Argon Desktop.
             </template>
-            <template v-else-if="isNewDownloadRequired">
-              Download Argon Desktop from the Argon website to continue.
-            </template>
             <template v-else-if="phase === 'upgrade-required'">Install the latest app update to continue.</template>
             <template v-else>Waiting for a compatible app update...</template>
           </div>
@@ -143,13 +127,10 @@ import WindowControls from '../tauri-controls/WindowControls.vue';
 import ProgressBar from '../components/ProgressBar.vue';
 import Spinner from '../components/Spinner.vue';
 import basicEmitter from '../emitters/basicEmitter.ts';
-import ExternalIcon from '../assets/external.svg';
 import { APP_NAME } from '../lib/Env.ts';
 import { useAppUpdater } from '../stores/appUpdater.ts';
 import { useRuntimeCompatibility } from '../stores/runtimeCompatibility.ts';
 import { platformType } from '../tauri-controls/utils/os.ts';
-import { open as tauriOpenUrl } from '@tauri-apps/plugin-shell';
-import { NetworkConfig } from '@argonprotocol/apps-core';
 
 const updater = useAppUpdater();
 const runtimeCompatibility = useRuntimeCompatibility();
@@ -180,7 +161,6 @@ const {
   errorMessage: compatibilityErrorMessage,
   isBrowserUnsupported,
   isLoading,
-  newDownloadRequired: isNewDownloadRequired,
   phase,
 } = storeToRefs(runtimeCompatibility);
 

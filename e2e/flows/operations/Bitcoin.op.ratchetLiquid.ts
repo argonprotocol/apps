@@ -10,6 +10,7 @@ type ILiquidRatchetState = IE2EOperationInspectState<
     activeLiquidCount: number;
     ratchetNumber: number;
     ratchetHistoryCount: number;
+    ratchetRateChanged: boolean;
   },
   {
     detailOverlayVisible: boolean;
@@ -21,15 +22,22 @@ type ILiquidRatchetState = IE2EOperationInspectState<
 export default new Operation<IBitcoinFlowContext, ILiquidRatchetState>(import.meta, {
   async inspect({ flow }) {
     const [chainState, detailOverlay, ratchetReview, ratchetReviewOpen, ratchetSubmit] = await Promise.all([
-      flow.queryApp(refs => {
+      flow.queryApp(async refs => {
         const fissions = refs.getBitcoinFissions();
         const activeLiquids = fissions.getLiquids().filter(liquid => !liquid.isClosed);
         const activeLiquid = activeLiquids[0];
+        const rates = await (await refs.getMainchainClient(false)).query.bitcoinLocks.microgonPerBtcHistory();
+        const currentRatchetRate = rates.at(-1)?.[1];
+        const sourceRatchetRate = activeLiquid?.fissions[0]?.microgonsAtTargetPerBtc;
         return {
           activeFissionCount: fissions.getAll().length,
           activeLiquidCount: activeLiquids.length,
           ratchetNumber: activeLiquid ? Math.max(...activeLiquid.fissions.map(fission => fission.ratchetNumber)) : 0,
           ratchetHistoryCount: activeLiquid?.history.filter(entry => entry.kind === 'ratchet').length ?? 0,
+          ratchetRateChanged:
+            currentRatchetRate !== undefined &&
+            sourceRatchetRate !== undefined &&
+            currentRatchetRate !== sourceRatchetRate,
         };
       }),
       flow.isVisible('BitcoinLiquidDetailOverlay'),
@@ -44,6 +52,7 @@ export default new Operation<IBitcoinFlowContext, ILiquidRatchetState>(import.me
       activeLiquidCount: 0,
       ratchetNumber: 0,
       ratchetHistoryCount: 0,
+      ratchetRateChanged: false,
     };
     const isComplete =
       current.activeFissionCount === 1 &&
@@ -100,7 +109,16 @@ export default new Operation<IBitcoinFlowContext, ILiquidRatchetState>(import.me
     priceIndex.btc_usd_price = 150_000;
     await Fs.writeFile(priceIndexFilePath, `${JSON.stringify(priceIndex, null, 2)}\n`);
 
-    await flow.click('OverlayBase.clickClose()', { timeoutMs: 10_000 });
+    await flow.poll<ILiquidRatchetState>(latest => latest.chainState.ratchetRateChanged, {
+      pollMs: 1_000,
+      timeoutMs: 45_000,
+      timeoutMessage: `${flowName}: the updated Bitcoin price did not reach the runtime ratchet rate.`,
+    });
+    await flow.click(
+      { selector: '[data-testid="BitcoinLiquidDetailOverlay"] [data-testid="OverlayBase.clickClose()"]' },
+      { timeoutMs: 10_000 },
+    );
+    await flow.waitFor('BitcoinLiquidDetailOverlay', { state: 'missing', timeoutMs: 10_000 });
     await flow.click('Dashboard.openLiquidDetails(liquid)', { timeoutMs: 20_000 });
     state = await flow.poll<ILiquidRatchetState>(latest => latest.uiState.ratchetReviewEnabled, {
       pollMs: 1_000,

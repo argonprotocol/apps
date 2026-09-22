@@ -243,8 +243,9 @@
     <BondDetailOverlay
       v-if="showBondDetailOverlay && selectedFrameBondLot"
       :bondLot="selectedFrameBondLot.details"
-      :frameProrata="selectedFrameBondLot.prorata"
-      :bondFrame="currentTreasuryBondFrame"
+      :position="selectedBondFinancialDetails?.position"
+      :returnPercent="selectedBondFinancialDetails?.returnPercent"
+      displayContext="vault"
       liquidationAccount="vaulting"
       @close="closeBondDetailOverlay"
     />
@@ -343,6 +344,7 @@ const currentTreasuryBondFrame = Vue.computed(() => ({
   distributableBidPool: argonBonds.data.distributableBidPool,
   globalBonds: argonBonds.data.totalActiveBonds,
   vaultBonds: vaultBondState.value?.currentFrame.vaultBonds ?? 0,
+  flexibleBondsEligible: vaultBondState.value?.currentFrame.flexibleBondsEligible ?? 0,
   bondLots: vaultBondState.value?.currentFrame.bondLots ?? [],
 }));
 
@@ -677,6 +679,10 @@ const showLockDetailOverlay = Vue.ref(false);
 const showBondDetailOverlay = Vue.ref(false);
 const selectedLock = Vue.ref<IBitcoinLockRecord | IExternalBitcoinLock | undefined>(undefined);
 const selectedFrameBondLot = Vue.ref<IFrameBondLot | undefined>(undefined);
+const selectedBondFinancialDetails = Vue.computed(() => {
+  const bondLot = selectedFrameBondLot.value?.details;
+  return bondLot ? financials.getBondFinancialDetails(bondLot) : undefined;
+});
 
 function openBitcoinChannel(lock?: IBitcoinLockRecord) {
   basicEmitter.emit('openWalletOverlay', {

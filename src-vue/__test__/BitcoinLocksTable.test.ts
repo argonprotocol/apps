@@ -394,6 +394,36 @@ describe('BitcoinLocksTable', () => {
     });
   });
 
+  it('keeps an acknowledged expired Bitcoin lock terminal when migrating an old database', async () => {
+    const { db, migrateToLatest } = await createTestDbAtMigration(32);
+    await db.execute(
+      `INSERT INTO BitcoinLocks (
+        uuid, status, utxoId, satoshis, lockedTargetPrice, liquidityPromised, ratchets,
+        cosignVersion, lockDetails, network, hdPath, vaultId
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        'expired-lock',
+        'LockExpiredWaitingForFundingAcknowledged',
+        9,
+        1_000n,
+        2_000n,
+        0n,
+        [],
+        'v1',
+        { p2wshScriptHashHex: '0x0020abcd', createdAtHeight: 100 },
+        'regtest',
+        "m/84'/1'/0'/0/9",
+        3,
+      ],
+    );
+
+    await migrateToLatest();
+
+    const lock = await db.bitcoinLocksTable.getByLockId(9);
+    expect(lock?.status).toBe(BitcoinLockStatus.LockFailedAcknowledged);
+    expect(lock?.securitizationHoldExpirationBitcoinHeight).toBeUndefined();
+  });
+
   it('retires a delegated pending lock after authoritative recovery finds no lock', async () => {
     const { db, table, lock } = await createPendingLock({ uuid: 'retired-delegated-lock' });
     await db.execute('UPDATE BitcoinLocks SET relayMetadataJson = ? WHERE uuid = ?', [

@@ -11,16 +11,14 @@ import type { IArgonAccountBalance } from '../WalletsForArgon.ts';
 type ArgonBondFinancialPositionArgs = {
   account: IArgonAccountBalance;
   liveArgonotRateMicrogons?: bigint;
-  ownedVaultId?: number;
 };
 
 type ArgonBondPositionData = {
   bondLots?: readonly BondLot[];
-  completedRecords?: readonly IBondLotHistoryRecord[];
+  historyRecords?: readonly IBondLotHistoryRecord[];
   liveArgonotRateMicrogons?: bigint;
   entryArgonotMarksByLot?: ReadonlyMap<string, bigint>;
   frameDates: ReadonlyMap<number, Date>;
-  ownedVaultId?: number;
 };
 
 export class ArgonBondsFinancials
@@ -29,20 +27,30 @@ export class ArgonBondsFinancials
   constructor(private readonly bonds: ArgonBonds) {}
 
   public async loadPositions(args: ArgonBondFinancialPositionArgs): Promise<IBondFinancialPosition[]> {
-    const bondLots = this.bonds.data.bondLots;
-
     const treasuryMicrogons = args.account.microgonHolds
       .filter(hold => hold.id.type === 'Treasury')
       .reduce((sum, hold) => sum + hold.amount, 0n);
     const treasuryMicronots = args.account.micronotHolds
       .filter(hold => hold.id.type === 'Treasury')
       .reduce((sum, hold) => sum + hold.amount, 0n);
+    const released = new Set(
+      this.bonds.data.bondHistory
+        .filter(record => record.releaseBlockHash !== undefined)
+        .map(record => this.bondKey(record.accountId, record.programType, record.bondLotId)),
+    );
+    const bondLots = this.bonds.data.bondLots.filter(
+      lot => !released.has(this.bondKey(lot.accountId, lot.programType, lot.id)),
+    );
     const totals = BondLot.getTotals(bondLots);
+    const overdueAmbiguity = bondLots.some(
+      lot => lot.isReleasing && lot.releaseFrame !== null && lot.releaseFrame <= this.bonds.data.currentFrameId,
+    );
+    const detail = overdueAmbiguity ? '; an overdue release has no verified close event or hold transition' : '';
     if (treasuryMicrogons !== totals.totalBondMicrogons) {
-      throw new Error(`ARGN Treasury holds do not match live bond principal for ${args.account.address}`);
+      throw new Error(`ARGN Treasury holds do not match live bond principal for ${args.account.address}${detail}`);
     }
     if (treasuryMicronots !== totals.totalArgonotBondMicronots) {
-      throw new Error(`ARGNOT Treasury holds do not match live bond principal for ${args.account.address}`);
+      throw new Error(`ARGNOT Treasury holds do not match live bond principal for ${args.account.address}${detail}`);
     }
 
     const frameIds = new Set<number>();
@@ -55,7 +63,10 @@ export class ArgonBondsFinancials
       this.bonds.data.bondHistory.flatMap(record => {
         if (record.entryArgonotRateMicrogons === undefined) return [];
         return [
-          [`${record.accountId}:${record.programType}:${record.bondLotId}`, record.entryArgonotRateMicrogons] as const,
+          [
+            this.bondKey(record.accountId, record.programType, record.bondLotId),
+            record.entryArgonotRateMicrogons,
+          ] as const,
         ];
       }),
     );
@@ -63,7 +74,7 @@ export class ArgonBondsFinancials
     return this.createFinancialPositions({
       ...args,
       bondLots,
-      completedRecords: this.bonds.completedBondHistory,
+      historyRecords: this.bonds.data.bondHistory,
       entryArgonotMarksByLot,
       frameDates,
     });
@@ -71,53 +82,33 @@ export class ArgonBondsFinancials
 
   public createFinancialPositions({
     bondLots = [],
-    completedRecords = [],
+    historyRecords = [],
     liveArgonotRateMicrogons,
     entryArgonotMarksByLot = new Map(),
     frameDates,
-    ownedVaultId,
   }: ArgonBondPositionData): IBondFinancialPosition[] {
     const positions: IBondFinancialPosition[] = [];
     const liveBondKeys = new Set(
-      bondLots.map(bondLot => `${bondLot.accountId}:${bondLot.programType.toLowerCase()}:${bondLot.id}`),
+      bondLots.map(bondLot => this.bondKey(bondLot.accountId, bondLot.programType, bondLot.id)),
     );
     const currentArgonotRateMicrogons = liveArgonotRateMicrogons ?? 0n;
     const canValueArgonot = currentArgonotRateMicrogons > 0n;
-
+    const historyByLot = new Map(
+      historyRecords.map(record => [this.bondKey(record.accountId, record.programType, record.bondLotId), record]),
+    );
     for (const bondLot of bondLots) {
       const startedAt = frameDates.get(bondLot.createdFrame);
       const lifecycle = bondLot.isReleasing ? 'releasing' : 'active';
 
       if (bondLot.programType === 'Vault') {
-        const nativePrincipal = bondLot.principalMicrogons ?? 0n;
-        const value = calculatePrincipalPositionValue({
-          nativeAsset: 'ARGN',
-          nativePrincipal,
-          cumulativeEarnings: bondLot.lifetimeEarnings,
-          lifecycle,
-        });
-        positions.push(
-          createFinancialPosition(
-            'bond',
-            {
-              id: `bond:${bondLot.accountId}:${bondLot.programType.toLowerCase()}:${bondLot.id}`,
-              label: bondLot.vaultId == null ? 'Vault bond' : `Vault ${bondLot.vaultId} bond`,
-              lifecycle,
-              excludeFromAccountAggregate: ownedVaultId !== undefined && bondLot.vaultId === ownedVaultId,
-              startedAt,
-              bondLot,
-              nativeAsset: 'ARGN',
-              nativePrincipal,
-            },
-            value,
-          ),
-        );
+        const key = this.bondKey(bondLot.accountId, bondLot.programType, bondLot.id);
+        positions.push(...this.createVaultBondPositions(bondLot, historyByLot.get(key), frameDates));
         continue;
       }
 
       const nativePrincipal = bondLot.principalMicronots ?? 0n;
       const entryArgonotRateMicrogons = entryArgonotMarksByLot.get(
-        `${bondLot.accountId}:${bondLot.programType}:${bondLot.id}`,
+        this.bondKey(bondLot.accountId, bondLot.programType, bondLot.id),
       );
       const value = calculatePrincipalPositionValue({
         nativeAsset: 'ARGNOT',
@@ -131,7 +122,7 @@ export class ArgonBondsFinancials
         createFinancialPosition(
           'bond',
           {
-            id: `bond:${bondLot.accountId}:${bondLot.programType.toLowerCase()}:${bondLot.id}`,
+            id: this.bondPositionId(bondLot),
             label: 'ARGNOT bond',
             lifecycle,
             startedAt,
@@ -146,14 +137,15 @@ export class ArgonBondsFinancials
       );
     }
 
-    for (const record of completedRecords) {
+    for (const record of historyRecords) {
       if (!record.releaseBlockHash) continue;
-      if (liveBondKeys.has(`${record.accountId}:${record.programType.toLowerCase()}:${record.bondLotId}`)) continue;
+      if (liveBondKeys.has(this.bondKey(record.accountId, record.programType, record.bondLotId))) continue;
 
       const isArgonot = record.programType === 'Argonot';
-      let label = record.vaultId == null ? 'Vault bond' : `Vault ${record.vaultId} bond`;
-      if (isArgonot) label = 'ARGNOT bond';
-
+      if (!isArgonot) {
+        positions.push(...this.createVaultBondPositions(record, record, frameDates));
+        continue;
+      }
       const value = calculatePrincipalPositionValue({
         nativeAsset: record.nativeAsset,
         nativePrincipal: record.nativePrincipal,
@@ -166,10 +158,9 @@ export class ArgonBondsFinancials
         createFinancialPosition(
           'bond',
           {
-            id: `bond:${record.accountId}:${record.programType.toLowerCase()}:${record.bondLotId}`,
-            label,
+            id: this.bondPositionId(record),
+            label: 'ARGNOT bond',
             lifecycle: 'completed',
-            excludeFromAccountAggregate: ownedVaultId !== undefined && record.vaultId === ownedVaultId,
             startedAt: record.purchaseBlockTime ?? frameDates.get(record.createdFrame),
             endedAt: record.releaseBlockTime,
             history: record,
@@ -184,5 +175,186 @@ export class ArgonBondsFinancials
     }
 
     return positions;
+  }
+
+  private createVaultBondPositions(
+    value: BondLot | IBondLotHistoryRecord,
+    history: IBondLotHistoryRecord | undefined,
+    frameDates: ReadonlyMap<number, Date>,
+  ): IBondFinancialPosition[] {
+    const bondLot = value instanceof BondLot ? value : undefined;
+    const lifecycle = bondLot ? (bondLot.isReleasing ? 'releasing' : 'active') : 'completed';
+    const nativePrincipal = value instanceof BondLot ? value.bondMicrogons : value.nativePrincipal;
+    const cumulativeEarnings =
+      value instanceof BondLot ? value.lifetimeEarnings : (value.cumulativeEarningsMicrogons ?? 0n);
+    const source = value instanceof BondLot ? { bondLot: value } : { history: value };
+    const label = value.vaultId == null ? 'Vault bond' : `Vault ${value.vaultId} bond`;
+    const id = this.bondPositionId(value);
+    const returnIsComplete =
+      history?.flexibilityHistoryComplete === true &&
+      (bondLot !== undefined || history.releaseBlockNumber !== undefined);
+    const flexibility = history?.flexibilityHistory ?? [];
+    const positions: IBondFinancialPosition[] = [];
+    let segmentStartedAt = history?.purchaseBlockTime ?? frameDates.get(value.createdFrame);
+    let earningsAtStart = 0n;
+    let isFlexible = false;
+    let segment = 0;
+    let flexibleStartedAt: Date | undefined;
+    let flexibleSegment = 0;
+
+    for (const transition of flexibility) {
+      if (transition.isFlexible && !isFlexible) {
+        if (transition.source !== 'purchase') {
+          positions.push(
+            this.createVaultBondSegment({
+              id: `${id}:segment-${segment++}`,
+              label,
+              startedAt: segmentStartedAt,
+              endedAt: transition.blockTime,
+              nativePrincipal,
+              cumulativeEarnings: transition.cumulativeEarningsMicrogons - earningsAtStart,
+              returnIsComplete,
+              source,
+            }),
+          );
+        }
+        isFlexible = true;
+        flexibleStartedAt = transition.blockTime;
+      } else if (!transition.isFlexible && isFlexible) {
+        positions.push(
+          this.createFlexibleVaultBondPosition({
+            id: `${id}:flexible-${flexibleSegment++}`,
+            label,
+            lifecycle: 'completed',
+            startedAt: flexibleStartedAt,
+            endedAt: transition.blockTime,
+            nativePrincipal,
+            returnIsComplete,
+            source,
+          }),
+        );
+        isFlexible = false;
+        if (transition.source !== 'release') {
+          segmentStartedAt = transition.blockTime;
+          earningsAtStart = transition.cumulativeEarningsMicrogons;
+        }
+      }
+    }
+
+    if (bondLot && (bondLot.isFlexible || isFlexible)) {
+      positions.push(
+        this.createFlexibleVaultBondPosition({
+          id,
+          label,
+          lifecycle,
+          startedAt: flexibleStartedAt,
+          nativePrincipal,
+          returnIsComplete,
+          source,
+        }),
+      );
+    } else if (!isFlexible && flexibility.at(-1)?.source !== 'release') {
+      positions.push(
+        this.createVaultBondSegment({
+          id: segment ? `${id}:segment-${segment}` : id,
+          label,
+          startedAt: segmentStartedAt,
+          endedAt: bondLot ? undefined : history?.releaseBlockTime,
+          lifecycle,
+          nativePrincipal,
+          cumulativeEarnings: cumulativeEarnings - earningsAtStart,
+          returnIsComplete,
+          source,
+        }),
+      );
+    }
+    return positions;
+  }
+
+  private createFlexibleVaultBondPosition(args: {
+    id: string;
+    label: string;
+    lifecycle: 'active' | 'releasing' | 'completed';
+    startedAt?: Date;
+    endedAt?: Date;
+    nativePrincipal: bigint;
+    returnIsComplete: boolean;
+    source: { bondLot: BondLot; history?: never } | { bondLot?: never; history: IBondLotHistoryRecord };
+  }): IBondFinancialPosition {
+    const { id, label, lifecycle, startedAt, endedAt, nativePrincipal, returnIsComplete, source } = args;
+    return createFinancialPosition(
+      'bond',
+      {
+        id,
+        label,
+        lifecycle,
+        startedAt,
+        endedAt,
+        ...source,
+        nativeAsset: 'ARGN',
+        nativePrincipal,
+        returnIsComplete,
+        returnAttribution: 'vault',
+      },
+      calculatePrincipalPositionValue({
+        nativeAsset: 'ARGN',
+        nativePrincipal,
+        cumulativeEarnings: 0n,
+        lifecycle,
+      }),
+    );
+  }
+
+  private createVaultBondSegment(args: {
+    id: string;
+    label: string;
+    startedAt?: Date;
+    endedAt?: Date;
+    lifecycle?: 'active' | 'releasing' | 'completed';
+    nativePrincipal: bigint;
+    cumulativeEarnings: bigint;
+    returnIsComplete: boolean;
+    source: { bondLot: BondLot; history?: never } | { bondLot?: never; history: IBondLotHistoryRecord };
+  }): IBondFinancialPosition {
+    const {
+      id,
+      label,
+      startedAt,
+      endedAt,
+      lifecycle = 'completed',
+      nativePrincipal,
+      cumulativeEarnings,
+      returnIsComplete,
+      source,
+    } = args;
+    return createFinancialPosition(
+      'bond',
+      {
+        id,
+        label,
+        lifecycle,
+        startedAt,
+        endedAt,
+        ...source,
+        returnIsComplete,
+        nativeAsset: 'ARGN',
+        nativePrincipal,
+      },
+      calculatePrincipalPositionValue({
+        nativeAsset: 'ARGN',
+        nativePrincipal,
+        cumulativeEarnings,
+        lifecycle,
+      }),
+    );
+  }
+
+  private bondPositionId(value: BondLot | IBondLotHistoryRecord): string {
+    const id = value instanceof BondLot ? value.id : value.bondLotId;
+    return `bond:${value.accountId}:${value.programType.toLowerCase()}:${id}`;
+  }
+
+  private bondKey(accountId: string, programType: BondLot['programType'], bondLotId: number): string {
+    return `${accountId}:${programType}:${bondLotId}`;
   }
 }

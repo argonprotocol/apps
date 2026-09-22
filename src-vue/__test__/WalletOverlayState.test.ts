@@ -324,4 +324,84 @@ describe('wallet overlay state', () => {
 
     expect(wallet.getChannelWithActiveSecuritizationHold()).toBe(current);
   });
+
+  it('only offers a vault channel for reuse while its address can still accept the intended Bitcoin', () => {
+    const bitcoinLocks = createStore();
+    const channel = createLock({
+      uuid: 'vault-channel',
+      utxoId: 7,
+      status: BitcoinLockStatus.LockFunded,
+      createdAt: '2026-09-13T00:00:00.000Z',
+    });
+    channel.vaultId = 7;
+    channel.microgonsAtTargetPerBtc = 1_000_000n;
+    channel.securitizationCoverageMicrogons = 1_000_000n;
+    channel.fundedSatoshis = 100_000_000n;
+    bitcoinLocks.data.locksByLockId[channel.lockId!] = channel;
+    const holdExpired = vi.spyOn(bitcoinLocks, 'isSecuritizationHoldExpired').mockReturnValue(true);
+    const wallet = new WalletForBitcoin(
+      () => bitcoinLocks,
+      () => channel.ownerAccount!,
+      {} as never,
+    );
+    vi.spyOn(wallet, 'getRemainingChannelInsurance').mockImplementation(lock => {
+      return (lock.securitizationCoverageMicrogons ?? 0n) > 1_000_000n ? 1_000_000n : 0n;
+    });
+
+    expect(wallet.findReusableChannelLock({ vaultId: 7, isOwnedVault: false })).toBeUndefined();
+
+    channel.securitizationCoverageMicrogons = 2_000_000n;
+    expect(wallet.findReusableChannelLock({ vaultId: 7, isOwnedVault: false })).toBe(channel);
+    expect(wallet.findReusableChannelLock({ vaultId: 7, isOwnedVault: true })).toBeUndefined();
+
+    channel.securitizationCoverageMicrogons = 1_000_000n;
+    holdExpired.mockReturnValue(false);
+    expect(wallet.findReusableChannelLock({ vaultId: 7, isOwnedVault: true })).toBe(channel);
+
+    holdExpired.mockReturnValue(true);
+    channel.status = BitcoinLockStatus.LockPendingFunding;
+    channel.securitizationCoverageMicrogons = 0n;
+    channel.fundedSatoshis = 0n;
+    expect(wallet.findReusableChannelLock({ vaultId: 7, isOwnedVault: false })).toBe(channel);
+  });
+
+  it("does not replace a requested vault with another vault's reusable channel", async () => {
+    const bitcoinLocks = createStore();
+    const existing = createLock({
+      uuid: 'upstream-channel',
+      utxoId: 7,
+      status: BitcoinLockStatus.LockPendingFunding,
+      createdAt: '2026-09-13T00:00:00.000Z',
+    });
+    existing.vaultId = 7;
+    const created = createLock({
+      uuid: 'owned-vault-channel',
+      utxoId: 8,
+      status: BitcoinLockStatus.LockIsProcessingOnArgon,
+      createdAt: '2026-09-13T00:01:00.000Z',
+    });
+    created.vaultId = 8;
+    bitcoinLocks.data.locksByLockId[existing.lockId!] = existing;
+    vi.spyOn(bitcoinLocks, 'isSecuritizationHoldExpired').mockReturnValue(false);
+    vi.spyOn(bitcoinLocks, 'getLockByUuid').mockReturnValue(created);
+    const bitcoinLockCreate = {
+      submit: vi.fn(async () => ({ tx: { metadataJson: { bitcoin: { uuid: created.uuid } } } })),
+    };
+    const wallet = new WalletForBitcoin(
+      () => bitcoinLocks,
+      () => existing.ownerAccount!,
+      bitcoinLockCreate as never,
+    );
+    vi.spyOn(wallet, 'getMaximumChannelLiquidity').mockResolvedValue(1_000_000n);
+
+    await expect(
+      wallet.createChannel({
+        vault: { vaultId: 8 } as never,
+        liquidityMicrogons: 0n,
+        txSigner: { address: existing.ownerAccount! } as never,
+        isOwnedVault: true,
+      }),
+    ).resolves.toBe(created);
+    expect(bitcoinLockCreate.submit).toHaveBeenCalledOnce();
+  });
 });

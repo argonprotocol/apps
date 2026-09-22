@@ -58,6 +58,22 @@ export async function createTestDbAtMigration(throughVersion = Number.POSITIVE_I
 class TestDb extends Db {
   private transactionQueue: Promise<void> = Promise.resolve();
 
+  public override async execute(query: string, bindValues?: unknown[]): Promise<QueryResult> {
+    return await this.sql.execute(query, bindValues);
+  }
+
+  public override async select<T>(query: string, bindValues?: unknown[]): Promise<T> {
+    const rows = await this.sql.select<T>(query, bindValues);
+    if (!Array.isArray(rows)) return rows;
+    for (const row of rows) {
+      if (!row || typeof row !== 'object' || Array.isArray(row)) continue;
+      for (const [field, value] of Object.entries(row)) {
+        if (value === null) delete (row as Record<string, unknown>)[field];
+      }
+    }
+    return rows;
+  }
+
   public override async transaction<T>(callback: (transaction: Db) => Promise<T>): Promise<T> {
     const previousTransaction = this.transactionQueue.catch(() => undefined);
     let finishTransaction!: () => void;

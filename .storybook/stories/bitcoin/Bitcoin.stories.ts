@@ -96,6 +96,26 @@ export const LiquidsWithFeeWaiver: Story = {
   },
 };
 
+export const LiquidsWhileUpstreamProfileLoads: Story = {
+  beforeEach: () => {
+    setupBitcoinPortfolioScenario({ upstreamOperatorProfilePending: true });
+  },
+};
+
+export const LiquidDetailsWhileUpstreamProfileLoads: Story = {
+  render: () => ({
+    components: { AppScreen, Bitcoin },
+    template: '<AppScreen interactive><Bitcoin /></AppScreen>',
+  }),
+  beforeEach: () => {
+    setupBitcoinPortfolioScenario({ upstreamOperatorProfilePending: true });
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await userEvent.click(canvas.getAllByText(/BTC Liquid$/)[0]);
+  },
+};
+
 export const LiquidFinancialHistoryUnavailable: Story = {
   beforeEach: () => {
     setupBitcoinPortfolioScenario({ financialHistoryUnavailable: true });

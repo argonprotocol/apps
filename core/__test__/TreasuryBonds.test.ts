@@ -209,6 +209,7 @@ describe('TreasuryBonds', () => {
     const result = await TreasuryBonds.getCurrentFrameBondLots(client as any, 1, operatorAddress);
 
     expect(result.totalActiveBonds).toBe(10);
+    expect(result.flexibleBondsEligible).toBe(7);
     expect(result.bondLots.map(({ id, bonds }) => ({ id, bonds }))).toEqual([{ id: 'lot:1', bonds: 3 }]);
   });
 
@@ -269,6 +270,20 @@ describe('TreasuryBonds', () => {
 
     vault.securitizationPendingActivation = 8n * oneArgon;
     expect(vault.bondEligibleSatoshis()).toBe(120n);
+  });
+
+  it('reports the displaced share of flexible Bitcoin security', () => {
+    const oneArgon = BigInt(MICROGONS_PER_ARGON);
+    const vault = createCapacityVault({
+      securitization: 10n * oneArgon,
+      securitizationLocked: 12n * oneArgon,
+      flexibleSecuritizationLocked: 5n * oneArgon,
+    });
+
+    expect(vault.flexibleSecuritizationDisplacementPercent()).toBe(40);
+
+    vault.securitizationPendingActivation = 4n * oneArgon;
+    expect(vault.flexibleSecuritizationDisplacementPercent()).toBe(0);
   });
 
   it('matches FixedU128 rounding for displaced flexible Bitcoin security', () => {

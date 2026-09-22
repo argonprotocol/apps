@@ -108,6 +108,7 @@ function finalizeVault() {
   }
 
   progressPct.value = 100;
+  config.hasExtensionTreasury = true;
   config.vaultingSetupStatus = VaultingSetupStatus.Finished;
   void config.save();
 }

@@ -241,6 +241,7 @@ export function setupAppScenario({
     },
   });
   mocked(getTransactionTracker, { partial: true }).mockReturnValue({
+    data: { txInfos: [], txInfosByType: {} },
     load: fn(async () => undefined),
     pendingBlockTxInfosAtLoad: [],
     findLatestTxInfo: fn(() => undefined) as ReturnType<typeof getTransactionTracker>['findLatestTxInfo'],

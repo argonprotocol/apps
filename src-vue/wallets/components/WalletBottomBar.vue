@@ -286,12 +286,13 @@ function getBitcoinChannelLabel(vaultId: number): string {
 }
 
 function getBitcoinCosignerLabel(vaultId: number): string {
-  if (vaultId === (myVault.createdVault?.vaultId ?? myVault.vaultId)) return 'My Vault';
-  const cosigner =
+  if (vaultId === (myVault.createdVault?.vaultId ?? myVault.vaultId)) return 'Your Vault';
+
+  return (
     vaults.operatorNamesByVaultId[vaultId] ??
     (config.upstreamOperator?.vaultId === vaultId ? config.upstreamOperator.name : undefined) ??
-    `Vault ${vaultId}`;
-  return cosigner;
+    `Vault ${vaultId}`
+  );
 }
 
 function formatAmount(value: bigint, moveToken: MoveToken) {

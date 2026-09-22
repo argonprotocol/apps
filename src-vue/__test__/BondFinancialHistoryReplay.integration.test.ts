@@ -12,7 +12,6 @@ import {
 import { getClient } from '@argonprotocol/mainchain';
 import { afterAll, describe, expect, it } from 'vitest';
 import { ArgonBonds } from '../lib/ArgonBonds.ts';
-import { TransactionTracker } from '../lib/TransactionTracker.ts';
 import type { WalletKeys } from '../lib/WalletKeys.ts';
 import { VaultHistory } from '../lib/recovery/MyVault.ts';
 import { FinancialHistoryImporter } from '../lib/recovery/index.ts';
@@ -113,7 +112,6 @@ runWithReplay('Bond financial history replay corpus', () => {
               currency,
               miningFrames,
               walletKeys,
-              new TransactionTracker(Promise.resolve(db), reader as unknown as BlockWatch),
             );
             const currentLots = await argonBonds.getOwnBondLots(latestApi);
             currentLotsByAccount.set(accountId, currentLots);
@@ -135,7 +133,10 @@ runWithReplay('Bond financial history replay corpus', () => {
               vaultHistory: new VaultHistory(Promise.resolve(db), accountId),
               enabledDomains: ['bonds'],
             });
+            argonBonds.beginHistoryReplay();
             const result = await importer.importBlocks(blocks);
+            if (Object.keys(result.domainErrors).length) argonBonds.discardRecoveredHistory();
+            else await argonBonds.publishRecoveredHistory();
             importedBlockCount += result.importedBlockCount;
             expectedBlockCount += blocks.length;
             failures.push(...Object.values(result.domainErrors).map(error => `${accountId}: ${error}`));

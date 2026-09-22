@@ -135,8 +135,8 @@ interface IBondFinancialPositionBase extends IFinancialInvestmentPositionBase {
   entryArgonotRateMicrogons?: bigint;
   currentArgonotRateMicrogons?: bigint;
   closingArgonotRateMicrogons?: bigint;
-  // The owned vault already carries this bond's principal at the account level.
-  excludeFromAccountAggregate?: boolean;
+  returnAttribution?: 'vault';
+  returnIsComplete?: boolean;
 }
 
 export type IBondFinancialPosition = IBondFinancialPositionBase &
@@ -151,6 +151,7 @@ export interface IVaultFinancialPosition extends IFinancialInvestmentPositionBas
   uncollectedRevenue: bigint;
   capitalHistory: readonly IVaultCapitalHistoryRecord[];
   revenueHistory: readonly IVaultRevenueEventsRecord[];
+  performanceEndingCapital?: bigint;
 }
 
 export interface IVaultBalanceFinancialPosition extends IFinancialPositionBase {

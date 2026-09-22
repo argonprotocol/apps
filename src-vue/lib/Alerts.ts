@@ -80,6 +80,12 @@ export function getBitcoinAlertNotices(bitcoinLocks: BitcoinLocks, now: number =
     }
 
     if (lock.status === BitcoinLockStatus.LockPendingFunding) {
+      if (
+        lock.scriptDetails?.createdAtHeight === undefined ||
+        lock.securitizationHoldExpirationBitcoinHeight === undefined
+      ) {
+        continue;
+      }
       const holdExpiresAt = bitcoinLocks.getSecuritizationHoldExpirationTime(lock);
       if (isSecuritizationHoldNearExpiration(holdExpiresAt, bitcoinLocks.config.securitizationHoldBlocks, now)) {
         alerts.push({

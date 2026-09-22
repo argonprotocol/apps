@@ -16,18 +16,19 @@ export class ConfigTable extends BaseTable {
   }
 
   public async insertOrReplace(obj: Partial<IConfigStringified>, overrideSqlInstance?: PluginSql) {
-    const sql = overrideSqlInstance ?? this.db.sql;
     const entries = Object.entries(obj);
     if (entries.length === 0) return;
 
     const placeholders = entries.map(() => '(?, ?)').join(', ');
     const values = entries.flatMap(([key, value]) => [key, value]);
 
-    await sql.execute(
-      `INSERT INTO Config (key, value) VALUES ${placeholders} ON CONFLICT(key) DO UPDATE SET 
+    const query = `INSERT INTO Config (key, value) VALUES ${placeholders} ON CONFLICT(key) DO UPDATE SET
         value = excluded.value
-      `,
-      values,
-    );
+      `;
+    if (overrideSqlInstance) {
+      await overrideSqlInstance.execute(query, values);
+    } else {
+      await this.db.execute(query, values);
+    }
   }
 }

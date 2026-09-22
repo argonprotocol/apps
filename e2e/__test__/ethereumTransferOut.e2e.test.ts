@@ -1,5 +1,5 @@
 import { describe, it } from 'vitest';
-import { createFlowSession } from '../flows/session.ts';
+import { FlowSession } from '../FlowSession.ts';
 
 const skipE2E = Boolean(JSON.parse(process.env.SKIP_E2E ?? '0'));
 
@@ -7,7 +7,7 @@ describe.skipIf(skipE2E).sequential('Ethereum transfer-out flow', () => {
   it(
     'waits for the backend authority and transfers ARGN to Ethereum',
     async () => {
-      const session = await createFlowSession({
+      const session = await FlowSession.start({
         useTestNetwork: true,
         sessionName: 'ethereum-transfer-out-spec',
         appEnv: {

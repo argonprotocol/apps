@@ -1,6 +1,7 @@
 import { BitcoinLockStatus, type IBitcoinLockRecord } from '../db/BitcoinLocksTable.ts';
 import { BitcoinUtxoSpendStatus, BitcoinUtxoStatus, type IBitcoinUtxoRecord } from '../db/BitcoinUtxosTable.ts';
 import type { IBitcoinReleaseRecord } from '../../interfaces/IBitcoinReleaseRecord.ts';
+import type { IBitcoinFissionRecord } from '../../interfaces/IBitcoinFissionRecord.ts';
 import type { IBitcoinSecuritizationTerm } from '../../interfaces/IBitcoinSecuritizationTerm.ts';
 import type { Db } from '../Db.ts';
 
@@ -83,6 +84,8 @@ export interface IHistoricalBitcoinLockRatchet {
   burned: bigint;
   blockHeight: number;
   tick?: number;
+  blockHash?: string;
+  blockTime?: Date;
   extrinsicIndex?: number;
   oracleBitcoinBlockHeight: number;
 }
@@ -96,6 +99,8 @@ export type IHistoricalBitcoinLockRecord = Omit<IBitcoinLockRecord, 'lockId'> & 
   liquidityPromised: bigint;
   ratchets: IHistoricalBitcoinLockRatchet[];
 };
+
+export type IHistoricalBitcoinLiquidClose = Pick<IBitcoinFissionRecord, 'redemptionAmount' | 'closeTxFee'>;
 
 export function createHistoricalBitcoinLockRecord(
   record: IBitcoinLockRecord | IHistoricalBitcoinLockRecord,
@@ -124,13 +129,14 @@ export function createHistoricalBitcoinLockRecord(
 
 export type BitcoinHistoryReplaySession = {
   purpose: 'financial-backfill' | 'operational-repair';
+  ownedVaultId?: number;
   activeLockIds: Set<number>;
   currentHistoricalUtxoId?: number;
   lockIdByHistoricalUtxoId: Map<number, number>;
   locksByLockId: Record<number, IHistoricalBitcoinLockRecord>;
   utxos: BitcoinHistoryUtxoState;
   releasesById: Record<string, IBitcoinReleaseRecord>;
-  historicalLiquidRedemptionByUtxoId: Map<number, bigint>;
+  historicalLiquidCloseByUtxoId: Map<number, IHistoricalBitcoinLiquidClose>;
   lockScope: BitcoinHistoryReplayLockScope;
   hdKeys: Map<string, Parameters<Db['walletHdKeysTable']['upsert']>[0]>;
   dirtyLockIds: Set<number>;

@@ -37,6 +37,7 @@
       <p class="mt-5 text-sm font-medium text-slate-600">Select the vault to use for this Bond purchase.</p>
       <SelectAVault
         unitType="ArgonBond"
+        :vaultIds="eligibleVaultIds"
         :selectedVaultIds="vaultId === undefined ? [] : [vaultId]"
         @select="handleVaultSelected"
       />
@@ -50,7 +51,7 @@
         </button>
         <button
           type="button"
-          :disabled="!tmpVaultId"
+          :disabled="!vaultId"
           class="bg-argon-button enabled:hover:bg-argon-button-hover cursor-pointer rounded-md px-10 py-2 font-semibold text-white disabled:cursor-default disabled:opacity-40"
           @click="selectVault"
         >
@@ -92,7 +93,12 @@
       <AlertIcon class="h-18 text-yellow-700" />
       <h1 class="mt-8 text-xl font-bold text-yellow-800">{{ vaultLabel }} has no Argon Bond space</h1>
       <p class="mt-4 max-w-150 text-lg leading-relaxed font-light">
-        Contact {{ vaultOperatorName || 'the person who invited you' }} to create more Bond space.
+        <template v-if="isOwnedVault">
+          Lock more Bitcoin to create more Bond space.
+        </template>
+        <template v-else>
+          Contact {{ vaultOperatorName || 'the person who invited you' }} to create more Bond space.
+        </template>
       </p>
     </div>
     <div v-else class="px-10 py-5">
@@ -185,7 +191,12 @@
                 {{ vaultLabel }} can only create {{ numeral(vaultMaxPurchaseAmount).format('0,0') }} Argon Bonds right
                 now.
               </template>
-              Contact {{ vaultOperatorName || 'the person who invited you' }} to create more Bond space.
+              <template v-if="isOwnedVault">
+                Lock more Bitcoin to create more Bond space.
+              </template>
+              <template v-else>
+                Contact {{ vaultOperatorName || 'the person who invited you' }} to create more Bond space.
+              </template>
             </span>
           </div>
           <WalletFundingCallout v-else-if="neededMicrogons" @open-wallet="openWallet">
@@ -273,20 +284,18 @@ import { getConfig } from '../stores/config.ts';
 import { getMyVault } from '../stores/vaults.ts';
 import { getVaults } from '../stores/vaults.ts';
 import { getWalletKeys, useWallets } from '../stores/wallets.ts';
-import { getArgonBonds } from '../stores/argonBonds.ts';
+import { getArgonBonds, getBondTransactionOperations } from '../stores/argonBonds.ts';
 import basicEmitter from '../emitters/basicEmitter.ts';
 import InputNumber from '../components/InputNumber.vue';
 import Tooltip from '../components/Tooltip.vue';
 import ProgressBar from '../components/ProgressBar.vue';
 import { type TransactionInfo } from '../lib/TransactionInfo.ts';
-import { ExtrinsicType, TransactionStatus } from '../lib/db/TransactionsTable.ts';
 import numeral, { createNumeralHelpers } from '../lib/numeral.ts';
 import { generateProgressLabel } from '../lib/Utils.ts';
 import { getCurrency } from '../stores/currency.ts';
 import { getMainchainClient } from '../stores/mainchain.ts';
-import { getTransactionTracker } from '../stores/transactions.ts';
 import { getSpendableDefaultArgonMicrogons } from '../lib/WalletForArgon.ts';
-import type { IBuyVaultBondMetadata } from '../lib/ArgonBonds.ts';
+import type { IBuyBondMetadata } from '../lib/txs/Bond.buy.ts';
 import StepsHeader, { IStepHeaderItem } from '../components/StepsHeader.vue';
 import ArgonIcon from '../assets/wallets/tokens/argon.svg?component';
 import { useVaultingStats } from '../stores/vaultingStats.ts';
@@ -305,7 +314,7 @@ const argonBonds = getArgonBonds();
 const currency = getCurrency();
 const walletKeys = getWalletKeys();
 const vaultingStats = useVaultingStats();
-const transactionTracker = getTransactionTracker();
+const bondPurchase = getBondTransactionOperations().bondBuy;
 const vaults = getVaults();
 const financials = useFinancials();
 const certificationController = useCertificationController();
@@ -316,8 +325,7 @@ const isOpen = Vue.ref(false);
 const isLoading = Vue.ref(false);
 const loadError = Vue.ref('');
 const isSelectingVault = Vue.ref(false);
-const tmpVaultId = Vue.ref<number>();
-const selectedVaultId = Vue.ref<number>();
+const vaultId = Vue.ref<number>();
 const vault = Vue.ref<Vault>();
 const purchaseAmount = Vue.ref(0);
 const minPurchaseAllowed = Vue.ref(0);
@@ -334,10 +342,6 @@ let unsubVault: VoidFunction | undefined;
 let unsubProgress: VoidFunction | undefined;
 let purchaseSession = 0;
 
-const vaultId = Vue.computed(() => {
-  return selectedVaultId.value ?? myVault.vaultId ?? config.upstreamOperator?.vaultId;
-});
-
 const availableMicrogons = Vue.computed(() => wallets.defaultArgonWallet.availableMicrogons);
 
 const vaultAvailableCapacity = Vue.computed(() => {
@@ -346,12 +350,28 @@ const vaultAvailableCapacity = Vue.computed(() => {
   return argonBonds.availableBondSpace(vault.value);
 });
 
+const isOwnedVault = Vue.computed(() => vaultId.value !== undefined && vaultId.value === myVault.vaultId);
+
+const eligibleVaultIds = Vue.computed(() => {
+  return [...new Set([myVault.vaultId, config.upstreamOperator?.vaultId].filter((id): id is number => id != null))];
+});
+
+const eligibleVaults = Vue.computed(() => {
+  return financials.vaultsActiveRecords.filter(vault => eligibleVaultIds.value.includes(vault.vaultId));
+});
+
 const vaultOperatorName = Vue.computed(() => {
+  if (isOwnedVault.value) return 'Yours';
+
   const name = vaultId.value === undefined ? undefined : vaults.operatorNamesByVaultId[vaultId.value];
-  return name || config.upstreamOperator?.name?.trim();
+  if (name) return name;
+  if (config.upstreamOperator && vaultId.value === config.upstreamOperator.vaultId) {
+    return config.upstreamOperator.name.trim();
+  }
 });
 
 const vaultLabel = Vue.computed(() => {
+  if (isOwnedVault.value) return 'Your vault';
   if (vaultOperatorName.value) return `${vaultOperatorName.value}’s Vault`;
   return 'This vault';
 });
@@ -399,7 +419,6 @@ function openWallet() {
 }
 
 function showVaultSelection() {
-  tmpVaultId.value = vaultId.value;
   isSelectingVault.value = true;
 }
 
@@ -471,18 +490,22 @@ function resetPurchase() {
 
 async function loadPurchase() {
   const session = ++purchaseSession;
-  const relevantVaultIds = [myVault.vaultId, config.upstreamOperator?.vaultId].filter((id): id is number => id != null);
   isLoading.value = true;
   loadError.value = '';
   try {
-    await Promise.all([
-      financials.refreshVaults(relevantVaultIds.length ? [...new Set(relevantVaultIds)] : undefined),
-      argonBonds.refreshBondLots(),
-    ]);
+    await Promise.all([financials.refreshVaults(eligibleVaultIds.value), argonBonds.refreshBondLots()]);
     if (session !== purchaseSession || !isOpen.value) return;
-    if (vaultId.value !== undefined) {
-      await initializePurchase(session);
+
+    if (eligibleVaults.value.length > 1) {
+      isSelectingVault.value = true;
+      return;
     }
+
+    const [onlyVault] = eligibleVaults.value;
+    if (!onlyVault) return;
+
+    vaultId.value = onlyVault.vaultId;
+    await initializePurchase(session);
   } catch (error) {
     if (session !== purchaseSession || !isOpen.value) return;
     loadError.value = error instanceof Error ? error.message : 'Unable to refresh bond availability.';
@@ -494,8 +517,7 @@ async function loadPurchase() {
 function openOverlay() {
   cleanupPurchase();
   resetPurchase();
-  tmpVaultId.value = undefined;
-  selectedVaultId.value = undefined;
+  vaultId.value = undefined;
   isOpen.value = true;
   void loadPurchase();
 }
@@ -514,12 +536,11 @@ async function onSubmitted() {
   await argonBonds.refreshBondLots();
 }
 
-function trackTxInfo(info: TransactionInfo<IBuyVaultBondMetadata>) {
+function trackTxInfo(info: TransactionInfo<IBuyBondMetadata>) {
   unsubProgress?.();
   txInfo.value = info;
   isSubmitting.value = false;
   completedPurchaseAmount.value = Number(info.tx.metadataJson.bondPurchaseMicrogons / MICROGONS_PER_ARGON_BIGINT);
-  argonBonds.saveBondPurchase(info);
 
   unsubProgress = info.subscribeToProgress((args, error) => {
     progressPct.value = args.progressPct;
@@ -545,29 +566,12 @@ async function submit() {
     }
 
     const bondPurchaseMicrogons = BigInt(purchaseAmount.value) * MICROGONS_PER_ARGON_BIGINT;
-    const client = await getMainchainClient(false);
     const signer = await walletKeys.getDefaultArgonKeypair();
-    let tx;
-    let extrinsicType;
-    let metadata;
-
     if (!vaultId.value) throw new Error('Select a vault before buying bonds.');
-    tx = await TreasuryBonds.buildBuyBondTx({
-      client,
+    const info = await bondPurchase.submit({
       vaultId: vaultId.value,
       bondPurchaseMicrogons,
-    });
-    extrinsicType = ExtrinsicType.TreasuryBuyBonds;
-    metadata = {
-      vaultId: vaultId.value,
-      bondPurchaseMicrogons,
-    } satisfies IBuyVaultBondMetadata;
-
-    const info = await transactionTracker.submitAndWatch({
-      tx,
       txSigner: signer,
-      extrinsicType,
-      metadata,
     });
 
     trackTxInfo(info);
@@ -597,19 +601,10 @@ async function initializePurchase(session = ++purchaseSession) {
     unsubVault = unsubscribe;
   }
 
-  await transactionTracker.load();
+  await bondPurchase.load();
   if (session !== purchaseSession) return;
 
-  const pendingBuyTxInfo = transactionTracker.findLatestTxInfo<IBuyVaultBondMetadata>(candidate => {
-    if (candidate.tx.accountAddress !== walletKeys.defaultArgonAddress) return false;
-    if (candidate.tx.submissionErrorJson || candidate.tx.blockExtrinsicErrorJson) return false;
-
-    if (candidate.tx.extrinsicType !== ExtrinsicType.TreasuryBuyBonds) return false;
-    if (candidate.tx.metadataJson?.vaultId !== vaultId.value) return false;
-    if ((candidate.tx.metadataJson?.bondPurchaseMicrogons ?? 0n) <= 0n) return false;
-
-    return candidate.tx.status === TransactionStatus.Submitted || candidate.tx.status === TransactionStatus.InBlock;
-  });
+  const pendingBuyTxInfo = vaultId.value ? bondPurchase.getPendingForVault(vaultId.value) : undefined;
 
   if (pendingBuyTxInfo) {
     trackTxInfo(pendingBuyTxInfo);
@@ -619,11 +614,10 @@ async function initializePurchase(session = ++purchaseSession) {
 }
 
 function handleVaultSelected(v: Vault) {
-  tmpVaultId.value = v.vaultId;
+  vaultId.value = v.vaultId;
 }
 
 async function selectVault() {
-  selectedVaultId.value = tmpVaultId.value;
   isSelectingVault.value = false;
   await initializePurchase();
 }

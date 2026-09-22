@@ -25,6 +25,7 @@ import type { IMiningCohortFinancialRecord } from '../interfaces/db/ICohortFrame
 import type { IVaultCapitalHistoryRecord } from '../lib/db/VaultCapitalHistoryTable.ts';
 import type { IVaultRevenueEventsRecord } from '../lib/db/VaultRevenueEventsTable.ts';
 import type { IBitcoinPublishedSecuritizationHistory } from '../lib/db/BitcoinSecuritizationHistoryTable.ts';
+import type { IBondLotHistoryRecord } from '../lib/db/BondLotHistoryTable.ts';
 import type { IWallet } from '../lib/Wallet.ts';
 import { BitcoinLiquid } from '../lib/BitcoinLiquid.ts';
 import { createBitcoinLiquids } from '../lib/BitcoinFissions.ts';
@@ -46,8 +47,15 @@ const mocks = vi.hoisted(() => {
 
   return {
     argonBonds: {
-      data: { bondLots: [] as BondLot[], bondHistory: [], isLoaded: false, financialRevision: 0 },
-      completedBondHistory: [],
+      get needsHistoryRepair() {
+        return this.data.bondHistory.some(record => !record.flexibilityHistoryComplete);
+      },
+      data: {
+        bondLots: [] as BondLot[],
+        bondHistory: [] as IBondLotHistoryRecord[],
+        isLoaded: false,
+        financialRevision: 0,
+      },
       miningFrames: { getFrameDate: vi.fn(() => new Date('2026-07-16T12:00:00Z')) },
       load: vi.fn<() => Promise<void>>(),
       publishRecoveredHistory: vi.fn(async function (this: { data: { financialRevision: number } }) {
@@ -1132,30 +1140,68 @@ describe('financials store lifecycle', () => {
     mocks.getEnabledFinancialHistoryDomains.mockReturnValue(['bitcoin']);
     mocks.needsFinancialHistoryRecovery.mockResolvedValue(true);
     mocks.bitcoinLocks.load.mockImplementation(() => new Promise<void>(() => undefined));
+    let finishRecovery: (() => void) | undefined;
     mocks.bitcoinFissions.load.mockImplementation(() => new Promise<void>(() => undefined));
     mocks.restoreFinancialHistory.mockImplementation(async args => {
+      await new Promise<void>(resolve => {
+        finishRecovery = resolve;
+      });
       args?.onDomainComplete?.({ domain: 'bitcoin', asOfBlock: 1 });
       return { asOfBlock: 1, importedBlockCount: 0 };
     });
 
     const financialHistory = useFinancialHistory();
+    const financials = useFinancials();
 
     await vi.waitFor(() => expect(mocks.restoreFinancialHistory).toHaveBeenCalledOnce());
+    await vi.waitFor(() => expect(financials.financialPositionAggregate.groupSummaries.liquid.state).toBe('ready'));
+    expect(financialHistory.historyRecovery.state).not.toBe('ready');
+    finishRecovery?.();
     await vi.waitFor(() => expect(financialHistory.historyRecoveryByDomain.bitcoin.state).toBe('ready'));
     expect(financialHistory.historyRecovery.state).toBe('ready');
   });
 
-  it('does not start global history recovery during ordinary app loading', async () => {
+  it('does not scan missing checkpoints during ordinary app loading without a previous-life wallet', async () => {
     mocks.config.hasExtensionTreasury = true;
     mocks.getEnabledFinancialHistoryDomains.mockReturnValue(['bitcoin', 'bonds']);
-    mocks.needsFinancialHistoryRecovery.mockResolvedValue(true);
+    mocks.needsFinancialHistoryRecovery.mockResolvedValue(false);
 
     const financialHistory = useFinancialHistory();
     const financials = useFinancials();
 
     await vi.waitFor(() => expect(financials.savingsIsLoaded).toBe(true));
-    expect(mocks.needsFinancialHistoryRecovery).not.toHaveBeenCalled();
+    expect(mocks.needsFinancialHistoryRecovery).toHaveBeenCalledWith(
+      expect.objectContaining({ recoverMissingCheckpointsFor: [] }),
+    );
     expect(mocks.restoreFinancialHistory).not.toHaveBeenCalled();
+    expect(financialHistory.historyRecovery.state).toBe('ready');
+  });
+
+  it('catches up an existing financial-history checkpoint for a current-app wallet', async () => {
+    mocks.config.hasExtensionTreasury = true;
+    mocks.getEnabledFinancialHistoryDomains.mockReturnValue(['bitcoin', 'bonds']);
+    mocks.needsFinancialHistoryRecovery.mockResolvedValue(true);
+
+    const financialHistory = useFinancialHistory();
+
+    await vi.waitFor(() => expect(mocks.restoreFinancialHistory).toHaveBeenCalledOnce());
+    expect(mocks.restoreFinancialHistory).toHaveBeenCalledWith(
+      expect.objectContaining({ recoverMissingCheckpointsFor: [], force: false }),
+    );
+    expect(financialHistory.historyRecovery.state).toBe('ready');
+  });
+
+  it('allows an explicit missing-data scan without a previous-life wallet', async () => {
+    mocks.config.hasExtensionTreasury = true;
+    mocks.getEnabledFinancialHistoryDomains.mockReturnValue(['bitcoin', 'bonds']);
+
+    const financialHistory = useFinancialHistory();
+    await financialHistory.restoreFinancialHistory(true);
+
+    expect(mocks.needsFinancialHistoryRecovery).toHaveBeenCalledOnce();
+    expect(mocks.restoreFinancialHistory).toHaveBeenCalledWith(
+      expect.objectContaining({ enabledDomains: ['bitcoin', 'bonds'], force: true }),
+    );
     expect(financialHistory.historyRecovery.state).toBe('ready');
   });
 
@@ -1354,7 +1400,7 @@ describe('financials store lifecycle', () => {
     const runtimeLot = toPlain(
       registry.createType<PalletTreasuryBondLot>('PalletTreasuryBondLot', {
         owner: `0x${'11'.repeat(32)}`,
-        program: { Vault: { vaultId: 4, sharingPercent: 0, bonusPercent: 0 } },
+        program: { Vault: { vaultId: 10, sharingPercent: 0, bonusPercent: 0 } },
         bonds: 10,
         createdFrameId: 1,
         participatedFrames: 0,
@@ -1363,6 +1409,7 @@ describe('financials store lifecycle', () => {
         cumulativeEarnings: 1_000_000,
         releaseFrameId: null,
         releaseReason: null,
+        isFlexible: true,
       }),
     ) as NonNullable<TreasuryBondLotByIdResult>;
     const treasuryHold = toPlain(
@@ -1392,7 +1439,35 @@ describe('financials store lifecycle', () => {
     mocks.config.walletAccountsHadPreviousLife = true;
     mocks.getEnabledFinancialHistoryDomains.mockReturnValue(['bitcoin', 'bonds', 'vaulting']);
     mocks.needsFinancialHistoryRecovery.mockResolvedValue(true);
-    mocks.argonBonds.data.bondLots = [BondLot.fromRuntime(1, runtimeLot, '5default')];
+    const bondLot = BondLot.fromRuntime(1, runtimeLot, '5default');
+    mocks.argonBonds.data.bondLots = [bondLot];
+    mocks.argonBonds.data.bondHistory = [
+      {
+        id: 1,
+        accountId: bondLot.accountId,
+        programType: bondLot.programType,
+        bondLotId: bondLot.id,
+        vaultId: bondLot.vaultId,
+        nativeAsset: bondLot.nativeAsset,
+        nativePrincipal: bondLot.bondMicrogons,
+        createdFrame: bondLot.createdFrame,
+        firstObservedBlockNumber: 1,
+        firstObservedBlockHash: '0x1',
+        flexibilityHistory: [
+          {
+            isFlexible: true,
+            cumulativeEarningsMicrogons: 0n,
+            source: 'purchase',
+            blockNumber: 1,
+            blockHash: '0x1',
+            blockTime: new Date('2026-07-01T00:00:00Z'),
+          },
+        ],
+        flexibilityHistoryComplete: true,
+        createdAt: new Date('2026-07-01T00:00:00Z'),
+        updatedAt: new Date('2026-07-01T00:00:00Z'),
+      },
+    ];
     mocks.myVault.createdVault = {
       vaultId: 10,
       securitization: 8_000_000n,
@@ -1433,12 +1508,12 @@ describe('financials store lifecycle', () => {
     expect(financialHistory.historyRecoveryByDomain.vaulting.state).toBe('ready');
     expect(financialHistory.historyRecoveryByDomain.bitcoin.state).toBe('error');
     expect(financials.financialPositionAggregate.groupSummaries.bonds.returnSummary).toMatchObject({
-      availability: 'available',
-      investedCost: 10_000_000n,
+      availability: 'not-applicable',
+      investedCost: 0n,
     });
     expect(financials.financialPositionAggregate.groupSummaries.vaulting.returnSummary).toMatchObject({
       availability: 'available',
-      investedCost: 8_000_000n,
+      investedCost: 18_000_000n,
     });
   });
 });

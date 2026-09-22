@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { MyMiningSeats } from '../lib/MyMiningSeats.ts';
 import { botEmitter } from '../lib/Bot.ts';
 import type { IFrameBidRecord } from '../interfaces/db/IFrameBidRecord.ts';
+import type { IMiningCohortFinancialRecord } from '../interfaces/db/ICohortFrameRecord.ts';
 
 describe('MyMiningSeats', () => {
   afterEach(() => {
@@ -106,6 +107,35 @@ describe('MyMiningSeats', () => {
     expect(myMiningSeats.latestFrameId).toBe(13);
   });
 
+  it('publishes the ten overlapping cohorts without exposing a future cohort', async () => {
+    const { myMiningSeats, updateMiningSeats } = createMyMiningSeats({
+      currency: { microgonsPer: { ARGNOT: 2_000_000n } },
+      miningFrames: { getFrameDate: vi.fn((frameId: number) => new Date(2026, 0, frameId)) },
+    });
+    await myMiningSeats.load();
+    updateMiningSeats.mockRestore();
+    const cohorts = Array.from({ length: 11 }, (_, index) => createMiningCohort(index + 3));
+    const fetchFinancialPositions = vi.fn().mockResolvedValue(cohorts);
+    myMiningSeats.db = {
+      cohortsTable: { fetchFinancialPositions },
+      frameBidsTable: { fetchForFrameId: vi.fn().mockResolvedValue([]) },
+    } as any;
+
+    botEmitter.emit('updated-cohort-history', 12);
+
+    await vi.waitFor(() => expect(fetchFinancialPositions).toHaveBeenCalledWith(0));
+    await vi.waitFor(() =>
+      expect(myMiningSeats.miningCohorts.map(cohort => cohort.id)).toEqual([3, 4, 5, 6, 7, 8, 9, 10, 11, 12]),
+    );
+    expect(myMiningSeats.activeSeats.seatCount).toBe(10);
+
+    botEmitter.emit('updated-mining-state', 13);
+
+    await vi.waitFor(() => expect(myMiningSeats.latestFrameId).toBe(13));
+    expect(myMiningSeats.miningCohorts.at(-1)?.id).toBe(13);
+    expect(myMiningSeats.activeSeats.seatCount).toBe(10);
+  });
+
   it('retries a failed bootstrap without duplicating bot subscriptions', async () => {
     const onSpy = vi.spyOn(botEmitter, 'on');
     const { myMiningSeats, currency } = createMyMiningSeats({
@@ -152,6 +182,27 @@ function createFrameBid(frameId: number): IFrameBidRecord {
     bidPosition: 0,
     microgonsPerSeat: BigInt(frameId),
     micronotsStakedPerSeat: BigInt(frameId),
+    createdAt: '2026-09-05T00:00:00.000Z',
+    updatedAt: '2026-09-05T00:00:00.000Z',
+  };
+}
+
+function createMiningCohort(id: number): IMiningCohortFinancialRecord {
+  return {
+    id,
+    progress: 50,
+    transactionFeesTotal: 0n,
+    micronotsStakedPerSeat: 10_000_000n,
+    microgonsBidPerSeat: 20_000_000n,
+    seatCountWon: 1,
+    microgonsToBeMinedPerSeat: 0n,
+    micronotsToBeMinedPerSeat: 0n,
+    argonotPriceAtBid: 2_000_000n,
+    closingArgonotPrice: 0n,
+    micronotsMinedTotal: 0n,
+    microgonsMinedTotal: 0n,
+    microgonsMintedTotal: 0n,
+    microgonFeesCollectedTotal: 0n,
     createdAt: '2026-09-05T00:00:00.000Z',
     updatedAt: '2026-09-05T00:00:00.000Z',
   };

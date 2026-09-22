@@ -1,7 +1,7 @@
 <template>
   <OverlayBase
     :isOpen="true"
-    title="Locked Bitcoin Details"
+    title="Bitcoin Liquid Details"
     class="min-h-60 w-240"
     @close="closeOverlay"
     @pressEsc="closeOverlay"
@@ -28,6 +28,12 @@
               <button class="absolute inset-0 z-10 cursor-pointer" title="Show locked Bitcoin details" />
             </PopoverTrigger>
           </div>
+          <div v-if="hasFlexibleBitcoin" class="mt-1 text-xs font-semibold tracking-wide text-slate-400 uppercase">
+            Flexible
+            <template v-if="flexibleBitcoinDisplacementPercent !== undefined">
+              &middot; {{ numeral(flexibleBitcoinDisplacementPercent).format('0,0.[00]') }}% displaced
+            </template>
+          </div>
           <PopoverPortal>
             <PopoverContent
               side="bottom"
@@ -43,7 +49,15 @@
                   :key="lockedBitcoin.lockId"
                   class="flex items-center border-b border-slate-200 py-3 last:border-b-0"
                 >
-                  <span class="grow">Vault: {{ lockedBitcoin.vaultName }}</span>
+                  <span class="grow">
+                    Vault: {{ lockedBitcoin.vaultName }}
+                    <span
+                      v-if="lockedBitcoin.isFlexible"
+                      class="ml-1.5 rounded bg-slate-100 px-1.5 py-0.5 text-xs font-semibold tracking-wide text-slate-500 uppercase"
+                    >
+                      Flexible
+                    </span>
+                  </span>
                   <span>{{ satToBtcNm(lockedBitcoin.satoshis).format('0,0.[00000000]') }} BTC</span>
                 </div>
               </div>
@@ -56,8 +70,11 @@
           <div class="flex flex-row py-6 text-center">
             <div class="w-1/3 px-3">
               <header class="text-sm font-bold opacity-40">LIQUIDITY RECEIVED</header>
-              <div class="py-1 text-2xl font-bold text-slate-600">
-                {{ argonSymbol }}{{ microgonToArgonNm(liquid.receivedLiquidity).format('0,0.00') }}
+              <div data-testid="BitcoinLiquid.details.receivedLiquidity" class="py-1 text-2xl font-bold text-slate-600">
+                {{ argonSymbol
+                }}{{
+                  microgonToArgonNm(financialPosition?.receivedLiquidity ?? liquid.receivedLiquidity).format('0,0.00')
+                }}
               </div>
               <TooltipProvider v-if="liquid.pendingLiquidity" :delayDuration="100">
                 <TooltipRoot>
@@ -107,19 +124,31 @@
             <div class="min-h-full min-w-px bg-slate-600/20" />
             <div class="w-1/3 px-3">
               <header class="text-sm font-bold opacity-40">RETURN TO DATE</header>
-              <div v-if="financialPosition?.totalReturn !== undefined" class="py-1 text-2xl font-bold text-slate-600">
+              <div
+                v-if="financialPosition?.totalReturn !== undefined"
+                data-testid="BitcoinLiquid.details.return"
+                class="py-1 text-2xl font-bold text-slate-600"
+              >
                 {{ numeral(financialPosition.totalReturn).format('0,0.[00]') }}%
               </div>
-              <div v-else class="py-1 text-2xl font-bold text-slate-400">&mdash;</div>
+              <div v-else data-testid="BitcoinLiquid.details.return" class="py-1 text-2xl font-bold text-slate-400">
+                &mdash;
+              </div>
               <div class="text-sm text-slate-500">Since this Liquid opened</div>
             </div>
             <div class="min-h-full min-w-px bg-slate-600/20" />
             <div class="w-1/3 px-3">
               <header class="text-sm font-bold opacity-40">TOTAL FEES</header>
-              <div v-if="financialPosition?.totalFees !== undefined" class="py-1 text-2xl font-bold text-slate-600">
+              <div
+                v-if="financialPosition?.totalFees !== undefined"
+                data-testid="BitcoinLiquid.details.totalFees"
+                class="py-1 text-2xl font-bold text-slate-600"
+              >
                 {{ argonSymbol }}{{ microgonToArgonNm(financialPosition.totalFees).format('0,0.00') }}
               </div>
-              <div v-else class="py-1 text-2xl font-bold text-slate-400">&mdash;</div>
+              <div v-else data-testid="BitcoinLiquid.details.totalFees" class="py-1 text-2xl font-bold text-slate-400">
+                &mdash;
+              </div>
               <div class="text-sm text-slate-500">Recorded costs to date</div>
             </div>
           </div>
@@ -582,6 +611,7 @@ import numeral from '../lib/numeral.ts';
 import { getCurrency } from '../stores/currency.ts';
 import { useFinancials } from '../stores/financials.ts';
 import { getBitcoinFissions, getBitcoinLocks, getBitcoinTransactionOperations } from '../stores/bitcoin.ts';
+import { getConfig } from '../stores/config.ts';
 import { getMainchainClient } from '../stores/mainchain.ts';
 import { getMyVault, getVaults } from '../stores/vaults.ts';
 import { getWalletKeys } from '../stores/wallets.ts';
@@ -618,6 +648,7 @@ const emit = defineEmits<{
 }>();
 
 const currency = getCurrency();
+const config = getConfig();
 const financials = useFinancials();
 const bitcoinFissions = getBitcoinFissions();
 const bitcoinLocks = getBitcoinLocks();
@@ -657,12 +688,10 @@ const estimatedMintCompletionDate = Vue.computed(() =>
 
 const lockSummaries = Vue.computed(() => {
   const lockIds = new Set(liquid.value.fissions.map(fission => fission.lockId));
-  return financials.bitcoinLockDisplayRecords.filter(
-    summary => summary.lockId !== undefined && lockIds.has(summary.lockId),
-  );
+  return financials.liquidAllRecords.filter(summary => summary.lockId !== undefined && lockIds.has(summary.lockId));
 });
 const lockedBitcoinRows = Vue.computed(() => {
-  const byLockId = new Map<number, { lockId: number; satoshis: bigint; vaultName: string }>();
+  const byLockId = new Map<number, { lockId: number; satoshis: bigint; vaultName: string; isFlexible: boolean }>();
 
   for (const fission of liquid.value.fissions) {
     const existing = byLockId.get(fission.lockId);
@@ -671,20 +700,29 @@ const lockedBitcoinRows = Vue.computed(() => {
       continue;
     }
 
-    const vaultId = lockSummaries.value.find(summary => summary.lockId === fission.lockId)?.record.vaultId;
+    const lock = lockSummaries.value.find(summary => summary.lockId === fission.lockId)?.record;
+    const vaultId = lock?.vaultId;
     byLockId.set(fission.lockId, {
       lockId: fission.lockId,
       satoshis: fission.satoshis,
+      isFlexible: vaultId === myVault.vaultId && (lock?.isFlexible ?? false),
       vaultName:
         vaultId === undefined
-          ? 'Unknown Vault'
+          ? 'Unknown'
           : vaultId === myVault.vaultId
-            ? 'My Vault'
-            : (vaults.operatorNamesByVaultId[vaultId] ?? `Vault ${vaultId}`),
+            ? 'Yours'
+            : (vaults.operatorNamesByVaultId[vaultId] ??
+              (config.upstreamOperator?.vaultId === vaultId ? config.upstreamOperator.name : undefined) ??
+              `#${vaultId}`),
     });
   }
 
   return [...byLockId.values()];
+});
+const hasFlexibleBitcoin = Vue.computed(() => lockedBitcoinRows.value.some(row => row.isFlexible));
+const flexibleBitcoinDisplacementPercent = Vue.computed(() => {
+  if (!hasFlexibleBitcoin.value) return;
+  return myVault.createdVault?.flexibleSecuritizationDisplacementPercent();
 });
 const lockedBitcoinSourceLabel = Vue.computed(() => {
   const vaultNames = [...new Set(lockedBitcoinRows.value.map(row => row.vaultName))];

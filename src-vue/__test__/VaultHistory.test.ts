@@ -3,7 +3,11 @@ import { VaultHistory } from '../lib/recovery/MyVault.ts';
 import { VaultFinancials } from '../lib/financials/MyVault.ts';
 import { calculatePositionReturn } from '../lib/financials/index.ts';
 
-const vaultFinancials = new VaultFinancials({} as any);
+const vaultFinancials = new VaultFinancials({} as any, {
+  bondLots: [],
+  bondHistory: [],
+  isLoaded: true,
+});
 
 describe('VaultHistory financial positions', () => {
   it('uses the currently configured default account instead of its construction-time address', async () => {

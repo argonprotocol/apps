@@ -4,10 +4,10 @@ import tailwindcss from '@tailwindcss/vite';
 import svgLoader from 'vite-svg-loader';
 import wasm from 'vite-plugin-wasm';
 import vitePluginTopLevelAwait from 'vite-plugin-top-level-await';
-import { createServer } from 'node:net';
 import { readFile, writeFile } from 'node:fs/promises';
 import { basename, dirname, resolve } from 'node:path';
 import { createDataTestIdNodeTransform } from './e2e/scripts/testIdNaming.mjs';
+import { isPortAvailable } from './scripts/utils.ts';
 
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
@@ -29,24 +29,6 @@ function shouldIgnoreWatchedPath(path: string): boolean {
   if (!normalizedPath.includes('/e2e/')) return false;
 
   return !isUniswapE2ePath;
-}
-
-// Function to check if a port is available
-function isPortAvailable(port: number): Promise<boolean> {
-  return new Promise(resolve => {
-    const server = createServer();
-
-    server.listen(port, () => {
-      server.once('close', () => {
-        resolve(true);
-      });
-      server.close();
-    });
-
-    server.on('error', () => {
-      resolve(false);
-    });
-  });
 }
 
 function getValidatedDriverWs(rawDriverWs: string | undefined): string | null {

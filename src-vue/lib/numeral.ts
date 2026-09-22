@@ -1,5 +1,6 @@
 import * as Vue from 'vue';
 import numeralOriginal, { Numeral } from 'numeral';
+import BigNumber from 'bignumber.js';
 import { Currency, UnitOfMeasurement } from './Currency';
 import { IOtherToken } from './Wallet.ts';
 
@@ -11,11 +12,39 @@ declare module 'numeral' {
     formatCapped(format: string, max: number): string;
     _value: number;
   }
+
+  interface NumeralJSUtils {
+    toFixed(
+      value: number,
+      maxDecimals: number,
+      roundingFunction: (value: number) => number,
+      optionals?: number,
+    ): string;
+  }
 }
 
 export { Numeral } from 'numeral';
 
 type ICondition = boolean | string | ((value: number) => boolean);
+
+const originalToFixed = numeralOriginal._.toFixed.bind(numeralOriginal._);
+numeralOriginal._.toFixed = (value, maxDecimals, roundingFunction, optionals = 0) => {
+  if (!Number.isFinite(value) || value === 0 || Math.abs(value) >= 1e-6) {
+    return originalToFixed(value, maxDecimals, roundingFunction, optionals);
+  }
+
+  // Numeral concatenates an exponent onto value.toString(), which produces an
+  // invalid expression when the value is already represented as an exponent.
+  const minDecimals = maxDecimals - optionals;
+  const decimalPlaces = BigNumber(value).decimalPlaces() ?? 0;
+  const boundedPrecision = Math.min(Math.max(decimalPlaces, minDecimals), maxDecimals);
+  const rounded = roundingFunction(BigNumber(value).shiftedBy(boundedPrecision).toNumber());
+  let output = BigNumber(rounded).shiftedBy(-boundedPrecision).toFixed(boundedPrecision);
+  if (optionals > maxDecimals - boundedPrecision) {
+    output = output.replace(new RegExp(`\\.?0{1,${optionals - (maxDecimals - boundedPrecision)}}$`), '');
+  }
+  return output;
+};
 
 export default function numeral(input?: any): Numeral {
   if (typeof input === 'bigint') {

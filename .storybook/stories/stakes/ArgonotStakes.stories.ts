@@ -57,3 +57,10 @@ export const Portfolio: Story = {
     setupBondPortfolioScenario('Argonot');
   },
 };
+
+export const HistorySyncFailed: Story = {
+  beforeEach: () => {
+    setupBondPortfolioScenario('Argonot');
+    getArgonBonds().data.historyError = 'Bond history stopped at block 100: archive unavailable';
+  },
+};

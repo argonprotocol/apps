@@ -68,7 +68,8 @@ import { useBasics } from '../stores/basics.ts';
 import { createNumeralHelpers } from '../lib/numeral.ts';
 import { buildWalletActivity, type IWalletActivityRecord } from '../lib/WalletActivity.ts';
 import type { IBitcoinRequestLockMetadata } from '../lib/BitcoinLocks.ts';
-import type { IBuyArgonotBondMetadata, IBuyVaultBondMetadata } from '../lib/ArgonBonds.ts';
+import type { IBuyStakeMetadata } from '../lib/txs/Stake.buy.ts';
+import type { IBuyBondMetadata } from '../lib/txs/Bond.buy.ts';
 import type { ICrosschainTransferOutMetadata } from '../lib/EthereumOutboundTransferTracker.ts';
 import type { IMintingAuthorityRegisterMetadata } from '../lib/MintingAuthorities.ts';
 import type { ITransactionMoveMetadata } from '../lib/txs/Balance.transfer.ts';
@@ -338,12 +339,12 @@ function amountLabel(activity: IWalletActivityRecord): string {
       return formatAssetAmounts(metadata.microgonCollateral, metadata.micronotCollateral);
     }
     case ExtrinsicType.TreasuryBuyBonds: {
-      const metadata = transaction.metadataJson as IBuyVaultBondMetadata;
+      const metadata = transaction.metadataJson as IBuyBondMetadata;
       if (metadata.bondPurchaseMicrogons === undefined) return '--';
       return formatTokenAmount(metadata.bondPurchaseMicrogons, 'argon');
     }
     case ExtrinsicType.TreasuryBuyArgonotBonds: {
-      const metadata = transaction.metadataJson as IBuyArgonotBondMetadata;
+      const metadata = transaction.metadataJson as IBuyStakeMetadata;
       if (metadata.bondPurchaseMicronots === undefined) return '--';
       return formatTokenAmount(metadata.bondPurchaseMicronots, 'argonot');
     }

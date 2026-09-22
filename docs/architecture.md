@@ -2,6 +2,12 @@
 
 This document defines ownership and dependency boundaries for application state. Feature designs may add domain concepts and transitions, but they must preserve these boundaries unless the architecture is deliberately revised first.
 
+## Extend before adding an owner
+
+Start a change from the closest existing end-to-end workflow and its authoritative state owner. Add the new transition to that owner when its identity, lifecycle, and publication rules are the same; do not create another model because an event, screen, or file needs a name. A transaction operation, table, recovery decoder, or Vue component may collaborate with a domain without becoming a second authority.
+
+Introduce a new authoritative model only when the change has a distinct identity or lifecycle that the existing owner cannot represent coherently. State the existing precedent, the invariant it cannot preserve, and the proposed new authority before implementing it. If a new model was not part of the agreed scope, make that ownership decision explicit rather than letting the PR establish it by default. This decision is needed for a new owner, not for every ordinary class or PR.
+
 ## Layout
 
 | Layer                                      | Owns                                                                                           | May depend on                                                                                | Must not own                                                                  |

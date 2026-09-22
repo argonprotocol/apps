@@ -4,14 +4,17 @@ import { getConfig } from '../stores/config';
 import { getDbPromise } from '../stores/helpers/dbPromise.ts';
 import { getMainchainClient, getMiningFrames } from '../stores/mainchain';
 import { getBitcoinFissions, getBitcoinLocks } from '../stores/bitcoin';
+import { getArgonBonds } from '../stores/argonBonds.ts';
 import { getMyVault } from '../stores/vaults';
 import { getWalletKeys, useWallets } from '../stores/wallets.ts';
 import { useBasics } from '../stores/basics.ts';
 import { getEthereumMoveTracker } from '../stores/moveFromEthereum.ts';
 import { getEthereumOutboundTransferTracker } from '../stores/moveToEthereum.ts';
+import { useFinancials } from '../stores/financials.ts';
 import basicEmitter from '../emitters/basicEmitter.ts';
 import type { IAppQueryFn, IAppQueryRefs } from '../interfaces/IAppQueryRefs.ts';
 import { WalletType } from '../lib/Wallet.ts';
+import { AccountHistoryRecovery } from './AccountHistoryRecovery.ts';
 
 type UnknownRecord = Record<string, unknown>;
 export const LOGGABLE_ARG_KEYS = [
@@ -73,7 +76,7 @@ class CommandError extends Error {
 const DEFAULT_TIMEOUT_MS = 5_000;
 const DEFAULT_INTERVAL_MS = 50;
 const DEFAULT_READY_TIMEOUT_MS = 45_000;
-const MAX_TIMEOUT_MS = 300_000;
+const MAX_TIMEOUT_MS = 600_000;
 const VISUAL_MOVE_MS = 140;
 const VISUAL_HIGHLIGHT_MS = 280;
 const VISUAL_STEP_DELAY_MS = 80;
@@ -1220,6 +1223,7 @@ async function getAppQueryRefs(): Promise<IAppQueryRefs> {
   const bitcoinLocks = getBitcoinLocks();
   const basics = useBasics();
   const wallets = useWallets();
+  const walletKeys = getWalletKeys();
   await config.isLoadedPromise.catch(() => undefined);
   await myVault.load().catch(() => undefined);
   await bitcoinLocks.load().catch(() => undefined);
@@ -1229,15 +1233,18 @@ async function getAppQueryRefs(): Promise<IAppQueryRefs> {
     bitcoinLocks,
     myVault,
     wallets,
-    canSign: getWalletKeys().canSign,
-    defaultArgonAddress: getWalletKeys().defaultArgonAddress,
-    defaultEthereumAddress: getWalletKeys().coreEthereumAddress,
-    coreEthereumAddress: getWalletKeys().coreEthereumAddress,
+    canSign: walletKeys.canSign,
+    defaultArgonAddress: walletKeys.defaultArgonAddress,
+    defaultEthereumAddress: walletKeys.coreEthereumAddress,
+    coreEthereumAddress: walletKeys.coreEthereumAddress,
     overlayIsOpen: basics.overlayIsOpen,
+    getArgonBonds,
     getBitcoinFissions,
     getEthereumMoveTracker,
     getEthereumOutboundTransferTracker,
+    getFinancials: useFinancials,
     getMainchainClient,
+    accountHistoryRecovery: new AccountHistoryRecovery(),
     openWalletOverlay(walletType) {
       const wallet =
         walletType === WalletType.bitcoin ? wallets.bitcoinWallet : wallets.argonWallets.defaultArgonWallet;
@@ -1351,6 +1358,11 @@ async function runCommandInternal(command: string, argsInput: unknown, context: 
     const db = await getDbPromise();
     await withTimeout(db.execute('PRAGMA wal_checkpoint(TRUNCATE)'), timeoutMs, command);
     db.pauseWrites();
+    return { ok: true };
+  }
+
+  if (command === 'app.resumeDatabaseWrites') {
+    (await getDbPromise()).resumeWrites();
     return { ok: true };
   }
 

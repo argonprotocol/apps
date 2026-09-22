@@ -15,25 +15,3 @@ export interface TransactionOperations {
   bitcoinLockRelease: BitcoinLockRelease;
   bitcoinLockResecuritize: BitcoinLockResecuritize;
 }
-
-export async function loadTransactionOperations(operations: TransactionOperations): Promise<TransactionOperations> {
-  const {
-    bitcoinLiquidClose,
-    bitcoinLiquidCreate,
-    bitcoinLiquidRatchet,
-    bitcoinOrphanRelease,
-    bitcoinLockCreate,
-    bitcoinLockRelease,
-    bitcoinLockResecuritize,
-  } = operations;
-  await Promise.all([
-    bitcoinLiquidClose.load(),
-    bitcoinLiquidCreate.load(),
-    bitcoinLiquidRatchet.load(),
-    bitcoinOrphanRelease.load(),
-    bitcoinLockCreate.load(),
-    bitcoinLockRelease.load(),
-    bitcoinLockResecuritize.load(),
-  ]);
-  return operations;
-}

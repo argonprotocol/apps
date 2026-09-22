@@ -175,7 +175,7 @@ function openPending(liquidId: number): void {
         lock === undefined
           ? 'Unknown Vault'
           : lock.vaultId === myVault.vaultId
-            ? 'My Vault'
+            ? 'Your Vault'
             : (vaults.operatorNamesByVaultId[lock.vaultId] ?? `Vault ${lock.vaultId}`),
       unallocatedSatoshis: fission.satoshis,
       maximumLiquidSatoshis: fission.satoshis,
@@ -420,7 +420,7 @@ function createSourcesForAllocations(allocations: BitcoinLiquidCreateAllocation[
         vaultId: lock.vaultId,
         vaultName:
           lock.vaultId === myVault.vaultId
-            ? 'My Vault'
+            ? 'Your Vault'
             : (vaults.operatorNamesByVaultId[lock.vaultId] ?? `Vault ${lock.vaultId}`),
         unallocatedSatoshis: lockAvailability.value[index].unallocatedSatoshis,
         maximumLiquidSatoshis:

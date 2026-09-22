@@ -1,5 +1,5 @@
 import { describe, it } from 'vitest';
-import { createFlowSession, type IFlowSession } from '../flows/session.ts';
+import { FlowSession } from '../FlowSession.ts';
 
 const skipE2E = Boolean(JSON.parse(process.env.SKIP_E2E ?? '0'));
 
@@ -7,7 +7,7 @@ type OnboardingFlowName = 'Mining.flow.onboarding' | 'Vaulting.flow.onboarding';
 
 async function runIsolatedFlow(flowName: OnboardingFlowName): Promise<void> {
   const sessionName = `onboarding-spec-${flowName}`;
-  const session: IFlowSession = await createFlowSession({
+  const session = await FlowSession.start({
     useTestNetwork: true,
     sessionName,
   });

@@ -30,6 +30,27 @@ export class WalletForBitcoin extends WalletForChain<WalletType.bitcoin> {
       .sort((left, right) => right.updatedAt.getTime() - left.updatedAt.getTime())[0];
   }
 
+  public findReusableChannelLock(args: { vaultId: number; isOwnedVault: boolean }): IBitcoinLockRecord | undefined {
+    const { vaultId, isOwnedVault } = args;
+    const bitcoinLocks = this.getBitcoinLocks();
+    const candidates = bitcoinLocks.getActiveLocks().filter(lock => lock.vaultId === vaultId);
+    const pendingCreation = candidates.find(lock => lock.status === BitcoinLockStatus.LockIsProcessingOnArgon);
+    if (pendingCreation) return pendingCreation;
+
+    return candidates.find(lock => {
+      if (lock.status !== BitcoinLockStatus.LockPendingFunding && lock.status !== BitcoinLockStatus.LockFunded) {
+        return false;
+      }
+
+      const holdIsOpen = this.hasActiveSecuritizationHold(lock);
+      if (isOwnedVault) return holdIsOpen;
+
+      const hasUnusedInsurance = this.getRemainingChannelInsurance(lock) > 0n;
+      const isEmptyWithoutInsurance = (lock.securitizationCoverageMicrogons ?? 0n) === 0n && lock.fundedSatoshis === 0n;
+      return hasUnusedInsurance || holdIsOpen || isEmptyWithoutInsurance;
+    });
+  }
+
   public hasActiveSecuritizationHold(lock: IBitcoinLockRecord): boolean {
     return !this.getBitcoinLocks().isSecuritizationHoldExpired(lock);
   }
@@ -131,11 +152,12 @@ export class WalletForBitcoin extends WalletForChain<WalletType.bitcoin> {
     liquidityMicrogons: bigint;
     txSigner: TxSigningAccount;
     operatorCoupon?: IOperatorBitcoinLockCouponRoute;
+    isOwnedVault?: boolean;
   }): Promise<IBitcoinLockRecord> {
-    const channelWithActiveHold = this.getChannelWithActiveSecuritizationHold();
-    if (channelWithActiveHold) return Promise.resolve(channelWithActiveHold);
-
     const vaultId = args.vault.vaultId;
+    const reusableLock = this.findReusableChannelLock({ vaultId, isOwnedVault: args.isOwnedVault ?? false });
+    if (reusableLock) return Promise.resolve(reusableLock);
+
     const existingCreation = this.channelCreationsByVaultId.get(vaultId);
     if (existingCreation) return existingCreation;
 

@@ -46,7 +46,7 @@
       <dt class="text-slate-500">Transaction fee</dt>
       <dd :class="props.inline ? 'mt-0.5 font-semibold text-slate-700' : 'text-right'">
         <template v-if="entry.transactionFee !== undefined">
-          {{ argonSymbol }}{{ microgonToArgonNm(entry.transactionFee).format('0,0.00') }}
+          {{ argonSymbol }}{{ microgonToArgonNm(entry.transactionFee).format('0,0.00[0000]') }}
         </template>
         <template v-else>Unavailable</template>
       </dd>

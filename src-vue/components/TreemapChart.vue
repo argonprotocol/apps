@@ -1,8 +1,9 @@
 <template>
-  <div class="treemap flex h-full min-h-48 w-full flex-col gap-1.5" :data-theme="theme">
+  <div data-testid="TreemapChart" class="treemap flex h-full min-h-48 w-full flex-col gap-1.5" :data-theme="theme">
     <!-- Remainder row: always at top -->
     <div
       v-if="hasRemainder"
+      data-treemap-kind="remainder"
       class="treemap__tile treemap__tile--remainder flex items-center justify-center border border-slate-500/20 px-3 py-1.5"
     >
       <span class="text-[0.88rem] opacity-60">
@@ -16,6 +17,8 @@
       <div
         v-for="rect in rectangles"
         :key="rect.key"
+        :data-treemap-key="rect.key"
+        :data-treemap-kind="rect.kind"
         class="treemap__tile absolute overflow-hidden border border-slate-500/20"
         :class="[
           rect.kind === 'remainder'

@@ -1,5 +1,8 @@
 <template>
-  <div class="BondRecord Component flex flex-col">
+  <div
+    class="BondRecord Component flex flex-col"
+    :data-testid="`Bond.${bondLot.programType === 'Argonot' ? 'stake' : 'bond'}-${bondLot.id}`"
+  >
     <section ActiveRecord>
       <StakeIcon v-if="bondLot.programType === 'Argonot'" MainIcon />
       <BondIcon v-else MainIcon />
@@ -13,6 +16,8 @@
             bought
             {{ dayjs.utc(miningFrames.getFrameDate(bondLot.createdFrame)).local().format('M/D/YYYY [at] h:mm a') }}
           </span>
+          <span v-if="vaultLabel" class="font-light text-slate-400">·</span>
+          <span v-if="vaultLabel" class="font-light text-slate-500">{{ vaultLabel }}</span>
           <div v-if="isReleasing" class="text-sm text-amber-700">
             Releasing
             <span class="font-semibold">
@@ -41,31 +46,41 @@
         <div SecondRow>
           <span>
             <template v-if="position?.investedCost !== undefined">
-              {{ currency.symbol }}{{ microgonToMoneyNm(position.investedCost).format('0,0.00') }} principal basis
+              {{ argonSymbol }}{{ microgonToArgonNm(position.investedCost).format('0,0.00') }} cost basis
             </template>
-            <template v-else>Principal basis unavailable</template>
+            <template v-else>Cost basis unavailable</template>
           </span>
           <div class="flex grow flex-row items-stretch justify-center">
             <span class="h-full w-px bg-slate-400/50"></span>
           </div>
           <span>
-            {{ currency.symbol }}{{ microgonToMoneyNm(bondLot.lifetimeEarnings).format('0,0.00') }}
-            in distributions
+            <template v-if="bondLot.isFlexible">Flexible Bond</template>
+            <template v-else>
+              {{ currency.symbol }}{{ microgonToMoneyNm(bondLot.lifetimeEarnings).format('0,0.00') }}
+              in distributions
+            </template>
           </span>
           <div class="flex grow flex-row items-stretch justify-center">
             <span class="h-full w-px bg-slate-400/50"></span>
           </div>
           <span>
-            <template v-if="returnPercent === undefined">--</template>
-            <template v-else>{{ numeral(returnPercent).format('0,0.00') }}%</template>
-            return
+            <Tooltip
+              v-if="bondLot.isFlexible"
+              :asChild="true"
+              content="Flexible bond earnings roll up into the vault's returns and cannot be attributed to an individual bond."
+              side="top"
+            >
+              <span class="inline-flex cursor-help items-center gap-1">
+                Rolled up return
+                <InformationCircleIcon class="size-3.5" />
+              </span>
+            </Tooltip>
+            <template v-else>
+              <template v-if="returnPercent === undefined">--</template>
+              <template v-else>{{ numeral(returnPercent).format('0,0.00') }}%</template>
+              return
+            </template>
           </span>
-          <template v-if="vaultLabel">
-            <div class="flex grow flex-row items-stretch justify-center">
-              <span class="h-full w-px bg-slate-400/50"></span>
-            </div>
-            <span>{{ vaultLabel }}</span>
-          </template>
         </div>
       </div>
     </section>
@@ -76,15 +91,18 @@
 import * as Vue from 'vue';
 import dayjs from 'dayjs';
 import utc from 'dayjs/plugin/utc.js';
+import { InformationCircleIcon } from '@heroicons/vue/24/outline';
 import BondIcon from '../../../assets/bond.svg?component';
 import StakeIcon from '../../../assets/stake.svg?component';
 import numeral, { createNumeralHelpers } from '../../../lib/numeral.ts';
 import { getCurrency } from '../../../stores/currency.ts';
 import CountdownClock from '../../../components/CountdownClock.vue';
+import Tooltip from '../../../components/Tooltip.vue';
 import { BondLot } from '@argonprotocol/apps-core';
 import { getMiningFrames } from '../../../stores/mainchain.ts';
 import { getVaults } from '../../../stores/vaults.ts';
 import type { IBondFinancialPosition } from '../../../interfaces/IFinancialPosition.ts';
+import { UnitOfMeasurement } from '../../../lib/Currency.ts';
 
 dayjs.extend(utc);
 
@@ -92,12 +110,14 @@ const currency = getCurrency();
 const miningFrames = getMiningFrames();
 const vaults = getVaults();
 
-const { microgonToMoneyNm, micronotToArgonotNm } = createNumeralHelpers(currency);
+const { microgonToArgonNm, microgonToMoneyNm, micronotToArgonotNm } = createNumeralHelpers(currency);
+const argonSymbol = currency.recordsByKey[UnitOfMeasurement.ARGN].symbol;
 
 const props = withDefaults(
   defineProps<{
     bondLot: BondLot;
     isReleasing?: boolean;
+    ownedVaultId?: number;
     position?: IBondFinancialPosition;
     returnPercent?: number;
   }>(),
@@ -110,12 +130,10 @@ const vaultLabel = Vue.computed(() => {
   if (props.bondLot.programType === 'Argonot') return;
 
   const vaultId = props.bondLot.vaultId;
-  if (vaultId == null) {
-    return 'Vault Bond';
-  }
+  if (vaultId == null) return;
 
-  const name = vaults.operatorNamesByVaultId[vaultId];
-  return name ? `${name} Vault` : `Vault #${vaultId}`;
+  const name = vaultId === props.ownedVaultId ? 'Yours' : vaults.operatorNamesByVaultId[vaultId];
+  return `Vault: ${name ?? `#${vaultId}`}`;
 });
 </script>
 

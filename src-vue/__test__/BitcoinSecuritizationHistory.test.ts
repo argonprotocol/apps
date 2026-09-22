@@ -184,6 +184,22 @@ describe('Bitcoin securitization history', () => {
       expect.objectContaining({ cumulativeNetSecurityFee: 130n, addedNetSecurityFee: 30n }),
     ]);
   });
+
+  it('does not rewrite an identical published snapshot', async () => {
+    const db = await createTestDb();
+    const table = db.bitcoinSecuritizationHistoryTable;
+    const terms = [createTerm({ cumulativeNetSecurityFee: 100n })];
+    const initial = await table.createSnapshot(ownerAccount, 200, terms);
+    await table.publishSnapshot(initial);
+
+    const repeated = await table.createSnapshot(ownerAccount, 200, terms);
+    await table.publishSnapshot(repeated);
+
+    expect(repeated.snapshotId).toBe(initial.snapshotId);
+    await expect(
+      db.select(`SELECT snapshotId FROM BitcoinSecuritizationHistory WHERE ownerAccount = ?`, [ownerAccount]),
+    ).resolves.toEqual([{ snapshotId: initial.snapshotId }]);
+  });
 });
 
 function createTerm(overrides: Partial<IBitcoinSecuritizationTerm> = {}): IBitcoinSecuritizationTerm {

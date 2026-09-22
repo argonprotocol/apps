@@ -35,7 +35,7 @@ import { setDbPromise } from '../stores/helpers/dbPromise.ts';
 
 const skipE2E = Boolean(JSON.parse(process.env.SKIP_E2E ?? '0'));
 
-describe.skipIf(skipE2E).sequential('My Vault tests', {}, () => {
+describe.skipIf(skipE2E).sequential('Your Vault tests', {}, () => {
   let clients: MainchainClients;
   let mainchainUrl: string;
   let db: Db;

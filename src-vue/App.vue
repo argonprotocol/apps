@@ -117,7 +117,7 @@ import TopBar from './navigation/TopBar.vue';
 import { TopTab } from './interfaces/IConfig.ts';
 import { useCertificationController } from './stores/certificationController.ts';
 import { getConfig } from './stores/config.ts';
-import { getBitcoinTransactionOperations } from './stores/bitcoin.ts';
+import { restoreTransactions } from './stores/transactionOperations.ts';
 import { useTour } from './stores/tour.ts';
 import { getBot } from './stores/bot.ts';
 import { waitForLoad } from '@argonprotocol/mainchain';
@@ -268,7 +268,8 @@ Vue.onBeforeMount(async () => {
   }
 
   await waitForLoad();
-  getBitcoinTransactionOperations();
+  // Restore pending operations at startup so their domain state is rebuilt after restart.
+  restoreTransactions();
 });
 
 Vue.onMounted(async () => {

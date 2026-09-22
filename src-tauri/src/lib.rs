@@ -749,6 +749,10 @@ pub fn run() {
     let e2e_driver_mode = std::env::var("ARGON_DRIVER_WS")
         .ok()
         .is_some_and(|v| !v.trim().is_empty());
+    #[cfg(target_os = "macos")]
+    let focus_e2e_app_window = std::env::var("ARGON_E2E_FOCUS_APP_WINDOW")
+        .ok()
+        .is_some_and(|v| v == "true" || v == "1");
     let logger = init_logger(&network_name, &instance_name);
 
     let app_name = context.config().product_name.clone().unwrap_or_default();
@@ -778,7 +782,7 @@ pub fn run() {
             }
 
             #[cfg(target_os = "macos")]
-            if e2e_driver_mode && !e2e_headless {
+            if e2e_driver_mode && !e2e_headless && !focus_e2e_app_window {
                 let webview = window.clone();
                 let webview_for_order = webview.clone();
                 let _ = webview.run_on_main_thread(move || {
@@ -860,7 +864,7 @@ pub fn run() {
             app.manage(EthereumSignerPolicyState {
                 policy: Mutex::new(None),
             });
-            app.manage(sql::SqlTransactions::default());
+            app.manage(sql::SqliteWriter::default());
             app.manage(ssh_access::SshAccessState {
                 access: Mutex::new(None),
             });
@@ -992,6 +996,9 @@ pub fn run() {
             report_empty_app_root_after_activation,
             e2e_capture_main_window_screenshot,
             sql::sql_begin_transaction,
+            sql::sql_start_transaction_session,
+            sql::sql_execute_write,
+            sql::sql_select_write,
             sql::sql_execute,
             sql::sql_select,
             sql::sql_commit_transaction,

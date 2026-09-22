@@ -216,18 +216,16 @@ import {
   type Vault,
 } from '@argonprotocol/apps-core';
 import { getWalletKeys, useWallets } from '../stores/wallets.ts';
-import { getArgonBonds } from '../stores/argonBonds.ts';
+import { getArgonBonds, getBondTransactionOperations } from '../stores/argonBonds.ts';
 import basicEmitter from '../emitters/basicEmitter.ts';
 import InputNumber from '../components/InputNumber.vue';
 import ProgressBar from '../components/ProgressBar.vue';
 import { type TransactionInfo } from '../lib/TransactionInfo.ts';
-import { ExtrinsicType, TransactionStatus } from '../lib/db/TransactionsTable.ts';
 import numeral, { createNumeralHelpers } from '../lib/numeral.ts';
 import { generateProgressLabel } from '../lib/Utils.ts';
 import { getCurrency } from '../stores/currency.ts';
 import { getMainchainClient } from '../stores/mainchain.ts';
-import { getTransactionTracker } from '../stores/transactions.ts';
-import type { IBuyArgonotBondMetadata } from '../lib/ArgonBonds.ts';
+import type { IBuyStakeMetadata } from '../lib/txs/Stake.buy.ts';
 import ArgonotIcon from '../assets/wallets/tokens/argonot.svg?component';
 import StepsHeader, { type IStepHeaderItem } from '../components/StepsHeader.vue';
 import BigNumber from 'bignumber.js';
@@ -245,7 +243,7 @@ const argonBonds = getArgonBonds();
 const currency = getCurrency();
 const walletKeys = getWalletKeys();
 const vaultingStats = useVaultingStats();
-const transactionTracker = getTransactionTracker();
+const bondPurchase = getBondTransactionOperations().stakeBuy;
 
 const { micronotToArgonotNm, micronotToMoneyNm } = createNumeralHelpers(currency);
 
@@ -419,12 +417,11 @@ async function onSubmitted() {
   await argonBonds.refreshBondLots();
 }
 
-function trackTxInfo(info: TransactionInfo<IBuyArgonotBondMetadata>) {
+function trackTxInfo(info: TransactionInfo<IBuyStakeMetadata>) {
   unsubProgress?.();
   txInfo.value = info;
   isSubmitting.value = false;
   completedPurchaseAmount.value = Number(info.tx.metadataJson.bondPurchaseMicronots / unitsPerBond.value);
-  argonBonds.saveBondPurchase(info);
 
   unsubProgress = info.subscribeToProgress((args, error) => {
     progressPct.value = args.progressPct;
@@ -445,21 +442,11 @@ async function submit() {
   isSubmitting.value = true;
 
   try {
-    const client = await getMainchainClient(false);
     const signer = await walletKeys.getDefaultArgonKeypair();
-    let tx;
-    let extrinsicType;
-    let metadata;
-
-    tx = client.tx.treasury.buyArgonotBonds(purchaseBonds.value);
-    extrinsicType = ExtrinsicType.TreasuryBuyArgonotBonds;
-    metadata = { bondPurchaseMicronots: purchaseAmount.value } satisfies IBuyArgonotBondMetadata;
-
-    const info = await transactionTracker.submitAndWatch({
-      tx,
+    const info = await bondPurchase.submit({
+      purchaseBonds: purchaseBonds.value,
+      bondPurchaseMicronots: purchaseAmount.value,
       txSigner: signer,
-      extrinsicType,
-      metadata,
     });
 
     trackTxInfo(info);
@@ -505,18 +492,10 @@ async function initializePurchase(session = ++purchaseSession) {
     maxBondedPercent: client.consts.treasury.maxArgonotBondedPercentOfCirculation.toNumber(),
   });
 
-  await transactionTracker.load();
+  await bondPurchase.load();
   if (session !== purchaseSession) return;
 
-  const pendingBuyTxInfo = transactionTracker.findLatestTxInfo<IBuyArgonotBondMetadata>(candidate => {
-    if (candidate.tx.accountAddress !== walletKeys.defaultArgonAddress) return false;
-    if (candidate.tx.submissionErrorJson || candidate.tx.blockExtrinsicErrorJson) return false;
-
-    if (candidate.tx.extrinsicType !== ExtrinsicType.TreasuryBuyArgonotBonds) return false;
-    if ((candidate.tx.metadataJson?.bondPurchaseMicronots ?? 0n) <= 0n) return false;
-
-    return candidate.tx.status === TransactionStatus.Submitted || candidate.tx.status === TransactionStatus.InBlock;
-  });
+  const pendingBuyTxInfo = bondPurchase.getPendingPurchase();
 
   if (pendingBuyTxInfo) {
     trackTxInfo(pendingBuyTxInfo);

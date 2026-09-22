@@ -270,9 +270,9 @@ export class BitcoinFission implements IBitcoinFission {
               ...current,
               ratchetNumber: current.ratchetNumber ?? recovered.ratchetNumber,
               liquidityPromised: current.liquidityPromised ?? recovered.liquidityPromised,
-              securityFee: current.securityFee ?? recovered.securityFee,
-              securityFeeCoupon: current.securityFeeCoupon ?? recovered.securityFeeCoupon,
-              txFee: current.txFee ?? recovered.txFee,
+              securityFee: recovered.securityFee ?? current.securityFee,
+              securityFeeCoupon: recovered.securityFeeCoupon ?? current.securityFeeCoupon,
+              txFee: recovered.txFee ?? current.txFee,
               tick: current.tick ?? recovered.tick,
               blockHash: current.blockHash ?? recovered.blockHash,
               blockTime: current.blockTime ?? recovered.blockTime,
@@ -302,19 +302,29 @@ export class BitcoinFission implements IBitcoinFission {
       record.closedAtArgonBlock === this.closedAtArgonBlock &&
       (record.closedExtrinsicIndex ?? -1) > (this.closedExtrinsicIndex ?? -1);
     const recoveredCloseIsNewer = recoveredCloseIsAtLaterBlock || recoveredCloseIsLaterInSameBlock;
+    const recoveredCloseMatchesCurrent =
+      record.closedAtArgonBlock !== undefined &&
+      record.closedAtArgonBlock === this.closedAtArgonBlock &&
+      (record.closedExtrinsicIndex ?? -1) === (this.closedExtrinsicIndex ?? -1);
     const recoveredLastUpdatedBlock = record.lastUpdatedArgonBlock ?? -1;
     const currentLastUpdatedBlock = this.lastUpdatedArgonBlock ?? -1;
     const recoveredCurrentIsNewer =
       recoveredLastUpdatedBlock > currentLastUpdatedBlock ||
       (recoveredLastUpdatedBlock === currentLastUpdatedBlock && record.ratchetNumber > this.ratchetNumber);
-    if (!recoveredCloseIsNewer && !recoveredCurrentIsNewer) {
-      this.enrichRecoveredHistory(record);
-      return;
+    this.enrichRecoveredHistory(record);
+    if (recoveredCurrentIsNewer) this.applyCurrentFields(record);
+    if (recoveredCloseIsNewer || recoveredCloseMatchesCurrent) {
+      this.closedAtArgonBlock = record.closedAtArgonBlock;
+      this.closedAtTick = record.closedAtTick ?? this.closedAtTick;
+      this.closedBlockHash = record.closedBlockHash ?? this.closedBlockHash;
+      this.closedBlockTime = record.closedBlockTime ?? this.closedBlockTime;
+      this.closedExtrinsicIndex = record.closedExtrinsicIndex ?? this.closedExtrinsicIndex;
+      this.closeReason = record.closeReason ?? this.closeReason;
+      this.redemptionAmount = record.redemptionAmount ?? this.redemptionAmount;
+      this.closeTxFee = record.closeTxFee ?? this.closeTxFee;
+      this.btcPriceAtCloseMicrogons = record.btcPriceAtCloseMicrogons ?? this.btcPriceAtCloseMicrogons;
     }
-
-    const recovered = new BitcoinFission(record);
-    recovered.enrichRecoveredHistory(this);
-    this.applyStoredRecord(recovered);
+    if (recoveredCloseIsNewer || recoveredCurrentIsNewer) this.updatedAt = record.updatedAt;
   }
 
   public applyStoredRecord(record: IBitcoinFission): void {

@@ -84,6 +84,17 @@ describe('BondLotHistoryTable', () => {
         closingArgonotRateMicrogons: 3_000_000n,
       },
     });
+    await db.bondLotHistoryTable.recordObservation({
+      lot: createBondLot({
+        id: 7,
+        bonds: 10,
+        program: 'Argonot',
+        releaseFrame: 30,
+        cumulativeEarnings: 9_000_000n,
+      }),
+      blockNumber: 130,
+      blockHash: '0xstale-runtime-lot',
+    });
 
     const records = await db.bondLotHistoryTable.fetchAll(accountId);
     expect(records).toHaveLength(1);

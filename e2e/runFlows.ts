@@ -5,8 +5,9 @@ import Path from 'node:path';
 import process from 'node:process';
 import { fileURLToPath } from 'node:url';
 import { resolveTestSessionCommandEnv } from '@argonprotocol/apps-core/__test__/startArgonTestNetwork.ts';
+import { AppSession } from './AppSession.ts';
+import { FlowSession } from './FlowSession.ts';
 import { getFlow, listFlows } from './flows/index.ts';
-import { createFlowSession, resolveFlowSessionMode, type IFlowSession } from './flows/session.ts';
 
 const __dirname = fileURLToPath(new URL('.', import.meta.url));
 const REPO_ROOT = Path.resolve(__dirname, '..');
@@ -29,7 +30,7 @@ const ALL_FLOW_NAMES = DISCOVERED_FLOW_NAMES.join(', ');
 
 async function main(): Promise<void> {
   const flowNames = parseNonEmptyCsv(process.env.E2E_FLOWS, DEFAULT_FLOWS);
-  const sessionMode = resolveFlowSessionMode(process.env.E2E_SESSION_MODE);
+  const sessionMode = AppSession.resolveMode(process.env.E2E_SESSION_MODE);
   const useTestNetwork = (process.env.E2E_USE_TEST_NETWORK ?? (sessionMode === 'stateful' ? '0' : '1')).trim() === '1';
   if (sessionMode === 'stateful' && useTestNetwork) {
     throw new Error('[E2E] E2E_SESSION_MODE=stateful requires E2E_USE_TEST_NETWORK=0.');
@@ -44,7 +45,7 @@ async function main(): Promise<void> {
     fallbackSessionName: flowDefaultSessionName,
   });
 
-  let session: IFlowSession | null = null;
+  let session: FlowSession | null = null;
   let closeSessionPromise: Promise<void> | undefined;
   const closeSession = (): Promise<void> => {
     closeSessionPromise ??= (async () => {
@@ -96,7 +97,7 @@ async function main(): Promise<void> {
     }
   }
 
-  session = await createFlowSession({ useTestNetwork, sessionName, sessionMode });
+  session = await FlowSession.start({ useTestNetwork, sessionName, sessionMode });
 
   try {
     for (const name of flowNames) {

@@ -29,6 +29,8 @@ import { BitcoinFissionsTable } from './db/BitcoinFissionsTable.ts';
 import { BitcoinSecuritizationHistoryTable } from './db/BitcoinSecuritizationHistoryTable.ts';
 import { BitcoinReleasesTable } from './db/BitcoinReleasesTable.ts';
 
+const SQL_TRANSACTION_SESSION_ID = crypto.randomUUID();
+
 export class Db {
   public sql: PluginSql;
   public hasMigrationError: boolean;
@@ -105,6 +107,7 @@ export class Db {
 
   public static async load(retries: number = 0): Promise<Db> {
     try {
+      await invoke('sql_start_transaction_session', { sessionId: SQL_TRANSACTION_SESSION_ID });
       const sql = await PluginSql.load(`sqlite:${Db.relativePath}`);
       const db = new Db(sql, !!retries);
       for (const table of Object.values(db)) {
@@ -130,12 +133,17 @@ export class Db {
     try {
       if (this.transactionId !== undefined) {
         return await invoke<QueryResult>('sql_execute', {
+          sessionId: SQL_TRANSACTION_SESSION_ID,
           transactionId: this.transactionId,
           query,
           values: bindValues ?? [],
         });
       }
-      return await this.sql.execute(query, bindValues);
+      return await invoke<QueryResult>('sql_execute_write', {
+        db: this.sql.path,
+        query,
+        values: bindValues ?? [],
+      });
     } catch (error) {
       console.error('Error executing query:', { query, error });
       throw error;
@@ -146,7 +154,16 @@ export class Db {
     try {
       if (this.transactionId !== undefined) {
         const rows = await invoke<T>('sql_select', {
+          sessionId: SQL_TRANSACTION_SESSION_ID,
           transactionId: this.transactionId,
+          query,
+          values: bindValues ?? [],
+        });
+        return normalizeSqlRows(rows);
+      }
+      if (/\bRETURNING\b/i.test(query)) {
+        const rows = await invoke<T>('sql_select_write', {
+          db: this.sql.path,
           query,
           values: bindValues ?? [],
         });
@@ -166,21 +183,24 @@ export class Db {
     if (this.transactionId !== undefined) throw new Error('Nested SQL transactions are not supported');
     if (this.writesPaused) throw new Error('Cannot start a SQL transaction while database writes are paused');
 
-    const transactionId = await invoke<number>('sql_begin_transaction', { db: this.sql.path });
+    const transactionId = await invoke<number>('sql_begin_transaction', {
+      db: this.sql.path,
+      sessionId: SQL_TRANSACTION_SESSION_ID,
+    });
     const transaction = new Db(this.sql, this.hasMigrationError, { id: transactionId, tableStates: this.tableStates });
     let result: T;
     try {
       result = await callback(transaction);
     } catch (error) {
       try {
-        await invoke('sql_rollback_transaction', { transactionId });
+        await invoke('sql_rollback_transaction', { sessionId: SQL_TRANSACTION_SESSION_ID, transactionId });
       } catch (rollbackError) {
         console.warn(`Unable to roll back SQL transaction ${transactionId}`, rollbackError);
       }
       throw error;
     }
 
-    await invoke('sql_commit_transaction', { transactionId });
+    await invoke('sql_commit_transaction', { sessionId: SQL_TRANSACTION_SESSION_ID, transactionId });
     return result;
   }
 

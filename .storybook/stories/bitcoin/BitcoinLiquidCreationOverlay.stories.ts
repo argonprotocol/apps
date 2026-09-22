@@ -25,7 +25,7 @@ const insuredSources: IBitcoinLiquidSource[] = [
   {
     key: 'my-vault',
     vaultId: 12,
-    vaultName: 'My Vault',
+    vaultName: 'Your Vault',
     unallocatedSatoshis: 20_000_000n,
     maximumLiquidSatoshis: 20_000_000n,
     selectedSatoshis: 20_000_000n,
@@ -124,7 +124,7 @@ const meta = {
       vaultsActiveRecords: selectableVaults,
     });
     const vaults = getVaults();
-    Object.assign(vaults.operatorNamesByVaultId, { 7: 'Atlas Operator', 12: 'My Vault' });
+    Object.assign(vaults.operatorNamesByVaultId, { 7: 'Atlas Operator', 12: 'Your Vault' });
     Object.assign(vaults.vaultsById, Object.fromEntries(selectableVaults.map(vault => [vault.vaultId, vault])));
   },
 } satisfies Meta<{

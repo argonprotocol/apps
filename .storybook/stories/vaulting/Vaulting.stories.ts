@@ -5,13 +5,16 @@ import { userEvent, within } from 'storybook/test';
 import AppScreen from '../../components/AppScreen.vue';
 import { setupAppScenario } from '../../scenarios/setupAppScenario.ts';
 import { setCertificationGuide } from '../../scenarios/setupCertificationScenario.ts';
-import { setupVaultingPortfolioScenario } from '../../scenarios/setupVaultingPortfolioScenario.ts';
+import {
+  onboardingMemberInvite,
+  setupVaultingPortfolioScenario,
+} from '../../scenarios/setupVaultingPortfolioScenario.ts';
 import basicEmitter from '../../../src-vue/emitters/basicEmitter.ts';
 import { TopTab, VaultingSetupStatus, type IConfig } from '../../../src-vue/interfaces/IConfig.ts';
 import { Config } from '../../../src-vue/lib/Config.ts';
 import SecuritizationOverlay from '../../../src-vue/overlays/SecuritizationOverlay.vue';
 import { getConfig } from '../../../src-vue/stores/config.ts';
-import { OperationalStepId } from '../../../src-vue/stores/certificationController.ts';
+import { OperationalStepId, useCertificationController } from '../../../src-vue/stores/certificationController.ts';
 import Vaulting from '../../../src-vue/screens/Vaulting.vue';
 
 const vaultingRules = Config.getDefault('vaultingRules') as IConfig['vaultingRules'];
@@ -130,6 +133,14 @@ export const ReadyToLaunch: Story = {
 export const Portfolio: Story = {
   name: 'Portfolio with securitization shortfall',
   beforeEach: setupVaultingPortfolioScenario,
+};
+
+export const ExternalBondDetails: Story = {
+  beforeEach: setupVaultingPortfolioScenario,
+  play: async ({ canvasElement }) => {
+    useCertificationController().setOperationalInvites([onboardingMemberInvite]);
+    await userEvent.click(canvasElement.querySelector('[data-treemap-key="lot:72"]')!);
+  },
 };
 
 export const UnderSecuritized: Story = {

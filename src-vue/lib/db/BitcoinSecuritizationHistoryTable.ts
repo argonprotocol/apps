@@ -1,3 +1,4 @@
+import { JsonExt } from '@argonprotocol/apps-core';
 import type { IBitcoinSecuritizationTerm } from '../../interfaces/IBitcoinSecuritizationTerm.ts';
 import { convertFromSqliteFields, toSqlParams } from '../Utils.ts';
 import { BaseTable, type IFieldTypes } from './BaseTable.ts';
@@ -34,6 +35,12 @@ export class BitcoinSecuritizationHistoryTable extends BaseTable {
       FinancialCacheTypes.BitcoinSecuritizationHistory,
       ownerAccount,
     );
+    if (basePublication) {
+      const publishedTerms = await this.getSnapshotTerms(ownerAccount, basePublication.snapshotId);
+      if (JsonExt.stringify(publishedTerms) === JsonExt.stringify(terms)) {
+        return { ownerAccount, snapshotId: basePublication.snapshotId, asOfBlock, basePublication };
+      }
+    }
     const snapshotId = crypto.randomUUID();
 
     for (const term of terms) {
@@ -116,6 +123,12 @@ export class BitcoinSecuritizationHistoryTable extends BaseTable {
     if (rowsAffected !== 1) {
       throw new Error(`Cannot publish Bitcoin history because newer securitization history is already visible`);
     }
+
+    await this.db.execute(
+      `DELETE FROM BitcoinSecuritizationHistory
+       WHERE ownerAccount = ? AND snapshotId <> ?`,
+      toSqlParams([ownerAccount, snapshotId]),
+    );
   }
 
   public async getPublishedSnapshot(ownerAccount: string): Promise<IBitcoinPublishedSecuritizationHistory | undefined> {
@@ -125,6 +138,13 @@ export class BitcoinSecuritizationHistoryTable extends BaseTable {
     );
     if (!publication) return;
 
+    return {
+      asOfBlock: publication.asOfBlock,
+      terms: await this.getSnapshotTerms(ownerAccount, publication.snapshotId),
+    };
+  }
+
+  private async getSnapshotTerms(ownerAccount: string, snapshotId: string): Promise<IBitcoinSecuritizationTerm[]> {
     const terms = await this.db.select<IBitcoinSecuritizationTerm[]>(
       `SELECT
          lockId,
@@ -146,11 +166,8 @@ export class BitcoinSecuritizationHistoryTable extends BaseTable {
        FROM BitcoinSecuritizationHistory
        WHERE ownerAccount = ? AND snapshotId = ?
        ORDER BY lockId, termIndex`,
-      toSqlParams([ownerAccount, publication.snapshotId]),
+      toSqlParams([ownerAccount, snapshotId]),
     );
-    return {
-      asOfBlock: publication.asOfBlock,
-      terms: convertFromSqliteFields(terms, this.fieldTypes),
-    };
+    return convertFromSqliteFields(terms, this.fieldTypes);
   }
 }
