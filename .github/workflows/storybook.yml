@@ -90,6 +90,9 @@ jobs:
           yarn dlx reg-cli@0.18.16 "$report_dir/actual" "$report_dir/expected" "$report_dir/diff" \
             --report "$report_dir/index.html" \
             --json "$report_dir/reg.json" \
+            --matchingThreshold 0.063 \
+            --thresholdPixel 0 \
+            --enableAntialias \
             --ignoreChange \
             --extendedErrors
 

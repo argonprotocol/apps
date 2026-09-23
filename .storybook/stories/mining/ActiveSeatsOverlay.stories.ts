@@ -53,7 +53,9 @@ export const CurrentSeats: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement.ownerDocument.body);
 
-    await userEvent.hover(await canvas.findByText('A1'));
+    const seat = (await canvas.findByText('A1')).closest('tr')!;
+    await userEvent.hover(seat);
+    await canvas.findByRole('tooltip', { hidden: true });
   },
 };
 export const NoActiveSeats: Story = {
