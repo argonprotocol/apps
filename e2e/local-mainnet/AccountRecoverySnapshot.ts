@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import { DatabaseSync } from 'node:sqlite';
 import { JsonExt } from '@argonprotocol/apps-core';
+import type { IFinancialAggregate, IFinancialGroupSummary } from 'src-vue/interfaces/IFinancialPosition.ts';
 
 export interface AccountRecoverySnapshotResult {
   financialHash: string;
@@ -22,7 +23,10 @@ export class AccountRecoverySnapshot {
     'botActivityLastUpdatedAt',
   ]);
 
-  public static capture(args: { databasePath: string; financials: unknown }): AccountRecoverySnapshotResult {
+  public static capture(args: {
+    databasePath: string;
+    financials: IFinancialAggregate;
+  }): AccountRecoverySnapshotResult {
     const { databasePath, financials } = args;
     const database = new DatabaseSync(databasePath, { open: true, readOnly: true });
     try {
@@ -63,7 +67,7 @@ export class AccountRecoverySnapshot {
         };
       }
 
-      const financialState = AccountRecoverySnapshot.canonicalize(financials);
+      const financialState = AccountRecoverySnapshot.canonicalizeFinancials(financials);
       return {
         financialHash: AccountRecoverySnapshot.hash(AccountRecoverySnapshot.canonicalJson(financialState)),
         financialState,
@@ -143,6 +147,23 @@ export class AccountRecoverySnapshot {
       return keys.flatMap(key => AccountRecoverySnapshot.findChangedPaths(left[key], right[key], `${path}.${key}`));
     }
     return [path];
+  }
+
+  private static canonicalizeFinancials(financials: IFinancialAggregate): unknown {
+    const withStableVaultLabel = ({ positions, ...group }: IFinancialGroupSummary) => ({
+      ...group,
+      // Operator profile names can arrive after the vault position; its ID is the stable identity.
+      positions: positions.map(position =>
+        position.kind === 'vault' ? { ...position, label: `Vault ${position.vaultId}` } : position,
+      ),
+    });
+    return AccountRecoverySnapshot.canonicalize({
+      ...financials,
+      groups: financials.groups.map(withStableVaultLabel),
+      groupSummaries: Object.fromEntries(
+        Object.entries(financials.groupSummaries).map(([group, summary]) => [group, withStableVaultLabel(summary)]),
+      ),
+    });
   }
 
   private static canonicalize(value: unknown): unknown {

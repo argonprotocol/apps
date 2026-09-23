@@ -73,6 +73,12 @@ describe.skipIf(!hasMigrationArtifacts)('production-derived local mainnet upgrad
           runDirectory: Path.join(runDirectory, 'captured-database'),
         });
         const expectedFissionIds = result.before.migratableBitcoinLockIds;
+        const expectedVisibleFissionIds = [
+          ...new Set([
+            ...result.before.migratableFundedBitcoinLockIds,
+            ...result.before.migratableReleasedBitcoinLockIds,
+          ]),
+        ];
 
         expect(result.before.latestMigration).toBeLessThan(34);
         expect(expectedFissionIds.length).toBeGreaterThan(0);
@@ -99,7 +105,7 @@ describe.skipIf(!hasMigrationArtifacts)('production-derived local mainnet upgrad
         const historyRecovery = await readOnlySession.recoverAccountHistory(deployment.candidateBlock.number);
         await readOnlySession.run('App.flow.accountReview', {
           expectedDefaultArgonAddress: manifest.capturedDatabase.defaultArgonAccountId,
-          expectedBitcoinLiquidIds: expectedFissionIds,
+          expectedBitcoinLiquidIds: expectedVisibleFissionIds,
           expectedArchivedBitcoinLiquidIds: result.before.migratableReleasedBitcoinLockIds,
           expectsConfiguredServer: result.before.readonlyAccount.configuredServer,
           expectsOperations: result.before.readonlyAccount.operations,

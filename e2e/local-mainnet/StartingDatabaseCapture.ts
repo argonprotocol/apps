@@ -15,12 +15,18 @@ import {
 import Path from 'node:path';
 import process from 'node:process';
 import { parseArgs } from 'node:util';
-import { createArgonClient, getVaultByOperator, TreasuryBonds, type ArgonQueryClient } from '@argonprotocol/apps-core';
+import {
+  createArgonClient,
+  getVaultByOperator,
+  TreasuryBonds,
+  type ArgonClient,
+  type ArgonQueryClient,
+} from '@argonprotocol/apps-core';
 import { getClient } from '@argonprotocol/mainchain';
-import { DatabaseSync } from 'node:sqlite';
+import type { IFinancialHistoryDomain } from 'src-vue/lib/db/SyncStateTable.ts';
 import { AppSession } from '../AppSession.ts';
-import { SyncStateKeys, type IFinancialHistoryDomain, type ISyncSchemas } from 'src-vue/lib/db/SyncStateTable.ts';
-import { writeReadonlyWallet } from '../../scripts/troubleshootAccount.ts';
+import { delay } from '../../scripts/utils.ts';
+import { writeReadonlyWallet, type ReadonlyAccountIdentity } from '../../scripts/troubleshootAccount.ts';
 import { CapturedDatabaseScenario } from './CapturedDatabaseScenario.ts';
 import { LocalMainnet } from './LocalMainnet.ts';
 import { loadLocalMainnetManifest } from './manifest.ts';
@@ -30,12 +36,35 @@ import {
   type OperationalAccountFeature,
   type OperationalAccountGraphNode,
 } from './OperationalAccountGraph.ts';
+import {
+  inspectStartingDatabase,
+  inspectStartingDatabaseRecovery,
+  isStartingDatabaseComplete,
+  isStartingDatabaseHistoryRecovered,
+  type StartingDatabaseRecoveryProgress,
+} from './StartingDatabaseInspection.ts';
 
-const FINANCIAL_HISTORY_DOMAINS = [
-  'bitcoin',
-  'bonds',
-  'vaulting',
-] as const satisfies readonly IFinancialHistoryDomain[];
+const CAPTURE_HISTORY_TIMEOUT_MS = 30 * 60_000;
+const CAPTURE_HISTORY_STALL_TIMEOUT_MS = 3 * 60_000;
+const CAPTURE_HISTORY_POLL_MS = 1_000;
+const CAPTURE_HISTORY_MAX_APP_STARTS = 3;
+
+interface ArchivedStartingPackage {
+  identity: ReadonlyAccountIdentity;
+  databaseSha256: string;
+  releasedLegacyBitcoinIds: number[];
+}
+
+type StartingDatabaseCaptureTarget =
+  | {
+      label: string;
+      source: {
+        kind: 'operational-account-graph';
+        scenario: OperationalAccountGraphNode;
+        upstreamScenario?: string;
+      };
+    }
+  | { label: string; source: { kind: 'archived-package'; package: ArchivedStartingPackage } };
 
 export interface CapturedStartingDatabase {
   label: string;
@@ -60,6 +89,7 @@ export interface CapturedStartingDatabase {
     migratableIds: number[];
     fundedIds: number[];
     releasedIds: number[];
+    chainFundedIds: number[];
   };
   expected: {
     bondLotIds: number[];
@@ -74,14 +104,22 @@ export interface CapturedStartingDatabase {
     treasury: boolean;
     upstream: boolean;
   };
-  captureError?: string;
+  source?:
+    | { kind: 'operational-account-graph' }
+    | {
+        kind: 'archived-package';
+        databaseSha256: string;
+        releasedLegacyBitcoinIds: number[];
+      };
 }
 
 export interface StartingDatabaseRegistry {
-  formatVersion: 1;
+  formatVersion: 3;
   sourceApp: {
     version: string;
     gitHead: string;
+    runtimeQueriesSha256: string;
+    historicalEventsSha256: string;
   };
   environment: {
     network: 'mainnet';
@@ -94,6 +132,8 @@ export interface StartingDatabaseRegistry {
     kind: 'operational-account-graph';
     accountLimit: number;
     graphAccounts: number;
+    graphSelectedAccounts: number;
+    archivedPackageAccounts: number;
     selectedAccounts: number;
     features: OperationalAccountFeature[];
   };
@@ -119,18 +159,25 @@ export class StartingDatabaseCapture {
     private readonly previousAppsDirectory: string,
     private readonly outputDirectory: string,
     private readonly accountLimit: number,
+    private readonly archivedPackages: readonly ArchivedStartingPackage[],
   ) {
     const packageJson = JSON.parse(readFileSync(Path.join(previousAppsDirectory, 'package.json'), 'utf8')) as {
       version?: string;
     };
     this.registry = {
-      formatVersion: 1,
+      formatVersion: 3,
       sourceApp: {
         version: packageJson.version ?? 'unknown',
         gitHead: execFileSync('git', ['-C', previousAppsDirectory, 'rev-parse', 'HEAD'], {
           encoding: 'utf8',
           stdio: ['ignore', 'pipe', 'pipe'],
         }).trim(),
+        runtimeQueriesSha256: createHash('sha256')
+          .update(readFileSync(Path.join(previousAppsDirectory, 'runtime-client/src/RuntimeQueries.generated.ts')))
+          .digest('hex'),
+        historicalEventsSha256: createHash('sha256')
+          .update(readFileSync(Path.join(previousAppsDirectory, 'runtime-client/src/HistoricalEvents.generated.ts')))
+          .digest('hex'),
       },
       environment: {
         network: 'mainnet',
@@ -143,6 +190,8 @@ export class StartingDatabaseCapture {
         kind: 'operational-account-graph',
         accountLimit,
         graphAccounts: 0,
+        graphSelectedAccounts: 0,
+        archivedPackageAccounts: archivedPackages.length,
         selectedAccounts: 0,
         features: [],
       },
@@ -161,41 +210,85 @@ export class StartingDatabaseCapture {
     const { values } = parseArgs({
       options: {
         'account-limit': { type: 'string', default: '12' },
+        'include-package': { type: 'string', multiple: true },
         manifest: { type: 'string' },
         output: { type: 'string' },
+        'previous-app-ref': { type: 'string' },
         'previous-apps': { type: 'string' },
       },
       strict: true,
     });
-    if (!values.manifest || !values.output || !values['previous-apps']) {
+    if (!values.manifest || !values.output || !values['previous-apps'] || !values['previous-app-ref']) {
       throw new Error(
-        'Usage: yarn local-mainnet:capture --manifest <manifest.json> --previous-apps <previous-apps-checkout> --output <new-output-directory> [--account-limit <count>]',
+        'Usage: yarn local-mainnet:capture --manifest <manifest.json> --previous-apps <previous-apps-checkout> --previous-app-ref <release-tag-or-commit> --output <new-output-directory> [--account-limit <count>] [--include-package <previous-instance-package>]',
       );
     }
 
     const manifestPath = realpathSync(values.manifest);
     const previousAppsDirectory = realpathSync(values['previous-apps']);
     const outputDirectory = Path.resolve(values.output);
-    if (
-      !statSync(previousAppsDirectory).isDirectory() ||
-      !existsSync(Path.join(previousAppsDirectory, 'package.json'))
-    ) {
+    try {
+      if (!statSync(previousAppsDirectory).isDirectory()) throw new Error();
+      if (!statSync(Path.join(previousAppsDirectory, 'package.json')).isFile()) throw new Error();
+    } catch {
       throw new Error(`Previous Apps checkout is not a repository root: ${previousAppsDirectory}`);
     }
+    const previousAppsHead = execFileSync('git', ['-C', previousAppsDirectory, 'rev-parse', 'HEAD'], {
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'pipe'],
+    }).trim();
+    const expectedPreviousAppsHead = execFileSync(
+      'git',
+      ['-C', previousAppsDirectory, 'rev-parse', `${values['previous-app-ref']}^{commit}`],
+      { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] },
+    ).trim();
+    if (previousAppsHead !== expectedPreviousAppsHead) {
+      throw new Error(
+        `Previous Apps checkout is at ${previousAppsHead}, but ${values['previous-app-ref']} resolves to ${expectedPreviousAppsHead}`,
+      );
+    }
+    const previousAppsChanges = execFileSync(
+      'git',
+      ['-C', previousAppsDirectory, 'status', '--porcelain=v1', '--untracked-files=no'],
+      { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] },
+    ).trim();
+    if (previousAppsChanges) {
+      throw new Error(`Previous Apps checkout has tracked changes and cannot be used as a release source`);
+    }
+    execFileSync('yarn', ['generate:runtime-client'], {
+      cwd: previousAppsDirectory,
+      stdio: 'inherit',
+    });
     const accountLimit = Number(values['account-limit']);
     if (!Number.isSafeInteger(accountLimit) || accountLimit < 1) {
       throw new Error(`--account-limit must be a positive safe integer, got ${values['account-limit']}`);
     }
-    if (existsSync(outputDirectory)) throw new Error(`Capture output directory already exists: ${outputDirectory}`);
+    const archivedPackages = (values['include-package'] ?? []).map(path =>
+      StartingDatabaseCapture.readArchivedPackage(path),
+    );
 
     const manifest = loadLocalMainnetManifest(manifestPath);
-    mkdirSync(outputDirectory, { recursive: true });
+    mkdirSync(Path.dirname(outputDirectory), { recursive: true });
+    try {
+      mkdirSync(outputDirectory);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'EEXIST') {
+        throw new Error(`Capture output directory already exists: ${outputDirectory}`);
+      }
+      throw error;
+    }
 
     const mainnet = await LocalMainnet.start({
       manifest,
       runDirectory: Path.join(outputDirectory, 'environment'),
     });
-    const capture = new StartingDatabaseCapture(mainnet, previousAppsDirectory, outputDirectory, accountLimit);
+    const capture = new StartingDatabaseCapture(
+      mainnet,
+      previousAppsDirectory,
+      outputDirectory,
+      accountLimit,
+      archivedPackages,
+    );
     try {
       await capture.run();
     } finally {
@@ -215,8 +308,31 @@ export class StartingDatabaseCapture {
           `scenario-${String(index + 1).padStart(3, '0')}`,
         ]),
       );
+      const graphTargets: StartingDatabaseCaptureTarget[] = scenarios.map(scenario => ({
+        label: labelsByOperationalAccountId.get(scenario.operationalAccountId)!,
+        source: {
+          kind: 'operational-account-graph',
+          scenario,
+          upstreamScenario: labelsByOperationalAccountId.get(scenario.upstreamOperationalAccountId ?? ''),
+        },
+      }));
+      const selectedAccountIds = new Set(scenarios.map(scenario => scenario.identity.defaultAccountId));
+      const archivedTargets = this.archivedPackages.map((archivedPackage, index) => {
+        if (selectedAccountIds.has(archivedPackage.identity.defaultAccountId)) {
+          throw new Error(
+            `Archived package account ${archivedPackage.identity.defaultAccountId} is already selected from the operational-account graph`,
+          );
+        }
+        selectedAccountIds.add(archivedPackage.identity.defaultAccountId);
+        return {
+          label: `archived-legacy-${String(index + 1).padStart(3, '0')}`,
+          source: { kind: 'archived-package', package: archivedPackage },
+        } satisfies StartingDatabaseCaptureTarget;
+      });
+      const targets = [...graphTargets, ...archivedTargets];
       this.registry.selection.graphAccounts = graph.nodes.length;
-      this.registry.selection.selectedAccounts = scenarios.length;
+      this.registry.selection.graphSelectedAccounts = graphTargets.length;
+      this.registry.selection.selectedAccounts = targets.length;
       this.registry.selection.features = OPERATIONAL_ACCOUNT_FEATURES.filter(feature =>
         scenarios.some(scenario => scenario.features.includes(feature)),
       );
@@ -229,20 +345,13 @@ export class StartingDatabaseCapture {
         }
       }
 
-      for (const [index, scenario] of scenarios.entries()) {
-        const label = labelsByOperationalAccountId.get(scenario.operationalAccountId)!;
+      for (const [index, target] of targets.entries()) {
         try {
-          await this.captureAccount(
-            client,
-            label,
-            scenario,
-            labelsByOperationalAccountId.get(scenario.upstreamOperationalAccountId ?? ''),
-            index,
-          );
+          await this.captureAccount(client, target, index);
         } catch (error) {
           const message = error instanceof Error ? error.message : String(error);
-          this.registry.failures.push({ label, error: message });
-          console.error(`[local-mainnet] ${label}: ${message}`);
+          this.registry.failures.push({ label: target.label, error: message });
+          console.error(`[local-mainnet] ${target.label}: ${message}`);
         }
         this.updateCoverage();
         this.writeRegistry();
@@ -257,113 +366,90 @@ export class StartingDatabaseCapture {
     }
     if (!this.registry.coverage.releasedLegacyBitcoinAccounts) {
       throw new Error(
-        'The captured operational-account graph contains no released legacy Bitcoin record to verify in the candidate app.',
+        'The captured scenarios contain no released legacy Bitcoin record to verify in the candidate app. Supply a previous instance with --include-package when the current operational-account graph no longer contains one.',
       );
     }
     if (!this.registry.coverage.complete) {
       throw new Error(
-        `The capture did not qualify: ${this.registry.accounts.length}/${this.registry.selection.selectedAccounts} selected accounts produced packages and the selected feature coverage was ${this.registry.selection.features.length}/${OPERATIONAL_ACCOUNT_FEATURES.length}. All retained packages remain available for candidate-app review.`,
+        `The capture did not qualify: ${this.registry.accounts.length}/${this.registry.selection.selectedAccounts} selected accounts produced packages and the selected feature coverage was ${this.registry.selection.features.length}/${OPERATIONAL_ACCOUNT_FEATURES.length}. Retained packages remain available for diagnosis, but the registry cannot be used for candidate review.`,
       );
     }
   }
 
   private async captureAccount(
-    client: ArgonQueryClient,
-    label: string,
-    scenario: OperationalAccountGraphNode,
-    upstreamScenario: string | undefined,
+    client: ArgonClient,
+    target: StartingDatabaseCaptureTarget,
     index: number,
   ): Promise<void> {
+    const { label, source } = target;
+    const identity = source.kind === 'operational-account-graph' ? source.scenario.identity : source.package.identity;
+    const activeVault =
+      source.kind === 'archived-package'
+        ? await getVaultByOperator({ client, operatorAddress: identity.defaultAccountId })
+        : undefined;
+    if (source.kind === 'archived-package' && !activeVault) {
+      throw new Error(`${label} has no current vault to start v2.3.8 financial-history recovery`);
+    }
     const instanceName = `mainnet-capture-${Date.now().toString(36)}-${index + 1}-${label}`.slice(0, 80);
     const instanceDirectory = AppSession.resolveInstanceDirectory({ networkName: 'mainnet', instanceName });
     if (existsSync(instanceDirectory)) throw new Error(`Capture instance already exists: ${instanceDirectory}`);
-    writeReadonlyWallet(instanceDirectory, scenario.identity);
-
-    const activeBondLots = await TreasuryBonds.getBondLotsByAccount(client, scenario.identity.defaultAccountId);
-    const vault = await getVaultByOperator({
-      client,
-      operatorAddress: scenario.identity.defaultAccountId,
-    });
-    const vaultBondLots = vault
-      ? await TreasuryBonds.getBondLots(client, vault.vaultId, scenario.identity.defaultAccountId)
-      : [];
-    const vaultBitcoinMapItemCount = vault ? (this.vaultBitcoinMapItemCounts.get(vault.vaultId) ?? 0) : undefined;
+    writeReadonlyWallet(instanceDirectory, identity);
 
     let captureError: string | undefined;
     try {
-      await this.mainnet.launchApp({
-        appsDirectory: this.previousAppsDirectory,
-        instanceName,
-        appLogsMode: 'quiet',
-        autoEnableOperations: false,
-      });
+      await this.recoverStartingDatabase(instanceName, Path.join(instanceDirectory, 'database.sqlite'));
     } catch (error) {
       captureError = error instanceof Error ? error.message : String(error);
-    } finally {
-      await this.mainnet.closeApp().catch(error => {
-        const closeError = error instanceof Error ? error.message : String(error);
-        captureError = captureError ? `${captureError}; shutdown: ${closeError}` : closeError;
-      });
     }
 
     const databasePath = Path.join(instanceDirectory, 'database.sqlite');
     if (!existsSync(databasePath)) {
       throw new Error(captureError ?? 'The previous app did not create a database');
     }
+    if (captureError) throw new Error(captureError);
 
     const packageDirectory = Path.join(this.outputDirectory, 'starting-databases', label);
     mkdirSync(Path.dirname(packageDirectory), { recursive: true });
     cpSync(instanceDirectory, packageDirectory, { recursive: true, errorOnExist: true, force: false });
 
     const copiedDatabasePath = Path.join(packageDirectory, 'database.sqlite');
-    let facts: ReturnType<typeof StartingDatabaseCapture.inspectDatabase> = {
-      quickCheck: 'inspection failed',
-      walletHistoryThroughBlock: 0,
-      financialDomains: [],
-      partialFinancialDomains: [],
-      bondLotIds: [],
-      stakeLotIds: [],
-      configuredServer: false,
-      operations: false,
-      treasury: false,
-      upstream: false,
-    };
-    let legacyBitcoin: ReturnType<typeof CapturedDatabaseScenario.inspectLegacyBitcoinLocks> = {
-      all: [],
-      funded: [],
-      released: [],
-    };
-    try {
-      facts = StartingDatabaseCapture.inspectDatabase(
-        copiedDatabasePath,
-        this.registry.throughBlock,
-        scenario.identity.defaultAccountId,
-      );
-    } catch (error) {
-      const inspectionError = error instanceof Error ? error.message : String(error);
-      captureError = captureError
-        ? `${captureError}; inspection: ${inspectionError}`
-        : `inspection: ${inspectionError}`;
-    }
-    try {
-      legacyBitcoin = CapturedDatabaseScenario.inspectLegacyBitcoinLocks(copiedDatabasePath);
-    } catch (error) {
-      const inspectionError = error instanceof Error ? error.message : String(error);
-      captureError = captureError
-        ? `${captureError}; legacy Bitcoin inspection: ${inspectionError}`
-        : `legacy Bitcoin inspection: ${inspectionError}`;
+    const facts = inspectStartingDatabase(copiedDatabasePath, this.registry.throughBlock, identity.defaultAccountId);
+    const legacyBitcoin = CapturedDatabaseScenario.inspectLegacyBitcoinLocks(copiedDatabasePath);
+    const deployedClient = await client.at(this.mainnet.deployedBlock.hash);
+    const chainFundedIds = (
+      await Promise.all(
+        legacyBitcoin.all.map(async lockId => {
+          const lock = await deployedClient.query.bitcoinLocks.locksByUtxoId(lockId);
+          return lock?.isFunded ? [lockId] : [];
+        }),
+      )
+    ).flat();
+    if (chainFundedIds.some(id => legacyBitcoin.released.includes(id))) {
+      throw new Error(`Released legacy Bitcoin records for ${label} are still funded on the pinned chain`);
     }
     const walletHistoryThroughBlock = facts.walletHistoryThroughBlock;
-    const complete =
-      facts.quickCheck === 'ok' &&
-      walletHistoryThroughBlock >= this.registry.throughBlock &&
-      FINANCIAL_HISTORY_DOMAINS.every(domain => facts.financialDomains.includes(domain)) &&
-      facts.partialFinancialDomains.length === 0 &&
-      facts.pendingBitcoinLocks === 0;
+    const complete = isStartingDatabaseComplete(facts, this.registry.throughBlock);
+    if (!complete) {
+      throw new Error(`The copied database for ${label} lost its complete recovery checkpoint`);
+    }
+    if (
+      source.kind === 'archived-package' &&
+      !source.package.releasedLegacyBitcoinIds.every(id => legacyBitcoin.released.includes(id))
+    ) {
+      throw new Error(`The canonical recapture for ${label} did not reconstruct every released legacy Bitcoin record`);
+    }
+    const [activeBondLots, vault] = await Promise.all([
+      TreasuryBonds.getBondLotsByAccount(client, identity.defaultAccountId),
+      activeVault ?? getVaultByOperator({ client, operatorAddress: identity.defaultAccountId }),
+    ]);
+    const vaultBondLots = vault
+      ? await TreasuryBonds.getBondLots(client, vault.vaultId, identity.defaultAccountId)
+      : [];
+    const vaultBitcoinMapItemCount = vault ? (this.vaultBitcoinMapItemCounts.get(vault.vaultId) ?? 0) : undefined;
 
     this.registry.accounts.push({
       label,
-      defaultArgonAccountId: scenario.identity.defaultAccountId,
+      defaultArgonAccountId: identity.defaultAccountId,
       instancePackagePath: packageDirectory,
       databaseSha256: createHash('sha256').update(readFileSync(copiedDatabasePath)).digest('hex'),
       migration: facts.migration,
@@ -377,13 +463,16 @@ export class StartingDatabaseCapture {
         complete,
       },
       selection: {
-        features: scenario.features,
-        ...(upstreamScenario ? { upstreamScenario } : {}),
+        features: source.kind === 'operational-account-graph' ? source.scenario.features : vault ? ['vault'] : [],
+        ...(source.kind === 'operational-account-graph' && source.upstreamScenario
+          ? { upstreamScenario: source.upstreamScenario }
+          : {}),
       },
       legacyBitcoin: {
         migratableIds: legacyBitcoin.all,
         fundedIds: legacyBitcoin.funded,
         releasedIds: legacyBitcoin.released,
+        chainFundedIds,
       },
       expected: {
         bondLotIds: activeBondLots
@@ -407,9 +496,90 @@ export class StartingDatabaseCapture {
         treasury: facts.treasury,
         upstream: facts.upstream,
       },
-      ...(captureError ? { captureError } : {}),
+      source:
+        source.kind === 'archived-package'
+          ? {
+              kind: 'archived-package',
+              databaseSha256: source.package.databaseSha256,
+              releasedLegacyBitcoinIds: source.package.releasedLegacyBitcoinIds,
+            }
+          : { kind: 'operational-account-graph' },
     });
-    console.info(`[local-mainnet] ${label}: captured${complete ? ' with complete history' : ' as incomplete'}`);
+    console.info(`[local-mainnet] ${label}: captured with complete history`);
+  }
+
+  private async recoverStartingDatabase(
+    instanceName: string,
+    databasePath: string,
+  ): Promise<StartingDatabaseRecoveryProgress> {
+    const timeoutAt = Date.now() + CAPTURE_HISTORY_TIMEOUT_MS;
+    let recoveryProgress: StartingDatabaseRecoveryProgress | undefined;
+    let progressKey: string | undefined;
+    let inspectionError: string | undefined;
+    let shutdownError: string | undefined;
+
+    for (let appStart = 1; appStart <= CAPTURE_HISTORY_MAX_APP_STARTS && Date.now() < timeoutAt; appStart += 1) {
+      await this.mainnet.launchApp({
+        appsDirectory: this.previousAppsDirectory,
+        instanceName,
+        tauriDevConfig: {
+          capabilities: ['default', 'dev'],
+          beforeDevCommand: 'yarn vite',
+        },
+        appLogsMode: 'quiet',
+        autoEnableOperations: false,
+      });
+
+      let stalledAt = Date.now() + CAPTURE_HISTORY_STALL_TIMEOUT_MS;
+      let completedProgress: StartingDatabaseRecoveryProgress | undefined;
+      let restartReason = 'recovery stalled';
+      let shutdownComplete = true;
+      try {
+        while (Date.now() < timeoutAt && Date.now() < stalledAt) {
+          try {
+            const nextProgress = inspectStartingDatabaseRecovery(databasePath, this.registry.throughBlock);
+            const nextProgressKey = JSON.stringify(nextProgress);
+            recoveryProgress = nextProgress;
+            inspectionError = undefined;
+            if (isStartingDatabaseHistoryRecovered(nextProgress, this.registry.throughBlock)) {
+              completedProgress = nextProgress;
+              break;
+            }
+            if (nextProgressKey !== progressKey) {
+              progressKey = nextProgressKey;
+              stalledAt = Date.now() + CAPTURE_HISTORY_STALL_TIMEOUT_MS;
+            }
+          } catch (error) {
+            inspectionError = error instanceof Error ? error.message : String(error);
+          }
+          await delay(CAPTURE_HISTORY_POLL_MS);
+        }
+      } finally {
+        await this.mainnet.closeApp().catch(error => {
+          shutdownComplete = false;
+          restartReason = 'checkpoint or shutdown failed';
+          shutdownError = error instanceof Error ? error.message : String(error);
+        });
+      }
+      if (completedProgress && shutdownComplete) return completedProgress;
+
+      if (appStart < CAPTURE_HISTORY_MAX_APP_STARTS && Date.now() < timeoutAt) {
+        console.warn(`[local-mainnet] ${restartReason}; restarting previous app (${appStart + 1})`);
+      }
+    }
+
+    if (recoveryProgress && isStartingDatabaseHistoryRecovered(recoveryProgress, this.registry.throughBlock)) {
+      throw new Error(
+        `The previous app completed account history but could not checkpoint and close: ${shutdownError}`,
+      );
+    }
+
+    const progress = recoveryProgress
+      ? `wallet=${recoveryProgress.walletHistoryThroughBlock}, domains=${recoveryProgress.financialDomains.join(',') || 'none'}, partial=${recoveryProgress.partialFinancialDomains.join(',') || 'none'}, pendingBitcoin=${recoveryProgress.pendingBitcoinLocks ?? 'unknown'}`
+      : (inspectionError ?? 'database unavailable');
+    throw new Error(
+      `The previous app did not complete account history through block ${this.registry.throughBlock}: ${progress}`,
+    );
   }
 
   private writeRegistry(): void {
@@ -417,6 +587,54 @@ export class StartingDatabaseCapture {
     const pendingPath = `${registryPath}.tmp`;
     writeFileSync(pendingPath, `${JSON.stringify(this.registry, null, 2)}\n`);
     renameSync(pendingPath, registryPath);
+  }
+
+  private static readArchivedPackage(path: string): ArchivedStartingPackage {
+    const packageDirectory = realpathSync(path);
+    if (!statSync(packageDirectory).isDirectory()) {
+      throw new Error(`Archived starting package is not a directory: ${packageDirectory}`);
+    }
+    const databasePath = Path.join(packageDirectory, 'database.sqlite');
+    const walletPath = Path.join(packageDirectory, 'wallet.json');
+    let legacyBitcoin: ReturnType<typeof CapturedDatabaseScenario.inspectLegacyBitcoinLocks>;
+    let walletContents: string;
+    try {
+      legacyBitcoin = CapturedDatabaseScenario.inspectLegacyBitcoinLocks(databasePath);
+      walletContents = readFileSync(walletPath, 'utf8');
+    } catch (error) {
+      throw new Error(
+        `Archived starting package must contain readable database.sqlite and wallet.json files: ${packageDirectory}: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+    if (!legacyBitcoin.released.length) {
+      throw new Error(`Archived starting package has no released legacy Bitcoin record: ${packageDirectory}`);
+    }
+    const wallet = JSON.parse(walletContents) as {
+      encryptedMnemonic?: unknown;
+      meta?: {
+        vaultingAddress?: unknown;
+        operationalAddress?: unknown;
+        miningBotAddress?: unknown;
+      };
+    };
+    const addresses = [wallet.meta?.vaultingAddress, wallet.meta?.operationalAddress, wallet.meta?.miningBotAddress];
+    if (
+      wallet.encryptedMnemonic !== '' ||
+      !addresses.every(address => typeof address === 'string' && address.length > 0)
+    ) {
+      throw new Error(`Archived starting package is not a complete signing-disabled account: ${packageDirectory}`);
+    }
+    const [defaultAccountId, operationalAccountId, miningAccountId] = addresses as [string, string, string];
+    return {
+      identity: {
+        operatorName: 'Archived release fixture',
+        defaultAccountId,
+        operationalAccountId,
+        miningAccountId,
+      },
+      databaseSha256: createHash('sha256').update(readFileSync(databasePath)).digest('hex'),
+      releasedLegacyBitcoinIds: legacyBitcoin.released,
+    };
   }
 
   private updateCoverage(): void {
@@ -431,131 +649,9 @@ export class StartingDatabaseCapture {
     );
     this.registry.coverage.complete =
       this.registry.accounts.length === this.registry.selection.selectedAccounts &&
+      this.registry.coverage.completeHistoryAccounts === this.registry.selection.selectedAccounts &&
       this.registry.selection.features.length === OPERATIONAL_ACCOUNT_FEATURES.length &&
       this.registry.coverage.releasedLegacyBitcoinAccounts > 0;
-  }
-
-  private static inspectDatabase(
-    path: string,
-    throughBlock: number,
-    accountId: string,
-  ): {
-    migration?: number;
-    quickCheck: string;
-    walletHistoryThroughBlock: number;
-    financialDomains: IFinancialHistoryDomain[];
-    partialFinancialDomains: IFinancialHistoryDomain[];
-    pendingBitcoinLocks?: number;
-    bondLotIds: number[];
-    stakeLotIds: number[];
-    configuredServer: boolean;
-    operations: boolean;
-    treasury: boolean;
-    upstream: boolean;
-  } {
-    const database = new DatabaseSync(path, { open: true, readOnly: true });
-    try {
-      const quickCheck = database.prepare('PRAGMA quick_check').get() as { quick_check: string };
-      let migration: number | undefined;
-      try {
-        migration = (
-          database.prepare('SELECT MAX(version) AS version FROM _sqlx_migrations').get() as {
-            version?: number;
-          }
-        ).version;
-      } catch {
-        // A database created before its first migration is still useful candidate-app input.
-      }
-
-      let states: Array<{
-        key: SyncStateKeys.WalletHistory | SyncStateKeys.FinancialHistory;
-        state: string;
-      }> = [];
-      try {
-        states = database
-          .prepare('SELECT key, state FROM SyncState WHERE key IN (?, ?)')
-          .all(SyncStateKeys.WalletHistory, SyncStateKeys.FinancialHistory) as unknown as typeof states;
-      } catch {
-        // Missing recovery tables make the package incomplete, not disposable.
-      }
-      let walletHistory: Partial<ISyncSchemas[SyncStateKeys.WalletHistory]> = {};
-      let financialHistory: Partial<ISyncSchemas[SyncStateKeys.FinancialHistory]> = {};
-      try {
-        walletHistory = JSON.parse(
-          states.find(state => state.key === SyncStateKeys.WalletHistory)?.state ?? '{}',
-        ) as typeof walletHistory;
-        financialHistory = JSON.parse(
-          states.find(state => state.key === SyncStateKeys.FinancialHistory)?.state ?? '{}',
-        ) as typeof financialHistory;
-      } catch {
-        // Invalid recovery state makes the package incomplete, not disposable.
-      }
-      const domainCheckpoints = financialHistory.domainCheckpoints ?? {};
-      const financialDomains = FINANCIAL_HISTORY_DOMAINS.filter(
-        domain => (domainCheckpoints[domain]?.asOfBlock ?? 0) >= throughBlock,
-      );
-      const partialFinancialDomains = FINANCIAL_HISTORY_DOMAINS.filter(
-        domain => domainCheckpoints[domain]?.partialRecovery,
-      );
-      let pendingBitcoinLocks: number | undefined;
-      try {
-        pendingBitcoinLocks = (
-          database.prepare('SELECT COUNT(*) AS count FROM BitcoinLocks WHERE isHistoryRecoveryPending = 1').get() as {
-            count: number;
-          }
-        ).count;
-      } catch {
-        // Missing Bitcoin recovery state cannot be claimed complete.
-      }
-      let bondLots: Array<{ programType: 'Vault' | 'Argonot'; bondLotId: number }> = [];
-      try {
-        bondLots = database
-          .prepare(
-            'SELECT programType, bondLotId FROM BondLotHistory WHERE accountId = ? AND releaseBlockHash IS NOT NULL ORDER BY bondLotId',
-          )
-          .all(accountId) as unknown as typeof bondLots;
-      } catch {
-        // The previous release may not have created bond history yet; current chain expectations still apply.
-      }
-      const config = new Map<string, string>();
-      try {
-        const rows = database
-          .prepare(
-            `SELECT key, value FROM Config
-             WHERE key IN ('hasExtensionOperations', 'hasExtensionTreasury', 'serverAdd', 'upstreamOperator')`,
-          )
-          .all() as unknown as Array<{ key: string; value: string }>;
-        for (const row of rows) config.set(row.key, row.value);
-      } catch {
-        // A missing Config table means the expected optional features remain disabled.
-      }
-      const hasConfigValue = (key: string): boolean => {
-        const value = config.get(key);
-        if (!value) return false;
-        try {
-          return Boolean(JSON.parse(value));
-        } catch {
-          return false;
-        }
-      };
-
-      return {
-        migration,
-        quickCheck: quickCheck.quick_check,
-        walletHistoryThroughBlock: walletHistory.asOfBlock ?? 0,
-        financialDomains,
-        partialFinancialDomains,
-        pendingBitcoinLocks,
-        bondLotIds: bondLots.filter(lot => lot.programType === 'Vault').map(lot => lot.bondLotId),
-        stakeLotIds: bondLots.filter(lot => lot.programType === 'Argonot').map(lot => lot.bondLotId),
-        configuredServer: hasConfigValue('serverAdd'),
-        operations: hasConfigValue('hasExtensionOperations'),
-        treasury: hasConfigValue('hasExtensionTreasury'),
-        upstream: hasConfigValue('upstreamOperator'),
-      };
-    } finally {
-      database.close();
-    }
   }
 }
 

@@ -1,5 +1,5 @@
 import { execFile, execFileSync } from 'node:child_process';
-import { copyFileSync, mkdirSync } from 'node:fs';
+import { copyFileSync, mkdirSync, readFileSync } from 'node:fs';
 import os from 'node:os';
 import Path from 'node:path';
 import process from 'node:process';
@@ -38,6 +38,10 @@ export type E2ESessionMode = 'isolated' | 'stateful';
 
 export interface AppSessionOptions {
   repoRoot?: string;
+  tauriDevConfig?: {
+    capabilities: string[];
+    beforeDevCommand?: string;
+  };
   useTestNetwork?: boolean;
   sessionName?: string;
   sessionMode?: E2ESessionMode;
@@ -343,10 +347,36 @@ export class AppSession {
         });
       } else if (externalNetworkConfigOverride && externalArchiveUrl) {
         sessionData.sessionArchiveUrl = externalArchiveUrl;
+        let command = ['yarn', 'tauri:dev'];
+        if (options.tauriDevConfig) {
+          const configPath = Path.join(repoRoot, 'src-tauri', `tauri.desktop.local.${configuredNetworkName}.conf.json`);
+          const config = JSON.parse(readFileSync(configPath, 'utf8')) as {
+            app?: { security?: Record<string, unknown> };
+            build?: Record<string, unknown>;
+          };
+          config.build = { ...config.build, devUrl: `http://localhost:${appPort}` };
+          if (options.tauriDevConfig.beforeDevCommand) {
+            config.build.beforeDevCommand = options.tauriDevConfig.beforeDevCommand;
+          }
+          config.app = {
+            ...config.app,
+            security: { ...config.app?.security, capabilities: options.tauriDevConfig.capabilities },
+          };
+          command = [
+            'yarn',
+            'tauri',
+            'dev',
+            '--config',
+            JSON.stringify(config),
+            '--no-watch',
+            '--features',
+            'e2e-screenshots,e2e-insecure-gateway-certs',
+          ];
+        }
         appProcess = AppProcess.start({
           repoRoot,
           env: tauriEnv,
-          command: ['yarn', 'tauri:dev'],
+          command,
           logsMode: appLogsMode,
           sessionName: sessionIdentity.sessionName,
         });

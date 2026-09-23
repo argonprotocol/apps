@@ -220,7 +220,8 @@ export class LocalMainnetReview {
       const releasedLotIds = new Set(expectedReleasedBondLotIds);
       const reviewInput = {
         expectedDefaultArgonAddress: account.defaultArgonAccountId,
-        expectedBitcoinLiquidIds: account.legacyBitcoin.migratableIds,
+        expectedBitcoinLiquidIds: [...account.legacyBitcoin.chainFundedIds, ...account.legacyBitcoin.releasedIds],
+        expectedMigratableBitcoinLiquidIds: account.legacyBitcoin.migratableIds,
         expectedArchivedBitcoinLiquidIds: account.legacyBitcoin.releasedIds,
         expectedBondLotIds: account.expected.bondLotIds.filter(id => !releasedLotIds.has(id)),
         expectedFlexibleBondLotIds: account.expected.flexibleBondLotIds.filter(id => !releasedLotIds.has(id)),
@@ -231,7 +232,6 @@ export class LocalMainnetReview {
         expectedVaultBitcoinMapItemCount: account.expected.vaultBitcoinMapItemCount,
         expectedVaultBondMapItemCount: account.expected.vaultBondMapItemCount,
         expectsBitcoinLiquid: account.selection.features.includes('bitcoin'),
-        expectsBondFinancials: account.selection.features.includes('bonds'),
         expectsConfiguredServer: account.expected.configuredServer,
         expectsOperations: account.expected.operations,
         expectsTreasury: account.expected.treasury,
@@ -415,8 +415,24 @@ export class LocalMainnetReview {
 
   private static loadRegistry(path: string): StartingDatabaseRegistry {
     const registry = JSON.parse(readFileSync(path, 'utf8')) as StartingDatabaseRegistry;
-    if (registry.formatVersion !== 1 || !Array.isArray(registry.accounts)) {
+    if (registry.formatVersion !== 3 || !Array.isArray(registry.accounts)) {
       throw new Error(`Invalid starting database registry: ${path}`);
+    }
+    const qualificationFailures: string[] = [];
+    if (!registry.coverage?.complete) qualificationFailures.push('coverage is incomplete');
+    if (!Array.isArray(registry.failures)) qualificationFailures.push('capture failures are missing');
+    else if (registry.failures.length) qualificationFailures.push(`${registry.failures.length} capture(s) failed`);
+    if (registry.accounts.length !== registry.selection?.selectedAccounts) {
+      qualificationFailures.push('captured account count does not match selection');
+    }
+    if (registry.coverage?.completeHistoryAccounts !== registry.selection?.selectedAccounts) {
+      qualificationFailures.push('history coverage does not include every selected account');
+    }
+    if (registry.accounts.some(account => !account.history?.complete)) {
+      qualificationFailures.push('one or more account histories are incomplete');
+    }
+    if (qualificationFailures.length) {
+      throw new Error(`Starting database registry is not qualified: ${qualificationFailures.join('; ')}: ${path}`);
     }
     for (const account of registry.accounts) {
       const packagePath = realpathSync(account.instancePackagePath);
