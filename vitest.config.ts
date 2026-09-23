@@ -37,28 +37,28 @@ export default defineConfig({
           browser: {
             enabled: true,
             headless: true,
-            provider: playwright({}),
+            provider: playwright({ contextOptions: { viewport: { width: 1200, height: 900 } } }),
             instances: [{ browser: 'chromium' }],
             commands: storybookScreenshotDir
               ? {
-                  captureStory: async ({ page }, name: string) => {
-                    await page.evaluate(() => {
+                  captureStory: async ({ frame }, name: string) => {
+                    const storyFrame = await frame();
+                    await storyFrame.evaluate(() => {
                       (document.activeElement as HTMLElement | null)?.blur();
                       document.querySelectorAll('img').forEach(image => (image.loading = 'eager'));
                     });
-                    await page.mouse.move(0, 0);
-                    await page.waitForFunction(
+                    await storyFrame.waitForFunction(
                       () => document.fonts.status === 'loaded' && [...document.images].every(image => image.complete),
                       undefined,
                       { timeout: 10_000 },
                     );
-                    await page.evaluate(
+                    await storyFrame.evaluate(
                       () =>
                         new Promise<void>(resolve =>
                           requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
                         ),
                     );
-                    await page.screenshot({
+                    await storyFrame.locator('body').screenshot({
                       path: path.join(storybookScreenshotDir, `${name}.png`),
                       animations: 'disabled',
                       caret: 'hide',
