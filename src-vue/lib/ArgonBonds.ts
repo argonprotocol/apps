@@ -92,6 +92,9 @@ export class ArgonBonds {
   private waitForLoad?: IDeferred<void>;
   private isGlobalSubscribed = false;
   private readonly vaultSubscriptionArgs = new Map<number, IVaultBondSubscription>();
+  private nextVaultRefreshVersion = 0;
+  private lastTotalActiveBondsRefreshVersion = 0;
+  private readonly publishedVaultRefreshVersions = new Map<number, number>();
   private readonly historyRecovery: ArgonBondsRecovery;
   private recoveredHistoryFacts: IBondHistoryFact[] = [];
   private finalizedHistoryQueue = Promise.resolve();
@@ -329,6 +332,7 @@ export class ArgonBonds {
   }
 
   public async refreshVault(args: IVaultBondSubscription, client?: ArgonQueryClient): Promise<void> {
+    const refreshVersion = ++this.nextVaultRefreshVersion;
     client ??= await getMainchainClient(false);
 
     const vault = this.getVaultBonds(args.vaultId);
@@ -346,7 +350,12 @@ export class ArgonBonds {
           }),
     ]);
 
-    this.data.totalActiveBonds = activeBonds.totalActiveBonds;
+    if (refreshVersion < (this.publishedVaultRefreshVersions.get(args.vaultId) ?? 0)) return;
+    this.publishedVaultRefreshVersions.set(args.vaultId, refreshVersion);
+    if (refreshVersion >= this.lastTotalActiveBondsRefreshVersion) {
+      this.data.totalActiveBonds = activeBonds.totalActiveBonds;
+      this.lastTotalActiveBondsRefreshVersion = refreshVersion;
+    }
     this.data.capacityStatesByVault[args.vaultId] = bondState.capacityState;
     vault.bondLots = this.excludeRecordedReleases(bondState.bondLots);
     vault.ordinaryBonds = bondState.ordinaryBonds;

@@ -362,13 +362,7 @@ export class BitcoinFissions {
   private restoreLoadedState(records: readonly IBitcoinFissionRecord[], current: readonly BitcoinFission[]): void {
     const currentIds = new Set(current.map(fission => fission.fissionId));
     // Migrated rows are reconstruction seeds. Load one only after the chain confirms it active or replay records its closure.
-    const recordsWithKnownLifecycle = records.filter(record => {
-      return (
-        record.origin !== 'lock-migration' ||
-        record.closedAtArgonBlock !== undefined ||
-        currentIds.has(record.fissionId)
-      );
-    });
+    const recordsWithKnownLifecycle = records.filter(record => this.hasKnownLifecycle(record, currentIds));
     const retainedIds = new Set(recordsWithKnownLifecycle.map(record => record.fissionId));
     for (const fission of current) retainedIds.add(fission.fissionId);
     for (const fission of this.getRecords()) {
@@ -411,7 +405,11 @@ export class BitcoinFissions {
   }
 
   private async updateRecoveredState(records: readonly IBitcoinFissionRecord[]): Promise<void> {
-    for (const record of records) {
+    const recordsWithKnownLifecycle = records.filter(record =>
+      this.hasKnownLifecycle(record, this.data.activeFissionIds),
+    );
+    if (!recordsWithKnownLifecycle.length) return;
+    for (const record of recordsWithKnownLifecycle) {
       const fission = this.data.fissionsById[record.fissionId];
       if (!fission) this.data.fissionsById[record.fissionId] = new BitcoinFission(record);
       else if (this.data.activeFissionIds.has(record.fissionId)) fission.enrichRecoveredHistory(record);
@@ -423,7 +421,7 @@ export class BitcoinFissions {
       try {
         await this.loadPendingMints(
           client,
-          records.flatMap(record => {
+          recordsWithKnownLifecycle.flatMap(record => {
             const fission = this.data.fissionsById[record.fissionId];
             return fission ? [fission] : [];
           }),
@@ -434,6 +432,12 @@ export class BitcoinFissions {
       }
     }
     if (this.data.readiness === 'ready') this.data.financialRevision += 1;
+  }
+
+  private hasKnownLifecycle(record: IBitcoinFissionRecord, activeIds: ReadonlySet<number>): boolean {
+    return (
+      record.origin !== 'lock-migration' || record.closedAtArgonBlock !== undefined || activeIds.has(record.fissionId)
+    );
   }
 
   private updateFissionFromRecord(record: IBitcoinFissionRecord): void {

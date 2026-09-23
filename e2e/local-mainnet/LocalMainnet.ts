@@ -18,6 +18,7 @@ export interface LocalMainnetDeployment {
 export interface LocalMainnetAppOptions {
   appsDirectory: string;
   instanceName: string;
+  tauriDevConfig?: AppSessionOptions['tauriDevConfig'];
   appLogsMode?: AppLogsMode;
   sourceInstancePackagePath?: string;
   autoEnableOperations?: boolean;
@@ -92,6 +93,7 @@ export class LocalMainnet {
       instanceName,
       appLogsMode = 'inherit',
       sourceInstancePackagePath,
+      tauriDevConfig,
       autoEnableOperations,
       focusAppWindow,
     } = options;
@@ -126,6 +128,7 @@ export class LocalMainnet {
     try {
       const session = await startSession({
         repoRoot: canonicalAppsDirectory,
+        tauriDevConfig,
         sessionName: instanceName,
         sessionMode: 'stateful',
         useTestNetwork: false,

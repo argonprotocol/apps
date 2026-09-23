@@ -98,6 +98,13 @@ describe('Bitcoin Fission current state', () => {
     expect(fissions.getArchived()).toEqual([]);
     expect(fissions.getLiquids()).toEqual([expect.objectContaining({ liquidId: active.liquidId })]);
 
+    const revisionBeforeRecovery = fissions.data.financialRevision;
+    await fissions.publishRecoveredHistory([historical]);
+
+    expect(fissions.getArchived()).toEqual([]);
+    expect(fissions.getLiquids()).toEqual([expect.objectContaining({ liquidId: active.liquidId })]);
+    expect(fissions.data.financialRevision).toBe(revisionBeforeRecovery);
+
     const recoveredHistorical = {
       ...historical,
       closedAtArgonBlock: 170,
@@ -113,6 +120,7 @@ describe('Bitcoin Fission current state', () => {
     expect(fissions.getArchived()).toEqual([
       expect.objectContaining({ fissionId: historical.fissionId, closedAtArgonBlock: 170 }),
     ]);
+    expect(fissions.data.financialRevision).toBe(revisionBeforeRecovery + 1);
     expect(fissions.getLiquids()).toEqual([
       expect.objectContaining({
         liquidId: historical.liquidId,

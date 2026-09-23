@@ -6,6 +6,14 @@ interface IAccountReviewFlowContext {
   flow: IE2EFlowRuntime;
 }
 
+function includesIds(actual: readonly number[], expected: readonly number[]): boolean {
+  return expected.every(id => actual.includes(id));
+}
+
+function matchesIds(actual: readonly number[], expected: readonly number[]): boolean {
+  return actual.length === expected.length && includesIds(actual, expected);
+}
+
 type IAccountReviewFlowState = IE2EOperationInspectState<
   {
     archivedBitcoinLiquidIds: number[];
@@ -47,7 +55,9 @@ type IAccountReviewFlowState = IE2EOperationInspectState<
     dataReady: boolean;
     incompleteBitcoinLiquids: Array<{ liquidId: number; issues: string[] }>;
     incompleteBondLots: Array<{ bondLotId: number; issues: string[] }>;
+    invalidFinancialLabels: string[];
     invalidFinancialReturns: string[];
+    expectationFailures: string[];
   }
 >;
 
@@ -58,6 +68,7 @@ export default new OperationalFlow<IAccountReviewFlowContext, IAccountReviewFlow
   async inspect({ flow }) {
     const expectsBitcoinLiquid = flow.input.expectsBitcoinLiquid === true;
     const expectedBitcoinLiquidIds = (flow.input.expectedBitcoinLiquidIds ?? []) as number[];
+    const expectedMigratableBitcoinLiquidIds = flow.input.expectedMigratableBitcoinLiquidIds as number[] | undefined;
     const expectedArchivedBitcoinLiquidIds = (flow.input.expectedArchivedBitcoinLiquidIds ?? []) as number[];
     const expectedBondLotIds = (flow.input.expectedBondLotIds ?? []) as number[];
     const expectedFlexibleBondLotIds = (flow.input.expectedFlexibleBondLotIds ?? []) as number[];
@@ -103,6 +114,9 @@ export default new OperationalFlow<IAccountReviewFlowContext, IAccountReviewFlow
         const percent = group.returnSummary.percent;
         return percent !== undefined && !Number.isFinite(percent) ? [group.group] : [];
       });
+      const invalidFinancialLabels = financials.groups.flatMap(group =>
+        group.positions.flatMap(position => (position.label.trim() ? [] : [position.id])),
+      );
       if (financials.accountReturn.percent !== undefined && !Number.isFinite(financials.accountReturn.percent)) {
         invalidFinancialReturns.push('account');
       }
@@ -157,6 +171,7 @@ export default new OperationalFlow<IAccountReviewFlowContext, IAccountReviewFlow
         financialSnapshot: financials,
         incompleteBitcoinLiquids,
         incompleteBondLots,
+        invalidFinancialLabels,
         invalidFinancialReturns,
       };
     });
@@ -207,36 +222,14 @@ export default new OperationalFlow<IAccountReviewFlowContext, IAccountReviewFlow
     const expectsVault = flow.input.expectsVault !== false;
     const expectsOperations = flow.input.expectsOperations !== false;
     const expectsTreasury = flow.input.expectsTreasury !== false;
-    const hasRecoveredBitcoinLiquid =
-      (!expectsBitcoinLiquid || bitcoinLiquidIds.length > 0) &&
-      expectedArchivedBitcoinLiquidIds.every(id => archivedBitcoinLiquidIds.includes(id));
-    const hasExpectedBitcoinLiquidIds = expectedBitcoinLiquidIds.every(id => bitcoinLiquidIds.includes(id));
-    const hasExpectedBondLotIds =
-      expectedBondLotIds.length === bondLotIds.length && expectedBondLotIds.every(id => bondLotIds.includes(id));
-    const hasExpectedFlexibleBondLotIds =
-      expectedFlexibleBondLotIds.length === flexibleBondLotIds.length &&
-      expectedFlexibleBondLotIds.every(id => flexibleBondLotIds.includes(id));
-    const hasExpectedStakeLotIds =
-      expectedStakeLotIds.length === stakeLotIds.length && expectedStakeLotIds.every(id => stakeLotIds.includes(id));
-    const hasExpectedHistoricalBondLotIds = expectedHistoricalBondLotIds.every(id => historicalBondLotIds.includes(id));
-    const hasExpectedHistoricalStakeLotIds = expectedHistoricalStakeLotIds.every(id =>
-      historicalStakeLotIds.includes(id),
-    );
-    const hasExpectedReleasedBondLotIds = expectedReleasedBondLotIds.every(
-      id => historicalBondLotIds.includes(id) || historicalStakeLotIds.includes(id),
-    );
     const expectsBondFinancials = flow.input.expectsBondFinancials === true;
-    const hasExpectedBondFinancials = !expectsBondFinancials || bondLotIds.length + stakeLotIds.length > 0;
-    const hasExpectedVaultBitcoinMap =
-      expectedVaultBitcoinMapItemCount === undefined ||
-      (appState?.vaultBitcoinMapItemCount ?? 0) >= expectedVaultBitcoinMapItemCount;
-    const hasExpectedVaultBondMap =
-      expectedVaultBondMapItemCount === undefined ||
-      (appState?.vaultBondMapItemCount ?? 0) >= expectedVaultBondMapItemCount;
     const hasExpectedIdentity = expectedDefaultArgonAddress
       ? appState?.defaultArgonAddress === expectedDefaultArgonAddress
       : !!expectedEthereumAddress &&
-        appState?.defaultEthereumAddress.toLowerCase() === expectedEthereumAddress.toLowerCase();
+        appState?.defaultEthereumAddress?.toLowerCase() === expectedEthereumAddress.toLowerCase();
+    const hasLoadedIdentity = expectedDefaultArgonAddress
+      ? Boolean(appState?.defaultArgonAddress)
+      : Boolean(appState?.defaultEthereumAddress);
     const hasExpectedServerState = expectsConfiguredServer
       ? appState?.configuredServerLoaded && serverUnavailableVisible
       : !appState?.configuredServerLoaded && !serverUnavailableVisible;
@@ -246,45 +239,105 @@ export default new OperationalFlow<IAccountReviewFlowContext, IAccountReviewFlow
     const hasLoadedFinancialPositions =
       financialSnapshot?.readiness === 'ready' &&
       financialSnapshot.groups.every(group => group.state === 'ready' || group.state === 'stale');
-    const hasCompleteBitcoinLiquids = appState?.incompleteBitcoinLiquids.length === 0;
-    const hasCompleteBondLots = appState?.incompleteBondLots.length === 0;
-    const hasValidFinancialReturns = appState?.invalidFinancialReturns.length === 0;
-    const financialPositionBlockers: string[] = [];
+    const readinessBlockers: string[] = [];
+    if (appState?.canSign !== false) readinessBlockers.push('app still reports signing access');
+    if (!badgeVisible) readinessBlockers.push('readonly badge is not visible');
+    if (appState?.recoveryInProgress) readinessBlockers.push('blockchain history recovery is still in progress');
+    if (!hasLoadedIdentity) readinessBlockers.push('wallet metadata identity was not loaded');
     if (!hasLoadedFinancialPositions) {
+      const blockerCount = readinessBlockers.length;
       for (const { group, state, message } of financialSnapshot?.groups.filter(
         group => group.state !== 'ready' && group.state !== 'stale',
       ) ?? []) {
-        financialPositionBlockers.push(`${group} financials are ${state}${message ? `: ${message}` : ''}`);
+        readinessBlockers.push(`${group} financials are ${state}${message ? `: ${message}` : ''}`);
       }
-      if (!financialPositionBlockers.length) {
-        financialPositionBlockers.push(`financial positions are ${financialSnapshot?.readiness ?? 'loading'}`);
+      if (readinessBlockers.length === blockerCount) {
+        readinessBlockers.push(`financial positions are ${financialSnapshot?.readiness ?? 'loading'}`);
       }
     }
-    const isDataReady =
-      appState?.canSign === false &&
-      badgeVisible &&
-      !appState?.recoveryInProgress &&
-      appState?.hasOperationsAccess === expectsOperations &&
-      appState?.hasTreasuryAccess === expectsTreasury &&
-      hasExpectedIdentity &&
-      hasExpectedServerState &&
-      hasExpectedUpstreamState &&
-      hasLoadedFinancialPositions &&
-      hasCompleteBitcoinLiquids &&
-      hasCompleteBondLots &&
-      hasValidFinancialReturns &&
-      (!expectsVault || appState?.vaultId != null) &&
-      hasRecoveredBitcoinLiquid &&
-      hasExpectedBitcoinLiquidIds &&
-      hasExpectedBondLotIds &&
-      hasExpectedFlexibleBondLotIds &&
-      hasExpectedStakeLotIds &&
-      hasExpectedHistoricalBondLotIds &&
-      hasExpectedHistoricalStakeLotIds &&
-      hasExpectedReleasedBondLotIds &&
-      hasExpectedBondFinancials &&
-      hasExpectedVaultBitcoinMap &&
-      hasExpectedVaultBondMap;
+    for (const { liquidId, issues } of appState?.incompleteBitcoinLiquids ?? []) {
+      readinessBlockers.push(`Bitcoin Liquid ${liquidId} is incomplete: ${issues.join(', ')}`);
+    }
+    for (const { bondLotId, issues } of appState?.incompleteBondLots ?? []) {
+      readinessBlockers.push(`Bond lot ${bondLotId} is incomplete: ${issues.join(', ')}`);
+    }
+    if (appState?.invalidFinancialReturns.length) {
+      readinessBlockers.push(`financial returns are invalid: ${appState.invalidFinancialReturns.join(', ')}`);
+    }
+
+    const expectationFailures: string[] = [];
+    if (appState?.hasOperationsAccess !== expectsOperations) {
+      expectationFailures.push(`operations access should be ${expectsOperations ? 'enabled' : 'disabled'}`);
+    }
+    if (appState?.hasTreasuryAccess !== expectsTreasury) {
+      expectationFailures.push(`treasury access should be ${expectsTreasury ? 'enabled' : 'disabled'}`);
+    }
+    if (!hasExpectedIdentity) expectationFailures.push('wallet metadata identity does not match the account package');
+    if (!hasExpectedServerState) expectationFailures.push('configured server state does not match the account package');
+    if (!hasExpectedUpstreamState)
+      expectationFailures.push('upstream operator state does not match the account package');
+    if (expectsVault && appState?.vaultId == null) expectationFailures.push('on-chain vault state was not loaded');
+    if (expectsBitcoinLiquid && !bitcoinLiquidIds.length) {
+      expectationFailures.push('expected Bitcoin Liquid history was not loaded');
+    }
+    if (expectedMigratableBitcoinLiquidIds) {
+      const migratedBitcoinLiquidIds = bitcoinLiquidIds.filter(id => expectedMigratableBitcoinLiquidIds.includes(id));
+      const migratedArchivedBitcoinLiquidIds = archivedBitcoinLiquidIds.filter(id =>
+        expectedMigratableBitcoinLiquidIds.includes(id),
+      );
+      if (!matchesIds(migratedArchivedBitcoinLiquidIds, expectedArchivedBitcoinLiquidIds)) {
+        expectationFailures.push('migrated Bitcoin Liquid lifecycle did not match the captured locks');
+      }
+      if (!matchesIds(migratedBitcoinLiquidIds, expectedBitcoinLiquidIds)) {
+        expectationFailures.push('migrated Bitcoin Liquid publication did not match the captured chain and history');
+      }
+    } else {
+      if (!includesIds(archivedBitcoinLiquidIds, expectedArchivedBitcoinLiquidIds)) {
+        expectationFailures.push('expected archived Bitcoin Liquid history was not recovered');
+      }
+      if (!includesIds(bitcoinLiquidIds, expectedBitcoinLiquidIds)) {
+        expectationFailures.push('expected Bitcoin Liquid history was not loaded');
+      }
+    }
+    if (!matchesIds(bondLotIds, expectedBondLotIds))
+      expectationFailures.push('expected bond positions were not loaded');
+    if (!matchesIds(flexibleBondLotIds, expectedFlexibleBondLotIds)) {
+      expectationFailures.push('expected flexible bond positions were not loaded');
+    }
+    if (!matchesIds(stakeLotIds, expectedStakeLotIds))
+      expectationFailures.push('expected stake positions were not loaded');
+    if (!includesIds(historicalBondLotIds, expectedHistoricalBondLotIds)) {
+      expectationFailures.push('expected historical bond positions were not loaded');
+    }
+    if (!includesIds(historicalStakeLotIds, expectedHistoricalStakeLotIds)) {
+      expectationFailures.push('expected historical stake positions were not loaded');
+    }
+    const releasedLotIds = [...historicalBondLotIds, ...historicalStakeLotIds];
+    if (!includesIds(releasedLotIds, expectedReleasedBondLotIds)) {
+      expectationFailures.push('chain-released bond lots were not loaded as history');
+    }
+    if (expectsBondFinancials && !bondLotIds.length && !stakeLotIds.length) {
+      expectationFailures.push('no bond or stake financial positions were loaded');
+    }
+    if (
+      expectedVaultBitcoinMapItemCount !== undefined &&
+      (appState?.vaultBitcoinMapItemCount ?? 0) < expectedVaultBitcoinMapItemCount
+    ) {
+      expectationFailures.push('vault Bitcoin treemap omitted expected positions');
+    }
+    if (
+      expectedVaultBondMapItemCount !== undefined &&
+      (appState?.vaultBondMapItemCount ?? 0) < expectedVaultBondMapItemCount
+    ) {
+      expectationFailures.push('vault bond treemap omitted expected positions');
+    }
+    if (appState?.invalidFinancialLabels.length) {
+      expectationFailures.push(`financial positions have blank labels: ${appState.invalidFinancialLabels.join(', ')}`);
+    }
+    const isDataReady = readinessBlockers.length === 0;
+    const uiValidated = flow.getData<boolean>('App.flow.accountReview.uiValidated') === true;
+    const blockers = [...readinessBlockers, ...expectationFailures];
+    if (!uiValidated) blockers.push('account UI validation pending');
 
     return {
       chainState: {
@@ -327,53 +380,12 @@ export default new OperationalFlow<IAccountReviewFlowContext, IAccountReviewFlow
         dataReady: Boolean(isDataReady),
         incompleteBitcoinLiquids: appState?.incompleteBitcoinLiquids ?? [],
         incompleteBondLots: appState?.incompleteBondLots ?? [],
+        invalidFinancialLabels: appState?.invalidFinancialLabels ?? [],
         invalidFinancialReturns: appState?.invalidFinancialReturns ?? [],
+        expectationFailures,
       },
-      state:
-        isDataReady && flow.getData<boolean>('App.flow.accountReview.uiValidated') === true ? 'complete' : 'runnable',
-      blockers: [
-        ...(appState?.canSign === false ? [] : ['app still reports signing access']),
-        ...(badgeVisible ? [] : ['readonly badge is not visible']),
-        ...(!appState?.recoveryInProgress ? [] : ['blockchain history recovery is still in progress']),
-        ...(appState?.hasOperationsAccess === expectsOperations
-          ? []
-          : [`operations access should be ${expectsOperations ? 'enabled' : 'disabled'}`]),
-        ...(appState?.hasTreasuryAccess === expectsTreasury
-          ? []
-          : [`treasury access should be ${expectsTreasury ? 'enabled' : 'disabled'}`]),
-        ...(hasExpectedIdentity ? [] : ['wallet metadata identity was not loaded']),
-        ...(hasExpectedServerState ? [] : ['configured server state does not match the account package']),
-        ...(hasExpectedUpstreamState ? [] : ['upstream operator state does not match the account package']),
-        ...financialPositionBlockers,
-        ...(hasCompleteBitcoinLiquids
-          ? []
-          : (appState?.incompleteBitcoinLiquids ?? []).map(({ liquidId, issues }) => {
-              return `Bitcoin Liquid ${liquidId} is incomplete: ${issues.join(', ')}`;
-            })),
-        ...(hasCompleteBondLots
-          ? []
-          : (appState?.incompleteBondLots ?? []).map(({ bondLotId, issues }) => {
-              return `Bond lot ${bondLotId} is incomplete: ${issues.join(', ')}`;
-            })),
-        ...(hasValidFinancialReturns
-          ? []
-          : [`financial returns are invalid: ${appState?.invalidFinancialReturns.join(', ') ?? ''}`]),
-        ...(!expectsVault || appState?.vaultId != null ? [] : ['on-chain vault state was not loaded']),
-        ...(hasRecoveredBitcoinLiquid ? [] : ['expected archived Bitcoin Liquid history was not recovered']),
-        ...(hasExpectedBitcoinLiquidIds ? [] : ['expected Bitcoin Liquid history was not loaded']),
-        ...(hasExpectedBondLotIds ? [] : ['expected bond positions were not loaded']),
-        ...(hasExpectedFlexibleBondLotIds ? [] : ['expected flexible bond positions were not loaded']),
-        ...(hasExpectedStakeLotIds ? [] : ['expected stake positions were not loaded']),
-        ...(hasExpectedHistoricalBondLotIds ? [] : ['expected historical bond positions were not loaded']),
-        ...(hasExpectedHistoricalStakeLotIds ? [] : ['expected historical stake positions were not loaded']),
-        ...(hasExpectedReleasedBondLotIds ? [] : ['chain-released bond lots were not loaded as history']),
-        ...(hasExpectedBondFinancials ? [] : ['no bond or stake financial positions were loaded']),
-        ...(hasExpectedVaultBitcoinMap ? [] : ['vault Bitcoin treemap omitted expected positions']),
-        ...(hasExpectedVaultBondMap ? [] : ['vault bond treemap omitted expected positions']),
-        ...(flow.getData<boolean>('App.flow.accountReview.uiValidated') === true
-          ? []
-          : ['account UI validation pending']),
-      ],
+      state: blockers.length === 0 ? 'complete' : 'runnable',
+      blockers,
     };
   },
   async run({ flow }) {
@@ -384,6 +396,11 @@ export default new OperationalFlow<IAccountReviewFlowContext, IAccountReviewFlow
     });
     const financialSnapshot = ready.chainState.financialSnapshot;
     if (!financialSnapshot) throw new Error('Account review did not produce financial state');
+    if (ready.uiState.expectationFailures.length) {
+      throw new Error(
+        `Account loaded but did not match its expected state: ${ready.uiState.expectationFailures.join('; ')}`,
+      );
+    }
     const bitcoinLiquidPositions = financialSnapshot.groupSummaries.bitcoin.positions.filter(
       position => position.kind === 'bitcoin-liquid',
     );

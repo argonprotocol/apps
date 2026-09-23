@@ -151,6 +151,55 @@ describe('ArgonBonds', () => {
     expect(argonBonds.getFlexibleBondDisplacementPercent(4)).toBe(0);
   });
 
+  it('does not overwrite newer vault market state when an older request finishes last', async () => {
+    const oldClient = {} as Parameters<typeof TreasuryBonds.getActiveBonds>[0];
+    const newClient = {} as Parameters<typeof TreasuryBonds.getActiveBonds>[0];
+    const oldActiveBonds = createDeferred<Awaited<ReturnType<typeof TreasuryBonds.getActiveBonds>>>(false);
+    const getActiveBonds = vi
+      .spyOn(TreasuryBonds, 'getActiveBonds')
+      .mockImplementation(client =>
+        client === oldClient ? oldActiveBonds.promise : Promise.resolve({ totalActiveBonds: 20, vaultActiveBonds: 20 }),
+      );
+    const getVaultBondState = vi.spyOn(TreasuryBonds, 'getVaultBondState').mockImplementation(async client => ({
+      bondLots: [],
+      capacityState: [],
+      ordinaryBonds: client === oldClient ? 10 : 20,
+      flexibleBonds: 0,
+      reservedBondSpace: 0,
+    }));
+    const getCurrentFrameBondLots = vi.spyOn(TreasuryBonds, 'getCurrentFrameBondLots').mockResolvedValue({
+      bondLots: [],
+      totalActiveBonds: 0,
+      flexibleBondsEligible: 0,
+      distributedEarnings: 0n,
+    });
+    const argonBonds = new ArgonBonds(
+      Promise.resolve({} as any),
+      { isLoadedPromise: Promise.resolve(), upstreamOperator: undefined },
+      new Currency({ events: { on: vi.fn() } } as any),
+      {} as any,
+      { defaultArgonAddress: accountId } as any,
+    );
+    argonBonds.data.currentFrameId = 4;
+
+    try {
+      const oldRefresh = argonBonds.refreshVault({ vaultId: 4, operatorAddress: accountId }, oldClient);
+      await argonBonds.refreshVault({ vaultId: 4, operatorAddress: accountId }, newClient);
+      oldActiveBonds.resolve({ totalActiveBonds: 10, vaultActiveBonds: 10 });
+      await oldRefresh;
+
+      expect(argonBonds.data.totalActiveBonds).toBe(20);
+      expect(argonBonds.getVaultBonds(4)).toMatchObject({
+        ordinaryBonds: 20,
+        currentFrame: { vaultBonds: 20 },
+      });
+    } finally {
+      getActiveBonds.mockRestore();
+      getVaultBondState.mockRestore();
+      getCurrentFrameBondLots.mockRestore();
+    }
+  });
+
   it('keeps best-chain bond purchases visible during active-state recovery', async () => {
     const lotCodec = createRuntimeBondLot({
       owner: accountId,

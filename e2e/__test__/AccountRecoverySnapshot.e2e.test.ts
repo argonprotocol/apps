@@ -3,7 +3,89 @@ import os from 'node:os';
 import Path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { afterEach, describe, expect, it } from 'vitest';
+import {
+  type FinancialGroup,
+  type IFinancialAggregate,
+  type IFinancialGroupSummary,
+  type IWalletHoldingFinancialPosition,
+} from 'src-vue/interfaces/IFinancialPosition.ts';
 import { AccountRecoverySnapshot } from '../local-mainnet/AccountRecoverySnapshot.ts';
+
+function createGroupSummary(
+  group: FinancialGroup,
+  positions: IFinancialGroupSummary['positions'] = [],
+): IFinancialGroupSummary {
+  return {
+    group,
+    state: 'ready',
+    isStale: false,
+    positions,
+    currentValue: 1200n,
+    grossAssets: 1200n,
+    grossLiabilities: 0n,
+    observation: { blockNumber: 42, observedAt: new Date('2026-09-21T12:00:00Z') },
+    returnSummary: {
+      availability: 'available',
+      investedCost: 1000n,
+      paidIncome: 0n,
+      settledPrincipalValue: 0n,
+      basisPoints: 250n,
+      percent: 2.5,
+      eligiblePositionCount: positions.length,
+      investmentPositionCount: positions.length,
+    },
+  };
+}
+
+function createFinancials(
+  args: {
+    groupLabel?: string;
+    summaryLabel?: string;
+    startedAt?: Date;
+    grossAssets?: bigint;
+  } = {},
+): IFinancialAggregate {
+  const createPosition = (label: string): IWalletHoldingFinancialPosition => ({
+    id: 'wallet-holding:1',
+    kind: 'wallet-holding',
+    group: 'liquid',
+    label,
+    lifecycle: 'held',
+    accountId: 'account-1',
+    nativeAsset: 'ARGNOT',
+    nativeAmount: 1200n,
+    investedCost: 1000n,
+    paidIncome: 0n,
+    settledPrincipalValue: 0n,
+    startedAt: args.startedAt ?? new Date('2026-09-20T12:00:00Z'),
+  });
+  const groupSummaries = {
+    liquid: createGroupSummary('liquid', [createPosition(args.summaryLabel ?? 'Summary label')]),
+    ethereum: createGroupSummary('ethereum'),
+    base: createGroupSummary('base'),
+    mining: createGroupSummary('mining'),
+    vaulting: createGroupSummary('vaulting'),
+    bonds: createGroupSummary('bonds'),
+    bitcoin: createGroupSummary('bitcoin'),
+  } satisfies IFinancialAggregate['groupSummaries'];
+  const grossAssets = args.grossAssets ?? 1200n;
+  return {
+    readiness: 'ready',
+    isStale: false,
+    grossAssets,
+    grossLiabilities: 0n,
+    netWorth: grossAssets,
+    accountReturn: {
+      availability: 'available',
+      basisPoints: 250n,
+      percent: 2.5,
+      eligiblePositionCount: 1,
+      investmentPositionCount: 1,
+    },
+    groups: [createGroupSummary('liquid', [createPosition(args.groupLabel ?? 'Group label')])],
+    groupSummaries,
+  };
+}
 
 describe('account recovery snapshots', () => {
   const temporaryDirectories: string[] = [];
@@ -44,27 +126,7 @@ describe('account recovery snapshots', () => {
     `);
     database.close();
 
-    const financials = {
-      readiness: 'ready',
-      isStale: false,
-      grossAssets: 1200n,
-      grossLiabilities: 0n,
-      netWorth: 1200n,
-      accountReturn: {
-        availability: 'available',
-        basisPoints: 250n,
-        percent: 2.5,
-        eligiblePositionCount: 1,
-        investmentPositionCount: 1,
-      },
-      groups: [
-        {
-          group: 'bitcoin',
-          observation: { blockNumber: 42, observedAt: new Date('2026-09-21T12:00:00Z') },
-          positions: [{ id: 'bitcoin:1', startedAt: new Date('2026-09-20T12:00:00Z') }],
-        },
-      ],
-    };
+    const financials = createFinancials();
     const first = AccountRecoverySnapshot.capture({ databasePath, financials });
 
     const timestampUpdate = new DatabaseSync(databasePath);
@@ -78,25 +140,24 @@ describe('account recovery snapshots', () => {
     timestampUpdate.close();
     const second = AccountRecoverySnapshot.capture({
       databasePath,
-      financials: {
-        ...financials,
-        groups: [
-          {
-            group: 'bitcoin',
-            observation: { blockNumber: 42, observedAt: new Date('2026-09-21T12:01:00Z') },
-            positions: [{ id: 'bitcoin:1', startedAt: new Date('2026-09-20T12:00:00Z') }],
-          },
-        ],
-      },
+      financials: createFinancials(),
     });
     expect(() => AccountRecoverySnapshot.assertEquivalent(first, second, 'retry')).not.toThrow();
+
+    const changedLabel = AccountRecoverySnapshot.capture({
+      databasePath,
+      financials: createFinancials({ groupLabel: 'Wrong holding label' }),
+    });
+    expect(() => AccountRecoverySnapshot.assertEquivalent(first, changedLabel, 'retry')).toThrow(
+      /financial projection .*label/,
+    );
 
     const financialUpdate = new DatabaseSync(databasePath);
     financialUpdate.exec('UPDATE PositionHistory SET amount = 1300');
     financialUpdate.close();
     const third = AccountRecoverySnapshot.capture({
       databasePath,
-      financials: { ...financials, grossAssets: 1300n, netWorth: 1300n },
+      financials: createFinancials({ grossAssets: 1300n }),
     });
     expect(() => AccountRecoverySnapshot.assertEquivalent(second, third, 'retry')).toThrow(
       /financial projection .*grossAssets.*netWorth.*table PositionHistory .*amount/,
@@ -104,16 +165,7 @@ describe('account recovery snapshots', () => {
 
     const changedDate = AccountRecoverySnapshot.capture({
       databasePath,
-      financials: {
-        ...financials,
-        groups: [
-          {
-            group: 'bitcoin',
-            observation: { blockNumber: 42, observedAt: new Date('2026-09-21T12:02:00Z') },
-            positions: [{ id: 'bitcoin:1', startedAt: new Date('2026-09-20T12:01:00Z') }],
-          },
-        ],
-      },
+      financials: createFinancials({ startedAt: new Date('2026-09-20T12:01:00Z') }),
     });
     expect(() => AccountRecoverySnapshot.assertEquivalent(first, changedDate, 'retry')).toThrow(
       /financial projection .*startedAt.*table PositionHistory .*amount/,

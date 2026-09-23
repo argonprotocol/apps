@@ -167,6 +167,11 @@ export default defineConfig({
         },
       },
       {
+        resolve: {
+          alias: {
+            'src-vue': path.join(dirname, 'src-vue'),
+          },
+        },
         test: {
           name: 'e2e',
           include: [E2E_TEST_GLOB],

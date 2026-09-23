@@ -207,21 +207,26 @@ function closeDetail() {
 }
 
 async function refreshMarketData() {
-  if (!argonBonds.data.vaultId) return;
+  const vaultId = argonBonds.data.vaultId;
+  if (!vaultId) return;
 
-  const client = await getMainchainClient(false);
-  const vault = vaults.vaultsById[argonBonds.data.vaultId];
-  if (!vault) return;
+  try {
+    const client = await getMainchainClient(false);
+    const vault = vaults.vaultsById[vaultId] ?? (await vaults.refreshVault(vaultId));
+    if (!vault) return;
 
-  vaultBondSubscription?.();
-  vaultBondSubscription = await argonBonds.subscribeVault(
-    {
-      vaultId: argonBonds.data.vaultId,
-      operatorAddress: vault.operatorAccountId,
-      accountId: walletKeys.defaultArgonAddress,
-    },
-    client,
-  );
+    vaultBondSubscription?.();
+    vaultBondSubscription = await argonBonds.subscribeVault(
+      {
+        vaultId,
+        operatorAddress: vault.operatorAccountId,
+        accountId: walletKeys.defaultArgonAddress,
+      },
+      client,
+    );
+  } catch (error) {
+    console.warn(`[ArgonBonds] Unable to refresh vault ${vaultId} market data`, error);
+  }
 }
 
 let unsubVault: (() => void) | undefined;
@@ -233,9 +238,15 @@ Vue.onMounted(async () => {
 
   const client = await getMainchainClient(false);
 
-  if (argonBonds.data.vaultId) {
-    unsubVault = await vaults.subscribeToVault(argonBonds.data.vaultId, () => {
-      if (vaultBondSubscription) void refreshMarketData();
+  const vaultId = argonBonds.data.vaultId;
+  if (vaultId) {
+    let initialVaultUpdate = true;
+    unsubVault = await vaults.subscribeToVault(vaultId, () => {
+      if (initialVaultUpdate) {
+        initialVaultUpdate = false;
+        return;
+      }
+      void refreshMarketData();
     });
   }
 
