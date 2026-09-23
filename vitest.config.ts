@@ -1,3 +1,4 @@
+import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { storybookTest } from '@storybook/addon-vitest/vitest-plugin';
@@ -8,6 +9,11 @@ const INTEGRATION_TEST_GLOB = '**/__test__/**/*.integration.test.ts';
 const E2E_TEST_GLOB = 'e2e/__test__/**/*.e2e.test.ts';
 const APP_SETUP_FILE = './vitest.setup.ts';
 const dirname = path.dirname(fileURLToPath(import.meta.url));
+const storybookScreenshotDir = process.env.STORYBOOK_SCREENSHOT_DIR
+  ? path.resolve(dirname, process.env.STORYBOOK_SCREENSHOT_DIR)
+  : undefined;
+
+if (storybookScreenshotDir) fs.mkdirSync(storybookScreenshotDir, { recursive: true });
 
 export default defineConfig({
   test: {
@@ -27,11 +33,39 @@ export default defineConfig({
           name: 'storybook',
           fileParallelism: false,
           maxWorkers: 1,
+          setupFiles: storybookScreenshotDir ? ['./.storybook/visualTestSetup.ts'] : [],
           browser: {
             enabled: true,
             headless: true,
             provider: playwright({}),
             instances: [{ browser: 'chromium' }],
+            commands: storybookScreenshotDir
+              ? {
+                  captureStory: async ({ page }, name: string) => {
+                    await page.evaluate(() => {
+                      (document.activeElement as HTMLElement | null)?.blur();
+                      document.querySelectorAll('img').forEach(image => (image.loading = 'eager'));
+                    });
+                    await page.mouse.move(0, 0);
+                    await page.waitForFunction(
+                      () => document.fonts.status === 'loaded' && [...document.images].every(image => image.complete),
+                      undefined,
+                      { timeout: 10_000 },
+                    );
+                    await page.evaluate(
+                      () =>
+                        new Promise<void>(resolve =>
+                          requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+                        ),
+                    );
+                    await page.screenshot({
+                      path: path.join(storybookScreenshotDir, `${name}.png`),
+                      animations: 'disabled',
+                      caret: 'hide',
+                    });
+                  },
+                }
+              : {},
           },
         },
       },
