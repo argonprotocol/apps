@@ -758,7 +758,6 @@ describe('financials store lifecycle', () => {
       });
     });
     expect(financials.savingsIsLoaded).toBe(true);
-    expect(financials.vaultsIsLoaded).toBe(true);
     expect(financials.financialPositionAggregate.readiness).toBe('error');
   });
 

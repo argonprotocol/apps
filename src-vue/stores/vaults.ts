@@ -1,7 +1,7 @@
 import { Vaults } from '../lib/Vaults';
 import { getDbPromise } from './helpers/dbPromise';
 import { MyVault } from '../lib/MyVault.ts';
-import { reactive, watch } from 'vue';
+import { reactive, shallowReactive, watch } from 'vue';
 import { getConfig, NETWORK_NAME } from './config.ts';
 import { getMiningFrames } from './mainchain.ts';
 import { getCurrency } from './currency.ts';
@@ -25,6 +25,8 @@ let crosschainHistory: CrosschainHistory;
 export function getVaults(): Vaults {
   if (!vaults) {
     vaults = new Vaults(NETWORK_NAME, getCurrency(), getMiningFrames());
+    vaults.currentState = reactive(vaults.currentState);
+    vaults.vaultsById = shallowReactive(vaults.vaultsById);
     vaults.operatorNamesByVaultId = reactive(vaults.operatorNamesByVaultId);
 
     const config = getConfig();
@@ -60,11 +62,19 @@ export function getVaults(): Vaults {
       { immediate: true },
     );
   }
-  void vaults.load().catch(error => {
+  void vaults.loadCurrentState().catch(error => {
     console.error('[Vaults] Unable to load current state', error);
   });
 
   return vaults;
+}
+
+export async function retryVaults(): Promise<void> {
+  try {
+    await getVaults().loadCurrentState(true);
+  } catch (error) {
+    console.warn('[Vaults] Unable to refresh current state', error);
+  }
 }
 
 export function getMyVault(): MyVault {

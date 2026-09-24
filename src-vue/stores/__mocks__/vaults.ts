@@ -4,9 +4,12 @@ import type {
   getKnownCrosschainSourceIdentities as getKnownCrosschainSourceIdentitiesOriginal,
   getMyVault as getMyVaultOriginal,
   getVaults as getVaultsOriginal,
+  retryVaults as retryVaultsOriginal,
 } from '../vaults.ts';
 
 export const getVaults = fn<typeof getVaultsOriginal>();
 export const getMyVault = fn<typeof getMyVaultOriginal>();
 export const getCrosschainHistory = fn<typeof getCrosschainHistoryOriginal>();
 export const getKnownCrosschainSourceIdentities = fn<typeof getKnownCrosschainSourceIdentitiesOriginal>();
+
+export const retryVaults = fn<typeof retryVaultsOriginal>();

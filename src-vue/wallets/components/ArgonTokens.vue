@@ -7,6 +7,7 @@
       <ArgonIcon class="h-6 w-6" />
       <div class="grow">{{ microgonToArgonNm(props.microgons).format('0,0.[00]') }} ARGN</div>
       <div>{{ currency.symbol }}{{ microgonToMoneyNm(props.microgons).format('0,0.00') }}</div>
+      <slot name="argonMenu" />
       <CrosschainMoveButton
         v-if="props.moveDirection"
         :moveToken="MoveToken.ARGN"
@@ -25,6 +26,7 @@
       <ArgonotIcon class="h-6 w-6" />
       <div class="grow">{{ micronotToArgonotNm(props.micronots).format('0,0.[00]') }} ARGNOT</div>
       <div>{{ currency.symbol }}{{ micronotToMoneyNm(props.micronots).format('0,0.00') }}</div>
+      <slot name="argonotMenu" />
       <CrosschainMoveButton
         v-if="props.moveDirection"
         :moveToken="MoveToken.ARGNOT"
@@ -47,6 +49,7 @@
         <slot name="bitcoinAction" />
       </div>
       <div>{{ currency.symbol }}{{ satToMoneyNm(props.satoshis).format('0,0.00') }}</div>
+      <slot name="bitcoinMenu" />
     </li>
     <slot name="bitcoinDetails" />
     <li v-if="props.microgonsToMint" class="relative flex flex-row gap-x-2 border-b border-slate-400/50 py-2">

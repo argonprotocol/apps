@@ -1,12 +1,17 @@
 import type { Meta, StoryObj } from '@storybook/vue3-vite';
-import { userEvent, within } from 'storybook/test';
+import { expect, mocked, userEvent, waitFor, within } from 'storybook/test';
 import AppScreen from '../../components/AppScreen.vue';
 import {
   setupBitcoinEmptyScenario,
   setupBitcoinPortfolioScenario,
 } from '../../scenarios/setupBitcoinPortfolioScenario.ts';
 import Bitcoin from '../../../src-vue/screens/Bitcoin.vue';
-import { getBitcoinFissions } from '../../../src-vue/stores/bitcoin.ts';
+import { BitcoinLockStatus } from '../../../src-vue/interfaces/IBitcoinLockRecord.ts';
+import {
+  getBitcoinFissions,
+  getBitcoinLocks,
+  getBitcoinTransactionOperations,
+} from '../../../src-vue/stores/bitcoin.ts';
 import { useCertificationController } from '../../../src-vue/stores/certificationController.ts';
 
 const meta = {
@@ -152,7 +157,7 @@ export const CreateLiquidForTreasuryCertification: Story = {
     await userEvent.click(canvas.getByRole('button', { name: /Create.*Liquid/ }));
 
     const dialog = within(await within(canvasElement.ownerDocument.body).findByRole('dialog'));
-    await userEvent.click(dialog.getByRole('button', { name: 'Select Vaults' }));
+    await userEvent.click(dialog.getByRole('button', { name: /Use Selected Vaults/ }));
     const certificationAmount = await dialog.findByText('Certification');
     if (certificationAmount.tagName === 'BUTTON') await userEvent.click(certificationAmount);
   },
@@ -208,6 +213,56 @@ export const CreateLiquidWithoutSecuritization: Story = {
   },
 };
 
+export const CreateLiquidVaultCapacityRetried: Story = {
+  beforeEach: () => {
+    setupBitcoinPortfolioScenario();
+    mocked(getBitcoinTransactionOperations().bitcoinLiquidCreate.preview).mockRejectedValueOnce(
+      new Error('Unable to check vault securitization.'),
+    );
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    const body = within(canvasElement.ownerDocument.body);
+    await userEvent.click(canvas.getByRole('button', { name: /Create.*Liquid/ }));
+    await userEvent.click(await body.findByRole('button', { name: 'Retry' }));
+  },
+};
+
+export const CreateLiquidVaultCapacityApplied: Story = {
+  beforeEach: () => {
+    setupBitcoinPortfolioScenario();
+    const activeLocks = getBitcoinLocks()
+      .getAllLocks()
+      .filter(lock => lock.status === BitcoinLockStatus.LockFunded && lock.lockId != null);
+    const maximumSatoshisByLockId = Object.fromEntries(
+      activeLocks.map((lock, index) => [lock.lockId!, index === 0 ? 1_000_000n : lock.fundedSatoshis]),
+    );
+    mocked(getBitcoinTransactionOperations().bitcoinLiquidCreate.preview)
+      .mockResolvedValueOnce({
+        microgonsAtTargetPerBtc: 6_800_000_000n,
+        microgonsAtTargetPerBtcTick: 10_000,
+        liquidityMicrogons: 68_000_000_000n,
+        totalSecurityFeeMicrogons: 136_000_000n,
+        securityFeeMicrogons: 108_800_000n,
+        couponCreditMicrogons: 0n,
+        maximumSatoshisByLockId,
+      })
+      .mockImplementation(() => new Promise(() => undefined));
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    const body = within(canvasElement.ownerDocument.body);
+    await userEvent.click(canvas.getByRole('button', { name: /Create.*Liquid/ }));
+    await waitFor(() => expect(body.queryByText('Checking vault securitization...')).not.toBeInTheDocument());
+    await userEvent.click(body.getByRole('button', { name: /Use Selected Vaults/ }));
+    await waitFor(() =>
+      expect(
+        body.getAllByRole('alert').some(alert => alert.textContent?.includes('can currently securitize only')),
+      ).toBe(true),
+    );
+  },
+};
+
 export const CloseWhileCreatingLiquid: Story = {
   beforeEach: () => {
     setupBitcoinPortfolioScenario({ pendingLiquidCreation: true });
@@ -218,8 +273,8 @@ export const CloseWhileCreatingLiquid: Story = {
     const body = within(canvasElement.ownerDocument.body);
 
     await userEvent.click(canvas.getByRole('button', { name: /Create.*Liquid/ }));
-    await userEvent.click(await body.findByRole('button', { name: 'Select Vaults' }));
-    await userEvent.click(await body.findByRole('button', { name: 'Create Liquid' }));
+    await userEvent.click(await body.findByRole('button', { name: /Use Selected Vaults/ }));
+    await userEvent.click(await body.findByRole('button', { name: /^Create Liquid/ }));
     await body.findByText('Creating Liquid...');
     await userEvent.click(await body.findByTestId('OverlayBase.clickClose()'));
   },

@@ -86,9 +86,9 @@ export class SyncStateTable extends BaseTable {
   public async upsert<KEY extends SyncStateKeys>(key: KEY, state: ISyncSchemas[KEY]): Promise<void> {
     await this.db.execute(
       `INSERT INTO SyncState (key, state) 
-        VALUES (?1, ?2)
+        VALUES (?, ?)
         ON CONFLICT(key) DO UPDATE SET 
-          state = ?2,
+          state = excluded.state,
           updatedAt = CURRENT_TIMESTAMP`,
       toSqlParams([key, state]),
     );

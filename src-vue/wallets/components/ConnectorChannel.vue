@@ -57,6 +57,13 @@
           <div class="min-h-0 overflow-y-auto">
             <div v-if="!config.hasExtensionTreasury" class="min-h-48 px-5 py-4">
               This feature requires access to Treasury.
+              <button
+                type="button"
+                class="text-argon-600 cursor-pointer hover:underline"
+                @click="requestTreasuryAccess"
+              >
+                Click to request access.
+              </button>
             </div>
             <div
               v-else-if="isLoadingChannels"
@@ -210,7 +217,11 @@
                 </a>
               </div>
               <div
-                v-else-if="displayedChannel.status === BitcoinLockStatus.LockFunded && !hasPendingInboundUtxos"
+                v-else-if="
+                  props.mode === 'insurance' &&
+                  displayedChannel.status === BitcoinLockStatus.LockFunded &&
+                  !hasPendingInboundUtxos
+                "
                 class="py-1"
               >
                 <div v-if="isAddingInsuranceTransaction" class="space-y-4">
@@ -350,7 +361,7 @@
                   {{ hasPendingInboundUtxos ? 'Bitcoin funding detected' : 'Your Bitcoin channel is ready' }}
                 </div>
                 <div
-                  v-if="!hasPendingInboundUtxos"
+                  v-if="!hasPendingInboundUtxos && props.wallet.hasActiveSecuritizationHold(displayedChannel)"
                   class="bg-argon-100/30 text-argon-900/80 mt-2 flex items-center rounded-full py-1 pr-3 pl-1 text-sm"
                 >
                   <ClockIcon class="h-4" />
@@ -531,7 +542,7 @@
                 <label class="mb-1 font-bold text-gray-500/80">Cost of Channel</label>
                 <div class="border-b border-gray-300 text-sm">
                   <div class="flex flex-row border-t border-gray-300 py-2">
-                    <div class="grow">Insurance Fee</div>
+                    <div class="grow">{{ insuranceAmount === 0n ? 'Base Channel Cost' : 'Insurance Fee' }}</div>
                     <div class="relative">
                       <template v-if="isVaultOperator">Waived</template>
                       <template v-else-if="channelCouponCreditMicrogons">
@@ -548,6 +559,22 @@
                   <div v-if="channelCouponCreditMicrogons" class="pb-2 text-xs text-slate-500">
                     {{ argonSymbol }}{{ microgonToArgonNm(channelCouponCreditMicrogons).format('0,0.00') }} fee waiver
                     from {{ couponProviderLabel }}
+                  </div>
+                  <div v-if="channelCostPreview" class="flex border-t border-gray-300 py-2">
+                    <div class="grow">Network Fee (estimated)</div>
+                    <div>
+                      {{ argonSymbol
+                      }}{{ microgonToArgonNm(channelCostPreview.txFeePlusTip).format('0,0.00', Math.ceil) }}
+                    </div>
+                  </div>
+                  <div v-if="channelCostError" class="py-2 text-xs text-amber-700">
+                    {{ channelCostError }}
+                    <button type="button" class="text-argon-600 cursor-pointer underline" @click="channelCostRetry++">
+                      Retry estimate
+                    </button>
+                  </div>
+                  <div v-else-if="!channelCostPreview" class="py-2 text-xs text-slate-500">
+                    Estimating required balance...
                   </div>
                 </div>
               </div>
@@ -628,6 +655,7 @@ import { trackTransactionProgress } from '../../lib/TransactionProgress.ts';
 import type { TransactionInfo } from '../../lib/TransactionInfo.ts';
 import type { IBitcoinResecuritizationMetadata } from '../../lib/txs/BitcoinLock.resecuritize.ts';
 import type { WalletForBitcoin } from '../../lib/WalletForBitcoin.ts';
+import type { IBitcoinLockCreatePreview } from '../../lib/txs/BitcoinLock.create.ts';
 import { getCurrency } from '../../stores/currency.ts';
 import InfoIcon from '../../assets/info.svg';
 import CopyIcon from '../../assets/copy.svg';
@@ -642,6 +670,7 @@ import { getMainchainClient, getMiningFrames } from '../../stores/mainchain.ts';
 import { getWalletKeys } from '../../stores/wallets.ts';
 import BitcoinMempool from '../../lib/BitcoinMempool.ts';
 import { ESPLORA_HOST } from '../../lib/Env.ts';
+import basicEmitter from '../../emitters/basicEmitter.ts';
 
 dayjs.extend(utc);
 
@@ -669,7 +698,7 @@ const myVault = getMyVault();
 const vaults = getVaults();
 const bitcoinLocks = getBitcoinLocks();
 const bitcoinLockCoupons = getBitcoinLockCoupons();
-const { bitcoinLockResecuritize } = getBitcoinTransactionOperations();
+const { bitcoinLockResecuritize, bitcoinLockCreate } = getBitcoinTransactionOperations();
 const walletKeys = getWalletKeys();
 const miningFrames = getMiningFrames();
 
@@ -679,6 +708,9 @@ const argonSymbol = currency.recordsByKey[UnitOfMeasurement.ARGN].symbol;
 const isSliding = Vue.ref(false);
 const selectedVaultId = Vue.ref('');
 const insuranceAmount = Vue.ref(0n);
+const channelCostPreview = Vue.ref<IBitcoinLockCreatePreview>();
+const channelCostError = Vue.ref('');
+const channelCostRetry = Vue.ref(0);
 const maxValue = Vue.ref(0n);
 const isCreatingChannelRequest = Vue.ref(false);
 const isAddingInsurance = Vue.ref(false);
@@ -820,7 +852,7 @@ const displayedChannel = Vue.computed(() => {
   return props.wallet.getChannel(uuid) ?? (openedChannel.value?.uuid === uuid ? openedChannel.value : undefined);
 });
 const pendingAddInsuranceTxInfo = Vue.computed(() => {
-  if (!props.open) return;
+  if (!props.open || props.mode !== 'insurance') return;
   const lockId = displayedChannel.value?.lockId;
   return lockId == null ? undefined : bitcoinLockResecuritize.getPendingResecuritizationTxInfo(lockId);
 });
@@ -873,6 +905,13 @@ const channelFundingAddress = Vue.computed(() => {
     return '';
   }
 });
+
+async function requestTreasuryAccess() {
+  emit('update:open', false);
+  await Vue.nextTick();
+  basicEmitter.emit('openUpgradeToTreasuryOverlay');
+}
+
 function channelScriptAddress(channel: IBitcoinLockRecord): string {
   const scriptHash = channel.scriptDetails?.p2wshScriptHashHex;
   if (!scriptHash) return '';
@@ -965,6 +1004,45 @@ const channelE2eState = Vue.computed(() => {
 });
 
 Vue.watch(defaultVault, (vault, _, onCleanup) => void updateMaximumInsurance(vault, onCleanup), { immediate: true });
+Vue.watch(
+  [
+    () => props.open,
+    channelE2eState,
+    defaultVault,
+    insuranceAmount,
+    channelCouponCreditMicrogons,
+    fullChannelFeeMicrogons,
+    channelCostRetry,
+  ],
+  async ([open, state, vault, liquidityMicrogons, feeDiscountMicrogons], _, onCleanup) => {
+    channelCostPreview.value = undefined;
+    channelCostError.value = '';
+    if (!open || state !== 'Create' || !vault || isOwnedDefaultVault.value) return;
+
+    let cancelled = false;
+    const timeout = setTimeout(() => {
+      cancelled = true;
+      channelCostError.value = 'Unable to estimate the required balance. Please retry.';
+    }, 15_000);
+    onCleanup(() => {
+      cancelled = true;
+      clearTimeout(timeout);
+    });
+    try {
+      const satoshis =
+        liquidityMicrogons === 0n ? 0n : await bitcoinLocks.satoshisForArgonLiquidity(liquidityMicrogons);
+      const txSigner = await walletKeys.getLiquidLockingKeypair();
+      if (cancelled) return;
+      const preview = await bitcoinLockCreate.preview({ vault, satoshis, txSigner, feeDiscountMicrogons });
+      if (!cancelled) channelCostPreview.value = preview;
+    } catch {
+      if (!cancelled) channelCostError.value = 'Unable to estimate the required balance. Please retry.';
+    } finally {
+      clearTimeout(timeout);
+    }
+  },
+  { immediate: true },
+);
 Vue.watch(
   () => releaseState.value.isReleaseStatus,
   isReleasing => {

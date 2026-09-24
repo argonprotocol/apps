@@ -11,7 +11,6 @@ import {
   calculateRestabilizationLeverage,
   calculatePerformanceReturn,
   type IBlockHeaderInfo,
-  type Vault,
   type IPerformanceReturnInput,
   UnitOfMeasurement,
 } from '@argonprotocol/apps-core';
@@ -466,34 +465,21 @@ export const useFinancials = defineStore('financials', () => {
 
   // Vaults ////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-  const vaultsActiveRecords = Vue.shallowRef<Vault[]>([]);
-  const vaultsIsLoaded = Vue.ref(false);
-
-  async function loadVaults() {
-    try {
-      vaultsActiveRecords.value = Object.values(vaultStore.vaultsById)
-        .filter(vault => vault.availableSecuritizationSpace() > 0n)
-        .sort((left, right) => {
-          const leftAvailableBitcoinSpace = left.availableBitcoinSpace();
-          const rightAvailableBitcoinSpace = right.availableBitcoinSpace();
-          if (rightAvailableBitcoinSpace !== leftAvailableBitcoinSpace) {
-            return rightAvailableBitcoinSpace > leftAvailableBitcoinSpace ? 1 : -1;
-          }
-          return left.vaultId - right.vaultId;
-        });
-    } catch (error) {
-      console.error('Failed to load active vaults', error);
-      vaultsActiveRecords.value = [];
-    } finally {
-      vaultsIsLoaded.value = true;
-    }
-  }
+  const vaultsActiveRecords = Vue.computed(() =>
+    Object.values(vaultStore.vaultsById)
+      .filter(vault => vault.availableSecuritizationSpace() > 0n)
+      .sort((left, right) => {
+        const leftSpace = left.availableBitcoinSpace();
+        const rightSpace = right.availableBitcoinSpace();
+        if (rightSpace !== leftSpace) return rightSpace > leftSpace ? 1 : -1;
+        return left.vaultId - right.vaultId;
+      }),
+  );
 
   async function refreshVaults(vaultIds?: number[]) {
     if (vaultIds?.length) {
       await Promise.all(vaultIds.map(vaultId => vaultStore.refreshVault(vaultId)));
     }
-    await loadVaults();
   }
 
   // Savings ///////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -930,9 +916,6 @@ export const useFinancials = defineStore('financials', () => {
     accountSourcesAreLoaded = true;
     const walletSourcesReadyAt = performance.now();
     setFinancialScope();
-    if (!config.hasExtensionTreasury) {
-      vaultsIsLoaded.value = true;
-    }
     await queueAccountRefresh({ force: true });
     const defaultArgonReadyAt = performance.now();
     logStartupTiming({
@@ -962,13 +945,6 @@ export const useFinancials = defineStore('financials', () => {
       .catch(error => {
         console.error('Unable to load currency circulation', error);
       });
-    if (config.hasExtensionTreasury) {
-      void getVaultingStatsSource()
-        .isLoadedPromise.then(() => loadVaults())
-        .catch(error => {
-          console.error('Unable to load active vaults', error);
-        });
-    }
   }
 
   void load().catch(error => {
@@ -978,13 +954,11 @@ export const useFinancials = defineStore('financials', () => {
       financialPositionBook.fail(financialPositionBook.beginRefresh(group), message);
     }
     savingsIsLoaded.value = true;
-    vaultsIsLoaded.value = true;
     isLoaded.value = true;
   });
 
   return {
     vaultsActiveRecords,
-    vaultsIsLoaded,
     refreshVaults,
 
     bitcoinLiquidPendingMintMicrogons,

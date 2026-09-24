@@ -264,7 +264,7 @@
                       </template>
                       <template v-else-if="ratchetPreview">
                         <h2 class="font-bold text-slate-700">Review this ratchet</h2>
-                        <p v-if="ratchetPreview.amountToMint" class="mt-2">
+                        <p v-if="ratchetPercent > 0 && ratchetPreview.amountToMint" class="mt-2">
                           Unlock
                           <strong>
                             {{ argonSymbol }}{{ microgonToArgonNm(ratchetPreview.amountToMint).format('0,0.00') }}

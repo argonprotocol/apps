@@ -398,13 +398,16 @@ export async function readComposePortWithRetry(args: {
 
   while (Date.now() - startedAt < timeoutMs) {
     try {
-      const output = execFileSync('docker', [...getComposeArgs(context), 'port', args.service, String(args.port)], {
-        cwd: context.composeDir,
-        encoding: 'utf-8',
-        env: context.composeEnv,
-        stdio: ['ignore', 'pipe', 'pipe'],
-      }).trim();
-      const endpoint = output
+      const { stdout } = await execFileAsync(
+        'docker',
+        [...getComposeArgs(context), 'port', args.service, String(args.port)],
+        {
+          cwd: context.composeDir,
+          encoding: 'utf-8',
+          env: context.composeEnv,
+        },
+      );
+      const endpoint = stdout
         .split('\n')
         .map(x => x.trim())
         .filter(Boolean)

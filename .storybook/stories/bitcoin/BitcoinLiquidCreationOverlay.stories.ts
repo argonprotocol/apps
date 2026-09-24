@@ -1,7 +1,7 @@
 import * as Vue from 'vue';
-import { BitcoinFission, type Vault } from '@argonprotocol/apps-core';
+import { BitcoinFission } from '@argonprotocol/apps-core';
 import type { Meta, StoryObj } from '@storybook/vue3-vite';
-import { userEvent, within } from 'storybook/test';
+import { mocked, userEvent, within } from 'storybook/test';
 import { TopTab } from '../../../src-vue/interfaces/IConfig.ts';
 import type { IBitcoinLiquidSource } from '../../../src-vue/interfaces/IBitcoinLiquidSource.ts';
 import BitcoinLiquidCreationOverlay from '../../../src-vue/overlays/BitcoinLiquidCreationOverlay.vue';
@@ -10,8 +10,9 @@ import type { IBitcoinLiquidCreatePreview } from '../../../src-vue/lib/txs/Bitco
 import type { BitcoinLiquidCreationState } from '../../../src-vue/overlays/BitcoinLiquidCreationState.ts';
 import { useWallets } from '../../../src-vue/stores/wallets.ts';
 import { useFinancials } from '../../../src-vue/stores/financials.ts';
-import { getVaults } from '../../../src-vue/stores/vaults.ts';
+import { getVaults, retryVaults } from '../../../src-vue/stores/vaults.ts';
 import { setupAppScenario } from '../../scenarios/setupAppScenario.ts';
+import { createScenarioVault } from '../../scenarios/createScenarioVault.ts';
 
 const insuredSources: IBitcoinLiquidSource[] = [
   {
@@ -32,8 +33,8 @@ const insuredSources: IBitcoinLiquidSource[] = [
   },
 ];
 const selectableVaults = [
-  { vaultId: 7, operatorAccountId: '5AtlasOperator' } as Vault,
-  { vaultId: 12, operatorAccountId: '5MyVaultOperator' } as Vault,
+  createScenarioVault({ vaultId: 7, operatorAccountId: '5AtlasOperator' }),
+  createScenarioVault({ vaultId: 12, operatorAccountId: '5MyVaultOperator' }),
 ];
 
 const collectingFission = new BitcoinFission({
@@ -76,6 +77,10 @@ const state = {
   stage: 'form',
   sources: insuredSources,
   selectedVaultIds: [7, 12],
+  vaultCapacity: {
+    status: 'ready',
+    usableSatoshisByVaultId: { 7: 30_000_000n, 12: 20_000_000n },
+  },
   preview,
   isSubmitting: false,
   progressPct: 0,
@@ -120,7 +125,6 @@ const meta = {
     });
     Object.assign(useWallets(), { defaultArgonSpendableMicrogons: 100_000_000n });
     Object.assign(useFinancials(), {
-      vaultsIsLoaded: true,
       vaultsActiveRecords: selectableVaults,
     });
     const vaults = getVaults();
@@ -141,6 +145,104 @@ export const VaultSelection: Story = {
   args: {
     state: { ...state, stage: 'vaults' },
   },
+};
+
+export const VaultSelectionLoading: Story = {
+  args: { state: { ...state, stage: 'vaults' } },
+  beforeEach: () => {
+    Object.assign(getVaults().currentState, { isLoaded: false, isLoading: true });
+  },
+};
+
+export const VaultSelectionCapacityCapped: Story = {
+  args: {
+    state: {
+      ...state,
+      stage: 'vaults',
+      vaultCapacity: { status: 'ready', usableSatoshisByVaultId: { 7: 12_000_000n, 12: 20_000_000n } },
+    },
+  },
+};
+
+export const VaultSelectionNoCapacity: Story = {
+  args: {
+    state: {
+      ...state,
+      stage: 'vaults',
+      vaultCapacity: { status: 'ready', usableSatoshisByVaultId: { 7: 0n, 12: 0n } },
+    },
+  },
+};
+
+export const VaultSelectionCapacityLoading: Story = {
+  args: {
+    state: { ...state, stage: 'vaults', vaultCapacity: { status: 'loading' } },
+  },
+};
+
+export const VaultSelectionCapacityFailed: Story = {
+  args: {
+    state: {
+      ...state,
+      stage: 'vaults',
+      vaultCapacity: { status: 'error', errorMessage: 'Unable to check vault securitization.' },
+    },
+  },
+};
+
+export const VaultSelectionCapacityRefreshing: Story = {
+  args: {
+    state: {
+      ...state,
+      stage: 'vaults',
+      vaultCapacity: { ...state.vaultCapacity, status: 'loading' },
+    },
+  },
+};
+
+export const VaultSelectionCapacityRefreshFailed: Story = {
+  args: {
+    state: {
+      ...state,
+      stage: 'vaults',
+      vaultCapacity: {
+        ...state.vaultCapacity,
+        status: 'error',
+        errorMessage: 'Unable to check vault securitization.',
+      },
+    },
+  },
+};
+
+export const VaultSelectionFailed: Story = {
+  args: { state: { ...state, stage: 'vaults' } },
+  beforeEach: () => {
+    Object.assign(getVaults().currentState, { isLoaded: false, error: 'Unable to connect to the mainchain.' });
+  },
+};
+
+export const VaultSelectionRetried: Story = {
+  args: { state: { ...state, stage: 'vaults' } },
+  beforeEach: () => {
+    Object.assign(getVaults().currentState, { isLoaded: false, error: 'Unable to connect to the mainchain.' });
+    mocked(retryVaults).mockImplementation(async () => {
+      Object.assign(getVaults().currentState, { isLoaded: true, isLoading: false, error: '' });
+    });
+  },
+  play: async () => {
+    await userEvent.click(within(document.body).getByRole('button', { name: 'Retry' }));
+  },
+};
+
+export const VaultSelectionRefreshFailed: Story = {
+  args: { state: { ...state, stage: 'vaults' } },
+  beforeEach: () => {
+    getVaults().currentState.error = 'Unable to refresh vaults. Previously loaded vaults are shown.';
+  },
+};
+
+export const VaultSelectionEmpty: Story = {
+  args: { state: { ...state, stage: 'vaults', sources: [], selectedVaultIds: [] } },
 };
 
 export const VaultExplanation: Story = {
@@ -196,15 +298,31 @@ export const VaultCapacityCapped: Story = {
 };
 
 export const VaultCapacityExplanation: Story = {
-  ...VaultCapacityCapped,
-  play: async () => {
-    const body = within(document.body);
-    const maxAmountLabel = body.getByText("You're At Max Amount");
-    const infoButton = maxAmountLabel.nextElementSibling;
-    if (!(infoButton instanceof HTMLElement)) throw new Error('Max amount info trigger was not rendered.');
+  args: {
+    state: {
+      ...state,
+      selectedVaultIds: [7],
+      sources: [
+        {
+          ...insuredSources[0]!,
+          unallocatedSatoshis: 50_000_000n,
+          maximumLiquidSatoshis: 1_324_999n,
+          selectedSatoshis: 1_324_999n,
+        },
+      ],
+      preview: { ...preview, liquidityMicrogons: 900_999_320n },
+    },
+  },
+};
 
-    await userEvent.hover(infoButton);
-    await body.findByRole('tooltip');
+export const BelowVaultCapacity: Story = {
+  args: {
+    state: {
+      ...state,
+      selectedVaultIds: [7],
+      sources: [{ ...insuredSources[0]!, maximumLiquidSatoshis: 25_000_000n, selectedSatoshis: 20_000_000n }],
+      preview: { ...preview, liquidityMicrogons: 13_600_000_000n },
+    },
   },
 };
 

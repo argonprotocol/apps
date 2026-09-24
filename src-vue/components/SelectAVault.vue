@@ -1,10 +1,31 @@
 <template>
   <div>
-    <div v-if="!isLoaded" class="py-12 text-center text-slate-500">Loading active vaults...</div>
+    <div
+      v-if="vaultStore.currentState.error || bondLoadError"
+      class="mb-3 rounded border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700"
+    >
+      {{ vaultStore.currentState.error || bondLoadError }}
+      <button
+        type="button"
+        :disabled="vaultStore.currentState.isLoading || isLoadingBonds"
+        class="ml-3 cursor-pointer underline disabled:opacity-40"
+        @click="retry"
+      >
+        Retry
+      </button>
+    </div>
+    <div v-if="!isLoaded && !vaultStore.currentState.error && !bondLoadError" class="py-12 text-center text-slate-500">
+      Loading active vaults...
+    </div>
 
-    <div v-else-if="!displayVaults.length" class="py-12 text-center text-slate-500">No active vaults found.</div>
+    <div v-else-if="isLoaded && !displayVaults.length" class="py-12 text-center text-slate-500">
+      No active vaults found.
+    </div>
 
-    <div v-else class="mt-4 max-h-[28rem] divide-y divide-slate-200 overflow-y-auto border-t border-slate-200">
+    <div
+      v-else-if="isLoaded"
+      class="mt-4 max-h-[28rem] divide-y divide-slate-200 overflow-y-auto border-t border-slate-200"
+    >
       <div
         v-for="vault in displayVaults"
         @click="selectVault(vault)"
@@ -54,7 +75,7 @@
           <div class="text-xs text-slate-500">
             {{
               props.eligibleSatoshisByVaultId
-                ? 'Eligible Bitcoin'
+                ? 'Locked Bitcoin'
                 : props.unitType === 'BitcoinLock'
                   ? 'BTC Space'
                   : 'Bonds Available'
@@ -74,6 +95,15 @@
             </template>
           </div>
         </div>
+        <div v-if="props.eligibleSatoshisByVaultId" class="ml-5 shrink-0 text-right">
+          <div class="text-xs text-slate-500">Usable Bitcoin</div>
+          <div class="mt-0.5 font-semibold text-slate-700">
+            <template v-if="props.usableSatoshisByVaultId">
+              {{ satToBtcNm(props.usableSatoshisByVaultId[vault.vaultId] ?? 0n).format('0,0.[00000000]') }} BTC
+            </template>
+            <template v-else>—</template>
+          </div>
+        </div>
       </div>
     </div>
   </div>
@@ -90,7 +120,7 @@ import { useFinancials } from '../stores/financials.ts';
 import { getArgonBonds } from '../stores/argonBonds.ts';
 import { getMainchainClient } from '../stores/mainchain.ts';
 import { getWalletKeys } from '../stores/wallets.ts';
-import { getMyVault, getVaults } from '../stores/vaults.ts';
+import { getMyVault, getVaults, retryVaults } from '../stores/vaults.ts';
 
 const emit = defineEmits<{
   (e: 'load', vaults: Vault[]): void;
@@ -105,6 +135,7 @@ const props = withDefaults(
     vaultIds?: number[];
     selectedVaultIds?: number[];
     eligibleSatoshisByVaultId?: Record<number, bigint>;
+    usableSatoshisByVaultId?: Record<number, bigint>;
     vaultNamesById?: Record<number, string>;
   }>(),
   {
@@ -123,14 +154,19 @@ const myVault = getMyVault();
 
 const { microgonToMoneyNm, satToBtcNm } = createNumeralHelpers(currency);
 
-const isLoaded = Vue.ref(false);
+const bondsAreLoaded = Vue.ref(false);
+const isLoadingBonds = Vue.ref(false);
+const bondLoadError = Vue.ref('');
+const bondRetry = Vue.ref(0);
+const isLoaded = Vue.computed(
+  () => vaultStore.currentState.isLoaded && (props.unitType !== 'ArgonBond' || bondsAreLoaded.value),
+);
 const selectedVaultId = Vue.ref<number | null>(props.selectedVaultIds[0] ?? null);
 const displayVaults = Vue.computed(() => {
   if (!props.vaultIds) return financials.vaultsActiveRecords;
 
   return props.vaultIds.flatMap(vaultId => {
-    const vault =
-      vaultStore.vaultsById[vaultId] ?? financials.vaultsActiveRecords.find(vault => vault.vaultId === vaultId);
+    const vault = vaultStore.vaultsById[vaultId];
     return vault ? [vault] : [];
   });
 });
@@ -158,37 +194,57 @@ function unsubscribeVaultBonds() {
   }
 }
 
-async function loadVaultBondState(vaults: Vault[]) {
-  if (props.unitType !== 'ArgonBond') return;
-
-  unsubscribeVaultBonds();
-
-  const client = await getMainchainClient(false);
-  await argonBonds.subscribeGlobal(client);
-  const subscriptions = await Promise.all(
-    vaults.map(vault =>
-      argonBonds.subscribeVault(
-        {
-          vaultId: vault.vaultId,
-          operatorAddress: vault.operatorAccountId,
-          accountId: walletKeys.defaultArgonAddress,
-        },
-        client,
-      ),
-    ),
-  );
-  vaultBondSubscriptions.push(...subscriptions);
+async function retry() {
+  if (vaultStore.currentState.error) await retryVaults();
+  else bondRetry.value += 1;
 }
 
 Vue.watch(
-  () => financials.vaultsIsLoaded,
-  async isVaultsLoaded => {
-    if (isLoaded.value || !isVaultsLoaded) return;
-    await loadVaultBondState(displayVaults.value);
-    isLoaded.value = true;
-    emit('load', displayVaults.value);
-    if (!props.multiple && selectedVaultId.value === null && displayVaults.value.length) {
-      void selectVault(displayVaults.value[0]);
+  () => [vaultStore.currentState.isLoaded, displayVaults.value, bondRetry.value] as const,
+  async ([isVaultsLoaded, vaults], _, onCleanup) => {
+    if (!isVaultsLoaded) return;
+    let isCurrent = true;
+    onCleanup(() => {
+      isCurrent = false;
+    });
+    bondLoadError.value = '';
+    try {
+      if (props.unitType === 'ArgonBond') {
+        isLoadingBonds.value = true;
+        const client = await getMainchainClient(false);
+        await argonBonds.subscribeGlobal(client);
+        const results = await Promise.allSettled(
+          vaults.map(vault =>
+            argonBonds.subscribeVault(
+              {
+                vaultId: vault.vaultId,
+                operatorAddress: vault.operatorAccountId,
+                accountId: walletKeys.defaultArgonAddress,
+              },
+              client,
+            ),
+          ),
+        );
+        const subscriptions = results.flatMap(result => (result.status === 'fulfilled' ? [result.value] : []));
+        const failure = results.find(result => result.status === 'rejected');
+        if (!isCurrent || failure) {
+          subscriptions.forEach(unsubscribe => unsubscribe());
+          if (failure) throw failure.reason;
+          return;
+        }
+        unsubscribeVaultBonds();
+        vaultBondSubscriptions.push(...subscriptions);
+        bondsAreLoaded.value = true;
+      }
+      if (!isCurrent) return;
+      emit('load', vaults);
+      if (!props.multiple && selectedVaultId.value === null && vaults.length) {
+        void selectVault(vaults[0]);
+      }
+    } catch (error) {
+      if (isCurrent) bondLoadError.value = error instanceof Error ? error.message : 'Unable to load vault bonds.';
+    } finally {
+      if (isCurrent) isLoadingBonds.value = false;
     }
   },
   { immediate: true },

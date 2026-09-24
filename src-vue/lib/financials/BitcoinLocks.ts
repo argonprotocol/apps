@@ -102,21 +102,25 @@ export class BitcoinFinancials {
         lock.lockId !== undefined
       ) {
         let startingCapital = 0n;
+        let hodlingSatoshis = 0n;
 
         for (const fission of fissionsByLockId.get(lock.lockId) ?? []) {
           const opening = fission.ratchets[0];
           if (opening) {
             startingCapital += getFissionTargetValue(fission, opening.microgonsAtTargetPerBtc, opening.source);
+            hodlingSatoshis += fission.satoshis;
           } else if (activeFissionIds.has(fission.fissionId)) {
             startingCapital += getFissionTargetValue(fission, fission.microgonsAtTargetPerBtc, 'fission');
+            hodlingSatoshis += fission.satoshis;
           }
         }
-        if (startingCapital > 0n) {
+        if (startingCapital > 0n && summary.satoshis > 0n) {
           hodlingInvestments.push({
             startingDate: lock.createdAt,
             startingCapital,
             endingDate: new Date(),
-            endingCapital: summary.valueOfBtc,
+            // Compare the same Bitcoin quantity at opening and now, excluding unused lock funds.
+            endingCapital: (summary.valueOfBtc * hodlingSatoshis) / summary.satoshis,
           });
         }
       }

@@ -1,6 +1,6 @@
 <!-- prettier-ignore -->
 <template>
-  {{ integer }}.<span :class="[isLoaded ? 'opacity-40' : '']">{{ decimal }}</span>
+  {{ integer }}<template v-if="!isLoaded || decimals">.<span :class="[isLoaded ? 'opacity-40' : '']">{{ decimals }}</span></template>
 </template>
 
 <script setup lang="ts">
@@ -13,6 +13,7 @@ const props = withDefaults(
   defineProps<{
     isLoaded?: boolean;
     unitOfMeasurement?: UnitOfMeasurement;
+    hideDecimalsWhenMoreThan?: number;
     value: bigint;
   }>(),
   {
@@ -27,22 +28,23 @@ const { microgonToMoneyNm, satToMoneyNm } = createNumeralHelpers(currency);
 const integer = Vue.computed(() => {
   if (!props.isLoaded) return '--';
 
-  const value = convertToMoney(props.value);
-  return value.split('.')[0];
+  const showDecimals = !props.hideDecimalsWhenMoreThan || props.value <= props.hideDecimalsWhenMoreThan;
+  const money = convertToMoney(props.value, showDecimals);
+  return money.split('.')[0];
 });
 
-const decimal = Vue.computed(() => {
+const decimals = Vue.computed(() => {
   if (!props.isLoaded) return '--';
 
-  const value = convertToMoney(props.value);
-  return value.split('.')[1];
+  const showDecimals = !props.hideDecimalsWhenMoreThan || props.value <= props.hideDecimalsWhenMoreThan;
+  const money = convertToMoney(props.value, showDecimals);
+  return money.split('.')[1];
 });
 
-function convertToMoney(value: bigint): string {
-  if (props.unitOfMeasurement === UnitOfMeasurement.Satoshi) {
-    return satToMoneyNm(value).format('0,0.00');
-  } else {
-    return microgonToMoneyNm(value).format('0,0.00');
-  }
+function convertToMoney(value: bigint, showDecimals = false): string {
+  const isSats = props.unitOfMeasurement === UnitOfMeasurement.Satoshi;
+  const money = isSats ? satToMoneyNm(value) : microgonToMoneyNm(value);
+  if (!showDecimals) money.set(Math.floor(money.value() ?? 0));
+  return money.format(showDecimals ? '0,0.00' : '0,0');
 }
 </script>

@@ -72,7 +72,9 @@ export interface IOperatorBitcoinLockCouponRoute {
 
 export class BitcoinLockWalletFundingError extends Error {
   constructor(public readonly requiredWalletBalanceMicrogons: bigint) {
-    super(`Your wallet needs a balance of ${formatArgons(requiredWalletBalanceMicrogons)} to initialize this lock.`);
+    super(
+      `Your wallet needs a balance of ${formatArgons(((requiredWalletBalanceMicrogons + 9_999n) / 10_000n) * 10_000n)} to initialize this lock.`,
+    );
   }
 }
 
@@ -1395,7 +1397,7 @@ export default class BitcoinLocks {
     extrinsicIndex: number;
   }> {
     const blockNumber = txInfo.tx.blockHeight ?? txInfo.txResult.blockNumber;
-    const blockHash = txInfo.tx.blockHash;
+    const blockHash = txInfo.tx.blockHash ?? (txInfo.txResult.blockHash && u8aToHex(txInfo.txResult.blockHash));
     const extrinsicIndex = txInfo.tx.blockExtrinsicIndex ?? txInfo.txResult.extrinsicIndex;
     if (blockNumber === undefined || !blockHash || extrinsicIndex === undefined) {
       throw new Error(`Finalized transaction #${txInfo.tx.id} is missing its Bitcoin Lock history location`);

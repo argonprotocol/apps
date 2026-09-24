@@ -86,13 +86,13 @@ export function setupBondPurchaseScenario(state: BondPurchaseState) {
       21: 'Unrelated One',
       22: 'Unrelated Two',
     }),
+    currentState: Vue.reactive({ isLoaded: true, isLoading: false, error: '' }),
     vaultsById: Object.fromEntries(vaults.map(vault => [vault.vaultId, vault])),
     calculateArgonBondsApr: fn(vaultId => (vaultId === 7 ? 14.8 : 11.2)),
   });
   mocked(useFinancials).mockReturnValue(
     Vue.reactive({
       refreshVaults: refresh,
-      vaultsIsLoaded: true,
       vaultsActiveRecords: vaults,
     }) as unknown as ReturnType<typeof useFinancials>,
   );

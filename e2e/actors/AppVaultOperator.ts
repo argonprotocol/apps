@@ -333,45 +333,56 @@ export class AppVaultOperator {
       existingProgress.availableAccessCodes > 0;
 
     if (!existingOperationalAccount) {
-      const satoshis = await this.#bitcoinLocks.satoshisForArgonLiquidity(rewardConfig.treasuryMinimumBitcoin);
-      const txInfo = await this.#bitcoinLockCreate.submit({
-        vault,
-        satoshis,
-        txSigner: await this.walletKeys.getLiquidLockingKeypair(),
+      const certification = await loadCertificationProgress({
+        client,
+        defaultAccountId: this.walletKeys.defaultArgonAddress,
       });
+      if (!certification.hasTreasuryBitcoin) {
+        const existingLockIds = await BitcoinLock.idsByOwner(client, this.walletKeys.defaultArgonAddress);
+        if (existingLockIds.length) {
+          throw new Error(
+            'Existing upstream Bitcoin locks have not met the funding requirement. Finish funding those locks before retrying bootstrap.',
+          );
+        }
+        const satoshis = await this.#bitcoinLocks.satoshisForArgonLiquidity(rewardConfig.treasuryMinimumBitcoin);
+        const txInfo = await this.#bitcoinLockCreate.submit({
+          vault,
+          satoshis,
+          txSigner: await this.walletKeys.getLiquidLockingKeypair(),
+        });
+        await txInfo.waitForPostProcessing;
 
-      const blockHash = txInfo.tx.blockHash ?? (await txInfo.txResult.waitForInFirstBlock);
-      const apiAt = await client.at(blockHash);
-      const { lock: treasuryLock } = await BitcoinLock.getBitcoinLockFromTxResult(apiAt, txInfo.txResult);
+        const blockHash = txInfo.tx.blockHash ?? (await txInfo.txResult.waitForInFirstBlock);
+        const apiAt = await client.at(blockHash);
+        const { lock: treasuryLock } = await BitcoinLock.getBitcoinLockFromTxResult(apiAt, txInfo.txResult);
 
-      const fundingAddress = BitcoinLocks.formatP2wshAddress(
-        treasuryLock.p2wshScriptHashHex,
-        this.#bitcoinLocks.bitcoinNetwork,
-      );
-      const minerAddress = createBitcoinAddress();
-      sendBitcoinToAddress(fundingAddress, treasuryLock.securitizedSatoshis);
-      generateBlocks(8, minerAddress);
+        const fundingAddress = BitcoinLocks.formatP2wshAddress(
+          treasuryLock.p2wshScriptHashHex,
+          this.#bitcoinLocks.bitcoinNetwork,
+        );
+        const minerAddress = createBitcoinAddress();
+        sendBitcoinToAddress(fundingAddress, treasuryLock.securitizedSatoshis);
+        generateBlocks(8, minerAddress);
 
-      await waitFor(45e3, 'upstream treasury bitcoin funded', async () => {
-        const currentLock = await BitcoinLock.get(client, treasuryLock.lockId);
-        if (!currentLock?.fundedSatoshis) return;
-        return currentLock;
-      });
+        await waitFor(45e3, 'upstream treasury bitcoin funded', async () => {
+          const currentLock = await BitcoinLock.get(client, treasuryLock.lockId);
+          if (!currentLock?.fundedSatoshis) return;
+          return currentLock;
+        });
+      }
 
-      if (rewardConfig.treasuryMinimumUniswapTransfer > 0n) {
+      if (!certification.hasTreasuryUniswapTransfer) {
         const transferTotalsKey = client.query.crosschainTransfer.transferTotalsByAccount.key(
+          this.walletKeys.treasuryAddress,
+        );
+        const transferTotals = await client.query.crosschainTransfer.transferTotalsByAccount(
           this.walletKeys.treasuryAddress,
         );
         const transferTotalsValue = client
           .createType('PalletCrosschainTransferAccountTransferTotals', {
+            ...transferTotals,
             microgonsIn: rewardConfig.treasuryMinimumUniswapTransfer,
-            microgonsOut: 0n,
-            argonTransfersInCount: 1,
-            argonTransfersOutCount: 0,
-            micronotsIn: 0n,
-            micronotsOut: 0n,
-            argonotTransfersInCount: 0,
-            argonotTransfersOutCount: 0,
+            argonTransfersInCount: transferTotals.argonTransfersInCount || 1,
           })
           .toHex();
 
@@ -382,19 +393,21 @@ export class AppVaultOperator {
         ).submit({
           useLatestNonce: true,
         });
-        await setStorageResult.waitForInFirstBlock;
+        await setStorageResult.waitForFinalizedBlock;
       }
 
-      const bondTx = await TreasuryBonds.buildBuyBondTx({
-        client,
-        vaultId: vault.vaultId,
-        bondPurchaseMicrogons: rewardConfig.treasuryMinimumBonds,
-      });
-      const txSigner = await this.walletKeys.getTreasuryKeypair();
-      const txResult = await new TxSubmitter(client, bondTx, txSigner).submit({
-        useLatestNonce: true,
-      });
-      await txResult.waitForInFirstBlock;
+      if (!certification.hasTreasuryBonds) {
+        const bondTx = await TreasuryBonds.buildBuyBondTx({
+          client,
+          vaultId: vault.vaultId,
+          bondPurchaseMicrogons: rewardConfig.treasuryMinimumBonds - (certification.treasuryBondAmount ?? 0n),
+        });
+        const txSigner = await this.walletKeys.getTreasuryKeypair();
+        const txResult = await new TxSubmitter(client, bondTx, txSigner).submit({
+          useLatestNonce: true,
+        });
+        await txResult.waitForFinalizedBlock;
+      }
     }
 
     await this.ensureOperationalLiquid({ client });
@@ -439,13 +452,15 @@ export class AppVaultOperator {
     ).submit({
       useLatestNonce: true,
     });
-    await forceProgressResult.waitForInFirstBlock;
+    await forceProgressResult.waitForFinalizedBlock;
 
-    const txSigner = await this.walletKeys.getTreasuryKeypair();
-    const activateResult = await new TxSubmitter(client, client.tx.operationalAccounts.activate(), txSigner).submit({
-      useLatestNonce: true,
-    });
-    await activateResult.waitForInFirstBlock;
+    if (!existingProgress.isOperational) {
+      const txSigner = await this.walletKeys.getTreasuryKeypair();
+      const activateResult = await new TxSubmitter(client, client.tx.operationalAccounts.activate(), txSigner).submit({
+        useLatestNonce: true,
+      });
+      await activateResult.waitForFinalizedBlock;
+    }
 
     const operationalAccount = await loadOperationalAccount(this.walletKeys, client);
     const progress = getOperationalChainProgressFromAccount(operationalAccount, rewardConfig);
@@ -486,6 +501,9 @@ export class AppVaultOperator {
       throw new Error('AppVaultOperator has no funded Bitcoin available to create its Liquid.');
     }
 
+    if (!this.#bitcoinLocks.getLockById(currentLock.lockId)) {
+      await this.#bitcoinLocks.syncCurrentLocks({ requireComplete: true });
+    }
     const lock = this.#bitcoinLocks.getLockById(currentLock.lockId);
     if (!lock) {
       throw new Error(`AppVaultOperator could not recover Bitcoin Lock #${currentLock.lockId}.`);

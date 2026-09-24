@@ -1,4 +1,5 @@
 import { BitcoinFission, type ArgonClient, type BlockWatch, type IBitcoinFission } from '@argonprotocol/apps-core';
+import { hexToU8a } from '@argonprotocol/mainchain';
 import { describe, expect, it, vi } from 'vitest';
 import * as Vue from 'vue';
 
@@ -737,12 +738,12 @@ describe('Bitcoin Fission current state', () => {
     ]);
   });
 
-  it('publishes normal create, ratchet, and close economics immediately and restores them after restart', async () => {
+  it('publishes create economics before transaction persistence, then ratchet and close economics, and restores them after restart', async () => {
     const db = await createTestDb();
     const blocks = {
-      159: { ...historyBlock(159), tick: 500 },
-      160: { ...historyBlock(160), tick: 510 },
-      170: { ...historyBlock(170), tick: 550 },
+      159: { ...historyBlock(159), blockHash: `0x${'9f'.repeat(32)}`, tick: 500 },
+      160: { ...historyBlock(160), blockHash: `0x${'a0'.repeat(32)}`, tick: 510 },
+      170: { ...historyBlock(170), blockHash: `0x${'aa'.repeat(32)}`, tick: 550 },
     };
     let current: IBitcoinFission | undefined = {
       ownerAccount,
@@ -794,15 +795,18 @@ describe('Bitcoin Fission current state', () => {
       id: number,
     ) => {
       const block = blocks[blockNumber];
+      // Live finalization can reach post-processing before the tracker saves inclusion details.
+      const hasStoredInclusion = blockNumber !== 159;
       await fissions.recordFinalizedTransaction({
         tx: {
           id,
-          blockHeight: block.blockNumber,
-          blockHash: block.blockHash,
-          blockExtrinsicIndex: 2,
+          blockHeight: hasStoredInclusion ? block.blockNumber : undefined,
+          blockHash: hasStoredInclusion ? block.blockHash : undefined,
+          blockExtrinsicIndex: hasStoredInclusion ? 2 : undefined,
         },
         txResult: {
           blockNumber: block.blockNumber,
+          blockHash: hexToU8a(block.blockHash),
           extrinsicIndex: 2,
           events: events.map(record => record.event),
         },

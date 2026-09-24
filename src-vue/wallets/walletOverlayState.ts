@@ -1,3 +1,4 @@
+import type { MoveToken } from '@argonprotocol/apps-core';
 import type { WalletForArgon } from '../lib/WalletForArgon.ts';
 import type { WalletForBitcoin } from '../lib/WalletForBitcoin.ts';
 import type { WalletForEthereum } from '../lib/WalletForEthereum.ts';
@@ -7,10 +8,16 @@ export const WALLET_MOVE_LABEL = 'MOVE';
 export type IWalletSetupStep = 'choice' | 'external';
 export type IWalletOverlayWallet = WalletForArgon<'argon'> | WalletForBitcoin | WalletForEthereum;
 export type IWalletConnector = WalletForBitcoin | WalletForEthereum;
-export type IWalletView = 'main' | 'send' | 'receive' | 'privateKey' | { type: 'unattachedBitcoin'; recordId: number };
+export type IWalletView =
+  | 'main'
+  | 'send'
+  | 'receive'
+  | 'privateKey'
+  | { type: 'send'; moveToken?: MoveToken }
+  | { type: 'unattachedBitcoin'; recordId: number };
 export type IWalletOverlayCenterView =
   | { type: 'main' }
-  | { type: 'send' }
+  | { type: 'send'; moveToken?: MoveToken }
   | { type: 'receive' }
   | { type: 'privateKey' }
   | { type: 'unattachedBitcoin'; recordId: number }
