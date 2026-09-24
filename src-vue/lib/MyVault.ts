@@ -470,6 +470,7 @@ export class MyVault {
                   case 'BitcoinLockFlexibleChanged':
                   case 'BitcoinLockBackfillChanged':
                   case 'BitcoinLockBurned':
+                  case 'BitcoinLockTerminated':
                   case 'BitcoinSpentAfterRelease':
                   case 'OrphanedUtxoReleaseRequested':
                   case 'OrphanedUtxoCosigned':

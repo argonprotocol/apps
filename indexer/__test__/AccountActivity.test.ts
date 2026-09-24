@@ -442,6 +442,26 @@ describe('AccountActivityDecoder', () => {
     });
   });
 
+  it('indexes a terminated Lock by its current lock ID', () => {
+    const terminated = {
+      section: 'bitcoinLocks',
+      method: 'BitcoinLockTerminated',
+      data: createHistoricalEventData(159, 'bitcoinLocks', 'BitcoinLockTerminated', {
+        lockId: 9,
+        vaultId: 7,
+        wasUtxoSpent: true,
+        burnedArgons: 100,
+      }),
+    };
+
+    expect(
+      new AccountActivityDecoder().decode({
+        eventGroups: [{ extrinsicIndex: 2, extrinsicEvents: [terminated] }],
+        specVersion: 159,
+      }).bitcoinLocks,
+    ).toEqual([{ utxoId: 9, mask: AccountActivityKind.BitcoinLock }]);
+  });
+
   it('learns Bitcoin lock ownership from later lifecycle events that identify the account', () => {
     const accountId = encodeAddress(new Uint8Array(32).fill(4));
     const ratcheted = {
@@ -565,6 +585,7 @@ const indexedBitcoinLockMethods = [
   'BitcoinLockCreated',
   'BitcoinLockRatcheted',
   'BitcoinLockResecuritized',
+  'BitcoinLockTerminated',
   'BitcoinSpentAfterRelease',
   'BitcoinUtxoCosignRequested',
   'BitcoinUtxoCosigned',

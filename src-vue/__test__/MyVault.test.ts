@@ -165,6 +165,7 @@ describe('MyVault cosign recovery', () => {
       BitcoinUtxoCosigned: unrelatedEvent,
       BitcoinCosignPastDue: unrelatedEvent,
       BitcoinLockBurned: unrelatedEvent,
+      BitcoinLockTerminated: unrelatedEvent,
       BitcoinSpentAfterRelease: unrelatedEvent,
       OrphanedUtxoReleaseRequested: eventMatcher('OrphanedUtxoReleaseRequested'),
       OrphanedUtxoCosigned: unrelatedEvent,
@@ -246,11 +247,18 @@ describe('MyVault cosign recovery', () => {
     await onFinalized([{ blockNumber: 11, blockHash: '0x11' }]);
     expect(refreshExternalLocks).toHaveBeenCalledWith(finalizedApi);
 
-    blockEvents.splice(0, 1, { event: vaultEvent });
+    refreshExternalLocks.mockClear();
+    blockEvents.splice(0, 1, {
+      event: { section: 'bitcoinLocks', method: 'BitcoinLockTerminated', data: { vaultId: 7 } },
+    });
     await onFinalized([{ blockNumber: 12, blockHash: '0x12' }]);
+    expect(refreshExternalLocks).toHaveBeenCalledWith(finalizedApi);
+
+    blockEvents.splice(0, 1, { event: vaultEvent });
+    await onFinalized([{ blockNumber: 13, blockHash: '0x13' }]);
 
     expect(myVault.data.pendingCollectRevenue).toBe(84n);
-    expect(getBlockEventsWithSpec).toHaveBeenCalledTimes(4);
+    expect(getBlockEventsWithSpec).toHaveBeenCalledTimes(5);
 
     myVault.unsubscribe();
     getMainchainClient.mockRestore();

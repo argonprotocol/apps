@@ -967,7 +967,9 @@ export class BitcoinLockRecovery {
         release.compensationMicrogons ??= compensation;
       } else if (
         event.section === 'bitcoinLocks' &&
-        (event.method === 'BitcoinSpentAfterRelease' || event.method === 'BitcoinLockBurned')
+        (event.method === 'BitcoinSpentAfterRelease' ||
+          event.method === 'BitcoinLockBurned' ||
+          event.method === 'BitcoinLockTerminated')
       ) {
         const release = this.getRecoveredRelease(
           record,
@@ -982,14 +984,15 @@ export class BitcoinLockRecovery {
         const isPartialRelease = event.method === 'BitcoinSpentAfterRelease' && (release?.changeSatoshis ?? 0n) > 0n;
         let removalReason: NonNullable<IBitcoinLockRecord['removalReason']> = 'released';
         let status = BitcoinLockStatus.Released;
-        if (event.method === 'BitcoinLockBurned') {
+        if (event.method === 'BitcoinLockBurned' || event.method === 'BitcoinLockTerminated') {
           const wasUtxoSpent = event.data.wasUtxoSpent;
           removalReason = wasUtxoSpent ? 'spent' : 'expired';
           if (!wasUtxoSpent) status = BitcoinLockStatus.Releasing;
         }
         const bitcoinWasReleased =
           event.method === 'BitcoinSpentAfterRelease' ||
-          (event.method === 'BitcoinLockBurned' && event.data.wasUtxoSpent);
+          ((event.method === 'BitcoinLockBurned' || event.method === 'BitcoinLockTerminated') &&
+            event.data.wasUtxoSpent);
         if (bitcoinWasReleased && !isPartialRelease) this.closeSecuritizationTerm(block, eventRecords[eventIndex]);
 
         const recovered = this.createDetachedRecord(record);
@@ -1843,7 +1846,10 @@ export class BitcoinLockRecovery {
           value = event.data.lockId ?? event.data.utxoId;
           break;
         case 'BitcoinLockBurned':
-          value = event.data.lockId ?? event.data.utxoId;
+          value = event.data.utxoId;
+          break;
+        case 'BitcoinLockTerminated':
+          value = event.data.lockId;
           break;
         case 'BitcoinLockCreated':
           value = event.data.lockId ?? event.data.utxoId;

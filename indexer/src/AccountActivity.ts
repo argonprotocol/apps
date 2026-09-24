@@ -525,10 +525,11 @@ function collectEventVaultIds(event: HistoricalEvent): number[] {
 
 function collectEventBitcoinLockIds(event: HistoricalEvent): number[] {
   const { data } = event;
-  if (!('utxoId' in data)) return [];
-  const { utxoId } = data;
-  if (utxoId === null || utxoId === undefined) return [];
-  const value = Number(utxoId);
+  const lockId = 'lockId' in data ? data.lockId : undefined;
+  const utxoId = 'utxoId' in data ? data.utxoId : undefined;
+  const id = lockId ?? utxoId;
+  if (id === null || id === undefined) return [];
+  const value = Number(id);
   if (Number.isSafeInteger(value)) return [value];
-  throw new AccountActivityCoverageError(`${event.section}.${event.method} contains unsafe Bitcoin lock id ${utxoId}`);
+  throw new AccountActivityCoverageError(`${event.section}.${event.method} contains unsafe Bitcoin lock id ${id}`);
 }
