@@ -1733,10 +1733,11 @@ describe('BitcoinLocks history replay publication', () => {
       }),
     ]);
     await store.recovery.recoverBlock({ ...historyBlock(180), tick: 600 }, [
-      historyEvent(159, 'bitcoinLocks', 'BitcoinLockBurned', {
+      historyEvent(159, 'bitcoinLocks', 'BitcoinLockTerminated', {
         lockId: 7,
         vaultId: 1,
         wasUtxoSpent: true,
+        burnedArgons: 0n,
       }),
     ]);
     await publishRecoveredHistory(store);

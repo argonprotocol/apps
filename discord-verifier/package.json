@@ -11,7 +11,7 @@
     "tsc": "tsc --noEmit"
   },
   "dependencies": {
-    "@argonprotocol/mainchain": "1.4.12-dev.34f24905",
+    "@argonprotocol/mainchain": "1.4.13",
     "@argonprotocol/runtime-client": "workspace:*",
     "@polkadot/util": "^14.0.3",
     "@polkadot/util-crypto": "^14.0.3",

@@ -43,7 +43,7 @@ describe('BitcoinLocks Argon cosign gating', () => {
     'FissionRatcheted',
     'FissionClosed',
     'FissionClosedByLock',
-    'BitcoinLockBurned',
+    'BitcoinLockTerminated',
     'BitcoinSpentAfterRelease',
   ])('publishes one Fission-state change signal after a %s event batch', async method => {
     const section = method.startsWith('Fission') ? 'bitcoinFissions' : 'bitcoinLocks';

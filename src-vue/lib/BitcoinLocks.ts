@@ -1462,7 +1462,9 @@ export default class BitcoinLocks {
         runtimeEvents.some(({ event }) => {
           return (
             event.section === 'bitcoinLocks' &&
-            (event.method === 'BitcoinLockBurned' || event.method === 'BitcoinSpentAfterRelease')
+            (event.method === 'BitcoinLockBurned' ||
+              event.method === 'BitcoinLockTerminated' ||
+              event.method === 'BitcoinSpentAfterRelease')
           );
         });
       const hasBitcoinLockFlexibilityChange = runtimeEvents.some(({ event }) => {
@@ -1501,6 +1503,9 @@ export default class BitcoinLocks {
                   return event.data.lockId === lockRecord.lockId && event.data.releaseNumber === release?.releaseNumber;
                 }
                 if (event.method === 'BitcoinLockBurned') {
+                  return event.data.utxoId === lockRecord.lockId && event.data.wasUtxoSpent;
+                }
+                if (event.method === 'BitcoinLockTerminated') {
                   return event.data.lockId === lockRecord.lockId && event.data.wasUtxoSpent;
                 }
                 return false;
