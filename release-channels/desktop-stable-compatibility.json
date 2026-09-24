@@ -20,5 +20,6 @@
   "2.3.4": { "maxSpecVersion": 157 },
   "2.3.5": { "maxSpecVersion": 157 },
   "2.3.6": { "maxSpecVersion": 157 },
-  "2.3.7": { "maxSpecVersion": 157 }
+  "2.3.7": { "maxSpecVersion": 157 },
+  "2.3.8": { "maxSpecVersion": 158 }
 }
