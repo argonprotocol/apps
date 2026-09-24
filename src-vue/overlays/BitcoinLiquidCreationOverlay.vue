@@ -86,7 +86,19 @@
         :vaultIds="vaultIds"
         :vaultNamesById="vaultNamesById"
         :eligibleSatoshisByVaultId="eligibleSatoshisByVaultId"
+        :usableSatoshisByVaultId="props.state.vaultCapacity?.usableSatoshisByVaultId"
       />
+      <p v-if="props.state.vaultCapacity?.status === 'loading'" class="py-3 text-sm text-slate-500">
+        Checking vault securitization...
+      </p>
+      <div
+        v-else-if="props.state.vaultCapacity?.status === 'error'"
+        class="my-3 rounded border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700"
+      >
+        {{ props.state.vaultCapacity.errorMessage }}
+        <span v-if="props.state.vaultCapacity.usableSatoshisByVaultId">Previously calculated amounts are shown.</span>
+        <button type="button" class="ml-3 cursor-pointer underline" @click="emit('refreshVaultCapacity')">Retry</button>
+      </div>
       <div class="flex justify-end gap-3 border-t border-slate-200 pt-4">
         <button
           class="cursor-pointer rounded-md border border-slate-300 px-10 py-2 text-slate-600 hover:bg-slate-50"
@@ -99,7 +111,7 @@
           class="bg-argon-button enabled:hover:bg-argon-button-hover cursor-pointer rounded-md px-10 py-2 font-semibold text-white disabled:cursor-default disabled:opacity-40"
           @click="emit('vaultsSelected', { vaultIds: selectedVaultIds })"
         >
-          Select Vaults
+          Use Selected Vaults &raquo;
         </button>
       </div>
     </div>
@@ -191,13 +203,6 @@
             >
               Max
             </button>
-            <Tooltip
-              v-if="maximumLiquidSatoshis < availableSatoshis"
-              :content="`Your wallet has ${satToBtcNm(availableSatoshis).format('0,0.[00000000]')} BTC available, but ${selectedVaults.capacitySubject} can currently securitize ${satToBtcNm(maximumLiquidSatoshis).format('0,0.[00000000]')} BTC for this Liquid.`"
-              side="top"
-            >
-              <InformationCircleIcon class="ml-1 size-3.5 cursor-help text-gray-400" />
-            </Tooltip>
           </div>
           <InputNumber
             v-model="selectedBitcoin"
@@ -211,19 +216,31 @@
             suffix=" BTC"
             class="px-1 py-2 text-[17px]!"
           />
+          <div
+            v-if="maximumLiquidSatoshis < availableSatoshis"
+            role="alert"
+            class="relative mt-3 flex items-center rounded border border-yellow-400/70 bg-yellow-100 px-3 py-3 text-yellow-900"
+          >
+            <AlertIcon class="mr-2 h-4 shrink-0 text-yellow-700" />
+            <span>
+              You have {{ satToBtcNm(availableSatoshis).format('0,0.[00000000]') }} BTC available, but
+              {{ selectedVaults.capacitySubject }} can currently securitize only
+              {{ satToBtcNm(maximumLiquidSatoshis).format('0,0.[00000000]') }} BTC for this Liquid.
+            </span>
+          </div>
           <WalletFundingCallout v-if="!availableSatoshis" :arrow-offset="64" @open-wallet="openBitcoinWallet">
             <AlertIcon class="mr-2 h-4 shrink-0 text-yellow-700" />
             You don't have Bitcoin available in your wallet. Add Bitcoin before creating a Liquid.
           </WalletFundingCallout>
           <div class="mt-2 text-sm text-gray-600/70">
-            One-time fees:
+            One-time fee of
             <template v-if="couponCreditMicrogons">
               <span class="line-through">
                 {{ argonSymbol }}{{ microgonToArgonNm(feeMicrogons + couponCreditMicrogons).format('0,0.00') }}
               </span>
-              {{ argonSymbol }}{{ microgonToArgonNm(feeMicrogons).format('0,0.00') }} · {{ argonSymbol
-              }}{{ microgonToArgonNm(couponCreditMicrogons).format('0,0.00') }} gift from
-              {{ config.upstreamOperator?.name ?? 'your upstream operator' }}
+              {{ argonSymbol }}{{ microgonToArgonNm(feeMicrogons).format('0,0.00') }} ({{ argonSymbol
+              }}{{ microgonToArgonNm(couponCreditMicrogons).format('0,0.00') }} gifted from
+              {{ config.upstreamOperator?.name ?? 'your upstream operator' }})
             </template>
             <template v-else>
               {{ argonSymbol }}{{ microgonToArgonNm(feeMicrogons).format('0,0.00') }} will be pulled from your Internal
@@ -321,7 +338,7 @@
             class="bg-argon-button enabled:hover:bg-argon-button-hover cursor-pointer rounded-md px-10 py-2 font-semibold text-white disabled:cursor-default disabled:opacity-40"
             @click="submit"
           >
-            {{ props.state.isSubmitting ? 'Submitting...' : 'Create Liquid' }}
+            {{ props.state.isSubmitting ? 'Submitting...' : 'Create Liquid &raquo;' }}
           </button>
         </div>
       </div>
@@ -365,6 +382,7 @@ const emit = defineEmits<{
   close: [];
   retry: [];
   chooseVaults: [];
+  refreshVaultCapacity: [];
   vaultsSelected: [{ vaultIds: number[] }];
   submit: [{ satoshis: bigint }];
   amountChanged: [{ satoshis: bigint }];

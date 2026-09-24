@@ -8,7 +8,7 @@ import * as vaultStore from '../stores/vaults.ts';
 import { createBitcoinLockConfig, createLock, createStore } from './helpers/bitcoin.ts';
 import { createTestDb } from './helpers/db.ts';
 import { getMainchainClient } from '../stores/mainchain.ts';
-import type { IBitcoinRequestLockMetadata } from '../lib/BitcoinLocks.ts';
+import { BitcoinLockWalletFundingError, type IBitcoinRequestLockMetadata } from '../lib/BitcoinLocks.ts';
 import type { TransactionInfo } from '../lib/TransactionInfo.ts';
 import type { UpstreamOperatorClient } from '../lib/UpstreamOperatorClient.ts';
 import { createMockWalletKeys } from './helpers/wallet.ts';
@@ -22,6 +22,11 @@ afterEach(() => vi.useRealTimers());
 
 describe('BitcoinLocks fee coupon recovery', () => {
   afterEach(() => vi.restoreAllMocks());
+
+  it('asks for enough wallet funding to cover sub-cent transaction fees without rounding up exact cents', () => {
+    expect(new BitcoinLockWalletFundingError(2_010_001n).message).toContain('₳2.02');
+    expect(new BitcoinLockWalletFundingError(2_010_000n).message).toContain('₳2.01');
+  });
 
   it('estimates the full wallet balance needed before initializing with a fee waiver', async () => {
     const walletKeys = createMockWalletKeys('//FeeCouponEstimate');

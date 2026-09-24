@@ -421,6 +421,7 @@ export function setupAppScenario({
     load: fn(async () => undefined),
     operatorNamesByVaultId: Vue.reactive({}),
     vaultsById: {},
+    currentState: Vue.reactive({ isLoaded: true, isLoading: false, error: '' }),
     updateRevenue: fn(async () => ({
       synchedToFrame: 0,
       argonotStakingByFrame: [],

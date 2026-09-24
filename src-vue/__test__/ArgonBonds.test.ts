@@ -17,6 +17,50 @@ const registry = getOfflineRegistry();
 const accountId = encodeAddress(new Uint8Array(32).fill(0x22));
 
 describe('ArgonBonds', () => {
+  it('keeps a replacement vault subscription when stale cleanup runs and removes failed subscriptions', async () => {
+    const argonBonds = new ArgonBonds(
+      Promise.resolve({} as any),
+      { isLoadedPromise: Promise.resolve(), upstreamOperator: undefined },
+      {} as any,
+      {
+        blockWatch: {
+          events: { on: vi.fn(() => vi.fn()) },
+          getCurrentApi: vi.fn(async () => ({})),
+        },
+      } as any,
+      { defaultArgonAddress: accountId } as any,
+    );
+    argonBonds.data.isLoaded = true;
+    vi.spyOn(argonBonds as any, 'refreshBondLots').mockResolvedValue(undefined);
+    const refreshVault = vi.spyOn(argonBonds, 'refreshVault').mockResolvedValue(undefined);
+    const staleCleanup = await argonBonds.subscribeVault(
+      { vaultId: 4, operatorAddress: '5PreviousOperator' },
+      {} as any,
+    );
+    await argonBonds.subscribeVault({ vaultId: 4, operatorAddress: '5CurrentOperator' }, {} as any);
+
+    staleCleanup();
+    refreshVault.mockClear();
+    await argonBonds.refreshActiveState({ client: {} as any, currentFrameId: 10 });
+    expect(refreshVault).toHaveBeenCalledOnce();
+    expect(refreshVault).toHaveBeenCalledWith(
+      { vaultId: 4, operatorAddress: '5CurrentOperator', frameId: 10 },
+      expect.anything(),
+    );
+
+    refreshVault.mockRejectedValueOnce(new Error('vault unavailable'));
+    await expect(
+      argonBonds.subscribeVault({ vaultId: 7, operatorAddress: '5FailedOperator' }, {} as any),
+    ).rejects.toThrow('vault unavailable');
+    refreshVault.mockClear();
+    await argonBonds.refreshActiveState({ client: {} as any, currentFrameId: 11 });
+    expect(refreshVault).toHaveBeenCalledOnce();
+    expect(refreshVault).toHaveBeenCalledWith(
+      { vaultId: 4, operatorAddress: '5CurrentOperator', frameId: 11 },
+      expect.anything(),
+    );
+  });
+
   it('publishes recovered history after an in-flight finalized publication', async () => {
     const db = await createTestDb();
     const lotCodec = createRuntimeBondLot({

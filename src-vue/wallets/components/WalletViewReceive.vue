@@ -32,7 +32,7 @@
         <button
           data-testid="WalletViewReceive.openBitcoinConnector()"
           type="button"
-          class="text-argon-600 hover:underline"
+          class="text-argon-600 cursor-pointer hover:underline"
           @click="emit('openBitcoinConnector')"
         >
           Open Bitcoin channels

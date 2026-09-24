@@ -186,7 +186,7 @@
       {{ formError }}
     </div>
   </div>
-  <div v-else>This wallet has no tokens to transfer.</div>
+  <div v-else class="mt-4">Your wallet is empty. There are no tokens to send.</div>
 </template>
 
 <script setup lang="ts">
@@ -319,6 +319,7 @@ const tokenOptions = Vue.computed<IOption[]>(() => [
         {
           name: 'BTC',
           value: MoveToken.BTC,
+          disabled: getWalletAvailableAmount(props.fromWallet, MoveToken.BTC) <= 0n,
         },
       ]
     : []),
@@ -327,7 +328,7 @@ const hasTokens = Vue.computed(() => {
   const sourceWallet = props.fromWallet;
   const hasArgonTokens = sourceWallet.data.availableMicrogons > 0n || sourceWallet.data.availableMicronots > 0n;
   if (isEthereumWallet(sourceWallet)) return hasArgonTokens;
-  if (isArgonWallet(sourceWallet)) return true;
+  if (isArgonWallet(sourceWallet)) return hasArgonTokens || availableBitcoinSatoshis.value > 0n;
   return false;
 });
 const destinationWallets = Vue.computed(() =>
@@ -775,6 +776,7 @@ defineExpose({
   availableAmount,
   bitcoinReleasePlan,
   destinationAddress,
+  hasTokens,
   isReady,
   selectedDestinationWallet,
   selectedMoveToken,

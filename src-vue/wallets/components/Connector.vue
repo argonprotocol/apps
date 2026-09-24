@@ -83,7 +83,13 @@
       v-if="props.wallet"
       class="absolute top-full left-1/2 -translate-x-1/2 translate-y-1 text-center whitespace-nowrap text-white"
     >
-      <div class="text-lg font-bold opacity-60">
+      <div
+        class="cursor-pointer text-lg font-bold opacity-60"
+        @click="
+          openConnector();
+          isConnectorPopoverOpen = true;
+        "
+      >
         <template v-if="walletType === WalletType.bitcoin">Bitcoin</template>
         <template v-else-if="ethereumWallet">{{ ethereumWallet.name }}</template>
       </div>
@@ -98,7 +104,16 @@
           <CopyIcon class="h-3.5 w-3.5 shrink-0" />
           <template #copying><CheckIcon class="h-3.5 w-3.5 shrink-0 text-green-500" /></template>
         </CopyToClipboard>
-        <div v-else class="text-md relative -top-0.5 font-light italic opacity-60">Create Channel</div>
+        <div
+          v-else
+          class="text-md relative -top-0.5 cursor-pointer font-light italic opacity-60"
+          @click="
+            openConnector();
+            isConnectorPopoverOpen = true;
+          "
+        >
+          Create Channel
+        </div>
       </template>
       <template v-else></template>
     </div>

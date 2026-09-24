@@ -17,6 +17,7 @@ import {
   NetworkConfig,
 } from '@argonprotocol/apps-core';
 import BigNumber from 'bignumber.js';
+import { raceWithTimeout } from './utils.js';
 import mainnetVaultRevenueHistory from './data/vaultRevenue.mainnet.json' with { type: 'json' };
 import testnetVaultRevenueHistory from './data/vaultRevenue.testnet.json' with { type: 'json' };
 import { TreasuryBonds } from './TreasuryBonds.js';
@@ -36,9 +37,11 @@ type RuntimeOperationalAccount = NonNullable<HistoricalQueryRecord<'operationalA
 type RuntimeVaultFrameRevenue = NonNullable<HistoricalQueryRecord<'vaults', 'revenuePerFrameByVault'>>[number];
 
 export class Vaults {
-  public readonly vaultsById: { [id: number]: Vault } = {};
+  public vaultsById: { [id: number]: Vault } = {};
   public operatorNamesByVaultId: { [id: number]: string } = {};
   public stats?: IAllVaultStats;
+  public currentState = { isLoaded: false, isLoading: false, error: '' };
+  private currentLoad?: Promise<void>;
 
   constructor(
     public network: string,
@@ -58,19 +61,11 @@ export class Vaults {
     this.waitForLoad =
       reload || this.waitForLoad?.isRejected ? createDeferred() : (this.waitForLoad ??= createDeferred());
     try {
-      const client = await this.mainchainClients.get(false);
+      await this.loadCurrentState(reload);
       await this.miningFrames.load();
-      const vaults = await client.query.vaults.vaultsById.entries();
-      for (const [vaultIdRaw, vaultRaw] of vaults) {
-        if (!vaultRaw) continue;
-        const id = vaultIdRaw.args[0];
-
-        this.vaultsById[id] = new Vault(id, vaultRaw, NetworkConfig.tickMillis);
-      }
       this.stats ??= await this.loadStats();
 
       this.waitForLoad.resolve();
-      void this.refreshOperatorNames({ client, vaults: Object.values(this.vaultsById) });
       if (this.stats.revenueBackfill) this.queueRevenueUpdate();
     } catch (error) {
       this.waitForLoad.reject(error as Error);
@@ -78,7 +73,47 @@ export class Vaults {
     return this.waitForLoad.promise;
   }
 
+  public async loadCurrentState(reload = false): Promise<void> {
+    if (this.currentLoad) return this.currentLoad;
+    if (this.currentState.isLoaded && !reload) return;
+
+    this.currentState.isLoading = true;
+    this.currentState.error = '';
+    this.currentLoad = (async () => {
+      try {
+        const { client, entries } = await raceWithTimeout(
+          (async () => {
+            const client = await this.mainchainClients.get(false);
+            return { client, entries: await client.query.vaults.vaultsById.entries() };
+          })(),
+          60_000,
+          () => {
+            throw new Error('Loading active vaults timed out. Please retry.');
+          },
+        );
+        const records: Record<number, Vault> = {};
+        for (const [key, raw] of entries) {
+          if (raw) records[key.args[0]] = new Vault(key.args[0], raw, NetworkConfig.tickMillis);
+        }
+        for (const id of Object.keys(this.vaultsById)) {
+          if (!records[Number(id)]) delete this.vaultsById[Number(id)];
+        }
+        Object.assign(this.vaultsById, records);
+        this.currentState.isLoaded = true;
+        void this.refreshOperatorNames({ client, vaults: Object.values(records) });
+      } catch (error) {
+        this.currentState.error = error instanceof Error ? error.message : 'Unable to load active vaults.';
+        throw error;
+      } finally {
+        this.currentState.isLoading = false;
+        this.currentLoad = undefined;
+      }
+    })();
+    return this.currentLoad;
+  }
+
   public async refreshVault(vaultId: number): Promise<Vault | undefined> {
+    if (this.currentLoad) await this.currentLoad;
     const client = await this.mainchainClients.get(false);
     const vaultOption = await client.query.vaults.vaultsById(vaultId);
     if (!vaultOption) {

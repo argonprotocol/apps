@@ -6,6 +6,7 @@
     @close="close"
     @retry="retryTransaction"
     @chooseVaults="showVaultSelection"
+    @refreshVaultCapacity="refreshVaultCapacity"
     @vaultsSelected="selectVaults($event.vaultIds)"
     @amountChanged="queuePreview($event.satoshis)"
     @submit="submit($event.satoshis)"
@@ -14,7 +15,7 @@
 
 <script setup lang="ts">
 import * as Vue from 'vue';
-import { bigIntMax, bigIntMin, BitcoinFission } from '@argonprotocol/apps-core';
+import { bigIntMax, bigIntMin, BitcoinFission, raceWithTimeout } from '@argonprotocol/apps-core';
 
 import basicEmitter from '../emitters/basicEmitter.ts';
 import type { IBitcoinLiquidSource } from '../interfaces/IBitcoinLiquidSource.ts';
@@ -53,6 +54,7 @@ const bitcoinLockCoupons = getBitcoinLockCoupons();
 const miningFrames = getMiningFrames();
 const { bitcoinLiquidCreate } = getBitcoinTransactionOperations();
 const myVault = getMyVault();
+const PREVIEW_TIMEOUT_MS = 60_000;
 
 const isOpen = Vue.ref(false);
 const isTrackingTransaction = Vue.ref(false);
@@ -75,6 +77,7 @@ const completedLiquidId = Vue.ref<number>();
 
 let previewTimeout: ReturnType<typeof setTimeout> | undefined;
 let previewRunId = 0;
+let vaultCapacityRunId = 0;
 let couponRefreshRunId = 0;
 let couponsAreCurrent = false;
 let quoteTick: number | undefined;
@@ -127,6 +130,10 @@ const completedLiquid = Vue.computed<BitcoinLiquid | undefined>(() => {
 });
 
 function open(options?: { liquidId: number }): void {
+  previewRunId += 1;
+  vaultCapacityRunId += 1;
+  if (previewTimeout) clearTimeout(previewTimeout);
+  state.vaultCapacity = undefined;
   if (options) {
     openPending(options.liquidId);
     return;
@@ -157,6 +164,7 @@ function open(options?: { liquidId: number }): void {
   isOpen.value = true;
   void refreshCoupons();
   if (state.stage === 'form') void refreshPreview(totalUnallocatedSatoshis.value);
+  else void refreshVaultCapacity();
 }
 
 function openPending(liquidId: number): void {
@@ -213,9 +221,26 @@ async function refreshCoupons(): Promise<void> {
 }
 
 function queuePreview(satoshis: bigint): void {
+  if (state.stage !== 'form') return;
   selectedSatoshis.value = satoshis;
   if (previewTimeout) clearTimeout(previewTimeout);
-  previewTimeout = setTimeout(() => void refreshPreview(satoshis), 200);
+  previewTimeout = setTimeout(() => {
+    if (isOpen.value && state.stage === 'form') void refreshPreview(satoshis);
+  }, 200);
+}
+
+function previewLiquid(allocations: BitcoinLiquidCreateAllocation[]) {
+  return raceWithTimeout(
+    (async () =>
+      await bitcoinLiquidCreate.preview({
+        allocations,
+        txSigner: await walletKeys.getLiquidLockingKeypair(),
+      }))(),
+    PREVIEW_TIMEOUT_MS,
+    () => {
+      throw new Error('Checking available Bitcoin securitization timed out. Please retry.');
+    },
+  );
 }
 
 async function refreshPreview(requestedSatoshis: bigint): Promise<boolean> {
@@ -227,10 +252,7 @@ async function refreshPreview(requestedSatoshis: bigint): Promise<boolean> {
   try {
     let preview;
     try {
-      preview = await bitcoinLiquidCreate.preview({
-        allocations,
-        txSigner: await walletKeys.getLiquidLockingKeypair(),
-      });
+      preview = await previewLiquid(allocations);
     } catch (error) {
       if (!(error instanceof BitcoinLiquidCreateStateChangedError)) throw error;
       if (!Object.keys(error.maximumSatoshisByLockId).length) throw error;
@@ -264,10 +286,7 @@ async function refreshPreview(requestedSatoshis: bigint): Promise<boolean> {
         }
         return false;
       }
-      preview = await bitcoinLiquidCreate.preview({
-        allocations,
-        txSigner: await walletKeys.getLiquidLockingKeypair(),
-      });
+      preview = await previewLiquid(allocations);
     }
     if (runId !== previewRunId) return false;
 
@@ -339,12 +358,57 @@ async function retryTransaction(): Promise<void> {
 
 function showVaultSelection(): void {
   previewRunId += 1;
+  if (previewTimeout) clearTimeout(previewTimeout);
   errorMessage.value = '';
   state.stage = 'vaults';
+  void refreshVaultCapacity();
+}
+
+async function refreshVaultCapacity(): Promise<void> {
+  const runId = ++vaultCapacityRunId;
+  state.vaultCapacity = { ...state.vaultCapacity, status: 'loading', errorMessage: undefined };
+  const allocations = activeLocks.value.flatMap((lock, index) => {
+    const satoshis = lockAvailability.value[index].unallocatedSatoshis;
+    return lock.lockId == null || satoshis === 0n ? [] : [{ lock, satoshis }];
+  });
+
+  try {
+    let maximums: Readonly<Record<number, bigint>> = {};
+    if (allocations.length) {
+      try {
+        const preview = await previewLiquid(allocations);
+        maximums = preview.maximumSatoshisByLockId;
+      } catch (error) {
+        if (!(error instanceof BitcoinLiquidCreateStateChangedError)) throw error;
+        if (!Object.keys(error.maximumSatoshisByLockId).length) throw error;
+        maximums = error.maximumSatoshisByLockId;
+      }
+    }
+    if (runId !== vaultCapacityRunId || !isOpen.value || state.stage !== 'vaults') return;
+
+    maximumSatoshisByLockId.value = {
+      ...maximumSatoshisByLockId.value,
+      ...maximums,
+    };
+    const usableSatoshisByVaultId: Record<number, bigint> = {};
+    for (const { lock, satoshis } of allocations) {
+      const usableSatoshis = bigIntMin(satoshis, maximums[lock.lockId!] ?? 0n);
+      usableSatoshisByVaultId[lock.vaultId] = (usableSatoshisByVaultId[lock.vaultId] ?? 0n) + usableSatoshis;
+    }
+    state.vaultCapacity = { status: 'ready', usableSatoshisByVaultId };
+  } catch (error) {
+    if (runId !== vaultCapacityRunId || !isOpen.value || state.stage !== 'vaults') return;
+    state.vaultCapacity = {
+      ...state.vaultCapacity,
+      status: 'error',
+      errorMessage: error instanceof Error ? error.message : 'Unable to check vault securitization.',
+    };
+  }
 }
 
 function selectVaults(vaultIds: number[]): void {
   if (!vaultIds.length) return;
+  vaultCapacityRunId += 1;
   selectedVaultIds.value = new Set(vaultIds);
   state.selectedVaultIds = vaultIds;
   const maximum = allocate(totalUnallocatedSatoshis.value).reduce(
@@ -423,8 +487,10 @@ function createSourcesForAllocations(allocations: BitcoinLiquidCreateAllocation[
             ? 'Your Vault'
             : (vaults.operatorNamesByVaultId[lock.vaultId] ?? `Vault ${lock.vaultId}`),
         unallocatedSatoshis: lockAvailability.value[index].unallocatedSatoshis,
-        maximumLiquidSatoshis:
+        maximumLiquidSatoshis: bigIntMin(
+          lockAvailability.value[index].unallocatedSatoshis,
           maximumSatoshisByLockId.value[lock.lockId] ?? lockAvailability.value[index].unallocatedSatoshis,
+        ),
         selectedSatoshis: selectedByLockId.get(lock.lockId) ?? 0n,
       },
     ];
@@ -456,6 +522,8 @@ async function updateTreasuryCertificationRequirement(rate: bigint): Promise<voi
 }
 
 function close(): void {
+  previewRunId += 1;
+  vaultCapacityRunId += 1;
   isOpen.value = false;
   errorMessage.value = '';
   completedLiquidId.value = undefined;
@@ -474,6 +542,7 @@ Vue.onMounted(async () => {
   unsubscribeTicks = miningFrames.onTick(() => {
     if (
       !isOpen.value ||
+      state.stage !== 'form' ||
       isSubmitting.value ||
       !!transactionInfo.value ||
       !selectedSatoshis.value ||
@@ -487,6 +556,8 @@ Vue.onMounted(async () => {
 
 Vue.onUnmounted(() => {
   isUnmounted = true;
+  previewRunId += 1;
+  vaultCapacityRunId += 1;
   basicEmitter.off('openBitcoinLiquidCreationOverlay', open);
   if (previewTimeout) clearTimeout(previewTimeout);
   unsubscribeTicks?.();

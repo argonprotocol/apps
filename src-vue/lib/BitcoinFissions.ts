@@ -12,6 +12,7 @@ import {
   type RuntimeSystemEventRecord,
   SingleFileQueue,
 } from '@argonprotocol/apps-core';
+import { u8aToHex } from '@argonprotocol/mainchain';
 
 import { getMainchainClient } from '../stores/mainchain.ts';
 import type { IBitcoinFissionRecord } from '../interfaces/IBitcoinFissionRecord.ts';
@@ -134,7 +135,7 @@ export class BitcoinFissions {
     else if (this.data.readiness !== 'ready') await this.currentLoadPromise;
 
     const blockNumber = txInfo.tx.blockHeight ?? txInfo.txResult.blockNumber;
-    const blockHash = txInfo.tx.blockHash;
+    const blockHash = txInfo.tx.blockHash ?? (txInfo.txResult.blockHash && u8aToHex(txInfo.txResult.blockHash));
     const extrinsicIndex = txInfo.tx.blockExtrinsicIndex ?? txInfo.txResult.extrinsicIndex;
     if (!this.blockWatch || blockNumber === undefined || !blockHash || extrinsicIndex === undefined) {
       throw new Error(`Finalized transaction #${txInfo.tx.id} is missing its Fission history location`);

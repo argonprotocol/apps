@@ -128,11 +128,11 @@
                 </span>
                 <div class="flex grow flex-row items-center justify-end gap-x-2 text-right">
                   <span v-if="isRatchetPending(liquid.model.liquidId)" class="font-semibold text-slate-500">
-                    Ratcheting...
+                    Ratcheting... &middot;
                   </span>
                   <span v-else-if="liquid.ratchet.isAvailable" class="text-argon-600 font-semibold">
-                    Ratchet {{ liquid.ratchet.percent > 0 ? '+' : ''
-                    }}{{ numeral(liquid.ratchet.percent).format('0,0.[00]') }}% available
+                    Ratchet @ {{ liquid.ratchet.percent > 0 ? '+' : ''
+                    }}{{ numeral(liquid.ratchet.percent).format('0,0.[00]') }}% &middot;
                   </span>
                   <span class="font-semibold whitespace-nowrap text-slate-500">
                     {{ currency.symbol }}{{ microgonToMoneyNm(liquid.repaymentAmount).format('0,0.00') }} to close

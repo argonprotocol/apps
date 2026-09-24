@@ -1,6 +1,6 @@
 import * as Vue from 'vue';
 import type { Meta, StoryObj } from '@storybook/vue3-vite';
-import { fn, userEvent, within } from 'storybook/test';
+import { expect, fn, userEvent, within } from 'storybook/test';
 import {
   createBitcoinRelease,
   createBitcoinUtxo,
@@ -216,6 +216,40 @@ export const ArchivedChannel: Story = {
 
 export const Form: Story = {
   beforeEach: () => useScenario(),
+  play: async () => {
+    const networkFee = await within(document.body).findByText('Network Fee (estimated)');
+    await expect(networkFee.nextElementSibling).toHaveTextContent('0.13');
+  },
+};
+
+export const FormWithInsurance: Story = {
+  beforeEach: () => useScenario(),
+  play: async () => {
+    const canvas = within(document.body);
+    const insurance = await canvas.findByTestId('ConnectorChannel.insuranceAmount');
+    const amount = within(insurance).getByTestId('input-number');
+    await userEvent.clear(amount);
+    await userEvent.type(amount, '100');
+    await userEvent.tab();
+  },
+};
+
+export const EstimatingRequiredBalance: Story = {
+  beforeEach: () => {
+    const cleanup = useScenario();
+    scenario.bitcoinLockCreate.preview = fn<typeof scenario.bitcoinLockCreate.preview>(() => new Promise(() => {}));
+    return cleanup;
+  },
+};
+
+export const RequiredBalanceUnavailable: Story = {
+  beforeEach: () => {
+    const cleanup = useScenario();
+    scenario.bitcoinLockCreate.preview = fn(async () => {
+      throw new Error('Network unavailable');
+    });
+    return cleanup;
+  },
 };
 
 export const CosignerInfo: Story = {
@@ -356,6 +390,19 @@ export const ReadyForBitcoin: Story = {
   beforeEach: () => useScenario(BitcoinLockStatus.LockPendingFunding),
 };
 
+export const FundedReceiveWithReservation: Story = {
+  beforeEach: () => useScenario(BitcoinLockStatus.LockFunded),
+};
+
+export const FundedReceiveWithoutReservation: Story = {
+  beforeEach: () => {
+    const cleanup = useScenario(BitcoinLockStatus.LockFunded);
+    scenario.bitcoinLocks.isSecuritizationHoldExpired = fn(() => true);
+    scenario.lock.securitizationCoverageMicrogons = 0n;
+    return cleanup;
+  },
+};
+
 export const RestoredPendingFunding: Story = {
   beforeEach: () => useScenario(BitcoinLockStatus.LockPendingFunding),
 };
@@ -471,6 +518,9 @@ export const RestoreError: Story = {
 export const __namedExportsOrder = [
   'WalletOverview',
   'Form',
+  'FormWithInsurance',
+  'EstimatingRequiredBalance',
+  'RequiredBalanceUnavailable',
   'CosignerInfo',
   'FormInMyVault',
   'FormWithCosignerChoice',
@@ -482,6 +532,8 @@ export const __namedExportsOrder = [
   'PreparingRequest',
   'CreatingOnArgon',
   'ReadyForBitcoin',
+  'FundedReceiveWithReservation',
+  'FundedReceiveWithoutReservation',
   'RestoredPendingFunding',
   'FocusedPendingChannel',
   'RestoreError',

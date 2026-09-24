@@ -100,7 +100,7 @@ async function fetchAddressActivity(
   }
 
   const responseJson = (await response.json()) as IIndexerSpec['/v2/activity/:address']['responseType'];
-  const logValue = !import.meta.env.PROD || LOG_DEBUG ? responseJson : { blockCount: responseJson.blocks.length };
+  const logValue = !import.meta.env?.PROD || LOG_DEBUG ? responseJson : { blockCount: responseJson.blocks.length };
   console.info(`['${url}'] response`, logValue);
   return responseJson;
 }

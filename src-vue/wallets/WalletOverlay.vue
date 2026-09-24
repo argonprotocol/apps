@@ -72,10 +72,12 @@
                   :guidanceContext="openWallet.guidanceContext"
                   @dragStart="draggable.onMouseDown($event)"
                   @goto="showView"
+                  @openBitcoinConnector="openBitcoinConnector"
                   @close="closeWalletViewOrOverlay"
                 />
                 <WalletViewSend
                   v-else-if="openWallet.centerView.type === 'send'"
+                  :moveToken="openWallet.centerView.moveToken"
                   :isDragging="draggable.isDragging"
                   :showBack="openWallet.showBack"
                   :activeConnector="openWallet.activeConnector"

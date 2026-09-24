@@ -5,6 +5,11 @@ export type BitcoinLiquidCreationState = {
   stage: 'vaults' | 'form' | 'creating' | 'complete';
   sources: IBitcoinLiquidSource[];
   selectedVaultIds: number[];
+  vaultCapacity?: {
+    status: 'loading' | 'ready' | 'error';
+    usableSatoshisByVaultId?: Record<number, bigint>;
+    errorMessage?: string;
+  };
   preview?: IBitcoinLiquidCreatePreview;
   isSubmitting: boolean;
   progressPct: number;

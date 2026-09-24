@@ -90,12 +90,15 @@ export function setupBitcoinOverlayScenario() {
     }),
   );
   const bitcoinLockCreate: BitcoinLockCreate = Object.assign(Object.create(BitcoinLockCreate.prototype), {
-    preview: fn(async () => ({
-      canAfford: true,
-      requiredWalletBalanceMicrogons: 2_125_000n,
-      securityFee: 2_000_000n,
-      txFeePlusTip: 125_000n,
-    })),
+    preview: fn<BitcoinLockCreate['preview']>(async ({ vault, satoshis, feeDiscountMicrogons = 0n }) => {
+      const securityFee = vault.calculateBitcoinFee((satoshis * 6_800_000_000n) / 100_000_000n) - feeDiscountMicrogons;
+      return {
+        canAfford: true,
+        requiredWalletBalanceMicrogons: securityFee + 125_000n + 10_000n,
+        securityFee,
+        txFeePlusTip: 125_000n,
+      };
+    }),
     submit: fn(async () =>
       createScenarioTransactionInfo({
         extrinsicType: ExtrinsicType.BitcoinRequestLock,
@@ -509,7 +512,6 @@ export function setupBitcoinOverlayScenario() {
   const financials = useFinancials();
   Object.assign(financials, {
     refreshVaults: fn(async () => undefined),
-    vaultsIsLoaded: true,
     vaultsActiveRecords: [vault],
     liquidAllRecords: [],
     bitcoinLockPerformanceByUuid: {},
@@ -564,6 +566,7 @@ export function setupBitcoinOverlayScenario() {
   });
 
   const vaults = {
+    currentState: Vue.reactive({ isLoaded: true, isLoading: false, error: '' }),
     operatorNamesByVaultId: { [vault.vaultId]: 'Atlas Operator' },
     vaultsById: { [vault.vaultId]: vault, [ownVault.vaultId]: ownVault },
     fetchAndCalculateRedemptionAmount: fn(async () => 825_000_000n),

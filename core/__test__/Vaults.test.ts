@@ -1,3 +1,6 @@
+import BigNumber from 'bignumber.js';
+import { nextTick, reactive, shallowReactive, watchEffect } from 'vue';
+import type { VaultsVaultsByIdResultSpec159Variant15 } from '@argonprotocol/runtime-client';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { createDeferred } from '../src/Deferred.ts';
 import { calculateRestabilizationLeverage } from '../src/GlobalVaultingStats.ts';
@@ -8,6 +11,111 @@ import { VAULT_STATS_FORMAT_VERSION, Vaults } from '../src/Vaults.ts';
 beforeEach(() => {
   NetworkConfig.setNetwork('mainnet');
   NetworkConfig.clearRuntimeOverride('mainnet');
+});
+
+const currentVault = {
+  operatorAccountId: '5SyntheticOperator',
+  delegateAccountId: null,
+  securitization: 2_000_000_000n,
+  securitizationTarget: 2_000_000_000n,
+  securitizationLocked: 0n,
+  flexibleSecuritizationLocked: 0n,
+  reservedSecuritizationSpace: 0n,
+  securitizationPendingActivation: 0n,
+  securitizedSatoshis: 0n,
+  totalSatoshis: 0n,
+  ratioAdjustedSatoshis: 0n,
+  flexibleRatioAdjustedSatoshis: 0n,
+  securitizationReleaseSchedule: {},
+  securitizationRatio: new BigNumber(1),
+  isClosed: false,
+  terms: { bitcoinAnnualPercentRate: new BigNumber(0), bitcoinBaseFee: 0n, treasuryProfitSharing: new BigNumber(0) },
+  pendingTerms: null,
+  openedTick: 1,
+  operationalMinimumReleaseTick: null,
+} satisfies NonNullable<VaultsVaultsByIdResultSpec159Variant15>;
+
+it('publishes current vaults before statistics and preserves them through failure and retry', async () => {
+  const statsReady = createDeferred();
+  const entries = vi.fn().mockRejectedValueOnce(new Error('offline'));
+  const client = {
+    query: {
+      vaults: { vaultsById: { entries } },
+      operationalAccounts: {
+        operationalAccountBySubAccount: { entries: async () => [] },
+        operationalAccounts: { entries: async () => [] },
+      },
+    },
+  };
+  const vaults = new Vaults(
+    'dev-docker',
+    {} as any,
+    { load: () => statsReady.promise } as any,
+    { get: async () => client } as any,
+  );
+  vaults.currentState = reactive(vaults.currentState);
+  vaults.vaultsById = shallowReactive(vaults.vaultsById);
+  let visible: string | bigint = 'loading';
+  const stop = watchEffect(() => {
+    visible = vaults.currentState.isLoaded
+      ? (vaults.vaultsById[7]?.availableBitcoinSpace() ?? 'empty')
+      : vaults.currentState.error || 'loading';
+  });
+  try {
+    await expect(vaults.loadCurrentState()).rejects.toThrow('offline');
+    await nextTick();
+    expect(visible).toBe('offline');
+    entries.mockResolvedValue([[{ args: [7] }, currentVault]]);
+    const loading = vaults.load();
+    const failedStats = expect(loading).rejects.toThrow('statistics unavailable');
+    await vi.waitFor(() => expect(visible).toBe(2_000_000_000n));
+    expect(vaults.stats).toBeUndefined();
+    statsReady.reject(new Error('statistics unavailable'));
+    await failedStats;
+    expect(visible).toBe(2_000_000_000n);
+    entries.mockRejectedValueOnce(new Error('refresh unavailable'));
+    await expect(vaults.loadCurrentState(true)).rejects.toThrow('refresh unavailable');
+    expect(vaults.currentState.error).toBe('refresh unavailable');
+    expect(visible).toBe(2_000_000_000n);
+    entries.mockResolvedValue([[{ args: [7] }, { ...currentVault, securitization: 3_000_000_000n }]]);
+    await vaults.loadCurrentState(true);
+    await nextTick();
+    expect(visible).toBe(3_000_000_000n);
+    expect(vaults.currentState.error).toBe('');
+    entries.mockResolvedValue([]);
+    await vaults.loadCurrentState(true);
+    await nextTick();
+    expect(visible).toBe('empty');
+  } finally {
+    stop();
+  }
+});
+
+it('times out current-state loading and ignores a late response after a successful retry', async () => {
+  vi.useFakeTimers();
+  const delayed = createDeferred<unknown[]>();
+  const entries = vi.fn().mockReturnValueOnce(delayed.promise).mockResolvedValue([]);
+  const vaults = new Vaults(
+    'dev-docker',
+    {} as any,
+    {} as any,
+    {
+      get: async () => ({ query: { vaults: { vaultsById: { entries } } } }),
+    } as any,
+  );
+  try {
+    const failed = expect(vaults.loadCurrentState()).rejects.toThrow('timed out');
+    await vi.advanceTimersByTimeAsync(60_000);
+    await failed;
+    expect(vaults.currentState.isLoading).toBe(false);
+    await vaults.loadCurrentState(true);
+    delayed.resolve([[{ args: [7] }, currentVault]]);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(vaults.currentState).toEqual({ isLoaded: true, isLoading: false, error: '' });
+    expect(vaults.vaultsById).toEqual({});
+  } finally {
+    vi.useRealTimers();
+  }
 });
 
 describe('Vaults load retry', () => {
@@ -32,7 +140,6 @@ describe('Vaults load retry', () => {
     await expect(vaults.load()).rejects.toThrow('offline');
     await expect(vaults.load()).resolves.toBeUndefined();
 
-    expect(mainchainClients.get).toHaveBeenCalledTimes(2);
     expect(miningFrames.load).toHaveBeenCalledTimes(2);
     expect(client.query.vaults.vaultsById.entries).toHaveBeenCalledOnce();
     expect(vaults.stats?.synchedToFrame).toBe(0);
@@ -83,7 +190,7 @@ describe('Vaults load retry', () => {
     const mainchainClients = { get: vi.fn().mockResolvedValue(client) };
     const vaults = new Vaults('mainnet', {} as any, miningFrames as any, mainchainClients as any);
     vaults.stats = createStats([]);
-    vaults.vaultsById[1] = { vaultId: 1, operatorAccountId } as any;
+    client.query.vaults.vaultsById.entries.mockResolvedValue([[{ args: [1] }, { ...currentVault, operatorAccountId }]]);
 
     await expect(vaults.load()).resolves.toBeUndefined();
     expect(vaults.operatorNamesByVaultId[1]).toBeUndefined();

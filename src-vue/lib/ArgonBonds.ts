@@ -95,6 +95,7 @@ export class ArgonBonds {
   private nextVaultRefreshVersion = 0;
   private lastTotalActiveBondsRefreshVersion = 0;
   private readonly publishedVaultRefreshVersions = new Map<number, number>();
+  private readonly vaultSubscriptionTokens = new Map<number, symbol>();
   private readonly historyRecovery: ArgonBondsRecovery;
   private recoveredHistoryFacts: IBondHistoryFact[] = [];
   private finalizedHistoryQueue = Promise.resolve();
@@ -326,9 +327,18 @@ export class ArgonBonds {
     client ??= await getMainchainClient(false);
     this.ensureBlockSubscription();
     this.unsubscribeVault(args.vaultId);
+    const token = Symbol();
     this.vaultSubscriptionArgs.set(args.vaultId, args);
-    await this.refreshVault(args, client);
-    return () => this.unsubscribeVault(args.vaultId);
+    this.vaultSubscriptionTokens.set(args.vaultId, token);
+    try {
+      await this.refreshVault(args, client);
+    } catch (error) {
+      if (this.vaultSubscriptionTokens.get(args.vaultId) === token) this.unsubscribeVault(args.vaultId);
+      throw error;
+    }
+    return () => {
+      if (this.vaultSubscriptionTokens.get(args.vaultId) === token) this.unsubscribeVault(args.vaultId);
+    };
   }
 
   public async refreshVault(args: IVaultBondSubscription, client?: ArgonQueryClient): Promise<void> {
@@ -370,6 +380,7 @@ export class ArgonBonds {
 
   public unsubscribeVault(vaultId: number): void {
     this.vaultSubscriptionArgs.delete(vaultId);
+    this.vaultSubscriptionTokens.delete(vaultId);
   }
 
   public getVaultBonds(vaultId: number): IVaultArgonBondState {

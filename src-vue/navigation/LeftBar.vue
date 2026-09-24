@@ -493,7 +493,11 @@
               <div class="my-2 flex flex-col justify-center rounded pt-3 pb-1">
                 <div class="wallet-summary-total text-argon-600/70 flex flex-row justify-center text-5xl font-bold">
                   <span>{{ currency.symbol }}</span>
-                  <FormattedMoney :isLoaded="selectedWalletBalanceIsLoaded" :value="selectedWalletBalance" />
+                  <FormattedMoney
+                    :isLoaded="selectedWalletBalanceIsLoaded"
+                    :value="selectedWalletBalance"
+                    :hideDecimalsWhenMoreThan="1_000_000"
+                  />
                 </div>
                 <div
                   class="wallet-summary-detail mx-auto mt-2 w-fit border-t border-slate-500/30 pt-2 text-center opacity-50"

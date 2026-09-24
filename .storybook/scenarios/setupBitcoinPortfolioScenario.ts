@@ -4,6 +4,7 @@ import type { IBitcoinLockCouponStatus } from '@argonprotocol/apps-router';
 import BigNumber from 'bignumber.js';
 import { fn, mocked } from 'storybook/test';
 import { setupAppScenario } from './setupAppScenario.ts';
+import { createScenarioVault } from './createScenarioVault.ts';
 import { BitcoinLockStatus, type IBitcoinLockRecord } from '../../src-vue/interfaces/IBitcoinLockRecord.ts';
 import type { IBitcoinLockSummary } from '../../src-vue/interfaces/IBitcoinLockSummary.ts';
 import { createFinancialPosition } from '../../src-vue/interfaces/IFinancialPosition.ts';
@@ -86,6 +87,10 @@ export function setupBitcoinPortfolioScenario(
   wallets.defaultArgonWallet.availableMicronots = 3_000_000n;
   wallets.defaultArgonWallet.totalMicrogons = 12_000_000n;
   wallets.defaultArgonWallet.totalMicronots = 3_000_000n;
+  Object.assign(getVaults().vaultsById, {
+    7: createScenarioVault({ vaultId: 7, operatorAccountId: '5AtlasOperator' }),
+    12: createScenarioVault({ vaultId: 12, operatorAccountId: '5MeridianOperator' }),
+  });
   Object.assign(getVaults().operatorNamesByVaultId, {
     7: 'Atlas Operator',
     ...(!options.upstreamOperatorProfilePending ? { 12: 'Meridian Vault' } : {}),
@@ -665,7 +670,7 @@ export function setupBitcoinPortfolioScenario(
       ),
       bitcoinLiquidPendingMintMicrogons,
       liquidPerformanceReturn: 15.82,
-      liquidHodlingReturn: 11.29,
+      liquidHodlingReturn: ((currentBitcoinPriceUsd - 68_000) / 68_000) * 100,
       financialPositionAggregate: Vue.shallowRef(
         reduceFinancialPositions([
           {

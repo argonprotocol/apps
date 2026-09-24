@@ -41,6 +41,30 @@
           :satoshis="financials.bitcoinWalletTotalSatoshis"
           :showBitcoin="true"
         >
+          <template #argonMenu>
+            <WalletTokenMenu
+              :moveToken="MoveToken.ARGN"
+              :canSend="defaultArgonWallet.availableMicrogons > 0n"
+              @send="emit('goto', { type: 'send', moveToken: MoveToken.ARGN })"
+              @receive="emit('goto', 'receive')"
+            />
+          </template>
+          <template #argonotMenu>
+            <WalletTokenMenu
+              :moveToken="MoveToken.ARGNOT"
+              :canSend="defaultArgonWallet.availableMicronots > 0n"
+              @send="emit('goto', { type: 'send', moveToken: MoveToken.ARGNOT })"
+              @receive="emit('goto', 'receive')"
+            />
+          </template>
+          <template #bitcoinMenu>
+            <WalletTokenMenu
+              :moveToken="MoveToken.BTC"
+              :canSend="wallets.bitcoinWallet.getSendableChannels().length > 0"
+              @send="emit('goto', { type: 'send', moveToken: MoveToken.BTC })"
+              @receive="emit('openBitcoinConnector')"
+            />
+          </template>
           <template #bitcoinAction>
             <span v-if="pendingOutboundSatoshis" class="ml-1 text-slate-400">
               -{{ satToBtcNm(pendingOutboundSatoshis).format('0,0.[00000000]') }} BTC
@@ -49,7 +73,7 @@
               v-if="pendingBitcoinSends.length || walletBitcoinSections.length"
               type="button"
               data-testid="WalletViewMain.toggleBitcoinDetails()"
-              class="ml-1 flex cursor-pointer items-center text-slate-500 hover:text-slate-700"
+              class="relative z-10 ml-1 flex cursor-pointer items-center text-slate-500 hover:text-slate-700"
               :aria-expanded="bitcoinDetailsAreExpanded"
               :aria-label="bitcoinDetailsAreExpanded ? 'Hide Bitcoin details' : 'Show Bitcoin details'"
               @click="bitcoinDetailsAreExpanded = !bitcoinDetailsAreExpanded"
@@ -245,7 +269,7 @@
 
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref } from 'vue';
-import { bigIntMax } from '@argonprotocol/apps-core';
+import { bigIntMax, MoveToken } from '@argonprotocol/apps-core';
 import { ChevronRightIcon, MinusIcon, PlusIcon } from '@heroicons/vue/20/solid';
 import dayjs from 'dayjs';
 import { PopoverArrow, PopoverContent, PopoverPortal, PopoverRoot, PopoverTrigger } from 'reka-ui';
@@ -276,6 +300,7 @@ import ArgonBottom from './ArgonBottom.vue';
 import ArgonTokens from './ArgonTokens.vue';
 import ConnectorChannel from './ConnectorChannel.vue';
 import WalletHeader from './WalletHeader.vue';
+import WalletTokenMenu from './WalletTokenMenu.vue';
 import type { IWalletView } from '../walletOverlayState.ts';
 
 interface IWalletBitcoinEntry {
@@ -309,6 +334,7 @@ const props = defineProps<{
 const emit = defineEmits<{
   (event: 'dragStart', mouseEvent: MouseEvent): void;
   (event: 'goto', view: IWalletView): void;
+  (event: 'openBitcoinConnector'): void;
   (event: 'close'): void;
 }>();
 

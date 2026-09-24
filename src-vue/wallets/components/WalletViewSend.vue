@@ -65,7 +65,7 @@
         @selectDestinationWallet="selectDestinationWallet"
       />
 
-      <div class="mt-8 mb-2 flex flex-row gap-x-2">
+      <div v-if="transferForm?.hasTokens" class="mt-8 mb-2 flex flex-row gap-x-2">
         <button
           v-if="!isInitiatingTransfer"
           class="border-argon-600 text-argon-600 cursor-pointer rounded-lg border px-5 py-1"
@@ -115,6 +115,7 @@ const props = defineProps<{
   isDragging: boolean;
   showBack: boolean;
   activeConnector?: IWalletConnector;
+  moveToken?: MoveToken;
   showGuidance?: boolean;
   guidanceContext?: IWalletGuidanceContext;
 }>();
@@ -352,6 +353,7 @@ Vue.watch(
 );
 
 Vue.onMounted(() => {
+  if (props.moveToken) transferForm.value?.setMoveToken(props.moveToken);
   progressRefreshInterval = setInterval(() => (progressNow.value = Date.now()), 1_000);
 });
 Vue.onUnmounted(() => {
