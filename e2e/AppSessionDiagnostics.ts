@@ -1,5 +1,5 @@
 import { type ChildProcess, execFileSync } from 'node:child_process';
-import { existsSync, readdirSync, readFileSync } from 'node:fs';
+import { copyFileSync, existsSync, readdirSync, readFileSync } from 'node:fs';
 import Path from 'node:path';
 import process from 'node:process';
 import { isPortAvailable } from '../scripts/utils.ts';
@@ -39,6 +39,22 @@ export class AppSessionDiagnostics {
     console.error('[E2E] Flow failed; fetching server install logs before teardown');
     console.error(`[E2E] Flow: ${label}`);
     console.error(`[E2E] Error: ${error instanceof Error ? error.message : String(error)}`);
+
+    const workerLogPath = Path.join(instanceDirectory, 'dev-upstream', 'operator-worker.log');
+    if (existsSync(workerLogPath)) {
+      console.error(`[E2E] Recent upstream worker output from ${workerLogPath}:`);
+      this.printFileTail(workerLogPath, FAILED_STEP_LOG_TAIL_LINES);
+      const ciTempDir = process.env.CI_TEMP_DIR?.trim();
+      if (ciTempDir) {
+        const artifactPath = Path.join(ciTempDir, `e2e-upstream-worker-${this.instanceName}.log`);
+        try {
+          copyFileSync(workerLogPath, artifactPath);
+          console.error(`[E2E] Full upstream worker log: ${artifactPath}`);
+        } catch (copyError) {
+          console.warn(`[E2E] Could not preserve upstream worker log: ${(copyError as Error).message}`);
+        }
+      }
+    }
 
     if (!existsSync(logDirectory)) {
       console.warn('[E2E] No local server log directory found for this session.');

@@ -3,6 +3,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.4.0] - 2026-09-24
+- Redesign wallet around "external connectors"
+- Bitcoin Locks and Liquids are split into two phases: live in your wallet, and create a minted position
+- Bitcoin updates: multiple deposits allowed in a lock, partial releases, liquids
+- Redesign Bitcoin Overlays: show ratchet history and close costs
+- Flexible bond accounting now participates in Vault cost basis
+- New Mining Bidding overlay and seats view
+- Fix "max wallet" bond/stake amounts
+- Fix "max wallet" mining transfers out
+
 ## [2.3.8] - 2026-09-09
 - Clear dropped Ethereum Transactions from cross-chain transfers
 - Bidding bots now detect updated rules during an active auction

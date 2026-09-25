@@ -13,7 +13,7 @@ type ITransferOutToEthereumUiState = {
 };
 
 const DEV_ETHEREUM_TRANSFER_GAS_BUFFER_WEI = 1_000_000_000_000_000_000n;
-const DEV_ETHEREUM_BACKEND_MINTING_AUTHORITY_READY_TIMEOUT_MS = 6 * 60_000;
+const DEV_ETHEREUM_BACKEND_MINTING_AUTHORITY_READY_TIMEOUT_MS = 12 * 60_000;
 
 type ITransferOutToEthereumState = IE2EOperationInspectState<Record<string, never>, ITransferOutToEthereumUiState>;
 
@@ -65,25 +65,34 @@ export default new OperationalFlow<IVaultingFlowContext, ITransferOutToEthereumS
       runtimeStateDir,
     });
 
-    await waitFor(
-      DEV_ETHEREUM_BACKEND_MINTING_AUTHORITY_READY_TIMEOUT_MS,
-      `${context.flowName}: backend minting authority readiness`,
-      async () => {
-        const runtimeState = await readDevEthereumRuntimeState(executionRpcUrl, runtimeStateDir);
-        if (!runtimeState || runtimeState.executionRpcUrl !== executionRpcUrl) {
-          return;
-        }
-        if (runtimeState.setupStatus !== 'ready' || runtimeState.mintingAuthorityStatus !== 'ready') {
-          return;
-        }
+    let lastRuntimeState: Awaited<ReturnType<typeof readDevEthereumRuntimeState>>;
+    try {
+      await waitFor(
+        DEV_ETHEREUM_BACKEND_MINTING_AUTHORITY_READY_TIMEOUT_MS,
+        `${context.flowName}: backend minting authority readiness`,
+        async () => {
+          const runtimeState = await readDevEthereumRuntimeState(executionRpcUrl, runtimeStateDir);
+          lastRuntimeState = runtimeState;
+          if (!runtimeState || runtimeState.executionRpcUrl !== executionRpcUrl) {
+            return;
+          }
+          if (runtimeState.setupStatus !== 'ready' || runtimeState.mintingAuthorityStatus !== 'ready') {
+            return;
+          }
 
-        return runtimeState;
-      },
-      {
-        pollMs: 1_000,
-        timeoutMessage: `${context.flowName}: backend minting authority never became ready.`,
-      },
-    );
+          return runtimeState;
+        },
+        { pollMs: 1_000 },
+      );
+    } catch (error) {
+      throw new Error(
+        `${context.flowName}: backend minting authority never became ready after app startup ` +
+          `(setup=${lastRuntimeState?.setupStatus ?? 'missing'}, ` +
+          `authority=${lastRuntimeState?.mintingAuthorityStatus ?? 'missing'}). ` +
+          `${error instanceof Error ? error.message : String(error)}`,
+        { cause: error },
+      );
+    }
 
     await fundDevEthereumAccount({
       to: ethereumAddress,

@@ -1356,7 +1356,18 @@ async function runCommandInternal(command: string, argsInput: unknown, context: 
   if (command === 'app.checkpointDatabase') {
     const timeoutMs = getTimeoutMs(args.timeoutMs, 'timeoutMs', DEFAULT_READY_TIMEOUT_MS);
     const db = await getDbPromise();
-    await withTimeout(db.execute('PRAGMA wal_checkpoint(TRUNCATE)'), timeoutMs, command);
+    const [checkpoint] = await withTimeout(
+      invoke<{ busy: number; log: number; checkpointed: number }[]>('sql_select_write', {
+        db: db.sql.path,
+        query: 'PRAGMA wal_checkpoint(TRUNCATE)',
+        values: [],
+      }),
+      timeoutMs,
+      command,
+    );
+    if (!checkpoint || checkpoint.busy !== 0 || checkpoint.log !== checkpoint.checkpointed) {
+      throw new Error(`SQLite WAL checkpoint did not complete: ${JSON.stringify(checkpoint)}`);
+    }
     db.pauseWrites();
     return { ok: true };
   }

@@ -160,7 +160,7 @@ jobs:
           path: |
             /tmp/troubleshooting-*
             ${{ env.CI_TEMP_DIR }}/e2e-app-output-*.log
-            ~/.config/com.argon.desktop.local/dev-docker/*/dev-upstream/operator-worker.log
+            ${{ env.CI_TEMP_DIR }}/e2e-upstream-worker-*.log
           if-no-files-found: ignore
 
       - name: Upload e2e screenshots
