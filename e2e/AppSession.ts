@@ -26,7 +26,7 @@ import {
   stopDevUpstreamWorker,
 } from './scripts/devUpstreamProcess.ts';
 
-const DEFAULT_APP_CONNECT_TIMEOUT_MS = 12 * 60_000;
+const DEFAULT_APP_CONNECT_TIMEOUT_MS = 18 * 60_000;
 const CLEANUP_PORT_WAIT_TIMEOUT_MS = 30_000;
 const CLEANUP_PORT_POLL_INTERVAL_MS = 500;
 const REQUIRED_LOCAL_DOCKER_PORTS = [3261];

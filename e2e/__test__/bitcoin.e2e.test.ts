@@ -1,5 +1,5 @@
 import { copyFileSync, existsSync, mkdirSync, readFileSync, rmSync } from 'node:fs';
-import { DatabaseSync } from 'node:sqlite';
+import { backup, DatabaseSync } from 'node:sqlite';
 import Path from 'node:path';
 import { createArgonClient, SATOSHIS_PER_BITCOIN } from '@argonprotocol/apps-core';
 import { getClient, Keyring } from '@argonprotocol/mainchain';
@@ -50,18 +50,26 @@ describe.skipIf(skipE2E).sequential('Bitcoin Operation Flows', () => {
       async ({ skip }) => {
         if (!session || !lifecycleCompleted) return skip('The Bitcoin Liquid lifecycle did not complete.');
 
-        await session.checkpointDatabase();
-        const expectedBitcoinReturnPercentByLiquidId = readLiquidReturnFromHistory(
-          Path.join(session.appInstanceDirectory, 'database.sqlite'),
-        );
         const readOnlyInstanceName = `${Path.basename(session.appInstanceDirectory)}-copy`;
         readOnlyInstanceDirectory = Path.join(Path.dirname(session.appInstanceDirectory), readOnlyInstanceName);
 
         mkdirSync(readOnlyInstanceDirectory, { recursive: true });
-        for (const filename of ['wallet.json', 'database.sqlite', 'app-version.txt']) {
+        for (const filename of ['wallet.json', 'app-version.txt']) {
           const source = Path.join(session.appInstanceDirectory, filename);
           if (existsSync(source)) copyFileSync(source, Path.join(readOnlyInstanceDirectory, filename));
         }
+        const sourceDatabase = new DatabaseSync(Path.join(session.appInstanceDirectory, 'database.sqlite'), {
+          open: true,
+          readOnly: true,
+          timeout: 30_000,
+        });
+        const copiedDatabasePath = Path.join(readOnlyInstanceDirectory, 'database.sqlite');
+        try {
+          await backup(sourceDatabase, copiedDatabasePath);
+        } finally {
+          sourceDatabase.close();
+        }
+        const expectedBitcoinReturnPercentByLiquidId = readLiquidReturnFromHistory(copiedDatabasePath);
 
         const wallet = JSON.parse(readFileSync(Path.join(readOnlyInstanceDirectory, 'wallet.json'), 'utf8')) as {
           meta: { ethereumAddress: string };
