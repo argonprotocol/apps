@@ -8,7 +8,7 @@ import { fileURLToPath } from 'node:url';
 import type { INetworkConfigOverride } from '@argonprotocol/apps-core';
 import type { IDevEthereumConfig, IStartDevEthereumResult } from '../devEthereum.ts';
 
-const WORKER_START_TIMEOUT_MS = 10 * 60_000;
+const WORKER_START_TIMEOUT_MS = 15 * 60_000;
 const WORKER_STOP_TIMEOUT_MS = 10_000;
 
 export interface IDevUpstreamWorkerStartOptions {

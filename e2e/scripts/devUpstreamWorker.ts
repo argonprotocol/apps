@@ -38,14 +38,19 @@ void start().catch(error => {
 });
 
 async function start(): Promise<void> {
+  const upstreamStartedAt = Date.now();
+  console.info('[dev-upstream-worker] Starting upstream services');
   upstreamRuntime = await startDevUpstreamServer({
     archiveUrl,
     networkConfigOverride,
     devEthereum,
     devEthereumConfig,
   });
+  console.info(`[dev-upstream-worker] Upstream services ready after ${Date.now() - upstreamStartedAt}ms`);
 
   if (shouldStartMintingAuthority) {
+    const authorityStartedAt = Date.now();
+    console.info('[dev-upstream-worker] Starting Ethereum minting authority');
     mintingAuthorityRuntime = await startDevEthereumMintingAuthority({
       archiveUrl,
       executionRpcUrl,
@@ -57,6 +62,9 @@ async function start(): Promise<void> {
         serverEnvVars: process.env,
       },
     });
+    console.info(
+      `[dev-upstream-worker] Ethereum minting authority setup returned after ${Date.now() - authorityStartedAt}ms`,
+    );
   }
 
   setDevUpstreamWorkerReady(true, devUpstreamDir);

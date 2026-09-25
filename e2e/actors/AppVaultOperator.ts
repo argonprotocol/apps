@@ -289,6 +289,7 @@ export class AppVaultOperator {
   public async bootstrapUpstreamOperator(args: { client: ArgonClient; operatorName: string }): Promise<void> {
     const { client } = args;
     const operatorName = args.operatorName.trim();
+    const bootstrapStartedAt = Date.now();
     if (!operatorName) {
       throw new Error('An Operator name is required to bootstrap the upstream operator.');
     }
@@ -338,6 +339,7 @@ export class AppVaultOperator {
         defaultAccountId: this.walletKeys.defaultArgonAddress,
       });
       if (!certification.hasTreasuryBitcoin) {
+        console.info('[dev-upstream] Funding treasury Bitcoin certification lock');
         const existingLockIds = await BitcoinLock.idsByOwner(client, this.walletKeys.defaultArgonAddress);
         if (existingLockIds.length) {
           throw new Error(
@@ -369,9 +371,11 @@ export class AppVaultOperator {
           if (!currentLock?.fundedSatoshis) return;
           return currentLock;
         });
+        console.info(`[dev-upstream] Treasury Bitcoin lock funded after ${Date.now() - bootstrapStartedAt}ms`);
       }
 
       if (!certification.hasTreasuryUniswapTransfer) {
+        console.info('[dev-upstream] Setting treasury Uniswap transfer certification progress');
         const transferTotalsKey = client.query.crosschainTransfer.transferTotalsByAccount.key(
           this.walletKeys.treasuryAddress,
         );
@@ -394,9 +398,11 @@ export class AppVaultOperator {
           useLatestNonce: true,
         });
         await setStorageResult.waitForFinalizedBlock;
+        console.info(`[dev-upstream] Treasury Uniswap progress ready after ${Date.now() - bootstrapStartedAt}ms`);
       }
 
       if (!certification.hasTreasuryBonds) {
+        console.info('[dev-upstream] Buying treasury certification bond');
         const bondTx = await TreasuryBonds.buildBuyBondTx({
           client,
           vaultId: vault.vaultId,
@@ -407,10 +413,13 @@ export class AppVaultOperator {
           useLatestNonce: true,
         });
         await txResult.waitForFinalizedBlock;
+        console.info(`[dev-upstream] Treasury bond ready after ${Date.now() - bootstrapStartedAt}ms`);
       }
     }
 
+    console.info('[dev-upstream] Ensuring upstream Liquid');
     await this.ensureOperationalLiquid({ client });
+    console.info(`[dev-upstream] Upstream Liquid ready after ${Date.now() - bootstrapStartedAt}ms`);
 
     if (operatorIsReady) return;
 
@@ -479,6 +488,7 @@ export class AppVaultOperator {
       walletKeys: this.walletKeys,
       operatorName,
     });
+    console.info(`[dev-upstream] Upstream operator bootstrap complete after ${Date.now() - bootstrapStartedAt}ms`);
   }
 
   public async ensureOperationalLiquid(args: { client: ArgonClient }): Promise<void> {

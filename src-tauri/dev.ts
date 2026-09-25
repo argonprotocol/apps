@@ -150,11 +150,13 @@ async function main(): Promise<void> {
   let devEthereumRelayReadyPromise: Promise<void> | undefined;
   let devUpstreamPromise: Promise<void> | undefined;
   if (devEthereumSetup) {
+    const ethereumSetupStartedAt = Date.now();
     devEthereumRuntimeSetupPromise = devEthereumSetup.start().catch(error => {
       console.error(`[tauri-dev] Failed to configure local Ethereum: ${(error as Error).message}`);
       throw error;
     });
     await devEthereumRuntimeSetupPromise;
+    console.log(`[tauri-dev] Local Ethereum setup finished after ${Date.now() - ethereumSetupStartedAt}ms`);
   }
 
   const shouldStartDevUpstream = !['0', 'false', 'no', 'off'].includes(
@@ -217,7 +219,10 @@ async function main(): Promise<void> {
   // E2E onboarding starts another Compose build for this project after the app connects.
   // Finish upstream startup first so Docker Compose and Bake do not mutate the project concurrently.
   if (isE2EAppRun && devUpstreamPromise) {
+    const upstreamStartedAt = Date.now();
+    console.log('[tauri-dev] Waiting for upstream worker before app launch');
     await devUpstreamPromise;
+    console.log(`[tauri-dev] Upstream worker ready after ${Date.now() - upstreamStartedAt}ms`);
   }
 
   const child = spawn('yarn', tauriArgs, {
