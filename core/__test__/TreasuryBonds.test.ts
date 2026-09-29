@@ -14,6 +14,7 @@ import {
 import { encodeAddress } from '@polkadot/util-crypto';
 import { toPlain } from '@argonprotocol/runtime-client';
 
+import { BondLot } from '../src/BondLot.ts';
 import { MICRONOTS_PER_ARGONOT } from '../src/Currency.ts';
 import { TreasuryBonds } from '../src/TreasuryBonds.ts';
 import { Vault } from '../src/Vault.ts';
@@ -22,9 +23,9 @@ const registry = getOfflineRegistry();
 const operatorAddress = encodeAddress(new Uint8Array(32).fill(0x11));
 const buyerAddress = encodeAddress(new Uint8Array(32).fill(0x22));
 const displayLotsById = new Map([
-  [1, createVaultBondLot({ owner: buyerAddress, bonds: 3 })],
-  [2, createVaultBondLot({ owner: operatorAddress, bonds: 20, isFlexible: true })],
-  [3, createVaultBondLot({ owner: operatorAddress, bonds: 5, releaseReason: 'UserLiquidation' })],
+  [1, createBondLot({ owner: buyerAddress, bonds: 3 })],
+  [2, createBondLot({ owner: operatorAddress, bonds: 20, isFlexible: true })],
+  [3, createBondLot({ owner: operatorAddress, bonds: 5, releaseReason: 'UserLiquidation' })],
 ]);
 
 describe('TreasuryBonds', () => {
@@ -192,6 +193,115 @@ describe('TreasuryBonds', () => {
     ).toBe(0n);
   });
 
+  it.each([
+    {
+      description: 'recognizes a failed Vault release alongside an Argonot purchase',
+      releasedProgram: 'Vault' as const,
+      purchasedProgram: 'Argonot' as const,
+      holdPallet: 'balances' as const,
+      purchasedLotExists: true,
+      expected: true,
+    },
+    {
+      description: 'recognizes a failed Argonot release alongside a Vault purchase',
+      releasedProgram: 'Argonot' as const,
+      purchasedProgram: 'Vault' as const,
+      holdPallet: 'ownership' as const,
+      purchasedLotExists: true,
+      expected: true,
+    },
+    {
+      description: 'rejects a failed Vault release alongside a Vault purchase',
+      releasedProgram: 'Vault' as const,
+      purchasedProgram: 'Vault' as const,
+      holdPallet: 'balances' as const,
+      purchasedLotExists: true,
+      expected: false,
+    },
+    {
+      description: 'rejects reconciliation when the purchased lot is unavailable',
+      releasedProgram: 'Vault' as const,
+      purchasedProgram: 'Argonot' as const,
+      holdPallet: 'balances' as const,
+      purchasedLotExists: false,
+      expected: false,
+    },
+  ])('$description', async ({ releasedProgram, purchasedProgram, holdPallet, purchasedLotExists, expected }) => {
+    const releasedLotId = 10;
+    const purchasedLotId = 11;
+    const principal = 10_000_000n;
+    const releasedCodec = createBondLot({
+      owner: buyerAddress,
+      bonds: 10,
+      programType: releasedProgram,
+      releaseReason: 'UserLiquidation',
+    });
+    const purchasedCodec = createBondLot({ owner: buyerAddress, bonds: 5, programType: purchasedProgram });
+    const releasedLot = BondLot.fromRuntime(releasedLotId, toPlain(releasedCodec) as any, buyerAddress);
+    const parentApi = {
+      query: {
+        treasury: {
+          bondLotById: vi.fn(async (id: number) => (id === releasedLotId ? toPlain(releasedCodec) : null)),
+        },
+        [holdPallet]: {
+          holds: vi.fn(async () => [{ id: { type: 'Treasury' }, amount: principal }]),
+        },
+      },
+    };
+    const api = {
+      query: {
+        treasury: {
+          bondLotById: vi.fn(async (id: number) =>
+            purchasedLotExists && id === purchasedLotId ? toPlain(purchasedCodec) : null,
+          ),
+        },
+        [holdPallet]: { holds: vi.fn(async () => []) },
+      },
+    };
+    const events = [
+      {
+        event: {
+          section: 'treasury',
+          method: 'CouldNotReleaseBondLot',
+          data: {
+            frameId: 2,
+            programId: releasedProgram === 'Vault' ? { type: 'Vault', value: { vaultId: 1 } } : { type: 'Argonot' },
+            bondLotId: releasedLotId,
+            accountId: buyerAddress,
+            amount: principal,
+            dispatchError: { type: 'ConsumerRemaining' },
+          },
+        },
+        phase: { type: 'Initialization' },
+        topics: [],
+      },
+      {
+        event: {
+          section: 'treasury',
+          method: 'BondLotPurchased',
+          data: {
+            programId: purchasedProgram === 'Vault' ? { type: 'Vault', value: { vaultId: 1 } } : { type: 'Argonot' },
+            bondLotId: purchasedLotId,
+            accountId: buyerAddress,
+            bonds: 5,
+          },
+        },
+        phase: { type: 'ApplyExtrinsic', value: 1 },
+        topics: [],
+      },
+    ];
+
+    await expect(
+      TreasuryBonds.didFailedReleaseRemoveHold({
+        accountId: buyerAddress,
+        lot: releasedLot,
+        events: events as any,
+        parentApi: parentApi as any,
+        api: api as any,
+      }),
+    ).resolves.toBe(expected);
+  });
+
   it('loads current-runtime regular bond frame allocations', async () => {
     const frameCapital = registry.createType<PalletTreasuryFrameVaultCapital>('PalletTreasuryFrameVaultCapital', {
       frameId: 10,
@@ -348,20 +458,23 @@ function createFrameBondClient(frameCapital: Codec, lotsById: Map<number, Codec>
   };
 }
 
-function createVaultBondLot({
+function createBondLot({
   owner,
   bonds,
+  programType = 'Vault',
   isFlexible,
   releaseReason,
 }: {
   owner: string;
   bonds: number;
+  programType?: 'Vault' | 'Argonot';
   isFlexible?: boolean;
   releaseReason?: 'UserLiquidation';
 }) {
   return registry.createType<PalletTreasuryBondLot>('PalletTreasuryBondLot', {
     owner,
-    program: { Vault: { vaultId: 1, sharingPercent: 0, bonusPercent: 0 } },
+    program:
+      programType === 'Vault' ? { Vault: { vaultId: 1, sharingPercent: 0, bonusPercent: 0 } } : { Argonot: null },
     bonds,
     isFlexible: isFlexible ?? false,
     createdFrameId: 1,
