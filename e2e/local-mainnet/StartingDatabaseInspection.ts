@@ -13,6 +13,8 @@ export interface StartingDatabaseRecoveryProgress {
 export interface StartingDatabaseInspection extends StartingDatabaseRecoveryProgress {
   migration?: number;
   quickCheck: string;
+  bitcoinLiquidIds: number[];
+  archivedBitcoinLiquidIds: number[];
   bondLotIds: number[];
   stakeLotIds: number[];
   configuredServer: boolean;
@@ -39,6 +41,12 @@ export function inspectStartingDatabase(
   try {
     const quickCheck = database.prepare('PRAGMA quick_check').get() as { quick_check: string };
     const recovery = readRecoveryProgress(database, throughBlock);
+    const bitcoinLiquids = database
+      .prepare(
+        `SELECT liquidId, MIN(closedAtArgonBlock IS NOT NULL) AS isArchived
+         FROM BitcoinFissions WHERE ownerAccount = ? GROUP BY liquidId ORDER BY liquidId`,
+      )
+      .all(accountId) as unknown as Array<{ liquidId: number; isArchived: number }>;
     let migration: number | undefined;
     try {
       migration = (
@@ -77,6 +85,8 @@ export function inspectStartingDatabase(
       migration,
       quickCheck: quickCheck.quick_check,
       ...recovery,
+      bitcoinLiquidIds: bitcoinLiquids.map(liquid => liquid.liquidId),
+      archivedBitcoinLiquidIds: bitcoinLiquids.filter(liquid => liquid.isArchived).map(liquid => liquid.liquidId),
       bondLotIds: bondLots.filter(lot => lot.programType === 'Vault').map(lot => lot.bondLotId),
       stakeLotIds: bondLots.filter(lot => lot.programType === 'Argonot').map(lot => lot.bondLotId),
       configuredServer: hasConfigValue(config, 'serverAdd'),

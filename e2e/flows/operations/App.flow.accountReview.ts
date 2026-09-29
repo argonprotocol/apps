@@ -68,7 +68,6 @@ export default new OperationalFlow<IAccountReviewFlowContext, IAccountReviewFlow
   async inspect({ flow }) {
     const expectsBitcoinLiquid = flow.input.expectsBitcoinLiquid === true;
     const expectedBitcoinLiquidIds = (flow.input.expectedBitcoinLiquidIds ?? []) as number[];
-    const expectedMigratableBitcoinLiquidIds = flow.input.expectedMigratableBitcoinLiquidIds as number[] | undefined;
     const expectedArchivedBitcoinLiquidIds = (flow.input.expectedArchivedBitcoinLiquidIds ?? []) as number[];
     const expectedBondLotIds = (flow.input.expectedBondLotIds ?? []) as number[];
     const expectedFlexibleBondLotIds = (flow.input.expectedFlexibleBondLotIds ?? []) as number[];
@@ -280,24 +279,11 @@ export default new OperationalFlow<IAccountReviewFlowContext, IAccountReviewFlow
     if (expectsBitcoinLiquid && !bitcoinLiquidIds.length) {
       expectationFailures.push('expected Bitcoin Liquid history was not loaded');
     }
-    if (expectedMigratableBitcoinLiquidIds) {
-      const migratedBitcoinLiquidIds = bitcoinLiquidIds.filter(id => expectedMigratableBitcoinLiquidIds.includes(id));
-      const migratedArchivedBitcoinLiquidIds = archivedBitcoinLiquidIds.filter(id =>
-        expectedMigratableBitcoinLiquidIds.includes(id),
-      );
-      if (!matchesIds(migratedArchivedBitcoinLiquidIds, expectedArchivedBitcoinLiquidIds)) {
-        expectationFailures.push('migrated Bitcoin Liquid lifecycle did not match the captured locks');
-      }
-      if (!matchesIds(migratedBitcoinLiquidIds, expectedBitcoinLiquidIds)) {
-        expectationFailures.push('migrated Bitcoin Liquid publication did not match the captured chain and history');
-      }
-    } else {
-      if (!includesIds(archivedBitcoinLiquidIds, expectedArchivedBitcoinLiquidIds)) {
-        expectationFailures.push('expected archived Bitcoin Liquid history was not recovered');
-      }
-      if (!includesIds(bitcoinLiquidIds, expectedBitcoinLiquidIds)) {
-        expectationFailures.push('expected Bitcoin Liquid history was not loaded');
-      }
+    if (!includesIds(archivedBitcoinLiquidIds, expectedArchivedBitcoinLiquidIds)) {
+      expectationFailures.push('expected archived Bitcoin Liquid history was not recovered');
+    }
+    if (!includesIds(bitcoinLiquidIds, expectedBitcoinLiquidIds)) {
+      expectationFailures.push('expected Bitcoin Liquid history was not loaded');
     }
     if (!matchesIds(bondLotIds, expectedBondLotIds))
       expectationFailures.push('expected bond positions were not loaded');

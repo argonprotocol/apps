@@ -16,18 +16,17 @@ import Path from 'node:path';
 import process from 'node:process';
 import { parseArgs } from 'node:util';
 import {
+  BitcoinFission,
   createArgonClient,
   getVaultByOperator,
   TreasuryBonds,
   type ArgonClient,
-  type ArgonQueryClient,
 } from '@argonprotocol/apps-core';
 import { getClient } from '@argonprotocol/mainchain';
 import type { IFinancialHistoryDomain } from 'src-vue/lib/db/SyncStateTable.ts';
 import { AppSession } from '../AppSession.ts';
 import { delay } from '../../scripts/utils.ts';
-import { writeReadonlyWallet, type ReadonlyAccountIdentity } from '../../scripts/troubleshootAccount.ts';
-import { CapturedDatabaseScenario } from './CapturedDatabaseScenario.ts';
+import { writeReadonlyWallet } from '../../scripts/troubleshootAccount.ts';
 import { LocalMainnet } from './LocalMainnet.ts';
 import { loadLocalMainnetManifest } from './manifest.ts';
 import {
@@ -49,23 +48,6 @@ const CAPTURE_HISTORY_STALL_TIMEOUT_MS = 3 * 60_000;
 const CAPTURE_HISTORY_POLL_MS = 1_000;
 const CAPTURE_HISTORY_MAX_APP_STARTS = 3;
 
-interface ArchivedStartingPackage {
-  identity: ReadonlyAccountIdentity;
-  databaseSha256: string;
-  releasedLegacyBitcoinIds: number[];
-}
-
-type StartingDatabaseCaptureTarget =
-  | {
-      label: string;
-      source: {
-        kind: 'operational-account-graph';
-        scenario: OperationalAccountGraphNode;
-        upstreamScenario?: string;
-      };
-    }
-  | { label: string; source: { kind: 'archived-package'; package: ArchivedStartingPackage } };
-
 export interface CapturedStartingDatabase {
   label: string;
   defaultArgonAccountId: string;
@@ -85,13 +67,9 @@ export interface CapturedStartingDatabase {
     features: OperationalAccountFeature[];
     upstreamScenario?: string;
   };
-  legacyBitcoin: {
-    migratableIds: number[];
-    fundedIds: number[];
-    releasedIds: number[];
-    chainFundedIds: number[];
-  };
   expected: {
+    bitcoinLiquidIds: number[];
+    archivedBitcoinLiquidIds: number[];
     bondLotIds: number[];
     flexibleBondLotIds: number[];
     stakeLotIds: number[];
@@ -104,17 +82,10 @@ export interface CapturedStartingDatabase {
     treasury: boolean;
     upstream: boolean;
   };
-  source?:
-    | { kind: 'operational-account-graph' }
-    | {
-        kind: 'archived-package';
-        databaseSha256: string;
-        releasedLegacyBitcoinIds: number[];
-      };
 }
 
 export interface StartingDatabaseRegistry {
-  formatVersion: 3;
+  formatVersion: 4;
   sourceApp: {
     version: string;
     gitHead: string;
@@ -132,15 +103,11 @@ export interface StartingDatabaseRegistry {
     kind: 'operational-account-graph';
     accountLimit: number;
     graphAccounts: number;
-    graphSelectedAccounts: number;
-    archivedPackageAccounts: number;
     selectedAccounts: number;
     features: OperationalAccountFeature[];
   };
   coverage: {
     completeHistoryAccounts: number;
-    releasedLegacyBitcoinAccounts: number;
-    releasedLegacyBitcoinIds: number;
     complete: boolean;
   };
   accounts: CapturedStartingDatabase[];
@@ -159,13 +126,12 @@ export class StartingDatabaseCapture {
     private readonly previousAppsDirectory: string,
     private readonly outputDirectory: string,
     private readonly accountLimit: number,
-    private readonly archivedPackages: readonly ArchivedStartingPackage[],
   ) {
     const packageJson = JSON.parse(readFileSync(Path.join(previousAppsDirectory, 'package.json'), 'utf8')) as {
       version?: string;
     };
     this.registry = {
-      formatVersion: 3,
+      formatVersion: 4,
       sourceApp: {
         version: packageJson.version ?? 'unknown',
         gitHead: execFileSync('git', ['-C', previousAppsDirectory, 'rev-parse', 'HEAD'], {
@@ -190,15 +156,11 @@ export class StartingDatabaseCapture {
         kind: 'operational-account-graph',
         accountLimit,
         graphAccounts: 0,
-        graphSelectedAccounts: 0,
-        archivedPackageAccounts: archivedPackages.length,
         selectedAccounts: 0,
         features: [],
       },
       coverage: {
         completeHistoryAccounts: 0,
-        releasedLegacyBitcoinAccounts: 0,
-        releasedLegacyBitcoinIds: 0,
         complete: false,
       },
       accounts: [],
@@ -210,7 +172,6 @@ export class StartingDatabaseCapture {
     const { values } = parseArgs({
       options: {
         'account-limit': { type: 'string', default: '12' },
-        'include-package': { type: 'string', multiple: true },
         manifest: { type: 'string' },
         output: { type: 'string' },
         'previous-app-ref': { type: 'string' },
@@ -220,7 +181,7 @@ export class StartingDatabaseCapture {
     });
     if (!values.manifest || !values.output || !values['previous-apps'] || !values['previous-app-ref']) {
       throw new Error(
-        'Usage: yarn local-mainnet:capture --manifest <manifest.json> --previous-apps <previous-apps-checkout> --previous-app-ref <release-tag-or-commit> --output <new-output-directory> [--account-limit <count>] [--include-package <previous-instance-package>]',
+        'Usage: yarn local-mainnet:capture --manifest <manifest.json> --previous-apps <previous-apps-checkout> --previous-app-ref <release-tag-or-commit> --output <new-output-directory> [--account-limit <count>]',
       );
     }
 
@@ -263,9 +224,6 @@ export class StartingDatabaseCapture {
     if (!Number.isSafeInteger(accountLimit) || accountLimit < 1) {
       throw new Error(`--account-limit must be a positive safe integer, got ${values['account-limit']}`);
     }
-    const archivedPackages = (values['include-package'] ?? []).map(path =>
-      StartingDatabaseCapture.readArchivedPackage(path),
-    );
 
     const manifest = loadLocalMainnetManifest(manifestPath);
     mkdirSync(Path.dirname(outputDirectory), { recursive: true });
@@ -282,13 +240,7 @@ export class StartingDatabaseCapture {
       manifest,
       runDirectory: Path.join(outputDirectory, 'environment'),
     });
-    const capture = new StartingDatabaseCapture(
-      mainnet,
-      previousAppsDirectory,
-      outputDirectory,
-      accountLimit,
-      archivedPackages,
-    );
+    const capture = new StartingDatabaseCapture(mainnet, previousAppsDirectory, outputDirectory, accountLimit);
     try {
       await capture.run();
     } finally {
@@ -308,31 +260,8 @@ export class StartingDatabaseCapture {
           `scenario-${String(index + 1).padStart(3, '0')}`,
         ]),
       );
-      const graphTargets: StartingDatabaseCaptureTarget[] = scenarios.map(scenario => ({
-        label: labelsByOperationalAccountId.get(scenario.operationalAccountId)!,
-        source: {
-          kind: 'operational-account-graph',
-          scenario,
-          upstreamScenario: labelsByOperationalAccountId.get(scenario.upstreamOperationalAccountId ?? ''),
-        },
-      }));
-      const selectedAccountIds = new Set(scenarios.map(scenario => scenario.identity.defaultAccountId));
-      const archivedTargets = this.archivedPackages.map((archivedPackage, index) => {
-        if (selectedAccountIds.has(archivedPackage.identity.defaultAccountId)) {
-          throw new Error(
-            `Archived package account ${archivedPackage.identity.defaultAccountId} is already selected from the operational-account graph`,
-          );
-        }
-        selectedAccountIds.add(archivedPackage.identity.defaultAccountId);
-        return {
-          label: `archived-legacy-${String(index + 1).padStart(3, '0')}`,
-          source: { kind: 'archived-package', package: archivedPackage },
-        } satisfies StartingDatabaseCaptureTarget;
-      });
-      const targets = [...graphTargets, ...archivedTargets];
       this.registry.selection.graphAccounts = graph.nodes.length;
-      this.registry.selection.graphSelectedAccounts = graphTargets.length;
-      this.registry.selection.selectedAccounts = targets.length;
+      this.registry.selection.selectedAccounts = scenarios.length;
       this.registry.selection.features = OPERATIONAL_ACCOUNT_FEATURES.filter(feature =>
         scenarios.some(scenario => scenario.features.includes(feature)),
       );
@@ -345,13 +274,15 @@ export class StartingDatabaseCapture {
         }
       }
 
-      for (const [index, target] of targets.entries()) {
+      for (const [index, scenario] of scenarios.entries()) {
+        const label = labelsByOperationalAccountId.get(scenario.operationalAccountId)!;
+        const upstreamScenario = labelsByOperationalAccountId.get(scenario.upstreamOperationalAccountId ?? '');
         try {
-          await this.captureAccount(client, target, index);
+          await this.captureAccount({ client, scenario, label, index, upstreamScenario });
         } catch (error) {
           const message = error instanceof Error ? error.message : String(error);
-          this.registry.failures.push({ label: target.label, error: message });
-          console.error(`[local-mainnet] ${target.label}: ${message}`);
+          this.registry.failures.push({ label, error: message });
+          console.error(`[local-mainnet] ${label}: ${message}`);
         }
         this.updateCoverage();
         this.writeRegistry();
@@ -364,11 +295,6 @@ export class StartingDatabaseCapture {
     if (this.registry.failures.length) {
       console.warn(`${this.registry.failures.length} account(s) did not produce a database package.`);
     }
-    if (!this.registry.coverage.releasedLegacyBitcoinAccounts) {
-      throw new Error(
-        'The captured scenarios contain no released legacy Bitcoin record to verify in the candidate app. Supply a previous instance with --include-package when the current operational-account graph no longer contains one.',
-      );
-    }
     if (!this.registry.coverage.complete) {
       throw new Error(
         `The capture did not qualify: ${this.registry.accounts.length}/${this.registry.selection.selectedAccounts} selected accounts produced packages and the selected feature coverage was ${this.registry.selection.features.length}/${OPERATIONAL_ACCOUNT_FEATURES.length}. Retained packages remain available for diagnosis, but the registry cannot be used for candidate review.`,
@@ -376,20 +302,15 @@ export class StartingDatabaseCapture {
     }
   }
 
-  private async captureAccount(
-    client: ArgonClient,
-    target: StartingDatabaseCaptureTarget,
-    index: number,
-  ): Promise<void> {
-    const { label, source } = target;
-    const identity = source.kind === 'operational-account-graph' ? source.scenario.identity : source.package.identity;
-    const activeVault =
-      source.kind === 'archived-package'
-        ? await getVaultByOperator({ client, operatorAddress: identity.defaultAccountId })
-        : undefined;
-    if (source.kind === 'archived-package' && !activeVault) {
-      throw new Error(`${label} has no current vault to start v2.3.8 financial-history recovery`);
-    }
+  private async captureAccount(args: {
+    client: ArgonClient;
+    scenario: OperationalAccountGraphNode;
+    label: string;
+    index: number;
+    upstreamScenario?: string;
+  }): Promise<void> {
+    const { client, scenario, label, index, upstreamScenario } = args;
+    const { identity } = scenario;
     const instanceName = `mainnet-capture-${Date.now().toString(36)}-${index + 1}-${label}`.slice(0, 80);
     const instanceDirectory = AppSession.resolveInstanceDirectory({ networkName: 'mainnet', instanceName });
     if (existsSync(instanceDirectory)) throw new Error(`Capture instance already exists: ${instanceDirectory}`);
@@ -414,33 +335,17 @@ export class StartingDatabaseCapture {
 
     const copiedDatabasePath = Path.join(packageDirectory, 'database.sqlite');
     const facts = inspectStartingDatabase(copiedDatabasePath, this.registry.throughBlock, identity.defaultAccountId);
-    const legacyBitcoin = CapturedDatabaseScenario.inspectLegacyBitcoinLocks(copiedDatabasePath);
-    const deployedClient = await client.at(this.mainnet.deployedBlock.hash);
-    const chainFundedIds = (
-      await Promise.all(
-        legacyBitcoin.all.map(async lockId => {
-          const lock = await deployedClient.query.bitcoinLocks.locksByUtxoId(lockId);
-          return lock?.isFunded ? [lockId] : [];
-        }),
-      )
-    ).flat();
-    if (chainFundedIds.some(id => legacyBitcoin.released.includes(id))) {
-      throw new Error(`Released legacy Bitcoin records for ${label} are still funded on the pinned chain`);
-    }
     const walletHistoryThroughBlock = facts.walletHistoryThroughBlock;
     const complete = isStartingDatabaseComplete(facts, this.registry.throughBlock);
     if (!complete) {
       throw new Error(`The copied database for ${label} lost its complete recovery checkpoint`);
     }
-    if (
-      source.kind === 'archived-package' &&
-      !source.package.releasedLegacyBitcoinIds.every(id => legacyBitcoin.released.includes(id))
-    ) {
-      throw new Error(`The canonical recapture for ${label} did not reconstruct every released legacy Bitcoin record`);
-    }
-    const [activeBondLots, vault] = await Promise.all([
+    const [activeFissions, activeBondLots, vault] = await Promise.all([
+      client
+        .at(this.mainnet.deployedBlock.hash)
+        .then(at => BitcoinFission.getAllByOwner(at, identity.defaultAccountId)),
       TreasuryBonds.getBondLotsByAccount(client, identity.defaultAccountId),
-      activeVault ?? getVaultByOperator({ client, operatorAddress: identity.defaultAccountId }),
+      getVaultByOperator({ client, operatorAddress: identity.defaultAccountId }),
     ]);
     const vaultBondLots = vault
       ? await TreasuryBonds.getBondLots(client, vault.vaultId, identity.defaultAccountId)
@@ -463,18 +368,14 @@ export class StartingDatabaseCapture {
         complete,
       },
       selection: {
-        features: source.kind === 'operational-account-graph' ? source.scenario.features : vault ? ['vault'] : [],
-        ...(source.kind === 'operational-account-graph' && source.upstreamScenario
-          ? { upstreamScenario: source.upstreamScenario }
-          : {}),
-      },
-      legacyBitcoin: {
-        migratableIds: legacyBitcoin.all,
-        fundedIds: legacyBitcoin.funded,
-        releasedIds: legacyBitcoin.released,
-        chainFundedIds,
+        features: scenario.features,
+        ...(upstreamScenario ? { upstreamScenario } : {}),
       },
       expected: {
+        bitcoinLiquidIds: [
+          ...new Set([...activeFissions.map(fission => fission.liquidId), ...facts.bitcoinLiquidIds]),
+        ].sort((a, b) => a - b),
+        archivedBitcoinLiquidIds: facts.archivedBitcoinLiquidIds,
         bondLotIds: activeBondLots
           .filter(lot => lot.programType === 'Vault')
           .map(lot => lot.id)
@@ -496,14 +397,6 @@ export class StartingDatabaseCapture {
         treasury: facts.treasury,
         upstream: facts.upstream,
       },
-      source:
-        source.kind === 'archived-package'
-          ? {
-              kind: 'archived-package',
-              databaseSha256: source.package.databaseSha256,
-              releasedLegacyBitcoinIds: source.package.releasedLegacyBitcoinIds,
-            }
-          : { kind: 'operational-account-graph' },
     });
     console.info(`[local-mainnet] ${label}: captured with complete history`);
   }
@@ -589,69 +482,14 @@ export class StartingDatabaseCapture {
     renameSync(pendingPath, registryPath);
   }
 
-  private static readArchivedPackage(path: string): ArchivedStartingPackage {
-    const packageDirectory = realpathSync(path);
-    if (!statSync(packageDirectory).isDirectory()) {
-      throw new Error(`Archived starting package is not a directory: ${packageDirectory}`);
-    }
-    const databasePath = Path.join(packageDirectory, 'database.sqlite');
-    const walletPath = Path.join(packageDirectory, 'wallet.json');
-    let legacyBitcoin: ReturnType<typeof CapturedDatabaseScenario.inspectLegacyBitcoinLocks>;
-    let walletContents: string;
-    try {
-      legacyBitcoin = CapturedDatabaseScenario.inspectLegacyBitcoinLocks(databasePath);
-      walletContents = readFileSync(walletPath, 'utf8');
-    } catch (error) {
-      throw new Error(
-        `Archived starting package must contain readable database.sqlite and wallet.json files: ${packageDirectory}: ${error instanceof Error ? error.message : String(error)}`,
-      );
-    }
-    if (!legacyBitcoin.released.length) {
-      throw new Error(`Archived starting package has no released legacy Bitcoin record: ${packageDirectory}`);
-    }
-    const wallet = JSON.parse(walletContents) as {
-      encryptedMnemonic?: unknown;
-      meta?: {
-        vaultingAddress?: unknown;
-        operationalAddress?: unknown;
-        miningBotAddress?: unknown;
-      };
-    };
-    const addresses = [wallet.meta?.vaultingAddress, wallet.meta?.operationalAddress, wallet.meta?.miningBotAddress];
-    if (
-      wallet.encryptedMnemonic !== '' ||
-      !addresses.every(address => typeof address === 'string' && address.length > 0)
-    ) {
-      throw new Error(`Archived starting package is not a complete signing-disabled account: ${packageDirectory}`);
-    }
-    const [defaultAccountId, operationalAccountId, miningAccountId] = addresses as [string, string, string];
-    return {
-      identity: {
-        operatorName: 'Archived release fixture',
-        defaultAccountId,
-        operationalAccountId,
-        miningAccountId,
-      },
-      databaseSha256: createHash('sha256').update(readFileSync(databasePath)).digest('hex'),
-      releasedLegacyBitcoinIds: legacyBitcoin.released,
-    };
-  }
-
   private updateCoverage(): void {
     this.registry.coverage.completeHistoryAccounts = this.registry.accounts.filter(
       account => account.history.complete,
     ).length;
-    const releasedAccounts = this.registry.accounts.filter(account => account.legacyBitcoin.releasedIds.length);
-    this.registry.coverage.releasedLegacyBitcoinAccounts = releasedAccounts.length;
-    this.registry.coverage.releasedLegacyBitcoinIds = releasedAccounts.reduce(
-      (total, account) => total + account.legacyBitcoin.releasedIds.length,
-      0,
-    );
     this.registry.coverage.complete =
       this.registry.accounts.length === this.registry.selection.selectedAccounts &&
       this.registry.coverage.completeHistoryAccounts === this.registry.selection.selectedAccounts &&
-      this.registry.selection.features.length === OPERATIONAL_ACCOUNT_FEATURES.length &&
-      this.registry.coverage.releasedLegacyBitcoinAccounts > 0;
+      this.registry.selection.features.length === OPERATIONAL_ACCOUNT_FEATURES.length;
   }
 }
 

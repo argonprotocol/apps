@@ -12,6 +12,8 @@ import {
 } from 'node:fs';
 import Path from 'node:path';
 import { createInterface } from 'node:readline';
+import { fileURLToPath } from 'node:url';
+import { parseArgs } from 'node:util';
 
 export interface CandidateRuntimeArtifact {
   sourceDirectory: string;
@@ -221,4 +223,31 @@ export class RuntimeCandidate {
     }
     return Path.join(realpathSync(existingAncestor), ...missingNames);
   }
+}
+
+if (process.argv[1] && realpathSync(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  const { values } = parseArgs({
+    options: {
+      mainchain: { type: 'string' },
+      output: { type: 'string' },
+      help: { type: 'boolean' },
+    },
+    strict: true,
+  });
+  if (values.help) {
+    console.log('Usage: yarn local-mainnet:build-runtime --mainchain <checkout> --output <run-directory>');
+    process.exit(0);
+  }
+  if (!values.mainchain || !values.output) {
+    throw new Error('Usage: yarn local-mainnet:build-runtime --mainchain <checkout> --output <run-directory>');
+  }
+  const mainchainDirectory = Path.resolve(values.mainchain);
+  const source = readFileSync(Path.join(mainchainDirectory, 'runtime/common/src/lib.rs'), 'utf8');
+  const spec = source.match(/spec_version:\s*([\d_]+)/)?.[1];
+  if (!spec) throw new Error('Pinned runtime source has no spec_version');
+  await RuntimeCandidate.build({
+    mainchainDirectory,
+    runDirectory: Path.resolve(values.output),
+    expectedSpecVersion: Number(spec.replaceAll('_', '')),
+  });
 }
