@@ -11,6 +11,7 @@ export * from './FinancialReturns.js';
 export * from './BitcoinLockReturns.js';
 export * from './FinancialPositions.js';
 export * from './MainchainClients.js';
+export { getMainchainClient } from './MainchainRpcProvider.js';
 export * from './FrameIterator.js';
 export * from './BlockWatch.js';
 export * from './BitcoinFees.js';

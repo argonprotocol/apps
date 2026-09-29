@@ -5,9 +5,10 @@ import * as http from 'node:http';
 import Path from 'node:path';
 import { gunzipSync } from 'node:zlib';
 import { u8aToHex } from '@polkadot/util';
-import { type ArgonClient, getClient } from '@argonprotocol/mainchain';
+import type { ArgonClient } from '@argonprotocol/mainchain';
 import {
   ACCOUNT_ACTIVITY_DEFINITION_VERSION,
+  getMainchainClient,
   type IAccountActivityQuery,
   type IIndexerSpec,
 } from '@argonprotocol/apps-core';
@@ -47,7 +48,7 @@ export class IndexerServer {
       console.error('Account activity is unavailable', this.activityStartupError);
     }
 
-    this.clientPromise = getClient(args.mainchainUrl);
+    this.clientPromise = getMainchainClient(args.mainchainUrl);
   }
 
   public async start(): Promise<void> {

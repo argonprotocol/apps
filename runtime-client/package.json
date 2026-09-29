@@ -15,12 +15,15 @@
   },
   "dependencies": {
     "@argonprotocol/mainchain": "1.4.13",
+    "@polkadot/api": "17.0.1",
     "@polkadot/api-base": "17.0.1",
+    "@polkadot/types": "17.0.1",
     "@polkadot/types-codec": "17.0.1",
-    "bignumber.js": "^9.3.1"
+    "@polkadot/types-known": "17.0.1",
+    "bignumber.js": "^9.3.1",
+    "fflate": "^0.8.2"
   },
   "devDependencies": {
-    "@polkadot/types": "17.0.1",
     "prettier": "^3.6.2",
     "tsx": "^4.20.5",
     "typescript": "~5.9.2"

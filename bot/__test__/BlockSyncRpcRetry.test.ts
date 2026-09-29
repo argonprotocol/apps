@@ -10,14 +10,11 @@ import { Accountset, MainchainClients, MiningFrames, NetworkConfig } from '@argo
 import { BlockWatch } from '@argonprotocol/apps-core/src/BlockWatch.ts';
 import { BlockSync } from '../src/BlockSync.ts';
 import { Storage } from '../src/Storage.ts';
+import runtimeVersion from '../../runtime-client/__test__/fixtures/runtime-159.json' with { type: 'json' };
 
 it('retries startup on the same archive client after a missing header becomes available', async () => {
   NetworkConfig.setNetwork('dev-docker');
   const registry = getOfflineRegistry();
-  const metadata = registry.createType('Metadata', {
-    magicNumber: 0x6174656d,
-    metadata: { V15: registry.metadata.toJSON() },
-  });
   const genesisHash = '0xee11bf2ff8838fcb0832c09085c5319a08ba6111c225ecd899fe659872d9d45d';
   const finalizedHeader = registry.createType('Header', {
     number: 8,
@@ -52,16 +49,6 @@ it('retries startup on the same archive client after a missing header becomes av
       ],
     },
   });
-  const runtimeVersion = {
-    specName: 'argon',
-    implName: 'argon',
-    authoringVersion: 1,
-    specVersion: 159,
-    implVersion: 1,
-    transactionVersion: 1,
-    stateVersion: 1,
-    apis: [],
-  };
   const systemNumberKey = xxhashAsHex('System', 128) + xxhashAsHex('Number', 128).slice(2);
   const methods = [
     'chain_getBlockHash',
@@ -87,7 +74,6 @@ it('retries startup on the same archive client after a missing header becomes av
     'rpc_methods',
   ];
   let archiveMissingHeader = true;
-  let archiveHeaderRequests = 0;
   let nextSubscription = 0;
   const server = new WebSocketServer({ host: '127.0.0.1', port: 0 });
   await once(server, 'listening');
@@ -120,7 +106,6 @@ it('retries startup on the same archive client after a missing header becomes av
           break;
         case 'chain_getHeader':
           if (request.url === '/archive' && params[0] === bestHeader.hash.toHex()) {
-            archiveHeaderRequests += 1;
             result = archiveMissingHeader ? null : bestHeader.toJSON();
           } else {
             result = params[0] === finalizedHeader.hash.toHex() ? finalizedHeader.toJSON() : bestHeader.toJSON();
@@ -133,8 +118,15 @@ it('retries startup on the same archive client after a missing header becomes av
           result = runtimeVersion;
           break;
         case 'state_getMetadata':
-          result = metadata.toHex();
-          break;
+          // A known genesis/spec must initialize from bundled metadata even when this RPC fails.
+          socket.send(
+            JSON.stringify({
+              jsonrpc: '2.0',
+              id,
+              error: { code: -32000, message: 'Metadata temporarily unavailable' },
+            }),
+          );
+          return;
         case 'system_chain':
           result = 'Argon';
           break;
@@ -196,7 +188,6 @@ it('retries startup on the same archive client after a missing header becomes av
   const clients = new MainchainClients(archiveUrl, () => false);
   const blockWatch = new BlockWatch(clients);
   const miningFrames = new MiningFrames(clients, blockWatch);
-  let freshClients: MainchainClients | undefined;
   try {
     const localClient = await clients.setPrunedClient(prunedUrl);
     const accountset = new Accountset({
@@ -224,27 +215,26 @@ it('retries startup on the same archive client after a missing header becomes av
     await expect(blockSync.load()).rejects.toThrow(
       'ARCHIVE_RPC: Unable to retrieve header and parent from supplied hash',
     );
-    expect(archiveHeaderRequests).toBe(1);
     expect(blockSync.accountMiners).toBeUndefined();
 
     archiveMissingHeader = false;
-    freshClients = new MainchainClients(archiveUrl, () => false);
-    const freshClient = await freshClients.archiveClientPromise;
-    await expect(freshClient.at(bestHeader.hash)).resolves.toBeDefined();
-    expect(archiveHeaderRequests).toBe(2);
-
     const retainedClient = await clients.archiveClientPromise;
-    await clients.setArchiveClient(archiveUrl);
     await expect(blockSync.load()).resolves.toBeUndefined();
     expect(await clients.archiveClientPromise).toBe(retainedClient);
-    expect(archiveHeaderRequests).toBe(3);
     expect(blockSync.accountMiners).toBeDefined();
-    expect((await blockSync.blockSyncFile.get()).syncedToBlockNumber).toBe(9);
+    await storage.close();
+    const reopenedStorage = new Storage(botDataDir);
+    try {
+      const saved = await reopenedStorage.botBlockSyncFile().get();
+      expect(saved.syncedToBlockNumber).toBe(9);
+      expect(saved.blocksByNumber[9].hash).toBe(bestHeader.hash.toHex());
+    } finally {
+      await reopenedStorage.close();
+    }
   } finally {
     await miningFrames.stop();
     blockWatch.destroy();
     await clients.disconnect();
-    await freshClients?.disconnect();
     await storage.close();
     for (const socket of server.clients) socket.terminate();
     await new Promise<void>(resolve => server.close(() => resolve()));

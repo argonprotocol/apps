@@ -11,7 +11,7 @@
  * so transient RPC failures do not become permanent client state.
  */
 import type { ArgonClient } from '@argonprotocol/mainchain';
-import { ApiPromise } from '@polkadot/api';
+import { MainchainApi } from '@argonprotocol/runtime-client';
 import { HttpProvider, WsProvider } from '@polkadot/rpc-provider';
 import { stringify } from '@polkadot/util';
 import { LRUCache } from 'lru-cache';
@@ -22,8 +22,7 @@ const defaultCacheOptions: RpcCacheOptions = { max: 1024, ttl: 30_000 };
 export async function getMainchainClient(host: string): Promise<ArgonClient> {
   const provider = host.startsWith('http') ? new MainchainHttpProvider(host) : new MainchainWsProvider(host);
   try {
-    // Create directly: getClient creates an extra default connection before applying a supplied provider.
-    return await ApiPromise.create({ provider, noInitWarn: true, throwOnConnect: true });
+    return await MainchainApi.create({ provider, noInitWarn: true, throwOnConnect: true });
   } catch (error) {
     await provider.disconnect();
     throw error;

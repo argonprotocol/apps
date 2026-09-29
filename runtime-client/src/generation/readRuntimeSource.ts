@@ -9,6 +9,8 @@ export type RuntimeSourceContents = {
   eventSource: string;
   lookupSource: string;
   definitionSource?: string;
+  metadataSource?: string;
+  genesisSource?: string;
 };
 
 type CachedRuntimeSource = RuntimeSourceContents & { source: string };
@@ -19,7 +21,10 @@ export function readRuntimeSource(source: string): Promise<RuntimeSourceContents
   const cached = sourceCache.get(source);
   if (cached) return cached;
 
-  const contents = readCachedRuntimeSource(source);
+  const contents = readCachedRuntimeSource(source).catch(error => {
+    if (sourceCache.get(source) === contents) sourceCache.delete(source);
+    throw error;
+  });
   sourceCache.set(source, contents);
   return contents;
 }
@@ -29,6 +34,8 @@ export async function readInstalledRuntimeSource(packageDirectory: string): Prom
   const declarations = Path.join(packageDirectory, 'lib/types/interfaces');
   const bundlePath = Path.join(packageDirectory, 'lib/index.d.ts');
   const bundle = await Fs.readFile(bundlePath, 'utf8').catch(() => undefined);
+  const sourceMap = await Fs.readFile(Path.join(packageDirectory, 'lib/index.js.map'), 'utf8').catch(() => undefined);
+  const metadata = readBundledMetadata(sourceMap);
 
   return {
     querySource: await readFirstFile(
@@ -47,6 +54,12 @@ export async function readInstalledRuntimeSource(packageDirectory: string): Prom
       'runtime lookup types',
     ),
     definitionSource: await Fs.readFile(Path.join(interfaces, 'lookup.ts'), 'utf8').catch(() => undefined),
+    metadataSource: await Fs.readFile(Path.join(packageDirectory, 'metadata.json'), 'utf8').catch(
+      () => metadata.metadataSource,
+    ),
+    genesisSource: await Fs.readFile(Path.join(packageDirectory, 'genesis.json'), 'utf8').catch(
+      () => metadata.genesisSource,
+    ),
   };
 }
 
@@ -54,14 +67,19 @@ async function readCachedRuntimeSource(source: string): Promise<RuntimeSourceCon
   const cachePath = runtimeSourceCachePath(source);
   const cached = await Fs.readFile(cachePath, 'utf8').catch(() => undefined);
   if (cached !== undefined) {
+    let parsed: unknown;
     try {
-      const parsed: unknown = JSON.parse(cached);
-      if (isCachedRuntimeSource(parsed, source)) {
-        const { source: _cachedSource, ...contents } = parsed;
-        return contents;
-      }
+      parsed = JSON.parse(cached);
     } catch {
       // Invalid derived state is handled below.
+    }
+    if (isCachedRuntimeSource(parsed, source)) {
+      const { source: _cachedSource, ...contents } = parsed;
+      if (contents.metadataSource) return contents;
+      // Enrich the existing declarations without downloading their package again.
+      contents.metadataSource = await fetchMetadataSource(source);
+      await writeCachedRuntimeSource(cachePath, { source, ...contents }).catch(() => undefined);
+      return contents;
     }
     await Fs.rm(cachePath, { force: true }).catch(() => undefined);
   }
@@ -106,7 +124,9 @@ function isCachedRuntimeSource(value: unknown, source: string): value is CachedR
     typeof cached.querySource === 'string' &&
     typeof cached.eventSource === 'string' &&
     typeof cached.lookupSource === 'string' &&
-    (cached.definitionSource === undefined || typeof cached.definitionSource === 'string')
+    (cached.definitionSource === undefined || typeof cached.definitionSource === 'string') &&
+    (cached.metadataSource === undefined || typeof cached.metadataSource === 'string') &&
+    (cached.genesisSource === undefined || typeof cached.genesisSource === 'string')
   );
 }
 
@@ -116,6 +136,9 @@ async function fetchNpmSource(version: string): Promise<RuntimeSourceContents> {
 
   const archive = gunzipSync(Buffer.from(await response.arrayBuffer()));
   const bundle = readTarFile(archive, 'package/lib/index.d.ts');
+  const metadata = readBundledMetadata(
+    readTarFile(archive, 'package/lib/index.js.map') ?? readTarFile(archive, 'package/browser/index.js.map'),
+  );
   return {
     querySource:
       readTarFile(archive, 'package/src/interfaces/augment-api-query.ts') ??
@@ -133,17 +156,20 @@ async function fetchNpmSource(version: string): Promise<RuntimeSourceContents> {
       bundle ??
       missingSource(version, 'runtime lookup types'),
     definitionSource: readTarFile(archive, 'package/src/interfaces/lookup.ts'),
+    ...metadata,
+    metadataSource: metadata.metadataSource ?? (await fetchMetadataSource(version)),
   };
 }
 
 async function fetchGitSource(source: string): Promise<RuntimeSourceContents> {
   const commit = source.slice(source.lastIndexOf('@') + 1);
   const baseUrl = `https://raw.githubusercontent.com/argonprotocol/mainchain/${commit}/client/nodejs/src/interfaces`;
-  const [queryResponse, eventResponse, lookupResponse, definitionResponse] = await Promise.all([
+  const [queryResponse, eventResponse, lookupResponse, definitionResponse, metadataSource] = await Promise.all([
     fetch(`${baseUrl}/augment-api-query.ts`),
     fetch(`${baseUrl}/augment-api-events.ts`),
     fetch(`${baseUrl}/types-lookup.ts`),
     fetch(`${baseUrl}/lookup.ts`),
+    fetchMetadataSource(source),
   ]);
   if (!queryResponse.ok || !eventResponse.ok || !lookupResponse.ok) {
     throw new Error(
@@ -155,6 +181,37 @@ async function fetchGitSource(source: string): Promise<RuntimeSourceContents> {
     eventSource: await eventResponse.text(),
     lookupSource: await lookupResponse.text(),
     definitionSource: definitionResponse.ok ? await definitionResponse.text() : undefined,
+    metadataSource,
+  };
+}
+
+async function fetchMetadataSource(source: string): Promise<string> {
+  let commit = source.startsWith('argonprotocol/') ? source.slice(source.lastIndexOf('@') + 1) : undefined;
+  if (!commit) {
+    const response = await fetch(`https://registry.npmjs.org/@argonprotocol/mainchain/${encodeURIComponent(source)}`);
+    if (!response.ok) throw new Error(`Unable to resolve metadata source ${source}: ${response.status}`);
+    const manifest = (await response.json()) as { gitHead?: string };
+    commit = manifest.gitHead;
+  }
+  if (!commit || !/^[a-f0-9]{7,40}$/.test(commit)) {
+    throw new Error(`Runtime source ${source} does not identify an immutable metadata commit`);
+  }
+
+  const response = await fetch(
+    `https://raw.githubusercontent.com/argonprotocol/mainchain/${commit}/client/nodejs/metadata.json`,
+  );
+  if (!response.ok) throw new Error(`Unable to download metadata for ${source}: ${response.status}`);
+  return await response.text();
+}
+
+function readBundledMetadata(sourceMap?: string): Pick<RuntimeSourceContents, 'metadataSource' | 'genesisSource'> {
+  if (!sourceMap) return {};
+  const map = JSON.parse(sourceMap) as { sources: string[]; sourcesContent?: (string | null)[] };
+  const metadataSource = map.sourcesContent?.[map.sources.findIndex(source => source.endsWith('/metadata.json'))];
+  const genesisSource = map.sourcesContent?.[map.sources.findIndex(source => source.endsWith('/genesis.json'))];
+  return {
+    ...(metadataSource ? { metadataSource } : {}),
+    ...(genesisSource ? { genesisSource } : {}),
   };
 }
 

@@ -35,12 +35,11 @@ import type {
 } from '../src/interfaces/index.ts';
 
 const mainchainMocks = vi.hoisted(() => ({
-  getClient: vi.fn(),
+  getMainchainClient: vi.fn(),
 }));
 
-vi.mock('@argonprotocol/mainchain', async importOriginal => ({
-  ...(await importOriginal()),
-  getClient: mainchainMocks.getClient,
+vi.mock('../../core/src/MainchainRpcProvider.ts', () => ({
+  getMainchainClient: mainchainMocks.getMainchainClient,
 }));
 
 NetworkConfig.setNetwork('dev-docker');
@@ -67,7 +66,7 @@ describe('RouterServer', () => {
   let botServer: Http.Server | undefined;
 
   beforeEach(() => {
-    mainchainMocks.getClient.mockImplementation(async () => ({
+    mainchainMocks.getMainchainClient.mockImplementation(async () => ({
       disconnect: vi.fn().mockResolvedValue(undefined),
       on: vi.fn(),
       rpc: { chain: { getFinalizedHead: vi.fn().mockResolvedValue('0xfinalized') } },
@@ -82,7 +81,7 @@ describe('RouterServer', () => {
     routerDb?.close();
     await new Promise<void>(resolve => botServer?.close(() => resolve()) ?? resolve());
     vi.restoreAllMocks();
-    mainchainMocks.getClient.mockReset();
+    mainchainMocks.getMainchainClient.mockReset();
   });
 
   it('publicly exposes the bot sync status', async () => {
@@ -231,7 +230,7 @@ describe('RouterServer', () => {
       query: {},
     };
     const localConnection = Promise.withResolvers<typeof localClient>();
-    mainchainMocks.getClient.mockImplementation((url: string) =>
+    mainchainMocks.getMainchainClient.mockImplementation((url: string) =>
       url === 'http://local-mainchain.test' ? localConnection.promise : Promise.resolve(archiveClient),
     );
 
@@ -242,7 +241,7 @@ describe('RouterServer', () => {
     routerServer = started.routerServer;
     botServer = started.botServer;
 
-    await vi.waitFor(() => expect(mainchainMocks.getClient).toHaveBeenCalledTimes(2));
+    await vi.waitFor(() => expect(mainchainMocks.getMainchainClient).toHaveBeenCalledTimes(2));
     const response = await fetch(
       `http://${started.routerAddress.host}:${started.routerAddress.port}/bitcoin-lock-coupons/fee-credit-offer`,
     );
@@ -253,8 +252,8 @@ describe('RouterServer', () => {
       remainingFeeCreditMicrogons: 100_000n,
       status: 'Open',
     });
-    expect(mainchainMocks.getClient).toHaveBeenCalledWith('https://archive-mainchain.test', { throwOnConnect: true });
-    expect(mainchainMocks.getClient).toHaveBeenCalledWith('http://local-mainchain.test', { throwOnConnect: true });
+    expect(mainchainMocks.getMainchainClient).toHaveBeenCalledWith('https://archive-mainchain.test');
+    expect(mainchainMocks.getMainchainClient).toHaveBeenCalledWith('http://local-mainchain.test');
     localConnection.resolve(localClient);
     await vi.waitFor(() => expect(localClient.at).toHaveBeenCalledOnce());
   });
@@ -271,7 +270,7 @@ describe('RouterServer', () => {
       query: {},
     };
     let localAttempts = 0;
-    mainchainMocks.getClient.mockImplementation(async (url: string) => {
+    mainchainMocks.getMainchainClient.mockImplementation(async (url: string) => {
       if (url !== 'http://local-mainchain.test') return archiveClient;
       localAttempts += 1;
       if (localAttempts === 1) throw new Error('Local node is starting');
@@ -310,7 +309,7 @@ describe('RouterServer', () => {
     };
     const stalledConnection = Promise.withResolvers<object>();
     let localAttempts = 0;
-    mainchainMocks.getClient.mockImplementation(async (url: string) => {
+    mainchainMocks.getMainchainClient.mockImplementation(async (url: string) => {
       if (url !== 'http://local-mainchain.test') return archiveClient;
       localAttempts += 1;
       return localAttempts === 1 ? stalledConnection.promise : localClient;
@@ -342,7 +341,7 @@ describe('RouterServer', () => {
     const archiveClient = { disconnect: vi.fn().mockResolvedValue(undefined), on: vi.fn() };
     const localClient = { disconnect: vi.fn().mockResolvedValue(undefined), on: vi.fn() };
     const localConnection = Promise.withResolvers<typeof localClient>();
-    mainchainMocks.getClient.mockImplementation((url: string) =>
+    mainchainMocks.getMainchainClient.mockImplementation((url: string) =>
       url === 'http://local-mainchain.test' ? localConnection.promise : Promise.resolve(archiveClient),
     );
 
@@ -352,7 +351,7 @@ describe('RouterServer', () => {
     });
     routerServer = started.routerServer;
     botServer = started.botServer;
-    await vi.waitFor(() => expect(mainchainMocks.getClient).toHaveBeenCalledTimes(2));
+    await vi.waitFor(() => expect(mainchainMocks.getMainchainClient).toHaveBeenCalledTimes(2));
 
     await routerServer.close();
     routerServer = undefined;
@@ -392,7 +391,7 @@ describe('RouterServer', () => {
     };
     const localConnection = new Promise<never>(() => undefined);
     let archiveAttempts = 0;
-    mainchainMocks.getClient.mockImplementation(async (url: string) => {
+    mainchainMocks.getMainchainClient.mockImplementation(async (url: string) => {
       if (url === 'http://local-mainchain.test') return localConnection;
       archiveAttempts += 1;
       if (archiveAttempts === 1) throw new Error('Archive is starting');
@@ -465,7 +464,7 @@ describe('RouterServer', () => {
       tx: {},
     };
     let localAttempts = 0;
-    mainchainMocks.getClient.mockImplementation(async (url: string) => {
+    mainchainMocks.getMainchainClient.mockImplementation(async (url: string) => {
       if (url !== 'http://local-mainchain.test') return archiveClient;
       localAttempts += 1;
       return localAttempts === 1 ? localClient : replacementLocalClient;
@@ -545,7 +544,7 @@ describe('RouterServer', () => {
       }),
       tx: {},
     };
-    mainchainMocks.getClient.mockImplementation(async (url: string) =>
+    mainchainMocks.getMainchainClient.mockImplementation(async (url: string) =>
       url === 'http://local-mainchain.test' ? localClient : archiveClient,
     );
     const started = await startRouterServer(routerDb, () => ({ status: 200, body: [] }), {
@@ -580,9 +579,9 @@ describe('RouterServer', () => {
       );
       expect(archiveClient.at).toHaveBeenCalledWith('0xfinalized');
       expect(localClient.disconnect).toHaveBeenCalledOnce();
-      expect(mainchainMocks.getClient.mock.calls.filter(([url]) => url === 'http://local-mainchain.test')).toHaveLength(
-        2,
-      );
+      expect(
+        mainchainMocks.getMainchainClient.mock.calls.filter(([url]) => url === 'http://local-mainchain.test'),
+      ).toHaveLength(2);
     } finally {
       vi.useRealTimers();
     }
@@ -1033,7 +1032,7 @@ describe('RouterServer', () => {
   it('requires a matching member session for member coupon routes', async () => {
     routerDb = createDb('router-server-member-coupon-auth-');
 
-    mainchainMocks.getClient.mockRejectedValue(new Error('Mainchain is not needed before initialization'));
+    mainchainMocks.getMainchainClient.mockRejectedValue(new Error('Mainchain is not needed before initialization'));
 
     const operator = new Keyring({ type: 'sr25519' }).addFromUri('//RouterOperator');
     const member = new Keyring({ type: 'sr25519' }).addFromUri('//InviteMember');
@@ -1198,7 +1197,7 @@ describe('RouterServer', () => {
         },
       },
     });
-    mainchainMocks.getClient.mockResolvedValue({
+    mainchainMocks.getMainchainClient.mockResolvedValue({
       disconnect: vi.fn().mockResolvedValue(undefined),
       on: vi.fn(),
       rpc: { chain: { getFinalizedHead: vi.fn().mockResolvedValue('0xfinalized') } },
