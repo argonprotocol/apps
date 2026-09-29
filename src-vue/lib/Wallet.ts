@@ -88,9 +88,16 @@ export abstract class WalletForChain<TType extends IWallet['type']> {
   }
 }
 
-export function getWalletTotalValue(wallet: IWallet, currency: Currency): bigint {
+export function getWalletTotalValue(wallet: IWallet, currency: Currency): bigint | undefined {
+  if (
+    !currency.hasEthPrice &&
+    wallet.otherTokens.some(token => token.unitOfMeasurement === UnitOfMeasurement.ETH && token.value > 0n)
+  ) {
+    return undefined;
+  }
   const micronotValue = currency.convertMicronotTo(wallet.totalMicronots, UnitOfMeasurement.Microgon);
   const otherTokenValue = wallet.otherTokens.reduce((total, token) => {
+    if (token.value === 0n) return total;
     return total + currency.convertOtherToMicrogon(token);
   }, 0n);
   return wallet.totalMicrogons + micronotValue + otherTokenValue;

@@ -75,7 +75,7 @@ export const useStableSwaps = defineStore('stableSwaps', () => {
         inputTokenPricesMicrogons: {
           USDC: currency.microgonsPer.USD,
           USDT: currency.microgonsPer.USD,
-          ETH: currency.microgonsPer.ETH,
+          ...(currency.hasEthPrice ? { ETH: currency.microgonsPer.ETH } : {}),
           ARGNOT: currency.microgonsPer.ARGNOT,
         },
         targetPriceFixed18: getTargetPriceFixed18(),
@@ -111,6 +111,14 @@ export const useStableSwaps = defineStore('stableSwaps', () => {
       walletError.value = error instanceof Error ? error.message : 'Could not load stable-swap wallet history.';
     }
   }
+
+  Vue.watch(
+    () => (currency.hasEthPrice ? currency.microgonsPer.ETH : undefined),
+    () => {
+      if (!isLoaded.value) return;
+      void refresh().catch(error => console.error('Stable swaps failed to refresh after ETH price update', error));
+    },
+  );
 
   return {
     isLoaded,

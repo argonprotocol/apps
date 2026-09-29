@@ -118,8 +118,10 @@
           <div class="grow">Ethereum Network</div>
           <div class="relative">
             <span :class="{ 'opacity-20': isEstimatingFees }">
-              {{ weiToEthNm(feeEstimateWei).format('0.[00000000000000000000000000000]') }} ETH ({{ currency.symbol
-              }}{{ weiToMoneyNm(feeEstimateWei).format('0,0.000') }})
+              {{ weiToEthNm(feeEstimateWei).format('0.[00000000000000000000000000000]') }} ETH
+              <template v-if="currency.hasEthPrice">
+                ({{ currency.symbol }}{{ weiToMoneyNm(feeEstimateWei).format('0,0.000') }})
+              </template>
             </span>
             <span
               v-if="isEstimatingFees"

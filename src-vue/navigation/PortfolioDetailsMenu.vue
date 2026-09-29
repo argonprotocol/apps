@@ -84,7 +84,7 @@
                 >
                   <div class="font-normal text-slate-600">{{ getEthereumWalletDisplayName(entry.wallet.name) }}</div>
                   <div class="font-mono font-normal text-slate-600">
-                    {{ entry.isLoaded ? `${currency.symbol}${formatValue(entry.totalValue)}` : '--' }}
+                    {{ entry.isLoaded && entry.totalValue !== undefined ? `${currency.symbol}${formatValue(entry.totalValue)}` : '--' }}
                   </div>
                 </div>
               </div>

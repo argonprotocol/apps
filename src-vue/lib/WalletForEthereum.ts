@@ -178,7 +178,10 @@ export class WalletForEthereum extends WalletForChain<WalletType.ethereum> {
           id: `${wallet.address.toLowerCase()}:${token.chain}:${token.symbol}`,
           label: `Ethereum ${token.symbol}`,
           lifecycle: 'available',
-          currentValue: currency.isLoaded ? currency.convertOtherToMicrogon(token) : undefined,
+          currentValue:
+            currency.isLoaded && (token.unitOfMeasurement !== UnitOfMeasurement.ETH || currency.hasEthPrice)
+              ? currency.convertOtherToMicrogon(token)
+              : undefined,
           wallet,
           asset: `${token.chain}:${token.symbol}`,
         }),
