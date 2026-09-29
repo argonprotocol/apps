@@ -55,34 +55,38 @@ export function setupBondPortfolioScenario(
       ...(programType === 'Vault' ? { returnIsComplete: historyComplete } : {}),
     };
   });
+  const data = Vue.reactive({
+    isLoaded: true,
+    historyError: undefined as string | undefined,
+    bondLots: lots,
+    vaultId: 7,
+    vaultsById: {
+      12: {
+        bondLots: [lots[1]],
+        ordinaryBonds: 0,
+        flexibleBonds: lots[1].bonds,
+        reservedBondSpace: 0,
+        currentFrame: {
+          frameId: 10_005,
+          vaultBonds: 24,
+          flexibleBondsEligible: 24,
+          bondLots: [],
+        },
+        isLoaded: true,
+      },
+    },
+  });
 
   setupAppScenario({ selectedTab, myVaultId: 7 });
 
   mocked(getArgonBonds).mockReturnValue({
-    data: Vue.reactive({
-      isLoaded: true,
-      bondLots: lots,
-      vaultId: 7,
-      vaultsById: {
-        12: {
-          bondLots: [lots[1]],
-          ordinaryBonds: 0,
-          flexibleBonds: lots[1].bonds,
-          reservedBondSpace: 0,
-          currentFrame: {
-            frameId: 10_005,
-            vaultBonds: 24,
-            flexibleBondsEligible: 24,
-            bondLots: [],
-          },
-          isLoaded: true,
-        },
-      },
-    }),
+    data,
     bondTotals: BondLot.getTotals(lots),
     getFlexibleBondDisplacementPercent: fn(() => flexibleBondDisplacementPercent),
     load: fn(async () => undefined),
-    retryHistory: fn(async () => undefined),
+    retryHistory: fn(async () => {
+      data.historyError = undefined;
+    }),
     subscribeGlobal: fn(async () => undefined),
     subscribeVault: fn(async () => fn()),
   } as unknown as ReturnType<typeof getArgonBonds>);

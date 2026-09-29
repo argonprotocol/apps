@@ -1,6 +1,6 @@
 import type { Meta, StoryObj } from '@storybook/vue3-vite';
 import * as Vue from 'vue';
-import { fn, mocked } from 'storybook/test';
+import { expect, fn, mocked, userEvent, waitFor, within } from 'storybook/test';
 import AppScreen from '../../components/AppScreen.vue';
 import { setupAppScenario } from '../../scenarios/setupAppScenario.ts';
 import { setupBondPortfolioScenario } from '../../scenarios/setupBondPortfolioScenario.ts';
@@ -8,12 +8,20 @@ import { TopTab } from '../../../src-vue/interfaces/IConfig.ts';
 import { getArgonBonds } from '../../../src-vue/stores/argonBonds.ts';
 import ArgonotStakes from '../../../src-vue/screens/ArgonotStakes.vue';
 
+const interactive = Vue.ref(false);
+
 const meta = {
   title: 'Stakes/Overview',
   component: ArgonotStakes,
+  beforeEach: () => {
+    interactive.value = false;
+  },
   render: () => ({
     components: { AppScreen, ArgonotStakes },
-    template: '<AppScreen><ArgonotStakes /></AppScreen>',
+    setup() {
+      return { interactive };
+    },
+    template: '<AppScreen :interactive="interactive"><ArgonotStakes /></AppScreen>',
   }),
 } satisfies Meta<typeof ArgonotStakes>;
 
@@ -62,5 +70,20 @@ export const HistorySyncFailed: Story = {
   beforeEach: () => {
     setupBondPortfolioScenario('Argonot');
     getArgonBonds().data.historyError = 'Bond history stopped at block 100: archive unavailable';
+  },
+};
+
+export const HistoryRetryRecovered: Story = {
+  beforeEach: () => {
+    setupBondPortfolioScenario('Argonot');
+    getArgonBonds().data.historyError = 'Bond history stopped at block 100: archive unavailable';
+    interactive.value = true;
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await userEvent.click(await canvas.findByRole('button', { name: 'Retry History' }));
+    await waitFor(() => expect(canvas.queryByRole('button', { name: 'Retry History' })).not.toBeInTheDocument());
+    await expect(canvas.getByTestId('Bond.stake-41')).toBeVisible();
+    interactive.value = false;
   },
 };
