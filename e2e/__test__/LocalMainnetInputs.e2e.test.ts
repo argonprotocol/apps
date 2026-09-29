@@ -13,6 +13,10 @@ vi.mock('@argonprotocol/mainchain', async importOriginal => ({
   ...(await importOriginal<typeof import('@argonprotocol/mainchain')>()),
   getClient: vi.fn(),
 }));
+vi.mock('node:child_process', async importOriginal => ({
+  ...(await importOriginal<typeof import('node:child_process')>()),
+  execFileSync: vi.fn(() => '12'.repeat(20)),
+}));
 
 const directories: string[] = [];
 const originalArgv = process.argv;
@@ -45,6 +49,7 @@ describe('local mainnet baseline transfer', () => {
     const releasedVersion = JSON.parse(readFileSync('release-channels/desktop-stable.json', 'utf8')).version;
     const environment = readFileSync(environmentPath, 'utf8');
     expect(environment).toContain(`PREVIOUS_APPS_REF=v${releasedVersion}\n`);
+    expect(environment).toContain(`EXPECTED_PREVIOUS_APPS_HEAD=${'12'.repeat(20)}\n`);
     expect(environment).toContain(`QUALIFICATION_BLOCK_HASH=${blockHash}\n`);
     expect(disconnect).toHaveBeenCalledOnce();
   });
