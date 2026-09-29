@@ -1,6 +1,12 @@
 import Fs from 'node:fs';
 import Path from 'node:path';
-import { AccountActivityKind, type BlockWatch, Currency, type MainchainClients } from '@argonprotocol/apps-core';
+import {
+  AccountActivityKind,
+  BitcoinFission,
+  type BlockWatch,
+  Currency,
+  type MainchainClients,
+} from '@argonprotocol/apps-core';
 import { getClient, hexToU8a, u8aEq } from '@argonprotocol/mainchain';
 import { afterAll, describe, expect, it } from 'vitest';
 import type { Db } from '../lib/Db.ts';
@@ -34,12 +40,15 @@ runWithReplay('Bitcoin financial history replay corpus', () => {
         const accountIds = corpusReader.findBitcoinOwners(130);
         expect(accountIds.length).toBeGreaterThan(0);
         let migratedActiveLockCount = 0;
+        let activeFissionCount = 0;
         let recoveredLockCount = 0;
         const recoveryFailures: string[] = [];
         const latestBlock = await corpusReader.getHeader(corpusReader.latestBlockNumber);
         const latestApi = await corpusReader.getApi(latestBlock);
 
         for (const accountId of accountIds) {
+          const currentFissions = await BitcoinFission.getAllByOwner(latestApi, accountId);
+          activeFissionCount += currentFissions.length;
           const blocks = corpusReader
             .findActivityBlocks(accountId, {
               activityMask: AccountActivityKind.BitcoinLock | AccountActivityKind.BitcoinMint,
@@ -80,6 +89,7 @@ runWithReplay('Bitcoin financial history replay corpus', () => {
               blockWatch: corpusReader as unknown as BlockWatch,
               blocks,
               currentLocks,
+              latestApi,
               db,
               derivedLocks,
             });
@@ -106,22 +116,32 @@ runWithReplay('Bitcoin financial history replay corpus', () => {
 
             for (const currentLock of currentLocks) {
               const lock = recovered.locks.find(record => record.lockId === currentLock.utxoId);
-              const fission = recovered.fissions.find(record => record.lockId === currentLock.utxoId);
               expect(lock, `Active Bitcoin lock ${currentLock.utxoId}`).toMatchObject({
                 isFlexible: currentLock.isFlexible,
                 securitizedSatoshis: currentLock.securitizedSatoshis,
               });
-              expect(fission, `Migrated Bitcoin Fission ${currentLock.utxoId}`).toMatchObject({
-                liquidityPromised: currentLock.liquidityPromised,
-                lockId: currentLock.utxoId,
-              });
               if (currentLock.createdAtArgonBlock === 0) {
                 migratedActiveLockCount += 1;
+                const fission = recovered.fissions.find(record => record.lockId === currentLock.utxoId);
+                expect(fission, `Migrated Bitcoin Fission ${currentLock.utxoId}`).toMatchObject({
+                  lockId: currentLock.utxoId,
+                });
                 expect(
                   fission?.ratchets[0]?.blockNumber,
                   `Migrated Bitcoin Fission ${currentLock.utxoId}`,
                 ).toBeGreaterThan(0);
               }
+            }
+            for (const currentFission of currentFissions) {
+              expect(
+                recovered.fissions.find(record => record.fissionId === currentFission.fissionId),
+                `Active Bitcoin Fission ${currentFission.fissionId}`,
+              ).toMatchObject({
+                lockId: currentFission.lockId,
+                liquidityPromised: currentFission.liquidityPromised,
+                microgonsAtTargetPerBtc: currentFission.microgonsAtTargetPerBtc,
+                lastUpdatedArgonBlock: currentFission.lastUpdatedArgonBlock,
+              });
             }
             for (const fission of recovered.fissions.filter(fission => fission.origin === 'lock-migration')) {
               expect(
@@ -158,6 +178,7 @@ runWithReplay('Bitcoin financial history replay corpus', () => {
         expect(recoveryFailures).toEqual([]);
         expect(recoveredLockCount).toBeGreaterThan(0);
         expect(migratedActiveLockCount).toBeGreaterThan(0);
+        expect(activeFissionCount).toBeGreaterThan(0);
       } finally {
         corpusReader.close();
       }
@@ -171,13 +192,14 @@ async function replayBitcoinAccount(args: {
   blockWatch: BlockWatch;
   blocks: ReturnType<CapturedHistoryReader['findActivityBlocks']>;
   currentLocks: NonNullable<Awaited<ReturnType<typeof getHistoricalBitcoinLock>>>[];
+  latestApi: Awaited<ReturnType<CapturedHistoryReader['getApi']>>;
   db: Db;
   derivedLocks: {
     firstBlockNumber: number;
     lock: NonNullable<Awaited<ReturnType<typeof getHistoricalBitcoinLock>>>;
   }[];
 }) {
-  const { accountId, blockWatch, blocks, currentLocks, db, derivedLocks } = args;
+  const { accountId, blockWatch, blocks, currentLocks, latestApi, db, derivedLocks } = args;
 
   const walletKeys = {
     defaultArgonAddress: accountId,
@@ -252,6 +274,7 @@ async function replayBitcoinAccount(args: {
       }
       await recovery.beginHistoryReplay({ lockScope: 'all' });
       const bitcoinFissions = new BitcoinFissions(Promise.resolve(db), accountId);
+      await bitcoinFissions.refreshCurrent(latestApi);
       await bitcoinFissions.recovery.beginHistoryReplay({ replace: true });
 
       const importer = new FinancialHistoryImporter({
@@ -276,6 +299,23 @@ async function replayBitcoinAccount(args: {
           bitcoinFissions,
           asOfBlock: blocks.at(-1)?.blockNumber ?? 0,
         });
+
+        const beforeIncremental = await db.bitcoinFissionsTable.fetchAll(accountId);
+        const priorSecuritization = await db.bitcoinSecuritizationHistoryTable.getPublishedSnapshot(accountId);
+        await recovery.beginHistoryReplay({ lockScope: 'encountered' });
+        await bitcoinFissions.recovery.beginHistoryReplay();
+        await publishBitcoinHistoryReplay({
+          bitcoinLocks: {
+            recovery,
+            applyRecoveredHistory: bitcoinLocks.applyRecoveredHistory.bind(bitcoinLocks),
+          },
+          bitcoinFissions,
+          asOfBlock: blocks.at(-1)?.blockNumber ?? 0,
+        });
+        expect((await db.bitcoinFissionsTable.fetchAll(accountId)).map(omitUpdatedAt)).toEqual(
+          beforeIncremental.map(omitUpdatedAt),
+        );
+        expect(await db.bitcoinSecuritizationHistoryTable.getPublishedSnapshot(accountId)).toEqual(priorSecuritization);
       }
     },
     readDurableState: async () => {

@@ -1234,6 +1234,8 @@ describe('Bitcoin Fission recovery', () => {
       liquidId: 7,
       lockId: 7,
       liquidityPromised: 1_400n,
+      microgonsAtTargetPerBtc: 15_000_000n,
+      lastUpdatedArgonBlock: 151,
     });
     expect(fission.ratchets).toEqual([
       expect.objectContaining({
@@ -1455,6 +1457,261 @@ describe('Bitcoin Fission recovery', () => {
     const [liquid] = fissions.getLiquids();
     expect(liquid.fissions).toEqual([fissions.getAll()[0]]);
     expect(liquid.history).toHaveLength(3);
+
+    const walletKeys = createMockWalletKeys('//Alice');
+    walletKeys.defaultArgonAddress = ownerAccount;
+    const locks = createStore({
+      db,
+      walletKeys,
+      blockWatch: { getApi: async () => ({}) } as unknown as BlockWatch,
+    });
+    locks.data.locksByLockId[70] = currentLock;
+    await locks.recovery.beginHistoryReplay({ lockScope: 'encountered', purpose: 'financial-backfill' });
+    await locks.recovery.recoverBlock(historyBlock(165), [
+      historyEvent(159, 'bitcoinLocks', 'BitcoinLockFlexibleChanged', { lockId: 70, vaultId: 1, isFlexible: true }),
+    ]);
+    const seeded = await locks.recovery.prepareHistoryReplay();
+    expect(seeded.records).toEqual([
+      expect.objectContaining({
+        utxoId: 7,
+        isFlexible: true,
+        lockedTargetPrice: 1_500n,
+        liquidityPromised: 1_400n,
+        ratchets: [
+          expect.objectContaining({ lockedTargetPrice: 1_000n, mintPending: 350n }),
+          expect.objectContaining({ lockedTargetPrice: 1_500n, mintPending: 400n }),
+        ],
+      }),
+    ]);
+    await locks.recovery.cancelHistoryReplay();
+  });
+
+  it('restores a migrated mint under its canonical Lock and quarantines conflicting event identity', async () => {
+    const db = await createTestDb();
+    const lock = createHistoricalBitcoinLockRecord(
+      createLock({
+        uuid: 'minted-migrated-fission-lock',
+        utxoId: 7,
+        status: BitcoinLockStatus.LockFunded,
+        createdAt: '2026-01-01T00:00:00Z',
+      }),
+    );
+    // The migration uses securitized Bitcoin even when the funding UTXO differs.
+    lock.securitizedSatoshis = 30_000n;
+    lock.satoshis = lock.fundedSatoshis = 30_001n;
+    lock.createdAtArgonBlock = 0;
+    lock.lockedTargetPrice = 3_000_000n;
+    lock.liquidityPromised = 3_000_000n;
+    lock.ratchets = [
+      {
+        mintAmount: 3_000_000n,
+        mintPending: 3_000_000n,
+        liquidityPromised: 3_000_000n,
+        lockedTargetPrice: 3_000_000n,
+        securityFee: 20n,
+        txFee: 11n,
+        burned: 0n,
+        blockHeight: 151,
+        oracleBitcoinBlockHeight: 500,
+      },
+    ];
+
+    const fissions = new BitcoinFissions(Promise.resolve(db), ownerAccount);
+    const current = new BitcoinFission({
+      ownerAccount,
+      fissionId: 7,
+      liquidId: 7,
+      lockId: 70,
+      satoshis: 30_000n,
+      // FixedU128 rounds the ratio before multiplication, yielding one microgon below 10 billion.
+      microgonsAtTargetPerBtc: 9_999_999_999n,
+      liquidityPromised: 3_000_000n,
+      createdAtArgonBlock: 0,
+      lastUpdatedArgonBlock: 0,
+      ratchetNumber: 0,
+    });
+    fissions.data.fissionsById[7] = current;
+    fissions.data.activeFissionIds.add(7);
+    fissions.data.readiness = 'ready';
+    const recovery = fissions.recovery;
+    await recovery.beginHistoryReplay({ replace: true });
+    await recovery.recoverBlock(historyBlock(160), [
+      historyEvent(159, 'mint', 'BitcoinMint', {
+        accountId: ownerAccount,
+        fissionId: 7,
+        lockId: 70,
+        amount: 100n,
+      }),
+    ]);
+    const [fission] = await publishRecoveredFissions(db, recovery, [lock], new Map([[7, 70]]), records =>
+      fissions.publishRecoveredHistory(records),
+    );
+
+    expect(fission).toMatchObject({
+      origin: 'lock-migration',
+      fissionId: 7,
+      lockId: 70,
+      satoshis: 30_000n,
+      microgonsAtTargetPerBtc: 9_999_999_999n,
+      lastUpdatedArgonBlock: 0,
+      feeHistoryCompleteThroughBlock: 151,
+    });
+    expect(fissions.getAll()[0]).toBe(current);
+    expect(fissions.data.readiness).toBe('ready');
+    expect((await new BitcoinFissionsTable(db).fetchAll(ownerAccount))[0].ratchets).toEqual([
+      expect.objectContaining({
+        microgonsAtTargetPerBtc: 3_000_000n,
+        amountMinted: 3_000_000n,
+        mintPending: 2_999_900n,
+      }),
+    ]);
+
+    await recovery.beginHistoryReplay({ replace: true });
+    await recovery.recoverBlock(historyBlock(170), [
+      historyEvent(159, 'mint', 'BitcoinMint', {
+        accountId: ownerAccount,
+        fissionId: 7,
+        lockId: 71,
+        amount: 100n,
+      }),
+    ]);
+    const prepared = await recovery.prepareHistoryReplay([lock], new Map([[7, 70]]));
+
+    expect(prepared.records).toEqual([]);
+    expect(prepared.failuresByLockId).toEqual(
+      new Map([[71, 'Bitcoin Fission 7 history is missing its creation event']]),
+    );
+    expect(await db.bitcoinFissionsTable.fetchAll(ownerAccount)).toEqual([fission]);
+    await recovery.finishHistoryReplay();
+
+    // Repair a projection saved by the previous replay implementation.
+    await db.bitcoinFissionsTable.replaceRecord({
+      ...fission,
+      satoshis: 30_001n,
+      microgonsAtTargetPerBtc: 3_000_000n,
+      lastUpdatedArgonBlock: 151,
+      // A newer finalized mint was persisted after the historical checkpoint.
+      ratchets: fission.ratchets.map(ratchet => ({ ...ratchet, mintPending: 2_999_850n })),
+    });
+    await recovery.beginHistoryReplay({ replace: true });
+    await recovery.recoverBlock(historyBlock(160), [
+      historyEvent(159, 'mint', 'BitcoinMint', { accountId: ownerAccount, fissionId: 7, lockId: 70, amount: 100n }),
+    ]);
+    const [repaired] = await publishRecoveredFissions(db, recovery, [lock], new Map([[7, 70]]));
+    expect(repaired).toMatchObject({
+      satoshis: 30_000n,
+      microgonsAtTargetPerBtc: 9_999_999_999n,
+      lastUpdatedArgonBlock: 0,
+    });
+    expect(repaired.ratchets[0].mintPending).toBe(2_999_850n);
+
+    const restarted = new BitcoinFissionRecovery(Promise.resolve(db), ownerAccount, () => [current]);
+    await restarted.beginHistoryReplay();
+    await restarted.recoverBlock(historyBlock(180), [
+      historyEvent(159, 'mint', 'BitcoinMint', { accountId: ownerAccount, fissionId: 7, lockId: 70, amount: 100n }),
+    ]);
+    const [resumed] = await publishRecoveredFissions(db, restarted);
+    expect(resumed).toMatchObject({
+      satoshis: 30_000n,
+      microgonsAtTargetPerBtc: 9_999_999_999n,
+      lastUpdatedArgonBlock: 0,
+    });
+    expect(resumed.ratchets[0].mintPending).toBe(2_999_750n);
+  });
+
+  it('uses a migrated Fission ID to restore a closure after current state is gone', async () => {
+    const db = await createTestDb();
+    const lock = createHistoricalBitcoinLockRecord(
+      createLock({
+        uuid: 'closed-migrated-fission-lock',
+        utxoId: 7,
+        status: BitcoinLockStatus.LockFunded,
+        createdAt: '2026-01-01T00:00:00Z',
+      }),
+    );
+    lock.securitizedSatoshis = 30_000n;
+    lock.satoshis = lock.fundedSatoshis = 30_001n;
+    lock.createdAtArgonBlock = 0;
+    lock.lockedTargetPrice = 3_000_000n;
+    lock.liquidityPromised = 3_000_000n;
+    lock.ratchets = [
+      {
+        mintAmount: 3_000_000n,
+        mintPending: 0n,
+        liquidityPromised: 3_000_000n,
+        lockedTargetPrice: 3_000_000n,
+        securityFee: 20n,
+        burned: 0n,
+        blockHeight: 151,
+        oracleBitcoinBlockHeight: 500,
+      },
+    ];
+
+    const recovery = new BitcoinFissionRecovery(Promise.resolve(db), ownerAccount);
+    await recovery.beginHistoryReplay({ replace: true });
+    await recovery.recoverBlock(historyBlock(160), [
+      historyEvent(159, 'bitcoinFissions', 'FissionClosed', {
+        accountId: ownerAccount,
+        fissionId: 7,
+        redemptionAmount: 900n,
+      }),
+    ]);
+    const [fission] = await publishRecoveredFissions(db, recovery, [lock], new Map([[7, 70]]));
+
+    expect(fission).toMatchObject({
+      origin: 'lock-migration',
+      fissionId: 7,
+      lockId: 70,
+      satoshis: 30_000n,
+      microgonsAtTargetPerBtc: 9_999_999_999n,
+      closedAtArgonBlock: 160,
+      closeReason: 'closed',
+      redemptionAmount: 900n,
+    });
+    expect((await new BitcoinFissionsTable(db).fetchAll(ownerAccount))[0].closedAtArgonBlock).toBe(160);
+
+    // Repair an archived projection saved before the canonical migration fields were corrected.
+    await db.bitcoinFissionsTable.replaceRecord({
+      ...fission,
+      satoshis: 30_001n,
+      microgonsAtTargetPerBtc: 3_000_000n,
+      lastUpdatedArgonBlock: 151,
+    });
+    await recovery.beginHistoryReplay({ replace: true });
+    await recovery.recoverBlock(historyBlock(160), [
+      historyEvent(159, 'bitcoinFissions', 'FissionClosed', {
+        accountId: ownerAccount,
+        fissionId: 7,
+        redemptionAmount: 900n,
+      }),
+    ]);
+    const [repaired] = await publishRecoveredFissions(db, recovery, [lock], new Map([[7, 70]]));
+    expect(repaired).toMatchObject({
+      satoshis: 30_000n,
+      microgonsAtTargetPerBtc: 9_999_999_999n,
+      lastUpdatedArgonBlock: 160,
+      closedAtArgonBlock: 160,
+      redemptionAmount: 900n,
+    });
+
+    await db.bitcoinFissionsTable.replaceRecord({
+      ...repaired,
+      satoshis: 30_001n,
+      microgonsAtTargetPerBtc: 3_000_000n,
+      lastUpdatedArgonBlock: 180,
+      closedAtArgonBlock: 180,
+      redemptionAmount: 800n,
+    });
+    const restarted = new BitcoinFissionRecovery(Promise.resolve(db), ownerAccount);
+    await restarted.beginHistoryReplay({ replace: true });
+    const [preserved] = await publishRecoveredFissions(db, restarted, [lock], new Map([[7, 70]]));
+    expect(preserved).toMatchObject({
+      satoshis: 30_000n,
+      microgonsAtTargetPerBtc: 9_999_999_999n,
+      lastUpdatedArgonBlock: 180,
+      closedAtArgonBlock: 180,
+      redemptionAmount: 800n,
+    });
   });
 
   it('reconstructs a completed pre-159 Liquid from its Lock history without a Fission event', async () => {

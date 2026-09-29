@@ -253,6 +253,42 @@ export class CapturedHistoryReader {
       query[section] = {};
       for (const method of Object.keys(runtime.storage[section])) {
         const entry = runtime.storage[section][method];
+        const loadStorageKeys = async (...args: unknown[]): Promise<StorageKey[]> => {
+          const storagePrefix = entry.keyPrefix(...args);
+          const recorded = this.database
+            .prepare(
+              `SELECT 1 FROM RecoveryStorageKeyEnumerations
+               WHERE blockNumber = ? AND storagePrefix = ?`,
+            )
+            .get(block.blockNumber, storagePrefix);
+          if (!recorded) {
+            if (!this.recordingClient) {
+              throw new Error(`Seed does not contain ${section}.${method} keys at block ${block.blockNumber}`);
+            }
+            const api = await this.recordingClient.at(block.blockHash);
+            if (api.runtimeVersion.specVersion.toNumber() !== runtime.specVersion) {
+              throw new Error(
+                `Archive runtime at block ${block.blockNumber} does not match spec ${runtime.specVersion}`,
+              );
+            }
+            const storageEntry = api.query[section]?.[method];
+            if (!storageEntry) {
+              throw new Error(`Archive does not contain ${section}.${method} at block ${block.blockNumber}`);
+            }
+            const keys = await storageEntry.keys(...args);
+            await this.recordStorage(
+              block,
+              keys.map(key => key.toHex()),
+            );
+            this.database
+              .prepare(
+                `INSERT OR IGNORE INTO RecoveryStorageKeyEnumerations (blockNumber, storagePrefix)
+                 VALUES (?, ?)`,
+              )
+              .run(block.blockNumber, storagePrefix);
+          }
+          return this.readStorageKeys(block.blockNumber, runtime, entry, args);
+        };
         query[section][method] = Object.assign(
           async (...args: unknown[]) => {
             if (this.recordingClient) {
@@ -265,40 +301,13 @@ export class CapturedHistoryReader {
           {
             key: (...args: unknown[]) => u8aToHex(compactStripLength(entry(...args))[1]),
             keyPrefix: (...args: unknown[]) => u8aToHex(entry.keyPrefix(...args)),
-            keys: async (...args: unknown[]) => {
-              if (this.recordingClient) {
-                const storagePrefix = entry.keyPrefix(...args);
-                const recorded = this.database
-                  .prepare(
-                    `SELECT 1 FROM RecoveryStorageKeyEnumerations
-                     WHERE blockNumber = ? AND storagePrefix = ?`,
-                  )
-                  .get(block.blockNumber, storagePrefix);
-                if (!recorded) {
-                  const api = await this.recordingClient.at(block.blockHash);
-                  if (api.runtimeVersion.specVersion.toNumber() !== runtime.specVersion) {
-                    throw new Error(
-                      `Archive runtime at block ${block.blockNumber} does not match spec ${runtime.specVersion}`,
-                    );
-                  }
-                  const storageEntry = api.query[section]?.[method];
-                  if (!storageEntry) {
-                    throw new Error(`Archive does not contain ${section}.${method} at block ${block.blockNumber}`);
-                  }
-                  const keys = await storageEntry.keys(...args);
-                  await this.recordStorage(
-                    block,
-                    keys.map(key => key.toHex()),
-                  );
-                  this.database
-                    .prepare(
-                      `INSERT OR IGNORE INTO RecoveryStorageKeyEnumerations (blockNumber, storagePrefix)
-                       VALUES (?, ?)`,
-                    )
-                    .run(block.blockNumber, storagePrefix);
-                }
-              }
-              return this.readStorageKeys(block.blockNumber, runtime, entry, args);
+            keys: loadStorageKeys,
+            entries: async (...args: unknown[]) => {
+              const keys = await loadStorageKeys(...args);
+              return keys.map(key => [
+                key,
+                this.readStorage(block.blockNumber, block.blockHash, runtime, entry, [...key.args], true)!,
+              ]);
             },
             multi: async (argsList: unknown[]) => {
               if (this.recordingClient) {

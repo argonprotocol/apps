@@ -200,8 +200,6 @@ export class BitcoinLockRecovery {
         const recovered = createHistoricalBitcoinLockRecord(lock);
         recovered.utxoId = fission.fissionId;
         recovered.satoshis = fission.satoshis;
-        recovered.lockedTargetPrice = fission.microgonsAtTargetPerBtc;
-        recovered.liquidityPromised = fission.liquidityPromised;
         recovered.ratchets = fission.ratchets
           .filter(ratchet => ratchet.source === 'lock')
           .map(ratchet => ({
@@ -220,6 +218,12 @@ export class BitcoinLockRecovery {
             extrinsicIndex: ratchet.extrinsicIndex,
             oracleBitcoinBlockHeight: 0,
           }));
+        const lastLockRatchet = recovered.ratchets.at(-1);
+        if (!lastLockRatchet) continue;
+        recovered.lockedTargetPrice = lastLockRatchet.lockedTargetPrice;
+        recovered.liquidityPromised =
+          lastLockRatchet.liquidityPromised ??
+          recovered.ratchets.reduce((liquidity, ratchet) => liquidity + ratchet.mintAmount - ratchet.burned, 0n);
         this.historyReplay.lockIdByHistoricalUtxoId.set(fission.fissionId, fission.lockId);
         this.historyReplay.locksByLockId[fission.lockId] = recovered;
       }

@@ -1,4 +1,4 @@
-import { BitcoinFission } from '@argonprotocol/apps-core';
+import { bigIntMin, BitcoinFission, convertBitcoinTargetValueToPricePerBtc } from '@argonprotocol/apps-core';
 
 import { convertFromSqliteFields, toSqlParams } from '../Utils.ts';
 import type { IBitcoinFissionRatchetRecord, IBitcoinFissionRecord } from '../../interfaces/IBitcoinFissionRecord.ts';
@@ -107,10 +107,9 @@ export class BitcoinFissionsTable extends BaseTable {
       ratchetsByFissionId.set(fissionId, fissionRatchets);
     }
 
-    return records.map(record => ({
-      ...record,
-      ratchets: ratchetsByFissionId.get(record.fissionId) ?? [],
-    }));
+    return records.map(record =>
+      normalizeMigratedRecord({ ...record, ratchets: ratchetsByFissionId.get(record.fissionId) ?? [] }),
+    );
   }
 
   public async replaceRecords(records: readonly IBitcoinFissionRecord[]): Promise<void> {
@@ -159,10 +158,10 @@ export class BitcoinFissionsTable extends BaseTable {
         ...ratchet
       }) => ratchet,
     );
-    return {
+    return normalizeMigratedRecord({
       ...record,
       ratchets,
-    };
+    });
   }
 
   public async saveRecoveredRecord(recovered: IBitcoinFissionRecord): Promise<IBitcoinFissionRecord> {
@@ -172,8 +171,34 @@ export class BitcoinFissionsTable extends BaseTable {
       return recovered;
     }
 
+    const isMigrationSeed = durable.origin === 'lock-migration' && durable.ratchetNumber === 0;
     const fission = new BitcoinFission(durable);
+    if (durable.origin === 'lock-migration') {
+      // Migration identity and allocation are immutable, including after a native ratchet or closure.
+      fission.liquidId = recovered.liquidId;
+      fission.lockId = recovered.lockId;
+      fission.satoshis = recovered.satoshis;
+      fission.createdAtArgonBlock = recovered.createdAtArgonBlock;
+    }
+    if (isMigrationSeed) {
+      // Repair migration economics while letting the normal merge preserve a newer saved closure.
+      fission.microgonsAtTargetPerBtc = recovered.microgonsAtTargetPerBtc;
+      fission.liquidityPromised = recovered.liquidityPromised;
+      fission.ratchetNumber = recovered.ratchetNumber;
+      fission.lastUpdatedArgonBlock = durable.closedAtArgonBlock ?? recovered.lastUpdatedArgonBlock;
+    }
     fission.mergeRecoveredRecord(recovered);
+    if (isMigrationSeed) {
+      // Keep both replayed repayment and newer mints already persisted during replay.
+      for (const ratchet of fission.ratchets) {
+        const replayed = recovered.ratchets.find(
+          prior => prior.source === ratchet.source && prior.sourceRatchetIndex === ratchet.sourceRatchetIndex,
+        );
+        if (replayed?.amountMinted === ratchet.amountMinted) {
+          ratchet.mintPending = bigIntMin(ratchet.mintPending, replayed.mintPending);
+        }
+      }
+    }
     const record: IBitcoinFissionRecord = {
       ...fission,
       origin: fission.origin ?? durable.origin,
@@ -362,4 +387,23 @@ export class BitcoinFissionsTable extends BaseTable {
       ]),
     );
   }
+}
+
+function normalizeMigratedRecord(record: IBitcoinFissionRecord): IBitcoinFissionRecord {
+  if (record.origin !== 'lock-migration' || record.ratchets.some(ratchet => ratchet.source === 'fission')) {
+    return record;
+  }
+  const lastLockRatchet = record.ratchets.at(-1);
+  if (!lastLockRatchet) return record;
+
+  // Migration 33 and earlier replay saved the Lock's total value in the Fission
+  // price field. The source='lock' ledger retains that value even after repair.
+  return {
+    ...record,
+    microgonsAtTargetPerBtc: convertBitcoinTargetValueToPricePerBtc(
+      lastLockRatchet.microgonsAtTargetPerBtc,
+      record.satoshis,
+    ),
+    lastUpdatedArgonBlock: record.closedAtArgonBlock ?? record.createdAtArgonBlock,
+  };
 }

@@ -4,8 +4,9 @@ import Path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { expect, it } from 'vitest';
 import { encodeAddress } from '@argonprotocol/mainchain';
-import { AccountActivityKind } from '../src/AccountActivity.ts';
+import { AccountActivityDecoder, AccountActivityKind } from '../src/AccountActivity.ts';
 import { IncompatibleAccountActivityDatabaseError, IndexerDb } from '../src/IndexerDb.ts';
+import { createHistoricalEventData } from './helpers/historicalEvents.ts';
 
 const alice = encodeAddress(new Uint8Array(32).fill(1));
 
@@ -87,6 +88,107 @@ it('associates ownerless Bitcoin lifecycle blocks with the recorded lock owner',
     expect(db.findAddressActivity(alice)).toMatchObject([
       { blockNumber: 1, activityMask: AccountActivityKind.BitcoinLock },
       { blockNumber: 2, activityMask: AccountActivityKind.BitcoinLock },
+    ]);
+  } finally {
+    db.close();
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+it('keeps Fission history discoverable by account across shared locks and indexer restart', () => {
+  const directory = fs.mkdtempSync(Path.join(os.tmpdir(), 'account-activity-'));
+  const databasePath = Path.join(directory, 'test.db');
+  let db = new IndexerDb(databasePath);
+  const decoder = new AccountActivityDecoder();
+  const events = [
+    {
+      section: 'bitcoinFissions',
+      method: 'FissionCreated',
+      values: {
+        accountId: alice,
+        fissionId: 7,
+        liquidId: 1,
+        lockId: 70,
+        satoshis: 30_000n,
+        microgonsAtTargetPerBtc: 10_000_000_000n,
+        liquidityPromised: 2_000n,
+      },
+    },
+    {
+      section: 'bitcoinFissions',
+      method: 'FissionCreated',
+      values: {
+        accountId: alice,
+        fissionId: 8,
+        liquidId: 2,
+        lockId: 70,
+        satoshis: 20_000n,
+        microgonsAtTargetPerBtc: 10_000_000_000n,
+        liquidityPromised: 1_000n,
+      },
+    },
+    {
+      section: 'bitcoinFissions',
+      method: 'FissionRatcheted',
+      values: {
+        accountId: alice,
+        fissionId: 7,
+        ratchetNumber: 1,
+        microgonsAtTargetPerBtc: 12_000_000_000n,
+        liquidityPromised: 2_400n,
+        amountMinted: 400n,
+        amountBurned: 0n,
+      },
+    },
+    {
+      section: 'mint',
+      method: 'BitcoinMint',
+      values: { accountId: alice, fissionId: 7, lockId: 70, amount: 100n },
+    },
+    {
+      section: 'bitcoinFissions',
+      method: 'FissionClosed',
+      values: { accountId: alice, fissionId: 7, redemptionAmount: 2_000n },
+    },
+    {
+      section: 'bitcoinFissions',
+      method: 'FissionClosedByLock',
+      values: { accountId: alice, fissionId: 8, lockId: 70 },
+    },
+  ];
+
+  try {
+    for (const [index, { section, method, values }] of events.entries()) {
+      const event = { section, method, data: createHistoricalEventData(159, section, method, values) };
+      const decoded = decoder.decode({ eventGroups: [{ extrinsicEvents: [event] }], specVersion: 159 });
+      db.recordBlocks([
+        {
+          blockNumber: index + 1,
+          blockHash: Uint8Array.of(index + 1),
+          specVersion: 159,
+          systemEvents: event.data.toU8a(),
+          ...decoded,
+        },
+      ]);
+      if (index === 1) {
+        db.close();
+        db = new IndexerDb(databasePath);
+      }
+    }
+
+    db.close();
+    db = new IndexerDb(databasePath);
+    expect(
+      db.findAddressActivity(alice, {
+        activityMask: AccountActivityKind.BitcoinLock | AccountActivityKind.BitcoinMint,
+      }),
+    ).toMatchObject([
+      { blockNumber: 1, activityMask: AccountActivityKind.BitcoinLock },
+      { blockNumber: 2, activityMask: AccountActivityKind.BitcoinLock },
+      { blockNumber: 3, activityMask: AccountActivityKind.BitcoinLock },
+      { blockNumber: 4, activityMask: AccountActivityKind.BitcoinMint },
+      { blockNumber: 5, activityMask: AccountActivityKind.BitcoinLock },
+      { blockNumber: 6, activityMask: AccountActivityKind.BitcoinLock },
     ]);
   } finally {
     db.close();
