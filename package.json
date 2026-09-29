@@ -212,7 +212,20 @@
     "axios": "1.18.1",
     "ws": "8.21.0",
     "tar": "7.5.21",
-    "@argonprotocol/testing": "1.4.13"
+    "@argonprotocol/testing": "1.4.13",
+    "@polkadot/api": "17.0.1",
+    "@polkadot/api-augment": "17.0.1",
+    "@polkadot/api-base": "17.0.1",
+    "@polkadot/api-derive": "17.0.1",
+    "@polkadot/rpc-augment": "17.0.1",
+    "@polkadot/rpc-core": "17.0.1",
+    "@polkadot/rpc-provider": "17.0.1",
+    "@polkadot/types": "17.0.1",
+    "@polkadot/types-augment": "17.0.1",
+    "@polkadot/types-codec": "17.0.1",
+    "@polkadot/types-create": "17.0.1",
+    "@polkadot/types-known": "17.0.1",
+    "@polkadot/types-support": "17.0.1"
   },
   "resolutions_disabled": {
     "@argonprotocol/testing": "portal:../mainchain/testing/nodejs",
