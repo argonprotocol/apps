@@ -8,6 +8,7 @@ type Report = {
   deletedItems: ReportItem[];
   passedItems: ReportItem[];
   hasPassed: boolean;
+  ximgdiffConfig?: { enabled: boolean };
 };
 
 const reportDir = process.argv[2];
@@ -34,6 +35,7 @@ inline('diff', report.failedItems);
 
 report.hasPassed = false;
 report.passedItems = [];
+report.ximgdiffConfig = { enabled: false };
 html = html.replace(
   reportMatch[0],
   `window['__reg__'] = ${JSON.stringify(report)};window['__regImages__'] = ${JSON.stringify(images)};</script>`,
@@ -42,5 +44,6 @@ html = html.replace(
 const imageResolver = 'const i=(a,l)=>t[a].replace(/\\\/$/,"")+"/"+l.replace(/^\\//,"");';
 if (!html.includes(imageResolver)) throw new Error('Could not find the reg-cli image resolver');
 
-html = html.replace(imageResolver, 'const i=(a,l)=>window.__regImages__[`${a}/${l}`];');
+// reg-cli resolves all three image paths for every item, including paths absent for added and removed stories.
+html = html.replace(imageResolver, 'const i=(a,l)=>window.__regImages__[`${a}/${l}`]??"";');
 Fs.writeFileSync(reportPath, html);
