@@ -7,7 +7,6 @@ import type {
 import type { IBitcoinLockCouponStatus, IMemberInvite } from '@argonprotocol/apps-router';
 import { MiningFrames, NetworkConfig } from '@argonprotocol/apps-core';
 import { Keyring } from '@polkadot/keyring';
-import { TypeRegistry } from '@polkadot/types';
 import * as Vue from 'vue';
 import { fn, mocked, userEvent, within } from 'storybook/test';
 import { setupAppScenario } from '../../scenarios/setupAppScenario.ts';
@@ -89,6 +88,7 @@ export const OperationsRequested: Story = {
         hasTreasuryBitcoin: true,
         hasTreasuryBonds: true,
         hasTreasuryUniswapTransfer: true,
+        uniswapArgonTransfersInAmount: 1_000_000_000n,
         isTreasuryCertified: true,
       }),
     });
@@ -112,13 +112,35 @@ export const OperationsGranted: Story = {
         hasTreasuryBonds: true,
         treasuryBondAmount: 200_000_000n,
         hasTreasuryUniswapTransfer: true,
+        uniswapArgonTransfersInAmount: 1_000_000_000n,
         isTreasuryCertified: true,
         isUpgradedToOperations: true,
         hasOperationalVault: true,
+        operationalVaultSecuritization: 2_000_000_000n,
+        operationalMiningSeatCount: 1,
       }),
     });
     controller.setOperationalInvites([selectedInvite]);
     mocked(getMainchainClient).mockResolvedValue(createMemberClient(4_028_990_000n));
+  },
+};
+
+export const OperationsVaultBelowMinimum: Story = {
+  beforeEach: () => {
+    const { controller } = setupAppScenario({ selectedTab: TopTab.Onboarding });
+    selectedInvite = createInvite(14, {
+      defaultAccountId: memberAccountId,
+      operationalAccountId,
+      firstClickedAt: dateDaysAgo(2),
+      operationsUpgradedAt: dateDaysAgo(1),
+      certificationProgress: createCertificationProgress({
+        hasOperationalAccount: true,
+        isUpgradedToOperations: true,
+        operationalVaultSecuritization: 1_500_000_000n,
+      }),
+    });
+    controller.setOperationalInvites([selectedInvite]);
+    mocked(getMainchainClient).mockResolvedValue(createMemberClient(3_487_660_000n));
   },
 };
 
@@ -402,19 +424,7 @@ function createCertificationProgress(overrides: Partial<ICertificationProgress> 
 }
 
 function createMemberClient(availableMicrogons: bigint, balancesError?: Error) {
-  const registry = new TypeRegistry();
-  const amount = (value: bigint) => registry.createType('u128', value);
   return {
-    consts: {
-      operationalAccounts: {
-        minimumBitcoin: amount(600_000_000n),
-        minimumBonds: amount(200_000_000n),
-        minimumUniswapTransfer: amount(1_000_000_000n),
-        operationalMinimumUniswapTransfer: amount(1_000_000_000n),
-        operationalMinimumVaultSecuritization: amount(2_000_000_000n),
-        miningSeatsForOperational: registry.createType('u32', 2),
-      },
-    },
     query: {
       system: {
         account: {
@@ -428,15 +438,6 @@ function createMemberClient(availableMicrogons: bigint, balancesError?: Error) {
         account: {
           multi: fn(async () => [{ free: 0n, reserved: 0n }]),
         },
-      },
-      bitcoinLocks: {
-        utxoIdsByOwnerAccount: { keys: fn(() => Promise.reject(new Error('Use invite progress fixture.'))) },
-      },
-      crosschainTransfer: {
-        transferTotalsByAccount: fn(async () => ({ microgonsIn: 0n })),
-      },
-      operationalAccounts: {
-        operationalAccounts: fn(() => Promise.reject(new Error('Use invite progress fixture.'))),
       },
     },
   } as unknown as Awaited<ReturnType<typeof getMainchainClient>>;
