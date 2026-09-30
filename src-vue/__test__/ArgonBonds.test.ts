@@ -6,17 +6,43 @@ import { BondBuy } from '../lib/txs/Bond.buy.ts';
 import { ArgonBondsFinancials } from '../lib/financials/ArgonBonds.ts';
 import { calculatePositionReturn } from '../lib/financials/index.ts';
 import { createTestDb, createTestDbAtMigration } from './helpers/db.ts';
-import { BondLot, createDeferred, Currency, TreasuryBonds } from '@argonprotocol/apps-core';
+import { BondLot, createDeferred, Currency, MICROGONS_PER_ARGON, TreasuryBonds } from '@argonprotocol/apps-core';
 import type { WalletForArgon } from '../lib/WalletForArgon.ts';
 import { encodeAddress } from '@polkadot/util-crypto';
 import { numberCodec } from '../../core/__test__/helpers/codecs.ts';
 import { TransactionStatus } from '../lib/db/TransactionsTable.ts';
 import { SyncStateKeys } from '../lib/db/SyncStateTable.ts';
+import { createScenarioVault } from '../../.storybook/scenarios/createScenarioVault.ts';
 
 const registry = getOfflineRegistry();
 const accountId = encodeAddress(new Uint8Array(32).fill(0x22));
 
 describe('ArgonBonds', () => {
+  it('keeps owner purchases within bond space not occupied by flexible bonds', () => {
+    const bonds = new ArgonBonds(
+      Promise.resolve({} as any),
+      { isLoadedPromise: Promise.resolve(), upstreamOperator: undefined },
+      new Currency({ events: { on: vi.fn() } } as any),
+      {} as any,
+      { defaultArgonAddress: accountId } as any,
+    );
+    const vault = createScenarioVault({ vaultId: 4 });
+    const oneArgon = BigInt(MICROGONS_PER_ARGON);
+    vi.spyOn(bonds, 'getVaultBondCapacityMicrogons').mockReturnValue(2_168n * oneArgon);
+    bonds.data.capacityStatesByVault[4] = [];
+    bonds.getVaultBonds(4).flexibleBonds = 1_900;
+
+    expect(bonds.availableBondSpace(vault)).toBe(2_168n * oneArgon);
+    expect(bonds.availableBondSpaceWithoutFlexibleDisplacement(vault)).toBe(268n * oneArgon);
+
+    bonds.data.capacityStatesByVault[4] = [{ activeBonds: 300 }];
+    expect(bonds.availableBondSpace(vault)).toBe(1_868n * oneArgon);
+    expect(bonds.availableBondSpaceWithoutFlexibleDisplacement(vault)).toBe(0n);
+
+    bonds.getVaultBonds(4).flexibleBonds = 0;
+    expect(bonds.availableBondSpaceWithoutFlexibleDisplacement(vault)).toBe(1_868n * oneArgon);
+  });
+
   it('keeps a replacement vault subscription when stale cleanup runs and removes failed subscriptions', async () => {
     const argonBonds = new ArgonBonds(
       Promise.resolve({} as any),

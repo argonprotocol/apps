@@ -143,6 +143,13 @@ export class ArgonBonds {
     });
   }
 
+  public availableBondSpaceWithoutFlexibleDisplacement(vault: Vault): bigint {
+    const available = this.availableBondSpace(vault);
+    const flexibleBonds = this.data.vaultsById[vault.vaultId]?.flexibleBonds ?? 0;
+    const flexibleMicrogons = BondLot.bondsToMicrogons(flexibleBonds);
+    return available > flexibleMicrogons ? available - flexibleMicrogons : 0n;
+  }
+
   public async load(): Promise<void> {
     if (this.waitForLoad?.isRunning || this.waitForLoad?.isResolved) return this.waitForLoad.promise;
 

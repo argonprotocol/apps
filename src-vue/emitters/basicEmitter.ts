@@ -71,7 +71,6 @@ type IBasicEmitter = {
   openCrosschainHistoryOverlay: void;
 
   openVaultCollect: void;
-  openTreasuryBondsOverlay: void;
   openArgonotCommitmentOverlay: void;
   openMintingAuthorityRequestOverlay: void;
   openGatewayRelayOverlay: void;

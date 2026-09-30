@@ -48,6 +48,30 @@ export const VaultSelection: Story = {
   beforeEach: () => setupBondPurchaseScenario('selection'),
 };
 
+export const OwnerWithFlexibleBonds: Story = {
+  beforeEach: () => setupBondPurchaseScenario('ownerFlexibleSelection'),
+};
+
+export const OwnerUnfilledCapacity: Story = {
+  beforeEach: () => setupBondPurchaseScenario('ownerFlexible'),
+};
+
+export const OwnerOverUnfilledCapacity: Story = {
+  beforeEach: () => setupBondPurchaseScenario('ownerFlexibleOverCapacity'),
+};
+
+export const OwnerCertificationPending: Story = {
+  beforeEach: () => setupBondPurchaseScenario('ownerFlexibleCertificationPending'),
+};
+
+export const OwnerCertificationAlreadyComplete: Story = {
+  beforeEach: () => setupBondPurchaseScenario('ownerFlexibleCertificationComplete'),
+};
+
+export const OwnerFlexibleBondsFillCapacity: Story = {
+  beforeEach: () => setupBondPurchaseScenario('ownerFlexibleNoCapacity'),
+};
+
 export const NoUpstream: Story = {
   beforeEach: () => setupBondPurchaseScenario('noUpstream'),
 };

@@ -90,7 +90,15 @@
               }}{{ microgonToMoneyNm(vault.availableBitcoinSpace(walletKeys.liquidLockingAddress)).format('0,0.00') }}
             </template>
             <template v-else>
-              {{ numeral(Number(argonBonds.availableBondSpace(vault) / BigInt(MICROGONS_PER_ARGON))).format('0,0') }}
+              {{
+                numeral(
+                  Number(
+                    (vault.vaultId === myVault.vaultId
+                      ? argonBonds.availableBondSpaceWithoutFlexibleDisplacement(vault)
+                      : argonBonds.availableBondSpace(vault)) / BigInt(MICROGONS_PER_ARGON),
+                  ),
+                ).format('0,0')
+              }}
               Bonds
             </template>
           </div>
