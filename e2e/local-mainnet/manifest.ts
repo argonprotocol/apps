@@ -1,9 +1,8 @@
 import { execFileSync } from 'node:child_process';
 import { readFileSync, realpathSync, statSync } from 'node:fs';
 import Path from 'node:path';
-import { isValidArgonAccountAddress } from '@argonprotocol/apps-core';
 
-export interface RuntimeMigrationArchive {
+export interface LocalMainnetArchive {
   url: string;
   blockNumber: number;
   blockHash: string;
@@ -12,59 +11,22 @@ export interface RuntimeMigrationArchive {
   sha256: string;
 }
 
-export interface RuntimeMigrationIndexerSeed {
+export interface LocalMainnetIndexerSeed {
   databasePath: string;
   blockNumber: number;
   blockHash: string;
   sha256: string;
 }
 
-export interface RuntimeMigrationAccountScenario {
-  defaultArgonAccountId: string;
-  instanceLabel: string;
-}
-
 export interface LocalMainnetManifest {
   formatVersion: 1;
   network: 'mainnet';
-  archive: RuntimeMigrationArchive;
-  indexer: RuntimeMigrationIndexerSeed;
-}
-
-export interface RuntimeMigrationManifest extends LocalMainnetManifest {
-  candidate: { expectedSpecVersion: number };
-  capturedDatabase: RuntimeMigrationAccountScenario & { instancePackagePath: string };
-  restore: RuntimeMigrationAccountScenario;
+  archive: LocalMainnetArchive;
+  indexer: LocalMainnetIndexerSeed;
 }
 
 export function loadLocalMainnetManifest(path: string): LocalMainnetManifest {
-  return parseLocalMainnetManifest(readManifest(path));
-}
-
-export function loadRuntimeMigrationManifest(path: string): RuntimeMigrationManifest {
-  const manifest = readManifest(path);
-  const localMainnet = parseLocalMainnetManifest(manifest);
-  const candidateValue = record(manifest.candidate, 'candidate');
-  const capturedValue = record(manifest.capturedDatabase, 'capturedDatabase');
-  const restoreValue = record(manifest.restore, 'restore');
-  const capturedDatabase = {
-    instancePackagePath: existingPath(
-      capturedValue.instancePackagePath,
-      'capturedDatabase.instancePackagePath',
-      'directory',
-    ),
-    ...accountScenario(capturedValue, 'capturedDatabase'),
-  };
-  const restore = accountScenario(restoreValue, 'restore');
-  const expectedSpecVersion = integer(candidateValue.expectedSpecVersion, 'candidate.expectedSpecVersion', 1);
-  if (expectedSpecVersion <= localMainnet.archive.deployedSpecVersion) {
-    invalid('candidate.expectedSpecVersion', `must be greater than ${localMainnet.archive.deployedSpecVersion}`);
-  }
-  if (capturedDatabase.instanceLabel === restore.instanceLabel) {
-    invalid('restore.instanceLabel', 'must differ from capturedDatabase.instanceLabel');
-  }
-
-  return { ...localMainnet, candidate: { expectedSpecVersion }, capturedDatabase, restore };
+  return parseLocalMainnetManifest(readManifest(path), Path.dirname(realpathSync(path)));
 }
 
 function readManifest(path: string): Record<string, unknown> {
@@ -78,7 +40,7 @@ function readManifest(path: string): Record<string, unknown> {
   return record(value, 'manifest');
 }
 
-function parseLocalMainnetManifest(manifest: Record<string, unknown>): LocalMainnetManifest {
+function parseLocalMainnetManifest(manifest: Record<string, unknown>, directory: string): LocalMainnetManifest {
   const formatVersion = integer(manifest.formatVersion, 'formatVersion', 1);
   if (formatVersion !== 1) invalid('formatVersion', 'must be 1');
   const network = string(manifest.network, 'network');
@@ -87,16 +49,24 @@ function parseLocalMainnetManifest(manifest: Record<string, unknown>): LocalMain
   const archiveValue = record(manifest.archive, 'archive');
   const indexerValue = record(manifest.indexer, 'indexer');
 
-  const archive: RuntimeMigrationArchive = {
+  const archive: LocalMainnetArchive = {
     url: archiveUrl(archiveValue.url),
     blockNumber: integer(archiveValue.blockNumber, 'archive.blockNumber', 0),
     blockHash: hash(archiveValue.blockHash, 'archive.blockHash', true),
     deployedSpecVersion: integer(archiveValue.deployedSpecVersion, 'archive.deployedSpecVersion', 1),
-    chopsticksDatabasePath: existingPath(archiveValue.chopsticksDatabasePath, 'archive.chopsticksDatabasePath', 'file'),
+    chopsticksDatabasePath: existingPath(
+      Path.resolve(directory, string(archiveValue.chopsticksDatabasePath, 'archive.chopsticksDatabasePath')),
+      'archive.chopsticksDatabasePath',
+      'file',
+    ),
     sha256: hash(archiveValue.sha256, 'archive.sha256', false),
   };
-  const indexer: RuntimeMigrationIndexerSeed = {
-    databasePath: existingPath(indexerValue.databasePath, 'indexer.databasePath', 'file'),
+  const indexer: LocalMainnetIndexerSeed = {
+    databasePath: existingPath(
+      Path.resolve(directory, string(indexerValue.databasePath, 'indexer.databasePath')),
+      'indexer.databasePath',
+      'file',
+    ),
     blockNumber: integer(indexerValue.blockNumber, 'indexer.blockNumber', 0),
     blockHash: hash(indexerValue.blockHash, 'indexer.blockHash', true),
     sha256: hash(indexerValue.sha256, 'indexer.sha256', false),
@@ -175,23 +145,6 @@ function projectsSiblingMainchain(appsRoot: string): string {
   }
   const primaryAppsRoot = Path.dirname(canonicalCommonDirectory);
   return Path.join(Path.dirname(primaryAppsRoot), 'mainchain');
-}
-
-function accountScenario(value: Record<string, unknown>, field: string): RuntimeMigrationAccountScenario {
-  const defaultArgonAccountId = string(value.defaultArgonAccountId, `${field}.defaultArgonAccountId`);
-  if (!isValidArgonAccountAddress(defaultArgonAccountId)) {
-    invalid(`${field}.defaultArgonAccountId`, 'must be a valid SS58 account address');
-  }
-
-  const instanceLabel = string(value.instanceLabel, `${field}.instanceLabel`);
-  if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,79}$/.test(instanceLabel)) {
-    invalid(`${field}.instanceLabel`, 'must be a safe instance name of 1-80 characters');
-  }
-
-  return {
-    defaultArgonAccountId,
-    instanceLabel,
-  };
 }
 
 function archiveUrl(value: unknown): string {

@@ -1,0 +1,220 @@
+name: Release qualification
+
+on:
+  push:
+    branches:
+      - v[0-9]+.*
+  pull_request:
+    paths:
+      - .github/workflows/release-qualification.yml
+      - e2e/local-mainnet/**
+      - e2e/__test__/LocalMainnet*.e2e.test.ts
+      - e2e/__test__/StartingDatabaseCapture.e2e.test.ts
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CI: 'true'
+  HUSKY: '0'
+  ARGON_E2E_HEADLESS: '1'
+  E2E_FLOW_APP_LOGS: quiet
+  NODE_OPTIONS: --max-old-space-size=6144
+
+jobs:
+  qualify:
+    runs-on: ubuntu-latest
+    # Hosted-runner ceiling, not an expected duration. Phase timings are retained below.
+    timeout-minutes: 360
+    steps:
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444
+        with:
+          node-version: '24'
+          cache: yarn
+
+      - name: Restore runtime client cache
+        uses: ./.github/actions/runtime-client-cache
+
+      - name: Install dependencies and generate the runtime client
+        run: |
+          corepack enable
+          yarn install --immutable
+          yarn generate:runtime-client
+
+      - name: Select release sources and snapshot inputs
+        run: |
+          yarn local-mainnet:qualification-inputs --output "$RUNNER_TEMP/release-qualification-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          echo "BASELINE_CACHE_DIRECTORY=$RUNNER_TEMP/qualification-baseline-v1" >> "$GITHUB_ENV"
+
+      - name: Restore immutable baseline
+        id: baseline
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
+        with:
+          path: |
+            ${{ env.BASELINE_CACHE_DIRECTORY }}/manifest.json
+            ${{ env.BASELINE_CACHE_DIRECTORY }}/mainnet-activity-v2.db
+            ${{ env.BASELINE_CACHE_DIRECTORY }}/chopsticks.sqlite
+          key: qualification-baseline-v1-${{ env.QUALIFICATION_BLOCK_HASH }}-${{ hashFiles('e2e/local-mainnet/prepareLocalMainnet.ts', 'e2e/local-mainnet/manifest.ts', 'e2e/local-mainnet/LocalMainnetFork.ts', 'indexer/src/**', 'core/src/**', 'runtime-client/src/**', 'yarn.lock') }}
+
+      - name: Authenticate to the indexer registry
+        if: steps.baseline.outputs.cache-hit != 'true'
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Download an indexer checkpoint before the pinned block
+        if: steps.baseline.outputs.cache-hit != 'true'
+        run: |
+          bash e2e/local-mainnet/runQualificationPhase.sh download-checkpoint bash -euo pipefail <<'SCRIPT'
+          seed_date=$(node --import tsx e2e/local-mainnet/qualificationInputs.ts --seed-date --block "$QUALIFICATION_BLOCK_HASH")
+          checkpoint_date="${seed_date:0:4}-${seed_date:4:2}-${seed_date:6:2}"
+          for day_offset in {0..6}; do
+            older_date=$(date -u -d "$checkpoint_date -$day_offset days" +%Y%m%d)
+            seed_image="ghcr.io/argonprotocol/argon-indexer:seed-$older_date"
+            if ! docker pull "$seed_image"; then continue; fi
+            seed_image_id=$(docker image inspect "$seed_image" --format '{{.Id}}')
+            seed_container=$(docker create "$seed_image_id")
+            trap 'docker rm "$seed_container" >/dev/null' EXIT
+            docker cp "$seed_container:/usr/src/app/seeds/mainnet-activity-v2.db.gz" "$INDEXER_SEED_PATH"
+            docker image inspect "$seed_image_id" --format 'Indexer seed image: {{join .RepoDigests ", "}}' >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          done
+          echo 'No preceding daily checkpoint was available in the seven-day search; preparation will replay from genesis.' >> "$GITHUB_STEP_SUMMARY"
+          SCRIPT
+
+      - name: Generate pinned fork, indexer database, and manifest
+        if: steps.baseline.outputs.cache-hit != 'true'
+        run: |
+          seed_arguments=()
+          if [[ -f "$INDEXER_SEED_PATH" ]]; then seed_arguments=(--seed "$INDEXER_SEED_PATH"); fi
+          bash e2e/local-mainnet/runQualificationPhase.sh preparation \
+            yarn local-mainnet:prepare \
+            --output "$BASELINE_CACHE_DIRECTORY" \
+            --block "$QUALIFICATION_BLOCK_HASH" \
+            "${seed_arguments[@]}"
+
+      - name: Verify generated or cached baseline
+        run: |
+          echo "Baseline cache hit: ${{ steps.baseline.outputs.cache-hit }}" >> "$GITHUB_STEP_SUMMARY"
+          bash e2e/local-mainnet/runQualificationPhase.sh baseline-verify \
+            yarn local-mainnet:qualification-inputs --verify-baseline "$BASELINE_CACHE_DIRECTORY/manifest.json"
+          mkdir "$BASELINE_DIRECTORY"
+          cp "$BASELINE_CACHE_DIRECTORY"/{manifest.json,mainnet-activity-v2.db,chopsticks.sqlite} "$BASELINE_DIRECTORY/"
+
+      - name: Save verified baseline before qualification
+        if: steps.baseline.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
+        with:
+          path: |
+            ${{ env.BASELINE_CACHE_DIRECTORY }}/manifest.json
+            ${{ env.BASELINE_CACHE_DIRECTORY }}/mainnet-activity-v2.db
+            ${{ env.BASELINE_CACHE_DIRECTORY }}/chopsticks.sqlite
+          key: ${{ steps.baseline.outputs.cache-primary-key }}
+
+      - name: Install build and desktop dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential clang cmake pkg-config protobuf-compiler libssl-dev libclang-dev \
+            libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev patchelf \
+            libpipewire-0.3-dev libspa-0.2-dev libgbm-dev dbus-x11 gnome-keyring webkit2gtk-driver xvfb
+
+      - uses: dtolnay/rust-toolchain@67ef31d5b988238dd797d409d6f9574278e20537
+        with:
+          toolchain: stable
+          targets: wasm32-unknown-unknown
+
+      - name: Clone release source checkouts
+        run: |
+          git clone --depth 1 --branch "$PREVIOUS_APPS_REF" "https://github.com/$GITHUB_REPOSITORY.git" "$PREVIOUS_APPS_DIRECTORY"
+          if [[ "$(git -C "$PREVIOUS_APPS_DIRECTORY" rev-parse HEAD)" != "$EXPECTED_PREVIOUS_APPS_HEAD" ]]; then
+            echo "Apps baseline differs from the $PREVIOUS_APPS_REF tag" >&2
+            exit 1
+          fi
+          git init "$MAINCHAIN_DIRECTORY"
+          git -C "$MAINCHAIN_DIRECTORY" remote add origin https://github.com/argonprotocol/mainchain.git
+          git -C "$MAINCHAIN_DIRECTORY" fetch --depth 1 origin "refs/tags/$MAINCHAIN_REF:refs/tags/$MAINCHAIN_REF"
+          git -C "$MAINCHAIN_DIRECTORY" checkout --detach "refs/tags/$MAINCHAIN_REF"
+          if [[ "$(git -C "$MAINCHAIN_DIRECTORY" rev-parse HEAD)" != "$(git -C "$MAINCHAIN_DIRECTORY" rev-parse "refs/tags/$MAINCHAIN_REF^{commit}")" ]]; then
+            echo "Mainchain source differs from the $MAINCHAIN_REF tag" >&2
+            exit 1
+          fi
+
+      - name: Restore Rust build caches
+        uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32
+        with:
+          workspaces: |
+            src-tauri -> target
+            ${{ env.PREVIOUS_APPS_DIRECTORY }}/src-tauri -> target
+            ${{ env.MAINCHAIN_DIRECTORY }} -> target
+
+      - name: Install previous Apps dependencies
+        run: yarn --cwd "$PREVIOUS_APPS_DIRECTORY" install --immutable
+
+      - name: Build pinned candidate runtime WASM and attestation
+        run: |
+          bash e2e/local-mainnet/runQualificationPhase.sh runtime-build \
+            yarn local-mainnet:build-runtime \
+            --mainchain "$MAINCHAIN_DIRECTORY" \
+            --output "$QUALIFICATION_DIRECTORY"
+
+      - name: Discover accounts and generate previous-release databases
+        id: capture
+        continue-on-error: true
+        shell: dbus-run-session -- bash --noprofile --norc -eo pipefail {0}
+        run: |
+          gnome-keyring-daemon --components=secrets --daemonize --unlock <<< 'qualification'
+          bash e2e/local-mainnet/runQualificationPhase.sh capture \
+            xvfb-run --auto-servernum --server-args="-screen 0 1400x1000x24" \
+            yarn local-mainnet:capture \
+              --manifest "$BASELINE_DIRECTORY/manifest.json" \
+              --previous-apps "$PREVIOUS_APPS_DIRECTORY" \
+              --previous-app-ref "$PREVIOUS_APPS_REF" \
+              --output "$QUALIFICATION_DIRECTORY/capture" \
+              --account-limit 12
+
+      - name: Review every complete captured account, retaining all failures
+        if: ${{ !cancelled() && steps.capture.outcome != 'skipped' }}
+        continue-on-error: true
+        shell: dbus-run-session -- bash --noprofile --norc -eo pipefail {0}
+        run: |
+          gnome-keyring-daemon --components=secrets --daemonize --unlock <<< 'qualification'
+          bash e2e/local-mainnet/runQualificationPhase.sh review \
+            xvfb-run --auto-servernum --server-args="-screen 0 1400x1000x24" \
+            yarn local-mainnet:review \
+              --manifest "$BASELINE_DIRECTORY/manifest.json" \
+              --candidate "$QUALIFICATION_DIRECTORY/candidate/attestation.json" \
+              --accounts "$QUALIFICATION_DIRECTORY/capture/starting-databases.json" \
+              --run-directory "$QUALIFICATION_DIRECTORY/review" \
+              --all --diagnostic --verify-recovery-idempotence
+
+      - name: Report results and fail incomplete qualification
+        if: ${{ !cancelled() && env.QUALIFICATION_DIRECTORY != '' }}
+        run: node --import tsx e2e/local-mainnet/qualificationReport.ts --directory "$QUALIFICATION_DIRECTORY"
+
+      - name: Upload qualification evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: release-qualification-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            ${{ env.BASELINE_DIRECTORY }}/manifest.json
+            ${{ env.QUALIFICATION_DIRECTORY }}/candidate/attestation.json
+            ${{ env.QUALIFICATION_DIRECTORY }}/capture/starting-databases.json
+            ${{ env.QUALIFICATION_DIRECTORY }}/review/account-results.json
+            ${{ env.QUALIFICATION_DIRECTORY }}/qualification-report.json
+            ${{ env.CI_TEMP_DIR }}/phase-timings.tsv
+            ${{ env.CI_TEMP_DIR }}/e2e-app-output-*.log
+          if-no-files-found: ignore

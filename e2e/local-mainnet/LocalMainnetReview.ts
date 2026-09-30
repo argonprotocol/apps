@@ -1,14 +1,13 @@
 import { createHash } from 'node:crypto';
-import { existsSync, mkdirSync, readFileSync, realpathSync, statSync, writeFileSync } from 'node:fs';
+import { createReadStream, existsSync, mkdirSync, readFileSync, realpathSync, statSync, writeFileSync } from 'node:fs';
 import Path from 'node:path';
 import process from 'node:process';
 import { createInterface } from 'node:readline/promises';
 import { parseArgs } from 'node:util';
 import { fileURLToPath } from 'node:url';
-import { AccountActivityKind, BondLot, type IIndexerSpec } from '@argonprotocol/apps-core';
+import { AccountActivityKind, BondLot, TreasuryBonds, type IIndexerSpec } from '@argonprotocol/apps-core';
 import { getClient } from '@argonprotocol/mainchain';
 import { runtimeClient } from '@argonprotocol/runtime-client';
-import { toHistoricalEvent } from '@argonprotocol/runtime-client/events';
 import type { IFinancialAggregate } from 'src-vue/interfaces/IFinancialPosition.ts';
 import { FlowSession } from '../FlowSession.ts';
 import { AccountRecoverySnapshot, type AccountRecoverySnapshotResult } from './AccountRecoverySnapshot.ts';
@@ -17,12 +16,19 @@ import { loadLocalMainnetManifest } from './manifest.ts';
 import type { CapturedStartingDatabase, StartingDatabaseRegistry } from './StartingDatabaseCapture.ts';
 import { RuntimeCandidate, type CandidateRuntimeArtifact } from './RuntimeCandidate.ts';
 
+export interface AccountReviewResult {
+  label: string;
+  status: 'passed' | 'failed';
+  error?: string;
+  durationMs: number;
+}
+
 export class LocalMainnetReview {
   private historyThroughBlock: number | undefined;
   private nextInstanceId = 1;
   private readonly instancePrefix = Date.now().toString(36);
   private readonly validationFailures: string[] = [];
-  private readonly batchResults: Array<{ label: string; status: 'passed' | 'failed'; error?: string }> = [];
+  private readonly batchResults: AccountReviewResult[] = [];
 
   private constructor(
     private readonly mainnet: LocalMainnet,
@@ -43,6 +49,7 @@ export class LocalMainnetReview {
         accounts: { type: 'string' },
         all: { type: 'boolean' },
         candidate: { type: 'string' },
+        diagnostic: { type: 'boolean' },
         manifest: { type: 'string' },
         'run-directory': { type: 'string' },
         'verify-recovery-idempotence': { type: 'boolean' },
@@ -51,8 +58,11 @@ export class LocalMainnetReview {
     });
     if (!values.manifest || !values.candidate) {
       throw new Error(
-        'Usage: yarn local-mainnet:review --manifest <manifest.json> --candidate <attestation.json> [--accounts <starting-databases.json>] [--account <label>] [--all] [--verify-recovery-idempotence] [--run-directory <path>]',
+        'Usage: yarn local-mainnet:review --manifest <manifest.json> --candidate <attestation.json> [--accounts <starting-databases.json>] [--account <label>] [--all] [--diagnostic] [--verify-recovery-idempotence] [--run-directory <path>]',
       );
+    }
+    if (values.diagnostic && (!values.all || values.account)) {
+      throw new Error('--diagnostic requires --all without --account; it cannot qualify a partial capture');
     }
 
     const manifestPath = realpathSync(values.manifest);
@@ -69,16 +79,17 @@ export class LocalMainnetReview {
 
     const manifest = loadLocalMainnetManifest(manifestPath);
     const candidate = RuntimeCandidate.load(values.candidate);
-    if (candidate.expectedSpecVersion <= manifest.archive.deployedSpecVersion) {
+    if (candidate.expectedSpecVersion < manifest.archive.deployedSpecVersion) {
       throw new Error(
-        `Candidate runtime spec ${candidate.expectedSpecVersion} must be newer than deployed spec ${manifest.archive.deployedSpecVersion}`,
+        `Candidate runtime spec ${candidate.expectedSpecVersion} is older than deployed spec ${manifest.archive.deployedSpecVersion}; update the Mainchain pin`,
       );
     }
-    const registry = LocalMainnetReview.loadRegistry(accountsPath);
-    const accounts = registry.accounts;
-    const firstAccount = values.account
-      ? LocalMainnetReview.findAccount(accounts, values.account)
-      : (accounts.find(account => account.legacyBitcoin?.releasedIds.length) ?? accounts[0]);
+    const { registry, captureQualified } = await LocalMainnetReview.loadRegistry(accountsPath, values.diagnostic);
+    const accounts =
+      values.diagnostic && !captureQualified
+        ? registry.accounts.filter(account => account.history?.complete)
+        : registry.accounts;
+    const firstAccount = values.account ? LocalMainnetReview.findAccount(accounts, values.account) : accounts[0];
     if (!firstAccount) throw new Error('Starting database registry contains no accounts');
 
     const mainnet = await LocalMainnet.start({ manifest, runDirectory });
@@ -111,6 +122,11 @@ export class LocalMainnetReview {
       if (review.validationFailures.length) {
         throw new Error(`${review.validationFailures.length} account review(s) failed scripted validation`);
       }
+      if (!captureQualified) {
+        throw new Error(
+          'Diagnostic review finished, but the starting database capture is incomplete; release is not qualified',
+        );
+      }
     } finally {
       await mainnet.close();
     }
@@ -119,13 +135,19 @@ export class LocalMainnetReview {
   private async reviewAll(runDirectory: string, accounts: readonly CapturedStartingDatabase[]): Promise<void> {
     const resultsPath = Path.join(runDirectory, 'account-results.json');
     for (const account of accounts) {
+      const startedAt = Date.now();
       try {
         await this.open(account, false);
-        this.batchResults.push({ label: account.label, status: 'passed' });
+        this.batchResults.push({ label: account.label, status: 'passed', durationMs: Date.now() - startedAt });
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         this.validationFailures.push(account.label);
-        this.batchResults.push({ label: account.label, status: 'failed', error: message });
+        this.batchResults.push({
+          label: account.label,
+          status: 'failed',
+          error: message,
+          durationMs: Date.now() - startedAt,
+        });
         console.error(`${account.label} failed: ${message}`);
       }
       writeFileSync(resultsPath, `${JSON.stringify(this.batchResults, null, 2)}\n`);
@@ -159,7 +181,10 @@ export class LocalMainnetReview {
   }
 
   private async deploy(): Promise<void> {
-    const deployment = await this.mainnet.deployRuntime(readFileSync(this.candidate.wasmPath));
+    const deployment = await this.mainnet.deployRuntime(
+      readFileSync(this.candidate.wasmPath),
+      this.candidate.expectedSpecVersion,
+    );
     if (!deployment.upgradeBlock.includedTransactionHashes.includes(deployment.upgradeTransactionHash)) {
       throw new Error('Candidate runtime transaction was not included in the upgrade block');
     }
@@ -197,6 +222,7 @@ export class LocalMainnetReview {
 
   private async open(account: CapturedStartingDatabase, focusAppWindow = true): Promise<void> {
     await this.mainnet.closeApp();
+    await LocalMainnetReview.verifyStartingDatabase(account);
 
     const instanceName = `mainnet-review-${this.instancePrefix}-${this.nextInstanceId++}-${account.label}`
       .replace(/[^A-Za-z0-9._-]/g, '-')
@@ -220,9 +246,8 @@ export class LocalMainnetReview {
       const releasedLotIds = new Set(expectedReleasedBondLotIds);
       const reviewInput = {
         expectedDefaultArgonAddress: account.defaultArgonAccountId,
-        expectedBitcoinLiquidIds: [...account.legacyBitcoin.chainFundedIds, ...account.legacyBitcoin.releasedIds],
-        expectedMigratableBitcoinLiquidIds: account.legacyBitcoin.migratableIds,
-        expectedArchivedBitcoinLiquidIds: account.legacyBitcoin.releasedIds,
+        expectedBitcoinLiquidIds: account.expected.bitcoinLiquidIds,
+        expectedArchivedBitcoinLiquidIds: account.expected.archivedBitcoinLiquidIds,
         expectedBondLotIds: account.expected.bondLotIds.filter(id => !releasedLotIds.has(id)),
         expectedFlexibleBondLotIds: account.expected.flexibleBondLotIds.filter(id => !releasedLotIds.has(id)),
         expectedStakeLotIds: account.expected.stakeLotIds.filter(id => !releasedLotIds.has(id)),
@@ -231,7 +256,6 @@ export class LocalMainnetReview {
         expectedReleasedBondLotIds,
         expectedVaultBitcoinMapItemCount: account.expected.vaultBitcoinMapItemCount,
         expectedVaultBondMapItemCount: account.expected.vaultBondMapItemCount,
-        expectsBitcoinLiquid: account.selection.features.includes('bitcoin'),
         expectsConfiguredServer: account.expected.configuredServer,
         expectsOperations: account.expected.operations,
         expectsTreasury: account.expected.treasury,
@@ -317,93 +341,35 @@ export class LocalMainnetReview {
       const released = new Set<number>();
       for (const block of activity.blocks) {
         const atBlock = await client.at(block.blockHash);
-        const events = await atBlock.query.system.events();
-        const releaseEvents = events.flatMap(({ event }) => {
-          if (
-            event.section !== 'treasury' ||
-            (event.method !== 'BondLotReleased' && event.method !== 'CouldNotReleaseBondLot')
-          ) {
-            return [];
-          }
-          const historical = toHistoricalEvent(event);
-          if (
-            historical?.section !== 'treasury' ||
-            (historical.method !== 'BondLotReleased' && historical.method !== 'CouldNotReleaseBondLot')
-          ) {
-            return [];
-          }
-          return historical.data.accountId === address ? [historical] : [];
-        });
+        const atBlockQuery = runtimeClient(atBlock);
+        const events = await atBlockQuery.query.system.events();
         for (const { event } of events) {
           if (
             event.section !== 'treasury' ||
-            (event.method !== 'BondLotReleased' && event.method !== 'CouldNotReleaseBondLot')
+            (event.method !== 'BondLotReleased' && event.method !== 'CouldNotReleaseBondLot') ||
+            event.data.accountId !== address
           ) {
             continue;
           }
-          const historical = toHistoricalEvent(event);
-          if (
-            historical?.section !== 'treasury' ||
-            (historical.method !== 'BondLotReleased' && historical.method !== 'CouldNotReleaseBondLot') ||
-            historical.data.accountId !== address
-          ) {
-            continue;
-          }
-          if (historical.method === 'BondLotReleased') {
-            released.add(historical.data.bondLotId);
-            continue;
-          }
-          if (
-            historical.method !== 'CouldNotReleaseBondLot' ||
-            events.some(({ event: other }) => {
-              const purchase = toHistoricalEvent(other);
-              return (
-                purchase?.section === 'treasury' &&
-                purchase.method === 'BondLotPurchased' &&
-                purchase.data.accountId === address
-              );
-            })
-          ) {
+          if (event.method === 'BondLotReleased') {
+            released.add(event.data.bondLotId);
             continue;
           }
           const parentHash = await client.rpc.chain.getBlockHash(block.blockNumber - 1);
           const parent = runtimeClient(await client.at(parentHash.toHex()));
-          const atBlockQuery = runtimeClient(atBlock);
-          const failedStoredLot = await parent.query.treasury.bondLotById(historical.data.bondLotId);
+          const failedStoredLot = await parent.query.treasury.bondLotById(event.data.bondLotId);
           if (!failedStoredLot) continue;
-          const failedLot = BondLot.fromRuntime(historical.data.bondLotId, failedStoredLot, address);
-          let expectedReleasedPrincipal = 0n;
-          let releaseGroupIsValid = true;
-          for (const release of releaseEvents) {
-            const storedLot = await parent.query.treasury.bondLotById(release.data.bondLotId);
-            if (!storedLot) {
-              releaseGroupIsValid = false;
-              break;
-            }
-            const lot = BondLot.fromRuntime(release.data.bondLotId, storedLot, address);
-            if (lot.programType !== failedLot.programType) continue;
-            const principal = lot.principalMicrogons ?? lot.principalMicronots ?? 0n;
-            if (
-              lot.accountId !== address ||
-              principal <= 0n ||
-              (release.method === 'CouldNotReleaseBondLot'
-                ? release.data.amount !== principal
-                : release.data.bonds !== lot.bonds)
-            ) {
-              releaseGroupIsValid = false;
-              break;
-            }
-            expectedReleasedPrincipal += principal;
-          }
-          if (!releaseGroupIsValid) continue;
-          const [priorHolds, currentHolds] =
-            failedLot.programType === 'Argonot'
-              ? await Promise.all([parent.query.ownership.holds(address), atBlockQuery.query.ownership.holds(address)])
-              : await Promise.all([parent.query.balances.holds(address), atBlockQuery.query.balances.holds(address)]);
-          const treasuryTotal = (holds: typeof priorHolds): bigint =>
-            holds.filter(hold => hold.id.type === 'Treasury').reduce((total, hold) => total + hold.amount, 0n);
-          if (treasuryTotal(priorHolds) - treasuryTotal(currentHolds) === expectedReleasedPrincipal) {
-            released.add(historical.data.bondLotId);
+          const failedLot = BondLot.fromRuntime(event.data.bondLotId, failedStoredLot, address);
+          if (
+            await TreasuryBonds.didFailedReleaseRemoveHold({
+              accountId: address,
+              lot: failedLot,
+              events,
+              parentApi: parent,
+              api: atBlockQuery,
+            })
+          ) {
+            released.add(event.data.bondLotId);
           }
         }
       }
@@ -413,9 +379,12 @@ export class LocalMainnetReview {
     }
   }
 
-  private static loadRegistry(path: string): StartingDatabaseRegistry {
+  private static async loadRegistry(
+    path: string,
+    diagnostic = false,
+  ): Promise<{ registry: StartingDatabaseRegistry; captureQualified: boolean }> {
     const registry = JSON.parse(readFileSync(path, 'utf8')) as StartingDatabaseRegistry;
-    if (registry.formatVersion !== 3 || !Array.isArray(registry.accounts)) {
+    if (registry.formatVersion !== 4 || !Array.isArray(registry.accounts)) {
       throw new Error(`Invalid starting database registry: ${path}`);
     }
     const qualificationFailures: string[] = [];
@@ -431,21 +400,26 @@ export class LocalMainnetReview {
     if (registry.accounts.some(account => !account.history?.complete)) {
       qualificationFailures.push('one or more account histories are incomplete');
     }
-    if (qualificationFailures.length) {
-      throw new Error(`Starting database registry is not qualified: ${qualificationFailures.join('; ')}: ${path}`);
+    const captureQualified = qualificationFailures.length === 0;
+    if (!captureQualified) {
+      const message = `Starting database registry is not qualified: ${qualificationFailures.join('; ')}: ${path}`;
+      if (!diagnostic) throw new Error(message);
+      console.warn(message);
     }
-    for (const account of registry.accounts) {
-      const packagePath = realpathSync(account.instancePackagePath);
-      if (!statSync(packagePath).isDirectory()) throw new Error(`Account package is not a directory: ${packagePath}`);
-      const databasePath = Path.join(packagePath, 'database.sqlite');
-      const sha256 = createHash('sha256').update(readFileSync(databasePath)).digest('hex');
-      if (sha256 !== account.databaseSha256) {
-        throw new Error(`Account database checksum mismatch for ${account.label}`);
-      }
-      account.instancePackagePath = packagePath;
-    }
+    if (!diagnostic) for (const account of registry.accounts) await LocalMainnetReview.verifyStartingDatabase(account);
     if (!registry.environment) throw new Error(`Starting database registry has no environment provenance: ${path}`);
-    return registry;
+    return { registry, captureQualified };
+  }
+
+  private static async verifyStartingDatabase(account: CapturedStartingDatabase): Promise<void> {
+    const packagePath = realpathSync(account.instancePackagePath);
+    if (!statSync(packagePath).isDirectory()) throw new Error(`Account package is not a directory: ${packagePath}`);
+    const databasePath = Path.join(packagePath, 'database.sqlite');
+    const hash = createHash('sha256');
+    for await (const chunk of createReadStream(databasePath)) hash.update(chunk);
+    const sha256 = hash.digest('hex');
+    if (sha256 !== account.databaseSha256) throw new Error(`Account database checksum mismatch for ${account.label}`);
+    account.instancePackagePath = packagePath;
   }
 
   private static findAccount(accounts: CapturedStartingDatabase[], requested: string): CapturedStartingDatabase {
@@ -457,7 +431,10 @@ export class LocalMainnetReview {
 
   private static describeAccount(account: CapturedStartingDatabase): string {
     const features = account.selection?.features ?? [];
-    const reviewTraits = [...features, ...(account.legacyBitcoin?.releasedIds.length ? ['archived-bitcoin'] : [])];
+    const reviewTraits = [
+      ...features,
+      ...(account.expected.archivedBitcoinLiquidIds.length ? ['archived-bitcoin'] : []),
+    ];
     return reviewTraits.length ? `${account.label} [${reviewTraits.join(', ')}]` : account.label;
   }
 }

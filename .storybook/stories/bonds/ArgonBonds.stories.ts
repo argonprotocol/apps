@@ -1,6 +1,6 @@
 import type { Meta, StoryObj } from '@storybook/vue3-vite';
 import * as Vue from 'vue';
-import { fn, mocked } from 'storybook/test';
+import { expect, fn, mocked, userEvent, waitFor, within } from 'storybook/test';
 import AppScreen from '../../components/AppScreen.vue';
 import { setupAppScenario } from '../../scenarios/setupAppScenario.ts';
 import { setupBondPortfolioScenario } from '../../scenarios/setupBondPortfolioScenario.ts';
@@ -10,12 +10,20 @@ import { getArgonBonds } from '../../../src-vue/stores/argonBonds.ts';
 import { OperationalStepId } from '../../../src-vue/stores/certificationController.ts';
 import ArgonBonds from '../../../src-vue/screens/ArgonBonds.vue';
 
+const interactive = Vue.ref(false);
+
 const meta = {
   title: 'Bonds/Overview',
   component: ArgonBonds,
+  beforeEach: () => {
+    interactive.value = false;
+  },
   render: () => ({
     components: { AppScreen, ArgonBonds },
-    template: '<AppScreen><ArgonBonds /></AppScreen>',
+    setup() {
+      return { interactive };
+    },
+    template: '<AppScreen :interactive="interactive"><ArgonBonds /></AppScreen>',
   }),
 } satisfies Meta<typeof ArgonBonds>;
 
@@ -64,6 +72,21 @@ export const HistorySyncFailed: Story = {
   beforeEach: () => {
     setupBondPortfolioScenario('Vault');
     getArgonBonds().data.historyError = 'Bond history stopped at block 100: archive unavailable';
+  },
+};
+
+export const HistoryRetryRecovered: Story = {
+  beforeEach: () => {
+    setupBondPortfolioScenario('Vault');
+    getArgonBonds().data.historyError = 'Bond history stopped at block 100: archive unavailable';
+    interactive.value = true;
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await userEvent.click(await canvas.findByRole('button', { name: 'Retry History' }));
+    await waitFor(() => expect(canvas.queryByRole('button', { name: 'Retry History' })).not.toBeInTheDocument());
+    await expect(canvas.getByTestId('Bond.bond-41')).toBeVisible();
+    interactive.value = false;
   },
 };
 

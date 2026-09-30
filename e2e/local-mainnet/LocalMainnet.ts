@@ -12,7 +12,6 @@ export interface LocalMainnetDeployment {
   migrationBlock: ProducedBlock;
   candidateBlock: ProducedBlock;
   indexer: LocalMainnetIndexerFacts;
-  preUpgradeAppSnapshotPath?: string;
 }
 
 export interface LocalMainnetAppOptions {
@@ -29,7 +28,6 @@ export class LocalMainnet {
   public readonly archiveUrl: string;
   public readonly deployedBlock: ProducedBlock;
   private activeApp: AppSession | undefined;
-  private preUpgradeAppInstanceDirectory: string | undefined;
   private deployment: LocalMainnetDeployment | undefined;
   private closed = false;
 
@@ -123,7 +121,6 @@ export class LocalMainnet {
         force: false,
       });
     }
-    if (!this.deployment) this.preUpgradeAppInstanceDirectory = instanceDirectory;
 
     try {
       const session = await startSession({
@@ -170,11 +167,10 @@ export class LocalMainnet {
     if (errors.length) throw new AggregateError(errors, 'Failed to checkpoint or close the app');
   }
 
-  public async deployRuntime(wasm: Uint8Array): Promise<LocalMainnetDeployment> {
+  public async deployRuntime(wasm: Uint8Array, candidateSpecVersion: number): Promise<LocalMainnetDeployment> {
     if (this.closed) throw new Error('Local mainnet is closed');
     if (this.deployment) throw new Error('The candidate runtime has already been deployed');
 
-    let preUpgradeAppSnapshotPath: string | undefined;
     if (this.activeApp) {
       const app = this.activeApp;
       await app.checkpointDatabase().catch(error => {
@@ -183,16 +179,7 @@ export class LocalMainnet {
       await app.close();
       this.activeApp = undefined;
     }
-    if (this.preUpgradeAppInstanceDirectory && existsSync(this.preUpgradeAppInstanceDirectory)) {
-      preUpgradeAppSnapshotPath = Path.join(this.runDirectory, 'pre-upgrade-app');
-      cpSync(this.preUpgradeAppInstanceDirectory, preUpgradeAppSnapshotPath, {
-        recursive: true,
-        errorOnExist: true,
-        force: false,
-      });
-    }
-
-    const upgradeTransactionHash = await this.fork.submitRuntimeUpgrade(wasm);
+    const upgradeTransactionHash = await this.fork.submitRuntimeUpgrade(wasm, candidateSpecVersion);
     const upgradeBlock = await this.fork.produceBlock('upgrade');
     const migrationBlock = await this.fork.produceBlock('migration');
     const candidateBlock = await this.fork.produceBlock('candidate');
@@ -204,7 +191,6 @@ export class LocalMainnet {
       migrationBlock,
       candidateBlock,
       indexer: this.indexer.inspect(),
-      preUpgradeAppSnapshotPath,
     };
     await this.restartIndexer();
     this.deployment.indexer = this.indexer.inspect();

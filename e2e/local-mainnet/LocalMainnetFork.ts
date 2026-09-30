@@ -92,11 +92,15 @@ export class LocalMainnetFork {
     }
   }
 
-  public async submitRuntimeUpgrade(wasm: Uint8Array): Promise<string> {
+  public async submitRuntimeUpgrade(wasm: Uint8Array, candidateSpecVersion: number): Promise<string> {
     if (this.nextStage !== 1 || this.submittedUpgradeHash) {
       throw new Error('Runtime upgrade must be submitted after the deployed block and only once');
     }
-    const extrinsic = await LocalMainnetFork.createRuntimeUpgradeExtrinsic(this.chopsticks.chain.head, wasm);
+    const extrinsic = await LocalMainnetFork.createRuntimeUpgradeExtrinsic(
+      this.chopsticks.chain.head,
+      wasm,
+      candidateSpecVersion,
+    );
     const hash = await this.chopsticks.chain.submitExtrinsic(extrinsic);
     this.submittedUpgradeHash = hash;
     return hash;
@@ -155,7 +159,11 @@ export class LocalMainnetFork {
     this.closed = true;
   }
 
-  private static async createRuntimeUpgradeExtrinsic(head: Block, wasm: Uint8Array): Promise<`0x${string}`> {
+  private static async createRuntimeUpgradeExtrinsic(
+    head: Block,
+    wasm: Uint8Array,
+    candidateSpecVersion: number,
+  ): Promise<`0x${string}`> {
     if (!wasm.length) throw new Error('Candidate runtime WASM is empty');
 
     const meta = await head.meta;
@@ -168,7 +176,13 @@ export class LocalMainnetFork {
     const genesisHash = await head.chain.api.getBlockHash(0);
     if (!accountInfo || !genesisHash) throw new Error('Unable to construct the local sudo transaction');
 
-    const call = meta.tx.sudo.sudo(meta.tx.system.setCode(u8aToHex(wasm)));
+    // Mainnet has already run the hooks for its current spec. A same-spec dry run
+    // needs setCodeWithoutChecks; setCode requires an increasing spec version.
+    const runtimeCall =
+      candidateSpecVersion === runtime.specVersion
+        ? meta.tx.system.setCodeWithoutChecks(u8aToHex(wasm))
+        : meta.tx.system.setCode(u8aToHex(wasm));
+    const call = meta.tx.sudo.sudo(runtimeCall);
     const extrinsic = new GenericExtrinsic(registry, call);
     const mockSignature = registry
       .createType('ExtrinsicSignature', { Sr25519: `0xdeadbeef${'cd'.repeat(60)}` })

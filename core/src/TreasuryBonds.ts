@@ -302,13 +302,13 @@ export class TreasuryBonds {
         ? [event]
         : [],
     );
-    if (
-      events.some(
-        ({ event }) =>
-          event.section === 'treasury' && event.method === 'BondLotPurchased' && event.data.accountId === accountId,
-      )
-    ) {
-      return false;
+    for (const { event } of events) {
+      if (event.section !== 'treasury' || event.method !== 'BondLotPurchased' || event.data.accountId !== accountId) {
+        continue;
+      }
+      const stored = await api.query.treasury.bondLotById(event.data.bondLotId);
+      if (!stored) return false;
+      if (BondLot.fromRuntime(event.data.bondLotId, stored, accountId).programType === lot.programType) return false;
     }
 
     let expectedPrincipal = 0n;
