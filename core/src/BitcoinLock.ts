@@ -16,6 +16,11 @@ import type { Vault } from './Vault.js';
 
 export const SATS_PER_BTC = 100_000_000n;
 
+const FixedU128BigNumber = BigNumber.clone({
+  DECIMAL_PLACES: 18,
+  ROUNDING_MODE: BigNumber.ROUND_HALF_DOWN,
+});
+
 type IQueryableClient = ArgonQueryClient;
 type UtxoRefInput = { txid: string; outputIndex: number };
 
@@ -585,6 +590,14 @@ export type IBitcoinLockDetails = Pick<
 export interface IBitcoinLockFundingUtxo {
   utxoRef: { txid: string; vout: number };
   satoshis: bigint;
+}
+
+export function convertBitcoinTargetValueToPricePerBtc(targetMicrogons: bigint, satoshis: bigint): bigint {
+  // Spec 159 first rounds the BTC/satoshi ratio with FixedU128::from_rational,
+  // then floors its product with the old Lock's total target value.
+  const satoshisRatio = new FixedU128BigNumber(SATS_PER_BTC).dividedBy(satoshis);
+  const price = BigInt(satoshisRatio.multipliedBy(targetMicrogons).integerValue(BigNumber.ROUND_DOWN).toFixed());
+  return bigIntMin(price, 2n ** 128n - 1n);
 }
 
 function assertHexScriptPubkey(toScriptPubkey: string): void {

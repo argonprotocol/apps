@@ -430,7 +430,7 @@ describe('FinancialHistoryImporter', () => {
               asOfBlock: 100,
               domains: ['bitcoin'],
               domainCheckpoints: {
-                bitcoin: { asOfBlock: 100, definitionVersion: 1, recoveryVersion: 9 },
+                bitcoin: { asOfBlock: 100, definitionVersion: 1, recoveryVersion: 10 },
               },
             })),
             upsert: vi.fn(async () => undefined),
@@ -506,7 +506,7 @@ describe('FinancialHistoryImporter', () => {
                 bitcoin: {
                   asOfBlock: 100,
                   definitionVersion: ACCOUNT_ACTIVITY_DEFINITION_VERSION,
-                  recoveryVersion: 9,
+                  recoveryVersion: 10,
                 },
               },
             })),
@@ -553,7 +553,7 @@ describe('FinancialHistoryImporter', () => {
                 bitcoin: {
                   asOfBlock: 90,
                   definitionVersion: ACCOUNT_ACTIVITY_DEFINITION_VERSION,
-                  recoveryVersion: 9,
+                  recoveryVersion: 10,
                 },
               },
             })),
@@ -631,7 +631,7 @@ describe('FinancialHistoryImporter', () => {
           bitcoin: {
             asOfBlock: 100,
             definitionVersion: ACCOUNT_ACTIVITY_DEFINITION_VERSION,
-            recoveryVersion: 9,
+            recoveryVersion: 10,
           },
         },
       }),
@@ -833,7 +833,7 @@ describe('FinancialHistoryImporter', () => {
     expect(recoverBlock.mock.invocationCallOrder[0]).toBeLessThan(cancelHistoryReplay.mock.invocationCallOrder[0]);
   });
 
-  it('replays only index-selected Bitcoin blocks when its app recovery version changes', async () => {
+  it('repairs Bitcoin histories saved before the migration reconstruction fix', async () => {
     const beginHistoryReplay = vi.fn();
     const recoverBlock = vi.fn(async () => undefined);
     const upsert = vi.fn(async () => undefined);
@@ -870,7 +870,7 @@ describe('FinancialHistoryImporter', () => {
               bitcoin: {
                 asOfBlock: 100,
                 definitionVersion: ACCOUNT_ACTIVITY_DEFINITION_VERSION,
-                recoveryVersion: 5,
+                recoveryVersion: 9,
               },
             },
           })),
@@ -917,12 +917,12 @@ describe('FinancialHistoryImporter', () => {
       SyncStateKeys.FinancialHistory,
       expect.objectContaining({
         asOfBlock: 100,
-        recoveryVersions: { bitcoin: 9 },
+        recoveryVersions: { bitcoin: 10 },
         domainCheckpoints: {
           bitcoin: {
             asOfBlock: 100,
             definitionVersion: ACCOUNT_ACTIVITY_DEFINITION_VERSION,
-            recoveryVersion: 9,
+            recoveryVersion: 10,
           },
         },
       }),
