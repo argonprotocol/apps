@@ -223,6 +223,27 @@ export class TransactionTracker {
     }
   }
 
+  public async reconcileUnconfirmedTransaction(txInfo: TransactionInfo, maxBlocksToCheck: number): Promise<boolean> {
+    await this.load();
+    if (txInfo.tx.isFinalized) return false;
+
+    return await this.runInTransactionStatusLane(txInfo.tx.id, async () => {
+      if (txInfo.tx.isFinalized) return false;
+      const finalizedBlockHeader = { ...this.blockWatch.finalizedBlockHeader };
+      const state = await this.reconcilePendingTransaction({
+        txInfo,
+        bestBlockInfo: { ...this.blockWatch.bestBlockHeader },
+        finalizedBlockHeader,
+        finalizedAccountNonceByAddress: new Map(),
+        maxBlocksToCheck,
+      });
+      return (
+        state === TxReconciliationState.Absent &&
+        finalizedBlockHeader.blockNumber - txInfo.tx.submittedAtBlockHeight > maxBlocksToCheck
+      );
+    });
+  }
+
   public async submitAndWatch<T>(
     args: {
       client?: ArgonClient;
@@ -255,7 +276,6 @@ export class TransactionTracker {
     const client = providedClient ?? (await getMainchainClient(false));
     const submissionTx = client.tx(tx);
     console.log('[TransactionTracker] SUBMITTING TRANSACTION', extrinsicType);
-    const submittedAtBlockHeight = await client.rpc.chain.getHeader().then(x => x.number.toNumber());
     const shouldRetryLatestNonce = useLatestNonce && providedOptions.nonce === undefined;
     const apiOptions = { ...providedOptions };
     const retryArgs = shouldRetryLatestNonce
@@ -279,6 +299,7 @@ export class TransactionTracker {
         'signer' in txSigner
           ? await submissionTx.signAsync(txSigner.address, { ...apiOptions, signer: txSigner.signer })
           : await submissionTx.signAsync(txSigner, apiOptions);
+      const submittedAtBlockHeight = await client.rpc.chain.getHeader().then(x => x.number.toNumber());
 
       const txResultExtrinsic = {
         signedHash: signedTx.hash.toHex(),
@@ -607,12 +628,13 @@ export class TransactionTracker {
     bestBlockInfo: IBlockHeaderInfo;
     finalizedBlockHeader: IBlockHeaderInfo;
     finalizedAccountNonceByAddress: Map<string, Promise<number | undefined>>;
+    maxBlocksToCheck?: number;
   }): Promise<TxReconciliationState> {
     const { txInfo, bestBlockInfo, finalizedBlockHeader, finalizedAccountNonceByAddress } = args;
     const { tx, txResult } = txInfo;
     const finalizedHeight = finalizedBlockHeader.blockNumber;
     const finalizedBlockTime = finalizedBlockHeader.blockTime;
-    const reconciliationHead = `${bestBlockInfo.blockNumber}:${bestBlockInfo.blockHash}:${finalizedHeight}:${finalizedBlockHeader.blockHash}`;
+    const reconciliationHead = `${bestBlockInfo.blockNumber}:${bestBlockInfo.blockHash}:${finalizedHeight}:${finalizedBlockHeader.blockHash}:${args.maxBlocksToCheck ?? 60}`;
     const cachedReconciliation = this.#reconciliationByTxId.get(tx.id);
     if (cachedReconciliation?.head === reconciliationHead) {
       return cachedReconciliation.state;
@@ -640,7 +662,7 @@ export class TransactionTracker {
       }
     }
 
-    const MAX_BLOCKS_TO_CHECK = 60;
+    const MAX_BLOCKS_TO_CHECK = args.maxBlocksToCheck ?? 60;
     if (!reconciliationState) {
       const searchStartBlockHeight = this.getSearchStartBlockHeight(tx);
       const maxBlocksToCheck = Math.min(
