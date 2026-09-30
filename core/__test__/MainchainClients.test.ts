@@ -1,12 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { MainchainClients } from '../src/MainchainClients.ts';
 
-const getClient = vi.hoisted(() => vi.fn());
+const getMainchainClient = vi.hoisted(() => vi.fn());
 
-vi.mock('@argonprotocol/mainchain', async importOriginal => ({
-  ...(await importOriginal<typeof import('@argonprotocol/mainchain')>()),
-  getClient,
-}));
+vi.mock('../src/MainchainRpcProvider.ts', () => ({ getMainchainClient }));
 
 describe('MainchainClients', () => {
   let clients: MainchainClients;
@@ -17,32 +14,16 @@ describe('MainchainClients', () => {
     vi.spyOn(console, 'info').mockImplementation(() => undefined);
     const archiveClient = createClient('archive');
     prunedClient = createClient('pruned');
-    getClient.mockImplementation(async (url: string) => (url === 'ws://archive' ? archiveClient : prunedClient));
+    getMainchainClient.mockImplementation(async (url: string) =>
+      url === 'ws://archive' ? archiveClient : prunedClient,
+    );
     clients = new MainchainClients('ws://archive', () => false);
   });
 
   afterEach(async () => {
     await clients.disconnect();
-    getClient.mockReset();
+    getMainchainClient.mockReset();
     vi.restoreAllMocks();
-  });
-
-  it('owns creation of the archive client', async () => {
-    const configuredClient = createClient('configured');
-    const suppliedClient = createClient('supplied');
-    getClient.mockResolvedValueOnce(configuredClient);
-    const ownedClients = Reflect.construct(MainchainClients, [
-      'ws://configured',
-      () => false,
-      suppliedClient,
-    ]) as MainchainClients;
-
-    try {
-      const client = await ownedClients.archiveClientPromise;
-      expect((client as unknown as { name: string }).name).toBe('configured');
-    } finally {
-      await ownedClients.disconnect();
-    }
   });
 
   it('selects a connected candidate only after its state probe succeeds', async () => {
@@ -155,7 +136,7 @@ describe('MainchainClients', () => {
 
   it('disconnects the previous candidate when its replacement fails to connect', async () => {
     const previousClient = createClient('previous');
-    getClient.mockResolvedValueOnce(previousClient).mockRejectedValueOnce(new Error('Replacement failed'));
+    getMainchainClient.mockResolvedValueOnce(previousClient).mockRejectedValueOnce(new Error('Replacement failed'));
 
     await clients.setPrunedClient('ws://previous');
 

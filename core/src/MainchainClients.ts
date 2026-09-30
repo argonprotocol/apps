@@ -1,4 +1,4 @@
-import { type ApiDecoration, type ArgonClient as PolkadotArgonClient, getClient } from '@argonprotocol/mainchain';
+import { type ApiDecoration, type ArgonClient as PolkadotArgonClient } from '@argonprotocol/mainchain';
 import {
   runtimeClient,
   type CurrentRuntimeQueries,
@@ -8,6 +8,7 @@ import {
 import { wrapApi } from './ClientWrapper.js';
 import { createDeferred, type IDeferred } from './Deferred.js';
 import { createTypedEventEmitter, raceWithTimeout } from './utils.js';
+import { getMainchainClient } from './MainchainRpcProvider.js';
 
 export type ArgonApi = RuntimeClient<ApiDecoration<'promise'>, RuntimeQueries>;
 export type ArgonCurrentApi = RuntimeClient<PolkadotArgonClient, CurrentRuntimeQueries>;
@@ -83,9 +84,7 @@ export class MainchainClients {
     private enableApiLogging = () => true,
   ) {
     this.archiveUrl = archiveUrl;
-    this.archiveClientPromise = getMainchainClientOrThrow(archiveUrl).then(client =>
-      this.wrapClient(client, 'archive'),
-    );
+    this.archiveClientPromise = getMainchainClient(archiveUrl).then(client => this.wrapClient(client, 'archive'));
   }
 
   public async setArchiveClient(url: string) {
@@ -99,7 +98,7 @@ export class MainchainClients {
     }
     const previousClientPromise = this.archiveClientPromise;
     this.archiveUrl = url;
-    this.archiveClientPromise = getMainchainClientOrThrow(url).then(client => this.wrapClient(client, 'archive'));
+    this.archiveClientPromise = getMainchainClient(url).then(client => this.wrapClient(client, 'archive'));
     const connectedClient = await this.archiveClientPromise;
     void previousClientPromise.then(previousClient => previousClient.disconnect()).catch(() => undefined);
     return connectedClient;
@@ -118,7 +117,7 @@ export class MainchainClients {
     this.stopPrunedStateProbe();
     const ready = createDeferred<ArgonClient>(false);
     void ready.promise.catch(() => undefined);
-    const connection = getMainchainClientOrThrow(url).then(async client => {
+    const connection = getMainchainClient(url).then(async client => {
       if (this.prunedCandidate?.ready !== ready) {
         await client.disconnect();
         throw new Error('Pruned client was replaced before it connected');
@@ -410,8 +409,4 @@ function getJson(a: unknown): any {
     return a.toJSON();
   }
   return a;
-}
-
-async function getMainchainClientOrThrow(host: string): Promise<PolkadotArgonClient> {
-  return getClient(host, { throwOnConnect: true });
 }

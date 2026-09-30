@@ -2,18 +2,15 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { BlockWatch, type IBlockHeaderInfo } from '../src/BlockWatch.ts';
 import { MainchainClients } from '../src/MainchainClients.ts';
 
-const getClient = vi.hoisted(() => vi.fn());
+const getMainchainClient = vi.hoisted(() => vi.fn());
 
-vi.mock('@argonprotocol/mainchain', async importOriginal => ({
-  ...(await importOriginal<typeof import('@argonprotocol/mainchain')>()),
-  getClient,
-}));
+vi.mock('../src/MainchainRpcProvider.ts', () => ({ getMainchainClient }));
 
 type IBlockApi = Awaited<ReturnType<BlockWatch['getApi']>>;
 
 describe('BlockWatch archive recovery', () => {
   afterEach(() => {
-    getClient.mockReset();
+    getMainchainClient.mockReset();
     vi.restoreAllMocks();
     vi.useRealTimers();
   });
@@ -296,7 +293,7 @@ describe('BlockWatch archive recovery', () => {
     const prunedClient = {
       at: vi.fn().mockRejectedValue(new Error('Unable to retrieve header and parent from supplied hash')),
     };
-    getClient.mockResolvedValueOnce(archiveClient);
+    getMainchainClient.mockResolvedValueOnce(archiveClient);
     const clients = new MainchainClients('ws://archive', () => false);
     clients.prunedClientPromise = Promise.resolve(prunedClient as any);
     const degraded = vi.fn();

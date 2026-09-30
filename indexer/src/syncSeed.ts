@@ -1,6 +1,6 @@
 import Fs from 'node:fs';
 import Path from 'node:path';
-import { getClient } from '@argonprotocol/mainchain';
+import { getMainchainClient } from '@argonprotocol/apps-core';
 import { IncompatibleAccountActivityDatabaseError, IndexerDb } from './IndexerDb.ts';
 import { AccountActivityIndexer } from './AccountActivityIndexer.ts';
 
@@ -21,7 +21,7 @@ if (!Number.isFinite(maxSyncMinutes) || maxSyncMinutes < 0) {
 
 for (const seed of seeds.filter(seed => !requestedNetworks.size || requestedNetworks.has(seed.network))) {
   console.log(`Syncing indexer seed for ${seed.network} from RPC: ${seed.rpc}`);
-  const client = await getClient(seed.rpc);
+  const client = await getMainchainClient(seed.rpc);
   const databasePath = Path.join(seedDirectory, `${seed.network}-activity-v2.db`);
   let db: IndexerDb;
   try {
