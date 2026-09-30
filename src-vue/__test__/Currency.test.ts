@@ -1,10 +1,59 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import BigNumber from 'bignumber.js';
+import { setFetchImplementation } from '@argonprotocol/apps-core';
 import { Currency, UnitOfMeasurement } from '../lib/Currency.ts';
 
 describe('Currency', () => {
   afterEach(() => {
+    setFetchImplementation();
+    vi.useRealTimers();
     vi.restoreAllMocks();
+  });
+
+  it('does not invent an ETH value when price feeds fail and recovers when a feed returns', async () => {
+    let ethPriceAvailable = false;
+    setFetchImplementation(async input => {
+      const url = String(input);
+      if (url.includes('ETH-USD/ticker') || url.includes('api.kraken.com')) {
+        if (!ethPriceAvailable) throw new Error('Price feed unavailable');
+        return new Response(JSON.stringify({ price: '2500' }), { status: 200 });
+      }
+      return new Response(JSON.stringify({ rates: {} }), { status: 200 });
+    });
+
+    const current = vi.fn(async () => ({
+      btcUsdPrice: BigNumber(50_000),
+      argonotUsdPrice: BigNumber(1),
+      argonUsdPrice: BigNumber(1),
+      argonUsdTargetPrice: BigNumber(1),
+      argonTimeWeightedAverageLiquidity: BigNumber(0),
+      tick: 1,
+    }));
+    const currency = new Currency(
+      {
+        prunedClientOrArchivePromise: Promise.resolve({ query: { priceIndex: { current } } }),
+        events: { on: vi.fn() },
+      } as any,
+      { isLoadedPromise: Promise.resolve(), defaultCurrencyKey: UnitOfMeasurement.ARGN } as any,
+    );
+    currency.microgonsPer = { ...currency.microgonsPer };
+
+    vi.useFakeTimers();
+    await currency.load();
+    expect(currency.microgonsPer.ETH).toBe(1_000_000n);
+    expect(currency.hasEthPrice).toBe(false);
+    expect(() => currency.convertEthToMicrogon(1)).toThrow('ETH price is unavailable.');
+
+    ethPriceAvailable = true;
+    await vi.advanceTimersByTimeAsync(5 * 60_000);
+    expect(currency.microgonsPer.ETH).toBe(2_500_000_000n);
+    expect(currency.hasEthPrice).toBe(true);
+    expect(currency.convertEthToMicrogon(1)).toBe(2_500_000_000n);
+
+    ethPriceAvailable = false;
+    await currency.fetchMainchainRates();
+    expect(currency.microgonsPer.ETH).toBe(2_500_000_000n);
+    expect(currency.hasEthPrice).toBe(true);
   });
 
   it('retries the initial load after a config bootstrap failure', async () => {

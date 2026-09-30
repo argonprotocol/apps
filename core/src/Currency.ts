@@ -11,6 +11,7 @@ import { SATS_PER_BTC } from './BitcoinLock.js';
 import type { HistoricalQueryRecord } from '@argonprotocol/runtime-client';
 
 const TWENTY_FOUR_HOURS_IN_MILLISECONDS = 24 * 60 * 60e3;
+const ETH_PRICE_RETRY_MILLISECONDS = 5 * 60e3;
 const HISTORICAL_MAINCHAIN_RATE_CACHE_SIZE = 256;
 
 export const WEI_PER_ETH = 1_000_000_000_000_000_000n;
@@ -100,6 +101,7 @@ export class Currency {
 
   // These exchange rates are relative to the argon, which means the ARGN is always 1
   public microgonsPer: IMicrogonsPer = defaultMicrogonsPer;
+  public hasEthPrice = false;
 
   public usdTarget = 0;
   public targetOffset = 0;
@@ -236,6 +238,7 @@ export class Currency {
       const bitcoinsBn = BigNumber(microgons).dividedBy(this.microgonsPer.BTC);
       return bitcoinsBn.toNumber();
     } else if (to === UnitOfMeasurement.ETH) {
+      if (!this.hasEthPrice) throw new Error('ETH price is unavailable.');
       const ethBn = BigNumber(microgons).dividedBy(this.microgonsPer.ETH);
       return ethBn.toNumber();
     } else {
@@ -270,6 +273,7 @@ export class Currency {
   }
 
   public convertEthToMicrogon(eth: number): bigint {
+    if (!this.hasEthPrice) throw new Error('ETH price is unavailable.');
     const microgonsBn = BigNumber(eth).multipliedBy(this.microgonsPer.ETH);
     return BigInt(Math.floor(microgonsBn.toNumber()));
   }
@@ -286,6 +290,7 @@ export class Currency {
   }
 
   public convertOtherUnitizedTokenToMicrogon(unitizedToken: number, unit: UnitOfMeasurement): bigint {
+    if (unit === UnitOfMeasurement.ETH && !this.hasEthPrice) throw new Error('ETH price is unavailable.');
     const microgonsBn = BigNumber(unitizedToken).multipliedBy(this.microgonsPer[unit]);
     return BigInt(Math.floor(microgonsBn.toNumber()));
   }
@@ -471,11 +476,14 @@ export class Currency {
 
   private scheduleOffchainRatesRefresh(): void {
     clearTimeout(this.offchainRatesTimeout);
-    this.offchainRatesTimeout = setTimeout(() => {
-      void this.fetchMainchainRates(undefined, { ignoreCache: false }).finally(() =>
-        this.scheduleOffchainRatesRefresh(),
-      );
-    }, TWENTY_FOUR_HOURS_IN_MILLISECONDS) as unknown as number;
+    this.offchainRatesTimeout = setTimeout(
+      () => {
+        void this.fetchMainchainRates(undefined, { ignoreCache: false })
+          .catch(error => console.error('[Currency] Offchain rates refresh failed', error))
+          .finally(() => this.scheduleOffchainRatesRefresh());
+      },
+      this.hasEthPrice ? TWENTY_FOUR_HOURS_IN_MILLISECONDS : ETH_PRICE_RETRY_MILLISECONDS,
+    ) as unknown as number;
   }
 
   public calculateTargetOffset(price: BigNumber | undefined, targetPrice: BigNumber | undefined): number | null {
@@ -526,6 +534,7 @@ export class Currency {
 
     if (rawRates?.ETH) {
       this.microgonsPer.ETH = this.convertRawFiatExchangeRateToMicrogons(1 / rawRates.ETH);
+      this.hasEthPrice = true;
     }
   }
 

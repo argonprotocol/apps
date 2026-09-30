@@ -95,6 +95,7 @@ export type WalletTransferScenario =
   | 'outboundBitcoin'
   | 'feeLoading'
   | 'feeUnavailable'
+  | 'ethPriceUnavailable'
   | 'insufficientEth'
   | 'existingInbound'
   | 'existingOutbound'
@@ -753,6 +754,9 @@ function createBitcoinChannel(
 
 export function setupWalletTransferScenario(state: WalletTransferScenario): WalletTransferScenarioState {
   setupWalletScenario(state === 'outboundBitcoin' ? 'bitcoinSend' : 'defaultArgon');
+  const currency = getCurrency();
+  currency.microgonsPer.ETH = state === 'ethPriceUnavailable' ? argon : 2_500_000_000n;
+  currency.hasEthPrice = state !== 'ethPriceUnavailable';
 
   const inboundTransfer = createInboundTransfer(state);
   const outboundTransfer = createOutboundTransfer(state);

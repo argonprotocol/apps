@@ -314,7 +314,8 @@ export function setupAppScenario({
     Object.assign(Object.create(Currency.prototype) as Currency, {
       _key: UnitOfMeasurement.ARGN,
       isLoaded: false,
-      microgonsPer: { ...defaultMicrogonsPer },
+      microgonsPer: { ...defaultMicrogonsPer, ETH: 2_500_000_000n },
+      hasEthPrice: true,
       priceIndex: Object.assign(new PriceIndex(), {
         argonUsdPrice: BigNumber(1),
         argonUsdTargetPrice: BigNumber(1),

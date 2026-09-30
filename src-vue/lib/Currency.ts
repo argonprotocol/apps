@@ -111,6 +111,9 @@ export class Currency extends CurrencyBase {
   }
 
   public convertOtherToMicrogon(token: IOtherToken): bigint {
+    if (token.unitOfMeasurement === UnitOfMeasurement.ETH && !this.hasEthPrice) {
+      throw new Error('ETH price is unavailable.');
+    }
     const microgonsBn = this.convertOtherToFinalTokenBn(token).multipliedBy(this.microgonsPer[token.unitOfMeasurement]);
     return bigNumberToBigInt(microgonsBn);
   }

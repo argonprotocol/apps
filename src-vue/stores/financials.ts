@@ -840,6 +840,14 @@ export const useFinancials = defineStore('financials', () => {
   );
 
   Vue.watch(
+    () => (currency.hasEthPrice ? currency.microgonsPer.ETH : undefined),
+    () => {
+      if (!isLoaded.value) return;
+      publishEthereumWallet();
+    },
+  );
+
+  Vue.watch(
     () => (config.isLoaded && config.hasExtensionOperations ? getMyMiningSeatsSource().financialRevision : 0),
     () => {
       if (!accountSourcesAreLoaded || !config.hasExtensionOperations || !getMyMiningSeatsSource().isLoaded) return;

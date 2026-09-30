@@ -143,6 +143,11 @@ const stories = {
     play: waitForWalletOverlay,
   },
 
+  ethPriceUnavailable: {
+    beforeEach: () => useScenario('ethPriceUnavailable'),
+    play: waitForWalletOverlay,
+  },
+
   insufficientEth: {
     beforeEach: () => useScenario('insufficientEth'),
     play: waitForWalletOverlay,
@@ -269,6 +274,7 @@ export const InboundArgonOnly = stories.inboundArgonOnly;
 export const OutboundForm = stories.outboundForm;
 export const FeeLoading = stories.feeLoading;
 export const FeeUnavailable = stories.feeUnavailable;
+export const EthPriceUnavailable = stories.ethPriceUnavailable;
 export const InsufficientEth = stories.insufficientEth;
 export const SubmittingInbound = stories.submittingInbound;
 export const InboundEthereum = stories.inboundEthereum;
