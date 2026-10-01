@@ -91,9 +91,12 @@
       class="flex min-h-105 flex-col items-center justify-center px-10 py-5 text-center"
     >
       <AlertIcon class="h-18 text-yellow-700" />
-      <h1 class="mt-8 text-xl font-bold text-yellow-800">{{ vaultLabel }} has no Argon Bond space</h1>
+      <h1 class="mt-8 text-xl font-bold text-yellow-800">{{ vaultLabel }} has no available Argon Bond space</h1>
       <p class="mt-4 max-w-150 text-lg leading-relaxed font-light">
-        <template v-if="isOwnedVault">
+        <template v-if="ownedVaultHasFlexibleBonds">
+          Lock more Bitcoin to buy Bonds without displacing your flexible bonds.
+        </template>
+        <template v-else-if="isOwnedVault">
           Lock more Bitcoin to create more Bond space.
         </template>
         <template v-else>
@@ -191,7 +194,10 @@
                 {{ vaultLabel }} can only create {{ numeral(vaultMaxPurchaseAmount).format('0,0') }} Argon Bonds right
                 now.
               </template>
-              <template v-if="isOwnedVault">
+              <template v-if="ownedVaultHasFlexibleBonds">
+                Lock more Bitcoin to buy this amount without displacing your flexible bonds.
+              </template>
+              <template v-else-if="isOwnedVault">
                 Lock more Bitcoin to create more Bond space.
               </template>
               <template v-else>
@@ -303,7 +309,7 @@ import WalletFundingCallout from '../components/WalletFundingCallout.vue';
 import AlertIcon from '../assets/alert.svg?component';
 import BondPurchaseComplete from './BondPurchaseComplete.vue';
 import { useFinancials } from '../stores/financials.ts';
-import { useCertificationController } from '../stores/certificationController.ts';
+import { OperationalStepId, useCertificationController } from '../stores/certificationController.ts';
 
 const MICROGONS_PER_ARGON_BIGINT = BigInt(MICROGONS_PER_ARGON);
 
@@ -347,10 +353,20 @@ const availableMicrogons = Vue.computed(() => wallets.defaultArgonWallet.availab
 const vaultAvailableCapacity = Vue.computed(() => {
   if (!vault.value) return 0n;
 
-  return argonBonds.availableBondSpace(vault.value);
+  return vault.value.vaultId === myVault.vaultId
+    ? argonBonds.availableBondSpaceWithoutFlexibleDisplacement(vault.value)
+    : argonBonds.availableBondSpace(vault.value);
 });
 
 const isOwnedVault = Vue.computed(() => vaultId.value !== undefined && vaultId.value === myVault.vaultId);
+const ownedVaultHasFlexibleBonds = Vue.computed(() => {
+  const selectedVaultId = vaultId.value;
+  return (
+    selectedVaultId !== undefined &&
+    selectedVaultId === myVault.vaultId &&
+    (argonBonds.data.vaultsById?.[selectedVaultId]?.flexibleBonds ?? 0) > 0
+  );
+});
 
 const eligibleVaultIds = Vue.computed(() => {
   return [...new Set([myVault.vaultId, config.upstreamOperator?.vaultId].filter((id): id is number => id != null))];
@@ -390,6 +406,9 @@ const maxPurchaseAmount = Vue.computed(() => {
 });
 
 const certificationPurchaseAmount = Vue.computed(() => {
+  if (!certificationController.hasLoadedInitialOperationalProgress) return 0;
+  if (certificationController.isCertificationStepComplete(OperationalStepId.AcquireArgonBonds)) return 0;
+
   const remainingMicrogons =
     certificationController.rewardConfig.treasuryMinimumBonds - argonBonds.bondTotals.activeBondMicrogons;
   if (remainingMicrogons <= 0n) return 0;
@@ -428,7 +447,7 @@ const stepItems = Vue.computed<IStepHeaderItem[]>(() => [
     value: vaultOperatorName.value,
     tooltip: 'Pick the vault you want to use for your bond purchase.',
     isActive: () => (isSelectingVault.value || !vaultId.value) && !txInfo.value && !isComplete.value,
-    click: vaultId.value && !txInfo.value && !isComplete.value ? showVaultSelection : undefined,
+    click: vaultId.value && !isSubmitting.value && !txInfo.value && !isComplete.value ? showVaultSelection : undefined,
   },
   {
     label: '',
@@ -557,16 +576,20 @@ function trackTxInfo(info: TransactionInfo<IBuyBondMetadata>) {
 async function submit() {
   if (isSubmitting.value) return;
 
+  const session = purchaseSession;
   errorMessage.value = '';
   isSubmitting.value = true;
 
   try {
+    await refreshSelectedVaultBonds();
+    if (session !== purchaseSession || !isOpen.value) return;
     if (isOverVaultBondCapacity.value) {
       throw new Error(`${vaultLabel.value} does not have enough Bond space for this purchase.`);
     }
 
     const bondPurchaseMicrogons = BigInt(purchaseAmount.value) * MICROGONS_PER_ARGON_BIGINT;
     const signer = await walletKeys.getDefaultArgonKeypair();
+    if (session !== purchaseSession || !isOpen.value) return;
     if (!vaultId.value) throw new Error('Select a vault before buying bonds.');
     const info = await bondPurchase.submit({
       vaultId: vaultId.value,
@@ -574,8 +597,10 @@ async function submit() {
       txSigner: signer,
     });
 
+    if (session !== purchaseSession || !isOpen.value) return;
     trackTxInfo(info);
   } catch (error) {
+    if (session !== purchaseSession || !isOpen.value) return;
     errorMessage.value = error instanceof Error ? error.message : 'Transaction failed. Please try again.';
     isSubmitting.value = false;
   }
@@ -601,6 +626,9 @@ async function initializePurchase(session = ++purchaseSession) {
     unsubVault = unsubscribe;
   }
 
+  await refreshSelectedVaultBonds();
+  if (session !== purchaseSession) return;
+
   await bondPurchase.load();
   if (session !== purchaseSession) return;
 
@@ -613,13 +641,39 @@ async function initializePurchase(session = ++purchaseSession) {
   purchaseAmount.value = certificationPurchaseAmount.value || maxPurchaseAmount.value;
 }
 
+async function refreshSelectedVaultBonds() {
+  const selectedVault = vault.value;
+  if (!selectedVault) return;
+
+  const client = await getMainchainClient(false);
+  await argonBonds.refreshVault(
+    {
+      vaultId: selectedVault.vaultId,
+      operatorAddress: selectedVault.operatorAccountId,
+      accountId: walletKeys.defaultArgonAddress,
+    },
+    client,
+  );
+}
+
 function handleVaultSelected(v: Vault) {
   vaultId.value = v.vaultId;
 }
 
 async function selectVault() {
+  const session = purchaseSession + 1;
   isSelectingVault.value = false;
-  await initializePurchase();
+  isLoading.value = true;
+  loadError.value = '';
+  try {
+    await initializePurchase();
+  } catch (error) {
+    if (session === purchaseSession && isOpen.value) {
+      loadError.value = error instanceof Error ? error.message : 'Unable to refresh bond availability.';
+    }
+  } finally {
+    if (session === purchaseSession && isOpen.value) isLoading.value = false;
+  }
 }
 
 Vue.onMounted(async () => {

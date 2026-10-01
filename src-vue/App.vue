@@ -60,7 +60,6 @@
       <CrosschainHistoryOverlay />
       <SecuritizationOverlay />
       <FlexibleAssetsOverlay />
-      <TreasuryBondsOverlay />
       <ArgonotCommitmentOverlay />
       <MintingAuthorityRequestOverlay />
       <GatewayRelayOverlay />
@@ -133,7 +132,6 @@ import WelcomeTour from './overlays/WelcomeTour.vue';
 import BotEditOverlay from './overlays/BotEditOverlay.vue';
 import SecuritizationOverlay from './overlays/SecuritizationOverlay.vue';
 import FlexibleAssetsOverlay from './overlays/FlexibleAssetsOverlay.vue';
-import TreasuryBondsOverlay from './overlays/TreasuryBondsOverlay.vue';
 import ArgonotCommitmentOverlay from './overlays/ArgonotCommitmentOverlay.vue';
 import MintingAuthorityRequestOverlay from './overlays/MintingAuthorityRequestOverlay.vue';
 import GatewayRelayOverlay from './overlays/GatewayRelayOverlay.vue';

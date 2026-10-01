@@ -1,9 +1,10 @@
 import * as Vue from 'vue';
-import { BondLot, MICROGONS_PER_ARGON, MICRONOTS_PER_ARGONOT } from '@argonprotocol/apps-core';
+import { BondLot, MICROGONS_PER_ARGON, MICRONOTS_PER_ARGONOT, type Vault } from '@argonprotocol/apps-core';
 import { fn, mocked } from 'storybook/test';
 import { TopTab } from '../../src-vue/interfaces/IConfig.ts';
+import { OperationalStepId } from '../../src-vue/stores/certificationController.ts';
 import { ExtrinsicType, TransactionStatus } from '../../src-vue/lib/db/TransactionsTable.ts';
-import { getArgonBonds } from '../../src-vue/stores/argonBonds.ts';
+import { getArgonBonds, getBondTransactionOperations } from '../../src-vue/stores/argonBonds.ts';
 import { useFinancials } from '../../src-vue/stores/financials.ts';
 import { getMainchainClient } from '../../src-vue/stores/mainchain.ts';
 import { getTransactionTracker } from '../../src-vue/stores/transactions.ts';
@@ -19,43 +20,70 @@ type BondPurchaseState =
   | 'available'
   | 'walletLimited'
   | 'selection'
+  | 'ownerFlexibleSelection'
+  | 'ownerFlexible'
+  | 'ownerFlexibleOverCapacity'
+  | 'ownerFlexibleCertificationPending'
+  | 'ownerFlexibleCertificationComplete'
+  | 'ownerFlexibleNoCapacity'
   | 'noUpstream'
   | 'ownedNoCapacity';
 type StakePurchaseState = 'loadError' | 'ready' | 'walletLimited' | 'progress' | 'progressError' | 'complete';
 
 export function setupBondPurchaseScenario(state: BondPurchaseState) {
-  const { wallets } = setupAppScenario({
+  const ownerFlexible = state.startsWith('ownerFlexible');
+  const selectingVault = state === 'selection' || state === 'ownerFlexibleSelection';
+  let myVaultId: number | undefined;
+  if (selectingVault || state === 'ownedNoCapacity') myVaultId = 12;
+  else if (ownerFlexible) myVaultId = 1;
+
+  const { controller, wallets } = setupAppScenario({
     selectedTab: TopTab.ArgonBonds,
-    config: state === 'selection' ? { upstreamOperator: { name: 'Atlas', vaultId: 7 } } : undefined,
-    myVaultId: state === 'selection' || state === 'ownedNoCapacity' ? 12 : undefined,
+    config: selectingVault ? { upstreamOperator: { name: 'Atlas', vaultId: 7 } } : undefined,
+    myVaultId,
   });
-  const hasAvailableBondSpace = state === 'available' || state === 'walletLimited';
+  controller.isLoadedPromise = Promise.resolve();
+  controller.hasLoadedInitialOperationalProgress = state !== 'ownerFlexibleCertificationPending';
+  const hasAvailableBondSpace =
+    state === 'available' || state === 'walletLimited' || (ownerFlexible && state !== 'ownerFlexibleNoCapacity');
   if (hasAvailableBondSpace) {
     wallets.defaultArgonWallet.availableMicrogons =
       (state === 'walletLimited' ? 26n : 2_000n) * BigInt(MICROGONS_PER_ARGON);
   }
-  const vaults =
-    state === 'selection'
-      ? [
-          createScenarioVault({ vaultId: 7, operatorAccountId: '5AtlasVaultOperator' }),
-          createScenarioVault({ vaultId: 12, operatorAccountId: '5NorthstarVaultOperator' }),
-        ]
-      : state === 'noUpstream'
-        ? [
-            createScenarioVault({ vaultId: 21, operatorAccountId: '5UnrelatedVaultOperator1' }),
-            createScenarioVault({ vaultId: 22, operatorAccountId: '5UnrelatedVaultOperator2' }),
-          ]
-        : state === 'ownedNoCapacity'
-          ? [createScenarioVault({ vaultId: 12, operatorAccountId: '5OwnedVaultOperator' })]
-          : hasAvailableBondSpace
-            ? [
-                createScenarioVault({
-                  securitizationLocked: 1_052_698_425n,
-                  securitizedSatoshis: 1_408_910n,
-                  ratioAdjustedSatoshis: 1_408_910n,
-                }),
-              ]
-            : [];
+  if (
+    state === 'ownerFlexibleOverCapacity' ||
+    state === 'ownerFlexibleCertificationPending' ||
+    state === 'ownerFlexibleCertificationComplete'
+  ) {
+    controller.rewardConfig.treasuryMinimumBonds = 300n * BigInt(MICROGONS_PER_ARGON);
+  }
+  if (state === 'ownerFlexibleCertificationComplete') {
+    controller.isCertificationStepComplete = fn(stepId => stepId === OperationalStepId.AcquireArgonBonds);
+  }
+  let vaults: Vault[] = [];
+  if (selectingVault) {
+    vaults = [
+      createScenarioVault({ vaultId: 7, operatorAccountId: '5AtlasVaultOperator' }),
+      createScenarioVault({ vaultId: 12, operatorAccountId: '5NorthstarVaultOperator' }),
+    ];
+  } else if (state === 'noUpstream') {
+    vaults = [
+      createScenarioVault({ vaultId: 21, operatorAccountId: '5UnrelatedVaultOperator1' }),
+      createScenarioVault({ vaultId: 22, operatorAccountId: '5UnrelatedVaultOperator2' }),
+    ];
+  } else if (state === 'ownedNoCapacity') {
+    vaults = [createScenarioVault({ vaultId: 12, operatorAccountId: '5OwnedVaultOperator' })];
+  } else if (ownerFlexible) {
+    vaults = [createScenarioVault({ vaultId: 1, operatorAccountId: '5OwnedVaultOperator' })];
+  } else if (hasAvailableBondSpace) {
+    vaults = [
+      createScenarioVault({
+        securitizationLocked: 1_052_698_425n,
+        securitizedSatoshis: 1_408_910n,
+        ratioAdjustedSatoshis: 1_408_910n,
+      }),
+    ];
+  }
   let refresh = fn(async () => undefined);
   if (state === 'loading') {
     refresh = fn(() => new Promise<void>(() => undefined));
@@ -66,19 +94,41 @@ export function setupBondPurchaseScenario(state: BondPurchaseState) {
   }
 
   mocked(getArgonBonds).mockReturnValue({
-    data: Vue.reactive({ isLoaded: true, bondLots: [] }),
+    data: Vue.reactive({
+      isLoaded: true,
+      bondLots: [],
+      vaultsById: ownerFlexible
+        ? {
+            [state === 'ownerFlexibleSelection' ? 12 : 1]: {
+              flexibleBonds: state === 'ownerFlexibleNoCapacity' ? 2_168 : 1_900,
+            },
+          }
+        : {},
+    }),
     bondTotals: BondLot.getTotals([]),
     refreshBondLots: fn(async () => undefined),
     subscribeGlobal: fn(async () => undefined),
     subscribeVault: fn(async () => fn()),
+    refreshVault: fn(async () => undefined),
     availableBondSpace: fn(vault => {
       if (state === 'ownedNoCapacity') return 0n;
+      if (ownerFlexible && vault.vaultId !== 7) return 2_168n * BigInt(MICROGONS_PER_ARGON);
       if (hasAvailableBondSpace) return 1_026_000_000n;
       return vault.vaultId === 7 ? 120_000_000n : 80_000_000n;
     }),
+    availableBondSpaceWithoutFlexibleDisplacement: fn(() =>
+      state === 'ownedNoCapacity' || state === 'ownerFlexibleNoCapacity' ? 0n : 268n * BigInt(MICROGONS_PER_ARGON),
+    ),
   } as unknown as ReturnType<typeof getArgonBonds>);
+  mocked(getBondTransactionOperations).mockReturnValue({
+    bondBuy: {
+      load: fn(async () => undefined),
+      getPendingForVault: fn(() => undefined),
+    },
+  } as unknown as ReturnType<typeof getBondTransactionOperations>);
   mocked(getVaults, { partial: true }).mockReturnValue({
     load: fn(async () => undefined),
+    subscribeToVault: fn(async () => fn()),
     operatorNamesByVaultId: Vue.reactive({
       1: 'Market Vault',
       7: 'Atlas',
