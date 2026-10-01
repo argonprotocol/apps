@@ -240,6 +240,14 @@ export const HistoricalSeatPortfolio: Story = {
   },
 };
 
+export const ExistingMinerWithCertificationGuide: Story = {
+  name: 'Existing miner with certification guide',
+  beforeEach: () => {
+    setupMiningPortfolioScenario();
+    setCertificationGuide(OperationalStepId.FirstMiningSeat);
+  },
+};
+
 export const FirstAuctionConnecting: Story = {
   beforeEach: () => setupMiningAuctionScenario('connecting'),
 };
