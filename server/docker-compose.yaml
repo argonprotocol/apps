@@ -146,7 +146,7 @@ services:
       --no-telemetry
       --port=${ARGON_P2P_PORT}
       --experimental-rpc-endpoint=listen-addr=0.0.0.0:9944,methods=unsafe
-      --experimental-rpc-endpoint=listen-addr=0.0.0.0:9945,methods=safe,cors=all,rate-limit-trust-proxy-headers=true,max-connections=${ARGON_SAFE_RPC_MAX_CONNECTIONS:-200}
+      --experimental-rpc-endpoint=listen-addr=0.0.0.0:9945,methods=safe,rate-limit-trust-proxy-headers=true,max-connections=${ARGON_SAFE_RPC_MAX_CONNECTIONS:-200}
       --sync=fast
       --network-backend=libp2p
       --validator

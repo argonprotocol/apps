@@ -38,7 +38,7 @@ type IRecoveredAccountState = Pick<
   | 'onboardingSetupStatus'
   | 'hasMiningBids'
   | 'hasMiningSeats'
->;
+> & { isUpgradedToOperations: boolean };
 
 export default class Importer {
   private readonly config: Config;
@@ -60,7 +60,7 @@ export default class Importer {
       substrateSuri: mnemonic,
       masterMnemonic: mnemonic,
     });
-    const recoveredState = await this.inspectAccountState(importWalletKeys);
+    const { isUpgradedToOperations, ...recoveredState } = await this.inspectAccountState(importWalletKeys);
 
     if (NETWORK_NAME === 'mainnet' && !IS_LOCAL_BUILD && !recoveredState.walletAccountsHadPreviousLife) {
       throw new Error('No existing wallet value was found for that mnemonic on this network.');
@@ -80,7 +80,11 @@ export default class Importer {
       showWelcomeOverlay: false,
       ...recoveredState,
       walletPreviousLifeRecovered: !recoveredState.walletAccountsHadPreviousLife,
-      certificationDetails: { hasSavedMnemonic: true },
+      certificationDetails: {
+        hasSavedMnemonic: true,
+        dismissedWelcomeToOperationsOverlay: isUpgradedToOperations,
+        dismissedOperationsActivatedOverlay: isUpgradedToOperations,
+      },
     };
     await this.config.restoreToConnection(db.sql, importedConfig);
 
@@ -262,6 +266,7 @@ export default class Importer {
       walletAccountsHadPreviousLife: hasExistingWalletValue || hasTreasuryHistory,
       hasExtensionTreasury: hasTreasuryHistory,
       hasExtensionOperations: hasOperationsHistory,
+      isUpgradedToOperations: operationalProgress.isUpgradedToOperations,
       hasActivatedCrosschain,
       miningSetupStatus,
       vaultingSetupStatus: hasVaultActivity ? VaultingSetupStatus.Finished : VaultingSetupStatus.None,

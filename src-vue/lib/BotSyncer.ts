@@ -13,6 +13,7 @@ import {
 import { IBotEmitter } from './Bot';
 import Installer from './Installer';
 import { IBidEntry } from './db/FrameBidsTable.ts';
+import type { CohortsTable } from './db/CohortsTable.ts';
 import { SyncStateKeys } from './db/SyncStateTable.ts';
 import type { ServerApiClient } from './ServerApiClient.ts';
 
@@ -29,6 +30,7 @@ export type IBotFns = {
   setStatus: (x: BotStatus) => void;
   setServerSyncProgress: (x: number) => void;
   setDbSyncProgress: (x: number) => void;
+  setDbHistoryError: (x: string | null) => void;
   setBotState: (state: IBotState) => void;
 };
 
@@ -42,6 +44,15 @@ export class BotSyncer {
   private installer: Installer;
   private isLoaded: boolean = false;
   private isSyncingThePast: boolean = false;
+  private historicalRecovery?: {
+    oldestFrameId: number;
+    nextFrameId: number;
+    processedFrames: Set<number>;
+    firstMissingCohortId: number;
+    completedFrameCount: number;
+    progressFrameId: number;
+    lastCompletedVersion?: string;
+  };
 
   private miningFrames: MiningFrames;
   private botWsClient: BotWsClient | undefined;
@@ -145,6 +156,8 @@ export class BotSyncer {
     this.botWsClient?.dispose();
     this.botWsClient = undefined;
     this.botWsClientPromise = undefined;
+    for (const [timeout] of Object.values(this.bidsFileCacheByActivationFrameId)) clearTimeout(timeout);
+    this.bidsFileCacheByActivationFrameId = {};
   }
 
   private async loopToStayConnected(): Promise<void> {
@@ -204,7 +217,7 @@ export class BotSyncer {
         this.botFns.setStatus(BotStatus.Broken);
         console.error('BotSyncer error:', state.serverError);
         return;
-      } else if (state.isSyncing) {
+      } else if (state.isSyncing && !state.isReady) {
         this.botFns.setStatus(BotStatus.ServerSyncing);
         this.botFns.setServerSyncProgress(state.syncProgress);
         return;
@@ -215,15 +228,17 @@ export class BotSyncer {
 
       const botState = state as IBotState;
       this.botState = botState;
+      if (botState.isSyncing) this.botFns.setServerSyncProgress(botState.syncProgress);
       await this.updateBotState(botState);
       await this.syncServerState(botState);
       await this.syncCurrentBids(botState);
 
-      if (!this.isSyncingThePast) {
-        this.botFns.setBotState(botState);
-        this.botFns.onEvent('updated-mining-state', botState.currentFrameId);
-        this.botFns.setStatus(BotStatus.Ready);
-      }
+      this.botFns.setBotState(botState);
+      this.botFns.onEvent(
+        botState.isSyncing || this.isSyncingThePast ? 'updated-current-bids' : 'updated-mining-state',
+        botState.currentFrameId,
+      );
+      this.botFns.setStatus(BotStatus.Ready);
     } catch (e) {
       const message = e instanceof Error ? e.message : String(e);
       const isWebSocketEventError = Boolean(e && typeof e === 'object' && 'isTrusted' in e);
@@ -274,139 +289,140 @@ export class BotSyncer {
   }
 
   private async updateBotState(botState = this.botState): Promise<void> {
-    if (botState.oldestFrameIdToSync > 0) {
+    if (botState.oldestFrameIdToSync > 0 || NetworkConfig.canFrameBeZero()) {
       this.config.oldestFrameIdToSync = botState.oldestFrameIdToSync;
     }
 
-    if (this.config.oldestFrameIdToSync > this.config.latestFrameIdProcessed) {
-      this.config.latestFrameIdProcessed = this.config.oldestFrameIdToSync;
-    }
-
-    this.config.hasMiningSeats = botState.hasMiningSeats;
-    this.config.hasMiningBids = botState.hasMiningBids;
+    // Account restore can already know about seats that have expired before bot replay reaches them.
+    this.config.hasMiningSeats ||= botState.hasMiningSeats;
+    this.config.hasMiningBids ||= botState.hasMiningBids || this.config.hasMiningSeats;
 
     await this.config.save();
-    const dbSyncProgress = await this.calculateDbSyncProgress(botState);
-
-    if (dbSyncProgress < 100.0) {
-      this.botFns.setStatus(BotStatus.DbSyncing);
-      this.botFns.setDbSyncProgress(dbSyncProgress);
-      await this.syncThePast(dbSyncProgress, botState);
-    } else {
-      await this.syncCurrentFrame(botState);
-    }
+    if (!botState.isSyncing) await this.syncThePast(botState);
   }
 
-  private async syncCurrentFrame(botState = this.botState): Promise<void> {
-    const currentFrameId = botState.currentFrameId;
-    const firstActiveFrameId = currentFrameId - NetworkConfig.framesPerCohort;
-    const completedFrames = await this.db.framesTable.fetchExistingCompleteSince(firstActiveFrameId);
-
-    for (let frameId = firstActiveFrameId; frameId <= currentFrameId; frameId++) {
-      if (!completedFrames.includes(frameId)) {
-        await this.syncDbFrame(frameId, botState);
-      }
+  private async syncThePast(botState = this.botState): Promise<void> {
+    if (this.isSyncingThePast || this.isDisposed) return;
+    const { oldestFrameIdToSync, currentFrameId } = botState;
+    if (oldestFrameIdToSync === 0 && !NetworkConfig.canFrameBeZero()) return;
+    const version = `${currentFrameId}:${String(botState.earningsLastModifiedAt)}:${botState.lastFinalizedProcessedBlockNumber}`;
+    if (this.historicalRecovery?.oldestFrameId === oldestFrameIdToSync) {
+      if (this.historicalRecovery.lastCompletedVersion === version) return;
     }
-  }
-
-  private async syncThePast(progress: number, botState = this.botState): Promise<void> {
-    if (this.isSyncingThePast) return;
     this.isSyncingThePast = true;
-
-    const oldestFrameIdToSync = botState.oldestFrameIdToSync;
-    const latestFrameIdProcessed = this.config.latestFrameIdProcessed;
-    const currentFrameId = botState.currentFrameId;
-    const currentTick = botState.currentTick;
-    const framesToSync = currentFrameId - oldestFrameIdToSync + 1;
-
-    const [latestDbProcessedFrame, processedFrameIds, existingCohortIds] = await Promise.all([
-      this.db.framesTable.fetchLastProcessedFrame(),
-      this.db.framesTable.fetchProcessedFrameIdsSince(oldestFrameIdToSync, framesToSync),
-      this.db.cohortsTable.fetchCohortIdsSince(oldestFrameIdToSync, framesToSync),
-    ]);
-    const processedFrames = new Set(processedFrameIds);
-    let firstIncompleteFrameId = oldestFrameIdToSync;
-    while (processedFrames.has(firstIncompleteFrameId) && firstIncompleteFrameId <= currentFrameId) {
-      firstIncompleteFrameId += 1;
-    }
-
-    const firstMissingCohortId = oldestFrameIdToSync + existingCohortIds.length;
-    const startFrameToSync = Math.max(
-      oldestFrameIdToSync,
-      Math.min(latestDbProcessedFrame, latestFrameIdProcessed, firstIncompleteFrameId, firstMissingCohortId),
-    );
-
-    console.log('Syncing the past frames...', {
-      oldestFrameIdToSync,
-      latestFrameIdProcessed,
-      startFrameToSync,
-      currentFrameId,
-      framesToSync,
-      currentTick,
-    });
-
+    let firstUpdatedFrameId: number | undefined;
     const syncPromise = (async () => {
       try {
-        for (let frameId = startFrameToSync; frameId <= currentFrameId; frameId++) {
-          const requiresCohortCatchUp = frameId >= firstMissingCohortId;
-          if (processedFrames.has(frameId) && !requiresCohortCatchUp) {
+        const framesToSync = currentFrameId - oldestFrameIdToSync + 1;
+        if (!this.historicalRecovery || this.historicalRecovery.oldestFrameId !== oldestFrameIdToSync) {
+          const [processedFrameIds, existingCohortIds] = await Promise.all([
+            this.db.framesTable.fetchProcessedFrameIdsSince(oldestFrameIdToSync, framesToSync),
+            this.db.cohortsTable.fetchCohortIdsSince(oldestFrameIdToSync, framesToSync),
+          ]);
+          const processedFrames = new Set(processedFrameIds);
+          const existingCohorts = new Set(existingCohortIds);
+          let firstMissingCohortId = oldestFrameIdToSync;
+          while (existingCohorts.has(firstMissingCohortId)) firstMissingCohortId += 1;
+          this.historicalRecovery = {
+            oldestFrameId: oldestFrameIdToSync,
+            nextFrameId: oldestFrameIdToSync,
+            processedFrames,
+            firstMissingCohortId,
+            completedFrameCount: processedFrameIds.filter(id => id < currentFrameId && existingCohorts.has(id)).length,
+            progressFrameId: currentFrameId,
+          };
+        }
+        const recovery = this.historicalRecovery;
+        for (let frameId = recovery.progressFrameId; frameId < currentFrameId; frameId++) {
+          if (recovery.processedFrames.has(frameId) && this.db.cohortsTable.state.storedCohorts[frameId]) {
+            recovery.completedFrameCount += 1;
+          }
+        }
+        recovery.progressFrameId = currentFrameId;
+        let progress = this.calculateDbSyncProgress(botState);
+        this.botFns.setDbSyncProgress(progress);
+        let firstIncompleteFrameId: number | undefined;
+        for (let frameId = recovery.nextFrameId; frameId <= currentFrameId; frameId++) {
+          if (this.isDisposed || this.botState?.isSyncing) return;
+          const requiresCohortCatchUp = frameId >= recovery.firstMissingCohortId;
+          if (frameId < currentFrameId && recovery.processedFrames.has(frameId) && !requiresCohortCatchUp) {
+            recovery.nextFrameId = firstIncompleteFrameId ?? frameId + 1;
             continue;
           }
 
-          await this.syncDbFrame(frameId, botState);
-          processedFrames.add(frameId);
-          progress = await this.calculateDbSyncProgress(botState);
+          const wasComplete =
+            frameId < currentFrameId &&
+            recovery.processedFrames.has(frameId) &&
+            this.db.cohortsTable.state.storedCohorts[frameId];
+          try {
+            await this.syncDbFrame(frameId, botState);
+            firstUpdatedFrameId ??= frameId;
+          } catch (error) {
+            if (!(error instanceof MiningHistoryNotReadyError) || frameId < botState.finalizedFrameId - 1) {
+              throw error;
+            }
+            // Recent files may still be publishing. Retry on the next update without a history warning.
+            recovery.nextFrameId = firstIncompleteFrameId ?? frameId;
+            this.botFns.setDbHistoryError(null);
+            return;
+          }
+          this.botFns.setDbHistoryError(null);
+          if (this.db.framesTable.state.processedFrames[frameId]) recovery.processedFrames.add(frameId);
+          else recovery.processedFrames.delete(frameId);
+          const isComplete =
+            frameId < currentFrameId &&
+            recovery.processedFrames.has(frameId) &&
+            this.db.cohortsTable.state.storedCohorts[frameId];
+          if (!wasComplete && isComplete) recovery.completedFrameCount += 1;
+          if (wasComplete && !isComplete) recovery.completedFrameCount -= 1;
+          if (frameId < currentFrameId && !isComplete) firstIncompleteFrameId ??= frameId;
+          recovery.nextFrameId = firstIncompleteFrameId ?? frameId + 1;
+          progress = this.calculateDbSyncProgress(botState);
           this.botFns.setDbSyncProgress(progress);
         }
-        this.botFns.onEvent('updated-cohort-history', currentFrameId);
+        recovery.nextFrameId = firstIncompleteFrameId ?? currentFrameId;
+        recovery.lastCompletedVersion = version;
+        this.botFns.setDbHistoryError(null);
       } finally {
         this.isSyncingThePast = false;
-        if (!this.isDisposed && framesToSync >= 2) {
-          this.pendingState = this.botState;
+        // Publish committed imports once, including a partial batch before an error.
+        // A current-frame update only refreshes live positions; older frames require a history refresh.
+        if (!this.isDisposed && firstUpdatedFrameId !== undefined) {
+          this.botFns.onEvent(
+            firstUpdatedFrameId < currentFrameId ? 'updated-cohort-history' : 'updated-mining-state',
+            currentFrameId,
+          );
         }
       }
     })();
 
-    if (framesToSync < 2) {
-      await syncPromise;
-    } else {
-      void syncPromise.catch(error => {
-        console.warn('BotSyncer background sync error:', error);
-      });
-    }
+    void syncPromise.catch(error => {
+      if (this.isDisposed) return;
+      this.botFns.setDbHistoryError(String(error));
+      console.warn('BotSyncer background sync error:', error);
+    });
   }
 
   public async syncDbFrame(frameId: number, botState = this.botState): Promise<void> {
     const client = await this.getClient();
-    const earningsFile = await client.fetch(`/earnings`, frameId);
+    const earningsFile = await client.fetch('/earnings', frameId);
+    if (!earningsFile.lastBlockNumber) {
+      throw new MiningHistoryNotReadyError(`Earnings for frame ${frameId} have not been recovered yet.`);
+    }
     const frameProgress = this.calculateProgress(earningsFile.frameRewardTicksRemaining);
-
-    await this.db.framesTable.insertOrUpdate({
-      ...earningsFile,
-      id: frameId,
-      firstTick: earningsFile.frameFirstTick,
-      rewardTicksRemaining: earningsFile.frameRewardTicksRemaining,
-      progress: frameProgress,
-    });
-
-    console.info('PROCESSING FRAME', frameId, earningsFile);
-    const firstActiveCohortId = frameId - NetworkConfig.framesPerCohort;
+    const firstActiveCohortId = Math.max(this.config.oldestFrameIdToSync, frameId - NetworkConfig.framesPerCohort + 1);
     const cohortIdsInDb = await this.db.cohortsTable.fetchCohortIdsSince(
       firstActiveCohortId,
-      NetworkConfig.framesPerCohort,
+      frameId - firstActiveCohortId + 1,
     );
-
-    // Every frame should have a corresponding cohort, even if it has no seats
-
-    const earningsByCohortActivationFrameId: { [frameId: number]: IFrameEarningsRollup } = {};
-    const missingCohortIds: number[] = [];
-    for (let i = firstActiveCohortId; i <= frameId; i++) {
-      if (i < this.config.oldestFrameIdToSync) continue;
-      if (i > frameId) continue;
-      if (!cohortIdsInDb.includes(i)) {
-        missingCohortIds.push(i);
+    const earningsByCohortActivationFrameId: Record<number, IFrameEarningsRollup> = {};
+    const cohortIdsToSync: number[] = [];
+    for (let id = firstActiveCohortId; id <= frameId; id++) {
+      // The activation block's winner list is provisional along with its earnings.
+      if (!cohortIdsInDb.includes(id) || (id === frameId && !this.db.framesTable.state.processedFrames[id])) {
+        cohortIdsToSync.push(id);
       }
-      earningsByCohortActivationFrameId[i] = {
+      earningsByCohortActivationFrameId[id] = {
         lastBlockMinedAt: '',
         blocksMinedTotal: 0,
         microgonFeesCollectedTotal: 0n,
@@ -415,101 +431,103 @@ export class BotSyncer {
         micronotsMinedTotal: 0n,
       };
     }
-    await Promise.all(missingCohortIds.map(cohortId => this.syncDbCohort(cohortId)));
+    // Fetch remote inputs before opening the transaction.
+    const bidsFile = await this.fetchBidsFileFromCache({ cohortActivationFrameId: frameId }, botState.currentFrameId);
+    const cohortsToSync = await Promise.all(
+      cohortIdsToSync.map(id => this.fetchCohort(id, id === frameId ? bidsFile : undefined)),
+    );
+    const framePrice = earningsFile.microgonToArgonot.at(-1) ?? 0n;
+    for (const cohort of cohortsToSync) cohort.argonotPriceAtBid ||= framePrice;
 
-    let maxBlockNumber = 0;
+    for (const earnings of Object.values(earningsFile.earningsByBlock)) {
+      const cohort = earningsByCohortActivationFrameId[earnings.authorCohortActivationFrameId];
+      if (cohort && (earnings.microgonsMined || earnings.micronotsMined)) {
+        cohort.blocksMinedTotal += 1;
+        cohort.lastBlockMinedAt = earnings.blockMinedAt;
+        cohort.microgonFeesCollectedTotal += earnings.microgonFeesCollected;
+        cohort.microgonsMinedTotal += earnings.microgonsMined;
+        cohort.micronotsMinedTotal += earnings.micronotsMined;
+      }
+      const mints = earnings.microgonsMintedByCohort ?? {
+        [earnings.authorCohortActivationFrameId]: earnings.microgonsMinted,
+      };
+      for (const [cohortId, microgons] of Object.entries(mints)) {
+        const recipient = earningsByCohortActivationFrameId[Number(cohortId)];
+        if (!recipient) continue;
+        recipient.microgonsMintedTotal += microgons;
+      }
+    }
+
     let blocksMinedTotal = 0;
     let micronotsMinedTotal = 0n;
     let microgonsMinedTotal = 0n;
     let microgonsMintedTotal = 0n;
     let microgonFeesCollectedTotal = 0n;
-
-    for (const [blockNumberStr, earningsOfBlock] of Object.entries(earningsFile.earningsByBlock)) {
-      const blockNumber = parseInt(blockNumberStr, 10);
-      const cohortActivationFrameId = earningsOfBlock.authorCohortActivationFrameId;
-
-      const earningsDuringFrame = earningsByCohortActivationFrameId[cohortActivationFrameId];
-      if (!earningsDuringFrame) {
-        console.warn(
-          `Earnings for block ${blockNumber} has cohortActivationFrameId ${cohortActivationFrameId} which is not tracked in frame ${frameId}`,
-        );
-        continue;
-      }
-      earningsDuringFrame.blocksMinedTotal += 1;
-      if (blockNumber > maxBlockNumber) {
-        earningsDuringFrame.lastBlockMinedAt = earningsOfBlock.blockMinedAt;
-        maxBlockNumber = blockNumber;
-      }
-      earningsDuringFrame.lastBlockMinedAt = earningsOfBlock.blockMinedAt;
-      earningsDuringFrame.microgonFeesCollectedTotal += earningsOfBlock.microgonFeesCollected;
-      earningsDuringFrame.microgonsMinedTotal += earningsOfBlock.microgonsMined;
-      earningsDuringFrame.microgonsMintedTotal += earningsOfBlock.microgonsMinted;
-      earningsDuringFrame.micronotsMinedTotal += earningsOfBlock.micronotsMined;
+    for (const earnings of Object.values(earningsByCohortActivationFrameId)) {
+      blocksMinedTotal += earnings.blocksMinedTotal;
+      micronotsMinedTotal += earnings.micronotsMinedTotal;
+      microgonsMinedTotal += earnings.microgonsMinedTotal;
+      microgonsMintedTotal += earnings.microgonsMintedTotal;
+      microgonFeesCollectedTotal += earnings.microgonFeesCollectedTotal;
     }
 
-    await Promise.all([
-      ...Object.entries(earningsByCohortActivationFrameId).map(
-        async ([cohortActivationFrameIdStr, cohortEarningsDuringFrame]) => {
-          await this.db.cohortFramesTable.insertOrUpdate({
-            frameId,
-            cohortActivationFrameId: Number(cohortActivationFrameIdStr),
-            ...cohortEarningsDuringFrame,
-          });
-          blocksMinedTotal += cohortEarningsDuringFrame.blocksMinedTotal;
-          micronotsMinedTotal += cohortEarningsDuringFrame.micronotsMinedTotal;
-          microgonsMinedTotal += cohortEarningsDuringFrame.microgonsMinedTotal;
-          microgonsMintedTotal += cohortEarningsDuringFrame.microgonsMintedTotal;
-          microgonFeesCollectedTotal += cohortEarningsDuringFrame.microgonFeesCollectedTotal;
-        },
-      ),
-      // NOTE: must update frame progress before cohortFrames are updated
-      this.db.cohortsTable.updateProgress(),
-    ]);
-
-    const { seatCountActive, seatCostTotalFramed } = await this.db.cohortsTable.fetchActiveSeatData(
-      frameId,
-      frameProgress,
-    );
-
-    const bidsFile = await this.fetchBidsFileFromCache({ cohortActivationFrameId: frameId }, botState.currentFrameId);
-    const allMinersCount = bidsFile.allMinersCount;
-
-    const botLastFrame = botState.currentFrameId - 1;
-    const isProcessed = frameProgress === 100.0 || frameId < botLastFrame;
-
-    await this.db.framesTable.update({
-      id: frameId,
-
-      allMinersCount,
-      seatCountActive,
-      seatCostTotalFramed,
-      blocksMinedTotal,
-      micronotsMinedTotal,
-      microgonsMinedTotal,
-      microgonsMintedTotal,
-      microgonFeesCollectedTotal,
-
-      isProcessed,
+    if (this.isDisposed) throw new Error('BotSyncer disposed');
+    await this.db.transaction(async db => {
+      const [savedFrame] = await db.select<{ lastBlockNumber: number }[]>(
+        'SELECT lastBlockNumber FROM Frames WHERE id = ?',
+        [frameId],
+      );
+      if (savedFrame && savedFrame.lastBlockNumber > earningsFile.lastBlockNumber) {
+        // A shorter canonical tip legitimately removes provisional earnings already imported here.
+        const chainRewound = botState.lastProcessedBlockNumber < savedFrame.lastBlockNumber;
+        if (!chainRewound) throw new Error(`Earnings for frame ${frameId} are older than the saved data.`);
+      }
+      await db.framesTable.insertOrUpdate({
+        ...earningsFile,
+        id: frameId,
+        firstTick: earningsFile.frameFirstTick,
+        rewardTicksRemaining: earningsFile.frameRewardTicksRemaining,
+        progress: frameProgress,
+      });
+      for (const cohort of cohortsToSync) await db.cohortsTable.insertOrUpdate(cohort);
+      for (const [cohortId, earnings] of Object.entries(earningsByCohortActivationFrameId)) {
+        await db.cohortFramesTable.insertOrUpdate({
+          frameId,
+          cohortActivationFrameId: Number(cohortId),
+          ...earnings,
+        });
+      }
+      await db.cohortsTable.updateProgress();
+      const { seatCountActive, seatCostTotalFramed } = await db.cohortsTable.fetchActiveSeatData(
+        frameId,
+        frameProgress,
+      );
+      await db.framesTable.update({
+        id: frameId,
+        allMinersCount: bidsFile.allMinersCount,
+        seatCountActive,
+        seatCostTotalFramed,
+        blocksMinedTotal,
+        micronotsMinedTotal,
+        microgonsMinedTotal,
+        microgonsMintedTotal,
+        microgonFeesCollectedTotal,
+        // A closed frame can still change on a fork until its last block is finalized.
+        isProcessed:
+          frameProgress === 100 && earningsFile.lastBlockNumber <= botState.lastFinalizedProcessedBlockNumber,
+      });
+      await db.cohortsTable.setArgonotPriceAtCompletion(
+        frameId - NetworkConfig.framesPerCohort,
+        earningsFile.microgonToArgonot[0] ?? 0n,
+      );
     });
-
-    await this.db.cohortsTable.setArgonotPriceAtCompletion(
-      frameId - NetworkConfig.framesPerCohort,
-      earningsFile.microgonToArgonot[0] ?? 0n,
-    );
-
-    if (frameId > this.config.latestFrameIdProcessed) {
-      this.config.latestFrameIdProcessed = frameId;
-      await this.config.save();
-    }
   }
 
-  private async syncDbCohort(cohortActivationFrameId: number): Promise<void> {
-    const bidsFile = await this.fetchBidsFileFromCache({ cohortActivationFrameId });
-    const biddingFrameProgress = this.calculateProgress(bidsFile.biddingFrameRewardTicksRemaining);
-    if (biddingFrameProgress < 100.0) {
-      return;
-    }
-
+  private async fetchCohort(
+    cohortActivationFrameId: number,
+    bidsFile?: IBidsFile,
+  ): Promise<Parameters<CohortsTable['insertOrUpdate']>[0]> {
+    bidsFile ??= await this.fetchBidsFileFromCache({ cohortActivationFrameId });
     const ticksPerCohort = BigInt(NetworkConfig.ticksPerCohort);
 
     try {
@@ -547,7 +565,7 @@ export class BotSyncer {
         argonotPriceAtBid ||= firstPriceAfterBid;
       }
 
-      await this.db.cohortsTable.insertOrUpdate({
+      return {
         id: cohortActivationFrameId,
         transactionFeesTotal,
         micronotsStakedPerSeat: bidsFile.micronotsStakedPerSeat,
@@ -556,7 +574,7 @@ export class BotSyncer {
         microgonsToBeMinedPerSeat,
         micronotsToBeMinedPerSeat,
         argonotPriceAtBid,
-      });
+      };
     } catch (e) {
       console.error('Error syncing cohort:', e);
       throw e;
@@ -569,15 +587,24 @@ export class BotSyncer {
     currentFrameId = this.botState.currentFrameId,
   ): Promise<IBidsFile> {
     const { cohortActivationFrameId } = id;
-    let [timeoutId, bidsFile] = this.bidsFileCacheByActivationFrameId[cohortActivationFrameId] || [];
+    const cached = this.bidsFileCacheByActivationFrameId[cohortActivationFrameId];
+    let timeoutId = cached?.[0];
+    let bidsFile: IBidsFile | undefined = cached?.[1];
 
     if (timeoutId) {
       clearTimeout(timeoutId);
     }
 
+    // Keep finalized snapshots cached; an activation fork can replace a pending cohort.
+    if (!this.db.framesTable.state.processedFrames[cohortActivationFrameId]) bidsFile = undefined;
     if (!bidsFile) {
       const client = await this.getClient();
       bidsFile = await client.fetch('/bids', cohortActivationFrameId - 1);
+    }
+
+    if (!bidsFile.lastBlockNumber || bidsFile.biddingFrameRewardTicksRemaining > 0) {
+      delete this.bidsFileCacheByActivationFrameId[cohortActivationFrameId];
+      throw new MiningHistoryNotReadyError(`Bids for cohort ${cohortActivationFrameId} have not been recovered yet.`);
     }
 
     const isCurrentFrame = cohortActivationFrameId === currentFrameId;
@@ -642,20 +669,22 @@ export class BotSyncer {
     this.botFns.onEvent('updated-server-state');
   }
 
-  private async calculateDbSyncProgress(botState: IBotState | IBotStateStarting): Promise<number> {
-    const { oldestFrameIdToSync, currentFrameId } = botState as IBotState;
-    if (!oldestFrameIdToSync || !currentFrameId) {
+  private calculateDbSyncProgress(botState: IBotState | IBotStateStarting): number {
+    const { oldestFrameIdToSync, currentFrameId, finalizedFrameId } = botState as IBotState;
+    if (oldestFrameIdToSync === 0 && !NetworkConfig.canFrameBeZero()) {
       return 0.0;
     }
 
-    const yesterdaysFrameId = currentFrameId - 1;
-    const dbFramesExpected = yesterdaysFrameId - oldestFrameIdToSync - 2; // do not include today or yesterday's frame since they aren't processed yet
-    if (dbFramesExpected <= 0) return 100;
-
-    const dbFramesProcessed = Math.min(await this.db.framesTable.fetchProcessedCount(), dbFramesExpected);
-    const dbCohortsProcessed = Math.min(await this.db.cohortsTable.fetchCount(), dbFramesExpected);
-
-    return (Math.min(dbFramesProcessed, dbCohortsProcessed) / dbFramesExpected) * 100;
+    // Exclude the newest closed finalized frame while its files are still being published.
+    // Ordinary frame rollover and finality lag are not historical recovery.
+    const recentFrameId = Math.min(currentFrameId, finalizedFrameId) - 1;
+    const completedFramesExpected = recentFrameId - oldestFrameIdToSync;
+    if (completedFramesExpected <= 0) return 100;
+    const recentFrameIsComplete =
+      this.historicalRecovery?.processedFrames.has(recentFrameId) &&
+      this.db.cohortsTable.state.storedCohorts[recentFrameId];
+    const completedFrames = (this.historicalRecovery?.completedFrameCount ?? 0) - (recentFrameIsComplete ? 1 : 0);
+    return Math.min((completedFrames / completedFramesExpected) * 100, 100);
   }
 
   private async getArgonTimestamp(atBlock: number): Promise<Date> {
@@ -670,3 +699,5 @@ export class BotSyncer {
     return Math.min(((totalRewardTicks - rewardTicksRemaining) / totalRewardTicks) * 100, 100);
   }
 }
+
+class MiningHistoryNotReadyError extends Error {}

@@ -32,27 +32,15 @@ export class CohortFramesTable extends BaseTable {
     } = args;
     const cacheKey = `${frameId}:${cohortActivationFrameId}`;
     const cache = this.state.cache.get(cacheKey);
-    if (cache) {
-      // If nothing has changed, skip the database write
-      if (
-        cache.blocksMinedTotal === blocksMinedTotal &&
-        cache.micronotsMinedTotal === micronotsMinedTotal &&
-        cache.microgonsMinedTotal === microgonsMinedTotal &&
-        cache.microgonsMintedTotal === microgonsMintedTotal &&
-        cache.microgonFeesCollectedTotal === microgonFeesCollectedTotal
-      ) {
-        return;
-      }
+    if (
+      cache?.blocksMinedTotal === blocksMinedTotal &&
+      cache.micronotsMinedTotal === micronotsMinedTotal &&
+      cache.microgonsMinedTotal === microgonsMinedTotal &&
+      cache.microgonsMintedTotal === microgonsMintedTotal &&
+      cache.microgonFeesCollectedTotal === microgonFeesCollectedTotal
+    ) {
+      return;
     }
-    this.state.cache.set(cacheKey, {
-      frameId,
-      cohortId: cohortActivationFrameId,
-      blocksMinedTotal,
-      micronotsMinedTotal,
-      microgonsMinedTotal,
-      microgonsMintedTotal,
-      microgonFeesCollectedTotal,
-    });
     await this.db.execute(
       `INSERT INTO CohortFrames (
           frameId, cohortId, blocksMinedTotal, micronotsMinedTotal, microgonsMinedTotal, microgonsMintedTotal, microgonFeesCollectedTotal
@@ -74,6 +62,17 @@ export class CohortFramesTable extends BaseTable {
         toSqliteBigInt(microgonsMintedTotal),
         toSqliteBigInt(microgonFeesCollectedTotal),
       ],
+    );
+    this.db.afterCommit(() =>
+      this.state.cache.set(cacheKey, {
+        frameId,
+        cohortId: cohortActivationFrameId,
+        blocksMinedTotal,
+        micronotsMinedTotal,
+        microgonsMinedTotal,
+        microgonsMintedTotal,
+        microgonFeesCollectedTotal,
+      }),
     );
   }
 }

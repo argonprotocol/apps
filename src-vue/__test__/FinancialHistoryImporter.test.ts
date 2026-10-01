@@ -7,6 +7,8 @@ import {
 } from '../lib/recovery/index.ts';
 import { findAddressActivity } from '../lib/IndexerClient.ts';
 import { SyncStateKeys } from '../lib/db/SyncStateTable.ts';
+import { BitcoinLockStatus } from '../lib/db/BitcoinLocksTable.ts';
+import { createTestDb } from './helpers/db.ts';
 import { optionCodec } from '../../core/__test__/helpers/codecs.ts';
 
 vi.mock('../lib/IndexerClient.ts', () => ({ findAddressActivity: vi.fn() }));
@@ -22,6 +24,58 @@ const emptyPreparedBitcoinHistory = () => ({
 });
 
 describe('FinancialHistoryImporter', () => {
+  it('restores missing financial checkpoints for positions retained after a database reset', async () => {
+    const db = await createTestDb();
+    const recovery = {
+      db,
+      accountId: '5owner',
+      enabledDomains: ['bitcoin', 'vaulting'] as const,
+      recoverMissingCheckpointsFor: [],
+    };
+    try {
+      await expect(needsFinancialHistoryRecovery(recovery)).resolves.toBe(false);
+      await db.bitcoinLocksTable.insertPending({
+        uuid: 'persisted-lock',
+        status: BitcoinLockStatus.LockPendingFunding,
+        securitizedSatoshis: 1_000n,
+        cosignVersion: 'v1',
+        network: 'regtest',
+        hdPath: "m/84'/1'/0'/0/1",
+        vaultId: 1,
+      });
+      await db.vaultsTable.insert({
+        id: 1,
+        hdPath: '//vaulting',
+        createdAtBlockHeight: 10,
+        isClosed: true,
+      });
+      await expect(needsFinancialHistoryRecovery({ ...recovery, enabledDomains: ['bitcoin'] })).resolves.toBe(true);
+      await expect(needsFinancialHistoryRecovery({ ...recovery, enabledDomains: ['vaulting'] })).resolves.toBe(true);
+
+      vi.mocked(findAddressActivity).mockResolvedValue({
+        asOfBlock: 100,
+        definitionVersion: ACCOUNT_ACTIVITY_DEFINITION_VERSION,
+        blocks: [],
+        coverage: { fromBlock: 0, toBlock: 100, gaps: [] },
+      });
+      await restoreFinancialHistory({
+        ...recovery,
+        enabledDomains: ['vaulting'],
+        blockWatch: {
+          finalizedBlockHeader: { blockNumber: 100 },
+          getFinalizedApi: async () => ({ query: { vaults: { vaultIdByOperator: async () => null } } }),
+        } as any,
+        argonBonds: {} as any,
+        vaultHistory: {} as any,
+      });
+      expect((await db.syncStateTable.get(SyncStateKeys.FinancialHistory))?.domainCheckpoints?.vaulting).toMatchObject({
+        asOfBlock: 100,
+      });
+    } finally {
+      await db.close();
+    }
+  });
+
   it('retries an archive-overloaded batch one block at a time', async () => {
     let concurrentHeaderReads = 0;
     const recoveredBlockNumbers: number[] = [];

@@ -529,6 +529,48 @@ describe('CohortBidder unit tests', () => {
     expect(bidsForNextSlotCohort).toHaveBeenCalledOnce();
   });
 
+  it('publishes other bidders changes while our maximum bid keeps us out of the auction', async () => {
+    const { cohortBidder } = await createBidderWithMocks(accountset, [0, 0], {
+      minBid: 100_000n,
+      maxBid: 100_000n,
+      accountBalance: 1_000_000n,
+    });
+    let bid = 1_000_000n;
+    const client = {
+      rpc: { state: { getStorageHash: async () => ({ toHex: () => `bids-${bid}` }) } },
+      at: async () => ({
+        query: {
+          miningSlot: {
+            bidsForNextSlotCohort: async () =>
+              Array.from({ length: 10 }, (_, i) => ({
+                accountId: `other-${i}`,
+                bid,
+                argonots: 10_000n,
+                bidAtTick: 100,
+              })),
+          },
+        },
+      }),
+    } as unknown as ArgonClient;
+    cohortBidder.miningFrames = { blockWatch: { subscriptionClient: client } } as unknown as MiningFrames;
+    // @ts-expect-error private storage key initialized by start
+    cohortBidder.bidsForNextSlotCohortKey = '0xbids';
+    // @ts-expect-error exercise the real header and planning flow
+    await cohortBidder.onHeader(createBlockHeader(100, 'first-bids'), true);
+    let visibleBids = structuredClone(cohortBidder.currentBids.bids);
+    cohortBidder.onUpdatedFn = () => {
+      visibleBids = structuredClone(cohortBidder.currentBids.bids);
+    };
+
+    bid = 1_100_000n;
+    // @ts-expect-error exercise a subsequent external auction update
+    await cohortBidder.onHeader(createBlockHeader(101, 'next-bids'), false);
+    expect(visibleBids[0].bidMicrogons).toBe(1_100_000n);
+    expect(cohortBidder.nextBid).toBeUndefined();
+    expect(cohortBidder.lastBid).toBeUndefined();
+    expect(cohortBidder.bidsAttempted).toBe(0);
+  });
+
   it('does not wait for storage freshness after a bid transaction has no successful calls', async () => {
     const { cohortBidder } = await createBidderWithMocks(accountset, [0, 0], {
       minBid: 500_000n,

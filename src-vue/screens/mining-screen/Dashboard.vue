@@ -11,8 +11,8 @@
       <section class="flex flex-row gap-x-2 h-[14%]">
         <TooltipRoot>
           <TooltipTrigger as="div" box stat-box class="flex flex-col w-[20%] !py-4 group">
-            <span>{{ numeral(myMiningSeats.global.framesCompleted).format('0,0.[00]') }}</span>
-            <label>Frame{{ myMiningSeats.global.framesCompleted === 1 ? '' : 's' }} Completed</label>
+            <span :class="isHistoricalMetricsPending ? 'opacity-75' : ''">{{ visibleMiningMetrics ? numeral(visibleMiningMetrics.global.framesCompleted).format('0,0.[00]') : '--' }}</span>
+            <label>Frame{{ visibleMiningMetrics?.global.framesCompleted === 1 ? '' : 's' }} Completed</label>
           </TooltipTrigger>
           <TooltipContent side="bottom" :sideOffset="-10" align="start" :collisionPadding="9" class="bg-white border border-gray-800/20 rounded-md shadow-2xl z-50 p-4 w-xs text-slate-900/60">
             The number of frames that you've mined over the previous year.
@@ -21,8 +21,8 @@
         </TooltipRoot>
         <TooltipRoot>
           <TooltipTrigger as="div" box stat-box class="flex flex-col w-[20%] !py-4 group">
-            <span>{{ numeral(myMiningSeats.global.framesRemaining).format('0,0.[00]') }}</span>
-            <label>Frame{{ myMiningSeats.global.framesRemaining === 1 ? '' : 's' }} Remaining</label>
+            <span :class="isHistoricalMetricsPending ? 'opacity-75' : ''">{{ visibleMiningMetrics ? numeral(visibleMiningMetrics.global.framesRemaining).format('0,0.[00]') : '--' }}</span>
+            <label>Frame{{ visibleMiningMetrics?.global.framesRemaining === 1 ? '' : 's' }} Remaining</label>
           </TooltipTrigger>
           <TooltipContent side="bottom" :sideOffset="-10" align="center" :collisionPadding="9" class="text-center bg-white border border-gray-800/20 rounded-md shadow-2xl z-50 p-4 w-xs text-slate-900/60">
             The number of future frames for which you own mining rights.
@@ -31,10 +31,11 @@
         </TooltipRoot>
         <TooltipRoot>
           <TooltipTrigger as="div" box stat-box class="flex flex-col w-[20%] !py-4 group">
-            <span>
+            <span v-if="visibleMiningMetrics" :class="isHistoricalMetricsPending ? 'opacity-75' : ''">
               {{ currency.symbol
-              }}{{ microgonToMoneyNm(miningReturnSummary.investedCost).formatIfElse('< 100', '0.00', '0,0') }}
+              }}{{ microgonToMoneyNm(visibleMiningMetrics.returnSummary.investedCost).formatIfElse('< 100', '0.00', '0,0') }}
             </span>
+            <span v-else :class="isHistoricalMetricsPending ? 'opacity-75' : ''">--</span>
             <label>Invested Cost</label>
           </TooltipTrigger>
           <TooltipContent side="bottom" :sideOffset="-10" align="center" :collisionPadding="9" class="text-center bg-white border border-gray-800/20 rounded-md shadow-2xl z-50 p-4 w-xs text-slate-900/60">
@@ -44,10 +45,11 @@
         </TooltipRoot>
         <TooltipRoot>
           <TooltipTrigger as="div" box stat-box class="flex flex-col w-[20%] !py-4 group">
-            <span>
+            <span v-if="visibleMiningMetrics" :class="isHistoricalMetricsPending ? 'opacity-75' : ''">
               {{ currency.symbol
-              }}{{ microgonToMoneyNm(miningReturnSummary.returnAmount ?? 0n).formatIfElse('< 100', '0.00', '0,0') }}
+              }}{{ microgonToMoneyNm(visibleMiningMetrics.returnSummary.returnAmount ?? 0n).formatIfElse('< 100', '0.00', '0,0') }}
             </span>
+            <span v-else :class="isHistoricalMetricsPending ? 'opacity-75' : ''">--</span>
             <label>Profit to Date</label>
           </TooltipTrigger>
           <TooltipContent side="bottom" :sideOffset="-10" align="end" :collisionPadding="9" class="text-right bg-white border border-gray-800/20 rounded-md shadow-2xl z-50 p-4 w-xs text-slate-900/60">
@@ -57,10 +59,10 @@
         </TooltipRoot>
         <TooltipRoot>
           <TooltipTrigger as="div" box stat-box class="flex flex-col w-[20%] !py-4 group">
-            <span v-if="miningReturnSummary.percent !== undefined">
-              {{ numeral(miningReturnSummary.percent).formatIfElseCapped('< 100', '0.[00]', '0,0', 9_999) }}%
+            <span v-if="visibleMiningMetrics?.returnSummary.percent !== undefined" :class="isHistoricalMetricsPending ? 'opacity-75' : ''">
+              {{ numeral(visibleMiningMetrics.returnSummary.percent).formatIfElseCapped('< 100', '0.[00]', '0,0', 9_999) }}%
             </span>
-            <span v-else>--</span>
+            <span v-else :class="isHistoricalMetricsPending ? 'opacity-75' : ''">--</span>
             <label>Mining RTD</label>
           </TooltipTrigger>
           <TooltipContent side="bottom" :sideOffset="-10" align="end" :collisionPadding="9" class="text-right bg-white border border-gray-800/20 rounded-md shadow-2xl z-50 p-4 w-xs text-slate-900/60">
@@ -69,6 +71,26 @@
           </TooltipContent>
         </TooltipRoot>
       </section>
+
+      <div v-if="isHistoricalMetricsPending" class="flex items-center gap-1.5 px-2.5 text-xs text-slate-500">
+        <span v-if="bot.state?.historyError">Mining earnings history could not be loaded.</span>
+        <span v-else-if="bot.historicalDbError">Past mining earnings are temporarily out of date.</span>
+        <span v-else>Loading past mining earnings: {{ numeral(historicalMetricsProgress).format('0.0') }}%</span>
+        <TooltipRoot>
+          <TooltipTrigger as="span" tabindex="0" aria-label="About mining earnings history" class="inline-flex cursor-help text-slate-400 hover:text-slate-600">
+            <InformationCircleIcon class="size-4" />
+          </TooltipTrigger>
+          <TooltipPortal>
+            <TooltipContent side="top" align="center" :sideOffset="8" :collisionPadding="9" :style="floatingZIndex" class="max-w-xs rounded-md border border-gray-800/20 bg-white p-3 text-sm text-slate-700 shadow-2xl">
+              <template v-if="bot.state?.historyError">Something failed during the restoration of your mining earnings history. If you'd like help, you can use the Troubleshoot link to download a debugging package and send it to a Core Developer on Discord.</template>
+              <template v-else-if="bot.historicalDbError">The desktop will retry loading older mining records when the bot updates.</template>
+              <template v-else>These totals will update when older earnings finish loading.</template>
+              <TooltipArrow :width="16" :height="8" class="-mt-px fill-white stroke-[0.5px] stroke-gray-800/20" />
+            </TooltipContent>
+          </TooltipPortal>
+        </TooltipRoot>
+        <button v-if="bot.state?.historyError" type="button" class="ml-1 cursor-pointer text-argon-600 underline" @click="basicEmitter.emit('openTroubleshootingOverlay', { screen: 'overview' })">Troubleshoot</button>
+      </div>
 
       <section class="flex min-w-0 flex-row gap-x-2.5 grow">
         <div class="flex min-w-0 flex-col grow gap-y-2">
@@ -178,7 +200,10 @@
           </section>
 
           <section box class="relative flex flex-col h-[35%] !pb-0.5 px-2">
-            <FrameSlider
+            <div v-if="sliderFrameIndex < 0" class="flex h-full items-center justify-center text-sm text-slate-500">
+              Historical chart loading
+            </div>
+            <FrameSlider v-else
               ref="frameSliderRef"
               :chartItems="chartItems"
               :selectedIndex="sliderFrameIndex"
@@ -193,44 +218,14 @@
 <script lang="ts">
 import * as Vue from 'vue';
 import type { IMiningFrameDetail } from '@argonprotocol/apps-core';
-import { IDashboardFrameStats } from '../../interfaces/IMiningSeatStats.ts';
 import type { IChartItem } from '../../interfaces/IChartItem.ts';
+import type { IDashboardGlobalStats } from '../../interfaces/IMiningSeatStats.ts';
+import type { IFinancialReturnSummary } from '../../interfaces/IFinancialPosition.ts';
 import dayjs from 'dayjs';
 import relativeTime from 'dayjs/plugin/relativeTime';
 import utc from 'dayjs/plugin/utc';
 
 // Keep dashboard state warm across unmounts so switching tabs doesn't cold-start the view.
-const currentFrame = Vue.ref<IDashboardFrameStats>({
-  id: 0,
-  date: '',
-  firstTick: 0,
-  allMinersCount: 0,
-  seatCountActive: 0,
-  seatCostTotalFramed: 0n,
-  microgonToUsd: [0n],
-  microgonToArgonot: [0n],
-  blocksMinedTotal: 0,
-
-  micronotsMinedTotal: 0n,
-  microgonsMinedTotal: 0n,
-  microgonsMintedTotal: 0n,
-  microgonFeesCollectedTotal: 0n,
-  microgonValueOfRewards: 0n,
-
-  progress: 0,
-  profit: 0,
-  profitPct: 0,
-  score: 0,
-  accruedMicrogonProfits: 0n,
-
-  expected: {
-    blocksMinedTotal: 0,
-    micronotsMinedTotal: 0n,
-    microgonsMinedTotal: 0n,
-    microgonsMintedTotal: 0n,
-    microgonValueOfRewards: 0n,
-  },
-});
 const chartItems = Vue.ref<IChartItem[]>([]);
 const frameDetail = Vue.ref<IMiningFrameDetail | null>(null);
 const latestLiveFrameDetail = Vue.ref<IMiningFrameDetail | null>(null);
@@ -238,6 +233,12 @@ const loadingFrameId = Vue.ref<number | null>(null);
 const historicalFrameDetailByFrameId = new Map<number, IMiningFrameDetail>();
 const pendingFrameDetailByFrameId = new Map<number, Promise<IMiningFrameDetail>>();
 let frameDetailRequestId = 0;
+const lastCompleteMiningMetrics = Vue.shallowRef<{
+  owner: object;
+  account: string;
+  global: IDashboardGlobalStats;
+  returnSummary: IFinancialReturnSummary;
+} | null>(null);
 
 dayjs.extend(relativeTime);
 dayjs.extend(utc);
@@ -252,7 +253,9 @@ import numeral, { createNumeralHelpers } from '../../lib/numeral.ts';
 import { TICK_MILLIS } from '../../lib/Env.ts';
 import basicEmitter from '../../emitters/basicEmitter.ts';
 import FrameSlider from '../../components/FrameSlider.vue';
-import { TooltipProvider, TooltipRoot, TooltipTrigger, TooltipContent, TooltipArrow } from 'reka-ui';
+import { InformationCircleIcon } from '@heroicons/vue/24/outline';
+import { TooltipProvider, TooltipRoot, TooltipTrigger, TooltipContent, TooltipArrow, TooltipPortal } from 'reka-ui';
+import { useFloatingZIndex } from '../../overlays/helpers/OverlayZIndex.ts';
 import CountdownClock from '../../components/CountdownClock.vue';
 import MiningSeats from './components/MiningSeats.vue';
 import { getBlockWatch, getMainchainClient, getMining, getMiningFrames } from '../../stores/mainchain.ts';
@@ -273,8 +276,24 @@ const mining = getMining();
 const miningFrames = getMiningFrames();
 const wallets = useWallets();
 const financials = useFinancials();
+const floatingZIndex = useFloatingZIndex();
 
 const { microgonToMoneyNm, micronotToArgonotNm } = createNumeralHelpers(currency);
+
+const isHistoricalMetricsPending = Vue.computed(
+  () =>
+    Boolean(bot.state?.isSyncing || bot.state?.historyError || bot.historicalDbError) ||
+    Boolean(bot.state?.oldestFrameIdToSync && bot.historicalDbProgress === null) ||
+    (bot.historicalDbProgress !== null && bot.historicalDbProgress < 100),
+);
+const historicalMetricsProgress = Vue.computed(() => bot.syncProgress);
+const currentFrame = Vue.computed(() => ({
+  id: myMiningSeats.selectedFrameId,
+  firstTick:
+    myMiningSeats.frames.find(frame => frame.id === myMiningSeats.selectedFrameId)?.firstTick ??
+    miningFrames.framesById?.[myMiningSeats.selectedFrameId]?.frameStartTick ??
+    0,
+}));
 
 const frameSliderRef = Vue.ref<InstanceType<typeof FrameSlider> | null>(null);
 const lastBlockMinerAddress = Vue.ref<string>();
@@ -284,9 +303,8 @@ let foregroundRefreshPromise: Promise<void> | null = null;
 let stopBestBlockSubscription: (() => void) | null = null;
 
 const sliderFrameIndex = Vue.computed(() => {
-  const lastIndex = Math.max(myMiningSeats.frames.length - 1, 0);
-  const selectedIndex = myMiningSeats.frames.findIndex(frame => frame.id === myMiningSeats.selectedFrameId);
-  return Math.min(Math.max(selectedIndex >= 0 ? selectedIndex : lastIndex, 0), lastIndex);
+  if (myMiningSeats.selectedFrameId === myMiningSeats.latestFrameId) return myMiningSeats.frames.length - 1;
+  return myMiningSeats.frames.findIndex(frame => frame.id === myMiningSeats.selectedFrameId);
 });
 const isSelectedLiveFrame = Vue.computed(() => {
   return currentFrame.value.id === myMiningSeats.latestFrameId;
@@ -408,6 +426,27 @@ const miningReturnSummary = Vue.computed(() => {
   return financials.financialPositionAggregate.groupSummaries.mining.returnSummary;
 });
 
+Vue.watchEffect(
+  () => {
+    if (!bot.isReady || !myMiningSeats.isLoaded || isHistoricalMetricsPending.value) return;
+    lastCompleteMiningMetrics.value = {
+      owner: bot,
+      account: wallets.miningBotWallet.address,
+      global: { ...myMiningSeats.global },
+      returnSummary: { ...miningReturnSummary.value },
+    };
+  },
+  { flush: 'sync' },
+);
+
+const visibleMiningMetrics = Vue.computed(() => {
+  if (!isHistoricalMetricsPending.value) {
+    return { global: myMiningSeats.global, returnSummary: miningReturnSummary.value };
+  }
+  const lastComplete = lastCompleteMiningMetrics.value;
+  return lastComplete?.owner === bot && lastComplete.account === wallets.miningBotWallet.address ? lastComplete : null;
+});
+
 const totalBlocksMined = Vue.computed(() => {
   return myMiningSeats.frames.reduce((sum, frame) => sum + frame.blocksMinedTotal, 0);
 });
@@ -421,6 +460,7 @@ const currentFrameStartDate = Vue.computed(() => {
 });
 
 const currentFrameEndDate = Vue.computed(() => {
+  if (!currentFrame.value.firstTick) return '-----';
   const frameEndTick = miningFrames.getTickEnd(currentFrame.value.id);
   if (!frameEndTick) {
     return '-----';
@@ -482,8 +522,6 @@ async function refreshDashboardFromForeground() {
 
       await myMiningSeats.refresh();
 
-      await updateSliderFrame(sliderFrameIndex.value);
-
       if (currentFrame.value.id === myMiningSeats.latestFrameId) {
         await refreshLiveAuctionCloseTick(currentFrame.value.id);
         await refreshLiveFrameDetail();
@@ -502,7 +540,7 @@ async function refreshDashboardFromForeground() {
 
 async function refreshLiveAuctionCloseTick(frameId: number): Promise<void> {
   try {
-    const client = await getMainchainClient(true);
+    const client = await getMainchainClient(false);
     const tick = await mining.fetchTickAtStartOfAuctionClosing(client);
 
     if (frameId !== myMiningSeats.latestFrameId || currentFrame.value?.id !== frameId) {
@@ -551,7 +589,7 @@ async function loadFrameDetail(frameId: number): Promise<IMiningFrameDetail> {
 }
 
 async function loadLiveFrameDetailFromChain(frameId: number): Promise<IMiningFrameDetail> {
-  const client = await getMainchainClient(true);
+  const client = await getMainchainClient(false);
   const [winningBids, slots, totalBidCount, expectedAuctionCloseTick] = await Promise.all([
     Mining.fetchWinningBids(client),
     mining.fetchCurrentMiningSeats(wallets.miningBotWallet.address),
@@ -583,40 +621,31 @@ function prefetchHistoricalFrameDetail(frameId: number) {
   });
 }
 
-async function updateSliderFrame(newFrameIndex: number, isUserAction = false) {
-  const lastIndex = Math.max(myMiningSeats.frames.length - 1, 0);
-  const nextFrameIndex = Math.min(Math.max(newFrameIndex, 0), lastIndex);
-  const nextFrame = myMiningSeats.frames[nextFrameIndex];
-  if (!nextFrame) return;
-
-  const frameId = nextFrame.id;
-  const didSelectFrame = myMiningSeats.selectFrameId(frameId, {
-    isUserAction,
-    skipDashboardUpdate: true,
-  });
-  if (!didSelectFrame) return;
-
-  currentFrame.value = nextFrame;
-
-  if (frameId === myMiningSeats.latestFrameId) {
-    loadingFrameId.value = null;
-    if (latestLiveFrameDetail.value?.frameId === frameId) {
-      frameDetail.value = latestLiveFrameDetail.value;
-    }
-    void refreshLiveFrameDetail();
+function updateSliderFrame(newFrameIndex: number, isUserAction = false) {
+  // The right edge selects live bidding even before this frame's earnings have been imported.
+  if (isUserAction && newFrameIndex === myMiningSeats.frames.length - 1) {
+    myMiningSeats.selectFrameId(myMiningSeats.latestFrameId, { isUserAction, skipDashboardUpdate: true });
     return;
   }
-
-  await loadHistoricalFrameDetail(frameId);
+  const nextFrame = myMiningSeats.frames[newFrameIndex];
+  if (!nextFrame) return;
+  myMiningSeats.selectFrameId(nextFrame.id, { isUserAction, skipDashboardUpdate: true });
 }
 
+Vue.watch(() => myMiningSeats.frames, loadChartData, { deep: true });
+
 Vue.watch(
-  () => myMiningSeats.frames,
-  () => {
-    loadChartData();
-    void updateSliderFrame(sliderFrameIndex.value);
+  () => myMiningSeats.selectedFrameId,
+  frameId => {
+    if (!frameId) return;
+    if (frameId === myMiningSeats.latestFrameId) {
+      loadingFrameId.value = null;
+      void refreshLiveFrameDetail();
+    } else {
+      void loadHistoricalFrameDetail(frameId);
+    }
   },
-  { deep: true },
+  { immediate: true },
 );
 
 async function refreshLiveFrameDetail() {
@@ -714,7 +743,6 @@ Vue.onMounted(() => {
   void myMiningSeats.subscribeToDashboard({ selectLatestFrame: true });
   void myMiningSeats.subscribeToActivity();
   loadChartData();
-  void updateSliderFrame(sliderFrameIndex.value);
 
   void blockWatch
     .start()

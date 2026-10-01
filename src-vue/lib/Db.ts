@@ -61,6 +61,7 @@ export class Db {
   public bitcoinReleasesTable: BitcoinReleasesTable;
   private readonly transactionId?: number;
   private readonly tableStates: Map<object, unknown>;
+  private readonly commitCallbacks: (() => void)[] = [];
 
   constructor(
     sql: PluginSql,
@@ -177,8 +178,12 @@ export class Db {
     }
   }
 
-  // Transaction tables share their root table's state. Keep cache and revision mutations outside
-  // the callback so a database rollback cannot leave in-memory state published.
+  public afterCommit(callback: () => void): void {
+    if (this.transactionId === undefined) callback();
+    else this.commitCallbacks.push(callback);
+  }
+
+  // Transaction tables share their root table's state; publish cache changes only after commit.
   public async transaction<T>(callback: (transaction: Db) => Promise<T>): Promise<T> {
     if (this.transactionId !== undefined) throw new Error('Nested SQL transactions are not supported');
     if (this.writesPaused) throw new Error('Cannot start a SQL transaction while database writes are paused');
@@ -201,6 +206,7 @@ export class Db {
     }
 
     await invoke('sql_commit_transaction', { sessionId: SQL_TRANSACTION_SESSION_ID, transactionId });
+    for (const callback of transaction.commitCallbacks) callback();
     return result;
   }
 

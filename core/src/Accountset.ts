@@ -122,8 +122,9 @@ export class Accountset {
 
   public async getAvailableMinerAccounts(
     maxSeats: number,
+    miningSeats?: Awaited<ReturnType<Accountset['miningSeatsAndBids']>>,
   ): Promise<{ index: number; isRebid: boolean; address: string }[]> {
-    const miningSeats = await this.miningSeatsAndBids();
+    miningSeats ??= await this.miningSeatsAndBids();
     const subaccountRange = [];
     for (const seat of miningSeats) {
       if (seat.hasWinningBid) {

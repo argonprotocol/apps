@@ -13,6 +13,7 @@ import type { ServerApiClient } from './ServerApiClient.ts';
 
 export type IBotEmitter = {
   'updated-mining-state': number;
+  'updated-current-bids': number;
   'updated-cohort-history': number;
   'updated-server-state': void;
   'status-changed': BotStatus;
@@ -22,6 +23,8 @@ export const botEmitter: Emitter<IBotEmitter> = mitt<IBotEmitter>();
 
 export class Bot {
   public syncProgress: number;
+  public historicalDbProgress: number | null = null;
+  public historicalDbError: string | null = null;
   public state: IBotState | null;
 
   private readonly config: Config;
@@ -73,7 +76,11 @@ export class Bot {
         },
         setBotState: x => (this.state = x),
         setServerSyncProgress: x => (this.syncProgress = x * 0.9),
-        setDbSyncProgress: x => (this.syncProgress = 90 + x * 0.1),
+        setDbSyncProgress: x => {
+          this.historicalDbProgress = x;
+          this.syncProgress = 90 + x * 0.1;
+        },
+        setDbHistoryError: x => (this.historicalDbError = x),
       });
 
       await this.loadServerConfig().catch(err => {

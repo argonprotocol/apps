@@ -39,17 +39,24 @@
 
     <template #content>
       <template v-if="capitalTransfer">
-        <header class="px-4 pt-3 text-center font-bold">Changing Mining Capital</header>
+        <header class="px-4 pt-3 text-center font-bold">
+          {{ capitalTransfer.isComplete ? 'Mining Capital Updated' : 'Changing Mining Capital' }}
+        </header>
         <div class="px-4 pt-3 pb-4 text-slate-700">
           <p class="font-mono">
             {{ microgonToArgonNm(capitalTransfer.microgons).format('0,0.[00]') }} ARGN
             <span class="mx-1 text-slate-400">·</span>
             {{ micronotToArgonotNm(capitalTransfer.micronots).format('0,0.[00]') }} ARGNOT
           </p>
-          <ProgressBar :progress="capitalTransfer.progressPct" :hasError="!!capitalTransfer.error" class="mt-3 h-7" />
-          <p class="mt-2 text-center text-slate-500">
-            {{ capitalTransfer.error || capitalTransfer.progressLabel }}
-          </p>
+          <template v-if="capitalTransfer.isComplete">
+            <p class="mt-3 text-center text-slate-500">Your mining capital change is complete.</p>
+          </template>
+          <template v-else>
+            <ProgressBar :progress="capitalTransfer.progressPct" :hasError="!!capitalTransfer.error" class="mt-3 h-7" />
+            <p class="mt-2 text-center text-slate-500">
+              {{ capitalTransfer.error || capitalTransfer.progressLabel }}
+            </p>
+          </template>
           <footer class="mt-3 flex justify-end border-t border-slate-300 pt-3">
             <button
               type="button"

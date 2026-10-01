@@ -66,7 +66,7 @@ import { getCurrency } from '../stores/currency.ts';
 import { getMainchainClient } from '../stores/mainchain.ts';
 import { PopoverContent, PopoverPortal, PopoverRoot, PopoverTrigger } from 'reka-ui';
 import { getMyMiningSeats } from '../stores/myMiningSeats.ts';
-import { type IBidsFile, Mining } from '@argonprotocol/apps-core';
+import { type IWinningBid, Mining } from '@argonprotocol/apps-core';
 import { createNumeralHelpers } from '../lib/numeral.ts';
 import { TICK_MILLIS } from '../lib/Env.ts';
 import { getWalletKeys } from '../stores/wallets.ts';
@@ -102,7 +102,7 @@ const popoverSide = Vue.computed(() => {
 
 const { microgonToMoneyNm } = createNumeralHelpers(currency);
 
-const allWinningBids = Vue.computed<IBidsFile['winningBids']>(() => myMiningSeats.allWinningBids);
+const allWinningBids = Vue.computed<IWinningBid[]>(() => myMiningSeats.allWinningBids);
 
 function formatMicrogonsBid(microgonsBid: bigint | undefined): string {
   if (!microgonsBid) return '0.00';

@@ -65,9 +65,10 @@ export class MyMiningSeats {
   private loadPromise?: Promise<void>;
   private serverStateRefreshPromise?: Promise<void>;
   private pendingMiningStateFrameId?: number;
+  private pendingSeatRefresh = false;
   private miningStateRefreshPromise?: Promise<void>;
   private miningCohortsById = new Map<number, IMiningCohortFinancialRecord>();
-  private hasRefreshedCompletedMiningHistory = false;
+  private pendingHistoryRefresh = false;
 
   public db!: Db;
 
@@ -220,17 +221,14 @@ export class MyMiningSeats {
 
         stage = 'post-load-updates';
         await Promise.all([this.updateMiningSeats(), this.updateMiningBids(), this.updateServerState()]);
-        this.hasRefreshedCompletedMiningHistory = true;
         this.financialRevision += 1;
 
         botEmitter.on('updated-mining-state', frameId => this.queueMiningStateRefresh(frameId));
+        botEmitter.on('updated-current-bids', frameId => this.queueMiningStateRefresh(frameId, false));
 
-        botEmitter.on('updated-cohort-history', async () => {
-          if (this.serverStateRefreshPromise) await this.serverStateRefreshPromise;
-          if (this.miningStateRefreshPromise) await this.miningStateRefreshPromise;
-          await this.updateMiningSeats();
-          this.hasRefreshedCompletedMiningHistory = true;
-          this.financialRevision += 1;
+        botEmitter.on('updated-cohort-history', () => {
+          this.pendingHistoryRefresh = true;
+          this.queueMiningStateRefresh(this.latestFrameId);
         });
 
         botEmitter.on('updated-server-state', async () => {
@@ -319,18 +317,22 @@ export class MyMiningSeats {
     return this.dashboardSubscribers > 0;
   }
 
-  private queueMiningStateRefresh(frameId: number): void {
+  private queueMiningStateRefresh(frameId: number, refreshSeats = true): void {
     this.pendingMiningStateFrameId = Math.max(frameId, this.pendingMiningStateFrameId ?? 0);
+    this.pendingSeatRefresh ||= refreshSeats;
     if (this.miningStateRefreshPromise) return;
 
     const refreshPromise = this.refreshPendingMiningState();
     this.miningStateRefreshPromise = refreshPromise;
     void refreshPromise
-      .catch(error => console.error('[MyMiningSeats] Unable to refresh current mining state', error))
+      .catch(error => {
+        this.pendingHistoryRefresh = true;
+        console.error('[MyMiningSeats] Unable to refresh current mining state', error);
+      })
       .finally(() => {
         if (this.miningStateRefreshPromise === refreshPromise) this.miningStateRefreshPromise = undefined;
         const pendingFrameId = this.pendingMiningStateFrameId;
-        if (pendingFrameId !== undefined) this.queueMiningStateRefresh(pendingFrameId);
+        if (pendingFrameId !== undefined) this.queueMiningStateRefresh(pendingFrameId, false);
       });
   }
 
@@ -340,26 +342,31 @@ export class MyMiningSeats {
       this.pendingMiningStateFrameId = undefined;
       if (this.serverStateRefreshPromise) await this.serverStateRefreshPromise;
 
-      const isOnLatestFrame = this.selectedFrameId === this.latestFrameId;
-      const fromFrameId = this.hasRefreshedCompletedMiningHistory
-        ? Math.max(0, frameId - NetworkConfig.framesPerCohort)
-        : 0;
+      const refreshHistory = this.pendingHistoryRefresh;
+      const refreshSeats = this.pendingSeatRefresh || refreshHistory;
+      this.pendingHistoryRefresh = false;
+      this.pendingSeatRefresh = false;
+      const fromFrameId = refreshHistory ? 0 : Math.max(0, frameId - NetworkConfig.framesPerCohort);
       const [miningCohorts, frameBids] = await Promise.all([
-        this.db.cohortsTable.fetchFinancialPositions(fromFrameId),
+        refreshSeats ? this.db.cohortsTable.fetchFinancialPositions(fromFrameId) : undefined,
         this.db.frameBidsTable.fetchForFrameId(frameId),
       ]);
-      if ((this.pendingMiningStateFrameId ?? frameId) > frameId) continue;
-      if (frameId < this.latestFrameId) continue;
+      if ((this.pendingMiningStateFrameId ?? frameId) > frameId || frameId < this.latestFrameId) {
+        this.pendingHistoryRefresh ||= refreshHistory;
+        this.pendingSeatRefresh ||= refreshSeats;
+        continue;
+      }
 
       if (frameId > this.latestFrameId) {
+        const isOnLatestFrame = this.selectedFrameId === this.latestFrameId;
         this.latestFrameId = frameId;
         if (isOnLatestFrame) this.selectFrameId(frameId, { skipDashboardUpdate: true });
       }
 
-      this.publishMiningSeats(fromFrameId, miningCohorts);
+      if (miningCohorts) this.publishMiningSeats(fromFrameId, miningCohorts);
       this.publishMiningBids(frameBids);
-      this.hasRefreshedCompletedMiningHistory = true;
       this.financialRevision += 1;
+      if (!refreshSeats) continue;
 
       if (this.isSubscribedToDashboard) {
         await this.updateDashboard();

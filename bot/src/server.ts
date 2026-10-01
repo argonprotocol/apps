@@ -44,7 +44,7 @@ export class BotServer {
       '/history': async frameId => await bot.getHistoryForFrame(frameId),
       '/mining-frame': async frameId => await bot.getMiningFrameDetail(frameId),
       '/bids': async cohortBiddingFrameId => {
-        const startingFrameId = cohortBiddingFrameId ?? (await bot.currentFrameId);
+        const startingFrameId = cohortBiddingFrameId ?? bot.currentFrameId;
         return await bot.storage.bidsFile(startingFrameId, startingFrameId + 1).get();
       },
       '/earnings': async frameId => await bot.storage.earningsFile(frameId).get(),
@@ -63,6 +63,10 @@ export class BotServer {
     app.use(cors({ origin: true, methods: ['GET', 'POST'] }));
 
     app.get('/is-ready', async (_req, res) => {
+      if (this.startupError) {
+        sendJson(res, { error: this.startupError }, 503);
+        return;
+      }
       sendJson(res, bot.isReady);
     });
 

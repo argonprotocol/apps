@@ -3,7 +3,6 @@ import type { ILastModifiedAt } from './ILastModified.ts';
 export interface IBidsFile extends ILastModifiedAt {
   cohortBiddingFrameId: number;
   cohortActivationFrameId: number;
-  biddingFrameFirstTick: number;
   biddingFrameRewardTicksRemaining: number;
   lastBlockNumber: number;
   microgonsBidTotal: bigint;
@@ -14,7 +13,6 @@ export interface IBidsFile extends ILastModifiedAt {
   microgonsToBeMinedPerBlock: bigint;
   seatCountWon: number;
   allMinersCount: number;
-  winningBids: Array<IWinningBid>;
 }
 
 export interface IWinningBid {

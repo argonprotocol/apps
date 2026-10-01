@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 import { spawn } from 'child_process';
-import { createArgonClient, type INetworkConfigOverride, NetworkConfig } from '@argonprotocol/apps-core';
+import { createArgonClient, type INetworkConfigOverride, NetworkConfig, toComposeProjectName } from '@argonprotocol/apps-core';
 import { getClient } from '@argonprotocol/mainchain';
 import { ensureDevGatewayCerts } from '../scripts/devGatewayCerts.ts';
 import {
@@ -82,7 +82,9 @@ async function main(): Promise<void> {
       console.log(
         `[tauri-dev] Resolved compose ports archiveNode=${composePorts.archivePort} archiveRpc=${composePorts.archiveRpcPort} archiveP2p=${composePorts.archiveP2pPort} bitcoinP2p=${composePorts.bitcoinP2pPort} esplora=${composePorts.esploraPort}${composePorts.indexerPort ? ` indexer=${composePorts.indexerPort}` : ''} notary=${composePorts.notaryAliasContainerId}`,
       );
-      Object.assign(tauriEnv, getDevDockerServerEnvVars(composePorts));
+      const upstreamProjectName = getDevDockerComposeContext().composeProjectName;
+      const appProjectName = toComposeProjectName(argonAppInstance.split(':')[0] || 'default', network);
+      Object.assign(tauriEnv, getDevDockerServerEnvVars(composePorts, upstreamProjectName === appProjectName));
     } else {
       console.warn('[tauri-dev] Server env override unavailable, falling back to static server config');
     }
@@ -414,10 +416,12 @@ async function resolveDevDockerComposePorts(): Promise<DevDockerComposePorts | n
   };
 }
 
-function getDevDockerServerEnvVars(ports: DevDockerComposePorts): NodeJS.ProcessEnv {
+function getDevDockerServerEnvVars(ports: DevDockerComposePorts, isSharedComposeNetwork: boolean): NodeJS.ProcessEnv {
   return {
     ARGON_ARCHIVE_NODE: `ws://host.docker.internal:${ports.archiveRpcPort}`,
-    ARGON_BOOTNODES: `--bootnodes=/dns/host.docker.internal/tcp/${ports.archiveP2pPort}/p2p/12D3KooWMdmKGEuFPVvwSd92jCQJgX9aFCp45E8vV2X284HQjwnn`,
+    ARGON_BOOTNODES: isSharedComposeNetwork
+      ? '--bootnodes=/dns/archive-node/tcp/30334/p2p/12D3KooWMdmKGEuFPVvwSd92jCQJgX9aFCp45E8vV2X284HQjwnn'
+      : `--bootnodes=/dns/host.docker.internal/tcp/${ports.archiveP2pPort}/p2p/12D3KooWMdmKGEuFPVvwSd92jCQJgX9aFCp45E8vV2X284HQjwnn`,
     BITCOIN_ADDNODE: `host.docker.internal:${ports.bitcoinP2pPort}`,
     NOTEBOOK_ARCHIVE_HOSTS: ports.notaryArchiveHost,
     NOTARY_ALIAS_CONTAINER_ID: ports.notaryAliasContainerId,

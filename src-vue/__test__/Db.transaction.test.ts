@@ -108,18 +108,44 @@ describe('Db transactions', () => {
     expect(invoke).not.toHaveBeenCalledWith('sql_commit_transaction', expect.anything());
   });
 
-  it('uses the root table state in the transaction-bound table instances', async () => {
+  it('shares table caches but publishes changes only after a successful commit', async () => {
     invoke.mockImplementation(async (command: string) => {
       if (command === 'sql_begin_transaction') return 31;
+      if (command === 'sql_execute') return { rowsAffected: 1 };
     });
     db.walletTransfersTable.revision = 4;
+    const earnings = {
+      frameId: 12,
+      cohortActivationFrameId: 11,
+      blocksMinedTotal: 1,
+      micronotsMinedTotal: 0n,
+      microgonsMinedTotal: 10n,
+      microgonsMintedTotal: 0n,
+      microgonFeesCollectedTotal: 0n,
+    };
 
     await db.transaction(async transaction => {
       expect(transaction.walletTransfersTable).not.toBe(db.walletTransfersTable);
       expect(transaction.walletTransfersTable.state).toBe(db.walletTransfersTable.state);
       expect(transaction.walletTransfersTable.revision).toBe(4);
+      await transaction.cohortFramesTable.insertOrUpdate(earnings);
+      expect(db.cohortFramesTable.state.cache.get('12:11')).toBeUndefined();
     });
 
     expect(db.walletTransfersTable.revision).toBe(4);
+    expect(db.cohortFramesTable.state.cache.get('12:11')?.microgonsMinedTotal).toBe(10n);
+
+    const failure = new Error('commit failed');
+    invoke.mockImplementation(async (command: string) => {
+      if (command === 'sql_begin_transaction') return 32;
+      if (command === 'sql_execute') return { rowsAffected: 1 };
+      if (command === 'sql_commit_transaction') throw failure;
+    });
+    await expect(
+      db.transaction(transaction =>
+        transaction.cohortFramesTable.insertOrUpdate({ ...earnings, microgonsMinedTotal: 20n }),
+      ),
+    ).rejects.toBe(failure);
+    expect(db.cohortFramesTable.state.cache.get('12:11')?.microgonsMinedTotal).toBe(10n);
   });
 });

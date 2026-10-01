@@ -102,6 +102,8 @@ export function setupMiningPortfolioScenario(selectedFrameId = 120) {
     Vue.reactive({
       isReady: true,
       isSyncing: false,
+      syncProgress: 100,
+      historicalDbProgress: 100,
       state: {
         isBiddingOpen: true,
         currentTick: 2_000_100,
@@ -132,6 +134,20 @@ export function setupMiningPortfolioScenario(selectedFrameId = 120) {
   mocked(getMiningFrames, { partial: true }).mockReturnValue({
     currentTick: 2_000_100,
     currentFrameId: 120,
+    framesById: Object.fromEntries(
+      frames.map(frame => [
+        frame.id,
+        {
+          frameId: frame.id,
+          frameStartTick: frame.firstTick,
+          dateStart: new Date(frame.date),
+          firstBlockNumber: null,
+          firstBlockHash: null,
+          firstBlockTick: null,
+          firstBlockSpecVersion: null,
+        },
+      ]),
+    ),
     load: fn(async () => undefined),
     getTickStart: fn((frameId: number) => 2_000_000 + frameId * 10 - 9),
     getTickEnd: fn((frameId: number) => 2_000_000 + frameId * 10),
@@ -210,7 +226,6 @@ function createFrame(id: number): IDashboardFrameStats {
     allMinersCount: 40 + (id % 8),
     seatCountActive: activeSeatCount,
     seatCostTotalFramed: BigInt(activeSeatCount) * 55_000_000n,
-    accruedMicrogonProfits: BigInt(activeSeatCount) * 9_000_000n,
     blocksMinedTotal: activeSeatCount * 74,
     microgonToUsd: [1_000_000n],
     microgonToArgonot: [14_000_000n],

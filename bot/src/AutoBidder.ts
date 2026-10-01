@@ -7,7 +7,6 @@ import {
   Mining,
   MiningFrames,
 } from '@argonprotocol/apps-core';
-import { type Storage } from './Storage.ts';
 import { type History } from './History.ts';
 import BiddingCalculatorData from '@argonprotocol/apps-core/src/BiddingCalculatorData.ts';
 import BiddingCalculator from '@argonprotocol/apps-core/src/BiddingCalculator.ts';
@@ -42,7 +41,6 @@ export class AutoBidder {
   constructor(
     private readonly accountset: Accountset,
     private readonly mainchainClients: MainchainClients,
-    private readonly storage: Storage,
     private readonly history: History,
     private biddingRules: IBiddingRules | null,
     private readonly miningFrames: MiningFrames,
@@ -90,6 +88,7 @@ export class AutoBidder {
     }
 
     await this.biddingCalculator.load();
+    await this.queueLifecycle(() => this.reloadActiveCohort());
   }
 
   public async stop() {
@@ -224,32 +223,29 @@ export class AutoBidder {
         return;
       }
 
-      const cohortBiddingFrameId = cohortActivationFrameId - 1;
-      const bidsFileData = await this.storage.bidsFile(cohortBiddingFrameId, cohortActivationFrameId).get();
+      const miningSeatsAndBids = await this.accountset.miningSeatsAndBids();
       if (this.isStopped) return;
 
       console.log(`Bidding for frame ${cohortActivationFrameId} started`, {
-        hasStartingStats: !!bidsFileData,
+        winningBids: miningSeatsAndBids.filter(x => x.hasWinningBid).length,
         seatGoal: params.maxSeats,
       });
 
       const subaccounts: { index: number; isRebid: boolean; address: string }[] = [];
-      if (bidsFileData && bidsFileData.winningBids.length) {
-        for (const winningBid of bidsFileData.winningBids) {
-          if (typeof winningBid.subAccountIndex !== 'number') continue;
-          if (this.accountset.subAccountsByAddress[winningBid.address]) {
-            subaccounts.push({
-              index: winningBid.subAccountIndex,
-              isRebid: true,
-              address: winningBid.address,
-            });
-          }
+      for (const winningBid of miningSeatsAndBids) {
+        if (!winningBid.hasWinningBid || !Number.isInteger(winningBid.subaccountIndex)) continue;
+        if (this.accountset.subAccountsByAddress[winningBid.address]) {
+          subaccounts.push({
+            index: winningBid.subaccountIndex,
+            isRebid: true,
+            address: winningBid.address,
+          });
         }
       }
       // check if we need to add more seats
       if (subaccounts.length < params.maxSeats) {
         const neededSeats = params.maxSeats - subaccounts.length;
-        const added = await this.accountset.getAvailableMinerAccounts(neededSeats);
+        const added = await this.accountset.getAvailableMinerAccounts(neededSeats, miningSeatsAndBids);
         subaccounts.push(...added);
       }
       if (this.isStopped) return;

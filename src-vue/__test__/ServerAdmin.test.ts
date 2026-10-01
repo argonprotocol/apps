@@ -1,21 +1,18 @@
 import { expect, it, vi } from 'vitest';
+import { execFileSync } from 'node:child_process';
+import * as fs from 'node:fs';
+import { tmpdir } from 'node:os';
+import * as Path from 'node:path';
 import { InstallStepKey, ServerType } from '../interfaces/IConfig.ts';
 import { ServerAdmin } from '../lib/ServerAdmin.ts';
 
 it('reads persisted mining history with imported server config', async () => {
   const connection = {
-    runCommandWithTimeout: vi.fn().mockImplementation(async (command: string) => {
-      if (command.includes('biddingRules.json')) return ['', 0];
-      if (command.includes('.env.state')) return ['', 0];
-      if (command.includes('bot-state.json')) {
-        return [
-          JSON.stringify({
-            hasMiningBids: true,
-            hasMiningSeats: false,
-          }),
-          0,
-        ];
+    runCommandWithTimeout: vi.fn(async (command: string) => {
+      if (command === 'cat /root/data/argon/bot-state.json 2>/dev/null || true') {
+        return [JSON.stringify({ hasMiningBids: true, hasMiningSeats: false }), 0] as const;
       }
+      if (command.includes('biddingRules.json') || command.includes('.env.state')) return ['', 0] as const;
       throw new Error(`Unexpected command: ${command}`);
     }),
   };
@@ -194,6 +191,118 @@ it('resyncs only the Argon chain data directory', async () => {
     expect.stringContaining('"/root/data/argon"/*'),
     expect.any(Number),
   );
+});
+
+it.skipIf(process.platform === 'win32')(
+  'removes the bot checkpoint and replay files without deleting other server data',
+  async () => {
+    const workDir = fs.mkdtempSync(Path.join(tmpdir(), 'argon-bot-reset-'));
+    const dataDir = Path.join(workDir, 'data', 'argon');
+    fs.mkdirSync(dataDir, { recursive: true });
+    for (const name of [
+      'bot-state.json',
+      'bot-blocks.json.migrated',
+      'bot.sqlite',
+      'bot.sqlite-wal',
+      'bot.sqlite-shm',
+      'router.sqlite',
+    ]) {
+      fs.writeFileSync(Path.join(dataDir, name), 'data');
+    }
+    const connection = {
+      runCommandWithTimeout: vi.fn(async (command: string) => {
+        execFileSync('/bin/sh', ['-c', command.replace(/^sudo /, '')]);
+        return ['', 0] as const;
+      }),
+    };
+    const server = new ServerAdmin(connection as any, {
+      ipAddress: '127.0.0.1',
+      sshUser: 'root',
+      type: ServerType.CustomServer,
+      workDir,
+    });
+
+    try {
+      await server.deleteBotStorageFiles();
+      expect(fs.readdirSync(dataDir)).toEqual(['router.sqlite']);
+    } finally {
+      fs.rmSync(workDir, { recursive: true, force: true });
+    }
+  },
+);
+
+it('carries the bot recovery start frame across a bidding data resync', async () => {
+  const botStatePath = '/root/data/argon/bot-state.json';
+  const envPath = '/root/config/.env.state';
+  const pendingPath = `${envPath}.resync`;
+  const files = new Map([
+    [botStatePath, JSON.stringify({ oldestFrameIdToSync: 211, hasMiningBids: true })],
+    [envPath, 'OLDEST_FRAME_ID_TO_SYNC=\nROUTER_RESTORE_KEY=unchanged\n'],
+  ]);
+  const connection = {
+    runCommandWithTimeout: vi.fn(async (command: string) => {
+      if (command.startsWith('cat /root/data/argon/bot-state.json')) return [files.get(botStatePath) ?? '', 0] as const;
+      if (command === `cat ${envPath}`) return [files.get(envPath) ?? '', 0] as const;
+      if (command.startsWith('chmod --reference=') && command.includes(' && mv -- ')) {
+        files.set(envPath, files.get(pendingPath)!);
+        files.delete(pendingPath);
+        return ['', 0] as const;
+      }
+      if (command.startsWith('sudo rm -rf ')) {
+        files.delete(botStatePath);
+        return ['', 0] as const;
+      }
+      throw new Error(`Unexpected command: ${command}`);
+    }),
+    uploadFileWithTimeout: vi.fn(async (contents: string, path: string) => {
+      files.set(path, contents);
+    }),
+  };
+  const server = new ServerAdmin(connection as any, {
+    ipAddress: '127.0.0.1',
+    sshUser: 'root',
+    type: ServerType.CustomServer,
+    workDir: '/root',
+  });
+
+  await server.persistBotSyncStartFrame();
+  await server.deleteBotStorageFiles();
+
+  expect(files.has(botStatePath)).toBe(false);
+  expect(files.get(envPath)).toBe('OLDEST_FRAME_ID_TO_SYNC=211\nROUTER_RESTORE_KEY=unchanged\n');
+  await expect(server.persistBotSyncStartFrame()).resolves.toBeUndefined();
+});
+
+it('stops a bidding data resync when there is no recovery start frame to preserve', async () => {
+  const connection = {
+    runCommandWithTimeout: vi.fn(async (command: string) => {
+      if (command.includes('bot-state.json')) return ['', 0] as const;
+      if (command.includes('.env.state')) return ['OLDEST_FRAME_ID_TO_SYNC=\n', 0] as const;
+      throw new Error(`Unexpected command: ${command}`);
+    }),
+    uploadFileWithTimeout: vi.fn(),
+  };
+  const server = new ServerAdmin(connection as any, {
+    ipAddress: '127.0.0.1',
+    sshUser: 'root',
+    type: ServerType.CustomServer,
+    workDir: '/root',
+  });
+
+  await expect(server.persistBotSyncStartFrame()).rejects.toThrow('no valid recovery start frame');
+  expect(connection.uploadFileWithTimeout).not.toHaveBeenCalled();
+});
+
+it('rejects a failed bot stop before storage can be removed', async () => {
+  const connection = { runCommandWithTimeout: vi.fn().mockResolvedValue(['Docker stop failed', 1]) };
+  const server = new ServerAdmin(connection as any, {
+    ipAddress: '127.0.0.1',
+    sshUser: 'root',
+    type: ServerType.CustomServer,
+    workDir: '/root',
+  });
+
+  await expect(server.stopBotDocker()).rejects.toThrow('Could not stop bot: Docker stop failed');
 });
 
 it('rejects contaminated Docker Compose output before an Argon resync', async () => {

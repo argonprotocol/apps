@@ -160,6 +160,7 @@ export class Config implements IConfig {
           'walletPreviousLifeRecovered',
           'defaultCurrencyKey',
           'requiresPassword',
+          'certificationDetails',
         ];
 
     for (const key of Object.keys(defaults) as (keyof IConfig)[]) {

@@ -620,9 +620,14 @@ export const useCertificationController = defineStore('certificationController',
       x => {
         const isInitialOperationalProgress = !hasLoadedInitialOperationalProgress.value;
         chainProgress.value = x;
-        hasLoadedInitialOperationalProgress.value = true;
 
         let shouldSaveConfig = false;
+        if (isInitialOperationalProgress && x.isUpgradedToOperations) {
+          // Restored access is already approved; do not repeat the first-time welcome.
+          config.setCertificationDetails({ dismissedWelcomeToOperationsOverlay: true });
+          shouldSaveConfig = true;
+        }
+        hasLoadedInitialOperationalProgress.value = true;
         if (x.hasOperationalAccount) {
           if (!config.hasExtensionTreasury) {
             config.hasExtensionTreasury = true;

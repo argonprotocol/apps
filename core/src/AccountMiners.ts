@@ -25,12 +25,13 @@ export class AccountMiners {
 
   public async onBlock(blockInfo: IBlock, events: HistoricalEvent[]) {
     const { author, number: blockNumber } = blockInfo;
-    if (blockNumber < this.currentBlockNumber) {
+    if (blockNumber <= this.currentBlockNumber) {
       const previousStartingFrameIds = this.startingFrameIdsByBlock[blockNumber - 1];
       if (previousStartingFrameIds) {
-        this.startingFrameIdByAddress = previousStartingFrameIds;
+        this.startingFrameIdByAddress = { ...previousStartingFrameIds };
       }
     }
+    this.startingFrameIdsByBlock[blockNumber - 1] ??= { ...this.startingFrameIdByAddress };
 
     let newMiners: { frameId: number; addresses: string[] } | undefined;
     const dataByCohort: {

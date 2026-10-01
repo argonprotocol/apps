@@ -1,4 +1,5 @@
 import { MoveFrom, MoveTo, MoveToken, TxResult } from '@argonprotocol/apps-core';
+import * as Vue from 'vue';
 import { describe, expect, it, vi } from 'vitest';
 
 import { MoveCapital } from '../lib/MoveCapital.ts';
@@ -164,7 +165,7 @@ describe('MoveCapital', () => {
     );
   });
 
-  it('removes a restored allocation change from pending state when post-processing completes', async () => {
+  it('removes a finalized allocation from pending state before its transaction record catches up', async () => {
     let resolveFinalization!: () => void;
     const waitForFinalizedBlock = new Promise<void>(resolve => {
       resolveFinalization = resolve;
@@ -206,17 +207,26 @@ describe('MoveCapital', () => {
       getTxAttemptState: vi.fn().mockResolvedValue(TxAttemptState.Pending),
     } as unknown as TransactionTracker;
     const moveCapital = new MoveCapital({} as WalletKeys, transactionTracker);
+    moveCapital.data = Vue.shallowReactive(moveCapital.data);
+    const observedPendingIds: (number | undefined)[] = [];
+    const stopObserving = Vue.watch(
+      () => moveCapital.data.pendingAllocationChange,
+      pending => observedPendingIds.push(pending?.tx.id),
+      { immediate: true },
+    );
 
     await moveCapital.load();
     expect(moveCapital.data.pendingAllocationChange).toBe(txInfo);
 
-    txInfo.tx.isFinalized = true;
     txResult.isFinalized = true;
     resolveFinalization();
     await txInfo.waitForPostProcessing;
-    await Promise.resolve();
+    await Vue.nextTick();
 
+    expect(txInfo.tx.isFinalized).toBe(false);
     expect(moveCapital.data.pendingAllocationChange).toBeUndefined();
+    expect(observedPendingIds).toEqual([undefined, 1, undefined]);
+    stopObserving();
   });
 
   it('restores the error from a failed allocation leg', async () => {

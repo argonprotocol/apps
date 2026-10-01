@@ -320,10 +320,10 @@ export class ServerApiClient {
   }
 
   public static async getBotInstallProgress(serverDetails: ServerGatewayDetails): Promise<number> {
-    const result = await this.request<Pick<IBotStateStarting, 'syncProgress'>>(serverDetails, '/bot-sync-status', {
+    const result = await this.request<Pick<IBotStateStarting, 'isReady'>>(serverDetails, '/bot-sync-status', {
       timeoutMs: 30e3,
     });
-    return result.syncProgress;
+    return result.isReady ? 99 : 0;
   }
 
   private static async request<T>(

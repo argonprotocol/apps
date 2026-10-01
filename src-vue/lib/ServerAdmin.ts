@@ -1,5 +1,11 @@
 import { parse as parseEnv } from 'dotenv';
-import { type IBiddingRules, type IBotStateFile, JsonExt, toComposeProjectName } from '@argonprotocol/apps-core';
+import {
+  type IBiddingRules,
+  type IBotStateFile,
+  JsonExt,
+  NetworkConfig,
+  toComposeProjectName,
+} from '@argonprotocol/apps-core';
 import { SSHConnection } from './SSHConnection';
 import { DEPLOY_ENV_FILE, INSTANCE_NAME, NETWORK_NAME, SERVER_ENV_VARS } from './Env.ts';
 import { KeyringPair$Json } from '@argonprotocol/mainchain';
@@ -202,7 +208,7 @@ export class ServerAdmin {
     const [biddingRules, envState, [botStateRaw]] = await Promise.all([
       this.downloadBiddingRules(),
       this.downloadEnvState(),
-      this.connection.runCommandWithTimeout(`cat ${this.workDir}/data/bot-state.json 2>/dev/null || true`, 20e3),
+      this.connection.runCommandWithTimeout(`cat ${this.workDir}/data/argon/bot-state.json 2>/dev/null || true`, 20e3),
     ]);
     const botState = botStateRaw ? JsonExt.parse<IBotStateFile>(botStateRaw) : undefined;
 
@@ -333,12 +339,14 @@ export class ServerAdmin {
   }
 
   public async stopBotDocker(): Promise<void> {
-    await this.runComposeCommand(`stop bot`, 10e3);
+    const [output, status] = await this.runComposeCommand(`stop bot`, 10e3);
+    if (status !== 0) throw new Error(`Could not stop bot: ${output.trim()}`);
   }
 
   public async startBotDocker(): Promise<void> {
     // Recreate the bot so env_file changes are re-read.
-    await this.runComposeCommand(`up -d --no-deps --force-recreate bot`, 20e3);
+    const [output, status] = await this.runComposeCommand(`up -d --no-deps --force-recreate bot`, 20e3);
+    if (status !== 0) throw new Error(`Could not start bot: ${output.trim()}`);
   }
 
   public async restartDocker(): Promise<void> {
@@ -589,7 +597,48 @@ export class ServerAdmin {
   }
 
   public async deleteBotStorageFiles(): Promise<void> {
-    await this.connection.runCommandWithTimeout(`sudo rm -rf ${this.workDir}/data/bot-*`, 10e3);
+    const [output, status] = await this.connection.runCommandWithTimeout(
+      `sudo rm -rf ${this.workDir}/data/argon/bot-* ${this.workDir}/data/argon/bot.sqlite*`,
+      10e3,
+    );
+    if (status !== 0) throw new Error(`Could not delete bot storage: ${output.trim()}`);
+  }
+
+  public async persistBotSyncStartFrame(): Promise<void> {
+    const [[botStateRaw], [envStateRaw, envStatus]] = await Promise.all([
+      this.connection.runCommandWithTimeout(`cat ${this.workDir}/data/argon/bot-state.json 2>/dev/null || true`, 10e3),
+      this.connection.runCommandWithTimeout(`cat ${this.workDir}/config/.env.state`, 10e3),
+    ]);
+    if (envStatus !== 0) throw new Error('Could not read the server configuration before resyncing the bot.');
+
+    const botState = botStateRaw ? JsonExt.parse<IBotStateFile>(botStateRaw) : undefined;
+    const configuredFrame = parseEnv(envStateRaw).OLDEST_FRAME_ID_TO_SYNC;
+    let startFrame = botState?.oldestFrameIdToSync;
+    if (!startFrame && configuredFrame) startFrame = Number(configuredFrame);
+    if (
+      startFrame === undefined ||
+      !Number.isSafeInteger(startFrame) ||
+      startFrame < 0 ||
+      (startFrame === 0 && !NetworkConfig.canFrameBeZero())
+    ) {
+      throw new Error('The bot has no valid recovery start frame. Its history cannot be safely resynced.');
+    }
+    if (configuredFrame === String(startFrame)) return;
+
+    const line = `OLDEST_FRAME_ID_TO_SYNC=${startFrame}`;
+    const updatedEnv = /^OLDEST_FRAME_ID_TO_SYNC=.*$/m.test(envStateRaw)
+      ? envStateRaw.replace(/^OLDEST_FRAME_ID_TO_SYNC=.*$/m, line)
+      : `${envStateRaw}${envStateRaw.endsWith('\n') ? '' : '\n'}${line}\n`;
+    const envPath = `${this.workDir}/config/.env.state`;
+    const pendingPath = `${envPath}.resync`;
+    await this.connection.uploadFileWithTimeout(updatedEnv, pendingPath, 10e3);
+    const quotedEnvPath = `'${envPath.replaceAll("'", "'\\''")}'`;
+    const quotedPendingPath = `'${pendingPath.replaceAll("'", "'\\''")}'`;
+    const [output, status] = await this.connection.runCommandWithTimeout(
+      `chmod --reference=${quotedEnvPath} ${quotedPendingPath} && mv -- ${quotedPendingPath} ${quotedEnvPath}`,
+      10e3,
+    );
+    if (status !== 0) throw new Error(`Could not retain the bot recovery start frame: ${output.trim()}`);
   }
 
   public async completelyWipeEverything(): Promise<void> {

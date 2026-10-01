@@ -161,6 +161,8 @@ it('restores completed mining setup from imported operational account state', as
   expect(config.hasExtensionOperations).toBe(true);
   expect(config.miningSetupStatus).toBe(MiningSetupStatus.Finished);
   expect(config.certificationDetails?.hasSavedMnemonic).toBe(true);
+  expect(config.certificationDetails?.dismissedWelcomeToOperationsOverlay).toBe(true);
+  expect(config.certificationDetails?.dismissedOperationsActivatedOverlay).toBe(true);
   expect(await db.configTable.fetchAllAsObject()).toEqual(
     expect.objectContaining({
       showWelcomeOverlay: 'false',
@@ -169,7 +171,14 @@ it('restores completed mining setup from imported operational account state', as
       hasExtensionTreasury: 'true',
       hasExtensionOperations: 'true',
       hasActivatedCrosschain: 'false',
-      certificationDetails: JsonExt.stringify({ hasSavedMnemonic: true }, 2),
+      certificationDetails: JsonExt.stringify(
+        {
+          hasSavedMnemonic: true,
+          dismissedWelcomeToOperationsOverlay: true,
+          dismissedOperationsActivatedOverlay: true,
+        },
+        2,
+      ),
       miningSetupStatus: JsonExt.stringify(MiningSetupStatus.Finished, 2),
       vaultingSetupStatus: JsonExt.stringify(VaultingSetupStatus.Finished, 2),
       onboardingSetupStatus: JsonExt.stringify(OnboardingSetupStatus.Checklist, 2),
@@ -229,6 +238,7 @@ it.each([
       hasMiningSeats: params.hasMiningSeats,
     }),
   );
+  expect(config.certificationDetails?.dismissedWelcomeToOperationsOverlay).toBe(false);
 });
 
 it.each([

@@ -83,8 +83,13 @@ class TestDb extends Db {
     await previousTransaction;
     try {
       await this.sql.execute('BEGIN IMMEDIATE');
-      const result = await callback(this);
+      const transaction = new TestDb(this.sql, this.hasMigrationError, {
+        id: 0,
+        tableStates: this['tableStates'],
+      });
+      const result = await callback(transaction);
       await this.sql.execute('COMMIT');
+      for (const callback of transaction['commitCallbacks']) callback();
       return result;
     } catch (error) {
       await this.sql.execute('ROLLBACK');

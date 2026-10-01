@@ -1312,17 +1312,8 @@ describe('BitcoinLocks history replay publication', () => {
     expect((await db.bitcoinLocksTable.getByLockId(7))?.isFlexible).toBe(false);
     expect(record.isFlexible).toBe(false);
 
-    const replaceFission = db.bitcoinFissionsTable.replaceRecord.bind(db.bitcoinFissionsTable);
-    let successfulUnitWasPublishedBeforeNextUnit = false;
-    let failFission8 = true;
-    vi.spyOn(db.bitcoinFissionsTable, 'replaceRecord').mockImplementation(async fission => {
-      if (fission.lockId === 8 && failFission8) {
-        failFission8 = false;
-        successfulUnitWasPublishedBeforeNextUnit = fissions.getRecords().some(record => record.lockId === 7);
-        throw new Error('temporary Fission write failure');
-      }
-      await replaceFission(fission);
-    });
+    await db.execute(`CREATE TRIGGER fail_fission BEFORE INSERT ON BitcoinFissions
+      WHEN NEW.lockId = 8 BEGIN SELECT RAISE(ABORT, 'temporary Fission write failure'); END`);
     await expect(
       publishBitcoinHistoryReplay({
         bitcoinLocks: store,
@@ -1331,7 +1322,6 @@ describe('BitcoinLocks history replay publication', () => {
       }),
     ).rejects.toThrow('temporary Fission write failure');
 
-    expect(successfulUnitWasPublishedBeforeNextUnit).toBe(true);
     expect(record.isFlexible).toBe(false);
     expect((await db.bitcoinLocksTable.getByLockId(7))?.isFlexible).toBe(false);
     expect(record8.isFlexible).toBe(false);
@@ -1342,6 +1332,7 @@ describe('BitcoinLocks history replay publication', () => {
     expect(fissions.getRecords()).toEqual([expect.objectContaining({ fissionId: 41 })]);
     expect(fissions.data.financialRevision).toBe(1);
 
+    await db.execute('DROP TRIGGER fail_fission');
     await store.recovery.beginHistoryReplay({ lockScope: 'all' });
     await store.recovery.recoverBlock(block, replayEvents);
     await fissions.recovery.beginHistoryReplay();

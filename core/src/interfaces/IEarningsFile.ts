@@ -10,12 +10,6 @@ export interface IEarningsFile extends ILastModifiedAt {
   microgonToBtc: bigint[];
   microgonToArgonot: bigint[];
 
-  transactionFeesTotal: bigint;
-  accruedMicrogonProfits: bigint;
-  accruedMicronotProfits: bigint;
-  previousFrameAccruedMicrogonProfits: bigint | null;
-  previousFrameAccruedMicronotProfits: bigint | null;
-
   earningsByBlock: {
     [blockNumber: number]: IBlockEarningsSummary;
   };
@@ -28,6 +22,8 @@ export interface IBlockEarningsSummary {
   authorAddress: string;
   microgonsMined: bigint;
   microgonsMinted: bigint;
+  // A frame's mint pays every active cohort, even when another account authored the block.
+  microgonsMintedByCohort?: Record<number, bigint>;
   micronotsMined: bigint;
   microgonFeesCollected: bigint;
 }

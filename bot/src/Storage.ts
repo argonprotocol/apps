@@ -4,22 +4,22 @@ import * as fs from 'node:fs';
 import {
   createTypedEventEmitter,
   type IBidsFile,
-  type IBlockSyncFile,
   type IBotStateFile,
   type IEarningsFile,
   type IHistoryFile,
   type IMiningFrameDetail,
+  type MiningFrames,
 } from '@argonprotocol/apps-core';
 import { JsonStore } from './JsonStore.ts';
 import type { IMigration } from './migrations/IMigration.ts';
 import { RewardTicksMigration } from './migrations/01-RewardTicks.ts';
+import { MiningCheckpointMigration } from './migrations/02-MiningCheckpoint.ts';
 
 export class Storage {
   public events = createTypedEventEmitter<{
     'data:updated': (
       event:
         | { data: 'bot-state' }
-        | { data: 'block-sync' }
         | { data: 'bids'; cohortBiddingFrameId: number; cohortActivationFrameId: number }
         | { data: 'earnings'; frameId: number }
         | { data: 'history'; frameId: number }
@@ -49,9 +49,8 @@ export class Storage {
 
   private lruCache = new LRU<JsonStore<any>>(100);
   private readonly botState: JsonStore<IBotStateFile>;
-  private readonly blockSync: JsonStore<IBlockSyncFile>;
   private readonly storageVersion: JsonStore<{ version: number }>;
-  private migrations: IMigration[] = [new RewardTicksMigration()];
+  private migrations: IMigration[] = [new RewardTicksMigration(), new MiningCheckpointMigration()];
 
   constructor(private basedir: string) {
     fs.mkdirSync(this.basedir, { recursive: true });
@@ -66,6 +65,10 @@ export class Storage {
         bidsLastModifiedAt: new Date(),
         earningsLastModifiedAt: new Date(),
         oldestFrameIdToSync: 0,
+        lastProcessedBlockNumber: 0,
+        lastProcessedBlockHash: '',
+        lastFinalizedProcessedBlockNumber: 0,
+        lastFinalizedProcessedBlockHash: '',
         currentFrameId: 0,
         finalizedFrameId: 0,
         currentTick: 0,
@@ -74,15 +77,6 @@ export class Storage {
     });
     this.botState.onMutate.push(() => {
       this.events.emit('data:updated', { data: 'bot-state' });
-    });
-    this.blockSync = new JsonStore(this.basedir, 'bot-blocks.json', () => ({
-      blocksByNumber: {},
-      syncedToBlockNumber: 0,
-      finalizedBlockNumber: 0,
-      bestBlockNumber: 0,
-    }));
-    this.blockSync.onMutate.push(() => {
-      this.events.emit('data:updated', { data: 'block-sync' });
     });
     this.storageVersion = new JsonStore(this.basedir, 'storage-version.json', () => ({
       version: 0,
@@ -96,18 +90,17 @@ export class Storage {
       promises.push(entry.close());
     }
     promises.push(this.botState.close());
-    promises.push(this.blockSync.close());
     promises.push(this.storageVersion.close());
     await Promise.all(promises);
     console.log('STORAGE SHUTDOWN COMPLETE');
   }
 
-  public async migrate(): Promise<void> {
+  public async migrate(miningFrames: MiningFrames): Promise<void> {
     const storageVersion = await this.storageVersion.get();
 
     for (const migration of this.migrations) {
       if (migration.version <= storageVersion.version) continue;
-      await migration.up(this);
+      await migration.up(this, miningFrames);
       await this.storageVersion.mutate(x => {
         x.version = migration.version;
         return true;
@@ -117,10 +110,6 @@ export class Storage {
 
   public getPath(path: string): string {
     return Path.join(this.basedir, path);
-  }
-
-  public botBlockSyncFile(): JsonStore<IBlockSyncFile> {
-    return this.blockSync;
   }
 
   public botStateFile(): JsonStore<IBotStateFile> {
@@ -145,11 +134,6 @@ export class Storage {
           microgonToBtc: [],
           microgonToArgonot: [],
           earningsByBlock: {},
-          transactionFeesTotal: 0n,
-          accruedMicrogonProfits: 0n,
-          accruedMicronotProfits: 0n,
-          previousFrameAccruedMicrogonProfits: null,
-          previousFrameAccruedMicronotProfits: null,
         };
       });
       entry.onMutate.push(() => {
@@ -168,7 +152,6 @@ export class Storage {
         return {
           cohortBiddingFrameId,
           cohortActivationFrameId,
-          biddingFrameFirstTick: 0,
           biddingFrameRewardTicksRemaining: 0,
           lastBlockNumber: 0,
           seatCountWon: 0,
@@ -178,7 +161,6 @@ export class Storage {
           transactionFeesByBlock: {},
           micronotsStakedPerSeat: 0n,
           microgonsToBeMinedPerBlock: 0n,
-          winningBids: [],
         };
       });
       entry.onMutate.push(() => {

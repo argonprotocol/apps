@@ -5,6 +5,7 @@ import * as fs from 'node:fs';
 import os from 'node:os';
 import Path from 'node:path';
 import Bot from '../src/Bot.ts';
+import { BlockSync } from '../src/BlockSync.ts';
 import {
   BidAmountAdjustmentType,
   BidAmountFormulaType,
@@ -297,7 +298,29 @@ it.skipIf(skipE2E)(
       await fs.promises.rm(path2, { recursive: true, force: true });
     });
     console.log('Starting bot 2');
-    await expect(botRestart.start()).resolves.toBeUndefined();
+    const loadSpy = vi.spyOn(BlockSync.prototype, 'load');
+    const originalLoad = loadSpy.getMockImplementation()!;
+    let releaseHistory!: () => void;
+    const historyCanStart = new Promise<void>(resolve => {
+      releaseHistory = resolve;
+    });
+    loadSpy.mockImplementation(async function (this: BlockSync) {
+      await historyCanStart;
+      return originalLoad.call(this);
+    });
+    try {
+      await expect(botRestart.start()).resolves.toBeUndefined();
+      expect(botRestart.isReady).toBe(true);
+      expect(botRestart.isSyncing).toBe(true);
+      const liveFrameId = botRestart.miningFrames.currentFrameId;
+      await botRestart.storage.botStateFile().mutate(state => {
+        state.currentFrameId = Math.max(0, liveFrameId - 1);
+      });
+      expect((await botRestart.state()).currentFrameId).toBe(liveFrameId);
+    } finally {
+      releaseHistory();
+      loadSpy.mockRestore();
+    }
     for (const cohortActivationFrameId of frameIdsWithVoteBlocks) {
       await waitFor(30e3, `restart earnings recovery for frame ${cohortActivationFrameId}`, async () => {
         const earningsFile1 = await bot.storage.earningsFile(cohortActivationFrameId).get();
@@ -337,8 +360,6 @@ it.skipIf(skipE2E)(
       expect(earningsFile2).toBeTruthy();
       expect(earningsFile2.firstBlockNumber).toBe(earningsFile1.firstBlockNumber);
       expect(earningsFile2.lastBlockNumber).toBeGreaterThanOrEqual(earningsFile1.lastBlockNumber);
-      expect(earningsFile2.accruedMicrogonProfits).toBeGreaterThanOrEqual(earningsFile1.accruedMicrogonProfits);
-      expect(earningsFile2.accruedMicronotProfits).toBeGreaterThanOrEqual(earningsFile1.accruedMicronotProfits);
       for (const [blockNumber, earnings] of Object.entries(earningsFile1.earningsByBlock)) {
         expect(earningsFile2.earningsByBlock[Number(blockNumber)]).toEqual(earnings);
       }

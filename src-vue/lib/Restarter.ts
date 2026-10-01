@@ -60,6 +60,7 @@ export default class Restarter {
 
       if (toRestart.has(AdvancedRestartOption.ResyncBiddingDataOnCloudMachine)) {
         const server = await this.getServer();
+        await server.persistBotSyncStartFrame();
         await server.stopBotDocker();
         await server.deleteBotStorageFiles();
         await server.startBotDocker();

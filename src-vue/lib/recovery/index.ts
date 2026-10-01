@@ -47,18 +47,25 @@ export async function needsFinancialHistoryRecovery(args: {
   const savedState = await args.db.syncStateTable.get(SyncStateKeys.FinancialHistory);
   const domainCheckpoints = getDomainCheckpoints(savedState, args.accountId);
 
-  return args.enabledDomains.some(domain => {
+  for (const domain of args.enabledDomains) {
     if (domain === 'bonds' && args.repairIncompleteBondHistory) return true;
     if (domain === 'bitcoin' && args.bitcoinLockRecovery?.hasPendingHistoryRecovery) return true;
 
     const checkpoint = domainCheckpoints[domain];
-    if (!checkpoint) return args.recoverMissingCheckpointsFor.includes(domain);
+    if (!checkpoint) {
+      if (args.recoverMissingCheckpointsFor.includes(domain) || (await hasStoredPosition(args.db, domain))) return true;
+      continue;
+    }
 
     const recoveryVersion = historyRecoveryVersions[domain];
-    return (
-      checkpoint.partialRecovery || (recoveryVersion !== undefined && checkpoint.recoveryVersion !== recoveryVersion)
-    );
-  });
+    if (
+      checkpoint.partialRecovery ||
+      (recoveryVersion !== undefined && checkpoint.recoveryVersion !== recoveryVersion)
+    ) {
+      return true;
+    }
+  }
+  return false;
 }
 
 export type IFinancialHistoryImportResult = {
@@ -130,17 +137,28 @@ export async function restoreFinancialHistory(args: {
   const savedState = await db.syncStateTable.get(SyncStateKeys.FinancialHistory);
   const domainCheckpoints = getDomainCheckpoints(savedState, accountId);
 
-  const domainsToRestore = enabledDomains.filter(domain => {
-    if (domain === 'bonds' && args.repairIncompleteBondHistory) return true;
-    if (domain === 'bitcoin' && bitcoinLockRecovery?.hasPendingHistoryRecovery) return true;
-
+  const domainsToRestore: IFinancialHistoryDomain[] = [];
+  for (const domain of enabledDomains) {
+    if (domain === 'bonds' && args.repairIncompleteBondHistory) {
+      domainsToRestore.push(domain);
+      continue;
+    }
+    if (domain === 'bitcoin' && bitcoinLockRecovery?.hasPendingHistoryRecovery) {
+      domainsToRestore.push(domain);
+      continue;
+    }
     const checkpoint = domainCheckpoints[domain];
-    if (!checkpoint) return args.force || args.recoverMissingCheckpointsFor.includes(domain);
+    if (!checkpoint) {
+      if (args.force || args.recoverMissingCheckpointsFor.includes(domain) || (await hasStoredPosition(db, domain))) {
+        domainsToRestore.push(domain);
+      }
+      continue;
+    }
 
     const recoveryVersion = historyRecoveryVersions[domain];
     const recoveryVersionChanged = recoveryVersion !== undefined && checkpoint.recoveryVersion !== recoveryVersion;
-    return args.force || checkpoint.partialRecovery || recoveryVersionChanged;
-  });
+    if (args.force || checkpoint.partialRecovery || recoveryVersionChanged) domainsToRestore.push(domain);
+  }
   const checkpointDomains = enabledDomains.filter(
     domain => domainCheckpoints[domain] || domainsToRestore.includes(domain),
   );
@@ -829,6 +847,13 @@ function hasMissingBondPurchases(
       return record.programType === lot.programType && record.bondLotId === lot.id && !!record.purchaseBlockHash;
     });
   });
+}
+
+async function hasStoredPosition(db: Db, domain: IFinancialHistoryDomain): Promise<boolean> {
+  if (domain === 'bonds') return false;
+  const table = domain === 'bitcoin' ? 'BitcoinLocks' : 'Vaults';
+  const rows = await db.select<{ present: number }[]>(`SELECT 1 AS present FROM ${table} LIMIT 1`);
+  return rows.length > 0;
 }
 
 function getDomainCheckpoints(

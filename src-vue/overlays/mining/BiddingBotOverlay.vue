@@ -80,6 +80,7 @@ export interface IMiningCapitalTransferProgress {
   microgons: bigint;
   micronots: bigint;
   error?: string;
+  isComplete?: boolean;
 }
 </script>
 
@@ -121,6 +122,7 @@ const capitalChangeError = Vue.ref<string | undefined>(moveCapital.data.allocati
 let stopCapitalProgress: VoidFunction | undefined;
 let biddingRefreshRequestId = 0;
 let previousBidsBotRequestId = 0;
+let biddingRefreshFrameId: number | undefined;
 
 type StatId = 'capital' | 'bids' | 'seats';
 const activeStat = Vue.ref<StatId>();
@@ -147,6 +149,7 @@ function toggleStat(stat: StatId) {
 function dismissStats() {
   activeStat.value = undefined;
   pinnedStat.value = undefined;
+  if (capitalTransfer.value?.isComplete) capitalTransfer.value = undefined;
 }
 
 function showCapital() {
@@ -160,31 +163,43 @@ function openBotSettings() {
 }
 
 async function refreshBiddingData() {
+  const currentFrameId = miningFrames.currentFrameId;
+  // Live updates must not invalidate a slower request for the same completed auction.
+  if (biddingRefreshFrameId === currentFrameId) return;
+  biddingRefreshFrameId = currentFrameId;
   const requestId = ++biddingRefreshRequestId;
-  const previousFrameId = myMiningSeats.latestFrameId - 1;
+  const previousFrameId = currentFrameId - 1;
 
-  if (previousFrameId > 0) {
-    void bot
-      .getClient()
-      .then(client => client.fetch('/mining-frame', previousFrameId))
-      .then(frame => {
-        if (requestId === biddingRefreshRequestId) {
-          previousBidsBotRequestId = requestId;
-          previousBids.value = (frame as IMiningFrameDetail).winningBids;
-        }
-      })
-      .catch(() => undefined);
+  try {
+    const requests = [loadBidsFromChain(requestId)];
+    if (previousFrameId > 0) {
+      requests.push(
+        bot
+          .getClient()
+          .then(client => client.fetch('/mining-frame', previousFrameId))
+          .then(frame => {
+            if (requestId === biddingRefreshRequestId) {
+              previousBidsBotRequestId = requestId;
+              previousBids.value = (frame as IMiningFrameDetail).winningBids;
+            }
+          })
+          .catch(() => undefined),
+      );
+    }
+    requests.push(
+      mining
+        .fetchTickAtStartOfAuctionClosing()
+        .then(auctionCloseTick => {
+          if (requestId === biddingRefreshRequestId) currentAuctionClosesAtTick.value = auctionCloseTick;
+        })
+        .catch(error => {
+          console.error('[Bidding Bot Overlay] Unable to load auction close time', error);
+        }),
+    );
+    await Promise.all(requests);
+  } finally {
+    if (requestId === biddingRefreshRequestId) biddingRefreshFrameId = undefined;
   }
-
-  void loadBidsFromChain(requestId);
-  void mining
-    .fetchTickAtStartOfAuctionClosing()
-    .then(auctionCloseTick => {
-      if (requestId === biddingRefreshRequestId) currentAuctionClosesAtTick.value = auctionCloseTick;
-    })
-    .catch(error => {
-      console.error('[Bidding Bot Overlay] Unable to load auction close time', error);
-    });
 }
 
 async function loadBidsFromChain(requestId: number) {
@@ -268,17 +283,15 @@ Vue.watch(
   () => props.isOpen,
   isOpen => {
     if (isOpen) void refreshBiddingData();
+    else if (capitalTransfer.value?.isComplete) capitalTransfer.value = undefined;
   },
   { immediate: true },
 );
 
-Vue.watch(
-  () => bot.state?.winningBids,
-  bids => {
-    if (bids !== undefined) currentBids.value = bids;
-    if (props.isOpen) void refreshBiddingData();
-  },
-);
+Vue.watch([() => bot.state?.winningBids, () => bot.state?.currentFrameId], ([bids]) => {
+  if (bids !== undefined) currentBids.value = bids;
+  if (props.isOpen) void refreshBiddingData();
+});
 
 Vue.watch(
   () => moveCapital.data.pendingAllocationChange,
@@ -287,8 +300,13 @@ Vue.watch(
     else {
       stopCapitalProgress?.();
       stopCapitalProgress = undefined;
-      if (capitalTransfer.value?.error) capitalChangeError.value = capitalTransfer.value.error;
-      capitalTransfer.value = undefined;
+      const error = moveCapital.data.allocationError ?? capitalTransfer.value?.error;
+      if (error) {
+        capitalChangeError.value = error;
+        capitalTransfer.value = undefined;
+      } else if (capitalTransfer.value) {
+        capitalTransfer.value = { ...capitalTransfer.value, progressPct: 100, isComplete: true };
+      }
     }
   },
   { immediate: true },

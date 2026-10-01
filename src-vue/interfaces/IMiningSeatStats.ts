@@ -19,7 +19,6 @@ export interface IDashboardFrameStats {
   allMinersCount: number;
   seatCountActive: number;
   seatCostTotalFramed: bigint;
-  accruedMicrogonProfits: bigint;
   blocksMinedTotal: number;
   microgonToUsd: bigint[];
   microgonToArgonot: bigint[];
