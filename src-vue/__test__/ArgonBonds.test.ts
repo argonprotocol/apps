@@ -6,7 +6,16 @@ import { BondBuy } from '../lib/txs/Bond.buy.ts';
 import { ArgonBondsFinancials } from '../lib/financials/ArgonBonds.ts';
 import { calculatePositionReturn } from '../lib/financials/index.ts';
 import { createTestDb, createTestDbAtMigration } from './helpers/db.ts';
-import { BondLot, createDeferred, Currency, MICROGONS_PER_ARGON, TreasuryBonds } from '@argonprotocol/apps-core';
+import {
+  BondLot,
+  createDeferred,
+  Currency,
+  type IBlockHeaderInfo,
+  type MiningFrames,
+  type RuntimeSystemEventRecord,
+  MICROGONS_PER_ARGON,
+  TreasuryBonds,
+} from '@argonprotocol/apps-core';
 import type { WalletForArgon } from '../lib/WalletForArgon.ts';
 import { encodeAddress } from '@polkadot/util-crypto';
 import { numberCodec } from '../../core/__test__/helpers/codecs.ts';
@@ -1056,6 +1065,196 @@ describe('ArgonBonds', () => {
     ]);
     expect(history.flexibilityHistoryComplete).toBe(true);
   });
+
+  it.each([
+    { specVersion: 156, changes: [] },
+    { specVersion: 157, changes: [true] },
+    { specVersion: 157, changes: [true, false, true] },
+    { specVersion: 158, changes: [] },
+    { specVersion: 158, changes: [true] },
+    { specVersion: 158, changes: [true, false] },
+    { specVersion: 159, changes: [true, false, true] },
+  ])(
+    'keeps live and recovered purchase history equal for spec $specVersion with changes $changes',
+    async ({ specVersion, changes }) => {
+      const liveDb = await createTestDb();
+      const recoveredDb = await createTestDb();
+      const block: IBlockHeaderInfo = {
+        blockNumber: 100,
+        blockHash: '0x100',
+        parentHash: '0x99',
+        blockTime: new Date('2026-07-02T12:00:00Z').getTime(),
+        isFinalized: true,
+        author: accountId,
+        tick: 100,
+        frameId: 3,
+      };
+      const { isFlexible: _, ...ordinaryLot } = createRuntimeBondLot({
+        owner: accountId,
+        program: { Vault: { vaultId: 4, sharingPercent: 0, bonusPercent: 0 } },
+        bonds: 10,
+        createdFrameId: 3,
+        participatedFrames: 0,
+        lastFrameEarningsFrameId: null,
+        lastFrameEarnings: null,
+        cumulativeEarnings: 0,
+        isFlexible: false,
+        releaseFrameId: null,
+        releaseReason: null,
+      });
+      // Specs 157, 158 and 159 create ordinary lots. A setter emits only when
+      // it changes the value, so the first post-purchase event must enable it.
+      // Storage is the final state of the block, after all those events.
+      const finalFlexibility = changes.at(-1) ?? false;
+      const storedLot = {
+        ...ordinaryLot,
+        ...(specVersion === 157 ? { isBackfill: finalFlexibility } : {}),
+        ...(specVersion >= 158 ? { isFlexible: finalFlexibility } : {}),
+      } satisfies NonNullable<TreasuryBondLotByIdResult>;
+      const events: RuntimeSystemEventRecord[] = [
+        {
+          event: {
+            section: 'treasury',
+            method: 'BondLotPurchased',
+            data: { accountId, bondLotId: 7, bonds: 10, programId: { type: 'Vault', value: { vaultId: 4 } } },
+          },
+          phase: { type: 'ApplyExtrinsic', value: 2 },
+          topics: [],
+        },
+        ...changes.map(
+          (isFlexible): RuntimeSystemEventRecord => ({
+            event:
+              specVersion === 157
+                ? {
+                    section: 'treasury',
+                    method: 'BondLotBackfillChanged',
+                    data: { vaultId: 4, bondLotId: 7, isBackfill: isFlexible },
+                  }
+                : {
+                    section: 'treasury',
+                    method: 'BondLotFlexibilityChanged',
+                    data: { vaultId: 4, bondLotId: 7, isFlexible },
+                  },
+            phase: { type: 'ApplyExtrinsic', value: 2 },
+            topics: [],
+          }),
+        ),
+      ];
+      let currentLot = storedLot;
+      const api = {
+        query: {
+          treasury: {
+            bondLotIdsByAccount: { keys: async () => [{ args: [accountId, 7] }] },
+            bondLotById: Object.assign(async () => storedLot, { multi: async () => [currentLot] }),
+          },
+        },
+      };
+      const miningFrames = {
+        load: async () => undefined,
+        blockWatch: {
+          bestBlockHeader: block,
+          finalizedBlockHeader: block,
+          start: async () => undefined,
+          events: { on: () => () => undefined },
+          getHeader: async () => block,
+          getApi: async () => api,
+          getCurrentApi: async () => api,
+          getEvents: async () => events,
+        },
+      } as unknown as MiningFrames;
+      const currency = new Currency({ events: { on: vi.fn() } } as any);
+      currency.isLoadedPromise = Promise.resolve();
+      const createBonds = (db: typeof liveDb) =>
+        new ArgonBonds(
+          Promise.resolve(db),
+          { isLoadedPromise: Promise.resolve(), upstreamOperator: undefined },
+          currency,
+          miningFrames,
+          { defaultArgonAddress: accountId } as any,
+        );
+      await liveDb.syncStateTable.upsert(SyncStateKeys.BondHistory, {
+        accountId,
+        blockNumber: 99,
+        blockHash: '0x99',
+      });
+      const live = createBonds(liveDb);
+      await live.load();
+      await live.recordFinalizedTransaction(block.blockNumber);
+      await recoveredDb.syncStateTable.upsert(SyncStateKeys.BondHistory, {
+        accountId,
+        blockNumber: 100,
+        blockHash: '0x100',
+      });
+      const recovered = createBonds(recoveredDb);
+      await recovered.load();
+      const revisionBeforeRecovery = recovered.data.financialRevision;
+      await recovered.importHistoryBlock(block, events);
+      expect(await recoveredDb.bondLotHistoryTable.fetchAll(accountId)).toEqual(recovered.data.bondHistory);
+      expect(recovered.data.bondHistory[0]?.purchaseBlockNumber).toBeUndefined();
+      expect(recovered.data.bondLots).toEqual(live.data.bondLots);
+      await recovered.publishRecoveredHistory();
+      expect(recovered.data.financialRevision).toBeGreaterThan(revisionBeforeRecovery);
+
+      const [liveHistory] = await liveDb.bondLotHistoryTable.fetchAll(accountId);
+      const [recoveredHistory] = await recoveredDb.bondLotHistoryTable.fetchAll(accountId);
+      const { createdAt: _liveCreated, updatedAt: _liveUpdated, ...liveRecord } = liveHistory;
+      const { createdAt: _recoveredCreated, updatedAt: _recoveredUpdated, ...recoveredRecord } = recoveredHistory;
+      expect(liveRecord).toEqual(recoveredRecord);
+      expect(liveHistory).toMatchObject({
+        nativePrincipal: 10_000_000n,
+        purchaseBlockNumber: 100,
+        purchaseExtrinsicIndex: 2,
+        flexibilityHistoryComplete: true,
+        flexibilityHistory: changes.map((isFlexible, index) => ({
+          isFlexible,
+          source: 'flexibility-change',
+          eventIndex: index + 1,
+        })),
+      });
+      const positions = new ArgonBondsFinancials(live).createFinancialPositions({
+        bondLots: live.data.bondLots,
+        historyRecords: live.data.bondHistory,
+        frameDates: new Map([[3, new Date(block.blockTime)]]),
+      });
+      expect(positions).toEqual(
+        new ArgonBondsFinancials(recovered).createFinancialPositions({
+          bondLots: recovered.data.bondLots,
+          historyRecords: recovered.data.bondHistory,
+          frameDates: new Map([[3, new Date(block.blockTime)]]),
+        }),
+      );
+      expect(positions.at(-1)).toMatchObject({
+        lifecycle: 'active',
+        investedCost: 10_000_000n,
+        paidIncome: 0n,
+        startedAt: new Date(block.blockTime),
+      });
+
+      expect(positions.at(-1)?.returnAttribution).toBe(finalFlexibility ? 'vault' : undefined);
+
+      const restarted = createBonds(liveDb);
+      await restarted.load();
+      await restarted.recordFinalizedTransaction(block.blockNumber);
+      expect(restarted.data.bondHistory).toEqual(live.data.bondHistory);
+      currentLot = {
+        ...storedLot,
+        cumulativeEarnings: 1_000_000n,
+        participatedFrames: 1,
+        lastFrameEarningsFrameId: 4,
+        lastFrameEarnings: 1_000_000n,
+      };
+      await restarted.refreshBondLots(await miningFrames.blockWatch.getCurrentApi());
+      const newerLot = BondLot.fromRuntime(7, currentLot, accountId);
+      const revisionBeforeBackfill = restarted.data.financialRevision;
+      await restarted.importHistoryBlock(block, events);
+      await restarted.publishRecoveredHistory();
+      expect(restarted.data.bondHistory[0]?.flexibilityHistory).toEqual(liveHistory.flexibilityHistory);
+      expect(restarted.data.bondLots).toEqual([newerLot]);
+      expect(restarted.data.financialRevision).toBeGreaterThan(revisionBeforeBackfill);
+      expect(restarted.needsHistoryRepair).toBe(false);
+      expect(restarted.data.historyCoveragePending).toBe(false);
+    },
+  );
 
   it('recovers a finalized purchase after local reconciliation fails and the app restarts', async () => {
     const db = await createTestDb();

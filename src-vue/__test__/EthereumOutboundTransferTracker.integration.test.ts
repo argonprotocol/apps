@@ -1,6 +1,7 @@
 import { EventEmitter } from 'node:events';
-import * as Vue from 'vue';
-import { MoveToken, NetworkConfig } from '@argonprotocol/apps-core';
+import { MoveToken, NetworkConfig, TransactionEvents } from '@argonprotocol/apps-core';
+import { ExtrinsicError } from '@argonprotocol/mainchain';
+import type { HistoricalEvent } from '@argonprotocol/runtime-client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { getAddress } from 'viem';
 import { EthereumOutboundTransferTracker } from '../lib/EthereumOutboundTransferTracker.ts';
@@ -18,6 +19,7 @@ import {
 import { CrosschainOutboundTransferStatus } from '../lib/db/CrosschainOutboundTransfersTable.ts';
 import { ExtrinsicType, TransactionStatus } from '../lib/db/TransactionsTable.ts';
 import { WalletType } from '../lib/Wallet.ts';
+import { TransactionTracker } from '../lib/TransactionTracker.ts';
 import { createTestDb } from './helpers/db.ts';
 import { createMockWalletKeys } from './helpers/wallet.ts';
 
@@ -712,85 +714,207 @@ describe('EthereumOutboundTransferTracker integration', () => {
     });
   });
 
-  it('reactively advances from preparing to confirming on Argon before the transfer is persisted', async () => {
-    const db = await createTestDb();
-    const walletKeys = createMockWalletKeys();
-    const waitForFinalizedBlock = createDeferredPromise<void>();
-    const seenPhases: string[] = [];
-    const txInfo = createTransferOutTxInfo({
-      transferId: `0x${'77'.repeat(32)}`,
-      blockHeight: 10,
-      moveToken: MoveToken.ARGN,
-      amount: 100n,
-    });
-    const blockWatch = createBlockWatch({
-      initialHeader: { blockNumber: 1, blockHash: '0xhead' },
-      getApi: async header => ({
-        blockNumber: header.blockNumber,
-        query: {
-          crosschainTransfer: {
-            pendingCollateralizationRequestsByChain: vi.fn(async () => []),
-            transferOutById: vi.fn(async () => ({
-              state: { type: 'Started' },
-              amount: 100n,
-              totalAttachedCollateral: 0n,
-            })),
+  it.each([
+    {
+      outcome: 'failed',
+      chainError: new ExtrinsicError('FundsUnavailable', 'Insufficient balance'),
+      events: [],
+      expectedStatus: CrosschainOutboundTransferStatus.RequestSubmittedToArgon,
+    },
+    {
+      outcome: 'succeeded',
+      chainError: undefined,
+      events: [
+        {
+          section: 'crosschainTransfer',
+          method: 'TransferOutStarted',
+          data: {
+            destinationChain: { type: 'Ethereum' },
+            transferId: `0x${'77'.repeat(32)}`,
+            accountId: '5StorybookInternalArgonWallet',
+            asset: { type: 'Argon' },
+            amount: 100n,
+            mintingAuthorityTip: 0n,
           },
         },
-      }),
-    });
-    const transactionTracker = {
-      data: { txInfos: [] },
-      pendingBlockTxInfosAtLoad: [],
-      load: vi.fn(async () => {}),
-      ensureStoredEvents: vi.fn(async () => {}),
-      findLatestTxInfo: vi.fn(() => undefined),
-      submitAndWatch: vi.fn(async () => ({
-        ...txInfo,
-        txResult: {
-          ...txInfo.txResult,
-          waitForFinalizedBlock: waitForFinalizedBlock.promise,
-        },
-      })),
-    };
-    const tracker = new EthereumOutboundTransferTracker(
-      Promise.resolve(db),
-      transactionTracker as any,
-      blockWatch.instance as any,
-      walletKeys,
-      {
-        estimateFinalizeTransferOutOfArgonFee: vi.fn(async () => 1n),
-        getNativeBalanceWei: vi.fn(async () => 10n),
-        finalizeTransferOutOfArgon: vi.fn(),
-        confirmTransferOutOfArgon: vi.fn(),
-        getTransactionProgress: vi.fn(),
-        getTransactionFinalityPollMs: vi.fn(() => 1),
-        waitForTransactionFinality: vi.fn(),
-      },
-    );
-    tracker.data = Vue.reactive(tracker.data) as any;
-
-    const stopWatching = Vue.watchEffect(() => {
-      const currentStepLabel = tracker.getTransferStateForToken(MoveToken.ARGN).progress.currentStepLabel;
-      if (currentStepLabel) {
-        seenPhases.push(currentStepLabel);
-      }
-    });
-
-    try {
-      await tracker.startMove({
+      ] satisfies HistoricalEvent[],
+      expectedStatus: CrosschainOutboundTransferStatus.RequestFinalizedOnArgon,
+    },
+    {
+      outcome: 'expired without inclusion',
+      chainError: undefined,
+      events: [],
+      expectedStatus: CrosschainOutboundTransferStatus.RequestSubmittedToArgon,
+    },
+  ])('reconciles an unconfirmed Argon request after restart when the extrinsic $outcome', async scenario => {
+    getMainchainClientMock.mockResolvedValue(createMainchainClient());
+    const db = await createTestDb();
+    const walletKeys = createMockWalletKeys();
+    const transferId = 'outbound-unconfirmed-request';
+    const transaction = await db.transactionsTable.insert({
+      extrinsicHash: `0x${'ab'.repeat(32)}`,
+      extrinsicMethodJson: {},
+      extrinsicType: ExtrinsicType.CrosschainTransferTransferOut,
+      metadataJson: {
+        actionType: 'transferOutToEthereum',
+        localTransferId: transferId,
         moveToken: MoveToken.ARGN,
         amount: 100n,
         sourceWalletType: WalletType.argon,
-        ethereumWallet: new WalletForEthereum(walletKeys.coreEthereumAddress, undefined, undefined, true),
+        destinationAddress: walletKeys.coreEthereumAddress,
+        mortalityBlocks: 64,
+      },
+      accountAddress: walletKeys.defaultArgonAddress,
+      submittedAtBlockHeight: 1,
+      submittedAtTime: new Date(),
+      txNonce: 0,
+    });
+    await db.transactionsTable.recordSubmissionError(transaction, new Error('RPC connection lost'));
+    await db.crosschainOutboundTransfersTable.recordRequestSubmittedToArgon({
+      id: transferId,
+      destinationChain: 'Ethereum',
+      token: MoveToken.ARGN,
+      amount: 100n,
+      argonSourceAddress: walletKeys.defaultArgonAddress,
+      destinationAddress: walletKeys.coreEthereumAddress,
+      argonRequestTransactionId: transaction.id,
+      progressJson: createCrosschainTransferProgress(OUTBOUND_TRANSFER_STEP_TITLES),
+    });
+    await db.crosschainOutboundTransfersTable.recordFailed({ id: transferId, failureReason: 'RPC connection lost' });
+
+    const initialHeader = { blockNumber: 1, blockHash: '0xhead' };
+    const getApi = async () => ({ query: { system: { account: vi.fn(async () => ({ nonce: 0 })) } } });
+    const findTransaction = vi.spyOn(TransactionEvents, 'findByExtrinsicHash').mockResolvedValue(undefined);
+    try {
+      const firstBlockWatch = createBlockWatch({ initialHeader, getApi });
+      const tracker = new EthereumOutboundTransferTracker(
+        Promise.resolve(db),
+        new TransactionTracker(Promise.resolve(db), firstBlockWatch.instance as any),
+        firstBlockWatch.instance as any,
+        walletKeys,
+        undefined,
+      );
+      await tracker.load();
+      await vi.waitFor(() =>
+        expect(tracker.getLatestTransfer(MoveToken.ARGN)?.transferState.needsAttention).toBe(true),
+      );
+      await vi.waitFor(() => expect(findTransaction).toHaveBeenCalledTimes(1));
+      expect(
+        tracker.getPendingAmount(walletKeys.defaultArgonAddress, walletKeys.coreEthereumAddress, MoveToken.ARGN),
+      ).toBe(100n);
+
+      await tracker.dismissFailedTransfer(transferId);
+      expect(tracker.getLatestTransfer(MoveToken.ARGN)).toBeUndefined();
+      expect(
+        tracker.getPendingAmount(walletKeys.defaultArgonAddress, walletKeys.coreEthereumAddress, MoveToken.ARGN),
+      ).toBe(100n);
+
+      const restoredBlockWatch = createBlockWatch({ initialHeader, getApi });
+      const restoredTransactionTracker = new TransactionTracker(
+        Promise.resolve(db),
+        restoredBlockWatch.instance as any,
+      );
+      const restored = new EthereumOutboundTransferTracker(
+        Promise.resolve(db),
+        restoredTransactionTracker,
+        restoredBlockWatch.instance as any,
+        walletKeys,
+        undefined,
+      );
+      await restored.load();
+      expect(restored.getLatestTransfer(MoveToken.ARGN)).toBeUndefined();
+      expect(
+        restored.getPendingAmount(walletKeys.defaultArgonAddress, walletKeys.coreEthereumAddress, MoveToken.ARGN),
+      ).toBe(100n);
+
+      await vi.waitFor(() => expect(findTransaction).toHaveBeenCalledTimes(2));
+      findTransaction.mockRejectedValueOnce(new Error('RPC unavailable'));
+      restoredBlockWatch.emitFinalized({ blockNumber: 2, blockHash: '0xretry' });
+      await vi.waitFor(() => expect(findTransaction).toHaveBeenCalledTimes(3));
+      expect((await db.crosschainOutboundTransfersTable.get(transferId))?.isFailureAcknowledged).toBe(true);
+      expect(restored.getLatestTransfer(MoveToken.ARGN)).toBeUndefined();
+      expect(
+        restored.getPendingAmount(walletKeys.defaultArgonAddress, walletKeys.coreEthereumAddress, MoveToken.ARGN),
+      ).toBe(100n);
+
+      findTransaction.mockResolvedValue(
+        scenario.outcome === 'expired without inclusion'
+          ? undefined
+          : {
+              blockNumber: 10,
+              blockHash: `0x${'ab'.repeat(32)}`,
+              blockTime: Date.now(),
+              fee: 1n,
+              tip: 0n,
+              error: scenario.chainError,
+              extrinsicEvents: scenario.events,
+              extrinsicIndex: 5,
+            },
+      );
+      if (scenario.outcome === 'succeeded') {
+        vi.spyOn(restoredTransactionTracker, 'ensureStoredEvents').mockRejectedValueOnce(
+          new Error('temporary event read'),
+        );
+      }
+      if (scenario.outcome === 'expired without inclusion') {
+        await db.transactionsTable.markExpiredWaitingForBlock(restoredTransactionTracker.data.txInfos[0].tx);
+        restoredBlockWatch.emitFinalized({ blockNumber: 62, blockHash: '0xearly-timeout' });
+        await vi.waitFor(() => expect(findTransaction).toHaveBeenCalledTimes(4));
+        expect(
+          restored.getPendingAmount(walletKeys.defaultArgonAddress, walletKeys.coreEthereumAddress, MoveToken.ARGN),
+        ).toBe(100n);
+        findTransaction.mockRejectedValueOnce(new Error('RPC unavailable after timeout'));
+        restoredBlockWatch.emitFinalized({ blockNumber: 66, blockHash: '0xmaturity' });
+        await vi.waitFor(() => expect(findTransaction).toHaveBeenCalledTimes(5));
+        expect(
+          restored.getPendingAmount(walletKeys.defaultArgonAddress, walletKeys.coreEthereumAddress, MoveToken.ARGN),
+        ).toBe(100n);
+      }
+      restoredBlockWatch.emitFinalized({
+        blockNumber: scenario.outcome === 'expired without inclusion' ? 67 : 10,
+        blockHash: '0xtransfer-block',
+      });
+      await vi.waitFor(async () => {
+        expect((await db.transactionsTable.fetchAll())[0].status).toBe(
+          scenario.outcome === 'expired without inclusion'
+            ? TransactionStatus.TimedOutWaitingForBlock
+            : TransactionStatus.Finalized,
+        );
+        expect((await db.crosschainOutboundTransfersTable.get(transferId))?.status).toBe(
+          scenario.outcome === 'succeeded'
+            ? CrosschainOutboundTransferStatus.RequestSubmittedToArgon
+            : scenario.expectedStatus,
+        );
+        expect(
+          restored.getPendingAmount(walletKeys.defaultArgonAddress, walletKeys.coreEthereumAddress, MoveToken.ARGN),
+        ).toBe(scenario.outcome === 'succeeded' ? 100n : 0n);
       });
 
-      await vi.waitFor(() => {
-        expect(seenPhases).toContain('Step 1 of 3: Finalizing on Argon');
+      const afterFinality = new EthereumOutboundTransferTracker(
+        Promise.resolve(db),
+        new TransactionTracker(Promise.resolve(db), restoredBlockWatch.instance as any),
+        restoredBlockWatch.instance as any,
+        walletKeys,
+        undefined,
+      );
+      await afterFinality.load();
+      await vi.waitFor(async () => {
+        if (scenario.outcome === 'succeeded') {
+          expect((await db.crosschainOutboundTransfersTable.get(transferId))?.status).toBe(
+            CrosschainOutboundTransferStatus.RequestFinalizedOnArgon,
+          );
+        }
+        expect(!!afterFinality.getLatestTransfer(MoveToken.ARGN)).toBe(scenario.outcome === 'succeeded');
+        expect(
+          afterFinality.getPendingAmount(
+            walletKeys.defaultArgonAddress,
+            walletKeys.coreEthereumAddress,
+            MoveToken.ARGN,
+          ),
+        ).toBe(0n);
       });
     } finally {
-      stopWatching();
-      waitForFinalizedBlock.resolve();
+      findTransaction.mockRestore();
     }
   });
 
@@ -1124,6 +1248,9 @@ describe('EthereumOutboundTransferTracker integration', () => {
     expect(latestTransfer?.transferState.isSubmitting).toBe(true);
     expect(latestTransfer?.transferState.needsAttention).toBe(false);
     expect(latestTransfer?.transferState.progress.currentStepLabel).toBe('Step 1 of 3: Finalizing on Argon');
+    expect(tracker.getPendingAmount(walletKeys.defaultArgonAddress, `0x${'99'.repeat(20)}`, MoveToken.ARGNOT)).toBe(
+      25n,
+    );
   });
 
   it('shows the gateway pause when a pending activation is blocking its own minting authorization', async () => {
@@ -1999,7 +2126,7 @@ describe('EthereumOutboundTransferTracker integration', () => {
     });
   });
 
-  it('caps the max transfer-out amount to leave room for the tip and existential deposit', async () => {
+  it('caps ARGN transfers to leave room for the tip, transaction fee, and minimum balance', async () => {
     getMainchainClientMock.mockResolvedValue(createMainchainClient());
 
     const tracker = new EthereumOutboundTransferTracker(
@@ -2010,7 +2137,75 @@ describe('EthereumOutboundTransferTracker integration', () => {
       {} as any,
     );
 
-    await expect(tracker.getMaximumTransferOutAmount(205293660000n, MoveToken.ARGNOT)).resolves.toBe(205088561438n);
+    const ethereumWallet = new WalletForEthereum('0x0000000000000000000000000000000000000001');
+    const availableAmount = 3_930_212_614n;
+    const amountToSpend = 100_000_000n;
+    const quote = await tracker.quoteTransferOutFromAmountToSpend({
+      amountToSpend,
+      moveToken: MoveToken.ARGN,
+      sourceWalletType: WalletType.argon,
+      ethereumWallet,
+    });
+    const senderDebit = (amount: bigint) => amount + (amount * 10n) / 10_000n + 2_070n;
+    expect(senderDebit(quote.amountToTransfer)).toBeLessThanOrEqual(amountToSpend);
+    expect(senderDebit(quote.amountToTransfer + 1n)).toBeGreaterThan(amountToSpend);
+    expect(quote.amountToTransfer).toBeLessThan(amountToSpend);
+    await expect(
+      tracker.startMove({
+        moveToken: MoveToken.ARGN,
+        amount: quote.amountToTransfer,
+        amountToSpend: senderDebit(quote.amountToTransfer) - 1n,
+        sourceWalletType: WalletType.argon,
+        ethereumWallet,
+      }),
+    ).rejects.toThrow('network fee changed');
+
+    const argonotQuote = await tracker.quoteTransferOutFromAmountToSpend({
+      amountToSpend,
+      moveToken: MoveToken.ARGNOT,
+      sourceWalletType: WalletType.argon,
+      ethereumWallet,
+    });
+    expect(argonotQuote.amountToTransfer + argonotQuote.mintingAuthorityTip).toBeLessThanOrEqual(amountToSpend);
+    await expect(
+      tracker.startMove({
+        moveToken: MoveToken.ARGNOT,
+        amount: argonotQuote.amountToTransfer,
+        amountToSpend,
+        availableArgonAmount: 1_000n,
+        sourceWalletType: WalletType.argon,
+        ethereumWallet,
+      }),
+    ).rejects.toThrow('not have enough ARGN');
+
+    const maximumQuote = await tracker.quoteTransferOutFromAmountToSpend({
+      amountToSpend: availableAmount - 10_000n,
+      moveToken: MoveToken.ARGN,
+      sourceWalletType: WalletType.argon,
+      ethereumWallet,
+    });
+    const maximumAmount = maximumQuote.amountToTransfer;
+    const totalCost = (amount: bigint) => amount + (amount * 10n) / 10_000n + 2_070n + 10_000n;
+    expect(totalCost(maximumAmount)).toBeLessThanOrEqual(availableAmount);
+    expect(totalCost(maximumAmount + 1n)).toBeGreaterThan(availableAmount);
+
+    await expect(
+      tracker.startMove({
+        moveToken: MoveToken.ARGN,
+        amount: maximumAmount + 1n,
+        availableAmount,
+        sourceWalletType: WalletType.argon,
+        ethereumWallet,
+      }),
+    ).rejects.toThrow('network fee');
+
+    const maximumArgonotQuote = await tracker.quoteTransferOutFromAmountToSpend({
+      amountToSpend: 205293660000n - 10_000n,
+      moveToken: MoveToken.ARGNOT,
+      sourceWalletType: WalletType.argon,
+      ethereumWallet,
+    });
+    expect(maximumArgonotQuote.amountToTransfer).toBe(205088561439n);
   });
 
   it('rejects an outbound amount that would dip below the minimum balance', async () => {
@@ -2032,7 +2227,7 @@ describe('EthereumOutboundTransferTracker integration', () => {
         sourceWalletType: WalletType.argon,
         ethereumWallet: new WalletForEthereum('0x0000000000000000000000000000000000000001'),
       }),
-    ).rejects.toThrow('A small ARGNOT tip is reserved and the account must keep its minimum balance');
+    ).rejects.toThrow('Leave enough ARGNOT for the transfer');
   });
 });
 
@@ -2040,9 +2235,13 @@ function createMainchainClient() {
   const now = BigInt(Date.now());
 
   return {
+    rpc: { author: { pendingExtrinsics: vi.fn(async () => []) } },
     tx: {
       crosschainTransfer: {
-        transferOut: vi.fn(() => ({ kind: 'transferOut' })),
+        transferOut: vi.fn(() => ({
+          kind: 'transferOut',
+          paymentInfo: vi.fn(async () => ({ partialFee: { toBigInt: () => 2_070n } })),
+        })),
       },
     },
     query: {
@@ -2111,6 +2310,8 @@ function createTransferOutTxInfo(args: {
       blockHeight: args.blockHeight,
       finalizedHeadHeight: args.blockHeight,
       blockHash: '0xtransfer-block',
+      isFinalized: false,
+      blockExtrinsicErrorJson: undefined as { message: string } | undefined,
     },
     txResult: {
       waitForFinalizedBlock: args.waitForFinalizedBlock ?? Promise.resolve(),
@@ -2140,7 +2341,7 @@ function createBlockWatch(args: {
 }) {
   const events = new EventEmitter();
   const instance = {
-    finalizedBlockHeader: args.initialHeader,
+    finalizedBlockHeader: { ...args.initialHeader, blockTime: Date.now() },
     bestBlockHeader: {
       ...args.initialHeader,
       blockTime: Date.now(),
@@ -2158,7 +2359,7 @@ function createBlockWatch(args: {
   return {
     instance,
     emitFinalized(header: { blockNumber: number; blockHash: string }) {
-      instance.finalizedBlockHeader = header;
+      instance.finalizedBlockHeader = { ...header, blockTime: Date.now() };
       instance.bestBlockHeader = {
         ...header,
         blockTime: Date.now(),

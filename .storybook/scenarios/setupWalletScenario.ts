@@ -1,5 +1,6 @@
 import * as Vue from 'vue';
 import {
+  bigIntMax,
   BitcoinLock,
   MICROGONS_PER_ARGON,
   MICRONOTS_PER_ARGONOT,
@@ -108,6 +109,9 @@ export type WalletTransferScenario =
   | 'outboundArgon'
   | 'outboundAuthorization'
   | 'outboundEthereum'
+  | 'outboundArgonFailed'
+  | 'outboundArgonUnconfirmed'
+  | 'outboundArgonFeeUnavailable'
   | 'attentionError'
   | 'completeInbound'
   | 'completeOutbound';
@@ -765,7 +769,9 @@ export function setupWalletTransferScenario(state: WalletTransferScenario): Wall
     inboundTransfer,
   );
   const outbound = createOutboundTransferTracker(
-    state === 'existingOutbound' ? outboundTransfer : undefined,
+    state === 'existingOutbound' || state === 'outboundArgonFailed' || state === 'outboundArgonUnconfirmed'
+      ? outboundTransfer
+      : undefined,
     state,
     outboundTransfer,
   );
@@ -773,6 +779,9 @@ export function setupWalletTransferScenario(state: WalletTransferScenario): Wall
   const ethereumWallet = wallets.ethereumWallets.find(41);
   if (!ethereumWallet) throw new Error('Ethereum Treasury story wallet is missing.');
   wallets.argonWallets.defaultArgonWallet.data.otherTokens = [];
+  if (state === 'outboundArgonFeeUnavailable') {
+    wallets.argonWallets.defaultArgonWallet.data.availableMicrogons = 0n;
+  }
   Object.assign(ethereumWallet.data, {
     ...defaultWalletData,
     type: WalletType.ethereum,
@@ -993,6 +1002,19 @@ function createOutboundTransfer(state: WalletTransferScenario): IEthereumOutboun
         approvalPercent: 62,
       });
       break;
+    case 'outboundArgonFailed':
+    case 'outboundArgonUnconfirmed':
+      hasPersistedTransfer = false;
+      needsAttention = true;
+      error =
+        state === 'outboundArgonUnconfirmed'
+          ? 'Unable to confirm the Argon transaction outcome yet.'
+          : 'Transaction failed due to insufficient funds.';
+      progress = setOutboundArgonStepProgress(progress, {
+        progressPct: 0,
+        detail: state === 'outboundArgonUnconfirmed' ? 'Checking the Argon request outcome.' : 'Argon transfer failed.',
+      });
+      break;
     case 'completeOutbound':
       hasPersistedTransfer = false;
       isComplete = true;
@@ -1005,6 +1027,7 @@ function createOutboundTransfer(state: WalletTransferScenario): IEthereumOutboun
   return {
     id: 'storybook-outbound-transfer',
     moveToken: MoveToken.ARGN,
+    argonSourceAddress: '5StorybookInternalArgonWallet',
     destinationAddress: '0x1111111111111111111111111111111111111111',
     transferState: {
       isSubmitting,
@@ -1082,13 +1105,12 @@ function createOutboundTransferTracker(
   });
   tracker.load = fn(async () => undefined);
   tracker.getTransfer = fn((id: string) => tracker.data.transfersById[id]);
-  tracker.getPendingAmount = fn(() => 0n);
-  tracker.getMaximumTransferOutAmount = fn(async () => 875n * argon);
-  tracker.getTransferOutUnavailableReason = fn(async () => undefined);
-  tracker.estimateArgonFees = fn(async () => ({
+  tracker.quoteTransferOutFromAmountToSpend = fn(async ({ amountToSpend, moveToken }) => ({
+    amountToTransfer: bigIntMax(amountToSpend - (moveToken === MoveToken.ARGN ? 75_000n : 50_000n), 0n),
     transactionFeeMicrogons: 25_000n,
     mintingAuthorityTip: 50_000n,
   }));
+  tracker.getTransferOutUnavailableReason = fn(async () => undefined);
 
   let cleanup: (() => void) | undefined;
   if (state === 'feeLoading') {
@@ -1147,6 +1169,9 @@ function createOutboundTransferTracker(
   tracker.dismissFailedTransfer = fn(async id => {
     discardScenarioTransfer(tracker.data, id);
   });
+  if (state === 'outboundArgonUnconfirmed') {
+    tracker.getPendingAmount = fn(() => 875n * argon);
+  }
   tracker.clearCompletedTransfer = fn(id => {
     discardScenarioTransfer(tracker.data, id);
   });

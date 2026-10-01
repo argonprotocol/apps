@@ -11,6 +11,7 @@ import {
   getVaultByOperator,
   loadAccountLocks,
   loadCertificationProgress,
+  meetsCertificationAmountMinimum,
   MICROGONS_PER_ARGON,
   TreasuryBonds,
   treasuryCertificationRequirementCount,
@@ -287,7 +288,7 @@ export const useCertificationController = defineStore('certificationController',
     const hasCompletedLock =
       rewardConfig.value.treasuryMinimumBitcoin <= 0n
         ? completedOwnBitcoinLockAmount > 0n
-        : completedOwnBitcoinLockAmount >= rewardConfig.value.treasuryMinimumBitcoin;
+        : meetsCertificationAmountMinimum(completedOwnBitcoinLockAmount, rewardConfig.value.treasuryMinimumBitcoin);
 
     if (hasCompletedLock) hasCompletedOwnBitcoinLock.value = true;
   });

@@ -147,13 +147,10 @@ import {
   treasuryCertificationStepIds,
 } from '../stores/certificationController.ts';
 import { useBasics } from '../stores/basics.ts';
-import { getConfig } from '../stores/config.ts';
-import { MiningSetupStatus, TopTab, VaultingSetupStatus } from '../interfaces/IConfig.ts';
 import { open as tauriOpenUrl } from '@tauri-apps/plugin-shell';
 import { NetworkConfig } from '@argonprotocol/apps-core';
 
 const basics = useBasics();
-const config = getConfig();
 const controller = useCertificationController();
 
 const isOpen = Vue.ref(false);
@@ -225,36 +222,7 @@ function startTask() {
 
   const stepId = currentStepId.value;
   closeOverlay();
-
-  setTimeout(() => {
-    controller.activeGuideId = stepId;
-
-    if (stepId === OperationalStepId.ActivateVault) {
-      if (controller.selectedTab === TopTab.Vaulting) {
-        controller.backButtonTriggersHome = true;
-        config.vaultingSetupStatus = VaultingSetupStatus.Checklist;
-      }
-      return;
-    }
-
-    if (
-      [
-        OperationalStepId.AcquireArgonBonds,
-        OperationalStepId.LiquidLock,
-        OperationalStepId.TreasuryTransfer,
-        OperationalStepId.OperationalTransfer,
-      ].includes(stepId)
-    ) {
-      return;
-    }
-
-    if (controller.selectedTab === TopTab.Mining) {
-      controller.backButtonTriggersHome = true;
-      if (config.miningSetupStatus === MiningSetupStatus.None) {
-        config.miningSetupStatus = MiningSetupStatus.Checklist;
-      }
-    }
-  });
+  controller.activeGuideId = stepId;
 }
 
 function cancelTask() {

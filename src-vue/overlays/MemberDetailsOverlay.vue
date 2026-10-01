@@ -201,8 +201,12 @@
           </div>
           <div class="flex items-center gap-3">
             <span class="grow">Transfer Argons from Uniswap</span>
-            <span v-if="(memberUniswapTransferMicrogons ?? 0n) > 0n" class="w-32 text-right font-light text-slate-500">
-              {{ currency.symbol }}{{ microgonToMoneyNm(memberUniswapTransferMicrogons ?? 0n).format('0,0.00') }}
+            <span
+              v-if="(certificationProgress.uniswapArgonTransfersInAmount ?? 0n) > 0n"
+              class="w-32 text-right font-light text-slate-500"
+            >
+              {{ currency.symbol
+              }}{{ microgonToMoneyNm(certificationProgress.uniswapArgonTransfersInAmount ?? 0n).format('0,0.00') }}
             </span>
             <span
               class="rounded-full px-2.5 py-1 text-xs font-semibold"
@@ -223,10 +227,11 @@
             <div class="flex items-center gap-3">
               <span class="grow">Create a Vault</span>
               <span
-                v-if="(memberOperationalVaultMicrogons ?? 0n) > 0n"
+                v-if="(certificationProgress.operationalVaultSecuritization ?? 0n) > 0n"
                 class="w-32 text-right font-light text-slate-500"
               >
-                {{ currency.symbol }}{{ microgonToMoneyNm(memberOperationalVaultMicrogons ?? 0n).format('0,0.00') }}
+                {{ currency.symbol
+                }}{{ microgonToMoneyNm(certificationProgress.operationalVaultSecuritization ?? 0n).format('0,0.00') }}
               </span>
               <span
                 class="rounded-full px-2.5 py-1 text-xs font-semibold"
@@ -242,11 +247,11 @@
             <div class="flex items-center gap-3">
               <span class="grow">Win Mining Seats</span>
               <span
-                v-if="(memberOperationalMiningSeatCount ?? 0) > 0"
+                v-if="(certificationProgress.operationalMiningSeatCount ?? 0) > 0"
                 class="w-32 text-right font-light text-slate-500"
               >
-                {{ memberOperationalMiningSeatCount }}
-                {{ memberOperationalMiningSeatCount === 1 ? 'seat' : 'seats' }}
+                {{ certificationProgress.operationalMiningSeatCount }}
+                {{ certificationProgress.operationalMiningSeatCount === 1 ? 'seat' : 'seats' }}
               </span>
               <span
                 class="rounded-full px-2.5 py-1 text-xs font-semibold"
@@ -262,10 +267,11 @@
             <div class="flex items-center gap-3">
               <span class="grow">Transfer Argons from Uniswap</span>
               <span
-                v-if="(memberUniswapTransferMicrogons ?? 0n) > 0n"
+                v-if="(certificationProgress.uniswapArgonTransfersInAmount ?? 0n) > 0n"
                 class="w-32 text-right font-light text-slate-500"
               >
-                {{ currency.symbol }}{{ microgonToMoneyNm(memberUniswapTransferMicrogons ?? 0n).format('0,0.00') }}
+                {{ currency.symbol
+                }}{{ microgonToMoneyNm(certificationProgress.uniswapArgonTransfersInAmount ?? 0n).format('0,0.00') }}
               </span>
               <span
                 class="rounded-full px-2.5 py-1 text-xs font-semibold"
@@ -351,9 +357,6 @@ const errorMessage = Vue.ref('');
 const expirationDays = Vue.ref(7);
 const memberAvailableMicrogons = Vue.ref<bigint>();
 const memberAvailableMicronots = Vue.ref<bigint>();
-const memberUniswapTransferMicrogons = Vue.ref<bigint>();
-const memberOperationalVaultMicrogons = Vue.ref<bigint>();
-const memberOperationalMiningSeatCount = Vue.ref<number>();
 const isMemberBalanceLoading = Vue.ref(false);
 const memberBalanceRequestVersion = Vue.ref(0);
 
@@ -542,12 +545,8 @@ Vue.watch(
 );
 
 Vue.watch(
-  [
-    memberBalanceRequestVersion,
-    () => invite.value?.defaultAccountId,
-    () => invite.value?.operationalAccountId ?? undefined,
-  ],
-  async ([, accountId, operationalAccountId], previous, onCleanup) => {
+  [memberBalanceRequestVersion, () => invite.value?.defaultAccountId],
+  async ([, accountId], previous, onCleanup) => {
     let isCurrentRequest = true;
     onCleanup(() => {
       isCurrentRequest = false;
@@ -557,50 +556,18 @@ Vue.watch(
     if (isNewMember) {
       memberAvailableMicrogons.value = undefined;
       memberAvailableMicronots.value = undefined;
-      memberUniswapTransferMicrogons.value = undefined;
-      memberOperationalVaultMicrogons.value = undefined;
-      memberOperationalMiningSeatCount.value = undefined;
       isMemberBalanceLoading.value = !!accountId;
     }
     if (!accountId) return;
 
     try {
       const client = await getMainchainClient(false);
-      const operationalAccountPromise = operationalAccountId
-        ? client.query.operationalAccounts.operationalAccounts(operationalAccountId)
-        : undefined;
-      const transferTotalsPromise = client.query.crosschainTransfer.transferTotalsByAccount(accountId);
-      const [balanceResult, operationalResult] = await Promise.allSettled([
-        readArgonWalletBalanceValues(client, [accountId]),
-        Promise.all([transferTotalsPromise, operationalAccountPromise]),
-      ]);
+      const [balance] = await readArgonWalletBalanceValues(client, [accountId]);
       if (!isCurrentRequest) return;
-
-      if (balanceResult.status === 'fulfilled') {
-        const [balance] = balanceResult.value;
-        memberAvailableMicrogons.value = balance.availableMicrogons;
-        memberAvailableMicronots.value = balance.availableMicronots;
-      } else {
-        console.warn('[Member Details] Unable to load member balances.', balanceResult.reason);
-      }
-
-      if (operationalResult.status === 'rejected') {
-        console.warn('[Member Details] Unable to load operational details.', operationalResult.reason);
-        return;
-      }
-
-      const [transferTotals, operationalAccountRaw] = operationalResult.value;
-
-      if (operationalAccountRaw) {
-        const account = operationalAccountRaw;
-        memberUniswapTransferMicrogons.value = account.uniswapArgonTransfersInAmount;
-        memberOperationalVaultMicrogons.value = account.vaultBitcoinAccrual + account.vaultBitcoinAppliedTotal;
-        memberOperationalMiningSeatCount.value = account.miningSeatAccrual + account.miningSeatAppliedTotal;
-      } else {
-        memberUniswapTransferMicrogons.value = transferTotals.microgonsIn;
-      }
+      memberAvailableMicrogons.value = balance.availableMicrogons;
+      memberAvailableMicronots.value = balance.availableMicronots;
     } catch (error) {
-      console.warn('[Member Details] Unable to load member details.', error);
+      console.warn('[Member Details] Unable to load member balances.', error);
     } finally {
       if (isCurrentRequest) isMemberBalanceLoading.value = false;
     }

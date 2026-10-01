@@ -135,6 +135,14 @@ export const Portfolio: Story = {
   beforeEach: setupVaultingPortfolioScenario,
 };
 
+export const ExistingVaultWithCertificationGuide: Story = {
+  name: 'Existing vault with certification guide',
+  beforeEach: () => {
+    setupVaultingPortfolioScenario();
+    setCertificationGuide(OperationalStepId.ActivateVault);
+  },
+};
+
 export const ExternalBondDetails: Story = {
   beforeEach: setupVaultingPortfolioScenario,
   play: async ({ canvasElement }) => {

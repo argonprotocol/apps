@@ -524,7 +524,7 @@
 <script setup lang="ts">
 import * as Vue from 'vue';
 import { NetworkConfig } from '@argonprotocol/apps-core';
-import { MiningSetupStatus, TopTab, VaultingSetupStatus } from '../interfaces/IConfig.ts';
+import { TopTab } from '../interfaces/IConfig.ts';
 import {
   OperationalStepId,
   useCertificationController,
@@ -687,19 +687,10 @@ function goto(tab: TopTab) {
       controller.activeGuideId === OperationalStepId.MoreMiningSeats)
   ) {
     controller.backButtonTriggersHome = true;
-    if (config.miningSetupStatus === MiningSetupStatus.None) {
-      config.miningSetupStatus = MiningSetupStatus.Checklist;
-    }
   } else if (tab === TopTab.Vaulting && controller.activeGuideId === OperationalStepId.ActivateVault) {
     controller.backButtonTriggersHome = true;
-    config.vaultingSetupStatus = VaultingSetupStatus.Checklist;
   } else if (controller.backButtonTriggersHome) {
     controller.backButtonTriggersHome = false;
-    if (tab === TopTab.Mining) {
-      config.miningSetupStatus = MiningSetupStatus.None;
-    } else if (tab === TopTab.Vaulting) {
-      config.vaultingSetupStatus = VaultingSetupStatus.None;
-    }
   }
   controller.setTab(tab);
 }
