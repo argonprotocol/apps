@@ -649,14 +649,7 @@ export class EthereumOutboundTransferTracker {
       transfer.transferState.hasPersistedTransfer = true;
       await this.completeTransferOutOnArgon(txInfo, transfer, persistedRecord);
     } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : 'Unable to move funds from Argon to Ethereum.';
-      await this.failTransfer(
-        errorMessage ===
-          'Transaction failed due to insufficient funds. Please ensure your account has enough balance to cover the transaction fees.'
-          ? `Leave enough ARGN for the network fee and ${moveToken} for the transfer, tip, and minimum balance.`
-          : errorMessage,
-        transfer.id,
-      );
+      await this.failTransfer(error, transfer.id, 'Unable to move funds from Argon to Ethereum.');
     }
   }
 
@@ -757,7 +750,9 @@ export class EthereumOutboundTransferTracker {
     try {
       // An earlier RPC error can reject TxResult's promise even if this transaction later finalizes.
       if (!txInfo.tx.isFinalized) await txInfo.txResult.waitForFinalizedBlock;
-      if (txInfo.tx.blockExtrinsicErrorJson) throw new Error(txInfo.tx.blockExtrinsicErrorJson.message);
+      if (txInfo.tx.blockExtrinsicErrorJson) {
+        throw txInfo.txResult.extrinsicError ?? new Error(txInfo.tx.blockExtrinsicErrorJson.message);
+      }
       await this.transactionTracker.ensureStoredEvents(txInfo);
       const transferId = await extractTransferId(txInfo);
       const argonFinalizedProgress = setOutboundMintingAuthorizationStepProgress(
@@ -815,6 +810,20 @@ export class EthereumOutboundTransferTracker {
       record.status === CrosschainOutboundTransferStatus.TransferSubmittedToTargetChain && !!record.targetTxHash;
     const hasFailure = hasUnacknowledgedFailure(record) && !isSubmittedToEthereum;
     const shouldDiscardAcknowledgedFailure = isAcknowledgedFailure(record);
+    let failureMessage = '';
+    if (hasFailure) {
+      failureMessage = record.failureReason ?? '';
+      if (
+        record.status === CrosschainOutboundTransferStatus.RequestSubmittedToArgon &&
+        record.argonRequestTransactionId
+      ) {
+        const failedArgonTx = this.transactionTracker.findLatestTxInfo(
+          candidate => candidate.tx.id === record.argonRequestTransactionId,
+        );
+        failureMessage = failedArgonTx?.txResult.extrinsicError?.message ?? failureMessage;
+      }
+    }
+
     transfer.persistedRecord = record;
     transfer.startedAt = record.createdAt.getTime();
     transfer.argonSourceAddress = record.argonSourceAddress;
@@ -829,7 +838,7 @@ export class EthereumOutboundTransferTracker {
       needsAttention: hasFailure,
       isComplete,
       progress: createOutboundProgressFromRecord(record),
-      error: hasFailure ? (record.failureReason ?? '') : '',
+      error: failureMessage,
     };
 
     if (!this.ethereumClient) return;

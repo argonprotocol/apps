@@ -1,4 +1,3 @@
-import { ExtrinsicError } from '@argonprotocol/mainchain';
 import { ITransactionRecord, TransactionStatus } from './db/TransactionsTable';
 import { createDeferred, IDeferred, TxResult } from '@argonprotocol/apps-core';
 import { TICK_MILLIS } from './Env.ts';
@@ -133,40 +132,6 @@ export class TransactionInfo<MetadataType = unknown> {
     this.blockProgress.setCurrentBlockHeight(value);
   }
 
-  private translateCommonErrors(error: ExtrinsicError | Error): string {
-    let errorCode: string | undefined;
-    if (error instanceof ExtrinsicError) {
-      errorCode = error.errorCode;
-      if (errorCode.includes('{')) {
-        try {
-          const parsed = JSON.parse(errorCode);
-          errorCode = Object.values(parsed)[0] as string;
-
-          if (errorCode === 'FundsUnavailable') {
-            return 'Transaction failed due to insufficient funds. Please ensure your account has enough balance to cover the transaction fees.';
-          }
-          if (errorCode === 'BelowMinimum') {
-            return 'Transaction failed because this change would leave too little balance in your account afterwards to preserve it.';
-          }
-          if (errorCode === 'BadOrigin') {
-            return 'Transaction failed due to bad origin. Please check your permissions and try again.';
-          }
-          if (errorCode === 'NonceTooLow') {
-            return 'Transaction nonce is too low. This may be due to a pending transaction. Please wait a moment and try again.';
-          }
-          if (errorCode === 'PriorityTooLow') {
-            return 'Transaction priority is too low. Please try increasing the transaction fee or tip to prioritize it.';
-          }
-          return `Transaction failed with error code: ${errorCode}`;
-        } catch (_e) {
-          // ignore
-        }
-      }
-      return error.details || `Transaction failed with error code: ${errorCode}`;
-    }
-    return error.message;
-  }
-
   private getWaitingForFinalizationMessage(status: {
     expectedConfirmations: number;
     confirmations: number;
@@ -245,11 +210,9 @@ export class TransactionInfo<MetadataType = unknown> {
     }
 
     const progressMessage = this.getWaitingForFinalizationMessage(status);
-    const error = status.error;
-    const errorMessage = error ? this.translateCommonErrors(error) : undefined;
     for (const { runFn } of this.progressCallbacks) {
       try {
-        void runFn({ ...status, progressMessage }, errorMessage ? new Error(errorMessage) : undefined);
+        void runFn({ ...status, progressMessage }, status.error);
       } catch (e) {
         console.error('Error in transaction progress callback', e);
       }
@@ -272,8 +235,6 @@ export function getTransactionFailureMessage(txInfo?: TransactionInfo): string |
 
   const extrinsicError = txInfo.txResult.extrinsicError;
   if (extrinsicError) {
-    const details = (extrinsicError as ExtrinsicError).details;
-    if (details) return details;
     return extrinsicError.message || String(extrinsicError);
   }
 

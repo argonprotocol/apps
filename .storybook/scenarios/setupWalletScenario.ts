@@ -2,12 +2,14 @@ import * as Vue from 'vue';
 import {
   bigIntMax,
   BitcoinLock,
+  createRuntimeExtrinsicError,
   MICROGONS_PER_ARGON,
   MICRONOTS_PER_ARGONOT,
   MoveToken,
   UnitOfMeasurement,
 } from '@argonprotocol/apps-core';
 import { BitcoinNetwork } from '@argonprotocol/bitcoin';
+import { getOfflineRegistry } from '@argonprotocol/mainchain';
 import { fn, mocked, spyOn } from 'storybook/test';
 import type { IEthereumInboundTransferState } from '../../src-vue/interfaces/IEthereumInboundTransferTracker.ts';
 import { BitcoinLockStatus, type IBitcoinLockRecord } from '../../src-vue/interfaces/IBitcoinLockRecord.ts';
@@ -113,6 +115,11 @@ export type WalletTransferScenario =
   | 'outboundArgonUnconfirmed'
   | 'outboundArgonFeeUnavailable'
   | 'attentionError'
+  | 'outboundArgonError'
+  | 'outboundMinimumBalanceError'
+  | 'outboundGenericError'
+  | 'outboundRestrictedFundsError'
+  | 'outboundUnsupportedTransactionError'
   | 'completeInbound'
   | 'completeOutbound';
 
@@ -993,6 +1000,26 @@ function createOutboundTransfer(state: WalletTransferScenario): IEthereumOutboun
         expectedConfirmations: 12,
       });
       break;
+    case 'outboundArgonError':
+    case 'outboundMinimumBalanceError':
+    case 'outboundGenericError':
+    case 'outboundRestrictedFundsError':
+    case 'outboundUnsupportedTransactionError': {
+      needsAttention = true;
+      const errorCode = {
+        outboundArgonError: 'Token.FundsUnavailable',
+        outboundMinimumBalanceError: 'bitcoinLocks.AccountWouldGoBelowMinimumBalance',
+        outboundGenericError: 'Arithmetic.Overflow',
+        outboundRestrictedFundsError: 'Token.Frozen',
+        outboundUnsupportedTransactionError: 'Token.Unsupported',
+      }[state];
+      error = createRuntimeExtrinsicError({ registry: getOfflineRegistry() }, { errorCode }).message;
+      progress = setOutboundArgonStepProgress(progress, {
+        progressPct: 67,
+        detail: 'Argon transaction failed.',
+      });
+      break;
+    }
     case 'attentionError':
       needsAttention = true;
       error = 'Ethereum submission needs attention. The transfer remains recorded for recovery.';

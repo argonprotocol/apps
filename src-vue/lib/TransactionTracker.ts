@@ -1,5 +1,4 @@
 import {
-  ExtrinsicError,
   type GenericEvent,
   hexToU8a,
   isOutdatedTransactionError,
@@ -16,6 +15,7 @@ import {
   BlockWatch,
   type ArgonClient,
   createDeferred,
+  createRuntimeExtrinsicError,
   IBlockHeaderInfo,
   IDeferred,
   TransactionEvents,
@@ -147,11 +147,10 @@ export class TransactionTracker {
           await this.ensureStoredEvents(txInfo);
         }
         if (tx.blockExtrinsicErrorJson) {
-          txResult.extrinsicError = new ExtrinsicError(
-            tx.blockExtrinsicErrorJson.errorCode ?? 'Unknown Error',
-            tx.blockExtrinsicErrorJson.details ?? tx.blockExtrinsicErrorJson.message,
-            tx.blockExtrinsicErrorJson.batchInterruptedIndex,
-          );
+          txResult.extrinsicError = createRuntimeExtrinsicError(client, {
+            ...tx.blockExtrinsicErrorJson,
+            txFee: txResult.finalFee,
+          });
         }
 
         if (tx.isFinalized || txResult.submissionError) {
