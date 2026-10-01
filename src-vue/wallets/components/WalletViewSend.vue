@@ -223,11 +223,13 @@ async function initiateTransfer() {
 
   const ethereumWallet = selectedEthereumWallet.value;
   const moveToken = form?.selectedMoveToken;
-  const amount = form?.tokensToMove;
+  const amount = form?.outboundTransferAmount;
+  const amountToSpend = form?.tokensToMove;
   const availableAmount = form?.availableAmount;
   if (
     !ethereumWallet ||
     amount == null ||
+    amountToSpend == null ||
     availableAmount == null ||
     (moveToken !== MoveToken.ARGN && moveToken !== MoveToken.ARGNOT)
   )
@@ -238,7 +240,9 @@ async function initiateTransfer() {
     const transfer = await outboundTracker.startMove({
       moveToken,
       amount,
+      amountToSpend,
       availableAmount,
+      availableArgonAmount: wallets.argonWallets.defaultArgonWallet.data.availableMicrogons,
       sourceWalletType: WalletType.argon,
       ethereumWallet,
     });

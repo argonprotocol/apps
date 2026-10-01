@@ -239,6 +239,35 @@ const stories = {
     },
   },
 
+  outboundArgonFailed: {
+    beforeEach: () => useScenario('outboundArgonFailed'),
+    play: async () => {
+      const canvas = await getOutboundCanvas();
+      await submitTransfer(canvas);
+      await waitForTransferProgress(canvas);
+    },
+  },
+
+  outboundArgonUnconfirmed: {
+    beforeEach: () => useScenario('outboundArgonUnconfirmed'),
+    play: async () => {
+      const canvas = await getOutboundCanvas();
+      await submitTransfer(canvas);
+      await waitForTransferProgress(canvas);
+      await userEvent.click(await canvas.findByRole('button', { name: 'Create Another Transaction' }));
+      await canvas.findByTestId('WalletViewSend.amount');
+    },
+  },
+
+  outboundArgonFeeUnavailable: {
+    beforeEach: () => useScenario('outboundArgonFeeUnavailable'),
+    play: async () => {
+      const canvas = await getOutboundCanvas();
+      await userEvent.click(canvas.getByTestId('WalletViewSend.token'));
+      await userEvent.click(canvas.getByTestId('ARGNOT'));
+    },
+  },
+
   completeInbound: {
     beforeEach: () => useScenario('completeInbound'),
     play: async () => {
@@ -286,10 +315,23 @@ export const OutboundArgon = stories.outboundArgon;
 export const OutboundAuthorization = stories.outboundAuthorization;
 export const OutboundEthereum = stories.outboundEthereum;
 export const AttentionError = stories.attentionError;
+export const OutboundArgonFailed = stories.outboundArgonFailed;
+export const OutboundArgonUnconfirmed = stories.outboundArgonUnconfirmed;
+export const OutboundArgonFeeUnavailable = stories.outboundArgonFeeUnavailable;
 export const CompleteInbound = stories.completeInbound;
 export const CompleteOutbound = stories.completeOutbound;
 export const ExistingInbound = stories.existingInbound;
 export const ExistingOutbound = stories.existingOutbound;
+
+export const OutboundCustomAmount: Story = {
+  beforeEach: () => useScenario('outboundForm'),
+  play: async () => {
+    const canvas = await getOutboundCanvas();
+    const amount = within(canvas.getByTestId('WalletViewSend.amount')).getByTestId('input-number');
+    await userEvent.clear(amount);
+    await userEvent.type(amount, '100');
+  },
+};
 
 export const ArgonAddress: Story = {
   beforeEach: () => useScenario('outboundForm'),
