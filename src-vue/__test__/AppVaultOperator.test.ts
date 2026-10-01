@@ -104,6 +104,7 @@ describe('AppVaultOperator', () => {
       query: {
         operationalAccounts: {
           operationalAccounts: async () => ({
+            vaultAccount: downstreamOperationalAccountId,
             vaultCreated: false,
             vaultBitcoinAccrual: 0n,
             vaultBitcoinAppliedTotal: 0n,
@@ -114,6 +115,9 @@ describe('AppVaultOperator', () => {
             accountVaultBondAmount: 10n,
             isOperationallyCertified: false,
           }),
+        },
+        vaults: {
+          vaultIdByOperator: async () => null,
         },
       },
     };
