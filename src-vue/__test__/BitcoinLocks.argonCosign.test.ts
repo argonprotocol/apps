@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { BitcoinLock } from '@argonprotocol/apps-core';
+import { BitcoinLock, createRuntimeExtrinsicError } from '@argonprotocol/apps-core';
+import { getOfflineRegistry } from '@argonprotocol/mainchain';
 import {
   type ArgonClient,
   type ArgonQueryClient,
@@ -217,6 +218,19 @@ describe('BitcoinLocks Argon cosign gating', () => {
         message: 'bitcoinLocks.InsufficientVaultFunds',
       }),
     ).toBe('InsufficientVaultFunds');
+  });
+
+  it('shows the readable saved failure instead of its technical metadata description', () => {
+    const error = createRuntimeExtrinsicError(
+      { registry: getOfflineRegistry() },
+      { errorCode: 'bitcoinLocks.AccountWouldGoBelowMinimumBalance' },
+    );
+    const storedError = BitcoinLocks.toBlockExtrinsicErrorJson(error);
+
+    expect(storedError.details).toContain('existential');
+    expect(BitcoinLocks.formatBlockExtrinsicError(storedError)).toBe(
+      'Your account needs to keep a minimum balance. Reduce the amount and try again.',
+    );
   });
 
   it('marks a pending lock failed when the finalized lock request rejects with an extrinsic error', async () => {

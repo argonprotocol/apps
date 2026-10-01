@@ -444,11 +444,7 @@ const destinationAddressError = Vue.computed(() => {
   return 'Enter a valid Argon address.';
 });
 const formError = Vue.computed(
-  () =>
-    submissionError.value ||
-    maximumTransferError.value ||
-    bitcoinDestinationError.value ||
-    destinationAddressError.value,
+  () => submissionError.value || maximumTransferError.value || bitcoinDestinationError.value,
 );
 const hasValidDestination = Vue.computed(
   () =>

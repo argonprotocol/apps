@@ -11,6 +11,7 @@ import type { TransactionInfo } from '../../../src-vue/lib/TransactionInfo.ts';
 import { getMoveCapital, useWallets } from '../../../src-vue/stores/wallets.ts';
 
 let request: IWalletOverlayOptions;
+const fixedPreview = Vue.ref(false);
 
 const meta = {
   title: 'Wallets/Cross-chain transfer',
@@ -18,10 +19,21 @@ const meta = {
     components: { WalletOverlay },
     setup() {
       Vue.onMounted(() => basicEmitter.emit('openWalletOverlay', request));
+      return { fixedPreview };
     },
     template: `
       <div class="relative h-screen w-screen overflow-hidden">
         <WalletOverlay />
+        <div
+          v-if="fixedPreview"
+          data-testid="WalletTransferOverlay.fixedPreviewGuard"
+          class="fixed inset-0 z-[999] cursor-not-allowed"
+          aria-label="Transfer controls are disabled in this fixed preview"
+        >
+          <span class="pointer-events-none absolute top-4 left-1/2 -translate-x-1/2 rounded bg-slate-900 px-3 py-1.5 text-sm font-semibold text-white shadow">
+            Fixed state preview
+          </span>
+        </div>
       </div>
     `,
   }),
@@ -31,6 +43,7 @@ export default meta;
 type Story = StoryObj<typeof meta>;
 
 function useScenario(state: WalletTransferScenario, restoreArgonTransfer = false) {
+  fixedPreview.value = false;
   const scenario = setupWalletTransferScenario(state);
   if (restoreArgonTransfer) {
     getMoveCapital().data.pendingExternalTransfer = {
@@ -344,8 +357,79 @@ export const ArgonAddress: Story = {
   },
 };
 
+export const InvalidArgonAddress: Story = {
+  beforeEach: () => useScenario('outboundForm'),
+  play: async () => {
+    const canvas = await getOutboundCanvas();
+    const destination = within(canvas.getByTestId('WalletViewSend.destination'));
+    await userEvent.click(destination.getByTestId('WalletViewSend.destinationMenu'));
+    await userEvent.click(canvas.getByTestId('Another Argon Wallet'));
+    await userEvent.type(
+      canvas.getByTestId('WalletTransferForm.destinationAddress'),
+      '0x1111111111111111111111111111111111111111',
+    );
+    canvas.getByTestId('WalletOverlay').inert = true;
+    fixedPreview.value = true;
+  },
+};
+
+export const ArgonTransactionError: Story = {
+  beforeEach: () => useScenario('outboundArgonError'),
+  play: async () => {
+    const canvas = await getOutboundCanvas();
+    await submitTransfer(canvas);
+    await waitForTransferProgress(canvas);
+    canvas.getByTestId('WalletOverlay').inert = true;
+    fixedPreview.value = true;
+  },
+};
+
+export const MinimumBalanceError: Story = {
+  beforeEach: () => useScenario('outboundMinimumBalanceError'),
+  play: async () => {
+    const canvas = await getOutboundCanvas();
+    await submitTransfer(canvas);
+    await waitForTransferProgress(canvas);
+    canvas.getByTestId('WalletOverlay').inert = true;
+    fixedPreview.value = true;
+  },
+};
+
 export const ExistingArgonAddress: Story = {
   beforeEach: () => useScenario('outboundForm', true),
+};
+
+export const GenericTransactionError: Story = {
+  beforeEach: () => useScenario('outboundGenericError'),
+  play: async () => {
+    const canvas = await getOutboundCanvas();
+    await submitTransfer(canvas);
+    await waitForTransferProgress(canvas);
+    canvas.getByTestId('WalletOverlay').inert = true;
+    fixedPreview.value = true;
+  },
+};
+
+export const RestrictedFundsError: Story = {
+  beforeEach: () => useScenario('outboundRestrictedFundsError'),
+  play: async () => {
+    const canvas = await getOutboundCanvas();
+    await submitTransfer(canvas);
+    await waitForTransferProgress(canvas);
+    canvas.getByTestId('WalletOverlay').inert = true;
+    fixedPreview.value = true;
+  },
+};
+
+export const UnsupportedTransactionError: Story = {
+  beforeEach: () => useScenario('outboundUnsupportedTransactionError'),
+  play: async () => {
+    const canvas = await getOutboundCanvas();
+    await submitTransfer(canvas);
+    await waitForTransferProgress(canvas);
+    canvas.getByTestId('WalletOverlay').inert = true;
+    fixedPreview.value = true;
+  },
 };
 
 export const BitcoinAddress: Story = {

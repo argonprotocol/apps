@@ -1,4 +1,5 @@
-import { TransactionEvents } from '@argonprotocol/apps-core';
+import { TransactionEvents, type ArgonClient, type BlockWatch, MoveToken } from '@argonprotocol/apps-core';
+import { ExtrinsicError, getOfflineRegistry } from '@argonprotocol/mainchain';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { numberCodec } from '../../core/__test__/helpers/codecs.ts';
 import { TxAttemptState, TransactionTracker } from '../lib/TransactionTracker.ts';
@@ -6,6 +7,10 @@ import { ExtrinsicType, type ITransactionRecord, TransactionStatus } from '../li
 import { TransactionHistorySource, TransactionHistoryStatus } from '../lib/db/TransactionStatusHistoryTable.ts';
 import { getMainchainClient } from '../stores/mainchain.ts';
 import { createTestDb } from './helpers/db.ts';
+import { createMockWalletKeys } from './helpers/wallet.ts';
+import { EthereumOutboundTransferTracker } from '../lib/EthereumOutboundTransferTracker.ts';
+import { EthereumClient } from '../lib/EthereumClient.ts';
+import { createCrosschainTransferProgress, OUTBOUND_TRANSFER_STEP_TITLES } from '../lib/CrosschainTransferProgress.ts';
 
 vi.mock('../stores/mainchain.ts', () => ({
   getMainchainClient: vi.fn(async () => ({})),
@@ -128,6 +133,7 @@ describe('TransactionTracker', () => {
   });
 
   it('restores in-block extrinsic errors without finalizing non-finalized transactions', async () => {
+    vi.mocked(getMainchainClient).mockResolvedValueOnce({ registry: getOfflineRegistry() } as unknown as ArgonClient);
     const tx = createTransaction({
       id: 12,
       status: TransactionStatus.InBlock,
@@ -144,9 +150,126 @@ describe('TransactionTracker', () => {
     });
 
     const txResult = tracker.data.txInfos[0].txResult;
-    expect(txResult.extrinsicError?.message).toBe('bitcoinLocks.InsufficientVaultFunds');
+    expect(txResult.extrinsicError?.message).toBe(
+      'The transaction could not be completed. Please try again or contact support if the problem continues. (Error code: bitcoinLocks.InsufficientVaultFunds)',
+    );
     expect(txResult.isFinalized).toBe(false);
   });
+
+  it.each([
+    [
+      'Token.FundsUnavailable',
+      'Not enough available funds to cover the transaction and its fees. Reduce the amount or add funds, then try again.',
+    ],
+    [
+      '{"token":"FundsUnavailable"}',
+      'Not enough available funds to cover the transaction and its fees. Reduce the amount or add funds, then try again.',
+    ],
+    [
+      'bitcoinLocks.AccountWouldGoBelowMinimumBalance',
+      'Your account needs to keep a minimum balance. Reduce the amount and try again.',
+    ],
+    [
+      'Arithmetic.Overflow',
+      'The transaction could not be completed. Please try again or contact support if the problem continues. (Error code: Arithmetic.Overflow)',
+    ],
+    [
+      '{"module":{"index":9,"error":"0x08000000"}}',
+      'The transaction could not be completed. Please try again or contact support if the problem continues. (Error code: {"module":{"index":9,"error":"0x08000000"}})',
+    ],
+  ])(
+    'restores readable transaction progress and transfer failure notices from a stored %s error',
+    async (errorCode, message) => {
+      const db = await createTestDb();
+      const walletKeys = createMockWalletKeys();
+      const blockWatch = {
+        start: vi.fn(async () => undefined),
+        events: { on: vi.fn() },
+      } as unknown as BlockWatch;
+      const tracker = new TransactionTracker(Promise.resolve(db), blockWatch);
+      vi.mocked(getMainchainClient).mockResolvedValueOnce({ registry: getOfflineRegistry() } as unknown as ArgonClient);
+
+      try {
+        const record = await db.transactionsTable.insert({
+          extrinsicHash: '0x01',
+          extrinsicMethodJson: {},
+          metadataJson: {},
+          extrinsicType: ExtrinsicType.CrosschainTransferTransferOut,
+          accountAddress: walletKeys.vaultingAddress,
+          submittedAtBlockHeight: 10,
+          submittedAtTime: new Date('2026-09-01T12:00:00Z'),
+          txNonce: 0,
+        });
+        await db.transactionsTable.recordInBlock(record, {
+          blockNumber: 11,
+          blockHash: '0x02',
+          blockTime: new Date('2026-09-01T12:00:06Z'),
+          feePlusTip: 35_000n,
+          tip: 5_000n,
+          extrinsicIndex: 0,
+          transactionEvents: [],
+          extrinsicError: new ExtrinsicError(errorCode, undefined, 2),
+        });
+        await db.transactionsTable.markFinalized(record);
+        await db.crosschainOutboundTransfersTable.recordRequestSubmittedToArgon({
+          id: 'failed-argon-request',
+          destinationChain: 'Ethereum',
+          token: MoveToken.ARGN,
+          amount: 100_000n,
+          argonSourceAddress: walletKeys.vaultingAddress,
+          destinationAddress: walletKeys.coreEthereumAddress,
+          argonRequestTransactionId: record.id,
+          progressJson: createCrosschainTransferProgress(OUTBOUND_TRANSFER_STEP_TITLES),
+        });
+        // The named token case restarts before the outbound failure notice has been saved.
+        if (errorCode !== 'Token.FundsUnavailable') {
+          await db.crosschainOutboundTransfersTable.recordFailed({
+            id: 'failed-argon-request',
+            failureReason: errorCode,
+          });
+        }
+
+        // A new tracker reconstructs the old failure from the durable database.
+        await tracker.load();
+        const txInfo = tracker.data.txInfos[0];
+        expect(txInfo.txResult.extrinsicError).toMatchObject({
+          errorCode,
+          message,
+          batchInterruptedIndex: 2,
+          txFee: 35_000n,
+        });
+        await expect(txInfo.txResult.waitForFinalizedBlock).rejects.toThrow(message);
+        const progressError = await new Promise<Error | undefined>(resolve => {
+          txInfo.subscribeToProgress((_progress, error) => resolve(error));
+        });
+        expect(progressError).toBe(txInfo.txResult.extrinsicError);
+        expect(progressError?.message).toBe(message);
+        txInfo.unsubscribeFromProgress();
+
+        const outbound = new EthereumOutboundTransferTracker(
+          Promise.resolve(db),
+          tracker,
+          blockWatch,
+          walletKeys,
+          new EthereumClient(walletKeys, 'https://ethereum.test'),
+        );
+        await outbound.load();
+        await vi.waitFor(() => {
+          expect(outbound.getTransfer('failed-argon-request')?.transferState).toMatchObject({
+            needsAttention: true,
+            isSubmitting: false,
+            error: message,
+          });
+        });
+        if (errorCode === 'Token.FundsUnavailable') {
+          expect((await db.crosschainOutboundTransfersTable.get('failed-argon-request'))?.failureReason).toBe(message);
+        }
+      } finally {
+        tracker.shutdown();
+        await db.close();
+      }
+    },
+  );
 
   it('treats a recent submitted attempt as pending', async () => {
     const tx = createTransaction({

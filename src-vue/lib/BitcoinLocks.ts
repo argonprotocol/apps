@@ -1172,6 +1172,7 @@ export default class BitcoinLocks {
   }
 
   public static formatBlockExtrinsicError(error: IBitcoinLockBlockExtrinsicError): string {
+    if (error.message && error.message !== error.errorCode) return error.message;
     const raw = error.details || error.errorCode || error.message;
     return raw.split('.').pop() || raw;
   }

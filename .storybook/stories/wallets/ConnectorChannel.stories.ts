@@ -1,5 +1,7 @@
 import * as Vue from 'vue';
 import type { Meta, StoryObj } from '@storybook/vue3-vite';
+import { createRuntimeExtrinsicError } from '@argonprotocol/apps-core';
+import { getOfflineRegistry } from '@argonprotocol/mainchain';
 import { expect, fn, userEvent, within } from 'storybook/test';
 import {
   createBitcoinRelease,
@@ -14,6 +16,7 @@ import type { WalletForBitcoin } from '../../../src-vue/lib/WalletForBitcoin.ts'
 import { useWallets } from '../../../src-vue/stores/wallets.ts';
 import AlertBars from '../../../src-vue/navigation/AlertBars.vue';
 import ConnectorChannel from '../../../src-vue/wallets/components/ConnectorChannel.vue';
+import BitcoinLocks from '../../../src-vue/lib/BitcoinLocks.ts';
 
 let scenario: BitcoinOverlayScenario;
 let open = true;
@@ -161,7 +164,12 @@ export const WalletOverview: Story = {
 export const FailedChannel: Story = {
   beforeEach: () => {
     const cleanup = useScenario(BitcoinLockStatus.LockFailed);
-    scenario.lock.blockExtrinsicErrorJson = { message: 'Synthetic channel creation failed.' };
+    scenario.lock.blockExtrinsicErrorJson = BitcoinLocks.toBlockExtrinsicErrorJson(
+      createRuntimeExtrinsicError(
+        { registry: getOfflineRegistry() },
+        { errorCode: 'bitcoinLocks.AccountWouldGoBelowMinimumBalance' },
+      ),
+    );
     isInteractive = true;
     return cleanup;
   },
