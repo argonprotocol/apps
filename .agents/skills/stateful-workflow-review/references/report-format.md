@@ -20,7 +20,8 @@ Blocking exceptions
 Unresolved decisions
 - <choice and its consequences>
 
-Test evidence
+Test evidence: PASS | BLOCKED
+- Inspected: <decisive scenario, real production path, mocked boundaries, and outcome assertion>
 - Strong: <scenario and boundary>
 - Rejected as evidence: <wiring or input/output test and why>
 
