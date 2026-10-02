@@ -6,6 +6,8 @@ import {
   type ArgonQueryClient,
   BondLot,
   type IBlockHeaderInfo,
+  type MainchainClients,
+  Mining,
   type Vault,
 } from '@argonprotocol/apps-core';
 import {
@@ -29,6 +31,7 @@ import type { IBondLotHistoryRecord } from '../lib/db/BondLotHistoryTable.ts';
 import type { IWallet } from '../lib/Wallet.ts';
 import { BitcoinLiquid } from '../lib/BitcoinLiquid.ts';
 import { createBitcoinLiquids } from '../lib/BitcoinFissions.ts';
+import { MiningFinancials } from '../lib/financials/MyMiningSeats.ts';
 
 type FinancialHistoryRestoreArgs = Parameters<typeof import('../lib/recovery/index.ts').restoreFinancialHistory>[0];
 
@@ -148,7 +151,7 @@ const mocks = vi.hoisted(() => {
       serverState: { argonLocalNodeBlockNumber: 0 },
     },
     miningFinancials: {
-      loadPositions: vi.fn(async (): Promise<IFinancialPosition[]> => []),
+      loadPositions: vi.fn<MiningFinancials['loadPositions']>(async () => []),
     },
     myVault: {
       createdVault: undefined as Vault | undefined,
@@ -280,6 +283,7 @@ vi.mock('../stores/argonBonds.ts', () => ({ getArgonBonds: () => mocks.argonBond
 vi.mock('../stores/mainchain.ts', () => ({
   getBlockWatch: () => mocks.blockWatch,
   getMainchainClients: () => mocks.mainchainClients,
+  getMining: () => new Mining(mocks.mainchainClients as MainchainClients),
 }));
 vi.mock('../stores/vaults.ts', () => ({
   getMyVault: () => mocks.myVault,
@@ -287,11 +291,6 @@ vi.mock('../stores/vaults.ts', () => ({
 }));
 vi.mock('../stores/helpers/dbPromise.ts', () => ({ getDbPromise: vi.fn(async () => mocks.db) }));
 vi.mock('../stores/myMiningSeats.ts', () => ({ getMyMiningSeats: () => mocks.myMiningSeats }));
-vi.mock('../lib/financials/MyMiningSeats.ts', () => ({
-  MiningFinancials: class {
-    loadPositions = mocks.miningFinancials.loadPositions;
-  },
-}));
 vi.mock('../stores/vaultingStats.ts', () => ({ useVaultingStats: () => mocks.vaultingStats }));
 vi.mock('../stores/config.ts', () => ({ getConfig: () => mocks.config }));
 vi.mock('../stores/stableSwaps.ts', () => ({ useStableSwaps: () => mocks.stableSwaps }));
@@ -392,8 +391,7 @@ describe('financials store lifecycle', () => {
     mocks.myVault.data.financialRevision = 1;
     mocks.myMiningSeats.isLoaded = true;
     mocks.myMiningSeats.financialRevision = 1;
-    mocks.miningFinancials.loadPositions.mockResolvedValue([]);
-    mocks.miningFinancials.loadPositions.mockClear();
+    mocks.miningFinancials.loadPositions = vi.spyOn(MiningFinancials.prototype, 'loadPositions').mockResolvedValue([]);
     mocks.stableSwaps.load.mockResolvedValue();
     mocks.stableSwaps.load.mockClear();
     mocks.stableSwaps.refreshWalletSnapshot.mockResolvedValue();
@@ -414,6 +412,9 @@ describe('financials store lifecycle', () => {
     };
     mocks.blockWatch.latestHeaders = [mocks.blockWatch.finalizedBlockHeader];
     mocks.blockWatch.finalizedHashes = {};
+    mocks.blockWatch.getApi.mockImplementation(async () => ({
+      query: { ticks: { currentTick: async () => 1 }, miningSlot: { nextFrameId: async () => 2 } },
+    }));
     mocks.blockWatch.getApi.mockClear();
     mocks.blockWatch.getHeaderByBlockNumber.mockClear();
     mocks.walletHistoryRecovery.hasCompleteCoverage.mockResolvedValue(false);
@@ -1071,6 +1072,124 @@ describe('financials store lifecycle', () => {
     expect(financials.financialPositionAggregate.groupSummaries.mining.observation?.blockHash).toBe(nextBest.blockHash);
     expect(financials.financialPositionAggregate.groupSummaries.liquid.state).toBe('ready');
   });
+
+  it.each([true, false])(
+    'releases expired mining collateral while the bot frame lags (header frame: %s)',
+    async hasHeaderFrame => {
+      mocks.miningFinancials.loadPositions.mockRestore();
+      mocks.config.hasExtensionOperations = true;
+      mocks.currency.microgonsPer.ARGNOT = 1_000_000n;
+      const cohort: IMiningCohortFinancialRecord = {
+        id: 12,
+        progress: 100,
+        transactionFeesTotal: 0n,
+        micronotsStakedPerSeat: 10_000_000n,
+        microgonsBidPerSeat: 20_000_000n,
+        seatCountWon: 1,
+        microgonsToBeMinedPerSeat: 0n,
+        micronotsToBeMinedPerSeat: 0n,
+        argonotPriceAtBid: 1_000_000n,
+        closingArgonotPrice: 1_000_000n,
+        micronotsMinedTotal: 0n,
+        microgonsMinedTotal: 20_000_000n,
+        microgonsMintedTotal: 0n,
+        microgonFeesCollectedTotal: 0n,
+        createdAt: '2026-07-01T00:00:00Z',
+        updatedAt: '2026-07-11T00:00:00Z',
+      };
+      Object.assign(mocks.myMiningSeats, {
+        latestFrameId: 21,
+        miningCohorts: [cohort],
+        currentFrameBids: [],
+        currency: mocks.currency,
+        miningFrames: { getFrameDate: (frameId: number) => new Date(Date.UTC(2026, 6, frameId)) },
+      });
+      const firstBest = {
+        blockNumber: 1,
+        blockHash: '0x1',
+        blockTime: Date.parse('2026-07-21T12:00:00Z'),
+        ...(hasHeaderFrame ? { frameId: 21 } : {}),
+      };
+      const nextBest = {
+        blockNumber: 2,
+        blockHash: '0x2',
+        blockTime: Date.parse('2026-07-22T12:00:00Z'),
+        ...(hasHeaderFrame ? { frameId: 22 } : {}),
+      };
+      mocks.blockWatch.bestBlockHeader = firstBest;
+      mocks.blockWatch.latestHeaders = [firstBest];
+      let isFrameAvailable = true;
+      mocks.blockWatch.getApi.mockImplementation(async header => ({
+        query: {
+          ticks: { currentTick: async () => 1 },
+          miningSlot: { nextFrameId: async () => (isFrameAvailable ? (header.blockNumber === 1 ? 22 : 23) : null) },
+        },
+      }));
+      mocks.walletsForArgon.readAccountSnapshot.mockImplementation(async ({ header }) => {
+        const snapshot = createAccountSnapshot(header);
+        snapshot.accounts.push({
+          ...snapshot.accounts[0],
+          address: '5miner',
+          wallet: mocks.wallets.miningBotWallet as unknown as WalletForArgon,
+          availableMicronots: 10_000_000n,
+          micronotHolds:
+            header.blockNumber === 1
+              ? [{ id: { type: 'MiningSlot', value: { type: 'RegisterAsMiner' } }, amount: 10_000_000n }]
+              : [],
+        });
+        return snapshot;
+      });
+
+      const financials = useFinancials();
+      await vi.waitFor(() => {
+        expect(financials.financialPositionAggregate.groupSummaries.mining).toMatchObject({
+          state: 'ready',
+          positions: expect.arrayContaining([
+            expect.objectContaining({ kind: 'mining-argonot', lifecycle: 'held', micronots: 10_000_000n }),
+          ]),
+        });
+      });
+
+      mocks.blockWatch.bestBlockHeader = nextBest;
+      mocks.blockWatch.latestHeaders = [firstBest, nextBest];
+      if (!hasHeaderFrame) {
+        vi.useFakeTimers();
+        isFrameAvailable = false;
+      }
+      const balanceListener = mocks.wallets.on.mock.calls.find(
+        ([event]) => event === 'balance-change',
+      )?.[1] as () => void;
+      balanceListener();
+
+      if (!hasHeaderFrame) {
+        await vi.waitFor(() => {
+          expect(financials.financialPositionAggregate.groupSummaries.mining).toMatchObject({
+            state: 'stale',
+            observation: { blockHash: firstBest.blockHash },
+            positions: expect.arrayContaining([
+              expect.objectContaining({ kind: 'mining-argonot', lifecycle: 'held', micronots: 10_000_000n }),
+            ]),
+          });
+        });
+        vi.mocked(console.error).mockClear();
+        isFrameAvailable = true;
+        await vi.advanceTimersByTimeAsync(1_000);
+      }
+
+      await vi.waitFor(() => {
+        expect(financials.financialPositionAggregate.groupSummaries.mining).toMatchObject({
+          state: 'ready',
+          observation: { blockHash: nextBest.blockHash },
+          currentValue: 10_000_000n,
+          positions: expect.arrayContaining([
+            expect.objectContaining({ kind: 'mining-cohort', lifecycle: 'completed', currentValue: 0n }),
+            expect.objectContaining({ kind: 'mining-argonot', lifecycle: 'active', micronots: 10_000_000n }),
+          ]),
+        });
+      });
+      expect(console.error).not.toHaveBeenCalled();
+    },
+  );
 
   it('uses deployed product positions rather than the wallet checkpoint for account RTD', async () => {
     const miningPosition = {

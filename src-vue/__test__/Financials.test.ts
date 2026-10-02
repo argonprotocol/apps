@@ -653,6 +653,7 @@ describe('financial position accounting', () => {
 
     const positions = await financials.loadPositions({
       accounts: [account],
+      frameId: 21,
       miningBotAddress: '5miner',
       hasConfirmedHistoryCoverage: false,
     });

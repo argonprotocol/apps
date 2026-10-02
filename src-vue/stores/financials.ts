@@ -4,7 +4,7 @@ import { getWalletHistoryRecovery, getWalletsForArgon, useWallets } from './wall
 import { getBitcoinFissions, getBitcoinLocks } from './bitcoin.ts';
 import { getCurrency } from './currency.ts';
 import { getArgonBonds } from './argonBonds.ts';
-import { getBlockWatch } from './mainchain.ts';
+import { getBlockWatch, getMining } from './mainchain.ts';
 import {
   bigIntMax,
   type BondLot,
@@ -209,16 +209,22 @@ export const useFinancials = defineStore('financials', () => {
     return { positions, claimsHolds: true };
   }
 
-  async function prepareMiningPositions(snapshot: IArgonAccountSnapshot) {
+  async function prepareMiningPositions(snapshot: IArgonAccountSnapshot, header: IBlockHeaderInfo) {
     if (!config.hasExtensionOperations) {
       return { positions: [], claimsHolds: false };
     }
     if (!getMyMiningSeatsSource().isLoaded) return;
 
+    let frameId = header.frameId;
+    if (frameId === undefined) {
+      const clientAt = await getBlockWatch().getApi(header);
+      frameId = (await getMining().fetchNextFrameId(clientAt)) - 1;
+    }
     const historyCutoff = getBlockWatch().finalizedBlockHeader.blockNumber;
     const hasConfirmedHistoryCoverage = await hasWalletHistoryCoverage(historyCutoff);
     const positions = await getMiningFinancialsSource().loadPositions({
       accounts: snapshot.accounts,
+      frameId,
       miningBotAddress: wallets.miningBotWallet.address,
       hasConfirmedHistoryCoverage,
     });
@@ -262,7 +268,7 @@ export const useFinancials = defineStore('financials', () => {
       }
 
       const [miningResult, vaultingResult, bondsResult, bitcoinResult] = await Promise.allSettled([
-        prepareMiningPositions(candidate),
+        prepareMiningPositions(candidate, header),
         prepareVaultPositions(candidate),
         prepareBondPositions(candidate),
         prepareBitcoinPositions(candidate, header),
