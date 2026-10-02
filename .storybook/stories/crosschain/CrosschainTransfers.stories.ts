@@ -68,7 +68,7 @@ export const RecoveredTransferTips: Story = {
     const vault = createScenarioVault({ operatorAccountId: recoveredSourceAccount });
     const vaults = getVaults();
     vaults.vaultsById[vault.vaultId] = vault;
-    mocked(vaults.load).mockImplementation(async () => {
+    mocked(vaults).load.mockImplementation(async () => {
       vaults.operatorNamesByVaultId[vault.vaultId] = 'Atlas';
     });
     mocked(getKnownCrosschainSourceIdentities).mockImplementation(() =>
@@ -88,6 +88,14 @@ export const RecoveredTransferTips: Story = {
 
     mocked(getCrosschainHistory).mockReturnValue(history);
   },
+};
+
+export const CouncilAwaitingEthereumRelay: Story = {
+  beforeEach: () => setupCouncilApprovalScenario(),
+};
+
+export const CouncilAppliedOnEthereum: Story = {
+  beforeEach: () => setupCouncilApprovalScenario(7n),
 };
 
 export const PendingTipAlert: Story = {
@@ -150,6 +158,25 @@ export const PendingAuthorizationOverlay: Story = {
 
 const recoveredSourceAccount = '5source';
 const upstreamOnlySourceAccount = '5upstream-only-source';
+
+function setupCouncilApprovalScenario(ethereumApprovalNonce?: bigint) {
+  setupAppScenario({ selectedTab: TopTab.CrosschainTransfers, config: { hasActivatedCrosschain: true } });
+  selectUsdCurrency();
+  const council = getMyVault().globalCouncil;
+  council.data.isActiveCouncilMember = true;
+  council.data.approvalQueue = [
+    {
+      approvalHash: `0x${'07'.repeat(32)}`,
+      queueNonce: 7n,
+      targetKind: 'globalIssuanceCouncilRotation',
+      targetCouncilHash: `0x${'08'.repeat(32)}`,
+      status: 'readyForRelay',
+      approvalProgress: { approvedWeight: 3n, totalWeight: 3n, signatureCount: 3, memberCount: 3 },
+      councilChange: { vaultCount: 3, newVaultCount: 1, leavingVaultCount: 1, epochMicrogonsPerArgonot: 10_000_000n },
+    },
+  ];
+  if (ethereumApprovalNonce !== undefined) council.data.ethereumApprovalNonce = ethereumApprovalNonce;
+}
 
 function setupCurrency() {
   const currency = getCurrency();

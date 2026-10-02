@@ -93,7 +93,7 @@ export class GlobalCouncil {
     private readonly dbPromise: Promise<Db>,
     private readonly walletKeys: WalletKeys,
     private readonly miningFrames: MiningFrames,
-    private readonly getConfiguredExecutionRpcUrl?: () => string | undefined,
+    private readonly getConfiguredExecutionRpcUrl?: () => string | undefined | Promise<string | undefined>,
   ) {
     this.data = {
       isReady: false,
@@ -284,7 +284,7 @@ export class GlobalCouncil {
   private async applyReadyGatewayUpdates(options: GatewayRelayOptions) {
     const finalizedClient = await getFinalizedClient();
 
-    const executionRpcUrl = getEthereumExecutionRpcUrl(this.getConfiguredExecutionRpcUrl?.());
+    const executionRpcUrl = getEthereumExecutionRpcUrl(await this.getConfiguredExecutionRpcUrl?.());
     if (!executionRpcUrl) {
       throw new Error('Ethereum execution RPC is not configured for this app instance.');
     }
@@ -310,7 +310,7 @@ export class GlobalCouncil {
     const finalizedClient = await getFinalizedClient();
     await this.refresh(finalizedClient, ++this.#updateSeq);
 
-    const executionRpcUrl = getEthereumExecutionRpcUrl(this.getConfiguredExecutionRpcUrl?.());
+    const executionRpcUrl = getEthereumExecutionRpcUrl(await this.getConfiguredExecutionRpcUrl?.());
     if (!executionRpcUrl) {
       throw new Error('Ethereum execution RPC is not configured for this app instance.');
     }
@@ -338,7 +338,7 @@ export class GlobalCouncil {
     );
     if (!missingQueueNonces.length) return;
 
-    const executionRpcUrl = getEthereumExecutionRpcUrl(this.getConfiguredExecutionRpcUrl?.());
+    const executionRpcUrl = getEthereumExecutionRpcUrl(await this.getConfiguredExecutionRpcUrl?.());
     if (!executionRpcUrl) return;
 
     const ethereumClient = new EthereumClient(this.walletKeys, executionRpcUrl);
@@ -426,7 +426,7 @@ export class GlobalCouncil {
 
   private async refreshEthereumApprovalNonce(updateSeq: number, ethereumClient?: EthereumClient): Promise<void> {
     if (!ethereumClient) {
-      const executionRpcUrl = getEthereumExecutionRpcUrl(this.getConfiguredExecutionRpcUrl?.());
+      const executionRpcUrl = getEthereumExecutionRpcUrl(await this.getConfiguredExecutionRpcUrl?.());
       if (!executionRpcUrl) return;
       ethereumClient = new EthereumClient(this.walletKeys, executionRpcUrl);
     }

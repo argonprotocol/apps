@@ -87,7 +87,10 @@ export function getMyVault(): MyVault {
     myVaultBitcoinLocks = bitcoinLocks;
     const keys = getWalletKeys();
     const miningFrames = getMiningFrames();
-    const globalCouncil = new GlobalCouncil(dbPromise, keys, miningFrames, () => config.ethereumExecutionRpcUrl);
+    const globalCouncil = new GlobalCouncil(dbPromise, keys, miningFrames, async () => {
+      await config.isLoadedPromise;
+      return config.ethereumExecutionRpcUrl;
+    });
     globalCouncil.data = reactive(globalCouncil.data) as any;
 
     const mintingAuthorities = new MintingAuthorities(dbPromise, keys, miningFrames, transactionTracker, async () => {

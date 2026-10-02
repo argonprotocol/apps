@@ -28,6 +28,7 @@ type MiningArgonotPosition = IMiningArgonotFinancialPosition | IMiningBalanceFin
 
 type MiningFinancialPositionArgs = {
   accounts: readonly IArgonAccountBalance[];
+  frameId: number;
   miningBotAddress: string;
   hasConfirmedHistoryCoverage: boolean;
 };
@@ -84,16 +85,17 @@ export class MiningFinancials
   constructor(private readonly seats: MyMiningSeats) {}
 
   public async loadPositions(args: MiningFinancialPositionArgs): Promise<MiningFinancialPosition[]> {
+    const { accounts, frameId, miningBotAddress, hasConfirmedHistoryCoverage } = args;
     const frameIds = new Set<number>();
     for (const cohort of this.seats.miningCohorts) {
       frameIds.add(cohort.id);
       frameIds.add(cohort.id + NetworkConfig.framesPerCohort);
     }
-    const custodyTransfers = args.hasConfirmedHistoryCoverage
-      ? await this.seats.db.walletTransfersTable.fetchArgonotCustodyBoundaries(args.miningBotAddress)
+    const custodyTransfers = hasConfirmedHistoryCoverage
+      ? await this.seats.db.walletTransfersTable.fetchArgonotCustodyBoundaries(miningBotAddress)
       : [];
-    const heldMicronots = args.accounts.reduce((total, account) => total + getMiningHolds(account.micronotHolds), 0n);
-    const miningBotAccount = args.accounts.find(account => account.address === args.miningBotAddress);
+    const heldMicronots = accounts.reduce((total, account) => total + getMiningHolds(account.micronotHolds), 0n);
+    const miningBotAccount = accounts.find(account => account.address === miningBotAddress);
     if (!miningBotAccount) throw new Error('Mining account is missing from the Argon wallet snapshot');
     const miningBotMicrogons = miningBotAccount.availableMicrogons + miningBotAccount.reservedMicrogons;
     const miningBotHeldMicrogons = getMiningHolds(miningBotAccount.microgonHolds);
@@ -104,7 +106,7 @@ export class MiningFinancials
     return this.createFinancialPositions({
       ...args,
       cohorts: this.seats.miningCohorts,
-      latestFrameId: this.seats.latestFrameId,
+      latestFrameId: frameId,
       pendingBids: this.seats.currentFrameBids.filter(bid => typeof bid.subAccountIndex === 'number'),
       heldMicronots,
       miningBotMicrogons: miningBotMicrogons - miningBotHeldMicrogons,
