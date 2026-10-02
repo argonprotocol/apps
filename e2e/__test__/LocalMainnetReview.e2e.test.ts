@@ -40,6 +40,7 @@ describe('partial capture diagnostics', () => {
   it('continues diagnosis after a corrupt account and rejects incomplete capture even when every review passes', async () => {
     const directory = mkdtempSync(Path.join(tmpdir(), 'qualification-partial-capture-'));
     directories.push(directory);
+    vi.stubEnv('GITHUB_STEP_SUMMARY', Path.join(directory, 'summary.md'));
     const packagePath = Path.join(directory, 'scenario-001');
     mkdirSync(packagePath);
     const databasePath = Path.join(packagePath, 'database.sqlite');

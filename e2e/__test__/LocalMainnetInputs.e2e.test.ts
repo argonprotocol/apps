@@ -42,6 +42,7 @@ describe('local mainnet baseline transfer', () => {
     } as unknown as Awaited<ReturnType<typeof getClient>>);
     const environmentPath = Path.join(directory, 'environment');
     vi.stubEnv('GITHUB_ENV', environmentPath);
+    vi.stubEnv('GITHUB_STEP_SUMMARY', Path.join(directory, 'summary.md'));
     process.argv = [process.execPath, 'qualificationInputs.ts', '--output', Path.join(directory, 'run')];
 
     await import('../local-mainnet/qualificationInputs.ts');
