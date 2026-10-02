@@ -1,7 +1,8 @@
+import { financialHistoryTest as it } from './FinancialHistoryReplay.ts';
 import Fs from 'node:fs';
 import Path from 'node:path';
 import { AccountActivityKind, type BlockWatch } from '@argonprotocol/apps-core';
-import { describe, expect, it } from 'vitest';
+import { describe, expect } from 'vitest';
 import { VaultHistory } from '../lib/recovery/MyVault.ts';
 import { FinancialHistoryImporter } from '../lib/recovery/index.ts';
 import { CapturedHistoryReader } from './helpers/CapturedHistoryReader.ts';
@@ -11,10 +12,11 @@ import { runRecoveryLifecycle } from './helpers/RecoveryLifecycleRunner.ts';
 const replayPath =
   process.env.FINANCIAL_HISTORY_REPLAY_PATH ??
   Path.resolve(import.meta.dirname, '../../indexer/seeds/mainnet-financial-history-replay.db');
-const runWithReplay = Fs.existsSync(replayPath) ? describe : describe.skip;
+const runWithReplay =
+  process.env.FINANCIAL_HISTORY_REPLAY_CAPTURE === '1' || Fs.existsSync(replayPath) ? describe : describe.skip;
 
-runWithReplay('Vault financial history replay corpus', () => {
-  it('recovers every supported indexed vault history and remains stable after restart', async () => {
+runWithReplay('Vault financial history replay corpus', { tags: ['no-argon-network'] }, () => {
+  it('recovers every supported indexed vault history and remains stable after restart', async ({ replayPath }) => {
     const reader = new CapturedHistoryReader(replayPath);
     const recoveryFailures: string[] = [];
     let recoveredCapitalCount = 0;

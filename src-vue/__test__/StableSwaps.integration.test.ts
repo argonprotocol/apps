@@ -9,7 +9,8 @@ const stableSwapsArgonTokenAddress = getAddress(
   process.env.STABLE_SWAPS_ARGON_TOKEN_ADDRESS ?? '0x6A9143639D8b70D50b031fFaD55d4CC65EA55155',
 );
 
-describe.skipIf(!runStableSwapsIntegration).sequential('StableSwaps integration', { timeout: 120e3 }, () => {
+// prettier-ignore
+describe.skipIf(!runStableSwapsIntegration).sequential('StableSwaps integration', { tags: ['no-argon-network'], timeout: 120e3 }, () => {
   it('finds the amount that reaches the target price boundary on the live Uniswap quote path', async () => {
     const client = createPublicClient({
       transport: http(stableSwapsRpcUrl),

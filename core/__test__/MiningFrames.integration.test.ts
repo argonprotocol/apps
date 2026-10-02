@@ -1,78 +1,78 @@
-import { type ArgonClient, getClient } from '@argonprotocol/mainchain';
+import { integrationNetwork as sharedNetwork } from '@argonprotocol/apps-core/__test__/integration.setup.ts';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import Path from 'node:path';
 import { teardown } from '@argonprotocol/testing';
-import { MainchainClients, MiningFrames, NetworkConfig } from '@argonprotocol/apps-core';
-import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
-import { startArgonTestNetwork } from './startArgonTestNetwork.ts';
-import Path from 'path';
-import { BlockWatch } from '../src/BlockWatch.ts';
+import { MainchainClients, MiningFrames, type IFrameHistory } from '@argonprotocol/apps-core';
+import { it, beforeAll, afterAll, describe, expect } from 'vitest';
 
 const skipE2E = Boolean(JSON.parse(process.env.SKIP_E2E ?? '0'));
 
 describe.skipIf(skipE2E)('Mining Frames tests', () => {
-  let client: ArgonClient;
-  let mainchainUrl: string;
-  let mainchainClients: MainchainClients | undefined;
-  let blockWatch: BlockWatch | undefined;
-  let miningFrames: MiningFrames | undefined;
+  let clients: MainchainClients;
+  let miningFrames: MiningFrames;
+  let restored: MiningFrames | undefined;
+  let directory: string;
 
   beforeAll(async () => {
-    const network = await startArgonTestNetwork(Path.basename(import.meta.filename), { profiles: ['bob'] });
-
-    mainchainUrl = network.archiveUrl;
-    client = await getClient(mainchainUrl);
-    NetworkConfig.setNetwork('dev-docker');
+    clients = new MainchainClients(sharedNetwork.archiveUrl);
+    directory = await mkdtemp(Path.join(tmpdir(), 'mining-frames-'));
   });
 
   afterAll(async () => {
     await miningFrames?.stop();
-    blockWatch?.destroy();
-    await mainchainClients?.disconnect();
+    await restored?.stop();
+    await clients?.disconnect();
+    if (directory) await rm(directory, { recursive: true, force: true });
     await teardown();
   });
 
-  it('syncs frames', async () => {
-    mainchainClients = new MainchainClients(mainchainUrl);
+  it('syncs live frames and restores their durable history on a continuing chain', async () => {
+    const historyPath = Path.join(directory, 'frames.json');
     const updatesWriter = {
-      read: vi.fn().mockImplementation(async () => {}),
-      write: vi.fn().mockImplementation(async () => {}),
+      read: () =>
+        readFile(historyPath, 'utf8').catch((error: NodeJS.ErrnoException) => {
+          if (error.code !== 'ENOENT') throw error;
+          return null;
+        }),
+      write: (data: string) => writeFile(historyPath, data),
     };
-    blockWatch = new BlockWatch(mainchainClients);
-    miningFrames = new MiningFrames(mainchainClients, blockWatch, updatesWriter);
-    const rewardTicks = await client.query.miningSlot.miningConfig().then(x => x.ticksBetweenSlots.toNumber());
-
+    miningFrames = new MiningFrames(clients, undefined, updatesWriter);
     await miningFrames.load();
-
-    const waitForFrame = 3;
-    await expect(miningFrames.waitForFrameId(waitForFrame)).resolves.toBeUndefined();
+    const nextFrame = miningFrames.currentFrameId + 1;
+    await miningFrames.waitForFrameId(nextFrame);
+    // Best-chain frame starts can change until finalized. Later frames may still be provisional at restart.
+    await expect
+      .poll(() => miningFrames.blockWatch.finalizedBlockHeader.frameId, { timeout: 120_000 })
+      .toBeGreaterThanOrEqual(nextFrame);
     await miningFrames.stop();
 
-    expect(miningFrames.frameIds).toHaveLength(waitForFrame + 1);
-    const blockNumbers = await client.query.miningSlot.frameStartBlockNumbers();
-    const blockNumberByFrame = Object.fromEntries(
-      blockNumbers.map((blockStart, index) => [waitForFrame - index, blockStart.toNumber()]),
+    const finalizedFrames = structuredClone(miningFrames.frames.filter(frame => frame.frameId <= nextFrame));
+    expect(finalizedFrames.map(frame => frame.frameId)).toEqual(Array.from({ length: nextFrame + 1 }, (_, id) => id));
+    const latestFrame = finalizedFrames.at(-1)!;
+    const client = await clients.get(false);
+    expect(latestFrame.firstBlockHash).toBe(
+      (await client.rpc.chain.getBlockHash(latestFrame.firstBlockNumber!)).toHex(),
     );
-    const blockTickByFrame = Object.fromEntries(
-      await client.query.miningSlot.frameStartTicks().then(x =>
-        [...x].map(([frameId, tick]) => {
-          return [frameId.toNumber(), tick.toNumber()];
-        }),
-      ),
-    );
-    const genesisTick = await client.query.ticks.genesisTick().then(x => x.toNumber());
-    blockNumberByFrame[0] = 0;
-    blockTickByFrame[0] = genesisTick;
-    console.log('blockNumberByFrame', blockNumberByFrame);
-    console.log('blockTickByFrame', blockTickByFrame);
-    for (let i = 0; i <= waitForFrame; i++) {
-      const frame = miningFrames.framesById[i];
-      expect(frame.firstBlockNumber).toBe(blockNumberByFrame[i]);
-      expect(frame.firstBlockTick).toBe(blockTickByFrame[i]);
-      await expect(miningFrames.waitForTick(frame.firstBlockTick!)).resolves.toBeUndefined();
+    const atFrameStart = await client.at(latestFrame.firstBlockHash!);
+    const blockNumbers = (await atFrameStart.query.miningSlot.frameStartBlockNumbers())!;
+    const frameTicks = (await atFrameStart.query.miningSlot.frameStartTicks())!;
+    for (const [index, blockNumber] of blockNumbers.entries()) {
+      const frame = finalizedFrames[latestFrame.frameId - index];
+      expect(frame.firstBlockNumber).toBe(blockNumber);
+      expect(frame.firstBlockTick).toBe(Number(frameTicks[frame.frameId]));
     }
-    expect(miningFrames.currentFrameId).toBe(waitForFrame);
-    expect(miningFrames.currentFrameRewardTicksRemaining).toBeLessThanOrEqual(rewardTicks);
+    await expect
+      .poll(async () => {
+        const savedFrames = JSON.parse(await readFile(historyPath, 'utf8')) as IFrameHistory[];
+        return savedFrames.filter(frame => frame.frameId <= nextFrame);
+      })
+      .toEqual(finalizedFrames.map(frame => ({ ...frame, dateStart: frame.dateStart.toISOString() })));
 
-    // could be re-called for a reorg
-    expect(updatesWriter.write.mock.calls.length).toBeGreaterThanOrEqual(waitForFrame);
+    restored = new MiningFrames(clients, undefined, updatesWriter);
+    await restored.load();
+    for (const frame of finalizedFrames) {
+      expect(restored.framesById[frame.frameId]).toEqual(frame);
+    }
   });
 });

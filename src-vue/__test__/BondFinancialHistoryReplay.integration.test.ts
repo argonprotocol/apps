@@ -1,3 +1,4 @@
+import { financialHistoryTest as it } from './FinancialHistoryReplay.ts';
 import Fs from 'node:fs';
 import Path from 'node:path';
 import {
@@ -10,7 +11,7 @@ import {
   NetworkConfig,
 } from '@argonprotocol/apps-core';
 import { getClient } from '@argonprotocol/mainchain';
-import { afterAll, describe, expect, it } from 'vitest';
+import { afterAll, describe, expect } from 'vitest';
 import { ArgonBonds } from '../lib/ArgonBonds.ts';
 import type { WalletKeys } from '../lib/WalletKeys.ts';
 import { VaultHistory } from '../lib/recovery/MyVault.ts';
@@ -22,14 +23,17 @@ import { runRecoveryLifecycle } from './helpers/RecoveryLifecycleRunner.ts';
 const replayPath =
   process.env.FINANCIAL_HISTORY_REPLAY_PATH ??
   Path.resolve(import.meta.dirname, '../../indexer/seeds/mainnet-financial-history-replay.db');
-const runWithReplay = Fs.existsSync(replayPath) ? describe : describe.skip;
+const runWithReplay =
+  process.env.FINANCIAL_HISTORY_REPLAY_CAPTURE === '1' || Fs.existsSync(replayPath) ? describe : describe.skip;
 const recordingClient =
   process.env.FINANCIAL_HISTORY_REPLAY_CAPTURE === '1' ? await getClient('https://rpc.argon.network') : undefined;
 
 afterAll(async () => recordingClient?.disconnect());
 
-runWithReplay('Bond financial history replay corpus', () => {
-  it('recovers every event-backed bond and retains active pre-event Vault lots after restart', async () => {
+runWithReplay('Bond financial history replay corpus', { tags: ['no-argon-network'] }, () => {
+  it('recovers every event-backed bond and retains active pre-event Vault lots after restart', async ({
+    replayPath,
+  }) => {
     const previousNetwork = NetworkConfig.networkName;
     NetworkConfig.setNetwork('mainnet');
 

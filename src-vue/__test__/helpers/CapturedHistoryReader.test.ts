@@ -8,6 +8,7 @@ import { decorateStorage } from '@polkadot/types/metadata/decorate/storage';
 import { compactStripLength, hexToU8a, u8aConcat, u8aToHex } from '@polkadot/util';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { CapturedHistoryReader } from './CapturedHistoryReader.ts';
+import { createFinancialHistoryReplayTables } from '../FinancialHistoryReplay.ts';
 
 const registry = getOfflineRegistry();
 const runtimeMetadata = u8aConcat(hexToU8a('0x6d65746110'), registry.metadata.toU8a());
@@ -44,27 +45,8 @@ describe('CapturedHistoryReader storage capture', () => {
       specVersion INTEGER PRIMARY KEY,
       blockHash BLOB NOT NULL,
       metadata BLOB NOT NULL
-    );
-    CREATE TABLE RecoveryStorage (
-      blockNumber INTEGER NOT NULL,
-      storageKey BLOB NOT NULL,
-      storageValue BLOB,
-      PRIMARY KEY (blockNumber, storageKey)
-    ) WITHOUT ROWID;
-    CREATE TABLE RecoveryStorageKeyEnumerations (
-      blockNumber INTEGER NOT NULL,
-      storagePrefix BLOB NOT NULL,
-      PRIMARY KEY (blockNumber, storagePrefix)
-    ) WITHOUT ROWID;
-    CREATE TABLE RecoveryHeaders (
-      blockNumber INTEGER PRIMARY KEY,
-      blockTime INTEGER NOT NULL,
-      tick INTEGER NOT NULL,
-      author TEXT NOT NULL,
-      frameId INTEGER,
-      frameRewardTicksRemaining INTEGER,
-      isNewFrame INTEGER
-    ) WITHOUT ROWID;`);
+    );`);
+    createFinancialHistoryReplayTables(database);
     database
       .prepare('INSERT INTO Blocks (blockNumber, blockHash, specVersion) VALUES (?, ?, ?)')
       .run(1, hexToU8a(blockHash), 1);

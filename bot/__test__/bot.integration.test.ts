@@ -1,6 +1,7 @@
+import { integrationNetwork as sharedNetwork } from '@argonprotocol/apps-core/__test__/integration.setup.ts';
 import { runOnTeardown, sudo, teardown } from '@argonprotocol/testing';
-import { Keyring, mnemonicGenerate, toFixedNumber } from '@argonprotocol/mainchain';
-import { afterAll, afterEach, beforeAll, expect, it, vi } from 'vitest';
+import { getAuthorFromHeader, Keyring, mnemonicGenerate } from '@argonprotocol/mainchain';
+import { it, beforeAll, afterAll, afterEach, expect, inject, vi } from 'vitest';
 import * as fs from 'node:fs';
 import os from 'node:os';
 import Path from 'node:path';
@@ -13,13 +14,12 @@ import {
   JsonExt,
   MINING_BID_PROXY_FEE_FLOAT,
   MicronotPriceChangeType,
-  NetworkConfig,
   SeatGoalInterval,
   SeatGoalType,
   TxSubmitter,
 } from '@argonprotocol/apps-core';
 import { DockerStatus } from '../src/DockerStatus.js';
-import { startArgonTestNetwork } from '@argonprotocol/apps-core/__test__/startArgonTestNetwork.js';
+import { integrationAccountUri } from '@argonprotocol/apps-core/__test__/integrationNetwork.ts';
 import { waitFor } from '@argonprotocol/apps-core/__test__/helpers/waitFor.ts';
 import { getTestMainchainClient } from '@argonprotocol/apps-core/__test__/helpers/mainchain.ts';
 
@@ -28,23 +28,18 @@ const skipE2E = Boolean(JSON.parse(process.env.SKIP_E2E ?? '0'));
 afterEach(teardown);
 
 let clientAddress: string;
-let stopNetwork: (() => Promise<void>) | undefined;
 beforeAll(async () => {
   if (skipE2E) return;
-  NetworkConfig.setNetwork('dev-docker');
-  const result = await startArgonTestNetwork(Path.basename(import.meta.filename), {
-    registerTeardown: false,
-  });
-  clientAddress = result.archiveUrl;
-  stopNetwork = result.stop;
+  clientAddress = sharedNetwork.archiveUrl;
 });
 afterAll(async () => {
-  await stopNetwork?.().catch(() => undefined);
   await teardown();
 });
 
+// prettier-ignore
 it.skipIf(skipE2E)(
   'can autobid and store stats',
+  { tags: ['mining-auction'], timeout: 600_000 },
   async () => {
     const client = await getTestMainchainClient(clientAddress);
     runOnTeardown(async () => {
@@ -55,26 +50,6 @@ it.skipIf(skipE2E)(
     await fs.promises.rm(botDataDir, { recursive: true, force: true });
     await fs.promises.mkdir(botDataDir, { recursive: true });
     const biddingRulesPath = Path.resolve(botDataDir, 'rules.json');
-    // submit a price index
-
-    const currentTick = await client.query.ticks.currentTick();
-    const res = await new TxSubmitter(
-      client,
-      client.tx.priceIndex.submit(
-        {
-          btcUsdPrice: toFixedNumber(60_000.5, 18),
-          argonUsdPrice: toFixedNumber(1.0, 18),
-          argonotUsdPrice: toFixedNumber(2.0, 18),
-          argonUsdTargetPrice: toFixedNumber(1.0, 18),
-          argonTimeWeightedAverageLiquidity: toFixedNumber(1_000, 18),
-          tick: BigInt(currentTick),
-        },
-        null,
-      ),
-      new Keyring({ type: 'sr25519' }).addFromUri('//Eve//oracle'),
-    ).submit();
-    await res.waitForInFirstBlock;
-
     const biddingRules: IBiddingRules = {
       argonCirculationGrowthPctMin: 0,
       argonCirculationGrowthPctMax: 0,
@@ -118,11 +93,12 @@ it.skipIf(skipE2E)(
       };
     });
 
-    const fundingAccount = sudo();
+    const accountUri = integrationAccountUri(inject('argonIntegrationRunId'), import.meta.filename, 'funded');
+    const fundingAccount = new Keyring({ type: 'sr25519' }).addFromUri(accountUri);
     const useProxyBidder = true;
-    const proxyKeypair = new Keyring({ type: 'sr25519' }).addFromUri('//Ferdie//mining-proxy');
+    const proxyKeypair = new Keyring({ type: 'sr25519' }).addFromUri(`${accountUri}//mining-proxy`);
     const bidderKeypair = useProxyBidder ? proxyKeypair : fundingAccount;
-    const setupCalls = [client.tx.sudo.sudo(client.tx.ownership.forceSetBalance(fundingAccount.address, 500_000))];
+    const setupCalls = [];
     if (useProxyBidder) {
       setupCalls.push(
         client.tx.proxy.addProxy(proxyKeypair.address, 'MiningBidRealPaysFee', 0),
@@ -132,6 +108,7 @@ it.skipIf(skipE2E)(
     const fundingSetup = await new TxSubmitter(client, client.tx.utility.batchAll(setupCalls), fundingAccount).submit();
     await fundingSetup.waitForInFirstBlock;
 
+    const historyStartingFrameId = (await client.query.miningSlot.nextFrameId()) - 1;
     const bot = new Bot({
       bitcoinInitializerDelegateKeypair: sudo(),
       fundingAccountId: fundingAccount.address,
@@ -141,7 +118,8 @@ it.skipIf(skipE2E)(
       biddingRulesPath,
       datadir: botDataDir,
       sessionMiniSecret: mnemonicGenerate(),
-      vaultOperatorAddress: sudo().address,
+      vaultOperatorAddress: fundingAccount.address,
+      oldestFrameIdToSync: historyStartingFrameId,
       shouldSkipDockerSync: true,
     });
     runOnTeardown(async () => {
@@ -178,26 +156,15 @@ it.skipIf(skipE2E)(
     let lastSeenBlockNumber = 0;
     const targetVoteBlocks = 1;
     const frameIdsWithVoteBlocks = new Set<number>();
-    if ((await client.query.miningSlot.activeMinersCount()) > 0) {
-      firstCohortActivationFrameId = await client.query.miningSlot.minersByCohort.keys().then(x => {
-        if (!x.length) return 0;
-        return x[0].args[0];
-      });
-    }
-    // wait for first finalized vote block
+    // Observe this bot's finalized work, even when older cohorts remain on the chain.
     await new Promise(async resolve => {
-      const unsubscribe = await client.rpc.chain.subscribeNewHeads(async x => {
+      const unsubscribe = await client.rpc.chain.subscribeFinalizedHeads(async x => {
+        const author = getAuthorFromHeader(x);
+        if (!author || !bot.accountset.subAccountsByAddress[author]) return;
         const api = await client.at(x.hash);
         if (firstCohortActivationFrameId === undefined) {
-          const events = await api.query.system.events();
-          for (const e of events) {
-            if (e.event.section === 'miningSlot' && e.event.method === 'NewMiners') {
-              const { frameId, newMiners } = e.event.data;
-              if (newMiners.length > 0) {
-                firstCohortActivationFrameId = frameId;
-              }
-            }
-          }
+          const miners = await bot.accountset.loadRegisteredMiners(api);
+          firstCohortActivationFrameId = miners.find(miner => miner.address === author)?.seat?.startingFrameId;
         }
         const isVoteBlock = await api.query.blockSeal.isBlockFromVoteSeal();
         lastSeenBlockNumber = x.number.toNumber();
@@ -289,8 +256,8 @@ it.skipIf(skipE2E)(
       biddingRulesPath,
       datadir: path2,
       sessionMiniSecret: mnemonicGenerate(),
-      vaultOperatorAddress: sudo().address,
-      oldestFrameIdToSync: 0,
+      vaultOperatorAddress: fundingAccount.address,
+      oldestFrameIdToSync: historyStartingFrameId,
       shouldSkipDockerSync: true,
     });
     runOnTeardown(async () => {
@@ -375,5 +342,4 @@ it.skipIf(skipE2E)(
       expect(bidsFile1).toEqual(bidsFile2);
     }
   },
-  600_000,
 );

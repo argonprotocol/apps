@@ -1,3 +1,4 @@
+import { submitAndFinalize } from '@argonprotocol/apps-core/__test__/helpers/mainchain.ts';
 import { setTimeout as delay } from 'node:timers/promises';
 import {
   createOperationalAccessProof,
@@ -390,14 +391,12 @@ export class AppVaultOperator {
           })
           .toHex();
 
-        const setStorageResult = await new TxSubmitter(
+        await submitAndFinalize(
           client,
           client.tx.sudo.sudo(client.tx.system.setStorage([[transferTotalsKey, transferTotalsValue]])),
           sudo(),
-        ).submit({
-          useLatestNonce: true,
-        });
-        await setStorageResult.waitForFinalizedBlock;
+          { useLatestNonce: true },
+        );
         console.info(`[dev-upstream] Treasury Uniswap progress ready after ${Date.now() - bootstrapStartedAt}ms`);
       }
 
@@ -441,7 +440,7 @@ export class AppVaultOperator {
       accountBitcoinAmount = rewardConfig.bitcoinLockSizeForUpgradeCode;
     }
 
-    const forceProgressResult = await new TxSubmitter(
+    await submitAndFinalize(
       client,
       client.tx.sudo.sudo(
         client.tx.operationalAccounts.forceSetProgress(
@@ -458,10 +457,8 @@ export class AppVaultOperator {
         ),
       ),
       sudo(),
-    ).submit({
-      useLatestNonce: true,
-    });
-    await forceProgressResult.waitForFinalizedBlock;
+      { useLatestNonce: true },
+    );
 
     if (!existingProgress.isOperational) {
       const txSigner = await this.walletKeys.getTreasuryKeypair();

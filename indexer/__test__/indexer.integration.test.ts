@@ -1,10 +1,11 @@
-import { afterAll, afterEach, beforeAll, expect, it } from 'vitest';
+import { integrationNetwork as sharedNetwork } from '@argonprotocol/apps-core/__test__/integration.setup.ts';
+import { it, beforeAll, afterAll, afterEach, expect, inject } from 'vitest';
 import { runOnTeardown, teardown } from '@argonprotocol/testing';
 import { TxSubmitter } from '@argonprotocol/apps-core';
 import { Keyring } from '@argonprotocol/mainchain';
 import fs from 'node:fs';
 import os from 'node:os';
-import { startArgonTestNetwork } from '@argonprotocol/apps-core/__test__/startArgonTestNetwork.js';
+import { integrationAccountUri } from '@argonprotocol/apps-core/__test__/integrationNetwork.ts';
 import Path from 'path';
 import { IndexerServer } from '../src/IndexerServer.ts';
 import { AccountActivityKind } from '../src/AccountActivity.ts';
@@ -18,14 +19,15 @@ afterAll(teardown);
 let clientAddress: string;
 beforeAll(async () => {
   if (skipE2E) return;
-  const result = await startArgonTestNetwork(Path.basename(import.meta.filename));
-  clientAddress = result.archiveUrl;
+  clientAddress = sharedNetwork.archiveUrl;
 });
 
 it.skipIf(skipE2E)('indexes account activity blocks', async () => {
-  const alice = new Keyring({ type: 'sr25519' }).addFromMnemonic('//Alice');
-  const bob = new Keyring({ type: 'sr25519' }).addFromMnemonic('//Bob');
-  const charlie = new Keyring({ type: 'sr25519' }).addFromMnemonic('//Charlie');
+  const runId = inject('argonIntegrationRunId');
+  const keyring = new Keyring({ type: 'sr25519' });
+  const alice = keyring.addFromUri(integrationAccountUri(runId, import.meta.filename, 'funded'));
+  const bob = keyring.addFromUri(integrationAccountUri(runId, import.meta.filename, 'proxy'));
+  const charlie = keyring.addFromUri(integrationAccountUri(runId, import.meta.filename, 'recipient'));
 
   const indexerDir = fs.mkdtempSync(Path.join(os.tmpdir(), 'indexer-'));
 

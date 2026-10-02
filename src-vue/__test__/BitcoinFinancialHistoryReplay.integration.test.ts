@@ -1,3 +1,4 @@
+import { financialHistoryTest as it } from './FinancialHistoryReplay.ts';
 import Fs from 'node:fs';
 import Path from 'node:path';
 import {
@@ -8,7 +9,7 @@ import {
   type MainchainClients,
 } from '@argonprotocol/apps-core';
 import { getClient, hexToU8a, u8aEq } from '@argonprotocol/mainchain';
-import { afterAll, describe, expect, it } from 'vitest';
+import { afterAll, describe, expect } from 'vitest';
 import type { Db } from '../lib/Db.ts';
 import type { WalletKeys } from '../lib/WalletKeys.ts';
 import { BitcoinLockStatus } from '../lib/db/BitcoinLocksTable.ts';
@@ -25,16 +26,17 @@ import { getHistoricalBitcoinLock } from '../lib/recovery/BitcoinLockHistory.ts'
 const replayPath =
   process.env.FINANCIAL_HISTORY_REPLAY_PATH ??
   Path.resolve(import.meta.dirname, '../../indexer/seeds/mainnet-financial-history-replay.db');
-const runWithReplay = Fs.existsSync(replayPath) ? describe : describe.skip;
+const runWithReplay =
+  process.env.FINANCIAL_HISTORY_REPLAY_CAPTURE === '1' || Fs.existsSync(replayPath) ? describe : describe.skip;
 const recordingClient =
   process.env.FINANCIAL_HISTORY_REPLAY_CAPTURE === '1' ? await getClient('https://rpc.argon.network') : undefined;
 
 afterAll(async () => recordingClient?.disconnect());
 
-runWithReplay('Bitcoin financial history replay corpus', () => {
+runWithReplay('Bitcoin financial history replay corpus', { tags: ['no-argon-network'] }, () => {
   it(
     'recovers every indexed Bitcoin history from current chain state and remains stable after restart',
-    async () => {
+    async ({ replayPath }) => {
       const corpusReader = new CapturedHistoryReader(replayPath, recordingClient);
       try {
         const accountIds = corpusReader.findBitcoinOwners(130);

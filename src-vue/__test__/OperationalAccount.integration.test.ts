@@ -1,10 +1,7 @@
-import Path from 'node:path';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { integrationNetwork as sharedNetwork } from '@argonprotocol/apps-core/__test__/integration.setup.ts';
+import { it, beforeAll, afterAll, describe, expect } from 'vitest';
 import { sudo, teardown } from '@argonprotocol/testing';
-import {
-  startArgonTestNetwork,
-  type StartedArgonTestNetwork,
-} from '@argonprotocol/apps-core/__test__/startArgonTestNetwork.js';
+import { type IntegrationNetwork } from '@argonprotocol/apps-core/__test__/integrationNetwork.ts';
 import {
   createBitcoinAddress,
   generateBlocks,
@@ -19,7 +16,6 @@ import {
   TreasuryBonds,
   BitcoinFission,
   BitcoinLock,
-  TxSubmitter,
 } from '@argonprotocol/apps-core';
 import type { IConfig } from '../interfaces/IConfig.ts';
 import {
@@ -39,28 +35,16 @@ const skipE2E = Boolean(JSON.parse(process.env.SKIP_E2E ?? '0'));
 
 describe.skipIf(skipE2E).sequential('OperationalAccount integration tests', { timeout: 300_000 }, () => {
   let client: ArgonClient | undefined;
-  let network: StartedArgonTestNetwork;
-  let previousComposeProjectName: string | undefined;
+  let network: IntegrationNetwork;
 
   beforeAll(async () => {
-    network = await startArgonTestNetwork(Path.basename(import.meta.filename), {
-      profiles: ['miners', 'price-oracle'],
-      chainStartTimeoutMs: 120_000,
-      chainStartPollMs: 250,
-    });
+    network = sharedNetwork;
 
     client = await getTestMainchainClient(network.archiveUrl);
-    previousComposeProjectName = process.env.COMPOSE_PROJECT_NAME;
-    process.env.COMPOSE_PROJECT_NAME = network.composeEnv.COMPOSE_PROJECT_NAME;
   });
 
   afterAll(async () => {
     await client?.disconnect();
-    if (previousComposeProjectName === undefined) {
-      delete process.env.COMPOSE_PROJECT_NAME;
-    } else {
-      process.env.COMPOSE_PROJECT_NAME = previousComposeProjectName;
-    }
     await teardown();
   });
 
@@ -129,11 +113,12 @@ describe.skipIf(skipE2E).sequential('OperationalAccount integration tests', { ti
           argonotTransfersOutCount: 0,
         })
         .toHex();
-      const transferResultPromise = new TxSubmitter(
+      const transferResultPromise = submitAndFinalize(
         runtimeClient,
         runtimeClient.tx.sudo.sudo(runtimeClient.tx.system.setStorage([[transferTotalsKey, transferTotalsValue]])),
         sudo(),
-      ).submit({ useLatestNonce: true });
+        { useLatestNonce: true },
+      );
 
       generateBlocks(8, minerAddress);
 

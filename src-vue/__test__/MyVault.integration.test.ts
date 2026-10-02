@@ -1,4 +1,5 @@
-import { Keyring, toFixedNumber } from '@argonprotocol/mainchain';
+import { integrationNetwork as sharedNetwork } from '@argonprotocol/apps-core/__test__/integration.setup.ts';
+import { mnemonicGenerate } from '@argonprotocol/mainchain';
 import { teardown } from '@argonprotocol/testing';
 import {
   Currency as CurrencyBase,
@@ -6,11 +7,9 @@ import {
   MainchainClients,
   MiningFrames,
   minimumVaultDelegateBalance,
-  NetworkConfig,
   TreasuryBonds,
 } from '@argonprotocol/apps-core';
-import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
-import { startArgonTestNetwork } from '@argonprotocol/apps-core/__test__/startArgonTestNetwork.js';
+import { it, beforeAll, afterAll, describe, expect, vi } from 'vitest';
 import { submitAndFinalize } from '@argonprotocol/apps-core/__test__/helpers/mainchain.ts';
 import { sudoFundWallet } from '@argonprotocol/apps-core/__test__/helpers/sudoFundWallet.ts';
 import { DEFAULT_MASTER_XPUB_PATH, MyVault } from '../lib/MyVault.ts';
@@ -28,7 +27,6 @@ import { MintingAuthorities } from '../lib/MintingAuthorities.ts';
 import { TransactionTracker } from '../lib/TransactionTracker.ts';
 import { BitcoinLockCreate } from '../lib/txs/BitcoinLock.create.ts';
 import { UpstreamOperatorClient } from '../lib/UpstreamOperatorClient.ts';
-import Path from 'path';
 import { createMockWalletKeys } from './helpers/wallet.ts';
 import { BlockWatch } from '@argonprotocol/apps-core/src/BlockWatch.ts';
 import { setDbPromise } from '../stores/helpers/dbPromise.ts';
@@ -60,17 +58,14 @@ describe.skipIf(skipE2E).sequential('Your Vault tests', {}, () => {
   };
   let vaultCreatedBlockNumber: number;
   let vaultCreationFees: bigint;
-  const walletKeys = createMockWalletKeys('//Alice');
+  const mnemonic = mnemonicGenerate();
+  const walletKeys = createMockWalletKeys(mnemonic);
 
   beforeAll(async () => {
     db = await createTestDb();
     setDbPromise(Promise.resolve(db));
     trackedDbs.push(db);
-    const network = await startArgonTestNetwork(Path.basename(import.meta.filename), {
-      profiles: ['bob'],
-      chainStartTimeoutMs: 120_000,
-      chainStartPollMs: 250,
-    });
+    const network = sharedNetwork;
 
     mainchainUrl = network.archiveUrl;
     clients = new MainchainClients(mainchainUrl);
@@ -82,7 +77,6 @@ describe.skipIf(skipE2E).sequential('Your Vault tests', {}, () => {
     });
 
     setMainchainClients(clients);
-    NetworkConfig.setNetwork('dev-docker');
   }, 180e3);
 
   afterAll(async () => {
@@ -107,23 +101,6 @@ describe.skipIf(skipE2E).sequential('Your Vault tests', {}, () => {
       while (blockNumber <= 10) {
         blockNumber = await client.rpc.chain.getHeader().then(x => x.number.toNumber());
       }
-      const currentTick = await client.query.ticks.currentTick();
-      await submitAndFinalize(
-        client,
-        client.tx.priceIndex.submit(
-          {
-            btcUsdPrice: toFixedNumber(60_000.5, 18),
-            argonUsdPrice: toFixedNumber(1.0, 18),
-            argonotUsdPrice: toFixedNumber(12.0, 18),
-            argonUsdTargetPrice: toFixedNumber(1.0, 18),
-            argonTimeWeightedAverageLiquidity: toFixedNumber(1_000, 18),
-            tick: BigInt(currentTick),
-          },
-          null,
-        ),
-        new Keyring({ type: 'sr25519' }).addFromUri('//Eve//oracle'),
-      );
-
       const currency = new CurrencyBase(clients);
       await currency.fetchMainchainRates();
       const miningFrames = trackMiningFrames(new MiningFrames(clients));
@@ -175,7 +152,7 @@ describe.skipIf(skipE2E).sequential('Your Vault tests', {}, () => {
       await vaultCreation.waitForPostProcessing;
       const createdVault = myVault.createdVault!;
       expect(createdVault).toBeTruthy();
-      expect(createdVault.vaultId).toBe(1);
+      expect(createdVault.vaultId).toBeGreaterThan(0);
       expect(createdVault.operatorAccountId).toBe(walletKeys.vaultingAddress);
       const delegateAddress = await walletKeys.getVaultDelegateKeypair().then(x => x.address);
       const delegateBalance = await client.query.system.account(delegateAddress).then(x => x.data.free);
@@ -195,7 +172,7 @@ describe.skipIf(skipE2E).sequential('Your Vault tests', {}, () => {
   );
 
   it('recovers vault details without local signing keys', async () => {
-    const readonlyWalletKeys = createMockWalletKeys('//Alice', { canSign: false, canAccessServer: false });
+    const readonlyWalletKeys = createMockWalletKeys(mnemonic, { canSign: false, canAccessServer: false });
     const deriveBitcoinKey = vi
       .spyOn(readonlyWalletKeys, 'getBitcoinChildXpriv')
       .mockRejectedValue(new Error('Wallet encryption key is unavailable'));

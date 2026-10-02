@@ -1,6 +1,7 @@
-import Path from 'node:path';
-import docker from 'docker-compose';
-import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+import { integrationNetwork as sharedNetwork } from '@argonprotocol/apps-core/__test__/integration.setup.ts';
+import { createServer, type Server } from 'node:http';
+import type { AddressInfo } from 'node:net';
+import { it, beforeAll, afterAll, describe, expect, vi } from 'vitest';
 
 import { teardown } from '@argonprotocol/testing';
 import {
@@ -11,10 +12,7 @@ import {
   MoveTo,
   NetworkConfig,
 } from '@argonprotocol/apps-core';
-import {
-  startArgonTestNetwork,
-  type StartedArgonTestNetwork,
-} from '@argonprotocol/apps-core/__test__/startArgonTestNetwork.js';
+import { type IntegrationNetwork } from '@argonprotocol/apps-core/__test__/integrationNetwork.ts';
 import { waitFor } from '@argonprotocol/apps-core/__test__/helpers/waitFor.ts';
 import { sudoFundWallet } from '@argonprotocol/apps-core/__test__/helpers/sudoFundWallet.ts';
 import {
@@ -52,17 +50,11 @@ import { createMockWalletKeys } from './helpers/wallet.ts';
 const skipE2E = Boolean(JSON.parse(process.env.SKIP_E2E ?? '0'));
 
 let clients: MainchainClients;
-let network: StartedArgonTestNetwork;
+let network: IntegrationNetwork;
 let minerAddress: string;
-let previousComposeProjectName: string | undefined;
 
 afterAll(async () => {
   vi.restoreAllMocks();
-  if (previousComposeProjectName === undefined) {
-    delete process.env.COMPOSE_PROJECT_NAME;
-  } else {
-    process.env.COMPOSE_PROJECT_NAME = previousComposeProjectName;
-  }
   await teardown();
 });
 
@@ -72,17 +64,10 @@ describe.skipIf(skipE2E).sequential('BitcoinLocks integration', { timeout: 240e3
     vi.spyOn(console, 'info').mockImplementation(() => {});
     vi.spyOn(console, 'warn').mockImplementation(() => {});
 
-    network = await startArgonTestNetwork(Path.basename(import.meta.filename), {
-      profiles: ['bob', 'price-oracle'],
-      chainStartTimeoutMs: 120_000,
-      chainStartPollMs: 250,
-    });
+    network = sharedNetwork;
 
     clients = new MainchainClients(network.archiveUrl);
     setMainchainClients(clients);
-    NetworkConfig.setNetwork('dev-docker');
-    previousComposeProjectName = process.env.COMPOSE_PROJECT_NAME;
-    process.env.COMPOSE_PROJECT_NAME = network.composeEnv.COMPOSE_PROJECT_NAME;
 
     await waitFor(
       90e3,
@@ -100,7 +85,7 @@ describe.skipIf(skipE2E).sequential('BitcoinLocks integration', { timeout: 240e3
     minerAddress = createBitcoinAddress();
   }, 240e3);
 
-  it('imports multiple confirmed funding UTXOs from the current runtime into the app model', async () => {
+  it('imports successive confirmed funding UTXOs and restores the full amount after restart', async () => {
     const operator = await createHarness({
       archiveUrl: network.archiveUrl,
       esploraHost: network.networkConfigOverride.esploraHost,
@@ -126,6 +111,7 @@ describe.skipIf(skipE2E).sequential('BitcoinLocks integration', { timeout: 240e3
         });
 
         const lock = await createLock(owner, operator.myVault.createdVault!);
+        const expectedSatoshis = lock.securitizedSatoshis;
         const fundingAddress = owner.bitcoinLocks.formatP2wshAddress(lock.scriptDetails!.p2wshScriptHashHex);
         const runtimeClient = await clients.get(false);
         const watchedAddress = await runtimeClient.query.bitcoinUtxos.utxoAddressByLockId(lock.lockId!);
@@ -139,11 +125,16 @@ describe.skipIf(skipE2E).sequential('BitcoinLocks integration', { timeout: 240e3
           lock,
           fundingAddress,
         );
-        const runtimeLock = await BitcoinLock.get(runtimeClient, lock.lockId!);
-        expect(await runtimeClient.query.bitcoinUtxos.utxoRefsByLockId(lock.lockId!)).toHaveLength(2);
-        expect(runtimeLock?.fundingUtxos.map(utxo => utxo.utxoRef.txid).sort()).toEqual(expectedTxids);
-        if (!runtimeLock) throw new Error(`Runtime Bitcoin lock ${lock.lockId} disappeared after funding`);
-        expect(runtimeLock.fundedSatoshis).toBe(lock.securitizedSatoshis);
+        const { lock: runtimeLock, api: fundedAt } = await waitFor(60e3, 'finalized multi-UTXO funding', async () => {
+          const api = await runtimeClient.at(await runtimeClient.rpc.chain.getFinalizedHead());
+          const current = await BitcoinLock.get(api, lock.lockId!);
+          if (current?.fundingUtxos.length !== 2) return;
+          return { lock: current, api };
+        });
+        expect(await fundedAt.query.bitcoinUtxos.utxoRefsByLockId(lock.lockId!)).toHaveLength(2);
+        expect(runtimeLock.fundingUtxos.map(utxo => utxo.utxoRef.txid).sort()).toEqual(expectedTxids);
+        expect(runtimeLock.fundedSatoshis).toBe(expectedSatoshis);
+        expect(runtimeLock.securitizedSatoshis).toBe(expectedSatoshis);
         expect(runtimeLock.fundingUtxos.map(utxo => utxo.satoshis).sort()).toEqual(
           [firstSatoshis, secondSatoshis].sort(),
         );
@@ -152,7 +143,7 @@ describe.skipIf(skipE2E).sequential('BitcoinLocks integration', { timeout: 240e3
           const current = owner.bitcoinLocks.getLockById(lock.lockId!);
           if (current?.status !== BitcoinLockStatus.LockFunded) return;
           if (current?.fundingUtxoIds.length !== 2) return;
-          if (current.fundedSatoshis !== lock.securitizedSatoshis) return;
+          if (current.fundedSatoshis !== expectedSatoshis || current.securitizedSatoshis !== expectedSatoshis) return;
           return current;
         });
         expect(
@@ -167,7 +158,8 @@ describe.skipIf(skipE2E).sequential('BitcoinLocks integration', { timeout: 240e3
           owner.db.bitcoinUtxosTable.fetchByLockId(lock.lockId!),
         ]);
         expect(persistedLock).toMatchObject({
-          fundedSatoshis: lock.securitizedSatoshis,
+          fundedSatoshis: expectedSatoshis,
+          securitizedSatoshis: expectedSatoshis,
           fundingUtxoIds: appLock.fundingUtxoIds,
         });
         expect(
@@ -192,7 +184,8 @@ describe.skipIf(skipE2E).sequential('BitcoinLocks integration', { timeout: 240e3
           });
           const restoredLock = restarted.bitcoinLocks.getLockById(lock.lockId!);
           expect(restoredLock).toMatchObject({
-            fundedSatoshis: lock.securitizedSatoshis,
+            fundedSatoshis: expectedSatoshis,
+            securitizedSatoshis: expectedSatoshis,
             fundingUtxoIds: appLock.fundingUtxoIds,
           });
           expect(
@@ -579,48 +572,22 @@ describe.skipIf(skipE2E).sequential('BitcoinLocks integration', { timeout: 240e3
           txSigner: await owner.walletKeys.getLiquidLockingKeypair(),
         });
         await returnTx.txResult.waitForFinalizedBlock;
+        await returnTx.waitForPostProcessing;
 
         await collectVaultSignatureFromAlert(operator.myVault, 1);
-
-        const cosignedRelease = await waitFor(
-          60e3,
-          'orphan cosign recovered by owner',
-          async () => {
-            await owner.bitcoinLocks.releases.recoverPendingOrphanCosignEvents(
-              owner.miningFrames.blockWatch.bestBlockHeader.blockNumber,
-            );
-            const current = owner.bitcoinLocks.utxoTracking.getUtxoRecord(
-              currentLock.lockId!,
-              orphan.txid,
-              orphan.vout,
-            );
-            if (!current) return;
-            const release = owner.bitcoinLocks.releases.getActiveForUtxo(current);
-            if (release?.statusError) throw new Error(release.statusError);
-            if (!release?.vaultSignatures.length) return;
-            return release;
-          },
-          { pollMs: 1e3 },
-        );
-        await owner.bitcoinLocks.releases.reconcileOrphanReleases(currentLock);
 
         const returningRelease = await waitFor(
           60e3,
           'orphan return seen on bitcoin',
           () => {
-            const current = owner.bitcoinLocks.utxoTracking.getUtxoRecord(
-              currentLock.lockId!,
-              orphan.txid,
-              orphan.vout,
-            );
-            if (!current) return;
-            const release = owner.bitcoinLocks.releases.getActiveForUtxo(current);
+            const release = owner.bitcoinLocks.releases.getById(returnTx.tx.metadataJson.releaseId);
             if (release?.statusError) throw new Error(release.statusError);
             if (!release?.bitcoinTxid) return;
             return release;
           },
           { pollMs: 1e3 },
         );
+        expect(returningRelease.vaultSignatures).toHaveLength(1);
 
         await waitForBitcoinTransactionOutputSatoshis({
           flowName: 'BitcoinLocks.integration.pendingReleaseOrphanClaim',
@@ -644,7 +611,7 @@ describe.skipIf(skipE2E).sequential('BitcoinLocks integration', { timeout: 240e3
         const completed = await waitFor(90e3, 'orphan return completed', () => {
           const current = owner.bitcoinLocks.utxoTracking.getUtxoRecord(currentLock.lockId!, orphan.txid, orphan.vout);
           if (!current || current.spendStatus !== BitcoinUtxoSpendStatus.Spent) return;
-          const release = owner.bitcoinLocks.releases.getById(cosignedRelease.id);
+          const release = owner.bitcoinLocks.releases.getById(returnTx.tx.metadataJson.releaseId);
           if (release?.status !== BitcoinReleaseStatus.Complete) return;
           if (owner.bitcoinLocks.utxoTracking.getUnresolvedOrphanRecords([currentLock]).length) return;
           if (operator.myVault.data.pendingOrphanCosignCount !== 0) return;
@@ -665,7 +632,7 @@ describe.skipIf(skipE2E).sequential('BitcoinLocks integration', { timeout: 240e3
         expect(await owner.db.bitcoinReleasesTable.getById(completed.release.id)).toMatchObject({
           status: BitcoinReleaseStatus.Complete,
           bitcoinTxid: returningRelease.bitcoinTxid,
-          vaultSignatures: cosignedRelease.vaultSignatures,
+          vaultSignatures: returningRelease.vaultSignatures,
         });
       } finally {
         await cleanupBitcoinLocksClientHarness(owner);
@@ -675,7 +642,8 @@ describe.skipIf(skipE2E).sequential('BitcoinLocks integration', { timeout: 240e3
     }
   }, 420e3);
 
-  describe('with the indexer stopped', () => {
+  describe('with the indexer unavailable', () => {
+    let unavailableIndexer: Server;
     let harness: TestHarness;
     let activeLock: IBitcoinLockRecord;
 
@@ -687,21 +655,25 @@ describe.skipIf(skipE2E).sequential('BitcoinLocks integration', { timeout: 240e3
       });
       activeLock = await createLock(harness, harness.myVault.createdVault!);
 
-      await docker.stopOne('indexer', {
-        config: ['docker-compose.yml', 'indexer.docker-compose.yml'],
-        cwd: Path.resolve(import.meta.dirname, '../../e2e/argon'),
-        env: network.composeEnv,
+      unavailableIndexer = createServer((_request, response) => {
+        response.writeHead(503, { 'content-type': 'application/json' });
+        response.end(JSON.stringify({ error: 'Indexer unavailable' }));
       });
-      await waitFor(15e3, 'indexer shutdown', async () => {
-        try {
-          await globalThis.fetch(NetworkConfig.get().indexerHost, { signal: AbortSignal.timeout(1_000) });
-        } catch {
-          return true;
-        }
+      await new Promise<void>((resolve, reject) => {
+        unavailableIndexer.once('error', reject);
+        unavailableIndexer.listen(0, '127.0.0.1', resolve);
+      });
+      NetworkConfig.setRuntimeOverride('dev-docker', {
+        ...network.networkConfigOverride,
+        indexerHost: `http://127.0.0.1:${(unavailableIndexer.address() as AddressInfo).port}`,
       });
     }, 120e3);
 
     afterAll(async () => {
+      NetworkConfig.setRuntimeOverride('dev-docker', network.networkConfigOverride);
+      await new Promise<void>((resolve, reject) =>
+        unavailableIndexer.close(error => (error ? reject(error) : resolve())),
+      );
       await cleanupHarness(harness);
     });
 
@@ -765,6 +737,21 @@ async function fundLockWithTwoConfirmedUtxos(
   expect(secondSatoshis).toBeGreaterThan(546n);
 
   const firstTxid = sendBitcoinToAddress(fundingAddress, firstSatoshis);
+  await waitForBitcoinTransactionConfirmations({
+    flowName: 'BitcoinLocks.integration.firstFunding',
+    txid: firstTxid,
+    minimumConfirmations: 8,
+    minerAddress,
+    mineMode: 'missing',
+    timeoutMs: 30e3,
+    pollMs: 500,
+  });
+  await waitFor(60e3, 'first finalized app funding receipt', () => {
+    const current = owner.bitcoinLocks.getLockById(lock.lockId!);
+    if (current?.fundedSatoshis !== firstSatoshis) return;
+    expect(current.securitizedSatoshis).toBe(firstSatoshis);
+    return current;
+  });
   const secondTxid = sendBitcoinToAddress(fundingAddress, secondSatoshis);
   for (const [txid, satoshis] of [
     [firstTxid, firstSatoshis],

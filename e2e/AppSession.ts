@@ -325,6 +325,8 @@ export class AppSession {
         const composeEnv = testNetwork.composeEnv;
         tauriEnv.JOIN_COMPOSE_NETWORK = composeEnv.COMPOSE_PROJECT_NAME;
         tauriEnv.RPC_PORT = composeEnv.RPC_PORT;
+        tauriEnv.ARCHIVE_NODE_RPC_PORT = composeEnv.ARCHIVE_NODE_RPC_PORT;
+        tauriEnv.PRICE_INDEX_FILE_PATH = composeEnv.PRICE_INDEX_FILE_PATH;
 
         if (useDevUpstream) {
           devUpstreamDir = isolatedDataEnv.ARGON_DEV_UPSTREAM_DIR;
@@ -394,6 +396,7 @@ export class AppSession {
         });
       }
     } catch (error) {
+      await diagnostics.printFailure('session-startup', error);
       driver.close();
       await driverServer.close();
       if (devUpstreamDir) {

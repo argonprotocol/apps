@@ -1,20 +1,24 @@
-import { createKeyringPair, mnemonicGenerate } from '@argonprotocol/mainchain';
-import { sudo, teardown } from '@argonprotocol/testing';
+import { integrationNetwork as sharedNetwork } from '@argonprotocol/apps-core/__test__/integration.setup.ts';
+import { createKeyringPair, Keyring, mnemonicGenerate } from '@argonprotocol/mainchain';
+import { teardown } from '@argonprotocol/testing';
 import { Accountset, type ArgonClient, getRange, TxSubmitter } from '@argonprotocol/apps-core';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { startArgonTestNetwork } from './startArgonTestNetwork.ts';
-import Path from 'path';
+import { it, beforeAll, afterAll, describe, expect, inject } from 'vitest';
+import { integrationAccountUri } from './integrationNetwork.ts';
+import { waitFor } from './helpers/waitFor.ts';
 import { getTestMainchainClient } from './helpers/mainchain.ts';
 
 afterAll(teardown);
 const skipE2E = Boolean(JSON.parse(process.env.SKIP_E2E ?? '0'));
 
-describe.skipIf(skipE2E)('Accountset tests', {}, () => {
+describe.skipIf(skipE2E)('Accountset tests', { tags: ['mining-auction'] }, () => {
   let client: ArgonClient;
   let mainchainUrl: string;
   const sessionMiniSecretOrMnemonic = mnemonicGenerate();
+  const fundedAccount = new Keyring({ type: 'sr25519' }).addFromUri(
+    integrationAccountUri(inject('argonIntegrationRunId'), import.meta.filename, 'funded'),
+  );
   beforeAll(async () => {
-    const network = await startArgonTestNetwork(Path.basename(import.meta.filename), { profiles: ['bob'] });
+    const network = sharedNetwork;
 
     mainchainUrl = network.archiveUrl;
     client = await getTestMainchainClient(mainchainUrl);
@@ -44,7 +48,7 @@ describe.skipIf(skipE2E)('Accountset tests', {}, () => {
   });
 
   it('can register keys from a mnemonic', async () => {
-    const bidderKeypair = sudo();
+    const bidderKeypair = fundedAccount;
     const accountset = new Accountset({
       client,
       txSubmitter: bidderKeypair,
@@ -56,23 +60,22 @@ describe.skipIf(skipE2E)('Accountset tests', {}, () => {
   });
 
   it('can submit bids', async () => {
-    const bidderKeypair = sudo();
+    const bidderKeypair = fundedAccount;
     const accountset = new Accountset({
       client,
       txSubmitter: bidderKeypair,
       subaccountRange: getRange(0, 49),
       sessionMiniSecretOrMnemonic: sessionMiniSecretOrMnemonic,
     });
-    const fundingTxSubmitter = new TxSubmitter(
-      client,
-      client.tx.sudo.sudo(client.tx.ownership.forceSetBalance(bidderKeypair.address, 500_000)),
-      bidderKeypair,
-    );
-    const res = await fundingTxSubmitter.submit();
-    await res.waitForInFirstBlock;
-
     const nextSeats = await accountset.getAvailableMinerAccounts(5);
     expect(nextSeats).toHaveLength(5);
+
+    const startingFrame = await client.query.miningSlot.nextFrameId();
+    await waitFor(
+      30_000,
+      'next bidding window',
+      async () => (await client.query.miningSlot.nextFrameId()) > startingFrame,
+    );
 
     const submitter = await accountset.createMiningBidTx({
       bidAmount: 10_000n,
@@ -96,16 +99,8 @@ describe.skipIf(skipE2E)('Accountset tests', {}, () => {
   });
 
   it('can submit bids through a real-pays proxy', async () => {
-    const fundingAccount = sudo();
+    const fundingAccount = fundedAccount;
     const proxyAccount = createKeyringPair({});
-    const fundingSetup = new TxSubmitter(
-      client,
-      client.tx.sudo.sudo(client.tx.ownership.forceSetBalance(fundingAccount.address, 500_000)),
-      fundingAccount,
-    );
-    const setupResult = await fundingSetup.submit();
-    await setupResult.waitForInFirstBlock;
-
     const accountset = new Accountset({
       client,
       fundingAccountId: fundingAccount.address,
@@ -133,6 +128,13 @@ describe.skipIf(skipE2E)('Accountset tests', {}, () => {
 
     const nextSeats = await accountset.getAvailableMinerAccounts(5);
     expect(nextSeats).toHaveLength(5);
+
+    const startingFrame = await client.query.miningSlot.nextFrameId();
+    await waitFor(
+      30_000,
+      'next bidding window',
+      async () => (await client.query.miningSlot.nextFrameId()) > startingFrame,
+    );
 
     const submitter = await accountset.createMiningBidTx({
       bidAmount: 10_000n,

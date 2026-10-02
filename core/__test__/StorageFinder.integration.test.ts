@@ -1,3 +1,4 @@
+import { integrationNetwork as sharedNetwork } from '@argonprotocol/apps-core/__test__/integration.setup.ts';
 import {
   FIXED_U128_DECIMALS,
   Keyring,
@@ -9,16 +10,14 @@ import { teardown } from '@argonprotocol/testing';
 import {
   type ArgonClient,
   MainchainClients,
-  NetworkConfig,
   StorageFinder,
   TransactionEvents,
   TxSubmitter,
 } from '@argonprotocol/apps-core';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { startArgonTestNetwork } from './startArgonTestNetwork.ts';
+import { it, beforeAll, afterAll, describe, expect, inject } from 'vitest';
+import { integrationAccountUri } from './integrationNetwork.ts';
 import { bip39, BitcoinNetwork, getChildXpriv, getXpubFromXpriv } from '@argonprotocol/bitcoin';
 import bs58check from 'bs58check';
-import Path from 'path';
 import { getTestMainchainClient } from './helpers/mainchain.ts';
 
 afterAll(teardown);
@@ -27,16 +26,14 @@ const skipE2E = Boolean(JSON.parse(process.env.SKIP_E2E ?? '0'));
 describe.skipIf(skipE2E)('Storage/Fees Finder tests', () => {
   let client: ArgonClient;
   let mainchainUrl: string;
+  const accountUri = integrationAccountUri(inject('argonIntegrationRunId'), import.meta.filename, 'funded');
   beforeAll(async () => {
-    const network = await startArgonTestNetwork(Path.basename(import.meta.filename), { profiles: ['bob'] });
-
-    mainchainUrl = network.archiveUrl;
+    mainchainUrl = sharedNetwork.archiveUrl;
     client = await getTestMainchainClient(mainchainUrl);
-    NetworkConfig.setNetwork('dev-docker');
   });
 
   it('can find a transaction and its fees', async () => {
-    const alice = new Keyring({ type: 'sr25519' }).addFromMnemonic('//Alice');
+    const alice = new Keyring({ type: 'sr25519' }).addFromUri(accountUri);
     let blockNumber = 0;
     while (blockNumber <= 10) {
       blockNumber = await client.rpc.chain.getHeader().then(x => x.number.toNumber());
@@ -77,18 +74,21 @@ describe.skipIf(skipE2E)('Storage/Fees Finder tests', () => {
     expect(Buffer.from(binarySearch.blockHash).toString('hex')).toStrictEqual(
       Buffer.from(await txResult.waitForFinalizedBlock).toString('hex'),
     );
-    expect(binarySearch.blocksChecked.length).toBeLessThan(NetworkConfig.rewardTicksPerFrame / 2);
+    const searchTip = await client.rpc.chain.getHeader();
+    expect(binarySearch.blocksChecked.length).toBeLessThanOrEqual(
+      Math.ceil(Math.log2(searchTip.number.toNumber() + 1)),
+    );
 
     const iterateSearch = await StorageFinder.iterateFindStorageAddition({
       client,
-      startingBlock: 10,
+      startingBlock: blockNumber,
       maxBlocksToCheck: 20,
       storageKey,
     });
     expect(Buffer.from(iterateSearch.blockHash).toString('hex')).toStrictEqual(
       Buffer.from(await txResult.waitForFinalizedBlock).toString('hex'),
     );
-    expect(iterateSearch.blocksChecked.length).toBe(actualBlock.number.toNumber() + 1 - 10);
+    expect(iterateSearch.blocksChecked.length).toBe(actualBlock.number.toNumber() + 1 - blockNumber);
 
     const result = await TransactionEvents.findFromFeePaidEvent({
       client,

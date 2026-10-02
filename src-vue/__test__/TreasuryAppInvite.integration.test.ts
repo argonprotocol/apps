@@ -1,7 +1,8 @@
+import { integrationNetwork as sharedNetwork } from '@argonprotocol/apps-core/__test__/integration.setup.ts';
 import * as Fs from 'node:fs';
 import os from 'node:os';
 import Path from 'node:path';
-import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+import { it, beforeAll, afterAll, describe, expect, vi } from 'vitest';
 
 import { teardown } from '@argonprotocol/testing';
 import {
@@ -10,15 +11,11 @@ import {
   type IMiningFrameDetail,
   JsonExt,
   MainchainClients,
-  NetworkConfig,
   SATOSHIS_PER_BITCOIN,
   BitcoinLock,
   Vault,
 } from '@argonprotocol/apps-core';
-import {
-  startArgonTestNetwork,
-  type StartedArgonTestNetwork,
-} from '@argonprotocol/apps-core/__test__/startArgonTestNetwork.js';
+import { type IntegrationNetwork } from '@argonprotocol/apps-core/__test__/integrationNetwork.ts';
 import { waitFor } from '@argonprotocol/apps-core/__test__/helpers/waitFor.ts';
 import { sudoFundWallet } from '@argonprotocol/apps-core/__test__/helpers/sudoFundWallet.ts';
 import { setMainchainClients } from '../stores/mainchain.ts';
@@ -47,16 +44,10 @@ import { RouterServer } from '../../router/src/RouterServer.ts';
 const skipE2E = Boolean(JSON.parse(process.env.SKIP_E2E ?? '0'));
 
 let clients: MainchainClients;
-let network: StartedArgonTestNetwork;
-let previousComposeProjectName: string | undefined;
+let network: IntegrationNetwork;
 
 afterAll(async () => {
   vi.restoreAllMocks();
-  if (previousComposeProjectName === undefined) {
-    delete process.env.COMPOSE_PROJECT_NAME;
-  } else {
-    process.env.COMPOSE_PROJECT_NAME = previousComposeProjectName;
-  }
   await teardown();
 });
 
@@ -66,17 +57,10 @@ describe.skipIf(skipE2E).sequential('Treasury app invite flow integration', { ti
     vi.spyOn(console, 'info').mockImplementation(() => {});
     vi.spyOn(console, 'warn').mockImplementation(() => {});
 
-    network = await startArgonTestNetwork(Path.basename(import.meta.filename), {
-      profiles: ['bob', 'price-oracle'],
-      chainStartTimeoutMs: 120_000,
-      chainStartPollMs: 250,
-    });
+    network = sharedNetwork;
 
     clients = new MainchainClients(network.archiveUrl);
     setMainchainClients(clients);
-    NetworkConfig.setNetwork('dev-docker');
-    previousComposeProjectName = process.env.COMPOSE_PROJECT_NAME;
-    process.env.COMPOSE_PROJECT_NAME = network.composeEnv.COMPOSE_PROJECT_NAME;
 
     await waitFor(
       90e3,

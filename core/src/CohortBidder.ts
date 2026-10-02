@@ -2,7 +2,6 @@ import type { Accountset } from './Accountset.js';
 import { ExtrinsicError, formatArgons, hexToU8a } from '@argonprotocol/mainchain';
 import type { HistoricalQueryRecord } from '@argonprotocol/runtime-client';
 import type { ArgonClient } from './MainchainClients.js';
-import { subscribeToFinalizedStorageChanges } from './StorageSubscriber.js';
 import { BlockWatch, type IBlockHeaderInfo } from './BlockWatch.js';
 import type { MiningFrames } from './MiningFrames.js';
 import { createDeferred } from './Deferred.js';
@@ -213,7 +212,7 @@ export class CohortBidder {
     });
   }
 
-  public async stop(waitForFinalBids = true): Promise<CohortBidder['myWinningBids']> {
+  public async stop(waitForFinalBids = true, shutdownSignal?: AbortSignal): Promise<CohortBidder['myWinningBids']> {
     if (this.isStopping) {
       await this.stopDeferred.promise;
       return this.myWinningBids;
@@ -226,45 +225,21 @@ export class CohortBidder {
         this.unsubscribe();
       }
       this.nextBid = undefined;
-      if (waitForFinalBids) {
-        const finalizedBlock = this.blockWatch.finalizedBlockHeader;
-        // will be set on all finalized blocks
-        const finalizedFrameId = finalizedBlock.frameId!;
-        // if still on last frame, wait for next
-        if (finalizedFrameId < this.cohortStartingFrameId) {
-          // wait for the finalized block to the be the next frame or later
-          const finalizedClient = await this.client.at(finalizedBlock.blockHash);
-          const isBiddingOpen = await finalizedClient.query.miningSlot.isNextSlotBiddingOpen();
-          if (isBiddingOpen) {
-            this.log('Bidding is still open, waiting for it to close');
-            // we need to wait for either of these things to be true
-            await new Promise<void>(async resolve => {
-              const unsub = await subscribeToFinalizedStorageChanges(this.client, [
-                {
-                  key: this.client.query.miningSlot.isNextSlotBiddingOpen.key(),
-                  handler: async api => {
-                    const isOpen = await api.query.miningSlot.isNextSlotBiddingOpen();
-                    this.log('miningSlot.isNextSlotBiddingOpen changed', isOpen);
-                    if (!isOpen) {
-                      unsub.unsubscribe();
-                      resolve();
-                    }
-                  },
-                },
-                {
-                  key: this.client.query.miningSlot.nextFrameId.key(),
-                  handler: async api => {
-                    const frameId = await api.query.miningSlot.nextFrameId();
-                    this.log('miningSlot.nextFrameId changed', frameId);
-                    if (frameId !== null && frameId > this.cohortStartingFrameId) {
-                      unsub.unsubscribe();
-                      resolve();
-                    }
-                  },
-                },
-              ]);
-            });
-          }
+      waitForFinalBids &&= !shutdownSignal?.aborted;
+      if (waitForFinalBids && (this.blockWatch.finalizedBlockHeader.frameId ?? 0) < this.cohortStartingFrameId) {
+        this.log('Waiting for finalized cohort activation', this.cohortStartingFrameId);
+        const activation = createDeferred<void>();
+        const unsubscribe = this.blockWatch.events.on('finalized', headers => {
+          if ((headers.at(-1)!.frameId ?? 0) >= this.cohortStartingFrameId) activation.resolve();
+        });
+        const onShutdown = () => activation.resolve();
+        shutdownSignal?.addEventListener('abort', onShutdown, { once: true });
+        try {
+          await activation.promise;
+          waitForFinalBids &&= !shutdownSignal?.aborted;
+        } finally {
+          unsubscribe();
+          shutdownSignal?.removeEventListener('abort', onShutdown);
         }
       }
       void (await this.pendingRequest);
