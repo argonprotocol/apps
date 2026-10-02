@@ -22,8 +22,6 @@ export class FramesTable extends BaseTable {
       'microgonsMintedTotal',
       'micronotsMinedTotal',
       'microgonFeesCollectedTotal',
-      'accruedMicrogonProfits',
-      'accruedMicronotProfits',
     ],
   };
 
@@ -45,8 +43,6 @@ export class FramesTable extends BaseTable {
     microgonToUsd: bigint[];
     microgonToBtc: bigint[];
     microgonToArgonot: bigint[];
-    accruedMicrogonProfits: bigint;
-    accruedMicronotProfits: bigint;
     progress: number;
   }): Promise<void> {
     const {
@@ -58,16 +54,14 @@ export class FramesTable extends BaseTable {
       microgonToUsd,
       microgonToBtc,
       microgonToArgonot,
-      accruedMicrogonProfits,
-      accruedMicronotProfits,
       progress,
     } = data;
     await this.db.execute(
       `INSERT INTO Frames (
           id, firstTick, rewardTicksRemaining, firstBlockNumber, lastBlockNumber, microgonToUsd, microgonToBtc, microgonToArgonot,
-          accruedMicrogonProfits, accruedMicronotProfits, progress, isProcessed
+          progress, isProcessed
         ) VALUES (
-          ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+          ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
         ) ON CONFLICT(id) DO UPDATE SET 
           firstTick = excluded.firstTick,
           rewardTicksRemaining = excluded.rewardTicksRemaining, 
@@ -76,8 +70,6 @@ export class FramesTable extends BaseTable {
           microgonToUsd = excluded.microgonToUsd, 
           microgonToBtc = excluded.microgonToBtc, 
           microgonToArgonot = excluded.microgonToArgonot,
-          accruedMicrogonProfits = excluded.accruedMicrogonProfits,
-          accruedMicronotProfits = excluded.accruedMicronotProfits,
           progress = excluded.progress, 
           isProcessed = excluded.isProcessed
       `,
@@ -90,12 +82,11 @@ export class FramesTable extends BaseTable {
         microgonToUsd,
         microgonToBtc,
         microgonToArgonot,
-        accruedMicrogonProfits,
-        accruedMicronotProfits,
         progress,
         false,
       ]),
     );
+    this.db.afterCommit(() => delete this.state.processedFrames[id]);
   }
 
   public async update(args: {
@@ -122,9 +113,6 @@ export class FramesTable extends BaseTable {
       microgonFeesCollectedTotal,
       isProcessed,
     } = args;
-    if (isProcessed) {
-      this.state.processedFrames[id] = true;
-    }
     await this.db.execute(
       `UPDATE Frames SET 
         allMinersCount = ?,
@@ -150,6 +138,10 @@ export class FramesTable extends BaseTable {
         id,
       ]),
     );
+    this.db.afterCommit(() => {
+      if (isProcessed) this.state.processedFrames[id] = true;
+      else delete this.state.processedFrames[id];
+    });
   }
 
   public async fetchLastProcessedFrame(): Promise<number> {
@@ -206,7 +198,7 @@ export class FramesTable extends BaseTable {
     liveArgonotPrice: bigint,
   ): Promise<Omit<IDashboardFrameStats, 'score' | 'expected'>[]> {
     const rawRecords = await this.db.select<any[]>(`SELECT 
-      id, firstTick, microgonToUsd, microgonToArgonot, allMinersCount, seatCountActive, accruedMicrogonProfits, 
+      id, firstTick, microgonToUsd, microgonToArgonot, allMinersCount, seatCountActive,
       seatCostTotalFramed, blocksMinedTotal, micronotsMinedTotal, microgonFeesCollectedTotal,
       microgonsMinedTotal, microgonsMintedTotal, progress
       FROM Frames ORDER BY id DESC LIMIT 365
@@ -245,7 +237,6 @@ export class FramesTable extends BaseTable {
           microgonsMintedTotal: x.microgonsMintedTotal,
           micronotsMinedTotal: x.micronotsMinedTotal,
           microgonFeesCollectedTotal: x.microgonFeesCollectedTotal,
-          accruedMicrogonProfits: x.accruedMicrogonProfits,
           microgonValueOfRewards,
           progress: x.progress,
           profit: Number(profit),
@@ -283,7 +274,6 @@ export class FramesTable extends BaseTable {
         progress: 0,
         profit: 0,
         profitPct: 0,
-        accruedMicrogonProfits: 0n,
       };
       records.unshift(blankRecord);
     }

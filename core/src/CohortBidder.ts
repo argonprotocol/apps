@@ -333,6 +333,8 @@ export class CohortBidder {
         this.updateBidList(rawBids ?? [], blockNumber, tick, isFirstLoad);
 
         await this.planNextBid(header.frameRewardTicksRemaining!);
+        // Other bidders change the live auction even when our own bid plan stays unchanged.
+        this.broadcastUpdates();
       } catch (error) {
         if (this.lastBidsHash === latestCohortBidsHash) {
           this.lastBidsHash = previousBidsHash;

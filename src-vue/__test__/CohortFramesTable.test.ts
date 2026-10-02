@@ -25,8 +25,6 @@ describe('CohortFramesTable', () => {
             microgonToUsd: [],
             microgonToBtc: [],
             microgonToArgonot: [],
-            accruedMicrogonProfits: 0n,
-            accruedMicronotProfits: 0n,
             progress: 100,
           }),
         ),
@@ -75,8 +73,6 @@ describe('CohortFramesTable', () => {
         microgonToUsd: [],
         microgonToBtc: [],
         microgonToArgonot: [],
-        accruedMicrogonProfits: 0n,
-        accruedMicronotProfits: 0n,
         progress: 100,
       });
       await db.cohortsTable.insertOrUpdate({
@@ -97,24 +93,22 @@ describe('CohortFramesTable', () => {
     }
   });
 
-  it('caches synchronized cohorts when the historical price remains missing', async () => {
+  it('finds synchronized cohorts past a recovery gap even without a historical price', async () => {
     const db = await createTestDb();
     try {
       await db.framesTable.insertOrUpdate({
-        id: 11,
-        firstTick: 11_000,
+        id: 13,
+        firstTick: 13_000,
         rewardTicksRemaining: 0,
-        firstBlockNumber: 1_100,
-        lastBlockNumber: 1_199,
+        firstBlockNumber: 1_300,
+        lastBlockNumber: 1_399,
         microgonToUsd: [],
         microgonToBtc: [],
         microgonToArgonot: [],
-        accruedMicrogonProfits: 0n,
-        accruedMicronotProfits: 0n,
         progress: 100,
       });
       await db.cohortsTable.insertOrUpdate({
-        id: 11,
+        id: 13,
         transactionFeesTotal: 0n,
         micronotsStakedPerSeat: 0n,
         microgonsBidPerSeat: 0n,
@@ -124,7 +118,7 @@ describe('CohortFramesTable', () => {
         argonotPriceAtBid: 0n,
       });
 
-      await expect(db.cohortsTable.fetchCohortIdsSince(11, 1)).resolves.toEqual([11]);
+      await expect(db.cohortsTable.fetchCohortIdsSince(11, 3)).resolves.toEqual([13]);
     } finally {
       await db.close();
     }
@@ -144,8 +138,6 @@ describe('CohortFramesTable', () => {
             microgonToUsd: [],
             microgonToBtc: [],
             microgonToArgonot: [],
-            accruedMicrogonProfits: 0n,
-            accruedMicronotProfits: 0n,
             progress: 100,
           }),
         ),
@@ -251,8 +243,6 @@ describe('FramesTable', () => {
             microgonToUsd: [],
             microgonToBtc: [],
             microgonToArgonot: prices,
-            accruedMicrogonProfits: 0n,
-            accruedMicronotProfits: 0n,
             progress: 100,
           }),
         ),

@@ -206,6 +206,7 @@ async function loadInvite() {
 }
 
 function openWelcomeIfApproved() {
+  if (!controller.hasLoadedInitialOperationalProgress) return;
   if (
     hasOpenedWelcome.value ||
     config.certificationDetails?.dismissedWelcomeToOperationsOverlay ||
@@ -242,10 +243,9 @@ function openUpgradeToOperationsOverlay() {
 basicEmitter.on('openUpgradeToOperationsOverlay', openUpgradeToOperationsOverlay);
 
 Vue.watch(
-  () => controller.chainProgress.isUpgradedToOperations,
-  isUpgradedToOperations => {
-    if (isUpgradedToOperations) openWelcomeIfApproved();
-  },
+  [() => controller.hasLoadedInitialOperationalProgress, () => controller.chainProgress.isUpgradedToOperations],
+  () => openWelcomeIfApproved(),
+  { immediate: true },
 );
 
 Vue.onMounted(() => {

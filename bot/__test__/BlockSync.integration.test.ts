@@ -1,14 +1,13 @@
-import { afterAll, afterEach, beforeAll, expect, it, vi } from 'vitest';
+import { afterAll, afterEach, beforeAll, expect, it } from 'vitest';
 import { runOnTeardown, sudo, teardown } from '@argonprotocol/testing';
 import { mnemonicGenerate } from '@argonprotocol/mainchain';
-import { AccountMiners, Accountset, MainchainClients, MiningFrames, NetworkConfig } from '@argonprotocol/apps-core';
+import { Accountset, MainchainClients, MiningFrames, NetworkConfig } from '@argonprotocol/apps-core';
 import { BlockSync } from '../src/BlockSync.js';
 import fs from 'node:fs';
 import os from 'node:os';
 import { Storage } from '../src/Storage.js';
-import { DockerStatus } from '../src/DockerStatus.js';
 import { startArgonTestNetwork } from '@argonprotocol/apps-core/__test__/startArgonTestNetwork.js';
-import Path from 'path';
+import Path from 'node:path';
 import { BlockWatch } from '@argonprotocol/apps-core/src/BlockWatch.ts';
 import { getTestMainchainClient } from '@argonprotocol/apps-core/__test__/helpers/mainchain.ts';
 
@@ -25,13 +24,11 @@ beforeAll(async () => {
   clientAddress = result.archiveUrl;
 });
 
-it.skipIf(skipE2E)('rebuilds a stale pending block queue after restart', async () => {
+it.skipIf(skipE2E)('starts at the first known frame block and resumes forward after restart', async () => {
   const client = await getTestMainchainClient(clientAddress);
-
   const botDataDir = fs.mkdtempSync(Path.join(os.tmpdir(), 'block-sync-'));
   runOnTeardown(() => fs.promises.rm(botDataDir, { recursive: true, force: true }));
 
-  const storage = new Storage(botDataDir);
   const accountset = new Accountset({
     client,
     txSubmitter: sudo(),
@@ -39,75 +36,21 @@ it.skipIf(skipE2E)('rebuilds a stale pending block queue after restart', async (
     subaccountRange: new Array(99).fill(0).map((_, i) => i),
   });
   const mainchainClients = new MainchainClients(clientAddress);
-  void mainchainClients.setPrunedClient(clientAddress);
+  await mainchainClients.setPrunedClient(clientAddress);
   const blockWatch = new BlockWatch(mainchainClients);
   const miningFrames = new MiningFrames(mainchainClients, blockWatch);
   await miningFrames.load();
-  // don't auto-progress during test
-  blockWatch.stop();
+  const storage = new Storage(botDataDir);
   const blockSync = new BlockSync(accountset, storage, mainchainClients, miningFrames, blockWatch, 0);
-  // @ts-expect-error - it's private
-  blockSync.localClient = await mainchainClients.archiveClientPromise;
-  // @ts-expect-error - it's private
-  blockSync.archiveClient = await mainchainClients.archiveClientPromise;
-  blockSync.accountMiners = new AccountMiners(accountset, []);
+  const processed: number[] = [];
+  blockSync.didProcessBlock = ({ blockNumber }) => processed.push(blockNumber);
+  await blockSync.load();
 
-  const blockNumber = await new Promise<number>(async resolve => {
-    const unsub = await client.query.system.number(x => {
-      if (x >= 20) {
-        resolve(x);
-        unsub();
-      }
-    });
-  });
-
-  vi.spyOn(DockerStatus, 'getArgonBlockNumbers').mockImplementation(async () => {
-    return {
-      localNode: 0,
-      mainNode: 0,
-    };
-  });
-  vi.spyOn(DockerStatus, 'getBitcoinBlockNumbers').mockImplementation(async () => {
-    return {
-      localNode: 0,
-      mainNode: 0,
-      localNodeBlockTime: 0,
-    };
-  });
-  const finalized = await client.rpc.chain.getFinalizedHead();
-  const finalizedHeader = await client.rpc.chain.getHeader(finalized);
-  const latest = await client.rpc.chain.getHeader();
-  const bestBlock = latest.number.toNumber();
-  expect(bestBlock).gte(blockNumber);
-
-  // @ts-expect-error - it's private
-  await blockWatch.setFinalizedHeader(finalizedHeader);
-  console.log('[BlockWatch]: After finalized', ...blockWatch.latestHeaders);
-
-  expect(blockWatch.finalizedBlockHeader.blockNumber).toBe(finalizedHeader.number.toNumber());
-
-  const result = await blockSync.backfillBestBlockHeader(blockWatch.bestBlockHeader);
-  expect(result).toBeDefined();
-  expect(result!.finalizedBlockNumber).toBeGreaterThanOrEqual(finalizedHeader.number.toNumber());
-  expect(result!.bestBlockNumber).toBeGreaterThanOrEqual(latest.number.toNumber());
-  expect(result!.syncedToBlockNumber).toBe(0);
-  for (let i = 1; i <= blockNumber; i++) {
-    const block = result!.blocksByNumber[i];
-    expect(block).toBeDefined();
-    expect(block.number).toBe(i);
-    expect(block.hash).toBeDefined();
-  }
-
-  await expect(blockSync.processNext()).resolves.toStrictEqual({
-    processed: expect.objectContaining({
-      number: 1,
-    }),
-    remaining: result!.bestBlockNumber - 1,
-  });
-
-  await blockSync.blockSyncFile.mutate(state => {
-    state.blocksByNumber[2].hash = `0x${'ff'.repeat(32)}`;
-  });
+  expect(processed[0]).toBe(1);
+  const checkpoint = await storage.botStateFile().get();
+  expect(checkpoint.lastProcessedBlockNumber).toBeGreaterThan(0);
+  expect(checkpoint.lastProcessedBlockHash).toBeTruthy();
+  await blockSync.stop();
   await storage.close();
 
   const restartedStorage = new Storage(botDataDir);
@@ -124,13 +67,13 @@ it.skipIf(skipE2E)('rebuilds a stale pending block queue after restart', async (
     0,
   );
   const processedAfterRestart: number[] = [];
-  restartedBlockSync.didProcessBlock = ({ blockNumber: processedBlockNumber }) => {
-    processedAfterRestart.push(processedBlockNumber);
-  };
+  restartedBlockSync.didProcessBlock = ({ blockNumber }) => processedAfterRestart.push(blockNumber);
+  await restartedBlockSync.load();
 
-  await expect(restartedBlockSync.load()).resolves.toBeUndefined();
-  expect(processedAfterRestart.at(0)).toBe(2);
-
-  const status = await restartedBlockSync.botStateFile.get();
-  expect(status.syncProgress).toBe(100);
+  expect(processedAfterRestart.every(number => number > checkpoint.lastProcessedBlockNumber)).toBe(true);
+  expect((await restartedStorage.botStateFile().get()).lastProcessedBlockNumber).toBeGreaterThanOrEqual(
+    checkpoint.lastProcessedBlockNumber,
+  );
+  await restartedBlockSync.stop();
+  await restartedStorage.close();
 });

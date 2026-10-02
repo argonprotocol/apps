@@ -75,6 +75,7 @@ export default class Bot {
 
   public history!: History;
   public errorMessage: string | null = null;
+  public historyError: string | null = null;
 
   private options: IBotOptions;
   private biddingRules: IBiddingRules | null = null;
@@ -85,6 +86,8 @@ export default class Bot {
   private vaultIdPromise?: Promise<number>;
   private shutdownDeferred = createDeferred(false);
   private ethereumBeaconSyncService?: EthereumBeaconSyncService;
+  private historicalSync?: Promise<void>;
+  private isShuttingDown = false;
 
   constructor(options: IBotOptions) {
     this.options = options;
@@ -134,6 +137,10 @@ export default class Bot {
         bidsLastModifiedAt: new Date(),
         earningsLastModifiedAt: new Date(),
         oldestFrameIdToSync: this.options.oldestFrameIdToSync ?? 0,
+        lastProcessedBlockNumber: 0,
+        lastProcessedBlockHash: '',
+        lastFinalizedProcessedBlockNumber: 0,
+        lastFinalizedProcessedBlockHash: '',
         syncProgress: 0,
         hasMiningBids: false,
         hasMiningSeats: false,
@@ -152,6 +159,7 @@ export default class Bot {
         bidsInPreviousFrame: 0,
         isBiddingOpen: false,
         serverError: this.errorMessage ?? startupError,
+        historyError: this.historyError,
         ethereumSync: this.getEthereumSyncState(),
       } as IBotState;
     }
@@ -183,6 +191,8 @@ export default class Bot {
 
     return {
       ...botStateData,
+      currentTick: this.miningFrames.currentTick,
+      currentFrameId: this.miningFrames.currentFrameId,
       finalizedFrameId,
       botLastActiveDate: currentBidder?.latestUpdateDate ?? MiningFrames.getTickDate(this.history.lastActivityTick),
       botLastActiveBlockNumber: currentBidder?.latestBlockNumber ?? this.history.lastProcessedBlockNumber,
@@ -206,19 +216,14 @@ export default class Bot {
       nextBid,
       lastBid: currentBidder?.lastBid,
       serverError: this.errorMessage ?? startupError,
+      historyError: this.historyError,
       ethereumSync: this.getEthereumSyncState(),
     } as IBotState;
   }
 
-  public get currentFrameId(): Promise<number> {
-    return new Promise(async (resolve, reject) => {
-      try {
-        const state = await this.storage.botStateFile().get();
-        resolve(state?.currentFrameId ?? 0);
-      } catch (error) {
-        reject(error);
-      }
-    });
+  public get currentFrameId(): number {
+    // API requests use the live frame; bot-state.currentFrameId belongs to the replay cursor.
+    return this.miningFrames.currentFrameId;
   }
 
   public async getHistoryForFrame(frameId?: number): Promise<IHistoryFile> {
@@ -238,7 +243,7 @@ export default class Bot {
     this.isStarting = true;
     console.log('STARTING BOT');
     try {
-      let currentFrameId = await this.currentFrameId.catch(() => 0);
+      let currentFrameId = 0;
       try {
         const client = await this.mainchainClients.archiveClientPromise;
         currentFrameId = await client.query.miningSlot.nextFrameId().then(x => x - 1);
@@ -248,7 +253,6 @@ export default class Bot {
       }
 
       this.storage = new Storage(this.options.datadir);
-      await this.storage.migrate();
       this.history = new History(this.storage, currentFrameId);
       this.history.handleStarting();
 
@@ -305,10 +309,10 @@ export default class Bot {
         write: data => fs.writeFile(miningFramesPath, data, 'utf8'),
       });
       await this.miningFrames.load();
+      await this.storage.migrate(this.miningFrames);
       this.autobidder = new AutoBidder(
         this.accountset,
         this.mainchainClients,
-        this.storage,
         this.history,
         this.biddingRules,
         this.miningFrames,
@@ -321,6 +325,7 @@ export default class Bot {
         this.blockWatch,
         this.options.oldestFrameIdToSync,
       );
+      await this.blockSync.ensureCurrentStateReady();
       this.miningFrameHistory = new MiningFrameHistory(
         this.storage,
         this.accountset,
@@ -332,36 +337,11 @@ export default class Bot {
 
       this.isSyncing = true;
       this.history.handleStartedSyncing();
-      while (true) {
-        try {
-          await this.blockSync.load();
-          break;
-        } catch (error) {
-          if (error instanceof FatalError) {
-            console.error('Fatal error loading block sync (exiting...)', error);
-            throw error;
-          }
-          if (String(error).includes('getHeader(hash?: BlockHash): Header:: 4003')) {
-            error = (error as Error).message;
-          }
-          console.error('Error loading block sync (retrying...)', error);
-          await setTimeout(1000);
-        }
-      }
-      this.history.handleFinishedSyncing();
-      this.isSyncing = false;
-
-      console.log('Starting block sync');
-      while (true) {
-        try {
-          this.history.handleReady();
-          await this.blockSync.start();
-          break;
-        } catch (error) {
-          console.error('Error starting block sync (retrying...)', error);
-          await setTimeout(1000);
-        }
-      }
+      const currentMiners = await this.accountset.miningSeatsAndBids();
+      await this.storage.botStateFile().mutate(state => {
+        state.hasMiningSeats ||= currentMiners.some(miner => miner.seat !== undefined);
+        state.hasMiningBids ||= state.hasMiningSeats || currentMiners.some(miner => miner.hasWinningBid);
+      });
 
       console.log('Starting autobidder');
 
@@ -373,7 +353,9 @@ export default class Bot {
       }
 
       this.watchBiddingRulesFile();
+      this.history.handleReady();
       this.isReady = true;
+      this.historicalSync = this.recoverHistory();
     } finally {
       this.isStarting = false;
     }
@@ -384,6 +366,7 @@ export default class Bot {
       return this.shutdownDeferred.promise;
     }
     this.shutdownDeferred.setIsRunning(true);
+    this.isShuttingDown = true;
     console.log('SHUTTING DOWN BOT');
     if (this.options.biddingRulesPath) {
       Fs.unwatchFile(this.options.biddingRulesPath);
@@ -391,15 +374,47 @@ export default class Bot {
     await this.autobidder.stop();
     await this.ethereumBeaconSyncService?.shutdown();
     await this.ethereumGatewayProverService.shutdown();
+    await this.blockSync?.stop?.();
+    await this.historicalSync;
     this.blockWatch.stop();
     await this.miningFrames?.stop?.();
-    await this.blockSync?.stop?.();
     await this.history?.handleShutdown?.();
     await this.storage?.close?.();
     await this.mainchainClients.disconnect();
     console.log('BOT SHUT DOWN');
     this.shutdownDeferred.resolve();
     return this.shutdownDeferred.promise;
+  }
+
+  private async recoverHistory(): Promise<void> {
+    let failures = 0;
+    while (!this.isShuttingDown) {
+      try {
+        await this.blockSync.load();
+        if (this.isShuttingDown) return;
+        await this.blockSync.start();
+        if (this.isShuttingDown) return;
+        this.history.handleFinishedSyncing();
+        this.historyError = null;
+        this.isSyncing = false;
+        this.storage.events.emit('data:updated', { data: 'bot-state' });
+        return;
+      } catch (error) {
+        if (this.isShuttingDown) return;
+        failures += 1;
+        console.error('Error recovering historical mining data', error);
+        if (error instanceof FatalError) {
+          this.historyError = String(error);
+          break;
+        }
+        if (failures >= 5) {
+          this.historyError = String(error);
+          this.storage.events.emit('data:updated', { data: 'bot-state' });
+        }
+        await setTimeout(1000);
+      }
+    }
+    if (this.historyError) this.storage.events.emit('data:updated', { data: 'bot-state' });
   }
 
   private loadBiddingRules(): IBiddingRules | null {

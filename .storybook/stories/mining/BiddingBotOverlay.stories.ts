@@ -412,6 +412,20 @@ export const CapitalChangeResumes: Story = {
   },
 };
 
+export const CapitalChangeCompleted: Story = {
+  name: 'Capital Change Completed',
+  beforeEach: () => {
+    getMoveCapital().data.pendingAllocationChange = createCapitalChangeInProgress();
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement.ownerDocument.body);
+
+    await userEvent.click(await canvas.findByRole('button', { name: 'Manage bot capital' }));
+    getMoveCapital().data.pendingAllocationChange = undefined;
+    await Vue.nextTick();
+  },
+};
+
 export const CapitalChangeSubmissionError: Story = {
   name: 'Capital Change Submission Error',
   beforeEach: () => {

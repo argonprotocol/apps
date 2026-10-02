@@ -12,7 +12,7 @@ import { BlockSync } from '../src/BlockSync.ts';
 import { Storage } from '../src/Storage.ts';
 import runtimeVersion from '../../runtime-client/__test__/fixtures/runtime-159.json' with { type: 'json' };
 
-it('retries startup on the same archive client after a missing header becomes available', async () => {
+it('retries startup on the same clients after a missing header becomes available', async () => {
   NetworkConfig.setNetwork('dev-docker');
   const registry = getOfflineRegistry();
   const genesisHash = '0xee11bf2ff8838fcb0832c09085c5319a08ba6111c225ecd899fe659872d9d45d';
@@ -73,7 +73,7 @@ it('retries startup on the same archive client after a missing header becomes av
     'system_health',
     'rpc_methods',
   ];
-  let archiveMissingHeader = true;
+  let headerIsMissing = true;
   let nextSubscription = 0;
   const server = new WebSocketServer({ host: '127.0.0.1', port: 0 });
   await once(server, 'listening');
@@ -82,7 +82,7 @@ it('retries startup on the same archive client after a missing header becomes av
   const archiveUrl = `ws://127.0.0.1:${address.port}/archive`;
   const prunedUrl = `ws://127.0.0.1:${address.port}/pruned`;
 
-  server.on('connection', (socket, request) => {
+  server.on('connection', socket => {
     socket.on('message', bytes => {
       const { id, method, params } = JSON.parse(bytes.toString());
       let result: unknown;
@@ -105,8 +105,8 @@ it('retries startup on the same archive client after a missing header becomes av
                 : bestHeader.hash.toHex();
           break;
         case 'chain_getHeader':
-          if (request.url === '/archive' && params[0] === bestHeader.hash.toHex()) {
-            result = archiveMissingHeader ? null : bestHeader.toJSON();
+          if (params[0] === bestHeader.hash.toHex()) {
+            result = headerIsMissing ? null : bestHeader.toJSON();
           } else {
             result = params[0] === finalizedHeader.hash.toHex() ? finalizedHeader.toJSON() : bestHeader.toJSON();
           }
@@ -196,38 +196,32 @@ it('retries startup on the same archive client after a missing header becomes av
       subaccountRange: [],
     });
     const blockSync = new BlockSync(accountset, storage, clients, miningFrames, blockWatch, 0);
-    const block = BlockWatch.readHeader(bestHeader);
     // A valid saved checkpoint still needs its historical API during startup.
-    await blockSync.blockSyncFile.mutate(state => {
-      state.syncedToBlockNumber = 9;
-      state.bestBlockNumber = 9;
-      state.blocksByNumber[9] = {
-        hash: block.blockHash,
-        number: 9,
-        tick: block.tick,
-        author: block.author,
-        frameId: 0,
-        isNewFrame: false,
-        frameRewardTicksRemaining: 2,
-      };
+    await storage.botStateFile().mutate(state => {
+      state.lastProcessedBlockNumber = 9;
+      state.lastProcessedBlockHash = bestHeader.hash.toHex();
+      state.lastFinalizedProcessedBlockNumber = 8;
+      state.lastFinalizedProcessedBlockHash = finalizedHeader.hash.toHex();
     });
+    const savedCheckpoint = await storage.botStateFile().get();
 
-    await expect(blockSync.load()).rejects.toThrow(
-      'ARCHIVE_RPC: Unable to retrieve header and parent from supplied hash',
-    );
-    expect(blockSync.accountMiners).toBeUndefined();
+    await expect(blockSync.load()).rejects.toThrow('Unable to retrieve header and parent from supplied hash');
+    expect(await storage.botStateFile().get()).toEqual(savedCheckpoint);
 
-    archiveMissingHeader = false;
+    headerIsMissing = false;
     const retainedClient = await clients.archiveClientPromise;
     await expect(blockSync.load()).resolves.toBeUndefined();
     expect(await clients.archiveClientPromise).toBe(retainedClient);
-    expect(blockSync.accountMiners).toBeDefined();
+    expect(await clients.prunedClientPromise).toBe(localClient);
+    expect(blockSync.calculateSyncProgress()).toBe(100);
     await storage.close();
     const reopenedStorage = new Storage(botDataDir);
     try {
-      const saved = await reopenedStorage.botBlockSyncFile().get();
-      expect(saved.syncedToBlockNumber).toBe(9);
-      expect(saved.blocksByNumber[9].hash).toBe(bestHeader.hash.toHex());
+      const saved = await reopenedStorage.botStateFile().get();
+      expect(saved.lastProcessedBlockNumber).toBe(9);
+      expect(saved.lastProcessedBlockHash).toBe(bestHeader.hash.toHex());
+      expect(saved.lastFinalizedProcessedBlockNumber).toBe(8);
+      expect(saved.lastFinalizedProcessedBlockHash).toBe(finalizedHeader.hash.toHex());
     } finally {
       await reopenedStorage.close();
     }

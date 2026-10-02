@@ -25,6 +25,7 @@ export interface IBotStateStarting {
   argonBlockNumbers: IBlockNumbers;
   bitcoinBlockNumbers: IBlockNumbers & { localNodeBlockTime: number };
   serverError: string | null;
+  historyError?: string | null;
   ethereumSync?: IEthereumSyncStatus;
 }
 
@@ -68,6 +69,10 @@ export interface IBotStateFile {
   bidsLastModifiedAt: Date;
   earningsLastModifiedAt: Date;
   oldestFrameIdToSync: number;
+  lastProcessedBlockNumber: number;
+  lastProcessedBlockHash: string;
+  lastFinalizedProcessedBlockNumber: number;
+  lastFinalizedProcessedBlockHash: string;
   syncProgress: number;
   hasMiningBids: boolean;
   hasMiningSeats: boolean;

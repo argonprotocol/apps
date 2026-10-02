@@ -15,7 +15,7 @@ function createMockBot(overrides: Record<string, any> = {}): Bot {
   return {
     isReady: true,
     errorMessage: '',
-    currentFrameId: Promise.resolve(123),
+    currentFrameId: 123,
     state: async (startupError: string) => ({ startupError, ok: true }),
     ethereumGatewayProverService: {
       getRelayStatus: async () => ({ isReady: true }),
@@ -49,6 +49,21 @@ describe('BotServer basic behavior', () => {
 
     const body = await response.json();
     expect(body).toBe(true);
+  });
+
+  it('GET /is-ready reports a terminal startup failure', async () => {
+    server = startServer(createMockBot({ isReady: false }), 0);
+    await server.waitForListening();
+    const { host, port } = server.getAddress();
+
+    const pending = await fetch(`http://${host}:${port}/is-ready`);
+    expect(pending.status).toBe(200);
+    expect(await pending.json()).toBe(false);
+
+    server.startupError = 'Local client has not synchronized';
+    const failed = await fetch(`http://${host}:${port}/is-ready`);
+    expect(failed.status).toBe(503);
+    expect(await failed.json()).toEqual({ error: 'Local client has not synchronized' });
   });
 
   it('GET /ethereum-relay-status returns the gateway prover relay status', async () => {

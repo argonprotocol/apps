@@ -22,11 +22,11 @@ export class MiningFrameHistory {
     private readonly mainchainClients: MainchainClients,
     private readonly miningFrames: MiningFrames,
     private readonly blockWatch: BlockWatch,
-    private readonly getCurrentFrameId: () => Promise<number>,
+    private readonly getCurrentFrameId: () => number,
   ) {}
 
   public async getDetail(frameId: number): Promise<IMiningFrameDetail> {
-    const currentFrameId = await this.getCurrentFrameId();
+    const currentFrameId = this.getCurrentFrameId();
     if (frameId >= currentFrameId) {
       return this.getLiveDetail(frameId);
     }
@@ -46,7 +46,7 @@ export class MiningFrameHistory {
     const persisted = (await miningFrameFile.exists()) ? await miningFrameFile.get() : null;
 
     const mining = new Mining(this.mainchainClients);
-    const api = await this.mainchainClients.archiveClientPromise;
+    const api = await this.mainchainClients.prunedClientOrArchivePromise;
 
     const [rawWinningBids, slots, totalBidCount, expectedAuctionCloseTick] = await Promise.all([
       Mining.fetchWinningBids(api),
@@ -100,9 +100,8 @@ export class MiningFrameHistory {
     if (!winningBids.length && api) {
       const cohortActivationFrameId = frameId + 1;
       const minersQuery = api.query.miningSlot.minersByCohort(cohortActivationFrameId);
-      const micronotsPerSeatQuery = api.query.miningSlot.argonotsPerMiningSeat();
-      if (minersQuery && micronotsPerSeatQuery) {
-        const [miners, micronotsPerSeat] = await Promise.all([minersQuery, micronotsPerSeatQuery]);
+      if (minersQuery) {
+        const miners = await minersQuery;
         winningBids = miners.map((miner, i) => {
           const address = miner.accountId;
           const managedBy = miner.externalFundingAccount ?? undefined;
@@ -114,7 +113,7 @@ export class MiningFrameHistory {
                 : undefined,
             bidPosition: i,
             microgonsPerSeat: miner.bid,
-            micronotsStakedPerSeat: micronotsPerSeat,
+            micronotsStakedPerSeat: miner.argonots,
           };
         });
       }

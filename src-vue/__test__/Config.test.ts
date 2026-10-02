@@ -478,6 +478,10 @@ it('recreates a wiped local server instead of restoring its removed VM connectio
         2,
       ),
       isServerInstalled: 'true',
+      certificationDetails: JsonExt.stringify({
+        hasSavedMnemonic: true,
+        dismissedWelcomeToOperationsOverlay: true,
+      }),
     });
     const { walletKeys } = createTestWallet('//Alice');
     instanceChecks.delete(Config.prototype.constructor);
@@ -506,6 +510,10 @@ it('recreates a wiped local server instead of restoring its removed VM connectio
     expect(restoredConfig.serverAdd).toEqual({ localComputer: {} });
     expect(restoredConfig.serverDetails).toEqual(Config.getDefault('serverDetails'));
     expect(restoredConfig.isServerInstalled).toBe(false);
+    expect(restoredConfig.certificationDetails).toEqual({
+      hasSavedMnemonic: true,
+      dismissedWelcomeToOperationsOverlay: true,
+    });
     expect(activate).not.toHaveBeenCalled();
   } finally {
     activate.mockRestore();

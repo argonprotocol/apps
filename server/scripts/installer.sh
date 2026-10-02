@@ -531,14 +531,31 @@ else
 fi
 
 bot_readiness_failures=0
+bot_readiness_deadline=$((SECONDS + 1800))
 while true; do
     sleep 1
     allow_run_command_fail=1
-    RESPONSE=$(run_compose "sudo docker compose exec -T bot curl -s -w \"\n%{http_code}\" http://127.0.0.1:8080/is-ready")
+    RESPONSE=$(run_compose "sudo docker compose exec -T bot curl -s --connect-timeout 5 --max-time 30 -w \"\n%{http_code}\" http://127.0.0.1:8080/is-ready")
     unset allow_run_command_fail
     echo "$RESPONSE"
     status=${RESPONSE##*$'\n'}        # last line
     json=${RESPONSE%$'\n'*}           # all but last line
+
+    if [[ "$status" == "503" ]]; then
+      startup_error=$(jq -r '.error // empty' <<<"$json" 2>/dev/null)
+      if [[ -n "$startup_error" ]]; then
+        failed "Bot startup failed: $startup_error"
+      fi
+    fi
+
+    if [[ "$status" == "200" && "$json" == "true" ]]; then
+      echo "Bot is running"
+      break;
+    fi
+
+    if (( SECONDS >= bot_readiness_deadline )); then
+      failed "Bot did not become ready after 30 minutes. Check bot logs."
+    fi
 
     if [[ "$status" != "200" ]]; then
       bot_readiness_failures=$((bot_readiness_failures + 1))
@@ -550,10 +567,6 @@ while true; do
     fi
 
     bot_readiness_failures=0
-    if [[ "$status" == "200" && "$json" == "true" ]]; then
-      echo "Bot is running"
-      break;
-    fi
     echo "Bot is not ready, waiting..."
 done
 

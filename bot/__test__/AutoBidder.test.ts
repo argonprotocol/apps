@@ -31,7 +31,6 @@ describe('AutoBidder', () => {
         planMiningBidProxySetup: vi.fn().mockResolvedValue({ kind: 'tx' }),
       } as any,
       {} as any,
-      {} as any,
       history,
       {} as any,
       {} as any,
@@ -66,7 +65,6 @@ describe('AutoBidder', () => {
         isProxy: true,
         planMiningBidProxySetup: vi.fn().mockResolvedValueOnce({ kind: 'tx' }).mockResolvedValueOnce({ kind: 'ready' }),
       } as any,
-      {} as any,
       {} as any,
       { initCohort } as any,
       {} as any,
@@ -105,7 +103,6 @@ describe('AutoBidder', () => {
         isProxy: false,
         planMiningBidProxySetup,
       } as any,
-      {} as any,
       {} as any,
       history,
       {} as any,
@@ -151,13 +148,11 @@ describe('AutoBidder', () => {
       {
         isProxy: false,
         txSubmitterPair: { address: '5FundingAccount' },
+        miningSeatsAndBids: vi.fn().mockResolvedValue([]),
         getAvailableMinerAccounts: vi.fn().mockResolvedValue([{ index: 0, isRebid: false, address: '5MiningAccount' }]),
       } as any,
       {
         prunedClientOrArchivePromise: Promise.resolve(client),
-      } as any,
-      {
-        bidsFile: vi.fn().mockReturnValue({ get: vi.fn().mockResolvedValue(undefined) }),
       } as any,
       history,
       {} as any,
@@ -199,11 +194,41 @@ describe('AutoBidder', () => {
     expect(autoBidder.currentBidder?.cohortStartingFrameId).toBe(12);
   });
 
+  it('restores winning bids from current chain state before historical bid files exist', async () => {
+    const accountset = {
+      isProxy: false,
+      txSubmitterPair: { address: '5FundingAccount' },
+      subAccountsByAddress: {
+        '5AlreadyWinning': { index: 2 },
+        '5Available': { index: 3 },
+      },
+      miningSeatsAndBids: vi.fn().mockResolvedValue([
+        { address: '5AlreadyWinning', subaccountIndex: 2, hasWinningBid: true },
+        { address: '5Available', subaccountIndex: 3, hasWinningBid: false },
+      ]),
+      getAvailableMinerAccounts: vi.fn().mockResolvedValue([{ index: 3, isRebid: false, address: '5Available' }]),
+    };
+    const autoBidder = new AutoBidder(accountset as any, {} as any, new History({} as any, 11), {} as any, {} as any);
+    vi.spyOn(CohortBidder.prototype, 'start').mockResolvedValue(undefined);
+    Object.assign(autoBidder, {
+      biddingCalculator: {},
+      createBidderParams: vi.fn().mockResolvedValue({ maxSeats: 2 }),
+    });
+
+    await onBiddingStart.call(autoBidder, 12);
+
+    expect(autoBidder.currentBidder?.subaccounts).toEqual([
+      { index: 2, isRebid: true, address: '5AlreadyWinning' },
+      { index: 3, isRebid: false, address: '5Available' },
+    ]);
+    expect(accountset.miningSeatsAndBids).toHaveBeenCalledOnce();
+  });
+
   it('clears the completed auction capacity when bidding ends', async () => {
     const history = new History({} as any, 12);
     history.maxSeatsInPlay = 4;
     history.maxSeatsReductionReason = 'insufficient-argon-balance';
-    const autoBidder = new AutoBidder({} as any, {} as any, {} as any, history, {} as any, {} as any);
+    const autoBidder = new AutoBidder({} as any, {} as any, history, {} as any, {} as any);
     const bidder = {
       isBiddingOpen: true,
       stop: vi.fn().mockResolvedValue([]),
@@ -250,7 +275,6 @@ describe('AutoBidder', () => {
       {
         prunedClientOrArchivePromise: Promise.resolve(client),
       } as any,
-      {} as any,
       history,
       {} as any,
       miningFrames as any,

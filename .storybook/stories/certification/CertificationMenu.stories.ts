@@ -1,12 +1,15 @@
 import type { Meta, StoryObj } from '@storybook/vue3-vite';
 import * as Vue from 'vue';
-import { within } from 'storybook/test';
+import { fn, mocked, within } from 'storybook/test';
 import AppScreen from '../../components/AppScreen.vue';
 import { setupCertificationMenuScenario } from '../../scenarios/setupCertificationScenario.ts';
 import basicEmitter from '../../../src-vue/emitters/basicEmitter.ts';
 import UpgradeToOperationsOverlay from '../../../src-vue/overlays/UpgradeToOperationsOverlay.vue';
+import WelcomeToOperationsOverlay from '../../../src-vue/overlays/WelcomeToOperationsOverlay.vue';
 import Home from '../../../src-vue/screens/Home.vue';
 import CertificationMenu from '../../../src-vue/navigation/CertificationMenu.vue';
+import { UpstreamOperatorClient } from '../../../src-vue/lib/UpstreamOperatorClient.ts';
+import { getUpstreamOperatorClient } from '../../../src-vue/stores/upstreamOperator.ts';
 import { setupAppScenario } from '../../scenarios/setupAppScenario.ts';
 import { TopTab } from '../../../src-vue/interfaces/IConfig.ts';
 import { getConfig } from '../../../src-vue/stores/config.ts';
@@ -154,4 +157,29 @@ export const OperationsUpgradeRequested: Story = {
 export const OperationsActivatedNotice: Story = {
   beforeEach: () => setupCertificationMenuScenario('operationsActivated'),
   render: () => renderCertificationOverview(false),
+};
+
+export const RestoredOperationsAccess: Story = {
+  beforeEach: async () => {
+    await setupCertificationMenuScenario('operationsChecklist');
+    getConfig().setCertificationDetails({ dismissedWelcomeToOperationsOverlay: true });
+    const upstreamOperatorClient = new UpstreamOperatorClient();
+    upstreamOperatorClient.getMemberInvite = fn(async () => ({
+      id: 7,
+      name: 'Restored member',
+      fromName: 'Atlas Operator',
+      inviteCode: 'restored-operations-access',
+      createdAt: new Date('2026-08-01T12:00:00.000Z'),
+      operationsUpgradedAt: new Date('2026-08-02T12:00:00.000Z'),
+    }));
+    mocked(getUpstreamOperatorClient).mockReturnValue(upstreamOperatorClient);
+  },
+  render: () => ({
+    components: { AppScreen, Home, UpgradeToOperationsOverlay, WelcomeToOperationsOverlay },
+    template: `
+      <AppScreen scenarioLabel="Restored Operations account"><Home /></AppScreen>
+      <UpgradeToOperationsOverlay />
+      <WelcomeToOperationsOverlay />
+    `,
+  }),
 };

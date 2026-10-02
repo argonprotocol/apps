@@ -1,3 +1,4 @@
+import * as Vue from 'vue';
 import type { Meta, StoryObj } from '@storybook/vue3-vite';
 import { MICROGONS_PER_ARGON, MICRONOTS_PER_ARGONOT, MINING_BID_PROXY_FEE_FLOAT } from '@argonprotocol/apps-core';
 import { fn, mocked, userEvent, within } from 'storybook/test';
@@ -6,12 +7,21 @@ import { setupAppScenario } from '../../scenarios/setupAppScenario.ts';
 import { setupMiningAuctionScenario } from '../../scenarios/setupMiningAuctionScenario.ts';
 import { setupMiningPortfolioScenario } from '../../scenarios/setupMiningPortfolioScenario.ts';
 import { setCertificationGuide } from '../../scenarios/setupCertificationScenario.ts';
-import { InstallStepErrorType, MiningSetupStatus, TopTab, type IConfig } from '../../../src-vue/interfaces/IConfig.ts';
+import {
+  InstallStepErrorType,
+  InstallStepKey,
+  InstallStepStatus,
+  MiningSetupStatus,
+  TopTab,
+  type IConfig,
+} from '../../../src-vue/interfaces/IConfig.ts';
 import { Config } from '../../../src-vue/lib/Config.ts';
 import { getBot } from '../../../src-vue/stores/bot.ts';
 import { getConfig } from '../../../src-vue/stores/config.ts';
 import { getInstaller } from '../../../src-vue/stores/installer.ts';
 import { getMiningSetup } from '../../../src-vue/stores/wallets.ts';
+import { getMyMiningSeats } from '../../../src-vue/stores/myMiningSeats.ts';
+import { useFinancials } from '../../../src-vue/stores/financials.ts';
 import { OperationalStepId } from '../../../src-vue/stores/certificationController.ts';
 import Mining from '../../../src-vue/screens/Mining.vue';
 
@@ -24,9 +34,11 @@ const biddingRules = {
 const meta = {
   title: 'Mining/Overview',
   component: Mining,
-  render: () => ({
+  render: (_args, { parameters }) => ({
     components: { AppScreen, Mining },
-    template: '<AppScreen><Mining /></AppScreen>',
+    setup: () => ({ hoverInfo: Boolean(parameters.hoverInfo) }),
+    template:
+      '<AppScreen :interactive="hoverInfo" :scenarioLabel="hoverInfo ? \'Tooltip preview\' : undefined"><div class="h-full" @click.capture.stop.prevent @pointerdown.capture.stop.prevent @keydown.capture.stop.prevent><Mining /></div></AppScreen>',
   }),
 } satisfies Meta<typeof Mining>;
 
@@ -92,6 +104,29 @@ export const ServerInstalling: Story = {
         serverAdd: { localComputer: {} },
       },
     });
+  },
+};
+
+export const BotStartupFailed: Story = {
+  beforeEach: () => {
+    setupAppScenario({
+      selectedTab: TopTab.Mining,
+      config: {
+        miningSetupStatus: MiningSetupStatus.Installing,
+        isServerAdded: true,
+        isServerInstalled: false,
+        isServerInstalling: true,
+      },
+    });
+    const config = getConfig();
+    config.serverInstaller = Config.getDefault('serverInstaller') as IConfig['serverInstaller'];
+    for (const step of Object.values(InstallStepKey)) {
+      config.serverInstaller[step].status =
+        step === InstallStepKey.MiningLaunch ? InstallStepStatus.Failed : InstallStepStatus.Completed;
+      config.serverInstaller[step].progress = step === InstallStepKey.MiningLaunch ? 0 : 100;
+    }
+    config.serverInstaller.errorType = InstallStepErrorType.MiningLaunch;
+    config.serverInstaller.errorMessage = 'Bot startup failed: Local client has not synchronized';
   },
 };
 
@@ -234,7 +269,88 @@ export const OwnedSeatPortfolio: Story = {
   },
 };
 
+export const LiveBiddingBeforeEarningsImport: Story = {
+  beforeEach: () => {
+    setupMiningPortfolioScenario();
+    const seats = getMyMiningSeats();
+    seats.frames = seats.frames.filter(frame => frame.id < seats.latestFrameId);
+  },
+};
+
+export const RestoringHistoricalEarnings: Story = {
+  parameters: { hoverInfo: true },
+  beforeEach: () => {
+    setupMiningPortfolioScenario();
+    Object.assign(getMyMiningSeats(), { frames: [], miningCohorts: [] });
+    const bot = getBot();
+    Object.assign(bot.state!, { isSyncing: true, syncProgress: 64.5 });
+    bot.syncProgress = 58.05;
+  },
+};
+
+export const HistoricalEarningsRecoveryNeedsAttention: Story = {
+  parameters: { hoverInfo: true },
+  beforeEach: () => {
+    setupMiningPortfolioScenario();
+    const bot = getBot();
+    Object.assign(bot.state!, { isSyncing: true, historyError: 'Archive RPC is unavailable' });
+  },
+};
+
+export const UpdatingHistoricalMiningData: Story = {
+  parameters: { hoverInfo: true },
+  beforeEach: () => {
+    setupMiningPortfolioScenario();
+    Object.assign(getMyMiningSeats(), { frames: [], miningCohorts: [] });
+    Object.assign(getBot(), { historicalDbProgress: 58, syncProgress: 95.8 });
+  },
+};
+
+export const PartiallyRecoveredMiningHistory: Story = {
+  parameters: { hoverInfo: true },
+  beforeEach: () => {
+    setupMiningPortfolioScenario();
+    const seats = getMyMiningSeats();
+    seats.frames = seats.frames.filter(frame => frame.id < seats.latestFrameId);
+    seats.global.framesCompleted = 5;
+    seats.global.framesRemaining = 56;
+    Object.assign(getBot(), { historicalDbProgress: 98, syncProgress: 99.8 });
+  },
+};
+
+export const UpdatingWithPreviousTotals: Story = {
+  beforeEach: () => setupMiningPortfolioScenario(),
+  render: () => ({
+    components: { AppScreen, Mining },
+    setup() {
+      Vue.onMounted(() => {
+        getBot().historicalDbProgress = 58;
+        getBot().syncProgress = 95.8;
+        const seats = getMyMiningSeats();
+        seats.global.framesCompleted = 5;
+        seats.global.framesRemaining = 56;
+        const summary = useFinancials().financialPositionAggregate.groupSummaries.mining.returnSummary;
+        summary.investedCost = 200_000_000n;
+        summary.returnAmount = 40_000_000n;
+        summary.percent = 20;
+      });
+      return {};
+    },
+    template:
+      '<AppScreen :interactive="true" scenarioLabel="Tooltip preview"><div class="h-full" @click.capture.stop.prevent @pointerdown.capture.stop.prevent @keydown.capture.stop.prevent><Mining /></div></AppScreen>',
+  }),
+};
+
+export const HistoricalMiningDataNeedsAttention: Story = {
+  parameters: { hoverInfo: true },
+  beforeEach: () => {
+    setupMiningPortfolioScenario();
+    Object.assign(getBot(), { historicalDbProgress: 58, historicalDbError: 'Unable to fetch an old frame' });
+  },
+};
+
 export const HistoricalSeatPortfolio: Story = {
+  parameters: { hoverInfo: true },
   beforeEach: () => {
     setupMiningPortfolioScenario(118);
   },

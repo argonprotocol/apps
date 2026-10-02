@@ -5,12 +5,9 @@ import { BotStatus, BotSyncer, type IBotFns } from '../lib/BotSyncer.ts';
 
 type IBotSyncerTestTarget = {
   runSync(state: { isReady: boolean; isSyncing: boolean; serverError: string; currentFrameId?: number }): Promise<void>;
-  syncThePast(
-    progress: number,
-    state: { oldestFrameIdToSync: number; currentFrameId: number; currentTick: number },
-  ): Promise<void>;
-  syncDbFrame(frameId: number): Promise<void>;
-  syncDbCohort(cohortActivationFrameId: number): Promise<void>;
+  fetchCohort(
+    cohortActivationFrameId: number,
+  ): Promise<Parameters<import('../lib/db/CohortsTable.ts').CohortsTable['insertOrUpdate']>[0]>;
   updateBotState(state: { currentFrameId: number }): Promise<void>;
   syncServerState(state: { currentFrameId: number }): Promise<void>;
   syncCurrentBids(state: IBotState): Promise<void>;
@@ -158,103 +155,39 @@ describe('BotSyncer', () => {
     expect(botFns.setStatus).toHaveBeenLastCalledWith(BotStatus.Ready);
   });
 
-  it('persists bids from the server state without fetching a second snapshot', async () => {
-    const { syncer, frameBidsTable } = createSyncer();
+  it('keeps current bids and readiness during server history recovery', async () => {
+    const { syncer, botFns, frameBidsTable } = createSyncer();
     const testSyncer = syncer as unknown as IBotSyncerTestTarget;
-    const winningBids = [{ address: 'winning-account', subAccountIndex: 3, microgonsPerSeat: 42n }];
-
-    await testSyncer.syncCurrentBids({
+    vi.spyOn(testSyncer, 'syncServerState').mockResolvedValue(undefined);
+    const state = {
+      isReady: true,
+      isSyncing: true,
+      serverError: '',
       currentFrameId: 424,
-      winningBids,
+      oldestFrameIdToSync: 1,
+      hasMiningSeats: true,
+      hasMiningBids: true,
       botLastActiveBlockNumber: 901,
       currentAuctionMicronotsPerSeat: 17n,
-    } as IBotState);
+      winningBids: [{ address: '5AlreadyWinning', subAccountIndex: 2, microgonsPerSeat: 42n }],
+    };
+
+    await testSyncer.runSync(state);
 
     expect(frameBidsTable.insertOrUpdate).toHaveBeenCalledWith(424, 901, [
       expect.objectContaining({
-        address: 'winning-account',
-        subAccountIndex: 3,
+        address: '5AlreadyWinning',
+        subAccountIndex: 2,
         microgonsPerSeat: 42n,
         micronotsStakedPerSeat: 17n,
       }),
     ]);
-  });
-
-  it('owns failures from background historical frame syncs', async () => {
-    const { syncer } = createSyncer();
-    const testSyncer = syncer as unknown as IBotSyncerTestTarget;
-    const error = new Error('Unable to retrieve header and parent from supplied hash');
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
-    vi.spyOn(testSyncer, 'syncDbFrame').mockRejectedValue(error);
-
-    await testSyncer.syncThePast(0, {
-      oldestFrameIdToSync: 1,
-      currentFrameId: 2,
-      currentTick: 1,
-    });
-
-    await vi.waitFor(() => {
-      expect(warn).toHaveBeenCalledWith('BotSyncer background sync error:', error);
-    });
-  });
-
-  it('announces when historical cohort catch-up completes', async () => {
-    const { syncer, botFns } = createSyncer();
-    const testSyncer = syncer as unknown as IBotSyncerTestTarget;
-    vi.spyOn(testSyncer, 'syncDbFrame').mockResolvedValue(undefined);
-    vi.spyOn(syncer as any, 'calculateDbSyncProgress').mockResolvedValue(100);
-
-    await testSyncer.syncThePast(0, {
-      oldestFrameIdToSync: 1,
-      currentFrameId: 2,
-      currentTick: 1,
-    });
-
-    await vi.waitFor(() => {
-      expect(botFns.onEvent).toHaveBeenCalledWith('updated-cohort-history', 2);
-    });
-  });
-
-  it('resumes historical sync at the first missing cohort instead of the latest frame cursor', async () => {
-    const { syncer, config, framesTable, cohortsTable } = createSyncer();
-    const testSyncer = syncer as unknown as IBotSyncerTestTarget;
-    const syncDbFrame = vi.spyOn(testSyncer, 'syncDbFrame').mockRejectedValue(new Error('stop after first frame'));
-    config.latestFrameIdProcessed = 865;
-    framesTable.fetchLastProcessedFrame.mockResolvedValue(864);
-    framesTable.fetchProcessedFrameIdsSince.mockResolvedValue(Array.from({ length: 817 }, (_, index) => index + 48));
-    cohortsTable.fetchCohortIdsSince.mockResolvedValue(Array.from({ length: 407 }, (_, index) => index + 48));
-
-    await testSyncer.syncThePast(98.6, {
-      oldestFrameIdToSync: 48,
-      currentFrameId: 865,
-      currentTick: 1,
-    });
-
-    await vi.waitFor(() => {
-      expect(syncDbFrame).toHaveBeenCalledWith(455, expect.anything());
-    });
-  });
-
-  it('replays incomplete frames without downloading the processed frames between them', async () => {
-    const { syncer, botFns, config, framesTable, cohortsTable } = createSyncer();
-    const testSyncer = syncer as unknown as IBotSyncerTestTarget;
-    const syncDbFrame = vi.spyOn(testSyncer, 'syncDbFrame').mockResolvedValue(undefined);
-    vi.spyOn(syncer as any, 'calculateDbSyncProgress').mockResolvedValue(100);
-    config.latestFrameIdProcessed = 8;
-    framesTable.fetchLastProcessedFrame.mockResolvedValue(8);
-    framesTable.fetchProcessedFrameIdsSince.mockResolvedValue([1, 2, 4, 5, 7, 8]);
-    cohortsTable.fetchCohortIdsSince.mockResolvedValue([1, 2, 3, 4, 5, 6, 7, 8]);
-
-    await testSyncer.syncThePast(75, {
-      oldestFrameIdToSync: 1,
-      currentFrameId: 8,
-      currentTick: 1,
-    });
-
-    await vi.waitFor(() => {
-      expect(botFns.onEvent).toHaveBeenCalledWith('updated-cohort-history', 8);
-    });
-    expect(syncDbFrame.mock.calls.map(([frameId]) => frameId)).toEqual([3, 6]);
+    expect(botFns.setBotState).toHaveBeenCalledWith(state);
+    expect(botFns.setStatus).toHaveBeenLastCalledWith(BotStatus.Ready);
+    expect(botFns.setStatus).not.toHaveBeenCalledWith(BotStatus.ServerSyncing);
+    expect(botFns.setStatus).not.toHaveBeenCalledWith(BotStatus.DbSyncing);
+    expect(botFns.onEvent).toHaveBeenCalledWith('updated-current-bids', 424);
+    expect(botFns.onEvent).not.toHaveBeenCalledWith('updated-mining-state', 424);
   });
 
   it.each([
@@ -277,13 +210,11 @@ describe('BotSyncer', () => {
       expectedPrice: 3_000_000n,
       expectedHistoricalReads: 1,
     },
-  ])('persists the argonot price $name', async testCase => {
+  ])('selects the argonot price $name', async testCase => {
     const { syncer } = createSyncer();
     const testSyncer = syncer as unknown as IBotSyncerTestTarget;
-    const insertOrUpdate = vi.fn();
     const fetchArgonotPricesNearFrame = vi.fn().mockResolvedValue(testCase.historicalPrices);
     (syncer as any).db = {
-      cohortsTable: { insertOrUpdate },
       framesTable: { fetchArgonotPricesNearFrame },
     };
     (syncer as any).miningFrames = {
@@ -302,15 +233,9 @@ describe('BotSyncer', () => {
       microgonsBidTotal: 6_000_000n,
       micronotsStakedPerSeat: 1_000_000n,
       argonotPriceAtBid: testCase.capturedPrice,
-      winningBids: [
-        { subAccountIndex: 0, microgonsPerSeat: 1_000_000n },
-        { subAccountIndex: 1, microgonsPerSeat: 5_000_000n },
-      ],
     });
 
-    await testSyncer.syncDbCohort(12);
-
-    const cohort = insertOrUpdate.mock.calls[0][0];
+    const cohort = await testSyncer.fetchCohort(12);
     expect(cohort).toEqual(
       expect.objectContaining({
         argonotPriceAtBid: testCase.expectedPrice,
@@ -327,6 +252,7 @@ function createSyncer(options: { gatewayReady?: boolean } = {}) {
     setStatus: vi.fn(),
     setServerSyncProgress: vi.fn(),
     setDbSyncProgress: vi.fn(),
+    setDbHistoryError: vi.fn(),
     setBotState: vi.fn(),
   };
   const installer = {
@@ -336,7 +262,7 @@ function createSyncer(options: { gatewayReady?: boolean } = {}) {
   const serverApiClient = {
     isGatewayReady: vi.fn().mockResolvedValue(options.gatewayReady ?? true),
   };
-  const config = { isServerInstalled: true, latestFrameIdProcessed: 1 };
+  const config = { isServerInstalled: true, latestFrameIdProcessed: 1, save: vi.fn() };
   const framesTable = {
     fetchLastProcessedFrame: vi.fn().mockResolvedValue(1),
     fetchProcessedFrameIdsSince: vi.fn<() => Promise<number[]>>().mockResolvedValue([]),
@@ -358,5 +284,5 @@ function createSyncer(options: { gatewayReady?: boolean } = {}) {
     botFns,
   );
 
-  return { syncer, botFns, installer, serverApiClient, config, framesTable, cohortsTable, frameBidsTable };
+  return { syncer, botFns, installer, frameBidsTable };
 }

@@ -258,7 +258,7 @@ export class InstallerCheck {
 
     if (stepName === InstallStepKey.MiningLaunch) {
       const startDate = dayjs.utc(stepPending.startDate);
-      // Reserve the first 5% for the expected 12-second container startup. Only a Finished marker reaches 100%.
+      // Reserve the first 5% for container startup. Only a Finished marker reaches 100%.
       const startupProgress = InstallerCheck.calculateStepProgress(startDate, estimatedMinutes) * 0.05;
       const syncProgress = this.config.serverDetails.ipAddress
         ? await ServerApiClient.getBotInstallProgress(this.config.serverDetails).catch(async () => {

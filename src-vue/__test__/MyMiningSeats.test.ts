@@ -98,6 +98,7 @@ describe('MyMiningSeats', () => {
     await vi.waitFor(() => expect(fetchForFrameId).toHaveBeenCalledWith(13));
     expect(myMiningSeats.pendingBids.microgonsBidTotal).toBe(0n);
     expect(myMiningSeats.financialRevision).toBe(startingRevision);
+    myMiningSeats.selectFrameId(11, { isUserAction: true, skipDashboardUpdate: true });
     finishSeatRefresh();
 
     await vi.waitFor(() => {
@@ -105,6 +106,7 @@ describe('MyMiningSeats', () => {
       expect(myMiningSeats.financialRevision).toBe(startingRevision + 1);
     });
     expect(myMiningSeats.latestFrameId).toBe(13);
+    expect(myMiningSeats.selectedFrameId).toBe(11);
   });
 
   it('publishes the ten overlapping cohorts without exposing a future cohort', async () => {
@@ -153,7 +155,7 @@ describe('MyMiningSeats', () => {
     await expect(myMiningSeats.load()).resolves.toBeUndefined();
     await expect(myMiningSeats.isLoadedPromise).resolves.toBeUndefined();
 
-    expect(onSpy).toHaveBeenCalledTimes(3);
+    expect(onSpy).toHaveBeenCalledTimes(4);
   });
 
   it('advances automatically but only moves backward for explicit frame navigation', () => {

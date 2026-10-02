@@ -215,8 +215,10 @@ export class MoveCapital {
     const latestByLeg = this.getLatestAllocationTxByLeg(operationTransactions);
     if ([...latestByLeg.values()].some(getTransactionFailureMessage)) return;
     if (operation.legs.some((_, legIndex) => !latestByLeg.has(legIndex))) return root;
-    if ([...latestByLeg.values()].some(txInfo => !txInfo.tx.isFinalized || txInfo.hasPendingPostProcessing))
-      return root;
+    for (const txInfo of latestByLeg.values()) {
+      const isFinalized = txInfo.tx.isFinalized || txInfo.txResult.isFinalized;
+      if (!isFinalized || txInfo.hasPendingPostProcessing) return root;
+    }
   }
 
   private async changeAllocationInner(

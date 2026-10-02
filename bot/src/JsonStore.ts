@@ -42,11 +42,11 @@ export class JsonStore<T extends Record<string, any> & ILastModifiedAt> {
       if (this.shouldLog) {
         console.log(`[JsonStore]: Saving changes to ${this.key}:`, changesProps);
       }
+      await atomicWrite(this.path, JsonExt.stringify(newData, 2));
       this.data = newData;
       for (const fn of this.onMutate) {
         fn(newData);
       }
-      await atomicWrite(this.path, JsonExt.stringify(this.data, 2));
       return true;
     });
     return result ?? false;

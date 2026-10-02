@@ -39,8 +39,7 @@ export class CohortsTable extends BaseTable {
   public async fetchCohortIdsSince(idStart: number, limit = 10): Promise<number[]> {
     const ids = [];
     for (let id = idStart; id < idStart + limit; id++) {
-      if (!this.state.storedCohorts[id]) break;
-      ids.push(id);
+      if (this.state.storedCohorts[id]) ids.push(id);
     }
     return ids;
   }
@@ -239,7 +238,9 @@ export class CohortsTable extends BaseTable {
         argonotPriceAtBid,
       ]),
     );
-    this.state.storedCohorts[id] = true;
+    this.db.afterCommit(() => {
+      this.state.storedCohorts[id] = true;
+    });
   }
 
   public async fetchCount(): Promise<number> {
