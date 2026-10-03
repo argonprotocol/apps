@@ -98,7 +98,7 @@ export class AppSession {
   protected constructor(private readonly options: AppSessionOptions) {}
 
   public get frontendErrors(): readonly string[] {
-    return this.driver.getFrontendErrors();
+    return [...this.driver.getFrontendErrors(), ...this.appProcess.output.frontendErrors];
   }
 
   public get appInstanceDirectory(): string {

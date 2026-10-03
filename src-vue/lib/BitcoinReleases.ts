@@ -211,7 +211,41 @@ export default class BitcoinReleases {
   }
 
   public mergeRecovered(current: IBitcoinReleaseRecord, recovered: IBitcoinReleaseRecord): IBitcoinReleaseRecord {
+    if (current.kind === BitcoinReleaseKind.Lock && current.releaseNumber !== undefined) {
+      if (
+        recovered.kind !== current.kind ||
+        recovered.lockId !== current.lockId ||
+        recovered.releaseNumber !== current.releaseNumber ||
+        recovered.toScriptPubkey !== current.toScriptPubkey ||
+        recovered.bitcoinNetworkFee !== current.bitcoinNetworkFee ||
+        recovered.destinationSatoshis !== current.destinationSatoshis ||
+        recovered.changeSatoshis !== current.changeSatoshis ||
+        (current.expectedTransactionId !== undefined &&
+          recovered.expectedTransactionId !== current.expectedTransactionId)
+      ) {
+        throw new Error(`Bitcoin release ${current.id} recovery does not match its frozen request`);
+      }
+    }
+    const inputsChanged =
+      current.inputUtxoIds.length !== recovered.inputUtxoIds.length ||
+      current.inputUtxoIds.some((id, index) => id !== recovered.inputUtxoIds[index]);
+    if (inputsChanged && current.inputUtxoIds.length) {
+      if (
+        current.kind !== BitcoinReleaseKind.Lock ||
+        current.releaseNumber === undefined ||
+        !current.expectedTransactionId ||
+        current.expectedTransactionId !== recovered.expectedTransactionId ||
+        (current.vaultSignatures.length > 0 && recovered.vaultSignatures.length !== recovered.inputUtxoIds.length)
+      ) {
+        throw new Error(
+          `Bitcoin release ${current.id} cannot repair its frozen inputs without matching request and cosign facts`,
+        );
+      }
+      current.vaultSignatures = [...recovered.vaultSignatures];
+    }
+    if (inputsChanged) current.inputUtxoIds = [...recovered.inputUtxoIds];
     assignIfUnset(current, recovered, [
+      'expectedTransactionId',
       'requestedReleaseAtTick',
       'insuredMicrogons',
       'argonTxFeeMicrogons',
@@ -229,8 +263,13 @@ export default class BitcoinReleases {
       'argonCompletionBlockTime',
       'argonCompletionExtrinsicIndex',
     ]);
-    if (!current.inputUtxoIds.length) current.inputUtxoIds = [...recovered.inputUtxoIds];
     if (!current.vaultSignatures.length) current.vaultSignatures = [...recovered.vaultSignatures];
+    const currentProgress = releaseProgress[current.status];
+    const recoveredProgress = releaseProgress[recovered.status];
+    if (currentProgress !== undefined && recoveredProgress !== undefined && recoveredProgress > currentProgress) {
+      current.status = recovered.status;
+      current.statusError = recovered.statusError;
+    }
     if (recovered.createdAt < current.createdAt) current.createdAt = recovered.createdAt;
     return current;
   }
@@ -788,6 +827,7 @@ export default class BitcoinReleases {
     block: IBlockHeaderInfo,
     api: ArgonQueryClient,
     eventRecord: RuntimeSystemEventRecord,
+    blockEvents: readonly RuntimeSystemEventRecord[] = [eventRecord],
   ): Promise<void> {
     const runtimeEvent = toRuntimeEvent(eventRecord.event);
     const extrinsicIndex = eventRecord.phase.type === 'ApplyExtrinsic' ? eventRecord.phase.value : undefined;
@@ -806,13 +846,40 @@ export default class BitcoinReleases {
         throw new Error(`Bitcoin release ${release.id} settlement has no Bitcoin height`);
       }
 
-      const currentLock = await BitcoinLock.get(api, lock.lockId!);
-      if (!currentLock) {
-        throw new Error(`Bitcoin release ${release.id} did not retain its expected Lock`);
-      }
       if (extrinsicIndex === undefined) {
         throw new Error(`Bitcoin release ${release.id} settlement is missing its extrinsic index`);
       }
+      const currentLock = await BitcoinLock.get(api, lock.lockId!);
+      const settlementIndex = blockEvents.findIndex(candidate => {
+        const event = toRuntimeEvent(candidate.event);
+        return (
+          candidate.phase.type === 'ApplyExtrinsic' &&
+          candidate.phase.value === extrinsicIndex &&
+          event?.section === 'bitcoinLocks' &&
+          event.method === 'BitcoinSpentAfterRelease' &&
+          event.data.lockId === release.lockId &&
+          event.data.releaseNumber === release.releaseNumber
+        );
+      });
+      const expiredAfterSettlement =
+        settlementIndex >= 0 &&
+        blockEvents.slice(settlementIndex + 1).some(candidate => {
+          const event = toRuntimeEvent(candidate.event);
+          return (
+            candidate.phase.type === 'ApplyExtrinsic' &&
+            candidate.phase.value === extrinsicIndex &&
+            event?.section === 'bitcoinLocks' &&
+            event.method === 'BitcoinLockTerminated' &&
+            event.data.lockId === release.lockId &&
+            !event.data.wasUtxoSpent
+          );
+        });
+      if (!currentLock && !expiredAfterSettlement) {
+        throw new Error(`Bitcoin release ${release.id} did not retain its expected Lock`);
+      }
+      const removalPrice = !currentLock
+        ? await this.currency.fetchMainchainRatesAtBlock({ api, block }).then(rates => rates.BTC)
+        : undefined;
 
       const db = await this.dbPromise;
       const settled = await db.transaction(async transaction => {
@@ -827,10 +894,13 @@ export default class BitcoinReleases {
           return;
         }
 
-        const [changeOutput] = currentLock.fundingUtxos;
+        const changeOutput = currentLock?.fundingUtxos[0] ?? {
+          utxoRef: { txid: releaseDraft.expectedTransactionId, vout: 1 },
+          satoshis: releaseDraft.changeSatoshis,
+        };
         if (
-          currentLock.fundedSatoshis !== releaseDraft.changeSatoshis ||
-          currentLock.fundingUtxos.length !== 1 ||
+          (currentLock &&
+            (currentLock.fundedSatoshis !== releaseDraft.changeSatoshis || currentLock.fundingUtxos.length !== 1)) ||
           changeOutput.satoshis !== releaseDraft.changeSatoshis ||
           changeOutput.utxoRef.txid !== releaseDraft.expectedTransactionId ||
           changeOutput.utxoRef.vout !== 1
@@ -840,7 +910,7 @@ export default class BitcoinReleases {
 
         const previousSecuritizedSatoshis = lockDraft.securitizedSatoshis;
         const expectedSecuritizedSatoshis = bigIntMin(previousSecuritizedSatoshis, releaseDraft.changeSatoshis);
-        if (currentLock.securitizedSatoshis !== expectedSecuritizedSatoshis) {
+        if (currentLock && currentLock.securitizedSatoshis !== expectedSecuritizedSatoshis) {
           throw new Error(`Bitcoin release ${release.id} has an unexpected retained securitization`);
         }
 
@@ -882,9 +952,30 @@ export default class BitcoinReleases {
         for (const input of inputDrafts) await transaction.bitcoinUtxosTable.setSpent(input, release.id);
 
         lockDraft.fundingUtxoIds = [change.id];
-        await transaction.bitcoinLocksTable.updateFromCurrentLock(lockDraft, currentLock);
-        await transaction.bitcoinLocksTable.clearActiveRelease(lockDraft, BitcoinLockStatus.LockFunded);
-        if (previousSecuritizedSatoshis !== currentLock.securitizedSatoshis) {
+        if (!currentLock) {
+          lockDraft.fundedSatoshis = releaseDraft.changeSatoshis;
+          lockDraft.securitizedSatoshis = expectedSecuritizedSatoshis;
+          await transaction.bitcoinLocksTable.saveRecoveredHistory(lockDraft);
+          await transaction.bitcoinLocksTable.recordRemoval(lockDraft, BitcoinLockStatus.Releasing, {
+            removalBlockNumber: block.blockNumber,
+            removalBlockHash: block.blockHash,
+            removalBlockTime: blockTime,
+            removalExtrinsicIndex: extrinsicIndex,
+            removalReason: 'expired',
+            btcPriceAtRemovalMicrogons: removalPrice,
+          });
+          await transaction.bitcoinLocksTable.clearActiveRelease(lockDraft, BitcoinLockStatus.Releasing);
+          await closeFinalizedSecuritization(transaction.bitcoinSecuritizationHistoryTable, {
+            ownerAccount: lockDraft.ownerAccount ?? this.walletKeys.defaultArgonAddress,
+            lockId: release.lockId,
+            block,
+            extrinsicIndex,
+          });
+        } else {
+          await transaction.bitcoinLocksTable.updateFromCurrentLock(lockDraft, currentLock);
+          await transaction.bitcoinLocksTable.clearActiveRelease(lockDraft, BitcoinLockStatus.LockFunded);
+        }
+        if (currentLock && previousSecuritizedSatoshis !== currentLock.securitizedSatoshis) {
           await recordFinalizedSecuritization(transaction.bitcoinSecuritizationHistoryTable, {
             block,
             extrinsicIndex,
@@ -1364,7 +1455,7 @@ export default class BitcoinReleases {
       });
       if (!eventRecord) throw new Error(`Bitcoin release ${release.id} is missing its finalized cosign event`);
 
-      await this.completeLockReleaseFromArgon(lock, release, block, api, eventRecord);
+      await this.completeLockReleaseFromArgon(lock, release, block, api, eventRecord, events);
       return;
     }
 
@@ -1387,7 +1478,7 @@ export default class BitcoinReleases {
       });
       if (!eventRecord) continue;
 
-      await this.completeLockReleaseFromArgon(lock, release, block, api, eventRecord);
+      await this.completeLockReleaseFromArgon(lock, release, block, api, eventRecord, events);
       return;
     }
 

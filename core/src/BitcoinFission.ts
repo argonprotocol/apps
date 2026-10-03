@@ -226,10 +226,11 @@ export class BitcoinFission implements IBitcoinFission {
       record.closedBlockTime = blockTime;
       record.closedExtrinsicIndex = extrinsicIndex;
       record.closeReason = event.method === 'FissionClosed' ? 'closed' : 'lock-spent';
-      record.closeTxFee = transactionFee;
+      // Lock-driven closures are runtime hooks or unsigned inherents, with no owner-paid fee.
+      record.closeTxFee = transactionFee ?? (event.method === 'FissionClosedByLock' ? 0n : undefined);
       record.lastUpdatedArgonBlock = block.blockNumber;
       record.feeHistoryCompleteThroughBlock =
-        priorFeesAreComplete && transactionFee !== undefined ? block.blockNumber : undefined;
+        priorFeesAreComplete && record.closeTxFee !== undefined ? block.blockNumber : undefined;
       record.updatedAt = blockTime;
       record.btcPriceAtCloseMicrogons = btcPriceAtCloseMicrogons;
       if (event.method === 'FissionClosed') record.redemptionAmount = event.data.redemptionAmount;
@@ -254,7 +255,7 @@ export class BitcoinFission implements IBitcoinFission {
     this.btcPriceAtCloseMicrogons = undefined;
   }
 
-  public enrichRecoveredHistory(record: IBitcoinFission): void {
+  public enrichHistory(record: IBitcoinFission): void {
     this.origin ??= record.origin;
     const ratchets = new Map(
       this.ratchets.map(ratchet => [`${ratchet.source}:${ratchet.sourceRatchetIndex}`, ratchet]),
@@ -294,7 +295,7 @@ export class BitcoinFission implements IBitcoinFission {
     this.updatedAt ??= record.updatedAt;
   }
 
-  public mergeRecoveredRecord(record: IBitcoinFission): void {
+  public mergeFinalizedRecord(record: IBitcoinFission): void {
     const recoveredCloseIsAtLaterBlock =
       record.closedAtArgonBlock !== undefined &&
       (this.closedAtArgonBlock === undefined || record.closedAtArgonBlock > this.closedAtArgonBlock);
@@ -311,7 +312,7 @@ export class BitcoinFission implements IBitcoinFission {
     const recoveredCurrentIsNewer =
       recoveredLastUpdatedBlock > currentLastUpdatedBlock ||
       (recoveredLastUpdatedBlock === currentLastUpdatedBlock && record.ratchetNumber > this.ratchetNumber);
-    this.enrichRecoveredHistory(record);
+    this.enrichHistory(record);
     if (recoveredCurrentIsNewer) this.applyCurrentFields(record);
     if (recoveredCloseIsNewer || recoveredCloseMatchesCurrent) {
       this.closedAtArgonBlock = record.closedAtArgonBlock;

@@ -66,6 +66,10 @@ export default class BitcoinUtxoTracking {
       'lastConfirmationCheckOracleHeight',
       'createdByReleaseId',
     ]);
+    if (recovered.spendStatus === BitcoinUtxoSpendStatus.Spent && recovered.spentByReleaseId) {
+      current.spendStatus = BitcoinUtxoSpendStatus.Spent;
+      current.activeReleaseId = undefined;
+    }
     if (current.spendStatus === BitcoinUtxoSpendStatus.Spent) {
       current.spentByReleaseId ??= recovered.spentByReleaseId;
     }
@@ -82,6 +86,13 @@ export default class BitcoinUtxoTracking {
       }
 
       this.mergeRecovered(current, recovered);
+      if (
+        current.spendStatus !== BitcoinUtxoSpendStatus.Spent &&
+        !current.activeReleaseId &&
+        recovered.activeReleaseId
+      ) {
+        current.activeReleaseId = recovered.activeReleaseId;
+      }
     }
   }
 

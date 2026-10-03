@@ -1,3 +1,5 @@
+import { ChildProcess } from 'node:child_process';
+import { PassThrough } from 'node:stream';
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import Path from 'node:path';
@@ -8,6 +10,8 @@ import { ApiPromise } from '@polkadot/api';
 import { encodeAddress } from '@polkadot/util-crypto';
 import { SyncStateKeys } from 'src-vue/lib/db/SyncStateTable.ts';
 import { AppSession } from '../AppSession.ts';
+import { AppProcessOutput } from '../AppProcessOutput.ts';
+import { DriverClient } from '../driver/client.ts';
 import { AppSessionDiagnostics } from '../AppSessionDiagnostics.ts';
 import { LocalMainnet } from '../local-mainnet/LocalMainnet.ts';
 import { LocalMainnetFork } from '../local-mainnet/LocalMainnetFork.ts';
@@ -35,6 +39,7 @@ describe('starting database capture', () => {
       financialDomains: ['bitcoin', 'bonds', 'vaulting'],
       partialFinancialDomains: [],
       pendingBitcoinLocks: 0,
+      bitcoinFissionIds: [],
       bitcoinLiquidIds: [],
       archivedBitcoinLiquidIds: [],
       bondLotIds: [],
@@ -112,7 +117,7 @@ describe('starting database capture', () => {
       database.exec(`
         CREATE TABLE IF NOT EXISTS SyncState (key TEXT PRIMARY KEY, state TEXT);
         CREATE TABLE IF NOT EXISTS BitcoinLocks (lockId INTEGER, isHistoryRecoveryPending INTEGER);
-        CREATE TABLE IF NOT EXISTS BitcoinFissions (ownerAccount TEXT, liquidId INTEGER, closedAtArgonBlock INTEGER);
+        CREATE TABLE IF NOT EXISTS BitcoinFissions (ownerAccount TEXT, fissionId INTEGER, liquidId INTEGER, closedAtArgonBlock INTEGER);
       `);
       database
         .prepare('INSERT OR REPLACE INTO SyncState VALUES (?, ?)')
@@ -128,13 +133,24 @@ describe('starting database capture', () => {
         }),
       );
       database.close();
-      vi.spyOn(session, 'frontendErrors', 'get').mockReturnValue([
+      // The published WebKit driver sends a stack without its message. Native output retains both.
+      const driver = new DriverClient('ws://127.0.0.1:1');
+      const output = new AppProcessOutput('quiet', options.sessionName!);
+      Object.assign(session, { driver, appProcess: { output } });
+      const stdout = new PassThrough();
+      const child = Object.assign(new ChildProcess(), { stdout, stderr: new PassThrough() });
+      output.attach(child);
+      stdout.write(
+        '[2026-01-01][\u001b[31mERROR \u001b[0m][webview] "[FinancialHistory] Unable to initialize recovery" | ',
+      );
+      stdout.write(
         transient
-          ? '[FinancialHistory] Unable to initialize recovery: RPC disconnected'
-          : '[FinancialHistory] Unable to initialize recovery: Bitcoin Fission 1 history is missing its creation event',
-      ]);
+          ? '"Error: RPC disconnected\nrestore@http://localhost/recovery.ts:1:1"\n'
+          : '"Error: Bitcoin Fission 1 history is missing its creation event\nrestore@http://localhost/recovery.ts:1:1"\n',
+      );
       vi.spyOn(session, 'checkpointDatabase').mockResolvedValue();
       vi.spyOn(session, 'close').mockImplementation(async () => {
+        output.close();
         if (unsafeClose) throw new Error('Process did not close');
       });
       return session;
@@ -201,10 +217,10 @@ describe('starting database capture', () => {
     const database = new DatabaseSync(path);
     database.exec(`
       CREATE TABLE BitcoinLocks (lockId INTEGER, isHistoryRecoveryPending INTEGER);
-      CREATE TABLE BitcoinFissions (ownerAccount TEXT, liquidId INTEGER, closedAtArgonBlock INTEGER);
+      CREATE TABLE BitcoinFissions (ownerAccount TEXT, fissionId INTEGER, liquidId INTEGER, closedAtArgonBlock INTEGER);
       INSERT INTO BitcoinFissions VALUES
-        ('account', 1, 90), ('account', 2, 90), ('account', 2, NULL),
-        ('account', 3, NULL), ('other-account', 4, 90);
+        ('account', 1, 1, 90), ('account', 2, 2, 90), ('account', 3, 2, NULL),
+        ('account', 4, 3, NULL), ('other-account', 5, 4, 90);
       CREATE TABLE SyncState (key INTEGER, state TEXT);
       CREATE TABLE BondLotHistory (accountId TEXT, programType TEXT, bondLotId INTEGER, releaseBlockHash TEXT);
       CREATE TABLE Config (key TEXT, value TEXT);
@@ -212,6 +228,7 @@ describe('starting database capture', () => {
     database.close();
 
     const inspection = inspectStartingDatabase(path, 100, 'account');
+    expect(inspection.bitcoinFissionIds).toEqual([1, 2, 3, 4]);
     expect(inspection.bitcoinLiquidIds).toEqual([1, 2, 3]);
     expect(inspection.archivedBitcoinLiquidIds).toEqual([1]);
     expect(inspection.pendingBitcoinLocks).toBe(0);

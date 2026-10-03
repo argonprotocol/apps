@@ -14,7 +14,7 @@ import type { Db } from '../lib/Db.ts';
 import type { WalletKeys } from '../lib/WalletKeys.ts';
 import { BitcoinLockStatus } from '../lib/db/BitcoinLocksTable.ts';
 import { BitcoinLockRecovery } from '../lib/recovery/BitcoinLocks.ts';
-import { BitcoinFissions } from '../lib/BitcoinFissions.ts';
+import { BitcoinFissions, createBitcoinLiquids } from '../lib/BitcoinFissions.ts';
 import { VaultHistory } from '../lib/recovery/MyVault.ts';
 import { FinancialHistoryImporter, publishBitcoinHistoryReplay } from '../lib/recovery/index.ts';
 import { createStore } from './helpers/bitcoin.ts';
@@ -44,6 +44,7 @@ runWithReplay('Bitcoin financial history replay corpus', { tags: ['no-argon-netw
         let migratedActiveLockCount = 0;
         let activeFissionCount = 0;
         let recoveredLockCount = 0;
+        let knownArchivedFeeCount = 0;
         const recoveryFailures: string[] = [];
         const latestBlock = await corpusReader.getHeader(corpusReader.latestBlockNumber);
         const latestApi = await corpusReader.getApi(latestBlock);
@@ -116,6 +117,26 @@ runWithReplay('Bitcoin financial history replay corpus', { tags: ['no-argon-netw
               accountId,
             ).toEqual([blocks.length, blocks.length]);
 
+            const liquids = createBitcoinLiquids({
+              fissions: recovered.fissions.map(record => new BitcoinFission(record)),
+            });
+            for (const liquid of liquids) {
+              if (
+                !liquid.isClosed ||
+                liquid.fissions.some(
+                  fission =>
+                    fission.closeTxFee === undefined || fission.ratchets.some(ratchet => ratchet.txFee === undefined),
+                )
+              )
+                continue;
+              knownArchivedFeeCount += 1;
+              expect
+                .soft(liquid.historyTransactionFees, 'Known archived Liquid history fees after recovery and restart')
+                .toBeDefined();
+              expect
+                .soft(liquid.closeTransactionFees, 'Known archived Liquid close fees after recovery and restart')
+                .toBeDefined();
+            }
             for (const currentLock of currentLocks) {
               const lock = recovered.locks.find(record => record.lockId === currentLock.utxoId);
               expect(lock, `Active Bitcoin lock ${currentLock.utxoId}`).toMatchObject({
@@ -179,6 +200,7 @@ runWithReplay('Bitcoin financial history replay corpus', { tags: ['no-argon-netw
         }
         expect(recoveryFailures).toEqual([]);
         expect(recoveredLockCount).toBeGreaterThan(0);
+        expect(knownArchivedFeeCount, 'Archived Liquids with known fees in the corpus').toBeGreaterThan(0);
         expect(migratedActiveLockCount).toBeGreaterThan(0);
         expect(activeFissionCount).toBeGreaterThan(0);
       } finally {

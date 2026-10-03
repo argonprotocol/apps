@@ -57,409 +57,442 @@ describe('Bitcoin lock release', () => {
     }
   });
 
-  it('persists, broadcasts, and atomically settles a partial multi-input Lock release', async () => {
-    const db = await createTestDb();
-    const pendingLock = await db.bitcoinLocksTable.insertPending({
-      uuid: 'release-lock',
-      status: BitcoinLockStatus.LockPendingFunding,
-      securitizedSatoshis: 1_000n,
-      cosignVersion: 'v1',
-      network: 'regtest',
-      hdPath: "m/84'/1'/0'/0/1",
-      vaultId: 3,
-    });
-    await db.execute('UPDATE BitcoinLocks SET lockId = ?, status = ?, fundedSatoshis = ? WHERE uuid = ?', [
-      7,
-      BitcoinLockStatus.LockFunded,
-      1_000n,
-      pendingLock.uuid,
-    ]);
-
-    const firstInput = await db.bitcoinUtxosTable.insert({
-      lockId: 7,
-      txid: '1'.repeat(64),
-      vout: 0,
-      satoshis: 400n,
-      network: 'regtest',
-      status: BitcoinUtxoStatus.FundingUtxo,
-      spendStatus: BitcoinUtxoSpendStatus.Unspent,
-      firstSeenAt: new Date('2026-09-11T00:00:00Z'),
-      firstSeenBitcoinHeight: 100,
-    });
-    const secondInput = await db.bitcoinUtxosTable.insert({
-      lockId: 7,
-      txid: '2'.repeat(64),
-      vout: 1,
-      satoshis: 600n,
-      network: 'regtest',
-      status: BitcoinUtxoStatus.FundingUtxo,
-      spendStatus: BitcoinUtxoSpendStatus.Unspent,
-      firstSeenAt: new Date('2026-09-11T00:01:00Z'),
-      firstSeenBitcoinHeight: 100,
-    });
-    await db.execute('UPDATE BitcoinLocks SET fundingUtxoIds = ? WHERE uuid = ?', [
-      [firstInput.id, secondInput.id],
-      pendingLock.uuid,
-    ]);
-    const originalLock = new BitcoinLock(
-      createCurrentLock({
-        lockId: 7,
-        vaultId: 3,
-        ownerAccount: 'owner-account',
-        fundedSatoshis: 1_000n,
+  it.each([false, true])(
+    'persists, broadcasts, and atomically settles a partial multi-input Lock release (expires=%s)',
+    async expires => {
+      const db = await createTestDb();
+      const pendingLock = await db.bitcoinLocksTable.insertPending({
+        uuid: 'release-lock',
+        status: BitcoinLockStatus.LockPendingFunding,
         securitizedSatoshis: 1_000n,
-        securitizationCoverageMicrogons: 1_000n,
-        securityFees: 50n,
-        couponFeesPaid: 5n,
-      }),
-    );
-    await securitizationTerms.recordFinalizedSecuritization(db.bitcoinSecuritizationHistoryTable, {
-      block: historyBlock(100),
-      extrinsicIndex: 1,
-      lock: originalLock,
-      origin: 'created',
-    });
-    await db.bitcoinFissionsTable.replaceRecord({
-      ownerAccount: 'owner-account',
-      origin: 'created',
-      fissionId: 1,
-      liquidId: 1,
-      lockId: 7,
-      satoshis: 300n,
-      microgonsAtTargetPerBtc: 1_000n,
-      liquidityPromised: 300n,
-      createdAtArgonBlock: 100,
-      ratchetNumber: 0,
-      lastUpdatedArgonBlock: 100,
-      ratchets: [],
-      createdAt: new Date('2026-09-11T00:00:00Z'),
-      updatedAt: new Date('2026-09-11T00:00:00Z'),
-    });
+        cosignVersion: 'v1',
+        network: 'regtest',
+        hdPath: "m/84'/1'/0'/0/1",
+        vaultId: 3,
+      });
+      await db.execute(
+        'UPDATE BitcoinLocks SET lockId = ?, status = ?, fundedSatoshis = ?, ownerAccount = ? WHERE uuid = ?',
+        [7, BitcoinLockStatus.LockFunded, 1_000n, 'owner-account', pendingLock.uuid],
+      );
 
-    const destinationScript = `0x0020${'ab'.repeat(32)}`;
-    const destinationAddress = BitcoinLocks.formatP2wshAddress(destinationScript, BitcoinNetwork.Regtest);
+      const firstInput = await db.bitcoinUtxosTable.insert({
+        lockId: 7,
+        txid: '1'.repeat(64),
+        vout: 0,
+        satoshis: 400n,
+        network: 'regtest',
+        status: BitcoinUtxoStatus.FundingUtxo,
+        spendStatus: BitcoinUtxoSpendStatus.Unspent,
+        firstSeenAt: new Date('2026-09-11T00:00:00Z'),
+        firstSeenBitcoinHeight: 100,
+      });
+      const secondInput = await db.bitcoinUtxosTable.insert({
+        lockId: 7,
+        txid: '2'.repeat(64),
+        vout: 1,
+        satoshis: 600n,
+        network: 'regtest',
+        status: BitcoinUtxoStatus.FundingUtxo,
+        spendStatus: BitcoinUtxoSpendStatus.Unspent,
+        firstSeenAt: new Date('2026-09-11T00:01:00Z'),
+        firstSeenBitcoinHeight: 100,
+      });
+      await db.execute('UPDATE BitcoinLocks SET fundingUtxoIds = ? WHERE uuid = ?', [
+        [firstInput.id, secondInput.id],
+        pendingLock.uuid,
+      ]);
+      const originalLock = new BitcoinLock(
+        createCurrentLock({
+          lockId: 7,
+          vaultId: 3,
+          ownerAccount: 'owner-account',
+          fundedSatoshis: 1_000n,
+          securitizedSatoshis: 1_000n,
+          securitizationCoverageMicrogons: 1_000n,
+          securityFees: 50n,
+          couponFeesPaid: 5n,
+        }),
+      );
+      await securitizationTerms.recordFinalizedSecuritization(db.bitcoinSecuritizationHistoryTable, {
+        block: historyBlock(100),
+        extrinsicIndex: 1,
+        lock: originalLock,
+        origin: 'created',
+      });
+      await db.bitcoinFissionsTable.replaceRecord({
+        ownerAccount: 'owner-account',
+        origin: 'created',
+        fissionId: 1,
+        liquidId: 1,
+        lockId: 7,
+        satoshis: 300n,
+        microgonsAtTargetPerBtc: 1_000n,
+        liquidityPromised: 300n,
+        createdAtArgonBlock: 100,
+        ratchetNumber: 0,
+        lastUpdatedArgonBlock: 100,
+        ratchets: [],
+        createdAt: new Date('2026-09-11T00:00:00Z'),
+        updatedAt: new Date('2026-09-11T00:00:00Z'),
+      });
 
-    const submitAndWatch = vi.fn(async () => {
-      const persistedRelease = await db.bitcoinReleasesTable.getById('lock:7:1');
-      const persistedLock = await db.bitcoinLocksTable.getByLockId(7);
-      const persistedInputs = await db.bitcoinUtxosTable.fetchByLockId(7);
+      const destinationScript = `0x0020${'ab'.repeat(32)}`;
+      const destinationAddress = BitcoinLocks.formatP2wshAddress(destinationScript, BitcoinNetwork.Regtest);
 
-      expect(persistedRelease).toMatchObject({
+      const submitAndWatch = vi.fn(async () => {
+        const persistedRelease = await db.bitcoinReleasesTable.getById('lock:7:1');
+        const persistedLock = await db.bitcoinLocksTable.getByLockId(7);
+        const persistedInputs = await db.bitcoinUtxosTable.fetchByLockId(7);
+
+        expect(persistedRelease).toMatchObject({
+          id: 'lock:7:1',
+          kind: BitcoinReleaseKind.Lock,
+          status: BitcoinReleaseStatus.SubmittingRequestOnArgon,
+          inputUtxoIds: [firstInput.id, secondInput.id],
+          toScriptPubkey: destinationAddress,
+        });
+        expect(persistedLock).toMatchObject({
+          status: BitcoinLockStatus.Releasing,
+          activeReleaseId: 'lock:7:1',
+        });
+        expect(persistedInputs.map(input => input.activeReleaseId)).toEqual(['lock:7:1', 'lock:7:1']);
+        throw new Error('Argon submission unavailable');
+      });
+      const transactionTracker = {
+        findLatestTxAttempt: vi.fn().mockResolvedValue(undefined),
+        submitAndWatch,
+      } as unknown as TransactionTracker;
+      const bitcoinLocks = await loadBitcoinLocksState(db, transactionTracker);
+      const lock = bitcoinLocks.getLockById(7)!;
+      const releases = bitcoinLocks.releases;
+      const operation = new BitcoinLockRelease(bitcoinLocks, transactionTracker);
+      const txSigner = { address: 'owner-account' } as TxSigningAccount;
+      const tx = {} as SubmittableExtrinsic;
+
+      await expect(
+        operation.submit(
+          {
+            lockId: 7,
+            destinationSatoshis: 575n,
+            bitcoinNetworkFee: 25n,
+            toScriptPubkey: 'unused-for-prepared-operation',
+            txSigner,
+            client: {} as ArgonClient,
+          },
+          {
+            client: {} as ArgonClient,
+            lock,
+            txs: [tx],
+            txSigner,
+            metadata: {
+              releaseId: 'lock:7:1',
+              sendId: 'lock:7:1',
+              releaseNumber: 1,
+              lockId: 7,
+              inputUtxoIds: [firstInput.id, secondInput.id],
+              toScriptPubkey: destinationAddress,
+              bitcoinNetworkFee: 25n,
+              destinationSatoshis: 575n,
+              changeSatoshis: 400n,
+            },
+            operationKey: 'owner-account:7:575:25:unused-for-prepared-operation',
+            tx,
+            txFeePlusTip: 1n,
+            availableBalance: 1_000n,
+            canAfford: true,
+          },
+        ),
+      ).rejects.toThrow('Argon submission unavailable');
+
+      expect(submitAndWatch).toHaveBeenCalledWith(
+        expect.objectContaining({ metadata: expect.objectContaining({ toScriptPubkey: destinationAddress }) }),
+      );
+      expect(releases.getById('lock:7:1')?.statusError).toBe('Error: Argon submission unavailable');
+      await releases.acknowledgeFailedSend('lock:7:1');
+      expect(releases.getById('lock:7:1')?.status).toBe(BitcoinReleaseStatus.FailedAcknowledged);
+
+      let restarted = await loadReleaseState(db);
+      await restarted.releases.createLockRelease(restarted.lock, {
         id: 'lock:7:1',
+        sendId: 'retried-send',
         kind: BitcoinReleaseKind.Lock,
+        lockId: 7,
+        releaseNumber: 1,
         status: BitcoinReleaseStatus.SubmittingRequestOnArgon,
         inputUtxoIds: [firstInput.id, secondInput.id],
-        toScriptPubkey: destinationAddress,
-      });
-      expect(persistedLock).toMatchObject({
-        status: BitcoinLockStatus.Releasing,
-        activeReleaseId: 'lock:7:1',
-      });
-      expect(persistedInputs.map(input => input.activeReleaseId)).toEqual(['lock:7:1', 'lock:7:1']);
-      throw new Error('Argon submission unavailable');
-    });
-    const transactionTracker = {
-      findLatestTxAttempt: vi.fn().mockResolvedValue(undefined),
-      submitAndWatch,
-    } as unknown as TransactionTracker;
-    const bitcoinLocks = await loadBitcoinLocksState(db, transactionTracker);
-    const lock = bitcoinLocks.getLockById(7)!;
-    const releases = bitcoinLocks.releases;
-    const operation = new BitcoinLockRelease(bitcoinLocks, transactionTracker);
-    const txSigner = { address: 'owner-account' } as TxSigningAccount;
-    const tx = {} as SubmittableExtrinsic;
-
-    await expect(
-      operation.submit(
-        {
-          lockId: 7,
-          destinationSatoshis: 575n,
-          bitcoinNetworkFee: 25n,
-          toScriptPubkey: 'unused-for-prepared-operation',
-          txSigner,
-          client: {} as ArgonClient,
-        },
-        {
-          client: {} as ArgonClient,
-          lock,
-          txs: [tx],
-          txSigner,
-          metadata: {
-            releaseId: 'lock:7:1',
-            sendId: 'lock:7:1',
-            releaseNumber: 1,
-            lockId: 7,
-            inputUtxoIds: [firstInput.id, secondInput.id],
-            toScriptPubkey: destinationAddress,
-            bitcoinNetworkFee: 25n,
-            destinationSatoshis: 575n,
-            changeSatoshis: 400n,
-          },
-          operationKey: 'owner-account:7:575:25:unused-for-prepared-operation',
-          tx,
-          txFeePlusTip: 1n,
-          availableBalance: 1_000n,
-          canAfford: true,
-        },
-      ),
-    ).rejects.toThrow('Argon submission unavailable');
-
-    expect(submitAndWatch).toHaveBeenCalledWith(
-      expect.objectContaining({ metadata: expect.objectContaining({ toScriptPubkey: destinationAddress }) }),
-    );
-    expect(releases.getById('lock:7:1')?.statusError).toBe('Error: Argon submission unavailable');
-    await releases.acknowledgeFailedSend('lock:7:1');
-    expect(releases.getById('lock:7:1')?.status).toBe(BitcoinReleaseStatus.FailedAcknowledged);
-
-    let restarted = await loadReleaseState(db);
-    await restarted.releases.createLockRelease(restarted.lock, {
-      id: 'lock:7:1',
-      sendId: 'retried-send',
-      kind: BitcoinReleaseKind.Lock,
-      lockId: 7,
-      releaseNumber: 1,
-      status: BitcoinReleaseStatus.SubmittingRequestOnArgon,
-      inputUtxoIds: [firstInput.id, secondInput.id],
-      toScriptPubkey: destinationAddress,
-      bitcoinNetworkFee: 25n,
-      destinationSatoshis: 575n,
-      changeSatoshis: 400n,
-      vaultSignatures: [],
-    });
-    restarted = await loadReleaseState(db);
-    expect(restarted.release).toMatchObject({
-      id: 'lock:7:1',
-      sendId: 'retried-send',
-      status: BitcoinReleaseStatus.SubmittingRequestOnArgon,
-    });
-    expect(restarted.release.statusError).toBeUndefined();
-    expect(restarted.lock.activeReleaseId).toBe('lock:7:1');
-    const staleSubmittingRelease = { ...restarted.release };
-    await restarted.releases.finalizeLockRequest(restarted.lock, {
-      releaseId: restarted.release.id,
-      request: {
-        lockId: 7,
-        vaultId: 3,
-        releaseNumber: 1,
         toScriptPubkey: destinationAddress,
         bitcoinNetworkFee: 25n,
         destinationSatoshis: 575n,
         changeSatoshis: 400n,
+        vaultSignatures: [],
+      });
+      restarted = await loadReleaseState(db);
+      expect(restarted.release).toMatchObject({
+        id: 'lock:7:1',
+        sendId: 'retried-send',
+        status: BitcoinReleaseStatus.SubmittingRequestOnArgon,
+      });
+      expect(restarted.release.statusError).toBeUndefined();
+      expect(restarted.lock.activeReleaseId).toBe('lock:7:1');
+      const staleSubmittingRelease = { ...restarted.release };
+      await restarted.releases.finalizeLockRequest(restarted.lock, {
+        releaseId: restarted.release.id,
+        request: {
+          lockId: 7,
+          vaultId: 3,
+          releaseNumber: 1,
+          toScriptPubkey: destinationAddress,
+          bitcoinNetworkFee: 25n,
+          destinationSatoshis: 575n,
+          changeSatoshis: 400n,
+          cosignDueFrame: 120,
+          expectedTransactionId: `0x${'a'.repeat(64)}`,
+          securitizationAtRisk: 900n,
+        },
+        inputUtxoIds: [firstInput.id, secondInput.id],
+        requestedReleaseAtTick: 101,
+        argonTxFeeMicrogons: 3n,
+      });
+      restarted = await loadReleaseState(db);
+      expect(restarted.release).toMatchObject({
+        status: BitcoinReleaseStatus.WaitingForVaultCosign,
+        requestedReleaseAtTick: 101,
+        insuredMicrogons: 900n,
         cosignDueFrame: 120,
         expectedTransactionId: `0x${'a'.repeat(64)}`,
-        securitizationAtRisk: 900n,
-      },
-      inputUtxoIds: [firstInput.id, secondInput.id],
-      requestedReleaseAtTick: 101,
-      argonTxFeeMicrogons: 3n,
-    });
-    restarted = await loadReleaseState(db);
-    expect(restarted.release).toMatchObject({
-      status: BitcoinReleaseStatus.WaitingForVaultCosign,
-      requestedReleaseAtTick: 101,
-      insuredMicrogons: 900n,
-      cosignDueFrame: 120,
-      expectedTransactionId: `0x${'a'.repeat(64)}`,
-    });
-    const staleWaitingRelease = { ...restarted.release };
+      });
+      const staleWaitingRelease = { ...restarted.release };
 
-    const vaultSignatures = [new Uint8Array([1]), new Uint8Array([2])];
-    const findVaultCosignatures = vi.spyOn(BitcoinLock, 'findVaultCosignatures').mockResolvedValue({
-      blockHeight: 110,
-      signatures: vaultSignatures,
-    });
-    const getMainchainClient = vi.spyOn(mainchainStore, 'getMainchainClient').mockResolvedValue({} as ArgonClient);
-    const finalTx = {
-      isFinal: true,
-      hash: 'a'.repeat(64),
-      toBytes: () => new Uint8Array([1, 2, 3]),
-    };
-    const walletKeys = {
-      canSign: true,
-      defaultArgonAddress: 'owner-account',
-      getBitcoinChildXpriv: vi.fn().mockResolvedValue({}),
-    } as unknown as WalletKeys;
-    const mempool = {
-      getTxStatus: vi.fn().mockResolvedValue(undefined),
-      broadcastTx: vi.fn().mockResolvedValue(`0x${'a'.repeat(64)}`),
-      getTipHeight: vi.fn().mockResolvedValue(120),
-    } as unknown as BitcoinMempool;
-    restarted = await loadReleaseState(db, { walletKeys, mempool });
-    vi.spyOn(restarted.bitcoinLocks, 'createCosignScript').mockReturnValue({
-      cosignAndGenerateTx: () => finalTx,
-    } as never);
-    await restarted.releases.reconcileLockRelease(restarted.lock, false);
-    findVaultCosignatures.mockRestore();
-    getMainchainClient.mockRestore();
-    restarted = await loadReleaseState(db);
-    expect(restarted.release).toMatchObject({
-      status: BitcoinReleaseStatus.ConfirmingOnBitcoin,
-      inputUtxoIds: [firstInput.id, secondInput.id],
-      vaultSignatures,
-      bitcoinTxid: `0x${'a'.repeat(64)}`,
-    });
+      const vaultSignatures = [new Uint8Array([1]), new Uint8Array([2])];
+      const findVaultCosignatures = vi.spyOn(BitcoinLock, 'findVaultCosignatures').mockResolvedValue({
+        blockHeight: 110,
+        signatures: vaultSignatures,
+      });
+      const getMainchainClient = vi.spyOn(mainchainStore, 'getMainchainClient').mockResolvedValue({} as ArgonClient);
+      const finalTx = {
+        isFinal: true,
+        hash: 'a'.repeat(64),
+        toBytes: () => new Uint8Array([1, 2, 3]),
+      };
+      const walletKeys = {
+        canSign: true,
+        defaultArgonAddress: 'owner-account',
+        getBitcoinChildXpriv: vi.fn().mockResolvedValue({}),
+      } as unknown as WalletKeys;
+      const mempool = {
+        getTxStatus: vi.fn().mockResolvedValue(undefined),
+        broadcastTx: vi.fn().mockResolvedValue(`0x${'a'.repeat(64)}`),
+        getTipHeight: vi.fn().mockResolvedValue(120),
+      } as unknown as BitcoinMempool;
+      restarted = await loadReleaseState(db, { walletKeys, mempool });
+      vi.spyOn(restarted.bitcoinLocks, 'createCosignScript').mockReturnValue({
+        cosignAndGenerateTx: () => finalTx,
+      } as never);
+      await restarted.releases.reconcileLockRelease(restarted.lock, false);
+      findVaultCosignatures.mockRestore();
+      getMainchainClient.mockRestore();
+      restarted = await loadReleaseState(db);
+      expect(restarted.release).toMatchObject({
+        status: BitcoinReleaseStatus.ConfirmingOnBitcoin,
+        inputUtxoIds: [firstInput.id, secondInput.id],
+        vaultSignatures,
+        bitcoinTxid: `0x${'a'.repeat(64)}`,
+      });
 
-    await restarted.releases.recordBitcoinConfirmation(restarted.release, { bitcoinConfirmedHeight: 126 });
-    restarted = await loadReleaseState(db);
-    expect(restarted.release.status).toBe(BitcoinReleaseStatus.WaitingForArgonRecognition);
+      await restarted.releases.recordBitcoinConfirmation(restarted.release, { bitcoinConfirmedHeight: 126 });
+      restarted = await loadReleaseState(db);
+      expect(restarted.release.status).toBe(BitcoinReleaseStatus.WaitingForArgonRecognition);
 
-    await restarted.releases.recordArgonRequest(restarted.release, {
-      requestedReleaseAtTick: 101,
-      insuredMicrogons: 900n,
-      argonTxFeeMicrogons: 3n,
-    });
-    restarted = await loadReleaseState(db);
-    expect(restarted.release.status).toBe(BitcoinReleaseStatus.WaitingForArgonRecognition);
+      await restarted.releases.recordArgonRequest(restarted.release, {
+        requestedReleaseAtTick: 101,
+        insuredMicrogons: 900n,
+        argonTxFeeMicrogons: 3n,
+      });
+      restarted = await loadReleaseState(db);
+      expect(restarted.release.status).toBe(BitcoinReleaseStatus.WaitingForArgonRecognition);
 
-    await restarted.releases.failRelease(staleSubmittingRelease, 'late transaction failure');
-    restarted = await loadReleaseState(db);
-    expect(restarted.release.status).toBe(BitcoinReleaseStatus.WaitingForArgonRecognition);
-    expect(restarted.lock).toMatchObject({
-      status: BitcoinLockStatus.Releasing,
-      activeReleaseId: 'lock:7:1',
-    });
+      await restarted.releases.failRelease(staleSubmittingRelease, 'late transaction failure');
+      restarted = await loadReleaseState(db);
+      expect(restarted.release.status).toBe(BitcoinReleaseStatus.WaitingForArgonRecognition);
+      expect(restarted.lock).toMatchObject({
+        status: BitcoinLockStatus.Releasing,
+        activeReleaseId: 'lock:7:1',
+      });
 
-    const currentLock = new BitcoinLock(
-      createCurrentLock({
+      const currentLock = new BitcoinLock(
+        createCurrentLock({
+          lockId: 7,
+          vaultId: 3,
+          ownerAccount: 'owner-account',
+          fundedSatoshis: 400n,
+          securitizedSatoshis: 400n,
+          securitizationCoverageMicrogons: 400n,
+          securityFees: 50n,
+          couponFeesPaid: 5n,
+          fissionedSatoshis: 300n,
+          fundingUtxos: [{ utxoRef: { txid: `0x${'a'.repeat(64)}`, vout: 1 }, satoshis: 400n }],
+        }),
+      );
+      const getCurrentLock = vi.spyOn(BitcoinLock, 'get').mockResolvedValue(expires ? undefined : currentLock);
+      const settlementBlock = historyBlock(130);
+      const settlementEvent = historyEvent(159, 'bitcoinLocks', 'BitcoinSpentAfterRelease', {
         lockId: 7,
         vaultId: 3,
-        ownerAccount: 'owner-account',
+        releaseNumber: 1,
+        bitcoinHeight: 126n,
+      });
+      const settlementEvents = [
+        settlementEvent,
+        ...(expires
+          ? [
+              historyEvent(159, 'bitcoinLocks', 'BitcoinLockTerminated', {
+                lockId: 7,
+                vaultId: 3,
+                wasUtxoSpent: false,
+                burnedArgons: 300n,
+              }),
+            ]
+          : []),
+      ];
+      if (expires) {
+        const wrongPhaseExpiry = { ...settlementEvents[1], phase: { type: 'ApplyExtrinsic' as const, value: 3 } };
+        await expect(
+          restarted.releases.completeLockReleaseFromArgon(
+            restarted.lock,
+            restarted.release,
+            settlementBlock,
+            {} as ArgonClient,
+            settlementEvent,
+            [settlementEvent, wrongPhaseExpiry],
+          ),
+        ).rejects.toThrow('did not retain its expected Lock');
+      }
+      const historyFailure = vi
+        .spyOn(securitizationTerms, expires ? 'closeFinalizedSecuritization' : 'recordFinalizedSecuritization')
+        .mockRejectedValueOnce(new Error('history write unavailable'));
+      await expect(
+        restarted.releases.completeLockReleaseFromArgon(
+          restarted.lock,
+          restarted.release,
+          settlementBlock,
+          {} as ArgonClient,
+          settlementEvent,
+          settlementEvents,
+        ),
+      ).rejects.toThrow('history write unavailable');
+      expect(restarted.release.status).toBe(BitcoinReleaseStatus.WaitingForArgonRecognition);
+      expect(restarted.lock).toMatchObject({
+        status: BitcoinLockStatus.Releasing,
+        activeReleaseId: 'lock:7:1',
+        fundedSatoshis: 1_000n,
+      });
+      expect(await db.bitcoinUtxosTable.getByLockOutpoint(7, `0x${'a'.repeat(64)}`, 1)).toBeUndefined();
+      expect(
+        (await db.bitcoinUtxosTable.fetchByLockId(7)).every(
+          input => input.spendStatus === BitcoinUtxoSpendStatus.Unspent,
+        ),
+      ).toBe(true);
+      historyFailure.mockRestore();
+
+      const finalizedBlock = historyBlock(132);
+      const pendingPartialReleaseByLockId = vi
+        .fn()
+        .mockResolvedValueOnce({ releaseNumber: 1 })
+        .mockResolvedValueOnce(null);
+      const finalizedApi = {
+        query: { bitcoinLocks: { pendingPartialReleaseByLockId } },
+      } as unknown as ArgonClient;
+      const getHeaderByBlockNumber = vi.fn(async (blockNumber: number) => historyBlock(blockNumber));
+      const blockWatch = {
+        finalizedBlockHeader: finalizedBlock,
+        getApi: vi.fn(async () => finalizedApi),
+        getHeaderByBlockNumber,
+        getEventsWithSpec: vi.fn(async (block: ReturnType<typeof historyBlock>) => ({
+          api: {} as ArgonClient,
+          specVersion: 159,
+          events:
+            block.blockNumber === settlementBlock.blockNumber
+              ? settlementEvents
+              : block.blockNumber === settlementBlock.blockNumber - 1
+                ? [
+                    historyEvent(159, 'bitcoinLocks', 'BitcoinSpentAfterRelease', {
+                      lockId: 7,
+                      vaultId: 3,
+                      releaseNumber: 2,
+                      bitcoinHeight: 126n,
+                    }),
+                  ]
+                : [],
+        })),
+      } as unknown as BlockWatch;
+      restarted = await loadReleaseState(db, { blockWatch });
+      await restarted.releases.reconcileLockRelease(restarted.lock, false);
+      expect(restarted.release.status).toBe(BitcoinReleaseStatus.WaitingForArgonRecognition);
+      expect(getHeaderByBlockNumber).not.toHaveBeenCalled();
+
+      await restarted.releases.reconcileLockRelease(restarted.lock, false);
+      getCurrentLock.mockRestore();
+      expect(restarted.release.status).toBe(BitcoinReleaseStatus.Complete);
+      expect(restarted.lock).toMatchObject({
+        status: expires ? BitcoinLockStatus.Releasing : BitcoinLockStatus.LockFunded,
+        activeReleaseId: undefined,
+        fundedSatoshis: 400n,
+        fundingUtxoIds: [expect.any(Number)],
+      });
+      expect(restarted.tracking.getUtxoRecord(7, `0x${'a'.repeat(64)}`, 1)).toMatchObject({
+        spendStatus: BitcoinUtxoSpendStatus.Unspent,
+        createdByReleaseId: 'lock:7:1',
+      });
+      await restarted.releases.recordVaultCosign(staleWaitingRelease, { vaultSignatures });
+
+      restarted = await loadReleaseState(db);
+      expect(restarted.release.status).toBe(BitcoinReleaseStatus.Complete);
+      expect(restarted.lock).toMatchObject({
+        status: expires ? BitcoinLockStatus.Releasing : BitcoinLockStatus.LockFunded,
+        activeReleaseId: undefined,
         fundedSatoshis: 400n,
         securitizedSatoshis: 400n,
-        securitizationCoverageMicrogons: 400n,
-        securityFees: 50n,
-        couponFeesPaid: 5n,
-        fissionedSatoshis: 300n,
-        fundingUtxos: [{ utxoRef: { txid: `0x${'a'.repeat(64)}`, vout: 1 }, satoshis: 400n }],
-      }),
-    );
-    const getCurrentLock = vi.spyOn(BitcoinLock, 'get').mockResolvedValue(currentLock);
-    const settlementBlock = historyBlock(130);
-    const settlementEvent = historyEvent(159, 'bitcoinLocks', 'BitcoinSpentAfterRelease', {
-      lockId: 7,
-      vaultId: 3,
-      releaseNumber: 1,
-      bitcoinHeight: 126n,
-    });
-    const historyFailure = vi
-      .spyOn(securitizationTerms, 'recordFinalizedSecuritization')
-      .mockRejectedValueOnce(new Error('history write unavailable'));
-    await expect(
-      restarted.releases.completeLockReleaseFromArgon(
-        restarted.lock,
-        restarted.release,
-        settlementBlock,
-        {} as ArgonClient,
-        settlementEvent,
-      ),
-    ).rejects.toThrow('history write unavailable');
-    expect(restarted.release.status).toBe(BitcoinReleaseStatus.WaitingForArgonRecognition);
-    expect(restarted.lock).toMatchObject({
-      status: BitcoinLockStatus.Releasing,
-      activeReleaseId: 'lock:7:1',
-      fundedSatoshis: 1_000n,
-    });
-    expect(await db.bitcoinUtxosTable.getByLockOutpoint(7, `0x${'a'.repeat(64)}`, 1)).toBeUndefined();
-    expect(
-      (await db.bitcoinUtxosTable.fetchByLockId(7)).every(
-        input => input.spendStatus === BitcoinUtxoSpendStatus.Unspent,
-      ),
-    ).toBe(true);
-    historyFailure.mockRestore();
-
-    const finalizedBlock = historyBlock(132);
-    const pendingPartialReleaseByLockId = vi
-      .fn()
-      .mockResolvedValueOnce({ releaseNumber: 1 })
-      .mockResolvedValueOnce(null);
-    const finalizedApi = {
-      query: { bitcoinLocks: { pendingPartialReleaseByLockId } },
-    } as unknown as ArgonClient;
-    const getHeaderByBlockNumber = vi.fn(async (blockNumber: number) => historyBlock(blockNumber));
-    const blockWatch = {
-      finalizedBlockHeader: finalizedBlock,
-      getApi: vi.fn(async () => finalizedApi),
-      getHeaderByBlockNumber,
-      getEventsWithSpec: vi.fn(async (block: ReturnType<typeof historyBlock>) => ({
-        api: {} as ArgonClient,
-        specVersion: 159,
-        events:
-          block.blockNumber === settlementBlock.blockNumber
-            ? [settlementEvent]
-            : block.blockNumber === settlementBlock.blockNumber - 1
-              ? [
-                  historyEvent(159, 'bitcoinLocks', 'BitcoinSpentAfterRelease', {
-                    lockId: 7,
-                    vaultId: 3,
-                    releaseNumber: 2,
-                    bitcoinHeight: 126n,
-                  }),
-                ]
-              : [],
-      })),
-    } as unknown as BlockWatch;
-    restarted = await loadReleaseState(db, { blockWatch });
-    await restarted.releases.reconcileLockRelease(restarted.lock, false);
-    expect(restarted.release.status).toBe(BitcoinReleaseStatus.WaitingForArgonRecognition);
-    expect(getHeaderByBlockNumber).not.toHaveBeenCalled();
-
-    await restarted.releases.reconcileLockRelease(restarted.lock, false);
-    getCurrentLock.mockRestore();
-    expect(restarted.release.status).toBe(BitcoinReleaseStatus.Complete);
-    expect(restarted.lock).toMatchObject({
-      status: BitcoinLockStatus.LockFunded,
-      activeReleaseId: undefined,
-      fundedSatoshis: 400n,
-      fundingUtxoIds: [expect.any(Number)],
-    });
-    expect(restarted.tracking.getUtxoRecord(7, `0x${'a'.repeat(64)}`, 1)).toMatchObject({
-      spendStatus: BitcoinUtxoSpendStatus.Unspent,
-      createdByReleaseId: 'lock:7:1',
-    });
-    await restarted.releases.recordVaultCosign(staleWaitingRelease, { vaultSignatures });
-
-    restarted = await loadReleaseState(db);
-    expect(restarted.release.status).toBe(BitcoinReleaseStatus.Complete);
-    expect(restarted.lock).toMatchObject({
-      status: BitcoinLockStatus.LockFunded,
-      activeReleaseId: undefined,
-      fundedSatoshis: 400n,
-      securitizedSatoshis: 400n,
-    });
-    expect(restarted.tracking.getUtxosForLock(7)).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({ spendStatus: BitcoinUtxoSpendStatus.Spent, spentByReleaseId: 'lock:7:1' }),
-        expect.objectContaining({ spendStatus: BitcoinUtxoSpendStatus.Spent, spentByReleaseId: 'lock:7:1' }),
-        expect.objectContaining({
-          txid: `0x${'a'.repeat(64)}`,
-          vout: 1,
-          satoshis: 400n,
-          status: BitcoinUtxoStatus.FundingUtxo,
-          spendStatus: BitcoinUtxoSpendStatus.Unspent,
-          createdByReleaseId: 'lock:7:1',
-        }),
-      ]),
-    );
-    const retainedFission = await db.bitcoinFissionsTable.getByFissionId('owner-account', 1);
-    expect(retainedFission).toMatchObject({ liquidityPromised: 300n });
-    expect(retainedFission).not.toHaveProperty('closeReason');
-    await expect(db.bitcoinSecuritizationHistoryTable.getPublishedSnapshot('owner-account')).resolves.toMatchObject({
-      terms: [
-        expect.objectContaining({
-          origin: 'created',
-          securitizedSatoshis: 1_000n,
-          cumulativeNetSecurityFee: 45n,
-          endReason: 'partial-release',
-        }),
-        expect.objectContaining({
-          origin: 'partial-release',
-          securitizedSatoshis: 400n,
-          cumulativeNetSecurityFee: 45n,
-          addedNetSecurityFee: 0n,
-        }),
-      ],
-    });
-  });
+      });
+      expect(restarted.tracking.getUtxosForLock(7)).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ spendStatus: BitcoinUtxoSpendStatus.Spent, spentByReleaseId: 'lock:7:1' }),
+          expect.objectContaining({ spendStatus: BitcoinUtxoSpendStatus.Spent, spentByReleaseId: 'lock:7:1' }),
+          expect.objectContaining({
+            txid: `0x${'a'.repeat(64)}`,
+            vout: 1,
+            satoshis: 400n,
+            status: BitcoinUtxoStatus.FundingUtxo,
+            spendStatus: BitcoinUtxoSpendStatus.Unspent,
+            createdByReleaseId: 'lock:7:1',
+          }),
+        ]),
+      );
+      expect(restarted.lock.removalReason).toBe(expires ? 'expired' : undefined);
+      const retainedFission = await db.bitcoinFissionsTable.getByFissionId('owner-account', 1);
+      expect(retainedFission).toMatchObject({ liquidityPromised: 300n });
+      expect(retainedFission).not.toHaveProperty('closeReason');
+      await expect(db.bitcoinSecuritizationHistoryTable.getPublishedSnapshot('owner-account')).resolves.toMatchObject({
+        terms: [
+          expect.objectContaining({
+            origin: 'created',
+            securitizedSatoshis: 1_000n,
+            cumulativeNetSecurityFee: 45n,
+            endReason: expires ? 'released' : 'partial-release',
+          }),
+          ...(expires
+            ? []
+            : [
+                expect.objectContaining({
+                  origin: 'partial-release',
+                  securitizedSatoshis: 400n,
+                  cumulativeNetSecurityFee: 45n,
+                  addedNetSecurityFee: 0n,
+                }),
+              ]),
+        ],
+      });
+    },
+  );
 
   it('keeps concurrent child releases grouped through a submission failure and restart', async () => {
     const db = await createTestDb();

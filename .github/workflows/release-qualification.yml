@@ -4,12 +4,8 @@ on:
   push:
     branches:
       - v[0-9]+.*
-  pull_request:
-    paths:
-      - .github/workflows/release-qualification.yml
-      - e2e/local-mainnet/**
-      - e2e/__test__/LocalMainnet*.e2e.test.ts
-      - e2e/__test__/StartingDatabaseCapture.e2e.test.ts
+  schedule:
+    - cron: '0 13 * * 1'
   workflow_dispatch:
 
 permissions:

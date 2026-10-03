@@ -69,6 +69,24 @@ export class BitcoinLiquid {
     return createBitcoinLiquid(liquidId, [...fissions], terms, securitizationCost);
   }
 
+  public get transactionFees(): bigint | undefined {
+    if (this.historyTransactionFees === undefined || this.closeTransactionFees === undefined) return;
+
+    const historyTransactions = new Set(
+      this.fissions.flatMap(fission => fission.ratchets.map(ratchet => getTransactionKey(fission, ratchet))),
+    );
+    const sharedCloseFees = new Map<string, bigint>();
+    for (const fission of this.fissions) {
+      if (fission.closedAtArgonBlock === undefined) continue;
+      const key = getCloseTransactionKey(fission);
+      if (!historyTransactions.has(key)) continue;
+      if (fission.closeTxFee === undefined) return;
+      sharedCloseFees.set(key, fission.closeTxFee);
+    }
+    const sharedFees = [...sharedCloseFees.values()].reduce((total, fee) => total + fee, 0n);
+    return this.historyTransactionFees + this.closeTransactionFees - sharedFees;
+  }
+
   public get isClosed(): boolean {
     return this.fissions.length > 0 && this.fissions.every(fission => fission.closedAtArgonBlock != null);
   }
@@ -331,10 +349,7 @@ function createBitcoinLiquid(
   const closeFeesByTransaction = new Map<string, bigint | undefined>();
   for (const fission of fissions) {
     if (fission.closedAtArgonBlock === undefined) continue;
-    const key =
-      fission.closedExtrinsicIndex === undefined
-        ? `${fission.closedBlockHash ?? fission.closedAtArgonBlock}:close:${fission.fissionId}`
-        : `${fission.closedBlockHash ?? fission.closedAtArgonBlock}:${fission.closedExtrinsicIndex}`;
+    const key = getCloseTransactionKey(fission);
     if (!closeFeesByTransaction.has(key)) closeFeesByTransaction.set(key, fission.closeTxFee);
   }
   const historyFees = history.map(entry => entry.transactionFee);
@@ -363,6 +378,12 @@ function createBitcoinLiquid(
     historyTransactionFees,
     closeTransactionFees,
   });
+}
+
+function getCloseTransactionKey(fission: BitcoinFission): string {
+  return fission.closedExtrinsicIndex === undefined
+    ? `${fission.closedBlockHash ?? fission.closedAtArgonBlock}:close:${fission.fissionId}`
+    : `${fission.closedBlockHash ?? fission.closedAtArgonBlock}:${fission.closedExtrinsicIndex}`;
 }
 
 function getTransactionKey(fission: BitcoinFission, ratchet: IBitcoinFissionRatchetRecord): string {

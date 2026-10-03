@@ -38,7 +38,7 @@ describe('BitcoinFission', () => {
       ],
     });
 
-    current.mergeRecoveredRecord({
+    current.mergeFinalizedRecord({
       ownerAccount: 'owner',
       fissionId: 4,
       liquidId: 7,

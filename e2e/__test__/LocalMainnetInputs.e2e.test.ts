@@ -1,15 +1,6 @@
 import { createHash } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
-import {
-  cpSync,
-  mkdirSync,
-  mkdtempSync,
-  readFileSync,
-  realpathSync,
-  rmSync,
-  symlinkSync,
-  writeFileSync,
-} from 'node:fs';
+import { cpSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import Path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
@@ -75,9 +66,25 @@ describe('local mainnet baseline transfer', () => {
       fileURLToPath(new URL('../local-mainnet/qualificationInputs.ts', import.meta.url)),
       Path.join(inputsDirectory, 'qualificationInputs.ts'),
     );
-    const gitDirectory = spawnSync('git', ['rev-parse', '--absolute-git-dir'], { encoding: 'utf8' });
-    expect(gitDirectory.status, gitDirectory.stderr).toBe(0);
-    symlinkSync(gitDirectory.stdout.trim(), Path.join(buildWorkspace, '.git'), 'dir');
+    const initialized = spawnSync('git', ['init', '--quiet', buildWorkspace], { encoding: 'utf8' });
+    expect(initialized.status, initialized.stderr).toBe(0);
+    const committed = spawnSync(
+      'git',
+      [
+        '-c',
+        'user.name=Fixture',
+        '-c',
+        'user.email=fixture@example.invalid',
+        'commit',
+        '--allow-empty',
+        '-m',
+        'fixture',
+      ],
+      { cwd: buildWorkspace, encoding: 'utf8' },
+    );
+    expect(committed.status, committed.stderr).toBe(0);
+    const tagged = spawnSync('git', ['tag', `v${releasedVersion}`], { cwd: buildWorkspace, encoding: 'utf8' });
+    expect(tagged.status, tagged.stderr).toBe(0);
     writeFileSync(environmentPath, '');
     const build = spawnSync(process.execPath, ['e2e/local-mainnet/qualificationInputs.ts', '--build-inputs'], {
       cwd: buildWorkspace,

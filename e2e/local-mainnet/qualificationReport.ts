@@ -48,7 +48,10 @@ const qualified =
         result.status === 'passed' &&
         result.history &&
         result.history.throughBlock > registry.throughBlock &&
-        isStartingDatabaseComplete(result.history, result.history.throughBlock),
+        isStartingDatabaseComplete(result.history, result.history.throughBlock) &&
+        result.history.expectedBitcoinFissionIds &&
+        result.history.bitcoinFissionIds &&
+        result.history.expectedBitcoinFissionIds.every(id => result.history!.bitcoinFissionIds.includes(id)),
     ),
   ) &&
   accounts.length === registry.accounts.length &&

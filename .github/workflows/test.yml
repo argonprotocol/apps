@@ -134,6 +134,10 @@ jobs:
         if: matrix.suite == 'regular'
         run: yarn vitest --run --project '!storybook' --exclude '**/*.integration.test.ts' --exclude 'e2e/__test__/**/*.e2e.test.ts'
 
+      - name: Download the offline financial replay corpus
+        if: matrix.suite == 'non-e2e'
+        run: yarn download:financial-history-replay
+
       - name: Tests excluding e2e and Storybook
         if: matrix.suite == 'non-e2e'
         # Vitest unions repeated negative project filters, so exclude E2E by file instead.
