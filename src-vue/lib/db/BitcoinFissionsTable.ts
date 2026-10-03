@@ -187,7 +187,7 @@ export class BitcoinFissionsTable extends BaseTable {
       fission.ratchetNumber = recovered.ratchetNumber;
       fission.lastUpdatedArgonBlock = durable.closedAtArgonBlock ?? recovered.lastUpdatedArgonBlock;
     }
-    fission.mergeRecoveredRecord(recovered);
+    fission.mergeFinalizedRecord(recovered);
     if (isMigrationSeed) {
       // Keep both replayed repayment and newer mints already persisted during replay.
       for (const ratchet of fission.ratchets) {

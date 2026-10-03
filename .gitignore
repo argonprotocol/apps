@@ -57,3 +57,4 @@ server/.env
 /docs/superpowers
 /docs/plans
 /runtime-client/src/*.generated.ts
+/.qualification-build

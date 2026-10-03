@@ -1,14 +1,14 @@
+import { integrationNetwork as sharedNetwork } from '@argonprotocol/apps-core/__test__/integration.setup.ts';
 import { Keyring, mnemonicGenerate } from '@argonprotocol/mainchain';
 import { teardown } from '@argonprotocol/testing';
-import { BlockWatch, JsonExt, MainchainClients, NetworkConfig, TransactionEvents } from '@argonprotocol/apps-core';
-import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
-import { startArgonTestNetwork } from '@argonprotocol/apps-core/__test__/startArgonTestNetwork.js';
+import { BlockWatch, JsonExt, MainchainClients, TransactionEvents } from '@argonprotocol/apps-core';
+import { it, beforeAll, afterAll, afterEach, describe, expect, inject, vi } from 'vitest';
+import { integrationAccountUri } from '@argonprotocol/apps-core/__test__/integrationNetwork.ts';
 import { createTestDb } from './helpers/db.ts';
 import { setMainchainClients } from '../stores/mainchain.ts';
 import { TransactionTracker } from '../lib/TransactionTracker.ts';
 import { ExtrinsicType, TransactionStatus } from '../lib/db/TransactionsTable.ts';
 import { TransactionHistorySource, TransactionHistoryStatus } from '../lib/db/TransactionStatusHistoryTable.ts';
-import Path from 'path';
 
 afterAll(teardown);
 
@@ -18,19 +18,14 @@ describe.skipIf(skipE2E).sequential('Transaction tracker tests', { timeout: 60e3
   let clients: MainchainClients;
   let mainchainUrl: string;
   const blockWatches: BlockWatch[] = [];
-  const alice = new Keyring({ type: 'sr25519' }).addFromMnemonic('//Alice');
+  const accountUri = integrationAccountUri(inject('argonIntegrationRunId'), import.meta.filename, 'funded');
+  const alice = new Keyring({ type: 'sr25519' }).addFromUri(accountUri);
 
   beforeAll(async () => {
-    const network = await startArgonTestNetwork(Path.basename(import.meta.filename), {
-      chainStartTimeoutMs: 120_000,
-      chainStartPollMs: 250,
-    });
-
-    mainchainUrl = network.archiveUrl;
+    mainchainUrl = sharedNetwork.archiveUrl;
     clients = new MainchainClients(mainchainUrl);
     setMainchainClients(clients);
-    NetworkConfig.setNetwork('dev-docker');
-  }, 120e3);
+  });
 
   afterEach(() => {
     destroyTrackedBlockWatches();
@@ -81,7 +76,7 @@ describe.skipIf(skipE2E).sequential('Transaction tracker tests', { timeout: 60e3
     const blockwatch = createTrackedBlockWatch();
     const transactionTracker = new TransactionTracker(Promise.resolve(db), blockwatch);
     await transactionTracker.load();
-    const bob = new Keyring({ type: 'sr25519' }).addFromMnemonic('//Bob');
+    const bob = new Keyring({ type: 'sr25519' }).addFromUri(`${accountUri}//recipient`);
     const watchSpy = vi.spyOn(transactionTracker, 'watchForUpdates' as any).mockResolvedValue(undefined);
     const unWatchSpy = vi.spyOn(transactionTracker, 'stopWatching' as any).mockImplementation(() => null);
     {
@@ -149,44 +144,61 @@ describe.skipIf(skipE2E).sequential('Transaction tracker tests', { timeout: 60e3
     }
   });
 
-  it('should record expired watching transactions', async () => {
+  it('expires an unbroadcast transaction after the finalized inclusion window and preserves it on reload', async () => {
     const client = await clients.get(false);
     const db = await createTestDb();
     const blockwatch = createTrackedBlockWatch();
     const transactionTracker = new TransactionTracker(Promise.resolve(db), blockwatch);
-    await transactionTracker.load();
-    const watchSpy = vi.spyOn(transactionTracker, 'watchForUpdates' as any).mockResolvedValue(undefined);
-
-    await transactionTracker.load();
-    const bob = new Keyring({ type: 'sr25519' }).addFromMnemonic('//Bob');
-    const { tx, txResult } = await transactionTracker.submitAndWatch({
-      tx: client.tx.balances.transferAllowDeath(bob.address, 1_000_000n),
-      txSigner: alice,
-      metadata: { testId: 2 },
+    const recipient = new Keyring({ type: 'sr25519' }).addFromUri(`${accountUri}//unbroadcast-recipient`);
+    const account = await client.query.system.account(alice.address);
+    const signed = await client.tx.balances
+      .transferAllowDeath(recipient.address, 1_000_000n)
+      .signAsync(alice, { nonce: account.nonce });
+    const submittedHeader = await client.rpc.chain.getHeader();
+    // The durable record survives a crash between signing and RPC submission.
+    const stored = await db.transactionsTable.insert({
+      extrinsicHash: signed.hash.toHex(),
+      extrinsicMethodJson: signed.method.toHuman(),
+      metadataJson: {},
       extrinsicType: ExtrinsicType.Transfer,
+      accountAddress: alice.address,
+      submittedAtBlockHeight: submittedHeader.number.toNumber(),
+      submittedAtTime: new Date(),
+      txNonce: signed.nonce.toNumber(),
     });
-    expect(tx.status).toBe(TransactionStatus.Submitted);
-    expect(watchSpy).toHaveBeenCalledTimes(1);
+    const pauseWatch = vi.spyOn(transactionTracker, 'watchForUpdates' as any).mockResolvedValue(undefined);
+    await transactionTracker.load();
+    blockwatch.stop();
     blockwatch.latestHeaders = [
-      {
-        isFinalized: true,
-        blockNumber: tx.submittedAtBlockHeight + 65,
-        blockHash: blockwatch.finalizedBlockHeader.blockHash,
-        parentHash: '0xdef',
-        tick: 0,
-        author: '0x123',
-        blockTime: new Date().getTime(),
-      },
+      { ...blockwatch.finalizedBlockHeader, isFinalized: true, blockNumber: stored.submittedAtBlockHeight + 65 },
     ];
-
-    vi.spyOn(TransactionEvents, 'findByExtrinsicHash').mockResolvedValueOnce(undefined);
-    vi.spyOn(client.rpc.author, 'pendingExtrinsics').mockResolvedValueOnce([] as any);
-
-    // @ts-expect-error Now actually watch for updates
-    await transactionTracker.updatePendingStatuses(70);
-    expect(tx.status).toBe(TransactionStatus.TimedOutWaitingForBlock);
-    await expect(txResult.waitForInFirstBlock).rejects.toBeTruthy();
-    await expect(txResult.waitForFinalizedBlock).rejects.toBeTruthy();
+    // Advance the external block clock without waiting for 65 live blocks.
+    const absent = vi.spyOn(TransactionEvents, 'findByExtrinsicHash').mockResolvedValueOnce(undefined);
+    try {
+      const { tx, txResult } = transactionTracker.data.txInfos[0];
+      // @ts-expect-error Exercise the production reconciliation boundary.
+      await transactionTracker.updatePendingStatuses(blockwatch.bestBlockHeader);
+      expect(tx.status).toBe(TransactionStatus.TimedOutWaitingForBlock);
+      await expect(txResult.waitForInFirstBlock).rejects.toBeTruthy();
+      await expect(txResult.waitForFinalizedBlock).rejects.toBeTruthy();
+      expect((await db.transactionsTable.fetchAll())[0].status).toBe(TransactionStatus.TimedOutWaitingForBlock);
+      expect(await db.transactionStatusHistoryTable.fetchByTransactionId(tx.id)).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            status: TransactionHistoryStatus.TimedOutWaitingForBlock,
+            source: TransactionHistorySource.Local,
+          }),
+        ]),
+      );
+      const restored = new TransactionTracker(Promise.resolve(db), createTrackedBlockWatch());
+      await restored.load();
+      expect(restored.data.txInfos[0].tx.status).toBe(TransactionStatus.TimedOutWaitingForBlock);
+      expect(restored.pendingBlockTxInfosAtLoad).toHaveLength(0);
+    } finally {
+      absent.mockRestore();
+      pauseWatch.mockRestore();
+      await db.close();
+    }
   });
 
   it('should restore follow-on transaction links after reload', async () => {

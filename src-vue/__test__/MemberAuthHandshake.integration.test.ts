@@ -1,7 +1,8 @@
+import { integrationNetwork as sharedNetwork } from '@argonprotocol/apps-core/__test__/integration.setup.ts';
 import * as Fs from 'node:fs';
 import os from 'node:os';
 import Path from 'node:path';
-import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
+import { it, beforeAll, afterAll, afterEach, describe, expect, inject } from 'vitest';
 import {
   BlockWatch,
   createOperationalAccessProof,
@@ -14,10 +15,10 @@ import {
   MICROGONS_PER_ARGON,
   NetworkConfig,
   UserRole,
-  TxSubmitter,
   type ArgonClient,
 } from '@argonprotocol/apps-core';
-import { startArgonTestNetwork } from '@argonprotocol/apps-core/__test__/startArgonTestNetwork.js';
+import { integrationAccountUri } from '@argonprotocol/apps-core/__test__/integrationNetwork.ts';
+import { submitAndFinalize } from '@argonprotocol/apps-core/__test__/helpers/mainchain.ts';
 import { sudoFundWallet } from '@argonprotocol/apps-core/__test__/helpers/sudoFundWallet.ts';
 import { u8aToHex } from '@argonprotocol/mainchain';
 import { sudo, teardown } from '@argonprotocol/testing';
@@ -47,7 +48,7 @@ describe.skipIf(skipE2E).sequential('member auth handshake integration', { timeo
   let transactionDb: Awaited<ReturnType<typeof createTestDb>>;
 
   beforeAll(async () => {
-    const network = await startArgonTestNetwork(Path.basename(import.meta.filename));
+    const network = sharedNetwork;
     clients = new MainchainClients(network.archiveUrl);
     setMainchainClients(clients);
     NetworkConfig.setNetwork('dev-docker');
@@ -73,8 +74,12 @@ describe.skipIf(skipE2E).sequential('member auth handshake integration', { timeo
   });
 
   it('restores upstream state and refreshes downstream recovery through the signed member login', async () => {
-    const operatorWalletKeys = createMockWalletKeys('//RestoreOperator');
-    const memberWalletKeys = createMockWalletKeys('//RestoreMember');
+    const operatorWalletKeys = createMockWalletKeys(
+      integrationAccountUri(inject('argonIntegrationRunId'), import.meta.filename, 'operator'),
+    );
+    const memberWalletKeys = createMockWalletKeys(
+      integrationAccountUri(inject('argonIntegrationRunId'), import.meta.filename, 'member'),
+    );
     const restoreKey = `0x${'42'.repeat(32)}`;
     const bootstrapEndpointSecret = await operatorWalletKeys.getOwnServerBootstrapEndpointSecret();
     const defaultAccountKeypair = await memberWalletKeys.getLiquidLockingKeypair();
@@ -115,12 +120,12 @@ describe.skipIf(skipE2E).sequential('member auth handshake integration', { timeo
       rewardsCollectedAmount: 0n,
       isOperationallyCertified: true,
     });
-    const operationalAccountResult = await new TxSubmitter(
+    await submitAndFinalize(
       client,
       client.tx.sudo.sudo(client.tx.system.setStorage([[operationalAccountStorageKey, operationalAccount.toHex()]])),
       sudo(),
-    ).submit({ useLatestNonce: true });
-    await operationalAccountResult.waitForInFirstBlock;
+      { useLatestNonce: true },
+    );
 
     const source = await startUpstream(
       'source',

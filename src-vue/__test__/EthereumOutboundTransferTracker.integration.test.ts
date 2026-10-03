@@ -33,7 +33,7 @@ vi.mock('../stores/mainchain.ts', () => ({
   getEthereumGatewayPauseReason: getEthereumGatewayPauseReasonMock,
 }));
 
-describe('EthereumOutboundTransferTracker integration', () => {
+describe('EthereumOutboundTransferTracker integration', { tags: ['no-argon-network'] }, () => {
   beforeEach(() => {
     vi.clearAllMocks();
     getEthereumGatewayPauseReasonMock.mockResolvedValue(undefined);

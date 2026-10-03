@@ -50,7 +50,7 @@ import { deriveBitcoinLockHdKey, WalletKeys } from './WalletKeys.ts';
 import { TransactionInfo } from './TransactionInfo.ts';
 import { ExtrinsicType } from './db/TransactionsTable.ts';
 import { MyVault } from './MyVault.ts';
-import type { IBitcoinUtxoRecord } from './db/BitcoinUtxosTable.ts';
+import { BitcoinUtxoSpendStatus, type IBitcoinUtxoRecord } from './db/BitcoinUtxosTable.ts';
 import type { IBitcoinFissionRecord } from '../interfaces/IBitcoinFissionRecord.ts';
 import type { IBitcoinLockProcessingDetails, IBitcoinLockSummary } from '../interfaces/IBitcoinLockSummary.ts';
 import { BitcoinLockRecovery, type IBitcoinHistoryReplayUnit } from './recovery/BitcoinLocks.ts';
@@ -685,6 +685,33 @@ export default class BitcoinLocks {
         }
         lock = isNewRecord ? Object.assign(stored, recovered) : this.mergeRecoveredLock(stored, recovered);
         lock.lockId = unit.lockId;
+        const completedActiveRelease = releases.find(release => {
+          return release.id === lock?.activeReleaseId && release.status === BitcoinReleaseStatus.Complete;
+        });
+        if (completedActiveRelease) {
+          lock.activeReleaseId = undefined;
+          if (!lock.removalReason) lock.status = recovered.status;
+        }
+        const activeRelease = releases.find(release => {
+          return (
+            release.id === lock?.activeReleaseId &&
+            release.status !== BitcoinReleaseStatus.Complete &&
+            release.status !== BitcoinReleaseStatus.Cancelled
+          );
+        });
+        if (activeRelease && !lock.removalReason) {
+          for (const id of activeRelease.inputUtxoIds) {
+            const input = utxos.find(utxo => utxo.id === id);
+            if (
+              !input ||
+              input.spendStatus === BitcoinUtxoSpendStatus.Spent ||
+              (input.activeReleaseId && input.activeReleaseId !== activeRelease.id)
+            ) {
+              throw new Error(`Bitcoin release ${activeRelease.id} cannot repair its input reservations`);
+            }
+            await transaction.bitcoinUtxosTable.setActiveRelease(input, activeRelease.id);
+          }
+        }
         await transaction.bitcoinLocksTable.saveRecoveredHistory(lock, lock.createdAt);
         for (const hdKey of unit.hdKeys) await transaction.walletHdKeysTable.upsert(hdKey);
 
@@ -1520,6 +1547,7 @@ export default class BitcoinLocks {
                     header,
                     clientAt,
                     releaseCompletionEvent.record,
+                    events,
                   );
                   return;
                 }
@@ -1686,6 +1714,7 @@ export default class BitcoinLocks {
 
   private mergeRecoveredLock(current: IBitcoinLockRecord, recovered: IBitcoinLockRecord): IBitcoinLockRecord {
     const createdAt = current.createdAt < recovered.createdAt ? current.createdAt : recovered.createdAt;
+    if (recovered.removalReason === 'expired') current.removalReason ??= 'expired';
     assignIfUnset(current, recovered, [
       'removalBlockNumber',
       'removalBlockHash',
@@ -1703,7 +1732,14 @@ export default class BitcoinLocks {
     if (lockId === undefined) return recovered;
 
     const current = this.data.locksByLockId[lockId];
-    if (current) return this.mergeRecoveredLock(current, recovered);
+    if (current) {
+      const activeRelease = this.releases.getActiveForLock(current);
+      if (activeRelease?.status === BitcoinReleaseStatus.Complete) {
+        current.activeReleaseId = undefined;
+        current.status = recovered.status;
+      }
+      return this.mergeRecoveredLock(current, recovered);
+    }
 
     const pendingIndex = this.data.pendingLocks.findIndex(lock => lock.uuid === recovered.uuid);
     if (pendingIndex >= 0) {

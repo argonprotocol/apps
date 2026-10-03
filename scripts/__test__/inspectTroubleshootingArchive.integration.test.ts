@@ -12,7 +12,7 @@ afterEach(async () => {
   await Promise.all(temporaryDirectories.splice(0).map(directory => rm(directory, { recursive: true, force: true })));
 });
 
-describe('troubleshooting archive inspector', () => {
+describe('troubleshooting archive inspector', { tags: ['no-argon-network'] }, () => {
   it('reports an owner-only support bundle without extracting files on the host', async () => {
     const directory = await temporaryDirectory();
     const source = Path.join(directory, 'source');

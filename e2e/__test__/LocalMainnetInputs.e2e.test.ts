@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
-import { cpSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { cpSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import Path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
@@ -42,6 +42,7 @@ describe('local mainnet baseline transfer', () => {
     } as unknown as Awaited<ReturnType<typeof getClient>>);
     const environmentPath = Path.join(directory, 'environment');
     vi.stubEnv('GITHUB_ENV', environmentPath);
+    vi.stubEnv('GITHUB_STEP_SUMMARY', Path.join(directory, 'summary.md'));
     process.argv = [process.execPath, 'qualificationInputs.ts', '--output', Path.join(directory, 'run')];
 
     await import('../local-mainnet/qualificationInputs.ts');
@@ -52,6 +53,52 @@ describe('local mainnet baseline transfer', () => {
     expect(environment).toContain(`EXPECTED_PREVIOUS_APPS_HEAD=${'12'.repeat(20)}\n`);
     expect(environment).toContain(`QUALIFICATION_BLOCK_HASH=${blockHash}\n`);
     expect(disconnect).toHaveBeenCalledOnce();
+
+    // Execute the exact warmer command without workspace packages or generated clients.
+    const buildWorkspace = Path.join(directory, 'build-workspace');
+    const inputsDirectory = Path.join(buildWorkspace, 'e2e/local-mainnet');
+    mkdirSync(inputsDirectory, { recursive: true });
+    for (const path of ['package.json', 'release-channels/desktop-stable.json', 'server/.env.mainnet']) {
+      mkdirSync(Path.dirname(Path.join(buildWorkspace, path)), { recursive: true });
+      cpSync(path, Path.join(buildWorkspace, path));
+    }
+    cpSync(
+      fileURLToPath(new URL('../local-mainnet/qualificationInputs.ts', import.meta.url)),
+      Path.join(inputsDirectory, 'qualificationInputs.ts'),
+    );
+    const initialized = spawnSync('git', ['init', '--quiet', buildWorkspace], { encoding: 'utf8' });
+    expect(initialized.status, initialized.stderr).toBe(0);
+    const committed = spawnSync(
+      'git',
+      [
+        '-c',
+        'user.name=Fixture',
+        '-c',
+        'user.email=fixture@example.invalid',
+        'commit',
+        '--allow-empty',
+        '-m',
+        'fixture',
+      ],
+      { cwd: buildWorkspace, encoding: 'utf8' },
+    );
+    expect(committed.status, committed.stderr).toBe(0);
+    const tagged = spawnSync('git', ['tag', `v${releasedVersion}`], { cwd: buildWorkspace, encoding: 'utf8' });
+    expect(tagged.status, tagged.stderr).toBe(0);
+    writeFileSync(environmentPath, '');
+    const build = spawnSync(process.execPath, ['e2e/local-mainnet/qualificationInputs.ts', '--build-inputs'], {
+      cwd: buildWorkspace,
+      env: { ...process.env, RUNNER_TEMP: directory, GITHUB_WORKSPACE: buildWorkspace, GITHUB_ENV: environmentPath },
+      encoding: 'utf8',
+    });
+    expect(build.status, build.stderr).toBe(0);
+    const buildEnvironment = readFileSync(environmentPath, 'utf8');
+    expect(buildEnvironment).toContain(
+      `PREVIOUS_APPS_DIRECTORY=${buildWorkspace}/.qualification-build/previous-apps\n`,
+    );
+    expect(buildEnvironment).toContain(`MAINCHAIN_DIRECTORY=${buildWorkspace}/.qualification-build/mainchain\n`);
+    expect(buildEnvironment).toContain(`PREVIOUS_APPS_REF=v${releasedVersion}\n`);
+    expect(buildEnvironment).not.toContain('QUALIFICATION_BLOCK_HASH');
   });
 
   it('resolves copied baseline databases relative to their manifest, not the preparation runner', () => {

@@ -1,4 +1,4 @@
-import Path from 'node:path';
+import { randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import {
   Currency,
@@ -91,7 +91,8 @@ type EthereumMintingGatewayFixture = Awaited<ReturnType<TestEthereum['deployMint
 type TestEthereumPublicClient = ReturnType<typeof createEthereumPublicClient>;
 type TestEthereumWalletClient = ReturnType<typeof createEthereumWalletClient>;
 
-describe.skipIf(skipE2E || !TestEthereum.isInstalled())('EthereumCrosschain integration', { timeout: 240e3 }, () => {
+// prettier-ignore
+describe.skipIf(skipE2E || !TestEthereum.isInstalled())('EthereumCrosschain integration', { tags: ['isolated-argon-network'], timeout: 240e3 }, () => {
   let ethereum: TestEthereum;
   let network: StartedArgonTestNetwork;
   let mainchainClients: MainchainClients;
@@ -127,7 +128,7 @@ describe.skipIf(skipE2E || !TestEthereum.isInstalled())('EthereumCrosschain inte
   let didTransferArgonToEthereum = false;
 
   beforeAll(async () => {
-    network = await startArgonTestNetwork(Path.basename(import.meta.filename), {
+    network = await startArgonTestNetwork(`ethereum-crosschain-${randomUUID()}`, {
       profiles: ['bob'],
       chainStartTimeoutMs: 120_000,
       chainStartPollMs: 250,

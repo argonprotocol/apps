@@ -8,12 +8,17 @@ import { NetworkConfig, NetworkConfigSettings } from '../src/NetworkConfig.ts';
 import { stripNetworkPrefix, toComposeProjectName } from '../src/utils.ts';
 import { type ArgonClient as PolkadotArgonClient, getClient } from '@argonprotocol/mainchain';
 import { createArgonClient, type ArgonClient } from '../src/MainchainClients.ts';
+import { acquireIntegrationLock } from './helpers/locks.ts';
 
 type StartProfile = 'miners' | 'bob' | 'dave' | 'all' | 'price-oracle';
 const __dirname = fileURLToPath(new URL('.', import.meta.url));
 const REPO_ROOT = Path.resolve(__dirname, '..', '..');
-const COMPOSE_DIR = Path.resolve(__dirname, '..', '..', 'e2e/argon');
-const COMPOSE_CONFIG = ['docker-compose.yml', 'upstream-server.docker-compose.yml', 'indexer.docker-compose.yml'];
+export const COMPOSE_DIR = Path.resolve(__dirname, '..', '..', 'e2e/argon');
+export const COMPOSE_CONFIG = [
+  'docker-compose.yml',
+  'upstream-server.docker-compose.yml',
+  'indexer.docker-compose.yml',
+];
 
 export interface StartArgonTestNetworkOptions {
   shouldLog?: boolean;
@@ -126,10 +131,18 @@ export interface StartedArgonTestNetwork {
 
 const DEFAULT_CHAIN_START_TIMEOUT_MS = 120_000;
 const DEFAULT_CHAIN_START_POLL_MS = 500;
-const SERVER_OUTPUT_EXCLUSIONS = [Path.resolve(REPO_ROOT, 'server/bot/src')];
+const SERVER_OUTPUT_EXCLUSIONS = [
+  Path.resolve(REPO_ROOT, 'server/bot/src'),
+  Path.resolve(REPO_ROOT, 'server/router/src'),
+];
 const SERVER_BUNDLE_INPUTS = [
   Path.resolve(REPO_ROOT, 'bot/src'),
   Path.resolve(REPO_ROOT, 'core/src'),
+  Path.resolve(REPO_ROOT, 'router/src'),
+  Path.resolve(REPO_ROOT, 'router/server.ts'),
+  Path.resolve(REPO_ROOT, 'router/package.json'),
+  Path.resolve(REPO_ROOT, 'router/tsconfig.json'),
+  Path.resolve(REPO_ROOT, 'router/tsup.config.ts'),
   Path.resolve(REPO_ROOT, 'server'),
   Path.resolve(REPO_ROOT, 'bot/package.json'),
   Path.resolve(REPO_ROOT, 'bot/tsconfig.json'),
@@ -144,9 +157,17 @@ export async function startArgonTestNetwork(
   uniqueTestName: string,
   options: StartArgonTestNetworkOptions = {},
 ): Promise<StartedArgonTestNetwork> {
-  await ensureIndexerBundle();
-  await ensureServerBundle();
-  ensureDockerComposeAssets();
+  const releaseAssets = await acquireIntegrationLock(
+    'network-assets',
+    Path.join(REPO_ROOT, 'e2e/artifacts/integration-locks'),
+  );
+  try {
+    await ensureIndexerBundle();
+    await ensureServerBundle();
+    ensureDockerComposeAssets();
+  } finally {
+    await releaseAssets();
+  }
 
   NetworkConfig.setNetwork('dev-docker');
 
@@ -154,119 +175,133 @@ export async function startArgonTestNetwork(
   const composeEnv: Record<string, string> = {
     ...process.env,
     RPC_PORT: '0',
+    ARCHIVE_NODE_RPC_PORT: '0',
     COMPOSE_PROJECT_NAME:
       options.composeProjectName ??
       toComposeProjectName(uniqueTestName, process.env.ARGON_NETWORK_NAME ?? 'dev-docker'),
     PATH: `${process.env.PATH ?? ''}:/opt/homebrew/bin:/usr/local/bin`,
   };
 
-  async function stop(): Promise<void> {
-    await docker.downAll({
-      log: options.shouldLog ?? false,
-      commandOptions: ['--volumes', '--timeout=0'],
-      composeOptions,
-      config: COMPOSE_CONFIG,
-      cwd: COMPOSE_DIR,
-      env: composeEnv,
-    });
-  }
+  const stop = () => stopArgonTestNetwork(composeEnv.COMPOSE_PROJECT_NAME, options);
 
   if (options.registerTeardown ?? true) {
     runOnTeardown(stop);
   }
   await stop();
 
-  await docker.upAll({
-    log: options.shouldLog ?? false,
-    commandOptions: ['--force-recreate', '--remove-orphans', '--pull=missing'],
-    composeOptions,
-    config: COMPOSE_CONFIG,
-    cwd: COMPOSE_DIR,
-    env: composeEnv,
-  });
-
-  const portResult = await docker.port('archive-node', '9944', {
-    config: COMPOSE_CONFIG,
-    cwd: COMPOSE_DIR,
-    env: composeEnv,
-  });
-  const archiveRpcPortResult = await docker.port('archive-rpc', '9944', {
-    config: COMPOSE_CONFIG,
-    cwd: COMPOSE_DIR,
-    env: composeEnv,
-  });
-  const esploraPortResult = await docker.port('bitcoin-electrs', '3002', {
-    config: COMPOSE_CONFIG,
-    cwd: COMPOSE_DIR,
-    env: composeEnv,
-  });
-  const indexerPortResult = await docker
-    .port('indexer', '3262', {
+  try {
+    await docker.upAll({
+      log: options.shouldLog ?? false,
+      commandOptions: ['--force-recreate', '--remove-orphans', '--pull=missing'],
+      composeOptions,
       config: COMPOSE_CONFIG,
       cwd: COMPOSE_DIR,
       env: composeEnv,
-    })
-    .catch(() => null);
-  const notaryPortResult = await docker.port('notary', '9925', {
+    });
+
+    const portResult = await docker.port('archive-node', '9944', {
+      config: COMPOSE_CONFIG,
+      cwd: COMPOSE_DIR,
+      env: composeEnv,
+    });
+    const archiveRpcPortResult = await docker.port('archive-rpc', '9944', {
+      config: COMPOSE_CONFIG,
+      cwd: COMPOSE_DIR,
+      env: composeEnv,
+    });
+    const esploraPortResult = await docker.port('bitcoin-electrs', '3002', {
+      config: COMPOSE_CONFIG,
+      cwd: COMPOSE_DIR,
+      env: composeEnv,
+    });
+    const indexerPortResult = await docker
+      .port('indexer', '3262', {
+        config: COMPOSE_CONFIG,
+        cwd: COMPOSE_DIR,
+        env: composeEnv,
+      })
+      .catch(() => null);
+    const notaryPortResult = await docker.port('notary', '9925', {
+      config: COMPOSE_CONFIG,
+      cwd: COMPOSE_DIR,
+      env: composeEnv,
+    });
+    // Keep Docker's allocated ports when another process starts dependent services.
+    composeEnv.ARCHIVE_NODE_RPC_PORT = String(portResult.data.port);
+    composeEnv.RPC_PORT = String(archiveRpcPortResult.data.port);
+    const port = portResult.data.port;
+    const archiveUrl = `ws://127.0.0.1:${port}`;
+    const archiveRpcUrl = `ws://127.0.0.1:${archiveRpcPortResult.data.port}`;
+    const client = createArgonClient(await getClient(archiveUrl));
+    try {
+      await waitForFirstMainchainBlock(client, archiveUrl, {
+        timeoutMs: Number.isFinite(options.chainStartTimeoutMs ?? NaN)
+          ? Number(options.chainStartTimeoutMs)
+          : DEFAULT_CHAIN_START_TIMEOUT_MS,
+        pollMs: Number.isFinite(options.chainStartPollMs ?? NaN)
+          ? Number(options.chainStartPollMs)
+          : DEFAULT_CHAIN_START_POLL_MS,
+        composeProjectName:
+          options.composeProjectName ??
+          toComposeProjectName(uniqueTestName, process.env.ARGON_NETWORK_NAME ?? 'dev-docker'),
+      });
+      await waitForQueryableClient(archiveRpcUrl, {
+        timeoutMs: options.chainStartTimeoutMs ?? DEFAULT_CHAIN_START_TIMEOUT_MS,
+        pollMs: options.chainStartPollMs ?? DEFAULT_CHAIN_START_POLL_MS,
+        label: `archive RPC ${archiveRpcUrl}`,
+      });
+
+      const miningConfig = await NetworkConfig.loadConfigs(client);
+      console.log('Loaded mining config:', miningConfig);
+      const updatedConfig: Record<string, unknown> = {
+        ...miningConfig,
+        archiveUrl,
+        bitcoinBlockMillis: miningConfig.tickMillis * 10,
+        esploraHost: `http://localhost:${esploraPortResult.data.port}`,
+      };
+      if (indexerPortResult?.data?.port) {
+        updatedConfig.indexerHost = `http://localhost:${indexerPortResult.data.port}`;
+      }
+      Object.assign(NetworkConfigSettings['dev-docker'], updatedConfig);
+
+      return {
+        archiveUrl,
+        networkConfigOverride: {
+          archiveUrl: archiveRpcUrl,
+          bitcoinBlockMillis: updatedConfig.bitcoinBlockMillis as number,
+          esploraHost: updatedConfig.esploraHost as string,
+          ...(updatedConfig.indexerHost ? { indexerHost: updatedConfig.indexerHost as string } : {}),
+        },
+        composeEnv,
+        notaryUrl: `ws://127.0.0.1:${notaryPortResult.data.port}`,
+        stop,
+        getPort(service, internalPort) {
+          return docker
+            .port(service, internalPort, { config: COMPOSE_CONFIG, cwd: COMPOSE_DIR, env: composeEnv })
+            .then(res => res.data.port);
+        },
+      };
+    } finally {
+      await client.disconnect();
+    }
+  } catch (error) {
+    await stop().catch(cleanupError => console.error('[Integration] Network cleanup failed:', cleanupError));
+    throw error;
+  }
+}
+
+export async function stopArgonTestNetwork(
+  composeProjectName: string,
+  options: Pick<StartArgonTestNetworkOptions, 'profiles' | 'shouldLog'> = {},
+): Promise<void> {
+  await docker.downAll({
+    log: options.shouldLog ?? false,
+    commandOptions: ['--volumes', '--timeout=0'],
+    composeOptions: options.profiles?.map(profile => `--profile=${profile}`) ?? [],
     config: COMPOSE_CONFIG,
     cwd: COMPOSE_DIR,
-    env: composeEnv,
+    env: { ...process.env, COMPOSE_PROJECT_NAME: composeProjectName },
   });
-  const port = portResult.data.port;
-  const archiveUrl = `ws://127.0.0.1:${port}`;
-  const archiveRpcUrl = `ws://127.0.0.1:${archiveRpcPortResult.data.port}`;
-  const client = createArgonClient(await getClient(archiveUrl));
-  await waitForFirstMainchainBlock(client, archiveUrl, {
-    timeoutMs: Number.isFinite(options.chainStartTimeoutMs ?? NaN)
-      ? Number(options.chainStartTimeoutMs)
-      : DEFAULT_CHAIN_START_TIMEOUT_MS,
-    pollMs: Number.isFinite(options.chainStartPollMs ?? NaN)
-      ? Number(options.chainStartPollMs)
-      : DEFAULT_CHAIN_START_POLL_MS,
-    composeProjectName:
-      options.composeProjectName ??
-      toComposeProjectName(uniqueTestName, process.env.ARGON_NETWORK_NAME ?? 'dev-docker'),
-  });
-  await waitForQueryableClient(archiveRpcUrl, {
-    timeoutMs: options.chainStartTimeoutMs ?? DEFAULT_CHAIN_START_TIMEOUT_MS,
-    pollMs: options.chainStartPollMs ?? DEFAULT_CHAIN_START_POLL_MS,
-    label: `archive RPC ${archiveRpcUrl}`,
-  });
-
-  try {
-    const miningConfig = await NetworkConfig.loadConfigs(client);
-    console.log('Loaded mining config:', miningConfig);
-    const updatedConfig: Record<string, unknown> = {
-      ...miningConfig,
-      archiveUrl,
-      bitcoinBlockMillis: miningConfig.tickMillis * 10,
-      esploraHost: `http://localhost:${esploraPortResult.data.port}`,
-    };
-    if (indexerPortResult?.data?.port) {
-      updatedConfig.indexerHost = `http://localhost:${indexerPortResult.data.port}`;
-    }
-    Object.assign(NetworkConfigSettings['dev-docker'], updatedConfig);
-
-    return {
-      archiveUrl,
-      networkConfigOverride: {
-        archiveUrl: archiveRpcUrl,
-        bitcoinBlockMillis: updatedConfig.bitcoinBlockMillis as number,
-        esploraHost: updatedConfig.esploraHost as string,
-        ...(updatedConfig.indexerHost ? { indexerHost: updatedConfig.indexerHost as string } : {}),
-      },
-      composeEnv,
-      notaryUrl: `ws://127.0.0.1:${notaryPortResult.data.port}`,
-      stop,
-      getPort(service, internalPort) {
-        return docker
-          .port(service, internalPort, { config: COMPOSE_CONFIG, cwd: COMPOSE_DIR, env: composeEnv })
-          .then(res => res.data.port);
-      },
-    };
-  } finally {
-    await client.disconnect();
-  }
 }
 
 export async function waitForQueryableClient(

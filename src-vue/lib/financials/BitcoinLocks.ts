@@ -187,14 +187,14 @@ export function createBitcoinLiquidPositions(
     const hasCompleteInsurance = !insurance.incompleteLiquidIds.has(liquidId);
     let hasCompleteReturn =
       hasCompleteInsurance && uniqueLocks.length === new Set(liquidFissions.map(fission => fission.lockId)).size;
-    let hasCompleteTransactionFees = liquid.historyTransactionFees !== undefined;
+    let hasCompleteTransactionFees = liquid.transactionFees !== undefined;
     let startingCapital = 0n;
     let performanceBitcoinValue = 0n;
     let recordedPrincipal = 0n;
     let receivedLiquidity = 0n;
     let pendingLiquidity = 0n;
     let repaymentAmount = 0n;
-    let transactionFees = liquid.historyTransactionFees ?? 0n;
+    let transactionFees = liquid.transactionFees ?? liquid.historyTransactionFees ?? 0n;
 
     for (const fission of liquidFissions) {
       const summary = summariesByLockId.get(fission.lockId);
@@ -251,9 +251,11 @@ export function createBitcoinLiquidPositions(
     let financialLiquid = liquid;
     if (!isActive) {
       let closeTransactionFees = liquid.closeTransactionFees;
-      if (closeTransactionFees !== undefined) {
-        transactionFees += closeTransactionFees;
-      } else if (liquidFissions.length === 1 && liquidFissions[0].origin === 'lock-migration') {
+      if (
+        closeTransactionFees === undefined &&
+        liquidFissions.length === 1 &&
+        liquidFissions[0].origin === 'lock-migration'
+      ) {
         const summary = summariesByLockId.get(liquidFissions[0].lockId);
         if (summary?.historicalTransactionFees === undefined) {
           hasCompleteTransactionFees = false;
@@ -261,8 +263,9 @@ export function createBitcoinLiquidPositions(
           // Liquid history already includes the Fission fees; add only the release fees from the lock summary.
           closeTransactionFees = bigIntMax(summary.historicalTransactionFees - summary.transactionFees, 0n);
           transactionFees += closeTransactionFees;
+          hasCompleteTransactionFees = liquid.historyTransactionFees !== undefined;
         }
-      } else {
+      } else if (closeTransactionFees === undefined) {
         hasCompleteTransactionFees = false;
       }
       if (closeTransactionFees !== undefined && liquid.closeTransactionFees === undefined) {

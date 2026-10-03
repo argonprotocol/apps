@@ -22,10 +22,12 @@ function shouldIgnoreWatchedPath(path: string): boolean {
   const watchedPath = path.replace(/\\/g, '/');
   const normalizedPath = watchedPath.startsWith('/') ? watchedPath : `/${watchedPath}`;
   const isSrcTauriPath = normalizedPath.includes('/src-tauri/') || normalizedPath.endsWith('/src-tauri');
+  const isQualificationBuildPath =
+    normalizedPath.includes('/.qualification-build/') || normalizedPath.endsWith('/.qualification-build');
   const isUniswapE2ePath =
     normalizedPath.includes('/e2e/argon/uniswap/') || normalizedPath.endsWith('/e2e/argon/uniswap');
 
-  if (isSrcTauriPath) return true;
+  if (isSrcTauriPath || isQualificationBuildPath) return true;
   if (!normalizedPath.includes('/e2e/')) return false;
 
   return !isUniswapE2ePath;
@@ -162,7 +164,7 @@ export default defineConfig(async ({ mode }) => {
             }
           : undefined,
       watch: {
-        // 3. tell vite to ignore watching `src-tauri` and non-uniswap e2e files
+        // 3. Ignore Rust/build checkouts and non-uniswap e2e files.
         ignored: shouldIgnoreWatchedPath,
       },
     },

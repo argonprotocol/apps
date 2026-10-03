@@ -3,7 +3,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { storybookTest } from '@storybook/addon-vitest/vitest-plugin';
 import { playwright } from '@vitest/browser-playwright';
-import { defineConfig } from 'vitest/config';
+import { configDefaults, defineConfig } from 'vitest/config';
 
 const INTEGRATION_TEST_GLOB = '**/__test__/**/*.integration.test.ts';
 const E2E_TEST_GLOB = 'e2e/__test__/**/*.e2e.test.ts';
@@ -41,8 +41,8 @@ export default defineConfig({
             instances: [{ browser: 'chromium' }],
             commands: storybookScreenshotDir
               ? {
-                  captureStory: async ({ frame }, name: string) => {
-                    const storyFrame = await frame();
+                  captureStory: async (context, name: string) => {
+                    const storyFrame = await context.frame();
                     await storyFrame.evaluate(() => {
                       (document.activeElement as HTMLElement | null)?.blur();
                       document.querySelectorAll('img').forEach(image => (image.loading = 'eager'));
@@ -149,21 +149,31 @@ export default defineConfig({
       {
         test: {
           name: 'integration',
+          tags: [
+            {
+              name: 'no-argon-network',
+              description: 'Uses local data or an external transport without an Argon network.',
+            },
+            { name: 'isolated-argon-network', description: 'Controls protocol state on a dedicated Argon network.' },
+            {
+              name: 'exclusive-argon-network',
+              description: 'Uses the shared chain exclusively with its price oracle paused.',
+              concurrent: false,
+            },
+            { name: 'mining-auction', description: 'Needs exclusive access to the shared mining auction.' },
+          ],
           testTimeout: 240_000,
           hookTimeout: 120_000,
           include: [INTEGRATION_TEST_GLOB],
-          globalSetup: './src-vue/__test__/FinancialHistoryReplay.globalSetup.ts',
-          setupFiles: APP_SETUP_FILE,
-          fileParallelism: false,
-          maxWorkers: 1,
-          sequence: {
-            concurrent: false,
-            groupOrder: 1,
-            shuffle: false,
-          },
-          env: {
-            ROUTER_URL: 'na',
-          },
+          exclude: configDefaults.exclude,
+          globalSetup: './core/__test__/integration.globalSetup.ts',
+          setupFiles: [APP_SETUP_FILE, './core/__test__/integration.setup.ts'],
+          fileParallelism: process.env.FINANCIAL_HISTORY_REPLAY_CAPTURE !== '1',
+          maxWorkers:
+            process.env.FINANCIAL_HISTORY_REPLAY_CAPTURE === '1' ? 1 : (process.env.VITEST_INTEGRATION_WORKERS ?? 3),
+          retry: 0,
+          sequence: { concurrent: false, groupOrder: 1 },
+          env: { ROUTER_URL: 'na' },
         },
       },
       {
@@ -192,9 +202,7 @@ export default defineConfig({
             E2E_SCREENSHOT_DIR: process.env.E2E_SCREENSHOT_DIR ?? '',
             E2E_SCREENSHOT_SESSION: process.env.E2E_SCREENSHOT_SESSION ?? '',
           },
-          deps: {
-            inline: ['@argonprotocol/apps-core'],
-          },
+          server: { deps: { inline: ['@argonprotocol/apps-core'] } },
         },
       },
     ],

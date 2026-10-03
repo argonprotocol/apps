@@ -1,3 +1,4 @@
+import { integrationNetwork as sharedNetwork } from '@argonprotocol/apps-core/__test__/integration.setup.ts';
 import { teardown } from '@argonprotocol/testing';
 import {
   AccountActivityKind,
@@ -7,11 +8,11 @@ import {
   NetworkConfig,
   TxSubmitter,
 } from '@argonprotocol/apps-core';
-import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
-import { startArgonTestNetwork } from '@argonprotocol/apps-core/__test__/startArgonTestNetwork.js';
+import { it, beforeAll, afterAll, describe, expect, inject, vi } from 'vitest';
+import { integrationAccountUri } from '@argonprotocol/apps-core/__test__/integrationNetwork.ts';
 import { createTestDb } from './helpers/db.ts';
 import { setMainchainClients } from '../stores/mainchain.ts';
-import Path from 'path';
+import { waitFor } from '@argonprotocol/apps-core/__test__/helpers/waitFor.ts';
 import { WalletsForArgon } from '../lib/WalletsForArgon.ts';
 import { type IIndexedWalletActivityBlock, WalletHistoryRecovery } from '../lib/recovery/WalletHistory.ts';
 import { createTestWallet } from './helpers/wallet.ts';
@@ -46,20 +47,17 @@ describe
     let clients: MainchainClients;
     let mainchainUrl: string;
     let transferBlocks: number[] = [];
-    const { walletKeys, operationalAccount } = createTestWallet('//Alice');
+    const runId = inject('argonIntegrationRunId');
+    const accountUri = integrationAccountUri(runId, import.meta.filename, 'funded');
+    const { walletKeys, operationalAccount } = createTestWallet(
+      integrationAccountUri(runId, import.meta.filename, 'wallet'),
+    );
 
     beforeAll(async () => {
-      const network = await startArgonTestNetwork(Path.basename(import.meta.filename), {
-        profiles: ['miners'],
-        chainStartTimeoutMs: 120_000,
-        chainStartPollMs: 250,
-      });
-
-      mainchainUrl = network.archiveUrl;
+      mainchainUrl = sharedNetwork.archiveUrl;
       clients = new MainchainClients(mainchainUrl);
       setMainchainClients(clients);
-      NetworkConfig.setNetwork('dev-docker');
-    }, 120e3);
+    });
 
     afterAll(async () => {
       await clients.disconnect();
@@ -89,19 +87,20 @@ describe
         expect(walletsForArgon.operationalWallet.totalMicrogons).toBe(0n);
         expect(walletsForArgon.defaultArgonWallet.totalMicrogons).toBe(0n);
 
-        const alice = new Keyring({ type: 'sr25519' }).addFromMnemonic('//Alice');
+        const alice = new Keyring({ type: 'sr25519' }).addFromUri(accountUri);
         const result = await new TxSubmitter(
           client,
           client.tx.balances.transferKeepAlive(operationalAccount.address, 5_000_000n),
           alice,
         ).submit();
         await result.waitForInFirstBlock;
-        transferBlocks = [result.blockNumber!];
         await expect(didGetOperationalBalance.promise).resolves.toBeUndefined();
         expect(walletsForArgon.operationalWallet.availableMicrogons).toBe(5_000_000n);
         expect(onBalanceChange).toHaveBeenCalledWith('operational');
         expect(walletsForArgon.defaultArgonWallet.totalMicrogons).toBe(0n);
-        await result.waitForFinalizedBlock;
+        const finalizedHash = await result.waitForFinalizedBlock;
+        const finalizedHeader = await client.rpc.chain.getHeader(finalizedHash);
+        transferBlocks = [finalizedHeader.number.toNumber()];
         if (!walletsForArgon.finalizedBlock || walletsForArgon.finalizedBlock.blockNumber < result.blockNumber!) {
           await new Promise(resolve => {
             const unsub = walletsForArgon.events.on('sync:finalized', h => {
@@ -150,19 +149,25 @@ describe
       });
       const fetchMainchainRatesAtBlock = vi.spyOn(Currency.prototype, 'fetchMainchainRatesAtBlock');
       try {
+        await blockWatch.start();
+        await waitFor(
+          15_000,
+          'recovery source includes the finalized transfer',
+          async () => blockWatch.finalizedBlockHeader.blockNumber >= Math.max(...transferBlocks),
+        );
+        const recoveryTarget = blockWatch.finalizedBlockHeader.blockNumber;
         const spy = vi
           .spyOn(walletHistoryRecovery, 'findActivityBlocks')
           .mockImplementation(async (address, blocks) => {
             if (address === walletKeys.operationalAddress) await addIndexedBlocks(blockWatch, blocks, transferBlocks);
-            return { asOfBlock: blockWatch.finalizedBlockHeader.blockNumber, definitionVersion: 1 };
+            return { asOfBlock: recoveryTarget, definitionVersion: 1 };
           });
-        await blockWatch.start();
         await walletHistoryRecovery.prepare();
-        await walletHistoryRecovery.recoverNow(blockWatch.finalizedBlockHeader.blockNumber);
+        await walletHistoryRecovery.recoverNow(recoveryTarget);
 
         expect(spy).toHaveBeenCalledTimes(3);
         await expect(db.syncStateTable.get(SyncStateKeys.WalletHistory)).resolves.toEqual({
-          asOfBlock: blockWatch.finalizedBlockHeader.blockNumber,
+          asOfBlock: recoveryTarget,
           addresses: [...new Set([...walletsForArgon.addresses, walletKeys.legacyMiningHoldAddress])].sort(),
           activityMasks: {
             [walletKeys.defaultArgonAddress]: custodyFlowActivityMask,
@@ -177,7 +182,7 @@ describe
         expect(onRecovered).toHaveBeenCalledWith({
           transfers: db.walletTransfersTable.revision,
           argonotCustody: db.walletTransfersTable.argonotCustodyRevision,
-          asOfBlock: blockWatch.finalizedBlockHeader.blockNumber,
+          asOfBlock: recoveryTarget,
         });
         expect(transfers).toEqual(
           expect.arrayContaining([

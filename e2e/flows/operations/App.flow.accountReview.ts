@@ -375,11 +375,29 @@ export default new OperationalFlow<IAccountReviewFlowContext, IAccountReviewFlow
     };
   },
   async run({ flow }) {
-    const ready = await flow.poll<IAccountReviewFlowState>(latest => latest.uiState.dataReady, {
-      pollMs: 1_000,
-      timeoutMs: 60_000,
-      timeoutMessage: 'Account did not finish loading its readonly state.',
-    });
+    let readinessBlockers: string[] = [];
+    const ready = await flow
+      .poll<IAccountReviewFlowState>(
+        latest => {
+          readinessBlockers = latest.blockers;
+          const bitcoinInventoryLoaded =
+            latest.uiState.expectedVaultBitcoinMapItemCount === undefined ||
+            latest.chainState.vaultBitcoinMapItemCount >= latest.uiState.expectedVaultBitcoinMapItemCount;
+          const bondInventoryLoaded =
+            latest.uiState.expectedVaultBondMapItemCount === undefined ||
+            latest.chainState.vaultBondMapItemCount >= latest.uiState.expectedVaultBondMapItemCount;
+          return latest.uiState.dataReady && bitcoinInventoryLoaded && bondInventoryLoaded;
+        },
+        {
+          pollMs: 1_000,
+          timeoutMs: 60_000,
+          timeoutMessage: 'Account did not finish loading its readonly state.',
+        },
+      )
+      .catch((error: unknown) => {
+        const message = error instanceof Error ? error.message : String(error);
+        throw new Error(`${message} Blockers: ${readinessBlockers.join('; ')}`, { cause: error });
+      });
     const financialSnapshot = ready.chainState.financialSnapshot;
     if (!financialSnapshot) throw new Error('Account review did not produce financial state');
     if (ready.uiState.expectationFailures.length) {

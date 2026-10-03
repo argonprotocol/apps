@@ -339,7 +339,7 @@ export class BitcoinLockRecovery {
         if (
           lock.removalBlockNumber == null ||
           lock.removalTick != null ||
-          (lock.removalReason !== 'released' && lock.removalReason !== 'spent') ||
+          (lock.removalReason !== 'released' && lock.removalReason !== 'spent' && lock.removalReason !== 'expired') ||
           !lock.ratchets.some(ratchet => ratchet.mintAmount > 0n)
         ) {
           return lock;
@@ -745,6 +745,8 @@ export class BitcoinLockRecovery {
         const creationRatchet = recovered.ratchets[0];
         if (!creationRatchet) throw new Error(`Bitcoin lock ${recovered.utxoId} is missing its creation ratchet`);
         this.applyHistoricalLockSnapshot(recovered, chainLock);
+        recovered.liquidityPromised = chainLock.liquidityPromised;
+        recovered.lockedTargetPrice = chainLock.lockedTargetPrice;
         if (event.method === 'SecuritizationIncreased') {
           const grossFee = bigIntMax(chainLock.securityFees - previousSecurityFees, 0n);
           const recordedCoupon = bigIntMax(chainLock.couponFeesPaid - previousCouponFeesPaid, 0n);
@@ -897,10 +899,13 @@ export class BitcoinLockRecovery {
           });
         }
         let fundingUtxos = this.getRecoveredFundingUtxos(recovered);
-        if (!fundingUtxos.length) {
+        // Numbered releases freeze a funding set that can differ from earlier replayed funding.
+        if (releaseRequest.releaseNumber !== undefined || !fundingUtxos.length) {
           const recoveredFundingUtxos = await getHistoricalBitcoinFundingUtxos(api, utxoId, recovered.satoshis);
           if (recoveredFundingUtxos.length) {
             fundingUtxos = await this.syncRecoveredFundingUtxos(recovered, recoveredFundingUtxos);
+          } else if (releaseRequest.releaseNumber !== undefined) {
+            throw new Error(`Bitcoin lock ${utxoId} release funding is unavailable at block ${block.blockNumber}`);
           }
         }
         if (!fundingUtxos.length) throw new Error(`Bitcoin lock ${utxoId} release has no recovered funding inputs`);
@@ -997,7 +1002,7 @@ export class BitcoinLockRecovery {
           event.method === 'BitcoinSpentAfterRelease' ||
           ((event.method === 'BitcoinLockBurned' || event.method === 'BitcoinLockTerminated') &&
             event.data.wasUtxoSpent);
-        if (bitcoinWasReleased && !isPartialRelease) this.closeSecuritizationTerm(block, eventRecords[eventIndex]);
+        if (!isPartialRelease) this.closeSecuritizationTerm(block, eventRecords[eventIndex]);
 
         const recovered = this.createDetachedRecord(record);
         const phase = eventRecords[eventIndex].phase;
@@ -1025,14 +1030,26 @@ export class BitcoinLockRecovery {
             throw new Error(`Bitcoin release ${release.id} has no expected change transaction`);
           }
           const retainedLock = await getHistoricalBitcoinLock(api, utxoId);
-          if (!retainedLock || retainedLock.fundedSatoshis !== release.changeSatoshis) {
+          const expiredAfterSettlement = eventRecords.slice(eventIndex + 1).some(candidate => {
+            return (
+              phase.type === 'ApplyExtrinsic' &&
+              candidate.phase.type === 'ApplyExtrinsic' &&
+              candidate.phase.value === phase.value &&
+              candidate.event.section === 'bitcoinLocks' &&
+              candidate.event.method === 'BitcoinLockTerminated' &&
+              candidate.event.data.lockId === utxoId &&
+              !candidate.event.data.wasUtxoSpent
+            );
+          });
+          if (
+            (!retainedLock && !expiredAfterSettlement) ||
+            (retainedLock && retainedLock.fundedSatoshis !== release.changeSatoshis)
+          ) {
             throw new Error(`Bitcoin release ${release.id} does not match its retained Lock state`);
           }
-          const [changeOutput, ...additionalOutputs] = await getHistoricalBitcoinFundingUtxos(
-            api,
-            utxoId,
-            retainedLock.fundedSatoshis,
-          );
+          const [changeOutput, ...additionalOutputs] = retainedLock
+            ? await getHistoricalBitcoinFundingUtxos(api, utxoId, retainedLock.fundedSatoshis)
+            : [{ utxoRef: { txid: release.expectedTransactionId, vout: 1 }, satoshis: release.changeSatoshis }];
           if (
             additionalOutputs.length ||
             !changeOutput ||
@@ -1056,11 +1073,12 @@ export class BitcoinLockRecovery {
             firstSeenOracleHeight: Number(event.data.bitcoinHeight),
           });
           const previousSecuritizedSatoshis = recovered.securitizedSatoshis;
-          this.applyHistoricalLockSnapshot(recovered, retainedLock);
+          if (retainedLock) this.applyHistoricalLockSnapshot(recovered, retainedLock);
+          else recovered.securitizedSatoshis = bigIntMin(previousSecuritizedSatoshis, release.changeSatoshis);
           recovered.status = BitcoinLockStatus.LockFunded;
           recovered.fundedSatoshis = release.changeSatoshis;
           recovered.fundingUtxoIds = [change.id];
-          if (previousSecuritizedSatoshis !== recovered.securitizedSatoshis) {
+          if (retainedLock && previousSecuritizedSatoshis !== recovered.securitizedSatoshis) {
             this.recordSecuritizationTerm(block, eventRecords[eventIndex], retainedLock, 'partial-release');
           }
         } else {
@@ -1506,7 +1524,7 @@ export class BitcoinLockRecovery {
           ? inputUtxos[0].activeReleaseId
           : undefined;
     const activeRelease = activeReleaseId ? replay.releasesById[activeReleaseId] : undefined;
-    if (activeRelease) return activeRelease;
+    if (activeRelease && request.releaseNumber === undefined) return activeRelease;
 
     const lockId = this.getCanonicalLockId(lock.utxoId);
     const releaseNumber = kind === BitcoinReleaseKind.Lock ? (request.releaseNumber ?? 1) : undefined;
@@ -1621,8 +1639,6 @@ export class BitcoinLockRecovery {
   private applyHistoricalLockSnapshot(record: IHistoricalBitcoinLockRecord, chainLock: IHistoricalBitcoinLock): void {
     const lockDetails = toBitcoinLockDetails(chainLock);
     Object.assign(record, {
-      liquidityPromised: chainLock.liquidityPromised,
-      lockedTargetPrice: chainLock.lockedTargetPrice,
       securitizedSatoshis: lockDetails.securitizedSatoshis,
       ownerAccount: lockDetails.ownerAccount,
       securitizationRatio: lockDetails.securitizationRatio,

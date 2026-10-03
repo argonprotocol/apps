@@ -1,43 +1,45 @@
+import { integrationNetwork as sharedNetwork } from '@argonprotocol/apps-core/__test__/integration.setup.ts';
 import { Accountset, CohortBidder, getRange, MainchainClients, Mining, MiningFrames } from '../src/index.ts';
-import { startArgonTestNetwork, waitForQueryableClient } from './startArgonTestNetwork.ts';
-import { SKIP_E2E, sudo, teardown } from '@argonprotocol/testing';
-import { afterAll, afterEach, describe, expect, it, vi } from 'vitest';
+import { COMPOSE_CONFIG, COMPOSE_DIR, waitForQueryableClient } from './startArgonTestNetwork.ts';
+import { runOnTeardown, SKIP_E2E, teardown } from '@argonprotocol/testing';
+import { it, afterAll, afterEach, describe, expect, inject, vi } from 'vitest';
 import { inspect } from 'util';
 import { getAuthorFromHeader, Keyring, mnemonicGenerate } from '@argonprotocol/mainchain';
-import Path from 'path';
-import { subscribeToFinalizedStorageChanges } from '../src/StorageSubscriber.ts';
+import docker from 'docker-compose';
+import { integrationAccountUri } from './integrationNetwork.ts';
 import { sudoFundWallet } from './helpers/sudoFundWallet.ts';
-import { getTestMainchainClient } from './helpers/mainchain.ts';
 
 // set the default log depth to 10
 inspect.defaultOptions.depth = 10;
 
 const trackedMainchainClients: MainchainClients[] = [];
 const trackedMiningFrames: MiningFrames[] = [];
+const trackedBidders: CohortBidder[] = [];
 
 afterEach(async () => {
-  await cleanupTrackedResources();
   await teardown();
+  await cleanupTrackedResources();
   vi.restoreAllMocks();
 });
 
 afterAll(async () => {
-  await cleanupTrackedResources();
   await teardown();
+  await cleanupTrackedResources();
 });
 
-describe.skipIf(SKIP_E2E)('Cohort Integration Bidder tests', () => {
+describe.skipIf(SKIP_E2E)('Cohort Integration Bidder tests', { tags: ['mining-auction'] }, () => {
   it('can compete on bids', async () => {
-    const network = await startArgonTestNetwork(Path.basename(import.meta.filename), { profiles: ['bob'] });
+    const network = sharedNetwork;
+    const accountUri = integrationAccountUri(inject('argonIntegrationRunId'), import.meta.filename, 'funded');
+    const aliceRing = new Keyring({ type: 'sr25519' }).addFromUri(accountUri);
 
-    const aliceClientPromise = getTestMainchainClient(network.archiveUrl);
-    const aliceClient = await aliceClientPromise;
     const clients = trackMainchainClients(new MainchainClients(network.archiveUrl, () => false));
-    const bobRing = new Keyring({ type: 'sr25519' }).addFromUri('//Bob');
+    const aliceClient = await clients.get(false);
+    const bobRing = new Keyring({ type: 'sr25519' }).addFromUri(`${accountUri}//bob`);
 
     const alice = new Accountset({
       client: aliceClient,
-      txSubmitter: sudo(),
+      txSubmitter: aliceRing,
       subaccountRange: getRange(0, 49),
       sessionMiniSecretOrMnemonic: mnemonicGenerate(),
       name: 'alice',
@@ -47,12 +49,20 @@ describe.skipIf(SKIP_E2E)('Cohort Integration Bidder tests', () => {
     await sudoFundWallet({
       address: bobRing.address,
       microgons: Argons(75),
-      micronots: 500_000n,
+      micronots:
+        (await aliceClient.query.miningSlot.argonotsPerMiningSeat()) *
+        BigInt(aliceClient.consts.mint.maxPossibleMiners.toNumber()),
       archiveUrl: network.archiveUrl,
     });
     console.log('Bob funding is ready');
 
-    const bobPort = await network.getPort('miner-1', 9944);
+    const {
+      data: { port: bobPort },
+    } = await docker.port('miner-1', '9944', {
+      config: COMPOSE_CONFIG,
+      cwd: COMPOSE_DIR,
+      env: { ...process.env, COMPOSE_PROJECT_NAME: network.composeProjectName },
+    });
     const bobAddress = `ws://localhost:${bobPort}`;
     await waitForQueryableClient(bobAddress, { label: bobAddress });
 
@@ -69,6 +79,10 @@ describe.skipIf(SKIP_E2E)('Cohort Integration Bidder tests', () => {
     console.log('Alice and Bob set up');
 
     const miningBids = new Mining(clients);
+    const bobClients = trackMainchainClients(new MainchainClients(network.archiveUrl, () => false));
+    const bobMiningFrames = trackMiningFrames(new MiningFrames(bobClients));
+    const aliceMiningFrames = trackMiningFrames(new MiningFrames(clients));
+    await Promise.all([bobMiningFrames.load(), aliceMiningFrames.load()]);
     let bobBidder: CohortBidder;
     let aliceBidder: CohortBidder;
     let bobWinningBidsAtStop: { address: string }[] = [];
@@ -95,10 +109,6 @@ describe.skipIf(SKIP_E2E)('Cohort Integration Bidder tests', () => {
       async onBiddingStart(cohortStartingFrameId) {
         if (bobBidder) return;
         console.log(`Cohort ${cohortStartingFrameId} started bidding`);
-        const bobClients = trackMainchainClients(new MainchainClients(network.archiveUrl, () => false));
-        const bobMiningFrames = trackMiningFrames(new MiningFrames(bobClients));
-        const aliceMiningFrames = trackMiningFrames(new MiningFrames(clients));
-
         bobBidder = new CohortBidder(
           bob,
           bobMiningFrames,
@@ -143,8 +153,8 @@ describe.skipIf(SKIP_E2E)('Cohort Integration Bidder tests', () => {
           },
           `Alice #${cohortStartingFrameId}`,
         );
-        await bobBidder.start();
-        await aliceBidder.start();
+        trackedBidders.push(bobBidder, aliceBidder);
+        await Promise.all([bobBidder.start(), aliceBidder.start()]);
       },
       async onBiddingEnd(cohortStartingFrameId) {
         if (hasStoppedBidders) return;
@@ -159,6 +169,7 @@ describe.skipIf(SKIP_E2E)('Cohort Integration Bidder tests', () => {
         resolveWaitForStopPromise();
       },
     });
+    runOnTeardown(async () => unsubscribe());
     await waitForStop;
     unsubscribe();
 
@@ -182,27 +193,12 @@ describe.skipIf(SKIP_E2E)('Cohort Integration Bidder tests', () => {
       });
     });
 
-    // wait for the slot to fully complete
+    // Shutdown must return only after the awarded cohort is finalized.
     const finalizedBlock = await aliceClient.rpc.chain.getFinalizedHead();
     const finalizedClient = await aliceClient.at(finalizedBlock);
     const finalizedNextFrameId = await finalizedClient.query.miningSlot.nextFrameId();
     if (finalizedNextFrameId === null) throw new Error('Mining frame storage is unavailable');
-    if (finalizedNextFrameId === bobBidder!.cohortStartingFrameId) {
-      await new Promise(resolve =>
-        // this is overkill here, but it's a place to test it
-        subscribeToFinalizedStorageChanges(aliceClient, [
-          {
-            key: aliceClient.query.miningSlot.nextFrameId.key(),
-            handler: async api => {
-              const y = await api.query.miningSlot.nextFrameId();
-              if (y !== null && y !== bobBidder!.cohortStartingFrameId) {
-                resolve(true);
-              }
-            },
-          },
-        ]),
-      );
-    }
+    expect(finalizedNextFrameId).toBeGreaterThan(bobBidder!.cohortStartingFrameId);
     const cohortStartingFrameId = aliceBidder!.cohortStartingFrameId;
 
     const aliceStats = {
@@ -246,6 +242,7 @@ describe.skipIf(SKIP_E2E)('Cohort Integration Bidder tests', () => {
       },
     });
 
+    expect(bobSeatsWonOnChain + aliceSeatsWonOnChain).toBeGreaterThan(0);
     expect(bobSeatsWonOnChain).toBe(bobStats.seatsWon);
     expect(bobBidEvents.length).toBeGreaterThan(0);
 
@@ -267,6 +264,9 @@ function Argons(amount: number): bigint {
 }
 
 async function cleanupTrackedResources(): Promise<void> {
+  await Promise.allSettled(trackedBidders.map(x => x.stop(false)));
+  trackedBidders.length = 0;
+
   await Promise.allSettled(trackedMiningFrames.map(x => x.stop()));
   trackedMiningFrames.length = 0;
 

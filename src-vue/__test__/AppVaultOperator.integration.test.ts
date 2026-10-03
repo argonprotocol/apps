@@ -1,29 +1,21 @@
-import Path from 'node:path';
-import { afterAll, beforeAll, expect, it, vi } from 'vitest';
+import { integrationNetwork as sharedNetwork } from '@argonprotocol/apps-core/__test__/integration.setup.ts';
+import { mnemonicGenerate } from '@argonprotocol/mainchain';
+import { it, beforeAll, afterAll, expect, vi } from 'vitest';
 import { teardown } from '@argonprotocol/testing';
-import { BitcoinLock, MainchainClients, NetworkConfig, TreasuryBonds } from '@argonprotocol/apps-core';
-import {
-  startArgonTestNetwork,
-  type StartedArgonTestNetwork,
-} from '@argonprotocol/apps-core/__test__/startArgonTestNetwork.js';
+import { BitcoinLock, MainchainClients, TreasuryBonds } from '@argonprotocol/apps-core';
+import { type IntegrationNetwork } from '@argonprotocol/apps-core/__test__/integrationNetwork.ts';
 import { waitFor } from '@argonprotocol/apps-core/__test__/helpers/waitFor.ts';
 import { AppVaultOperator } from '../../e2e/actors/AppVaultOperator.ts';
 import { MemoryWalletKeys } from '../lib/MemoryWalletKeys.ts';
 import { loadOperationalAccount, loadOperationalAccountSetup } from '../lib/OperationalAccount.ts';
 
-let network: StartedArgonTestNetwork;
+let network: IntegrationNetwork;
 let clients: MainchainClients;
 let actor: AppVaultOperator | undefined;
-const previousComposeProjectName = process.env.COMPOSE_PROJECT_NAME;
 
 beforeAll(async () => {
-  network = await startArgonTestNetwork(Path.basename(import.meta.filename), {
-    profiles: ['bob', 'price-oracle'],
-    chainStartTimeoutMs: 120_000,
-  });
-  process.env.COMPOSE_PROJECT_NAME = network.composeEnv.COMPOSE_PROJECT_NAME;
-  NetworkConfig.setNetwork('dev-docker');
-  NetworkConfig.setRuntimeOverride('dev-docker', network.networkConfigOverride);
+  network = sharedNetwork;
+
   clients = new MainchainClients(network.archiveUrl, () => false);
   const client = await clients.get(false);
   await waitFor(90e3, 'bootstrap price oracle', async () => {
@@ -36,13 +28,11 @@ afterAll(async () => {
   vi.restoreAllMocks();
   await actor?.dispose();
   await clients?.disconnect();
-  if (previousComposeProjectName === undefined) delete process.env.COMPOSE_PROJECT_NAME;
-  else process.env.COMPOSE_PROJECT_NAME = previousComposeProjectName;
   await teardown();
 });
 
 it('resumes funded Bitcoin and bonds after registration fails without spending again', async () => {
-  const mnemonic = 'test test test test test test test test test test test junk';
+  const mnemonic = mnemonicGenerate();
   const walletKeys = new MemoryWalletKeys({ substrateSuri: mnemonic, masterMnemonic: mnemonic });
   const client = await clients.get(false);
   actor = await AppVaultOperator.load({ clients, walletKeys });
