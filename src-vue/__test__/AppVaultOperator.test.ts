@@ -10,6 +10,7 @@ describe('AppVaultOperator', () => {
       myVault: {
         data: {
           argonotCommitment: {
+            heldMicronots: 12n,
             committedMicronots: 12n,
             encumberedMicronots: 10n,
           },
@@ -31,6 +32,7 @@ describe('AppVaultOperator', () => {
       myVault: {
         data: {
           argonotCommitment: {
+            heldMicronots: 6n,
             committedMicronots: 6n,
             encumberedMicronots: 10n,
           },
@@ -93,12 +95,12 @@ describe('AppVaultOperator', () => {
     const client = {
       consts: {
         operationalAccounts: {
-          minimumBitcoin: { toBigInt: () => 10n },
-          minimumBonds: { toBigInt: () => 10n },
-          minimumUniswapTransfer: { toBigInt: () => 10n },
-          operationalMinimumUniswapTransfer: { toBigInt: () => 10n },
-          operationalMinimumVaultSecuritization: { toBigInt: () => 10n },
-          miningSeatsForOperational: { toNumber: () => 2 },
+          minimumBitcoin: 10n,
+          minimumBonds: 10n,
+          minimumUniswapTransfer: 10n,
+          operationalMinimumUniswapTransfer: 10n,
+          operationalMinimumVaultSecuritization: 10n,
+          miningSeatsForOperational: 2,
         },
       },
       query: {

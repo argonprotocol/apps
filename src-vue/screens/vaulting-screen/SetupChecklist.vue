@@ -117,15 +117,6 @@
                 {{ microgonToArgonNm(minimumMicrogonsNeeded).format('0,0.[00000000]') }} argon{{
                   microgonToArgonNm(minimumMicrogonsNeeded).format('0') === '1' ? '' : 's'
                 }}
-                <template v-if="config.vaultingRules?.baseMicronotCommitment">
-                  and
-                  {{
-                    micronotToArgonotNm(config.vaultingRules?.baseMicronotCommitment || 0n).format('0,0.[00000000]')
-                  }}
-                  argonot{{
-                    micronotToArgonotNm(config.vaultingRules?.baseMicronotCommitment || 0n).format('0') === '1' ? '' : 's'
-                  }}
-                </template>
                 to operate your vault. A secure wallet is already attached to your account. All you need to do is move
                 some tokens.
               </p>
@@ -192,7 +183,7 @@ const calculator = getVaultCalculator();
 
 const averageAPY = Vue.ref(0);
 
-const { microgonToArgonNm, micronotToArgonotNm } = createNumeralHelpers(currency);
+const { microgonToArgonNm } = createNumeralHelpers(currency);
 const VaultCreateOverlayReferenceElement = Vue.ref<HTMLElement | null>(null);
 const alignOffsetForReturns = Vue.ref(0);
 const alignOffsetForCapital = Vue.ref(0);
@@ -250,10 +241,6 @@ const walletIsFullyFunded = Vue.computed(() => {
   }
 
   if (wallets.defaultArgonWallet.availableMicrogons < minimumMicrogonsNeeded.value) {
-    return false;
-  }
-
-  if (wallets.defaultArgonWallet.availableMicronots < (config.vaultingRules?.baseMicronotCommitment || 0n)) {
     return false;
   }
 

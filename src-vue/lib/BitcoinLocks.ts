@@ -481,7 +481,7 @@ export default class BitcoinLocks {
     try {
       const archiveClient = await getMainchainClient(true);
       this.#config ??= await BitcoinLock.getConfig(archiveClient);
-      this.#lockTicksPerDay = archiveClient.consts.bitcoinLocks.argonTicksPerDay.toNumber();
+      this.#lockTicksPerDay = archiveClient.consts.bitcoinLocks.argonTicksPerDay;
       const bitcoinNetwork = this.#config.bitcoinNetwork.type;
       if (bitcoinNetwork === 'Bitcoin') this.data.bitcoinNetwork = BitcoinNetwork.Bitcoin;
       else if (bitcoinNetwork === 'Testnet') this.data.bitcoinNetwork = BitcoinNetwork.Testnet;
@@ -1038,7 +1038,7 @@ export default class BitcoinLocks {
         0n,
       );
       vaultCapacityLiquidityMicrogons = bigNumberToBigInt(
-        BigNumber(projectedAvailableSecuritization).dividedBy(vault.securitizationRatioBN()),
+        BigNumber(projectedAvailableSecuritization).dividedBy(vault.securitizationRatio),
       );
     }
     if (!this.#currency.isLoaded) {

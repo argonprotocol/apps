@@ -12,7 +12,7 @@
       </button>
     </div>
     <div v-else-if="!isLoaded" class="flex grow items-center justify-center text-slate-500">Loading…</div>
-    <Dashboard v-else-if="bondLots.length" />
+    <Dashboard v-else-if="bondLots.length || hasPositions" />
     <BlankSlate v-else />
   </div>
 </template>
@@ -22,10 +22,17 @@ import * as Vue from 'vue';
 import BlankSlate from './argon-bonds-screen/BlankSlate.vue';
 import Dashboard from './argon-bonds-screen/Dashboard.vue';
 import { getArgonBonds } from '../stores/argonBonds.ts';
+import { useFinancials } from '../stores/financials.ts';
 
 const argonBonds = getArgonBonds();
 const isLoaded = Vue.computed(() => argonBonds.data.isLoaded);
 const bondLots = Vue.computed(() => argonBonds.data.bondLots.filter(bondLot => bondLot.programType === 'Vault'));
+const financials = useFinancials();
+const hasPositions = Vue.computed(() =>
+  financials.financialPositionAggregate.groupSummaries.bonds.positions.some(
+    position => position.kind === 'bond' && position.nativeAsset === 'ARGN',
+  ),
+);
 const loadError = Vue.ref('');
 
 async function loadArgonBonds() {

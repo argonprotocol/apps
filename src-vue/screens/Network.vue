@@ -43,7 +43,7 @@
 
         <div StatWrapper class="flex flex-col h-full border-b border-slate-400/50">
             <span>
-              {{ data.argonBondsAPR ? numeral(data.argonBondsAPR).formatIfElseCapped('< 1_000', '0,0.[0]', '0,0', 9_999) : '---' }}%
+              {{ data.argonBondsAPR !== undefined ? numeral(data.argonBondsAPR).formatIfElseCapped('< 1_000', '0,0.[0]', '0,0', 9_999) : '---' }}%
             </span>
           <label>Current Argon Bond APR</label>
         </div>

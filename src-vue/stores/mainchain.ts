@@ -10,7 +10,7 @@ import {
   Mining,
   MiningFrames,
 } from '@argonprotocol/apps-core';
-import { runtimeClient, type CurrentRuntimeQueries } from '@argonprotocol/runtime-client';
+import { runtimeClient, type LiveRuntimeQueries } from '@argonprotocol/runtime-client';
 import type { ApiDecoration } from '@argonprotocol/mainchain';
 import { INSTANCE_NAME, LOG_DEBUG, NETWORK_NAME, NETWORK_URL } from '../lib/Env.ts';
 import { getConfig } from './config';
@@ -51,7 +51,7 @@ export async function getFinalizedClient(client?: ArgonClient): Promise<ArgonCur
   client ??= await getMainchainClient(false);
   const finalized = await client.rpc.chain.getFinalizedHead();
   const api = await client.raw.at(finalized);
-  return runtimeClient<ApiDecoration<'promise'>, CurrentRuntimeQueries>(api);
+  return runtimeClient<ApiDecoration<'promise'>, LiveRuntimeQueries>(api);
 }
 
 export async function getEthereumGatewayPauseReason(finalizedClient?: ArgonQueryClient): Promise<string | undefined> {

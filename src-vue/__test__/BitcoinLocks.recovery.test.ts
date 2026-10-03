@@ -72,7 +72,7 @@ describe('BitcoinLocks recovery', () => {
       bestBlockHeader: { blockNumber: 0, blockHash: '0x0' },
     } as unknown as BlockWatch;
     const archiveClient = {
-      consts: { bitcoinLocks: { argonTicksPerDay: { toNumber: () => 1_440 } } },
+      consts: { bitcoinLocks: { argonTicksPerDay: 1_440 } },
     };
     vi.mocked(getMainchainClient).mockResolvedValue(archiveClient as never);
     const configSpy = vi.spyOn(BitcoinLock, 'getConfig').mockResolvedValue(createBitcoinLockConfig());

@@ -25,13 +25,16 @@
       </p>
       <ul class="mt-3 list-disc space-y-1 pl-5 text-base leading-7 text-slate-600">
         <li>
-          ARGNs determine the amount of Bitcoin that can be locked into your vault. More Bitcoin means more bonds,
-          which are entitled to a portion of the daily mining auction pool.
+          ARGNs determine the amount of Bitcoin that can be locked into your vault and the number of treasury
+          bonds it can activate. These bonds are entitled to a portion of the daily mining auction pool.
         </li>
         <li>
           ARGNOTs maximize the share of mining auction returns your vault is eligible to receive.<sup>*</sup>
         </li>
       </ul>
+      <p v-if="myVault.createdVault?.securitizationExitNoticeBlocks !== undefined" class="mt-3 text-sm leading-6 text-slate-600">
+        Capital used for rewards has a one-year withdrawal notice. Bitcoin locks and minting collateral can delay release further. Reducing a target keeps pending withdrawals in your vault until they can be released.
+      </p>
 
       <WalletFundingCallout
         v-if="bitcoinSecuritizationShortfall > 0n"
@@ -153,15 +156,18 @@
                     v-else
                     type="button"
                     class="text-argon-600 hover:text-argon-700 cursor-pointer disabled:cursor-not-allowed disabled:text-slate-300"
-                    :disabled="isProcessing"
-                    @click="committedMicronots = maximumReturnsMicronots"
+                    :disabled="isProcessing || maximumReturnsMicronots === undefined"
+                    @click="committedMicronots = maximumReturnsMicronots!"
                   >
                     Max Returns
                   </button>
                   <InformationCircleIcon class="size-3.5 cursor-help text-slate-400 hover:text-slate-600" />
                 </span>
                 <template #content>
-                  <template v-if="argonotReturnsExceedsWalletMaximum">
+                  <template v-if="maximumReturnsMicronots === undefined">
+                    The protocol price needed to calculate Max Returns is unavailable.
+                  </template>
+                  <template v-else-if="argonotReturnsExceedsWalletMaximum">
                     {{ formatArgonots(maximumReturnsMicronots) }} ARGNOT maximizes your vault's eligible share of mining
                     auction returns, but exceeds your wallet maximum.
                   </template>
@@ -243,7 +249,7 @@
             class="mt-4 flex items-center gap-3 rounded-md border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-800"
           >
             <ExclamationCircleIcon class="size-5 shrink-0" />
-            {{ formatArgonots(vaultingAssets.securityMicronotsActivated) }} ARGNOT is backing your registered minting
+            {{ formatArgonots(minimumArgonotSecuritizationMicronots) }} ARGNOT is backing your registered minting
             authority and cannot be released.
           </div>
         </div>
@@ -271,8 +277,8 @@
         </div>
       </div>
 
-      <div v-if="circulationError || transactionError" class="mt-4 border-l-2 border-red-300 pl-3 text-sm text-red-700">
-        {{ circulationError || transactionError }}
+      <div v-if="transactionError" class="mt-4 border-l-2 border-red-300 pl-3 text-sm text-red-700">
+        {{ transactionError }}
       </div>
 
       <div class="mt-8 flex items-center justify-end gap-3 border-t border-slate-200 pt-6">
@@ -317,7 +323,6 @@ import {
   MICROGONS_PER_ARGON,
   MICRONOTS_PER_ARGONOT,
   NetworkConfig,
-  TreasuryBonds,
 } from '@argonprotocol/apps-core';
 import { SliderRange, SliderRoot, SliderThumb, SliderTrack } from 'reka-ui';
 import AlertIcon from '../assets/alert.svg?component';
@@ -333,6 +338,7 @@ import type { IVaultIncreaseAllocationMetadata } from '../lib/MyVault.ts';
 import type { TransactionInfo } from '../lib/TransactionInfo.ts';
 import { ExtrinsicType, TransactionStatus } from '../lib/db/TransactionsTable.ts';
 import { createNumeralHelpers } from '../lib/numeral.ts';
+import { getArgonBonds } from '../stores/argonBonds.ts';
 import { getBitcoinLocks } from '../stores/bitcoin.ts';
 import { getCurrency } from '../stores/currency.ts';
 import { getMainchainClient } from '../stores/mainchain.ts';
@@ -344,6 +350,7 @@ import OverlayBase from './OverlayBase.vue';
 const currency = getCurrency();
 const wallets = useWallets();
 const myVault = getMyVault();
+const argonBonds = getArgonBonds();
 const bitcoinLocks = getBitcoinLocks();
 const vaultingAssets = useVaultingAssetBreakdown();
 const { microgonToArgonNm, micronotToArgonotNm } = createNumeralHelpers(currency);
@@ -352,14 +359,11 @@ const isOpen = Vue.ref(false);
 const returnToInvite = Vue.ref(false);
 const securitizationMicrogons = Vue.ref(0n);
 const committedMicronots = Vue.ref(0n);
-const totalArgonIssuanceMicrogons = Vue.ref(0n);
-const totalArgonotIssuanceMicronots = Vue.ref(0n);
 const txFee = Vue.ref(0n);
 const isSubmitting = Vue.ref(false);
 const progressPct = Vue.ref(0);
 const progressLabel = Vue.ref('');
 const transactionError = Vue.ref('');
-const circulationError = Vue.ref('');
 
 const pendingTransaction = Vue.computed(() => myVault.data.pendingAllocateTxInfo);
 const isProcessing = Vue.computed(() => isSubmitting.value || !!pendingTransaction.value);
@@ -386,7 +390,11 @@ const bitcoinSecuritizationShortfall = Vue.computed(() => {
   return bigIntMax(bitcoinMarketValue - vaultingAssets.securityMicrogons, 0n);
 });
 const activeSecuritizationMicrogons = Vue.computed(() => {
-  return myVault.createdVault?.securitizationLocked ?? vaultingAssets.securityMicrogonsActivated;
+  const vault = myVault.createdVault;
+  return bigIntMax(
+    vault?.securitizationLocked ?? vaultingAssets.securityMicrogonsActivated,
+    vault?.committedMicrogons ?? 0n,
+  );
 });
 const maximumSecuritizationMicrogons = Vue.computed(() => {
   return bigIntMax(
@@ -395,7 +403,9 @@ const maximumSecuritizationMicrogons = Vue.computed(() => {
   );
 });
 const minimumArgonotSecuritizationMicronots = Vue.computed(() => {
-  return myVault.mintingAuthorities.data.authorities.length > 0 ? vaultingAssets.securityMicronotsActivated : 0n;
+  return myVault.mintingAuthorities.data.authorities.length > 0
+    ? myVault.data.argonotCommitment.encumberedMicronots
+    : 0n;
 });
 const maximumArgonotSecuritizationMicronots = Vue.computed(() => {
   return (
@@ -414,8 +424,9 @@ const delayedReleaseMicrogons = Vue.computed(() => {
   return bigIntMax(activeSecuritizationMicrogons.value - securitizationMicrogons.value, 0n);
 });
 const scheduledSecuritizationReleases = Vue.computed(() => {
-  const releaseSchedule = myVault.createdVault?.securitizationReleaseSchedule;
-  return releaseSchedule ? [...releaseSchedule.entries()].sort(([a], [b]) => a - b) : [];
+  return [...(myVault.createdVault?.scheduledArgonWithdrawals ?? [])]
+    .filter(([, amount]) => amount > 0n)
+    .sort(([a], [b]) => a - b);
 });
 const scheduledReleaseMicrogons = Vue.computed(() => {
   return scheduledSecuritizationReleases.value.reduce((total, [height, amount]) => {
@@ -525,18 +536,18 @@ const lockedReleaseTooltip = Vue.computed(() => {
   )}.`;
 });
 
-const finalArgonotTarget = Vue.computed(() => {
-  return TreasuryBonds.getVaultArgonotSecuritizationTarget({
-    activatedSecuritizationMicrogons: securitizationMicrogons.value,
-    totalArgonIssuanceMicrogons: totalArgonIssuanceMicrogons.value,
-    totalArgonotIssuanceMicronots: totalArgonotIssuanceMicronots.value,
-  });
-});
 const maximumReturnsMicronots = Vue.computed(() => {
-  return bigIntMax(finalArgonotTarget.value, minimumArgonotSecuritizationMicronots.value);
+  const rewardTarget = argonBonds.argonotSecuritizationTarget({
+    vault: myVault.createdVault,
+    securitizationMicrogons: securitizationMicrogons.value,
+  });
+  return rewardTarget === undefined ? undefined : bigIntMax(rewardTarget, minimumArgonotSecuritizationMicronots.value);
 });
 const argonotReturnsExceedsWalletMaximum = Vue.computed(() => {
-  return maximumReturnsMicronots.value > maximumArgonotSecuritizationMicronots.value;
+  return (
+    maximumReturnsMicronots.value !== undefined &&
+    maximumReturnsMicronots.value > maximumArgonotSecuritizationMicronots.value
+  );
 });
 const securitizationChangeMicrogons = Vue.computed(() => {
   if (pendingTransaction.value) {
@@ -557,7 +568,7 @@ const argonotChangeMicronots = Vue.computed(() => {
       (metadata.committedMicronots ?? vaultingAssets.securityMicronots) - vaultingAssets.securityMicronots
     );
   }
-  return committedMicronots.value - vaultingAssets.securityMicronots;
+  return committedMicronots.value - myVault.argonotSecuritizationTarget;
 });
 
 const hasArgonChange = Vue.computed(() => securitizationChangeMicrogons.value !== 0n);
@@ -592,7 +603,7 @@ const argonotWalletShortfall = Vue.computed(() => {
 
 const argonotEncumbranceShortfall = Vue.computed(() => {
   if (myVault.mintingAuthorities.data.authorities.length === 0) return 0n;
-  return bigIntMax(vaultingAssets.securityMicronotsActivated - committedMicronots.value, 0n);
+  return bigIntMax(minimumArgonotSecuritizationMicronots.value - committedMicronots.value, 0n);
 });
 
 function closeOverlay() {
@@ -604,22 +615,9 @@ function openOverlay(request?: { returnToInvite?: boolean }) {
   returnToInvite.value = request?.returnToInvite ?? false;
   isOpen.value = true;
   securitizationMicrogons.value = pendingMetadata?.securitizationMicrogons ?? currentSecuritizationTarget.value;
-  committedMicronots.value = pendingMetadata?.committedMicronots ?? vaultingAssets.securityMicronots;
+  committedMicronots.value = pendingMetadata?.committedMicronots ?? myVault.argonotSecuritizationTarget;
   txFee.value = 0n;
   transactionError.value = '';
-  circulationError.value = '';
-
-  void Promise.all([currency.fetchMicrogonsInCirculation(), currency.fetchMicronotsInCirculation()])
-    .then(([argonIssuance, argonotIssuance]) => {
-      totalArgonIssuanceMicrogons.value = argonIssuance;
-      totalArgonotIssuanceMicronots.value = argonotIssuance;
-    })
-    .catch(error => {
-      circulationError.value =
-        error instanceof Error
-          ? `Unable to load current token circulation: ${error.message}`
-          : 'Unable to load current token circulation.';
-    });
 }
 
 function goBackToInvite() {

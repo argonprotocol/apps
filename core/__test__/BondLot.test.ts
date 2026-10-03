@@ -1,10 +1,9 @@
 import BigNumber from 'bignumber.js';
 import { describe, expect, it } from 'vitest';
 import { MICROGONS_PER_ARGON } from '@argonprotocol/mainchain';
-import type { TreasuryBondLotByIdResult } from '@argonprotocol/runtime-client';
+import type { TreasuryBondLotByIdResultSpec160Variant6 } from '@argonprotocol/runtime-client';
 
 import { BondLot } from '../src/BondLot.ts';
-import { compoundXTimes } from '../src/utils.ts';
 
 const Alice = `0x${'11'.repeat(32)}`;
 const Bob = `0x${'22'.repeat(32)}`;
@@ -27,7 +26,7 @@ describe('BondLot', () => {
     expect(releasingLot.isFlexible).toBe(false);
     expect(releasingLot.activeBonds).toBe(0);
     expect(releasingLot.returningBonds).toBe(150);
-    expect(releasingLot.releaseFrame).toBe(12);
+    expect(releasingLot.releaseFrameId).toBe(12);
   });
 
   it('does not mark external bond lots as releasable', () => {
@@ -36,55 +35,6 @@ describe('BondLot', () => {
 
     expect(lot.isOwn).toBe(false);
     expect(lot.canRelease).toBe(false);
-  });
-
-  it('calculates APY from large bigint treasury values without overflowing', () => {
-    const lotCodec = createBondLot({
-      bonds: 987_654_321,
-      owner: Alice,
-      participatedFrames: 10,
-      lastFrameEarningsFrame: 100,
-      cumulativeEarnings: 123_456_789_123_456_789_123_456n,
-    });
-    const lot = BondLot.fromRuntime(1, lotCodec, lotCodec.owner.toString());
-    const oneArgon = BigInt(MICROGONS_PER_ARGON);
-    const historicalDeployed = 987_654_321n * oneArgon * 10n;
-    const expectedPerFrameReturn = BigNumber('123456789123456789123456')
-      .dividedBy(historicalDeployed.toString())
-      .toNumber();
-
-    expect(lot.getAPY()).toBeCloseTo(compoundXTimes(expectedPerFrameReturn, 365) * 100, 12);
-  });
-
-  it('calculates APY from paid participating frames', () => {
-    const oneArgon = BigInt(MICROGONS_PER_ARGON);
-    const lots = [
-      (() => {
-        const lotCodec = createBondLot({
-          bonds: 100,
-          owner: Alice,
-          participatedFrames: 10,
-          lastFrameEarningsFrame: 10,
-          cumulativeEarnings: 1_000_000n,
-        });
-
-        return BondLot.fromRuntime(1, lotCodec, lotCodec.owner.toString());
-      })(),
-      (() => {
-        const lotCodec = createBondLot({
-          bonds: 50,
-          owner: Alice,
-          createdFrame: 19,
-          cumulativeEarnings: 0n,
-        });
-
-        return BondLot.fromRuntime(2, lotCodec, lotCodec.owner.toString());
-      })(),
-    ];
-    const historicalDeployed = 100n * oneArgon * 10n;
-    const expectedPerFrameReturn = BigNumber(1_000_000).dividedBy(historicalDeployed.toString());
-
-    expect(BondLot.getAPY(lots)).toBeCloseTo(compoundXTimes(expectedPerFrameReturn.toNumber(), 365) * 100, 12);
   });
 
   it('marks argonot bond lots distinctly', () => {
@@ -100,7 +50,6 @@ describe('BondLot', () => {
     expect(lot.principalMicronots).toBe(25n * 1_000_000n);
     expect(lot.principalMicrogons).toBeUndefined();
     expect(lot.vaultId).toBeUndefined();
-    expect(lot.bonusPercent).toBe(0);
   });
 
   it.each(['UserLiquidation', 'Bumped', 'VaultClosed'] as const)(
@@ -114,7 +63,7 @@ describe('BondLot', () => {
       });
       const lot = BondLot.fromRuntime(1, lotCodec, lotCodec.owner.toString());
 
-      expect(lot.releaseReason).toBe(releaseReason);
+      expect(lot.releaseReason?.type).toBe(releaseReason);
       expect(lot.isReleasing).toBe(true);
     },
   );
@@ -132,27 +81,6 @@ describe('BondLot', () => {
     expect(totals.totalBondMicrogons).toBe(10n * BigInt(MICROGONS_PER_ARGON));
     expect(totals.totalArgonotBondMicronots).toBe(20n * 1_000_000n);
   });
-
-  it('does not mix raw argonot principal into vault-bond APY', () => {
-    const vaultCodec = createBondLot({
-      bonds: 10,
-      owner: Alice,
-      participatedFrames: 1,
-      cumulativeEarnings: 1_000_000n,
-    });
-    const argonotCodec = createBondLot({
-      bonds: 10,
-      owner: Alice,
-      program: { Argonot: null },
-      participatedFrames: 1,
-      cumulativeEarnings: 100_000_000n,
-    });
-    const vaultLot = BondLot.fromRuntime(1, vaultCodec, vaultCodec.owner.toString());
-    const argonotLot = BondLot.fromRuntime(2, argonotCodec, argonotCodec.owner.toString());
-
-    expect(BondLot.getAPY([vaultLot, argonotLot])).toBe(BondLot.getAPY([vaultLot]));
-    expect(argonotLot.getAPY()).toBe(0);
-  });
 });
 
 function createBondLot(args: {
@@ -168,7 +96,7 @@ function createBondLot(args: {
   cumulativeEarnings?: bigint;
   releaseReason?: 'UserLiquidation' | 'Bumped' | 'VaultClosed';
   program?: { Vault: { vaultId: number; sharingPercent: number; bonusPercent: number } } | { Argonot: null };
-}): NonNullable<TreasuryBondLotByIdResult> {
+}): NonNullable<TreasuryBondLotByIdResultSpec160Variant6> {
   let releaseReason = args.releaseReason;
   if (releaseReason === undefined && args.isReleasing) {
     releaseReason = 'UserLiquidation';
@@ -190,6 +118,7 @@ function createBondLot(args: {
         : { type: 'Argonot' },
     bonds: args.bonds,
     isFlexible: args.isFlexible ?? false,
+    lockedFrameTerms: null,
     createdFrameId: args.createdFrame ?? 0,
     participatedFrames: args.participatedFrames ?? 0,
     lastFrameEarningsFrameId: args.lastFrameEarningsFrame ?? null,

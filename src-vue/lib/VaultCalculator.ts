@@ -6,7 +6,10 @@ import {
   roundTo,
   calculateAPY,
   createDeferred,
+  TreasuryBonds,
+  MICROGONS_PER_ARGON,
 } from '@argonprotocol/apps-core';
+import type { CurrentRuntimeQueries, RuntimeQueryResult } from '@argonprotocol/runtime-client';
 import { Config } from './Config.ts';
 import { Vaults } from './Vaults.ts';
 
@@ -17,6 +20,12 @@ export class VaultCalculator {
 
   public epochPoolRewards!: bigint;
   public epochPoolCapitalTotal!: bigint;
+  private rewardFrameCapital?: NonNullable<
+    RuntimeQueryResult<CurrentRuntimeQueries['treasury']['currentFrameVaultCapital']>
+  >;
+  private vaultRewardRate = BigNumber(0);
+  private argonotRate = BigNumber(0);
+  private fullEpochBidPool = 0n;
 
   constructor(mainchainClients: MainchainClients) {
     this.clients = mainchainClients;
@@ -29,9 +38,19 @@ export class VaultCalculator {
     this.isLoaded.setIsRunning(true);
     this.rules = rules;
     try {
-      const { totalPoolRewards, totalActivatedCapital } = await Vaults.getPreviousEpochTreasuryPayout(this.clients);
+      const { totalPoolRewards, fullBidPool, totalActivatedCapital } = await Vaults.getPreviousEpochTreasuryPayout(
+        this.clients,
+      );
       this.epochPoolRewards = totalPoolRewards;
       this.epochPoolCapitalTotal = totalActivatedCapital;
+      const client = await this.clients.prunedClientOrArchivePromise;
+      const { frameCapital, vaultRewardRate, averageMicrogonsPerArgonot } = await TreasuryBonds.getActiveBonds(client);
+      if (frameCapital) {
+        this.rewardFrameCapital = frameCapital;
+        this.vaultRewardRate = vaultRewardRate ?? BigNumber(0);
+        this.fullEpochBidPool = fullBidPool;
+        this.argonotRate = BigNumber(averageMicrogonsPerArgonot ?? 0n).div(1_000_000);
+      }
       this.isLoaded.resolve();
     } catch (e) {
       this.isLoaded.reject(e);
@@ -47,6 +66,38 @@ export class VaultCalculator {
   }
 
   public calculateInternalRevenue(btcUtilization: 'Low' | 'High', poolUtilization: 'Low' | 'High'): bigint {
+    if (this.rewardFrameCapital) {
+      const securitization = this.calculateSecuritization();
+      const bitcoinLockedMicrogons = this.calculateBtcUtilizedInMicrogons(btcUtilization);
+      const activatedSecuritization = bigNumberToBigInt(
+        BigNumber(bitcoinLockedMicrogons).times(this.rules.securitizationRatio),
+      );
+      const totalPoolCapital = this.calculateTotalPoolCapital(btcUtilization, poolUtilization);
+      const vaultRewards = TreasuryBonds.vaultPoolEarnings({
+        position: {
+          securitization,
+          activatedSecuritization,
+          bitcoinLockedMicrogons,
+          activeBondMicrogons: totalPoolCapital,
+          argonotSecuritizationInMicrogons: bigNumberToBigInt(
+            BigNumber(this.rules.baseMicronotCommitment).times(this.argonotRate),
+          ),
+        },
+        frameCapital: {
+          ...this.rewardFrameCapital,
+          totalSecuritization: this.rewardFrameCapital.totalSecuritization + securitization,
+        },
+        fullBidPool: this.fullEpochBidPool,
+        percentForVaultPool: this.vaultRewardRate,
+      });
+      const internalPoolCapital = BigNumber.minimum(this.calculateInternalPoolCapital(), totalPoolCapital);
+      const totalPoolRevenue = this.calculateTotalPoolRevenue(btcUtilization, poolUtilization);
+      const ownBondRevenue =
+        totalPoolCapital > 0n
+          ? bigNumberToBigInt(BigNumber(totalPoolRevenue).times(internalPoolCapital).div(totalPoolCapital))
+          : 0n;
+      return vaultRewards + ownBondRevenue + this.calculateInternalBtcRevenue(btcUtilization);
+    }
     const { profitSharingPct } = this.rules;
 
     const totalPoolCapital = this.calculateTotalPoolCapital(btcUtilization, poolUtilization);
@@ -82,7 +133,7 @@ export class VaultCalculator {
 
     const externalPoolRevenueBn = BigNumber(totalPoolRevenue)
       .multipliedBy(externalFundingRatio)
-      .multipliedBy(profitSharingPct / 100);
+      .multipliedBy(this.rewardFrameCapital ? 1 : profitSharingPct / 100);
     return bigNumberToBigInt(externalPoolRevenueBn);
   }
 
@@ -188,6 +239,7 @@ export class VaultCalculator {
   }
 
   public calculateTotalPoolSpace(btcUtilization: 'Low' | 'High' | 'Full'): bigint {
+    if (this.rewardFrameCapital) return this.calculateSecuritization();
     // Ultimately the pool space is dependent on how much BTC is in the vault
     const btcUtilizedInMicrogons = this.calculateBtcUtilizedInMicrogons(btcUtilization);
     const securitizationRatio = Math.min(this.rules.securitizationRatio, 2);
@@ -228,7 +280,13 @@ export class VaultCalculator {
 
   private calculateTotalPoolRevenue(btcUtilization: 'Low' | 'High', poolUtilization: 'Low' | 'High'): bigint {
     const totalPoolCapital = this.calculateTotalPoolCapital(btcUtilization, poolUtilization);
-    const globalPoolCapital = this.calculateGlobalPoolCapital(btcUtilization, poolUtilization);
+    const globalPoolCapital = this.rewardFrameCapital
+      ? bigIntMax(
+          this.rewardFrameCapital.targetSecuritization ?? 0n,
+          (this.rewardFrameCapital.totalActiveBonds ?? 0n) * BigInt(MICROGONS_PER_ARGON) + totalPoolCapital,
+        )
+      : this.calculateGlobalPoolCapital(btcUtilization, poolUtilization);
+    if (globalPoolCapital <= 0n) return 0n;
     const pctOfGlobalPool = BigNumber(totalPoolCapital).dividedBy(globalPoolCapital).toNumber();
     const epochRevenueFromPoolBn = BigNumber(this.epochPoolRewards).multipliedBy(pctOfGlobalPool);
     return bigNumberToBigInt(epochRevenueFromPoolBn);

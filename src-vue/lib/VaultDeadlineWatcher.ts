@@ -68,7 +68,7 @@ export class VaultDeadlineWatcher {
 
   public async start(): Promise<void> {
     const client = await getMainchainClient(false);
-    this.timeToCollectFrames = client.consts.vaults.revenueCollectionExpirationFrames.toNumber();
+    this.timeToCollectFrames = client.consts.vaults.revenueCollectionExpirationFrames;
 
     await this.miningFrames.load();
 

@@ -181,7 +181,7 @@ describe('FinancialHistoryImporter', () => {
         bonds: {
           asOfBlock: 99,
           definitionVersion: ACCOUNT_ACTIVITY_DEFINITION_VERSION,
-          recoveryVersion: 2,
+          recoveryVersion: 3,
           partialRecovery: true,
         },
       },
@@ -209,7 +209,7 @@ describe('FinancialHistoryImporter', () => {
         bonds: {
           asOfBlock: 99,
           definitionVersion: ACCOUNT_ACTIVITY_DEFINITION_VERSION,
-          recoveryVersion: 2,
+          recoveryVersion: 3,
           partialRecovery: false,
         },
       },
@@ -288,7 +288,7 @@ describe('FinancialHistoryImporter', () => {
               bonds: {
                 asOfBlock: 100,
                 definitionVersion: ACCOUNT_ACTIVITY_DEFINITION_VERSION,
-                recoveryVersion: 2,
+                recoveryVersion: 3,
               },
             },
           })),
@@ -302,6 +302,8 @@ describe('FinancialHistoryImporter', () => {
         data: { bondLots: [] },
         miningFrames: { earliestWithSpec: vi.fn(() => 0) },
         beginHistoryReplay,
+        recoverDailyEarnings: vi.fn(async () => undefined),
+        discardRecoveredHistory: vi.fn(),
         publishRecoveredHistory,
         hasStagedPurchase: vi.fn(() => false),
       } as any,
@@ -340,7 +342,7 @@ describe('FinancialHistoryImporter', () => {
               bonds: {
                 asOfBlock: 100,
                 definitionVersion: ACCOUNT_ACTIVITY_DEFINITION_VERSION,
-                recoveryVersion: 2,
+                recoveryVersion: 3,
                 partialRecovery: true,
               },
             },
@@ -355,6 +357,8 @@ describe('FinancialHistoryImporter', () => {
         data: { bondLots: [] },
         miningFrames: { earliestWithSpec: vi.fn(() => 0) },
         beginHistoryReplay,
+        recoverDailyEarnings: vi.fn(async () => undefined),
+        discardRecoveredHistory: vi.fn(),
         publishRecoveredHistory,
         hasStagedPurchase: vi.fn(() => false),
       } as any,
@@ -380,7 +384,7 @@ describe('FinancialHistoryImporter', () => {
       asOfBlock: 90,
       domains: ['bonds'] as const,
       domainCheckpoints: {
-        bonds: { asOfBlock: 90, definitionVersion: ACCOUNT_ACTIVITY_DEFINITION_VERSION, recoveryVersion: 1 },
+        bonds: { asOfBlock: 90, definitionVersion: ACCOUNT_ACTIVITY_DEFINITION_VERSION, recoveryVersion: 2 },
       },
     };
     const upsert = vi.fn(async (_key, nextState) => {
@@ -393,6 +397,7 @@ describe('FinancialHistoryImporter', () => {
       miningFrames: { earliestWithSpec: vi.fn(() => 0) },
       beginHistoryReplay: vi.fn(),
       discardRecoveredHistory,
+      recoverDailyEarnings: vi.fn(async () => undefined),
       publishRecoveredHistory,
       hasStagedPurchase: vi.fn(() => false),
     };
@@ -517,7 +522,7 @@ describe('FinancialHistoryImporter', () => {
       accountId: '5owner',
       asOfBlock: 100,
       definitionVersion: ACCOUNT_ACTIVITY_DEFINITION_VERSION,
-      recoveryVersions: { bonds: 2 },
+      recoveryVersions: { bonds: 3 },
       domains: ['bonds'] as const,
     }));
     const onCheckStart = vi.fn();
@@ -555,7 +560,7 @@ describe('FinancialHistoryImporter', () => {
                 bonds: {
                   asOfBlock: 100,
                   definitionVersion: ACCOUNT_ACTIVITY_DEFINITION_VERSION,
-                  recoveryVersion: 2,
+                  recoveryVersion: 3,
                 },
                 bitcoin: {
                   asOfBlock: 100,
@@ -705,9 +710,13 @@ describe('FinancialHistoryImporter', () => {
                 bonds: {
                   asOfBlock: 110,
                   definitionVersion: ACCOUNT_ACTIVITY_DEFINITION_VERSION,
-                  recoveryVersion: 2,
+                  recoveryVersion: 3,
                 },
-                vaulting: { asOfBlock: 100, definitionVersion: ACCOUNT_ACTIVITY_DEFINITION_VERSION },
+                vaulting: {
+                  asOfBlock: 100,
+                  definitionVersion: ACCOUNT_ACTIVITY_DEFINITION_VERSION,
+                  recoveryVersion: 1,
+                },
               },
             })),
           },
@@ -741,7 +750,7 @@ describe('FinancialHistoryImporter', () => {
             accountId: '5owner',
             asOfBlock: 100,
             definitionVersion: ACCOUNT_ACTIVITY_DEFINITION_VERSION,
-            recoveryVersions: { bonds: 2 },
+            recoveryVersions: { bonds: 3 },
             domains: ['bonds'],
           })),
           upsert,
@@ -775,9 +784,9 @@ describe('FinancialHistoryImporter', () => {
           bonds: {
             asOfBlock: 100,
             definitionVersion: ACCOUNT_ACTIVITY_DEFINITION_VERSION,
-            recoveryVersion: 2,
+            recoveryVersion: 3,
           },
-          vaulting: { asOfBlock: 100, definitionVersion: ACCOUNT_ACTIVITY_DEFINITION_VERSION - 1 },
+          vaulting: { asOfBlock: 100, definitionVersion: ACCOUNT_ACTIVITY_DEFINITION_VERSION - 1, recoveryVersion: 1 },
         },
       }),
     );
@@ -845,6 +854,7 @@ describe('FinancialHistoryImporter', () => {
           importHistoryBlock: vi.fn(async () => undefined),
           refreshHistory: vi.fn(async () => undefined),
           beginHistoryReplay: vi.fn(),
+          recoverDailyEarnings: vi.fn(async () => undefined),
           publishRecoveredHistory: vi.fn(async () => undefined),
           discardRecoveredHistory: vi.fn(),
           hasStagedPurchase: vi.fn(() => false),
@@ -874,7 +884,7 @@ describe('FinancialHistoryImporter', () => {
           bonds: {
             asOfBlock: 10,
             definitionVersion: ACCOUNT_ACTIVITY_DEFINITION_VERSION,
-            recoveryVersion: 2,
+            recoveryVersion: 3,
           },
         },
       }),

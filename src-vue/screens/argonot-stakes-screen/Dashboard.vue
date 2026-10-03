@@ -12,14 +12,24 @@
       <div class="w-1/3 border-b border-slate-400/30 py-5">
         <div class="text-argon-600 inline-flex text-5xl font-bold">
           <span>{{ currency.symbol }}</span>
-          <FormattedMoney :isLoaded="isSummaryReady" :value="stakesSummary?.returnSummary.paidIncome ?? 0n" />
+          <FormattedMoney
+            v-if="!isSummaryReady || stakesSummary?.returnSummary.paidIncome !== undefined"
+            :isLoaded="isSummaryReady"
+            :value="stakesSummary?.returnSummary.paidIncome ?? 0n"
+          />
+          <span v-else>&mdash;</span>
         </div>
         <div>Distributed Income</div>
       </div>
       <div class="h-full w-px bg-slate-400/30" />
       <div class="w-1/3 border-b border-slate-400/30 py-5">
         <div class="text-argon-600 text-5xl font-bold">
-          <template v-if="stakesSummary?.returnSummary.percent !== undefined">
+          <template
+            v-if="
+              stakesSummary?.returnSummary.availability === 'available' &&
+              stakesSummary.returnSummary.percent !== undefined
+            "
+          >
             {{ numeral(stakesSummary.returnSummary.percent).format('0,0.[00]') }}%
           </template>
           <template v-else>--</template>
@@ -32,7 +42,9 @@
       <div class="flex grow flex-col overflow-y-auto pt-10">
         <div class="flex flex-row items-center px-9 text-slate-800/70">
           <span class="grow">
-            You have {{ stakeLots.length }} staking transaction{{ stakeLots.length === 1 ? '' : 's' }}...
+            You have {{ stakeLots.length + archivedPositions.length }} staking transaction{{
+              stakeLots.length + archivedPositions.length === 1 ? '' : 's'
+            }}...
           </span>
           <div class="flex flex-row items-center gap-x-3">
             <span v-if="supportsArgnotBacking" class="relative flex items-center">
@@ -79,8 +91,25 @@
             :isReleasing="bondLot.isReleasing"
             :position="stakePositionsByLotId.get(bondLot.id)"
             :returnPercent="stakeReturnsByLotId.get(bondLot.id)"
-            @click="openDetail(bondLot)"
+            @click="openDetail(bondLot.id)"
           />
+          <details v-if="archivedPositions.length" class="group mt-5">
+            <summary class="flex cursor-pointer list-none items-center gap-2 px-1 text-slate-400">
+              {{ archivedPositions.length }} Argonot Stake{{ archivedPositions.length === 1 ? '' : 's' }}
+              {{ archivedPositions.length === 1 ? 'has' : 'have' }} been archived
+              <ChevronDownIcon class="size-4 self-center text-slate-400 transition-transform group-open:rotate-180" />
+            </summary>
+            <div class="mt-3 flex flex-col gap-y-3">
+              <BondRecord
+                v-for="position in archivedPositions"
+                :key="position.history!.bondLotId"
+                :data-testid="`Bond.stake-${position.history!.bondLotId}`"
+                :position="position"
+                :returnPercent="stakeReturnsByLotId.get(position.history!.bondLotId)"
+                @click="openDetail(position.history!.bondLotId)"
+              />
+            </div>
+          </details>
         </section>
         <div class="relative px-0.5 pb-0.5">
           <img src="/treasury-footers/argon-bonds.png" class="w-full opacity-50" alt="" />
@@ -91,10 +120,9 @@
   </div>
 
   <BondDetailOverlay
-    v-if="showDetailOverlay && selectedBondLot"
+    v-if="showDetailOverlay && (selectedBondLot || selectedPosition)"
     :bondLot="selectedBondLot"
-    :position="stakePositionsByLotId.get(selectedBondLot.id)"
-    :returnPercent="stakeReturnsByLotId.get(selectedBondLot.id)"
+    :position="selectedPosition"
     @close="closeDetail"
     @submitted="onLiquidationSubmitted"
   />
@@ -102,6 +130,7 @@
 
 <script setup lang="ts">
 import * as Vue from 'vue';
+import { ChevronDownIcon } from '@heroicons/vue/24/outline';
 import numeral, { createNumeralHelpers } from '../../lib/numeral.ts';
 import { getCurrency } from '../../stores/currency.ts';
 import { getVaults } from '../../stores/vaults.ts';
@@ -138,11 +167,12 @@ const supportsArgnotBacking = Vue.ref(false);
 const showBondsOverlay = Vue.ref(false);
 const showDetailOverlay = Vue.ref(false);
 const purchaseProgramType = Vue.ref<BondLot['programType']>('Vault');
-const selectedBondLot = Vue.ref<BondLot>();
+const selectedBondLotId = Vue.ref<number>();
+const selectedBondLot = Vue.computed(() => stakeLots.value.find(lot => lot.id === selectedBondLotId.value));
 const stakeLots = Vue.computed(() =>
   argonBonds.data.bondLots
     .filter(bondLot => bondLot.programType === 'Argonot')
-    .toSorted((left, right) => right.createdFrame - left.createdFrame || right.id - left.id),
+    .toSorted((left, right) => right.createdFrameId - left.createdFrameId || right.id - left.id),
 );
 const stakesSummary = Vue.computed(() => {
   return financials.bondSummariesByAsset.ARGNOT;
@@ -151,12 +181,21 @@ const stakePositionsByLotId = Vue.computed(() => {
   const positions = new Map<number, IBondFinancialPosition>();
 
   for (const position of financials.financialPositionAggregate.groupSummaries.bonds.positions) {
-    if (position.kind !== 'bond' || position.nativeAsset !== 'ARGNOT' || !position.bondLot) continue;
+    if (position.kind !== 'bond' || position.nativeAsset !== 'ARGNOT') continue;
 
-    positions.set(position.bondLot.id, position);
+    positions.set(position.bondLot?.id ?? position.history!.bondLotId, position);
   }
 
   return positions;
+});
+const archivedPositions = Vue.computed(() =>
+  [...stakePositionsByLotId.value.values()]
+    .filter(position => position.lifecycle === 'completed')
+    .toSorted((a, b) => b.history!.bondLotId - a.history!.bondLotId),
+);
+const selectedPosition = Vue.computed(() => {
+  if (selectedBondLotId.value === undefined) return;
+  return stakePositionsByLotId.value.get(selectedBondLotId.value);
 });
 const stakeReturnsByLotId = Vue.computed(() => {
   const returns = new Map<number, number>();
@@ -190,14 +229,14 @@ async function onLiquidationSubmitted() {
   if (selectedBondLot.value?.programType === 'Vault') await refreshMarketData();
 }
 
-function openDetail(bondLot: BondLot) {
-  selectedBondLot.value = bondLot;
+function openDetail(bondLotId: number) {
+  selectedBondLotId.value = bondLotId;
   showDetailOverlay.value = true;
 }
 
 function closeDetail() {
   showDetailOverlay.value = false;
-  selectedBondLot.value = undefined;
+  selectedBondLotId.value = undefined;
 }
 
 async function refreshMarketData() {

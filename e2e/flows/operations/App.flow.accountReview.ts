@@ -120,7 +120,7 @@ export default new OperationalFlow<IAccountReviewFlowContext, IAccountReviewFlow
         invalidFinancialReturns.push('account');
       }
       for (const position of allBondPositions) {
-        if (position.paidIncome < 0n) invalidFinancialReturns.push(`${position.id}: negative bond income`);
+        if ((position.paidIncome ?? 0n) < 0n) invalidFinancialReturns.push(`${position.id}: negative bond income`);
         if (position.nativeAsset !== 'ARGN') continue;
         if (
           position.currentValue !== undefined &&
@@ -131,10 +131,9 @@ export default new OperationalFlow<IAccountReviewFlowContext, IAccountReviewFlow
           invalidFinancialReturns.push(`${position.id}: bond principal is not conserved`);
         }
       }
-      const ordinaryBondPositions = allBondPositions.filter(position => position.returnAttribution !== 'vault');
-      if (ordinaryBondPositions.length) {
+      if (allBondPositions.length && allBondPositions.every(position => position.returnIsComplete !== false)) {
         const bondProfit = financials.groupSummaries.bonds.returnSummary.returnAmount;
-        const distributedIncome = ordinaryBondPositions.reduce((total, position) => total + position.paidIncome, 0n);
+        const distributedIncome = allBondPositions.reduce((total, position) => total + (position.paidIncome ?? 0n), 0n);
         if (bondProfit !== distributedIncome) {
           invalidFinancialReturns.push('bond profit does not equal distributed income');
         }

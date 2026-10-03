@@ -1,107 +1,149 @@
-import type {
-  VaultsVaultsByIdResult,
-  VaultsVaultsByIdResultSpec157Variant13,
-  VaultsVaultsByIdResultSpec158Variant14,
-  VaultsVaultsByIdResultSpec159Variant15,
-} from '@argonprotocol/runtime-client';
+import type { CurrentRuntimeQueries, LiveQueryRecord, RuntimeQueryResult } from '@argonprotocol/runtime-client';
+import type { ArgonClient, ArgonCurrentQueryClient, ArgonQueryClient } from './MainchainClients.js';
+import type { PreviousRuntimeSpec as RuntimeSpec159 } from './runtimeCompatibility.js';
 import BigNumber from 'bignumber.js';
-import type { ArgonQueryClient } from './MainchainClients.js';
-import { bigIntMax, bigIntMin } from './utils.js';
+import {
+  FIXED_U128_DECIMALS,
+  PERMILL_DECIMALS,
+  toFixedNumber,
+  type ArgonPrimitivesVaultVaultTerms,
+  type PriceIndex,
+} from '@argonprotocol/mainchain';
+import { bigNumberToBigInt, bigIntMax, bigIntMin } from './utils.js';
+import { fixedU128Rational, fixedU128Multiply } from './FixedU128.js';
 
-const FixedU128BigNumber = BigNumber.clone({
-  DECIMAL_PLACES: 18,
-  ROUNDING_MODE: BigNumber.ROUND_HALF_DOWN,
-});
+type RuntimeVault = NonNullable<RuntimeQueryResult<CurrentRuntimeQueries['vaults']['vaultsById']>>;
+type SecuritizationScheduleEntry = RuntimeVault['securitizationReleaseSchedule'][string];
 
-type RuntimeVault = NonNullable<
-  | VaultsVaultsByIdResultSpec157Variant13
-  | VaultsVaultsByIdResultSpec158Variant14
-  | VaultsVaultsByIdResultSpec159Variant15
->;
+export class Vault implements Omit<RuntimeVault, 'securitizationReleaseSchedule'> {
+  public operatorAccountId: RuntimeVault['operatorAccountId'];
+  public delegateAccountId: RuntimeVault['delegateAccountId'];
+  public securitization: RuntimeVault['securitization'];
+  public securitizationTarget: RuntimeVault['securitizationTarget'];
+  public securitizationLocked: RuntimeVault['securitizationLocked'];
+  public flexibleSecuritizationLocked: RuntimeVault['flexibleSecuritizationLocked'];
+  public reservedSecuritizationSpace: RuntimeVault['reservedSecuritizationSpace'];
+  public securitizationPendingActivation: RuntimeVault['securitizationPendingActivation'];
+  public securitizedSatoshis: RuntimeVault['securitizedSatoshis'];
+  public totalSatoshis: RuntimeVault['totalSatoshis'];
+  public ratioAdjustedSatoshis: RuntimeVault['ratioAdjustedSatoshis'];
+  public flexibleRatioAdjustedSatoshis: RuntimeVault['flexibleRatioAdjustedSatoshis'];
+  public committedMicrogons: RuntimeVault['committedMicrogons'];
+  public securitizationRatio: RuntimeVault['securitizationRatio'];
+  public isClosed: RuntimeVault['isClosed'];
+  public terms: RuntimeVault['terms'];
+  public pendingTerms: RuntimeVault['pendingTerms'];
+  public openedTick: RuntimeVault['openedTick'];
 
-export class Vault {
-  public securitization!: bigint;
-  public securitizationTarget!: bigint;
-  public securitizationLocked!: bigint;
-  public securitizationPendingActivation!: bigint;
-  /**
-   * Map of bitcoin height to amount of securitization released at that height
-   */
-  public securitizationReleaseSchedule: Map<number, bigint>;
-  public terms!: ITerms;
-  public operatorAccountId!: string;
-  public isClosed!: boolean;
-  public vaultId: number;
-  public pendingTerms?: ITerms;
-  public pendingTermsChangeTick?: number;
   public openedDate: Date;
-  public openedTick: number;
-  public securitizationRatio!: number;
-
-  public securitizedSatoshis!: bigint;
-  public ratioAdjustedSatoshis!: bigint;
-  public flexibleSecuritizationLocked!: bigint;
-  public reservedSecuritizationSpace!: bigint;
-  public flexibleRatioAdjustedSatoshis!: bigint;
-  public delegateAccountId?: string;
-  public operationalMinimumReleaseTick?: number;
+  public securitizationReleaseSchedule: Map<number, SecuritizationScheduleEntry>;
+  /** Deployed-runtime bonds share vault income; the new vault pool pays operators directly. */
+  public bondProfitSharing?: BigNumber;
+  public operationalMinimumReleaseTick?: number | null;
+  public bondCapacitySource: 'Securitization' | 'Bitcoin' = 'Securitization';
 
   constructor(
-    id: number,
+    public vaultId: number,
     vault: RuntimeVault,
     public tickDuration: number,
+    public securitizationExitNoticeBlocks?: number,
   ) {
-    const compatibleVault = vault as NonNullable<VaultsVaultsByIdResult>;
-    this.vaultId = id;
-    this.openedTick = vault.openedTick;
-    this.openedDate = new Date(this.openedTick * this.tickDuration);
-    this.securitizationReleaseSchedule = new Map();
-
+    this.operatorAccountId = vault.operatorAccountId;
+    this.delegateAccountId = vault.delegateAccountId;
     this.securitization = vault.securitization;
     this.securitizationTarget = vault.securitizationTarget;
-    this.securitizationRatio = vault.securitizationRatio.toNumber();
     this.securitizationLocked = vault.securitizationLocked;
+    this.flexibleSecuritizationLocked = vault.flexibleSecuritizationLocked;
+    this.reservedSecuritizationSpace = vault.reservedSecuritizationSpace;
     this.securitizationPendingActivation = vault.securitizationPendingActivation;
-    for (const [bitcoinHeight, amount] of Object.entries(vault.securitizationReleaseSchedule)) {
-      this.securitizationReleaseSchedule.set(Number(bitcoinHeight), amount);
-    }
-    this.terms = {
-      bitcoinAnnualPercentRate: vault.terms.bitcoinAnnualPercentRate,
-      bitcoinBaseFee: vault.terms.bitcoinBaseFee,
-      treasuryProfitSharing: vault.terms.treasuryProfitSharing,
-    };
-    this.securitizedSatoshis = compatibleVault.lockedSatoshis ?? vault.securitizedSatoshis;
-    this.ratioAdjustedSatoshis = compatibleVault.ratioAdjustedSatoshis ?? vault.securitizedSatoshis;
-    this.flexibleSecuritizationLocked =
-      compatibleVault.flexibleSecuritizationLocked ?? compatibleVault.backfillSecuritizationLocked!;
-    this.reservedSecuritizationSpace =
-      compatibleVault.reservedSecuritizationSpace ?? compatibleVault.backfillSecuritizationReserved!;
-    this.flexibleRatioAdjustedSatoshis =
-      compatibleVault.flexibleRatioAdjustedSatoshis ??
-      compatibleVault.flexibleSecuritizedSatoshis ??
-      compatibleVault.backfillSecuritizedSatoshis!;
-
-    this.operatorAccountId = vault.operatorAccountId;
+    this.securitizedSatoshis = vault.securitizedSatoshis;
+    this.totalSatoshis = vault.totalSatoshis;
+    this.ratioAdjustedSatoshis = vault.ratioAdjustedSatoshis;
+    this.flexibleRatioAdjustedSatoshis = vault.flexibleRatioAdjustedSatoshis;
+    this.committedMicrogons = vault.committedMicrogons;
+    this.securitizationRatio = vault.securitizationRatio;
     this.isClosed = vault.isClosed;
-    this.pendingTerms = undefined;
-    this.pendingTermsChangeTick = undefined;
-    this.delegateAccountId = undefined;
-    if (vault.pendingTerms) {
-      const [tickApply, terms] = vault.pendingTerms;
-      this.pendingTermsChangeTick = Number(tickApply);
-      this.pendingTerms = {
-        bitcoinAnnualPercentRate: terms.bitcoinAnnualPercentRate,
-        bitcoinBaseFee: terms.bitcoinBaseFee,
-        treasuryProfitSharing: terms.treasuryProfitSharing,
-      };
+    this.terms = vault.terms;
+    this.pendingTerms = vault.pendingTerms;
+    this.openedTick = vault.openedTick;
+    this.openedDate = new Date(this.openedTick * tickDuration);
+    this.securitizationReleaseSchedule = new Map(
+      Object.entries(vault.securitizationReleaseSchedule).map(([height, entry]) => [Number(height), entry]),
+    );
+  }
+
+  public static fromRuntime(
+    id: number,
+    vault: NonNullable<LiveQueryRecord<'vaults', 'vaultsById'>>,
+    tickDuration: number,
+    constants: ArgonQueryClient['consts']['vaults'],
+  ): Vault {
+    if ('committedMicrogons' in vault) {
+      const securitizationExitNoticeBlocks =
+        'securitizationExitNoticeBlocks' in constants ? constants.securitizationExitNoticeBlocks : undefined;
+      return new Vault(id, vault, tickDuration, securitizationExitNoticeBlocks);
     }
-    this.delegateAccountId = vault.delegateAccountId ?? undefined;
-    this.operationalMinimumReleaseTick = vault.operationalMinimumReleaseTick ?? undefined;
+    const { treasuryProfitSharing, ...terms } = vault.terms;
+    let pendingTerms: RuntimeVault['pendingTerms'] = vault.pendingTerms;
+    if (vault.pendingTerms) {
+      const [applyTick, { treasuryProfitSharing: pendingProfitSharing, ...bitcoinTerms }] = vault.pendingTerms;
+      pendingTerms = [applyTick, bitcoinTerms];
+    }
+    const schedule = Object.fromEntries(
+      Object.entries(vault.securitizationReleaseSchedule).map(([height, amount]) => [
+        height,
+        {
+          lockedCommitments: 0n,
+          relockableCommitments: amount,
+          argonWithdrawals: 0n,
+          argonotWithdrawals: 0n,
+        },
+      ]),
+    );
+    const normalized = new Vault(
+      id,
+      {
+        ...vault,
+        terms,
+        pendingTerms,
+        committedMicrogons: 0n,
+        securitizationReleaseSchedule: schedule,
+      },
+      tickDuration,
+    );
+    normalized.operationalMinimumReleaseTick = vault.operationalMinimumReleaseTick;
+    normalized.bondProfitSharing = treasuryProfitSharing;
+    normalized.bondCapacitySource = 'Bitcoin';
+    return normalized;
+  }
+
+  /**
+   * ARGN scheduled to leave the vault, in microgons, keyed by its earliest Bitcoin release height.
+   * On the deployed runtime, scheduled collateral releases are still relockable until that height.
+   */
+  public get scheduledArgonWithdrawals(): readonly (readonly [bitcoinHeight: number, microgons: bigint])[] {
+    return [...this.securitizationReleaseSchedule].map(([height, entry]) => [
+      height,
+      this.securitizationExitNoticeBlocks === undefined ? entry.relockableCommitments : entry.argonWithdrawals,
+    ]);
+  }
+
+  public get pendingTermsChangeTick(): number | undefined {
+    return this.pendingTerms ? Number(this.pendingTerms[0]) : undefined;
+  }
+
+  public bondCapacityMicrogons(
+    priceIndex: Pick<PriceIndex, 'btcUsdPrice' | 'argonUsdPrice' | 'getSatoshiPriceInMarketMicrogons'>,
+  ): bigint {
+    if (this.isClosed) return 0n;
+    if (this.bondCapacitySource === 'Securitization') return this.securitization;
+    if (!priceIndex.btcUsdPrice?.gt(0) || !priceIndex.argonUsdPrice?.gt(0)) return 0n;
+    return priceIndex.getSatoshiPriceInMarketMicrogons(this.bondEligibleSatoshis());
   }
 
   public availableBitcoinSpace(lockOwner?: string): bigint {
     const availableSecuritization = this.availableSecuritizationSpace(lockOwner);
-    const microgons = BigNumber(availableSecuritization).div(this.securitizationRatioBN());
+    const microgons = BigNumber(availableSecuritization).div(this.securitizationRatio);
     return bigNumberToBigInt(microgons);
   }
 
@@ -127,11 +169,7 @@ export class Vault {
   }
 
   public getRelockCapacity(): bigint {
-    return [...this.securitizationReleaseSchedule.values()].reduce((acc, val) => acc + val, 0n);
-  }
-
-  public securitizationRatioBN(): BigNumber {
-    return new BigNumber(this.securitizationRatio);
+    return [...this.securitizationReleaseSchedule.values()].reduce((acc, val) => acc + val.relockableCommitments, 0n);
   }
 
   public activatedSecuritization(): bigint {
@@ -159,21 +197,9 @@ export class Vault {
     const eligibleFlexibleCollateral = bigIntMax(0n, this.flexibleSecuritizationLocked - displacedFlexibleCollateral);
     // Flexible Bitcoin counts only in proportion to its collateral that has not been displaced.
     // FixedU128::from_rational rounds this fraction to 18 places, preferring down on a tie.
-    const eligibleFlexibleFraction = new FixedU128BigNumber(eligibleFlexibleCollateral).dividedBy(
-      this.flexibleSecuritizationLocked,
-    );
-    const eligibleFlexibleSatoshis = eligibleFlexibleFraction.multipliedBy(this.flexibleRatioAdjustedSatoshis);
-
-    const eligibleRegularSatoshis = bigIntMax(0n, this.ratioAdjustedSatoshis - this.flexibleRatioAdjustedSatoshis);
-
-    return bigNumberToBigInt(new BigNumber(eligibleRegularSatoshis).plus(eligibleFlexibleSatoshis));
-  }
-
-  private displacedFlexibleSecuritization(): bigint {
-    return bigIntMin(
-      this.flexibleSecuritizationLocked,
-      bigIntMax(0n, this.activatedSecuritization() - this.securitization),
-    );
+    const eligibleFlexibleFraction = fixedU128Rational(eligibleFlexibleCollateral, this.flexibleSecuritizationLocked);
+    const eligibleFlexibleSatoshis = fixedU128Multiply(eligibleFlexibleFraction, this.flexibleRatioAdjustedSatoshis);
+    return bigIntMax(0n, this.ratioAdjustedSatoshis - this.flexibleRatioAdjustedSatoshis) + eligibleFlexibleSatoshis;
   }
 
   public calculateBitcoinFee(amount: bigint): bigint {
@@ -181,38 +207,59 @@ export class Vault {
     return BigInt(feeBn.toString()) + this.terms.bitcoinBaseFee;
   }
 
-  public static async get(client: ArgonQueryClient, vaultId: number, tickDurationMillis?: number): Promise<Vault> {
+  /** Encode current Bitcoin terms against the connected runtime's actual terms schema. */
+  public static encodeTerms(registry: ArgonClient['registry'], terms: RuntimeVault['terms']) {
+    return registry.createType<ArgonPrimitivesVaultVaultTerms | RuntimeSpec159.ArgonPrimitivesVaultVaultTerms>(
+      'ArgonPrimitivesVaultVaultTerms',
+      {
+        bitcoinAnnualPercentRate: toFixedNumber(terms.bitcoinAnnualPercentRate, FIXED_U128_DECIMALS),
+        bitcoinBaseFee: terms.bitcoinBaseFee,
+        // The deployed terms schema still requires this field; the new schema omits it.
+        treasuryProfitSharing: toFixedNumber(0.1, PERMILL_DECIMALS),
+      },
+    );
+  }
+
+  public static async get(
+    client: ArgonCurrentQueryClient,
+    vaultId: number,
+    tickDurationMillis?: number,
+  ): Promise<Vault> {
     const rawVault = await client.query.vaults.vaultsById(vaultId);
     if (!rawVault) {
       throw new Error(`Vault with id ${vaultId} not found`);
     }
-    const compatibleVault = rawVault as NonNullable<VaultsVaultsByIdResult>;
-    if (
-      rawVault.securitization === undefined ||
-      rawVault.securitizationLocked === undefined ||
-      rawVault.securitizationPendingActivation === undefined ||
-      rawVault.securitizedSatoshis === undefined ||
-      rawVault.securitizationReleaseSchedule === undefined ||
-      rawVault.securitizationRatio === undefined ||
-      rawVault.openedTick === undefined ||
-      !rawVault.terms ||
-      (compatibleVault.flexibleSecuritizationLocked === undefined &&
-        compatibleVault.backfillSecuritizationLocked === undefined)
-    ) {
-      throw new Error(`Vault ${vaultId} predates the supported runtime compatibility window`);
-    }
     const tickDuration =
       tickDurationMillis ?? (await client.query.ticks.genesisTicker().then(x => x.tickDurationMillis))!;
-    return new Vault(vaultId, rawVault as RuntimeVault, tickDuration);
+    return Vault.fromRuntime(vaultId, rawVault, tickDuration, client.consts.vaults);
+  }
+
+  public static async getArgonotSecuritization(client: ArgonQueryClient, vaultId: number) {
+    if ('argonotSecuritizationByVaultId' in client.raw.query.vaults) {
+      return await client.query.vaults.argonotSecuritizationByVaultId(vaultId);
+    }
+    const commitment = await client.query.vaults.argonotCommitmentByVaultId(vaultId);
+    return commitment
+      ? {
+          heldMicronots: commitment.committedMicronots,
+          committedMicronots: 0n,
+          encumberedMicronots: commitment.encumberedMicronots,
+        }
+      : null;
+  }
+
+  public static buildSetArgonotSecuritizationTx(client: ArgonClient, amount: bigint) {
+    const vaultTx = client.tx.vaults as typeof client.tx.vaults | RuntimeSpec159.Transactions<'promise'>['vaults'];
+    return 'setArgonotSecuritization' in vaultTx
+      ? vaultTx.setArgonotSecuritization(amount)
+      : vaultTx.setCommittedArgonots(amount);
+  }
+  private displacedFlexibleSecuritization(): bigint {
+    return bigIntMin(
+      this.flexibleSecuritizationLocked,
+      bigIntMax(0n, this.activatedSecuritization() - this.securitization),
+    );
   }
 }
 
-export interface ITerms {
-  readonly bitcoinAnnualPercentRate: BigNumber;
-  readonly bitcoinBaseFee: bigint;
-  readonly treasuryProfitSharing: BigNumber;
-}
-
-function bigNumberToBigInt(bn: BigNumber): bigint {
-  return BigInt(bn.integerValue(BigNumber.ROUND_DOWN).toString());
-}
+export type ITerms = RuntimeVault['terms'];

@@ -1,6 +1,8 @@
 import BigNumber from 'bignumber.js';
+import { getOfflineRegistry } from '@argonprotocol/mainchain';
+import { runtimeClient, type VaultsVaultsByIdResultSpec159Variant15 } from '@argonprotocol/runtime-client';
+import type { RuntimeSystemEventRecord } from '../src/index.ts';
 import { nextTick, reactive, shallowReactive, watchEffect } from 'vue';
-import type { VaultsVaultsByIdResultSpec159Variant15 } from '@argonprotocol/runtime-client';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { createDeferred } from '../src/Deferred.ts';
 import { calculateRestabilizationLeverage } from '../src/GlobalVaultingStats.ts';
@@ -39,6 +41,7 @@ it('publishes current vaults before statistics and preserves them through failur
   const statsReady = createDeferred();
   const entries = vi.fn().mockRejectedValueOnce(new Error('offline'));
   const client = {
+    consts: { vaults: {} },
     query: {
       vaults: { vaultsById: { entries } },
       operationalAccounts: {
@@ -124,6 +127,7 @@ describe('Vaults load retry', () => {
       load: vi.fn().mockRejectedValueOnce(new Error('offline')).mockResolvedValueOnce(undefined),
     };
     const client = {
+      consts: { vaults: {} },
       query: {
         vaults: {
           vaultsById: {
@@ -150,6 +154,7 @@ describe('Vaults load retry', () => {
       load: vi.fn().mockResolvedValue(undefined),
     };
     const client = {
+      consts: { vaults: {} },
       query: {
         vaults: {
           vaultsById: { entries: vi.fn().mockResolvedValue([]) },
@@ -174,6 +179,7 @@ describe('Vaults load retry', () => {
     const operationalAccountId = `0x${'01'.repeat(32)}`;
     const profileEntries = createDeferred<any[]>();
     const client = {
+      consts: { vaults: {} },
       query: {
         vaults: {
           vaultsById: { entries: vi.fn().mockResolvedValue([]) },
@@ -201,6 +207,88 @@ describe('Vaults load retry', () => {
 });
 
 describe('Vault revenue sync', () => {
+  it('uses actual shared bond payouts and the payout parent capital, leaving unmatched history unavailable until repaired', async () => {
+    const registry = getOfflineRegistry();
+    const events: RuntimeSystemEventRecord[] = [
+      {
+        phase: { type: 'Initialization' },
+        topics: [],
+        event: {
+          section: 'treasury',
+          method: 'FrameEarningsDistributed',
+          data: {
+            frameId: 20,
+            argonBondPoolDistributed: 1_000_000n,
+            bidPoolDistributed: 10_000_000n,
+            vaultPoolDistributed: 8_000_000n,
+            stakePoolDistributed: 1_000_000n,
+            treasuryReserves: 0n,
+            burned: 0n,
+            participatingVaults: 1,
+          },
+        },
+      },
+    ];
+    const api = {
+      query: {
+        system: { events: async () => events },
+        treasury: {
+          currentFrameArgonotBondParticipants: async () => null,
+          currentFrameVaultCapital: async () => ({ frameId: 21, totalActiveBonds: 10_000n }),
+        },
+        vaults: { revenuePerFrameByVault: { entries: async () => [] } },
+      },
+    };
+    let capitalFrame = 20;
+    const parentApi = runtimeClient({
+      query: {
+        treasury: {
+          currentFrameVaultCapital: async () =>
+            registry.createType('Option<PalletTreasuryFrameVaultCapital>', {
+              frameId: capitalFrame,
+              totalActiveBonds: 100n,
+              targetSecuritization: 1_000_000_000n,
+              totalSecuritization: 1_000_000_000n,
+              vaultSecuritizationPositions: {},
+            }),
+        },
+      },
+    });
+    const frames = createRevenueMiningFrames([21], () => ({ api, specVersion: 160 }));
+    Object.assign(frames.blockWatch, {
+      getHeader: async (blockNumber: number) => ({ blockNumber, blockHash: `0x${blockNumber}` }),
+      getApi: async () => parentApi,
+    });
+    const clients = { get: async () => ({ query: { vaults: { vaultsById: { entries: async () => [] } } } }) };
+    const vaults = new Vaults(
+      'mainnet',
+      { fetchMainchainRatesAtBlock: async () => ({ ARGNOT: 1n }) } as any,
+      frames as any,
+      clients as any,
+    );
+    vaults.stats = createStats([createFrame({ totalEarnings: 99n, externalCapital: 100n })]);
+    await vaults.updateRevenue();
+    // One ARGN actually paid over 100 eligible ARGN, rather than the next frame's 10,000 or the target 1,000.
+    expect(vaults.calculateArgonBondsApr()).toBeCloseTo(365);
+    expect(vaults.calculateArgonBondsApr(1)).toBeCloseTo(365);
+
+    frames.frameIds[0] = 22;
+    frames.currentFrameId = 22;
+    frames.framesById[22] = { firstBlockHash: '0x22' };
+    const payout = events[0].event;
+    if (payout.method === 'FrameEarningsDistributed') {
+      events[0] = { ...events[0], event: { ...payout, data: { ...payout.data, frameId: 21 } } };
+    }
+    await vaults.updateRevenue();
+    expect(vaults.calculateArgonBondsApr()).toBeUndefined();
+    expect(vaults.calculateArgonBondsApr(1)).toBeUndefined();
+
+    capitalFrame = 21;
+    await vaults.updateRevenue();
+    expect(vaults.calculateArgonBondsApr()).toBeCloseTo(365);
+    expect(vaults.stats.argonBondsByFrame).toHaveLength(2);
+  });
+
   it('stores the latest completed frame when the current frame has finalized blocks', async () => {
     vi.useFakeTimers();
 

@@ -24,12 +24,12 @@
       :amount="completedPurchaseAmount"
       singularLabel="Argon Bond"
       pluralLabel="Argon Bonds"
-      distributionSource="Vault revenue"
+      distributionSource="network revenue"
       @close="closeOverlay"
     />
     <div v-else-if="isSelectingVault || !vaultId" class="flex flex-col px-10 py-5">
       <p class="pt-3 leading-relaxed font-light">
-        Argon Bonds help secure the network’s stabilization vaults. Each Bond earns a share of vault revenue while
+        Argon Bonds help secure the network’s stabilization vaults. Each Bond earns a share of network revenue while
         your principal is protected by onchain rules.
         <a :href="`${NetworkConfig.websiteHost}/docs/assets-and-entities/argon-bonds`" target="_blank">Learn more.</a>
       </p>
@@ -91,9 +91,18 @@
       class="flex min-h-105 flex-col items-center justify-center px-10 py-5 text-center"
     >
       <AlertIcon class="h-18 text-yellow-700" />
-      <h1 class="mt-8 text-xl font-bold text-yellow-800">{{ vaultLabel }} has no available Argon Bond space</h1>
+      <h1 class="mt-8 text-xl font-bold text-yellow-800">
+        <template v-if="vaultBondState?.isAtBondLotLimit">The network's bond lot limit is reached</template>
+        <template v-else>{{ vaultLabel }} has no available Argon Bond space</template>
+      </h1>
       <p class="mt-4 max-w-150 text-lg leading-relaxed font-light">
-        <template v-if="ownedVaultHasFlexibleBonds">
+        <template v-if="vaultBondState?.isAtBondLotLimit">
+          Existing bond lots must finish returning before another purchase can be accepted.
+        </template>
+        <template v-else-if="isOwnedVault && vault?.bondCapacitySource === 'Securitization'">
+          Add ARGN securitization to create more Bond space.
+        </template>
+        <template v-else-if="ownedVaultHasFlexibleBonds">
           Lock more Bitcoin to buy Bonds without displacing your flexible bonds.
         </template>
         <template v-else-if="isOwnedVault">
@@ -108,7 +117,7 @@
       <div class="pt-3">
         <h1 class="text-2xl font-bold">Choose Your Bond Amount</h1>
         <p class="font-light leading-relaxed mt-2">
-          Argon Bonds help secure the network’s stabilization vaults. Each bond earns a share of vault revenue while
+          Argon Bonds help secure the network’s stabilization vaults. Each bond earns a share of network revenue while
           your principal is protected by onchain rules. <a :href="`${NetworkConfig.websiteHost}/docs/assets-and-entities/argon-bonds`">Learn more</a>.
         </p>
         <div class="flex flex-col mt-6">
@@ -194,7 +203,10 @@
                 {{ vaultLabel }} can only create {{ numeral(vaultMaxPurchaseAmount).format('0,0') }} Argon Bonds right
                 now.
               </template>
-              <template v-if="ownedVaultHasFlexibleBonds">
+              <template v-if="isOwnedVault && vault?.bondCapacitySource === 'Securitization'">
+                Add ARGN securitization to create more Bond space.
+              </template>
+              <template v-else-if="ownedVaultHasFlexibleBonds">
                 Lock more Bitcoin to buy this amount without displacing your flexible bonds.
               </template>
               <template v-else-if="isOwnedVault">
@@ -204,6 +216,9 @@
                 Contact {{ vaultOperatorName || 'the person who invited you' }} to create more Bond space.
               </template>
             </span>
+          </div>
+          <div v-else-if="purchaseAmount < minPurchaseAllowed" class="mt-3 rounded border border-yellow-400/70 bg-yellow-100 px-3 py-3 text-yellow-900">
+            The minimum purchase is {{ numeral(minPurchaseAllowed).format('0,0') }} Bonds.
           </div>
           <WalletFundingCallout v-else-if="neededMicrogons" @open-wallet="openWallet">
             <AlertIcon class="h-4 text-yellow-700 mr-2" />
@@ -222,7 +237,8 @@
               <div class="w-1/3">
                 <header class="font-bold opacity-40">AVG BOND RETURNS</header>
                 <div class="text-3xl text-argon-600 font-bold py-1">
-                  {{ numeral(vaultingStats.argonBondsAPR).formatIfElseCapped('< 100', '0.0', '0', 999) }}% APR
+                  <template v-if="vaultingStats.argonBondsAPR !== undefined">{{ numeral(vaultingStats.argonBondsAPR).formatIfElseCapped('< 100', '0.0', '0', 999) }}% APR</template>
+                  <template v-else>&mdash;</template>
                 </div>
                 <div class="font-light opacity-80">Based on Past Performance<sup>&dagger;</sup></div>
               </div>
@@ -230,7 +246,8 @@
               <div class="w-1/3">
                 <header class="font-bold opacity-40">PROJECTED EARNINGS</header>
                 <div class="text-3xl text-argon-600 font-bold py-1">
-                  +{{ currency.symbol }}{{ microgonToMoneyNm(projectedEarnings).formatIfElse('< 100', '0,0.00', '0,0') }}
+                  <template v-if="projectedEarnings !== undefined">+{{ currency.symbol }}{{ microgonToMoneyNm(projectedEarnings).formatIfElse('< 100', '0,0.00', '0,0') }}</template>
+                  <template v-else>&mdash;</template>
                 </div>
                 <div class="font-light opacity-80">Modeled Over One Year<sup>&dagger;</sup></div>
               </div>
@@ -259,7 +276,7 @@
           </button>
           <button
             type="button"
-            :disabled="isSubmitting || purchaseAmount <= 0 || isOverVaultBondCapacity || neededMicrogons > 0n"
+            :disabled="isSubmitting || purchaseAmount < minPurchaseAllowed || isOverVaultBondCapacity || neededMicrogons > 0n"
             class="bg-argon-button hover:bg-argon-button-hover rounded-md px-5 py-2 cursor-pointer font-semibold text-white disabled:opacity-40"
             @click="submit"
           >
@@ -334,7 +351,7 @@ const isSelectingVault = Vue.ref(false);
 const vaultId = Vue.ref<number>();
 const vault = Vue.ref<Vault>();
 const purchaseAmount = Vue.ref(0);
-const minPurchaseAllowed = Vue.ref(0);
+const configuredMinimumPurchase = Vue.ref(1);
 const isSubmitting = Vue.ref(false);
 const errorMessage = Vue.ref('');
 const txInfo = Vue.ref<TransactionInfo>();
@@ -345,10 +362,17 @@ const isComplete = Vue.ref(false);
 const completedPurchaseAmount = Vue.ref(0);
 
 let unsubVault: VoidFunction | undefined;
+let unsubVaultBonds: VoidFunction | undefined;
 let unsubProgress: VoidFunction | undefined;
 let purchaseSession = 0;
 
 const availableMicrogons = Vue.computed(() => wallets.defaultArgonWallet.availableMicrogons);
+const vaultBondState = Vue.computed(() =>
+  vaultId.value === undefined ? undefined : argonBonds.data.vaultsById[vaultId.value],
+);
+const minPurchaseAllowed = Vue.computed(
+  () => vaultBondState.value?.minimumPurchaseBonds ?? configuredMinimumPurchase.value,
+);
 
 const vaultAvailableCapacity = Vue.computed(() => {
   if (!vault.value) return 0n;
@@ -424,6 +448,7 @@ const neededMicrogons = Vue.computed(() => {
 });
 
 const projectedEarnings = Vue.computed(() => {
+  if (vaultingStats.argonBondsAPR === undefined) return;
   const bondsAPR = Math.min(999, vaultingStats.argonBondsAPR);
   const purchaseMicrogons = BigInt(purchaseAmount.value) * MICROGONS_PER_ARGON_BIGINT;
   return bigNumberToBigInt(BigNumber(purchaseMicrogons.toString()).multipliedBy(bondsAPR).dividedBy(100));
@@ -467,7 +492,7 @@ const stepItems = Vue.computed<IStepHeaderItem[]>(() => [
   },
   {
     label: 'Collect Argons',
-    tooltip: 'Collect daily ARGN distributions funded by Vault revenue.',
+    tooltip: 'Collect daily ARGN distributions funded by network revenue.',
     isActive: () => isComplete.value,
   },
 ]);
@@ -486,6 +511,8 @@ function cancelPurchaseActivity() {
   purchaseSession += 1;
   unsubVault?.();
   unsubVault = undefined;
+  unsubVaultBonds?.();
+  unsubVaultBonds = undefined;
   unsubProgress?.();
   unsubProgress = undefined;
 }
@@ -515,15 +542,16 @@ async function loadPurchase() {
     await Promise.all([financials.refreshVaults(eligibleVaultIds.value), argonBonds.refreshBondLots()]);
     if (session !== purchaseSession || !isOpen.value) return;
 
-    if (eligibleVaults.value.length > 1) {
+    if (!vaultId.value && eligibleVaults.value.length > 1) {
       isSelectingVault.value = true;
       return;
     }
 
-    const [onlyVault] = eligibleVaults.value;
-    if (!onlyVault) return;
-
-    vaultId.value = onlyVault.vaultId;
+    if (!vaultId.value) {
+      const [onlyVault] = eligibleVaults.value;
+      if (!onlyVault) return;
+      vaultId.value = onlyVault.vaultId;
+    }
     await initializePurchase(session);
   } catch (error) {
     if (session !== purchaseSession || !isOpen.value) return;
@@ -583,6 +611,9 @@ async function submit() {
   try {
     await refreshSelectedVaultBonds();
     if (session !== purchaseSession || !isOpen.value) return;
+    if (purchaseAmount.value < minPurchaseAllowed.value) {
+      throw new Error(`The minimum purchase is ${minPurchaseAllowed.value} Bonds.`);
+    }
     if (isOverVaultBondCapacity.value) {
       throw new Error(`${vaultLabel.value} does not have enough Bond space for this purchase.`);
     }
@@ -606,9 +637,11 @@ async function submit() {
   }
 }
 
-async function initializePurchase(session = ++purchaseSession) {
+async function initializePurchase(session: number) {
   unsubVault?.();
   unsubVault = undefined;
+  unsubVaultBonds?.();
+  unsubVaultBonds = undefined;
 
   await certificationController.isLoadedPromise;
   if (session !== purchaseSession) return;
@@ -624,6 +657,21 @@ async function initializePurchase(session = ++purchaseSession) {
       return;
     }
     unsubVault = unsubscribe;
+    const client = await getMainchainClient(false);
+    await argonBonds.subscribeGlobal(client);
+    const unsubscribeBonds = await argonBonds.subscribeVault(
+      {
+        vaultId: initializingVaultId,
+        operatorAddress: vault.value!.operatorAccountId,
+        accountId: walletKeys.defaultArgonAddress,
+      },
+      client,
+    );
+    if (session !== purchaseSession) {
+      unsubscribeBonds();
+      return;
+    }
+    unsubVaultBonds = unsubscribeBonds;
   }
 
   await refreshSelectedVaultBonds();
@@ -638,7 +686,10 @@ async function initializePurchase(session = ++purchaseSession) {
     trackTxInfo(pendingBuyTxInfo);
   }
 
-  purchaseAmount.value = certificationPurchaseAmount.value || maxPurchaseAmount.value;
+  purchaseAmount.value = Math.max(
+    minPurchaseAllowed.value,
+    certificationPurchaseAmount.value || maxPurchaseAmount.value,
+  );
 }
 
 async function refreshSelectedVaultBonds() {
@@ -661,19 +712,8 @@ function handleVaultSelected(v: Vault) {
 }
 
 async function selectVault() {
-  const session = purchaseSession + 1;
   isSelectingVault.value = false;
-  isLoading.value = true;
-  loadError.value = '';
-  try {
-    await initializePurchase();
-  } catch (error) {
-    if (session === purchaseSession && isOpen.value) {
-      loadError.value = error instanceof Error ? error.message : 'Unable to refresh bond availability.';
-    }
-  } finally {
-    if (session === purchaseSession && isOpen.value) isLoading.value = false;
-  }
+  await loadPurchase();
 }
 
 Vue.onMounted(async () => {
@@ -681,9 +721,9 @@ Vue.onMounted(async () => {
   basicEmitter.on('closeAllOverlays', closeOverlay);
 
   const client = await getMainchainClient(false);
-  minPurchaseAllowed.value = Number(
-    client.consts.treasury.minimumArgonsPerContributor.toBigInt() / MICROGONS_PER_ARGON_BIGINT,
-  );
+  configuredMinimumPurchase.value = TreasuryBonds.getBondMinimumPurchase({
+    configuredMinimumMicrounits: client.consts.treasury.minimumArgonsPerContributor,
+  });
 });
 
 Vue.onUnmounted(() => {

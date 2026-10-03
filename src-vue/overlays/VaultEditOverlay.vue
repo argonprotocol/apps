@@ -37,7 +37,7 @@
               </DialogDescription>
 
               <div class=" border-t mx-4 border-slate-300">&nbsp;</div>
-              <VaultSettings ref="vaultSettings" @toggleEditBoxOverlay="(x: boolean) => hasEditBoxOverlay = x" :includeProjections="false" :isEditingSettings="true" />
+              <VaultSettings ref="vaultSettings" @toggleEditBoxOverlay="(x: boolean) => hasEditBoxOverlay = x" :includeProjections="false" :isEditingSettings="true" @openSecuritization="openSecuritization" />
             </div>
             <div v-else class="grow flex items-center justify-center">Loading...</div>
 
@@ -67,6 +67,7 @@
 
 <script setup lang="ts">
 import * as Vue from 'vue';
+import basicEmitter from '../emitters/basicEmitter.ts';
 import { DialogContent, DialogDescription, DialogOverlay, DialogPortal, DialogRoot, DialogTitle } from 'reka-ui';
 import { getConfig } from '../stores/config.ts';
 import { getVaultCalculator } from '../stores/mainchain.ts';
@@ -128,6 +129,12 @@ function closeEditBoxOverlay() {
   vaultSettings.value?.closeEditBoxOverlay();
 }
 
+function openSecuritization() {
+  if (isSaving.value || hasEditBoxOverlay.value) return;
+  cancelOverlay();
+  basicEmitter.emit('openSecuritizationOverlay');
+}
+
 async function saveRules() {
   if (isSaving.value || hasEditBoxOverlay.value) return;
 
@@ -136,13 +143,14 @@ async function saveRules() {
       savingError.value = null;
       isSaving.value = true;
 
-      await myVault.updateSettings({
+      const settingsTx = await myVault.updateSettings({
         rules: Vue.toRaw(rules.value),
         previousRules: JsonExt.parse<IVaultingRules>(previousVaultingRules!),
         txProgressCallback(progress: number) {
           console.log(`Vault settings update progress: ${progress}%`);
         },
       });
+      await settingsTx?.waitForPostProcessing;
       await config.saveVaultingRules();
     } catch (error: any) {
       console.error('Error saving vault rules:', error);
@@ -162,8 +170,9 @@ Vue.onMounted(async () => {
 
   const vault = myVault.createdVault;
   if (vault) {
-    config.vaultingRules.profitSharingPct = vault.terms.treasuryProfitSharing.times(100).toNumber();
-    config.vaultingRules.securitizationRatio = vault.securitizationRatio;
+    config.vaultingRules.profitSharingPct =
+      vault.bondProfitSharing?.times(100).toNumber() ?? config.vaultingRules.profitSharingPct;
+    config.vaultingRules.securitizationRatio = vault.securitizationRatio.toNumber();
     config.vaultingRules.btcFlatFee = vault.terms.bitcoinBaseFee;
     config.vaultingRules.btcPctFee = vault.terms.bitcoinAnnualPercentRate.times(100).toNumber();
     config.saveVaultingRules();

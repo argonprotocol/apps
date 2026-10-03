@@ -38,6 +38,7 @@ import {
   TooltipModel,
 } from 'chart.js';
 import 'chartjs-adapter-dayjs-4/dist/chartjs-adapter-dayjs-4.esm';
+import type { IChartItem } from '../interfaces/IChartItem';
 import { createChartOptions } from '../lib/ChartOptions';
 import XAxis, { startDate, endDate } from './XAxis.vue';
 
@@ -58,7 +59,7 @@ const chartRef = Vue.ref<HTMLCanvasElement | null>(null);
 let chart: Chart | null = null;
 
 const fillerPoints: any[] = [];
-const chartPoints: any[] = [];
+const chartPoints: { x: number; y: number | null }[] = [];
 const pointItems: any[] = [];
 const pointItemsByDate: Record<string, any> = {};
 
@@ -90,7 +91,7 @@ function setDateRange(min: string, max: string) {
   chart.update();
 }
 
-function addPoints(items: { date: string; score: number; isFiller: boolean }[]) {
+function addPoints(items: Pick<IChartItem, 'date' | 'score' | 'isFiller'>[]) {
   for (const item of items) {
     const date = dayjs.utc(item.date);
     const score = item.score;
@@ -152,7 +153,7 @@ function getPointPosition(index: number) {
 
   return {
     x: xScale?.getPixelForValue(point.x),
-    y: yScale?.getPixelForValue(point.y),
+    y: yScale?.getPixelForValue(point.y ?? 0),
   };
 }
 
@@ -178,32 +179,19 @@ function getItemIndexFromDate(date: string | Dayjs) {
 }
 
 function getItemIndexFromEvent(event: MouseEvent, override: { x?: number; y?: number } = {}) {
-  if (!chartRef.value) return;
-
-  const rect = chartRef.value.getBoundingClientRect();
-  const maxY = rect.height - rect.top;
-  const eventX = override.x || event.x;
-  const eventY = override.y || event.y;
-
-  const myCustomEvent = new MouseEvent('click', {
-    clientX: eventX,
-    clientY: eventY,
-    bubbles: true,
-    cancelable: true,
-  });
-
-  const wrappedEvent = {
-    chart: chart,
-    native: myCustomEvent,
-    offsetX: undefined,
-    offsetY: undefined,
-    type: event.type,
-    x: eventX,
-    y: rect.height / 2,
-  };
-  const interactionItems =
-    chart?.getElementsAtEventForMode(wrappedEvent as any, 'index', { intersect: false }, true) || [];
-  return interactionItems[0]?.index;
+  if (!chartRef.value || !chart || !chartPoints.length) return;
+  const x = override.x ?? event.clientX - chartRef.value.getBoundingClientRect().left;
+  let nearestIndex = 0;
+  let nearestDistance = Infinity;
+  // Frame selection follows dates, including frames with no plotted earnings yet.
+  for (const [index, point] of chartPoints.entries()) {
+    const distance = Math.abs(chart.scales.x.getPixelForValue(point.x) - x);
+    if (distance < nearestDistance) {
+      nearestDistance = distance;
+      nearestIndex = index;
+    }
+  }
+  return nearestIndex;
 }
 
 function getPrevMonthIndex(index: number) {

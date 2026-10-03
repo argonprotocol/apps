@@ -145,7 +145,6 @@ export function setupMemberInviteScenario(
     terms: {
       bitcoinAnnualPercentRate: BigNumber(0.034),
       bitcoinBaseFee: 2_000_000n,
-      treasuryProfitSharing: BigNumber(0.2),
     },
   });
   mocked(getMyVault).mockReturnValue({
@@ -255,25 +254,20 @@ export function setupOperationalRewardsScenario(
 }
 
 function createFlexibleBond(id: number, isFlexible: boolean) {
-  return new BondLot({
-    id,
-    programType: 'Vault',
-    accountId: '5SyntheticVaultingWallet',
-    vaultId: 7,
+  return new BondLot(id, {
+    owner: '5SyntheticVaultingWallet',
+    program: { type: 'Vault', value: { vaultId: 7, sharingPercent: new BigNumber(1), bonusPercent: new BigNumber(0.02) } },
     bonds: 20 + id - 70,
-    createdFrame: 10_000,
+    createdFrameId: 10_000,
     participatedFrames: 12,
-    lastEarningsFrame: 10_011,
-    lastEarnings: 50_000n,
-    lifetimeEarnings: 600_000n,
-    lifetimeBondedFrameMicrogons: 240_000_000n,
-    bonusPercent: 2,
-    releaseFrame: null,
-    isReleasing: false,
+    lastFrameEarningsFrameId: 10_011,
+    lastFrameEarnings: 50_000n,
+    cumulativeEarnings: 600_000n,
+    lockedFrameTerms: null,
+    releaseFrameId: null,
+    releaseReason: null,
     isFlexible,
-    isOwn: true,
-    canRelease: true,
-  });
+  }, '5SyntheticVaultingWallet');
 }
 
 function createInviteSetupTransaction(): TransactionInfo {

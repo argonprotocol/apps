@@ -1,3 +1,4 @@
+import { runtimeClient } from '@argonprotocol/runtime-client';
 import { integrationNetwork as sharedNetwork } from '@argonprotocol/apps-core/__test__/integration.setup.ts';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 
@@ -791,11 +792,11 @@ describe.skipIf(SKIP_E2E).sequential('Bitcoin Liquids integration', { timeout: 3
       });
       if (!actor) throw new Error('Operator actor was not loaded before Bitcoin funding.');
 
-      const beforeFinalization = await client.at(await client.rpc.chain.getFinalizedHead());
+      const beforeFinalization = runtimeClient(await client.raw.at(await client.rpc.chain.getFinalizedHead()));
       expect((await BitcoinLock.get(beforeFinalization, lock.lockId!))?.fundedSatoshis ?? 0n).toBe(0n);
 
       await actor.ensureOperationalLiquid({ client });
-      const finalizedClient = await client.at(await client.rpc.chain.getFinalizedHead());
+      const finalizedClient = runtimeClient(await client.raw.at(await client.rpc.chain.getFinalizedHead()));
       const fissions = await BitcoinFission.getAllByOwner(finalizedClient, walletKeys.defaultArgonAddress);
       expect(fissions).toHaveLength(1);
       expect(fissions[0]).toMatchObject({
@@ -812,7 +813,7 @@ describe.skipIf(SKIP_E2E).sequential('Bitcoin Liquids integration', { timeout: 3
       });
       await actor.ensureOperationalLiquid({ client });
 
-      const restoredClient = await client.at(await client.rpc.chain.getFinalizedHead());
+      const restoredClient = runtimeClient(await client.raw.at(await client.rpc.chain.getFinalizedHead()));
       expect(await BitcoinFission.getAllByOwner(restoredClient, walletKeys.defaultArgonAddress)).toEqual(fissions);
     } finally {
       await actor?.dispose();
@@ -853,7 +854,7 @@ describe.skipIf(SKIP_E2E).sequential('Bitcoin Liquids integration', { timeout: 3
       const unsupportedPreview = await ratchetLiquid.previewRatchet(
         initialFission.liquidId,
         unsupportedRate,
-        await client.at(await client.rpc.chain.getFinalizedHead()),
+        runtimeClient(await client.raw.at(await client.rpc.chain.getFinalizedHead())),
         harness.currency.priceIndex,
       );
       expect(unsupportedPreview.canRatchet).toBe(false);
@@ -865,7 +866,7 @@ describe.skipIf(SKIP_E2E).sequential('Bitcoin Liquids integration', { timeout: 3
         btcUsdPrice: 150_000,
       });
       await harness.currency.fetchMainchainRates(client, { ignoreCache: true });
-      const snapshotClient = await client.at(await client.rpc.chain.getFinalizedHead());
+      const snapshotClient = runtimeClient(await client.raw.at(await client.rpc.chain.getFinalizedHead()));
       const preview = await ratchetLiquid.previewRatchet(
         initialFission.liquidId,
         ratchetRate,
@@ -962,7 +963,7 @@ describe.skipIf(SKIP_E2E).sequential('Bitcoin Liquids integration', { timeout: 3
 
       const fission = await BitcoinFission.get(client, txSigner.address, 0);
       if (!fission) throw new Error('Finalized Liquid was not published by the runtime.');
-      const finalizedClient = await client.at(await client.rpc.chain.getFinalizedHead());
+      const finalizedClient = runtimeClient(await client.raw.at(await client.rpc.chain.getFinalizedHead()));
       const expectedRedemption = fission.calculateRedemptionAmount(
         await harness.currency.fetchPriceIndex(finalizedClient),
       );
@@ -1061,7 +1062,7 @@ async function submitBitcoinPrice(
   );
 
   return await waitFor(30_000, `eligible Bitcoin rate after price tick ${tick}`, async () => {
-    const snapshotClient = await client.at(await client.rpc.chain.getFinalizedHead());
+    const snapshotClient = runtimeClient(await client.raw.at(await client.rpc.chain.getFinalizedHead()));
     const [publishedPrice, rateHistory] = await Promise.all([
       Currency.fetchPriceIndex(snapshotClient),
       snapshotClient.query.bitcoinLocks.microgonPerBtcHistory(),

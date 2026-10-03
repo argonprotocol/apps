@@ -1,4 +1,5 @@
 import { BondLot, type ArgonClient, TreasuryBonds, type TxSigningAccount } from '@argonprotocol/apps-core';
+import { runtimeClient } from '@argonprotocol/runtime-client';
 import type { ArgonBonds } from '../ArgonBonds.ts';
 import type { TransactionInfo } from '../TransactionInfo.ts';
 import type { TransactionTracker } from '../TransactionTracker.ts';
@@ -88,10 +89,9 @@ export class BondBuy extends TransactionOperation<
       );
       if (!event || event.section !== 'treasury' || event.method !== 'BondLotPurchased') return;
       const block = await this.argonBonds.miningFrames.blockWatch.getHeader(blockNumber);
-      const api = await this.argonBonds.miningFrames.blockWatch.getApi(block);
-      const storedLot = await api.query.treasury.bondLotById(event.data.bondLotId);
-      if (!storedLot) return;
-      const lot = BondLot.fromRuntime(event.data.bondLotId, storedLot, this.walletKeys.defaultArgonAddress);
+      const api = runtimeClient(await this.argonBonds.miningFrames.blockWatch.getApi(block));
+      const lot = await BondLot.get(api, event.data.bondLotId, info.tx.accountAddress);
+      if (!lot) return;
       await this.argonBonds.recordPurchasedBondLot({
         kind: 'purchase',
         lot,

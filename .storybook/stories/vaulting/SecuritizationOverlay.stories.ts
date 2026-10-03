@@ -12,6 +12,7 @@ import {
 } from '../../../src-vue/lib/db/TransactionsTable.ts';
 import basicEmitter from '../../../src-vue/emitters/basicEmitter.ts';
 import SecuritizationOverlay from '../../../src-vue/overlays/SecuritizationOverlay.vue';
+import { getArgonBonds } from '../../../src-vue/stores/argonBonds.ts';
 import { getBitcoinLocks } from '../../../src-vue/stores/bitcoin.ts';
 import { getCurrency } from '../../../src-vue/stores/currency.ts';
 import { getMainchainClient } from '../../../src-vue/stores/mainchain.ts';
@@ -44,6 +45,10 @@ type Story = StoryObj<typeof meta>;
 
 export const Ready: Story = {
   beforeEach: () => setupSecuritizationScenario(),
+};
+
+export const MissingProtocolPrice: Story = {
+  beforeEach: () => setupSecuritizationScenario('missingProtocolPrice'),
 };
 
 export const Remove: Story = {
@@ -95,6 +100,11 @@ export const MaxReturnsAboveWalletMaximum: Story = {
 
 export const MaxReturnsUsesLockedMinimum: Story = {
   beforeEach: () => setupSecuritizationScenario('maxReturnsUsesLockedMinimum'),
+  play: async () => {
+    const body = within(document.body);
+    await userEvent.click(await body.findByRole('button', { name: 'Max Returns' }));
+    await Vue.nextTick();
+  },
 };
 
 export const Submit: Story = {
@@ -153,6 +163,7 @@ export const SubmitFailed: Story = {
 function setupSecuritizationScenario(
   state:
     | 'ready'
+    | 'missingProtocolPrice'
     | 'submitting'
     | 'error'
     | 'restoring'
@@ -164,6 +175,7 @@ function setupSecuritizationScenario(
     | 'maxReturnsUsesLockedMinimum' = 'ready',
 ) {
   const { wallets } = setupAppScenario({ selectedTab: TopTab.Vaulting });
+  if (state === 'missingProtocolPrice') getArgonBonds().argonotSecuritizationTarget = fn(() => undefined);
   const createdVault = createScenarioVault();
   if (state === 'proposedDelayedRelease') {
     createdVault.securitization = 1_550_000_000n;
@@ -172,7 +184,12 @@ function setupSecuritizationScenario(
   } else if (state === 'scheduledDelayedRelease') {
     createdVault.securitizationTarget = 1_200_000_000n;
     createdVault.securitizationLocked = 1_550_000_000n;
-    createdVault.securitizationReleaseSchedule = new Map([[860_720, 350_000_000n]]);
+    createdVault.securitizationReleaseSchedule = new Map([
+      [
+        860_720,
+        { lockedCommitments: 0n, relockableCommitments: 0n, argonWithdrawals: 350_000_000n, argonotWithdrawals: 0n },
+      ],
+    ]);
   } else if (state === 'waitingForBitcoinLockRelease') {
     createdVault.securitizationTarget = 1_200_000_000n;
     createdVault.securitizationLocked = 1_550_000_000n;
@@ -199,9 +216,15 @@ function setupSecuritizationScenario(
     createdVault.securitizationTarget = securityMicrogons;
   }
 
+  const securityMicronots = state === 'maxReturnsUsesLockedMinimum' ? 8_000_000_000n : 0n;
   const myVaultData = Vue.shallowReactive({
     ...currentMyVault.data,
     createdVault,
+    argonotCommitment: {
+      heldMicronots: securityMicronots,
+      committedMicronots: state === 'maxReturnsUsesLockedMinimum' ? 6_000_000_000n : 0n,
+      encumberedMicronots: state === 'maxReturnsUsesLockedMinimum' ? 3_000_000_000n : 0n,
+    },
     pendingAllocateTxInfo: null,
   } as typeof currentMyVault.data);
   const setVaultSecuritization = fn(async () => {
@@ -225,6 +248,7 @@ function setupSecuritizationScenario(
     ...currentMyVault,
     data: myVaultData,
     createdVault,
+    argonotSecuritizationTarget: securityMicronots,
     vaultId: createdVault.vaultId,
     mintingAuthorities,
     buildSecuritizationTx: fn(async () => {
@@ -238,8 +262,7 @@ function setupSecuritizationScenario(
   mocked(useVaultingAssetBreakdown, { partial: true }).mockReturnValue(
     Vue.reactive({
       securityMicrogons,
-      securityMicronots: state === 'maxReturnsUsesLockedMinimum' ? 900_000_000n : 0n,
-      securityMicronotsActivated: state === 'maxReturnsUsesLockedMinimum' ? 900_000_000n : 0n,
+      securityMicronots,
     }),
   );
   mocked(getBitcoinLocks, { partial: true }).mockReturnValue(

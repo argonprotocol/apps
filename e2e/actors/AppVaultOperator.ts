@@ -533,9 +533,9 @@ export class AppVaultOperator {
 
   public async ensureCommittedArgonots(args: { amount: bigint }): Promise<void> {
     await this.ensureVaultReady();
-    const { committedMicronots, encumberedMicronots } = this.myVault.data.argonotCommitment;
+    const { heldMicronots, encumberedMicronots } = this.myVault.data.argonotCommitment;
     const requiredMicronots = args.amount > encumberedMicronots ? args.amount : encumberedMicronots;
-    if (committedMicronots >= requiredMicronots) return;
+    if (heldMicronots >= requiredMicronots) return;
 
     const txInfo = await this.myVault.setCommittedArgonots(requiredMicronots);
     await txInfo.waitForPostProcessing;

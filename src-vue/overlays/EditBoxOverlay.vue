@@ -22,8 +22,6 @@
 
         <VaultProjectedUtilization v-else-if="id === 'projectedUtilization'" @update:data="updateData" ref="editorInstance" />
         <VaultBtcLockingFees v-else-if="id === 'btcLockingFees'" @update:data="updateData" ref="editorInstance" />
-        <VaultPoolRevenueShare v-else-if="id === 'poolRevenueShare'" @update:data="updateData" ref="editorInstance" />
-        <VaultSecuritizationRatio v-else-if="id === 'securitizationRatio'" @update:data="updateData" ref="editorInstance" />
       </div>
 
       <div v-if="shouldHideSaveButton" class="flex flex-row justify-end pb-3 pr-3 space-x-3 mt-5 mx-2 border-t border-slate-400/50 pt-3">
@@ -56,11 +54,7 @@ export type IEditBoxOverlayTypeForMining =
   | 'expectedGrowth'
   | 'cloudMachine';
 
-export type IEditBoxOverlayTypeForVaulting =
-  | 'securitizationRatio'
-  | 'poolRevenueShare'
-  | 'btcLockingFees'
-  | 'projectedUtilization';
+export type IEditBoxOverlayTypeForVaulting = 'btcLockingFees' | 'projectedUtilization';
 
 export type IEditBoxOverlayType = IEditBoxOverlayTypeForMining | IEditBoxOverlayTypeForVaulting;
 </script>
@@ -74,8 +68,6 @@ import BotExpectedGrowth from './edit-box/BotExpectedGrowth.vue';
 import BotCloudMachine from './edit-box/BotCloudMachine.vue';
 import VaultProjectedUtilization from './edit-box/VaultProjectedUtilization.vue';
 import VaultBtcLockingFees from './edit-box/VaultBtcLockingFees.vue';
-import VaultPoolRevenueShare from './edit-box/VaultPoolRevenueShare.vue';
-import VaultSecuritizationRatio from './edit-box/VaultSecuritizationRatio.vue';
 import { ChevronLeftIcon, ChevronRightIcon } from '@heroicons/vue/24/outline';
 import { getConfig } from '../stores/config.ts';
 import { JsonExt } from '@argonprotocol/apps-core';
@@ -115,8 +107,6 @@ const titles = {
 
   projectedUtilization: 'Projected Utilization',
   btcLockingFees: 'Bitcoin Locking Fees',
-  poolRevenueShare: 'Treasury Revenue Split',
-  securitizationRatio: 'Securitization Ratio',
 };
 
 // --- Draggable Modal Logic ---

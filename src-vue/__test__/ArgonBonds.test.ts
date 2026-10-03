@@ -1,6 +1,13 @@
 import { type FrameSystemEventRecord, getOfflineRegistry } from '@argonprotocol/mainchain';
-import { toPlain, type TreasuryBondLotByIdResult } from '@argonprotocol/runtime-client';
+import {
+  toPlain,
+  getBundledMetadata,
+  type HistoricalQueryRecord,
+  type LiveQueryRecord,
+} from '@argonprotocol/runtime-client';
+import { Metadata, TypeRegistry } from '@polkadot/types';
 import { describe, expect, it, vi } from 'vitest';
+import BigNumber from 'bignumber.js';
 import { ArgonBonds } from '../lib/ArgonBonds.ts';
 import { BondBuy } from '../lib/txs/Bond.buy.ts';
 import { ArgonBondsFinancials } from '../lib/financials/ArgonBonds.ts';
@@ -15,6 +22,7 @@ import {
   type RuntimeSystemEventRecord,
   MICROGONS_PER_ARGON,
   TreasuryBonds,
+  Vault,
 } from '@argonprotocol/apps-core';
 import type { WalletForArgon } from '../lib/WalletForArgon.ts';
 import { encodeAddress } from '@polkadot/util-crypto';
@@ -24,6 +32,10 @@ import { SyncStateKeys } from '../lib/db/SyncStateTable.ts';
 import { createScenarioVault } from '../../.storybook/scenarios/createScenarioVault.ts';
 
 const registry = getOfflineRegistry();
+const deployedRegistry = new TypeRegistry();
+deployedRegistry.setMetadata(
+  new Metadata(deployedRegistry, Object.entries(getBundledMetadata()).find(([key]) => key.endsWith('-159'))![1]),
+);
 const accountId = encodeAddress(new Uint8Array(32).fill(0x22));
 
 describe('ArgonBonds', () => {
@@ -35,65 +47,21 @@ describe('ArgonBonds', () => {
       {} as any,
       { defaultArgonAddress: accountId } as any,
     );
-    const vault = createScenarioVault({ vaultId: 4 });
     const oneArgon = BigInt(MICROGONS_PER_ARGON);
-    vi.spyOn(bonds, 'getVaultBondCapacityMicrogons').mockReturnValue(2_168n * oneArgon);
-    bonds.data.capacityStatesByVault[4] = [];
-    bonds.getVaultBonds(4).flexibleBonds = 1_900;
+    const vault = createScenarioVault({ vaultId: 4, securitization: 2_168n * oneArgon });
+    const state = bonds.getVaultBonds(4);
+    state.isLoaded = true;
+    state.flexibleBonds = 1_900;
 
     expect(bonds.availableBondSpace(vault)).toBe(2_168n * oneArgon);
     expect(bonds.availableBondSpaceWithoutFlexibleDisplacement(vault)).toBe(268n * oneArgon);
 
-    bonds.data.capacityStatesByVault[4] = [{ activeBonds: 300 }];
+    state.regularBonds = 300;
     expect(bonds.availableBondSpace(vault)).toBe(1_868n * oneArgon);
     expect(bonds.availableBondSpaceWithoutFlexibleDisplacement(vault)).toBe(0n);
 
-    bonds.getVaultBonds(4).flexibleBonds = 0;
+    state.flexibleBonds = 0;
     expect(bonds.availableBondSpaceWithoutFlexibleDisplacement(vault)).toBe(1_868n * oneArgon);
-  });
-
-  it('keeps a replacement vault subscription when stale cleanup runs and removes failed subscriptions', async () => {
-    const argonBonds = new ArgonBonds(
-      Promise.resolve({} as any),
-      { isLoadedPromise: Promise.resolve(), upstreamOperator: undefined },
-      {} as any,
-      {
-        blockWatch: {
-          events: { on: vi.fn(() => vi.fn()) },
-          getCurrentApi: vi.fn(async () => ({})),
-        },
-      } as any,
-      { defaultArgonAddress: accountId } as any,
-    );
-    argonBonds.data.isLoaded = true;
-    vi.spyOn(argonBonds as any, 'refreshBondLots').mockResolvedValue(undefined);
-    const refreshVault = vi.spyOn(argonBonds, 'refreshVault').mockResolvedValue(undefined);
-    const staleCleanup = await argonBonds.subscribeVault(
-      { vaultId: 4, operatorAddress: '5PreviousOperator' },
-      {} as any,
-    );
-    await argonBonds.subscribeVault({ vaultId: 4, operatorAddress: '5CurrentOperator' }, {} as any);
-
-    staleCleanup();
-    refreshVault.mockClear();
-    await argonBonds.refreshActiveState({ client: {} as any, currentFrameId: 10 });
-    expect(refreshVault).toHaveBeenCalledOnce();
-    expect(refreshVault).toHaveBeenCalledWith(
-      { vaultId: 4, operatorAddress: '5CurrentOperator', frameId: 10 },
-      expect.anything(),
-    );
-
-    refreshVault.mockRejectedValueOnce(new Error('vault unavailable'));
-    await expect(
-      argonBonds.subscribeVault({ vaultId: 7, operatorAddress: '5FailedOperator' }, {} as any),
-    ).rejects.toThrow('vault unavailable');
-    refreshVault.mockClear();
-    await argonBonds.refreshActiveState({ client: {} as any, currentFrameId: 11 });
-    expect(refreshVault).toHaveBeenCalledOnce();
-    expect(refreshVault).toHaveBeenCalledWith(
-      { vaultId: 4, operatorAddress: '5CurrentOperator', frameId: 11 },
-      expect.anything(),
-    );
   });
 
   it('publishes recovered history after an in-flight finalized publication', async () => {
@@ -184,7 +152,12 @@ describe('ArgonBonds', () => {
       }),
       accountId,
     );
-    await db.bondLotHistoryTable.recordObservation({ lot, blockNumber: 100, blockHash: '0x100' });
+    await db.execute(
+      `INSERT INTO BondLotHistory
+      (accountId, programType, bondLotId, vaultId, nativeAsset, nativePrincipal, createdFrame, firstObservedBlockNumber, firstObservedBlockHash)
+      VALUES (?, 'Vault', ?, ?, 'ARGN', ?, ?, 100, '0x100')`,
+      [lot.owner, lot.id, lot.vaultId, lot.bondMicrogons.toString(), lot.createdFrameId],
+    );
 
     await migrateToLatest();
 
@@ -197,7 +170,7 @@ describe('ArgonBonds', () => {
     });
     const transition = {
       isFlexible: true,
-      cumulativeEarningsMicrogons: lot.lifetimeEarnings,
+      cumulativeEarningsMicrogons: lot.cumulativeEarnings,
       source: 'flexibility-change',
       blockNumber: 110,
       blockHash: '0x110',
@@ -208,26 +181,167 @@ describe('ArgonBonds', () => {
     expect((await db.bondLotHistoryTable.fetchAll(accountId))[0]?.flexibilityHistory).toHaveLength(1);
   });
 
-  it('reports only flexible bonds displaced by regular bonds', () => {
+  it('keeps live admission and displacement current across consumer cleanup without changing frozen participation', async () => {
+    const runtimeVault = registry.createType('ArgonPrimitivesVault', {
+      operatorAccountId: accountId,
+      securitization: 1_000_000_000n,
+      securitizationTarget: 400_000_000n,
+      committedMicrogons: 100_000_000n,
+      securitizationReleaseSchedule: { 1000: { argonWithdrawals: 600_000_000n } },
+    });
+    const vault = Vault.fromRuntime(4, toPlain(runtimeVault) as any, 60_000, {
+      securitizationExitNoticeBlocks: 52_560,
+    } as any);
+    let currentBondState = registry.createType('PalletTreasuryVaultBondState', {
+      regularBonds: 100,
+      flexibleBonds: 900,
+      displacedFlexibleBonds: 0,
+      lockedFrameTerms: { flexibleBonds: 900, displacedFlexibleBonds: 0 },
+    });
+    let totalLots = 2;
+    let vaultUnavailable = true;
+    const lots = new Map([
+      [
+        1,
+        toPlain(
+          registry.createType('PalletTreasuryBondLot', {
+            owner: accountId,
+            bonds: 100,
+            program: { Vault: { vaultId: 4 } },
+          }),
+        ),
+      ],
+      [
+        2,
+        toPlain(
+          registry.createType('PalletTreasuryBondLot', {
+            owner: accountId,
+            bonds: 900,
+            isFlexible: true,
+            program: { Vault: { vaultId: 4 } },
+            lockedFrameTerms: { bonds: 900, isFlexible: true },
+          }),
+        ),
+      ],
+    ]);
+    const client = {
+      registry,
+      consts: {
+        treasury: {
+          palletId: '0x61722f7472656173',
+          percentForVaultPool: new BigNumber(0.51),
+          percentForArgonBondPool: new BigNumber(0.49),
+          minimumArgonsPerContributor: 100_000_000n,
+          maxArgonBondLots: 4,
+        },
+      },
+      query: {
+        system: { account: async () => ({ data: { free: 1_000_000_000n } }) },
+        priceIndex: { historicArgonotAverageByFrame: async () => ({ 9: 2_000_000n }) },
+        treasury: {
+          bondLotsByVault: async (vaultId: number) => {
+            if (vaultId === 7 && vaultUnavailable) throw new Error('vault unavailable');
+            return toPlain(currentBondState);
+          },
+          totalArgonBondLots: async () => totalLots,
+          bondLotIdsByVault: { keys: async () => [...lots.keys()].map(id => ({ args: [4, id] })) },
+          bondLotIdsByAccount: { keys: async () => [...lots.keys()].map(id => ({ args: [accountId, id] })) },
+          bondLotById: { multi: async (ids: number[]) => ids.map(id => lots.get(id)) },
+          currentFrameVaultCapital: async () =>
+            toPlain(
+              registry.createType('PalletTreasuryFrameVaultCapital', {
+                frameId: 10,
+                totalActiveBonds: 1000,
+                targetSecuritization: 10_000_000_000n,
+                totalSecuritization: 1_000_000_000n,
+                vaultSecuritizationPositions: {},
+              }),
+            ),
+        },
+      },
+    };
+    let onBestBlocks: ((blocks: IBlockHeaderInfo[]) => void) | undefined;
+    let marketEvent = { section: 'vaults', method: 'VaultModified', data: { vaultId: 4 } };
     const argonBonds = new ArgonBonds(
       Promise.resolve({} as any),
       { isLoadedPromise: Promise.resolve(), upstreamOperator: undefined },
       new Currency({ events: { on: vi.fn() } } as any),
-      {} as any,
+      {
+        blockWatch: {
+          events: {
+            on: (name: string, listener: typeof onBestBlocks) => {
+              if (name === 'best-blocks') onBestBlocks = listener;
+              return () => undefined;
+            },
+          },
+          start: async () => undefined,
+          bestBlockHeader: { frameId: 10 },
+          getApi: async () => client,
+          getEvents: async () => [{ event: marketEvent }],
+        },
+      } as any,
       { defaultArgonAddress: accountId } as any,
     );
-    const vault = argonBonds.getVaultBonds(4);
-    vault.isLoaded = true;
-    vault.flexibleBonds = 100;
-    vault.currentFrame.frameId = 10;
-
-    vault.currentFrame.vaultBonds = 50;
-    vault.currentFrame.flexibleBondsEligible = 0;
-    expect(argonBonds.getFlexibleBondDisplacementPercent(4)).toBe(50);
-
-    vault.currentFrame.vaultBonds = 10;
-    vault.currentFrame.flexibleBondsEligible = 10;
+    await argonBonds.subscribeGlobal(client as any);
+    await argonBonds.subscribeVault({ vaultId: 4, operatorAddress: accountId }, client as any);
+    const staleCleanup = await argonBonds.subscribeVault({ vaultId: 4, operatorAddress: accountId }, client as any);
+    const purchaseCleanup = await argonBonds.subscribeVault({ vaultId: 4, operatorAddress: accountId }, client as any);
+    staleCleanup();
+    purchaseCleanup();
+    await expect(argonBonds.subscribeVault({ vaultId: 7, operatorAddress: accountId }, client as any)).rejects.toThrow(
+      'vault unavailable',
+    );
+    vaultUnavailable = false;
+    expect(argonBonds.availableBondSpace(vault)).toBe(300_000_000n);
+    expect(argonBonds.getVaultBonds(4).minimumPurchaseBonds).toBe(100);
     expect(argonBonds.getFlexibleBondDisplacementPercent(4)).toBe(0);
+
+    // Cancellation restores room; a regular purchase then displaces flexible
+    // holdings immediately while their already-frozen payout remains unchanged.
+    vault.securitizationReleaseSchedule.clear();
+    vault.securitizationTarget = vault.securitization;
+    expect(argonBonds.availableBondSpace(vault)).toBe(900_000_000n);
+    lots.set(
+      3,
+      toPlain(
+        registry.createType('PalletTreasuryBondLot', {
+          owner: accountId,
+          bonds: 900,
+          program: { Vault: { vaultId: 4 } },
+          lockedFrameTerms: { bonds: 0, isFlexible: false },
+        }),
+      ),
+    );
+    totalLots = 3;
+    currentBondState = registry.createType('PalletTreasuryVaultBondState', {
+      regularBonds: 1000,
+      flexibleBonds: 900,
+      displacedFlexibleBonds: 900,
+      lockedFrameTerms: { flexibleBonds: 900, displacedFlexibleBonds: 0 },
+    });
+    await argonBonds.refreshVault({ vaultId: 4, operatorAddress: accountId }, client as any);
+    expect(argonBonds.getFlexibleBondDisplacementPercent(4)).toBe(100);
+    expect(argonBonds.getVaultBonds(4).currentFrame.flexibleBondsEligible).toBe(900);
+    expect(argonBonds.getVaultBonds(4).currentFrame.vaultBonds).toBe(1000);
+
+    // Closing the purchase overlays must leave the dashboard subscription alive.
+    // A capital change refreshes current displacement without a new frame.
+    vault.securitization = 2_000_000_000n;
+    currentBondState = registry.createType('PalletTreasuryVaultBondState', {
+      regularBonds: 1000,
+      flexibleBonds: 900,
+      displacedFlexibleBonds: 0,
+      lockedFrameTerms: { flexibleBonds: 900, displacedFlexibleBonds: 0 },
+    });
+    onBestBlocks!([{ blockNumber: 101, blockHash: '0x101', frameId: 10 } as IBlockHeaderInfo]);
+    await vi.waitFor(() => expect(argonBonds.getFlexibleBondDisplacementPercent(4)).toBe(0));
+    expect(argonBonds.availableBondSpace(vault)).toBe(1_000_000_000n);
+    expect(argonBonds.getVaultBonds(7).isLoaded).toBe(false);
+
+    totalLots = 4;
+    marketEvent = { section: 'treasury', method: 'BondLotPurchased', data: { vaultId: 7 } };
+    onBestBlocks!([{ blockNumber: 102, blockHash: '0x102', frameId: 10 } as IBlockHeaderInfo]);
+    await vi.waitFor(() => expect(argonBonds.availableBondSpace(vault)).toBe(0n));
   });
 
   it('does not overwrite newer vault market state when an older request finishes last', async () => {
@@ -241,10 +355,14 @@ describe('ArgonBonds', () => {
       );
     const getVaultBondState = vi.spyOn(TreasuryBonds, 'getVaultBondState').mockImplementation(async client => ({
       bondLots: [],
-      capacityState: [],
-      ordinaryBonds: client === oldClient ? 10 : 20,
+      regularBonds: client === oldClient ? 10 : 20,
       flexibleBonds: 0,
+      displacedFlexibleBonds: 0,
+      lockedFrameTerms: null,
       reservedBondSpace: 0,
+      replacementBonds: 0,
+      minimumPurchaseBonds: 100,
+      isAtBondLotLimit: false,
     }));
     const getCurrentFrameBondLots = vi.spyOn(TreasuryBonds, 'getCurrentFrameBondLots').mockResolvedValue({
       bondLots: [],
@@ -269,7 +387,7 @@ describe('ArgonBonds', () => {
 
       expect(argonBonds.data.totalActiveBonds).toBe(20);
       expect(argonBonds.getVaultBonds(4)).toMatchObject({
-        ordinaryBonds: 20,
+        regularBonds: 20,
         currentFrame: { vaultBonds: 20 },
       });
     } finally {
@@ -910,7 +1028,7 @@ describe('ArgonBonds', () => {
     getBondLots.mockRestore();
   });
 
-  it('restores pre-flexibility-name bond transitions into distinct return periods', async () => {
+  it('retains one bond investment through recovered pre-flexibility-name transitions', async () => {
     const db = await createTestDb();
     const lotCodec = createRuntimeBondLot({
       owner: accountId,
@@ -971,40 +1089,17 @@ describe('ArgonBonds', () => {
       historyRecords: history,
       frameDates: new Map([[3, new Date('2026-07-01T12:00:00Z')]]),
     });
-    expect(
-      positions.map(({ lifecycle, startedAt, endedAt, paidIncome, returnAttribution }) => ({
-        lifecycle,
-        startedAt,
-        endedAt,
-        paidIncome,
-        returnAttribution,
-      })),
-    ).toEqual([
-      {
-        lifecycle: 'completed',
-        startedAt: new Date('2026-07-01T12:00:00Z'),
-        endedAt: new Date(block.blockTime),
-        paidIncome: 2_000_000n,
-        returnAttribution: undefined,
-      },
-      {
-        lifecycle: 'active',
-        startedAt: new Date(block.blockTime),
-        endedAt: undefined,
-        paidIncome: 0n,
-        returnAttribution: 'vault',
-      },
-    ]);
-    // The ordinary period earned 2 ARGN on 10 ARGN of principal. The flexible
-    // period starts a new basis and must not claim those earlier earnings.
     expect(positions).toEqual([
-      expect.objectContaining({ investedCost: 10_000_000n, paidIncome: 2_000_000n }),
-      expect.objectContaining({ investedCost: 10_000_000n, paidIncome: 0n, returnAttribution: 'vault' }),
+      expect.objectContaining({
+        lifecycle: 'active',
+        startedAt: new Date('2026-07-01T12:00:00Z'),
+        investedCost: 10_000_000n,
+        paidIncome: 2_000_000n,
+      }),
     ]);
-    expect(calculatePositionReturn(positions.slice(0, 1))).toMatchObject({
-      availability: 'available',
-      returnAmount: 2_000_000n,
-      percent: 20,
+    expect(calculatePositionReturn(positions)).toMatchObject({
+      availability: 'unavailable',
+      paidIncome: 2_000_000n,
     });
   });
 
@@ -1110,7 +1205,7 @@ describe('ArgonBonds', () => {
         ...ordinaryLot,
         ...(specVersion === 157 ? { isBackfill: finalFlexibility } : {}),
         ...(specVersion >= 158 ? { isFlexible: finalFlexibility } : {}),
-      } satisfies NonNullable<TreasuryBondLotByIdResult>;
+      } satisfies NonNullable<HistoricalQueryRecord<'treasury', 'bondLotById'>>;
       const events: RuntimeSystemEventRecord[] = [
         {
           event: {
@@ -1140,12 +1235,12 @@ describe('ArgonBonds', () => {
           }),
         ),
       ];
-      let currentLot = storedLot;
+      let currentLot = { ...ordinaryLot, isFlexible: finalFlexibility };
       const api = {
         query: {
           treasury: {
             bondLotIdsByAccount: { keys: async () => [{ args: [accountId, 7] }] },
-            bondLotById: Object.assign(async () => storedLot, { multi: async () => [currentLot] }),
+            bondLotById: Object.assign(async () => currentLot, { multi: async () => [currentLot] }),
           },
         },
       };
@@ -1230,21 +1325,28 @@ describe('ArgonBonds', () => {
         startedAt: new Date(block.blockTime),
       });
 
-      expect(positions.at(-1)?.returnAttribution).toBe(finalFlexibility ? 'vault' : undefined);
+      expect(positions).toHaveLength(1);
 
       const restarted = createBonds(liveDb);
       await restarted.load();
       await restarted.recordFinalizedTransaction(block.blockNumber);
       expect(restarted.data.bondHistory).toEqual([{ ...liveHistory, updatedAt: expect.any(Date) }]);
       currentLot = {
-        ...storedLot,
+        ...currentLot,
         cumulativeEarnings: 1_000_000n,
         participatedFrames: 1,
         lastFrameEarningsFrameId: 4,
         lastFrameEarnings: 1_000_000n,
       };
       await restarted.refreshBondLots(await miningFrames.blockWatch.getCurrentApi());
-      const newerLot = BondLot.fromRuntime(7, currentLot, accountId);
+      const newerLot = BondLot.fromRuntime(
+        7,
+        {
+          ...currentLot,
+          isFlexible: currentLot.isFlexible ?? ('isBackfill' in currentLot ? (currentLot.isBackfill ?? false) : false),
+        },
+        accountId,
+      );
       const revisionBeforeBackfill = restarted.data.financialRevision;
       await restarted.importHistoryBlock(block, events);
       await restarted.publishRecoveredHistory();
@@ -1647,6 +1749,8 @@ describe('ArgonBonds', () => {
   });
 });
 
-function createRuntimeBondLot(value: unknown): NonNullable<TreasuryBondLotByIdResult> {
-  return toPlain(registry.createType('PalletTreasuryBondLot', value)) as NonNullable<TreasuryBondLotByIdResult>;
+function createRuntimeBondLot(value: unknown): NonNullable<LiveQueryRecord<'treasury', 'bondLotById'>> {
+  return toPlain(deployedRegistry.createType('PalletTreasuryBondLot', value)) as NonNullable<
+    LiveQueryRecord<'treasury', 'bondLotById'>
+  >;
 }

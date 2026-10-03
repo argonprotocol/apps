@@ -97,6 +97,7 @@
 </template>
 
 <script setup lang="ts">
+import { runtimeClient } from '@argonprotocol/runtime-client';
 import './lib/Env.ts'; // load env first
 import * as Vue from 'vue';
 import { createMenu } from './NativeMenu.ts';
@@ -241,7 +242,7 @@ function refreshFinalizedStateOnFocus() {
     const blockHash = finalizedHash.toHex();
     if (blockHash === lastForegroundFinalizedHash) return;
 
-    const finalizedClient = await archiveClient.at(finalizedHash);
+    const finalizedClient = runtimeClient(await archiveClient.raw.at(finalizedHash));
     const nextFrameId = await finalizedClient.query.miningSlot.nextFrameId();
     if (nextFrameId === null) return;
     const currentFrameId = nextFrameId - 1;

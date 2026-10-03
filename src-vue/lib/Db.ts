@@ -23,6 +23,7 @@ import { CrosschainOutboundTransfersTable } from './db/CrosschainOutboundTransfe
 import { WalletHdKeysTable } from './db/WalletHdKeysTable.ts';
 import { WalletsTable } from './db/WalletsTable.ts';
 import { BondLotHistoryTable } from './db/BondLotHistoryTable.ts';
+import { BondEarningsTable } from './db/BondEarningsTable.ts';
 import { VaultCapitalHistoryTable } from './db/VaultCapitalHistoryTable.ts';
 import { FinancialCacheTable } from './db/FinancialCacheTable.ts';
 import { BitcoinFissionsTable } from './db/BitcoinFissionsTable.ts';
@@ -54,6 +55,7 @@ export class Db {
   public stableSwapSyncStateTable: StableSwapSyncStateTable;
   public stableSwapPurchasesTable: StableSwapPurchasesTable;
   public bondLotHistoryTable: BondLotHistoryTable;
+  public bondEarningsTable: BondEarningsTable;
   public vaultCapitalHistoryTable: VaultCapitalHistoryTable;
   public financialCacheTable: FinancialCacheTable;
   public bitcoinFissionsTable: BitcoinFissionsTable;
@@ -94,6 +96,7 @@ export class Db {
     this.stableSwapSyncStateTable = new StableSwapSyncStateTable(this);
     this.stableSwapPurchasesTable = new StableSwapPurchasesTable(this);
     this.bondLotHistoryTable = new BondLotHistoryTable(this);
+    this.bondEarningsTable = new BondEarningsTable(this);
     this.vaultCapitalHistoryTable = new VaultCapitalHistoryTable(this);
     this.financialCacheTable = new FinancialCacheTable(this);
     this.bitcoinFissionsTable = new BitcoinFissionsTable(this);

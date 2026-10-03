@@ -20,6 +20,7 @@ describe('runtime compatibility type extraction', () => {
     expect(generated).toContain('export type PreviousMarker = Null');
     expect(generated).toContain('export interface Transactions');
     expect(generated).toContain('export interface Queries');
+    expect(generated).toContain('export interface Constants');
     expect(generated).toContain('export interface Events');
     expect(generated).toContain('export interface RuntimeCalls');
     expect(generated).not.toContain('declare module');
@@ -48,6 +49,11 @@ function createSources(options: { reverseLookupImports?: boolean } = {}): Runtim
   const lookupTypes = options.reverseLookupImports ? 'Struct, Null' : 'Null, Struct';
 
   return {
+    consts: createApiSource(
+      '@polkadot/api-base/types/consts',
+      'AugmentedConsts',
+      'previous: { minimum: PreviousValue };',
+    ),
     lookup: `
 import '@polkadot/types/lookup';
 import type { ${lookupTypes} } from '@polkadot/types-codec';

@@ -13,7 +13,10 @@ import basicEmitter from '../../../src-vue/emitters/basicEmitter.ts';
 import { TopTab, VaultingSetupStatus, type IConfig } from '../../../src-vue/interfaces/IConfig.ts';
 import { Config } from '../../../src-vue/lib/Config.ts';
 import SecuritizationOverlay from '../../../src-vue/overlays/SecuritizationOverlay.vue';
+import { useFinancials } from '../../../src-vue/stores/financials.ts';
 import { getConfig } from '../../../src-vue/stores/config.ts';
+import { getMyVault } from '../../../src-vue/stores/vaults.ts';
+import { getArgonBonds } from '../../../src-vue/stores/argonBonds.ts';
 import { OperationalStepId, useCertificationController } from '../../../src-vue/stores/certificationController.ts';
 import Vaulting from '../../../src-vue/screens/Vaulting.vue';
 
@@ -173,5 +176,50 @@ export const VaultActivationGuide: Story = {
   beforeEach: () => {
     setupAppScenario({ selectedTab: TopTab.Vaulting });
     setCertificationGuide(OperationalStepId.ActivateVault);
+  },
+};
+
+export const IncompleteEarnings: Story = {
+  beforeEach: () => {
+    setupVaultingPortfolioScenario();
+    const summary = useFinancials().financialPositionAggregate.groupSummaries.vaulting.returnSummary;
+    summary.paidIncome = undefined;
+    summary.percent = undefined;
+  },
+};
+
+export const LoadingEarnings: Story = {
+  beforeEach: () => {
+    setupVaultingPortfolioScenario();
+    const group = useFinancials().financialPositionAggregate.groupSummaries.vaulting;
+    group.state = 'loading';
+    group.returnSummary.paidIncome = 0n;
+    group.returnSummary.percent = undefined;
+  },
+};
+
+export const IncompleteEarningsChart: Story = {
+  beforeEach: () => {
+    setupVaultingPortfolioScenario();
+    const earnings = getArgonBonds().data.dailyEarnings[1];
+    earnings.earningsDestination = 'Vault';
+    earnings.earningsMicrogons = undefined;
+  },
+};
+
+export const ZeroEarningsChart: Story = {
+  beforeEach: () => {
+    setupVaultingPortfolioScenario();
+    for (const frame of getMyVault().data.stats!.changesByFrame) {
+      frame.bitcoinFeeRevenue = 0n;
+      frame.treasuryPool.vaultEarnings = 0n;
+    }
+  },
+};
+
+export const NoCompletedEarnings: Story = {
+  beforeEach: () => {
+    setupVaultingPortfolioScenario();
+    getMyVault().data.stats!.changesByFrame = [];
   },
 };

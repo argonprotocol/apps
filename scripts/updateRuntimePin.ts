@@ -211,9 +211,25 @@ async function updateRuntimeCompatibilityTypes(
 ): Promise<{ changed: boolean; provenance: RuntimeCompatibilityProvenance }> {
   const deployedRuntime = await readDeployedRuntime();
   if (Fs.existsSync(RUNTIME_COMPATIBILITY_PATH)) {
-    const existing = readRuntimeCompatibilityProvenance(Fs.readFileSync(RUNTIME_COMPATIBILITY_PATH, 'utf8'));
+    const existingSource = Fs.readFileSync(RUNTIME_COMPATIBILITY_PATH, 'utf8');
+    const existing = readRuntimeCompatibilityProvenance(existingSource);
     if (existing?.specVersion === deployedRuntime.specVersion) {
-      return { changed: false, provenance: existing };
+      if (existingSource.includes('export interface Constants')) {
+        return { changed: false, provenance: existing };
+      }
+      const sources = await readCurrentRuntimeInterfaceSources({
+        installedPackageDirectory: '',
+        version: existing.clientVersion,
+      });
+      const prettierConfig = await resolveConfig(RUNTIME_COMPATIBILITY_PATH);
+      Fs.writeFileSync(
+        RUNTIME_COMPATIBILITY_PATH,
+        await format(createRuntimeCompatibilityModule(sources, existing), {
+          ...prettierConfig,
+          filepath: RUNTIME_COMPATIBILITY_PATH,
+        }),
+      );
+      return { changed: true, provenance: existing };
     }
   }
 
@@ -306,6 +322,7 @@ async function readCurrentRuntimeInterfaceSources(args: {
     const interfacesDirectory = Path.join(localPath, 'src/interfaces');
     if (
       ![
+        'augment-api-consts.ts',
         'types-lookup.ts',
         'augment-api-tx.ts',
         'augment-api-query.ts',
@@ -332,6 +349,7 @@ async function readCurrentRuntimeInterfaceSources(args: {
 
 function readRuntimeInterfaceSourcesFromDirectory(directory: string): RuntimeInterfaceSources {
   return {
+    consts: Fs.readFileSync(Path.join(directory, 'augment-api-consts.ts'), 'utf8'),
     lookup: Fs.readFileSync(Path.join(directory, 'types-lookup.ts'), 'utf8'),
     tx: Fs.readFileSync(Path.join(directory, 'augment-api-tx.ts'), 'utf8'),
     query: Fs.readFileSync(Path.join(directory, 'augment-api-query.ts'), 'utf8'),
@@ -350,6 +368,7 @@ function readRuntimeInterfaceSourcesFromArchive(archive: Buffer, version: string
   };
 
   return {
+    consts: readSource('augment-api-consts.ts'),
     lookup: readSource('types-lookup.ts'),
     tx: readSource('augment-api-tx.ts'),
     query: readSource('augment-api-query.ts'),

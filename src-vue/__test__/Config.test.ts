@@ -1,7 +1,7 @@
 import './helpers/mocks.ts';
 import { beforeAll, expect, it, vi } from 'vitest';
 import { Config } from '../lib/Config';
-import { createMockedDbPromise, createTestDb } from './helpers/db';
+import { createMockedDbPromise, createTestDb, createTestDbAtMigration } from './helpers/db';
 import { instanceChecks } from '../lib/Utils.js';
 import { WalletKeys } from '../lib/WalletKeys.ts';
 import { createTestWallet } from './helpers/wallet.ts';
@@ -37,6 +37,43 @@ it('can load config defaults', async () => {
   expect(config.biddingRules).toBeTruthy();
   expect(config.postWelcomeLaunchCount).toBe(0);
   expect(config.hasConnectedDiscord).toBe(false);
+});
+
+it.each([
+  VaultingSetupStatus.None,
+  VaultingSetupStatus.Checklist,
+  VaultingSetupStatus.Installing,
+  VaultingSetupStatus.Finished,
+])('keeps ARGN-only creation rules across restart without changing existing operations: %s', async status => {
+  const { db, migrateToLatest } = await createTestDbAtMigration(35);
+  const rules = {
+    ...(Config.getDefault('vaultingRules') as Config['vaultingRules']),
+    capitalForSecuritizationPct: 90,
+    capitalForTreasuryPct: 10,
+    baseMicronotCommitment: 5_000_000n,
+  };
+  await db.configTable.insertOrReplace({
+    vaultingSetupStatus: JsonExt.stringify(status),
+    vaultingRules: JsonExt.stringify(rules),
+  });
+  await migrateToLatest();
+  const expected =
+    status === VaultingSetupStatus.None || status === VaultingSetupStatus.Checklist
+      ? { ...rules, capitalForSecuritizationPct: 100, capitalForTreasuryPct: 0, baseMicronotCommitment: 0n }
+      : rules;
+  const stored = await db.configTable.fetchAllAsObject();
+  expect(JsonExt.parse(stored.vaultingRules!)).toEqual(expected);
+  const { walletKeys } = createTestWallet('//Alice');
+  instanceChecks.delete(Config.prototype.constructor);
+  const config = new Config(Promise.resolve(db), walletKeys);
+  await config.load();
+  expect(config.vaultingRules).toEqual(expected);
+  expect(config.hasSavedVaultingRules).toBe(true);
+  instanceChecks.delete(Config.prototype.constructor);
+  const restarted = new Config(Promise.resolve(db), walletKeys);
+  await restarted.load();
+  expect(restarted.vaultingRules).toEqual(expected);
+  await db.close();
 });
 
 it('keeps mnemonic-restored accounts eligible for financial history without mining or vault history', async () => {

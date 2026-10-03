@@ -26,9 +26,7 @@ describe('BiddingCalculatorData best-block recovery', () => {
     const finalizedApi = {
       consts: {
         miningSlot: {
-          bidIncrements: {
-            toBigInt: () => 10_000n,
-          },
+          bidIncrements: 10_000n,
         },
       },
       runtimeVersion: {

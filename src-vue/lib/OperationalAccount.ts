@@ -8,6 +8,7 @@ import {
   type IOperationalAccessProof,
   MICROGONS_PER_ARGON,
   type Vault,
+  type PreviousRuntimeSpec as RuntimeSpec159,
 } from '@argonprotocol/apps-core';
 import type { HistoricalQueryRecord } from '@argonprotocol/runtime-client';
 import { stringToU8a, u8aToString } from '@polkadot/util';
@@ -387,23 +388,24 @@ export async function getOperationalRewardConfig(client?: ArgonClient): Promise<
   const consts = client.consts.operationalAccounts;
   const rewards = await client.query.operationalAccounts.rewards?.();
   const certificationThresholds = getCertificationThresholds(client);
+  const vaultConstants = client.consts.vaults;
 
   return {
-    operationalActivationReward:
-      rewards?.operationalCertificationReward ?? consts.operationalCertificationReward.toBigInt(),
+    operationalActivationReward: rewards?.operationalCertificationReward ?? consts.operationalCertificationReward,
     operationalReferralBonusReward:
-      rewards?.operationalCertificationBonusReward ?? consts.operationalCertificationBonusReward.toBigInt(),
-    operationalReferralsPerBonusReward: consts.operationalCertificationsPerBonusReward.toNumber(),
-    operationalMinimumUniswapTransfer: consts.operationalMinimumUniswapTransfer.toBigInt(),
-    operationalMinimumVaultLockTicks: client.consts.vaults.operationalMinimumVaultLockTicks.toBigInt(),
-    operationalMinimumVaultSecuritization: consts.operationalMinimumVaultSecuritization.toBigInt(),
-    miningSeatsForOperational: consts.miningSeatsForOperational.toNumber(),
+      rewards?.operationalCertificationBonusReward ?? consts.operationalCertificationBonusReward,
+    operationalReferralsPerBonusReward: consts.operationalCertificationsPerBonusReward,
+    operationalMinimumUniswapTransfer: consts.operationalMinimumUniswapTransfer,
+    operationalMinimumVaultLockTicks:
+      'operationalMinimumVaultLockTicks' in vaultConstants ? vaultConstants.operationalMinimumVaultLockTicks : 0n,
+    operationalMinimumVaultSecuritization: consts.operationalMinimumVaultSecuritization,
+    miningSeatsForOperational: consts.miningSeatsForOperational,
     treasuryMinimumBitcoin: certificationThresholds.treasuryMinimumBitcoin,
     treasuryMinimumBonds: certificationThresholds.treasuryMinimumBonds,
     treasuryMinimumUniswapTransfer: certificationThresholds.treasuryMinimumUniswapTransfer,
-    bitcoinLockSizeForUpgradeCode: consts.bitcoinLockSizeForAccessCode.toBigInt(),
-    miningSeatsPerUpgradeCode: consts.miningSeatsPerAccessCode.toNumber(),
-    maxAvailableUpgradeCodes: consts.maxAvailableAccessCodes.toNumber(),
+    bitcoinLockSizeForUpgradeCode: consts.bitcoinLockSizeForAccessCode,
+    miningSeatsPerUpgradeCode: consts.miningSeatsPerAccessCode,
+    maxAvailableUpgradeCodes: consts.maxAvailableAccessCodes,
   };
 }
 

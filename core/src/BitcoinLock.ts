@@ -271,8 +271,8 @@ export class BitcoinLock implements IBitcoinLock {
   public static async getConfig(client: IQueryableClient): Promise<IBitcoinLockConfig> {
     const bitcoinNetwork = await client.query.bitcoinUtxos.bitcoinNetwork();
     return {
-      lockReleaseCosignDeadlineFrames: client.consts.bitcoinLocks.lockReleaseCosignDeadlineFrames.toNumber(),
-      securitizationHoldBlocks: client.consts.bitcoinLocks.securitizationHoldBlocks.toNumber(),
+      lockReleaseCosignDeadlineFrames: client.consts.bitcoinLocks.lockReleaseCosignDeadlineFrames,
+      securitizationHoldBlocks: client.consts.bitcoinLocks.securitizationHoldBlocks,
       tickDurationMillis: await client.query.ticks.genesisTicker().then(x => x.tickDurationMillis),
       bitcoinNetwork,
     };

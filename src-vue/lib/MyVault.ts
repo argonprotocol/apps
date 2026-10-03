@@ -3,13 +3,12 @@ import {
   hexToU8a,
   type IArgonQueryable,
   MICROGONS_PER_ARGON,
-  PERMILL_DECIMALS,
   SubmittableExtrinsic,
   toFixedNumber,
   u8aToHex,
 } from '@argonprotocol/mainchain';
 import { BitcoinNetwork, CosignScript, HDKey, type ICosignScriptLock } from '@argonprotocol/bitcoin';
-import type { HistoricalQueryRecord } from '@argonprotocol/runtime-client';
+import { runtimeClient, type HistoricalQueryRecord, type LiveQueryRecord } from '@argonprotocol/runtime-client';
 import { Db } from './Db.ts';
 import { getFinalizedClient, getMainchainClient, getMainchainClients } from '../stores/mainchain.ts';
 import {
@@ -119,7 +118,7 @@ export type IVaultFlexibleAssetChanges = {
     isFlexible: boolean;
   }[];
   bondChanges: {
-    lot: Pick<BondLot, 'id' | 'vaultId' | 'accountId' | 'isOwn' | 'programType' | 'isReleasing'>;
+    lot: Pick<BondLot, 'id' | 'vaultId' | 'owner' | 'isOwn' | 'programType' | 'isReleasing'>;
     isFlexible: boolean;
   }[];
 };
@@ -152,10 +151,7 @@ export class MyVault {
     createdVault: Vault | null;
     metadata: IVaultRecord | null;
     stats: IVaultStats | null;
-    argonotCommitment: {
-      committedMicronots: bigint;
-      encumberedMicronots: bigint;
-    };
+    argonotCommitment: NonNullable<LiveQueryRecord<'vaults', 'argonotSecuritizationByVaultId'>>;
     pendingCollectRevenue: bigint;
     pendingCosignLocksById: Map<number, IPendingCosignUtxo>;
     pendingOrphanCosignCount: number;
@@ -176,6 +172,10 @@ export class MyVault {
 
   public get createdVault(): Vault | null {
     return this.data.createdVault;
+  }
+
+  public get pendingRevenueFrames(): ReadonlyArray<{ frameId: number; uncollectedEarnings: bigint }> {
+    return this.#collectFrames;
   }
 
   public get metadata(): IVaultRecord | null {
@@ -201,6 +201,8 @@ export class MyVault {
   #externalLocksUpdateSeq = 0;
   public readonly collectBuilder: VaultCollectBuilder;
   public readonly history: VaultHistory;
+  /** Resolves only after saved revenue events and current frame revenue agree. */
+  public revenuePublication: Promise<void> = Promise.resolve();
   public readonly bitcoinLockCosign: BitcoinLockCosign;
 
   constructor(
@@ -220,6 +222,7 @@ export class MyVault {
       metadata: null,
       stats: null,
       argonotCommitment: {
+        heldMicronots: 0n,
         committedMicronots: 0n,
         encumberedMicronots: 0n,
       },
@@ -294,7 +297,7 @@ export class MyVault {
       const client = await getMainchainClient(false);
       this.data.metadata = (await table.get()) ?? null;
       // prefetch the config
-      const timeToCollectFrames = client.consts.vaults.revenueCollectionExpirationFrames.toNumber();
+      const timeToCollectFrames = client.consts.vaults.revenueCollectionExpirationFrames;
       this.#configs = {
         timeToCollectFrames,
       };
@@ -341,14 +344,10 @@ export class MyVault {
         }
       }
       const vaultId = this.data.metadata?.id;
-      this.data.argonotCommitment = {
-        committedMicronots: 0n,
-        encumberedMicronots: 0n,
-      };
       if (vaultId) {
         this.data.createdVault = this.vaults.vaultsById[vaultId];
         this.data.stats = this.vaults.stats?.vaultsById[vaultId] ?? null;
-        this.updateArgonotCommitment(await client.query.vaults.argonotCommitmentByVaultId(vaultId), false);
+        this.updateArgonotCommitment(await Vault.getArgonotSecuritization(client, vaultId), false);
 
         void this.refreshExternalLocks().catch(error => {
           console.warn('[MyVault] Error refreshing external locks during load', error);
@@ -440,70 +439,85 @@ export class MyVault {
       const sub2 = await client.query.vaults.lastCollectFrameByVaultId(vaultId, () => {
         this.updateCollectDeadlines();
       });
-      const sub3 = await client.query.vaults.argonotCommitmentByVaultId(vaultId, commitment => {
-        this.updateArgonotCommitment(commitment);
-      });
 
       const { unsubscribe: sub4 } = this.miningFrames.onFrameId(frameId => {
         this.data.currentFrameId = frameId;
         this.updateCollectDeadlines();
       });
 
-      const sub5 = this.miningFrames.blockWatch.events.on('finalized', async headers => {
-        try {
-          let latestBitcoinClient: ArgonApi | undefined;
-          let latestRevenueClient: ArgonApi | undefined;
-          for (const header of headers) {
-            const { api, events } = await this.miningFrames.blockWatch.getEventsWithSpec(header);
-            if (header.isNewFrame) latestRevenueClient = api;
+      const pendingRevenueBlocks = new Map<number, IBlockHeaderInfo>();
+      const sub5 = this.miningFrames.blockWatch.events.on('finalized', headers => {
+        for (const header of headers) pendingRevenueBlocks.set(header.blockNumber, header);
+        this.revenuePublication = this.revenuePublication
+          .catch(() => undefined)
+          .then(async () => {
+            let latestBitcoinClient: ArgonApi | undefined;
+            let latestRevenueClient: ArgonApi | undefined;
+            let latestCapitalClient: ArgonApi | undefined;
+            const pending = [...pendingRevenueBlocks.values()].sort((a, b) => a.blockNumber - b.blockNumber);
+            for (const header of pending) {
+              const { api, events, specVersion } = await this.miningFrames.blockWatch.getEventsWithSpec(header);
+              await this.history.recordFinalizedRevenue(header, events, vaultId, specVersion);
+              latestCapitalClient = api;
+              if (header.isNewFrame) latestRevenueClient = api;
 
-            for (const { event } of events) {
-              if (event.section === 'bitcoinLocks') {
-                switch (event.method) {
-                  case 'BitcoinUtxoCosignRequested':
-                  case 'BitcoinUtxoCosigned':
-                  case 'BitcoinCosignPastDue':
-                  case 'BitcoinLockCreated':
-                  case 'BitcoinLockRatcheted':
-                  case 'UtxoFundedFromCandidate':
-                  case 'SecuritizationIncreased':
-                  case 'BitcoinLockFlexibleChanged':
-                  case 'BitcoinLockBackfillChanged':
-                  case 'BitcoinLockBurned':
-                  case 'BitcoinLockTerminated':
-                  case 'BitcoinSpentAfterRelease':
-                  case 'OrphanedUtxoReleaseRequested':
-                  case 'OrphanedUtxoCosigned':
-                    if (event.data.vaultId === vaultId) latestBitcoinClient = api;
-                    continue;
+              for (const { event } of events) {
+                if (event.section === 'bitcoinLocks') {
+                  switch (event.method) {
+                    case 'BitcoinUtxoCosignRequested':
+                    case 'BitcoinUtxoCosigned':
+                    case 'BitcoinCosignPastDue':
+                    case 'BitcoinLockCreated':
+                    case 'BitcoinLockRatcheted':
+                    case 'UtxoFundedFromCandidate':
+                    case 'SecuritizationIncreased':
+                    case 'BitcoinLockFlexibleChanged':
+                    case 'BitcoinLockBackfillChanged':
+                    case 'BitcoinLockBurned':
+                    case 'BitcoinLockTerminated':
+                    case 'BitcoinSpentAfterRelease':
+                    case 'OrphanedUtxoReleaseRequested':
+                    case 'OrphanedUtxoCosigned':
+                      if (event.data.vaultId === vaultId) latestBitcoinClient = api;
+                      continue;
+                  }
                 }
-              }
 
-              if (event.section === 'vaults') {
-                switch (event.method) {
-                  case 'FundsLocked':
-                  case 'VaultCollected':
-                  case 'VaultRevenueUncollected':
-                    if (event.data.vaultId === vaultId) latestRevenueClient = api;
+                if (event.section === 'vaults') {
+                  switch (event.method) {
+                    case 'FundsLocked':
+                    case 'VaultCollected':
+                    case 'VaultRevenueUncollected':
+                      if (event.data.vaultId === vaultId) latestRevenueClient = api;
+                  }
                 }
               }
             }
-          }
 
-          const refreshes: Promise<void>[] = [];
-          if (latestBitcoinClient) {
-            refreshes.push(
-              this.refreshFinalizedBitcoinCosignState(latestBitcoinClient, vaultId),
-              this.refreshExternalLocks(latestBitcoinClient),
-            );
-          }
-          if (latestRevenueClient) {
-            refreshes.push(this.refreshFinalizedRevenueState(latestRevenueClient, vaultId));
-          }
-          await Promise.all(refreshes);
-        } catch (error) {
-          console.error('Error updating finalized vault collect state', error);
-        }
+            const refreshes: Promise<void>[] = [];
+            if (latestCapitalClient) {
+              refreshes.push(
+                Vault.getArgonotSecuritization(latestCapitalClient, vaultId).then(commitment =>
+                  this.updateArgonotCommitment(commitment),
+                ),
+              );
+            }
+            if (latestBitcoinClient) {
+              refreshes.push(
+                this.refreshFinalizedBitcoinCosignState(latestBitcoinClient, vaultId),
+                this.refreshExternalLocks(latestBitcoinClient),
+              );
+            }
+            if (latestRevenueClient) {
+              refreshes.push(this.refreshFinalizedRevenueState(latestRevenueClient, vaultId));
+            }
+            await Promise.all(refreshes);
+            for (const header of pending) pendingRevenueBlocks.delete(header.blockNumber);
+            this.data.financialRevision += 1;
+          });
+        return this.revenuePublication.catch(error => {
+          console.error('Error updating finalized vault collect state; queued for the next finalized block', error);
+        });
       });
 
       const sub6 = clients.events.on('on-pruned-client', () => {
@@ -521,7 +535,7 @@ export class MyVault {
 
       await Promise.all([this.globalCouncil.subscribe(), this.mintingAuthorities.subscribe()]);
 
-      this.#subscriptions.push(sub, operatorNameSub, sub2, sub3, sub4, sub5, sub6);
+      this.#subscriptions.push(sub, operatorNameSub, sub2, sub4, sub5, sub6);
     } finally {
       this.#isSubscribing = false;
     }
@@ -533,6 +547,7 @@ export class MyVault {
 
     if (this.data.isLoaded && vaultId != null) {
       this.data.currentFrameId = args.currentFrameId;
+      this.updateArgonotCommitment(await Vault.getArgonotSecuritization(args.client, vaultId));
       refreshes.push(
         this.refreshFinalizedBitcoinCosignState(args.client, vaultId),
         this.refreshFinalizedRevenueState(args.client, vaultId),
@@ -546,23 +561,20 @@ export class MyVault {
   }
 
   private updateArgonotCommitment(
-    commitment: HistoricalQueryRecord<'vaults', 'argonotCommitmentByVaultId'>,
+    commitment: Awaited<ReturnType<typeof Vault.getArgonotSecuritization>>,
     publish = true,
   ): void {
-    if (!commitment) {
-      this.data.argonotCommitment = {
-        committedMicronots: 0n,
-        encumberedMicronots: 0n,
-      };
-      if (publish && this.data.isLoaded) this.data.financialRevision += 1;
-      return;
-    }
-
-    this.data.argonotCommitment = {
-      committedMicronots: commitment.committedMicronots,
-      encumberedMicronots: commitment.encumberedMicronots,
-    };
-    if (publish && this.data.isLoaded) this.data.financialRevision += 1;
+    const next = commitment ?? { heldMicronots: 0n, committedMicronots: 0n, encumberedMicronots: 0n };
+    const previous = this.data.argonotCommitment;
+    this.data.argonotCommitment = next;
+    if (
+      publish &&
+      this.data.isLoaded &&
+      (previous.heldMicronots !== next.heldMicronots ||
+        previous.committedMicronots !== next.committedMicronots ||
+        previous.encumberedMicronots !== next.encumberedMicronots)
+    )
+      this.data.financialRevision += 1;
   }
 
   private async refreshFinalizedBitcoinCosignState(client: ArgonQueryClient, vaultId: number): Promise<void> {
@@ -906,7 +918,7 @@ export class MyVault {
       const txSigner = await this.walletKeys.getVaultingKeypair();
 
       return await this.#transactionTracker.submitAndWatch({
-        tx: client.tx.vaults.setCommittedArgonots(committedMicronots),
+        tx: Vault.buildSetArgonotSecuritizationTx(client, committedMicronots),
         txSigner,
         extrinsicType: ExtrinsicType.VaultSetCommittedArgonots,
         metadata: {
@@ -1232,10 +1244,10 @@ export class MyVault {
       if (vaultId === undefined) return;
 
       const client = await getMainchainClient(true);
-      const api = await client.at(finalizedBlockHash);
+      const api = runtimeClient(await client.at(finalizedBlockHash));
       const [vault, argonotCommitment, blockNumber] = await Promise.all([
         Vault.get(api, vaultId),
-        api.query.vaults.argonotCommitmentByVaultId(vaultId),
+        Vault.getArgonotSecuritization(api, vaultId),
         api.query.system.number(),
       ]);
       this.vaults.vaultsById[vaultId] = vault;
@@ -1249,7 +1261,7 @@ export class MyVault {
         walletAddress: this.walletKeys.defaultArgonAddress,
         vaultId,
         securitization: vault.securitization,
-        securitizationTarget: bigIntMax(vault.securitization - vault.getRelockCapacity(), 0n),
+        securitizationTarget: vault.securitizationTarget,
         blockNumber,
         blockHash: u8aToHex(finalizedBlockHash),
         blockTime: new Date(block.blockTime),
@@ -1280,24 +1292,6 @@ export class MyVault {
         collectedEvent?.section === 'vaults' && collectedEvent.method === 'VaultCollected'
           ? collectedEvent.data.revenue
           : undefined;
-      if (revenue !== undefined) {
-        try {
-          const blockNumber = txResult.blockNumber ?? txInfo.tx.blockHeight;
-          if (blockNumber === undefined) throw new Error('Finalized vault collect is missing its block number');
-
-          const [db, block] = await Promise.all([this.dbPromise, this.miningFrames.blockWatch.getHeader(blockNumber)]);
-          await db.vaultRevenueEventsTable.insert({
-            amount: revenue,
-            source: 'vaultCollect',
-            blockNumber,
-            blockHash: u8aToHex(finalizedBlockHash),
-            blockTime: new Date(block.blockTime),
-            extrinsicIndex: txInfo.tx.blockExtrinsicIndex ?? txResult.extrinsicIndex,
-          });
-        } catch (error) {
-          console.warn('Unable to save finalized vault revenue history', error);
-        }
-      }
 
       if (isDefaultArgonMoveTo(txInfo.tx.metadataJson.moveTo) && revenue && revenue > 0n) {
         const txSigner = await this.walletKeys.getVaultingKeypair();
@@ -1337,10 +1331,34 @@ export class MyVault {
         }
       }
 
+      this.revenuePublication = this.revenuePublication
+        .catch(() => undefined)
+        .then(async () => {
+          if (revenue !== undefined) {
+            const blockNumber = txResult.blockNumber ?? txInfo.tx.blockHeight;
+            if (blockNumber === undefined) throw new Error('Finalized vault collect is missing its block number');
+
+            const [db, block] = await Promise.all([
+              this.dbPromise,
+              this.miningFrames.blockWatch.getHeader(blockNumber),
+            ]);
+            await db.vaultRevenueEventsTable.insert({
+              amount: revenue,
+              source: 'vaultCollect',
+              blockNumber,
+              blockHash: u8aToHex(finalizedBlockHash),
+              blockTime: new Date(block.blockTime),
+              extrinsicIndex: txInfo.tx.blockExtrinsicIndex ?? txResult.extrinsicIndex,
+            });
+          }
+
+          const finalizedClient = await getFinalizedClient();
+          const frameRevenues = (await finalizedClient.query.vaults.revenuePerFrameByVault(vaultId)) ?? [];
+          await this.updateRevenueStats(frameRevenues);
+        });
+      await this.revenuePublication;
       const finalizedClient = await getFinalizedClient();
-      const frameRevenues = (await finalizedClient.query.vaults.revenuePerFrameByVault(vaultId)) ?? [];
       await Promise.all([
-        this.updateRevenueStats(frameRevenues),
         this.globalCouncil.refresh(finalizedClient),
         this.mintingAuthorities.refresh(finalizedClient),
       ]);
@@ -1413,12 +1431,10 @@ export class MyVault {
       }
 
       const vaultParams = {
-        terms: {
-          bitcoinAnnualPercentRate: toFixedNumber(rules.btcPctFee / 100, FIXED_U128_DECIMALS),
+        terms: Vault.encodeTerms(client.registry, {
+          bitcoinAnnualPercentRate: new BigNumber(rules.btcPctFee).div(100),
           bitcoinBaseFee: BigInt(rules.btcFlatFee),
-          treasuryProfitSharing: toFixedNumber(rules.profitSharingPct / 100, PERMILL_DECIMALS),
-          treasuryBonusProfitSharing: toFixedNumber(0, PERMILL_DECIMALS),
-        },
+        }),
         securitizationRatio: toFixedNumber(rules.securitizationRatio, FIXED_U128_DECIMALS),
         securitization: MyVault.getSecuritizationTarget(rules),
         bitcoinXpubkey,
@@ -1461,7 +1477,7 @@ export class MyVault {
       const client = await getMainchainClient(true);
       const finalizedBlockHash = await txResult.waitForFinalizedBlock;
       await this.#transactionTracker.ensureStoredEvents(txInfo);
-      const api = await client.at(finalizedBlockHash);
+      const api = runtimeClient(await client.at(finalizedBlockHash));
       const blockNumber = await api.query.system.number();
       let vaultId: number | undefined;
       for (const event of txResult.events) {
@@ -1568,7 +1584,7 @@ export class MyVault {
       if (!lot.isOwn || lot.programType !== 'Vault' || lot.vaultId !== vault.vaultId || lot.isReleasing) {
         throw new Error('This bond lot is no longer eligible to be flexible.');
       }
-      if (lot.accountId !== signerAddress) {
+      if (lot.owner !== signerAddress) {
         throw new Error('Only the bond lot owner can change its flexible status.');
       }
     }
@@ -1593,7 +1609,7 @@ export class MyVault {
     const client = await getMainchainClient(false);
     const vaultId = this.createdVault.vaultId;
     frameRevenues ??= (await client.query.vaults.revenuePerFrameByVault(vaultId)) ?? [];
-    this.#collectFrames = frameRevenues
+    const collectFrames = frameRevenues
       .map(frameRevenue => ({
         frameId: frameRevenue.frameId,
         uncollectedEarnings: frameRevenue.uncollectedRevenue,
@@ -1602,6 +1618,7 @@ export class MyVault {
     this.vaults.vaultsById[vaultId] = this.createdVault;
 
     await this.vaults.updateVaultRevenue(vaultId, frameRevenues);
+    this.#collectFrames = collectFrames;
     this.data.pendingCollectRevenue = this.#collectFrames.reduce(
       (total, frame) => total + frame.uncollectedEarnings,
       0n,
@@ -1649,29 +1666,6 @@ export class MyVault {
     }
 
     this.data.externalLocks = Object.fromEntries(externalLocks.flatMap(lock => (lock ? [[lock.lockId, lock]] : [])));
-  }
-
-  public revenue(): { earnings: bigint; activeFrames: number; averageCapitalDeployed: bigint } {
-    const vaultRevenue = this.data.stats;
-    if (!vaultRevenue || !this.createdVault) return { earnings: 0n, activeFrames: 0, averageCapitalDeployed: 0n };
-
-    let startingFrame = this.data.currentFrameId;
-    let earnings = 0n;
-    const capitalDeployed: bigint[] = [];
-
-    for (const change of vaultRevenue.changesByFrame ?? []) {
-      earnings += change.treasuryPool.vaultEarnings + change.bitcoinFeeRevenue - change.uncollectedEarnings;
-
-      // if there's a change record, the vault did something
-      startingFrame = Math.min(startingFrame, change.frameId);
-      capitalDeployed.push(change.securitization + change.treasuryPool.vaultCapital);
-    }
-
-    const averageCapitalDeployed = capitalDeployed.length
-      ? capitalDeployed.reduce((acc, val) => acc + val, 0n) / BigInt(capitalDeployed.length)
-      : 0n;
-    const activeFrames = this.data.currentFrameId - startingFrame;
-    return { earnings, activeFrames, averageCapitalDeployed };
   }
 
   public async recordVault(data: {
@@ -1746,7 +1740,7 @@ export class MyVault {
     rules: IVaultingRules;
     tip?: bigint;
     txProgressCallback: ITxProgressCallback;
-  }): Promise<{ txResult: TxResult } | undefined> {
+  }): Promise<TransactionInfo | undefined> {
     const vault = this.createdVault;
     if (!vault) {
       throw new Error('No vault created to update settings');
@@ -1763,21 +1757,19 @@ export class MyVault {
         ),
       );
     }
-    const { profitSharingPct, btcFlatFee, btcPctFee } = rules;
+    const { btcFlatFee, btcPctFee } = rules;
     if (btcFlatFee < MINIMUM_BITCOIN_BASE_FEE) {
       throw new Error('The Bitcoin base fee must be at least ₳1.00.');
     }
-    if (
-      profitSharingPct !== previousRules.profitSharingPct ||
-      btcFlatFee !== previousRules.btcFlatFee ||
-      btcPctFee !== previousRules.btcPctFee
-    ) {
+    if (btcFlatFee !== previousRules.btcFlatFee || btcPctFee !== previousRules.btcPctFee) {
       txs.push(
-        client.tx.vaults.modifyTerms(vault.vaultId, {
-          bitcoinAnnualPercentRate: toFixedNumber(btcPctFee / 100, FIXED_U128_DECIMALS),
-          bitcoinBaseFee: btcFlatFee,
-          treasuryProfitSharing: toFixedNumber(profitSharingPct / 100, PERMILL_DECIMALS),
-        }),
+        client.tx.vaults.modifyTerms(
+          vault.vaultId,
+          Vault.encodeTerms(client.registry, {
+            bitcoinAnnualPercentRate: new BigNumber(btcPctFee).div(100),
+            bitcoinBaseFee: btcFlatFee,
+          }),
+        ),
       );
     }
     if (txs.length === 0) {
@@ -1788,7 +1780,7 @@ export class MyVault {
       tx: txs.length > 1 ? client.tx.utility.batchAll(txs) : txs[0],
       txSigner,
       extrinsicType: ExtrinsicType.VaultModifySettings,
-      metadata: { securitizationRatio: rules.securitizationRatio, profitSharingPct, btcFlatFee, btcPctFee },
+      metadata: { securitizationRatio: rules.securitizationRatio, btcFlatFee, btcPctFee },
       txProgressCallback: args.txProgressCallback,
       tip: args.tip,
     });
@@ -1901,8 +1893,8 @@ export class MyVault {
       throw new Error('No vault created to get changes needed');
     }
     const currentSecuritizationMicrogons = vault.securitization;
-    const currentSecuritizationTargetMicrogons = vault.securitizationTarget ?? vault.securitization;
-    const currentCommittedMicronots = this.data.argonotCommitment.committedMicronots;
+    const currentSecuritizationTargetMicrogons = vault.securitizationTarget;
+    const currentCommittedMicronots = this.data.argonotCommitment.heldMicronots;
 
     const change: Parameters<MyVault['buildSecuritizationTx']>[0] = {};
     if (args.securitizationMicrogons !== undefined) {
@@ -1954,11 +1946,9 @@ export class MyVault {
       throw new Error('No vault created to get changes needed');
     }
     const changesSecuritization =
-      args.securitizationMicrogons !== undefined &&
-      args.securitizationMicrogons !== (vault.securitizationTarget ?? vault.securitization);
+      args.securitizationMicrogons !== undefined && args.securitizationMicrogons !== vault.securitizationTarget;
     const changesArgonotCommitment =
-      args.committedMicronots !== undefined &&
-      args.committedMicronots !== this.data.argonotCommitment.committedMicronots;
+      args.committedMicronots !== undefined && args.committedMicronots !== this.argonotSecuritizationTarget;
     if (!changesSecuritization && !changesArgonotCommitment) {
       throw new Error('A securitization change is required');
     }
@@ -1975,10 +1965,18 @@ export class MyVault {
       );
     }
     if (args.committedMicronots !== undefined && changesArgonotCommitment) {
-      txs.push(client.tx.vaults.setCommittedArgonots(args.committedMicronots));
+      txs.push(Vault.buildSetArgonotSecuritizationTx(client, args.committedMicronots));
     }
 
     return txs.length === 1 ? txs[0] : client.tx.utility.batchAll(txs);
+  }
+
+  public get argonotSecuritizationTarget(): bigint {
+    let pending = 0n;
+    for (const entry of this.createdVault?.securitizationReleaseSchedule.values() ?? []) {
+      pending += entry.argonotWithdrawals;
+    }
+    return this.data.argonotCommitment.heldMicronots - pending;
   }
 
   private async onIncreaseVaultSecuritization(

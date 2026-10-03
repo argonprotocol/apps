@@ -1,8 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import BigNumber from 'bignumber.js';
 import { GlobalMiningStats } from '../src/GlobalMiningStats.ts';
 import { Mining, normalizeMiningSeatSlots } from '../src/Mining.ts';
 import { NetworkConfig } from '../src/NetworkConfig.ts';
-import { bigintCodec, numberCodec } from './helpers/codecs.ts';
 
 beforeEach(() => {
   NetworkConfig.setNetwork('mainnet');
@@ -64,10 +64,10 @@ describe('Mining network returns', () => {
     const api = {
       consts: {
         blockRewards: {
-          minerPayoutPercent: bigintCodec(500_000_000_000_000_000n),
-          halvingBeginTicks: numberCodec(1_000_000),
-          halvingTicks: numberCodec(1_000_000),
-          incrementalGrowth: [bigintCodec(0n), numberCodec(1_000), bigintCodec(100n)],
+          minerPayoutPercent: new BigNumber(0.5),
+          halvingBeginTicks: 1_000_000,
+          halvingTicks: 1_000_000,
+          incrementalGrowth: [0n, 1_000n, 100n],
         },
       },
       query: {

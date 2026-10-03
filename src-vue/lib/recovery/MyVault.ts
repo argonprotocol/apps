@@ -3,6 +3,7 @@ import type { HistoricalEvent } from '@argonprotocol/runtime-client/events';
 import type { Db } from '../Db.ts';
 import type { IVaultCapitalHistoryRecord } from '../db/VaultCapitalHistoryTable.ts';
 import type { IVaultRevenueEventsRecord } from '../db/VaultRevenueEventsTable.ts';
+import { SyncStateKeys } from '../db/SyncStateTable.ts';
 
 type HistoricalVaultEvent = Extract<HistoricalEvent, { section: 'vaults' }>;
 
@@ -25,7 +26,11 @@ export class VaultHistory {
     private readonly onHistoryChanged?: () => void,
   ) {}
 
-  public async importBlock(block: IBlockHeaderInfo, events: readonly RuntimeSystemEventRecord[]): Promise<void> {
+  public async importBlock(
+    block: IBlockHeaderInfo,
+    events: readonly RuntimeSystemEventRecord[],
+    specVersion: number,
+  ): Promise<void> {
     const accountId = this.useCurrentAccount();
     const db = await this.dbPromise;
     if (!this.isLoaded) {
@@ -39,9 +44,47 @@ export class VaultHistory {
       if (event.section !== 'vaults') continue;
 
       const extrinsicIndex = phase.type === 'ApplyExtrinsic' ? phase.value : undefined;
-      if (await this.importEvent(db, block, event, extrinsicIndex, accountId)) didChange = true;
+      if (await this.importEvent(db, block, event, extrinsicIndex, accountId, specVersion)) didChange = true;
     }
     if (didChange) this.onHistoryChanged?.();
+  }
+
+  /** Save an observed finalized block and its revenue coverage in the same commit. */
+  public async recordFinalizedRevenue(
+    block: IBlockHeaderInfo,
+    events: readonly RuntimeSystemEventRecord[],
+    vaultId: number,
+    specVersion: number,
+  ): Promise<void> {
+    const accountId = this.useCurrentAccount();
+    const db = await this.dbPromise;
+    this.vaultIds.add(vaultId);
+    await db.transaction(async transaction => {
+      for (const { event, phase } of events) {
+        if (event.section !== 'vaults') continue;
+        if (event.method !== 'VaultCollected' && event.method !== 'VaultRevenueUncollected') continue;
+        if (event.data.vaultId !== vaultId) continue;
+        await this.importEvent(
+          transaction,
+          block,
+          event,
+          phase.type === 'ApplyExtrinsic' ? phase.value : undefined,
+          accountId,
+          specVersion,
+        );
+      }
+      const previous = await transaction.syncStateTable.get(SyncStateKeys.VaultRevenue);
+      if (previous?.accountId === accountId && block.blockNumber <= previous.throughBlock) return;
+      let fromBlock = block.blockNumber;
+      if (previous?.accountId === accountId && previous.throughBlock === block.blockNumber - 1) {
+        fromBlock = previous.fromBlock;
+      }
+      await transaction.syncStateTable.upsert(SyncStateKeys.VaultRevenue, {
+        accountId,
+        fromBlock,
+        throughBlock: block.blockNumber,
+      });
+    });
   }
 
   private async importEvent(
@@ -50,6 +93,7 @@ export class VaultHistory {
     event: HistoricalVaultEvent,
     extrinsicIndex: number | undefined,
     accountId: string,
+    specVersion: number,
   ): Promise<boolean> {
     if (
       event.section !== 'vaults' ||
@@ -57,12 +101,18 @@ export class VaultHistory {
         event.method !== 'VaultModified' &&
         event.method !== 'FundsScheduledForRelease' &&
         event.method !== 'FundsReleased' &&
+        event.method !== 'SecuritizationExitRequested' &&
+        event.method !== 'SecuritizationExitReleased' &&
         event.method !== 'VaultClosed' &&
         event.method !== 'LostBitcoinCompensated' &&
-        event.method !== 'VaultCollected')
+        event.method !== 'VaultCollected' &&
+        event.method !== 'VaultRevenueUncollected')
     ) {
       return false;
     }
+    // From spec 160 this event only unlocks commitments. The hold leaves
+    // custody when SecuritizationExitReleased is emitted after the notice.
+    if (event.method === 'FundsReleased' && specVersion >= 160) return false;
 
     const vaultId = event.data.vaultId;
     if (event.method === 'VaultCreated') {
@@ -109,11 +159,21 @@ export class VaultHistory {
         securitization: event.data.securitization ?? event.data.amount ?? 0n,
         releaseHeight: event.data.releaseHeight,
       });
-    } else if (event.method === 'FundsReleased') {
+    } else if (event.method === 'SecuritizationExitRequested') {
+      await db.vaultCapitalHistoryTable.insert({
+        ...eventIdentity,
+        eventType: 'releaseScheduled',
+        securitization: event.data.amount,
+        releaseHeight: event.data.noticeEndsAt,
+      });
+    } else if (event.method === 'FundsReleased' || event.method === 'SecuritizationExitReleased') {
       await db.vaultCapitalHistoryTable.insert({
         ...eventIdentity,
         eventType: 'released',
-        securitization: event.data.securitization ?? event.data.amount ?? 0n,
+        securitization:
+          event.method === 'SecuritizationExitReleased'
+            ? event.data.amount
+            : (event.data.securitization ?? event.data.amount ?? 0n),
       });
     } else if (event.method === 'VaultClosed') {
       await db.vaultCapitalHistoryTable.insert({
@@ -127,6 +187,16 @@ export class VaultHistory {
         ...eventIdentity,
         eventType: 'capitalLost',
         amount: event.data.toBeneficiary + event.data.burned,
+      });
+    } else if (event.method === 'VaultRevenueUncollected') {
+      await db.vaultRevenueEventsTable.insert({
+        amount: event.data.amount,
+        frameId: event.data.frameId,
+        source: 'vaultBurn',
+        extrinsicIndex,
+        blockNumber: block.blockNumber,
+        blockHash: block.blockHash,
+        blockTime: new Date(block.blockTime),
       });
     } else if (event.method === 'VaultCollected') {
       await db.vaultRevenueEventsTable.insert({
@@ -144,6 +214,7 @@ export class VaultHistory {
   public async loadPositionHistory(): Promise<{
     capital: IVaultCapitalHistoryRecord[];
     revenue: IVaultRevenueEventsRecord[];
+    revenueCoverage?: { fromBlock: number; throughBlock: number };
   }> {
     const accountId = this.useCurrentAccount();
     const db = await this.dbPromise;
@@ -162,7 +233,18 @@ export class VaultHistory {
       };
     }
     const [capital, revenue] = await Promise.all([this.capitalCache.records, this.revenueCache.records]);
-    return { capital, revenue };
+    const saved = await db.syncStateTable.get(SyncStateKeys.FinancialHistory);
+    const live = await db.syncStateTable.get(SyncStateKeys.VaultRevenue);
+    const checkpoint = saved?.accountId === accountId ? saved.domainCheckpoints?.vaulting : undefined;
+    let revenueCoverage = live?.accountId === accountId ? live : undefined;
+    if (checkpoint?.recoveryVersion === 1 && !checkpoint.partialRecovery) {
+      let throughBlock = checkpoint.asOfBlock;
+      if (revenueCoverage && revenueCoverage.fromBlock <= throughBlock + 1) {
+        throughBlock = Math.max(throughBlock, revenueCoverage.throughBlock);
+      }
+      revenueCoverage = { accountId, fromBlock: 0, throughBlock };
+    }
+    return { capital, revenue, revenueCoverage };
   }
 
   private useCurrentAccount(): string {

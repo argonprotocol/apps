@@ -249,6 +249,38 @@ it('attributes a flexibility change to the bond owner as well as the vault opera
   }
 });
 
+it.each(['parent', 'release-event'] as const)('resolves earnings backfill owner from %s when the lot is deleted in the block', async evidence => {
+  const directory = fs.mkdtempSync(Path.join(os.tmpdir(), 'activity-earnings-owner-'));
+  const db = new IndexerDb(Path.join(directory, 'test.db'));
+  const owner = getOfflineRegistry().createType('AccountId32', new Uint8Array(32).fill(4)).toString();
+  db.recordBlocks([{ blockNumber: 1, blockHash: Uint8Array.of(1), specVersion: 160,
+    systemEvents: Uint8Array.of(), accounts: [], vaults: [], vaultOwners: [{ vaultId: 4, address: owner }] }]);
+  const backfill = { section: 'treasury', method: 'BondLotEarningsBackfilled',
+    data: createHistoricalEventData(160, 'treasury', 'BondLotEarningsBackfilled', {
+      bondLotId: 9, addedFrames: 2, addedEarnings: 2_000_000n,
+    }) } as GenericEvent;
+  const events = [appliedEvent(backfill, 0)];
+  if (evidence === 'release-event') events.push(appliedEvent({ section: 'treasury', method: 'BondLotReleased',
+    data: createHistoricalEventData(160, 'treasury', 'BondLotReleased', { frameId: 10, programId: { Vault: { vaultId: 4 } }, bondLotId: 9, accountId: owner, bonds: 10 }),
+  } as GenericEvent, 1));
+  const runtime = eventApi(160, new Map([['0x02', events]]), ['0x02']);
+  const parent = eventApi(160, new Map(), [], owner);
+  const client = activityClient({ latestBlock: 2, specVersions: new Map([['0x02', 160]]),
+    apis: new Map([['0x02', runtime.api], ['0x01', parent.api]]) });
+  const readHeader = vi.spyOn(BlockWatch, 'readHeader').mockReturnValue(header(2));
+  const indexer = new AccountActivityIndexer(db);
+  try {
+    await indexer.start(client.client);
+    await indexer.close({ drain: true });
+    expect(db.findAddressActivity(owner, { activityMask: 1 << 5 })).toMatchObject([{ blockNumber: 2, activityMask: 1 << 5 }]);
+    expect(indexer.coverageGap).toBeUndefined();
+  } finally {
+    readHeader.mockRestore();
+    db.close();
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});
+
 function appliedEvent(event: GenericEvent, extrinsicIndex: number): FrameSystemEventRecord {
   return {
     event,

@@ -54,11 +54,12 @@
           </TooltipRoot>
           <TooltipRoot>
             <TooltipTrigger box stat-box class="flex flex-col w-[20%] !py-4 group">
-              <span>{{ currency.symbol }}{{ microgonToMoneyNm(revenueMicrogons).formatIfElse('< 1_000', '0,0.00', '0,0') }}</span>
+              <span v-if="revenueMicrogons !== undefined">{{ currency.symbol }}{{ microgonToMoneyNm(revenueMicrogons).formatIfElse('< 1_000', '0,0.00', '0,0') }}</span>
+              <span v-else>--</span>
               <label>Total Earnings</label>
             </TooltipTrigger>
             <TooltipContent side="bottom" :sideOffset="-10" align="end" :collisionPadding="9" class="text-right text-md bg-white border border-gray-800/20 rounded-md shadow-2xl z-50 py-4 px-5 w-sm text-slate-900/60">
-              Your vault's earnings to-date. This includes bitcoin locking fees and treasury bonds.
+              Your vault's collected earnings, excluding income attributed to your bonds.
               <TooltipArrow :width="27" :height="15" class="fill-white stroke-[0.5px] stroke-gray-800/20 -mt-px" />
             </TooltipContent>
           </TooltipRoot>
@@ -91,8 +92,8 @@
                   Config
                 </button>
                 <div class="w-px h-8/12 bg-slate-600/30" />
-                <button @click="openSecuritization" class="flex flex-row items-center font-light text-base cursor-pointer group hover:opacity-80">
-                  Securitization
+                <button @click="basicEmitter.emit('openFlexibleAssetsOverlay')" class="flex flex-row items-center font-light text-base cursor-pointer group hover:opacity-80">
+                  Flexible Assets
                 </button>
                 <div class="w-px h-8/12 bg-slate-600/30" />
                 <button @click="controller.setTab(TopTab.Onboarding)" class="flex flex-row items-center font-light text-base cursor-pointer group hover:opacity-80">
@@ -197,7 +198,7 @@
                       </TooltipContent>
                     </TooltipRoot>
                     <TooltipRoot :delayDuration="200">
-                      <TooltipTrigger as="div" class="cursor-help">{{ numeral(vaultingBreakdown.revenueCapturedPct).format('0,0.[00]') }}% of Potential Revenue Captured</TooltipTrigger>
+                      <TooltipTrigger as="div" class="cursor-help"><template v-if="vaultingBreakdown.revenueCapturedPct !== undefined">{{ numeral(vaultingBreakdown.revenueCapturedPct).format('0,0.[00]') }}% of Potential Revenue Captured</template><template v-else>Potential Revenue Capture Unavailable</template></TooltipTrigger>
                       <TooltipContent side="bottom" :sideOffset="4" :collisionPadding="9" class="text-md z-50 w-xs rounded-md border border-gray-800/20 bg-white px-4 py-3 text-left leading-5.5 font-light text-slate-900/60 shadow-2xl">
                         How much of your vault's potential mining pool revenue is being earned. Maximize this by using your capital for bitcoin security and funding treasury externally.
                         <TooltipArrow :width="27" :height="15" class="-mt-px fill-white stroke-gray-800/20 stroke-[0.5px]" />
@@ -243,8 +244,7 @@
     <BondDetailOverlay
       v-if="showBondDetailOverlay && selectedFrameBondLot"
       :bondLot="selectedFrameBondLot.details"
-      :position="selectedBondFinancialDetails?.position"
-      :returnPercent="selectedBondFinancialDetails?.returnPercent"
+      :position="selectedBondPosition"
       displayContext="vault"
       liquidationAccount="vaulting"
       @close="closeBondDetailOverlay"
@@ -261,21 +261,7 @@ import dayjs from 'dayjs';
 import utc from 'dayjs/plugin/utc';
 import FrameSlider from '../../components/FrameSlider.vue';
 
-const currentFrame = Vue.ref({
-  id: 0,
-  date: '',
-  firstTick: 0,
-  progress: 0,
-  bitcoinChangeMicrogons: 0n,
-  treasuryChangeMicrogons: 0n,
-  totalTreasuryPayout: 0n,
-  myTreasuryPercentTake: 0,
-  myTreasuryPayout: 0n,
-  frameProfitPercent: 0,
-  bitcoinPercentUsed: 0,
-  treasuryPercentActivated: 0,
-  profitMaximizationPercent: 0,
-} as IVaultFrameRecord);
+const currentFrame = Vue.ref<IVaultFrameRecord>({ id: 0, date: '', firstTick: 0 });
 
 dayjs.extend(utc);
 const frameSliderRef = Vue.ref<InstanceType<typeof FrameSlider> | null>(null);
@@ -287,7 +273,7 @@ const chartItems = Vue.ref<IChartItem[]>([]);
 import { createNumeralHelpers } from '../../lib/numeral.ts';
 import { getCurrency } from '../../stores/currency.ts';
 import numeral from '../../lib/numeral.ts';
-import { getMyVault, getVaults } from '../../stores/vaults.ts';
+import { getMyVault } from '../../stores/vaults.ts';
 import type { IExternalBitcoinLock } from '../../lib/MyVault.ts';
 import { getConfig } from '../../stores/config.ts';
 import { TICK_MILLIS } from '../../lib/Env.ts';
@@ -315,7 +301,6 @@ import { useWallets } from '../../stores/wallets.ts';
 dayjs.extend(utc);
 
 const myVault = getMyVault();
-const vaults = getVaults();
 const controller = useCertificationController();
 const bitcoinLocks = getBitcoinLocks();
 const config = getConfig();
@@ -361,14 +346,20 @@ const vaultingReturnToDate = Vue.computed(() => {
 });
 
 const revenueMicrogons = Vue.computed(() => {
-  const { earnings } = myVault.revenue();
-  return earnings;
+  const group = financials.financialPositionAggregate.groupSummaries.vaulting;
+  if (group.state === 'ready' || group.state === 'stale') return group.returnSummary.paidIncome;
 });
 
 const potentialDailyRevenue = Vue.computed(() => {
   if (!myVault.createdVault) return 0n;
 
   const bondFrame = currentTreasuryBondFrame.value;
+  const capital = argonBonds.data.frameCapital;
+  if (capital) {
+    const frameRevenue = argonBonds.vaultRevenuePotential(myVault.createdVault.vaultId)?.maximumEarnings ?? 0n;
+    const frameMillis = BigInt(NetworkConfig.rewardTicksPerFrame * NetworkConfig.tickMillis);
+    return frameMillis > 0n ? (frameRevenue * 86_400_000n) / frameMillis : 0n;
+  }
 
   return TreasuryBonds.potentialDailyRevenue({
     distributableBidPool: bondFrame.distributableBidPool,
@@ -593,15 +584,13 @@ const currentBondMapLots = Vue.computed((): IBondMapLot[] => {
     }
 
     return {
-      id: bondLot.id > 0 ? `lot:${bondLot.id}` : `account:${bondLot.accountId}:${bondLot.id}`,
-      accountId: bondLot.accountId,
+      id: bondLot.id > 0 ? `lot:${bondLot.id}` : `account:${bondLot.owner}:${bondLot.id}`,
+      accountId: bondLot.owner,
       bonds: bondLot.bonds,
-      prorata: 0n,
-      isOperator: bondLot.accountId === operatorAccountId,
+      eligibleMicrogons: BondLot.bondsToMicrogons(bondLot.bonds),
+      isOperator: bondLot.owner === operatorAccountId,
       details: bondLot,
-      // A flexible lot never appears in ordinaryFrameBondLots; mainchain records all flexible
-      // participation in aggregate frame fields instead.
-      status: bondLot.isFlexible ? 'active' : 'pending',
+      status: bondLot.isFlexible && bondLot.earningsDestination === 'VaultForFlexible' ? 'active' : 'pending',
     };
   });
 });
@@ -678,10 +667,10 @@ const showEditOverlay = Vue.ref(false);
 const showLockDetailOverlay = Vue.ref(false);
 const showBondDetailOverlay = Vue.ref(false);
 const selectedLock = Vue.ref<IBitcoinLockRecord | IExternalBitcoinLock | undefined>(undefined);
-const selectedFrameBondLot = Vue.ref<IFrameBondLot | undefined>(undefined);
-const selectedBondFinancialDetails = Vue.computed(() => {
+const selectedFrameBondLot = Vue.shallowRef<IFrameBondLot | undefined>(undefined);
+const selectedBondPosition = Vue.computed(() => {
   const bondLot = selectedFrameBondLot.value?.details;
-  return bondLot ? financials.getBondFinancialDetails(bondLot) : undefined;
+  return bondLot ? financials.getBondFinancialPosition(bondLot) : undefined;
 });
 
 function openBitcoinChannel(lock?: IBitcoinLockRecord) {
@@ -772,23 +761,9 @@ function openSecuritization() {
 
 const miningFrames = getMiningFrames();
 
-function updateLatestFrameProgress() {
-  if (frameRecords.value.length === 0) return;
-  const latestFrame = frameRecords.value.at(-1);
-  if (!latestFrame) return;
-  if (currentFrame.value.id === latestFrame.id) {
-    const ticksPerFrame = NetworkConfig.rewardTicksPerFrame;
-    const rewardTicksRemaining = ticksPerFrame - miningFrames.getFrameRewardTicksRemaining();
-    latestFrame.progress = (rewardTicksRemaining / ticksPerFrame) * 100;
-    if (latestFrame.progress > 100) {
-      latestFrame.progress = 100;
-    }
-  }
-}
-
-async function loadChartData(currentFrameId?: number) {
-  const profitAnalysis = new ProfitAnalysis(vaults, myVault, miningFrames, currentFrameId);
-  await profitAnalysis.update();
+function loadChartData(currentFrameId?: number) {
+  const profitAnalysis = new ProfitAnalysis(myVault, miningFrames, argonBonds, currentFrameId);
+  profitAnalysis.update();
 
   chartItems.value = profitAnalysis.items;
   frameRecords.value = profitAnalysis.records;
@@ -813,37 +788,31 @@ async function refreshCurrentFrameBonds() {
 }
 
 let onFrameSubscription: { unsubscribe: () => void };
-let onTickSubscription: { unsubscribe: () => void };
 
 Vue.onMounted(async () => {
   await miningFrames.load();
   await myVault.load();
 
   Vue.watch(
-    () => [vaults.stats!.vaultsById, bitcoinLocks.data.financialRevision] as const,
+    () => [myVault.data.stats, argonBonds.data.financialRevision] as const,
     () => loadChartData(),
     { deep: true },
   );
 
   onFrameSubscription = miningFrames.onFrameId(async frameId => {
-    await loadChartData(frameId);
+    loadChartData(frameId);
     await refreshCurrentFrameBonds();
-  });
-
-  onTickSubscription = miningFrames.onTick(() => {
-    void updateLatestFrameProgress();
   });
 
   const client = await getMainchainClient(false);
   await argonBonds.subscribeGlobal(client);
 
-  await loadChartData();
+  loadChartData();
   await refreshCurrentFrameBonds();
 });
 
 Vue.onUnmounted(() => {
   onFrameSubscription?.unsubscribe();
-  onTickSubscription?.unsubscribe();
 });
 </script>
 

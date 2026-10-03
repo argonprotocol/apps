@@ -18,7 +18,10 @@
               <span class="text-base opacity-80">Secure the Vaults</span>
             </div>
             <div class="bg-argon-100/50 rounded px-3 py-2 text-2xl leading-none font-bold">
-              {{ numeral(vaultingStats.argonBondsAPR).formatIfElseCapped('< 100', '0.0', '0', 999) }}%
+              <template v-if="vaultingStats.argonBondsAPR !== undefined">
+                {{ numeral(vaultingStats.argonBondsAPR).formatIfElseCapped('< 100', '0.0', '0', 999) }}%
+              </template>
+              <template v-else>&mdash;</template>
             </div>
           </li>
           <li class="border-argon-300/20 bg-argon-100/20 flex items-center justify-between rounded border px-3 py-2">

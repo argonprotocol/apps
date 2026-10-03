@@ -6,7 +6,7 @@ import { MICROGONS_PER_ARGON } from '@argonprotocol/mainchain';
 import { type IBiddingRules, SeatGoalInterval, SeatGoalType } from './interfaces/index.js';
 import { NetworkConfig } from './NetworkConfig.js';
 import type { MiningFrames } from './MiningFrames.ts';
-import type { ArgonClient } from './MainchainClients.js';
+import type { ArgonClient, ArgonQueryClient } from './MainchainClients.js';
 
 const MINING_BID_COLLATERAL_MULTIPLE_SPEC_VERSION = 154;
 
@@ -84,7 +84,7 @@ export default class BiddingCalculatorData {
           const mining = this.mining;
           await this.miningFrames.waitForFrameId(biddingFrameId);
 
-          let api = await this.miningFrames.blockWatch.getCurrentApi();
+          let api: ArgonQueryClient = await this.miningFrames.blockWatch.getCurrentApi();
           let biddingFrame = this.miningFrames.framesById[biddingFrameId];
 
           const nextFrameId = await this.mining.fetchNextFrameId(api);
@@ -132,7 +132,7 @@ export default class BiddingCalculatorData {
 
           this.microgonExchangeRateTo = await currency.fetchMainchainRates(api);
           this.maxPossibleMiningSeatCount = maxPossibleMinersInNextEpoch;
-          this.allowedBidIncrementMicrogons = api.consts.miningSlot.bidIncrements.toBigInt();
+          this.allowedBidIncrementMicrogons = api.consts.miningSlot.bidIncrements;
           return biddingFrameId;
         } catch (error) {
           console.error('Error initializing BiddingCalculatorData', error);

@@ -141,6 +141,7 @@ export const ArchivedLiquidDetails: Story = {
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
+    await userEvent.click(await canvas.findByText(/been archived/));
     await userEvent.click(canvas.getByText(/BTC Liquid$/));
   },
 };
@@ -360,5 +361,18 @@ export const CloseWhileCreatingLiquid: Story = {
     await body.findByText('Creating Liquid...');
     await userEvent.click(await body.findByTestId('OverlayBase.clickClose()'));
     await userEvent.click(await body.findByRole('button', { name: 'Task guidance' }));
+  },
+};
+
+export const ExpandedLiquidArchive: Story = {
+  render: () => ({
+    components: { AppScreen, Bitcoin },
+    template: '<AppScreen interactive><Bitcoin /></AppScreen>',
+  }),
+  beforeEach: () => {
+    setupBitcoinPortfolioScenario({ closedLiquidArchive: true, archivedOnly: true });
+  },
+  play: async ({ canvasElement }) => {
+    await userEvent.click(await within(canvasElement).findByText(/been archived/));
   },
 };

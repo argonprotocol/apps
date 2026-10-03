@@ -160,7 +160,7 @@ export class CohortBidder {
   public async start() {
     await this.blockWatch.start();
     const client = this.client;
-    this.minIncrement = client.consts.miningSlot.bidIncrements.toBigInt();
+    this.minIncrement = client.consts.miningSlot.bidIncrements;
     this.bidsForNextSlotCohortKey = client.query.miningSlot.bidsForNextSlotCohort.key();
     this.ticksBeforeVrfClose = await client.query.miningSlot.miningConfig().then(x => x.ticksBeforeBidEndForVrfClose);
     const minBidIncrement = this.options.minBid % this.minIncrement;

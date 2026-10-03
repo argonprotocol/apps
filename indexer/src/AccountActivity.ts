@@ -172,7 +172,9 @@ export class AccountActivityDecoder {
       vaultIds: collectEventVaultIds(event),
       bondLotIds:
         event.section === 'treasury' &&
-        (event.method === 'BondLotFlexibilityChanged' || event.method === 'BondLotBackfillChanged')
+        (event.method === 'BondLotFlexibilityChanged' ||
+          event.method === 'BondLotBackfillChanged' ||
+          event.method === 'BondLotEarningsBackfilled')
           ? [event.data.bondLotId]
           : [],
       bitcoinLockIds: collectEventBitcoinLockIds(event),
@@ -205,11 +207,12 @@ function classifyEventKind(
   }
   if (section === 'bitcoinFissions') return AccountActivityKind.BitcoinLock;
 
-  // Most BitcoinUtxos events are global candidate observations. Verification and
-  // unwatching are durable lock transitions, and the lock-owner index resolves
-  // their UTXO IDs back to the account that created the lock.
+  // Detection, verification and unwatching identify a lock. Global candidate
+  // observations have no lock owner and are intentionally excluded.
   if (section === 'bitcoinUtxos') {
-    return method === 'UtxoVerified' || method === 'UtxoUnwatched' ? AccountActivityKind.BitcoinLock : 0;
+    return method === 'UtxoDetected' || method === 'UtxoVerified' || method === 'UtxoUnwatched'
+      ? AccountActivityKind.BitcoinLock
+      : 0;
   }
   if (section === 'bonds') {
     if (legacyBitcoinBondEvents.has(method)) return AccountActivityKind.BitcoinLock;
@@ -432,12 +435,18 @@ const vaultPositionEvents = new Set([
 
   // Specs 151+ track ARGNOT committed as vault capital separately from ARGN.
   'CommittedArgonotsSet',
+  'ArgonotSecuritizationSet',
+  'ArgonotExitRequested',
+  'ArgonotExitReleased',
+  'SecuritizationExitRequested',
+  'SecuritizationExitReleased',
 ]);
 // Treasury bond lots begin at spec 151. Spec 156 replaces the event's vaultId
 // with programId so one lifecycle can cover vault-backed and ARGNOT-backed lots;
 // the block's runtime metadata resolves that shape change before account collection.
 const treasuryBondPositionEvents = new Set([
   'BondLotBackfillChanged',
+  'BondLotEarningsBackfilled',
   'BondLotFlexibilityChanged',
   'BondLotPurchased',
   'BondLotReleased',

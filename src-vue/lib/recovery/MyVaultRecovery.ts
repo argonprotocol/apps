@@ -22,14 +22,14 @@ import type { HistoricalQueryRecord } from '@argonprotocol/runtime-client';
 export class MyVaultRecovery {
   public static rebuildRules(args: {
     feesInMicrogons: bigint;
-    vault: Pick<Vault, 'securitization' | 'securitizationRatio' | 'terms'>;
+    vault: Pick<Vault, 'securitization' | 'securitizationRatio' | 'terms' | 'bondProfitSharing'>;
     treasuryMicrogons?: bigint;
     bitcoin?: { liquidityPromised: bigint };
   }): IVaultingRules {
     const { vault, treasuryMicrogons = 0n, bitcoin = { liquidityPromised: 0n } } = args;
 
     const securitization = vault.securitization;
-    const securitizationRatio = vault.securitizationRatio;
+    const securitizationRatio = vault.securitizationRatio.toNumber();
     const baseMicrogonCommitment = securitization + treasuryMicrogons;
     let capitalForSecuritizationPct = 100;
     if (baseMicrogonCommitment > 0n) {
@@ -41,7 +41,7 @@ export class MyVaultRecovery {
     }
 
     const capitalForTreasuryPct = 100 - capitalForSecuritizationPct;
-    const profitSharingPct = vault.terms.treasuryProfitSharing.times(100).toNumber();
+    const profitSharingPct = vault.bondProfitSharing?.times(100).toNumber() ?? (Config.getDefault('vaultingRules') as IVaultingRules).profitSharingPct;
     const btcFlatFee = vault.terms.bitcoinBaseFee;
     const btcPctFee = vault.terms.bitcoinAnnualPercentRate.times(100).toNumber();
 

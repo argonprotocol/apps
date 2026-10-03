@@ -1,8 +1,9 @@
 import {
-  BondLot,
   calculateVaultPositionValue,
   Currency,
+  getPercent,
   type ICapitalFlow,
+  type IVaultFrameStats,
   type Vault,
 } from '@argonprotocol/apps-core';
 import {
@@ -16,6 +17,7 @@ import type { IVaultCapitalHistoryRecord } from '../db/VaultCapitalHistoryTable.
 import type { IVaultRevenueEventsRecord } from '../db/VaultRevenueEventsTable.ts';
 import type { MyVault } from '../MyVault.ts';
 import type { ArgonBonds } from '../ArgonBonds.ts';
+import { getVaultBondEarnings } from '../BondEarnings.ts';
 
 type VaultFinancialPositionArgs = {
   account: IArgonAccountBalance;
@@ -23,7 +25,10 @@ type VaultFinancialPositionArgs = {
 };
 
 type VaultPosition = IVaultFinancialPosition | IVaultBalanceFinancialPosition;
-type VaultBondState = Pick<ArgonBonds['data'], 'bondLots' | 'bondHistory' | 'isLoaded'>;
+type VaultBondState = Pick<
+  ArgonBonds['data'],
+  'bondLots' | 'bondHistory' | 'dailyEarnings' | 'isLoaded' | 'currentFrameId'
+>;
 
 export class VaultFinancials implements IFinancialPositionSource<VaultFinancialPositionArgs, VaultPosition> {
   constructor(
@@ -31,8 +36,67 @@ export class VaultFinancials implements IFinancialPositionSource<VaultFinancialP
     private readonly bonds: VaultBondState,
   ) {}
 
+  /** Completed-frame income belongs to the vault only after excluding vault-paid bond income. */
+  public static getFrameReturns(
+    vaultId: number,
+    frames: readonly IVaultFrameStats[],
+    { bondLots, bondHistory, dailyEarnings, isLoaded }: VaultBondState,
+  ): Map<number, number> {
+    const returns = new Map<number, number>();
+    if (!isLoaded) return returns;
+
+    const vaultEarnings = new Map<number, bigint | undefined>(
+      frames.map(frame => [frame.frameId, frame.treasuryPool.vaultEarnings]),
+    );
+    const lots = new Map(bondLots.filter(lot => lot.vaultId === vaultId).map(lot => [lot.id, lot]));
+    const history = new Map(bondHistory.filter(lot => lot.vaultId === vaultId).map(lot => [lot.bondLotId, lot]));
+    for (const id of new Set([...lots.keys(), ...history.keys()])) {
+      const lot = lots.get(id);
+      const record = history.get(id);
+      const earningsByFrame = new Map(
+        dailyEarnings.filter(earning => earning.bondLotId === id).map(earning => [earning.frameId, earning]),
+      );
+      const createdFrame = record?.createdFrame ?? lot!.createdFrameId;
+      const releaseFrame = record?.releaseFrame ?? lot?.releaseFrameId;
+      const wasFlexible = lot?.isFlexible || record?.flexibilityHistory.some(change => change.isFlexible);
+
+      for (const frame of frames) {
+        const remaining = vaultEarnings.get(frame.frameId);
+        if (remaining === undefined) continue;
+        const earning = earningsByFrame.get(frame.frameId);
+        if (earning) {
+          if (earning.earningsDestination === 'Owner') continue;
+          const amount = earning.earningsMicrogons;
+          if (amount == null || amount > remaining) vaultEarnings.set(frame.frameId, undefined);
+          else vaultEarnings.set(frame.frameId, remaining - amount);
+          continue;
+        }
+        if (frame.frameId < createdFrame) continue;
+        if (releaseFrame != null && frame.frameId >= releaseFrame) continue;
+        if ((record?.earningsHistoryThroughFrame ?? -1) >= frame.frameId) continue;
+        if (record?.flexibilityHistoryComplete && !wasFlexible) continue;
+        vaultEarnings.set(frame.frameId, undefined);
+      }
+    }
+
+    for (const frame of frames) {
+      const earnings = vaultEarnings.get(frame.frameId);
+      if (earnings === undefined) continue;
+      if (frame.bitcoinFeeCouponValueUsed === undefined) continue;
+      if (frame.securitization <= 0n) continue;
+      const income = earnings + frame.bitcoinFeeRevenue - frame.bitcoinFeeCouponValueUsed;
+      returns.set(frame.frameId, getPercent(income, frame.securitization));
+    }
+    return returns;
+  }
+
   public async loadPositions(args: VaultFinancialPositionArgs): Promise<VaultPosition[]> {
+    const publication = this.vault.revenuePublication;
+    await publication;
     const history = await this.vault.history.loadPositionHistory();
+    if (publication !== this.vault.revenuePublication) {
+      throw new Error('Vault revenue changed during the financial snapshot; retry after publication');
+    }
     const liveVault = this.vault.createdVault ?? undefined;
 
     return this.createFinancialPositions({
@@ -40,6 +104,7 @@ export class VaultFinancials implements IFinancialPositionSource<VaultFinancialP
       liveVault,
       capitalHistory: history.capital,
       revenueHistory: history.revenue,
+      revenueCoverage: history.revenueCoverage,
     });
   }
 
@@ -50,6 +115,7 @@ export class VaultFinancials implements IFinancialPositionSource<VaultFinancialP
       liveArgonotRateMicrogons?: bigint;
       capitalHistory?: readonly IVaultCapitalHistoryRecord[];
       revenueHistory?: readonly IVaultRevenueEventsRecord[];
+      revenueCoverage?: { fromBlock: number; throughBlock: number };
     },
   ): VaultPosition[] {
     let securitization = args.liveVault?.securitization;
@@ -88,47 +154,19 @@ export class VaultFinancials implements IFinancialPositionSource<VaultFinancialP
       securitization,
       uncollectedRevenue,
       capitalHistory: vaultCapitalHistory,
-      collectedRevenue: revenueHistory,
+      collectedRevenue: revenueHistory.filter(record => record.source === 'vaultCollect'),
     });
-    const vaultBondHistory = this.bonds.bondHistory.filter(record => record.vaultId === vaultId);
-    const flexibilityHistory = vaultBondHistory
-      .flatMap(history => history.flexibilityHistory.map(transition => ({ history, transition })))
-      .sort(
-        (left, right) =>
-          left.transition.blockNumber - right.transition.blockNumber ||
-          (left.transition.extrinsicIndex ?? -1) - (right.transition.extrinsicIndex ?? -1) ||
-          (left.transition.eventIndex ?? -1) - (right.transition.eventIndex ?? -1),
-      );
-    const activeFlexiblePrincipal = BondLot.getTotals(
-      this.bonds.bondLots.filter(lot => lot.programType === 'Vault' && lot.vaultId === vaultId && lot.isFlexible),
-    ).totalBondMicrogons;
-    let observedFlexiblePrincipal = 0n;
-    let flexibleInvestedCost = 0n;
-    let flexibleSettledPrincipal = 0n;
-    let hasCompleteFlexibilityHistory =
-      this.bonds.isLoaded &&
-      vaultBondHistory.every(record => record.flexibilityHistoryComplete) &&
-      this.bonds.bondLots
-        .filter(lot => lot.programType === 'Vault' && lot.vaultId === vaultId)
-        .every(lot =>
-          vaultBondHistory.some(record => record.bondLotId === lot.id && record.flexibilityHistoryComplete),
-        );
-    const flexibleStateByLot = new Map<number, boolean>();
-    const flexibleCapitalFlows: ICapitalFlow[] = [];
-    for (const { history, transition } of flexibilityHistory) {
-      const wasFlexible = flexibleStateByLot.get(history.bondLotId) ?? false;
-      if (wasFlexible === transition.isFlexible) {
-        hasCompleteFlexibilityHistory = false;
-        continue;
-      }
-      flexibleStateByLot.set(history.bondLotId, transition.isFlexible);
-      const amount = transition.isFlexible ? history.nativePrincipal : -history.nativePrincipal;
-      observedFlexiblePrincipal += amount;
-      if (amount > 0n) flexibleInvestedCost += amount;
-      else flexibleSettledPrincipal -= amount;
-      flexibleCapitalFlows.push({ amount, occurredAt: transition.blockTime });
-    }
-    if (observedFlexiblePrincipal !== activeFlexiblePrincipal) hasCompleteFlexibilityHistory = false;
+    const bondEarnings = getVaultBondEarnings(
+      this.bonds,
+      vaultId,
+      revenueHistory,
+      args.revenueCoverage,
+      this.vault.pendingRevenueFrames,
+    );
+    let paidIncome: bigint | undefined;
+    if (bondEarnings.collectedEarnings !== undefined) paidIncome = value.paidIncome - bondEarnings.collectedEarnings;
+    const hasCompleteAttribution =
+      bondEarnings.isComplete && (bondEarnings.pendingEarnings ?? 0n) <= uncollectedRevenue;
     let lifecycle: IVaultFinancialPosition['lifecycle'] = 'completed';
     if (args.liveVault && !args.liveVault.isClosed) {
       lifecycle = 'active';
@@ -140,7 +178,7 @@ export class VaultFinancials implements IFinancialPositionSource<VaultFinancialP
     const finalCapitalEvent = vaultCapitalHistory.at(-1);
     const endedAt = lifecycle === 'completed' ? finalCapitalEvent?.blockTime : undefined;
     const hasCompleteLifecycleTiming = lifecycle !== 'completed' || endedAt !== undefined;
-    const capitalFlows: ICapitalFlow[] = [...flexibleCapitalFlows];
+    const capitalFlows: ICapitalFlow[] = [];
     let hasCompleteCapitalTiming = true;
     for (const [index, amount] of value.capitalDeltas.entries()) {
       if (amount === 0n) continue;
@@ -153,7 +191,7 @@ export class VaultFinancials implements IFinancialPositionSource<VaultFinancialP
       }
     }
     capitalFlows.sort((left, right) => new Date(left.occurredAt).getTime() - new Date(right.occurredAt).getTime());
-    const hasCompleteCapitalHistory = value.hasCompleteCapitalHistory && hasCompleteFlexibilityHistory;
+    const hasCompleteCapitalHistory = value.hasCompleteCapitalHistory;
     const positions: VaultPosition[] = [
       createFinancialPosition(
         'vault',
@@ -173,29 +211,13 @@ export class VaultFinancials implements IFinancialPositionSource<VaultFinancialP
           uncollectedRevenue,
           capitalHistory: vaultCapitalHistory,
           revenueHistory,
+          returnIsComplete: hasCompleteAttribution,
           performanceEndingCapital:
-            flexibleInvestedCost > 0n &&
-            hasCompleteCapitalHistory &&
-            value.currentValue !== undefined &&
-            value.settledPrincipalValue !== undefined
-              ? value.currentValue +
-                activeFlexiblePrincipal +
-                value.settledPrincipalValue +
-                flexibleSettledPrincipal +
-                value.paidIncome
+            value.currentValue !== undefined && value.settledPrincipalValue !== undefined
+              ? value.currentValue + value.settledPrincipalValue + value.paidIncome - bondEarnings.totalEarnings
               : undefined,
         },
-        {
-          ...value,
-          investedCost:
-            hasCompleteCapitalHistory && value.investedCost !== undefined
-              ? value.investedCost + flexibleInvestedCost
-              : undefined,
-          settledPrincipalValue:
-            hasCompleteCapitalHistory && value.settledPrincipalValue !== undefined
-              ? value.settledPrincipalValue + flexibleSettledPrincipal
-              : undefined,
-        },
+        { ...value, paidIncome },
       ),
     ];
 

@@ -207,15 +207,16 @@
             <div class="mt-1 text-slate-500">Create a Liquid from unallocated Bitcoin in your wallet.</div>
           </div>
 
-          <section v-if="closedLiquidRows.length" class="mt-5 flex flex-col gap-y-3">
-            <h2 class="px-1 text-slate-400">
+          <details v-if="closedLiquidRows.length" class="group mt-5">
+            <summary class="flex cursor-pointer list-none items-center gap-2 px-1 text-slate-400">
               {{ closedLiquidRows.length }} Bitcoin Liquid{{ closedLiquidRows.length === 1 ? '' : 's' }}
               {{ closedLiquidRows.length === 1 ? 'has' : 'have' }} been archived
-            </h2>
+              <ChevronDownIcon class="size-4 self-center text-slate-400 transition-transform group-open:rotate-180" />
+            </summary>
             <article
               v-for="liquid in closedLiquidRows"
               :key="liquid.model.liquidId"
-              class="flex cursor-pointer flex-row items-center gap-2.5 rounded border border-slate-900/20 bg-slate-50 px-3.5 py-2 opacity-60 hover:opacity-80"
+              class="mt-3 flex cursor-pointer flex-row items-center gap-2.5 rounded border border-slate-900/20 bg-slate-50 px-3.5 py-2 opacity-60 hover:opacity-80"
               @click="openLiquidDetails(liquid)"
             >
               <BitcoinIcon class="text-argon-600/60 w-20" />
@@ -288,7 +289,7 @@
                 </div>
               </div>
             </article>
-          </section>
+          </details>
 
           <div v-if="remainingFeeWaiver" class="self-end text-right text-sm text-slate-600">
             Your fee waiver from {{ remainingFeeWaiver.provider }} has {{ remainingFeeWaiver.amount }} remaining ·
@@ -309,6 +310,7 @@
 
 <script setup lang="ts">
 import * as Vue from 'vue';
+import { ChevronDownIcon } from '@heroicons/vue/24/outline';
 import dayjs from 'dayjs';
 import relativeTime from 'dayjs/plugin/relativeTime';
 import { NetworkConfig, SATOSHIS_PER_BITCOIN, UnitOfMeasurement } from '@argonprotocol/apps-core';

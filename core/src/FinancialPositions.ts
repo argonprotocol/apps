@@ -39,7 +39,8 @@ export type IVaultCapitalEvent =
 export type IInvestmentPositionValue = {
   currentValue?: bigint;
   investedCost?: bigint;
-  paidIncome: bigint;
+  /** Undefined when known income cannot yet be separated from another position's income. */
+  paidIncome?: bigint;
   settledPrincipalValue?: bigint;
 };
 
@@ -76,6 +77,7 @@ export function calculateVaultPositionValue(args: {
   capitalHistory: readonly IVaultCapitalEvent[];
   collectedRevenue: readonly { amount: bigint }[];
 }): IInvestmentPositionValue & {
+  paidIncome: bigint;
   hasCompleteCapitalHistory: boolean;
   remainingPrincipal: bigint;
   capitalDeltas: readonly bigint[];

@@ -51,7 +51,7 @@ export function getWalletKeys() {
     },
     async () => {
       const client = await getMainchainClient(false);
-      return client.consts.mint.maxPossibleMiners.toNumber();
+      return client.consts.mint.maxPossibleMiners;
     },
     { canSign: CAN_SIGN, canAccessServer: CAN_SIGN },
   );

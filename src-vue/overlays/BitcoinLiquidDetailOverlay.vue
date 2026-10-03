@@ -1030,7 +1030,7 @@ async function loadRatchetQuote(
 
     const unavailableBalance = prepared.unavailableBalance ?? 0n;
     const existentialDeposit = prepared.includeExistentialDeposit
-      ? prepared.client.consts.balances.existentialDeposit.toBigInt()
+      ? prepared.client.consts.balances.existentialDeposit
       : 0n;
     ratchetQuoteState.value = {
       status: 'ready',

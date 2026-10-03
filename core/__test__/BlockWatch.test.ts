@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { BlockWatch, type IBlockHeaderInfo } from '../src/BlockWatch.ts';
 import { MainchainClients } from '../src/MainchainClients.ts';
+import { runtimeClient } from '@argonprotocol/runtime-client';
 
 const getMainchainClient = vi.hoisted(() => vi.fn());
 
@@ -572,7 +573,7 @@ describe('BlockWatch archive recovery', () => {
     finalizedHeader.isFinalized = true;
     const initialBestHeader = createHeaderInfo(110, '0xbest-1', '0x109');
     const newerBestHeader = createHeaderInfo(111, '0xbest-2', '0x110');
-    const newerBestApi = { query: { system: { events: vi.fn() } } } as unknown as IBlockApi;
+    const newerBestApi = runtimeClient({ query: { system: { events: vi.fn() } } }) as unknown as IBlockApi;
     const blockWatch = new BlockWatch(createClients({}, {}) as any);
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
 
@@ -607,7 +608,7 @@ describe('BlockWatch archive recovery', () => {
     finalizedHeader.isFinalized = true;
     const bestHeader = createHeaderInfo(110, '0xbest', '0x109');
     const archiveBestHeader = createHeaderInfo(112, '0xarchive-best', '0x111');
-    const archiveBestApi = { query: { system: { events: vi.fn() } } } as unknown as IBlockApi;
+    const archiveBestApi = runtimeClient({ query: { system: { events: vi.fn() } } }) as unknown as IBlockApi;
     const archiveClient = {
       rpc: {
         chain: {

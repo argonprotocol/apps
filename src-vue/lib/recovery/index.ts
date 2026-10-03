@@ -52,6 +52,10 @@ export async function needsFinancialHistoryRecovery(args: {
     if (domain === 'bitcoin' && args.bitcoinLockRecovery?.hasPendingHistoryRecovery) return true;
 
     const checkpoint = domainCheckpoints[domain];
+    if (domain === 'vaulting') {
+      const revenue = await args.db.syncStateTable.get(SyncStateKeys.VaultRevenue);
+      if (revenue?.accountId === args.accountId && (checkpoint?.asOfBlock ?? -1) < revenue.fromBlock - 1) return true;
+    }
     if (!checkpoint) {
       if (args.recoverMissingCheckpointsFor.includes(domain) || (await hasStoredPosition(args.db, domain))) return true;
       continue;
@@ -98,7 +102,8 @@ const earliestSupportedSpecVersions: Record<IFinancialHistoryDomain, number> = {
 };
 const historyRecoveryVersions: Partial<Record<IFinancialHistoryDomain, number>> = {
   bitcoin: 11,
-  bonds: 2,
+  bonds: 3,
+  vaulting: 1,
 };
 
 export async function restoreFinancialHistory(args: {
@@ -148,6 +153,13 @@ export async function restoreFinancialHistory(args: {
       continue;
     }
     const checkpoint = domainCheckpoints[domain];
+    if (domain === 'vaulting') {
+      const revenue = await db.syncStateTable.get(SyncStateKeys.VaultRevenue);
+      if (revenue?.accountId === accountId && (checkpoint?.asOfBlock ?? -1) < revenue.fromBlock - 1) {
+        domainsToRestore.push(domain);
+        continue;
+      }
+    }
     if (!checkpoint) {
       if (args.force || args.recoverMissingCheckpointsFor.includes(domain) || (await hasStoredPosition(db, domain))) {
         domainsToRestore.push(domain);
@@ -577,7 +589,7 @@ export class FinancialHistoryImporter {
       indexedBlock.activityMask & domainActivityMasks.vaulting
     ) {
       try {
-        await this.vaultHistory.importBlock(block, events);
+        await this.vaultHistory.importBlock(block, events, indexedBlock.specVersion);
       } catch (error) {
         const detail = describeDomainError('vault', block.blockNumber, error);
         domainErrors.vaulting ??= detail;
@@ -812,6 +824,10 @@ async function restoreFinancialHistoryDomain(args: {
     }
   }
 
+  if (domain === 'bonds' && recoveredThroughBlock >= args.targetBlock) {
+    await argonBonds.recoverDailyEarnings(recoveredThroughBlock, afterBlock);
+  }
+
   return {
     importedBlockCount,
     checkpoint: {
@@ -841,7 +857,7 @@ function hasMissingBondPurchases(
   return activeBondLots.some(lot => {
     // Pre-bond treasury allocations were migrated into Vault lots without a
     // BondLotPurchased event. Their created frame supplies the ARGN basis date.
-    if (lot.programType === 'Vault' && lot.createdFrame < earliestEventBackedBondFrame) return false;
+    if (lot.programType === 'Vault' && lot.createdFrameId < earliestEventBackedBondFrame) return false;
 
     return !history.some(record => {
       return record.programType === lot.programType && record.bondLotId === lot.id && !!record.purchaseBlockHash;

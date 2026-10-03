@@ -1,3 +1,4 @@
+import { Metadata, TypeRegistry } from '@polkadot/types';
 import { describe, expect, it, vi } from 'vitest';
 import {
   type FrameSupportTokensMiscIdAmountRuntimeHoldReason,
@@ -6,8 +7,8 @@ import {
   type PalletTreasuryBondLot,
 } from '@argonprotocol/mainchain';
 import BigNumber from 'bignumber.js';
-import { toPlain } from '@argonprotocol/runtime-client';
-import { BitcoinFission, BondLot, BitcoinLock, type Vault } from '@argonprotocol/apps-core';
+import { getBundledMetadata, toPlain } from '@argonprotocol/runtime-client';
+import { BitcoinFission, BondLot, BitcoinLock, type Vault, type IVaultFrameStats } from '@argonprotocol/apps-core';
 import type { IBitcoinLockRecord } from '../interfaces/IBitcoinLockRecord.ts';
 import type { IBitcoinFissionRecord } from '../interfaces/IBitcoinFissionRecord.ts';
 import { BitcoinReleaseKind, BitcoinReleaseStatus } from '../interfaces/IBitcoinReleaseRecord.ts';
@@ -37,6 +38,7 @@ import { ArgonBondsFinancials } from '../lib/financials/ArgonBonds.ts';
 import type { WalletForArgon } from '../lib/WalletForArgon.ts';
 import { MiningFinancials } from '../lib/financials/MyMiningSeats.ts';
 import { VaultFinancials } from '../lib/financials/MyVault.ts';
+import { ProfitAnalysis } from '../lib/ProfitAnalysis.ts';
 import { calculatePositionReturn, FinancialPositionBook, reduceFinancialPositions } from '../lib/financials/index.ts';
 import { WalletFinancials } from '../lib/financials/WalletBalances.ts';
 
@@ -2597,22 +2599,27 @@ describe('financial position accounting', () => {
     });
     const vaultHistoryRecord: IBondLotHistoryRecord = {
       id: 1,
-      accountId: vaultLot.accountId,
+      accountId: vaultLot.owner,
       programType: vaultLot.programType,
       bondLotId: vaultLot.id,
       vaultId: vaultLot.vaultId,
       nativeAsset: vaultLot.nativeAsset,
       nativePrincipal: vaultLot.bondMicrogons,
-      createdFrame: vaultLot.createdFrame,
+      createdFrame: vaultLot.createdFrameId,
       firstObservedBlockNumber: 1,
       firstObservedBlockHash: '0x01',
       flexibilityHistory: [],
       flexibilityHistoryComplete: true,
+      lastObservedBlockNumber: 1,
+      earningsDestination: 'VaultForFlexible',
+      earningsBackfills: [],
+      earningsHistoryThroughFrame: 9,
+      earningsComplete: true,
       createdAt: new Date('2026-01-01T00:00:00Z'),
       updatedAt: new Date('2026-01-01T00:00:00Z'),
     };
     const account = createArgonAccount({
-      address: vaultLot.accountId,
+      address: vaultLot.owner,
       availableMicrogons: 15_000_000n,
       reservedMicrogons: 10_000_000n,
       availableMicronots: 15_000_000n,
@@ -2629,10 +2636,8 @@ describe('financial position accounting', () => {
       bondLots: [vaultLot, argonotLot],
       historyRecords: [vaultHistoryRecord],
       liveArgonotRateMicrogons: 3_000_000n,
-      entryArgonotMarksByLot: new Map([
-        [`${argonotLot.accountId}:${argonotLot.programType}:${argonotLot.id}`, 2_000_000n],
-      ]),
-      frameDates: new Map([[argonotLot.createdFrame, new Date('2026-01-01T00:00:00Z')]]),
+      entryArgonotMarksByLot: new Map([[`${argonotLot.owner}:${argonotLot.programType}:${argonotLot.id}`, 2_000_000n]]),
+      frameDates: new Map([[argonotLot.createdFrameId, new Date('2026-01-01T00:00:00Z')]]),
     });
     const vaultPosition = bonds.find(position => position.bondLot?.id === 1);
     const argonotPosition = bonds.find(position => position.bondLot?.id === 2);
@@ -2659,7 +2664,7 @@ describe('financial position accounting', () => {
           cumulativeEarningsMicrogons: 1_000_000n,
         },
       ],
-      frameDates: new Map([[vaultLot.createdFrame, new Date('2026-01-01T00:00:00Z')]]),
+      frameDates: new Map([[vaultLot.createdFrameId, new Date('2026-01-01T00:00:00Z')]]),
     });
     expect(archivedBond.returnIsComplete).toBe(true);
     expect(calculatePositionReturn([archivedBond])).toMatchObject({ availability: 'available' });
@@ -2696,7 +2701,7 @@ describe('financial position accounting', () => {
       bondLots: [vaultLot],
       historyRecords: [vaultHistoryRecord],
       entryArgonotMarksByLot: new Map(),
-      frameDates: new Map([[vaultLot.createdFrame, new Date('2026-01-01T00:00:00Z')]]),
+      frameDates: new Map([[vaultLot.createdFrameId, new Date('2026-01-01T00:00:00Z')]]),
     });
     const operatorAggregate = reduceFinancialPositions(readySnapshots([operatorBond]));
     expect(operatorAggregate.groupSummaries.bonds.returnSummary.percent).toBe(10);
@@ -2734,180 +2739,216 @@ describe('financial position accounting', () => {
     expect(bondGroup?.returnSummary.returnAmount).toBe(5_000_000n);
   });
 
-  it('closes the ordinary bond return when the lot becomes flexible and moves its new basis into the vault', () => {
-    const becameFlexibleAt = new Date('2026-01-10T00:00:00Z');
-    const flexibleLot = createBondLot({
-      id: 3,
-      bonds: 10,
-      cumulativeEarnings: 2_000_000n,
-      isFlexible: true,
-    });
-    const flexibility = [
-      {
-        isFlexible: true,
-        cumulativeEarningsMicrogons: flexibleLot.lifetimeEarnings,
-        source: 'flexibility-change',
-        blockNumber: 100,
-        blockHash: '0xflexible',
-        blockTime: becameFlexibleAt,
-        extrinsicIndex: 1,
-      },
-    ];
-    const bondHistory = [
-      {
-        accountId: flexibleLot.accountId,
-        programType: flexibleLot.programType,
-        bondLotId: flexibleLot.id,
-        vaultId: flexibleLot.vaultId,
-        nativePrincipal: flexibleLot.principalMicrogons!,
-        flexibilityHistory: flexibility,
-        flexibilityHistoryComplete: true,
-      },
-    ] as IBondLotHistoryRecord[];
-    const bondPositions = bondFinancials.createFinancialPositions({
-      bondLots: [flexibleLot],
-      historyRecords: bondHistory,
-      frameDates: new Map([[flexibleLot.createdFrame, new Date('2026-01-01T00:00:00Z')]]),
-    });
-
-    expect(bondPositions).toEqual([
-      expect.objectContaining({
-        lifecycle: 'completed',
-        investedCost: 10_000_000n,
-        paidIncome: 2_000_000n,
-        endedAt: becameFlexibleAt,
-      }),
-      expect.objectContaining({
-        id: `bond:${flexibleLot.accountId}:vault:${flexibleLot.id}`,
-        lifecycle: 'active',
-        currentValue: 10_000_000n,
-        returnAttribution: 'vault',
-        startedAt: becameFlexibleAt,
-      }),
-    ]);
-    expect(reduceFinancialPositions(readySnapshots(bondPositions)).groupSummaries.bonds.returnSummary).toMatchObject({
-      investedCost: 10_000_000n,
-      paidIncome: 2_000_000n,
-      percent: 20,
-    });
-    const externalBondPositions = bondFinancials.createFinancialPositions({
-      bondLots: [flexibleLot],
-      historyRecords: bondHistory,
-      frameDates: new Map([[flexibleLot.createdFrame, new Date('2026-01-01T00:00:00Z')]]),
-    });
-    const externalAggregate = reduceFinancialPositions(readySnapshots(externalBondPositions));
-    expect(externalAggregate.netWorth).toBe(10_000_000n);
-    expect(externalAggregate.accountReturn.percent).toBe(20);
-
-    const vaultSource = new VaultFinancials(
-      {
-        createdVault: { vaultId: 1, securitization: 5_000_000n, isClosed: false } as Vault,
-        vaults: { operatorNamesByVaultId: {} },
-      } as any,
-      { bondLots: [flexibleLot], bondHistory, isLoaded: true },
-    );
-    const [vaultPosition] = vaultSource.createFinancialPositions({
-      liveVault: { vaultId: 1, securitization: 5_000_000n, isClosed: false } as Vault,
-      account: createArgonAccount({
-        address: flexibleLot.accountId,
-        microgonVaultHold: 5_000_000n,
-      }),
-      liveArgonotRateMicrogons: 1_000_000n,
-      capitalHistory: [
+  it('keeps flexible principal and income with the bond while preserving vault custody', () => {
+    const startedAt = new Date('2026-01-01T00:00:00Z');
+    const flexibleLot = createBondLot({ id: 3, bonds: 10, cumulativeEarnings: 2_000_000n, isFlexible: true });
+    const history = {
+      accountId: flexibleLot.owner,
+      programType: 'Vault',
+      bondLotId: 3,
+      vaultId: 1,
+      createdFrame: flexibleLot.createdFrameId,
+      nativePrincipal: 10_000_000n,
+      flexibilityHistory: [
         {
-          id: 1,
-          walletAddress: flexibleLot.accountId,
-          vaultId: 1,
-          eventType: 'created',
-          securitization: 5_000_000n,
-          blockNumber: 1,
-          blockHash: '0xvault',
-          blockTime: new Date('2025-12-01T00:00:00Z'),
-          createdAt: new Date('2025-12-01T00:00:00Z'),
+          isFlexible: true,
+          source: 'flexibility-change',
+          blockTime: startedAt,
+          cumulativeEarningsMicrogons: 2_000_000n,
         },
       ],
+      flexibilityHistoryComplete: true,
+      earningsBackfills: [],
+      earningsHistoryThroughFrame: 9,
+    } as unknown as IBondLotHistoryRecord;
+    const dailyEarnings = [
+      {
+        accountId: flexibleLot.owner,
+        programType: 'Vault' as const,
+        bondLotId: 3,
+        frameId: 9,
+        bonds: 10,
+        isFlexible: true,
+        displacedMicrogons: 0n,
+        earningsMicrogons: 1_000_000n,
+        earningsDestination: 'Vault' as const,
+        payoutBlockNumber: 100,
+        payoutBlockHash: '0x100',
+      },
+    ];
+    const bondPositions = bondFinancials.createFinancialPositions({
+      bondLots: [flexibleLot],
+      historyRecords: [history],
+      dailyEarnings,
+      completedFrame: 9,
+      frameDates: new Map([[flexibleLot.createdFrameId, startedAt]]),
+    });
+    expect(bondPositions).toEqual([
+      expect.objectContaining({
+        lifecycle: 'active',
+        currentValue: 10_000_000n,
+        investedCost: 10_000_000n,
+        paidIncome: 3_000_000n,
+        startedAt,
+      }),
+    ]);
+    const vault = {
+      vaults: { operatorNamesByVaultId: {} },
+      pendingRevenueFrames: [{ frameId: 9, uncollectedEarnings: 3_000_000n }],
+    };
+    const source = new VaultFinancials(vault as any, {
+      bondLots: [flexibleLot],
+      bondHistory: [history],
+      dailyEarnings,
+      isLoaded: true,
+      currentFrameId: 10,
+    });
+    const capitalHistory = [
+      {
+        id: 1,
+        walletAddress: flexibleLot.owner,
+        vaultId: 1,
+        eventType: 'created' as const,
+        securitization: 5_000_000n,
+        blockNumber: 1,
+        blockHash: '0x1',
+        blockTime: startedAt,
+        createdAt: startedAt,
+      },
+    ];
+    const liveVault = { vaultId: 1, securitization: 5_000_000n, isClosed: false } as Vault;
+    const pendingAccount = createArgonAccount({ address: flexibleLot.owner, microgonVaultHold: 5_000_000n });
+    pendingAccount.microgonHolds.push({
+      id: { type: 'Vaults', value: { type: 'PendingCollect' } },
+      amount: 3_000_000n,
+    });
+    const [pending] = source.createFinancialPositions({
+      liveVault,
+      account: pendingAccount,
+      capitalHistory,
+      revenueCoverage: { fromBlock: 0, throughBlock: 100 },
+    });
+    expect(pending).toMatchObject({
+      currentValue: 8_000_000n,
+      uncollectedRevenue: 3_000_000n,
+      investedCost: 5_000_000n,
+      paidIncome: 0n,
+      performanceEndingCapital: 7_000_000n,
+      capitalFlows: [{ amount: 5_000_000n, occurredAt: startedAt }],
+    });
+    expect(calculatePositionReturn([...bondPositions, pending]).returnAmount).toBe(5_000_000n);
+    // The same total hold from a different frame cannot prove this bond income is still pending.
+    vault.pendingRevenueFrames[0].frameId = 10;
+    const [unknown] = source.createFinancialPositions({ liveVault, account: pendingAccount, capitalHistory });
+    expect(unknown).toMatchObject({ currentValue: 8_000_000n, paidIncome: undefined, returnIsComplete: false });
+    expect(calculatePositionReturn([...bondPositions, unknown]).paidIncome).toBeUndefined();
+    vault.pendingRevenueFrames[0].frameId = 9;
+    const [collected] = source.createFinancialPositions({
+      liveVault,
+      account: createArgonAccount({ address: flexibleLot.owner, microgonVaultHold: 5_000_000n }),
+      capitalHistory,
+      revenueCoverage: { fromBlock: 0, throughBlock: 101 },
       revenueHistory: [
         {
           id: 1,
           amount: 3_000_000n,
           source: 'vaultCollect',
-          blockNumber: 110,
-          blockHash: '0xcollect',
-          blockTime: new Date('2026-01-11T00:00:00Z'),
-          createdAt: new Date('2026-01-11T00:00:00Z'),
-          updatedAt: new Date('2026-01-11T00:00:00Z'),
+          blockNumber: 101,
+          blockHash: '0x101',
+          blockTime: startedAt,
+          createdAt: startedAt,
+          updatedAt: startedAt,
         },
       ],
     });
-
-    expect(vaultPosition).toMatchObject({
+    expect(collected).toMatchObject({
       currentValue: 5_000_000n,
-      performanceEndingCapital: 18_000_000n,
-      investedCost: 15_000_000n,
-      paidIncome: 3_000_000n,
-      settledPrincipalValue: 0n,
+      investedCost: 5_000_000n,
+      paidIncome: 2_000_000n,
+      performanceEndingCapital: 7_000_000n,
     });
-    const aggregate = reduceFinancialPositions(readySnapshots([...bondPositions, vaultPosition]));
+    const aggregate = reduceFinancialPositions(readySnapshots([...bondPositions, collected]));
     expect(aggregate.netWorth).toBe(15_000_000n);
     expect(aggregate.groupSummaries.bonds.returnSummary).toMatchObject({
       investedCost: 10_000_000n,
-      paidIncome: 2_000_000n,
-    });
-    expect(aggregate.groupSummaries.vaulting.returnSummary).toMatchObject({
-      investedCost: 15_000_000n,
       paidIncome: 3_000_000n,
       returnAmount: 3_000_000n,
     });
-    expect(aggregate.accountReturn).toMatchObject({
-      availability: 'available',
-      eligiblePositionCount: 2,
-      investmentPositionCount: 2,
+    expect(aggregate.groupSummaries.vaulting.returnSummary).toMatchObject({
+      investedCost: 5_000_000n,
+      paidIncome: 2_000_000n,
+      returnAmount: 2_000_000n,
     });
-    const accountPositions = [bondPositions[0], vaultPosition];
-    expect(calculatePositionReturn(accountPositions).returnAmount).toBe(5_000_000n);
-    expect(aggregate.accountReturn.percent).toBe(
-      calculatePositionReturn(accountPositions, { now: new Date('2026-07-14T12:00:00Z') }).percent,
-    );
-
-    const releasedHistory = [
-      {
-        ...bondHistory[0],
-        flexibilityHistory: [
-          ...flexibility,
-          {
-            isFlexible: false,
-            cumulativeEarningsMicrogons: flexibleLot.lifetimeEarnings,
-            source: 'release',
-            blockNumber: 120,
-            blockHash: '0xreleased',
-            blockTime: new Date('2026-01-12T00:00:00Z'),
-            extrinsicIndex: 1,
-          },
-        ],
-      },
-    ] as IBondLotHistoryRecord[];
-    const releasedVaultSource = new VaultFinancials(
-      {
-        createdVault: { vaultId: 1, securitization: 5_000_000n, isClosed: false } as Vault,
-        vaults: { operatorNamesByVaultId: {} },
-      } as any,
-      { bondLots: [], bondHistory: releasedHistory, isLoaded: true },
-    );
-    if (vaultPosition?.kind !== 'vault') throw new Error('Expected vault financial position');
-    const [releasedVaultPosition] = releasedVaultSource.createFinancialPositions({
-      liveVault: { vaultId: 1, securitization: 5_000_000n, isClosed: false } as Vault,
-      account: createArgonAccount({ address: flexibleLot.accountId, microgonVaultHold: 5_000_000n }),
-      liveArgonotRateMicrogons: 1_000_000n,
-      capitalHistory: vaultPosition.capitalHistory,
-      revenueHistory: vaultPosition.revenueHistory,
-    });
-    expect(releasedVaultPosition).toMatchObject({
+    expect(calculatePositionReturn([...bondPositions, collected])).toMatchObject({
       investedCost: 15_000_000n,
-      settledPrincipalValue: 10_000_000n,
-      paidIncome: 3_000_000n,
-      performanceEndingCapital: 18_000_000n,
+      paidIncome: 5_000_000n,
+      returnAmount: 5_000_000n,
     });
-    expect(calculatePositionReturn([releasedVaultPosition]).returnAmount).toBe(3_000_000n);
+
+    // The chart must attribute by earning frame, independent of collection time.
+    const frame: IVaultFrameStats = {
+      frameId: 9,
+      securitization: 100_000_000n,
+      securitizationActivated: 100_000_000n,
+      bitcoinFeeRevenue: 1_000_000n,
+      bitcoinFeeCouponValueUsed: 1_000_000n,
+      bitcoinLocksCreated: 0,
+      satoshisAdded: 0n,
+      microgonLiquidityAdded: 0n,
+      treasuryPool: {
+        vaultEarnings: 3_000_000n,
+        totalEarnings: 9_000_000n,
+        externalCapital: 500_000_000n,
+        vaultCapital: 10_000_000n,
+      },
+      uncollectedEarnings: 0n,
+    };
+    const stats = { changesByFrame: [frame, { ...frame, frameId: 10 }] };
+    const chartBonds = {
+      bondLots: [], // Released lots still own their historical income.
+      bondHistory: [{ ...history, releaseFrame: 11 }],
+      dailyEarnings: [dailyEarnings[0], { ...dailyEarnings[0], frameId: 10, earningsDestination: 'Owner' as const }],
+      isLoaded: true,
+      currentFrameId: 11,
+    };
+    const analysis = new ProfitAnalysis(
+      { vaultId: 1, data: { stats } } as any,
+      { currentFrameId: 11, getTickStart: (id: number) => id * 1_440 } as any,
+      { data: chartBonds } as any,
+    );
+    analysis.update();
+    // 159: (3 vault + 1 fee − 1 coupon − 1 flexible) / 100 securitization.
+    expect(analysis.records.find(record => record.id === 9)?.frameProfitPercent).toBe(2);
+    // 160 owner-paid income is already outside vault revenue.
+    expect(analysis.records.find(record => record.id === 10)?.frameProfitPercent).toBe(3);
+    expect(analysis.items.find(item => item.id === 8)?.score).toBeNull();
+    expect(analysis.items.at(-1)).toMatchObject({ id: 11, score: null });
+
+    chartBonds.dailyEarnings[0] = { ...dailyEarnings[0], earningsMicrogons: undefined } as any;
+    analysis.update();
+    expect(analysis.items.find(item => item.id === 9)?.score).toBeNull();
+    expect(analysis.records.find(record => record.id === 10)?.frameProfitPercent).toBe(3);
+    chartBonds.dailyEarnings[0] = dailyEarnings[0];
+    analysis.update();
+    expect(analysis.records.find(record => record.id === 9)?.frameProfitPercent).toBe(2);
+
+    stats.changesByFrame = [{ ...frame, treasuryPool: { ...frame.treasuryPool, vaultEarnings: 1_000_000n } }];
+    analysis.update();
+    expect(analysis.items.find(item => item.id === 9)?.score).toBe(0);
+
+    // A high return before the visible year must not compress its plotted points.
+    stats.changesByFrame = [
+      { ...frame, treasuryPool: { ...frame.treasuryPool, vaultEarnings: 100_000_000n } },
+      { ...frame, frameId: 10 },
+    ];
+    const laterAnalysis = new ProfitAnalysis(
+      { vaultId: 1, data: { stats } } as any,
+      { getTickStart: (id: number) => id * 1_440 } as any,
+      { data: chartBonds } as any,
+      375,
+    );
+    laterAnalysis.update();
+    expect(laterAnalysis.items[0]).toMatchObject({ id: 10, score: 100 });
   });
 
   it('partitions transferable and unattributed Argon balances without double counting named holds', async () => {
@@ -3063,13 +3104,13 @@ describe('financial position accounting', () => {
         vaults: { operatorNamesByVaultId: {} },
         data: {
           pendingCollectRevenue: 100n,
-          argonotCommitment: { committedMicronots: 500n },
+          argonotCommitment: { heldMicronots: 500n, committedMicronots: 500n },
         },
         history: {
           loadPositionHistory: vi.fn(async () => ({ capital: [], revenue: [] })),
         },
       } as any,
-      { bondLots: [], bondHistory: [], isLoaded: true },
+      { bondLots: [], bondHistory: [], dailyEarnings: [], isLoaded: true, currentFrameId: 0 },
     );
     const positions = await source.loadPositions({
       account,
@@ -3502,7 +3543,11 @@ function createBondLot(args: {
   isFlexible?: boolean;
   program?: { Vault: { vaultId: number; sharingPercent: number; bonusPercent: number } } | { Argonot: null };
 }): BondLot {
-  const lot = getOfflineRegistry().createType<PalletTreasuryBondLot>('PalletTreasuryBondLot', {
+  const historicalRegistry = new TypeRegistry();
+  historicalRegistry.setMetadata(
+    new Metadata(historicalRegistry, Object.entries(getBundledMetadata()).find(([key]) => key.endsWith('-159'))![1]),
+  );
+  const lot = historicalRegistry.createType<PalletTreasuryBondLot>('PalletTreasuryBondLot', {
     owner: `0x${'11'.repeat(32)}`,
     program: args.program ?? { Vault: { vaultId: 1, sharingPercent: 0, bonusPercent: 0 } },
     bonds: args.bonds,

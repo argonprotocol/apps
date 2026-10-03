@@ -17,7 +17,7 @@ import {
   type PalletTreasuryBondLot,
 } from '@argonprotocol/mainchain';
 import BigNumber from 'bignumber.js';
-import { toPlain, type TreasuryBondLotByIdResult } from '@argonprotocol/runtime-client';
+import { toPlain, type TreasuryBondLotByIdResultSpec160Variant6 } from '@argonprotocol/runtime-client';
 import type { IFinancialPosition } from '../interfaces/IFinancialPosition.ts';
 import type { IBitcoinFissionRecord } from '../interfaces/IBitcoinFissionRecord.ts';
 import type { IBitcoinReleaseRecord } from '../interfaces/IBitcoinReleaseRecord.ts';
@@ -56,6 +56,8 @@ const mocks = vi.hoisted(() => {
       data: {
         bondLots: [] as BondLot[],
         bondHistory: [] as IBondLotHistoryRecord[],
+        dailyEarnings: [],
+        currentFrameId: 1,
         isLoaded: false,
         financialRevision: 0,
       },
@@ -161,6 +163,7 @@ const mocks = vi.hoisted(() => {
         financialRevision: 0,
         pendingCollectRevenue: 0n,
         argonotCommitment: {
+          heldMicronots: 0n,
           committedMicronots: 0n,
           encumberedMicronots: 0n,
         },
@@ -857,7 +860,7 @@ describe('financials store lifecycle', () => {
         releaseFrameId: null,
         releaseReason: null,
       }),
-    ) as NonNullable<TreasuryBondLotByIdResult>;
+    ) as NonNullable<TreasuryBondLotByIdResultSpec160Variant6>;
     const treasuryHold = toPlain(
       registry.createType<FrameSupportTokensMiscIdAmountRuntimeHoldReason>(
         'FrameSupportTokensMiscIdAmountRuntimeHoldReason',
@@ -1529,7 +1532,7 @@ describe('financials store lifecycle', () => {
         releaseReason: null,
         isFlexible: true,
       }),
-    ) as NonNullable<TreasuryBondLotByIdResult>;
+    ) as NonNullable<TreasuryBondLotByIdResultSpec160Variant6>;
     const treasuryHold = toPlain(
       registry.createType<FrameSupportTokensMiscIdAmountRuntimeHoldReason>(
         'FrameSupportTokensMiscIdAmountRuntimeHoldReason',
@@ -1558,17 +1561,18 @@ describe('financials store lifecycle', () => {
     mocks.getEnabledFinancialHistoryDomains.mockReturnValue(['bitcoin', 'bonds', 'vaulting']);
     mocks.needsFinancialHistoryRecovery.mockResolvedValue(true);
     const bondLot = BondLot.fromRuntime(1, runtimeLot, '5default');
+    bondLot.earningsDestination = 'VaultForFlexible';
     mocks.argonBonds.data.bondLots = [bondLot];
     mocks.argonBonds.data.bondHistory = [
       {
         id: 1,
-        accountId: bondLot.accountId,
+        accountId: bondLot.owner,
         programType: bondLot.programType,
         bondLotId: bondLot.id,
         vaultId: bondLot.vaultId,
         nativeAsset: bondLot.nativeAsset,
         nativePrincipal: bondLot.bondMicrogons,
-        createdFrame: bondLot.createdFrame,
+        createdFrame: bondLot.createdFrameId,
         firstObservedBlockNumber: 1,
         firstObservedBlockHash: '0x1',
         flexibilityHistory: [
@@ -1582,6 +1586,10 @@ describe('financials store lifecycle', () => {
           },
         ],
         flexibilityHistoryComplete: true,
+        lastObservedBlockNumber: 1,
+        earningsDestination: 'VaultForFlexible',
+        earningsBackfills: [],
+        earningsComplete: true,
         createdAt: new Date('2026-07-01T00:00:00Z'),
         updatedAt: new Date('2026-07-01T00:00:00Z'),
       },
@@ -1626,12 +1634,12 @@ describe('financials store lifecycle', () => {
     expect(financialHistory.historyRecoveryByDomain.vaulting.state).toBe('ready');
     expect(financialHistory.historyRecoveryByDomain.bitcoin.state).toBe('error');
     expect(financials.financialPositionAggregate.groupSummaries.bonds.returnSummary).toMatchObject({
-      availability: 'not-applicable',
+      availability: 'unavailable',
       investedCost: 0n,
     });
     expect(financials.financialPositionAggregate.groupSummaries.vaulting.returnSummary).toMatchObject({
-      availability: 'available',
-      investedCost: 18_000_000n,
+      availability: 'unavailable',
+      investedCost: 0n,
     });
   });
 });

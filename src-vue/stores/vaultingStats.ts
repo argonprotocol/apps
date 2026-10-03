@@ -23,7 +23,7 @@ export const useVaultingStats = defineStore('vaultingStats', () => {
   const epochEarnings = Vue.ref(0n);
   const averageAPR = Vue.ref(0);
   const averageAPY = Vue.ref(0);
-  const argonBondsAPR = Vue.ref(0);
+  const argonBondsAPR = Vue.ref<number>();
   const argonotStakingAPR = Vue.ref(0);
 
   const argonBurnCapacity = Vue.ref(0);

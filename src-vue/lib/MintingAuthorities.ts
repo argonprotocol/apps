@@ -916,7 +916,7 @@ export async function getPendingMintingAuthorizations(
 
   const evmChainConfig = chainConfig.value;
   const minTransferCollateralIncrement =
-    finalizedClient.consts.crosschainTransfer.minTransferCollateralIncrement.toBigInt();
+    finalizedClient.consts.crosschainTransfer.minTransferCollateralIncrement;
   const pendingTransfers = await loadPendingAuthorizationTransfers(finalizedClient);
   const transfersToPlan = preferredTransferId
     ? pendingTransfers.filter(x => x.transferId.toLowerCase() === preferredTransferId.toLowerCase())

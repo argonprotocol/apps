@@ -5,6 +5,12 @@ export interface IAllVaultStats {
     nextFrame: number;
     throughFrame: number;
   };
+  argonBondsByFrame?: {
+    frameId: number;
+    poolDistributed: bigint;
+    /** Absent when the payout's participating capital could not be recovered. */
+    participatingBonds?: bigint;
+  }[];
   argonotStakingByFrame: IArgonotStakingFrameStats[];
   vaultsById: {
     [vaultId: number]: IVaultStats;

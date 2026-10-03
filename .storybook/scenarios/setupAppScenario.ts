@@ -1,5 +1,13 @@
 import * as Vue from 'vue';
-import { BondLot, defaultMicrogonsPer, MoveFrom, MoveTo, MoveToken, UnitOfMeasurement } from '@argonprotocol/apps-core';
+import {
+  BondLot,
+  TreasuryBonds,
+  defaultMicrogonsPer,
+  MoveFrom,
+  MoveTo,
+  MoveToken,
+  UnitOfMeasurement,
+} from '@argonprotocol/apps-core';
 import { PriceIndex } from '@argonprotocol/mainchain';
 import BigNumber from 'bignumber.js';
 import { BitcoinNetwork } from '@argonprotocol/bitcoin';
@@ -24,7 +32,7 @@ import { defaultWalletData, type IWalletData, WalletType } from '../../src-vue/l
 import { WalletForArgon } from '../../src-vue/lib/WalletForArgon.ts';
 import { WalletForBitcoin } from '../../src-vue/lib/WalletForBitcoin.ts';
 import { BitcoinLockCreate } from '../../src-vue/lib/txs/BitcoinLock.create.ts';
-import { getArgonBonds } from '../../src-vue/stores/argonBonds.ts';
+import { getArgonBonds, getBondTransactionOperations } from '../../src-vue/stores/argonBonds.ts';
 import { useBasics } from '../../src-vue/stores/basics.ts';
 import { getBitcoinFissions, getBitcoinLockCoupons, getBitcoinLocks } from '../../src-vue/stores/bitcoin.ts';
 import { getBot } from '../../src-vue/stores/bot.ts';
@@ -179,6 +187,7 @@ export function setupAppScenario({
           },
     stats: null,
     argonotCommitment: {
+      heldMicronots: 0n,
       committedMicronots: 0n,
       encumberedMicronots: 0n,
     },
@@ -235,8 +244,24 @@ export function setupAppScenario({
   mocked(getBitcoinFissions).mockReturnValue(bitcoinFissions);
   mocked(getArgonBonds, { partial: true }).mockReturnValue({
     bondTotals: BondLot.getTotals([]),
+    argonotSecuritizationTarget: fn(({ securitizationMicrogons }) =>
+      TreasuryBonds.getVaultArgonotSecuritizationTarget({
+        securitizationMicrogons,
+        averageMicrogonsPerArgonot: 2_000_000n,
+      }),
+    ),
+    vaultRevenuePotential: fn(() => undefined),
     load: fn(async () => undefined),
   });
+  mocked(getBondTransactionOperations).mockReturnValue({
+    bondLotRelease: {
+      load: fn(async () => undefined),
+      getPendingForLot: fn(() => undefined),
+      submit: fn(async () => {
+        throw new Error('Liquidation is disabled in this fixed preview.');
+      }),
+    },
+  } as unknown as ReturnType<typeof getBondTransactionOperations>);
   mocked(getMyMiningSeats, { partial: true }).mockReturnValue({
     activeSeats: {
       seatCount: 0,
@@ -372,7 +397,7 @@ export function setupAppScenario({
     Vue.reactive({ auctionBidCount: 0, seatActiveCount: 0 }),
   );
   mocked(useVaultingAssetBreakdown, { partial: true }).mockReturnValue(
-    Vue.reactive({ securityMicrogons: 0n, securityMicronots: 0n, totalVaultValue: 0n }),
+    Vue.reactive({ securityMicrogons: 0n, securityMicronots: 0n }),
   );
   mocked(useWallets, { partial: true }).mockReturnValue(wallets as unknown as ReturnType<typeof useWallets>);
   mocked(getBiddingCalculator, { partial: true }).mockReturnValue({
@@ -457,6 +482,7 @@ export function setupAppScenario({
   });
   mocked(getMyVault, { partial: true }).mockReturnValue({
     data: reactiveMyVaultData,
+    argonotSecuritizationTarget: 0n,
     get createdVault() {
       return reactiveMyVaultData.createdVault;
     },

@@ -12,7 +12,12 @@
       <div class="w-1/3 border-b border-slate-400/30 py-5">
         <div class="text-argon-600 inline-flex text-5xl font-bold">
           <span>{{ currency.symbol }}</span>
-          <FormattedMoney :isLoaded="isSummaryReady" :value="bondsSummary?.returnSummary.paidIncome ?? 0n" />
+          <FormattedMoney
+            v-if="!isSummaryReady || bondsSummary?.returnSummary.paidIncome !== undefined"
+            :isLoaded="isSummaryReady"
+            :value="bondsSummary?.returnSummary.paidIncome ?? 0n"
+          />
+          <span v-else>&mdash;</span>
         </div>
         <div>Distributed Income</div>
       </div>
@@ -37,7 +42,9 @@
       <div class="flex grow flex-col overflow-y-auto pt-10">
         <div class="flex flex-row items-center px-9 text-slate-800/70">
           <span class="grow">
-            You have {{ bondLots.length }} bond transaction{{ bondLots.length === 1 ? '' : 's' }}...
+            You have {{ bondLots.length + archivedPositions.length }} bond transaction{{
+              bondLots.length + archivedPositions.length === 1 ? '' : 's'
+            }}...
           </span>
           <div class="flex flex-row items-center gap-x-3">
             <span class="relative flex items-center">
@@ -86,8 +93,26 @@
             :ownedVaultId="myVault.vaultId"
             :position="bondPositionsByLotId.get(bondLot.id)"
             :returnPercent="bondReturnsByLotId.get(bondLot.id)"
-            @click="openDetail(bondLot)"
+            @click="openDetail(bondLot.id)"
           />
+          <details v-if="archivedPositions.length" class="group mt-5">
+            <summary class="flex cursor-pointer list-none items-center gap-2 px-1 text-slate-400">
+              {{ archivedPositions.length }} Argon Bond{{ archivedPositions.length === 1 ? '' : 's' }}
+              {{ archivedPositions.length === 1 ? 'has' : 'have' }} been archived
+              <ChevronDownIcon class="size-4 self-center text-slate-400 transition-transform group-open:rotate-180" />
+            </summary>
+            <div class="mt-3 flex flex-col gap-y-3">
+              <BondRecord
+                v-for="position in archivedPositions"
+                :key="position.history!.bondLotId"
+                :data-testid="`Bond.bond-${position.history!.bondLotId}`"
+                :position="position"
+                :ownedVaultId="myVault.vaultId"
+                :returnPercent="bondReturnsByLotId.get(position.history!.bondLotId)"
+                @click="openDetail(position.history!.bondLotId)"
+              />
+            </div>
+          </details>
         </section>
         <div class="relative px-0.5 pb-0.5">
           <img src="/treasury-footers/argon-bonds.png" class="w-full opacity-50" alt="" />
@@ -98,10 +123,9 @@
   </div>
 
   <BondDetailOverlay
-    v-if="showDetailOverlay && selectedBondLot"
+    v-if="showDetailOverlay && (selectedBondLot || selectedPosition)"
     :bondLot="selectedBondLot"
-    :position="bondPositionsByLotId.get(selectedBondLot.id)"
-    :returnPercent="bondReturnsByLotId.get(selectedBondLot.id)"
+    :position="selectedPosition"
     @close="closeDetail"
     @submitted="onLiquidationSubmitted"
   />
@@ -109,6 +133,7 @@
 
 <script setup lang="ts">
 import * as Vue from 'vue';
+import { ChevronDownIcon } from '@heroicons/vue/24/outline';
 import numeral, { createNumeralHelpers } from '../../lib/numeral.ts';
 import { getCurrency } from '../../stores/currency.ts';
 import { getMyVault, getVaults } from '../../stores/vaults.ts';
@@ -143,11 +168,12 @@ const isLoaded = Vue.computed(() => argonBonds.data.isLoaded);
 const showBondsOverlay = Vue.ref(false);
 const showDetailOverlay = Vue.ref(false);
 const purchaseProgramType = Vue.ref<BondLot['programType']>('Vault');
-const selectedBondLot = Vue.ref<BondLot>();
+const selectedBondLotId = Vue.ref<number>();
+const selectedBondLot = Vue.computed(() => bondLots.value.find(lot => lot.id === selectedBondLotId.value));
 const bondLots = Vue.computed(() =>
   argonBonds.data.bondLots
     .filter(bondLot => bondLot.programType === 'Vault')
-    .toSorted((left, right) => right.createdFrame - left.createdFrame || right.id - left.id),
+    .toSorted((left, right) => right.createdFrameId - left.createdFrameId || right.id - left.id),
 );
 const bondsSummary = Vue.computed(() => {
   return financials.bondSummariesByAsset.ARGN;
@@ -156,12 +182,21 @@ const bondPositionsByLotId = Vue.computed(() => {
   const positions = new Map<number, IBondFinancialPosition>();
 
   for (const position of financials.financialPositionAggregate.groupSummaries.bonds.positions) {
-    if (position.kind !== 'bond' || position.nativeAsset !== 'ARGN' || !position.bondLot) continue;
+    if (position.kind !== 'bond' || position.nativeAsset !== 'ARGN') continue;
 
-    positions.set(position.bondLot.id, position);
+    positions.set(position.bondLot?.id ?? position.history!.bondLotId, position);
   }
 
   return positions;
+});
+const archivedPositions = Vue.computed(() =>
+  [...bondPositionsByLotId.value.values()]
+    .filter(position => position.lifecycle === 'completed')
+    .toSorted((a, b) => b.history!.bondLotId - a.history!.bondLotId),
+);
+const selectedPosition = Vue.computed(() => {
+  if (selectedBondLotId.value === undefined) return;
+  return bondPositionsByLotId.value.get(selectedBondLotId.value);
 });
 const bondReturnsByLotId = Vue.computed(() => {
   const returns = new Map<number, number>();
@@ -196,14 +231,14 @@ async function onLiquidationSubmitted() {
   if (selectedBondLot.value?.programType === 'Vault') await refreshMarketData();
 }
 
-function openDetail(bondLot: BondLot) {
-  selectedBondLot.value = bondLot;
+function openDetail(bondLotId: number) {
+  selectedBondLotId.value = bondLotId;
   showDetailOverlay.value = true;
 }
 
 function closeDetail() {
   showDetailOverlay.value = false;
-  selectedBondLot.value = undefined;
+  selectedBondLotId.value = undefined;
 }
 
 async function refreshMarketData() {

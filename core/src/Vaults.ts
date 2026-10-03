@@ -2,6 +2,7 @@ import type { HistoricalQueryRecord } from '@argonprotocol/runtime-client';
 import { u8aToString } from '@polkadot/util';
 import {
   type ArgonQueryClient,
+  type ArgonCurrentQueryClient,
   bigNumberToBigInt,
   convertBigIntStringToNumber,
   createDeferred,
@@ -21,6 +22,7 @@ import { raceWithTimeout } from './utils.js';
 import mainnetVaultRevenueHistory from './data/vaultRevenue.mainnet.json' with { type: 'json' };
 import testnetVaultRevenueHistory from './data/vaultRevenue.testnet.json' with { type: 'json' };
 import { TreasuryBonds } from './TreasuryBonds.js';
+import { BondLot } from './BondLot.js';
 import { BitcoinLock } from './BitcoinLock.js';
 import { Vault } from './Vault.js';
 import {
@@ -93,7 +95,8 @@ export class Vaults {
         );
         const records: Record<number, Vault> = {};
         for (const [key, raw] of entries) {
-          if (raw) records[key.args[0]] = new Vault(key.args[0], raw, NetworkConfig.tickMillis);
+          if (raw)
+            records[key.args[0]] = Vault.fromRuntime(key.args[0], raw, NetworkConfig.tickMillis, client.consts.vaults);
         }
         for (const id of Object.keys(this.vaultsById)) {
           if (!records[Number(id)]) delete this.vaultsById[Number(id)];
@@ -123,7 +126,7 @@ export class Vaults {
     }
 
     const raw = vaultOption;
-    const vault = new Vault(vaultId, raw, NetworkConfig.tickMillis);
+    const vault = Vault.fromRuntime(vaultId, raw, NetworkConfig.tickMillis, client.consts.vaults);
     this.vaultsById[vaultId] = vault;
     return vault;
   }
@@ -169,7 +172,7 @@ export class Vaults {
     return await client.query.vaults.vaultsById(vaultId, vaultOption => {
       if (!vaultOption) return;
       const raw = vaultOption;
-      this.vaultsById[vaultId] = new Vault(vaultId, raw, NetworkConfig.tickMillis);
+      this.vaultsById[vaultId] = Vault.fromRuntime(vaultId, raw, NetworkConfig.tickMillis, client.consts.vaults);
       onUpdate(this.vaultsById[vaultId]);
     });
   }
@@ -305,6 +308,7 @@ export class Vaults {
       const finalizedHead = this.miningFrames.blockWatch.finalizedBlockHeader;
       const frameIdsSeen = new Set<number>();
       const vaultFramesSeen = new Set<string>();
+      const argonBondsByFrame = new Map<number, NonNullable<IAllVaultStats['argonBondsByFrame']>[number]>();
       const argonotPoolsByFrame = new Map<number, bigint>();
       const argonotCapitalByFrame = new Map<number, { participatingBonds: number; microgonsPerArgonot: bigint }>();
       const savedArgonotFrames = new Set(
@@ -353,15 +357,37 @@ export class Vaults {
             }
 
             for (const { event } of events) {
-              if (
-                event.section === 'treasury' &&
-                event.method === 'FrameEarningsDistributed' &&
-                'argonotBondPoolDistributed' in event.data &&
-                !savedArgonotFrames.has(event.data.frameId) &&
-                !argonotPoolsByFrame.has(event.data.frameId)
-              ) {
-                argonotPoolsByFrame.set(event.data.frameId, event.data.argonotBondPoolDistributed!);
+              if (event.section !== 'treasury' || event.method !== 'FrameEarningsDistributed') continue;
+              const payout = event.data;
+              if (!savedArgonotFrames.has(payout.frameId) && !argonotPoolsByFrame.has(payout.frameId)) {
+                argonotPoolsByFrame.set(
+                  payout.frameId,
+                  payout.stakePoolDistributed ?? payout.argonotBondPoolDistributed ?? 0n,
+                );
               }
+              if (payout.argonBondPoolDistributed === undefined) continue;
+              if (argonBondsByFrame.has(payout.frameId)) continue;
+              if (
+                isContinuingBackfill &&
+                this.stats?.argonBondsByFrame?.some(frame => frame.frameId === payout.frameId)
+              )
+                continue;
+
+              // The payout block has already replaced capital with the next frame's terms.
+              const parent = await this.miningFrames.blockWatch.getHeader(firstBlockMeta.blockNumber - 1);
+              const parentApi = await this.miningFrames.blockWatch.getApi(parent);
+              const capital = await parentApi.query.treasury.currentFrameVaultCapital();
+              let participatingBonds: bigint | undefined;
+              if (capital && 'totalActiveBonds' in capital && capital.frameId === payout.frameId) {
+                participatingBonds = capital.totalActiveBonds;
+              }
+              argonBondsByFrame.set(payout.frameId, {
+                frameId: payout.frameId,
+                poolDistributed: payout.argonBondPoolDistributed,
+                participatingBonds:
+                  participatingBonds ??
+                  this.stats?.argonBondsByFrame?.find(frame => frame.frameId === payout.frameId)?.participatingBonds,
+              });
             }
           }
 
@@ -392,6 +418,15 @@ export class Vaults {
       }, revenueBackfill.nextFrame);
 
       if (framesVisited < VAULT_REVENUE_BACKFILL_BATCH_FRAMES) isBackfillComplete = true;
+
+      if (argonBondsByFrame.size) {
+        const retainedFrames = (this.stats.argonBondsByFrame ?? []).filter(
+          frame => !argonBondsByFrame.has(frame.frameId),
+        );
+        this.stats.argonBondsByFrame = [...retainedFrames, ...argonBondsByFrame.values()].sort(
+          (a, b) => b.frameId - a.frameId,
+        );
+      }
 
       const refreshedArgonotStats = [...argonotCapitalByFrame.entries()].flatMap(
         ([frameId, { participatingBonds, microgonsPerArgonot }]) => {
@@ -537,7 +572,7 @@ export class Vaults {
   }
 
   public getTotalSatoshisLocked(): bigint {
-    return Object.values(this.vaultsById).reduce((total, vault) => total + vault.securitizedSatoshis, 0n);
+    return Object.values(this.vaultsById).reduce((total, vault) => total + vault.totalSatoshis, 0n);
   }
 
   public async fetchAndCalculateRedemptionAmount(lock: {
@@ -571,7 +606,28 @@ export class Vaults {
     return Math.round((epochPoolCapital / activatedSecuritization) * 100);
   }
 
-  public calculateArgonBondsApr(vaultId?: number): number {
+  public calculateArgonBondsApr(vaultId?: number): number | undefined {
+    const sharedPoolFrames = this.stats?.argonBondsByFrame;
+    if (sharedPoolFrames?.length) {
+      const oldestFrameId = this.syncedToFrame - NetworkConfig.framesPerCohort + 1;
+      const frames = sharedPoolFrames.filter(
+        frame => frame.frameId >= oldestFrameId && frame.frameId <= this.syncedToFrame,
+      );
+      if (!frames.length) return;
+      let participatingCapital = 0n;
+      let distributions = 0n;
+      for (const frame of frames) {
+        if (frame.participatingBonds === undefined) return;
+        participatingCapital += frame.participatingBonds * BondLot.bondsToMicrogons(1);
+        distributions += frame.poolDistributed;
+      }
+      return calculateAnnualPercentageRate({
+        startingValue: participatingCapital,
+        endingValue: participatingCapital + distributions,
+        periodDays: this.returnFrameDays,
+      });
+    }
+
     const frames = this.selectReturnFrames(this.stats, vaultId);
     const positions = frames.map(frame => {
       const externalEarnings = frame.treasuryPool.totalEarnings - frame.treasuryPool.vaultEarnings;
@@ -812,9 +868,12 @@ export class Vaults {
     return undefined;
   }
 
-  public static async getPreviousEpochTreasuryPayout(
-    clients: MainchainClients,
-  ): Promise<{ totalPoolRewards: bigint; totalActivatedCapital: bigint; participatingVaults: number }> {
+  public static async getPreviousEpochTreasuryPayout(clients: MainchainClients): Promise<{
+    totalPoolRewards: bigint;
+    fullBidPool: bigint;
+    totalActivatedCapital: bigint;
+    participatingVaults: number;
+  }> {
     const client = await clients.prunedClientOrArchivePromise;
     const bidPoolPercentForVaults = TreasuryBonds.getBidPoolPercentForVaults(client);
     const totalMicrogonsBid = await new Mining(clients).fetchAggregateBidCosts();
@@ -831,12 +890,13 @@ export class Vaults {
       }
     }
 
-    // treasury burns 20% of total bids
+    // Apply this runtime's bond-pool allocation to the full mining bid pool.
     const totalPoolRewardsBn = BigNumber(totalMicrogonsBid).multipliedBy(bidPoolPercentForVaults);
     const totalPoolRewards = bigNumberToBigInt(totalPoolRewardsBn);
 
     return {
       totalPoolRewards,
+      fullBidPool: totalMicrogonsBid,
       totalActivatedCapital,
       participatingVaults,
     };
@@ -844,7 +904,7 @@ export class Vaults {
 }
 
 export async function getVaultByOperator(args: {
-  client: ArgonQueryClient;
+  client: ArgonCurrentQueryClient;
   operatorAddress: string;
   tickDurationMillis?: number;
 }): Promise<Vault | undefined> {

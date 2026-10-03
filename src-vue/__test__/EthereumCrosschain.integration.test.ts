@@ -9,6 +9,7 @@ import {
   minimumVaultDelegateBalance,
   MoveToken,
   NetworkConfig,
+  Vault,
 } from '@argonprotocol/apps-core';
 import {
   startArgonTestNetwork,
@@ -359,7 +360,7 @@ describe.skipIf(skipE2E || !TestEthereum.isInstalled())('EthereumCrosschain inte
 
       await submitAndFinalize(
         client,
-        client.tx.vaults.setCommittedArgonots(1_000_000n),
+        Vault.buildSetArgonotSecuritizationTx(client, 1_000_000n),
         await walletKeys.getVaultingKeypair(),
         { useLatestNonce: true },
       );

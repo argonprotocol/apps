@@ -1,6 +1,6 @@
 // util.ts
 import { type ArgonClient, u8aToHex } from '@argonprotocol/mainchain';
-import { runtimeClient, type CurrentRuntimeQueries, type RuntimeClient } from '@argonprotocol/runtime-client';
+import { runtimeClient, type LiveRuntimeQueries, type RuntimeClient } from '@argonprotocol/runtime-client';
 
 type AnyFn = (...args: unknown[]) => unknown;
 
@@ -213,8 +213,8 @@ export function wrapApi<T extends ArgonClient>(
   api: T,
   logid: string,
   callbacks: ICallbacks,
-): RuntimeClient<T, CurrentRuntimeQueries> {
-  const existing = Reflect.get(api, installedSymbol) as RuntimeClient<T, CurrentRuntimeQueries> | undefined;
+): RuntimeClient<T, LiveRuntimeQueries> {
+  const existing = Reflect.get(api, installedSymbol) as RuntimeClient<T, LiveRuntimeQueries> | undefined;
   if (existing) return existing;
 
   const ctx = createProxyContext();

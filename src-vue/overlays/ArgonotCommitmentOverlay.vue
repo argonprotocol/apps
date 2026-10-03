@@ -204,6 +204,7 @@
 <script setup lang="ts">
 import * as Vue from 'vue';
 import { MICROGONS_PER_ARGON } from '@argonprotocol/mainchain';
+import { Vault } from '@argonprotocol/apps-core';
 import InputToken from '../components/InputToken.vue';
 import ProgressBar from '../components/ProgressBar.vue';
 import OverlayBase from './OverlayBase.vue';
@@ -315,10 +316,10 @@ async function loadState() {
 
     vaultId.value = myVault.vaultId;
 
-    const [commitmentOption] = await Promise.all([client.query.vaults.argonotCommitmentByVaultId(vaultId.value)]);
+    const commitmentOption = await Vault.getArgonotSecuritization(client, vaultId.value);
 
     if (commitmentOption) {
-      currentCommittedMicronots.value = commitmentOption.committedMicronots;
+      currentCommittedMicronots.value = commitmentOption.heldMicronots;
       currentEncumberedMicronots.value = commitmentOption.encumberedMicronots;
     } else {
       currentCommittedMicronots.value = wallets.defaultArgonWallet.reservedMicronots;

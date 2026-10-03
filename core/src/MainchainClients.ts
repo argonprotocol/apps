@@ -1,7 +1,7 @@
 import { type ApiDecoration, type ArgonClient as PolkadotArgonClient } from '@argonprotocol/mainchain';
 import {
   runtimeClient,
-  type CurrentRuntimeQueries,
+  type LiveRuntimeQueries,
   type RuntimeClient,
   type RuntimeQueries,
 } from '@argonprotocol/runtime-client';
@@ -11,8 +11,8 @@ import { createTypedEventEmitter, raceWithTimeout } from './utils.js';
 import { getMainchainClient } from './MainchainRpcProvider.js';
 
 export type ArgonApi = RuntimeClient<ApiDecoration<'promise'>, RuntimeQueries>;
-export type ArgonCurrentApi = RuntimeClient<PolkadotArgonClient, CurrentRuntimeQueries>;
-export type ArgonCurrentQueryClient = RuntimeClient<ApiDecoration<'promise'>, CurrentRuntimeQueries>;
+export type ArgonCurrentApi = RuntimeClient<PolkadotArgonClient, LiveRuntimeQueries>;
+export type ArgonCurrentQueryClient = RuntimeClient<ApiDecoration<'promise'>, LiveRuntimeQueries>;
 export type ArgonClient = ArgonCurrentApi;
 export type ArgonQueryClient = ArgonCurrentApi | ArgonCurrentQueryClient | ArgonApi;
 const stringifyApiLogValue = (_key: string, value: unknown) => (typeof value === 'bigint' ? value.toString() : value);

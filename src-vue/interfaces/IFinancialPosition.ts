@@ -135,7 +135,6 @@ interface IBondFinancialPositionBase extends IFinancialInvestmentPositionBase {
   entryArgonotRateMicrogons?: bigint;
   currentArgonotRateMicrogons?: bigint;
   closingArgonotRateMicrogons?: bigint;
-  returnAttribution?: 'vault';
   returnIsComplete?: boolean;
 }
 
@@ -151,6 +150,7 @@ export interface IVaultFinancialPosition extends IFinancialInvestmentPositionBas
   uncollectedRevenue: bigint;
   capitalHistory: readonly IVaultCapitalHistoryRecord[];
   revenueHistory: readonly IVaultRevenueEventsRecord[];
+  returnIsComplete?: boolean;
   performanceEndingCapital?: bigint;
 }
 
@@ -312,7 +312,7 @@ type FinancialReturnAvailability = 'not-applicable' | 'available' | 'partial' | 
 export interface IFinancialReturnSummary {
   availability: FinancialReturnAvailability;
   investedCost: bigint;
-  paidIncome: bigint;
+  paidIncome?: bigint;
   settledPrincipalValue: bigint;
   returnAmount?: bigint;
   basisPoints?: bigint;

@@ -259,7 +259,7 @@ export class BitcoinLockResecuritize extends TransactionOperation<
     const requiredWalletBalanceMicrogons =
       prepared.metadata.bitcoin.securityFee +
       prepared.txFeePlusTip +
-      prepared.client.consts.balances.existentialDeposit.toBigInt();
+      prepared.client.consts.balances.existentialDeposit;
     return new BitcoinLockWalletFundingError(requiredWalletBalanceMicrogons);
   }
 }

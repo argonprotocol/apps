@@ -80,6 +80,16 @@ No SQLite transaction may remain open across an extrinsic, RPC request, Bitcoin 
 
 ## Live events and historical recovery
 
+### Runtime normalization
+
+The existing core protocol model is the boundary between the deployed and next runtime. Its public data follows the newly pinned model; it translates the deployed shape only where the app still needs that behavior. Application workflows retain signers, batching, transaction tracking, finalization, persistence, and publication. They do not repeat runtime capability checks or old transaction types.
+
+Choose the query surface when obtaining a client. Current-state reads and command-result snapshots use `ArgonCurrentQueryClient` and `LiveRuntimeQueries`; select that surface with `runtimeClient` on the snapshot. Historical reconstruction retains the historical surface in recovery. Do not assert that a historical result is a live record at every read.
+
+Use the actual connected registry to encode changed structs when metadata describes the shape. For example, `Vault.encodeTerms` accepts current Bitcoin terms and encodes them for either runtime; the required deployed sharing default is internal to that boundary. A renamed callable is probed in the core model using the pinned and generated deployed transaction types. An unrelated query's presence must not select transaction arguments or UI wording.
+
+Numeric representation is also a protocol boundary. Bounded counts, ticks, blocks, and frames are decoded through `runtime-type-overrides.json`; monetary units remain `bigint`, and fixed-point rates remain `BigNumber`. Consumers format or calculate with those values instead of recasting constants and storage records.
+
 The age of an event does not decide whether a read is recovery. The purpose and authority of the read do.
 
 ### Live event-derived state

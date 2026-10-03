@@ -1,14 +1,23 @@
+import BigNumber from 'bignumber.js';
 import * as Vue from 'vue';
-import { BondLot, MICROGONS_PER_ARGON, NetworkConfig, type IFrameBondLot } from '@argonprotocol/apps-core';
+import {
+  BondLot,
+  MICROGONS_PER_ARGON,
+  NetworkConfig,
+  TreasuryBonds,
+  type IFrameBondLot,
+  type IVaultStats,
+} from '@argonprotocol/apps-core';
+import type { CurrentRuntimeQueries, RuntimeQueryResult } from '@argonprotocol/runtime-client';
 import type { IMemberInvite } from '@argonprotocol/apps-router';
 import { fn, mocked } from 'storybook/test';
 import { BitcoinLockStatus, type IBitcoinLockRecord } from '../../src-vue/interfaces/IBitcoinLockRecord.ts';
 import { TopTab, VaultingSetupStatus } from '../../src-vue/interfaces/IConfig.ts';
+import { ArgonBonds } from '../../src-vue/lib/ArgonBonds.ts';
 import type { IVaultArgonBondState } from '../../src-vue/lib/ArgonBonds.ts';
 import type { IExternalBitcoinLock } from '../../src-vue/lib/MyVault.ts';
 import type { IVaultRecord } from '../../src-vue/lib/db/VaultsTable.ts';
 import { ArgonBondsFinancials } from '../../src-vue/lib/financials/ArgonBonds.ts';
-import { calculatePositionReturn } from '../../src-vue/lib/financials/index.ts';
 import { getArgonBonds } from '../../src-vue/stores/argonBonds.ts';
 import { getBitcoinLocks } from '../../src-vue/stores/bitcoin.ts';
 import { getCurrency } from '../../src-vue/stores/currency.ts';
@@ -85,17 +94,47 @@ export function setupVaultingPortfolioScenario() {
   const currentFrameBondLots = [createFrameBondLot(operatorBond, true), createFrameBondLot(externalBond, false)];
   const vaultBondState: IVaultArgonBondState = {
     bondLots,
-    ordinaryBonds: 1_040,
+    regularBonds: 1_040,
     flexibleBonds: 0,
+    displacedFlexibleBonds: 0,
+    lockedFrameTerms: null,
     reservedBondSpace: 0,
+    replacementBonds: 0,
+    minimumPurchaseBonds: 100,
+    isAtBondLotLimit: false,
     currentFrame: {
       frameId: currentFrameId,
-      vaultBonds: 1_040,
+      vaultBonds: 870,
       flexibleBondsEligible: 0,
       bondLots: currentFrameBondLots,
     },
     isLoaded: true,
   };
+
+  const frameCapital = {
+    frameId: currentFrameId,
+    totalActiveBonds: 8_400n,
+    totalSecuritization: 8_400n * microgonsPerArgon,
+    targetSecuritization: 10_000n * microgonsPerArgon,
+    vaultSecuritizationPositions: {
+      [createdVault.vaultId]: {
+        operatorAccountId: createdVault.operatorAccountId,
+        securitization: createdVault.securitization,
+        activatedSecuritization: 2_400n * microgonsPerArgon,
+        bitcoinLockedMicrogons: 2_844n * microgonsPerArgon,
+        argonotSecuritizationInMicrogons: 0n,
+        activeBondMicrogons: 870n * microgonsPerArgon,
+      },
+    },
+  } satisfies NonNullable<RuntimeQueryResult<CurrentRuntimeQueries['treasury']['currentFrameVaultCapital']>>;
+  const fullBidPool = 6_000n * microgonsPerArgon;
+  const vaultRewardRate = BigNumber(0.51);
+  const revenuePotential = TreasuryBonds.vaultRevenuePotential({
+    position: frameCapital.vaultSecuritizationPositions[createdVault.vaultId],
+    frameCapital,
+    fullBidPool,
+    percentForVaultPool: vaultRewardRate,
+  });
 
   const baseMyVault = getMyVault();
   const metadata: IVaultRecord = {
@@ -107,7 +146,7 @@ export function setupVaultingPortfolioScenario() {
     createdAt: new Date('2026-08-01T16:00:00.000Z'),
     updatedAt: new Date('2026-08-15T16:00:00.000Z'),
   };
-  const vaultStats = {
+  const vaultStats: IVaultStats = {
     openedTick: createdVault.openedTick,
     baseline: {
       feeRevenue: 0n,
@@ -115,7 +154,23 @@ export function setupVaultingPortfolioScenario() {
       bitcoinLocks: 0,
       microgonLiquidityRealized: 0n,
     },
-    changesByFrame: [],
+    changesByFrame: [3, 2, 1].map((framesAgo, index) => ({
+      frameId: currentFrameId - framesAgo,
+      bitcoinFeeRevenue: 1n * microgonsPerArgon,
+      bitcoinFeeCouponValueUsed: 0n,
+      satoshisAdded: 0n,
+      bitcoinLocksCreated: 0,
+      microgonLiquidityAdded: 0n,
+      securitization: createdVault.securitization,
+      securitizationActivated: createdVault.securitization,
+      treasuryPool: {
+        externalCapital: 310n * microgonsPerArgon,
+        vaultCapital: 560n * microgonsPerArgon,
+        totalEarnings: BigInt(index + 4) * microgonsPerArgon,
+        vaultEarnings: BigInt(index + 4) * microgonsPerArgon,
+      },
+      uncollectedEarnings: 0n,
+    })),
   };
   const myVaultData = Vue.shallowReactive({
     ...baseMyVault.data,
@@ -170,19 +225,41 @@ export function setupVaultingPortfolioScenario() {
 
   mocked(getArgonBonds).mockReturnValue({
     data: Vue.reactive({
-      bondLots,
+      bondLots: [operatorBond],
       bondHistory: [],
+      dailyEarnings: vaultStats.changesByFrame.map(frame => ({
+        accountId: operatorBond.owner,
+        programType: 'Vault',
+        bondLotId: operatorBond.id,
+        frameId: frame.frameId,
+        earningsMicrogons: 1n * microgonsPerArgon,
+        earningsDestination: 'Owner',
+        payoutBlockNumber: frame.frameId * 10,
+        payoutBlockHash: `0x${frame.frameId.toString(16)}`,
+      })),
+      financialRevision: 0,
       isLoaded: true,
       vaultId: createdVault.vaultId,
       currentFrameId,
-      distributableBidPool: 4_800n * microgonsPerArgon,
+      frameCapital,
+      fullBidPool,
+      vaultRewardRate,
+      averageMicrogonsPerArgonot: 2_000_000n,
+      distributableBidPool: 600n * microgonsPerArgon,
       totalActiveBonds: 8_400,
       vaultsById: { [createdVault.vaultId]: vaultBondState },
-      capacityStatesByVault: {},
     }),
     bondTotals: BondLot.getTotals(bondLots),
-    getVaultBondCapacityMicrogons: fn(() => 1_400n * microgonsPerArgon),
-    availableBondSpace: fn(() => 360n * microgonsPerArgon),
+    getEarningsHistory: ArgonBonds.prototype.getEarningsHistory,
+    argonotSecuritizationTarget: fn(({ securitizationMicrogons }) =>
+      TreasuryBonds.getVaultArgonotSecuritizationTarget({
+        securitizationMicrogons,
+        averageMicrogonsPerArgonot: 2_000_000n,
+      }),
+    ),
+    vaultRevenuePotential: fn(() => revenuePotential),
+    getVaultBondCapacityMicrogons: fn(() => 2_400n * microgonsPerArgon),
+    availableBondSpace: fn(() => 1_360n * microgonsPerArgon),
     subscribeGlobal: fn(async () => undefined),
     refreshVault: fn(async () => undefined),
   } as unknown as ReturnType<typeof getArgonBonds>);
@@ -194,12 +271,11 @@ export function setupVaultingPortfolioScenario() {
       securityMicrogonsPending: 0n,
       securityMicrogonsActivated: 2_400n * microgonsPerArgon,
       securityMicrogonsActivatedPct: 100,
-      treasuryBondCapacityMicrogons: 1_400n * microgonsPerArgon,
+      treasuryBondCapacityMicrogons: 2_400n * microgonsPerArgon,
       treasuryBondCapacityUsedMicrogons: 1_040n * microgonsPerArgon,
-      treasuryBondCapacityUsedPct: 74.29,
-      treasuryBondPurchaseCapacityBonds: 1_400,
-      revenueCapturedPct: 74.29,
-      totalVaultValue: 3_428n * microgonsPerArgon,
+      treasuryBondCapacityUsedPct: 43.33,
+      treasuryBondPurchaseCapacityBonds: 2_400,
+      revenueCapturedPct: revenuePotential.capturedPercent,
     }) as unknown as ReturnType<typeof useVaultingAssetBreakdown>,
   );
 
@@ -207,20 +283,18 @@ export function setupVaultingPortfolioScenario() {
     Vue.reactive({
       financialPositionAggregate: {
         groupSummaries: {
-          vaulting: { returnSummary: { percent: 12.64 } },
+          vaulting: { state: 'ready', returnSummary: { percent: 12.64, paidIncome: 182_300_000n } },
         },
       },
-      getBondFinancialDetails: (bondLot: BondLot) => {
+      getBondFinancialPosition: (bondLot: BondLot) => {
+        if (!bondLot.isOwn) return;
         const [position] = new ArgonBondsFinancials({} as never).createFinancialPositions({
           bondLots: [bondLot],
           frameDates: new Map([
-            [bondLot.createdFrame, new Date(Date.UTC(2026, 7, 15 - (currentFrameId - bondLot.createdFrame), 12))],
+            [bondLot.createdFrameId, new Date(Date.UTC(2026, 7, 15 - (currentFrameId - bondLot.createdFrameId), 12))],
           ]),
         });
-        return {
-          position,
-          returnPercent: position ? calculatePositionReturn([position]).percent : undefined,
-        };
+        return position;
       },
     }) as unknown as ReturnType<typeof useFinancials>,
   );
@@ -242,7 +316,7 @@ export function setupVaultingPortfolioScenario() {
     onTick: fn(() => ({ unsubscribe: fn() })),
   } as unknown as ReturnType<typeof getMiningFrames>);
 
-  mocked(getMainchainClient).mockResolvedValue(createMainchainClient());
+  mocked(getMainchainClient).mockResolvedValue(createMainchainClient(frameCapital));
 }
 
 function createLock(
@@ -305,61 +379,62 @@ function createBondLot({
   createdFrame?: number;
   lifetimeEarnings?: bigint;
 }) {
-  return new BondLot({
+  return new BondLot(
     id,
-    programType: 'Vault',
-    accountId,
-    vaultId: 7,
-    bonds,
-    createdFrame,
-    participatedFrames: currentFrameId - createdFrame + 1,
-    lastEarningsFrame: null,
-    lastEarnings: 0n,
-    lifetimeEarnings,
-    lifetimeBondedFrameMicrogons: BigInt(bonds) * microgonsPerArgon * BigInt(currentFrameId - createdFrame + 1),
-    sharingPercent: 20,
-    bonusPercent: 0,
-    releaseFrame: null,
-    isReleasing: false,
-    isFlexible: false,
-    isOwn: accountId === '5SyntheticVaultOperator',
-    canRelease: accountId === '5SyntheticVaultOperator',
-  });
+    {
+      owner: accountId,
+      program: {
+        type: 'Vault',
+        value: { vaultId: 7, sharingPercent: new BigNumber(0.2), bonusPercent: new BigNumber(0) },
+      },
+      bonds,
+      createdFrameId: createdFrame,
+      participatedFrames: currentFrameId - createdFrame + 1,
+      lastFrameEarningsFrameId: null,
+      lastFrameEarnings: 0n,
+      cumulativeEarnings: lifetimeEarnings,
+      lockedFrameTerms: null,
+      releaseFrameId: null,
+      releaseReason: null,
+      isFlexible: false,
+    },
+    '5SyntheticVaultOperator',
+  );
 }
 
 function createFrameBondLot(details: BondLot, isOperator: boolean): IFrameBondLot {
   return {
     id: `lot:${details.id}`,
-    accountId: details.accountId,
+    accountId: details.owner,
     bonds: details.bonds,
-    prorata: BigInt(details.bonds) * microgonsPerArgon,
+    eligibleMicrogons: BigInt(details.bonds) * microgonsPerArgon,
     isOperator,
     details,
   };
 }
 
-function createMainchainClient(): Awaited<ReturnType<typeof getMainchainClient>> {
+function createMainchainClient(
+  frameCapital: NonNullable<RuntimeQueryResult<CurrentRuntimeQueries['treasury']['currentFrameVaultCapital']>>,
+): Awaited<ReturnType<typeof getMainchainClient>> {
   return {
     consts: {
       treasury: {
-        palletId: { toU8a: () => new Uint8Array([1, 2, 3, 4, 5, 6, 7, 8]) },
-        percentForTreasuryReserves: { toNumber: () => 20 },
+        palletId: '0x0102030405060708',
+        percentForTreasuryReserves: BigNumber(0.03),
+        percentForArgonBondPool: BigNumber(0.1),
+        percentForVaultPool: BigNumber(0.51),
       },
     },
     registry: {
       createType: () => ({ toU8a: () => new Uint8Array(32) }),
     },
     query: {
+      priceIndex: { historicArgonotAverageByFrame: async () => ({ [currentFrameId - 1]: 2_000_000n }) },
       system: {
         account: async () => ({ data: { free: 4_800n * microgonsPerArgon } }),
       },
       treasury: {
-        currentFrameVaultCapital: async () => ({
-          vaults: {
-            7: { eligibleBonds: 1_040 },
-            12: { eligibleBonds: 7_360 },
-          },
-        }),
+        currentFrameVaultCapital: async () => frameCapital,
       },
     },
   } as unknown as Awaited<ReturnType<typeof getMainchainClient>>;

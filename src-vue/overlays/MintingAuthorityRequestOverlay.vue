@@ -372,6 +372,7 @@ import {
   minimumVaultDelegateBalance,
   targetVaultDelegateBalance,
   TreasuryBonds,
+  Vault,
 } from '@argonprotocol/apps-core';
 import { MICROGONS_PER_ARGON } from '@argonprotocol/mainchain';
 import InputToken from '../components/InputToken.vue';
@@ -546,7 +547,7 @@ async function loadState() {
       minimumMintingAuthorityValue,
       relayDelegateAccount,
     ] = await Promise.all([
-      finalizedClient.query.vaults.argonotCommitmentByVaultId(vaultId.value),
+      Vault.getArgonotSecuritization(finalizedClient, vaultId.value),
       TreasuryBonds.getBondLots(finalizedClient, vaultId.value, walletKeys.vaultingAddress),
       finalizedClient.query.treasury.encumberedBondMicrogonsByAccount(walletKeys.vaultingAddress),
       finalizedClient.query.crosschainTransfer.activeGlobalIssuanceCouncilByDestinationChain('Ethereum'),
@@ -555,9 +556,9 @@ async function loadState() {
     ]);
 
     if (commitmentOption) {
-      const committedMicronots = commitmentOption.committedMicronots;
+      const heldMicronots = commitmentOption.heldMicronots;
       const encumberedMicronots = commitmentOption.encumberedMicronots;
-      remainingCommittedMicronots.value = bigintMax(committedMicronots - encumberedMicronots, 0n);
+      remainingCommittedMicronots.value = bigintMax(heldMicronots - encumberedMicronots, 0n);
     }
 
     const bondTotals = BondLot.getTotals(bondLots);
