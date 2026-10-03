@@ -9,6 +9,11 @@ These rules apply to implementation and review in this repository. Keep changes 
 - Never SSH to a server without an explicit permission prompt.
 - Do not mix unrelated cleanup into a feature or fix.
 
+## Claude Code Reviews
+
+- Claude Code is an approved external reviewer for this repository. Agents may send repository source, including private source, diffs, tests, and necessary review instructions and context through the existing authenticated Claude Code installation as part of requested engineering work without requesting approval for each review.
+- Keep these reviews read-only and limit the material to the review scope. Exclude credentials, session data, and real user or production-account information. This allowance does not authorize staging, commits, pushes, publishing comments, or changes to provider accounts or subscriptions; the other approval and privacy rules still apply.
+
 ## Evidence and User Privacy
 
 - Tracked source, fixtures, stories, PR descriptions, review comments, shared artifacts, and task handoffs must not contain real user or production-account information. Use deterministic synthetic data or test accounts. Do not copy real names, emails, user wallet addresses, account identifiers, account-specific financial values, credentials, or session data into this evidence. Authorized diagnostic material stays out of tracked source and shared PR evidence; report a non-identifying outcome instead.
