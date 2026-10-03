@@ -17,6 +17,7 @@ import { useWallets } from '../../../src-vue/stores/wallets.ts';
 import AlertBars from '../../../src-vue/navigation/AlertBars.vue';
 import ConnectorChannel from '../../../src-vue/wallets/components/ConnectorChannel.vue';
 import BitcoinLocks from '../../../src-vue/lib/BitcoinLocks.ts';
+import { OperationalStepId, useCertificationController } from '../../../src-vue/stores/certificationController.ts';
 
 let scenario: BitcoinOverlayScenario;
 let open = true;
@@ -286,9 +287,26 @@ export const FormWithCosignerChoice: Story = {
   },
 };
 
-export const CosignerChoiceWithExistingAddress: Story = {
+export const BitcoinReceiveGuideInteractive: Story = {
+  name: 'Bitcoin Receive Guide (Interactive)',
   beforeEach: () => {
     const cleanup = useScenario();
+    scenario.myVault.data.createdVault = scenario.ownVault;
+    scenario.bitcoinFissions.data.fissionsById = {};
+    isInteractive = true;
+    const controller = useCertificationController();
+    controller.chainProgress.hasOperationalAccount = true;
+    controller.chainProgress.hasBitcoinLock = false;
+    controller.activeGuideId = OperationalStepId.LiquidLock;
+    return cleanup;
+  },
+};
+
+export const CosignerChoiceWithExistingAddress: Story = {
+  name: 'Cosigner Choice With Existing Address (Interactive)',
+  beforeEach: () => {
+    const cleanup = useScenario();
+    isInteractive = true;
     scenario.myVault.data.createdVault = scenario.ownVault;
     scenario.lock.status = BitcoinLockStatus.LockPendingFunding;
     scenario.lock.fundedSatoshis = 0n;
@@ -395,7 +413,12 @@ export const PreparingRequest: Story = {
 };
 
 export const ReadyForBitcoin: Story = {
-  beforeEach: () => useScenario(BitcoinLockStatus.LockPendingFunding),
+  name: 'Ready For Bitcoin (Interactive)',
+  beforeEach: () => {
+    const cleanup = useScenario(BitcoinLockStatus.LockPendingFunding);
+    isInteractive = true;
+    return cleanup;
+  },
 };
 
 export const FundedReceiveWithReservation: Story = {
@@ -532,6 +555,7 @@ export const __namedExportsOrder = [
   'CosignerInfo',
   'FormInMyVault',
   'FormWithCosignerChoice',
+  'BitcoinReceiveGuideInteractive',
   'CosignerChoiceWithExistingAddress',
   'ExpiredRequestedChannel',
   'CreateWithoutInsurance',

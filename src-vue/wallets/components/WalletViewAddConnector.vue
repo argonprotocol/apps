@@ -20,7 +20,16 @@
     <div class="min-h-0 grow overflow-y-auto border-t border-slate-300 px-5 text-left">
       <div v-if="ethereumImportStep === 'external'" class="mt-5">
         <fieldset class="mb-3">
-          <legend class="mb-2 text-sm font-semibold text-slate-700">Import method</legend>
+          <WalletGuideAnchor
+            autoOpenGuidance
+            :open="controller.isTransferGuideActive && !ethereumSecretInput.trim() && importGuideStep === 'method'"
+            label="Start Here"
+            guidancePosition="top"
+            guidance="We'll show the Uniswap path. Choose Mnemonic below, or Private key for MetaMask."
+            @close="emit('close')"
+          >
+            <legend class="relative mb-2 text-sm font-semibold text-slate-700">Import method</legend>
+          </WalletGuideAnchor>
           <div class="grid grid-cols-2 gap-2">
             <label
               class="flex cursor-pointer items-start gap-2 rounded-md border px-3 py-2"
@@ -28,6 +37,8 @@
             >
               <input
                 v-model="ethereumImportMode"
+                @click="importGuideStep = 'help'"
+                @change="importGuideStep = 'help'"
                 type="radio"
                 value="privateKey"
                 name="ethereum-import-mode"
@@ -44,6 +55,8 @@
             >
               <input
                 v-model="ethereumImportMode"
+                @click="importGuideStep = 'help'"
+                @change="importGuideStep = 'help'"
                 type="radio"
                 value="mnemonic"
                 name="ethereum-import-mode"
@@ -56,56 +69,100 @@
             </label>
           </div>
         </fieldset>
-        <a
-          v-if="ethereumImportMode === 'privateKey'"
-          :href="`${NetworkConfig.websiteHost}/docs/bridgeless-transfers/connect-metamask-wallet`"
-          target="_blank"
-          rel="noopener noreferrer"
-          class="text-argon-600 hover:text-argon-700 mb-3 inline-block text-sm"
+        <WalletGuideAnchor
+          :open="controller.isTransferGuideActive && !ethereumSecretInput.trim() && importGuideStep === 'help'"
+          :guidance="
+            ethereumImportMode === 'mnemonic'
+              ? 'Use this link to find your Uniswap recovery phrase.'
+              : 'Use this link to find your MetaMask private key.'
+          "
+          @close="emit('close')"
         >
-          How to export your private key from MetaMask ↗
-        </a>
-        <a
-          v-else
-          :href="`${NetworkConfig.websiteHost}/docs/bridgeless-transfers/connect-uniswap-wallet`"
-          target="_blank"
-          rel="noopener noreferrer"
-          class="text-argon-600 hover:text-argon-700 mb-3 inline-block text-sm"
+          <a
+            :href="
+              ethereumImportMode === 'mnemonic'
+                ? `${NetworkConfig.websiteHost}/docs/bridgeless-transfers/uniswap-wallet`
+                : `${NetworkConfig.websiteHost}/docs/bridgeless-transfers/metamask-wallet`
+            "
+            @click="importGuideStep = 'secret'"
+            target="_blank"
+            rel="noopener noreferrer"
+            class="text-argon-600 hover:text-argon-700 mb-3 inline-block text-sm"
+          >
+            {{
+              ethereumImportMode === 'privateKey'
+                ? 'How to export your private key from MetaMask'
+                : 'How to export your mnemonic from Uniswap'
+            }}
+            ↗
+          </a>
+        </WalletGuideAnchor>
+        <WalletGuideAnchor
+          :open="controller.isTransferGuideActive && !ethereumSecretInput.trim() && importGuideStep === 'secret'"
+          :guidance="
+            ethereumImportMode === 'mnemonic'
+              ? 'Paste your Uniswap recovery phrase here.'
+              : 'Paste your MetaMask private key here.'
+          "
+          @close="emit('close')"
         >
-          How to export your mnemonic from Uniswap ↗
-        </a>
-        <textarea
-          v-model="ethereumSecretInput"
-          spellcheck="false"
-          autocomplete="off"
-          autocapitalize="off"
-          autocorrect="off"
-          class="focus:border-argon-500 h-28 w-full resize-none rounded-md border border-slate-300 p-3 font-mono text-sm outline-none"
-          :placeholder="ethereumImportMode === 'privateKey' ? 'Paste private key' : 'Paste mnemonic'"
-        />
+          <textarea
+            v-model="ethereumSecretInput"
+            @focus="importGuideStep = 'secret'"
+            spellcheck="false"
+            autocomplete="off"
+            autocapitalize="off"
+            autocorrect="off"
+            class="focus:border-argon-500 h-28 w-full resize-none rounded-md border border-slate-300 p-3 font-mono text-sm outline-none"
+            :placeholder="ethereumImportMode === 'privateKey' ? 'Paste private key' : 'Paste mnemonic'"
+          />
+        </WalletGuideAnchor>
         <div class="mt-2 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-800">
           Keep this private. Anyone with this {{ ethereumImportMode === 'privateKey' ? 'key' : 'mnemonic' }} can control
           your wallet.
         </div>
         <label v-if="ethereumImportMode === 'privateKey'" class="mb-3 block">
           <span class="mt-4 mb-1 block text-sm font-semibold text-slate-700">Wallet Name</span>
-          <input
-            v-model="ethereumWalletNameInput"
-            maxlength="18"
-            class="focus:border-argon-500 w-full rounded-md border border-slate-300 px-3 py-2 outline-none"
-            placeholder="Name this wallet"
-          />
+          <WalletGuideAnchor
+            :open="
+              controller.isTransferGuideActive &&
+              !!ethereumSecretInput.trim() &&
+              !ethereumWalletNameInput.trim() &&
+              !ethereumImportError
+            "
+            guidance="Give this wallet a name."
+            @close="emit('close')"
+          >
+            <input
+              v-model="ethereumWalletNameInput"
+              maxlength="18"
+              class="focus:border-argon-500 w-full rounded-md border border-slate-300 px-3 py-2 outline-none"
+              placeholder="Name this wallet"
+            />
+          </WalletGuideAnchor>
         </label>
         <div v-if="ethereumImportError" class="mt-2 text-sm text-red-600">{{ ethereumImportError }}</div>
         <div class="mt-4 flex justify-end gap-2 pb-4">
-          <button
-            type="button"
-            class="bg-argon-600 cursor-pointer rounded-md px-4 py-2 font-bold text-white disabled:opacity-50"
-            :disabled="isImportingEthereum"
-            @click="continueExternalImport"
+          <WalletGuideAnchor
+            :open="
+              controller.isTransferGuideActive &&
+              !!ethereumSecretInput.trim() &&
+              (ethereumImportMode === 'mnemonic' || !!ethereumWalletNameInput.trim()) &&
+              !isImportingEthereum &&
+              !ethereumImportError
+            "
+            :guidance="ethereumImportMode === 'mnemonic' ? 'Load your wallets to choose one.' : 'Import your wallet.'"
+            @close="emit('close')"
           >
-            {{ ethereumImportMode === 'privateKey' ? 'Import Wallet' : 'Load Wallets From Mnemonic' }}
-          </button>
+            <button
+              type="button"
+              class="bg-argon-600 cursor-pointer rounded-md px-4 py-2 font-bold text-white disabled:opacity-50"
+              :disabled="isImportingEthereum"
+              @click="continueExternalImport"
+            >
+              {{ ethereumImportMode === 'privateKey' ? 'Import Wallet' : 'Load Wallets From Mnemonic' }}
+            </button>
+          </WalletGuideAnchor>
         </div>
       </div>
 
@@ -119,59 +176,81 @@
             Scanning balances
           </div>
         </div>
-        <div class="max-h-80 overflow-y-auto rounded-lg border border-slate-200">
-          <button
-            v-for="(account, index) in mnemonicAccounts"
-            :key="account.derivationPath"
-            type="button"
-            class="flex w-full items-center gap-3 border-b border-slate-100 px-4 py-3 text-left transition last:border-b-0"
-            :class="[
-              selectedMnemonicPath === account.derivationPath ? 'bg-argon-50' : 'hover:bg-slate-50',
-              account.wallet && !hasTrackedBalance(account.wallet) ? 'opacity-45' : '',
-            ]"
-            @click="selectedMnemonicPath = account.derivationPath"
-          >
-            <span
-              class="flex size-5 shrink-0 items-center justify-center rounded-full border"
-              :class="
-                selectedMnemonicPath === account.derivationPath
-                  ? 'border-argon-600 bg-argon-600'
-                  : 'border-slate-300 bg-white'
-              "
+        <WalletGuideAnchor
+          :open="
+            controller.isTransferGuideActive &&
+            !selectedMnemonicPath &&
+            !isScanningBalances &&
+            mnemonicAccounts.length > 0
+          "
+          guidance="Choose the wallet you want to import."
+          @close="emit('close')"
+        >
+          <div class="max-h-80 overflow-y-auto rounded-lg border border-slate-200">
+            <button
+              v-for="(account, index) in mnemonicAccounts"
+              :key="account.derivationPath"
+              type="button"
+              class="flex w-full items-center gap-3 border-b border-slate-100 px-4 py-3 text-left transition last:border-b-0"
+              :class="[
+                selectedMnemonicPath === account.derivationPath ? 'bg-argon-50' : 'hover:bg-slate-50',
+                account.wallet && !hasTrackedBalance(account.wallet) ? 'opacity-45' : '',
+              ]"
+              @click="selectedMnemonicPath = account.derivationPath"
             >
-              <span v-if="selectedMnemonicPath === account.derivationPath" class="size-2 rounded-full bg-white" />
-            </span>
-            <Unicon
-              v-if="account.wallet && hasTrackedBalance(account.wallet)"
-              :address="account.address"
-              :size="40"
-              class="shrink-0"
-            />
-            <div v-else class="size-10 shrink-0" aria-hidden="true" />
-            <span class="min-w-0 grow">
-              <span class="block font-semibold text-slate-800">Account {{ index + 1 }}</span>
-              <span class="block font-mono text-sm text-slate-500">
-                {{ abbreviateEthereumAddress(account.address) }}
+              <span
+                class="flex size-5 shrink-0 items-center justify-center rounded-full border"
+                :class="
+                  selectedMnemonicPath === account.derivationPath
+                    ? 'border-argon-600 bg-argon-600'
+                    : 'border-slate-300 bg-white'
+                "
+              >
+                <span v-if="selectedMnemonicPath === account.derivationPath" class="size-2 rounded-full bg-white" />
               </span>
-            </span>
-            <span class="shrink-0 text-right text-sm font-semibold text-slate-600">
-              <template v-if="account.wallet?.data.fetchErrorMsg">Unavailable</template>
-              <template v-else-if="account.wallet">
-                <span class="block">{{ formatArgn(account.wallet.data.availableMicrogons) }} ARGN</span>
-                <span class="block">{{ formatArgnot(account.wallet.data.availableMicronots) }} ARGNOT</span>
-              </template>
-              <template v-else-if="isScanningBalances">—</template>
-            </span>
-          </button>
-        </div>
+              <Unicon
+                v-if="account.wallet && hasTrackedBalance(account.wallet)"
+                :address="account.address"
+                :size="40"
+                class="shrink-0"
+              />
+              <div v-else class="size-10 shrink-0" aria-hidden="true" />
+              <span class="min-w-0 grow">
+                <span class="block font-semibold text-slate-800">Account {{ index + 1 }}</span>
+                <span class="block font-mono text-sm text-slate-500">
+                  {{ abbreviateEthereumAddress(account.address) }}
+                </span>
+              </span>
+              <span class="shrink-0 text-right text-sm font-semibold text-slate-600">
+                <template v-if="account.wallet?.data.fetchErrorMsg">Unavailable</template>
+                <template v-else-if="account.wallet">
+                  <span class="block">{{ formatArgn(account.wallet.data.availableMicrogons) }} ARGN</span>
+                  <span class="block">{{ formatArgnot(account.wallet.data.availableMicronots) }} ARGNOT</span>
+                </template>
+                <template v-else-if="isScanningBalances">—</template>
+              </span>
+            </button>
+          </div>
+        </WalletGuideAnchor>
         <label class="mt-4 block">
           <span class="mb-1 block text-sm font-semibold text-slate-700">Wallet Name</span>
-          <input
-            v-model="ethereumWalletNameInput"
-            maxlength="18"
-            class="focus:border-argon-500 w-full rounded-md border border-slate-300 px-3 py-2 outline-none"
-            placeholder="Name this wallet"
-          />
+          <WalletGuideAnchor
+            :open="
+              controller.isTransferGuideActive &&
+              !!selectedMnemonicPath &&
+              !ethereumWalletNameInput.trim() &&
+              !ethereumImportError
+            "
+            guidance="Give this wallet a name."
+            @close="emit('close')"
+          >
+            <input
+              v-model="ethereumWalletNameInput"
+              maxlength="18"
+              class="focus:border-argon-500 w-full rounded-md border border-slate-300 px-3 py-2 outline-none"
+              placeholder="Name this wallet"
+            />
+          </WalletGuideAnchor>
         </label>
         <div v-if="ethereumImportError" class="mt-2 text-sm text-red-600">{{ ethereumImportError }}</div>
         <div class="mt-4 flex justify-end gap-2 pb-4">
@@ -182,14 +261,26 @@
           >
             Back
           </button>
-          <button
-            type="button"
-            class="bg-argon-600 rounded-md px-4 py-2 font-bold text-white disabled:opacity-50"
-            :disabled="!selectedMnemonicPath || isImportingEthereum"
-            @click="importSelectedMnemonicAccount"
+          <WalletGuideAnchor
+            :open="
+              controller.isTransferGuideActive &&
+              !!selectedMnemonicPath &&
+              !!ethereumWalletNameInput.trim() &&
+              !isImportingEthereum &&
+              !ethereumImportError
+            "
+            guidance="Import your wallet."
+            @close="emit('close')"
           >
-            Import Wallet
-          </button>
+            <button
+              type="button"
+              class="bg-argon-600 rounded-md px-4 py-2 font-bold text-white disabled:opacity-50"
+              :disabled="!selectedMnemonicPath || isImportingEthereum"
+              @click="importSelectedMnemonicAccount"
+            >
+              Import Wallet
+            </button>
+          </WalletGuideAnchor>
         </div>
       </div>
     </div>
@@ -201,11 +292,13 @@ import * as Vue from 'vue';
 import { NetworkConfig } from '@argonprotocol/apps-core';
 import { XMarkIcon } from '@heroicons/vue/24/outline';
 import Unicon from '../../components/Unicon.vue';
+import WalletGuideAnchor from './WalletGuideAnchor.vue';
 import { WalletForEthereum } from '../../lib/WalletForEthereum.ts';
 import { createNumeralHelpers } from '../../lib/numeral.ts';
 import { getCurrency } from '../../stores/currency.ts';
 import { useWallets } from '../../stores/wallets.ts';
 import type { IWalletSetupStep } from '../walletOverlayState.ts';
+import { useCertificationController } from '../../stores/certificationController.ts';
 
 const props = defineProps<{
   initialStep?: IWalletSetupStep;
@@ -220,9 +313,11 @@ const emit = defineEmits<{
 
 const wallets = useWallets();
 const currency = getCurrency();
+const controller = useCertificationController();
 const { microgonToArgonNm, micronotToArgonotNm } = createNumeralHelpers(currency);
 const ethereumImportStep = Vue.ref<'external' | 'mnemonicAccounts'>();
 const ethereumImportMode = Vue.ref<'privateKey' | 'mnemonic'>('privateKey');
+const importGuideStep = Vue.ref<'method' | 'help' | 'secret'>('method');
 const ethereumSecretInput = Vue.ref('');
 const ethereumWalletNameInput = Vue.ref('');
 const ethereumImportError = Vue.ref('');
@@ -234,6 +329,7 @@ const selectedMnemonicPath = Vue.ref('');
 function openEthereumImport() {
   ethereumImportStep.value = 'external';
   ethereumImportMode.value = 'privateKey';
+  importGuideStep.value = 'method';
   ethereumWalletNameInput.value = '';
   ethereumImportError.value = '';
 }
@@ -281,7 +377,9 @@ async function continueExternalImport() {
     }
     ethereumSecretInput.value = mnemonic;
     mnemonicAccounts.value = await WalletForEthereum.previewMnemonic(mnemonic);
-    selectedMnemonicPath.value = mnemonicAccounts.value[0]?.derivationPath ?? '';
+    selectedMnemonicPath.value = controller.isTransferGuideActive
+      ? ''
+      : (mnemonicAccounts.value[0]?.derivationPath ?? '');
     ethereumImportStep.value = 'mnemonicAccounts';
     await scanMnemonicBalances();
   } catch (error) {

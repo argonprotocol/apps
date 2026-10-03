@@ -374,6 +374,7 @@ export function setupBitcoinOverlayScenario() {
   const bitcoinFissions: BitcoinFissions = Object.assign(Object.create(BitcoinFissions.prototype), {
     data: Vue.reactive({
       fissionsById: { [currentFission.fissionId]: currentFission },
+      activeFissionIds: new Set([currentFission.fissionId]),
     }),
     load: fn(async () => undefined),
   });

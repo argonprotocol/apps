@@ -181,6 +181,15 @@ export class WalletsTable extends BaseTable {
     await this.db.execute(`DELETE FROM Wallets WHERE id = ? AND walletType = 'ethereum'`, toSqlParams([id]));
   }
 
+  public async renameEthereumWallet(id: number, name: string): Promise<IWalletRecord> {
+    const rows = await this.db.select<IWalletRecord[]>(
+      `UPDATE Wallets SET name = ?, updatedAt = CURRENT_TIMESTAMP WHERE id = ? AND walletType = 'ethereum' RETURNING *`,
+      toSqlParams([name, id]),
+    );
+    if (!rows[0]) throw new Error('Ethereum wallet is not connected.');
+    return this.toRecord(rows[0]);
+  }
+
   private toRecord(record: IWalletRecord): IWalletRecord {
     return convertFromSqliteFields<IWalletRecord>(record, this.fieldTypes);
   }

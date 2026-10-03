@@ -23,7 +23,48 @@
               {{ walletDisplayName }}
             </span>
             <ButtonCopy :address="connectedWallet?.address!" />
-            <ButtonClose data-testid="ConnectorTransfer.close()" @close="emit('update:open', false)" />
+            <div v-if="connectedWallet" class="relative shrink-0">
+              <ConnectorMenu
+                v-model:open="isMenuOpen"
+                :wallet="connectedWallet"
+                :connectorId="props.connectorId"
+                direction="right"
+                :showGuidance="
+                  !!props.transferGuidance && !activeTransfer && (!walletNeedsTokens || transferGuideStep !== 'funding')
+                "
+              >
+                <button
+                  type="button"
+                  :aria-label="`${walletDisplayName} options`"
+                  class="relative z-10 flex h-[34px] w-[34px] cursor-pointer items-center justify-center rounded-md border border-slate-400/60 text-sm/6 font-semibold text-slate-500/60 hover:border-slate-500/60 hover:bg-[#f1f3f7] focus:outline-none"
+                >
+                  <MoreIcon class="h-4" />
+                </button>
+              </ConnectorMenu>
+              <ArrowCalloutButton
+                v-if="
+                  props.transferGuidance &&
+                  transferGuideStep !== 'transfer' &&
+                  (!walletNeedsTokens || transferGuideStep === 'markets') &&
+                  !isMenuOpen &&
+                  !activeTransfer
+                "
+                guidance="Open this menu for the ARGN and ARGNOT Uniswap markets."
+                direction="right"
+                class="absolute top-1/2 right-full z-50 mr-3 -translate-y-1/2"
+              />
+            </div>
+            <WalletGuideAnchor
+              autoOpenGuidance
+              side="left"
+              :open="
+                !!props.transferGuidance && !!activeTransfer && isCrosschainTransferActive(activeTransfer.transferState)
+              "
+              guidance="Close this window, then open Transfers Pending to watch your transfer."
+              @close="emit('update:open', false)"
+            >
+              <ButtonClose data-testid="ConnectorTransfer.close()" @close="emit('update:open', false)" />
+            </WalletGuideAnchor>
           </h2>
 
           <div
@@ -79,6 +120,25 @@
                 testIdPrefix="ConnectorTransfer"
                 ref="transferForm"
               />
+              <div v-if="walletNeedsTokens" class="mt-4">
+                <WalletGuideAnchor
+                  autoOpenGuidance
+                  :open="!!props.transferGuidance && transferGuideStep === 'funding' && !isMenuOpen"
+                  guidancePosition="top"
+                  guidance="Use this link to learn how to add funds to your Uniswap wallet. Keep some ETH for fees."
+                  @close="emit('update:open', false)"
+                >
+                  <a
+                    href="https://support.uniswap.org/hc/en-us/articles/25655102348813-How-to-buy-crypto-in-the-Uniswap-Wallet"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    class="text-argon-600 hover:text-argon-700 underline"
+                    @click="transferGuideStep = 'markets'"
+                  >
+                    How to add funds to Uniswap ↗
+                  </a>
+                </WalletGuideAnchor>
+              </div>
               <div
                 class="mt-8 mb-2 flex gap-x-2"
                 :class="props.direction === 'right' ? 'flex-row-reverse' : 'flex-row'"
@@ -90,13 +150,26 @@
                 >
                   Cancel
                 </button>
-                <button
-                  :disabled="!canInitiateTransfer"
-                  class="border-argon-700 bg-argon-600 grow cursor-pointer rounded-lg border px-5 py-1 text-white disabled:cursor-default disabled:border-gray-400 disabled:bg-gray-300 disabled:text-gray-500"
-                  @click="initiateTransfer"
-                >
-                  &laquo; {{ isInitiatingTransfer ? 'Initiating Transfer...' : `Initiate Transfer` }}
-                </button>
+                <div class="grow">
+                  <WalletGuideAnchor
+                    :open="
+                      showTransferGuidance &&
+                      !!canInitiateTransfer &&
+                      transferForm?.selectedMoveToken === MoveToken.ARGN
+                    "
+                    side="left"
+                    :guidance="props.transferGuidance ?? ''"
+                    @close="emit('update:open', false)"
+                  >
+                    <button
+                      :disabled="!canInitiateTransfer"
+                      class="border-argon-700 bg-argon-600 w-full cursor-pointer rounded-lg border px-5 py-1 text-white disabled:cursor-default disabled:border-gray-400 disabled:bg-gray-300 disabled:text-gray-500"
+                      @click="initiateTransfer"
+                    >
+                      &laquo; {{ isInitiatingTransfer ? 'Initiating Transfer...' : `Initiate Transfer` }}
+                    </button>
+                  </WalletGuideAnchor>
+                </div>
               </div>
             </template>
           </div>
@@ -124,6 +197,8 @@ import {
   type PointerDownOutsideEvent,
 } from 'reka-ui';
 import ProgressBar from '../../components/ProgressBar.vue';
+import ArrowCalloutButton from '../../components/ArrowCalloutButton.vue';
+import MoreIcon from '../../assets/more.svg';
 import type { IEthereumInboundActiveTransfer } from '../../lib/EthereumInboundTransferTracker.ts';
 import { WalletType } from '../../lib/Wallet.ts';
 import { createNumeralHelpers } from '../../lib/numeral.ts';
@@ -132,10 +207,12 @@ import { useFloatingZIndex } from '../../overlays/helpers/OverlayZIndex.ts';
 import { getCurrency } from '../../stores/currency.ts';
 import { getEthereumMoveTracker } from '../../stores/moveFromEthereum.ts';
 import { useWallets } from '../../stores/wallets.ts';
-import { getCrosschainTransferProgressView } from './crosschainTransferView.ts';
+import { getCrosschainTransferProgressView, isCrosschainTransferActive } from './crosschainTransferView.ts';
 import ButtonClose from './ButtonClose.vue';
 import ButtonCopy from './ButtonCopy.vue';
 import WalletTransferForm from './WalletTransferForm.vue';
+import WalletGuideAnchor from './WalletGuideAnchor.vue';
+import ConnectorMenu from './ConnectorMenu.vue';
 
 const props = defineProps<{
   connectorId?: string;
@@ -143,6 +220,7 @@ const props = defineProps<{
   open: boolean;
   moveToken?: MoveToken.ARGN | MoveToken.ARGNOT;
   walletName?: string;
+  transferGuidance?: string;
 }>();
 const emit = defineEmits<{ (event: 'update:open', value: boolean): void }>();
 
@@ -157,10 +235,24 @@ const transferForm = Vue.ref<InstanceType<typeof WalletTransferForm>>();
 const floatingZIndex = useFloatingZIndex();
 const activeTransfer = Vue.ref<IEthereumInboundActiveTransfer>();
 const isInitiatingTransfer = Vue.ref(false);
+const isMenuOpen = Vue.ref(false);
+const transferGuideStep = Vue.ref<'funding' | 'markets' | 'transfer'>('funding');
+const showTransferGuidance = Vue.computed(
+  () => !!props.transferGuidance && transferGuideStep.value === 'transfer' && !isMenuOpen.value,
+);
 const progressNow = Vue.ref(Date.now());
 let progressRefreshInterval: ReturnType<typeof setInterval> | undefined;
 
 const connectedWallet = Vue.computed(() => wallets.ethereumWallets.find(Number(props.connectorId)));
+const walletNeedsTokens = Vue.computed(() => {
+  const balance = connectedWallet.value?.data;
+  return (
+    !!balance?.balanceUpdatedAt &&
+    !balance.fetchErrorMsg &&
+    balance.totalMicrogons === 0n &&
+    balance.totalMicronots === 0n
+  );
+});
 
 const walletDisplayName = Vue.computed(() => props.walletName ?? connectedWallet.value?.name ?? 'Ethereum Wallet');
 const canInitiateTransfer = Vue.computed(
@@ -225,6 +317,11 @@ Vue.watch(
   },
   { immediate: true, flush: 'post' },
 );
+Vue.watch(isMenuOpen, open => {
+  if (open && (!walletNeedsTokens.value || transferGuideStep.value === 'markets')) {
+    transferGuideStep.value = 'transfer';
+  }
+});
 Vue.watch(
   () => props.open,
   open => {

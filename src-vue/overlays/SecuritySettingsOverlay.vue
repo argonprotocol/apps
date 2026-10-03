@@ -21,19 +21,17 @@
 
 <script setup lang="ts">
 import * as Vue from 'vue';
-import basicEmitter from '../emitters/basicEmitter.ts';
+import basicEmitter, { type SecuritySettingsScreen } from '../emitters/basicEmitter.ts';
 import SecuritySettingsOverview from './security-settings/Overview.vue';
 import SecuritySettingsEncrypt from './security-settings/Encrypt.vue';
 import SecuritySettingsMnemonics from './security-settings/Mnemonics.vue';
 import OverlayBase from './OverlayBase.vue';
 import { useBasics } from '../stores/basics.ts';
-import { useWallets } from '../stores/wallets.ts';
 
 const basics = useBasics();
-const wallets = useWallets();
 
 const isOpen = Vue.ref(false);
-const currentScreen = Vue.ref<'overview' | 'mnemonics' | 'encrypt'>('overview');
+const currentScreen = Vue.ref<SecuritySettingsScreen>('overview');
 const overlayWidth = Vue.ref(640);
 
 const title = Vue.computed(() => {
@@ -47,13 +45,13 @@ const title = Vue.computed(() => {
   throw new Error('Invalid screen name');
 });
 
-basicEmitter.on('openSecuritySettingsOverlay', async data => {
+function openOverlay(data: { screen: SecuritySettingsScreen } | undefined) {
   const requestedScreen = data?.screen ?? 'overview';
 
   isOpen.value = true;
   currentScreen.value = requestedScreen;
   basics.overlayIsOpen = true;
-});
+}
 
 function closeOverlay() {
   isOpen.value = false;
@@ -64,7 +62,7 @@ function goBack() {
   currentScreen.value = 'overview';
 }
 
-function goTo(screen: 'overview' | 'encrypt' | 'mnemonics') {
+function goTo(screen: SecuritySettingsScreen) {
   currentScreen.value = screen;
   if (screen === 'overview') {
     overlayWidth.value = 640;
@@ -74,4 +72,7 @@ function goTo(screen: 'overview' | 'encrypt' | 'mnemonics') {
     overlayWidth.value = 740;
   }
 }
+
+basicEmitter.on('openSecuritySettingsOverlay', openOverlay);
+Vue.onUnmounted(() => basicEmitter.off('openSecuritySettingsOverlay', openOverlay));
 </script>

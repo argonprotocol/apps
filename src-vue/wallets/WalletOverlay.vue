@@ -65,6 +65,14 @@
                 :class="activeConnectorId ? 'pointer-events-none opacity-70' : ''"
                 class="relative w-full overflow-visible"
               >
+                <ArrowCalloutButton
+                  v-if="
+                    !connectorSelectionIsActive &&
+                    (controller.bitcoinGuideStep === 'liquid' || controller.bitcoinGuideStep === 'pending')
+                  "
+                  guidance="Close your wallet, then open Bitcoin Liquids to continue."
+                  class="absolute top-4 right-3 z-50 translate-x-[calc(100%+0.75rem)]"
+                />
                 <WalletViewMain
                   v-if="openWallet.centerView.type === 'main'"
                   :isDragging="draggable.isDragging"
@@ -144,6 +152,13 @@
               >
                 <Connector
                   :wallet="walletStore.bitcoinWallet"
+                  :guidance="
+                    controller.bitcoinGuideStep === 'wallet' &&
+                    !connectorSelectionIsActive &&
+                    !bitcoinTransferDirections.includes('inbound')
+                      ? 'Choose Bitcoin to send Bitcoin to your wallet.'
+                      : undefined
+                  "
                   :bitcoinChannelUuid="openWallet.bitcoinChannelUuid"
                   :bitcoinChannelVaultId="openWallet.bitcoinChannelVaultId"
                   direction="left"
@@ -166,6 +181,19 @@
                 <Connector
                   direction="left"
                   :wallet="wallet"
+                  :guidance="
+                    controller.isTransferGuideActive &&
+                    !connectorSelectionIsActive &&
+                    !pendingGuideTransfer &&
+                    wallet === transferGuideWallet
+                      ? 'Open your Ethereum wallet to transfer ARGN.'
+                      : undefined
+                  "
+                  :transferGuidance="
+                    controller.isTransferGuideActive && wallet === transferGuideWallet
+                      ? 'Transfer ARGN into your app wallet.'
+                      : undefined
+                  "
                   :open="isEthereumConnectorOpen(wallet)"
                   :transferDirections="getTransferDirections(wallet.id!)"
                   @update:open="updateEthereumConnector(wallet, $event)"
@@ -203,6 +231,19 @@
                 <Connector
                   direction="right"
                   :wallet="wallet"
+                  :guidance="
+                    controller.isTransferGuideActive &&
+                    !connectorSelectionIsActive &&
+                    !pendingGuideTransfer &&
+                    wallet === transferGuideWallet
+                      ? 'Open your Ethereum wallet to transfer ARGN.'
+                      : undefined
+                  "
+                  :transferGuidance="
+                    controller.isTransferGuideActive && wallet === transferGuideWallet
+                      ? 'Transfer ARGN into your app wallet.'
+                      : undefined
+                  "
                   :open="isEthereumConnectorOpen(wallet)"
                   :transferDirections="getTransferDirections(wallet.id!)"
                   @update:open="updateEthereumConnector(wallet, $event)"
@@ -217,13 +258,27 @@
                 <svg aria-hidden="true" class="relative mx-1 h-1 w-40 text-neutral-400/80 shadow-sm/40">
                   <line x1="0" x2="100%" y1="2" y2="2" stroke="currentColor" stroke-width="4" stroke-dasharray="8 4" />
                 </svg>
-                <Connector direction="right" :open="false" @addConnector="openAddConnectorFromOverlay" />
+                <Connector
+                  direction="right"
+                  :open="false"
+                  :guidance="
+                    controller.isTransferGuideActive &&
+                    !connectorSelectionIsActive &&
+                    !ethereumWallets.length &&
+                    slot === 1
+                      ? 'Connect your Ethereum wallet.'
+                      : undefined
+                  "
+                  @addConnector="openAddConnectorFromOverlay"
+                />
               </article>
             </section>
           </div>
         </div>
         <WalletBottomBar
           v-if="openWallet.centerView.type !== 'addEthereum'"
+          :showTransferGuide="controller.isTransferGuideActive && !connectorSelectionIsActive"
+          :showBitcoinGuide="controller.bitcoinGuideStep === 'wallet' && !connectorSelectionIsActive"
           :class="activeConnectorId ? 'opacity-30' : ''"
         />
       </DialogContent>
@@ -233,8 +288,11 @@
 
 <script setup lang="ts">
 import * as Vue from 'vue';
+import { MoveToken } from '@argonprotocol/apps-core';
 import { DialogContent, DialogOverlay, DialogPortal, DialogRoot, DialogTitle } from 'reka-ui';
 import BgOverlay from '../components/BgOverlay.vue';
+import ArrowCalloutButton from '../components/ArrowCalloutButton.vue';
+import { useCertificationController } from '../stores/certificationController.ts';
 import basicEmitter, { type IWalletGuidanceContext, type IWalletOverlayOptions } from '../emitters/basicEmitter.ts';
 import type { WalletForEthereum } from '../lib/WalletForEthereum.ts';
 import { WalletType } from '../lib/Wallet.ts';
@@ -281,6 +339,7 @@ type IOpenWallet = IWalletOverlayState & {
 };
 
 const basics = useBasics();
+const controller = useCertificationController();
 const bitcoinLocks = getBitcoinLocks();
 const walletStore = useWallets();
 const openWallet = Vue.ref<IOpenWallet>();
@@ -302,6 +361,20 @@ const highlightedConnectorId = activeConnectorId;
 const draggable = Vue.reactive(new Draggable({ constrainToViewport: false }));
 const inboundTracker = getEthereumMoveTracker();
 const outboundTracker = getEthereumOutboundTransferTracker();
+const pendingGuideTransfer = Vue.computed(() =>
+  Object.values(inboundTracker.data.transfersById).find(
+    transfer => transfer.moveToken === MoveToken.ARGN && isCrosschainTransferActive(transfer.transferState),
+  ),
+);
+const transferGuideWallet = Vue.computed(() => {
+  const sourceAddress =
+    pendingGuideTransfer.value?.persistedRecord?.sourceAddress ?? pendingGuideTransfer.value?.sourceAddress;
+  return (
+    ethereumWallets.value.find(wallet => wallet.address.toLowerCase() === sourceAddress?.toLowerCase()) ??
+    ethereumWallets.value.find(wallet => wallet.data.availableMicrogons > 0n) ??
+    ethereumWallets.value[0]
+  );
+});
 const leftExternalConnectors = Vue.computed(() => {
   return ethereumWallets.value.filter((_, index) => index % 2 === 1).slice(0, 2);
 });

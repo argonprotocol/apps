@@ -393,6 +393,13 @@ export class StableSwaps {
     return stableSwapSdkPriceToFixed18(createStableSwapSdkPool(pool, argonToken, state).priceOf(argonToken));
   }
 
+  public static getUniswapMarketUrl(tokenAddress: Address, chainId: number): string {
+    if (chainId === Number(ChainId.SEPOLIA)) {
+      return `https://app.uniswap.org/swap?chain=sepolia&outputCurrency=${tokenAddress}`;
+    }
+    return `https://app.uniswap.org/explore/tokens/ethereum/${tokenAddress}`;
+  }
+
   public static async buildStableSwapUniswapUrl(
     argonAmountMicrogons: bigint,
     inputCurrency?: string,

@@ -27,6 +27,10 @@
 
     <HoverCardRoot v-model:open="isOpen" :openDelay="0" :disableHoverableContent="true" :disableClosingTrigger="true">
       <HoverCardTrigger
+        as="button"
+        type="button"
+        @click.stop="isOpen = true"
+        aria-label="Task guidance"
         :style="{ borderColor: props.strokeColor, backgroundColor: props.fillColor }"
         :class="hoverCardTriggerClass"
         class="group text-argon-600! pointer-events-auto absolute top-0 flex aspect-square h-full scale-105 cursor-pointer flex-row items-center justify-center rounded-full border shadow-xl"
@@ -38,7 +42,7 @@
         />
       </HoverCardTrigger>
       <HoverCardPortal>
-        <HoverCardContent :side="position" :sideOffset="-4" :style="floatingZIndex">
+        <HoverCardContent :side="position" :align="props.guidanceAlign" :sideOffset="-4" :style="floatingZIndex">
           <div
             v-if="props.guidance"
             :style="{ backgroundColor: props.fillColor }"
@@ -62,6 +66,7 @@
               >
                 Cancel Task
               </button>
+              <slot name="guidanceActions" />
               <!--              <button-->
               <!--                class="border-argon-600/60 text-argon-600 hover:bg-argon-600/5 grow cursor-pointer rounded border px-5 py-1"-->
               <!--              >-->
@@ -101,18 +106,21 @@ const floatingZIndex = useFloatingZIndex();
 const props = withDefaults(
   defineProps<{
     class?: string;
+    autoOpenGuidance?: boolean;
     direction?: 'left' | 'right';
     fillColor?: string;
     guidanceTitle?: string;
+    guidanceAlign?: 'center' | 'end';
     label?: string;
     showGuidanceActions?: boolean;
     guidance?: string;
     strokeColor?: string;
     showArrow?: boolean;
-    position?: 'top' | 'bottom';
+    position?: 'top' | 'bottom' | 'right';
   }>(),
   {
     direction: 'left',
+    guidanceAlign: 'center',
     fillColor: '#faeff8',
     label: 'Click Here',
     showGuidanceActions: true,
@@ -120,6 +128,12 @@ const props = withDefaults(
     showArrow: true,
     position: 'bottom',
   },
+);
+
+Vue.watch(
+  () => props.autoOpenGuidance,
+  open => (isOpen.value = !!open),
+  { immediate: true },
 );
 
 const attrs = Vue.useAttrs();

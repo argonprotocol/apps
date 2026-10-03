@@ -7,23 +7,43 @@
             type="button"
             class="text-md flex grow cursor-pointer items-center gap-x-2 text-left focus:outline-none disabled:cursor-default"
           >
-            <span v-if="isLoadingTransfers">Loading transfers...</span>
-            <span v-else-if="loadError && pendingTransfers.length === 0">Transfer status unavailable</span>
-            <span v-else-if="failedTransferCount">
-              {{ failedTransferCount }} {{ failedTransferCount === 1 ? 'Transfer' : 'Transfers' }} Needs Attention
-              <template v-if="activeTransferCount">
-                · {{ activeTransferCount }} {{ activeTransferCount === 1 ? 'Transfer' : 'Transfers' }} Pending
-              </template>
-            </span>
-            <span v-else>
-              {{ pendingTransfers.length }}
-              {{ pendingTransfers.length === 1 ? 'Transfer' : 'Transfers' }} Pending
-            </span>
-            <ChevronUpIcon
-              v-if="pendingTransfers.length > 0"
-              class="h-4 w-4 transition-transform"
-              :class="{ 'rotate-180': !isOpen }"
-            />
+            <WalletGuideAnchor
+              :autoOpenGuidance="props.showBitcoinGuide"
+              :open="
+                !isOpen &&
+                pendingTransfers.some(
+                  transfer =>
+                    transfer.direction === 'inbound' &&
+                    ((props.showTransferGuide && transfer.moveToken === MoveToken.ARGN) ||
+                      (props.showBitcoinGuide && transfer.moveToken === MoveToken.BTC)),
+                )
+              "
+              :guidance="
+                props.showBitcoinGuide
+                  ? 'Waiting for Bitcoin confirmations. Once your Bitcoin is ready, we will guide you to create a Liquid. Open Transfers Pending to watch progress.'
+                  : 'Open Transfers Pending to watch your ARGN transfer.'
+              "
+            >
+              <span class="flex items-center gap-x-2">
+                <span v-if="isLoadingTransfers">Loading transfers...</span>
+                <span v-else-if="loadError && pendingTransfers.length === 0">Transfer status unavailable</span>
+                <span v-else-if="failedTransferCount">
+                  {{ failedTransferCount }} {{ failedTransferCount === 1 ? 'Transfer' : 'Transfers' }} Needs Attention
+                  <template v-if="activeTransferCount">
+                    · {{ activeTransferCount }} {{ activeTransferCount === 1 ? 'Transfer' : 'Transfers' }} Pending
+                  </template>
+                </span>
+                <span v-else>
+                  {{ pendingTransfers.length }}
+                  {{ pendingTransfers.length === 1 ? 'Transfer' : 'Transfers' }} Pending
+                </span>
+                <ChevronUpIcon
+                  v-if="pendingTransfers.length > 0"
+                  class="h-4 w-4 transition-transform"
+                  :class="{ 'rotate-180': !isOpen }"
+                />
+              </span>
+            </WalletGuideAnchor>
           </button>
         </DropdownMenuTrigger>
 
@@ -107,6 +127,7 @@ import {
   DropdownMenuTrigger,
 } from 'reka-ui';
 import ProgressBar from '../../components/ProgressBar.vue';
+import WalletGuideAnchor from './WalletGuideAnchor.vue';
 import { abbreviateAddress } from '../../lib/Utils.ts';
 import { getEthereumWalletDisplayName } from '../../lib/Wallet.ts';
 import { createNumeralHelpers } from '../../lib/numeral.ts';
@@ -138,6 +159,7 @@ type PendingTransfer = {
   progress: ITransferProgressView;
 };
 
+const props = defineProps<{ showTransferGuide?: boolean; showBitcoinGuide?: boolean }>();
 const wallets = useWallets();
 const bitcoinLocks = getBitcoinLocks();
 const { bitcoinLockRelease } = getBitcoinTransactionOperations();

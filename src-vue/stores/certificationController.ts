@@ -45,6 +45,7 @@ import WinMoreMiningSeats from '../overlays/certification/WinMoreMiningSeats.vue
 import { OnboardingSetupStatus, TopTab, VaultingSetupStatus } from '../interfaces/IConfig.ts';
 import { ExtrinsicType, TransactionStatus } from '../lib/db/TransactionsTable.ts';
 import { TxAttemptState } from '../lib/TransactionTracker.ts';
+import { BitcoinLockStatus } from '../interfaces/IBitcoinLockRecord.ts';
 
 export enum OperationalStepId {
   BootstrapFromNode = 'BootstrapFromNode',
@@ -137,8 +138,8 @@ export const operationalSteps: Record<OperationalStepId, IOperationalStep> = {
 export const treasuryBitcoinCertificationDisplayAmount = 600n * BigInt(MICROGONS_PER_ARGON);
 export const treasuryCertificationStepIds = [
   OperationalStepId.BackupMnemonic,
-  OperationalStepId.LiquidLock,
   OperationalStepId.TreasuryTransfer,
+  OperationalStepId.LiquidLock,
   OperationalStepId.AcquireArgonBonds,
   // OperationalStepId.AcquireArgonotStakes,
 ] as const;
@@ -179,8 +180,9 @@ export const useCertificationController = defineStore('certificationController',
   const activeGuideId = Vue.ref<OperationalStepId | null>(null);
   const isTransferGuideActive = Vue.computed(() => {
     return (
-      activeGuideId.value === OperationalStepId.TreasuryTransfer ||
-      activeGuideId.value === OperationalStepId.OperationalTransfer
+      (activeGuideId.value === OperationalStepId.TreasuryTransfer ||
+        activeGuideId.value === OperationalStepId.OperationalTransfer) &&
+      !isCertificationStepComplete(activeGuideId.value)
     );
   });
 
@@ -245,6 +247,27 @@ export const useCertificationController = defineStore('certificationController',
         .getFundingUtxos(lock)
         .some(record => record.mempoolObservation || record.firstSeenBitcoinHeight);
     });
+  });
+
+  const bitcoinGuideStep = Vue.computed(() => {
+    if (
+      activeGuideId.value !== OperationalStepId.LiquidLock ||
+      isCertificationStepComplete(OperationalStepId.LiquidLock)
+    ) {
+      return;
+    }
+    if (bitcoinLocks.data.readiness !== 'ready' || bitcoinFissions.data.readiness !== 'ready') return;
+    if (bitcoinFissions.getPendingLiquids().length) return 'pending';
+
+    const fissions = bitcoinFissions.getAll();
+    const hasUnallocatedBitcoin = bitcoinLocks.getAllLocks().some(lock => {
+      if (lock.status !== BitcoinLockStatus.LockFunded) return false;
+      const allocatedSatoshis = fissions
+        .filter(fission => fission.lockId === lock.lockId)
+        .reduce((total, fission) => total + fission.satoshis, 0n);
+      return lock.fundedSatoshis > allocatedSatoshis;
+    });
+    return hasUnallocatedBitcoin ? 'liquid' : 'wallet';
   });
 
   const hasBondsUnderway = Vue.computed(() => {
@@ -1030,6 +1053,7 @@ export const useCertificationController = defineStore('certificationController',
     backButtonTriggersHome,
     activeGuideId,
     isTransferGuideActive,
+    bitcoinGuideStep,
     certificationStepCount,
     completedCertificationStepCount,
     completedTreasuryCertificationStepCount,

@@ -2,6 +2,8 @@ import * as Vue from 'vue';
 import { BondLot, defaultMicrogonsPer, MoveFrom, MoveTo, MoveToken, UnitOfMeasurement } from '@argonprotocol/apps-core';
 import { PriceIndex } from '@argonprotocol/mainchain';
 import BigNumber from 'bignumber.js';
+import { BitcoinNetwork } from '@argonprotocol/bitcoin';
+import { BitcoinFissions } from '../../src-vue/lib/BitcoinFissions.ts';
 import { createPinia, setActivePinia } from 'pinia';
 import { fn, mocked } from 'storybook/test';
 import {
@@ -198,6 +200,15 @@ export function setupAppScenario({
   mocked(getMainchainClient).mockReturnValue(new Promise(() => undefined));
   mocked(getOperationalRewardConfig).mockReturnValue(new Promise(() => undefined));
   mocked(getBitcoinLocks, { partial: true }).mockReturnValue({
+    data: Vue.reactive({
+      readiness: 'ready' as const,
+      pendingLocks: [],
+      locksByLockId: {},
+      oracleBitcoinBlockHeight: 0,
+      bitcoinNetwork: BitcoinNetwork.Bitcoin,
+      financialRevision: 0,
+      isReconciliationPending: false,
+    }),
     getAllLocks: fn(() => []),
     getLockById: fn(() => undefined),
     load: fn(async () => undefined),
@@ -207,21 +218,21 @@ export function setupAppScenario({
       getUnresolvedOrphanRecords: fn(() => []),
     } as never,
   });
-  mocked(getBitcoinFissions, { partial: true }).mockReturnValue({
-    data: Vue.reactive({
-      fissionsById: {},
-      activeFissionIds: new Set<number>(),
-      minimumRatchetPercent: 5n,
-      readiness: 'ready' as const,
-      financialRevision: 1,
-    }),
-    getAll: fn(() => []),
-    getArchived: fn(() => []),
-    getRecords: fn(() => []),
-    getLiquids: fn(() => []),
-    load: fn(async () => undefined),
-    currentLoadPromise: Promise.resolve(),
+  const bitcoinFissions = Object.create(BitcoinFissions.prototype) as BitcoinFissions;
+  bitcoinFissions.data = Vue.reactive({
+    fissionsById: {},
+    activeFissionIds: new Set<number>(),
+    minimumRatchetPercent: 5n,
+    readiness: 'ready' as const,
+    financialRevision: 1,
   });
+  bitcoinFissions.load = fn(async () => undefined);
+  Object.defineProperty(bitcoinFissions, 'currentLoadPromise', {
+    configurable: true,
+    writable: true,
+    value: Promise.resolve(),
+  });
+  mocked(getBitcoinFissions).mockReturnValue(bitcoinFissions);
   mocked(getArgonBonds, { partial: true }).mockReturnValue({
     bondTotals: BondLot.getTotals([]),
     load: fn(async () => undefined),
@@ -252,6 +263,8 @@ export function setupAppScenario({
     defaultArgonAddress: defaultArgonWallet.address,
     vaultingAddress: '5SyntheticVaultingWallet',
     liquidLockingAddress: '5SyntheticLiquidLockingWallet',
+    coreEthereumAddress: '0x4444444444444444444444444444444444444444',
+    exportEthereumPrivateKey: fn(async () => `0x${'34'.repeat(32)}` as const),
     exportDefaultArgonPrivateKey: fn(async () => `0x${'12'.repeat(32)}`),
     getMiningBotSubaccounts: fn(async () => ({})),
   };

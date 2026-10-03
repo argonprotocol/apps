@@ -1,18 +1,21 @@
 <template>
   <div class="pl-2">
     <p class="text-md leading-7">
-      Transfer Argons from Uniswap into your Argon wallet to complete this certification step.
+      ARGN can be purchased through decentralized exchanges like Uniswap on Ethereum. You'll need to add
+      {{ microgonToArgonNm(props.minimumTransferMicrogons).format('0,0.[000000]') }} ARGN to your wallet to complete the
+      Treasury certification steps.
     </p>
     <p class="text-md mt-4 leading-7">
-      In order to count towards your bonus, these funds must originate from Uniswap on Ethereum. This helps the system
-      limit fraud.
-    </p>
-    <p class="text-md mt-4 leading-7">
-      When you start this task, Argon will point you to the wallet button in the sidebar. Open your Argon wallet, choose
-      the Ethereum wallet holding the ARGN you acquired through Uniswap, set the direction from Ethereum to Argon, then
-      click
-      <strong>Move</strong>
-      next to ARGN and follow the transfer prompts.
+      When you start this task, we'll guide you to connect your Ethereum wallet and transfer ARGN into your Internal App
+      Wallet.
     </p>
   </div>
 </template>
+
+<script setup lang="ts">
+import { createNumeralHelpers } from '../../lib/numeral.ts';
+import { getCurrency } from '../../stores/currency.ts';
+
+const props = defineProps<{ minimumTransferMicrogons: bigint }>();
+const { microgonToArgonNm } = createNumeralHelpers(getCurrency());
+</script>

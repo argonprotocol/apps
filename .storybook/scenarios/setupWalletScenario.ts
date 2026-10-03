@@ -384,7 +384,7 @@ export function setupWalletScenario(state: WalletScenario): WalletScenarioState 
       releases.data.releasesById[secondRelease.id] = secondRelease;
     }
   }
-  const bitcoinLocks: BitcoinLocks = Object.assign(Object.create(BitcoinLocks.prototype) as BitcoinLocks, {
+  const bitcoinLocks: BitcoinLocks = Object.assign(Object.setPrototypeOf(getBitcoinLocks(), BitcoinLocks.prototype), {
     data: {
       bitcoinNetwork: BitcoinNetwork.Bitcoin,
       oracleBitcoinBlockHeight: 250_050,
@@ -435,6 +435,7 @@ export function setupWalletScenario(state: WalletScenario): WalletScenarioState 
       return (satoshis * microgonsAtTargetPerBtc) / 100_000_000n;
     }),
     isSecuritizationHoldExpired: fn(() => false),
+    getSecuritizationHoldExpirationTime: fn(() => Date.UTC(2026, 11, 15, 16, 0, 0)),
     createLockSummary: fn((lock: IBitcoinLockRecord): IBitcoinLockSummary => {
       const satoshis = lock.fundedSatoshis || lock.securitizedSatoshis;
       const valueOfBtc = currency.convertSatToMicrogon(satoshis);
@@ -641,6 +642,14 @@ export function setupWalletScenario(state: WalletScenario): WalletScenarioState 
             })
           : fn(async () => createEthereumWallet(importedWallet)),
       importMnemonic: fn(async () => createEthereumWallet(importedWallet)),
+      rename: fn(async (wallet: WalletForEthereum, name: string) => {
+        wallet.setRecord({ ...wallet.record!, name: name.trim() });
+      }),
+      disconnect: fn(async (wallet: WalletForEthereum) => {
+        ethereumWallets.delete(wallet.id!);
+        const connectedWallets = wallets.ethereumWallets.persistedWallets as WalletForEthereum[];
+        connectedWallets.splice(connectedWallets.indexOf(wallet), 1);
+      }),
     },
   });
   wallets.argonWallets.defaultArgonWallet.data = wallets.defaultArgonWallet;
@@ -865,6 +874,7 @@ function getScanEthereumWalletBalances(
 function createEthereumWallet(record: IWalletRecord, data?: IWalletData<WalletType.ethereum>): WalletForEthereum {
   const wallet = new WalletForEthereum(record.address, undefined, record);
   if (data) wallet.data = Vue.reactive(data);
+  wallet.refresh = fn(async () => undefined);
   return wallet;
 }
 
@@ -936,6 +946,7 @@ function createInboundTransfer(state: WalletTransferScenario): IEthereumInboundA
   return {
     id: 'storybook-inbound-transfer',
     moveToken: MoveToken.ARGN,
+    startedAt: Date.parse('2026-08-16T12:00:00.000Z'),
     sourceAddress: '0x1111111111111111111111111111111111111111',
     transferState: {
       isSubmitting,

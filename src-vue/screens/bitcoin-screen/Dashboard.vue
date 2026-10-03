@@ -50,13 +50,21 @@
             <template v-if="pendingLiquidRows.length">· {{ pendingLiquidRows.length }} creating</template>
           </span>
           <div class="flex flex-row items-stretch gap-x-3">
-            <button
-              data-testid="Dashboard.openCreateLiquid()"
-              class="text-argon-600 relative cursor-pointer"
-              @click="basicEmitter.emit('openBitcoinLiquidCreationOverlay', undefined)"
-            >
-              Create Liquid
-            </button>
+            <span class="relative">
+              <button
+                data-testid="Dashboard.openCreateLiquid()"
+                class="text-argon-600 relative cursor-pointer"
+                @click="basicEmitter.emit('openBitcoinLiquidCreationOverlay', undefined)"
+              >
+                Create Liquid
+              </button>
+              <ArrowCalloutButton
+                v-if="controller.bitcoinGuideStep === 'liquid' && !basics.overlayIsOpen"
+                guidance="Create a liquid from the Bitcoin in your wallet."
+                class="absolute right-0 bottom-full z-50 mb-3"
+                :showArrow="false"
+              />
+            </span>
             <div class="w-px bg-slate-400/50" />
             <a
               class="text-argon-600 cursor-pointer whitespace-nowrap"
@@ -70,7 +78,7 @@
 
         <section class="mt-4 flex grow flex-col gap-y-3 px-9 pb-10">
           <article
-            v-for="liquid in pendingLiquidRows"
+            v-for="(liquid, index) in pendingLiquidRows"
             :key="liquid.liquidId"
             :data-testid="`PendingBitcoinLiquid-${liquid.liquidId}`"
             class="flex cursor-pointer flex-row items-center gap-2.5 rounded border-[1.5px] border-dashed border-slate-900/30 bg-white px-3.5 py-2 hover:bg-slate-50/50"
@@ -83,12 +91,22 @@
                   {{ satToBtcNm(liquid.satoshis).format('0,0.[0000]') }} BTC Liquid
                   {{ liquid.error ? 'Needs Attention' : 'Is Being Created' }}
                 </span>
-                <button
-                  class="border-argon-800/50 text-argon-600 hover:bg-argon-700 cursor-pointer rounded-md border px-4 py-0.5 font-semibold whitespace-nowrap hover:text-white hover:shadow-lg"
-                  @click.stop="openPendingLiquidDetails(liquid)"
+                <WalletGuideAnchor
+                  :open="controller.bitcoinGuideStep === 'pending' && index === 0 && !basics.overlayIsOpen"
+                  side="left"
+                  :guidance="
+                    liquid.error
+                      ? 'Open this Liquid to review the error and continue.'
+                      : 'Open this Liquid to watch its progress.'
+                  "
                 >
-                  {{ liquid.error ? 'Review' : 'View Progress' }}
-                </button>
+                  <button
+                    class="border-argon-800/50 text-argon-600 hover:bg-argon-700 cursor-pointer rounded-md border px-4 py-0.5 font-semibold whitespace-nowrap hover:text-white hover:shadow-lg"
+                    @click.stop="openPendingLiquidDetails(liquid)"
+                  >
+                    {{ liquid.error ? 'Review' : 'View Progress' }}
+                  </button>
+                </WalletGuideAnchor>
               </div>
               <div v-if="liquid.error" class="border-t border-slate-400/30 pt-3 pb-3 text-sm text-amber-700">
                 {{ liquid.error }}
@@ -297,6 +315,10 @@ import { NetworkConfig, SATOSHIS_PER_BITCOIN, UnitOfMeasurement } from '@argonpr
 
 import BitcoinIcon from '../../assets/wallets/bitcoin.svg?component';
 import FormattedMoney from '../../components/FormattedMoney.vue';
+import ArrowCalloutButton from '../../components/ArrowCalloutButton.vue';
+import WalletGuideAnchor from '../../wallets/components/WalletGuideAnchor.vue';
+import { useBasics } from '../../stores/basics.ts';
+import { useCertificationController } from '../../stores/certificationController.ts';
 import ProgressBar from '../../components/ProgressBar.vue';
 import basicEmitter from '../../emitters/basicEmitter.ts';
 import numeral, { createNumeralHelpers } from '../../lib/numeral.ts';
@@ -332,6 +354,8 @@ dayjs.extend(relativeTime);
 const currency = getCurrency();
 const config = getConfig();
 const financials = useFinancials();
+const basics = useBasics();
+const controller = useCertificationController();
 const myVault = getMyVault();
 const vaults = getVaults();
 const bitcoinFissions = getBitcoinFissions();
