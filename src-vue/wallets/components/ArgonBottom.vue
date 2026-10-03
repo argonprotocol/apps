@@ -4,12 +4,9 @@
       <div v-if="props.mode === 'chooser'" class="mt-5 text-center">
         <AlertCalloutButton
           v-if="
-            [
-              OperationalStepId.ActivateVault,
-              OperationalStepId.FirstMiningSeat,
-              OperationalStepId.TreasuryTransfer,
-              OperationalStepId.OperationalTransfer,
-            ].includes(controller?.activeGuideId as any)
+            controller.activeGuideId &&
+            !controller.isCertificationStepComplete(controller.activeGuideId) &&
+            [OperationalStepId.ActivateVault, OperationalStepId.FirstMiningSeat].includes(controller.activeGuideId)
           "
           :showArrow="false"
           label="Critical Alert"

@@ -2,6 +2,7 @@ import { UnitOfMeasurement } from '@argonprotocol/apps-core';
 import type { Address } from 'viem';
 import type { Currency } from './Currency.ts';
 import type { IWalletRecord } from './db/WalletsTable.ts';
+import { shallowReactive } from 'vue';
 
 type IOtherChain = 'ethereum' | 'base';
 
@@ -57,14 +58,14 @@ export const defaultWalletData: Omit<IWallet, 'type'> = {
 };
 
 export abstract class WalletForChain<TType extends IWallet['type']> {
-  public record?: IWalletRecord;
   public data: IWalletData<TType>;
+  private readonly recordState = shallowReactive<{ record?: IWalletRecord }>({});
 
   protected constructor({ address, type, record }: { address: string; type: TType; record?: IWalletRecord }) {
     if (record && record.address.toLowerCase() !== address.toLowerCase()) {
       throw new Error(`Wallet record ${record.id} does not match wallet address ${address}`);
     }
-    this.record = record;
+    this.recordState.record = record;
     this.data = {
       ...defaultWalletData,
       type,
@@ -76,6 +77,10 @@ export abstract class WalletForChain<TType extends IWallet['type']> {
     return this.data.address;
   }
 
+  public get record(): IWalletRecord | undefined {
+    return this.recordState.record;
+  }
+
   public get type(): TType {
     return this.data.type;
   }
@@ -84,7 +89,7 @@ export abstract class WalletForChain<TType extends IWallet['type']> {
     if (record && record.address.toLowerCase() !== this.address.toLowerCase()) {
       throw new Error(`Wallet record ${record.id} does not match wallet address ${this.address}`);
     }
-    this.record = record;
+    this.recordState.record = record;
   }
 }
 

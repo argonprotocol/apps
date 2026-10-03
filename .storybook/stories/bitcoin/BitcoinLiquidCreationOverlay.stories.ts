@@ -13,6 +13,9 @@ import { useFinancials } from '../../../src-vue/stores/financials.ts';
 import { getVaults, retryVaults } from '../../../src-vue/stores/vaults.ts';
 import { setupAppScenario } from '../../scenarios/setupAppScenario.ts';
 import { createScenarioVault } from '../../scenarios/createScenarioVault.ts';
+import { OperationalStepId, useCertificationController } from '../../../src-vue/stores/certificationController.ts';
+
+const isInteractive = Vue.ref(false);
 
 const insuredSources: IBitcoinLiquidSource[] = [
   {
@@ -98,6 +101,8 @@ const meta = {
   render: args => ({
     components: { BitcoinLiquidCreationOverlay },
     setup() {
+      Vue.onMounted(() => document.addEventListener('keydown', preventFixedPreviewKeyboard, true));
+      Vue.onUnmounted(() => document.removeEventListener('keydown', preventFixedPreviewKeyboard, true));
       const storyKey = Vue.computed(() => {
         return args.state.sources
           .map(
@@ -107,11 +112,17 @@ const meta = {
           .join('|');
       });
 
-      return { args, storyKey };
+      return { args, storyKey, isInteractive };
+
+      function preventFixedPreviewKeyboard(event: KeyboardEvent) {
+        if (isInteractive.value) return;
+        event.preventDefault();
+        event.stopImmediatePropagation();
+      }
     },
     template: `
       <BitcoinLiquidCreationOverlay :key="storyKey" v-bind="args" />
-      <div class="fixed inset-0 z-[10000] cursor-not-allowed" aria-label="Liquid controls are disabled in this fixed preview">
+      <div v-if="!isInteractive" class="pointer-events-auto fixed inset-0 z-[10000] cursor-not-allowed" aria-label="Liquid controls are disabled in this fixed preview">
         <span class="pointer-events-none absolute top-4 left-1/2 -translate-x-1/2 rounded bg-slate-900 px-3 py-1.5 text-sm font-semibold text-white shadow">
           Fixed state preview
         </span>
@@ -119,6 +130,7 @@ const meta = {
     `,
   }),
   beforeEach: () => {
+    isInteractive.value = false;
     setupAppScenario({
       selectedTab: TopTab.BitcoinLocks,
       config: { upstreamOperator: { name: 'Atlas Operator', vaultId: 7 } },
@@ -140,6 +152,85 @@ export default meta;
 type Story = StoryObj<typeof meta>;
 
 export const Form: Story = {};
+
+export const LiquidAmountGuide: Story = {
+  args: {
+    state: {
+      ...state,
+      treasuryCertificationRequiredSatoshis: 10_000_000n,
+      preview: { ...preview, liquidityMicrogons: 6_800_000_000n },
+    },
+  },
+  beforeEach: () => {
+    useCertificationController().activeGuideId = OperationalStepId.LiquidLock;
+    isInteractive.value = true;
+  },
+  play: () => {
+    isInteractive.value = false;
+  },
+};
+
+export const LiquidCertificationAmountUnavailableGuide: Story = {
+  ...LiquidAmountGuide,
+  args: { state: { ...state, treasuryCertificationRequiredSatoshis: 60_000_000n } },
+};
+
+export const LiquidCertificationAmountLoading: Story = {
+  args: { state: { ...state, preview: undefined, treasuryCertificationRequiredSatoshis: 0n } },
+  beforeEach: () => {
+    useCertificationController().activeGuideId = OperationalStepId.LiquidLock;
+  },
+};
+
+export const LiquidReviewAndCreateGuide: Story = {
+  ...LiquidAmountGuide,
+  play: async () => {
+    const body = within(document.body);
+    await userEvent.click(await body.findByRole('button', { name: 'Next' }));
+    isInteractive.value = false;
+  },
+};
+
+export const LiquidMinimumCertificationReviewGuide: Story = {
+  ...LiquidReviewAndCreateGuide,
+  args: { state: { ...state, treasuryCertificationRequiredSatoshis: 50_000n } },
+};
+
+export const LiquidVaultSelectionGuide: Story = {
+  ...LiquidAmountGuide,
+  args: { state: { ...state, stage: 'vaults' } },
+};
+
+export const LiquidSubmittingGuide: Story = {
+  args: { state: { ...state, isSubmitting: true } },
+  beforeEach: () => {
+    useCertificationController().activeGuideId = OperationalStepId.LiquidLock;
+  },
+};
+
+export const LiquidCreatingGuide: Story = {
+  args: { state: { ...state, stage: 'creating', progressPct: 48 } },
+  beforeEach: () => {
+    useCertificationController().activeGuideId = OperationalStepId.LiquidLock;
+  },
+};
+
+export const LiquidRetryGuide: Story = {
+  ...LiquidAmountGuide,
+  args: { state: { ...state, stage: 'creating', progressPct: 48, errorMessage: 'Transaction dropped.' } },
+};
+
+export const LiquidCompleteGuide: Story = {
+  ...LiquidAmountGuide,
+  args: { state: { ...state, stage: 'complete' }, liquid: collectingLiquid },
+};
+
+export const LiquidCompleteWithoutScheduleGuide: Story = {
+  ...LiquidAmountGuide,
+  args: {
+    state: { ...state, stage: 'complete', errorMessage: 'Reopen this Liquid to check its collection schedule.' },
+  },
+};
 
 export const VaultSelection: Story = {
   args: {
@@ -230,7 +321,9 @@ export const VaultSelectionRetried: Story = {
     });
   },
   play: async () => {
+    isInteractive.value = true;
     await userEvent.click(within(document.body).getByRole('button', { name: 'Retry' }));
+    isInteractive.value = false;
   },
 };
 
@@ -247,8 +340,10 @@ export const VaultSelectionEmpty: Story = {
 
 export const VaultExplanation: Story = {
   play: async () => {
+    isInteractive.value = true;
     const body = within(document.body);
     await userEvent.hover(body.getByRole('button', { name: /Vaults/ }));
+    isInteractive.value = false;
     await body.findAllByRole('tooltip', { hidden: true });
   },
 };

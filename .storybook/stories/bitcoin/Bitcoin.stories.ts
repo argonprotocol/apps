@@ -12,7 +12,11 @@ import {
   getBitcoinLocks,
   getBitcoinTransactionOperations,
 } from '../../../src-vue/stores/bitcoin.ts';
-import { useCertificationController } from '../../../src-vue/stores/certificationController.ts';
+import { getConfig } from '../../../src-vue/stores/config.ts';
+import { OperationalStepId, useCertificationController } from '../../../src-vue/stores/certificationController.ts';
+import * as Vue from 'vue';
+import CertificationOverlay from '../../../src-vue/overlays/CertificationOverlay.vue';
+import basicEmitter from '../../../src-vue/emitters/basicEmitter.ts';
 
 const meta = {
   title: 'Bitcoin/Overview',
@@ -36,6 +40,78 @@ export const LoadError: Story = {
 
 export const Empty: Story = {
   beforeEach: () => setupBitcoinEmptyScenario(),
+};
+
+export const BitcoinLockWalletGuide: Story = {
+  beforeEach: () => {
+    setupBitcoinEmptyScenario();
+    getConfig().hasExtensionOperations = false;
+    const controller = useCertificationController();
+    controller.isLoaded = true;
+    controller.chainProgress.hasOperationalAccount = true;
+    controller.chainProgress.hasBitcoinLock = false;
+    controller.activeGuideId = OperationalStepId.LiquidLock;
+  },
+};
+
+export const BitcoinFirstLiquidGuide: Story = {
+  parameters: {
+    docs: { description: { story: 'Funded Bitcoin points directly to the Create Your First Liquid button.' } },
+  },
+  beforeEach: () => {
+    setupBitcoinEmptyScenario({ walletBitcoin: true });
+    getConfig().hasExtensionOperations = false;
+    const controller = useCertificationController();
+    controller.isLoaded = true;
+    controller.chainProgress.hasOperationalAccount = true;
+    controller.chainProgress.hasBitcoinLock = false;
+    controller.activeGuideId = OperationalStepId.LiquidLock;
+  },
+};
+
+export const BitcoinAdditionalLiquidGuide: Story = {
+  beforeEach: () => {
+    setupBitcoinPortfolioScenario();
+    getConfig().hasExtensionOperations = false;
+    const controller = useCertificationController();
+    controller.isLoaded = true;
+    controller.chainProgress.hasOperationalAccount = true;
+    controller.chainProgress.hasBitcoinLock = false;
+    controller.activeGuideId = OperationalStepId.LiquidLock;
+  },
+};
+
+export const BitcoinGuideComplete: Story = {
+  beforeEach: () => {
+    setupBitcoinPortfolioScenario();
+    getConfig().hasExtensionOperations = false;
+    const controller = useCertificationController();
+    controller.isLoaded = true;
+    controller.chainProgress.hasOperationalAccount = true;
+    controller.chainProgress.hasBitcoinLock = true;
+    controller.activeGuideId = OperationalStepId.LiquidLock;
+  },
+};
+
+export const LiquidTaskResume: Story = {
+  beforeEach: () => {
+    setupBitcoinPortfolioScenario({ feeWaiver: true, createLiquidAvailableVaultId: 7, pendingLiquidCreation: true });
+    getBitcoinFissions().data.fissionsById = {};
+    getConfig().hasExtensionOperations = false;
+    const controller = useCertificationController();
+    controller.isLoaded = true;
+    controller.chainProgress.hasOperationalAccount = true;
+    controller.chainProgress.hasTreasuryUniswapTransfer = true;
+    controller.chainProgress.hasBitcoinLock = false;
+    controller.activeGuideId = null;
+  },
+  render: () => ({
+    components: { AppScreen, Bitcoin, CertificationOverlay },
+    setup() {
+      Vue.onMounted(() => basicEmitter.emit('openOperationalOverlay', OperationalStepId.LiquidLock));
+    },
+    template: '<AppScreen interactive><Bitcoin /></AppScreen><CertificationOverlay />',
+  }),
 };
 
 export const WalletBitcoinWithoutLiquids: Story = {
@@ -267,6 +343,12 @@ export const CloseWhileCreatingLiquid: Story = {
   beforeEach: () => {
     setupBitcoinPortfolioScenario({ pendingLiquidCreation: true });
     getBitcoinFissions().data.fissionsById = {};
+    getConfig().hasExtensionOperations = false;
+    const controller = useCertificationController();
+    controller.isLoaded = true;
+    controller.chainProgress.hasOperationalAccount = true;
+    controller.chainProgress.hasBitcoinLock = false;
+    controller.activeGuideId = OperationalStepId.LiquidLock;
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
@@ -277,5 +359,6 @@ export const CloseWhileCreatingLiquid: Story = {
     await userEvent.click(await body.findByRole('button', { name: /^Create Liquid/ }));
     await body.findByText('Creating Liquid...');
     await userEvent.click(await body.findByTestId('OverlayBase.clickClose()'));
+    await userEvent.click(await body.findByRole('button', { name: 'Task guidance' }));
   },
 };

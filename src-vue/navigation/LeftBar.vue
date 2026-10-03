@@ -56,16 +56,6 @@
       <div>
         <header class="relative flex flex-row items-center">
           <div class="grow">Treasury</div>
-          <div class="relative flex">
-            <button type="button" class="cursor-pointer" @click="openDefaultArgonWallet">
-              <MoreIcon class="h-4 opacity-80" />
-            </button>
-            <ArrowCalloutButton
-              v-if="controller.activeGuideId === OperationalStepId.TreasuryTransfer && !basics.overlayIsOpen"
-              guidance="Open your Argon wallet."
-              class="absolute top-1/2 right-0 z-50 translate-x-[calc(100%+0.75rem)] -translate-y-1/2"
-            />
-          </div>
         </header>
         <ul>
           <li @click="goto(TopTab.BitcoinLocks)" :class="{ Selected: controller.selectedTab === TopTab.BitcoinLocks }">
@@ -84,10 +74,15 @@
               </div>
               <ArrowCalloutButton
                 v-if="
-                  controller.activeGuideId === OperationalStepId.LiquidLock &&
-                  controller.selectedTab !== TopTab.BitcoinLocks
+                  (controller.bitcoinGuideStep === 'liquid' || controller.bitcoinGuideStep === 'pending') &&
+                  controller.selectedTab !== TopTab.BitcoinLocks &&
+                  !basics.overlayIsOpen
                 "
-                guidance="Open Bitcoin Liquids to continue this task."
+                :guidance="
+                  controller.bitcoinGuideStep === 'pending'
+                    ? 'Open Bitcoin Liquids to follow your liquid’s progress.'
+                    : 'Your Bitcoin has arrived. Open Bitcoin Liquids to create a liquid.'
+                "
                 class="absolute top-1/2 right-0 z-50 translate-x-[calc(100%+0.75rem)] -translate-y-1/2"
               />
             </article>
@@ -140,16 +135,6 @@
       <div>
         <header class="relative flex flex-row items-center">
           <div class="grow">Operations</div>
-          <div class="relative flex">
-            <button type="button" class="cursor-pointer" @click="openDefaultArgonWallet">
-              <MoreIcon class="h-4 opacity-80" />
-            </button>
-            <ArrowCalloutButton
-              v-if="controller.activeGuideId === OperationalStepId.OperationalTransfer && !basics.overlayIsOpen"
-              guidance="Open your Argon wallet."
-              class="absolute top-1/2 right-0 z-50 translate-x-[calc(100%+0.75rem)] -translate-y-1/2"
-            />
-          </div>
           <ArrowCalloutButton
             v-if="showOperationsNavigationCallouts"
             label="New"
@@ -460,7 +445,17 @@
         <div class="bg-argon-100/15 h-full w-full" style="text-shadow: 1px 1px 0 white">
           <div class="absolute top-0 left-0 h-full w-5 rounded-bl-lg bg-linear-to-r from-slate-600/10 to-transparent" />
           <div class="flex flex-col justify-center px-1 py-1">
-            <div @click="openSelectedWallet" class="wallet-summary cursor-pointer rounded px-2">
+            <div @click="openSelectedWallet" class="wallet-summary relative cursor-pointer rounded px-2">
+              <ArrowCalloutButton
+                v-if="
+                  !basics.overlayIsOpen &&
+                  (controller.isTransferGuideActive || controller.bitcoinGuideStep === 'wallet')
+                "
+                :guidance="
+                  controller.bitcoinGuideStep === 'wallet' ? 'Send Bitcoin to your wallet.' : 'Open your wallet.'
+                "
+                class="absolute top-1/2 right-0 z-50 translate-x-[calc(100%+0.75rem)] -translate-y-1/2"
+              />
               <header class="flex w-full flex-row items-center border-b border-slate-500/20 pt-1! pb-1.5!">
                 <div class="capitalize">Internal App Wallet</div>
                 <Tooltip v-if="bitcoinDepositAttention" :content="bitcoinDepositAttention" side="top" :asChild="true">
@@ -549,7 +544,6 @@ import { useBasics } from '../stores/basics.ts';
 import type { FinancialGroup } from '../interfaces/IFinancialPosition.ts';
 import { open as tauriOpenUrl } from '@tauri-apps/plugin-shell';
 import DiamondsIcon from '../assets/diamonds.svg?component';
-import MoreIcon from '../assets/more.svg';
 import GiftIcon from '../assets/gift.svg';
 import BitcoinIcon from '../assets/wallets/bitcoin.svg';
 import ArgonBondIcon from '../assets/wallets/tokens/argon.svg';
@@ -658,10 +652,6 @@ function formatBondValue(asset: 'ARGN' | 'ARGNOT'): string {
   const summary = financials.financialPositionAggregate.groupSummaries.bonds;
   if (summary.state !== 'ready' && !(summary.state === 'stale' && summary.positions.length)) return '--';
   return microgonToMoneyNm(financials.bondSummariesByAsset[asset].currentValue).format('0,0.00');
-}
-
-function openDefaultArgonWallet() {
-  basicEmitter.emit('openWalletOverlay', { wallet: wallets.argonWallets.defaultArgonWallet });
 }
 
 function openSecuritization() {
