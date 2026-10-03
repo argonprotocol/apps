@@ -10,6 +10,7 @@ import { getClient, type ArgonClient } from '@argonprotocol/mainchain';
 import { ApiPromise } from '@polkadot/api';
 import { encodeAddress } from '@polkadot/util-crypto';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { SyncStateKeys } from 'src-vue/lib/db/SyncStateTable.ts';
 import { reduceFinancialPositions } from 'src-vue/lib/financials/index.ts';
 import { AppSession } from '../AppSession.ts';
 import { AppSessionDiagnostics } from '../AppSessionDiagnostics.ts';
@@ -45,7 +46,21 @@ describe('partial capture diagnostics', () => {
     mkdirSync(packagePath);
     const databasePath = Path.join(packagePath, 'database.sqlite');
     const database = new DatabaseSync(databasePath);
-    database.exec('CREATE TABLE RecoveryCheckpoint (blockNumber INTEGER); INSERT INTO RecoveryCheckpoint VALUES (100)');
+    database.exec(`
+      CREATE TABLE RecoveryCheckpoint (blockNumber INTEGER); INSERT INTO RecoveryCheckpoint VALUES (100);
+      CREATE TABLE SyncState (key TEXT PRIMARY KEY, state TEXT);
+      CREATE TABLE BitcoinLocks (lockId INTEGER, isHistoryRecoveryPending INTEGER);
+      CREATE TABLE BitcoinFissions (ownerAccount TEXT, liquidId INTEGER, closedAtArgonBlock INTEGER);
+    `);
+    database
+      .prepare('INSERT INTO SyncState VALUES (?, ?)')
+      .run(SyncStateKeys.WalletHistory, JSON.stringify({ asOfBlock: 100 }));
+    database.prepare('INSERT INTO SyncState VALUES (?, ?)').run(
+      SyncStateKeys.FinancialHistory,
+      JSON.stringify({
+        domainCheckpoints: { bitcoin: { asOfBlock: 100 }, bonds: { asOfBlock: 100 }, vaulting: { asOfBlock: 100 } },
+      }),
+    );
     database.close();
     const registry: StartingDatabaseRegistry = {
       formatVersion: 4,
@@ -114,11 +129,36 @@ describe('partial capture diagnostics', () => {
       label: 'scenario-004',
       instancePackagePath: usablePackagePath,
     });
+    const incompletePackagePath = Path.join(directory, 'scenario-003');
+    mkdirSync(incompletePackagePath);
+    const incompleteDatabasePath = Path.join(incompletePackagePath, 'database.sqlite');
+    copyFileSync(databasePath, incompleteDatabasePath);
+    const incompleteDatabase = new DatabaseSync(incompleteDatabasePath);
+    incompleteDatabase.prepare('UPDATE SyncState SET state = ? WHERE key = ?').run(
+      JSON.stringify({
+        domainCheckpoints: {
+          bitcoin: { asOfBlock: 99, partialRecovery: true },
+          bonds: { asOfBlock: 100 },
+          vaulting: { asOfBlock: 100 },
+        },
+      }),
+      SyncStateKeys.FinancialHistory,
+    );
+    incompleteDatabase.exec('INSERT INTO BitcoinLocks VALUES (1, 1)');
+    incompleteDatabase.close();
     registry.accounts.push({
       ...registry.accounts[0],
       label: 'scenario-003',
-      instancePackagePath: Path.join(directory, 'incomplete'),
-      history: { ...registry.accounts[0].history, complete: false },
+      instancePackagePath: incompletePackagePath,
+      databaseSha256: createHash('sha256').update(readFileSync(incompleteDatabasePath)).digest('hex'),
+      history: {
+        ...registry.accounts[0].history,
+        complete: false,
+        financialDomains: ['bonds', 'vaulting'],
+        partialFinancialDomains: ['bitcoin'],
+        pendingBitcoinLocks: 1,
+        recoveryError: 'Missing creation event',
+      },
     });
     mkdirSync(Path.join(directory, 'capture'));
     const registryPath = Path.join(directory, 'capture/starting-databases.json');
@@ -234,6 +274,7 @@ describe('partial capture diagnostics', () => {
     vi.spyOn(AppSessionDiagnostics, 'getInstanceDirectory').mockImplementation((_appId, _network, instance) =>
       Path.join(directory, 'app', instance),
     );
+    let repairCandidateHistory = false;
     const activeApps = new Set<FlowSession>();
     const persistedAtLaunch: AccountReviewResult[][] = [];
     let resultsPath = Path.join(directory, 'review/account-results.json');
@@ -245,12 +286,32 @@ describe('partial capture diagnostics', () => {
         AppSession.resolveInstanceDirectory({ networkName: 'mainnet', instanceName: options.sessionName! }),
       );
       vi.spyOn(session, 'waitForReady').mockResolvedValue();
-      vi.spyOn(session, 'recoverAccountHistory').mockResolvedValue({
-        accountId: registry.accounts[0].defaultArgonAccountId,
-        throughBlock: 103,
-        previousLife: { detected: false, recovered: true },
-        walletHistory: { asOfBlock: 103, addresses: [], activityMasks: {} },
-        financialHistory: { accountId: registry.accounts[0].defaultArgonAccountId, asOfBlock: 103 },
+      vi.spyOn(session, 'recoverAccountHistory').mockImplementation(async () => {
+        const candidateDatabase = new DatabaseSync(Path.join(session.appInstanceDirectory, 'database.sqlite'));
+        candidateDatabase
+          .prepare('UPDATE SyncState SET state = ? WHERE key = ?')
+          .run(JSON.stringify({ asOfBlock: 103 }), SyncStateKeys.WalletHistory);
+        const repairsBitcoin = !options.sessionName!.endsWith('scenario-003') || repairCandidateHistory;
+        candidateDatabase.prepare('UPDATE SyncState SET state = ? WHERE key = ?').run(
+          JSON.stringify({
+            domainCheckpoints: {
+              bitcoin: { asOfBlock: repairsBitcoin ? 103 : 99, partialRecovery: !repairsBitcoin },
+              bonds: { asOfBlock: 103 },
+              vaulting: { asOfBlock: 103 },
+            },
+          }),
+          SyncStateKeys.FinancialHistory,
+        );
+        if (repairsBitcoin) candidateDatabase.exec('UPDATE BitcoinLocks SET isHistoryRecoveryPending = 0');
+        candidateDatabase.close();
+        // App/driver boundary claims success even when durable Bitcoin recovery remains unresolved.
+        return {
+          accountId: registry.accounts[0].defaultArgonAccountId,
+          throughBlock: 103,
+          previousLife: { detected: false, recovered: true },
+          walletHistory: { asOfBlock: 103, addresses: [], activityMasks: {} },
+          financialHistory: { accountId: registry.accounts[0].defaultArgonAccountId, asOfBlock: 103 },
+        };
       });
       vi.spyOn(session, 'run').mockResolvedValue({
         elapsedMs: 0,
@@ -278,7 +339,7 @@ describe('partial capture diagnostics', () => {
       Path.join(directory, 'review'),
     ];
     writeFileSync(databasePath, 'damaged database');
-    await expect(LocalMainnetReview.runFromCommandLine()).rejects.toThrow('1 account review(s) failed');
+    await expect(LocalMainnetReview.runFromCommandLine()).rejects.toThrow('2 account review(s) failed');
     const failedResult = {
       label: 'scenario-001',
       status: 'failed',
@@ -286,22 +347,41 @@ describe('partial capture diagnostics', () => {
       durationMs: expect.any(Number),
     };
     expect(persistedAtLaunch[0]).toEqual([failedResult]);
-    expect(JSON.parse(readFileSync(resultsPath, 'utf8'))).toEqual([
+    const failedResults = JSON.parse(readFileSync(resultsPath, 'utf8')) as AccountReviewResult[];
+    expect(failedResults).toMatchObject([
       failedResult,
-      { label: 'scenario-004', status: 'passed', durationMs: expect.any(Number) },
+      { label: 'scenario-004', status: 'passed', history: { throughBlock: 103, pendingBitcoinLocks: 0 } },
+      { label: 'scenario-003', status: 'failed', error: expect.stringContaining('incomplete history after restart') },
     ]);
     expect(activeApps.size).toBe(0);
     expect(runningResources.size).toBe(0);
 
+    repairCandidateHistory = true;
     copyFileSync(Path.join(usablePackagePath, 'database.sqlite'), databasePath);
     resultsPath = Path.join(directory, 'all-passed/account-results.json');
     process.argv[process.argv.length - 1] = Path.join(directory, 'all-passed');
     await expect(LocalMainnetReview.runFromCommandLine()).rejects.toThrow('starting database capture is incomplete');
     const passedResults = JSON.parse(readFileSync(resultsPath, 'utf8')) as AccountReviewResult[];
-    expect(passedResults).toEqual([
-      { label: 'scenario-001', status: 'passed', durationMs: expect.any(Number) },
-      { label: 'scenario-004', status: 'passed', durationMs: expect.any(Number) },
+    expect(passedResults).toMatchObject([
+      { label: 'scenario-001', status: 'passed' },
+      { label: 'scenario-004', status: 'passed' },
+      {
+        label: 'scenario-003',
+        status: 'passed',
+        history: {
+          throughBlock: 103,
+          quickCheck: 'ok',
+          pendingBitcoinLocks: 0,
+          partialFinancialDomains: [],
+          financialDomains: ['bitcoin', 'bonds', 'vaulting'],
+        },
+      },
     ]);
+    const retained = new DatabaseSync(incompleteDatabasePath, { readOnly: true });
+    expect(retained.prepare('SELECT isHistoryRecoveryPending FROM BitcoinLocks').get()?.isHistoryRecoveryPending).toBe(
+      1,
+    );
+    retained.close();
     expect(activeApps.size).toBe(0);
     expect(runningResources.size).toBe(0);
     copyFileSync(resultsPath, Path.join(directory, 'review/account-results.json'));
@@ -316,12 +396,11 @@ describe('partial capture diagnostics', () => {
     const partialReport = JSON.parse(readFileSync(Path.join(directory, 'qualification-report.json'), 'utf8'));
     expect(partialReport.qualified).toBe(false);
     expect(partialReport.captureFailures).toEqual(registry.failures);
-    expect(partialReport.skipped).toEqual([{ label: 'scenario-003', reason: 'Starting history is incomplete' }]);
+    expect(partialReport.skipped).toEqual([]);
     expect(partial.stdout).toContain('not qualified');
 
-    registry.accounts = diagnostic.registry.accounts.filter(account => account.history.complete);
     registry.failures = [];
-    registry.selection.selectedAccounts = 2;
+    registry.selection.selectedAccounts = 3;
     registry.coverage.complete = true;
     writeFileSync(registryPath, JSON.stringify(registry));
     writeFileSync(timingsPath, 'runtime-build\t2\t0\ncapture\t3\t0\nreview\t4\t0\n');
@@ -329,7 +408,18 @@ describe('partial capture diagnostics', () => {
       encoding: 'utf8',
     });
     expect(passed.status, passed.stderr).toBe(0);
-    expect(JSON.parse(readFileSync(Path.join(directory, 'qualification-report.json'), 'utf8')).qualified).toBe(true);
+    const passedReport = JSON.parse(readFileSync(Path.join(directory, 'qualification-report.json'), 'utf8'));
+    expect(passedReport.qualified).toBe(true);
+    expect(passedReport.incompleteStartingHistories).toEqual([
+      { label: 'scenario-003', error: 'Missing creation event' },
+    ]);
+    const repairedResult = passedResults.find(result => result.label === 'scenario-003')!;
+    repairedResult.history!.pendingBitcoinLocks = 1;
+    writeFileSync(resultsPath, JSON.stringify(passedResults));
+    const unresolved = spawnSync(process.execPath, ['--import', 'tsx', reportPath, '--directory', directory], {
+      encoding: 'utf8',
+    });
+    expect(unresolved.status, unresolved.stderr).toBe(1);
     writeFileSync(resultsPath, JSON.stringify([{ label: 'unreviewed-account', status: 'passed', durationMs: 10 }]));
     const missingReview = spawnSync(process.execPath, ['--import', 'tsx', reportPath, '--directory', directory], {
       encoding: 'utf8',

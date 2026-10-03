@@ -15,12 +15,18 @@ import { LocalMainnet } from './LocalMainnet.ts';
 import { loadLocalMainnetManifest } from './manifest.ts';
 import type { CapturedStartingDatabase, StartingDatabaseRegistry } from './StartingDatabaseCapture.ts';
 import { RuntimeCandidate, type CandidateRuntimeArtifact } from './RuntimeCandidate.ts';
+import {
+  inspectStartingDatabase,
+  isStartingDatabaseComplete,
+  type StartingDatabaseRecoveryProgress,
+} from './StartingDatabaseInspection.ts';
 
 export interface AccountReviewResult {
   label: string;
   status: 'passed' | 'failed';
   error?: string;
   durationMs: number;
+  history?: StartingDatabaseRecoveryProgress & { throughBlock: number; quickCheck: string };
 }
 
 export class LocalMainnetReview {
@@ -85,10 +91,7 @@ export class LocalMainnetReview {
       );
     }
     const { registry, captureQualified } = await LocalMainnetReview.loadRegistry(accountsPath, values.diagnostic);
-    const accounts =
-      values.diagnostic && !captureQualified
-        ? registry.accounts.filter(account => account.history?.complete)
-        : registry.accounts;
+    const accounts = registry.accounts;
     const firstAccount = values.account ? LocalMainnetReview.findAccount(accounts, values.account) : accounts[0];
     if (!firstAccount) throw new Error('Starting database registry contains no accounts');
 
@@ -137,8 +140,8 @@ export class LocalMainnetReview {
     for (const account of accounts) {
       const startedAt = Date.now();
       try {
-        await this.open(account, false);
-        this.batchResults.push({ label: account.label, status: 'passed', durationMs: Date.now() - startedAt });
+        const history = await this.open(account, false);
+        this.batchResults.push({ label: account.label, status: 'passed', durationMs: Date.now() - startedAt, history });
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         this.validationFailures.push(account.label);
@@ -220,7 +223,10 @@ export class LocalMainnetReview {
     );
   }
 
-  private async open(account: CapturedStartingDatabase, focusAppWindow = true): Promise<void> {
+  private async open(
+    account: CapturedStartingDatabase,
+    focusAppWindow = true,
+  ): Promise<AccountReviewResult['history']> {
     await this.mainnet.closeApp();
     await LocalMainnetReview.verifyStartingDatabase(account);
 
@@ -292,10 +298,35 @@ export class LocalMainnetReview {
           `Recovery idempotence verified (financial ${restartedSnapshot.financialHash.slice(0, 12)}, database ${restartedSnapshot.databaseHash.slice(0, 12)}).`,
         );
       }
-      console.info(`Recovered ${account.label} history through block ${this.historyThroughBlock.toLocaleString()}.`);
+      await session.checkpointDatabase();
+      try {
+        const inspection = inspectStartingDatabase(
+          Path.join(session.appInstanceDirectory, 'database.sqlite'),
+          this.historyThroughBlock,
+          account.defaultArgonAccountId,
+        );
+        if (!isStartingDatabaseComplete(inspection, this.historyThroughBlock)) {
+          throw new Error(`Candidate database has incomplete history after restart: ${JSON.stringify(inspection)}`);
+        }
+        console.info(`Recovered ${account.label} history through block ${this.historyThroughBlock.toLocaleString()}.`);
+        console.info(`Opened ${LocalMainnetReview.describeAccount(account)} in ${session.appInstanceDirectory}`);
+        return {
+          throughBlock: this.historyThroughBlock,
+          quickCheck: inspection.quickCheck,
+          walletHistoryThroughBlock: inspection.walletHistoryThroughBlock,
+          financialDomains: inspection.financialDomains,
+          partialFinancialDomains: inspection.partialFinancialDomains,
+          pendingBitcoinLocks: inspection.pendingBitcoinLocks,
+        };
+      } finally {
+        if (focusAppWindow) await session.resumeDatabaseWrites();
+        else await this.mainnet.closeApp();
+      }
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      console.warn(`History recovery for ${account.label} failed; the account remains open for review: ${message}`);
+      console.warn(
+        `History recovery for ${account.label} failed${focusAppWindow ? '; the account remains open for review' : ''}: ${message}`,
+      );
       if (!focusAppWindow) throw error;
       this.validationFailures.push(account.label);
     }
@@ -393,12 +424,6 @@ export class LocalMainnetReview {
     else if (registry.failures.length) qualificationFailures.push(`${registry.failures.length} capture(s) failed`);
     if (registry.accounts.length !== registry.selection?.selectedAccounts) {
       qualificationFailures.push('captured account count does not match selection');
-    }
-    if (registry.coverage?.completeHistoryAccounts !== registry.selection?.selectedAccounts) {
-      qualificationFailures.push('history coverage does not include every selected account');
-    }
-    if (registry.accounts.some(account => !account.history?.complete)) {
-      qualificationFailures.push('one or more account histories are incomplete');
     }
     const captureQualified = qualificationFailures.length === 0;
     if (!captureQualified) {

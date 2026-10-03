@@ -123,6 +123,26 @@ jobs:
             ${{ env.BASELINE_CACHE_DIRECTORY }}/chopsticks.sqlite
           key: ${{ steps.baseline.outputs.cache-primary-key }}
 
+      - name: Check out the published desktop app
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd
+        with:
+          ref: refs/tags/${{ env.PREVIOUS_APPS_REF }}
+          path: .qualification-build/previous-apps
+          persist-credentials: false
+
+      - name: Check out the pinned Mainchain
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd
+        with:
+          repository: argonprotocol/mainchain
+          ref: refs/tags/${{ env.MAINCHAIN_REF }}
+          path: .qualification-build/mainchain
+          persist-credentials: false
+
+      - name: Verify release source checkouts
+        run: |
+          test "$(git -C "$PREVIOUS_APPS_DIRECTORY" rev-parse HEAD)" = "$EXPECTED_PREVIOUS_APPS_HEAD"
+          test "$(git -C "$MAINCHAIN_DIRECTORY" rev-parse HEAD)" = "$(git -C "$MAINCHAIN_DIRECTORY" rev-parse "refs/tags/$MAINCHAIN_REF^{commit}")"
+
       - name: Install build and desktop dependencies
         run: |
           sudo apt-get update
@@ -136,25 +156,12 @@ jobs:
           toolchain: stable
           targets: wasm32-unknown-unknown
 
-      - name: Clone release source checkouts
-        run: |
-          git clone --depth 1 --branch "$PREVIOUS_APPS_REF" "https://github.com/$GITHUB_REPOSITORY.git" "$PREVIOUS_APPS_DIRECTORY"
-          if [[ "$(git -C "$PREVIOUS_APPS_DIRECTORY" rev-parse HEAD)" != "$EXPECTED_PREVIOUS_APPS_HEAD" ]]; then
-            echo "Apps baseline differs from the $PREVIOUS_APPS_REF tag" >&2
-            exit 1
-          fi
-          git init "$MAINCHAIN_DIRECTORY"
-          git -C "$MAINCHAIN_DIRECTORY" remote add origin https://github.com/argonprotocol/mainchain.git
-          git -C "$MAINCHAIN_DIRECTORY" fetch --depth 1 origin "refs/tags/$MAINCHAIN_REF:refs/tags/$MAINCHAIN_REF"
-          git -C "$MAINCHAIN_DIRECTORY" checkout --detach "refs/tags/$MAINCHAIN_REF"
-          if [[ "$(git -C "$MAINCHAIN_DIRECTORY" rev-parse HEAD)" != "$(git -C "$MAINCHAIN_DIRECTORY" rev-parse "refs/tags/$MAINCHAIN_REF^{commit}")" ]]; then
-            echo "Mainchain source differs from the $MAINCHAIN_REF tag" >&2
-            exit 1
-          fi
-
-      - name: Restore Rust build caches
+      - name: Restore and save Rust build caches
         uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32
         with:
+          shared-key: release-qualification
+          cache-on-failure: true
+          cache-workspace-crates: true
           workspaces: |
             src-tauri -> target
             ${{ env.PREVIOUS_APPS_DIRECTORY }}/src-tauri -> target
@@ -185,7 +192,7 @@ jobs:
               --output "$QUALIFICATION_DIRECTORY/capture" \
               --account-limit 12
 
-      - name: Review every complete captured account, retaining all failures
+      - name: Review every captured account, including incomplete source history
         if: ${{ !cancelled() && steps.capture.outcome != 'skipped' }}
         continue-on-error: true
         shell: dbus-run-session -- bash --noprofile --norc -eo pipefail {0}

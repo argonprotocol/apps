@@ -3,6 +3,7 @@ import Path from 'node:path';
 import { parseArgs } from 'node:util';
 import type { AccountReviewResult } from './LocalMainnetReview.ts';
 import type { StartingDatabaseRegistry } from './StartingDatabaseCapture.ts';
+import { isStartingDatabaseComplete } from './StartingDatabaseInspection.ts';
 
 const { values } = parseArgs({ options: { directory: { type: 'string' } }, strict: true });
 if (!values.directory)
@@ -33,17 +34,22 @@ const skipped =
     .filter(account => !accounts.some(result => result.label === account.label))
     .map(account => ({
       label: account.label,
-      reason: account.history.complete ? 'Candidate review did not complete' : 'Starting history is incomplete',
+      reason: 'Candidate review did not complete',
     })) ?? [];
 const qualified =
   !!registry &&
   registry.coverage.complete &&
   registry.failures.length === 0 &&
   registry.accounts.length === registry.selection.selectedAccounts &&
-  registry.coverage.completeHistoryAccounts === registry.selection.selectedAccounts &&
-  registry.accounts.every(
-    account =>
-      account.history.complete && accounts.some(result => result.label === account.label && result.status === 'passed'),
+  registry.accounts.every(account =>
+    accounts.some(
+      result =>
+        result.label === account.label &&
+        result.status === 'passed' &&
+        result.history &&
+        result.history.throughBlock > registry.throughBlock &&
+        isStartingDatabaseComplete(result.history, result.history.throughBlock),
+    ),
   ) &&
   accounts.length === registry.accounts.length &&
   accounts.length > 0 &&
@@ -55,6 +61,13 @@ const report = {
   qualified,
   selection: registry?.selection,
   captureFailures: registry?.failures ?? [],
+  incompleteStartingHistories:
+    registry?.accounts
+      .filter(account => !account.history.complete)
+      .map(account => ({
+        label: account.label,
+        error: account.history.recoveryError,
+      })) ?? [],
   accounts,
   skipped,
   timings,
@@ -74,6 +87,12 @@ const summary = [
   ...(registry?.failures ?? []).map(
     failure => `| ${failure.label} | Capture | Failed | ${failure.error.replace(/[\r\n|]/g, ' ')} |`,
   ),
+  ...(registry?.accounts ?? [])
+    .filter(account => !account.history.complete)
+    .map(
+      account =>
+        `| ${account.label} | Capture | Needs candidate repair | ${(account.history.recoveryError ?? 'Incomplete source history').replace(/[\r\n|]/g, ' ')} |`,
+    ),
   ...accounts.map(
     account =>
       `| ${account.label} | Review | ${account.status} | ${(account.error ?? `${Math.round(account.durationMs / 1000)}s`).replace(/[\r\n|]/g, ' ')} |`,
