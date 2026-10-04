@@ -134,6 +134,10 @@ jobs:
         if: matrix.suite == 'regular'
         run: yarn vitest --run --project '!storybook' --exclude '**/*.integration.test.ts' --exclude 'e2e/__test__/**/*.e2e.test.ts'
 
+      - name: Download the offline financial replay corpus
+        if: matrix.suite == 'non-e2e'
+        run: yarn download:financial-history-replay
+
       - name: Tests excluding e2e and Storybook
         if: matrix.suite == 'non-e2e'
         # Vitest unions repeated negative project filters, so exclude E2E by file instead.
@@ -151,6 +155,14 @@ jobs:
           ARGON_E2E_HEADLESS: '0'
           E2E_FLOW_APP_LOGS: 'quiet'
           E2E_SCREENSHOT_MODE: '1'
+
+      - name: Upload failed integration network diagnostics
+        if: failure() && matrix.suite == 'non-e2e'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: integration-diagnostics-${{ github.run_id }}-${{ github.run_attempt }}
+          path: e2e/artifacts/integration-diagnostics/*.log
+          if-no-files-found: ignore
 
       - name: Upload e2e artifacts
         if: failure() && matrix.suite == 'e2e'

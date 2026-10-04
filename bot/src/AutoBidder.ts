@@ -36,6 +36,7 @@ export class AutoBidder {
   private localRpcUrl?: string;
   private hasRegisteredKeys = false;
   private lifecycleQueue = Promise.resolve();
+  private readonly shutdownController = new AbortController();
   private pendingBiddingRetryTimeout?: ReturnType<typeof setTimeout>;
 
   constructor(
@@ -94,6 +95,7 @@ export class AutoBidder {
   public async stop() {
     if (this.isStopped) return;
     this.isStopped = true;
+    this.shutdownController.abort();
     console.log('AUTOBIDDER STOPPING');
     this.unsubscribe?.();
     this.unsubscribe = undefined;
@@ -174,7 +176,8 @@ export class AutoBidder {
     if (!cohortBidder) return;
 
     cohortBidder.isBiddingOpen = false;
-    await cohortBidder.stop(waitForFinalBids);
+    await cohortBidder.stop(waitForFinalBids, this.shutdownController.signal);
+    if (this.isStopped) return;
     this.cohortBiddersByActivationFrameId.delete(cohortActivationFrameId);
     if (this.nextCohortActivationFrameId === cohortActivationFrameId) {
       this.nextCohortActivationFrameId = null;

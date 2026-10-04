@@ -1,13 +1,10 @@
-import Path from 'node:path';
+import { integrationNetwork as sharedNetwork } from '@argonprotocol/apps-core/__test__/integration.setup.ts';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 
 import { SKIP_E2E, teardown } from '@argonprotocol/testing';
-import { BitcoinFission, BitcoinLock, NetworkConfig, type ArgonClient } from '@argonprotocol/apps-core';
+import { BitcoinFission, BitcoinLock, type ArgonClient } from '@argonprotocol/apps-core';
 import { Keyring, toFixedNumber } from '@argonprotocol/mainchain';
-import {
-  startArgonTestNetwork,
-  type StartedArgonTestNetwork,
-} from '@argonprotocol/apps-core/__test__/startArgonTestNetwork.js';
+import type { IntegrationNetwork } from '@argonprotocol/apps-core/__test__/integrationNetwork.ts';
 import {
   createBitcoinAddress,
   generateBlocks,
@@ -30,13 +27,13 @@ import {
   type BitcoinLocksHarness,
 } from './helpers/bitcoinLocksHarness.ts';
 import { AppVaultOperator } from '../../e2e/actors/AppVaultOperator.ts';
-import { MemoryWalletKeys } from '../lib/MemoryWalletKeys.ts';
+import type { MemoryWalletKeys } from '../lib/MemoryWalletKeys.ts';
+import { createMockWalletKeys } from './helpers/wallet.ts';
 
 const walletFundingMicrogons = 500_000_000n;
 
-let network: StartedArgonTestNetwork;
+let network: IntegrationNetwork;
 let minerAddress: string;
-let previousComposeProjectName: string | undefined;
 const priceOracle = new Keyring({ type: 'sr25519' }).addFromUri('//Eve//oracle');
 
 describe.skipIf(SKIP_E2E).sequential('Bitcoin Liquids integration', { timeout: 300_000 }, () => {
@@ -45,19 +42,19 @@ describe.skipIf(SKIP_E2E).sequential('Bitcoin Liquids integration', { timeout: 3
     vi.spyOn(console, 'info').mockImplementation(() => undefined);
     vi.spyOn(console, 'warn').mockImplementation(() => undefined);
 
-    network = await startArgonTestNetwork(Path.basename(import.meta.filename), {
-      profiles: ['bob'],
-      chainStartTimeoutMs: 120_000,
-      chainStartPollMs: 250,
-    });
-    NetworkConfig.setNetwork('dev-docker');
-    previousComposeProjectName = process.env.COMPOSE_PROJECT_NAME;
-    process.env.COMPOSE_PROJECT_NAME = network.composeEnv.COMPOSE_PROJECT_NAME;
+    network = sharedNetwork;
     minerAddress = createBitcoinAddress();
 
     const client = await getTestMainchainClient(network.archiveUrl);
     try {
-      await submitBitcoinPrice(client, { btcUsdPrice: 120_000 });
+      await waitFor(90_000, 'shared Bitcoin pricing', async () => {
+        const snapshot = await client.at(await client.rpc.chain.getFinalizedHead());
+        const [price, history] = await Promise.all([
+          snapshot.query.priceIndex.current(),
+          snapshot.query.bitcoinLocks.microgonPerBtcHistory(),
+        ]);
+        return price?.btcUsdPrice.isGreaterThan(0) && history?.length ? true : undefined;
+      });
     } finally {
       await client.disconnect();
     }
@@ -65,11 +62,6 @@ describe.skipIf(SKIP_E2E).sequential('Bitcoin Liquids integration', { timeout: 3
 
   afterAll(async () => {
     vi.restoreAllMocks();
-    if (previousComposeProjectName === undefined) {
-      delete process.env.COMPOSE_PROJECT_NAME;
-    } else {
-      process.env.COMPOSE_PROJECT_NAME = previousComposeProjectName;
-    }
     await teardown();
   });
 
@@ -79,10 +71,8 @@ describe.skipIf(SKIP_E2E).sequential('Bitcoin Liquids integration', { timeout: 3
     try {
       const targetLiquidity = harness.myVault.createdVault!.availableBitcoinSpace() / 5n;
       const client = await harness.clients.get(false);
-      await submitBitcoinPrice(client, { btcUsdPrice: 120_000 });
       await harness.currency.fetchMainchainRates(client, { ignoreCache: true });
       const lock = await createFundedLock(harness, targetLiquidity, { verifyRestoredCreation: true });
-      await submitBitcoinPrice(client, { btcUsdPrice: 121_000 });
       const { createLiquid, fissions } = await createLiquidServices(harness);
       const txSigner = await harness.walletKeys.getLiquidLockingKeypair();
 
@@ -132,11 +122,9 @@ describe.skipIf(SKIP_E2E).sequential('Bitcoin Liquids integration', { timeout: 3
     try {
       const targetLiquidity = harness.myVault.createdVault!.availableBitcoinSpace() / 10n;
       const client = await harness.clients.get(false);
-      await submitBitcoinPrice(client, { btcUsdPrice: 120_000 });
       await harness.currency.fetchMainchainRates(client, { ignoreCache: true });
       const firstLock = await createFundedLock(harness, targetLiquidity);
       const secondLock = await createFundedLock(harness, targetLiquidity);
-      await submitBitcoinPrice(client, { btcUsdPrice: 121_000 });
       const allocations = [
         { lock: firstLock, satoshis: firstLock.securitizedSatoshis },
         { lock: secondLock, satoshis: secondLock.securitizedSatoshis },
@@ -185,11 +173,9 @@ describe.skipIf(SKIP_E2E).sequential('Bitcoin Liquids integration', { timeout: 3
     try {
       const targetLiquidity = harness.myVault.createdVault!.availableBitcoinSpace() / 10n;
       const client = await harness.clients.get(false);
-      await submitBitcoinPrice(client, { btcUsdPrice: 120_000 });
       await harness.currency.fetchMainchainRates(client, { ignoreCache: true });
       const firstLock = await createFundedLock(harness, targetLiquidity);
       const secondLock = await createFundedLock(harness, targetLiquidity);
-      await submitBitcoinPrice(client, { btcUsdPrice: 121_000 });
       const { createLiquid } = await createLiquidServices(harness);
       const txSigner = await harness.walletKeys.getLiquidLockingKeypair();
 
@@ -220,15 +206,13 @@ describe.skipIf(SKIP_E2E).sequential('Bitcoin Liquids integration', { timeout: 3
   });
 
   it('waits for finalized funding and recovers the operator Liquid without duplication', async () => {
-    const mnemonic = 'test test test test test test test test test test test junk';
-    const walletKeys = new MemoryWalletKeys({ substrateSuri: mnemonic, masterMnemonic: mnemonic });
+    const walletKeys = createMockWalletKeys();
     const harness = await createHarness(walletKeys);
     let actor: AppVaultOperator | undefined;
 
     try {
       const targetLiquidity = harness.myVault.createdVault!.availableBitcoinSpace() / 5n;
       const client = await harness.clients.get(false);
-      await submitBitcoinPrice(client, { btcUsdPrice: 120_000 });
       await harness.currency.fetchMainchainRates(client, { ignoreCache: true });
       const lock = await createFundedLock(harness, targetLiquidity, {
         waitForFinalizedFunding: false,
@@ -245,7 +229,6 @@ describe.skipIf(SKIP_E2E).sequential('Bitcoin Liquids integration', { timeout: 3
       const beforeFinalization = await client.at(await client.rpc.chain.getFinalizedHead());
       expect((await BitcoinLock.get(beforeFinalization, lock.lockId!))?.fundedSatoshis ?? 0n).toBe(0n);
 
-      await submitBitcoinPrice(client, { btcUsdPrice: 121_000 });
       await actor.ensureOperationalLiquid({ client });
       const finalizedClient = await client.at(await client.rpc.chain.getFinalizedHead());
       const fissions = await BitcoinFission.getAllByOwner(finalizedClient, walletKeys.defaultArgonAddress);
@@ -272,7 +255,8 @@ describe.skipIf(SKIP_E2E).sequential('Bitcoin Liquids integration', { timeout: 3
     }
   });
 
-  it('ratchets a finalized Liquid through the application operation at an eligible runtime rate', async () => {
+  // prettier-ignore
+  it('ratchets a finalized Liquid through the application operation at an eligible runtime rate', { tags: ['exclusive-argon-network'] }, async () => {
     const harness = await createHarness();
 
     try {
@@ -398,10 +382,8 @@ describe.skipIf(SKIP_E2E).sequential('Bitcoin Liquids integration', { timeout: 3
     try {
       const targetLiquidity = harness.myVault.createdVault!.availableBitcoinSpace() / 10n;
       const client = await harness.clients.get(false);
-      await submitBitcoinPrice(client, { btcUsdPrice: 120_000 });
       await harness.currency.fetchMainchainRates(client, { ignoreCache: true });
       const lock = await createFundedLock(harness, targetLiquidity);
-      await submitBitcoinPrice(client, { btcUsdPrice: 121_000 });
       const { createLiquid, closeLiquid, fissions } = await createLiquidServices(harness);
       const txSigner = await harness.walletKeys.getLiquidLockingKeypair();
 
@@ -492,6 +474,7 @@ async function submitBitcoinPrice(client: ArgonClient, args: { btcUsdPrice: numb
       null,
     ),
     priceOracle,
+    { useLatestNonce: true },
   );
 
   return await waitFor(30_000, `eligible Bitcoin rate after price tick ${tick}`, async () => {

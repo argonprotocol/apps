@@ -5,7 +5,14 @@ import process from 'node:process';
 import { createInterface } from 'node:readline/promises';
 import { parseArgs } from 'node:util';
 import { fileURLToPath } from 'node:url';
-import { AccountActivityKind, BondLot, TreasuryBonds, type IIndexerSpec } from '@argonprotocol/apps-core';
+import {
+  ACCOUNT_ACTIVITY_DEFINITION_VERSION,
+  AccountActivityKind,
+  BondLot,
+  TreasuryBonds,
+  type IIndexerSpec,
+  type ArgonApi,
+} from '@argonprotocol/apps-core';
 import { getClient } from '@argonprotocol/mainchain';
 import { runtimeClient } from '@argonprotocol/runtime-client';
 import type { IFinancialAggregate } from 'src-vue/interfaces/IFinancialPosition.ts';
@@ -15,12 +22,23 @@ import { LocalMainnet } from './LocalMainnet.ts';
 import { loadLocalMainnetManifest } from './manifest.ts';
 import type { CapturedStartingDatabase, StartingDatabaseRegistry } from './StartingDatabaseCapture.ts';
 import { RuntimeCandidate, type CandidateRuntimeArtifact } from './RuntimeCandidate.ts';
+import {
+  inspectStartingDatabase,
+  isStartingDatabaseComplete,
+  type StartingDatabaseRecoveryProgress,
+  type StartingDatabaseInspection,
+} from './StartingDatabaseInspection.ts';
 
 export interface AccountReviewResult {
   label: string;
   status: 'passed' | 'failed';
   error?: string;
   durationMs: number;
+  history?: StartingDatabaseRecoveryProgress &
+    Pick<StartingDatabaseInspection, 'quickCheck' | 'bitcoinFissionIds'> & {
+      throughBlock: number;
+      expectedBitcoinFissionIds: number[];
+    };
 }
 
 export class LocalMainnetReview {
@@ -85,10 +103,7 @@ export class LocalMainnetReview {
       );
     }
     const { registry, captureQualified } = await LocalMainnetReview.loadRegistry(accountsPath, values.diagnostic);
-    const accounts =
-      values.diagnostic && !captureQualified
-        ? registry.accounts.filter(account => account.history?.complete)
-        : registry.accounts;
+    const accounts = registry.accounts;
     const firstAccount = values.account ? LocalMainnetReview.findAccount(accounts, values.account) : accounts[0];
     if (!firstAccount) throw new Error('Starting database registry contains no accounts');
 
@@ -137,8 +152,8 @@ export class LocalMainnetReview {
     for (const account of accounts) {
       const startedAt = Date.now();
       try {
-        await this.open(account, false);
-        this.batchResults.push({ label: account.label, status: 'passed', durationMs: Date.now() - startedAt });
+        const history = await this.open(account, false);
+        this.batchResults.push({ label: account.label, status: 'passed', durationMs: Date.now() - startedAt, history });
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         this.validationFailures.push(account.label);
@@ -220,7 +235,10 @@ export class LocalMainnetReview {
     );
   }
 
-  private async open(account: CapturedStartingDatabase, focusAppWindow = true): Promise<void> {
+  private async open(
+    account: CapturedStartingDatabase,
+    focusAppWindow = true,
+  ): Promise<AccountReviewResult['history']> {
     await this.mainnet.closeApp();
     await LocalMainnetReview.verifyStartingDatabase(account);
 
@@ -242,7 +260,10 @@ export class LocalMainnetReview {
     try {
       if (!this.historyThroughBlock) throw new Error('Candidate runtime block is not available');
       await session.recoverAccountHistory(this.historyThroughBlock, 600_000);
-      const expectedReleasedBondLotIds = await this.loadReleasedBondLotIds(account.defaultArgonAccountId);
+      const [expectedReleasedBondLotIds, expectedBitcoinFissionIds] = await Promise.all([
+        this.loadReleasedBondLotIds(account.defaultArgonAccountId),
+        this.loadBitcoinHistoryIds(account.defaultArgonAccountId),
+      ]);
       const releasedLotIds = new Set(expectedReleasedBondLotIds);
       const reviewInput = {
         expectedDefaultArgonAddress: account.defaultArgonAccountId,
@@ -292,10 +313,40 @@ export class LocalMainnetReview {
           `Recovery idempotence verified (financial ${restartedSnapshot.financialHash.slice(0, 12)}, database ${restartedSnapshot.databaseHash.slice(0, 12)}).`,
         );
       }
-      console.info(`Recovered ${account.label} history through block ${this.historyThroughBlock.toLocaleString()}.`);
+      await session.checkpointDatabase();
+      try {
+        const inspection = inspectStartingDatabase(
+          Path.join(session.appInstanceDirectory, 'database.sqlite'),
+          this.historyThroughBlock,
+          account.defaultArgonAccountId,
+        );
+        if (!isStartingDatabaseComplete(inspection, this.historyThroughBlock)) {
+          throw new Error(`Candidate database has incomplete history after restart: ${JSON.stringify(inspection)}`);
+        }
+        const missingBitcoinFissionIds = expectedBitcoinFissionIds.filter(
+          id => !inspection.bitcoinFissionIds.includes(id),
+        );
+        if (missingBitcoinFissionIds.length) {
+          throw new Error(
+            `Candidate database is missing Bitcoin history records: ${missingBitcoinFissionIds.join(', ')}`,
+          );
+        }
+        console.info(`Recovered ${account.label} history through block ${this.historyThroughBlock.toLocaleString()}.`);
+        console.info(`Opened ${LocalMainnetReview.describeAccount(account)} in ${session.appInstanceDirectory}`);
+        return {
+          ...inspection,
+          throughBlock: this.historyThroughBlock,
+          expectedBitcoinFissionIds,
+        };
+      } finally {
+        if (focusAppWindow) await session.resumeDatabaseWrites();
+        else await this.mainnet.closeApp();
+      }
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      console.warn(`History recovery for ${account.label} failed; the account remains open for review: ${message}`);
+      console.warn(
+        `History recovery for ${account.label} failed${focusAppWindow ? '; the account remains open for review' : ''}: ${message}`,
+      );
       if (!focusAppWindow) throw error;
       this.validationFailures.push(account.label);
     }
@@ -321,6 +372,75 @@ export class LocalMainnetReview {
       });
     } finally {
       await session.resumeDatabaseWrites();
+    }
+  }
+
+  private async loadBitcoinHistoryIds(address: string): Promise<number[]> {
+    if (!this.historyThroughBlock) throw new Error('Candidate runtime block is not available');
+    const url = new URL(`/v2/activity/${address}`, this.mainnet.indexerUrl);
+    url.searchParams.set('toBlock', String(this.historyThroughBlock));
+    url.searchParams.set('activityMask', String(AccountActivityKind.BitcoinLock | AccountActivityKind.BitcoinMint));
+    const response = await fetch(url);
+    if (!response.ok) throw new Error(`Bitcoin-history inventory request failed: HTTP ${response.status}`);
+    const activity = (await response.json()) as IIndexerSpec['/v2/activity/:address']['responseType'];
+    if (
+      activity.definitionVersion < ACCOUNT_ACTIVITY_DEFINITION_VERSION ||
+      activity.asOfBlock < this.historyThroughBlock ||
+      activity.coverage.toBlock < this.historyThroughBlock ||
+      activity.coverage.fromBlock > 1 ||
+      activity.coverage.gaps.length
+    ) {
+      throw new Error('Bitcoin-history inventory is not fully covered through the candidate runtime block');
+    }
+    const client = await getClient(this.mainnet.archiveUrl);
+    try {
+      const fissionIds = new Set<number>();
+      for (const block of activity.blocks) {
+        const api: ArgonApi = runtimeClient(await client.at(block.blockHash));
+        const events = await api.query.system.events();
+        const verifiedUtxoIds = new Set<number>();
+        const historicalUtxoIds = new Set<number>();
+        for (const { event } of events) {
+          if (event.section === 'bitcoinFissions' && event.data.accountId === address) {
+            fissionIds.add(event.data.fissionId);
+          } else if (event.section === 'mint' && event.method === 'BitcoinMint' && event.data.accountId === address) {
+            const id = event.data.fissionId ?? event.data.utxoId;
+            if (id != null) fissionIds.add(id);
+          } else if (
+            (event.section === 'bitcoinLocks' ||
+              (event.section === 'bitcoinUtxos' && event.method === 'UtxoVerified')) &&
+            'utxoId' in event.data &&
+            event.data.utxoId != null
+          ) {
+            historicalUtxoIds.add(event.data.utxoId);
+            if (event.section === 'bitcoinUtxos' && event.method === 'UtxoVerified') {
+              verifiedUtxoIds.add(event.data.utxoId);
+            }
+          }
+        }
+        let parentApi: ArgonApi | undefined;
+        for (const utxoId of historicalUtxoIds) {
+          let lock = await api.query.bitcoinLocks.locksByUtxoId(utxoId);
+          if (!lock && verifiedUtxoIds.has(utxoId)) {
+            // Funding and spending may occur in one inherent, removing the Lock from post-block state.
+            const header = await client.rpc.chain.getHeader(block.blockHash);
+            parentApi ??= runtimeClient(await client.at(header.parentHash));
+            lock = await parentApi.query.bitcoinLocks.locksByUtxoId(utxoId);
+            if (!lock) throw new Error(`Bitcoin funding history is unavailable at block ${block.blockNumber}`);
+          }
+          const fundedSatoshis = lock?.utxoSatoshis ?? (lock?.isVerified ? lock.satoshis : 0n);
+          if (
+            lock?.ownerAccount === address &&
+            (fundedSatoshis > 0n || verifiedUtxoIds.has(utxoId)) &&
+            (lock.liquidityPromised ?? 0n) > 0n
+          ) {
+            fissionIds.add(utxoId);
+          }
+        }
+      }
+      return [...fissionIds].sort((left, right) => left - right);
+    } finally {
+      await client.disconnect();
     }
   }
 
@@ -393,12 +513,6 @@ export class LocalMainnetReview {
     else if (registry.failures.length) qualificationFailures.push(`${registry.failures.length} capture(s) failed`);
     if (registry.accounts.length !== registry.selection?.selectedAccounts) {
       qualificationFailures.push('captured account count does not match selection');
-    }
-    if (registry.coverage?.completeHistoryAccounts !== registry.selection?.selectedAccounts) {
-      qualificationFailures.push('history coverage does not include every selected account');
-    }
-    if (registry.accounts.some(account => !account.history?.complete)) {
-      qualificationFailures.push('one or more account histories are incomplete');
     }
     const captureQualified = qualificationFailures.length === 0;
     if (!captureQualified) {

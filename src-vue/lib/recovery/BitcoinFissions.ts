@@ -337,10 +337,15 @@ export class BitcoinFissionRecovery {
     }));
     const createdAtArgonBlock = lock.createdAtArgonBlock ?? 0;
     const wasReleased = lock.removalReason === 'released';
-    const wasSpent = lock.removalReason === 'spent';
+    const wasLockTerminated = lock.removalReason === 'spent' || lock.removalReason === 'expired';
+    const isClosed = wasReleased || wasLockTerminated;
+    const closeTxFee = wasLockTerminated ? 0n : close?.closeTxFee;
+    const lastUpdatedArgonBlock = isClosed ? (lock.removalBlockNumber ?? createdAtArgonBlock) : createdAtArgonBlock;
     const feeHistoryCompleteThroughBlock =
-      ratchets.length && ratchets.every(ratchet => ratchet.txFee !== undefined)
-        ? ratchets.at(-1)?.blockNumber
+      ratchets.length &&
+      ratchets.every(ratchet => ratchet.txFee !== undefined) &&
+      (!isClosed || closeTxFee !== undefined)
+        ? Math.max(ratchets.at(-1)?.blockNumber ?? 0, lastUpdatedArgonBlock)
         : undefined;
     return {
       origin: 'lock-migration',
@@ -353,13 +358,13 @@ export class BitcoinFissionRecovery {
       liquidityPromised: lock.liquidityPromised,
       createdAtArgonBlock,
       ratchetNumber: 0,
-      lastUpdatedArgonBlock: createdAtArgonBlock,
+      lastUpdatedArgonBlock,
       feeHistoryCompleteThroughBlock,
       ratchets,
       createdAtTick: ratchets[0]?.tick,
       createdBlockHash: ratchets[0]?.blockHash,
       createdBlockTime: ratchets[0]?.blockTime,
-      ...(wasReleased || wasSpent
+      ...(isClosed
         ? {
             closedAtArgonBlock: lock.removalBlockNumber,
             closedAtTick: lock.removalTick,
@@ -368,7 +373,7 @@ export class BitcoinFissionRecovery {
             closedExtrinsicIndex: lock.removalExtrinsicIndex,
             closeReason: wasReleased ? ('closed' as const) : ('lock-spent' as const),
             redemptionAmount: close?.redemptionAmount,
-            closeTxFee: wasSpent ? 0n : close?.closeTxFee,
+            closeTxFee,
             btcPriceAtCloseMicrogons: lock.btcPriceAtRemovalMicrogons,
           }
         : {}),

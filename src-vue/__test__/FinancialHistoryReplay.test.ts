@@ -3,9 +3,9 @@ import { tmpdir } from 'node:os';
 import Path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { afterEach, describe, expect, it } from 'vitest';
-import { recoverFinancialHistoryReplayCapture } from './FinancialHistoryReplay.globalSetup.ts';
+import { createFinancialHistoryReplayTables, recoverFinancialHistoryReplayCapture } from './FinancialHistoryReplay.ts';
 
-describe('FinancialHistoryReplay global setup', () => {
+describe('Financial history replay capture', () => {
   let temporaryDirectory: string | undefined;
 
   afterEach(async () => {
@@ -19,30 +19,11 @@ describe('FinancialHistoryReplay global setup', () => {
     const schema = `CREATE TABLE Blocks (
       blockNumber INTEGER PRIMARY KEY,
       blockHash BLOB NOT NULL
-    );
-    CREATE TABLE RecoveryStorage (
-      blockNumber INTEGER NOT NULL,
-      storageKey BLOB NOT NULL,
-      storageValue BLOB,
-      PRIMARY KEY (blockNumber, storageKey)
-    ) WITHOUT ROWID;
-    CREATE TABLE RecoveryStorageKeyEnumerations (
-      blockNumber INTEGER NOT NULL,
-      storagePrefix BLOB NOT NULL,
-      PRIMARY KEY (blockNumber, storagePrefix)
-    ) WITHOUT ROWID;
-    CREATE TABLE RecoveryHeaders (
-      blockNumber INTEGER PRIMARY KEY,
-      blockTime INTEGER NOT NULL,
-      tick INTEGER NOT NULL,
-      author TEXT NOT NULL,
-      frameId INTEGER,
-      frameRewardTicksRemaining INTEGER,
-      isNewFrame INTEGER
-    ) WITHOUT ROWID;`;
+    );`;
 
     const previous = new DatabaseSync(previousPath);
     previous.exec(schema);
+    createFinancialHistoryReplayTables(previous);
     previous.prepare('INSERT INTO Blocks (blockNumber, blockHash) VALUES (?, ?)').run(1, Uint8Array.of(1));
     previous.prepare('INSERT INTO Blocks (blockNumber, blockHash) VALUES (?, ?)').run(2, Uint8Array.of(9));
     previous
@@ -76,6 +57,7 @@ describe('FinancialHistoryReplay global setup', () => {
     const current = new DatabaseSync(currentPath);
     try {
       current.exec(schema);
+      createFinancialHistoryReplayTables(current);
       current.prepare('INSERT INTO Blocks (blockNumber, blockHash) VALUES (?, ?)').run(1, Uint8Array.of(1));
       current.prepare('INSERT INTO Blocks (blockNumber, blockHash) VALUES (?, ?)').run(2, Uint8Array.of(2));
 

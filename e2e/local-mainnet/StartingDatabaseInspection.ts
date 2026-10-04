@@ -1,4 +1,5 @@
 import { DatabaseSync } from 'node:sqlite';
+import type { IBitcoinFissionRecord } from 'src-vue/interfaces/IBitcoinFissionRecord.ts';
 import { SyncStateKeys, type IFinancialHistoryDomain, type ISyncSchemas } from 'src-vue/lib/db/SyncStateTable.ts';
 
 const REQUIRED_HISTORY_DOMAINS = ['bitcoin', 'bonds', 'vaulting'] as const satisfies readonly IFinancialHistoryDomain[];
@@ -13,6 +14,7 @@ export interface StartingDatabaseRecoveryProgress {
 export interface StartingDatabaseInspection extends StartingDatabaseRecoveryProgress {
   migration?: number;
   quickCheck: string;
+  bitcoinFissionIds: number[];
   bitcoinLiquidIds: number[];
   archivedBitcoinLiquidIds: number[];
   bondLotIds: number[];
@@ -47,6 +49,9 @@ export function inspectStartingDatabase(
          FROM BitcoinFissions WHERE ownerAccount = ? GROUP BY liquidId ORDER BY liquidId`,
       )
       .all(accountId) as unknown as Array<{ liquidId: number; isArchived: number }>;
+    const bitcoinFissions = database
+      .prepare('SELECT fissionId FROM BitcoinFissions WHERE ownerAccount = ? ORDER BY fissionId')
+      .all(accountId) as Pick<IBitcoinFissionRecord, 'fissionId'>[];
     let migration: number | undefined;
     try {
       migration = (
@@ -85,6 +90,7 @@ export function inspectStartingDatabase(
       migration,
       quickCheck: quickCheck.quick_check,
       ...recovery,
+      bitcoinFissionIds: bitcoinFissions.map(fission => fission.fissionId),
       bitcoinLiquidIds: bitcoinLiquids.map(liquid => liquid.liquidId),
       archivedBitcoinLiquidIds: bitcoinLiquids.filter(liquid => liquid.isArchived).map(liquid => liquid.liquidId),
       bondLotIds: bondLots.filter(lot => lot.programType === 'Vault').map(lot => lot.bondLotId),

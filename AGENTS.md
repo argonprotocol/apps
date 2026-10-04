@@ -82,6 +82,8 @@ These rules apply to implementation and review in this repository. Keep changes 
 
 ## Tests
 
+- Prefer an integration scenario across the real state owners and durable boundaries when a unit test would mock away the behavior being changed. Keep the scenario focused; do not add duplicate unit coverage merely to increase test count.
+- New chain integration files use the shared `integration` Vitest project, common network setup, and run-scoped accounts from `integrationAccountUri`. Use native Vitest `tags: ['mining-auction']` for exclusive auction access or `tags: ['exclusive-argon-network']` for a sequential scenario that controls prices on the shared chain. Scenarios that require a fresh chain or cannot restore shared protocol state use `tags: ['isolated-argon-network']` and an explicitly owned network. Local and external-transport scenarios use `tags: ['no-argon-network']` with ordinary Vitest tests. Do not use comment metadata or filename registries. See `core/__test__/README.md`.
 - Do not use test count or coverage as evidence of correctness.
 - Do not shape production models, interfaces, or dependency boundaries around what is convenient to mock in tests. Production code must use the real repository objects and domain boundaries; adapt the test at a genuine external boundary instead.
 - Do not add tests that only prove a mock returns its input, a helper calls another helper, or the implementation follows its own wiring.

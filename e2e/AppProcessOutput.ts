@@ -1,6 +1,7 @@
 import { createWriteStream, mkdirSync, type WriteStream } from 'node:fs';
 import os from 'node:os';
 import Path from 'node:path';
+import { stripVTControlCharacters } from 'node:util';
 import type { ChildProcess } from 'node:child_process';
 
 const MAX_LINES = 600;
@@ -11,6 +12,7 @@ export type AppLogsMode = 'inherit' | 'quiet';
 export class AppProcessOutput {
   public readonly logFilePath?: string;
   private readonly lines: string[] = [];
+  private readonly webviewErrors: string[] = [];
   private lastOutputAtMs: number | null = null;
   private lastOutputLine?: string;
   private pendingStdout = '';
@@ -23,6 +25,10 @@ export class AppProcessOutput {
   ) {
     this.logFilePath = logsMode === 'quiet' ? AppProcessOutput.createLogPath(sessionName) : undefined;
     this.stream = this.logFilePath ? AppProcessOutput.createStream(this.logFilePath) : undefined;
+  }
+
+  public get frontendErrors(): readonly string[] {
+    return this.webviewErrors;
   }
 
   public attach(child: ChildProcess): void {
@@ -115,6 +121,11 @@ export class AppProcessOutput {
   }
 
   private push(line: string): void {
+    const plainLine = stripVTControlCharacters(line);
+    if (/\bERROR\b.*\[webview[:\]]/.test(plainLine)) {
+      this.webviewErrors.push(plainLine);
+      if (this.webviewErrors.length > MAX_LINES) this.webviewErrors.splice(0, this.webviewErrors.length - MAX_LINES);
+    }
     this.lines.push(line);
     this.lastOutputAtMs = Date.now();
     this.lastOutputLine = line;

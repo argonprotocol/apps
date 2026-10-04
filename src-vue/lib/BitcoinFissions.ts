@@ -35,7 +35,6 @@ export class BitcoinFissions {
   public readonly recovery: BitcoinFissionRecovery;
   private waitForLoad?: IDeferred<void>;
   private readonly pendingMintSubscriptions = new Map<bigint, VoidFunction>();
-  private readonly pendingMintPersistence = new Map<number, { needsAnotherWrite: boolean }>();
   private readonly currentStateQueue = new SingleFileQueue();
   private pendingRefreshClient?: ArgonQueryClient;
   private coalescedRefreshPromise?: Promise<void>;
@@ -177,8 +176,14 @@ export class BitcoinFissions {
     finalizedClient: ArgonQueryClient,
   ): Promise<void> {
     await this.currentStateQueue.add(async () => {
-      const currentPromise = this.loadActive(finalizedClient);
-      const records = await this.recordFinalizedEvents(block, events, finalizedClient);
+      // Event history uses its inclusion block; current state uses the newest known finalized snapshot.
+      const currentBlock = this.blockWatch?.finalizedBlockHeader;
+      const currentClient =
+        currentBlock && currentBlock.blockNumber > block.blockNumber
+          ? await this.blockWatch.getApi(currentBlock)
+          : finalizedClient;
+      const currentPromise = this.loadActive(currentClient);
+      const records = await this.recordFinalizedEvents({ block, events, finalizedClient, currentClient });
       this.updateFinalizedState(await currentPromise, records);
       if (this.blockWatch?.subscriptionClient) {
         try {
@@ -190,11 +195,17 @@ export class BitcoinFissions {
     }).promise;
   }
 
-  private async recordFinalizedEvents(
-    block: IBlockHeaderInfo,
-    events: readonly RuntimeSystemEventRecord[],
-    finalizedClient: ArgonQueryClient,
-  ): Promise<IBitcoinFissionRecord[]> {
+  private async recordFinalizedEvents({
+    block,
+    events,
+    finalizedClient,
+    currentClient,
+  }: {
+    block: IBlockHeaderInfo;
+    events: readonly RuntimeSystemEventRecord[];
+    finalizedClient: ArgonQueryClient;
+    currentClient: ArgonQueryClient;
+  }): Promise<IBitcoinFissionRecord[]> {
     const table = await this.dbPromise.then(db => db.bitcoinFissionsTable);
     const fissionIds = new Set(
       events.flatMap(({ event }) =>
@@ -228,11 +239,21 @@ export class BitcoinFissions {
             throw new Error(`Bitcoin Fission ${fissionId} has both migration and creation origins`);
           }
           const record = BitcoinFission.createRecordFromEvent({ block, event, extrinsicIndex, transactionFee });
+          if (existing) {
+            const fission = new BitcoinFission(existing);
+            fission.enrichHistory(record);
+            Object.assign(record, fission);
+          }
           recordsByFissionId.set(fissionId, record);
           affectedRecords.set(fissionId, record);
           continue;
         }
         if (!existing) throw new Error(`Bitcoin Fission ${fissionId} history is missing its creation event`);
+        if (event.section === 'mint') {
+          // The live subscription may already have observed this mint; reconcile the queue once below.
+          affectedRecords.set(fissionId, existing);
+          continue;
+        }
 
         let btcPriceAtCloseMicrogons: bigint | undefined;
         if (
@@ -251,6 +272,9 @@ export class BitcoinFissions {
           transactionFee,
           btcPriceAtCloseMicrogons,
         });
+        const fission = new BitcoinFission(existing);
+        fission.mergeFinalizedRecord(record);
+        Object.assign(record, fission);
         recordsByFissionId.set(fissionId, record);
         affectedRecords.set(fissionId, record);
       }
@@ -260,7 +284,7 @@ export class BitcoinFissions {
     if (!finalizedRecords.length) return [];
 
     const finalizedFissions = finalizedRecords.map(record => new BitcoinFission(record));
-    await this.loadPendingMints(finalizedClient, finalizedFissions);
+    await this.loadPendingMints(currentClient, finalizedFissions);
     for (const fission of finalizedFissions) {
       const record = affectedRecords.get(fission.fissionId);
       if (record) record.ratchets = fission.ratchets;
@@ -397,7 +421,11 @@ export class BitcoinFissions {
   private updateFinalizedState(current: readonly BitcoinFission[], records: readonly IBitcoinFissionRecord[]): void {
     for (const record of records) this.updateFissionFromRecord(record);
     this.updateFissionsFromCurrent(current);
-    for (const fission of current) this.data.activeFissionIds.add(fission.fissionId);
+    for (const fission of current) {
+      if (this.data.fissionsById[fission.fissionId]?.closedAtArgonBlock === undefined) {
+        this.data.activeFissionIds.add(fission.fissionId);
+      }
+    }
     for (const record of records) {
       if (record.closedAtArgonBlock === undefined) this.data.activeFissionIds.add(record.fissionId);
       else this.data.activeFissionIds.delete(record.fissionId);
@@ -413,7 +441,7 @@ export class BitcoinFissions {
     for (const record of recordsWithKnownLifecycle) {
       const fission = this.data.fissionsById[record.fissionId];
       if (!fission) this.data.fissionsById[record.fissionId] = new BitcoinFission(record);
-      else if (this.data.activeFissionIds.has(record.fissionId)) fission.enrichRecoveredHistory(record);
+      else if (this.data.activeFissionIds.has(record.fissionId)) fission.enrichHistory(record);
       else fission.applyStoredRecord(record);
     }
 
@@ -455,6 +483,13 @@ export class BitcoinFissions {
     for (const current of currentFissions) {
       const fission = this.data.fissionsById[current.fissionId];
       if (fission) {
+        if (
+          fission.closedAtArgonBlock !== undefined ||
+          (current.lastUpdatedArgonBlock ?? 0) < (fission.lastUpdatedArgonBlock ?? 0) ||
+          current.ratchetNumber < fission.ratchetNumber
+        ) {
+          continue;
+        }
         fission.applyCurrentSnapshot(current);
       } else {
         this.data.fissionsById[current.fissionId] = current;
@@ -492,31 +527,35 @@ export class BitcoinFissions {
 
     try {
       unsubscribe = await client.query.mint.pendingBitcoinMintsByIndex(queueIndex, pendingMint => {
-        const fission = this.data.fissionsById[fissionId];
-        const currentMint = fission?.pendingMints.find(current => current.queueIndex === queueIndex);
-        if (!pendingMint || !currentMint) {
-          if (currentMint) {
-            fission.reconcilePendingMints(fission.pendingMints.filter(current => current !== currentMint));
-            this.persistPendingMintState(fission);
-            this.data.financialRevision += 1;
-          }
-          if (this.pendingMintSubscriptions.get(queueIndex) === stop) {
-            this.pendingMintSubscriptions.delete(queueIndex);
-          }
-          stop();
-          return;
-        }
-
-        if (
-          currentMint.remainingAmount !== pendingMint.remainingAmount ||
-          currentMint.maxAmountPerFrame !== pendingMint.maxAmountPerFrame
-        ) {
-          currentMint.remainingAmount = pendingMint.remainingAmount;
-          currentMint.maxAmountPerFrame = pendingMint.maxAmountPerFrame;
-          fission.reconcilePendingMints(fission.pendingMints);
-          this.persistPendingMintState(fission);
-          this.data.financialRevision += 1;
-        }
+        void this.currentStateQueue
+          .add(async () => {
+            const fission = this.data.fissionsById[fissionId];
+            const currentMint = fission?.pendingMints.find(current => current.queueIndex === queueIndex);
+            let didChange = false;
+            if (!pendingMint || !currentMint) {
+              if (currentMint) {
+                fission.reconcilePendingMints(fission.pendingMints.filter(current => current !== currentMint));
+                didChange = true;
+              }
+              if (this.pendingMintSubscriptions.get(queueIndex) === stop) {
+                this.pendingMintSubscriptions.delete(queueIndex);
+              }
+              stop();
+            } else if (
+              currentMint.remainingAmount !== pendingMint.remainingAmount ||
+              currentMint.maxAmountPerFrame !== pendingMint.maxAmountPerFrame
+            ) {
+              currentMint.remainingAmount = pendingMint.remainingAmount;
+              currentMint.maxAmountPerFrame = pendingMint.maxAmountPerFrame;
+              fission.reconcilePendingMints(fission.pendingMints);
+              didChange = true;
+            }
+            if (didChange && fission) {
+              this.data.financialRevision += 1;
+              await (await this.dbPromise).bitcoinFissionsTable.updateMintPending(fission);
+            }
+          })
+          .promise.catch(error => console.warn(`[BitcoinFissions] Unable to update mint ${queueIndex}`, error));
       });
     } catch (error) {
       if (this.pendingMintSubscriptions.get(queueIndex) === stop) this.pendingMintSubscriptions.delete(queueIndex);
@@ -524,32 +563,6 @@ export class BitcoinFissions {
     }
 
     if (this.pendingMintSubscriptions.get(queueIndex) !== stop) stop();
-  }
-
-  private persistPendingMintState(fission: BitcoinFission): void {
-    const existing = this.pendingMintPersistence.get(fission.fissionId);
-    if (existing) {
-      existing.needsAnotherWrite = true;
-      return;
-    }
-
-    const persistence = { needsAnotherWrite: false };
-    this.pendingMintPersistence.set(fission.fissionId, persistence);
-    void (async () => {
-      while (true) {
-        persistence.needsAnotherWrite = false;
-        await (await this.dbPromise).bitcoinFissionsTable.updateMintPending(fission);
-        if (persistence.needsAnotherWrite) continue;
-
-        this.pendingMintPersistence.delete(fission.fissionId);
-        return;
-      }
-    })().catch(error => {
-      if (this.pendingMintPersistence.get(fission.fissionId) === persistence) {
-        this.pendingMintPersistence.delete(fission.fissionId);
-      }
-      console.warn(`[BitcoinFissions] Unable to persist mint progress for ${fission.fissionId}`, error);
-    });
   }
 }
 

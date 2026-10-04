@@ -1,0 +1,92 @@
+name: Warm qualification Rust cache
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/qualification-rust-cache.yml
+      - e2e/local-mainnet/qualificationInputs.ts
+      - server/.env.mainnet
+      - release-channels/desktop-stable.json
+      - src-tauri/**
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: qualification-rust-cache-main
+  cancel-in-progress: true
+
+env:
+  CI: 'true'
+
+jobs:
+  build:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444
+        with:
+          node-version: '24'
+
+      - name: Select pinned build sources
+        run: node e2e/local-mainnet/qualificationInputs.ts --build-inputs
+
+      - name: Check out the published desktop app
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd
+        with:
+          ref: refs/tags/${{ env.PREVIOUS_APPS_REF }}
+          path: .qualification-build/previous-apps
+          persist-credentials: false
+
+      - name: Check out the pinned Mainchain
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd
+        with:
+          repository: argonprotocol/mainchain
+          ref: refs/tags/${{ env.MAINCHAIN_REF }}
+          path: .qualification-build/mainchain
+          persist-credentials: false
+
+      - name: Verify release source checkouts
+        run: |
+          test "$(git -C "$PREVIOUS_APPS_DIRECTORY" rev-parse HEAD)" = "$EXPECTED_PREVIOUS_APPS_HEAD"
+          test "$(git -C "$MAINCHAIN_DIRECTORY" rev-parse HEAD)" = "$(git -C "$MAINCHAIN_DIRECTORY" rev-parse "refs/tags/$MAINCHAIN_REF^{commit}")"
+
+      - name: Install build and desktop dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential clang cmake pkg-config protobuf-compiler libssl-dev libclang-dev \
+            libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev patchelf \
+            libpipewire-0.3-dev libspa-0.2-dev libgbm-dev dbus-x11 gnome-keyring webkit2gtk-driver xvfb
+
+      - uses: dtolnay/rust-toolchain@67ef31d5b988238dd797d409d6f9574278e20537
+        with:
+          toolchain: stable
+          targets: wasm32-unknown-unknown
+
+      - name: Restore and save Rust build caches
+        uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32
+        with:
+          shared-key: release-qualification
+          cache-on-failure: true
+          cache-workspace-crates: true
+          workspaces: |
+            src-tauri -> target
+            ${{ env.PREVIOUS_APPS_DIRECTORY }}/src-tauri -> target
+            ${{ env.MAINCHAIN_DIRECTORY }} -> target
+
+      - name: Build the pinned runtime
+        working-directory: ${{ env.MAINCHAIN_DIRECTORY }}
+        env:
+          WASM_BUILD_WORKSPACE_HINT: ${{ env.MAINCHAIN_DIRECTORY }}
+        run: cargo build -p argon-runtime --release --features=on-chain-release-build
+      - name: Build both desktop versions
+        run: |
+          cargo build --manifest-path src-tauri/Cargo.toml --features e2e-screenshots,e2e-insecure-gateway-certs
+          cargo build --manifest-path "$PREVIOUS_APPS_DIRECTORY/src-tauri/Cargo.toml" --features e2e-screenshots,e2e-insecure-gateway-certs

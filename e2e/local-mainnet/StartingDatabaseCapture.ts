@@ -62,6 +62,7 @@ export interface CapturedStartingDatabase {
     partialFinancialDomains: IFinancialHistoryDomain[];
     pendingBitcoinLocks?: number;
     complete: boolean;
+    recoveryError?: string;
   };
   selection: {
     features: OperationalAccountFeature[];
@@ -316,18 +317,15 @@ export class StartingDatabaseCapture {
     if (existsSync(instanceDirectory)) throw new Error(`Capture instance already exists: ${instanceDirectory}`);
     writeReadonlyWallet(instanceDirectory, identity);
 
-    let captureError: string | undefined;
-    try {
-      await this.recoverStartingDatabase(instanceName, Path.join(instanceDirectory, 'database.sqlite'));
-    } catch (error) {
-      captureError = error instanceof Error ? error.message : String(error);
-    }
+    const recoveryError = await this.recoverStartingDatabase(
+      instanceName,
+      Path.join(instanceDirectory, 'database.sqlite'),
+    );
 
     const databasePath = Path.join(instanceDirectory, 'database.sqlite');
     if (!existsSync(databasePath)) {
-      throw new Error(captureError ?? 'The previous app did not create a database');
+      throw new Error('The previous app did not create a database');
     }
-    if (captureError) throw new Error(captureError);
 
     const packageDirectory = Path.join(this.outputDirectory, 'starting-databases', label);
     mkdirSync(Path.dirname(packageDirectory), { recursive: true });
@@ -337,7 +335,10 @@ export class StartingDatabaseCapture {
     const facts = inspectStartingDatabase(copiedDatabasePath, this.registry.throughBlock, identity.defaultAccountId);
     const walletHistoryThroughBlock = facts.walletHistoryThroughBlock;
     const complete = isStartingDatabaseComplete(facts, this.registry.throughBlock);
-    if (!complete) {
+    if (facts.quickCheck !== 'ok') {
+      throw new Error(`The copied database for ${label} failed its integrity check: ${facts.quickCheck}`);
+    }
+    if (!recoveryError && !complete) {
       throw new Error(`The copied database for ${label} lost its complete recovery checkpoint`);
     }
     const [activeFissions, activeBondLots, vault] = await Promise.all([
@@ -366,6 +367,7 @@ export class StartingDatabaseCapture {
         partialFinancialDomains: facts.partialFinancialDomains,
         pendingBitcoinLocks: facts.pendingBitcoinLocks,
         complete,
+        ...(recoveryError ? { recoveryError } : {}),
       },
       selection: {
         features: scenario.features,
@@ -398,13 +400,12 @@ export class StartingDatabaseCapture {
         upstream: facts.upstream,
       },
     });
-    console.info(`[local-mainnet] ${label}: captured with complete history`);
+    console.info(
+      `[local-mainnet] ${label}: captured ${complete ? 'complete history' : 'incomplete history for candidate repair'}`,
+    );
   }
 
-  private async recoverStartingDatabase(
-    instanceName: string,
-    databasePath: string,
-  ): Promise<StartingDatabaseRecoveryProgress> {
+  private async recoverStartingDatabase(instanceName: string, databasePath: string): Promise<string | undefined> {
     const timeoutAt = Date.now() + CAPTURE_HISTORY_TIMEOUT_MS;
     let recoveryProgress: StartingDatabaseRecoveryProgress | undefined;
     let progressKey: string | undefined;
@@ -412,7 +413,7 @@ export class StartingDatabaseCapture {
     let shutdownError: string | undefined;
 
     for (let appStart = 1; appStart <= CAPTURE_HISTORY_MAX_APP_STARTS && Date.now() < timeoutAt; appStart += 1) {
-      await this.mainnet.launchApp({
+      const session = await this.mainnet.launchApp({
         appsDirectory: this.previousAppsDirectory,
         instanceName,
         tauriDevConfig: {
@@ -427,8 +428,18 @@ export class StartingDatabaseCapture {
       let completedProgress: StartingDatabaseRecoveryProgress | undefined;
       let restartReason = 'recovery stalled';
       let shutdownComplete = true;
+      let permanentHistoryError: string | undefined;
       try {
         while (Date.now() < timeoutAt && Date.now() < stalledAt) {
+          // These structural failures cannot change on the pinned fork by restarting the same release.
+          permanentHistoryError = session.frontendErrors.find(
+            error =>
+              error.includes('[FinancialHistory] Unable to initialize recovery') &&
+              /missing (?:its )?creation event|does not match recovered history|has \d+ signatures for \d+ inputs/.test(
+                error,
+              ),
+          );
+          if (permanentHistoryError) break;
           try {
             const nextProgress = inspectStartingDatabaseRecovery(databasePath, this.registry.throughBlock);
             const nextProgressKey = JSON.stringify(nextProgress);
@@ -454,25 +465,21 @@ export class StartingDatabaseCapture {
           shutdownError = error instanceof Error ? error.message : String(error);
         });
       }
-      if (completedProgress && shutdownComplete) return completedProgress;
+      if (!shutdownComplete) {
+        throw new Error(`The previous app could not checkpoint and close: ${shutdownError}`);
+      }
+      if (completedProgress) return;
+      if (permanentHistoryError) return permanentHistoryError;
 
       if (appStart < CAPTURE_HISTORY_MAX_APP_STARTS && Date.now() < timeoutAt) {
         console.warn(`[local-mainnet] ${restartReason}; restarting previous app (${appStart + 1})`);
       }
     }
 
-    if (recoveryProgress && isStartingDatabaseHistoryRecovered(recoveryProgress, this.registry.throughBlock)) {
-      throw new Error(
-        `The previous app completed account history but could not checkpoint and close: ${shutdownError}`,
-      );
-    }
-
     const progress = recoveryProgress
       ? `wallet=${recoveryProgress.walletHistoryThroughBlock}, domains=${recoveryProgress.financialDomains.join(',') || 'none'}, partial=${recoveryProgress.partialFinancialDomains.join(',') || 'none'}, pendingBitcoin=${recoveryProgress.pendingBitcoinLocks ?? 'unknown'}`
       : (inspectionError ?? 'database unavailable');
-    throw new Error(
-      `The previous app did not complete account history through block ${this.registry.throughBlock}: ${progress}`,
-    );
+    return `The previous app did not complete account history through block ${this.registry.throughBlock}: ${progress}`;
   }
 
   private writeRegistry(): void {
@@ -488,7 +495,7 @@ export class StartingDatabaseCapture {
     ).length;
     this.registry.coverage.complete =
       this.registry.accounts.length === this.registry.selection.selectedAccounts &&
-      this.registry.coverage.completeHistoryAccounts === this.registry.selection.selectedAccounts &&
+      this.registry.failures.length === 0 &&
       this.registry.selection.features.length === OPERATIONAL_ACCOUNT_FEATURES.length;
   }
 }

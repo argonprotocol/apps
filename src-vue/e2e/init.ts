@@ -98,7 +98,7 @@ function sendMessage(socket: WebSocket, payload: UnknownObject): void {
 
 function formatConsoleErrorArg(value: unknown): string {
   if (typeof value === 'string') return value;
-  if (value instanceof Error) return value.stack || value.message;
+  if (value instanceof Error) return `${value.name}: ${value.message}${value.stack ? `\n${value.stack}` : ''}`;
   if (typeof value === 'number' || typeof value === 'boolean' || typeof value === 'bigint') {
     return String(value);
   }
@@ -252,6 +252,7 @@ export async function initE2EClient(): Promise<void> {
   let driverMessageQueue: Promise<void> = Promise.resolve();
   let hasOpened = false;
   let hasClosed = false;
+  let isUnloading = false;
   const emitFrontEndError = (
     label: string,
     details: { message?: string; filename?: string; line?: number; column?: number; stack?: string },
@@ -296,10 +297,14 @@ export async function initE2EClient(): Promise<void> {
       stack: event.error?.stack,
     });
   });
+  window.addEventListener('beforeunload', () => {
+    isUnloading = true;
+  });
   window.addEventListener('unhandledrejection', event => {
     const reason = event.reason as Error;
     const message = reason instanceof Error ? reason.message : String(reason);
     const stack = reason instanceof Error ? reason.stack : undefined;
+    if (isUnloading && message.includes('WebSocket is not connected')) return;
     emitFrontEndError('unhandledrejection', { message, stack });
   });
   console.error = (...args: unknown[]) => {

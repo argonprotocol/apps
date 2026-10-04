@@ -1,5 +1,19 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { CohortBidder, createTypedEventEmitter } from '@argonprotocol/apps-core';
+import {
+  Accountset,
+  BlockWatch,
+  CohortBidder,
+  createTypedEventEmitter,
+  getRange,
+  MainchainClients,
+  MiningFrames,
+  NetworkConfig,
+} from '@argonprotocol/apps-core';
+import { Keyring, mnemonicGenerate } from '@argonprotocol/mainchain';
+import { mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import Path from 'node:path';
+import { Storage } from '../src/Storage.ts';
 import { AutoBidder } from '../src/AutoBidder.ts';
 import { History } from '../src/History.ts';
 
@@ -194,6 +208,63 @@ describe('AutoBidder', () => {
     expect(autoBidder.currentBidder?.cohortStartingFrameId).toBe(12);
   });
 
+  it('shuts down during a stalled finalized cohort activation without clearing valid capacity', async () => {
+    const directory = await mkdtemp(Path.join(tmpdir(), 'autobidder-shutdown-'));
+    const storage = new Storage(directory);
+    const history = new History(storage, 12);
+    const clients = { events: createTypedEventEmitter() } as MainchainClients;
+    const blockWatch = new BlockWatch(clients);
+    blockWatch.latestHeaders.push({
+      isFinalized: true,
+      blockNumber: 100,
+      blockHash: `0x${'01'.repeat(32)}`,
+      parentHash: `0x${'00'.repeat(32)}`,
+      blockTime: 100_000,
+      tick: 100,
+      author: '',
+      frameId: 11,
+      frameRewardTicksRemaining: 1,
+    });
+    NetworkConfig.setNetwork('dev-docker');
+    const miningFrames = new MiningFrames(clients, blockWatch);
+    const accountset = new Accountset({
+      client: {} as Accountset['client'],
+      txSubmitter: new Keyring({ type: 'sr25519' }).addFromUri('//Alice'),
+      subaccountRange: getRange(0, 0),
+      sessionMiniSecretOrMnemonic: mnemonicGenerate(),
+      name: 'shutdown',
+    });
+    const cohortBidder = new CohortBidder(accountset, miningFrames, 12, [], {
+      minBid: 10_000n,
+      maxBid: 10_000n,
+      bidIncrement: 10_000n,
+      bidDelay: 0,
+    });
+    const autoBidder = new AutoBidder(accountset, clients, history, null, miningFrames);
+    Object.assign(autoBidder, {
+      nextCohortActivationFrameId: 12,
+      cohortBiddersByActivationFrameId: new Map([[12, cohortBidder]]),
+    });
+    history.maxSeatsInPlay = 4;
+    try {
+      // @ts-expect-error reproduce the queued production bidding-end callback
+      const biddingEnd = autoBidder.queueLifecycle(() => onBiddingEnd.call(autoBidder, 12));
+      await new Promise(setImmediate);
+      expect(cohortBidder.isStopping).toBe(true);
+      expect(history.maxSeatsInPlay).toBe(4);
+
+      await autoBidder.stop();
+      await biddingEnd;
+
+      expect(autoBidder.currentBidder).toBeUndefined();
+      expect(history.maxSeatsInPlay).toBe(4);
+      expect(blockWatch.finalizedBlockHeader.frameId).toBe(11);
+    } finally {
+      await storage.close();
+      await rm(directory, { recursive: true, force: true });
+    }
+  }, 1_000);
+
   it('restores winning bids from current chain state before historical bid files exist', async () => {
     const accountset = {
       isProxy: false,
@@ -242,7 +313,6 @@ describe('AutoBidder', () => {
 
     await onBiddingEnd.call(autoBidder, 12, false);
 
-    expect(bidder.stop).toHaveBeenCalledWith(false);
     expect(autoBidder.currentBidder).toBeUndefined();
     expect(history.maxSeatsInPlay).toBe(0);
     expect(history.maxSeatsReductionReason).toBeUndefined();

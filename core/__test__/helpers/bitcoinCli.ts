@@ -2,6 +2,7 @@ import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { waitFor } from './waitFor.ts';
+import { integrationSession } from '../integrationNetwork.ts';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ARGON_DOCKER_DIR = path.resolve(__dirname, '../../../e2e/argon');
@@ -57,7 +58,7 @@ function getComposeProjectName(): string {
 }
 
 export function runBtcCli(args: string[]): string {
-  const composeProjectName = getComposeProjectName();
+  const composeProjectName = integrationSession.getStore()?.composeProjectName ?? getComposeProjectName();
   const result = spawnSync('docker', ['compose', '--profile', 'tooling', 'run', '--rm', 'btc-cli', ...args], {
     cwd: ARGON_DOCKER_DIR,
     env: {
