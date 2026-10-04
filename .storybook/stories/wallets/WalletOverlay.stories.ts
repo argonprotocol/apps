@@ -1,17 +1,33 @@
 import type { Meta, StoryObj } from '@storybook/vue3-vite';
 import * as Vue from 'vue';
-import { MoveToken } from '@argonprotocol/apps-core';
+import { BitcoinFission, MoveToken } from '@argonprotocol/apps-core';
+import { BitcoinLockStatus } from '../../../src-vue/lib/db/BitcoinLocksTable.ts';
 import { fn, mocked, userEvent, within } from 'storybook/test';
-import { setupWalletScenario, type WalletScenario } from '../../scenarios/setupWalletScenario.ts';
+import {
+  setupWalletScenario,
+  setupWalletTransferScenario,
+  type WalletScenario,
+} from '../../scenarios/setupWalletScenario.ts';
 import basicEmitter, { type IWalletOverlayOptions } from '../../../src-vue/emitters/basicEmitter.ts';
 import { WalletType } from '../../../src-vue/lib/Wallet.ts';
 import WalletOverlay from '../../../src-vue/wallets/WalletOverlay.vue';
 import UpgradeToTreasuryOverlay from '../../../src-vue/overlays/UpgradeToTreasuryOverlay.vue';
+import ConnectorDisconnectOverlay from '../../../src-vue/wallets/components/ConnectorDisconnectOverlay.vue';
+import { WalletForEthereum } from '../../../src-vue/lib/WalletForEthereum.ts';
 import { useVaultingStats } from '../../../src-vue/stores/vaultingStats.ts';
-import { useWallets } from '../../../src-vue/stores/wallets.ts';
-import { getBitcoinLocks } from '../../../src-vue/stores/bitcoin.ts';
+import { getWalletKeys, useWallets } from '../../../src-vue/stores/wallets.ts';
+import {
+  getBitcoinFissions,
+  getBitcoinLocks,
+  getBitcoinTransactionOperations,
+} from '../../../src-vue/stores/bitcoin.ts';
+import { createScenarioVault } from '../../scenarios/createScenarioVault.ts';
+import { getMyVault, getVaults } from '../../../src-vue/stores/vaults.ts';
 import { getEthereumMoveTracker } from '../../../src-vue/stores/moveFromEthereum.ts';
 import { loadEthereumChainConfig } from '../../../src-vue/lib/EthereumClient.ts';
+import { getConfig } from '../../../src-vue/stores/config.ts';
+import { getCurrency } from '../../../src-vue/stores/currency.ts';
+import { OperationalStepId, useCertificationController } from '../../../src-vue/stores/certificationController.ts';
 
 let request: IWalletOverlayOptions;
 let showTreasuryUpgrade = false;
@@ -20,19 +36,30 @@ const isInteractive = Vue.ref(false);
 const meta = {
   title: 'Wallets/Overview',
   render: () => ({
-    components: { WalletOverlay, UpgradeToTreasuryOverlay },
+    components: { WalletOverlay, UpgradeToTreasuryOverlay, ConnectorDisconnectOverlay },
     setup() {
-      Vue.onMounted(() => basicEmitter.emit('openWalletOverlay', request));
+      Vue.onMounted(() => {
+        document.addEventListener('keydown', preventFixedPreviewKeyboard, true);
+        basicEmitter.emit('openWalletOverlay', request);
+      });
+      Vue.onUnmounted(() => document.removeEventListener('keydown', preventFixedPreviewKeyboard, true));
       return { isInteractive, showTreasuryUpgrade };
+
+      function preventFixedPreviewKeyboard(event: KeyboardEvent) {
+        if (isInteractive.value) return;
+        event.preventDefault();
+        event.stopImmediatePropagation();
+      }
     },
     template: `
       <div class="relative h-screen w-screen overflow-hidden">
         <WalletOverlay />
+        <ConnectorDisconnectOverlay />
         <UpgradeToTreasuryOverlay v-if="showTreasuryUpgrade" />
         <div
           v-if="!isInteractive"
           data-testid="WalletOverlay.fixedPreviewGuard"
-          class="fixed inset-0 z-[999] cursor-not-allowed"
+          class="pointer-events-auto fixed inset-0 z-[9999] cursor-not-allowed"
           aria-label="Wallet controls are disabled in this fixed preview"
           title="Wallet controls are disabled in this fixed preview"
         >
@@ -90,6 +117,39 @@ function useTokenMenuScenario() {
     argonTokenAddress: '0x6666666666666666666666666666666666666666',
     argonotTokenAddress: '0x7777777777777777777777777777777777777777',
   });
+}
+
+function useEthereumMenuScenario() {
+  setupWalletTransferScenario('inboundArgonOnly');
+  showTreasuryUpgrade = false;
+  isInteractive.value = true;
+  request = { wallet: useWallets().ethereumWallets.persistedWallets[0] };
+}
+
+function useDefaultEthereumMenuScenario() {
+  useEthereumMenuScenario();
+  const wallets = useWallets();
+  const importedWallet = wallets.ethereumWallets.persistedWallets[0];
+  const coreRecord = {
+    ...importedWallet.record!,
+    address: getWalletKeys().coreEthereumAddress,
+    name: 'Default Ethereum',
+    secretKind: 'coreMnemonic' as const,
+  };
+  delete coreRecord.encryptedSecret;
+  const coreWallet = new WalletForEthereum(coreRecord.address, undefined, coreRecord, true);
+  coreWallet.data = Vue.reactive({ ...importedWallet.data, address: coreRecord.address });
+  coreWallet.refresh = fn(async () => undefined);
+  Object.assign(wallets.ethereumWallets, {
+    coreWallet,
+    persistedWallets: [coreWallet],
+    length: 1,
+    find: fn((recordId: number) => (recordId === coreWallet.id ? coreWallet : undefined)),
+    findByAddress: fn((address: string) =>
+      address.toLowerCase() === coreWallet.address.toLowerCase() ? coreWallet : undefined,
+    ),
+  });
+  request = { wallet: coreWallet };
 }
 
 function useBitcoinSendScenario() {
@@ -246,6 +306,550 @@ export const UpdateInsuranceError: Story = {
     await userEvent.click(within(insuranceOverlay).getByRole('button', { name: 'Update Insurance' }));
     await within(insuranceOverlay).findByText('Unable to update Bitcoin insurance.');
   },
+};
+
+export const TreasuryAddEthereumWalletGuide: Story = {
+  beforeEach: () => {
+    useScenario(WalletType.argon);
+    const wallets = useWallets();
+    wallets.ethereumWallets.persistedWallets.splice(0);
+    getConfig().hasExtensionTreasury = true;
+    const controller = useCertificationController();
+    controller.chainProgress.hasOperationalAccount = true;
+    controller.chainProgress.hasTreasuryUniswapTransfer = false;
+    controller.activeGuideId = OperationalStepId.TreasuryTransfer;
+  },
+};
+
+export const TreasurySelectEthereumWalletGuide: Story = {
+  beforeEach: () => {
+    useScenario(WalletType.argon);
+    getConfig().hasExtensionTreasury = true;
+    const controller = useCertificationController();
+    controller.chainProgress.hasOperationalAccount = true;
+    controller.chainProgress.hasTreasuryUniswapTransfer = false;
+    controller.activeGuideId = OperationalStepId.TreasuryTransfer;
+  },
+};
+
+export const TreasuryTransferGuideComplete: Story = {
+  beforeEach: () => {
+    useScenario(WalletType.argon);
+    getConfig().hasExtensionTreasury = true;
+    const controller = useCertificationController();
+    controller.chainProgress.hasOperationalAccount = true;
+    controller.chainProgress.hasTreasuryUniswapTransfer = true;
+    controller.activeGuideId = OperationalStepId.TreasuryTransfer;
+  },
+};
+
+export const TreasuryEthereumMenuGuide: Story = {
+  beforeEach: () => {
+    useEthereumMenuScenario();
+    getConfig().hasExtensionTreasury = true;
+    const controller = useCertificationController();
+    controller.chainProgress.hasOperationalAccount = true;
+    controller.chainProgress.hasTreasuryUniswapTransfer = false;
+    controller.activeGuideId = OperationalStepId.TreasuryTransfer;
+  },
+  play: async () => {
+    const canvas = within(document.body);
+    await userEvent.click(await canvas.findByRole('button', { name: 'Ethereum Treasury options' }));
+    await canvas.findByRole('menuitem', { name: 'Uniswap Market for ARGNOT' });
+    await userEvent.click(await canvas.findByRole('button', { name: 'Task guidance' }));
+    isInteractive.value = false;
+  },
+};
+
+export const TreasuryEthereumMenuButtonGuide: Story = {
+  beforeEach: () => {
+    useEthereumMenuScenario();
+    isInteractive.value = false;
+    getConfig().hasExtensionTreasury = true;
+    const controller = useCertificationController();
+    controller.chainProgress.hasOperationalAccount = true;
+    controller.chainProgress.hasTreasuryUniswapTransfer = false;
+    controller.activeGuideId = OperationalStepId.TreasuryTransfer;
+  },
+};
+
+export const EthereumMenu: Story = {
+  beforeEach: useEthereumMenuScenario,
+  play: async () => {
+    const canvas = within(document.body);
+    await userEvent.click(await canvas.findByRole('button', { name: 'Ethereum Treasury options' }));
+    await canvas.findByRole('menuitem', { name: 'Uniswap Market for ARGNOT' });
+    isInteractive.value = false;
+  },
+};
+
+export const EthereumMenuOnSepolia: Story = {
+  beforeEach: () => {
+    useEthereumMenuScenario();
+    mocked(loadEthereumChainConfig).mockResolvedValue({
+      chainId: 11155111,
+      gatewayAddress: '0x5555555555555555555555555555555555555555',
+      argonTokenAddress: '0x6666666666666666666666666666666666666666',
+      argonotTokenAddress: '0x7777777777777777777777777777777777777777',
+    });
+  },
+  play: EthereumMenu.play,
+};
+
+export const EthereumMenuLinksLoading: Story = {
+  beforeEach: () => {
+    useEthereumMenuScenario();
+    mocked(loadEthereumChainConfig).mockImplementation(() => new Promise(() => undefined));
+  },
+  play: EthereumMenu.play,
+};
+
+export const DefaultEthereumMenu: Story = {
+  beforeEach: useDefaultEthereumMenuScenario,
+  play: async () => {
+    const canvas = within(document.body);
+    await userEvent.click(await canvas.findByRole('button', { name: 'Default Ethereum options' }));
+    isInteractive.value = false;
+  },
+};
+
+export const DefaultEthereumPrivateKey: Story = {
+  beforeEach: useDefaultEthereumMenuScenario,
+  play: async () => {
+    const canvas = within(document.body);
+    await userEvent.click(await canvas.findByRole('button', { name: 'Default Ethereum options' }));
+    await userEvent.click(canvas.getByRole('menuitem', { name: 'Export Private Key' }));
+    isInteractive.value = false;
+  },
+};
+
+export const DefaultEthereumPrivateKeyLoading: Story = {
+  beforeEach: () => {
+    useDefaultEthereumMenuScenario();
+    mocked(getWalletKeys().exportEthereumPrivateKey).mockImplementation(() => new Promise(() => undefined));
+  },
+  play: DefaultEthereumPrivateKey.play,
+};
+
+export const DefaultEthereumPrivateKeyShown: Story = {
+  beforeEach: useDefaultEthereumMenuScenario,
+  play: async () => {
+    const canvas = within(document.body);
+    await userEvent.click(await canvas.findByRole('button', { name: 'Default Ethereum options' }));
+    await userEvent.click(canvas.getByRole('menuitem', { name: 'Export Private Key' }));
+    await userEvent.click(await canvas.findByRole('button', { name: 'Show' }));
+    isInteractive.value = false;
+  },
+};
+
+export const DefaultEthereumPrivateKeyError: Story = {
+  beforeEach: () => {
+    useDefaultEthereumMenuScenario();
+    mocked(getWalletKeys().exportEthereumPrivateKey).mockRejectedValue(
+      new Error('Synthetic private-key export failure.'),
+    );
+  },
+  play: DefaultEthereumPrivateKey.play,
+};
+
+export const RenameEthereumWallet: Story = {
+  beforeEach: useEthereumMenuScenario,
+  play: async () => {
+    const canvas = within(document.body);
+    await userEvent.click(await canvas.findByRole('button', { name: 'Ethereum Treasury options' }));
+    await userEvent.click(canvas.getByRole('menuitem', { name: 'Rename' }));
+    isInteractive.value = false;
+  },
+};
+
+export const RenameEthereumWalletSaving: Story = {
+  beforeEach: () => {
+    useEthereumMenuScenario();
+    mocked(useWallets().ethereumWallets.rename).mockImplementation(() => new Promise(() => undefined));
+  },
+  play: async () => {
+    const canvas = within(document.body);
+    await userEvent.click(await canvas.findByRole('button', { name: 'Ethereum Treasury options' }));
+    await userEvent.click(canvas.getByRole('menuitem', { name: 'Rename' }));
+    await userEvent.click(await canvas.findByRole('button', { name: 'Save' }));
+    isInteractive.value = false;
+  },
+};
+
+export const RenameEthereumWalletFailed: Story = {
+  beforeEach: () => {
+    useEthereumMenuScenario();
+    mocked(useWallets().ethereumWallets.rename).mockRejectedValue(new Error('Unable to save the wallet name.'));
+  },
+  play: RenameEthereumWalletSaving.play,
+};
+
+export const EthereumWalletRenamed: Story = {
+  beforeEach: useEthereumMenuScenario,
+  play: async () => {
+    const canvas = within(document.body);
+    await userEvent.click(await canvas.findByRole('button', { name: 'Ethereum Treasury options' }));
+    await userEvent.click(canvas.getByRole('menuitem', { name: 'Rename' }));
+    const name = await canvas.findByRole('textbox', { name: 'Wallet Name' });
+    await userEvent.clear(name);
+    await userEvent.type(name, 'Trading Wallet');
+    await userEvent.click(canvas.getByRole('button', { name: 'Save' }));
+    isInteractive.value = false;
+  },
+};
+
+export const RemoveEthereumWallet: Story = {
+  beforeEach: useEthereumMenuScenario,
+  play: async () => {
+    const canvas = within(document.body);
+    await userEvent.click(await canvas.findByRole('button', { name: 'Ethereum Treasury options' }));
+    await userEvent.click(canvas.getByRole('menuitem', { name: 'Remove' }));
+    isInteractive.value = false;
+  },
+};
+
+export const TreasuryTransferNeedsEth: Story = {
+  beforeEach: () => {
+    useScenario(WalletType.argon);
+    const wallets = useWallets();
+    request.wallet = wallets.ethereumWallets.persistedWallets[0];
+    getConfig().hasExtensionTreasury = true;
+    const controller = useCertificationController();
+    controller.chainProgress.hasOperationalAccount = true;
+    controller.chainProgress.hasTreasuryUniswapTransfer = false;
+    controller.activeGuideId = OperationalStepId.TreasuryTransfer;
+  },
+};
+
+export const TreasuryTransferNeedsArgn: Story = {
+  beforeEach: () => {
+    setupWalletTransferScenario('inboundEmpty');
+    showTreasuryUpgrade = false;
+    isInteractive.value = false;
+    const wallets = useWallets();
+    wallets.ethereumWallets.persistedWallets.splice(1);
+    request = { wallet: wallets.ethereumWallets.persistedWallets[0] };
+    getConfig().hasExtensionTreasury = true;
+    const controller = useCertificationController();
+    controller.chainProgress.hasOperationalAccount = true;
+    controller.chainProgress.hasTreasuryUniswapTransfer = false;
+    controller.activeGuideId = OperationalStepId.TreasuryTransfer;
+  },
+};
+
+export const TreasuryFundingHelpOpenedGuide: Story = {
+  beforeEach: TreasuryTransferNeedsArgn.beforeEach,
+  play: async () => {
+    isInteractive.value = true;
+    const canvas = within(document.body);
+    const fundingHelp = await canvas.findByRole('link', { name: 'How to add funds to Uniswap ↗' });
+    fundingHelp.addEventListener('click', event => event.preventDefault(), { once: true });
+    await userEvent.click(fundingHelp);
+    isInteractive.value = false;
+  },
+};
+
+export const TreasuryMarketLinksAfterFundingGuide: Story = {
+  beforeEach: TreasuryTransferNeedsArgn.beforeEach,
+  play: async () => {
+    isInteractive.value = true;
+    const canvas = within(document.body);
+    const fundingHelp = await canvas.findByRole('link', { name: 'How to add funds to Uniswap ↗' });
+    fundingHelp.addEventListener('click', event => event.preventDefault(), { once: true });
+    await userEvent.click(fundingHelp);
+    await userEvent.click(await canvas.findByRole('button', { name: 'Ethereum Treasury options' }));
+    isInteractive.value = false;
+  },
+};
+
+export const TreasuryInitiateTransferGuide: Story = {
+  beforeEach: () => {
+    setupWalletTransferScenario('inboundArgonOnly');
+    showTreasuryUpgrade = false;
+    isInteractive.value = true;
+    request = { wallet: useWallets().ethereumWallets.persistedWallets[0] };
+    getConfig().hasExtensionTreasury = true;
+    const controller = useCertificationController();
+    controller.chainProgress.hasOperationalAccount = true;
+    controller.chainProgress.hasTreasuryUniswapTransfer = false;
+    controller.activeGuideId = OperationalStepId.TreasuryTransfer;
+  },
+  play: async () => {
+    const canvas = within(document.body);
+    await userEvent.click(await canvas.findByRole('button', { name: 'Ethereum Treasury options' }));
+    await userEvent.keyboard('{Escape}');
+    isInteractive.value = false;
+  },
+};
+
+export const TreasuryTransferStartedGuide: Story = {
+  beforeEach: () => {
+    const scenario = setupWalletTransferScenario('inboundRelay');
+    showTreasuryUpgrade = false;
+    isInteractive.value = true;
+    request = { wallet: useWallets().ethereumWallets.persistedWallets[0] };
+    getConfig().hasExtensionTreasury = true;
+    const controller = useCertificationController();
+    controller.chainProgress.hasOperationalAccount = true;
+    controller.chainProgress.hasTreasuryUniswapTransfer = false;
+    controller.activeGuideId = OperationalStepId.TreasuryTransfer;
+    return scenario.cleanup;
+  },
+  play: async () => {
+    const canvas = within(document.body);
+    await userEvent.click(await canvas.findByRole('button', { name: /Initiate Transfer/ }));
+    await canvas.findByRole('button', { name: 'Create Another Transaction' });
+    isInteractive.value = false;
+  },
+};
+
+export const TreasuryTransferPendingGuide: Story = {
+  beforeEach: () => {
+    const scenario = setupWalletTransferScenario('existingInbound');
+    showTreasuryUpgrade = false;
+    isInteractive.value = false;
+    request = { wallet: useWallets().argonWallets.defaultArgonWallet };
+    getConfig().hasExtensionTreasury = true;
+    const controller = useCertificationController();
+    controller.chainProgress.hasOperationalAccount = true;
+    controller.chainProgress.hasTreasuryUniswapTransfer = false;
+    controller.activeGuideId = OperationalStepId.TreasuryTransfer;
+    return scenario.cleanup;
+  },
+};
+
+export const TreasuryWatchTransferProgress: Story = {
+  beforeEach: () => {
+    const scenario = setupWalletTransferScenario('inboundArgon');
+    showTreasuryUpgrade = false;
+    isInteractive.value = true;
+    request = { wallet: useWallets().ethereumWallets.persistedWallets[0] };
+    getConfig().hasExtensionTreasury = true;
+    const controller = useCertificationController();
+    controller.chainProgress.hasOperationalAccount = true;
+    controller.chainProgress.hasTreasuryUniswapTransfer = false;
+    controller.activeGuideId = OperationalStepId.TreasuryTransfer;
+    return scenario.cleanup;
+  },
+  play: async () => {
+    const canvas = within(document.body);
+    await userEvent.click(await canvas.findByRole('button', { name: /Initiate Transfer/ }));
+    await canvas.findByRole('button', { name: 'Create Another Transaction' });
+    await userEvent.click(canvas.getByTestId('ConnectorTransfer.close()'));
+    await userEvent.click(await canvas.findByRole('button', { name: '1 Transfer Pending' }));
+    isInteractive.value = false;
+  },
+};
+
+function useBitcoinReceiveGuideScenario(scenario: WalletScenario = 'defaultArgon') {
+  useScenario(WalletType.argon, undefined, scenario, true);
+  const config = getConfig();
+  config.hasExtensionTreasury = true;
+  config.upstreamOperator = { name: 'Testing', vaultId: 7 };
+  const vaults = getVaults();
+  vaults.vaultsById[7] = createScenarioVault({ vaultId: 7 });
+  vaults.refreshVault = fn(async (vaultId: number) => vaults.vaultsById[vaultId]);
+  Object.assign(getBitcoinLocks(), {
+    getLockableBitcoinCapacity: fn(async () => ({
+      availableSatoshis: 1_000_000n,
+      availableLiquidityMicrogons: 600_000_000n,
+      vaultCapacitySatoshis: 1_000_000n,
+      vaultCapacityLiquidityMicrogons: 600_000_000n,
+    })),
+  });
+  Object.assign(getBitcoinTransactionOperations(), {
+    bitcoinLockCreate: {
+      preview: fn(async () => ({
+        canAfford: true,
+        requiredWalletBalanceMicrogons: 125_000n,
+        securityFee: 0n,
+        txFeePlusTip: 125_000n,
+      })),
+    },
+  });
+  const controller = useCertificationController();
+  controller.chainProgress.hasOperationalAccount = true;
+  controller.chainProgress.hasBitcoinLock = false;
+  controller.activeGuideId = OperationalStepId.LiquidLock;
+}
+
+async function openBitcoinReceiveConnector(vaultId?: number, openGuide = true) {
+  await waitForWalletOverlay();
+  const connector = document.querySelector<HTMLElement>('[data-wallet-connector-id="bitcoin"]');
+  if (!connector) throw new Error('Bitcoin connector was not rendered');
+  await userEvent.click(within(connector).getByText('Bitcoin', { exact: true }));
+  await within(document.body).findByTestId('ConnectorChannel');
+  if (vaultId !== undefined) {
+    await userEvent.click(within(document.body).getByTestId(`ConnectorChannel.selectVault-${vaultId}`));
+  }
+  if (openGuide) await showBitcoinGuide();
+  else isInteractive.value = false;
+}
+
+async function showBitcoinGuide() {
+  await userEvent.click(await within(document.body).findByRole('button', { name: 'Task guidance' }));
+  isInteractive.value = false;
+}
+
+export const BitcoinReceiveGuide: Story = {
+  beforeEach: () => useBitcoinReceiveGuideScenario(),
+  play: async () => {
+    await waitForWalletOverlay();
+    await showBitcoinGuide();
+  },
+};
+
+export const BitcoinReceiveConnectorGuide: Story = {
+  name: 'Bitcoin Receive Insurance Guide',
+  beforeEach: () => useBitcoinReceiveGuideScenario(),
+  play: () => openBitcoinReceiveConnector(undefined, false),
+};
+
+export const BitcoinReceiveAddressSetupGuide: Story = {
+  beforeEach: () => {
+    useBitcoinReceiveGuideScenario('pendingBitcoinFunding');
+    const bitcoinLocks = getBitcoinLocks();
+    const locks = bitcoinLocks.getAllLocks();
+    locks.splice(1);
+    locks[0].status = BitcoinLockStatus.Released;
+    locks[0].removalBlockTime = new Date('2026-08-31T15:30:00.000Z');
+    bitcoinLocks.utxoTracking.load([]);
+  },
+  play: () => openBitcoinReceiveConnector(undefined, false),
+};
+
+export const BitcoinReceiveCreateAddressGuide: Story = {
+  beforeEach: () => useBitcoinReceiveGuideScenario(),
+  play: async () => {
+    await openBitcoinReceiveConnector(undefined, false);
+    isInteractive.value = true;
+    await userEvent.click(await within(document.body).findByRole('button', { name: 'Next' }));
+    isInteractive.value = false;
+  },
+};
+
+export const BitcoinReceiveAddressPreparingGuide: Story = {
+  beforeEach: () => {
+    useBitcoinReceiveGuideScenario();
+    useWallets().bitcoinWallet.isCreatingChannel = fn(() => true);
+  },
+  play: () => openBitcoinReceiveConnector(undefined, false),
+};
+
+export const BitcoinReceiveAddressConfirmingGuide: Story = {
+  beforeEach: () => {
+    useBitcoinReceiveGuideScenario('pendingBitcoinFunding');
+    getBitcoinLocks().getAllLocks()[0].status = BitcoinLockStatus.LockIsProcessingOnArgon;
+    getBitcoinLocks().utxoTracking.load([]);
+  },
+  play: () => openBitcoinReceiveConnector(undefined, false),
+};
+
+export const BitcoinReceiveVaultChoicesGuide: Story = {
+  beforeEach: () => {
+    useBitcoinReceiveGuideScenario();
+    getMyVault().data.createdVault = createScenarioVault({ vaultId: 8 });
+  },
+  play: () => openBitcoinReceiveConnector(),
+};
+
+export const BitcoinReceivePersonalAddressGuide: Story = {
+  beforeEach: () => {
+    useBitcoinReceiveGuideScenario();
+    getMyVault().data.createdVault = createScenarioVault({ vaultId: 8 });
+  },
+  play: () => openBitcoinReceiveConnector(8),
+};
+
+export const BitcoinReceiveAddressGuide: Story = {
+  beforeEach: () => {
+    useBitcoinReceiveGuideScenario('pendingBitcoinFunding');
+    getBitcoinLocks().utxoTracking.load([]);
+  },
+  play: () => openBitcoinReceiveConnector(undefined, false),
+};
+
+export const BitcoinReceiveAddressPricingUnavailableGuide: Story = {
+  beforeEach: () => {
+    useBitcoinReceiveGuideScenario('pendingBitcoinFunding');
+    getBitcoinLocks().utxoTracking.load([]);
+    getCurrency().priceIndex.btcUsdPrice = undefined;
+  },
+  play: () => openBitcoinReceiveConnector(undefined, false),
+};
+
+export const BitcoinReceiveAddressTargetCoveredGuide: Story = {
+  beforeEach: () => {
+    useBitcoinReceiveGuideScenario('bitcoinSend');
+    const bitcoinLocks = getBitcoinLocks();
+    const locks = bitcoinLocks.getAllLocks();
+    locks.splice(1);
+    const lock = locks[0];
+    lock.vaultId = 7;
+    lock.ownerAccount = '5SyntheticInternalWallet';
+    lock.microgonsAtTargetPerBtc = 68_000_000_000n;
+    lock.fissionedSatoshis = lock.fundedSatoshis;
+    const fission = new BitcoinFission({
+      ownerAccount: lock.ownerAccount,
+      fissionId: 1,
+      liquidId: 1,
+      lockId: lock.lockId!,
+      satoshis: lock.fundedSatoshis,
+      microgonsAtTargetPerBtc: lock.microgonsAtTargetPerBtc,
+      liquidityPromised: 680_000_000n,
+      createdAtArgonBlock: 18_500,
+      ratchetNumber: 0,
+      lastRatchetTick: 10_000,
+      lastUpdatedArgonBlock: 18_500,
+    });
+    const bitcoinFissions = getBitcoinFissions();
+    bitcoinFissions.data.fissionsById = { [fission.fissionId]: fission };
+    bitcoinFissions.data.activeFissionIds.add(fission.fissionId);
+    getCurrency().priceIndex.btcUsdPrice = undefined;
+  },
+  play: () => openBitcoinReceiveConnector(),
+};
+
+export const BitcoinReceiveFundingGuide: Story = {
+  beforeEach: () => useBitcoinReceiveGuideScenario('pendingBitcoinFunding'),
+  play: () => openBitcoinReceiveConnector(undefined, false),
+};
+
+export const BitcoinReceiveProgressGuide: Story = {
+  beforeEach: () => useBitcoinReceiveGuideScenario('pendingBitcoinFunding'),
+  play: async () => {
+    await waitForWalletOverlay();
+    isInteractive.value = false;
+  },
+};
+
+export const BitcoinReceiveLoadErrorGuide: Story = {
+  beforeEach: () => {
+    useBitcoinReceiveGuideScenario();
+    useWallets().bitcoinWallet.loadChannels = fn(async () => {
+      throw new Error('Unable to load Bitcoin receive options.');
+    });
+  },
+  play: () => openBitcoinReceiveConnector(),
+};
+
+export const BitcoinFundingConfirmedGuide: Story = {
+  beforeEach: () => {
+    useScenario(WalletType.argon, undefined, 'bitcoinSend');
+    getConfig().hasExtensionTreasury = true;
+    const controller = useCertificationController();
+    controller.chainProgress.hasOperationalAccount = true;
+    controller.chainProgress.hasBitcoinLock = false;
+    controller.activeGuideId = OperationalStepId.LiquidLock;
+  },
+};
+
+export const BitcoinFundingConfirmedConnectorGuide: Story = {
+  beforeEach: () => {
+    useBitcoinReceiveGuideScenario('bitcoinSend');
+    getBitcoinLocks().getAllLocks()[0].vaultId = 7;
+  },
+  play: () => openBitcoinReceiveConnector(),
 };
 
 export const BitcoinConnector: Story = {
@@ -453,6 +1057,19 @@ export const TokenMenuOnLocalEthereum: Story = {
     useTokenMenuScenario();
     mocked(loadEthereumChainConfig).mockResolvedValue({
       chainId: 31337,
+      gatewayAddress: '0x5555555555555555555555555555555555555555',
+      argonTokenAddress: '0x6666666666666666666666666666666666666666',
+      argonotTokenAddress: '0x7777777777777777777777777777777777777777',
+    });
+  },
+  play: ArgonTokenMenu.play,
+};
+
+export const TokenMenuOnSepolia: Story = {
+  beforeEach: () => {
+    useTokenMenuScenario();
+    mocked(loadEthereumChainConfig).mockResolvedValue({
+      chainId: 11155111,
       gatewayAddress: '0x5555555555555555555555555555555555555555',
       argonTokenAddress: '0x6666666666666666666666666666666666666666',
       argonotTokenAddress: '0x7777777777777777777777777777777777777777',

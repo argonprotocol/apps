@@ -60,6 +60,7 @@ import {
 } from 'reka-ui';
 import { loadEthereumChainConfig, type IEthereumChainConfig } from '../../lib/EthereumClient.ts';
 import { useFloatingZIndex } from '../../overlays/helpers/OverlayZIndex.ts';
+import { StableSwaps } from '../../lib/StableSwaps.ts';
 
 const props = defineProps<{
   moveToken: MoveToken;
@@ -87,16 +88,11 @@ const linkError = ref('');
 const tokenAddress = computed(() =>
   props.moveToken === MoveToken.ARGNOT ? chainConfig.value?.argonotTokenAddress : chainConfig.value?.argonTokenAddress,
 );
-const uniswapUrl = computed(() => {
-  if (!tokenAddress.value) return;
-  if (chainConfig.value?.chainId === 1) {
-    return `https://app.uniswap.org/explore/tokens/ethereum/${tokenAddress.value}`;
-  }
-  if (chainConfig.value?.chainId === 11155111) {
-    return `https://app.uniswap.org/#/swap?chain=sepolia&outputCurrency=${tokenAddress.value}`;
-  }
-  return undefined;
-});
+const uniswapUrl = computed(() =>
+  tokenAddress.value && chainConfig.value
+    ? StableSwaps.getUniswapMarketUrl(tokenAddress.value, chainConfig.value.chainId)
+    : undefined,
+);
 const etherscanUrl = computed(() => {
   if (!tokenAddress.value) return;
   if (chainConfig.value?.chainId === 1) return `https://etherscan.io/token/${tokenAddress.value}`;

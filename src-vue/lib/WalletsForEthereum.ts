@@ -152,6 +152,19 @@ export class WalletsForEthereum {
     await this.reloadRecords(true);
   }
 
+  public async rename(wallet: WalletForEthereum, name: string): Promise<void> {
+    const record = wallet.record;
+    if (!record || this.walletsByRecordId.get(record.id) !== wallet) {
+      throw new Error('Ethereum wallet is not connected.');
+    }
+    const trimmedName = name.trim();
+    if (!trimmedName) throw new Error('Enter a wallet name.');
+    if (trimmedName.length > 18) throw new Error('Use 18 characters or fewer for the wallet name.');
+    const db = await this.dbPromise;
+    await db.walletsTable.renameEthereumWallet(record.id, trimmedName);
+    await this.reloadRecords(true);
+  }
+
   public dispose(): void {
     this.coreWallet.dispose();
     for (const wallet of this.persistedWallets) {

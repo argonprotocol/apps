@@ -37,6 +37,7 @@ export const NoOpenChannel: Story = {
 };
 
 export const OpenChannel: Story = {
+  name: 'Open Channel (Interactive)',
   beforeEach: () => {
     const scenario = setupBitcoinOverlayScenario();
     scenario.lock.status = BitcoinLockStatus.LockPendingFunding;

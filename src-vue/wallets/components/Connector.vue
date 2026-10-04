@@ -16,7 +16,11 @@
               channelUuid: props.bitcoinChannelUuid,
               vaultId: props.bitcoinChannelVaultId,
             }
-          : { moveToken: selectedTransferToken, walletName: ethereumWallet?.name }
+          : {
+              moveToken: selectedTransferToken,
+              walletName: ethereumWallet?.name,
+              transferGuidance: props.transferGuidance,
+            }
       "
     >
       <button
@@ -40,6 +44,13 @@
         <span v-else class="text relative -top-1 z-10 text-7xl font-light text-white/20">+</span>
       </button>
     </component>
+    <ArrowCalloutButton
+      v-if="props.guidance && !isConnectorPopoverOpen"
+      :guidance="props.guidance"
+      :direction="props.direction"
+      class="absolute top-1/2 z-50 -translate-y-1/2"
+      :class="props.direction === 'left' ? 'left-full ml-3' : 'right-full mr-3'"
+    />
     <div
       v-if="ethereumWallet"
       class="text-md text-argon-900/70 absolute -top-2 left-1/2 flex -translate-x-1/2 flex-row"
@@ -98,11 +109,18 @@
           v-if="securitizationHoldChannelAddress"
           :content="securitizationHoldChannelAddress"
           data-testid="Connector.bitcoinChannelAddress"
-          class="relative -top-0.5 flex cursor-pointer items-center justify-center gap-1 font-mono text-sm opacity-60 hover:opacity-80"
+          class="relative -top-0.5 cursor-pointer font-mono text-sm"
         >
-          <span>{{ abbreviateAddress(securitizationHoldChannelAddress, 6) }}</span>
-          <CopyIcon class="h-3.5 w-3.5 shrink-0" />
-          <template #copying><CheckIcon class="h-3.5 w-3.5 shrink-0 text-green-500" /></template>
+          <span class="flex items-center justify-center gap-1 opacity-60 hover:opacity-80">
+            <span>{{ abbreviateAddress(securitizationHoldChannelAddress, 6) }}</span>
+            <CopyIcon class="h-3.5 w-3.5 shrink-0" />
+          </span>
+          <template #copying>
+            <span class="flex h-full w-full items-center justify-center gap-1 rounded bg-[#f1f3f7] text-slate-700">
+              <span>{{ abbreviateAddress(securitizationHoldChannelAddress, 6) }}</span>
+              <CheckIcon class="h-3.5 w-3.5 shrink-0 stroke-2 text-green-700" />
+            </span>
+          </template>
         </CopyToClipboard>
         <div
           v-else
@@ -127,6 +145,7 @@ import * as Vue from 'vue';
 import CopyIcon from '../../assets/copy.svg';
 import BitcoinNetworkLogo from '../../assets/networks/bitcoin.svg';
 import CopyToClipboard from '../../components/CopyToClipboard.vue';
+import ArrowCalloutButton from '../../components/ArrowCalloutButton.vue';
 import EthereumNetworkLogo from '../../assets/networks/ethereum.svg';
 import ConnectorChannel from './ConnectorChannel.vue';
 import ConnectorTokensMenu from './ConnectorTokensMenu.vue';
@@ -144,6 +163,8 @@ const props = withDefaults(
     bitcoinChannelUuid?: string;
     bitcoinChannelVaultId?: number;
     direction: 'right' | 'left';
+    guidance?: string;
+    transferGuidance?: string;
     wallet?: WalletForBitcoin | WalletForEthereum;
     open: boolean;
     transferDirections?: ICrosschainTransferDirection[];

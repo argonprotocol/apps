@@ -377,7 +377,7 @@ export function setupBitcoinPortfolioScenario(
   const bitcoinReleases: BitcoinReleases = Object.assign(Object.create(BitcoinReleases.prototype), {
     data: Vue.reactive({ releasesById: Object.fromEntries(releases.map(release => [release.id, release])) }),
   });
-  const bitcoinLocks: BitcoinLocks = Object.assign(Object.create(BitcoinLocks.prototype), {
+  const bitcoinLocks: BitcoinLocks = Object.assign(Object.setPrototypeOf(getBitcoinLocks(), BitcoinLocks.prototype), {
     data: Vue.reactive({ readiness: 'ready', isReconciliationPending: false }),
     recovery: Vue.reactive({ hasPendingHistoryRecovery: false }),
     releases: bitcoinReleases,
@@ -432,14 +432,13 @@ export function setupBitcoinPortfolioScenario(
     readiness: 'ready' as const,
     financialRevision: 1,
   });
-  const bitcoinFissions = Object.assign(Object.create(BitcoinFissions.prototype), {
+  const bitcoinFissions = Object.assign(getBitcoinFissions(), {
     data: fissionState,
     ownerAccount: '5SyntheticLiquidLockingWallet',
     load: fn(async () => undefined),
     refreshCurrent: fn(async () => liquidFissions),
   });
   Object.defineProperty(bitcoinFissions, 'currentLoadPromise', { value: Promise.resolve() });
-  mocked(getBitcoinFissions).mockReturnValue(bitcoinFissions);
   const pendingLiquidCreateTxInfo = Vue.shallowRef<TransactionInfo<IBitcoinLiquidCreateMetadata>>();
   let finalizePendingLiquidCreation: (() => void) | undefined;
   const bitcoinLiquidCreate = Object.assign(Object.create(BitcoinLiquidCreate.prototype), {
@@ -814,7 +813,7 @@ export function setupBitcoinEmptyScenario(
     isReconciliationPending: false,
   });
   const walletLock = options.walletBitcoin ? createSummary(30, BitcoinLockStatus.LockFunded) : undefined;
-  mocked(getBitcoinLocks).mockReturnValue({
+  Object.assign(getBitcoinLocks(), {
     data: bitcoinLocksData,
     recovery: Vue.reactive({ hasPendingHistoryRecovery: false }),
     utxoTracking: {
@@ -835,8 +834,8 @@ export function setupBitcoinEmptyScenario(
     getAllLocks: fn(() => (walletLock ? [walletLock.record] : [])),
     getUtxosForLock: fn(() => []),
     isSecuritizationHoldExpired: fn(() => false),
-  } as unknown as ReturnType<typeof getBitcoinLocks>);
-  mocked(getBitcoinFissions, { partial: true }).mockReturnValue({
+  });
+  Object.assign(getBitcoinFissions(), {
     data: Vue.reactive({
       fissionsById: {},
       activeFissionIds: new Set<number>(),

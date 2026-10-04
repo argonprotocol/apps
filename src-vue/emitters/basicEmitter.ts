@@ -9,6 +9,7 @@ import type { IWalletOverlayWallet, IWalletView } from '../wallets/walletOverlay
 import type { WalletForEthereum } from '../lib/WalletForEthereum.ts';
 
 export type IWalletGuidanceContext = 'mining' | 'vaulting';
+export type SecuritySettingsScreen = 'overview' | 'mnemonics' | 'encrypt';
 
 export type IOperationalProfileRequest =
   | { screen: 'settings' }
@@ -37,7 +38,7 @@ type IBasicEmitter = {
   openMiningBiddingBotOverlay: void;
   openMiningActiveSeatsOverlay: void;
   openServerRemoveOverlay: void;
-  openSecuritySettingsOverlay: { screen: 'overview' | 'mnemonics' | 'encrypt' } | undefined;
+  openSecuritySettingsOverlay: { screen: SecuritySettingsScreen } | undefined;
   openProvisioningCompleteOverlay: void;
   openServerConnectPanel: void;
   closeAllOverlays: void;

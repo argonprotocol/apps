@@ -42,18 +42,18 @@
         </ul>
 
         <span class="relative">
-          <button
-            data-testid="BitcoinLiquids.openCreationOverlay()"
-            @click="basicEmitter.emit('openBitcoinLiquidCreationOverlay', undefined)"
-            class="bg-argon-button hover:bg-argon-button-hover mt-12 cursor-pointer rounded-md border border-transparent px-12 py-3 text-lg font-bold text-white"
+          <WalletGuideAnchor
+            :open="controller.bitcoinGuideStep === 'liquid' && !basics.overlayIsOpen"
+            guidance="Create your first liquid from the Bitcoin in your wallet."
           >
-            Create Your First Liquid
-          </button>
-          <ArrowCalloutButton
-            v-if="controller.activeGuideId === OperationalStepId.LiquidLock && canStartLocking"
-            guidance="Start your liquid lock here."
-            class="absolute top-1/2 right-0 z-50 translate-x-[calc(100%+0.75rem)] -translate-y-1/2"
-          />
+            <button
+              data-testid="BitcoinLiquids.openCreationOverlay()"
+              @click="basicEmitter.emit('openBitcoinLiquidCreationOverlay', undefined)"
+              class="bg-argon-button hover:bg-argon-button-hover mt-12 cursor-pointer rounded-md border border-transparent px-12 py-3 text-lg font-bold text-white"
+            >
+              Create Your First Liquid
+            </button>
+          </WalletGuideAnchor>
         </span>
         <div class="mt-2 text-slate-800/60">
           <template v-if="activeCouponGift">
@@ -72,30 +72,25 @@
 <script setup lang="ts">
 import * as Vue from 'vue';
 import basicEmitter from '../../emitters/basicEmitter.ts';
+import WalletGuideAnchor from '../../wallets/components/WalletGuideAnchor.vue';
+import { useCertificationController } from '../../stores/certificationController.ts';
+import { useBasics } from '../../stores/basics.ts';
 import { getCurrency } from '../../stores/currency.ts';
-import { getBitcoinLockCoupons, getBitcoinLocks } from '../../stores/bitcoin.ts';
+import { getBitcoinLockCoupons } from '../../stores/bitcoin.ts';
 import { getMiningFrames } from '../../stores/mainchain.ts';
-import { useFinancials } from '../../stores/financials.ts';
-import ArrowCalloutButton from '../../components/ArrowCalloutButton.vue';
-import { OperationalStepId, useCertificationController } from '../../stores/certificationController.ts';
 import Step1Icon from './images/step1.svg?component';
 import Step2Icon from './images/step2.svg?component';
 import Step3Icon from './images/step3.svg?component';
 import { NetworkConfig } from '@argonprotocol/apps-core';
 
-const controller = useCertificationController();
 const currency = getCurrency();
-const financials = useFinancials();
-const bitcoinLocks = getBitcoinLocks();
+const controller = useCertificationController();
+const basics = useBasics();
 const bitcoinLockCoupons = getBitcoinLockCoupons();
 const miningFrames = getMiningFrames();
 const currentTick = Vue.ref(0);
 const now = Vue.ref(Date.now());
 let countdownInterval: ReturnType<typeof setInterval> | undefined;
-
-const canStartLocking = Vue.computed(() => {
-  return financials.savingsTotalReadyToUse > 0n || !!bitcoinLockCoupons.currentCoupon;
-});
 
 const activeCouponGift = Vue.computed(() => {
   const couponStatus = bitcoinLockCoupons.currentCoupon;

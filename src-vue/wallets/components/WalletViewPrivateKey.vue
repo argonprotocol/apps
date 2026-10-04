@@ -1,6 +1,7 @@
 <template>
   <div class="flex h-full grow flex-col text-black/90">
     <WalletHeader
+      v-if="props.showHeader"
       name="Private Key"
       :showHome="props.showBack"
       :isDragging="props.isDragging"
@@ -11,12 +12,25 @@
 
     <div class="flex grow flex-col gap-5 px-4 py-4">
       <p class="text-md leading-6 text-slate-500">
-        This private key controls your Internal App Wallet. Anyone with this key can spend funds from its Argon account.
+        <template v-if="props.walletType === WalletType.ethereum">
+          This exports the private key for your Default Ethereum wallet. Any wallet that imports this key can spend
+          funds from that Ethereum account.
+        </template>
+        <template v-else>
+          This private key controls your Internal App Wallet. Anyone with this key can spend funds from its Argon
+          account.
+        </template>
       </p>
 
       <div class="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3">
         <div class="text-xs font-semibold tracking-wide text-slate-500 uppercase">Public address</div>
-        <div class="mt-2 font-mono text-sm break-all text-slate-900">{{ wallets.defaultArgonWallet.address }}</div>
+        <div class="mt-2 font-mono text-sm break-all text-slate-900">
+          {{
+            props.walletType === WalletType.ethereum
+              ? walletKeys.coreEthereumAddress
+              : wallets.defaultArgonWallet.address
+          }}
+        </div>
       </div>
 
       <div class="relative rounded-xl border border-red-200 bg-red-50 px-4 py-3">
@@ -55,15 +69,21 @@
 import * as Vue from 'vue';
 import type { IWalletGuidanceContext } from '../../emitters/basicEmitter.ts';
 import { getWalletKeys, useWallets } from '../../stores/wallets.ts';
+import { WalletType } from '../../lib/Wallet.ts';
 import WalletHeader from './WalletHeader.vue';
 import type { IWalletView } from '../walletOverlayState.ts';
 
-const props = defineProps<{
-  isDragging: boolean;
-  showBack: boolean;
-  showGuidance?: boolean;
-  guidanceContext?: IWalletGuidanceContext;
-}>();
+const props = withDefaults(
+  defineProps<{
+    isDragging: boolean;
+    showBack: boolean;
+    showHeader?: boolean;
+    walletType?: WalletType.argon | WalletType.ethereum;
+    showGuidance?: boolean;
+    guidanceContext?: IWalletGuidanceContext;
+  }>(),
+  { showHeader: true, walletType: WalletType.argon },
+);
 
 const emit = defineEmits<{
   (event: 'dragStart', mouseEvent: MouseEvent): void;
@@ -80,6 +100,7 @@ const privateKey = Vue.ref('');
 const errorMessage = Vue.ref('');
 let copiedResetTimer: ReturnType<typeof setTimeout> | undefined;
 let clipboardClearTimer: ReturnType<typeof setTimeout> | undefined;
+let isUnmounted = false;
 
 function togglePrivateKeyVisibility() {
   if (!privateKey.value) return;
@@ -104,7 +125,10 @@ async function copyToClipboard() {
       void clearCopiedPrivateKey(copiedValue);
     }, 180_000);
   } catch (error) {
-    errorMessage.value = error instanceof Error ? error.message : 'Unable to copy the Argon private key.';
+    errorMessage.value =
+      error instanceof Error
+        ? error.message
+        : `Unable to copy the ${props.walletType === WalletType.ethereum ? 'Ethereum' : 'Argon'} private key.`;
   }
 }
 
@@ -118,17 +142,25 @@ async function clearCopiedPrivateKey(copiedValue: string) {
 }
 
 Vue.onMounted(() => {
-  walletKeys
-    .exportDefaultArgonPrivateKey()
+  const exportKey =
+    props.walletType === WalletType.ethereum
+      ? walletKeys.exportEthereumPrivateKey()
+      : walletKeys.exportDefaultArgonPrivateKey();
+  exportKey
     .then(key => {
-      privateKey.value = key;
+      if (!isUnmounted) privateKey.value = key;
     })
     .catch(error => {
-      errorMessage.value = error instanceof Error ? error.message : 'Unable to export the Argon private key.';
+      if (isUnmounted) return;
+      errorMessage.value =
+        error instanceof Error
+          ? error.message
+          : `Unable to export the ${props.walletType === WalletType.ethereum ? 'Ethereum' : 'Argon'} private key.`;
     });
 });
 
 Vue.onUnmounted(() => {
+  isUnmounted = true;
   isPrivateKeyVisible.value = false;
   privateKey.value = '';
   errorMessage.value = '';

@@ -1,19 +1,15 @@
 <template>
   <div class="pl-2">
     <p class="text-md leading-7">
-      Liquid Locking lets you inject Bitcoin into an Argon vault and mint Argons equal to the market value of the
-      Bitcoin you lock. That is the liquidity part of Liquid Locking. At the same time, the locked Bitcoin creates a
-      short against the Argon stablecoin, which helps prevent Argon from falling below its target price.
+      A Bitcoin Liquid lets you receive Argons against the value of your locked Bitcoin. Bitcoin Liquids help stabilize
+      the Argon stablecoin.
     </p>
     <p class="text-md mt-4 leading-7">
-      There is no minimum lock duration, and Bitcoin can be unlocked whenever you choose.
+      When you start this task, we'll walk you through sending Bitcoin to your wallet, then creating your first Bitcoin
+      Liquid.
     </p>
-    <p class="text-md mt-4 leading-7">
-      When you start this task, Argon will point you to
-      <strong>Bitcoin Locks</strong>
-      in the Treasury sidebar. Open it, then click
-      <strong>Liquid Lock Your Bitcoin</strong>
-      and follow the prompts.
+    <p class="mt-4 text-sm leading-6 text-slate-500">
+      Complete your Uniswap transfer first so you have ARGN in your app wallet.
     </p>
   </div>
 </template>

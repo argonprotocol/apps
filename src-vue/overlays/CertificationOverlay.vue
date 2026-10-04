@@ -79,7 +79,11 @@
           Go to {{ currentBlockingStep.title }}
         </button>
       </div>
-      <component :is="operationalSteps[currentStepId].component" />
+      <TransferArgons
+        v-if="currentStepId === OperationalStepId.TreasuryTransfer || currentStepId === OperationalStepId.OperationalTransfer"
+        :minimumTransferMicrogons="controller.rewardConfig[currentStepId === OperationalStepId.TreasuryTransfer ? 'treasuryMinimumUniswapTransfer' : 'operationalMinimumUniswapTransfer']"
+      />
+      <component v-else :is="operationalSteps[currentStepId].component" />
       <div class="flex flex-row items-center gap-x-3 whitespace-nowrap mt-3">
 <!--        <button-->
 <!--          @click="openDocumentationLink(operationalSteps[currentStepId].documentationLink)"-->
@@ -107,7 +111,7 @@
             Cancel Task
           </button>
           <button
-            v-else-if="controller.isCertificationStepUnderway(currentStepId)"
+            v-else-if="controller.isCertificationStepUnderway(currentStepId) && currentStepId !== OperationalStepId.LiquidLock"
             class="w-full border border-argon-300 bg-argon-50 mt-5 inline-flex flex-row items-center justify-center rounded-lg px-8 py-2 font-bold text-argon-700 ml-1 cursor-not-allowed"
             disabled
           >
@@ -123,7 +127,7 @@
           >
             <template v-if="currentBlockingStep">Complete Required Step First</template>
             <template v-else>
-              Start Task
+              {{ controller.isCertificationStepUnderway(currentStepId) ? 'Resume Task' : 'Start Task' }}
               <ChevronDoubleRightIcon class="size-5 ml-2 relative" :class="currentBlockingStep ? 'text-slate-400' : 'text-white'" />
             </template>
           </button>
@@ -136,6 +140,7 @@
 <script setup lang="ts">
 import * as Vue from 'vue';
 import OverlayBase from './OverlayBase.vue';
+import TransferArgons from './certification/TransferArgons.vue';
 import { DialogTitle } from 'reka-ui';
 import basicEmitter from '../emitters/basicEmitter.ts';
 import Checkbox from '../components/Checkbox.vue';

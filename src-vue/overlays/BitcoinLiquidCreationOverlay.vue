@@ -47,28 +47,42 @@
         </section>
 
         <div class="mt-7 flex w-full justify-end border-t border-slate-200 pt-4">
-          <button
-            type="button"
-            data-testid="BitcoinLiquidCreationOverlay.done"
-            class="bg-argon-button hover:bg-argon-button-hover cursor-pointer rounded-md px-6 py-2 font-semibold text-white"
-            @click="emit('close')"
+          <WalletGuideAnchor
+            :open="isGuideActive"
+            side="left"
+            guidance="Your Liquid is active. Argons will arrive in your app wallet as they are minted. Click Done to return to Bitcoin Liquids."
+            @close="emit('close')"
           >
-            Done
-          </button>
+            <button
+              type="button"
+              data-testid="BitcoinLiquidCreationOverlay.done"
+              class="bg-argon-button hover:bg-argon-button-hover cursor-pointer rounded-md px-6 py-2 font-semibold text-white"
+              @click="emit('close')"
+            >
+              Done
+            </button>
+          </WalletGuideAnchor>
         </div>
       </div>
       <div v-else class="flex min-h-60 flex-col items-center justify-center gap-4 px-10 py-8 text-center">
         <AlertIcon class="h-12 text-yellow-700" />
         <h1 class="text-xl font-bold text-slate-800">Your Bitcoin Liquid Is Active</h1>
         <p class="max-w-150 text-slate-600">{{ props.state.errorMessage }}</p>
-        <button
-          type="button"
-          data-testid="BitcoinLiquidCreationOverlay.done"
-          class="cursor-pointer rounded-md border border-slate-300 px-6 py-2 text-slate-600 hover:bg-slate-50"
-          @click="emit('close')"
+        <WalletGuideAnchor
+          :open="isGuideActive"
+          side="left"
+          guidance="Your Liquid was created. Click Done to return to Bitcoin Liquids."
+          @close="emit('close')"
         >
-          Done
-        </button>
+          <button
+            type="button"
+            data-testid="BitcoinLiquidCreationOverlay.done"
+            class="cursor-pointer rounded-md border border-slate-300 px-6 py-2 text-slate-600 hover:bg-slate-50"
+            @click="emit('close')"
+          >
+            Done
+          </button>
+        </WalletGuideAnchor>
       </div>
     </div>
     <div v-else-if="props.state.stage === 'vaults'" class="flex flex-col px-10 py-5">
@@ -106,20 +120,37 @@
         >
           Cancel
         </button>
-        <button
-          :disabled="!selectedVaultIds.length"
-          class="bg-argon-button enabled:hover:bg-argon-button-hover cursor-pointer rounded-md px-10 py-2 font-semibold text-white disabled:cursor-default disabled:opacity-40"
-          @click="emit('vaultsSelected', { vaultIds: selectedVaultIds })"
+        <WalletGuideAnchor
+          :open="isGuideActive"
+          side="left"
+          guidance="Choose the vaults holding the Bitcoin you want to use, then continue."
+          @close="emit('close')"
         >
-          Use Selected Vaults &raquo;
-        </button>
+          <button
+            :disabled="!selectedVaultIds.length"
+            class="bg-argon-button enabled:hover:bg-argon-button-hover cursor-pointer rounded-md px-10 py-2 font-semibold text-white disabled:cursor-default disabled:opacity-40"
+            @click="emit('vaultsSelected', { vaultIds: selectedVaultIds })"
+          >
+            Use Selected Vaults &raquo;
+          </button>
+        </WalletGuideAnchor>
       </div>
     </div>
     <div v-else-if="props.state.stage === 'creating'" class="px-6 py-5">
       <div class="space-y-5">
         <div class="space-y-3">
           <div class="text-sm font-medium text-slate-600">Creating Liquid...</div>
-          <ProgressBar :progress="props.state.progressPct" :hasError="!!props.state.errorMessage" />
+          <div class="relative">
+            <ProgressBar :progress="props.state.progressPct" :hasError="!!props.state.errorMessage" />
+            <ArrowCalloutButton
+              v-if="isGuideActive && !props.state.errorMessage"
+              :autoOpenGuidance="true"
+              guidanceAlign="end"
+              label="Please Wait"
+              guidance="Your Liquid is being created. You can close this window and reopen it from Bitcoin Liquids to watch progress."
+              class="pointer-events-none absolute top-1/2 right-4 z-50 -translate-y-1/2"
+            />
+          </div>
           <div class="text-xs text-slate-500">{{ props.state.progressLabel || 'Preparing transaction...' }}</div>
           <div
             v-if="props.state.errorMessage"
@@ -130,13 +161,20 @@
         </div>
 
         <div v-if="props.state.errorMessage" class="flex flex-row justify-end gap-3 pt-1">
-          <button
-            type="button"
-            class="rounded border border-slate-300 px-4 py-2 text-sm text-slate-600 hover:bg-slate-50"
-            @click="emit('retry')"
+          <WalletGuideAnchor
+            :open="isGuideActive"
+            side="left"
+            guidance="Review the error above, then try again to continue creating your Liquid."
+            @close="emit('close')"
           >
-            Try Again
-          </button>
+            <button
+              type="button"
+              class="rounded border border-slate-300 px-4 py-2 text-sm text-slate-600 hover:bg-slate-50"
+              @click="emit('retry')"
+            >
+              Try Again
+            </button>
+          </WalletGuideAnchor>
         </div>
       </div>
     </div>
@@ -162,7 +200,10 @@
               v-else
               type="button"
               class="text-argon-600 hover:text-argon-700 cursor-pointer text-sm"
-              @click="selectSatoshis(minimumLiquidSatoshis)"
+              @click="
+                selectSatoshis(minimumLiquidSatoshis);
+                hasReviewedAmount = true;
+              "
             >
               Min
             </button>
@@ -181,7 +222,10 @@
                   v-else
                   type="button"
                   class="text-argon-600 hover:text-argon-700 cursor-pointer"
-                  @click="selectSatoshis(certificationSelectionSatoshis)"
+                  @click="
+                    selectSatoshis(certificationSelectionSatoshis);
+                    hasReviewedAmount = true;
+                  "
                 >
                   Certification
                 </button>
@@ -199,23 +243,58 @@
               v-else
               type="button"
               class="text-argon-600 hover:text-argon-700 cursor-pointer text-sm"
-              @click="selectSatoshis(maximumLiquidSatoshis)"
+              @click="
+                selectSatoshis(maximumLiquidSatoshis);
+                hasReviewedAmount = true;
+              "
             >
               Max
             </button>
           </div>
-          <InputNumber
-            v-model="selectedBitcoin"
-            :min="currency.convertSatToBtc(bigIntMin(minimumLiquidSatoshis, maximumLiquidSatoshis))"
-            :max="currency.convertSatToBtc(maximumLiquidSatoshis)"
-            :dragBy="0.001"
-            :dragByMin="0.00000001"
-            :minDecimals="1"
-            :maxDecimals="8"
-            :disabled="props.state.isSubmitting"
-            suffix=" BTC"
-            class="px-1 py-2 text-[17px]!"
-          />
+          <div class="relative">
+            <InputNumber
+              v-model="selectedBitcoin"
+              :min="currency.convertSatToBtc(bigIntMin(minimumLiquidSatoshis, maximumLiquidSatoshis))"
+              :max="currency.convertSatToBtc(maximumLiquidSatoshis)"
+              :dragBy="0.001"
+              :dragByMin="0.00000001"
+              :minDecimals="1"
+              :maxDecimals="8"
+              :disabled="props.state.isSubmitting"
+              suffix=" BTC"
+              class="px-1 py-2 text-[17px]!"
+            />
+            <ArrowCalloutButton
+              v-if="
+                isGuideActive &&
+                availableSatoshis &&
+                props.state.treasuryCertificationRequiredSatoshis &&
+                !hasReviewedAmount &&
+                !props.state.isSubmitting
+              "
+              autoOpenGuidance
+              guidanceAlign="end"
+              :guidance="
+                props.state.treasuryCertificationRequiredSatoshis > maximumLiquidSatoshis
+                  ? `For certification, use ${satToBtcNm(props.state.treasuryCertificationRequiredSatoshis).format('0,0.[00000000]')} BTC. Add Bitcoin or choose another vault before continuing.`
+                  : `Use ${satToBtcNm(certificationSelectionSatoshis).format('0,0.[00000000]')} BTC for certification. Click Next to review your Liquid.`
+              "
+              class="pointer-events-none absolute top-1/2 right-4 z-50 -translate-y-1/2"
+            >
+              <template #guidanceActions>
+                <button
+                  v-if="props.state.treasuryCertificationRequiredSatoshis <= maximumLiquidSatoshis"
+                  @click="
+                    selectSatoshis(certificationSelectionSatoshis);
+                    hasReviewedAmount = true;
+                  "
+                  class="border-argon-600/60 text-argon-600 hover:bg-argon-600/5 grow cursor-pointer rounded border px-5 py-1"
+                >
+                  Next
+                </button>
+              </template>
+            </ArrowCalloutButton>
+          </div>
           <div
             v-if="maximumLiquidSatoshis < availableSatoshis"
             role="alert"
@@ -327,19 +406,42 @@
           >
             Cancel
           </button>
-          <button
-            :disabled="
-              props.state.isSubmitting ||
-              !availableSatoshis ||
-              !selectedSatoshis ||
-              !props.state.preview?.microgonsAtTargetPerBtc ||
-              !!walletShortfallMicrogons
+          <WalletGuideAnchor
+            :open="
+              isGuideActive &&
+              !!availableSatoshis &&
+              !!props.state.preview &&
+              !walletShortfallMicrogons &&
+              (props.state.isSubmitting ||
+                (hasReviewedAmount &&
+                  selectedSatoshis === certificationSelectionSatoshis &&
+                  !treasuryCertificationShortfallSatoshis))
             "
-            class="bg-argon-button enabled:hover:bg-argon-button-hover cursor-pointer rounded-md px-10 py-2 font-semibold text-white disabled:cursor-default disabled:opacity-40"
-            @click="submit"
+            :autoOpenGuidance="props.state.isSubmitting"
+            :label="props.state.isSubmitting ? 'Please Wait' : 'Click Here'"
+            guidanceAlign="end"
+            side="left"
+            :guidance="
+              props.state.isSubmitting
+                ? 'Checking your Liquid before submitting it. Creation progress will appear here next.'
+                : 'Review the fee and repayment amount, then click Create Liquid.'
+            "
+            @close="emit('close')"
           >
-            {{ props.state.isSubmitting ? 'Submitting...' : 'Create Liquid &raquo;' }}
-          </button>
+            <button
+              :disabled="
+                props.state.isSubmitting ||
+                !availableSatoshis ||
+                !selectedSatoshis ||
+                !props.state.preview?.microgonsAtTargetPerBtc ||
+                !!walletShortfallMicrogons
+              "
+              class="bg-argon-button enabled:hover:bg-argon-button-hover cursor-pointer rounded-md px-10 py-2 font-semibold text-white disabled:cursor-default disabled:opacity-40"
+              @click="submit"
+            >
+              {{ props.state.isSubmitting ? 'Submitting...' : 'Create Liquid &raquo;' }}
+            </button>
+          </WalletGuideAnchor>
         </div>
       </div>
     </div>
@@ -349,13 +451,15 @@
 <script setup lang="ts">
 import * as Vue from 'vue';
 import BigNumber from 'bignumber.js';
-import { bigIntMin, bigNumberToBigInt, NetworkConfig, UnitOfMeasurement } from '@argonprotocol/apps-core';
+import { bigIntMax, bigIntMin, bigNumberToBigInt, NetworkConfig, UnitOfMeasurement } from '@argonprotocol/apps-core';
 import { InformationCircleIcon } from '@heroicons/vue/24/outline';
 import dayjs from 'dayjs';
 
 import AlertIcon from '../assets/alert.svg?component';
 import BitcoinIcon from '../assets/wallets/tokens/bitcoin.svg?component';
 import BitcoinFissionVaultIllustration from '../components/BitcoinFissionVaultIllustration.vue';
+import ArrowCalloutButton from '../components/ArrowCalloutButton.vue';
+import WalletGuideAnchor from '../wallets/components/WalletGuideAnchor.vue';
 import InputNumber from '../components/InputNumber.vue';
 import ProgressBar from '../components/ProgressBar.vue';
 import SelectAVault from '../components/SelectAVault.vue';
@@ -391,6 +495,7 @@ const emit = defineEmits<{
 const currency = getCurrency();
 const config = getConfig();
 const certification = useCertificationController();
+const hasReviewedAmount = Vue.ref(false);
 const wallets = useWallets();
 const vaultingStats = useVaultingStats();
 const { microgonToArgonNm, satToBtcNm } = createNumeralHelpers(currency);
@@ -423,6 +528,11 @@ const projectedEarningsMicrogons = Vue.computed(() =>
   ),
 );
 const isTreasuryCertified = Vue.computed(() => certification.isCertificationStepComplete(OperationalStepId.LiquidLock));
+const isGuideActive = Vue.computed(
+  () =>
+    certification.activeGuideId === OperationalStepId.LiquidLock &&
+    (props.state.stage === 'complete' || !isTreasuryCertified.value),
+);
 const availableSatoshis = Vue.computed(() =>
   props.state.sources.reduce(
     (total, source) => total + (selectedSourceVaultIds.value.has(source.vaultId) ? source.unallocatedSatoshis : 0n),
@@ -458,9 +568,10 @@ const selectedVaults = Vue.computed(() => {
   };
 });
 const certificationSelectionSatoshis = Vue.computed(() => {
-  return props.state.treasuryCertificationRequiredSatoshis < maximumLiquidSatoshis.value
-    ? props.state.treasuryCertificationRequiredSatoshis
-    : maximumLiquidSatoshis.value;
+  return bigIntMin(
+    bigIntMax(props.state.treasuryCertificationRequiredSatoshis, minimumLiquidSatoshis),
+    maximumLiquidSatoshis.value,
+  );
 });
 const walletShortfallMicrogons = Vue.computed(() => {
   return feeMicrogons.value > wallets.defaultArgonSpendableMicrogons
@@ -527,7 +638,39 @@ Vue.watch(
   },
 );
 
-Vue.watch(selectedSatoshis, satoshis => emit('amountChanged', { satoshis }));
+Vue.watch(selectedSatoshis, satoshis => {
+  if (isGuideActive.value && satoshis !== certificationSelectionSatoshis.value) {
+    hasReviewedAmount.value = false;
+  }
+  emit('amountChanged', { satoshis });
+});
+
+Vue.watch(
+  [
+    isGuideActive,
+    () => props.state.stage,
+    () => props.state.treasuryCertificationRequiredSatoshis,
+    maximumLiquidSatoshis,
+    () => props.state.isSubmitting,
+  ],
+  () => {
+    if (
+      !isGuideActive.value ||
+      props.state.stage !== 'form' ||
+      !props.state.treasuryCertificationRequiredSatoshis ||
+      props.state.isSubmitting
+    ) {
+      return;
+    }
+    selectSatoshis(certificationSelectionSatoshis.value);
+    hasReviewedAmount.value = false;
+  },
+  { immediate: true },
+);
+
+Vue.watch([() => props.state.stage, isGuideActive], () => {
+  hasReviewedAmount.value = false;
+});
 
 function openBitcoinWallet(): void {
   basicEmitter.emit('openWalletOverlay', { wallet: wallets.bitcoinWallet });
