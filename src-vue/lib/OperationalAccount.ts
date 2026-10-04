@@ -50,6 +50,7 @@ export type IOperationalChainProgress = {
   hasVault: boolean;
   hasUniswapTransfer: boolean;
   hasTreasuryUniswapTransfer: boolean;
+  uniswapArgonTransfersInAmount: bigint;
   hasTreasuryBondParticipation: boolean;
   hasFirstMiningSeat: boolean;
   hasSecondMiningSeat: boolean;
@@ -501,6 +502,7 @@ export function getOperationalChainProgressFromAccount(
     hasVault: false,
     hasUniswapTransfer: false,
     hasTreasuryUniswapTransfer: false,
+    uniswapArgonTransfersInAmount: 0n,
     hasTreasuryBondParticipation: false,
     hasFirstMiningSeat: false,
     hasSecondMiningSeat: false,
@@ -534,6 +536,7 @@ export function getOperationalChainProgressFromAccount(
     hasVault: account.vaultCreated,
     hasUniswapTransfer: uniswapArgonTransfersInAmountValue >= operationalMinimumUniswapTransfer,
     hasTreasuryUniswapTransfer: certificationProgress.hasTreasuryUniswapTransfer,
+    uniswapArgonTransfersInAmount: uniswapArgonTransfersInAmountValue,
     hasTreasuryBondParticipation: certificationProgress.hasTreasuryBonds,
     hasFirstMiningSeat: miningSeatAccrualValue + (account.miningSeatAppliedTotal ?? 0) >= 1,
     hasSecondMiningSeat: miningSeatAccrualValue + (account.miningSeatAppliedTotal ?? 0) >= 2,

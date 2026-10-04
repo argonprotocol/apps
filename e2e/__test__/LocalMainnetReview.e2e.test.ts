@@ -548,10 +548,17 @@ describe('partial capture diagnostics', () => {
       encoding: 'utf8',
     });
     expect(partial.status, partial.stderr).toBe(1);
-    const partialReport = JSON.parse(readFileSync(Path.join(directory, 'qualification-report.json'), 'utf8'));
+    const partialReportText = readFileSync(Path.join(directory, 'qualification-report.json'), 'utf8');
+    expect(partialReportText).not.toContain(registry.failures[0].error);
+    expect(partialReportText).not.toContain('"history"');
+    expect(partial.stdout).not.toContain('Missing creation event');
+    expect(readFileSync(Path.join(directory, 'summary.md'), 'utf8')).not.toContain('Missing creation event');
+    const partialReport = JSON.parse(partialReportText);
     expect(partialReport.qualified).toBe(false);
-    expect(partialReport.captureFailures).toEqual(registry.failures);
-    expect(partialReport.skipped).toEqual([]);
+    expect(partialReport.captureFailures).toBe(1);
+    expect(partialReport.skipped).toBe(0);
+    expect(partialReport.reviewed).toBe(3);
+    expect(partialReport.accounts).toBeUndefined();
     expect(partial.stdout).toContain('not qualified');
 
     registry.failures = [];
@@ -565,9 +572,8 @@ describe('partial capture diagnostics', () => {
     expect(passed.status, passed.stderr).toBe(0);
     const passedReport = JSON.parse(readFileSync(Path.join(directory, 'qualification-report.json'), 'utf8'));
     expect(passedReport.qualified).toBe(true);
-    expect(passedReport.incompleteStartingHistories).toEqual([
-      { label: 'scenario-003', error: 'Missing creation event' },
-    ]);
+    expect(passedReport.incompleteStartingHistories).toBe(1);
+    expect(passedReport.passed).toBe(3);
     const repairedResult = passedResults.find(result => result.label === 'scenario-003')!;
     repairedResult.history!.bitcoinFissionIds = [9];
     writeFileSync(resultsPath, JSON.stringify(passedResults));

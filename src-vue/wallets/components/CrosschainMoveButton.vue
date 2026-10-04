@@ -13,7 +13,12 @@
       >
         <ArrowCalloutButton
           v-if="showInboundArgonGuide"
-          guidance="Click MOVE to transfer your Uniswap ARGN into this Argon wallet."
+          :label="hasPendingTransfer ? 'Please Wait' : 'Click Here'"
+          :guidance="
+            hasPendingTransfer
+              ? 'Your ARGN transfer is in progress. Open it to watch progress.'
+              : 'Click MOVE to transfer your Uniswap ARGN into this Argon wallet.'
+          "
           class="absolute top-1/2 left-full z-50 ml-3 -translate-y-1/2"
         />
       </MoveArrowButton>

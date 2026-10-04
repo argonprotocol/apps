@@ -451,7 +451,14 @@
 <script setup lang="ts">
 import * as Vue from 'vue';
 import BigNumber from 'bignumber.js';
-import { bigIntMax, bigIntMin, bigNumberToBigInt, NetworkConfig, UnitOfMeasurement } from '@argonprotocol/apps-core';
+import {
+  bigIntMax,
+  bigIntMin,
+  bigNumberToBigInt,
+  meetsCertificationAmountMinimum,
+  NetworkConfig,
+  UnitOfMeasurement,
+} from '@argonprotocol/apps-core';
 import { InformationCircleIcon } from '@heroicons/vue/24/outline';
 import dayjs from 'dayjs';
 
@@ -469,6 +476,7 @@ import WalletFundingCallout from '../components/WalletFundingCallout.vue';
 import basicEmitter from '../emitters/basicEmitter.ts';
 import type { BitcoinLiquid } from '../lib/BitcoinLiquid.ts';
 import { createNumeralHelpers } from '../lib/numeral.ts';
+import { getBitcoinFissions } from '../stores/bitcoin.ts';
 import { OperationalStepId, useCertificationController } from '../stores/certificationController.ts';
 import { getConfig } from '../stores/config.ts';
 import { getCurrency } from '../stores/currency.ts';
@@ -580,6 +588,18 @@ const walletShortfallMicrogons = Vue.computed(() => {
 });
 const treasuryCertificationShortfallSatoshis = Vue.computed(() => {
   if (isTreasuryCertified.value) return 0n;
+  const currentLiquidity = getBitcoinFissions()
+    .getAll()
+    .reduce((total, fission) => total + fission.liquidityPromised, 0n);
+  if (
+    props.state.preview &&
+    meetsCertificationAmountMinimum(
+      currentLiquidity + liquidityMicrogons.value,
+      certification.rewardConfig.treasuryMinimumBitcoin,
+    )
+  ) {
+    return 0n;
+  }
   return props.state.treasuryCertificationRequiredSatoshis > selectedSatoshis.value
     ? props.state.treasuryCertificationRequiredSatoshis - selectedSatoshis.value
     : 0n;

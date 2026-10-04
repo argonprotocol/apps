@@ -25,7 +25,7 @@
             :open="controller.isTransferGuideActive && !ethereumSecretInput.trim() && importGuideStep === 'method'"
             label="Start Here"
             guidancePosition="top"
-            guidance="We'll show the Uniswap path. Choose Mnemonic below, or Private key for MetaMask."
+            guidance="Choose an import method below. We'll guide you through connecting your wallet."
             @close="emit('close')"
           >
             <legend class="relative mb-2 text-sm font-semibold text-slate-700">Import method</legend>
@@ -99,6 +99,7 @@
         </WalletGuideAnchor>
         <WalletGuideAnchor
           :open="controller.isTransferGuideActive && !ethereumSecretInput.trim() && importGuideStep === 'secret'"
+          label="Paste Here"
           :guidance="
             ethereumImportMode === 'mnemonic'
               ? 'Paste your Uniswap recovery phrase here.'
@@ -183,6 +184,7 @@
             !isScanningBalances &&
             mnemonicAccounts.length > 0
           "
+          label="Choose an Account"
           guidance="Choose the wallet you want to import."
           @close="emit('close')"
         >

@@ -3,6 +3,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.4.1] - 2026-10-04
+- Restore missing Bitcoin Lock and Liquid history and preserve balances and minting progress
+- Restore missing mining history and keep balances and bids up to date
+- Improve Uniswap Transfer and Bitcoin Liquid walkthroughs
+- Fix amounts and fees for transfers between chains, and make error messages easier to understand
+- Keep vault owners' bond purchases within their vault's limits and restore missing bond history
+- Keep setup and certification progress accurate, with clearer steps for joining Treasury
+- Help the app and bots recover after temporary connection problems
+- Hide ETH value estimates when a price is unavailable
+
 ## [2.4.0] - 2026-09-24
 - Redesign wallet around "external connectors"
 - Bitcoin Locks and Liquids are split into two phases: live in your wallet, and create a minted position
