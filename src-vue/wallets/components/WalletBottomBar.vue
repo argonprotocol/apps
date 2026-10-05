@@ -9,8 +9,8 @@
           >
             <WalletGuideAnchor
               :autoOpenGuidance="props.showBitcoinGuide"
+              :label="activeTransferCount ? 'Please Wait' : 'View Status'"
               :open="
-                !isOpen &&
                 pendingTransfers.some(
                   transfer =>
                     transfer.direction === 'inbound' &&

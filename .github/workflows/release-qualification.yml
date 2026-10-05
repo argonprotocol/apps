@@ -186,7 +186,7 @@ jobs:
               --previous-apps "$PREVIOUS_APPS_DIRECTORY" \
               --previous-app-ref "$PREVIOUS_APPS_REF" \
               --output "$QUALIFICATION_DIRECTORY/capture" \
-              --account-limit 12
+              --account-limit 12 > "$QUALIFICATION_DIRECTORY/capture.log" 2>&1
 
       - name: Review every captured account, including incomplete source history
         if: ${{ !cancelled() && steps.capture.outcome != 'skipped' }}
@@ -201,7 +201,7 @@ jobs:
               --candidate "$QUALIFICATION_DIRECTORY/candidate/attestation.json" \
               --accounts "$QUALIFICATION_DIRECTORY/capture/starting-databases.json" \
               --run-directory "$QUALIFICATION_DIRECTORY/review" \
-              --all --diagnostic --verify-recovery-idempotence
+              --all --diagnostic --verify-recovery-idempotence > "$QUALIFICATION_DIRECTORY/review.log" 2>&1
 
       - name: Report results and fail incomplete qualification
         if: ${{ !cancelled() && env.QUALIFICATION_DIRECTORY != '' }}
@@ -215,9 +215,6 @@ jobs:
           path: |
             ${{ env.BASELINE_DIRECTORY }}/manifest.json
             ${{ env.QUALIFICATION_DIRECTORY }}/candidate/attestation.json
-            ${{ env.QUALIFICATION_DIRECTORY }}/capture/starting-databases.json
-            ${{ env.QUALIFICATION_DIRECTORY }}/review/account-results.json
             ${{ env.QUALIFICATION_DIRECTORY }}/qualification-report.json
             ${{ env.CI_TEMP_DIR }}/phase-timings.tsv
-            ${{ env.CI_TEMP_DIR }}/e2e-app-output-*.log
           if-no-files-found: ignore

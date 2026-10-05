@@ -6,6 +6,7 @@ import { type Config, getConfig } from './config.ts';
 import { getWalletKeys, useWallets } from './wallets.ts';
 import { getDbPromise } from './helpers/dbPromise.ts';
 import {
+  bigIntMax,
   countCompletedTreasuryCertificationRequirements,
   createDeferred,
   getVaultByOperator,
@@ -197,6 +198,7 @@ export const useCertificationController = defineStore('certificationController',
     hasVault: false,
     hasUniswapTransfer: false,
     hasTreasuryUniswapTransfer: false,
+    uniswapArgonTransfersInAmount: 0n,
     hasTreasuryBondParticipation: false,
     hasFirstMiningSeat: false,
     hasSecondMiningSeat: false,
@@ -229,6 +231,17 @@ export const useCertificationController = defineStore('certificationController',
     miningSeatsPerUpgradeCode: 5,
     maxAvailableUpgradeCodes: 3,
   });
+  const remainingUniswapTransferMicrogons = Vue.computed(() => {
+    const minimum =
+      activeGuideId.value === OperationalStepId.TreasuryTransfer
+        ? rewardConfig.value.treasuryMinimumUniswapTransfer
+        : rewardConfig.value.operationalMinimumUniswapTransfer;
+    const transferredInMicrogons = chainProgress.value.hasOperationalAccount
+      ? chainProgress.value.uniswapArgonTransfersInAmount
+      : treasuryTransferredInMicrogons.value;
+    return bigIntMax(bigIntMax(minimum, BigInt(MICROGONS_PER_ARGON)) - transferredInMicrogons, 0n);
+  });
+
   const completionNoticeQueue = Vue.ref<OperationalStepId[]>([]);
   const operationalInvites = Vue.shallowRef<IMemberInvite[]>([]);
   const hasLoadedOperationalInvites = Vue.ref(false);
@@ -1063,6 +1076,7 @@ export const useCertificationController = defineStore('certificationController',
     visibleOperationsCertificationStepIds,
     chainProgress,
     rewardConfig,
+    remainingUniswapTransferMicrogons,
     inviteSlotProgress,
     operationalOverview,
     pendingRewardsAmount,

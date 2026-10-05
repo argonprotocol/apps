@@ -54,6 +54,7 @@
             </span>
             <WalletGuideAnchor
               side="left"
+              label="Close Window"
               :autoOpenGuidance="isBitcoinFundingGuideActive && hasPendingInboundUtxos"
               :open="
                 props.open &&

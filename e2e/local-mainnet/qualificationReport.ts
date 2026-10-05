@@ -30,12 +30,7 @@ const timings = existsSync(timingsPath)
       })
   : [];
 const skipped =
-  registry?.accounts
-    .filter(account => !accounts.some(result => result.label === account.label))
-    .map(account => ({
-      label: account.label,
-      reason: 'Candidate review did not complete',
-    })) ?? [];
+  registry?.accounts.filter(account => !accounts.some(result => result.label === account.label)).length ?? 0;
 const qualified =
   !!registry &&
   registry.coverage.complete &&
@@ -63,15 +58,12 @@ const qualified =
 const report = {
   qualified,
   selection: registry?.selection,
-  captureFailures: registry?.failures ?? [],
-  incompleteStartingHistories:
-    registry?.accounts
-      .filter(account => !account.history.complete)
-      .map(account => ({
-        label: account.label,
-        error: account.history.recoveryError,
-      })) ?? [],
-  accounts,
+  captured: registry?.accounts.length ?? 0,
+  captureFailures: registry?.failures.length ?? 0,
+  incompleteStartingHistories: registry?.accounts.filter(account => !account.history.complete).length ?? 0,
+  reviewed: accounts.length,
+  passed: accounts.filter(account => account.status === 'passed').length,
+  failed: accounts.filter(account => account.status === 'failed').length,
   skipped,
   timings,
 };
@@ -79,28 +71,11 @@ writeFileSync(Path.join(directory, 'qualification-report.json'), `${JSON.stringi
 const summary = [
   `## Release qualification: ${qualified ? 'passed' : 'not qualified'}`,
   '',
-  `Selected: ${registry?.selection.selectedAccounts ?? 'unknown'}; captured: ${registry?.accounts.length ?? 0}; reviewed: ${accounts.length}; passed: ${accounts.filter(account => account.status === 'passed').length}; skipped after capture: ${skipped.length}.`,
+  `Selected: ${registry?.selection.selectedAccounts ?? 'unknown'}; captured: ${report.captured}; capture failures: ${report.captureFailures}; incomplete starting histories: ${report.incompleteStartingHistories}; reviewed: ${report.reviewed}; passed: ${report.passed}; failed: ${report.failed}; skipped after capture: ${report.skipped}.`,
   '',
   '| Phase | Seconds | Exit code |',
   '| --- | ---: | ---: |',
   ...timings.map(timing => `| ${timing.phase} | ${timing.seconds} | ${timing.exitCode} |`),
-  '',
-  '| Account | Stage | Result | Detail |',
-  '| --- | --- | --- | --- |',
-  ...(registry?.failures ?? []).map(
-    failure => `| ${failure.label} | Capture | Failed | ${failure.error.replace(/[\r\n|]/g, ' ')} |`,
-  ),
-  ...(registry?.accounts ?? [])
-    .filter(account => !account.history.complete)
-    .map(
-      account =>
-        `| ${account.label} | Capture | Needs candidate repair | ${(account.history.recoveryError ?? 'Incomplete source history').replace(/[\r\n|]/g, ' ')} |`,
-    ),
-  ...accounts.map(
-    account =>
-      `| ${account.label} | Review | ${account.status} | ${(account.error ?? `${Math.round(account.durationMs / 1000)}s`).replace(/[\r\n|]/g, ' ')} |`,
-  ),
-  ...skipped.map(account => `| ${account.label} | Review | Skipped | ${account.reason} |`),
   '',
 ].join('\n');
 console.log(summary);
