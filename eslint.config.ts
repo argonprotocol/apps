@@ -80,7 +80,9 @@ export default tseslint.config(
     },
     languageOptions: {
       parserOptions: {
-        projectService: true,
+        // Reuse the root project's workspace files; router needs its own project.
+        project: ['./tsconfig.json', './router/tsconfig.json'],
+        jsDocParsingMode: 'type-info',
         tsconfigRootDir: import.meta.dirname,
       },
     },
