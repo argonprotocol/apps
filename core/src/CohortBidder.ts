@@ -669,7 +669,7 @@ export class CohortBidder {
           return;
         }
 
-        await txResult.setSeenInBlock({
+        await txResult.setSeenInBlock(this.client, {
           blockHash: hexToU8a(transaction.blockHash),
           blockNumber: transaction.blockNumber,
           events: transaction.extrinsicEvents,
@@ -702,7 +702,7 @@ export class CohortBidder {
               return;
             }
 
-            await txResult.setFinalized();
+            await txResult.setFinalized(this.client);
           } catch (error) {
             failTransaction(error);
           } finally {

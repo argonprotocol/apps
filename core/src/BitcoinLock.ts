@@ -451,7 +451,7 @@ export class BitcoinLock implements IBitcoinLock {
     }
   }
 
-  private static fromRuntime(lockId: number, lock: NonNullable<BitcoinLocksLocksByIdResultSpec159>): BitcoinLock {
+  public static fromRuntime(lockId: number, lock: NonNullable<BitcoinLocksLocksByIdResultSpec159>): BitcoinLock {
     const wscriptHash = lock.utxoScriptPubkey.value.wscriptHash.replace('0x', '');
     const [fingerprint, cosignHdIndex, claimHdIndex] = lock.vaultXpubSources;
     const securitizationBasisSatoshis = lock.securitizationBasis.satoshis;

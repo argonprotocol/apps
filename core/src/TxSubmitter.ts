@@ -75,7 +75,7 @@ export class TxSubmitter {
       this.logRequest();
     }
     const txHash = signedTx.hash.toHex();
-    const result = new TxResult(this.client, {
+    const result = new TxResult({
       signedHash: txHash,
       method: signedTx.method.toHuman(),
       accountAddress: this.address,
@@ -85,7 +85,7 @@ export class TxSubmitter {
     });
     result.txProgressCallback = options.txProgressCallback;
     if (options.disableAutomaticTxTracking !== true) {
-      await signedTx.send(result.onSubscriptionResult.bind(result));
+      await signedTx.send(result.onSubscriptionResult.bind(result, this.client));
     } else {
       try {
         await signedTx.send();

@@ -2,7 +2,15 @@ import { integrationNetwork as sharedNetwork } from '@argonprotocol/apps-core/__
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 
 import { SKIP_E2E, teardown } from '@argonprotocol/testing';
-import { BitcoinFission, BitcoinLock, type ArgonClient } from '@argonprotocol/apps-core';
+import {
+  BitcoinFission,
+  BitcoinLock,
+  Currency,
+  NetworkConfig,
+  SATS_PER_BTC,
+  Vault,
+  type ArgonClient,
+} from '@argonprotocol/apps-core';
 import { Keyring, toFixedNumber } from '@argonprotocol/mainchain';
 import type { IntegrationNetwork } from '@argonprotocol/apps-core/__test__/integrationNetwork.ts';
 import {
@@ -10,7 +18,11 @@ import {
   generateBlocks,
   sendBitcoinToAddress,
 } from '@argonprotocol/apps-core/__test__/helpers/bitcoinCli.ts';
-import { getTestMainchainClient, submitAndFinalize } from '@argonprotocol/apps-core/__test__/helpers/mainchain.ts';
+import {
+  getTestMainchainClient,
+  submitAndFinalize,
+  sudoSubmitAndFinalize,
+} from '@argonprotocol/apps-core/__test__/helpers/mainchain.ts';
 import { waitFor } from '@argonprotocol/apps-core/__test__/helpers/waitFor.ts';
 
 import { BitcoinFissions } from '../lib/BitcoinFissions.ts';
@@ -116,6 +128,200 @@ describe.skipIf(SKIP_E2E).sequential('Bitcoin Liquids integration', { timeout: 3
     }
   });
 
+  // prettier-ignore
+  it.each([false, true])('handles an expired higher Lock price with existing Liquids: %s', { tags: ['exclusive-argon-network'] }, async hasExistingLiquid => {
+    const harness = await createHarness();
+    const client = await harness.clients.get(false);
+    let restorePriceHistory: string | undefined;
+
+    try {
+      await submitBitcoinPrice(client, { btcUsdPrice: 120_000 });
+      const lock = await createFundedLock(harness, harness.myVault.createdVault!.availableBitcoinSpace() / 10n);
+      const { createLiquid, fissions } = await createLiquidServices(harness);
+      const txSigner = await harness.walletKeys.getLiquidLockingKeypair();
+      const insuredSatoshis = lock.securitizedSatoshis;
+
+      if (hasExistingLiquid) {
+        const firstCreation = await createLiquid.submit({
+          allocations: [{ lock, satoshis: insuredSatoshis / 2n }],
+          txSigner,
+          client,
+        });
+        await firstCreation.waitForPostProcessing;
+      }
+      const existingFissions = await BitcoinFission.getAllByOwner(client, txSigner.address);
+      const fundingAddress = harness.bitcoinLocks.formatP2wshAddress(lock.scriptDetails!.p2wshScriptHashHex);
+      sendBitcoinToAddress(fundingAddress, insuredSatoshis);
+      generateBlocks(8, minerAddress);
+      const fundedLock = await waitFor(90_000, 'additional finalized Lock funding', async () => {
+        const snapshot = await client.at(await client.rpc.chain.getFinalizedHead());
+        const current = await BitcoinLock.get(snapshot, lock.lockId!);
+        return current?.fundedSatoshis === insuredSatoshis * 2n ? current : undefined;
+      });
+      await harness.bitcoinLocks.syncCurrentLocks({ requireComplete: true });
+
+      const eligibleRate = await submitBitcoinPrice(client, { btcUsdPrice: 110_000 });
+      const history = await client.raw.query.bitcoinLocks.microgonPerBtcHistory();
+      restorePriceHistory = history.toHex();
+      const expiredHistory = history.registry.createType(
+        history.toRawType(),
+        history.filter(([, rate]) => rate.toBigInt() === eligibleRate),
+      );
+      // Advance the external price-history boundary without waiting thirty minutes.
+      await sudoSubmitAndFinalize(
+        client,
+        client.tx.system.setStorage([
+          [client.raw.query.bitcoinLocks.microgonPerBtcHistory.key(), expiredHistory.toHex()],
+        ]),
+      );
+      const snapshot = await client.at(await client.rpc.chain.getFinalizedHead());
+      expect((await snapshot.query.bitcoinLocks.microgonPerBtcHistory())?.some(([, rate]) => rate === fundedLock.microgonsAtTargetPerBtc)).toBe(false);
+
+      let satoshis = fundedLock.fundedSatoshis - fundedLock.fissionedSatoshis;
+      if (hasExistingLiquid) {
+        await expect(createLiquid.preview({ allocations: [{ lock, satoshis }], txSigner, client })).rejects.toThrow(
+          'Existing Liquids need a Bitcoin price that is no longer available',
+        );
+        expect(await BitcoinFission.getAllByOwner(client, txSigner.address)).toEqual(existingFissions);
+        satoshis = insuredSatoshis - fundedLock.fissionedSatoshis;
+      }
+
+      const creation = await createLiquid.submit({ allocations: [{ lock, satoshis }], txSigner, client });
+      await creation.waitForPostProcessing;
+      const currentLock = await BitcoinLock.get(client, lock.lockId!);
+      const currentFissions = await BitcoinFission.getAllByOwner(client, txSigner.address);
+      expect(currentLock?.fissionedSatoshis).toBe(hasExistingLiquid ? insuredSatoshis : insuredSatoshis * 2n);
+      expect(currentFissions).toHaveLength(hasExistingLiquid ? 2 : 1);
+      expect(currentFissions.find(fission => fission.liquidId === creation.tx.metadataJson.liquidId)?.microgonsAtTargetPerBtc).toBe(eligibleRate);
+      expect(fissions.getLiquids().some(liquid => liquid.liquidId === creation.tx.metadataJson.liquidId)).toBe(true);
+      expect(await harness.db.bitcoinFissionsTable.fetchAll(txSigner.address)).toHaveLength(currentFissions.length);
+      if (hasExistingLiquid) {
+        expect(currentFissions.find(fission => fission.fissionId === existingFissions[0].fissionId)).toEqual(existingFissions[0]);
+        expect(creation.tx.metadataJson.resecuritizations).toEqual([]);
+      } else {
+        expect(currentLock?.microgonsAtTargetPerBtc).toBe(eligibleRate);
+        expect(creation.tx.metadataJson.resecuritizations[0].bitcoin.microgonsAtTargetPerBtc).toBe(eligibleRate);
+      }
+    } finally {
+      if (restorePriceHistory) {
+        await sudoSubmitAndFinalize(client, client.tx.system.setStorage([
+          [client.raw.query.bitcoinLocks.microgonPerBtcHistory.key(), restorePriceHistory],
+        ]));
+      }
+      await cleanupBitcoinLocksHarness(harness);
+    }
+  });
+
+  // prettier-ignore
+  it('selects an eligible higher rate that preserves curve-adjusted existing Liquid coverage', { tags: ['exclusive-argon-network'] }, async () => {
+    const harness = await createHarness();
+    const client = await harness.clients.get(false);
+
+    try {
+      const currentPrice = await client.raw.query.priceIndex.current();
+      const agedPrice = currentPrice.registry.createType(currentPrice.toRawType(), {
+        ...currentPrice.toJSON() as object,
+        tick: (await client.query.ticks.currentTick()) - 60,
+      });
+      // Model an older oracle observation so the runtime permits the changed Argon spot price.
+      await sudoSubmitAndFinalize(client, client.tx.system.setStorage([
+        [client.raw.query.priceIndex.current.key(), agedPrice.toHex()],
+      ]));
+      await submitBitcoinPrice(client, { btcUsdPrice: 120_000, argonUsdPrice: 0.795 });
+      const lock = await createFundedLock(harness, harness.myVault.createdVault!.availableBitcoinSpace() / 10n);
+      const { createLiquid, fissions } = await createLiquidServices(harness);
+      const txSigner = await harness.walletKeys.getLiquidLockingKeypair();
+      const insuredSatoshis = lock.securitizedSatoshis;
+      const firstCreation = await createLiquid.submit({
+        allocations: [{ lock, satoshis: insuredSatoshis * 9n / 10n }], txSigner, client,
+      });
+      await firstCreation.waitForPostProcessing;
+      const existingFission = (await BitcoinFission.getAllByOwner(client, txSigner.address))[0];
+      sendBitcoinToAddress(harness.bitcoinLocks.formatP2wshAddress(lock.scriptDetails!.p2wshScriptHashHex), insuredSatoshis);
+      generateBlocks(8, minerAddress);
+      await waitFor(90_000, 'additional finalized Lock funding', async () => {
+        const snapshot = await client.at(await client.rpc.chain.getFinalizedHead());
+        return (await BitcoinLock.get(snapshot, lock.lockId!))?.fundedSatoshis === insuredSatoshis * 2n;
+      });
+      await harness.bitcoinLocks.syncCurrentLocks({ requireComplete: true });
+
+      const higherRate = await submitBitcoinPrice(client, { btcUsdPrice: 132_000 });
+      const currentRate = await submitBitcoinPrice(client, { btcUsdPrice: 120_000 });
+      const snapshot = await client.at(await client.rpc.chain.getFinalizedHead());
+      const priceIndex = await Currency.fetchPriceIndex(snapshot);
+      const satoshis = insuredSatoshis / 5n;
+      const requiredLiquidity = existingFission.liquidityPromised + BitcoinLock.calculateLiquidityPromised({
+        priceIndex, satoshis, microgonsAtTargetPerBtc: currentRate,
+      });
+      const securitizedSatoshis = existingFission.satoshis + satoshis;
+      expect(BitcoinLock.calculateLiquidityPromised({ priceIndex, satoshis: securitizedSatoshis, microgonsAtTargetPerBtc: currentRate })).toBeLessThan(requiredLiquidity);
+      expect(BitcoinLock.calculateLiquidityPromised({ priceIndex, satoshis: securitizedSatoshis, microgonsAtTargetPerBtc: higherRate })).toBeGreaterThanOrEqual(requiredLiquidity);
+
+      const creation = await createLiquid.submit({ allocations: [{ lock, satoshis }], txSigner, client });
+      await creation.waitForPostProcessing;
+      const currentLock = await BitcoinLock.get(client, lock.lockId!);
+      const currentFissions = await BitcoinFission.getAllByOwner(client, txSigner.address);
+      expect(currentLock?.microgonsAtTargetPerBtc).toBe(higherRate);
+      expect(currentLock?.securitizationCoverageMicrogons).toBeGreaterThanOrEqual(requiredLiquidity);
+      expect(currentFissions.find(fission => fission.fissionId === existingFission.fissionId)).toEqual(existingFission);
+      expect(currentFissions.find(fission => fission.liquidId === creation.tx.metadataJson.liquidId)?.microgonsAtTargetPerBtc).toBe(currentRate);
+      expect(fissions.getLiquids().some(liquid => liquid.liquidId === creation.tx.metadataJson.liquidId)).toBe(true);
+      expect(await harness.db.bitcoinFissionsTable.fetchAll(txSigner.address)).toHaveLength(2);
+    } finally {
+      await submitBitcoinPrice(client, { btcUsdPrice: 120_000 });
+      await cleanupBitcoinLocksHarness(harness);
+    }
+  });
+
+  // prettier-ignore
+  it('uses the eligible existing Lock price when a newer higher price exceeds vault capacity', { tags: ['exclusive-argon-network'] }, async () => {
+    const harness = await createHarness();
+    const client = await harness.clients.get(false);
+
+    try {
+      const insuredRate = await submitBitcoinPrice(client, { btcUsdPrice: 120_000 });
+      const lock = await createFundedLock(harness, harness.myVault.createdVault!.availableBitcoinSpace() / 2n);
+      const { createLiquid, fissions } = await createLiquidServices(harness);
+      const txSigner = await harness.walletKeys.getLiquidLockingKeypair();
+      const insuredSatoshis = lock.securitizedSatoshis;
+      const satoshis = insuredSatoshis * 9n / 10n;
+      const firstCreation = await createLiquid.submit({ allocations: [{ lock, satoshis }], txSigner, client });
+      await firstCreation.waitForPostProcessing;
+      const existingFission = (await BitcoinFission.getAllByOwner(client, txSigner.address))[0];
+      sendBitcoinToAddress(harness.bitcoinLocks.formatP2wshAddress(lock.scriptDetails!.p2wshScriptHashHex), insuredSatoshis);
+      generateBlocks(8, minerAddress);
+      await waitFor(90_000, 'additional finalized Lock funding', async () => {
+        const snapshot = await client.at(await client.rpc.chain.getFinalizedHead());
+        return (await BitcoinLock.get(snapshot, lock.lockId!))?.fundedSatoshis === insuredSatoshis * 2n;
+      });
+      await harness.bitcoinLocks.syncCurrentLocks({ requireComplete: true });
+
+      await submitBitcoinPrice(client, { btcUsdPrice: 180_000 });
+      await submitBitcoinPrice(client, { btcUsdPrice: 120_000 });
+      const higherRate = await submitBitcoinPrice(client, { btcUsdPrice: 180_000 });
+      const currentRate = await submitBitcoinPrice(client, { btcUsdPrice: 110_000 });
+      const snapshot = await client.at(await client.rpc.chain.getFinalizedHead());
+      const currentLock = (await BitcoinLock.get(snapshot, lock.lockId!))!;
+      const vault = await Vault.get(snapshot, lock.vaultId, NetworkConfig.tickMillis);
+      const priceIndex = await Currency.fetchPriceIndex(snapshot);
+      const availableCoverage = currentLock.securitizationCoverageMicrogons + vault.availableBitcoinSpace(txSigner.address);
+      const securitizedSatoshis = existingFission.satoshis + satoshis;
+      expect(BitcoinLock.calculateLiquidityPromised({ priceIndex, satoshis: securitizedSatoshis, microgonsAtTargetPerBtc: insuredRate })).toBeLessThanOrEqual(availableCoverage);
+      expect(BitcoinLock.calculateLiquidityPromised({ priceIndex, satoshis: securitizedSatoshis, microgonsAtTargetPerBtc: higherRate })).toBeGreaterThan(availableCoverage);
+
+      const creation = await createLiquid.submit({ allocations: [{ lock, satoshis }], txSigner, client });
+      await creation.waitForPostProcessing;
+      expect((await BitcoinLock.get(client, lock.lockId!))?.microgonsAtTargetPerBtc).toBe(insuredRate);
+      const currentFissions = await BitcoinFission.getAllByOwner(client, txSigner.address);
+      expect(currentFissions.find(fission => fission.fissionId === existingFission.fissionId)).toEqual(existingFission);
+      expect(currentFissions.find(fission => fission.liquidId === creation.tx.metadataJson.liquidId)?.microgonsAtTargetPerBtc).toBe(currentRate);
+      expect(fissions.getLiquids().some(liquid => liquid.liquidId === creation.tx.metadataJson.liquidId)).toBe(true);
+      expect(await harness.db.bitcoinFissionsTable.fetchAll(txSigner.address)).toHaveLength(2);
+    } finally {
+      await cleanupBitcoinLocksHarness(harness);
+    }
+  });
+
   it('creates one Liquid with exact allocations from two funded Locks', async () => {
     const harness = await createHarness();
 
@@ -166,6 +372,365 @@ describe.skipIf(SKIP_E2E).sequential('Bitcoin Liquids integration', { timeout: 3
       await cleanupBitcoinLocksHarness(harness);
     }
   });
+
+  it(
+    'resecuritizes a partially funded Lock at the same rate and preserves coverage past its old hold',
+    { tags: ['exclusive-argon-network'] },
+    async () => {
+      const harness = await createHarness();
+      const client = await harness.clients.get(false);
+
+      try {
+        await submitBitcoinPrice(client, { btcUsdPrice: 120_000 });
+        const lock = await createFundedLock(harness, harness.myVault.createdVault!.availableBitcoinSpace() / 10n, {
+          fundingPercent: 50,
+        });
+        const snapshot = await client.at(await client.rpc.chain.getFinalizedHead());
+        const insured = (await snapshot.query.bitcoinLocks.locksById(lock.lockId!))!;
+        const fundedSatoshis = insured.fundedSatoshis;
+        const oldHoldHeight = insured.securitizationHoldExpirationBitcoinHeight;
+        expect(insured.securitizationBasis.satoshis).toBeGreaterThan(fundedSatoshis);
+        const rate = await submitBitcoinPrice(client, { btcUsdPrice: 120_000, argonUsdPrice: 0.795 });
+        expect(rate).toBe(insured.securitizationBasis.microgonsAtTargetPerBtc);
+        const { createLiquid, fissions } = await createLiquidServices(harness);
+        const txSigner = await harness.walletKeys.getLiquidLockingKeypair();
+        const allocations = [{ lock, satoshis: fundedSatoshis }];
+        const preview = await createLiquid.preview({ allocations, txSigner, client });
+        expect(preview.securityFeeMicrogons).toBe(0n);
+        expect(preview.totalSecurityFeeMicrogons).toBe(0n);
+        const creation = await createLiquid.submit({ allocations, txSigner, client });
+        await creation.waitForPostProcessing;
+
+        const finalized = await client.at(await client.rpc.chain.getFinalizedHead());
+        const current = (await finalized.query.bitcoinLocks.locksById(lock.lockId!))!;
+        const created = await BitcoinFission.getAllByOwner(finalized, txSigner.address);
+        expect(current.securitizationBasis).toEqual({ satoshis: fundedSatoshis, microgonsAtTargetPerBtc: rate });
+        expect(current.securitizationCoverageMicrogons).toBeGreaterThanOrEqual(created[0].liquidityPromised);
+        expect(creation.tx.metadataJson.resecuritizations).toHaveLength(1);
+        expect(creation.tx.metadataJson.resecuritizations[0].bitcoin.securityFee).toBe(0n);
+        const bitcoinHeight = (await finalized.query.bitcoinUtxos.confirmedBitcoinBlockTip())!.blockHeight;
+        generateBlocks(Math.max(1, oldHoldHeight - bitcoinHeight + 8), minerAddress);
+        await waitFor(90_000, 'old partial-funding hold boundary', async () => {
+          const snapshot = await client.at(await client.rpc.chain.getFinalizedHead());
+          const tip = await snapshot.query.bitcoinUtxos.confirmedBitcoinBlockTip();
+          return tip && tip.blockHeight > oldHoldHeight;
+        });
+        const afterHold = await client.at(await client.rpc.chain.getFinalizedHead());
+        expect((await afterHold.query.bitcoinLocks.locksById(lock.lockId!))?.securitizationCoverageMicrogons).toBe(
+          current.securitizationCoverageMicrogons,
+        );
+        expect((await BitcoinFission.getAllByOwner(afterHold, txSigner.address))[0].liquidityPromised).toBe(
+          created[0].liquidityPromised,
+        );
+        expect(fissions.getLiquids().some(liquid => liquid.liquidId === creation.tx.metadataJson.liquidId)).toBe(true);
+        expect(await harness.db.bitcoinFissionsTable.fetchAll(txSigner.address)).toHaveLength(1);
+      } finally {
+        await submitBitcoinPrice(client, { btcUsdPrice: 120_000 });
+        await cleanupBitcoinLocksHarness(harness);
+      }
+    },
+  );
+
+  it.each([false, true])(
+    'creates a smaller Liquid when all remaining Bitcoin exceeds coverage, with integer rounding: %s',
+    { tags: ['exclusive-argon-network'] },
+    async hasRoundingBoundary => {
+      const harness = await createHarness();
+      const client = await harness.clients.get(false);
+      let restorePriceHistory: string | undefined;
+      try {
+        await submitBitcoinPrice(client, {
+          btcUsdPrice: hasRoundingBoundary ? 110_327.92353274 : 120_000,
+          argonUsdPrice: 0.795,
+        });
+        if (hasRoundingBoundary) {
+          const vaultSigner = await harness.walletKeys.getVaultingKeypair();
+          await submitAndFinalize(
+            client,
+            client.tx.balances.transferKeepAlive(vaultSigner.address, 100_000_000n),
+            await harness.walletKeys.getLiquidLockingKeypair(),
+            { useLatestNonce: true },
+          );
+          await submitAndFinalize(
+            client,
+            client.tx.vaults.modifyFunding(harness.myVault.createdVault!.vaultId, 100_000_000n, toFixedNumber(1, 18)),
+            vaultSigner,
+            { useLatestNonce: true },
+          );
+        }
+        const initialPrice = await Currency.fetchPriceIndex(await client.at(await client.rpc.chain.getFinalizedHead()));
+        const liquidity = hasRoundingBoundary
+          ? BitcoinLock.calculateLiquidityPromised({ priceIndex: initialPrice, satoshis: 50_008n })
+          : harness.myVault.createdVault!.availableBitcoinSpace() / 10n;
+        const lock = await createFundedLock(harness, liquidity);
+        const insuredSatoshis = lock.securitizedSatoshis;
+        const { createLiquid, fissions } = await createLiquidServices(harness);
+        const txSigner = await harness.walletKeys.getLiquidLockingKeypair();
+        const firstCreation = await createLiquid.submit({
+          allocations: [{ lock, satoshis: insuredSatoshis / 2n }],
+          txSigner,
+          client,
+        });
+        await firstCreation.waitForPostProcessing;
+        const existingFission = (await BitcoinFission.getAllByOwner(client, txSigner.address))[0];
+        const additionalSatoshis = hasRoundingBoundary ? 5_000n : 0n;
+        if (additionalSatoshis) {
+          expect(insuredSatoshis).toBe(50_008n);
+          sendBitcoinToAddress(
+            harness.bitcoinLocks.formatP2wshAddress(lock.scriptDetails!.p2wshScriptHashHex),
+            additionalSatoshis,
+          );
+          generateBlocks(8, minerAddress);
+          await waitFor(90_000, 'additional finalized rounding-boundary funding', async () => {
+            const snapshot = await client.at(await client.rpc.chain.getFinalizedHead());
+            return (
+              (await BitcoinLock.get(snapshot, lock.lockId!))?.fundedSatoshis === insuredSatoshis + additionalSatoshis
+            );
+          });
+          await harness.bitcoinLocks.syncCurrentLocks({ requireComplete: true });
+        }
+        const rate = await submitBitcoinPrice(client, { btcUsdPrice: hasRoundingBoundary ? 120_000 : 121_200 });
+        const history = await client.raw.query.bitcoinLocks.microgonPerBtcHistory();
+        restorePriceHistory = history.toHex();
+        const eligible = history.registry.createType(
+          history.toRawType(),
+          history.filter(([, value]) => value.toBigInt() === rate),
+        );
+        await sudoSubmitAndFinalize(
+          client,
+          client.tx.system.setStorage([[client.raw.query.bitcoinLocks.microgonPerBtcHistory.key(), eligible.toHex()]]),
+        );
+        const snapshot = await client.at(await client.rpc.chain.getFinalizedHead());
+        const priceIndex = await Currency.fetchPriceIndex(snapshot);
+        const satoshis = hasRoundingBoundary ? 25_015n : (insuredSatoshis * 3n) / 10n;
+        const coverage = BitcoinLock.calculateLiquidityPromised({
+          priceIndex,
+          satoshis:
+            insuredSatoshis > existingFission.satoshis + satoshis
+              ? insuredSatoshis
+              : existingFission.satoshis + satoshis,
+          microgonsAtTargetPerBtc: rate,
+        });
+        const requiredLiquidity =
+          existingFission.liquidityPromised +
+          BitcoinLock.calculateLiquidityPromised({ priceIndex, satoshis, microgonsAtTargetPerBtc: rate });
+        const allRemainingLiquidity =
+          existingFission.liquidityPromised +
+          BitcoinLock.calculateLiquidityPromised({
+            priceIndex,
+            satoshis: insuredSatoshis + additionalSatoshis - existingFission.satoshis,
+            microgonsAtTargetPerBtc: rate,
+          });
+        const allRemainingCoverage = BitcoinLock.calculateLiquidityPromised({
+          priceIndex,
+          satoshis: insuredSatoshis + additionalSatoshis,
+          microgonsAtTargetPerBtc: rate,
+        });
+        expect(requiredLiquidity).toBeLessThanOrEqual(coverage);
+        expect(allRemainingLiquidity).toBeGreaterThan(allRemainingCoverage);
+        if (hasRoundingBoundary) {
+          expect(requiredLiquidity).toBe(coverage);
+          expect(allRemainingLiquidity - allRemainingCoverage).toBe(1n);
+        }
+        await expect(
+          createLiquid.preview({
+            allocations: [{ lock, satoshis: insuredSatoshis + additionalSatoshis - existingFission.satoshis }],
+            txSigner,
+            client,
+          }),
+        ).rejects.toThrow('This Bitcoin cannot cover the existing and selected Liquids at the current price.');
+        const allocations = [{ lock, satoshis }];
+        const preview = await createLiquid.preview({ allocations, txSigner, client });
+        expect(preview.maximumSatoshisByLockId[lock.lockId!]).toBeGreaterThanOrEqual(satoshis);
+        const creation = await createLiquid.submit({ allocations, txSigner, client });
+        await creation.waitForPostProcessing;
+        const finalized = await client.at(await client.rpc.chain.getFinalizedHead());
+        const current = (await BitcoinLock.get(finalized, lock.lockId!))!;
+        const currentFissions = await BitcoinFission.getAllByOwner(finalized, txSigner.address);
+        expect(current.microgonsAtTargetPerBtc).toBe(rate);
+        expect(current.securitizationCoverageMicrogons).toBe(coverage);
+        expect(current.fissionedSatoshis).toBe(existingFission.satoshis + satoshis);
+        expect(currentFissions.find(fission => fission.fissionId === existingFission.fissionId)).toEqual(
+          existingFission,
+        );
+        expect(currentFissions.reduce((total, fission) => total + fission.liquidityPromised, 0n)).toBe(
+          requiredLiquidity,
+        );
+        expect(fissions.getLiquids().some(liquid => liquid.liquidId === creation.tx.metadataJson.liquidId)).toBe(true);
+        expect(await harness.db.bitcoinFissionsTable.fetchAll(txSigner.address)).toHaveLength(2);
+      } finally {
+        if (restorePriceHistory)
+          await sudoSubmitAndFinalize(
+            client,
+            client.tx.system.setStorage([
+              [client.raw.query.bitcoinLocks.microgonPerBtcHistory.key(), restorePriceHistory],
+            ]),
+          );
+        await submitBitcoinPrice(client, { btcUsdPrice: 120_000 });
+        await cleanupBitcoinLocksHarness(harness);
+      }
+    },
+  );
+
+  it(
+    'uses coverage released by an earlier Lock to create a Liquid from two Locks',
+    { tags: ['exclusive-argon-network'] },
+    async () => {
+      const harness = await createHarness();
+      const client = await harness.clients.get(false);
+      let restorePriceHistory: string | undefined;
+
+      try {
+        await submitBitcoinPrice(client, { btcUsdPrice: 120_000 });
+        const first = await createFundedLock(harness, harness.myVault.createdVault!.availableBitcoinSpace() / 3n);
+        const firstSatoshis = first.securitizedSatoshis;
+        const firstCoverage = first.securitizationCoverageMicrogons!;
+        const rate = await submitBitcoinPrice(client, { btcUsdPrice: 40_000 });
+        const second = await createFundedLock(harness, firstCoverage / 4n);
+        const secondSatoshis = second.securitizedSatoshis;
+        for (const [lock, satoshis] of [
+          [first, firstSatoshis],
+          [second, secondSatoshis],
+        ] as const) {
+          sendBitcoinToAddress(
+            harness.bitcoinLocks.formatP2wshAddress(lock.scriptDetails!.p2wshScriptHashHex),
+            satoshis,
+          );
+        }
+        generateBlocks(8, minerAddress);
+        await waitFor(90_000, 'two Locks with additional finalized funding', async () => {
+          const snapshot = await client.at(await client.rpc.chain.getFinalizedHead());
+          const locks = await BitcoinLock.getMany(snapshot, [first.lockId!, second.lockId!]);
+          return locks[0]?.fundedSatoshis === firstSatoshis * 2n && locks[1]?.fundedSatoshis === secondSatoshis * 2n;
+        });
+        await harness.bitcoinLocks.syncCurrentLocks({ requireComplete: true });
+        const history = await client.raw.query.bitcoinLocks.microgonPerBtcHistory();
+        restorePriceHistory = history.toHex();
+        const eligible = history.registry.createType(
+          history.toRawType(),
+          history.filter(([, value]) => value.toBigInt() === rate),
+        );
+        await sudoSubmitAndFinalize(
+          client,
+          client.tx.system.setStorage([[client.raw.query.bitcoinLocks.microgonPerBtcHistory.key(), eligible.toHex()]]),
+        );
+        const snapshot = await client.at(await client.rpc.chain.getFinalizedHead());
+        const vault = await Vault.get(snapshot, first.vaultId, NetworkConfig.tickMillis);
+        await submitAndFinalize(
+          client,
+          client.tx.vaults.setReservedSecuritizationSpace(vault.availableSecuritizationSpace()),
+          await harness.walletKeys.getVaultingKeypair(),
+          { useLatestNonce: true },
+        );
+        const constrained = await client.at(await client.rpc.chain.getFinalizedHead());
+        expect((await Vault.get(constrained, first.vaultId, NetworkConfig.tickMillis)).availableBitcoinSpace()).toBe(
+          0n,
+        );
+        const priceIndex = await Currency.fetchPriceIndex(constrained);
+        const replacements = [firstSatoshis, secondSatoshis].map(satoshis =>
+          BitcoinLock.calculateLiquidityPromised({
+            priceIndex,
+            satoshis: satoshis * 2n,
+            microgonsAtTargetPerBtc: rate,
+          }),
+        );
+        expect(replacements[0]).toBeLessThan(firstCoverage);
+        expect(replacements[0] + replacements[1]).toBeLessThanOrEqual(
+          firstCoverage + second.securitizationCoverageMicrogons!,
+        );
+        const { createLiquid, fissions } = await createLiquidServices(harness);
+        const txSigner = await harness.walletKeys.getLiquidLockingKeypair();
+        const allocations = [
+          { lock: first, satoshis: firstSatoshis * 2n },
+          { lock: second, satoshis: secondSatoshis * 2n },
+        ];
+        const creation = await createLiquid.submit({ allocations, txSigner, client });
+        await creation.waitForPostProcessing;
+        const finalized = await client.at(await client.rpc.chain.getFinalizedHead());
+        const current = await BitcoinLock.getMany(finalized, [first.lockId!, second.lockId!]);
+        expect(current.map(lock => lock?.fissionedSatoshis)).toEqual(
+          allocations.map(allocation => allocation.satoshis),
+        );
+        expect(current.map(lock => lock?.securitizationCoverageMicrogons)).toEqual(replacements);
+        expect(creation.tx.metadataJson.resecuritizations).toHaveLength(2);
+        const createdFissions = await BitcoinFission.getAllByOwner(finalized, txSigner.address);
+        expect(
+          allocations.map(({ lock }) => createdFissions.find(fission => fission.lockId === lock.lockId)?.satoshis),
+        ).toEqual(allocations.map(allocation => allocation.satoshis));
+        expect(
+          fissions.getLiquids().find(liquid => liquid.liquidId === creation.tx.metadataJson.liquidId)?.fissions,
+        ).toHaveLength(2);
+        expect(await harness.db.bitcoinFissionsTable.fetchAll(txSigner.address)).toHaveLength(2);
+      } finally {
+        if (restorePriceHistory)
+          await sudoSubmitAndFinalize(
+            client,
+            client.tx.system.setStorage([
+              [client.raw.query.bitcoinLocks.microgonPerBtcHistory.key(), restorePriceHistory],
+            ]),
+          );
+        await submitBitcoinPrice(client, { btcUsdPrice: 120_000 });
+        await cleanupBitcoinLocksHarness(harness);
+      }
+    },
+  );
+
+  it(
+    'creates a Liquid within retained insurance when a new purchase would exceed Vault capacity',
+    { tags: ['exclusive-argon-network'] },
+    async () => {
+      const harness = await createHarness();
+      const client = await harness.clients.get(false);
+
+      try {
+        await submitBitcoinPrice(client, { btcUsdPrice: 120_000 });
+        const lock = await createFundedLock(harness, harness.myVault.createdVault!.availableBitcoinSpace() / 10n);
+        const storedCoverage = lock.securitizationCoverageMicrogons!;
+        await submitBitcoinPrice(client, { btcUsdPrice: 120_000, argonUsdPrice: 0.795 });
+        const snapshot = await client.at(await client.rpc.chain.getFinalizedHead());
+        const vault = await Vault.get(snapshot, lock.vaultId, NetworkConfig.tickMillis);
+        await submitAndFinalize(
+          client,
+          client.tx.vaults.setReservedSecuritizationSpace(vault.availableSecuritizationSpace()),
+          await harness.walletKeys.getVaultingKeypair(),
+          { useLatestNonce: true },
+        );
+        const constrained = await client.at(await client.rpc.chain.getFinalizedHead());
+        expect((await Vault.get(constrained, lock.vaultId, NetworkConfig.tickMillis)).availableBitcoinSpace()).toBe(0n);
+        const priceIndex = await Currency.fetchPriceIndex(constrained);
+        const rate = lock.microgonsAtTargetPerBtc!;
+        const satoshis = lock.securitizedSatoshis / 10n;
+        expect(
+          BitcoinLock.calculateLiquidityPromised({
+            priceIndex,
+            satoshis: lock.securitizedSatoshis,
+            microgonsAtTargetPerBtc: rate,
+          }),
+        ).toBeGreaterThan(storedCoverage);
+        expect(
+          BitcoinLock.calculateLiquidityPromised({ priceIndex, satoshis, microgonsAtTargetPerBtc: rate }),
+        ).toBeLessThan(storedCoverage);
+        const { createLiquid, fissions } = await createLiquidServices(harness);
+        const txSigner = await harness.walletKeys.getLiquidLockingKeypair();
+        const allocations = [{ lock, satoshis }];
+        const preview = await createLiquid.preview({ allocations, txSigner, client });
+        expect(preview.maximumSatoshisByLockId[lock.lockId!]).toBeGreaterThanOrEqual(satoshis);
+        expect(preview.securityFeeMicrogons).toBe(0n);
+        expect(preview.totalSecurityFeeMicrogons).toBe(0n);
+        const creation = await createLiquid.submit({ allocations, txSigner, client });
+        await creation.waitForPostProcessing;
+        expect(creation.tx.metadataJson.resecuritizations).toEqual([]);
+        const finalized = await client.at(await client.rpc.chain.getFinalizedHead());
+        expect((await BitcoinLock.get(finalized, lock.lockId!))?.securitizationCoverageMicrogons).toBe(storedCoverage);
+        expect((await BitcoinFission.getAllByOwner(finalized, txSigner.address))[0].satoshis).toBe(satoshis);
+        expect(fissions.getLiquids().some(liquid => liquid.liquidId === creation.tx.metadataJson.liquidId)).toBe(true);
+        expect(await harness.db.bitcoinFissionsTable.fetchAll(txSigner.address)).toHaveLength(1);
+      } finally {
+        await submitBitcoinPrice(client, { btcUsdPrice: 120_000 });
+        await cleanupBitcoinLocksHarness(harness);
+      }
+    },
+  );
 
   it('serializes concurrent Liquid creations against the runtime Fission identity', async () => {
     const harness = await createHarness();
@@ -443,18 +1008,36 @@ describe.skipIf(SKIP_E2E).sequential('Bitcoin Liquids integration', { timeout: 3
   });
 });
 
-async function submitBitcoinPrice(client: ArgonClient, args: { btcUsdPrice: number }): Promise<bigint> {
-  const { btcUsdPrice } = args;
+async function submitBitcoinPrice(
+  client: ArgonClient,
+  args: { btcUsdPrice: number; argonUsdPrice?: number },
+): Promise<bigint> {
+  const { btcUsdPrice, argonUsdPrice = 1.06 } = args;
   const initialSnapshot = await client.at(await client.rpc.chain.getFinalizedHead());
   const [currentPrice, rateHistory] = await Promise.all([
     initialSnapshot.query.priceIndex.current(),
     initialSnapshot.query.bitcoinLocks.microgonPerBtcHistory(),
   ]);
   const latestHistory = rateHistory?.at(-1);
-  if (currentPrice?.btcUsdPrice.isEqualTo(btcUsdPrice) && latestHistory) {
+  if (
+    currentPrice?.btcUsdPrice.isEqualTo(btcUsdPrice) &&
+    currentPrice.argonUsdPrice.isEqualTo(argonUsdPrice) &&
+    latestHistory
+  ) {
     return latestHistory[1];
   }
-  const previousHistoryTick = Number(latestHistory?.[0] ?? 0);
+  if (currentPrice && !currentPrice.argonUsdPrice.isEqualTo(argonUsdPrice)) {
+    const rawPrice = await client.raw.query.priceIndex.current();
+    const agedPrice = rawPrice.registry.createType(rawPrice.toRawType(), {
+      ...(rawPrice.toJSON() as object),
+      tick: (await client.query.ticks.currentTick()) - 60,
+    });
+    // Advance the external oracle observation boundary so a changed spot price is eligible.
+    await sudoSubmitAndFinalize(
+      client,
+      client.tx.system.setStorage([[client.raw.query.priceIndex.current.key(), agedPrice.toHex()]]),
+    );
+  }
   const tick = await waitFor(30_000, 'fresh price tick', async () => {
     const currentTick = await client.query.ticks.currentTick();
     if (currentTick <= (currentPrice?.tick ?? 0)) return;
@@ -465,7 +1048,7 @@ async function submitBitcoinPrice(client: ArgonClient, args: { btcUsdPrice: numb
     client.tx.priceIndex.submit(
       {
         btcUsdPrice: toFixedNumber(btcUsdPrice, 18),
-        argonUsdPrice: toFixedNumber(1.06, 18),
+        argonUsdPrice: toFixedNumber(argonUsdPrice, 18),
         argonotUsdPrice: toFixedNumber(0.05, 18),
         argonUsdTargetPrice: toFixedNumber(1.06, 18),
         argonTimeWeightedAverageLiquidity: toFixedNumber(100_000_000, 18),
@@ -480,13 +1063,13 @@ async function submitBitcoinPrice(client: ArgonClient, args: { btcUsdPrice: numb
   return await waitFor(30_000, `eligible Bitcoin rate after price tick ${tick}`, async () => {
     const snapshotClient = await client.at(await client.rpc.chain.getFinalizedHead());
     const [publishedPrice, rateHistory] = await Promise.all([
-      snapshotClient.query.priceIndex.current(),
+      Currency.fetchPriceIndex(snapshotClient),
       snapshotClient.query.bitcoinLocks.microgonPerBtcHistory(),
     ]);
     const latestRate = rateHistory?.at(-1);
-    if (!publishedPrice || publishedPrice.tick !== tick || !latestRate) return;
-    const [historyTick, rate] = latestRate;
-    if (Number(historyTick) <= previousHistoryTick) return;
+    if (publishedPrice.lastUpdatedTick !== tick || !latestRate) return;
+    const [, rate] = latestRate;
+    if (rate !== publishedPrice.getSatoshiPriceInTargetMicrogons(SATS_PER_BTC)) return;
     return rate;
   });
 }
@@ -508,9 +1091,10 @@ async function createFundedLock(
     verifyRestoredCreation?: boolean;
     waitForFinalizedFunding?: boolean;
     onCreated?: (lock: IBitcoinLockRecord) => Promise<void>;
+    fundingPercent?: number;
   } = {},
 ): Promise<IBitcoinLockRecord> {
-  const { verifyRestoredCreation = false, waitForFinalizedFunding = true, onCreated } = args;
+  const { verifyRestoredCreation = false, waitForFinalizedFunding = true, onCreated, fundingPercent = 100 } = args;
   const vault = harness.myVault.createdVault!;
   const client = await harness.clients.get(false);
   await harness.currency.fetchMainchainRates(client, { ignoreCache: true });
@@ -555,14 +1139,15 @@ async function createFundedLock(
   await onCreated?.(lock);
 
   const fundingAddress = harness.bitcoinLocks.formatP2wshAddress(lock.scriptDetails!.p2wshScriptHashHex);
-  sendBitcoinToAddress(fundingAddress, lock.securitizedSatoshis);
+  const fundedSatoshis = (lock.securitizedSatoshis * BigInt(fundingPercent)) / 100n;
+  sendBitcoinToAddress(fundingAddress, fundedSatoshis);
   generateBlocks(8, minerAddress);
 
   await waitFor(90_000, `Bitcoin Lock #${lock.lockId} funding`, async () => {
     const current = waitForFinalizedFunding
       ? await BitcoinLock.get(await client.at(await client.rpc.chain.getFinalizedHead()), lock.lockId!)
       : await BitcoinLock.get(client, lock.lockId!);
-    if (current?.fundedSatoshis !== lock.securitizedSatoshis) return;
+    if (current?.fundedSatoshis !== fundedSatoshis) return;
     return current;
   });
   return lock;

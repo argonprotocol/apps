@@ -847,7 +847,7 @@ export function createScenarioTransactionInfo<Metadata>(options: {
     createdAt: new Date('2026-08-16T14:20:00.000Z'),
     updatedAt: new Date('2026-08-16T14:22:00.000Z'),
   };
-  const txResult = new TxResult(scenarioMainchainClient, {
+  const txResult = new TxResult({
     accountAddress: tx.accountAddress,
     method: tx.extrinsicMethodJson,
     nonce: 0,
@@ -870,7 +870,7 @@ export function createScenarioTransactionInfo<Metadata>(options: {
     txResult.blockHash ??= new Uint8Array([1, 2, 3, 4]);
     txResult.blockNumber ??= 18_511;
     txResult.extrinsicIndex ??= 1;
-    void txResult.setFinalized();
+    void txResult.setFinalized(scenarioMainchainClient);
   };
   if (isFinalized) {
     finalize();
