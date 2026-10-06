@@ -1462,6 +1462,7 @@ export default class BitcoinLocks {
       const archivedBitcoinBlockHeight = this.data.oracleBitcoinBlockHeight;
 
       const { api: clientAt, events } = await this.blockWatch.getEventsWithSpec(header);
+      await this.releases.applyOrphanCosignEvents(header, events);
       const runtimeEvents = events.flatMap(record => {
         const event = toRuntimeEvent(record.event);
         return event ? [{ event, record }] : [];
@@ -1512,9 +1513,10 @@ export default class BitcoinLocks {
         });
       }
 
+      const orphanLockIds = new Set(this.releases.getActiveOrphanReleases().map(release => release.lockId));
       const promises = Object.values(this.data.locksByLockId)
         .map(lockRecord => {
-          if (this.isTerminalLock(lockRecord)) {
+          if (this.isTerminalLock(lockRecord) && !orphanLockIds.has(lockRecord.lockId!)) {
             return undefined;
           }
           if (lockRecord.status === BitcoinLockStatus.LockIsProcessingOnArgon) {
@@ -1524,6 +1526,13 @@ export default class BitcoinLocks {
           return this.runInQueueForLock(
             lockRecord,
             async () => {
+              if (this.isTerminalLock(lockRecord)) {
+                await this.releases.reconcileOrphanReleases(lockRecord).catch(err => {
+                  console.warn(`[BitcoinLocks] Error reconciling orphan return for utxo ${lockRecord.uuid}`, err);
+                });
+                return;
+              }
+
               const releaseCompletionEvent = runtimeEvents.find(({ event }) => {
                 if (event.section !== 'bitcoinLocks') return false;
                 if (event.method === 'BitcoinSpentAfterRelease') {

@@ -781,30 +781,10 @@ export default class BitcoinReleases {
     const scanThroughBlock = Math.min(requestedThroughBlock, settledThroughBlock);
     if (this.#orphanEventScanFromBlock > scanThroughBlock) return;
 
-    const locksToReconcile = new Set<IBitcoinLockRecord>();
     while (this.#orphanEventScanFromBlock !== undefined && this.#orphanEventScanFromBlock <= scanThroughBlock) {
       const block = await this.blockWatch.getHeaderByBlockNumber(this.#orphanEventScanFromBlock);
       const events = await this.blockWatch.getEvents(block);
-      for (const { event } of events) {
-        const runtimeEvent = toRuntimeEvent(event);
-        if (runtimeEvent?.section !== 'bitcoinLocks' || runtimeEvent.method !== 'OrphanedUtxoCosigned') continue;
-
-        const lockId = runtimeEvent.data.lockId ?? runtimeEvent.data.utxoId;
-        const { accountId, signature, utxoRef } = runtimeEvent.data;
-        if (lockId === undefined) continue;
-        const lock = this.bitcoinLocks.getLockById(lockId);
-        if (!lock || (accountId && accountId !== lock.ownerAccount)) continue;
-        const utxo = this.utxoTracking.getUtxoRecord(lockId, utxoRef.txid, utxoRef.outputIndex);
-        if (!utxo) continue;
-        const release = this.getActiveForUtxo(utxo);
-        if (!release || release.kind !== BitcoinReleaseKind.Orphan) continue;
-
-        await this.recordVaultCosign(release, {
-          vaultSignatures: [signature],
-          cosignBlockNumber: block.blockNumber,
-        });
-        locksToReconcile.add(lock);
-      }
+      await this.applyOrphanCosignEvents(block, events);
       this.#orphanEventScanFromBlock = block.blockNumber + 1;
     }
 
@@ -812,8 +792,31 @@ export default class BitcoinReleases {
       this.#orphanEventScanFromBlock = undefined;
       this.#orphanEventScanThroughBlock = undefined;
     }
+  }
 
-    for (const lock of locksToReconcile) await this.reconcileOrphanReleases(lock);
+  public async applyOrphanCosignEvents(
+    block: Pick<IBlockHeaderInfo, 'blockNumber'>,
+    events: RuntimeSystemEventRecord[],
+  ): Promise<void> {
+    for (const { event } of events) {
+      const runtimeEvent = toRuntimeEvent(event);
+      if (runtimeEvent?.section !== 'bitcoinLocks' || runtimeEvent.method !== 'OrphanedUtxoCosigned') continue;
+
+      const lockId = runtimeEvent.data.lockId ?? runtimeEvent.data.utxoId;
+      const { accountId, signature, utxoRef } = runtimeEvent.data;
+      if (lockId === undefined) continue;
+      const lock = this.bitcoinLocks.getLockById(lockId);
+      if (!lock || (accountId && accountId !== lock.ownerAccount)) continue;
+      const utxo = this.utxoTracking.getUtxoRecord(lockId, utxoRef.txid, utxoRef.outputIndex);
+      if (!utxo) continue;
+      const release = this.getActiveForUtxo(utxo);
+      if (!release || release.kind !== BitcoinReleaseKind.Orphan) continue;
+
+      await this.recordVaultCosign(release, {
+        vaultSignatures: [signature],
+        cosignBlockNumber: block.blockNumber,
+      });
+    }
   }
 
   public shutdown(): void {
