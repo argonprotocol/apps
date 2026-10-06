@@ -233,6 +233,19 @@ export const BitcoinWalletDetails: Story = {
   },
 };
 
+export const BitcoinWalletHistoricalChannel: Story = {
+  name: 'Bitcoin wallet with historical channel',
+  beforeEach: () => {
+    useBitcoinWalletDetailsScenario();
+    getBitcoinLocks().getAllLocks()[1].removalReason = 'expired';
+  },
+  play: async () => {
+    const canvas = within(document.body);
+    await userEvent.click(await canvas.findByRole('button', { name: 'Show Bitcoin details' }));
+    isInteractive.value = false;
+  },
+};
+
 export const FundedBitcoinConnector: Story = {
   name: 'Funded Bitcoin connector receive',
   beforeEach: useBitcoinWalletDetailsScenario,
