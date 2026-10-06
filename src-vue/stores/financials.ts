@@ -185,9 +185,6 @@ export const useFinancials = defineStore('financials', () => {
         miningSlot: miningClaimsHolds,
         vaults: vaultClaimsHolds,
       },
-      claimedMicronotsByAccount: vaultClaimsHolds
-        ? new Map([[wallets.defaultArgonWallet.address, myVault.data.argonotCommitment.heldMicronots]])
-        : undefined,
       liveArgonotRateMicrogons: currency.microgonsPer.ARGNOT,
       hasConfirmedHistoryCoverage,
     });

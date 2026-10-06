@@ -128,6 +128,63 @@ export class Vault implements Omit<RuntimeVault, 'securitizationReleaseSchedule'
     ]);
   }
 
+  /** Preview ARGN withdrawals using the funding command's commitment and collateral constraints. */
+  public previewArgonWithdrawals(amount: bigint, bitcoinHeight: number): Map<number, bigint> {
+    const withdrawals = new Map(
+      this.scheduledArgonWithdrawals.filter(([, value]) => value > 0n).sort(([a], [b]) => a - b),
+    );
+    if (this.securitizationExitNoticeBlocks === undefined) {
+      // Collateral leaving a Bitcoin lock only returns to the wallet above the saved funding amount.
+      let pending = bigIntMax(0n, this.securitization - this.securitizationTarget);
+      for (const [height, value] of withdrawals) {
+        const release = bigIntMin(value, pending);
+        if (release === 0n) withdrawals.delete(height);
+        else withdrawals.set(height, release);
+        pending -= release;
+      }
+      return withdrawals;
+    }
+    return this.previewWithdrawals(withdrawals, amount - this.securitizationTarget, this.availableArgonWithdrawal(), bitcoinHeight);
+  }
+
+  /** ARGN that can return immediately, excluding commitments and Bitcoin collateral. */
+  public availableArgonWithdrawal(): bigint {
+    return bigIntMin(
+      bigIntMax(0n, this.securitization - this.committedMicrogons),
+      bigIntMin(
+        bigIntMax(0n, this.securitization - this.securitizationLocked - this.getRelockCapacity()),
+        this.availableSecuritizationSpace(),
+      ),
+    );
+  }
+
+  /** Preview pending ARGNOT withdrawals after a funding change, without changing held funds. */
+  public previewArgonotWithdrawals(
+    amount: bigint,
+    {
+      heldMicronots,
+      committedMicronots,
+      encumberedMicronots,
+    }: NonNullable<LiveQueryRecord<'vaults', 'argonotSecuritizationByVaultId'>>,
+    bitcoinHeight: number,
+  ): Map<number, bigint> {
+    const withdrawals = new Map(
+      [...this.securitizationReleaseSchedule]
+        .filter(([, entry]) => entry.argonotWithdrawals > 0n)
+        .sort(([a], [b]) => a - b)
+        .map(([height, entry]) => [height, entry.argonotWithdrawals]),
+    );
+    const pending = [...withdrawals.values()].reduce((total, value) => total + value, 0n);
+    const change = amount - (heldMicronots - pending);
+    const available = this.availableArgonotWithdrawal({ heldMicronots, committedMicronots, encumberedMicronots });
+    return this.previewWithdrawals(withdrawals, change, available, bitcoinHeight);
+  }
+
+  /** ARGNOT that can return immediately, excluding reward and minting commitments. */
+  public availableArgonotWithdrawal({ heldMicronots, committedMicronots, encumberedMicronots }: NonNullable<LiveQueryRecord<'vaults', 'argonotSecuritizationByVaultId'>>): bigint {
+    return bigIntMax(0n, heldMicronots - bigIntMax(committedMicronots, encumberedMicronots));
+  }
+
   public get pendingTermsChangeTick(): number | undefined {
     return this.pendingTerms ? Number(this.pendingTerms[0]) : undefined;
   }
@@ -254,6 +311,32 @@ export class Vault implements Omit<RuntimeVault, 'securitizationReleaseSchedule'
       ? vaultTx.setArgonotSecuritization(amount)
       : vaultTx.setCommittedArgonots(amount);
   }
+  private previewWithdrawals(
+    withdrawals: Map<number, bigint>,
+    change: bigint,
+    available: bigint,
+    bitcoinHeight: number,
+  ): Map<number, bigint> {
+    if (change > 0n) {
+      let cancellation = change;
+      for (const [height, value] of [...withdrawals].reverse()) {
+        const cancelled = bigIntMin(value, cancellation);
+        cancellation -= cancelled;
+        if (cancelled === value) withdrawals.delete(height);
+        else withdrawals.set(height, value - cancelled);
+        if (cancellation === 0n) break;
+      }
+    } else if (change < 0n && this.securitizationExitNoticeBlocks !== undefined) {
+      const notice = bigIntMax(0n, -change - available);
+      if (notice > 0n) {
+        // The runtime groups withdrawal notices into 144-block Bitcoin days.
+        const height = Math.ceil((bitcoinHeight + this.securitizationExitNoticeBlocks) / 144) * 144;
+        withdrawals.set(height, (withdrawals.get(height) ?? 0n) + notice);
+      }
+    }
+    return new Map([...withdrawals].sort(([a], [b]) => a - b));
+  }
+
   private displacedFlexibleSecuritization(): bigint {
     return bigIntMin(
       this.flexibleSecuritizationLocked,

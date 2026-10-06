@@ -57,7 +57,6 @@
 
         <section
           @click="openVaultCreateOverlay"
-          ref="VaultCreateOverlayReferenceElement"
           class="flex flex-row cursor-pointer py-5 grow items-center hover:bg-argon-menu-hover"
         >
           <div class="flex flex-row">
@@ -72,23 +71,14 @@
                 />
               </h2>
               <p v-if="!config.hasSavedVaultingRules">
-                Decide how much capital to commit, your distribution between securitization and treasury pools, and other basic settings.
+                Choose your ARGN and ARGNOT securitization and Bitcoin locking fees.
               </p>
               <p v-else>
-                You setup your vaulting rules and <VaultCapital align="start" :alignOffset="alignOffsetForCapital">
-                  <span @mouseenter="alignOffsetForCapital = calculateAlignOffset($event, VaultCreateOverlayReferenceElement, 'start')" class="underline decoration-dashed underline-offset-4 decoration-slate-600/80 cursor-pointer">
-                    committed
-                    {{ currency.symbol }}{{ microgonToArgonNm(config.vaultingRules?.baseMicrogonCommitment || 0n).format('0,0.[00]') }} in capital
-                  </span>
-              </VaultCapital>
-                with an
-                <VaultReturns align="end" :alignOffset="alignOffsetForReturns">
-                  <span @mouseenter="alignOffsetForReturns = calculateAlignOffset($event, VaultCreateOverlayReferenceElement, 'end')" class="inline-block underline decoration-dashed underline-offset-4 decoration-slate-600/80 cursor-pointer">
-                    average expected return of {{ numeral(averageAPY).formatIfElseCapped('>=100', '0,0', '0,0.00', 999_999)
-                    }}%
-                  </span>
-                </VaultReturns>
-                (APY).
+                You confirmed {{ microgonToArgonNm(config.vaultingRules.baseMicrogonCommitment).format('0,0.[0]') }} ARGN
+                <template v-if="config.vaultingRules.baseMicronotCommitment > 0n">
+                  and {{ micronotToArgonotNm(config.vaultingRules.baseMicronotCommitment).format('0,0.[0]') }} ARGNOT
+                </template>
+                in securitization.
               </p>
             </div>
           </div>
@@ -114,9 +104,10 @@
               </h2>
               <p>
                 Your account needs a minimum of
-                {{ microgonToArgonNm(minimumMicrogonsNeeded).format('0,0.[00000000]') }} argon{{
-                  microgonToArgonNm(minimumMicrogonsNeeded).format('0') === '1' ? '' : 's'
-                }}
+                {{ microgonToArgonNm(funding.requiredMicrogons).format('0,0.[0]') }} ARGN
+                <template v-if="funding.requiredMicronots > 0n">
+                  and {{ micronotToArgonotNm(funding.requiredMicronots).format('0,0.[0]') }} ARGNOT
+                </template>
                 to operate your vault. A secure wallet is already attached to your account. All you need to do is move
                 some tokens.
               </p>
@@ -128,8 +119,9 @@
 
         <button
           @click="startCreateVault"
+          :disabled="!canLaunch"
           :class="[
-          walletIsFullyFunded && serverConnectIsChecked && !basics.overlayIsOpen
+          canLaunch
             ? 'text-white'
             : 'text-white/70 pointer-events-none opacity-30'
         ]"
@@ -153,43 +145,33 @@
 
 <script setup lang="ts">
 import * as Vue from 'vue';
-import dayjs from 'dayjs';
-import utc from 'dayjs/plugin/utc';
-import { MICROGONS_PER_ARGON, NetworkConfig } from '@argonprotocol/apps-core';
+import { NetworkConfig } from '@argonprotocol/apps-core';
 import basicEmitter from '../../emitters/basicEmitter.ts';
 import { getConfig } from '../../stores/config.ts';
 import { useWallets } from '../../stores/wallets.ts';
 import { getCurrency } from '../../stores/currency.ts';
 import Checkbox from '../../components/Checkbox.vue';
-import numeral, { createNumeralHelpers } from '../../lib/numeral.ts';
+import { createNumeralHelpers } from '../../lib/numeral.ts';
 import { ArrowLeftIcon } from '@heroicons/vue/24/outline';
-import { getVaultCalculator } from '../../stores/mainchain.ts';
-import VaultCapital from '../../overlays/vault/VaultCapital.vue';
-import VaultReturns from '../../overlays/vault/VaultReturns.vue';
 import VaultCreatePanel from '../../panels/VaultCreatePanel.vue';
 import { useCertificationController, OperationalStepId } from '../../stores/certificationController.ts';
 import { TopTab, VaultingSetupStatus } from '../../interfaces/IConfig.ts';
 import ArrowCalloutButton from '../../components/ArrowCalloutButton.vue';
 import { useBasics } from '../../stores/basics.ts';
 
-dayjs.extend(utc);
+import { MyVault } from '../../lib/MyVault.ts';
 
 const config = getConfig();
 const basics = useBasics();
 const wallets = useWallets();
 const currency = getCurrency();
 const controller = useCertificationController();
-const calculator = getVaultCalculator();
-
-const averageAPY = Vue.ref(0);
-
-const { microgonToArgonNm } = createNumeralHelpers(currency);
-const VaultCreateOverlayReferenceElement = Vue.ref<HTMLElement | null>(null);
-const alignOffsetForReturns = Vue.ref(0);
-const alignOffsetForCapital = Vue.ref(0);
-
-const futureTransactionFeeBudgetMicrogons = 2n * BigInt(MICROGONS_PER_ARGON);
-const treasuryBondSuggestionIncrementMicrogons = 100n * BigInt(MICROGONS_PER_ARGON);
+const { microgonToArgonNm, micronotToArgonotNm } = createNumeralHelpers(currency);
+const funding = Vue.computed(() => MyVault.getFundingState(config, wallets.defaultArgonWallet));
+const walletIsFullyFunded = Vue.computed(() => wallets.isLoaded && funding.value.isFullyFunded);
+const canLaunch = Vue.computed(
+  () => walletIsFullyFunded.value && serverConnectIsChecked.value && !basics.overlayIsOpen,
+);
 
 const serverConnectIsChecked = Vue.computed(() => {
   return wallets.isLoaded && config.isServerAdded;
@@ -213,62 +195,6 @@ const walletIsPartiallyFunded = Vue.computed(() => {
   return (wallets.defaultArgonWallet.availableMicrogons || wallets.defaultArgonWallet.availableMicronots) > 0;
 });
 
-const vaultTreasuryBondSuggestionMicrogons = Vue.computed(() => {
-  const suggestedMicrogons = (config.vaultingRules?.baseMicrogonCommitment ?? 0n) / 20n;
-  if (suggestedMicrogons <= 0n) return 0n;
-
-  return (
-    ((suggestedMicrogons + treasuryBondSuggestionIncrementMicrogons - 1n) / treasuryBondSuggestionIncrementMicrogons) *
-    treasuryBondSuggestionIncrementMicrogons
-  );
-});
-
-const onboardingAdditionalMicrogons = Vue.computed(() => {
-  if (config.vaultingSetupStatus === VaultingSetupStatus.Finished) {
-    return 0n;
-  }
-
-  return futureTransactionFeeBudgetMicrogons;
-});
-
-const minimumMicrogonsNeeded = Vue.computed(() => {
-  return (config.vaultingRules?.baseMicrogonCommitment ?? 0n) + onboardingAdditionalMicrogons.value;
-});
-
-const walletIsFullyFunded = Vue.computed(() => {
-  if (!walletIsPartiallyFunded.value) {
-    return false;
-  }
-
-  if (wallets.defaultArgonWallet.availableMicrogons < minimumMicrogonsNeeded.value) {
-    return false;
-  }
-
-  return true;
-});
-
-function calculateAlignOffset(event: MouseEvent, parentElement: HTMLElement | null, align: 'start' | 'end') {
-  const element = event.target as HTMLElement;
-  if (!element || !parentElement) {
-    return 0;
-  }
-
-  const elementRect = element.getBoundingClientRect();
-  const parentRect = parentElement.getBoundingClientRect();
-
-  const elementRightEdge = elementRect.left + (align === 'start' ? 0 : elementRect.width);
-  const parentRightEdge = parentRect.left + (align === 'start' ? 0 : parentRect.width);
-  const offset = elementRightEdge - parentRightEdge;
-
-  return align === 'start' ? -offset : offset;
-}
-
-function updateApy() {
-  const lowApy = calculator.calculateInternalAPY('Low', 'Low');
-  const highApy = calculator.calculateInternalAPY('High', 'High');
-  averageAPY.value = (lowApy + highApy) / 2;
-}
-
 const openCreateOverlay = Vue.ref(false);
 function openVaultCreateOverlay() {
   openCreateOverlay.value = true;
@@ -283,6 +209,7 @@ function openFundVaultingAccountOverlay() {
 }
 
 async function startCreateVault() {
+  if (!canLaunch.value) return;
   config.vaultingSetupStatus = VaultingSetupStatus.Installing;
   await config.save();
 }
@@ -301,18 +228,6 @@ function goBack() {
     controller.setTab(TopTab.Home);
   }
 }
-
-Vue.watch(
-  config.vaultingRules,
-  () => {
-    updateApy();
-  },
-  { deep: true },
-);
-
-Vue.onMounted(async () => {
-  calculator.load(config.vaultingRules).then(() => updateApy());
-});
 </script>
 
 <style scoped>

@@ -221,6 +221,27 @@ it('remembers that Discord was connected after config reloads', async () => {
   await db.close();
 });
 
+it('persists unchanged vault fees when retrying a failed settings write', async () => {
+  const db = await createTestDb();
+  const { walletKeys } = createTestWallet('//Alice');
+  instanceChecks.delete(Config.prototype.constructor);
+  const config = new Config(Promise.resolve(db), walletKeys);
+  await config.load();
+  config.vaultingRules.btcFlatFee = 2_000_000n;
+  await config.saveVaultingRules();
+
+  config.vaultingRules.btcFlatFee = 3_000_000n;
+  vi.spyOn(db, 'execute').mockRejectedValueOnce(new Error('Synthetic settings write failure'));
+  await expect(config.saveVaultingRules()).rejects.toThrow('Synthetic settings write failure');
+  await config.saveVaultingRules();
+
+  instanceChecks.delete(Config.prototype.constructor);
+  const restarted = new Config(Promise.resolve(db), walletKeys);
+  await restarted.load();
+  expect(restarted.vaultingRules.btcFlatFee).toBe(3_000_000n);
+  await db.close();
+});
+
 it('does not recover operation state from cached mining or vault activity', async () => {
   const dbPromise = createMockedDbPromise({
     miningSetupStatus: `"${MiningSetupStatus.Checklist}"`,

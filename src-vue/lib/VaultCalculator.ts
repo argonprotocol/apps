@@ -32,11 +32,11 @@ export class VaultCalculator {
   }
 
   public async load(rules: Config['vaultingRules']) {
+    this.rules = rules;
     if (this.isLoaded.isRunning || this.isLoaded.isSettled) {
       return this.isLoaded.promise;
     }
     this.isLoaded.setIsRunning(true);
-    this.rules = rules;
     try {
       const { totalPoolRewards, fullBidPool, totalActivatedCapital } = await Vaults.getPreviousEpochTreasuryPayout(
         this.clients,
@@ -54,6 +54,7 @@ export class VaultCalculator {
       this.isLoaded.resolve();
     } catch (e) {
       this.isLoaded.reject(e);
+      this.isLoaded = createDeferred(false);
       throw e;
     }
   }

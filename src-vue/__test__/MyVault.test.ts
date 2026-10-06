@@ -199,9 +199,12 @@ describe('MyVault cosign recovery', () => {
     };
     const finalizedApi = {
       raw: { query: { vaults: {} } },
+      consts: { vaults: { securitizationExitNoticeBlocks: 52_560 } },
       events: { bitcoinLocks: bitcoinEvents, vaults: vaultEvents },
       query: {
+        ticks: { genesisTicker: async () => ({ tickDurationMillis: 1_000 }) },
         vaults: {
+          vaultsById: async () => getOfflineRegistry().createType<ArgonPrimitivesVault>('ArgonPrimitivesVault'),
           argonotCommitmentByVaultId: vi.fn(async () => null),
           revenuePerFrameByVault: frameRevenues,
           pendingCosignByVaultId: vi.fn(async () => []),
@@ -1165,7 +1168,9 @@ describe('MyVault cosign recovery', () => {
         },
       },
       query: {
+        ticks: { genesisTicker: async () => ({ tickDurationMillis: 1_000 }) },
         vaults: {
+          vaultsById: async () => getOfflineRegistry().createType<ArgonPrimitivesVault>('ArgonPrimitivesVault'),
           argonotCommitmentByVaultId: vi.fn(async () => null),
         },
       },
@@ -1216,6 +1221,10 @@ describe('MyVault cosign recovery', () => {
       {
         load: vi.fn(async () => undefined),
         currentFrameId: 2,
+        blockWatch: {
+          bestBlockHeader: { blockNumber: 1, blockHash: '0x01' },
+          getApi: async () => client,
+        },
       } as any,
       {
         load: vi.fn(async () => undefined),
@@ -1609,7 +1618,9 @@ describe('MyVault cosign recovery', () => {
         },
       },
       query: {
+        ticks: { genesisTicker: async () => ({ tickDurationMillis: 1_000 }) },
         vaults: {
+          vaultsById: async () => getOfflineRegistry().createType<ArgonPrimitivesVault>('ArgonPrimitivesVault'),
           argonotCommitmentByVaultId: vi.fn(async () => ({
             committedMicronots: 25n,
             encumberedMicronots: 10n,
@@ -1649,6 +1660,10 @@ describe('MyVault cosign recovery', () => {
       {
         load: vi.fn(async () => undefined),
         currentFrameId: 2,
+        blockWatch: {
+          bestBlockHeader: { blockNumber: 1, blockHash: '0x01' },
+          getApi: async () => client,
+        },
       } as any,
       {
         load: vi.fn(() => globalCouncilLoad),
@@ -1691,59 +1706,68 @@ describe('MyVault cosign recovery', () => {
     getMainchainClient.mockRestore();
   });
 
-  it('records finalized vault capital from the resulting vault state after re-inclusion', async () => {
-    const capitalInsert = vi.fn(async () => undefined);
+  it('records command capital at its block without replacing newer current withdrawals', async () => {
+    const db = await createTestDb();
     const walletKeys = createMockWalletKeys();
-    const api = {
+    const registry = getOfflineRegistry();
+    const olderVault = registry.createType<ArgonPrimitivesVault>('ArgonPrimitivesVault', {
+      operatorAccountId: walletKeys.vaultingAddress,
+      securitization: 900n,
+      securitizationTarget: 700n,
+      securitizationReleaseSchedule: {
+        100: { lockedCommitments: 0n, relockableCommitments: 0n, argonWithdrawals: 200n, argonotWithdrawals: 400n },
+      },
+    });
+    const currentVault = registry.createType<ArgonPrimitivesVault>('ArgonPrimitivesVault', {
+      operatorAccountId: walletKeys.vaultingAddress,
+      securitization: 900n,
+      securitizationTarget: 900n,
+      securitizationReleaseSchedule: {},
+    });
+    const commandApi = {
+      consts: { vaults: { securitizationExitNoticeBlocks: 52_560 } },
       query: {
-        system: { number: vi.fn(async () => 55) },
+        system: { number: async () => 55 },
+        ticks: { genesisTicker: async () => ({ tickDurationMillis: 1_000 }) },
+        vaults: { vaultsById: async () => olderVault },
+      },
+    };
+    const currentApi = {
+      ...commandApi,
+      query: {
+        ...commandApi.query,
         vaults: {
-          argonotCommitmentByVaultId: vi.fn(async () => ({
-            committedMicronots: 25n,
-            encumberedMicronots: 10n,
-          })),
+          vaultsById: async () => currentVault,
+          argonotSecuritizationByVaultId: async () => ({
+            heldMicronots: 2_000n,
+            committedMicronots: 2_000n,
+            encumberedMicronots: 100n,
+          }),
         },
       },
     };
-    const client = { at: vi.fn(async () => api) };
-    const getMainchainClient = vi.spyOn(mainchainStore, 'getMainchainClient').mockResolvedValue(client as any);
-    const liveVault = Object.assign(
-      createTestVault({
-        vaultId: 7,
-        operatorAccountId: walletKeys.vaultingAddress,
-        delegateAccountId: null,
-      }),
-      {
-        securitization: 900n,
-        securitizationTarget: 700n,
-        securitizationReleaseSchedule: new Map([
-          [0, { lockedCommitments: 0n, relockableCommitments: 200n, argonWithdrawals: 0n, argonotWithdrawals: 0n }],
-        ]),
-      },
-    );
-    const getVault = vi.spyOn(AppsCore.Vault, 'get').mockResolvedValue(liveVault);
-    const { myVault } = createVault({
-      db: {
-        vaultCapitalHistoryTable: { insert: capitalInsert },
-      },
-      walletKeys,
-    });
+    const getMainchainClient = vi.spyOn(mainchainStore, 'getMainchainClient').mockResolvedValue({
+      at: async () => commandApi,
+    } as any);
+    const { myVault, blockWatch } = createVault({ db, walletKeys, finalizedApi: currentApi });
+    blockWatch.bestBlockHeader = { blockNumber: 56, blockHash: '0x56' };
     myVault.data.metadata = { id: 7 } as any;
-    myVault.vaults.vaultsById[7] = { securitization: 1_000n } as Vault;
+    myVault.data.isLoaded = true;
+    myVault.data.createdVault = new Vault(7, toPlain(currentVault) as ConstructorParameters<typeof Vault>[1], 1_000, 52_560);
+    myVault.vaults.vaultsById[7] = myVault.createdVault!;
+    myVault.data.argonotCommitment = { heldMicronots: 2_000n, committedMicronots: 2_000n, encumberedMicronots: 100n };
 
-    await myVault.recordFinalizedVaultCapital({
+    const txInfo = {
       tx: { blockHeight: 55, blockHash: '0x55', blockExtrinsicIndex: 2 },
       txResult: { waitForFinalizedBlock: Promise.resolve(new Uint8Array([0xfa])) },
-    } as any);
+    } as any;
+    await myVault.recordFinalizedVaultCapital(txInfo);
 
-    expect(myVault.data.createdVault).toBe(liveVault);
-    expect(myVault.vaults.vaultsById[7]).toBe(liveVault);
-    expect(myVault.data.argonotCommitment).toEqual({
-      heldMicronots: 25n,
-      committedMicronots: 0n,
-      encumberedMicronots: 10n,
-    });
-    expect(capitalInsert).toHaveBeenCalledWith(
+    expect(myVault.createdVault?.securitizationTarget).toBe(900n);
+    expect(myVault.createdVault?.securitizationReleaseSchedule.size).toBe(0);
+    expect(myVault.argonotSecuritizationTarget).toBe(2_000n);
+    expect(myVault.vaults.vaultsById[7]).toBe(myVault.createdVault);
+    expect(await db.vaultCapitalHistoryTable.fetchAll(walletKeys.defaultArgonAddress, 7)).toEqual([
       expect.objectContaining({
         eventType: 'modified',
         securitization: 900n,
@@ -1751,8 +1775,38 @@ describe('MyVault cosign recovery', () => {
         blockHash: '0xfa',
         extrinsicIndex: 2,
       }),
-    );
-    getVault.mockRestore();
+    ]);
+
+    let rejectCurrentRead!: (error: Error) => void;
+    const pendingRead = new Promise<typeof currentVault>((_, reject) => {
+      rejectCurrentRead = reject;
+    });
+    currentApi.query.vaults.vaultsById = () => pendingRead;
+    const retry = myVault.recordFinalizedVaultCapital(txInfo);
+    await vi.waitFor(() => expect(blockWatch.getApi).toHaveBeenCalledTimes(2));
+    rejectCurrentRead(new Error('current state temporarily unavailable'));
+    await expect(retry).rejects.toThrow('current state temporarily unavailable');
+    expect(myVault.createdVault?.securitizationReleaseSchedule.size).toBe(0);
+    expect(myVault.data.argonotCommitment.heldMicronots).toBe(2_000n);
+    currentApi.query.vaults.vaultsById = async () => currentVault;
+    await myVault.recordFinalizedVaultCapital(txInfo);
+    expect(await db.vaultCapitalHistoryTable.fetchAll(walletKeys.defaultArgonAddress, 7)).toHaveLength(1);
+    expect(myVault.argonotSecuritizationTarget).toBe(2_000n);
+
+    let finishOlderRead!: (vault: typeof currentVault) => void;
+    const olderRead = new Promise<typeof currentVault>(resolve => { finishOlderRead = resolve; });
+    blockWatch.getApi.mockResolvedValueOnce({
+      ...currentApi,
+      query: { ...currentApi.query, vaults: { ...currentApi.query.vaults, vaultsById: () => olderRead } },
+    });
+    const movedHead = myVault.recordFinalizedVaultCapital(txInfo);
+    await vi.waitFor(() => expect(blockWatch.getApi).toHaveBeenCalledTimes(4));
+    blockWatch.bestBlockHeader = { blockNumber: 57, blockHash: '0x57' };
+    finishOlderRead(olderVault);
+    await movedHead;
+    expect(myVault.createdVault?.securitizationReleaseSchedule.size).toBe(0);
+    expect(myVault.argonotSecuritizationTarget).toBe(2_000n);
+    expect(blockWatch.getApi.mock.calls.at(-1)).toEqual([blockWatch.bestBlockHeader]);
     getMainchainClient.mockRestore();
   });
 
@@ -1781,6 +1835,7 @@ describe('MyVault cosign recovery', () => {
     const api = {
       query: {
         system: { number: vi.fn(async () => 55) },
+        vaults: { argonotSecuritizationByVaultId: async () => null },
       },
     };
     const client = {
@@ -1816,7 +1871,18 @@ describe('MyVault cosign recovery', () => {
     const getMainchainClient = vi
       .spyOn(mainchainStore, 'getMainchainClient')
       .mockRejectedValue(new Error('archive unavailable'));
-    const { myVault } = createVault();
+    const { myVault } = createVault({
+      finalizedApi: {
+        consts: { vaults: { securitizationExitNoticeBlocks: 52_560 } },
+        query: {
+          ticks: { genesisTicker: async () => ({ tickDurationMillis: 1_000 }) },
+          vaults: {
+            vaultsById: async () => getOfflineRegistry().createType<ArgonPrimitivesVault>('ArgonPrimitivesVault'),
+            argonotSecuritizationByVaultId: async () => null,
+          },
+        },
+      },
+    });
     myVault.data.metadata = { id: 7 } as any;
 
     await expect(
@@ -1825,6 +1891,7 @@ describe('MyVault cosign recovery', () => {
         txResult: { waitForFinalizedBlock: Promise.resolve(new Uint8Array()) },
       } as any),
     ).resolves.toBeUndefined();
+    expect(myVault.createdVault?.vaultId).toBe(7);
 
     getMainchainClient.mockRestore();
   });
@@ -1854,6 +1921,7 @@ function createVault(args?: {
     specVersion: 159,
   }));
   const blockWatch = {
+    bestBlockHeader: { blockNumber: args?.finalizedHeight ?? 100, blockHash: '0x64' },
     finalizedBlockHeader: { blockNumber: args?.finalizedHeight ?? 100 },
     events: { on: blockWatchEventOn },
     getEvents: getBlockEvents,
@@ -1864,6 +1932,7 @@ function createVault(args?: {
       return {
         blockNumber: blockHeight,
         blockHash: args?.headerByHeight?.[blockHeight] ?? `0x${blockHeight.toString(16)}`,
+        blockTime: Date.UTC(2026, 0, 1) + blockHeight * 60_000,
       };
     }),
   };

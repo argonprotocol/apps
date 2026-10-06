@@ -2634,9 +2634,19 @@ describe('financial position accounting', () => {
     });
     const bonds = bondFinancials.createFinancialPositions({
       bondLots: [vaultLot, argonotLot],
-      historyRecords: [vaultHistoryRecord],
+      historyRecords: [
+        vaultHistoryRecord,
+        {
+          ...vaultHistoryRecord,
+          id: 2,
+          bondLotId: argonotLot.id,
+          programType: argonotLot.programType,
+          nativeAsset: argonotLot.nativeAsset,
+          nativePrincipal: argonotLot.principalMicronots!,
+          entryArgonotRateMicrogons: 2_000_000n,
+        },
+      ],
       liveArgonotRateMicrogons: 3_000_000n,
-      entryArgonotMarksByLot: new Map([[`${argonotLot.owner}:${argonotLot.programType}:${argonotLot.id}`, 2_000_000n]]),
       frameDates: new Map([[argonotLot.createdFrameId, new Date('2026-01-01T00:00:00Z')]]),
     });
     const vaultPosition = bonds.find(position => position.bondLot?.id === 1);
@@ -2700,7 +2710,6 @@ describe('financial position accounting', () => {
     const [operatorBond] = bondFinancials.createFinancialPositions({
       bondLots: [vaultLot],
       historyRecords: [vaultHistoryRecord],
-      entryArgonotMarksByLot: new Map(),
       frameDates: new Map([[vaultLot.createdFrameId, new Date('2026-01-01T00:00:00Z')]]),
     });
     const operatorAggregate = reduceFinancialPositions(readySnapshots([operatorBond]));

@@ -94,6 +94,9 @@
                 <div class="w-px h-8/12 bg-slate-600/30" />
                 <button @click="basicEmitter.emit('openFlexibleAssetsOverlay')" class="flex flex-row items-center font-light text-base cursor-pointer group hover:opacity-80">
                   Flexible Assets
+                  <span v-if="(vaultBondState?.displacedFlexibleBonds ?? 0) > 0" class="ml-1 text-sm text-slate-500">
+                    · {{ currency.symbol }}{{ microgonToMoneyNm(BondLot.bondsToMicrogons(vaultBondState!.displacedFlexibleBonds)).format('0,0.[0]') }} displaced
+                  </span>
                 </button>
                 <div class="w-px h-8/12 bg-slate-600/30" />
                 <button @click="controller.setTab(TopTab.Onboarding)" class="flex flex-row items-center font-light text-base cursor-pointer group hover:opacity-80">
@@ -120,19 +123,41 @@
                   />
                 </div>
                 <div BondMap class="min-h-0 w-1/2">
-                  <TreemapChart
-                    v-if="bondMapTotal"
-                    :total="bondMapTotal"
-                    :items="bondMapItems"
-                    theme="argon"
-                    remainder-label="Available Bonds"
-                    :remainder-minimum="10000"
-                    :remainder-display-value="formatMoney(bondMapRemainder)"
-                    @tile-click="handleBondTileClick"
-                  />
-                  <div v-else class="w-full h-full border-2 border-dashed border-slate-400/50 text-slate-400/70 flex flex-col items-center justify-center">
-                    No Bonds Available
-                  </div>
+                  <TooltipProvider :delayDuration="200">
+                    <TreemapChart
+                      v-if="bondMapTotal"
+                      :total="bondMapTotal"
+                      :items="bondMapItems"
+                      theme="argon"
+                      remainder-label="Available Bonds"
+                      :remainder-minimum="10000"
+                      :remainder-display-value="formatMoney(bondMapRemainder)"
+                      @tile-click="handleBondTileClick"
+                    >
+                      <template #label="{ item }">
+                        <TooltipRoot v-if="bondLotsByMapId[item.key]?.lot.isFlexible">
+                          <TooltipTrigger as="span" aria-label="Flexible bonds" class="inline-flex items-center gap-1.5">
+                            <span
+                              v-if="item.width >= 80"
+                              class="shrink-0 rounded border border-current/40 px-1 py-0.5 text-xs leading-none font-semibold"
+                            >{{ item.isCompact || item.width < 100 ? 'F' : 'FLEX' }}</span>
+                            {{ item.label }}
+                          </TooltipTrigger>
+                          <TooltipContent side="bottom" :sideOffset="4" :collisionPadding="9" class="text-md z-50 w-xs rounded-md border border-gray-800/20 bg-white px-4 py-3 text-left leading-5.5 font-light text-slate-900/60 shadow-2xl">
+                            <div class="mb-1 font-semibold">Flexible bonds</div>
+                            {{ currency.symbol }}{{ microgonToMoneyNm(bondLotsByMapId[item.key].lot.bondMicrogons).format('0,0.[0]') }} held ·
+                            {{ currency.symbol }}{{ microgonToMoneyNm(bondLotsByMapId[item.key].capacityMicrogons).format('0,0.[0]') }} in use ·
+                            {{ currency.symbol }}{{ microgonToMoneyNm(bondLotsByMapId[item.key].lot.bondMicrogons - bondLotsByMapId[item.key].capacityMicrogons).format('0,0.[0]') }} displaced
+                            <TooltipArrow :width="27" :height="15" class="-mt-px fill-white stroke-gray-800/20 stroke-[0.5px]" />
+                          </TooltipContent>
+                        </TooltipRoot>
+                        <template v-else>{{ item.label }}</template>
+                      </template>
+                    </TreemapChart>
+                    <div v-else class="w-full h-full border-2 border-dashed border-slate-400/50 text-slate-400/70 flex flex-col items-center justify-center">
+                      No Bonds Available
+                    </div>
+                  </TooltipProvider>
                 </div>
               </div>
               <TooltipProvider :disableHoverableContent="true">
@@ -142,16 +167,21 @@
                   </div>
                   <div class="grid grid-cols-3 gap-x-4 gap-y-5 text-center text-base leading-none text-slate-700/80 pt-3">
                     <TooltipRoot :delayDuration="200">
-                      <TooltipTrigger as="div" class="cursor-help">{{currency.symbol}}{{ microgonToMoneyNm(vaultingBreakdown.securityMicrogons).format('0,0.00') }} In Potential BTC Locks</TooltipTrigger>
+                      <TooltipTrigger as="div" class="cursor-help">{{currency.symbol}}{{ microgonToMoneyNm(bitcoinLockCapacity).format('0,0.00') }} In Potential BTC Locks</TooltipTrigger>
                       <TooltipContent side="bottom" :sideOffset="4" :collisionPadding="9" class="text-md z-50 w-xs rounded-md border border-gray-800/20 bg-white px-4 py-3 text-left leading-5.5 font-light text-slate-900/60 shadow-2xl">
                         The total argon value of bitcoin that could be locked in your vault based on your securitization commitment.
                         <TooltipArrow :width="27" :height="15" class="-mt-px fill-white stroke-gray-800/20 stroke-[0.5px]" />
                       </TooltipContent>
                     </TooltipRoot>
                     <TooltipRoot :delayDuration="200">
-                      <TooltipTrigger as="div" class="cursor-help">{{currency.symbol}}{{ microgonToMoneyNm(potentialDailyRevenue).formatIfElse('< 1_000', '0,0.00', '0,0') }} Potential Daily Revenue</TooltipTrigger>
+                      <TooltipTrigger as="div" class="cursor-help">
+                        {{ currency.symbol }}{{ microgonToMoneyNm(potentialDailyRevenue).formatIfElse('< 1_000', '0,0.00', '0,0') }}
+                        Potential Daily Revenue
+                      </TooltipTrigger>
                       <TooltipContent side="bottom" :sideOffset="4" :collisionPadding="9" class="text-md z-50 w-xs rounded-md border border-gray-800/20 bg-white px-4 py-3 text-left leading-5.5 font-light text-slate-900/60 shadow-2xl">
-                        The current potential earnings from the bid pool if all your capital is used for bitcoin security and external funders buy all possible bonds. This number will update until the mining auction closes.
+                        Trailing network auction revenue: {{ currency.symbol }}{{ microgonToMoneyNm(miningStats.aggregatedBidCosts).format('0,0') }}.
+                        The daily estimate averages this over a {{ numeral(revenueHistoryDays).format('0,0.[0]') }}-day mining term.
+                        Assumes your Bitcoin and bond capacity is filled and you have enough ARGNOT to maximize earnings.
                         <TooltipArrow :width="27" :height="15" class="-mt-px fill-white stroke-gray-800/20 stroke-[0.5px]" />
                       </TooltipContent>
                     </TooltipRoot>
@@ -198,9 +228,36 @@
                       </TooltipContent>
                     </TooltipRoot>
                     <TooltipRoot :delayDuration="200">
-                      <TooltipTrigger as="div" class="cursor-help"><template v-if="vaultingBreakdown.revenueCapturedPct !== undefined">{{ numeral(vaultingBreakdown.revenueCapturedPct).format('0,0.[00]') }}% of Potential Revenue Captured</template><template v-else>Potential Revenue Capture Unavailable</template></TooltipTrigger>
+                      <TooltipTrigger
+                        as="button"
+                        type="button"
+                        class="flex w-full cursor-pointer flex-col items-center justify-center gap-1 hover:underline"
+                        @click="openSecuritization"
+                      >
+                        <span class="flex items-center gap-1" :class="hasArgonotRewardAlert ? 'text-yellow-800' : ''">
+                          <AlertIcon v-if="hasArgonotRewardAlert" class="size-4 shrink-0 text-yellow-700" />
+                          <template v-if="vaultingBreakdown.revenueCapturedPct !== undefined">{{ numeral(vaultingBreakdown.revenueCapturedPct).format('0,0.[00]') }}% of Potential Revenue Captured</template>
+                          <template v-else>Potential Revenue Capture Unavailable</template>
+                        </span>
+                        <span v-if="hasArgonotRewardAlert" class="text-xs text-yellow-800">
+                          <template v-if="(vaultingBreakdown.argonotRewardBacking?.additionalMicronots ?? 0n) > 0n">ARGNOT Below Maximum Backing</template>
+                          <template v-else-if="(vaultingBreakdown.argonotRewardBacking?.withdrawalCancellationMicronots ?? 0n) > 0n">ARGNOT Withdrawal Reduces Backing</template>
+                          <template v-else>ARGNOT Update Applies Next Frame</template>
+                        </span>
+                      </TooltipTrigger>
                       <TooltipContent side="bottom" :sideOffset="4" :collisionPadding="9" class="text-md z-50 w-xs rounded-md border border-gray-800/20 bg-white px-4 py-3 text-left leading-5.5 font-light text-slate-900/60 shadow-2xl">
-                        How much of your vault's potential mining pool revenue is being earned. Maximize this by using your capital for bitcoin security and funding treasury externally.
+                        <template v-if="hasArgonotRewardAlert && vaultingBreakdown.argonotRewardBacking">
+                          <template v-if="vaultingBreakdown.argonotRewardBacking.additionalMicronots > 0n">
+                            Add {{ micronotToArgonotNm(vaultingBreakdown.argonotRewardBacking.additionalMicronots).format('0,0.[000000]') }} ARGNOT to reach maximum reward backing.
+                          </template>
+                          <template v-if="vaultingBreakdown.argonotRewardBacking.withdrawalCancellationMicronots > 0n">
+                            Cancel {{ micronotToArgonotNm(vaultingBreakdown.argonotRewardBacking.withdrawalCancellationMicronots).format('0,0.[000000]') }} ARGNOT of pending withdrawals to retain maximum reward backing.
+                          </template>
+                          <template v-if="vaultingBreakdown.argonotRewardBacking.additionalMicronots + vaultingBreakdown.argonotRewardBacking.withdrawalCancellationMicronots === 0n">Your ARGNOT backing is funded. Its reward contribution updates at the next frame.</template>
+                          With the current Bitcoin and bond usage, maximum ARGNOT backing would capture
+                          {{ numeral(vaultingBreakdown.revenuePotential!.capturedWithMaximumArgonotsPercent).format('0,0.[00]') }}% of potential revenue.
+                        </template>
+                        <template v-else>How much of your vault's potential network revenue is being earned. Bitcoin locks, bonds, and ARGNOT backing determine this percentage.</template>
                         <TooltipArrow :width="27" :height="15" class="-mt-px fill-white stroke-gray-800/20 stroke-[0.5px]" />
                       </TooltipContent>
                     </TooltipRoot>
@@ -220,6 +277,7 @@
           <section box class="relative flex flex-col h-[35%] !pb-0.5 px-2">
             <FrameSlider
               ref="frameSliderRef"
+              :navigationDisabled="true"
               :chartItems="chartItems"
               :selectedIndex="sliderFrameIndex"
               @changedFrame="updateSliderFrame" />
@@ -229,10 +287,6 @@
     </div>
 
     <!-- Overlays -->
-    <VaultEditOverlay
-      v-if="showEditOverlay"
-      @close="showEditOverlay = false"
-    />
 
     <BitcoinLockDetailOverlay
       v-if="showLockDetailOverlay"
@@ -242,8 +296,8 @@
     />
 
     <BondDetailOverlay
-      v-if="showBondDetailOverlay && selectedFrameBondLot"
-      :bondLot="selectedFrameBondLot.details"
+      v-if="showBondDetailOverlay && (selectedBondLot || selectedBondPosition)"
+      :bondLot="selectedBondLot"
       :position="selectedBondPosition"
       displayContext="vault"
       liquidationAccount="vaulting"
@@ -277,10 +331,15 @@ import { getMyVault } from '../../stores/vaults.ts';
 import type { IExternalBitcoinLock } from '../../lib/MyVault.ts';
 import { getConfig } from '../../stores/config.ts';
 import { TICK_MILLIS } from '../../lib/Env.ts';
-import VaultEditOverlay from '../../overlays/VaultEditOverlay.vue';
 import BitcoinLockDetailOverlay from '../../overlays/BitcoinLockDetailOverlay.vue';
 import BondDetailOverlay from '../../overlays/BondDetailOverlay.vue';
-import { bigIntMax, BondLot, NetworkConfig, TreasuryBonds, type IFrameBondLot } from '@argonprotocol/apps-core';
+import {
+  bigIntMax,
+  bigNumberToBigInt,
+  BondLot,
+  NetworkConfig,
+  TreasuryBonds,
+} from '@argonprotocol/apps-core';
 import { TooltipProvider, TooltipRoot, TooltipTrigger, TooltipContent, TooltipArrow } from 'reka-ui';
 import { getMainchainClient, getMiningFrames } from '../../stores/mainchain.ts';
 import { getBitcoinLocks } from '../../stores/bitcoin.ts';
@@ -296,7 +355,9 @@ import { OperationalStepId, useCertificationController } from '../../stores/cert
 import ArrowCalloutButton from '../../components/ArrowCalloutButton.vue';
 import { useFinancials } from '../../stores/financials.ts';
 import AlertIcon from '../../assets/alert.svg?component';
+import BigNumber from 'bignumber.js';
 import { useWallets } from '../../stores/wallets.ts';
+import { useMiningStats } from '../../stores/miningStats.ts';
 
 dayjs.extend(utc);
 
@@ -308,8 +369,18 @@ const currency = getCurrency();
 const argonBonds = getArgonBonds();
 const financials = useFinancials();
 const wallets = useWallets();
+const miningStats = useMiningStats();
 
 const vaultingBreakdown = useVaultingAssetBreakdown();
+const hasArgonotRewardAlert = Vue.computed(() => {
+  const backing = vaultingBreakdown.argonotRewardBacking;
+  if (!backing) return false;
+  if (backing.additionalMicronots > 0n) return true;
+  if (backing.withdrawalCancellationMicronots > 0n) return true;
+  const potential = vaultingBreakdown.revenuePotential;
+  if (potential?.capturedPercent === undefined) return false;
+  return (potential.capturedWithMaximumArgonotsPercent ?? 0) > potential.capturedPercent;
+});
 
 const rules = config.vaultingRules;
 
@@ -317,7 +388,7 @@ const latestFrameId = Vue.computed(() => {
   return frameRecords.value.at(-1)?.id ?? 0;
 });
 
-const { microgonToArgonNm, microgonToMoneyNm } = createNumeralHelpers(currency);
+const { microgonToArgonNm, microgonToMoneyNm, micronotToArgonotNm } = createNumeralHelpers(currency);
 
 const vaultBondState = Vue.computed<IVaultArgonBondState | undefined>(() => {
   const vaultId = myVault.vaultId;
@@ -326,7 +397,6 @@ const vaultBondState = Vue.computed<IVaultArgonBondState | undefined>(() => {
 
 const currentTreasuryBondFrame = Vue.computed(() => ({
   frameId: vaultBondState.value?.currentFrame.frameId ?? argonBonds.data.currentFrameId,
-  distributableBidPool: argonBonds.data.distributableBidPool,
   globalBonds: argonBonds.data.totalActiveBonds,
   vaultBonds: vaultBondState.value?.currentFrame.vaultBonds ?? 0,
   flexibleBondsEligible: vaultBondState.value?.currentFrame.flexibleBondsEligible ?? 0,
@@ -350,19 +420,29 @@ const revenueMicrogons = Vue.computed(() => {
   if (group.state === 'ready' || group.state === 'stale') return group.returnSummary.paidIncome;
 });
 
+const revenueHistoryDays = (NetworkConfig.ticksPerCohort * NetworkConfig.tickMillis) / 86_400_000;
+const averageDailyNetworkRevenue = Vue.computed(() => {
+  return (
+    (miningStats.aggregatedBidCosts * 86_400_000n) / BigInt(NetworkConfig.ticksPerCohort * NetworkConfig.tickMillis)
+  );
+});
+
 const potentialDailyRevenue = Vue.computed(() => {
   if (!myVault.createdVault) return 0n;
 
   const bondFrame = currentTreasuryBondFrame.value;
   const capital = argonBonds.data.frameCapital;
   if (capital) {
-    const frameRevenue = argonBonds.vaultRevenuePotential(myVault.createdVault.vaultId)?.maximumEarnings ?? 0n;
-    const frameMillis = BigInt(NetworkConfig.rewardTicksPerFrame * NetworkConfig.tickMillis);
-    return frameMillis > 0n ? (frameRevenue * 86_400_000n) / frameMillis : 0n;
+    return (
+      argonBonds.vaultRevenuePotential(myVault.createdVault.vaultId, averageDailyNetworkRevenue.value)
+        ?.maximumEarnings ?? 0n
+    );
   }
-
+  const bondPool = bigNumberToBigInt(
+    BigNumber(averageDailyNetworkRevenue.value).times(argonBonds.data.bondPoolPercent),
+  );
   return TreasuryBonds.potentialDailyRevenue({
-    distributableBidPool: bondFrame.distributableBidPool,
+    distributableBidPool: bondPool,
     globalActiveBonds: bondFrame.globalBonds,
     myActiveBonds: bondFrame.vaultBonds,
     fullTreasuryBondCapacity: vaultingBreakdown.treasuryBondPurchaseCapacityBonds,
@@ -387,8 +467,11 @@ type MapItem = {
   status?: TileStatus;
 };
 
-type IBondMapLot = IFrameBondLot & {
+type IBondMapLot = {
+  id: string;
+  lot: BondLot;
   status: TileStatus;
+  capacityMicrogons: bigint;
 };
 
 function deriveExternalLockStatus(ext: IExternalBitcoinLock): BitcoinLockStatus {
@@ -430,7 +513,7 @@ const localLocksByUuid = Vue.computed(() => {
 function handleBondTileClick(key: string) {
   const bondLot = currentBondMapLots.value.find(bondLot => bondLot.id === key);
   if (bondLot) {
-    selectedFrameBondLot.value = bondLot;
+    selectedBondLotId.value = bondLot.lot.id;
     showBondDetailOverlay.value = true;
   }
 }
@@ -476,12 +559,14 @@ const bitcoinLockedMarketValue = Vue.computed(() => {
   return value;
 });
 
-const bitcoinMapUsesMarketValue = Vue.computed(() => {
-  return bitcoinLockedMarketValue.value > vaultingBreakdown.securityMicrogons;
+const bitcoinLockCapacity = Vue.computed(() => {
+  const vault = myVault.createdVault;
+  if (!vault) return 0n;
+  return bigNumberToBigInt(new BigNumber(vault.securitization).div(vault.securitizationRatio));
 });
 
 const bitcoinMapTotal = Vue.computed(() => {
-  return bigIntMax(vaultingBreakdown.securityMicrogons, bitcoinLockedMarketValue.value);
+  return bigIntMax(vaultingBreakdown.securityMicrogons, bitcoinMapUsed.value);
 });
 
 const bitcoinMapItems = Vue.computed((): MapItem[] => {
@@ -512,9 +597,7 @@ const bitcoinMapItems = Vue.computed((): MapItem[] => {
   const items: MapItem[] = [];
 
   for (const lock of localVaultLocks.value) {
-    const microgons = bitcoinMapUsesMarketValue.value
-      ? currency.convertSatToMicrogon(lock.fundedSatoshis)
-      : (lock.securitizationCoverageMicrogons ?? 0n);
+    const microgons = lock.securitizationCoverageMicrogons ?? 0n;
     const tileStatus = getLockTileStatus(lock);
     items.push({
       id: lock.uuid,
@@ -527,9 +610,7 @@ const bitcoinMapItems = Vue.computed((): MapItem[] => {
   }
 
   for (const extLock of Object.values(myVault.data.externalLocks)) {
-    const microgons = bitcoinMapUsesMarketValue.value
-      ? currency.convertSatToMicrogon(extLock.isPending ? 0n : extLock.satoshis)
-      : extLock.securitizationCoverageMicrogons;
+    const microgons = extLock.securitizationCoverageMicrogons;
     const status: TileStatus = extLock.isPending ? 'pending' : 'active';
     items.push({
       id: `chain:${extLock.lockId}`,
@@ -568,32 +649,28 @@ const internalTreasuryBondMicrogonsSecured = Vue.computed(() => {
 const currentBondMapLots = Vue.computed((): IBondMapLot[] => {
   const ordinaryFrameBondLots = currentTreasuryBondFrame.value.bondLots;
   const activeBondLots = (vaultBondState.value?.bondLots ?? []).filter(bondLot => bondLot.activeBonds > 0);
-  const operatorAccountId = myVault.createdVault?.operatorAccountId;
+  const { flexibleBonds = 0, displacedFlexibleBonds = 0 } = vaultBondState.value ?? {};
 
   return activeBondLots.map(bondLot => {
-    // Preserve frame-specific earnings metadata when the selected frame includes this lot.
-    const frameBondLot = ordinaryFrameBondLots.find(frameBondLot => frameBondLot.details.id === bondLot.id);
-
-    if (frameBondLot) {
-      return {
-        ...frameBondLot,
-        bonds: bondLot.bonds,
-        details: bondLot,
-        status: 'active',
-      };
+    let capacityMicrogons = bondLot.activeBondMicrogons;
+    if (bondLot.isFlexible && flexibleBonds > 0) {
+      capacityMicrogons = (capacityMicrogons * BigInt(flexibleBonds - displacedFlexibleBonds)) / BigInt(flexibleBonds);
     }
+    const participatesInFrame = ordinaryFrameBondLots.some(entry => entry.lot.id === bondLot.id);
+    let status: TileStatus = 'pending';
+    if (participatesInFrame) status = 'active';
+    if (bondLot.isFlexible && bondLot.earningsDestination === 'VaultForFlexible') status = 'active';
 
     return {
       id: bondLot.id > 0 ? `lot:${bondLot.id}` : `account:${bondLot.owner}:${bondLot.id}`,
-      accountId: bondLot.owner,
-      bonds: bondLot.bonds,
-      eligibleMicrogons: BondLot.bondsToMicrogons(bondLot.bonds),
-      isOperator: bondLot.owner === operatorAccountId,
-      details: bondLot,
-      status: bondLot.isFlexible && bondLot.earningsDestination === 'VaultForFlexible' ? 'active' : 'pending',
+      lot: bondLot,
+      status,
+      capacityMicrogons,
     };
   });
 });
+
+const bondLotsByMapId = Vue.computed(() => Object.fromEntries(currentBondMapLots.value.map(lot => [lot.id, lot])));
 
 const bondMapItems = Vue.computed((): MapItem[] => {
   // Historical frames: fall back to aggregated internal/external tiles
@@ -624,12 +701,12 @@ const bondMapItems = Vue.computed((): MapItem[] => {
   const items: MapItem[] = [];
 
   for (const bondLot of currentBondMapLots.value) {
-    const bondMicrogons = bondLot.details.activeBondMicrogons;
+    const bondMicrogons = bondLot.capacityMicrogons;
     items.push({
       id: bondLot.id,
       label: formatMoney(bondMicrogons),
       amount: bondMicrogons,
-      emphasis: bondLot.isOperator ? 'strong' : 'default',
+      emphasis: bondLot.lot.owner === myVault.createdVault?.operatorAccountId ? 'strong' : 'default',
       status: bondLot.status,
     });
   }
@@ -663,14 +740,19 @@ const bondMapRemainder = Vue.computed(() => {
   return bondMapTotal.value > used ? bondMapTotal.value - used : 0n;
 });
 
-const showEditOverlay = Vue.ref(false);
 const showLockDetailOverlay = Vue.ref(false);
 const showBondDetailOverlay = Vue.ref(false);
 const selectedLock = Vue.ref<IBitcoinLockRecord | IExternalBitcoinLock | undefined>(undefined);
-const selectedFrameBondLot = Vue.shallowRef<IFrameBondLot | undefined>(undefined);
+const selectedBondLotId = Vue.ref<number>();
+const selectedBondLot = Vue.computed(() =>
+  vaultBondState.value?.bondLots.find(lot => lot.id === selectedBondLotId.value),
+);
 const selectedBondPosition = Vue.computed(() => {
-  const bondLot = selectedFrameBondLot.value?.details;
-  return bondLot ? financials.getBondFinancialPosition(bondLot) : undefined;
+  if (selectedBondLotId.value === undefined) return;
+  for (const position of financials.financialPositionAggregate.groupSummaries.bonds.positions) {
+    if (position.kind !== 'bond') continue;
+    if ((position.bondLot?.id ?? position.history?.bondLotId) === selectedBondLotId.value) return position;
+  }
 });
 
 function openBitcoinChannel(lock?: IBitcoinLockRecord) {
@@ -693,7 +775,7 @@ function closeLockDetailOverlay() {
 
 function closeBondDetailOverlay() {
   showBondDetailOverlay.value = false;
-  selectedFrameBondLot.value = undefined;
+  selectedBondLotId.value = undefined;
 }
 
 function onUnlockFromDetail(lock: IBitcoinLockRecord) {
@@ -752,11 +834,11 @@ function updateSliderFrame(newFrameIndex: number) {
 }
 
 function openVaultEditOverlay() {
-  showEditOverlay.value = true;
+  basicEmitter.emit('openVaultSettingsOverlay');
 }
 
 function openSecuritization() {
-  basicEmitter.emit('openSecuritizationOverlay');
+  basicEmitter.emit('openVaultSettingsOverlay');
 }
 
 const miningFrames = getMiningFrames();

@@ -69,6 +69,14 @@ export const OwnerUnfilledCapacity: Story = {
   beforeEach: () => setupBondPurchaseScenario('ownerFlexible'),
 };
 
+export const OwnerWithReservedSpace: Story = {
+  beforeEach: () => setupBondPurchaseScenario('ownerFlexibleReserved'),
+};
+
+export const OwnerWithPendingWithdrawal: Story = {
+  beforeEach: () => setupBondPurchaseScenario('ownerFlexibleWithdrawal'),
+};
+
 export const OwnerOverUnfilledCapacity: Story = {
   beforeEach: () => setupBondPurchaseScenario('ownerFlexibleOverCapacity'),
 };

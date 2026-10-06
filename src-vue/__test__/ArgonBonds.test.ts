@@ -62,6 +62,27 @@ describe('ArgonBonds', () => {
 
     state.flexibleBonds = 0;
     expect(bonds.availableBondSpaceWithoutFlexibleDisplacement(vault)).toBe(1_868n * oneArgon);
+
+    // Reservations and pending withdrawals limit admission, but do not also
+    // displace flexible bonds. Compare the limits instead of subtracting both.
+    vault.securitization = 2_400n * oneArgon;
+    state.regularBonds = 100;
+    state.flexibleBonds = 200;
+    state.reservedBondSpace = 300;
+    expect(bonds.availableBondSpace(vault)).toBe(2_000n * oneArgon);
+    expect(bonds.availableBondSpaceWithoutFlexibleDisplacement(vault)).toBe(2_000n * oneArgon);
+
+    vault.securitizationReleaseSchedule.set(1_000, {
+      lockedCommitments: 0n,
+      relockableCommitments: 0n,
+      argonWithdrawals: 500n * oneArgon,
+      argonotWithdrawals: 0n,
+    });
+    expect(bonds.availableBondSpaceWithoutFlexibleDisplacement(vault)).toBe(1_800n * oneArgon);
+
+    vault.securitizationReleaseSchedule.clear();
+    state.reservedBondSpace = 0;
+    expect(bonds.availableBondSpaceWithoutFlexibleDisplacement(vault)).toBe(2_100n * oneArgon);
   });
 
   it('publishes recovered history after an in-flight finalized publication', async () => {
@@ -80,6 +101,12 @@ describe('ArgonBonds', () => {
       releaseReason: 'UserLiquidation',
     });
     const lot = BondLot.fromRuntime(7, lotCodec, accountId);
+    const currentClient = {} as Parameters<typeof TreasuryBonds.getBondLotsByAccount>[0];
+    const purchasedLot = BondLot.fromRuntime(
+      8,
+      { ...lotCodec, bonds: 20, releaseFrameId: null, releaseReason: null },
+      accountId,
+    );
     await db.bondLotHistoryTable.recordObservation({ lot, blockNumber: 100, blockHash: '0x100' });
     const publisherStarted = createDeferred<void>(false);
     const resumePublisher = createDeferred<void>(false);
@@ -105,10 +132,14 @@ describe('ArgonBonds', () => {
       { defaultArgonAddress: accountId } as any,
     );
     vi.spyOn(bonds, 'load').mockResolvedValue();
-    const getBondLots = vi.spyOn(TreasuryBonds, 'getBondLotsByAccount').mockResolvedValue([lot]);
+    const getBondLots = vi
+      .spyOn(TreasuryBonds, 'getBondLotsByAccount')
+      .mockImplementation(async client => (client === currentClient ? [lot, purchasedLot] : [lot]));
     try {
       const finalized = bonds.recordBondReleaseRequest(lot, block as any);
       await publisherStarted.promise;
+      await bonds.refreshBondLots(currentClient);
+      expect(bonds.data.bondLots.map(lot => lot.id)).toEqual([7, 8]);
       await bonds.importHistoryBlock({ ...block, blockNumber: 102, blockHash: '0x102' } as any, [
         {
           event: {
@@ -128,6 +159,7 @@ describe('ArgonBonds', () => {
         flexibilityHistory: [expect.objectContaining({ blockNumber: 102, isFlexible: true })],
       });
       expect(bonds.data.bondHistory).toEqual(await db.bondLotHistoryTable.fetchAll(accountId));
+      expect(bonds.data.bondLots.map(lot => lot.id)).toEqual([7, 8]);
     } finally {
       getBondLots.mockRestore();
     }
@@ -200,6 +232,7 @@ describe('ArgonBonds', () => {
     });
     let totalLots = 2;
     let vaultUnavailable = true;
+    let retryVaultReads = 0;
     const lots = new Map([
       [
         1,
@@ -236,15 +269,21 @@ describe('ArgonBonds', () => {
         },
       },
       query: {
-        system: { account: async () => ({ data: { free: 1_000_000_000n } }) },
+        system: { account: async () => ({ data: { free: 9_000_000_000n } }) },
         priceIndex: { historicArgonotAverageByFrame: async () => ({ 9: 2_000_000n }) },
         treasury: {
           bondLotsByVault: async (vaultId: number) => {
-            if (vaultId === 7 && vaultUnavailable) throw new Error('vault unavailable');
+            if (vaultId === 7) {
+              retryVaultReads += 1;
+              if (vaultUnavailable) throw new Error('vault unavailable');
+              return toPlain(registry.createType('PalletTreasuryVaultBondState'));
+            }
             return toPlain(currentBondState);
           },
           totalArgonBondLots: async () => totalLots,
-          bondLotIdsByVault: { keys: async () => [...lots.keys()].map(id => ({ args: [4, id] })) },
+          bondLotIdsByVault: {
+            keys: async (vaultId: number) => (vaultId === 4 ? [...lots.keys()].map(id => ({ args: [4, id] })) : []),
+          },
           bondLotIdsByAccount: { keys: async () => [...lots.keys()].map(id => ({ args: [accountId, id] })) },
           bondLotById: { multi: async (ids: number[]) => ids.map(id => lots.get(id)) },
           currentFrameVaultCapital: async () =>
@@ -254,14 +293,26 @@ describe('ArgonBonds', () => {
                 totalActiveBonds: 1000,
                 targetSecuritization: 10_000_000_000n,
                 totalSecuritization: 1_000_000_000n,
-                vaultSecuritizationPositions: {},
+                vaultSecuritizationPositions: {
+                  4: {
+                    operatorAccountId: accountId,
+                    securitization: 1_000_000_000n,
+                    activatedSecuritization: 1_000_000_000n,
+                    bitcoinLockedMicrogons: 1_000_000_000n,
+                    activeBondMicrogons: 1_000_000_000n,
+                  },
+                },
               }),
             ),
         },
       },
     };
     let onBestBlocks: ((blocks: IBlockHeaderInfo[]) => void) | undefined;
+    let hasMarketEvent = true;
     let marketEvent = { section: 'vaults', method: 'VaultModified', data: { vaultId: 4 } };
+    const olderEvents = createDeferred<void>(false);
+    const olderSnapshotRead = createDeferred<void>(false);
+    let olderClient = client;
     const argonBonds = new ArgonBonds(
       Promise.resolve({} as any),
       { isLoadedPromise: Promise.resolve(), upstreamOperator: undefined },
@@ -276,22 +327,78 @@ describe('ArgonBonds', () => {
           },
           start: async () => undefined,
           bestBlockHeader: { frameId: 10 },
-          getApi: async () => client,
-          getEvents: async () => [{ event: marketEvent }],
+          getApi: async (block: IBlockHeaderInfo) => {
+            if (block.blockHash !== '0x103a') return client;
+            olderSnapshotRead.resolve();
+            return olderClient;
+          },
+          getEvents: async (block: IBlockHeaderInfo) => {
+            if (block.blockHash === '0x103a') await olderEvents.promise;
+            return hasMarketEvent ? [{ event: marketEvent }] : [];
+          },
         },
       } as any,
       { defaultArgonAddress: accountId } as any,
     );
     await argonBonds.subscribeGlobal(client as any);
     await argonBonds.subscribeVault({ vaultId: 4, operatorAddress: accountId }, client as any);
+    // The published trailing total is 10,000 ARGN over ten days. Its daily
+    // baseline earns 10% of the 51% vault pool, regardless of the live balance.
+    expect(argonBonds.vaultRevenuePotential(4, 10_000_000_000n / 10n)?.maximumEarnings).toBe(51_000_000n);
+    let argonotSecuritization = toPlain(
+      registry.createType('ArgonPrimitivesVaultVaultArgonotSecuritization', {
+        heldMicronots: 400_000_000n,
+        committedMicronots: 300_000_000n,
+        encumberedMicronots: 100_000_000n,
+      }),
+    ) as NonNullable<LiveQueryRecord<'vaults', 'argonotSecuritizationByVaultId'>>;
+    expect(argonBonds.argonotRewardBacking({ vault, argonotSecuritization })).toEqual({
+      totalMicronots: 1_000_000_000n,
+      additionalMicronots: 600_000_000n,
+      withdrawalCancellationMicronots: 0n,
+    });
+    argonotSecuritization = { ...argonotSecuritization, heldMicronots: 1_000_000_000n };
+    vault.securitizationReleaseSchedule.set(1000, {
+      ...vault.securitizationReleaseSchedule.get(1000)!,
+      argonotWithdrawals: 200_000_000n,
+    });
+    expect(argonBonds.argonotRewardBacking({ vault, argonotSecuritization })).toEqual({
+      totalMicronots: 1_000_000_000n,
+      additionalMicronots: 0n,
+      withdrawalCancellationMicronots: 200_000_000n,
+    });
+    expect(argonBonds.vaultRevenuePotential(4)?.capturedPercent).toBeCloseTo(25.84, 2);
+    expect(
+      argonBonds.argonotRewardBacking({ vault, argonotSecuritization, securitizationMicrogons: 400_000_000n })
+        ?.totalMicronots,
+    ).toBe(1_000_000_000n);
+    argonBonds.data.averageMicrogonsPerArgonot = undefined;
+    expect(argonBonds.argonotRewardBacking({ vault, argonotSecuritization })).toBeUndefined();
     const staleCleanup = await argonBonds.subscribeVault({ vaultId: 4, operatorAddress: accountId }, client as any);
     const purchaseCleanup = await argonBonds.subscribeVault({ vaultId: 4, operatorAddress: accountId }, client as any);
     staleCleanup();
     purchaseCleanup();
-    await expect(argonBonds.subscribeVault({ vaultId: 7, operatorAddress: accountId }, client as any)).rejects.toThrow(
-      'vault unavailable',
-    );
+    const retryCleanup = await argonBonds
+      .subscribeVault({ vaultId: 7, operatorAddress: accountId }, client as any)
+      .catch(() => undefined);
+    expect(argonBonds.getVaultBonds(7).isLoaded).toBe(false);
     vaultUnavailable = false;
+    hasMarketEvent = false;
+    onBestBlocks!([{ blockNumber: 100, blockHash: '0x100', frameId: 10 } as IBlockHeaderInfo]);
+    await vi.waitFor(() => expect(argonBonds.getVaultBonds(7).isLoaded).toBe(true));
+    retryCleanup!();
+
+    // A failed refresh retains last valid state, but cancelling the subscription
+    // also cancels its retry intent.
+    vaultUnavailable = true;
+    const cancelledCleanup = await argonBonds.subscribeVault({ vaultId: 7, operatorAddress: accountId }, client as any);
+    expect(argonBonds.getVaultBonds(7).isLoaded).toBe(true);
+    cancelledCleanup();
+    const readsBeforeCleanup = retryVaultReads;
+    onBestBlocks!([{ blockNumber: 100, blockHash: '0x100b', frameId: 10 } as IBlockHeaderInfo]);
+    await new Promise(resolve => setTimeout(resolve, 0));
+    expect(retryVaultReads).toBe(readsBeforeCleanup);
+    hasMarketEvent = true;
     expect(argonBonds.availableBondSpace(vault)).toBe(300_000_000n);
     expect(argonBonds.getVaultBonds(4).minimumPurchaseBonds).toBe(100);
     expect(argonBonds.getFlexibleBondDisplacementPercent(4)).toBe(0);
@@ -336,66 +443,199 @@ describe('ArgonBonds', () => {
     onBestBlocks!([{ blockNumber: 101, blockHash: '0x101', frameId: 10 } as IBlockHeaderInfo]);
     await vi.waitFor(() => expect(argonBonds.getFlexibleBondDisplacementPercent(4)).toBe(0));
     expect(argonBonds.availableBondSpace(vault)).toBe(1_000_000_000n);
-    expect(argonBonds.getVaultBonds(7).isLoaded).toBe(false);
+    expect(argonBonds.getVaultBonds(7).isLoaded).toBe(true);
 
     totalLots = 4;
     marketEvent = { section: 'treasury', method: 'BondLotPurchased', data: { vaultId: 7 } };
     onBestBlocks!([{ blockNumber: 102, blockHash: '0x102', frameId: 10 } as IBlockHeaderInfo]);
     await vi.waitFor(() => expect(argonBonds.availableBondSpace(vault)).toBe(0n));
-  });
 
-  it('does not overwrite newer vault market state when an older request finishes last', async () => {
-    const oldClient = {} as Parameters<typeof TreasuryBonds.getActiveBonds>[0];
-    const newClient = {} as Parameters<typeof TreasuryBonds.getActiveBonds>[0];
-    const oldActiveBonds = createDeferred<Awaited<ReturnType<typeof TreasuryBonds.getActiveBonds>>>(false);
-    const getActiveBonds = vi
-      .spyOn(TreasuryBonds, 'getActiveBonds')
-      .mockImplementation(client =>
-        client === oldClient ? oldActiveBonds.promise : Promise.resolve({ totalActiveBonds: 20, vaultActiveBonds: 20 }),
-      );
-    const getVaultBondState = vi.spyOn(TreasuryBonds, 'getVaultBondState').mockImplementation(async client => ({
-      bondLots: [],
-      regularBonds: client === oldClient ? 10 : 20,
-      flexibleBonds: 0,
+    // The next best notification can arrive while an older block's events are
+    // still loading. A same-height replacement must win for both market and lots.
+    argonBonds.data.isLoaded = true;
+    await argonBonds.refreshBondLots(client as any);
+    const olderLots = new Map(lots);
+    const olderBondState = currentBondState;
+    olderClient = {
+      ...client,
+      query: {
+        ...client.query,
+        treasury: {
+          ...client.query.treasury,
+          bondLotsByVault: async () => toPlain(olderBondState),
+          totalArgonBondLots: async () => 4,
+          bondLotIdsByVault: { keys: async () => [...olderLots.keys()].map(id => ({ args: [4, id] })) },
+          bondLotIdsByAccount: { keys: async () => [...olderLots.keys()].map(id => ({ args: [accountId, id] })) },
+          bondLotById: { multi: async (ids: number[]) => ids.map(id => olderLots.get(id)) },
+        },
+      },
+    };
+    onBestBlocks!([{ blockNumber: 103, blockHash: '0x103a', frameId: 10 } as IBlockHeaderInfo]);
+    lots.delete(3);
+    totalLots = 2;
+    currentBondState = registry.createType('PalletTreasuryVaultBondState', {
+      regularBonds: 100,
+      flexibleBonds: 900,
       displacedFlexibleBonds: 0,
-      lockedFrameTerms: null,
-      reservedBondSpace: 0,
-      replacementBonds: 0,
-      minimumPurchaseBonds: 100,
-      isAtBondLotLimit: false,
-    }));
-    const getCurrentFrameBondLots = vi.spyOn(TreasuryBonds, 'getCurrentFrameBondLots').mockResolvedValue({
-      bondLots: [],
-      totalActiveBonds: 0,
-      flexibleBondsEligible: 0,
-      distributedEarnings: 0n,
+      lockedFrameTerms: { flexibleBonds: 900, displacedFlexibleBonds: 0 },
     });
-    const argonBonds = new ArgonBonds(
-      Promise.resolve({} as any),
-      { isLoadedPromise: Promise.resolve(), upstreamOperator: undefined },
-      new Currency({ events: { on: vi.fn() } } as any),
-      {} as any,
-      { defaultArgonAddress: accountId } as any,
-    );
-    argonBonds.data.currentFrameId = 4;
-
-    try {
-      const oldRefresh = argonBonds.refreshVault({ vaultId: 4, operatorAddress: accountId }, oldClient);
-      await argonBonds.refreshVault({ vaultId: 4, operatorAddress: accountId }, newClient);
-      oldActiveBonds.resolve({ totalActiveBonds: 10, vaultActiveBonds: 10 });
-      await oldRefresh;
-
-      expect(argonBonds.data.totalActiveBonds).toBe(20);
-      expect(argonBonds.getVaultBonds(4)).toMatchObject({
-        regularBonds: 20,
-        currentFrame: { vaultBonds: 20 },
-      });
-    } finally {
-      getActiveBonds.mockRestore();
-      getVaultBondState.mockRestore();
-      getCurrentFrameBondLots.mockRestore();
-    }
+    onBestBlocks!([{ blockNumber: 103, blockHash: '0x103b', frameId: 10 } as IBlockHeaderInfo]);
+    await vi.waitFor(() => expect(argonBonds.availableBondSpace(vault)).toBe(1_900_000_000n));
+    expect(argonBonds.data.bondLots.map(lot => lot.id)).toEqual([1, 2]);
+    olderEvents.resolve();
+    await olderSnapshotRead.promise;
+    await new Promise(resolve => setTimeout(resolve, 0));
+    expect.soft(argonBonds.availableBondSpace(vault)).toBe(1_900_000_000n);
+    expect.soft(argonBonds.data.bondLots.map(lot => lot.id)).toEqual([1, 2]);
   });
+
+  it.each([
+    ['deployed', deployedRegistry],
+    ['candidate', registry],
+  ] as const)(
+    'shares frame reads across vaults without losing newer state or retries on %s',
+    async (runtime, codecs) => {
+      const olderRead = createDeferred<void>(false);
+      let failFrameRead = false;
+      const clients = [10, 20, 30, 40].map(bonds => ({
+        registry: codecs,
+        consts: {
+          treasury: {
+            palletId: '0x61722f7472656173',
+            minimumArgonsPerContributor: 1_000_000n,
+            ...(runtime === 'candidate'
+              ? {
+                  maxArgonBondLots: 10,
+                  percentForVaultPool: new BigNumber(0.51),
+                  percentForArgonBondPool: new BigNumber(0.49),
+                }
+              : { maxTreasuryContributors: 10, percentForTreasuryReserves: new BigNumber(0.1) }),
+          },
+        },
+        query: {
+          system: { account: vi.fn(async () => ({ data: { free: BigInt(bonds) * 1_000_000n } })) },
+          priceIndex: { historicArgonotAverageByFrame: vi.fn(async () => ({ 9: 2_000_000n })) },
+          treasury: {
+            currentFrameVaultCapital: vi.fn(async () => {
+              if (bonds === 20) await olderRead.promise;
+              if (failFrameRead) throw new Error('frame temporarily unavailable');
+              return toPlain(
+                codecs.createType('PalletTreasuryFrameVaultCapital', {
+                  frameId: 10,
+                  totalActiveBonds: bonds * 2,
+                  vaults: Object.fromEntries(
+                    [4, 7].map(vaultId => [
+                      vaultId,
+                      {
+                        eligibleBonds: bonds,
+                        regularBondAllocations: [{ bondLotId: vaultId, prorata: 10n ** 18n }],
+                      },
+                    ]),
+                  ),
+                }),
+              );
+            }),
+            bondLotsByVault: async (vaultId: number) =>
+              toPlain(
+                codecs.createType('PalletTreasuryVaultBondState', {
+                  regularBonds: bonds,
+                  regularBondLots: [{ bondLotId: vaultId, bonds }],
+                }),
+              ),
+            totalArgonBondLots: async () => 2,
+            bondLotIdsByVault: { keys: async (vaultId: number) => [{ args: [vaultId, vaultId] }] },
+            bondLotIdsByAccount: { keys: async () => [4, 7].map(id => ({ args: [accountId, id] })) },
+            bondLotById: {
+              multi: async (ids: number[]) =>
+                ids.map(id =>
+                  toPlain(
+                    codecs.createType('PalletTreasuryBondLot', {
+                      owner: accountId,
+                      program: { Vault: { vaultId: id } },
+                      bonds,
+                    }),
+                  ),
+                ),
+            },
+          },
+        },
+      }));
+      let currentClient = clients[0];
+      let onBestBlocks!: (blocks: IBlockHeaderInfo[]) => void;
+      const argonBonds = new ArgonBonds(
+        Promise.resolve({} as any),
+        { isLoadedPromise: Promise.resolve(), upstreamOperator: undefined },
+        new Currency({ events: { on: vi.fn() } } as any),
+        {
+          blockWatch: {
+            events: {
+              on: (name: string, listener: typeof onBestBlocks) => {
+                if (name === 'best-blocks') onBestBlocks = listener;
+                return () => undefined;
+              },
+            },
+            start: async () => undefined,
+            bestBlockHeader: { frameId: 10 },
+            getCurrentApi: async () => currentClient,
+            getApi: async () => currentClient,
+            getEvents: async () => [],
+          },
+        } as any,
+        { defaultArgonAddress: accountId } as any,
+      );
+      await argonBonds.subscribeGlobal(currentClient as any);
+      for (const vaultId of [4, 7])
+        await argonBonds.subscribeVault({ vaultId, operatorAddress: accountId }, currentClient as any);
+      argonBonds.data.isLoaded = true;
+      currentClient.query.treasury.currentFrameVaultCapital.mockClear();
+      currentClient.query.priceIndex.historicArgonotAverageByFrame.mockClear();
+      currentClient.query.system.account.mockClear();
+      await argonBonds.refreshActiveState();
+
+      expect(currentClient.query.treasury.currentFrameVaultCapital).toHaveBeenCalledTimes(1);
+      expect(currentClient.query.priceIndex.historicArgonotAverageByFrame).toHaveBeenCalledTimes(
+        runtime === 'candidate' ? 1 : 0,
+      );
+      // The market balance refresh is independent of the vault reward inputs.
+      expect(currentClient.query.system.account).toHaveBeenCalledTimes(runtime === 'candidate' ? 2 : 1);
+      expect(argonBonds.data.totalActiveBonds).toBe(20);
+      for (const vaultId of [4, 7]) {
+        const vault = argonBonds.getVaultBonds(vaultId);
+        expect(vault.currentFrame.vaultBonds).toBe(10);
+        expect(vault.currentFrame.bondLots.map(({ lot, eligibleMicrogons }) => [lot.id, eligibleMicrogons])).toEqual([
+          [vaultId, 10_000_000n],
+        ]);
+      }
+
+      currentClient = clients[1];
+      const oldRefresh = argonBonds.refreshActiveState();
+      await vi.waitFor(() => expect(clients[1].query.treasury.currentFrameVaultCapital).toHaveBeenCalledTimes(1));
+      currentClient = clients[2];
+      await argonBonds.refreshActiveState();
+      olderRead.resolve();
+      await oldRefresh;
+      expect(argonBonds.data.totalActiveBonds).toBe(60);
+      for (const vaultId of [4, 7]) {
+        expect(argonBonds.getVaultBonds(vaultId)).toMatchObject({ regularBonds: 30, currentFrame: { vaultBonds: 30 } });
+      }
+
+      // A shared-read failure must preserve both loaded vaults and leave both
+      // subscribed for an event-neutral next-block retry.
+      failFrameRead = true;
+      await expect(argonBonds.refreshActiveState()).rejects.toThrow('frame temporarily unavailable');
+      for (const vaultId of [4, 7]) {
+        expect(argonBonds.getVaultBonds(vaultId)).toMatchObject({ isLoaded: true, currentFrame: { vaultBonds: 30 } });
+      }
+      failFrameRead = false;
+      currentClient = clients[3];
+      onBestBlocks([{ blockNumber: 104, blockHash: '0x104', frameId: 10 } as IBlockHeaderInfo]);
+      await vi.waitFor(() => {
+        for (const vaultId of [4, 7]) expect(argonBonds.getVaultBonds(vaultId).currentFrame.vaultBonds).toBe(40);
+      });
+      expect(argonBonds.data.totalActiveBonds).toBe(80);
+      expect(currentClient.query.treasury.currentFrameVaultCapital).toHaveBeenCalledTimes(1);
+    },
+  );
 
   it('keeps best-chain bond purchases visible during active-state recovery', async () => {
     const lotCodec = createRuntimeBondLot({
@@ -412,9 +652,9 @@ describe('ArgonBonds', () => {
     });
     const finalizedLot = BondLot.fromRuntime(7, lotCodec, accountId);
     const bestChainLot = BondLot.fromRuntime(8, lotCodec, accountId);
-    const finalizedClient = {};
     const currentClient = {};
     const blockWatch = {
+      bestBlockHeader: { frameId: 4 },
       getCurrentApi: vi.fn(async () => currentClient),
     };
     const getBondLots = vi.spyOn(TreasuryBonds, 'getBondLotsByAccount').mockImplementation(async client => {
@@ -430,7 +670,7 @@ describe('ArgonBonds', () => {
     argonBonds.data.isLoaded = true;
     argonBonds.data.bondLots = [finalizedLot, bestChainLot];
 
-    await argonBonds.refreshActiveState({ client: finalizedClient as any, currentFrameId: 4 });
+    await argonBonds.refreshActiveState();
 
     expect(argonBonds.data.bondLots.map(lot => lot.id)).toEqual([7, 8]);
     getBondLots.mockRestore();

@@ -9,6 +9,7 @@ import type BitcoinLocks from '../lib/BitcoinLocks.ts';
 import type { WalletType } from '../lib/Wallet.ts';
 import type { AccountHistoryRecovery } from '../e2e/AccountHistoryRecovery.ts';
 import type { useFinancials } from '../stores/financials.ts';
+import type { MyVault } from '../lib/MyVault.ts';
 import type { ArgonBonds } from '../lib/ArgonBonds.ts';
 
 export interface IAppQueryRefs {
@@ -23,6 +24,7 @@ export interface IAppQueryRefs {
   overlayIsOpen: boolean;
   getBitcoinFissions(): BitcoinFissions;
   getArgonBonds(): ArgonBonds;
+  getVaultFundingState(): ReturnType<typeof MyVault.getFundingState>;
   getEthereumMoveTracker(): IEthereumMoveTrackerQueryRef;
   getEthereumOutboundTransferTracker(): EthereumOutboundTransferTracker;
   getFinancials(): Pick<ReturnType<typeof useFinancials>, 'financialPositionAggregate'>;

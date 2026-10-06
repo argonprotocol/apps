@@ -48,6 +48,7 @@ import BitcoinMempool from '../../src-vue/lib/BitcoinMempool.ts';
 import BitcoinUtxoTracking from '../../src-vue/lib/BitcoinUtxoTracking.ts';
 import type { IExternalBitcoinLock } from '../../src-vue/lib/MyVault.ts';
 import { TransactionInfo } from '../../src-vue/lib/TransactionInfo.ts';
+import { generateProgressLabel } from '../../src-vue/lib/Utils.ts';
 import {
   getBitcoinFissions,
   getBitcoinLockCoupons,
@@ -862,7 +863,11 @@ export function createScenarioTransactionInfo<Metadata>(options: {
   const progress = options.progress;
   if (progress) {
     spyOn(info, 'subscribeToProgress').mockImplementation(callback => {
-      void callback({ ...progress, progressMessage: '', isMaxed: false });
+      void callback({
+        ...progress,
+        progressMessage: generateProgressLabel(progress.confirmations, progress.expectedConfirmations),
+        isMaxed: false,
+      });
       return () => undefined;
     });
   }

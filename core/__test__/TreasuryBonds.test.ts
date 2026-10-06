@@ -50,6 +50,110 @@ describe('TreasuryBonds', () => {
     if ('treasuryProfitSharing' in decoded) expect(decoded.treasuryProfitSharing.toNumber()).toBe(100_000);
   });
 
+  it('previews ARGNOT notice, retains due withdrawals, and cancels newest notices first', () => {
+    const vault = createCapacityVault();
+    vault.securitizationExitNoticeBlocks = 52_560;
+    vault.securitizationReleaseSchedule.set(100, {
+      lockedCommitments: 0n,
+      relockableCommitments: 0n,
+      argonWithdrawals: 0n,
+      argonotWithdrawals: 20n,
+    });
+    const commitment = { heldMicronots: 100n, committedMicronots: 80n, encumberedMicronots: 40n };
+
+    // The saved target is 80. A reduction to 50 returns 20 immediately and puts 10 on notice.
+    expect([...vault.previewArgonotWithdrawals(50n, commitment, 200)]).toEqual([
+      [100, 20n],
+      [52_848, 10n],
+    ]);
+    expect(vault.securitizationReleaseSchedule.get(100)?.argonotWithdrawals).toBe(20n);
+    expect(vault.securitizationReleaseSchedule.size).toBe(1);
+
+    // After that command finalizes, raising the target cancels the newest 10 and then 15 of the older 20.
+    commitment.heldMicronots = 80n;
+    vault.securitizationReleaseSchedule.set(52_848, {
+      lockedCommitments: 0n,
+      relockableCommitments: 0n,
+      argonWithdrawals: 0n,
+      argonotWithdrawals: 10n,
+    });
+    // Minting can later encumber 70, so the remaining 10 free cannot release the oldest whole 20.
+    commitment.encumberedMicronots = 70n;
+    expect([...vault.previewArgonotWithdrawals(50n, commitment, 52_900)]).toEqual([
+      [100, 20n],
+      [52_848, 10n],
+    ]);
+    expect([...vault.previewArgonotWithdrawals(75n, commitment, 52_900)]).toEqual([[100, 5n]]);
+    expect([...vault.previewArgonotWithdrawals(100n, commitment, 52_900)]).toEqual([]);
+    expect(vault.securitizationReleaseSchedule.get(52_848)?.argonotWithdrawals).toBe(10n);
+  });
+
+  it('keeps collateral and relock capacity held when previewing ARGN withdrawals', () => {
+    const vault = createCapacityVault({ securitization: 100n, securitizationLocked: 60n });
+    vault.securitizationExitNoticeBlocks = 52_560;
+    vault.securitizationTarget = 80n;
+    vault.committedMicrogons = 40n;
+    // Storage order must not decide which withdrawal is canceled.
+    vault.securitizationReleaseSchedule.set(100, {
+      lockedCommitments: 0n,
+      relockableCommitments: 0n,
+      argonWithdrawals: 20n,
+      argonotWithdrawals: 0n,
+    });
+    vault.securitizationReleaseSchedule.set(72, {
+      lockedCommitments: 0n,
+      relockableCommitments: 10n,
+      argonWithdrawals: 0n,
+      argonotWithdrawals: 0n,
+    });
+
+    // A 50 reduction can immediately release only 30: 60 collateral and 10 relockable remain held.
+    expect([...vault.previewArgonWithdrawals(30n, 200)]).toEqual([
+      [100, 20n],
+      [52_848, 20n],
+    ]);
+    expect(vault.securitization).toBe(100n);
+    expect(vault.getRelockCapacity()).toBe(10n);
+
+    vault.securitization = 70n;
+    vault.securitizationTarget = 30n;
+    vault.securitizationReleaseSchedule.set(52_848, {
+      lockedCommitments: 0n,
+      relockableCommitments: 0n,
+      argonWithdrawals: 20n,
+      argonotWithdrawals: 0n,
+    });
+    expect([...vault.previewArgonWithdrawals(30n, 52_900)]).toEqual([
+      [100, 20n],
+      [52_848, 20n],
+    ]);
+    expect([...vault.previewArgonWithdrawals(55n, 52_900)]).toEqual([[100, 15n]]);
+    expect(vault.getRelockCapacity()).toBe(10n);
+  });
+
+  it('only shows deployed collateral releases as withdrawals above the saved funding amount', () => {
+    const storedVault = deployedRegistry.createType<RuntimeSpec159.ArgonPrimitivesVault>('ArgonPrimitivesVault', {
+      operatorAccountId: operatorAddress,
+      securitization: 100n,
+      securitizationTarget: 100n,
+      securitizationReleaseSchedule: { 100: 50n, 200: 30n },
+    });
+    const vault = Vault.fromRuntime(
+      1,
+      toPlain(storedVault) as Parameters<typeof Vault.fromRuntime>[1],
+      60_000,
+      {} as Parameters<typeof Vault.fromRuntime>[3],
+    );
+    expect([...vault.previewArgonWithdrawals(100n, 300)]).toEqual([]);
+
+    vault.securitizationTarget = 40n;
+    expect([...vault.previewArgonWithdrawals(40n, 300)]).toEqual([
+      [100, 50n],
+      [200, 10n],
+    ]);
+    expect(vault.getRelockCapacity()).toBe(80n);
+  });
+
   it('limits Argonot purchases to the unfilled portion of the circulation cap', () => {
     const oneArgonot = BigInt(MICRONOTS_PER_ARGONOT);
 
@@ -169,10 +273,14 @@ describe('TreasuryBonds', () => {
       position: { ...position, argonotSecuritizationInMicrogons: 4_800_000_000n },
     });
     expect(empty.capturedPercent).toBeCloseTo(25.84, 2);
+    const paidOutPool = TreasuryBonds.vaultRevenuePotential({ ...args, fullBidPool: 0n });
+    expect(paidOutPool.actualEarnings).toBe(0n);
+    expect(paidOutPool.capturedPercent).toBeCloseTo(25.84, 2);
+    expect(paidOutPool.capturedWithMaximumArgonotsPercent).toBe(100);
+    expect(TreasuryBonds.vaultRevenuePotential({ ...args, fullBidPool: 1n }).capturedPercent).toBeCloseTo(25.84, 2);
     expect(half.capturedPercent).toBeCloseTo(59.17, 2);
     expect(full.capturedPercent).toBe(100);
     expect(empty.maximumEarnings).toBe(full.maximumEarnings);
-    expect(empty.earningsWithMaximumArgonots).toBe(full.actualEarnings);
     const partial = TreasuryBonds.vaultRevenuePotential({
       ...args,
       position: {
@@ -182,6 +290,7 @@ describe('TreasuryBonds', () => {
       },
     });
     expect(partial.capturedPercent).toBeCloseTo(47.75, 2);
+    expect(partial.capturedWithMaximumArgonotsPercent).toBeCloseTo(47.75, 2);
     expect(position.argonotSecuritizationInMicrogons).toBe(0n);
     expect(
       TreasuryBonds.argonBondPoolEarnings({
@@ -379,16 +488,16 @@ describe('TreasuryBonds', () => {
     ).resolves.toBe(expected);
   });
 
-  it('loads deployed-runtime regular bond frame allocations', async () => {
+  it('keeps deployed-runtime participation distinct from payout shares in an underfilled vault', async () => {
     const frameCapital = deployedRegistry.createType<RuntimeSpec159.PalletTreasuryFrameVaultCapital>(
       'PalletTreasuryFrameVaultCapital',
       {
         frameId: 10,
         vaults: {
           1: {
-            regularBondAllocations: [{ bondLotId: 1, prorata: toFixedNumber(0.3, FIXED_U128_DECIMALS) }],
+            regularBondAllocations: [{ bondLotId: 1, prorata: toFixedNumber(0.03, FIXED_U128_DECIMALS) }],
             flexibleBondsEligible: 7,
-            flexibleProrata: toFixedNumber(0.7, FIXED_U128_DECIMALS),
+            flexibleProrata: toFixedNumber(0.07, FIXED_U128_DECIMALS),
             eligibleBonds: 10,
           },
         },
@@ -400,7 +509,36 @@ describe('TreasuryBonds', () => {
 
     expect(result.totalActiveBonds).toBe(10);
     expect(result.flexibleBondsEligible).toBe(7);
-    expect(result.bondLots.map(({ id, bonds }) => ({ id, bonds }))).toEqual([{ id: 'lot:1', bonds: 3 }]);
+    expect(result.bondLots.map(({ lot, eligibleMicrogons }) => ({ id: lot.id, eligibleMicrogons }))).toEqual([
+      { id: 1, eligibleMicrogons: 3_000_000n },
+    ]);
+
+    // A price decline can leave regular principal above capacity. Keep the
+    // resulting fractional participation; whole-bond purchase rules do not apply.
+    const reducedCapital = deployedRegistry.createType<RuntimeSpec159.PalletTreasuryFrameVaultCapital>(
+      'PalletTreasuryFrameVaultCapital',
+      {
+        frameId: 11,
+        vaults: {
+          1: {
+            regularBondAllocations: [
+              { bondLotId: 1, prorata: toFixedNumber(new BigNumber(3).div(7), FIXED_U128_DECIMALS) },
+              { bondLotId: 4, prorata: toFixedNumber(new BigNumber(4).div(7), FIXED_U128_DECIMALS) },
+            ],
+            flexibleBondsEligible: 0,
+            eligibleBonds: 5,
+          },
+        },
+      },
+    );
+    const reducedLots = new Map(displayLotsById);
+    reducedLots.set(4, createBondLot({ owner: buyerAddress, bonds: 4 }));
+    const reduced = await TreasuryBonds.getCurrentFrameBondLots(
+      createFrameBondClient(reducedCapital, reducedLots) as any,
+      1,
+      operatorAddress,
+    );
+    expect(reduced.bondLots.map(lot => lot.eligibleMicrogons)).toEqual([2_142_857n, 2_857_142n]);
   });
 
   it('uses the candidate bond index and frozen frame terms through purchases and releases', async () => {
@@ -468,10 +606,10 @@ describe('TreasuryBonds', () => {
     expect(state.bondLots.map(lot => lot.id)).toEqual([1, 2, 3, 4]);
     expect(TreasuryBonds.availableBondSpace({ capacityMicrogons: 10_000_000n, bondState: state })).toBe(5_000_000n);
     const frame = await TreasuryBonds.getCurrentFrameBondLots(client as any, 1, operatorAddress);
-    expect(frame.bondLots.map(lot => ({ id: lot.id, bonds: lot.bonds }))).toEqual([
-      { id: 'lot:1', bonds: 3 },
-      { id: 'lot:2', bonds: 1.714285 },
-      { id: 'lot:3', bonds: 5 },
+    expect(frame.bondLots.map(({ lot, eligibleMicrogons }) => ({ id: lot.id, eligibleMicrogons }))).toEqual([
+      { id: 1, eligibleMicrogons: 3_000_000n },
+      { id: 2, eligibleMicrogons: 1_714_285n },
+      { id: 3, eligibleMicrogons: 5_000_000n },
     ]);
     expect(frame.totalActiveBonds).toBe(9.714285);
     const vault = createCapacityVault({ securitization: 10_000_000n }, true);

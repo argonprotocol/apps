@@ -1,13 +1,5 @@
 import * as Vue from 'vue';
-import {
-  BondLot,
-  TreasuryBonds,
-  defaultMicrogonsPer,
-  MoveFrom,
-  MoveTo,
-  MoveToken,
-  UnitOfMeasurement,
-} from '@argonprotocol/apps-core';
+import { BondLot, defaultMicrogonsPer, MoveFrom, MoveTo, MoveToken, UnitOfMeasurement } from '@argonprotocol/apps-core';
 import { PriceIndex } from '@argonprotocol/mainchain';
 import BigNumber from 'bignumber.js';
 import { BitcoinNetwork } from '@argonprotocol/bitcoin';
@@ -33,6 +25,7 @@ import { WalletForArgon } from '../../src-vue/lib/WalletForArgon.ts';
 import { WalletForBitcoin } from '../../src-vue/lib/WalletForBitcoin.ts';
 import { BitcoinLockCreate } from '../../src-vue/lib/txs/BitcoinLock.create.ts';
 import { getArgonBonds, getBondTransactionOperations } from '../../src-vue/stores/argonBonds.ts';
+import { ArgonBonds } from '../../src-vue/lib/ArgonBonds.ts';
 import { useBasics } from '../../src-vue/stores/basics.ts';
 import { getBitcoinFissions, getBitcoinLockCoupons, getBitcoinLocks } from '../../src-vue/stores/bitcoin.ts';
 import { getBot } from '../../src-vue/stores/bot.ts';
@@ -242,14 +235,10 @@ export function setupAppScenario({
     value: Promise.resolve(),
   });
   mocked(getBitcoinFissions).mockReturnValue(bitcoinFissions);
-  mocked(getArgonBonds, { partial: true }).mockReturnValue({
+  mocked(getArgonBonds, { partial: true, deep: true }).mockReturnValue({
     bondTotals: BondLot.getTotals([]),
-    argonotSecuritizationTarget: fn(({ securitizationMicrogons }) =>
-      TreasuryBonds.getVaultArgonotSecuritizationTarget({
-        securitizationMicrogons,
-        averageMicrogonsPerArgonot: 2_000_000n,
-      }),
-    ),
+    data: Vue.reactive({ frameCapital: null, averageMicrogonsPerArgonot: 2_000_000n }) as ArgonBonds['data'],
+    argonotRewardBacking: ArgonBonds.prototype.argonotRewardBacking,
     vaultRevenuePotential: fn(() => undefined),
     load: fn(async () => undefined),
   });
@@ -451,9 +440,14 @@ export function setupAppScenario({
     getFrameDate: fn((frameId: number) => new Date(Date.UTC(2026, 7, 15, frameId - 10_000, 0, 0))),
     onTick: fn(() => ({ unsubscribe: fn() })),
   });
-  mocked(useMiningStats, { partial: true }).mockReturnValue({ update: fn(async () => undefined) });
+  mocked(useMiningStats, { partial: true }).mockReturnValue({
+    aggregatedBidCosts: 0n,
+    update: fn(async () => undefined),
+  });
   mocked(useVaultingStats, { partial: true }).mockReturnValue({
     bitcoinAPR: 11.4,
+    averageAPR: 12.4,
+    isLoadedPromise: Promise.resolve(),
     update: fn(async () => undefined),
   });
   mocked(getVaults, { partial: true }).mockReturnValue({

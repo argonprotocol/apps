@@ -58,9 +58,8 @@
       <ConnectorDisconnectOverlay />
       <TransactionsOverlay />
       <CrosschainHistoryOverlay />
-      <SecuritizationOverlay />
+      <VaultSettingsPanel />
       <FlexibleAssetsOverlay />
-      <ArgonotCommitmentOverlay />
       <MintingAuthorityRequestOverlay />
       <GatewayRelayOverlay />
       <ServerSettingsOverlay />
@@ -131,9 +130,8 @@ import AppUpdatesOverlay from './overlays/AppUpdatesOverlay.vue';
 import AlertBars from './navigation/AlertBars.vue';
 import WelcomeTour from './overlays/WelcomeTour.vue';
 import BotEditOverlay from './overlays/BotEditOverlay.vue';
-import SecuritizationOverlay from './overlays/SecuritizationOverlay.vue';
+import VaultSettingsPanel from './panels/VaultSettingsPanel.vue';
 import FlexibleAssetsOverlay from './overlays/FlexibleAssetsOverlay.vue';
-import ArgonotCommitmentOverlay from './overlays/ArgonotCommitmentOverlay.vue';
 import MintingAuthorityRequestOverlay from './overlays/MintingAuthorityRequestOverlay.vue';
 import GatewayRelayOverlay from './overlays/GatewayRelayOverlay.vue';
 import ServerSettingsOverlay from './overlays/ServerSettingsOverlay.vue';
@@ -251,7 +249,7 @@ function refreshFinalizedStateOnFocus() {
 
     await Promise.all([
       myVault.refreshFinalizedState({ client: finalizedClient, currentFrameId }),
-      argonBonds.refreshActiveState({ client: finalizedClient, currentFrameId }),
+      argonBonds.refreshActiveState(),
     ]);
     lastForegroundFinalizedHash = blockHash;
   })()

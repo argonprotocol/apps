@@ -522,6 +522,36 @@ describe('financials store lifecycle', () => {
     expect(mocks.vaults.load).not.toHaveBeenCalled();
   });
 
+  it('keeps released ARGNOT in the portfolio while the vault subscription catches up', async () => {
+    mocks.config.hasExtensionOperations = true;
+    mocks.currency.microgonsPer.ARGNOT = 1_000_000n;
+    mocks.myVault.createdVault = { vaultId: 10, securitization: 0n, isClosed: false } as Vault;
+    mocks.myVault.data.argonotCommitment = {
+      heldMicronots: 500n,
+      committedMicronots: 500n,
+      encumberedMicronots: 0n,
+    };
+    const snapshot = createAccountSnapshot(mocks.blockWatch.bestBlockHeader);
+    snapshot.accounts[0].availableMicronots = 100n;
+    snapshot.accounts[0].reservedMicronots = 400n;
+    snapshot.accounts[0].micronotHolds = [
+      toPlain(
+        getOfflineRegistry().createType<FrameSupportTokensMiscIdAmountRuntimeHoldReason>(
+          'FrameSupportTokensMiscIdAmountRuntimeHoldReason',
+          { id: { Vaults: 'EnterVault' }, amount: 400n },
+        ),
+      ) as IArgonAccountBalance['micronotHolds'][number],
+    ];
+    mocks.walletsForArgon.readAccountSnapshot.mockResolvedValue(snapshot);
+
+    const financials = useFinancials();
+    await vi.waitFor(() =>
+      expect(financials.financialPositionAggregate.groupSummaries.vaulting.currentValue).toBe(400n),
+    );
+    expect(financials.financialPositionAggregate.groupSummaries.liquid.currentValue).toBe(100n);
+    expect(financials.financialPositionAggregate.netWorth).toBe(500n);
+  });
+
   it('publishes a locally created Bitcoin lock without rebuilding the account snapshot', async () => {
     mocks.config.hasExtensionTreasury = true;
     mocks.bitcoinLocks.data = reactive({

@@ -1,6 +1,7 @@
 <template>
   <Chart ref="chartRef" />
   <NibSlider
+    v-if="!navigationDisabled"
     ref="nibSliderRef"
     position="right"
     :pos="sliderLeftPosX"
@@ -21,6 +22,7 @@ import type { IChartItem } from '../interfaces/IChartItem';
 const props = defineProps<{
   chartItems: IChartItem[];
   selectedIndex?: number;
+  navigationDisabled?: boolean;
 }>();
 
 const emit = defineEmits<{
@@ -119,6 +121,7 @@ let isUserNavigatingHistory = false;
 let frameSyncRequestId = 0;
 
 function updateFrameSliderPos(index: number, isUserAction = true) {
+  if (props.navigationDisabled && isUserAction) return;
   if (isUserNavigatingHistory && !isUserAction) return;
   const nextFrameIndex = getFrameIndex(index);
   const item = props.chartItems[nextFrameIndex];
@@ -129,6 +132,7 @@ function updateFrameSliderPos(index: number, isUserAction = true) {
 }
 
 function handleKeyDown(e: KeyboardEvent) {
+  if (props.navigationDisabled) return;
   if (e.key === 'ArrowRight' || e.key === 'ArrowLeft') {
     const action = e.key === 'ArrowRight' ? goToNextFrame : goToPrevFrame;
     action();

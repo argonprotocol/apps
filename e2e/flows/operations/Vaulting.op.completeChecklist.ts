@@ -1,4 +1,5 @@
-import { clickIfVisible } from '../helpers/utils.ts';
+import { MICROGONS_PER_ARGON } from '@argonprotocol/mainchain';
+import { parseDecimalToUnits } from '../helpers/utils.ts';
 import { Operation } from './index.ts';
 import type { IVaultingFlowContext } from '../contexts/vaultingContext.ts';
 import type { IE2EOperationInspectState } from '../types.ts';
@@ -10,16 +11,20 @@ type ICompleteChecklistUiState = {
   dashboardVisible: boolean;
 };
 
-type IVaultingChecklistState = Pick<IAppQueryRefs['config'], 'hasSavedVaultingRules'>;
+type IVaultingChecklistState = Pick<IAppQueryRefs['config'], 'hasSavedVaultingRules'> & {
+  matchesRequestedCapital: boolean;
+};
 
 type ICompleteChecklistState = IE2EOperationInspectState<IVaultingChecklistState, ICompleteChecklistUiState>;
 
 export default new Operation<IVaultingFlowContext, ICompleteChecklistState>(import.meta, {
-  async inspect({ flow }) {
+  async inspect({ flow, input }) {
     const [setupState, checklistEntry, fundStepEntry, dashboard] = await Promise.all([
       flow.queryApp(
         refs => ({
           hasSavedVaultingRules: refs.config.hasSavedVaultingRules,
+          microgons: refs.config.vaultingRules.baseMicrogonCommitment.toString(),
+          micronots: refs.config.vaultingRules.baseMicronotCommitment.toString(),
         }),
         { timeoutMs: 10_000 },
       ),
@@ -28,7 +33,18 @@ export default new Operation<IVaultingFlowContext, ICompleteChecklistState>(impo
       flow.isVisible('VaultingDashboard'),
     ]);
     const hasSavedVaultingRules = setupState?.hasSavedVaultingRules ?? false;
-    const isComplete = hasSavedVaultingRules || dashboard.visible;
+    const requestedMicrogons =
+      input.securitizationArgons === null
+        ? undefined
+        : parseDecimalToUnits(input.securitizationArgons, BigInt(MICROGONS_PER_ARGON), 'vault ARGN').toString();
+    const requestedMicronots =
+      input.securitizationArgonots === null
+        ? undefined
+        : parseDecimalToUnits(input.securitizationArgonots, BigInt(MICROGONS_PER_ARGON), 'vault ARGNOT').toString();
+    const matchesRequestedCapital =
+      (requestedMicrogons === undefined || requestedMicrogons === setupState?.microgons) &&
+      (requestedMicronots === undefined || requestedMicronots === setupState?.micronots);
+    const isComplete = (hasSavedVaultingRules && matchesRequestedCapital) || dashboard.visible;
     const canRun = checklistEntry.visible && !isComplete;
     let operationState: 'complete' | 'runnable' | 'processing' = 'processing';
     if (isComplete) {
@@ -42,6 +58,7 @@ export default new Operation<IVaultingFlowContext, ICompleteChecklistState>(impo
     return {
       chainState: {
         hasSavedVaultingRules,
+        matchesRequestedCapital,
       },
       uiState: {
         checklistVisible: checklistEntry.visible,
@@ -52,7 +69,7 @@ export default new Operation<IVaultingFlowContext, ICompleteChecklistState>(impo
       blockers: canRun ? [] : blockers,
     };
   },
-  async run({ flow }, state) {
+  async run({ flow, input }, state) {
     if (state.uiState.dashboardVisible) {
       return;
     }
@@ -61,9 +78,22 @@ export default new Operation<IVaultingFlowContext, ICompleteChecklistState>(impo
       return;
     }
 
-    if (!state.chainState.hasSavedVaultingRules) {
+    if (!state.chainState.hasSavedVaultingRules || !state.chainState.matchesRequestedCapital) {
       await flow.click('SetupChecklist.openVaultCreateOverlay()');
-      await clickIfVisible(flow, 'VaultCreatePanel.stopSuggestingTour()');
+      if (input.securitizationArgons !== null) {
+        await flow.type(
+          { selector: '[data-testid="vault-create-argn"] [data-testid="input-number"]' },
+          input.securitizationArgons,
+          { clear: true },
+        );
+      }
+      if (input.securitizationArgonots !== null) {
+        await flow.type(
+          { selector: '[data-testid="vault-create-argnot"] [data-testid="input-number"]' },
+          input.securitizationArgonots,
+          { clear: true },
+        );
+      }
       await flow.click('VaultCreatePanel.saveRules()');
       await flow.waitFor('SetupChecklist.openFundVaultingAccountOverlay()', { timeoutMs: 15_000 });
     }

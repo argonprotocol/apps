@@ -655,7 +655,7 @@ function formatBondValue(asset: 'ARGN' | 'ARGNOT'): string {
 }
 
 function openSecuritization() {
-  basicEmitter.emit('openSecuritizationOverlay');
+  basicEmitter.emit('openVaultSettingsOverlay');
 }
 
 function openLink(url: string) {

@@ -542,7 +542,7 @@ function openSecuritization() {
 
   isOpen.value = false;
   basics.overlayIsOpen = false;
-  basicEmitter.emit('openSecuritizationOverlay', { returnToInvite: true });
+  basicEmitter.emit('openVaultSettingsOverlay', { returnToInvite: true, fundingAsset: 'ARGN' });
 }
 
 basicEmitter.on('openMemberInviteOverlay', openOverlay);

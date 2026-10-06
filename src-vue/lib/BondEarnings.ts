@@ -56,7 +56,6 @@ export function getBondEarnings(
     vaultEarnings,
     isComplete,
     attributionIsComplete,
-    participationIsComplete: records.every(record => record.bonds != null && record.displacedMicrogons != null),
   };
 }
 

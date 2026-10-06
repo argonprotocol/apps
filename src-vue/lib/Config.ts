@@ -686,11 +686,17 @@ export class Config implements IConfig {
 
   public async save() {
     this._throwErrorIfNotLoaded();
-    const dataToSave = Config.extractDataToSave(this._fieldsToSave, this._rawData);
+    const fieldsToSave = this._fieldsToSave;
+    const dataToSave = Config.extractDataToSave(fieldsToSave, this._rawData);
     this._fieldsToSave = new Set();
     if (Object.keys(dataToSave).length === 0) return;
 
-    await this._db.configTable.insertOrReplace(dataToSave);
+    try {
+      await this._db.configTable.insertOrReplace(dataToSave);
+    } catch (error) {
+      for (const field of fieldsToSave) this._fieldsToSave.add(field);
+      throw error;
+    }
   }
 
   public resetField(field: keyof typeof dbFields) {

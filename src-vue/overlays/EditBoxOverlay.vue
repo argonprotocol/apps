@@ -20,7 +20,6 @@
         <BotExpectedGrowth v-else-if="id === 'expectedGrowth'" @update:data="updateData" ref="editorInstance" />
         <BotCloudMachine v-else-if="id === 'cloudMachine'" @update:data="updateData" ref="editorInstance" />
 
-        <VaultProjectedUtilization v-else-if="id === 'projectedUtilization'" @update:data="updateData" ref="editorInstance" />
         <VaultBtcLockingFees v-else-if="id === 'btcLockingFees'" @update:data="updateData" ref="editorInstance" />
       </div>
 
@@ -54,7 +53,7 @@ export type IEditBoxOverlayTypeForMining =
   | 'expectedGrowth'
   | 'cloudMachine';
 
-export type IEditBoxOverlayTypeForVaulting = 'btcLockingFees' | 'projectedUtilization';
+export type IEditBoxOverlayTypeForVaulting = 'btcLockingFees';
 
 export type IEditBoxOverlayType = IEditBoxOverlayTypeForMining | IEditBoxOverlayTypeForVaulting;
 </script>
@@ -66,12 +65,12 @@ import BotRebiddingStrategy from './edit-box/BotRebiddingStrategy.vue';
 import BotCapitalAllocation from './edit-box/BotCapitalAllocation.vue';
 import BotExpectedGrowth from './edit-box/BotExpectedGrowth.vue';
 import BotCloudMachine from './edit-box/BotCloudMachine.vue';
-import VaultProjectedUtilization from './edit-box/VaultProjectedUtilization.vue';
 import VaultBtcLockingFees from './edit-box/VaultBtcLockingFees.vue';
 import { ChevronLeftIcon, ChevronRightIcon } from '@heroicons/vue/24/outline';
 import { getConfig } from '../stores/config.ts';
 import { JsonExt } from '@argonprotocol/apps-core';
 import { IBiddingRules } from '@argonprotocol/apps-core';
+import type { IVaultingRules } from '../interfaces/IVaultingRules.ts';
 import { useFloatingZIndex } from './helpers/OverlayZIndex.ts';
 
 const props = defineProps<{
@@ -95,6 +94,7 @@ const saveButtonLabel = Vue.ref('Save');
 const shouldHideSaveButton = Vue.ref(false);
 
 let previousBiddingRules = JsonExt.stringify(config.biddingRules);
+const previousVaultingRules = JsonExt.stringify(config.vaultingRules);
 let lastBoundingClientRect: DOMRect | null = null;
 
 const titles = {
@@ -105,7 +105,6 @@ const titles = {
   expectedGrowth: 'Expected Growth',
   cloudMachine: 'Mining Machine',
 
-  projectedUtilization: 'Projected Utilization',
   btcLockingFees: 'Bitcoin Locking Fees',
 };
 
@@ -154,7 +153,12 @@ async function cancelOverlay(e?: MouseEvent) {
   await editorInstance.value?.beforeCancel?.(stopCancelFn);
   if (stopCancel) return;
 
-  config.biddingRules = JsonExt.parse<IBiddingRules>(previousBiddingRules);
+  if (props.id === 'btcLockingFees') {
+    const { btcFlatFee, btcPctFee } = JsonExt.parse<IVaultingRules>(previousVaultingRules);
+    Object.assign(config.vaultingRules, { btcFlatFee, btcPctFee });
+  } else {
+    config.biddingRules = JsonExt.parse<IBiddingRules>(previousBiddingRules);
+  }
   emit('close', props.id);
   e?.preventDefault();
   e?.stopPropagation();

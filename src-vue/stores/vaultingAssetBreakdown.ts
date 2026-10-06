@@ -21,7 +21,7 @@ export const useVaultingAssetBreakdown = defineStore('vaultingAssetBreakdown', (
   });
 
   const securityMicrogonsActivated = Vue.computed<bigint>(() => {
-    return myVault.createdVault?.securitizationLocked ?? 0n;
+    return myVault.createdVault?.activatedSecuritization() ?? 0n;
   });
 
   const securityMicrogonsActivatedPct = Vue.computed<number>(() => {
@@ -67,11 +67,19 @@ export const useVaultingAssetBreakdown = defineStore('vaultingAssetBreakdown', (
     return TreasuryBonds.getBondPurchaseCapacity(treasuryBondCapacityMicrogons.value);
   });
 
+  const revenuePotential = Vue.computed(() => {
+    const vault = myVault.createdVault;
+    return vault ? argonBonds.vaultRevenuePotential(vault.vaultId) : undefined;
+  });
+
+  const argonotRewardBacking = Vue.computed(() => {
+    const vault = myVault.createdVault;
+    if (!vault || !argonBonds.data.frameCapital?.vaultSecuritizationPositions[vault.vaultId]) return;
+    return argonBonds.argonotRewardBacking({ vault, argonotSecuritization: myVault.data.argonotCommitment });
+  });
+
   const revenueCapturedPct = Vue.computed(() => {
-    if (argonBonds.data.frameCapital) {
-      const vault = myVault.createdVault;
-      return vault ? argonBonds.vaultRevenuePotential(vault.vaultId)?.capturedPercent : undefined;
-    }
+    if (argonBonds.data.frameCapital) return revenuePotential.value?.capturedPercent;
     const currentBonds = vaultBondState.value?.currentFrame.vaultBonds ?? 0;
     return getCappedPercent(currentBonds, treasuryBondPurchaseCapacityBonds.value);
   });
@@ -89,5 +97,7 @@ export const useVaultingAssetBreakdown = defineStore('vaultingAssetBreakdown', (
     treasuryBondPurchaseCapacityBonds,
 
     revenueCapturedPct,
+    revenuePotential,
+    argonotRewardBacking,
   };
 });

@@ -4,9 +4,6 @@ import { parseDecimalToUnits, pollEvery } from '../helpers/utils.ts';
 import { Operation } from './index.ts';
 import type { IVaultingFlowContext } from '../contexts/vaultingContext.ts';
 import type { IE2EOperationInspectState } from '../types.ts';
-import { VaultingSetupStatus } from '../types/srcVue.ts';
-
-const MICROGONS_PER_ARGON_TEXT = BigInt(MICROGONS_PER_ARGON).toString();
 
 type IVaultingFundingInspect = {
   walletIsFullyFunded: boolean;
@@ -24,45 +21,9 @@ type IFundVaultingWalletState = IE2EOperationInspectState<IVaultingFundingInspec
 export default new Operation<IVaultingFlowContext, IFundVaultingWalletState>(import.meta, {
   async inspect({ flow }) {
     const [fundingState, dashboard, fundOverlayEntry, walletOverlayEntry, installingState] = await Promise.all([
-      flow.queryApp(
-        (
-          refs,
-          args: {
-            microgonsPerArgonText: string;
-            finishedSetupStatus: VaultingSetupStatus;
-          },
-        ) => {
-          const futureTransactionFeeBudgetMicrogons = 2n * BigInt(args.microgonsPerArgonText);
-          const treasuryBondSuggestionIncrementMicrogons = 100n * BigInt(args.microgonsPerArgonText);
-          const baseRequiredMicrogons = refs.config.vaultingRules?.baseMicrogonCommitment ?? 0n;
-          const suggestedTreasuryMicrogons = baseRequiredMicrogons / 20n;
-          const treasuryBondSuggestionMicrogons =
-            refs.config.vaultingSetupStatus === args.finishedSetupStatus || suggestedTreasuryMicrogons <= 0n
-              ? 0n
-              : ((suggestedTreasuryMicrogons + treasuryBondSuggestionIncrementMicrogons - 1n) /
-                  treasuryBondSuggestionIncrementMicrogons) *
-                treasuryBondSuggestionIncrementMicrogons;
-          const requiredMicrogons =
-            baseRequiredMicrogons +
-            (refs.config.vaultingSetupStatus === args.finishedSetupStatus
-              ? 0n
-              : futureTransactionFeeBudgetMicrogons + treasuryBondSuggestionMicrogons);
-          const requiredMicronots = refs.config.vaultingRules?.baseMicronotCommitment ?? 0n;
-          const availableMicrogons = refs.wallets.defaultArgonWallet.availableMicrogons ?? 0n;
-          const availableMicronots = refs.wallets.defaultArgonWallet.availableMicronots ?? 0n;
-
-          return {
-            walletIsFullyFunded: availableMicrogons >= requiredMicrogons && availableMicronots >= requiredMicronots,
-          };
-        },
-        {
-          timeoutMs: 10_000,
-          args: {
-            microgonsPerArgonText: MICROGONS_PER_ARGON_TEXT,
-            finishedSetupStatus: VaultingSetupStatus.Finished,
-          },
-        },
-      ),
+      flow.queryApp(refs => ({ walletIsFullyFunded: refs.getVaultFundingState().isFullyFunded }), {
+        timeoutMs: 10_000,
+      }),
       flow.isVisible('VaultingDashboard'),
       flow.isVisible('SetupChecklist.openFundVaultingAccountOverlay()'),
       flow.isVisible('WalletOverlay'),

@@ -33,7 +33,7 @@ type IBasicEmitter = {
   openWalletDisconnectOverlay: { wallet: WalletForEthereum };
   ethereumWalletDisconnected: { wallet: WalletForEthereum };
   openWalletOverlayAddConnector: 'choice' | 'external';
-  openSecuritizationOverlay: { returnToInvite?: boolean } | undefined;
+  openVaultSettingsOverlay: { returnToInvite?: boolean; fundingAsset?: 'ARGN' | 'ARGNOT' } | undefined;
   openBotEditOverlay: void;
   openMiningBiddingBotOverlay: void;
   openMiningActiveSeatsOverlay: void;
@@ -72,7 +72,6 @@ type IBasicEmitter = {
   openCrosschainHistoryOverlay: void;
 
   openVaultCollect: void;
-  openArgonotCommitmentOverlay: void;
   openMintingAuthorityRequestOverlay: void;
   openGatewayRelayOverlay: void;
   openFlexibleAssetsOverlay:

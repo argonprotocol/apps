@@ -21,7 +21,6 @@ type ArgonBondPositionData = {
   dailyEarnings?: readonly IBondEarningsRecord[];
   completedFrame?: number;
   liveArgonotRateMicrogons?: bigint;
-  entryArgonotMarksByLot?: ReadonlyMap<string, bigint>;
   frameDates: ReadonlyMap<number, Date>;
 };
 
@@ -63,25 +62,12 @@ export class ArgonBondsFinancials
     const frameDates = new Map(
       [...frameIds].map(frameId => [frameId, this.bonds.miningFrames.getFrameDate(frameId)] as const),
     );
-    const entryArgonotMarksByLot = new Map(
-      this.bonds.data.bondHistory.flatMap(record => {
-        if (record.entryArgonotRateMicrogons === undefined) return [];
-        return [
-          [
-            this.bondKey(record.accountId, record.programType, record.bondLotId),
-            record.entryArgonotRateMicrogons,
-          ] as const,
-        ];
-      }),
-    );
-
     return this.createFinancialPositions({
       ...args,
       bondLots,
       historyRecords: this.bonds.data.bondHistory,
       dailyEarnings: this.bonds.data.dailyEarnings,
       completedFrame: this.bonds.data.currentFrameId - 1,
-      entryArgonotMarksByLot,
       frameDates,
     });
   }
@@ -92,7 +78,6 @@ export class ArgonBondsFinancials
     dailyEarnings = [],
     completedFrame,
     liveArgonotRateMicrogons,
-    entryArgonotMarksByLot = new Map(),
     frameDates,
   }: ArgonBondPositionData): IBondFinancialPosition[] {
     const positions: IBondFinancialPosition[] = [];
@@ -116,9 +101,7 @@ export class ArgonBondsFinancials
 
       const nativePrincipal = bondLot.principalMicronots ?? 0n;
       const history = historyByLot.get(this.bondKey(bondLot.owner, bondLot.programType, bondLot.id));
-      const entryArgonotRateMicrogons = entryArgonotMarksByLot.get(
-        this.bondKey(bondLot.owner, bondLot.programType, bondLot.id),
-      );
+      const entryArgonotRateMicrogons = history?.entryArgonotRateMicrogons;
       const value = calculatePrincipalPositionValue({
         nativeAsset: 'ARGNOT',
         nativePrincipal,

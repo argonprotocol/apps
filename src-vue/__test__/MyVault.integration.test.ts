@@ -53,7 +53,7 @@ describe.skipIf(skipE2E).sequential('Your Vault tests', {}, () => {
     capitalForTreasuryPct: 50,
     capitalForSecuritizationPct: 50,
     baseMicrogonCommitment: 10_000_000n,
-    baseMicronotCommitment: 0n,
+    baseMicronotCommitment: 10_000_000n,
     btcFlatFee: 1_000_000n,
     btcPctFee: 2.5,
     profitSharingPct: 5,
@@ -142,6 +142,22 @@ describe.skipIf(skipE2E).sequential('Your Vault tests', {}, () => {
       const config = new Config(Promise.resolve(db), walletKeys);
       await config.load();
       await myVault.load();
+      // Insufficient ARGNOT must roll back the vault and delegate setup together.
+      const failedCreation = await myVault.createNew({
+        masterXpubPath: DEFAULT_MASTER_XPUB_PATH,
+        rules: vaultRules,
+        config,
+      });
+      await expect(failedCreation.waitForPostProcessing).rejects.toThrow();
+      expect(myVault.createdVault).toBeNull();
+      expect(await MyVaultRecovery.findOperatorVault(clients, BitcoinNetwork.Regtest, walletKeys)).toBeUndefined();
+
+      await sudoFundWallet({
+        address: walletKeys.vaultingAddress,
+        microgons: 100_000_000n,
+        micronots: 100_000_000n,
+        archiveUrl: mainchainUrl,
+      });
       const vaultCreation = await myVault.createNew({
         masterXpubPath: DEFAULT_MASTER_XPUB_PATH,
         rules: vaultRules,
@@ -155,6 +171,10 @@ describe.skipIf(skipE2E).sequential('Your Vault tests', {}, () => {
       const createdVault = myVault.createdVault!;
       expect(createdVault).toBeTruthy();
       expect(createdVault.vaultId).toBeGreaterThan(0);
+      expect(createdVault.securitization).toBe(vaultRules.baseMicrogonCommitment);
+      expect(myVault.data.argonotCommitment.heldMicronots).toBe(vaultRules.baseMicronotCommitment);
+      const commitment = await Vault.getArgonotSecuritization(await clients.get(false), createdVault.vaultId);
+      expect(commitment?.heldMicronots).toBe(vaultRules.baseMicronotCommitment);
       expect(createdVault.operatorAccountId).toBe(walletKeys.vaultingAddress);
       const createdState = (await client.query.vaults.vaultsById(createdVault.vaultId)) as NonNullable<
         LiveQueryRecord<'vaults', 'vaultsById'>
@@ -268,7 +288,12 @@ describe.skipIf(skipE2E).sequential('Your Vault tests', {}, () => {
     });
     await settingsTx?.waitForPostProcessing;
     const updatedVault = await Vault.get(client, vaultId);
-    expect(updatedVault.pendingTerms?.[1] ?? updatedVault.terms).toMatchObject({ bitcoinBaseFee: 2_000_000n });
+    const updatedTerms = updatedVault.pendingTerms?.[1] ?? updatedVault.terms;
+    expect(updatedTerms.bitcoinBaseFee).toBe(2_000_000n);
+    expect(updatedTerms.bitcoinAnnualPercentRate.toNumber()).toBe(0.015);
+    const publishedTerms = myVault.createdVault!.pendingTerms?.[1] ?? myVault.createdVault!.terms;
+    expect(publishedTerms.bitcoinBaseFee).toBe(updatedTerms.bitcoinBaseFee);
+    expect(publishedTerms.bitcoinAnnualPercentRate.toNumber()).toBe(0.015);
     const updatedState = (await client.query.vaults.vaultsById(vaultId)) as NonNullable<
       LiveQueryRecord<'vaults', 'vaultsById'>
     >;
@@ -299,9 +324,9 @@ describe.skipIf(skipE2E).sequential('Your Vault tests', {}, () => {
     if (purchaseVault.bondCapacitySource === 'Bitcoin' && purchaseVault.ratioAdjustedSatoshis === 0n) {
       // The deployed runtime requires verified Bitcoin. This network has unfunded
       // locks, so the app must decode its terminal rejection rather than hang.
-      await expect(submitAndFinalize(client, purchase, signer)).rejects.toThrow(
-        'treasury.VaultNotAcceptingBondPurchases',
-      );
+      await expect(submitAndFinalize(client, purchase, signer)).rejects.toMatchObject({
+        errorCode: 'treasury.VaultNotAcceptingBondPurchases',
+      });
       expect(await TreasuryBonds.getBondLots(client, vaultId, signer.address)).toEqual([]);
     } else {
       const bought = await submitAndFinalize(client, purchase, signer);
@@ -326,7 +351,9 @@ describe.skipIf(skipE2E).sequential('Your Vault tests', {}, () => {
             bondState: reducedBonds,
           }),
         ).toBe(0n);
-        await expect(submitAndFinalize(client, purchase, signer)).rejects.toThrow('treasury.InsufficientBondSpace');
+        await expect(submitAndFinalize(client, purchase, signer)).rejects.toMatchObject({
+          errorCode: 'treasury.InsufficientBondSpace',
+        });
         const cancellation = await myVault.setVaultSecuritization({ securitizationMicrogons: minimumPurchase * 3n });
         await cancellation.waitForPostProcessing;
         const restoredVault = await Vault.get(client, vaultId);

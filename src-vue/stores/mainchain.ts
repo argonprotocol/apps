@@ -195,7 +195,9 @@ export function getVaultCalculator(): VaultCalculator {
       throw new Error('Config must be loaded before VaultCalculator can be initialized');
     }
     vaultCalculator = new VaultCalculator(getMainchainClients());
-    void vaultCalculator.load(config.vaultingRules);
+    void vaultCalculator.load(config.vaultingRules).catch(error => {
+      console.warn('[Vault Calculator] Unable to load current vaulting data', error);
+    });
   }
   return vaultCalculator;
 }

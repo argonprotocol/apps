@@ -1,4 +1,4 @@
-import { describe, it } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import { FlowSession } from '../FlowSession.ts';
 
 const skipE2E = Boolean(JSON.parse(process.env.SKIP_E2E ?? '0'));
@@ -13,7 +13,23 @@ async function runIsolatedFlow(flowName: OnboardingFlowName): Promise<void> {
   });
 
   try {
-    await session.run(flowName);
+    if (flowName === 'Vaulting.flow.onboarding') {
+      const result = await session.run(flowName, { securitizationArgons: '2400', securitizationArgonots: '50' });
+      expect(result.data.createdVaultCapital).toEqual({
+        argons: '2400000000',
+        argonots: '50000000',
+        configuredArgonots: '50000000',
+      });
+      const settings = await session.run('Vaulting.flow.settings');
+      expect(settings.data.updatedVaultSettings).toEqual({
+        argons: '2400000000',
+        argonots: '60000000',
+        flatFee: '3000000',
+        configuredFlatFee: '3000000',
+      });
+    } else {
+      await session.run(flowName);
+    }
   } finally {
     await session.close();
   }
