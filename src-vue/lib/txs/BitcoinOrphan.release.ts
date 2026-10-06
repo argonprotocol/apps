@@ -80,7 +80,11 @@ export class BitcoinOrphanRelease extends TransactionOperation<
     if (activeRelease && activeRelease.status !== BitcoinReleaseStatus.SubmittingRequestOnArgon) {
       throw new Error('This orphan return is already in progress.');
     }
-    if (record.status !== BitcoinUtxoStatus.Orphaned || record.spendStatus === BitcoinUtxoSpendStatus.Spent) {
+    if (
+      record.status !== BitcoinUtxoStatus.Orphaned ||
+      record.isOnArgonChain === false ||
+      record.spendStatus === BitcoinUtxoSpendStatus.Spent
+    ) {
       throw new Error('This orphan return is not currently available.');
     }
 

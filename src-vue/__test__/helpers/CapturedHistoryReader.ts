@@ -158,6 +158,10 @@ export class CapturedHistoryReader {
     return read();
   }
 
+  public async getFinalizedApi(): Promise<ArgonApi> {
+    return await this.getApi(await this.getHeader(this.latestBlockNumber));
+  }
+
   public async getHeader(
     block: number | Pick<IBlockHeaderInfo, 'blockNumber' | 'blockHash'>,
   ): Promise<IBlockHeaderInfo> {

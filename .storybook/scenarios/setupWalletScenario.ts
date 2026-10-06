@@ -396,7 +396,10 @@ export function setupWalletScenario(state: WalletScenario): WalletScenarioState 
       getAllOrphanLifecycleUtxos: fn(() => bitcoinUtxos.filter(utxo => utxo.status === BitcoinUtxoStatus.Orphaned)),
       getUnresolvedOrphanRecords: fn(() =>
         bitcoinUtxos.filter(
-          utxo => utxo.status === BitcoinUtxoStatus.Orphaned && utxo.spendStatus !== BitcoinUtxoSpendStatus.Spent,
+          utxo =>
+            utxo.status === BitcoinUtxoStatus.Orphaned &&
+            utxo.isOnArgonChain !== false &&
+            utxo.spendStatus !== BitcoinUtxoSpendStatus.Spent,
         ),
       ),
       getUtxoRecordById: fn((id: number) => bitcoinUtxos.find(utxo => utxo.id === id)),
@@ -409,7 +412,12 @@ export function setupWalletScenario(state: WalletScenario): WalletScenarioState 
       ),
       getObservedFundingUtxos: fn((lock: IBitcoinLockRecord) => {
         return bitcoinUtxos
-          .filter(utxo => utxo.lockId === lock.lockId && utxo.status === BitcoinUtxoStatus.SeenOnMempool)
+          .filter(
+            utxo =>
+              utxo.lockId === lock.lockId &&
+              utxo.status === BitcoinUtxoStatus.SeenOnMempool &&
+              !utxo.fundingRejectionReason,
+          )
           .sort((left, right) => left.firstSeenAt.getTime() - right.firstSeenAt.getTime());
       }),
       getFundingUtxoProcessingDetails: fn(() => ({
@@ -417,6 +425,9 @@ export function setupWalletScenario(state: WalletScenario): WalletScenarioState 
         confirmations: 1,
         expectedConfirmations: 4,
       })),
+      acknowledgeBelowMinimum: fn(async (record: IBitcoinUtxoRecord) => {
+        record.isFailureAcknowledged = true;
+      }),
     },
     load: fn(async () => undefined),
     getAllLocks: fn(() => bitcoinChannels),

@@ -2,6 +2,11 @@ name: Financial history replay corpus
 
 on:
   workflow_dispatch:
+    inputs:
+      reuse_replay_checkpoint:
+        description: Capture additional queries at the existing replay checkpoint
+        type: boolean
+        default: false
   schedule:
     - cron: '0 11 * * *'
 
@@ -52,6 +57,7 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Restore the current indexer checkpoint
+        if: inputs.reuse_replay_checkpoint != true
         shell: bash
         run: |
           set -euo pipefail
@@ -72,7 +78,11 @@ jobs:
           fi
 
       - name: Capture recovery data from the indexer checkpoint
-        run: yarn capture:financial-history-replay
+        run: |
+          if [ "${{ inputs.reuse_replay_checkpoint }}" = "true" ]; then
+            cp indexer/seeds/mainnet-financial-history-replay.db indexer/seeds/mainnet-activity-v2.db
+          fi
+          yarn capture:financial-history-replay
 
       - name: Package and verify offline replay
         run: |

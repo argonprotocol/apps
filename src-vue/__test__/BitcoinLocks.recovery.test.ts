@@ -9,6 +9,7 @@ import {
 } from '@argonprotocol/apps-core';
 import * as BitcoinHistory from '../lib/recovery/BitcoinLockHistory.ts';
 import BitcoinLocks from '../lib/BitcoinLocks.ts';
+import { WalletForBitcoin } from '../lib/WalletForBitcoin.ts';
 import BitcoinMempool from '../lib/BitcoinMempool.ts';
 import { BitcoinFissions } from '../lib/BitcoinFissions.ts';
 import type { Db } from '../lib/Db.ts';
@@ -368,10 +369,6 @@ describe('BitcoinLocks recovery', () => {
 
   it('persists a rediscovered orphan without replacing current wallet state', async () => {
     const db = await createTestDb();
-    const store = createStore({
-      blockWatch: { getApi: vi.fn(async () => ({})) } as unknown as BlockWatch,
-      db,
-    });
     const lock = createLock({
       uuid: 'late-orphan',
       utxoId: 7,
@@ -380,6 +377,22 @@ describe('BitcoinLocks recovery', () => {
     });
     lock.removalReason = 'released';
     const utxoRef = { txid: `0x${'55'.repeat(32)}`, outputIndex: 1 };
+    const currentApi = {
+      query: {
+        bitcoinLocks: {
+          orphanedUtxosByAccount: {
+            entries: async () => [[{ args: [lock.ownerAccount, utxoRef] }, { lockId: 7, satoshis: 12_000n }]],
+          },
+        },
+      },
+    };
+    const store = createStore({
+      blockWatch: {
+        getApi: vi.fn(async () => ({})),
+        getFinalizedApi: vi.fn(async () => currentApi),
+      } as unknown as BlockWatch,
+      db,
+    });
     store.data.locksByLockId[7] = lock;
     const reconcileOrphanReleases = vi.spyOn(store.releases, 'reconcileOrphanReleases').mockResolvedValue();
 
@@ -398,7 +411,7 @@ describe('BitcoinLocks recovery', () => {
 
     expect(store.data.isReconciliationPending).toBe(false);
     expect(store.utxoTracking.getUnresolvedOrphanRecords([lock])).toEqual([
-      expect.objectContaining({ txid: utxoRef.txid, status: BitcoinUtxoStatus.Orphaned }),
+      expect.objectContaining({ txid: utxoRef.txid, status: BitcoinUtxoStatus.Orphaned, isOnArgonChain: true }),
     ]);
     expect(reconcileOrphanReleases).not.toHaveBeenCalled();
     expect(store.getLockById(7)).toBe(lock);
@@ -411,6 +424,7 @@ describe('BitcoinLocks recovery', () => {
         vout: utxoRef.outputIndex,
         satoshis: 12_000n,
         status: BitcoinUtxoStatus.Orphaned,
+        isOnArgonChain: true,
       }),
     ]);
   });
@@ -425,6 +439,29 @@ describe('BitcoinLocks recovery', () => {
     });
     record.isHistoryRecoveryPending = true;
     store.data.locksByLockId[7] = record;
+    const wallet = new WalletForBitcoin(
+      () => store,
+      () => record.ownerAccount!,
+      {} as never,
+    );
+    store.utxoTracking.load([
+      {
+        id: 1,
+        lockId: 7,
+        txid: `0x${'c'.repeat(64)}`,
+        vout: 0,
+        satoshis: 100_000n,
+        network: 'regtest',
+        status: BitcoinUtxoStatus.Orphaned,
+        spendStatus: BitcoinUtxoSpendStatus.Unspent,
+        firstSeenAt: record.createdAt,
+        firstSeenBitcoinHeight: 100,
+        createdAt: record.createdAt,
+        updatedAt: record.updatedAt,
+      },
+    ]);
+    expect(wallet.getUnresolvedOrphanDeposits()).toEqual([]);
+    expect(store.utxoTracking.getAllOrphanLifecycleUtxos()).toHaveLength(1);
     expect(getBitcoinAlertNotices(store)).toEqual([]);
 
     const regularRecord = createLock({
@@ -491,6 +528,7 @@ describe('BitcoinLocks recovery', () => {
 
     delete record.isHistoryRecoveryPending;
     expect(store.getAllLocks()).toEqual([regularRecord, record]);
+    expect(wallet.getUnresolvedOrphanDeposits()).toEqual(store.utxoTracking.getAllOrphanLifecycleUtxos());
   });
 
   it('resumes an in-flight release that has already left the active chain index', async () => {
@@ -1214,6 +1252,7 @@ describe('BitcoinLocks history replay publication', () => {
 
   it('rolls back a failed Lock and Fission unit while publishing an independent unit', async () => {
     const db = await createTestDb();
+    const currentApi = { query: { bitcoinLocks: { orphanedUtxosByAccount: { entries: async () => [] } } } };
     const accountId = encodeAddress(new Uint8Array(32).fill(0x33));
     const initialLock = createHistoricalLock({ accountId, liquidityPromised: 1_000n });
     const pending = await db.bitcoinLocksTable.insertPending({
@@ -1254,7 +1293,10 @@ describe('BitcoinLocks history replay publication', () => {
 
     const store = createStore({
       db,
-      blockWatch: { getApi: vi.fn(async () => ({})) } as unknown as BlockWatch,
+      blockWatch: {
+        getApi: vi.fn(async () => ({})),
+        getFinalizedApi: vi.fn(async () => currentApi),
+      } as unknown as BlockWatch,
       walletKeys: { canSign: true, defaultArgonAddress: accountId } as WalletKeys,
     });
     store.data.locksByLockId[7] = record;

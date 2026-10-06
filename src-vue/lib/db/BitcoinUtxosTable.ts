@@ -22,6 +22,7 @@ export {
 
 export class BitcoinUtxosTable extends BaseTable {
   private readonly fieldTypes: IFieldTypes = {
+    boolean: ['isFailureAcknowledged', 'isOnArgonChain'],
     bigint: ['satoshis'],
     json: ['mempoolObservation'],
     date: ['firstSeenAt', 'firstSeenOnArgonAt', 'lastConfirmationCheckAt', 'createdAt', 'updatedAt'],
@@ -64,9 +65,10 @@ export class BitcoinUtxosTable extends BaseTable {
       `INSERT INTO BitcoinUtxos (
         lockId, txid, vout, satoshis, network, status, spendStatus,
         activeReleaseId, createdByReleaseId, spentByReleaseId, statusError,
+        fundingRejectionReason, isFailureAcknowledged, isOnArgonChain,
         mempoolObservation, firstSeenAt, firstSeenOnArgonAt, firstSeenBitcoinHeight,
         firstSeenOracleHeight, lastConfirmationCheckAt, lastConfirmationCheckOracleHeight
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(lockId, txid, vout) DO UPDATE SET
         satoshis = excluded.satoshis,
         network = excluded.network,
@@ -97,6 +99,9 @@ export class BitcoinUtxosTable extends BaseTable {
         record.createdByReleaseId,
         record.spentByReleaseId,
         record.statusError,
+        record.fundingRejectionReason,
+        record.isFailureAcknowledged ?? false,
+        record.isOnArgonChain,
         record.mempoolObservation,
         record.firstSeenAt,
         record.firstSeenOnArgonAt,
@@ -172,8 +177,29 @@ export class BitcoinUtxosTable extends BaseTable {
 
   public async updateObservedDeposit(record: IBitcoinUtxoRecord): Promise<void> {
     await this.db.execute(
-      'UPDATE BitcoinUtxos SET status = ?, satoshis = ?, firstSeenOnArgonAt = ? WHERE id = ?',
-      toSqlParams([record.status, record.satoshis, record.firstSeenOnArgonAt, record.id]),
+      `UPDATE BitcoinUtxos SET status = ?, satoshis = ?, firstSeenOnArgonAt = ?,
+        fundingRejectionReason = ?, isFailureAcknowledged = ? WHERE id = ?`,
+      toSqlParams([
+        record.status,
+        record.satoshis,
+        record.firstSeenOnArgonAt,
+        record.fundingRejectionReason,
+        record.isFailureAcknowledged ?? false,
+        record.id,
+      ]),
+    );
+  }
+
+  public async updateDepositMetadata(record: IBitcoinUtxoRecord): Promise<void> {
+    await this.db.execute(
+      `UPDATE BitcoinUtxos SET fundingRejectionReason = ?, isFailureAcknowledged = ?,
+        isOnArgonChain = ? WHERE id = ?`,
+      toSqlParams([
+        record.fundingRejectionReason,
+        record.isFailureAcknowledged ?? false,
+        record.isOnArgonChain,
+        record.id,
+      ]),
     );
   }
 

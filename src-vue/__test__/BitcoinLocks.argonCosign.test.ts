@@ -59,6 +59,7 @@ describe('BitcoinLocks Argon cosign gating', () => {
       },
     };
     const blockWatch = {
+      getFinalizedApi: vi.fn(async () => blockApi),
       getHeaderByBlockNumber: vi.fn(async (blockNumber: number) => ({
         blockNumber,
         blockHash: `0x${blockNumber}`,
@@ -116,6 +117,7 @@ describe('BitcoinLocks Argon cosign gating', () => {
     let currentLock = createCurrentLock({ fundedSatoshis: 10_000n, fissionedSatoshis: 6_000n });
     const blockApi = { query: { bitcoinUtxos: { confirmedBitcoinBlockTip: vi.fn().mockResolvedValue(null) } } };
     const blockWatch = {
+      getFinalizedApi: vi.fn(async () => blockApi),
       getHeaderByBlockNumber: vi.fn(async (blockNumber: number) => ({ blockNumber, blockHash: `0x${blockNumber}` })),
       getEventsWithSpec: vi.fn(async () => ({
         api: blockApi,
@@ -329,6 +331,7 @@ describe('BitcoinLocks Argon cosign gating', () => {
     };
     const requestedBlocks: number[] = [];
     const blockWatch = {
+      getFinalizedApi: vi.fn(async () => blockApi),
       getEventsWithSpec: vi.fn(async (header: { blockNumber: number }) => {
         requestedBlocks.push(header.blockNumber);
         return { api: blockApi, events: header.blockNumber === 102 ? [settlementEvent] : [], specVersion: 159 };
@@ -540,6 +543,7 @@ describe('BitcoinLocks Argon cosign gating', () => {
     };
     const blockWatchStub = {
       bestBlockHeader: { blockNumber: 101, blockHash: '0x101' },
+      getFinalizedApi: vi.fn(async () => blockApi),
       getHeaderByBlockNumber: vi.fn(async (blockNumber: number) => blockHeaders.get(blockNumber)),
       getApi: vi.fn().mockResolvedValue(blockApi),
       getEvents,

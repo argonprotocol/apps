@@ -412,30 +412,35 @@
                   You can close this window while the transaction continues.
                 </div>
               </div>
-              <div v-else class="flex flex-col items-center py-2 text-center">
-                <div class="text-lg font-semibold text-slate-700">
-                  {{ hasPendingInboundUtxos ? 'Bitcoin funding detected' : 'Your Bitcoin channel is ready' }}
+              <div v-else class="flex flex-col items-center gap-4 text-center text-sm">
+                <div v-if="hasPendingInboundUtxos" class="font-semibold text-slate-700">Bitcoin funding detected</div>
+                <div v-if="hasPendingInboundUtxos" class="text-slate-500">
+                  {{ channelProgressLabel }}
                 </div>
-                <div
-                  v-if="!hasPendingInboundUtxos && props.wallet.hasActiveSecuritizationHold(displayedChannel)"
-                  class="bg-argon-100/30 text-argon-900/80 mt-2 flex items-center rounded-full py-1 pr-3 pl-1 text-sm"
-                >
-                  <ClockIcon class="h-4" />
-                  <span class="mr-1">Insurance reservation:</span>
-                  <CountdownClock :time="securitizationHoldExpirationTime" v-slot="{ days, hours, minutes, seconds }">
-                    <template v-if="days > 0">{{ days }} day{{ days === 1 ? '' : 's' }}</template>
-                    <template v-if="days || hours">{{ hours }}h</template>
-                    <template v-else>{{ minutes }}m {{ seconds }}s</template>
+                <p class="w-full text-left leading-6 text-slate-700">
+                  Send Bitcoin to the address listed below
+                  <CountdownClock
+                    v-if="!hasPendingInboundUtxos && props.wallet.hasActiveSecuritizationHold(displayedChannel)"
+                    :time="securitizationHoldExpirationTime"
+                    v-slot="{ days, hours, minutes }"
+                  >
+                    <!-- prettier-ignore -->
+                    <span class="bg-argon-100/30 text-argon-900/80 inline-flex items-center gap-1 rounded-full px-2 py-0.5 align-middle font-semibold whitespace-nowrap">
+                      <ClockIcon class="h-4 shrink-0" />
+                      <span>
+                        <template v-if="days > 0">
+                          for another {{ days }} {{ days === 1 ? 'day' : 'days' }}{{ hours > 0 ? `, ${hours}h` : '' }}
+                        </template>
+                        <template v-else-if="hours > 0">
+                          for another {{ hours }}h{{ minutes > 0 ? `, ${minutes}m` : '' }}
+                        </template>
+                        <template v-else-if="minutes > 0">for another {{ minutes }}m</template>
+                        <template v-else>for less than a minute</template>
+                      </span>
+                    </span>
                   </CountdownClock>
-                </div>
-                <div class="mt-1 text-sm text-slate-500">
-                  {{ hasPendingInboundUtxos ? channelProgressLabel : 'Send Bitcoin to add it to this channel.' }}
-                </div>
-                <div class="mt-4 w-full text-left">
-                  <div class="mb-1 text-sm font-semibold text-slate-500">
-                    Cosigner:
-                    <span class="text-slate-700">{{ channelCosignerLabel(displayedChannel) }}</span>
-                  </div>
+                </p>
+                <div class="w-full text-left">
                   <WalletGuideAnchor
                     autoOpenGuidance
                     :open="
@@ -451,32 +456,27 @@
                     "
                     @close="emit('update:open', false)"
                   >
-                    <CopyToClipboard
-                      :content="channelFundingAddress"
-                      title="Copy Bitcoin address"
-                      class="flex cursor-pointer items-center gap-2 rounded-md border border-slate-300 bg-slate-50 px-3 py-2 hover:bg-slate-100"
-                    >
-                      <span
-                        data-testid="ConnectorChannel.fundingAddress"
-                        class="min-w-0 grow truncate font-mono text-xs"
-                      >
-                        {{ channelFundingAddress }}
-                      </span>
-                      <span class="flex h-[34px] w-[34px] shrink-0 items-center justify-center">
-                        <CopyIcon class="pointer-events-none h-5 w-5 stroke-2 text-slate-500/60" />
-                      </span>
-                      <template #copying>
-                        <div class="flex h-full w-full items-center gap-2 rounded-md bg-[#f1f3f7] px-3 py-2">
-                          <span class="min-w-0 grow truncate font-mono text-xs">{{ channelFundingAddress }}</span>
-                          <span class="flex h-[34px] w-[34px] shrink-0 items-center justify-center">
-                            <CheckIcon class="h-5 w-5 stroke-2 text-green-700" />
-                          </span>
-                        </div>
-                      </template>
-                    </CopyToClipboard>
+                    <WalletReceiveAddress
+                      :address="channelFundingAddress"
+                      networkName="Bitcoin"
+                      addressTestId="ConnectorChannel.fundingAddress"
+                    />
                   </WalletGuideAnchor>
                 </div>
-                <ProgressBar v-if="hasPendingInboundUtxos" :progress="channelProgress.progressPct" class="mt-5 h-5" />
+                <p class="w-full border-t border-slate-200 pt-4 text-left text-slate-500">
+                  <template v-if="minimumDepositSatoshis != null">
+                    Minimum deposit:
+                    <strong class="font-bold whitespace-nowrap text-slate-700">
+                      {{ minimumDepositSatoshis.toLocaleString() }} sats
+                    </strong>
+                    <span class="ml-1 whitespace-nowrap text-slate-400">
+                      ({{ satToBtcNm(minimumDepositSatoshis).format('0,0.[00000000]') }} BTC)
+                    </span>
+                  </template>
+                  <template v-else-if="minimumDepositSatoshis === null">Minimum deposit unavailable.</template>
+                  <template v-else>Loading minimum deposit...</template>
+                </p>
+                <ProgressBar v-if="hasPendingInboundUtxos" :progress="channelProgress.progressPct" class="h-5" />
               </div>
             </div>
             <div v-else-if="isChoosingCosigner" class="min-h-48 px-5 py-4">
@@ -755,6 +755,7 @@ import {
 } from 'reka-ui';
 import { provideOverlayContentZIndex, useFloatingZIndex } from '../../overlays/helpers/OverlayZIndex.ts';
 import WalletGuideAnchor from './WalletGuideAnchor.vue';
+import WalletReceiveAddress from './WalletReceiveAddress.vue';
 import ButtonClose from './ButtonClose.vue';
 import InputToken from '../../components/InputToken.vue';
 import CountdownClock from '../../components/CountdownClock.vue';
@@ -786,10 +787,10 @@ import { getCurrency } from '../../stores/currency.ts';
 import InfoIcon from '../../assets/info.svg';
 import CopyIcon from '../../assets/copy.svg';
 import BackIcon from '../../assets/back.svg';
+import ClockIcon from '../../assets/clock.svg?component';
 import { getConfig } from '../../stores/config.ts';
 import { getMyVault, getVaults } from '../../stores/vaults.ts';
 import AlertIcon from '../../assets/alert.svg?component';
-import ClockIcon from '../../assets/clock.svg?component';
 import ProgressBar from '../../components/ProgressBar.vue';
 import {
   getBitcoinFissions,
@@ -1058,6 +1059,7 @@ const channelFundingAddress = Vue.computed(() => {
     return '';
   }
 });
+const minimumDepositSatoshis = Vue.ref<bigint | null>();
 
 async function requestTreasuryAccess() {
   emit('update:open', false);
@@ -1211,6 +1213,22 @@ Vue.watch(
     if (choices.some(({ vault }) => vault.vaultId.toString() === selectedVaultId.value)) return;
     selectedVaultId.value =
       props.vaultId != null || choices.length === 1 ? (choices[0]?.vault.vaultId.toString() ?? '') : '';
+  },
+  { immediate: true },
+);
+Vue.watch(
+  () => props.open,
+  async (open, _, onCleanup) => {
+    if (!open) return;
+    let cancelled = false;
+    onCleanup(() => (cancelled = true));
+    minimumDepositSatoshis.value = undefined;
+    try {
+      const minimum = await bitcoinLocks.minimumSatoshiPerLock();
+      if (!cancelled) minimumDepositSatoshis.value = minimum;
+    } catch {
+      if (!cancelled) minimumDepositSatoshis.value = null;
+    }
   },
   { immediate: true },
 );

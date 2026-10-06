@@ -50,7 +50,7 @@ import { deriveBitcoinLockHdKey, WalletKeys } from './WalletKeys.ts';
 import { TransactionInfo } from './TransactionInfo.ts';
 import { ExtrinsicType } from './db/TransactionsTable.ts';
 import { MyVault } from './MyVault.ts';
-import { BitcoinUtxoSpendStatus, type IBitcoinUtxoRecord } from './db/BitcoinUtxosTable.ts';
+import { BitcoinUtxoSpendStatus, BitcoinUtxoStatus, type IBitcoinUtxoRecord } from './db/BitcoinUtxosTable.ts';
 import type { IBitcoinFissionRecord } from '../interfaces/IBitcoinFissionRecord.ts';
 import type { IBitcoinLockProcessingDetails, IBitcoinLockSummary } from '../interfaces/IBitcoinLockSummary.ts';
 import { BitcoinLockRecovery, type IBitcoinHistoryReplayUnit } from './recovery/BitcoinLocks.ts';
@@ -522,9 +522,12 @@ export default class BitcoinLocks {
         }
       }
 
-      await this.utxoTracking.syncArgonOrphans(Object.values(this.locksByLockId), archiveClient).catch(error => {
+      try {
+        const finalizedApi = await this.blockWatch.getFinalizedApi();
+        await this.utxoTracking.syncArgonOrphans(Object.values(this.locksByLockId), finalizedApi);
+      } catch (error) {
         console.warn(`[BitcoinLocks] Unable to restore orphaned Bitcoin`, error);
-      });
+      }
       for (const lock of Object.values(this.locksByLockId)) {
         if (!this.isTerminalLock(lock)) {
           await this.checkForMissingBitcoinLockState(lock).catch(error => {
@@ -633,6 +636,27 @@ export default class BitcoinLocks {
     bitcoinFissions?: Pick<BitcoinFissions, 'publishRecoveredHistory'>,
   ): Promise<void> {
     const db = await this.dbPromise;
+    const storedUtxos = await db.bitcoinUtxosTable.fetchByLockId(unit.lockId);
+    const needsCurrentOrphans = unit.utxos.some(
+      recovered =>
+        recovered.status === BitcoinUtxoStatus.Orphaned &&
+        !storedUtxos.some(stored => stored.txid === recovered.txid && stored.vout === recovered.vout),
+    );
+    let availableOrphans: Set<string> | undefined;
+    if (needsCurrentOrphans) {
+      const lock =
+        unit.lock ?? this.locksByLockId[unit.lockId] ?? (await db.bitcoinLocksTable.getByLockId(unit.lockId));
+      if (!lock?.ownerAccount) throw new Error('Use Find Missing Data to restore the owner of this Bitcoin deposit.');
+      const client = await this.blockWatch.getFinalizedApi();
+      const entries = await client.query.bitcoinLocks.orphanedUtxosByAccount.entries(lock.ownerAccount);
+      if (!entries) throw new Error('Unable to check current Bitcoin deposits. Please retry Find Missing Data.');
+      availableOrphans = new Set();
+      for (const [key, orphan] of entries) {
+        if (orphan?.lockId !== unit.lockId) continue;
+        const { txid, outputIndex } = key.args[1];
+        availableOrphans.add(`${txid}:${outputIndex}`);
+      }
+    }
     const publication = await db.transaction(async transaction => {
       const utxos: IBitcoinUtxoRecord[] = [];
       const persistedUtxoIdByReplayId = new Map<number, number>();
@@ -642,6 +666,12 @@ export default class BitcoinLocks {
           recovered.txid,
           recovered.vout,
         );
+        if (!durable && recovered.status === BitcoinUtxoStatus.Orphaned) {
+          // History restores classification; only current finalized storage establishes availability.
+          if (!availableOrphans)
+            throw new Error('Unable to check current Bitcoin deposits. Please retry Find Missing Data.');
+          recovered.isOnArgonChain = availableOrphans.has(`${recovered.txid}:${recovered.vout}`);
+        }
         const persisted = durable
           ? this.utxoTracking.mergeRecovered(durable, recovered)
           : await transaction.bitcoinUtxosTable.insert(recovered);
@@ -804,11 +834,14 @@ export default class BitcoinLocks {
     }
 
     try {
+      const finalizedApi = await this.blockWatch.getFinalizedApi();
+      await this.utxoTracking.syncArgonOrphans(Object.values(this.locksByLockId), finalizedApi);
       for (const lock of Object.values(this.locksByLockId)) {
         if (this.isHistoryRecoveryPendingForLock(lock)) continue;
         if (this.isTerminalLock(lock)) {
           await this.runInQueueForLock(lock, () => this.releases.reconcileOrphanReleases(lock), {
             waitForHistoryRecovery: true,
+            allowOrphanRecovery: true,
           });
           continue;
         }
@@ -1503,11 +1536,13 @@ export default class BitcoinLocks {
       });
 
       const bitcoinTip = await clientAt.query.bitcoinUtxos.confirmedBitcoinBlockTip();
+      const currentApi = await this.blockWatch.getFinalizedApi();
       this.data.oracleBitcoinBlockHeight = Number(bitcoinTip?.blockHeight ?? 0n);
 
       const hasNewOracleBitcoinBlockHeight = archivedBitcoinBlockHeight !== this.data.oracleBitcoinBlockHeight;
       if (hasBitcoinStateEvent || hasNewOracleBitcoinBlockHeight) {
-        await this.utxoTracking.syncArgonOrphans(Object.values(this.locksByLockId), clientAt).catch(error => {
+        await this.utxoTracking.syncArgonOrphans(Object.values(this.locksByLockId), currentApi).catch(error => {
+          this.data.isReconciliationPending = true;
           console.warn('[BitcoinLocks] Unable to sync orphaned Bitcoin from current chain state', error);
         });
       }
@@ -1515,7 +1550,9 @@ export default class BitcoinLocks {
       const promises = Object.values(this.data.locksByLockId)
         .map(lockRecord => {
           if (this.isTerminalLock(lockRecord)) {
-            return undefined;
+            return this.runInQueueForLock(lockRecord, () => this.releases.reconcileOrphanReleases(lockRecord), {
+              skipActionAvailability: true,
+            });
           }
           if (lockRecord.status === BitcoinLockStatus.LockIsProcessingOnArgon) {
             // waiting for a utxo to be found
@@ -1579,7 +1616,7 @@ export default class BitcoinLocks {
                   );
                 });
               }
-              await this.syncPendingFundingSignals(lockRecord, clientAt).catch(err => {
+              await this.syncPendingFundingSignals(lockRecord, currentApi).catch(err => {
                 console.warn(`[BitcoinLocks] Error syncing funding signals for utxo ${lockRecord.uuid}`, err);
               });
 
