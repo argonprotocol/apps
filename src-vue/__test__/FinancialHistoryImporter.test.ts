@@ -484,7 +484,7 @@ describe('FinancialHistoryImporter', () => {
               asOfBlock: 100,
               domains: ['bitcoin'],
               domainCheckpoints: {
-                bitcoin: { asOfBlock: 100, definitionVersion: 1, recoveryVersion: 10 },
+                bitcoin: { asOfBlock: 100, definitionVersion: 1, recoveryVersion: 11 },
               },
             })),
             upsert: vi.fn(async () => undefined),
@@ -560,7 +560,7 @@ describe('FinancialHistoryImporter', () => {
                 bitcoin: {
                   asOfBlock: 100,
                   definitionVersion: ACCOUNT_ACTIVITY_DEFINITION_VERSION,
-                  recoveryVersion: 10,
+                  recoveryVersion: 11,
                 },
               },
             })),
@@ -607,7 +607,7 @@ describe('FinancialHistoryImporter', () => {
                 bitcoin: {
                   asOfBlock: 90,
                   definitionVersion: ACCOUNT_ACTIVITY_DEFINITION_VERSION,
-                  recoveryVersion: 10,
+                  recoveryVersion: 11,
                 },
               },
             })),
@@ -685,7 +685,7 @@ describe('FinancialHistoryImporter', () => {
           bitcoin: {
             asOfBlock: 100,
             definitionVersion: ACCOUNT_ACTIVITY_DEFINITION_VERSION,
-            recoveryVersion: 10,
+            recoveryVersion: 11,
           },
         },
       }),
@@ -887,10 +887,10 @@ describe('FinancialHistoryImporter', () => {
     expect(recoverBlock.mock.invocationCallOrder[0]).toBeLessThan(cancelHistoryReplay.mock.invocationCallOrder[0]);
   });
 
-  it('repairs Bitcoin histories saved before the migration reconstruction fix', async () => {
+  it('repairs completed Bitcoin histories saved before the migrated allocation fix', async () => {
+    const db = await createTestDb();
     const beginHistoryReplay = vi.fn();
     const recoverBlock = vi.fn(async () => undefined);
-    const upsert = vi.fn(async () => undefined);
     const prepareHistoryReplay = vi.fn(async () => emptyPreparedBitcoinHistory());
     const finishHistoryReplay = vi.fn();
     const cancelHistoryReplay = vi.fn();
@@ -912,25 +912,28 @@ describe('FinancialHistoryImporter', () => {
       coverage: { fromBlock: 0, toBlock: 100, gaps: [] },
     });
 
-    await restoreFinancialHistory({
-      db: {
-        syncStateTable: {
-          get: vi.fn(async () => ({
-            accountId: '5owner',
-            asOfBlock: 100,
-            definitionVersion: ACCOUNT_ACTIVITY_DEFINITION_VERSION,
-            domains: ['bitcoin'],
-            domainCheckpoints: {
-              bitcoin: {
-                asOfBlock: 100,
-                definitionVersion: ACCOUNT_ACTIVITY_DEFINITION_VERSION,
-                recoveryVersion: 9,
-              },
-            },
-          })),
-          upsert,
+    await db.syncStateTable.upsert(SyncStateKeys.FinancialHistory, {
+      accountId: '5owner',
+      asOfBlock: 100,
+      definitionVersion: ACCOUNT_ACTIVITY_DEFINITION_VERSION,
+      domains: ['bitcoin'],
+      domainCheckpoints: {
+        bitcoin: {
+          asOfBlock: 100,
+          definitionVersion: ACCOUNT_ACTIVITY_DEFINITION_VERSION,
+          recoveryVersion: 10,
         },
-      } as any,
+      },
+    });
+    const recovery = {
+      db,
+      accountId: '5owner',
+      enabledDomains: ['bitcoin'] as const,
+      recoverMissingCheckpointsFor: ['bitcoin'] as const,
+    };
+    await expect(needsFinancialHistoryRecovery(recovery)).resolves.toBe(true);
+    const result = await restoreFinancialHistory({
+      ...recovery,
       blockWatch: {
         finalizedBlockHeader: { blockNumber: 100 },
         withBackgroundArchiveRead,
@@ -938,7 +941,6 @@ describe('FinancialHistoryImporter', () => {
         getHeader: vi.fn(async () => ({ blockNumber: 80, blockHash: '0x80' })),
         getEventsWithSpec,
       } as any,
-      accountId: '5owner',
       argonBonds: {} as any,
       bitcoinLocks: {
         recovery: {
@@ -954,8 +956,6 @@ describe('FinancialHistoryImporter', () => {
         applyRecoveredHistory: vi.fn(async () => undefined),
       } as any,
       vaultHistory: {} as any,
-      enabledDomains: ['bitcoin'],
-      recoverMissingCheckpointsFor: ['bitcoin'],
       minimumAsOfBlock: 100,
       onActiveBitcoinLocksFound,
       onProgress,
@@ -967,20 +967,19 @@ describe('FinancialHistoryImporter', () => {
       activityMask: AccountActivityKind.BitcoinLock | AccountActivityKind.BitcoinMint,
     });
     expect(recoverBlock).toHaveBeenCalledOnce();
-    expect(upsert).toHaveBeenCalledWith(
-      SyncStateKeys.FinancialHistory,
-      expect.objectContaining({
-        asOfBlock: 100,
-        recoveryVersions: { bitcoin: 10 },
-        domainCheckpoints: {
-          bitcoin: {
-            asOfBlock: 100,
-            definitionVersion: ACCOUNT_ACTIVITY_DEFINITION_VERSION,
-            recoveryVersion: 10,
-          },
+    expect(result).toEqual({ importedBlockCount: 1, asOfBlock: 100, targetBlock: 100 });
+    expect(await db.syncStateTable.get(SyncStateKeys.FinancialHistory)).toMatchObject({
+      asOfBlock: 100,
+      recoveryVersions: { bitcoin: 11 },
+      domainCheckpoints: {
+        bitcoin: {
+          asOfBlock: 100,
+          definitionVersion: ACCOUNT_ACTIVITY_DEFINITION_VERSION,
+          recoveryVersion: 11,
         },
-      }),
-    );
+      },
+    });
+    await expect(needsFinancialHistoryRecovery(recovery)).resolves.toBe(false);
     expect(beginHistoryReplay).toHaveBeenCalledOnce();
     expect(beginHistoryReplay).toHaveBeenCalledWith({ lockScope: 'all', purpose: 'financial-backfill' });
     expect(prepareHistoryReplay).toHaveBeenCalledOnce();
@@ -997,7 +996,7 @@ describe('FinancialHistoryImporter', () => {
       vi.mocked(findAddressActivity).mock.invocationCallOrder[0],
     );
     expect(recoverBlock.mock.invocationCallOrder[0]).toBeLessThan(prepareHistoryReplay.mock.invocationCallOrder[0]);
-    expect(finishHistoryReplay.mock.invocationCallOrder[0]).toBeLessThan(upsert.mock.invocationCallOrder[0]);
+    await db.close();
   });
 
   it('does not let another account checkpoint hide missing active bond history', async () => {

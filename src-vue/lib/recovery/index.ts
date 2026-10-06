@@ -97,7 +97,7 @@ const earliestSupportedSpecVersions: Record<IFinancialHistoryDomain, number> = {
   vaulting: 116,
 };
 const historyRecoveryVersions: Partial<Record<IFinancialHistoryDomain, number>> = {
-  bitcoin: 10,
+  bitcoin: 11,
   bonds: 2,
 };
 
