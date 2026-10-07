@@ -1,5 +1,5 @@
 import * as Vue from 'vue';
-import { TxResult, type ArgonClient } from '@argonprotocol/apps-core';
+import { TxResult } from '@argonprotocol/apps-core';
 
 import { describe, expect, it, vi } from 'vitest';
 import { getActiveTransactionInfos, trackTransactionProgress } from '../lib/TransactionProgress.ts';
@@ -84,7 +84,7 @@ describe('TransactionProgress', () => {
 
   it('does not complete a transaction until its post-processing has finished', async () => {
     const createdAt = new Date('2026-08-28T12:00:00Z');
-    const txResult = new TxResult({} as ArgonClient, {
+    const txResult = new TxResult({
       signedHash: '0x09',
       method: {},
       submittedTime: createdAt,

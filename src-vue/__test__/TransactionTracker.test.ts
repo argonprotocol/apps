@@ -1,5 +1,7 @@
 import { TransactionEvents, type ArgonClient, type BlockWatch, MoveToken } from '@argonprotocol/apps-core';
 import { ExtrinsicError, getOfflineRegistry } from '@argonprotocol/mainchain';
+import { SubmittableResult } from '@polkadot/api/submittable/Result';
+import type { ISubmittableResult } from '@polkadot/types/types';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { numberCodec } from '../../core/__test__/helpers/codecs.ts';
 import { TxAttemptState, TransactionTracker } from '../lib/TransactionTracker.ts';
@@ -1412,11 +1414,21 @@ describe('TransactionTracker', () => {
         },
       },
     };
+    const registry = getOfflineRegistry();
+    const finalizedHash = registry.createType('Hash', `0x${'12'.repeat(32)}`);
     const signedTx = {
       hash: { toHex: () => '0xsubmitted' },
       method: { toHuman: () => ({ section: 'proxy', method: 'addProxy' }) },
       nonce: numberCodec(4),
-      send: vi.fn(async () => undefined),
+      send: vi.fn(async (callback: (result: ISubmittableResult) => void) => {
+        callback(
+          new SubmittableResult({
+            status: registry.createType('ExtrinsicStatus', { Finalized: finalizedHash }),
+            txHash: registry.createType('Hash', `0x${'34'.repeat(32)}`),
+            txIndex: 0,
+          }),
+        );
+      }),
     };
     const tx = {
       signAsync: vi.fn().mockResolvedValue(signedTx),
@@ -1431,8 +1443,9 @@ describe('TransactionTracker', () => {
     });
 
     expect(getMainchainClient).not.toHaveBeenCalled();
-    expect(client.rpc.chain.getHeader).toHaveBeenCalledOnce();
-    expect((txInfo.txResult as unknown as { client: unknown }).client).toBe(client);
+    await expect(txInfo.txResult.waitForFinalizedBlock).resolves.toEqual(Uint8Array.from(finalizedHash));
+    expect(txInfo.txResult.blockNumber).toBe(126);
+    expect(txInfo.tx.submittedAtBlockHeight).toBe(126);
   });
 
   it('submits and tracks on the preferred client when it changes after transaction construction', async () => {

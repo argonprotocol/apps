@@ -84,7 +84,6 @@ export class TxResult {
   protected inBlockReject!: (error: ExtrinsicError | Error) => void;
 
   constructor(
-    protected readonly client: ArgonClient,
     public extrinsic: {
       signedHash: string;
       method: any;
@@ -107,7 +106,7 @@ export class TxResult {
     this.waitForInFirstBlock.catch(() => null);
   }
 
-  public async setSeenInBlock(block: IBlockInclusion): Promise<void> {
+  public async setSeenInBlock(client: ArgonClient, block: IBlockInclusion): Promise<void> {
     if (block.blockNumber === undefined) {
       this.pendingInBlock = {
         blockHash: block.blockHash,
@@ -128,7 +127,7 @@ export class TxResult {
     }
 
     this.pendingInBlock = undefined;
-    this.parseEvents(block.events);
+    this.parseEvents(client, block.events);
     this.blockHash = block.blockHash;
     this.blockNumber = block.blockNumber;
     this.extrinsicIndex = block.extrinsicIndex;
@@ -140,16 +139,16 @@ export class TxResult {
     }
   }
 
-  public async setFinalized() {
+  public async setFinalized(client: ArgonClient) {
     const pendingInBlock = this.pendingInBlock;
     if (pendingInBlock) {
-      await this.publishSeenInBlock(pendingInBlock);
+      await this.publishSeenInBlock(client, pendingInBlock);
     } else if (this.blockHash && this.blockNumber === undefined) {
       if (this.extrinsicIndex === undefined) {
         throw new Error('Cannot finalize transaction before extrinsic index is known');
       }
 
-      await this.publishSeenInBlock({
+      await this.publishSeenInBlock(client, {
         blockHash: this.blockHash,
         extrinsicIndex: this.extrinsicIndex,
         events: this.events,
@@ -173,7 +172,7 @@ export class TxResult {
     }
   }
 
-  public onSubscriptionResult(result: ISubmittableResult) {
+  public onSubscriptionResult(client: ArgonClient, result: ISubmittableResult) {
     const { events, status, isFinalized, txIndex } = result;
     const extrinsicEvents = events.map(x => x.event);
 
@@ -186,7 +185,7 @@ export class TxResult {
         const pendingInBlock = createPendingInBlock(Uint8Array.from(status.asInBlock), txIndex, extrinsicEvents);
         this.pendingInBlock = pendingInBlock;
 
-        void this.publishSeenInBlock(pendingInBlock).catch(error => {
+        void this.publishSeenInBlock(client, pendingInBlock).catch(error => {
           if (!isMissingBlockHeaderError(error)) {
             this.submissionError = error as Error;
           }
@@ -245,13 +244,13 @@ export class TxResult {
         return;
       }
 
-      void this.setFinalized().catch(error => {
+      void this.setFinalized(client).catch(error => {
         this.submissionError = error as Error;
       });
     }
   }
 
-  private async publishSeenInBlock(block: IPendingInBlock) {
+  private async publishSeenInBlock(client: ArgonClient, block: IPendingInBlock) {
     const pendingInBlock = this.pendingInBlock;
     if (
       !pendingInBlock ||
@@ -261,7 +260,7 @@ export class TxResult {
       return;
     }
 
-    const blockNumber = await this.client.rpc.chain.getHeader(block.blockHash).then(h => h.number.toNumber());
+    const blockNumber = await client.rpc.chain.getHeader(block.blockHash).then(h => h.number.toNumber());
 
     const currentPendingInBlock = this.pendingInBlock;
     if (
@@ -272,7 +271,7 @@ export class TxResult {
       return;
     }
 
-    await this.setSeenInBlock({
+    await this.setSeenInBlock(client, {
       ...block,
       blockNumber,
     });
@@ -293,7 +292,7 @@ export class TxResult {
     this.txProgressCallback?.(this.txProgress);
   }
 
-  private parseEvents(events: RuntimeEventInput[]) {
+  private parseEvents(client: ArgonClient, events: RuntimeEventInput[]) {
     const runtimeEvents = events.flatMap(event => toRuntimeEvent(event) ?? []);
     let encounteredError: RuntimeDispatchError | undefined;
     for (const event of runtimeEvents) {
@@ -309,7 +308,7 @@ export class TxResult {
     }
     if (encounteredError) {
       this.extrinsicError = runtimeDispatchErrorToExtrinsicError(
-        this.client,
+        client,
         encounteredError,
         this.batchInterruptedIndex,
         this.finalFee,

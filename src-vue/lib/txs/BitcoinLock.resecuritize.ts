@@ -35,6 +35,7 @@ export interface BitcoinLockResecuritizeInput {
   client?: ArgonClient;
   priceIndex?: PriceIndex;
   currentBitcoinHeight?: number;
+  currentCoverageMicrogons?: bigint;
   maximumFeeCreditMicrogons?: bigint;
 }
 
@@ -85,6 +86,7 @@ export class BitcoinLockResecuritize extends TransactionOperation<
       client: providedClient,
       priceIndex = this.currency.priceIndex,
       currentBitcoinHeight = this.bitcoinLocks.data.oracleBitcoinBlockHeight,
+      currentCoverageMicrogons = lock.securitizationCoverageMicrogons ?? 0n,
       maximumFeeCreditMicrogons,
     } = args;
     if (lock.lockId == null || !lock.scriptDetails) {
@@ -102,7 +104,7 @@ export class BitcoinLockResecuritize extends TransactionOperation<
     });
     const totalSecurityFee = BitcoinLock.calculateResecuritizationFee({
       vault,
-      currentCoverageMicrogons: lock.securitizationCoverageMicrogons ?? 0n,
+      currentCoverageMicrogons,
       replacementCoverageMicrogons,
       createdAtBitcoinHeight: lock.scriptDetails.createdAtHeight,
       vaultClaimBitcoinHeight: lock.scriptDetails.vaultClaimHeight,

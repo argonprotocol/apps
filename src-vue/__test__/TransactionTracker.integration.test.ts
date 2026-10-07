@@ -1,12 +1,15 @@
 import { integrationNetwork as sharedNetwork } from '@argonprotocol/apps-core/__test__/integration.setup.ts';
 import { Keyring, mnemonicGenerate } from '@argonprotocol/mainchain';
 import { teardown } from '@argonprotocol/testing';
-import { BlockWatch, JsonExt, MainchainClients, TransactionEvents } from '@argonprotocol/apps-core';
+import { BlockWatch, JsonExt, MainchainClients, TransactionEvents, TxSubmitter } from '@argonprotocol/apps-core';
 import { it, beforeAll, afterAll, afterEach, describe, expect, inject, vi } from 'vitest';
+import { reactive, ref } from 'vue';
+import { waitFor } from '@argonprotocol/apps-core/__test__/helpers/waitFor.ts';
 import { integrationAccountUri } from '@argonprotocol/apps-core/__test__/integrationNetwork.ts';
 import { createTestDb } from './helpers/db.ts';
 import { setMainchainClients } from '../stores/mainchain.ts';
 import { TransactionTracker } from '../lib/TransactionTracker.ts';
+import { trackTransactionProgress } from '../lib/TransactionProgress.ts';
 import { ExtrinsicType, TransactionStatus } from '../lib/db/TransactionsTable.ts';
 import { TransactionHistorySource, TransactionHistoryStatus } from '../lib/db/TransactionStatusHistoryTable.ts';
 
@@ -67,6 +70,67 @@ describe.skipIf(skipE2E).sequential('Transaction tracker tests', { timeout: 60e3
     expect(transactionTracker.data.txInfos).toHaveLength(1);
     // now cleared on reload
     expect(transactionTracker.pendingBlockTxInfosAtLoad).toHaveLength(0);
+  });
+
+  it('publishes a reconciled module failure through reactive state and preserves it after restart', async () => {
+    const client = await clients.get(false);
+    const db = await createTestDb();
+    const blockwatch = createTrackedBlockWatch();
+    const tracker = new TransactionTracker(Promise.resolve(db), blockwatch);
+    tracker.data = reactive(tracker.data) as TransactionTracker['data'];
+    const cleanupFns: (() => void)[] = [];
+
+    try {
+      await tracker.load();
+      const submitted = await new TxSubmitter(
+        client,
+        client.tx.bitcoinLocks.resecuritize(4_294_967_295, 1_000_000n, null),
+        alice,
+      ).submit({ useLatestNonce: true, disableAutomaticTxTracking: true });
+      await tracker.trackTxResult({ txResult: submitted, extrinsicType: ExtrinsicType.BitcoinResecuritize });
+      const txInfo = tracker.data.txInfos[0];
+      let observedError: Error | undefined;
+      const isSubmitting = ref(false);
+      const error = ref('');
+      trackTransactionProgress({
+        txInfos: [txInfo],
+        isSubmitting,
+        progressPct: ref(0),
+        progressLabel: ref(''),
+        error,
+        onError: transactionError => {
+          observedError = transactionError;
+        },
+        onCleanup: cleanupFn => cleanupFns.push(cleanupFn),
+      });
+      const stored = await waitFor(30_000, 'durable failed transaction inclusion', async () => {
+        const record = (await db.transactionsTable.fetchAll())[0];
+        return record.blockExtrinsicErrorJson ? record : undefined;
+      });
+
+      expect(txInfo.txResult.blockNumber).toBe(stored.blockHeight);
+      expect(txInfo.txResult.extrinsicError).toMatchObject({ errorCode: 'bitcoinLocks.LockNotFound' });
+      await expect(txInfo.txResult.waitForFinalizedBlock).rejects.toThrow(stored.blockExtrinsicErrorJson!.message);
+      await vi.waitFor(() => expect(observedError?.message).toBe(stored.blockExtrinsicErrorJson!.message));
+      expect(isSubmitting.value).toBe(false);
+      expect(error.value).toBe(stored.blockExtrinsicErrorJson!.message);
+      const finalized = (await db.transactionsTable.fetchAll())[0];
+      expect(finalized.isFinalized).toBe(true);
+      expect(finalized.blockHeight).toBe(txInfo.txResult.blockNumber);
+      await tracker.shutdown();
+
+      const restored = new TransactionTracker(Promise.resolve(db), createTrackedBlockWatch());
+      restored.data = reactive(restored.data) as TransactionTracker['data'];
+      await restored.load();
+      const restoredInfo = restored.data.txInfos[0];
+      expect(restoredInfo.getStatus()).toMatchObject({ isFinalized: true, error: { message: observedError!.message } });
+      await expect(restoredInfo.txResult.waitForFinalizedBlock).rejects.toThrow(observedError!.message);
+      await restored.shutdown();
+    } finally {
+      cleanupFns.forEach(cleanup => cleanup());
+      await tracker.shutdown();
+      await db.close();
+    }
   });
 
   it('should watch a transaction as it reaches a block', async () => {

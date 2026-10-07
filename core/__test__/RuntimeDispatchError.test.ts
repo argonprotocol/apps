@@ -57,7 +57,8 @@ it.each([
     const registry = getOfflineRegistry();
     const codec = registry.createType<SpRuntimeDispatchError>('SpRuntimeDispatchError', codecError);
     const decoded = runtimeDispatchErrorToExtrinsicError({ registry }, codec);
-    const txResult = new TxResult({ registry } as unknown as ArgonClient, {
+    const client = { registry } as unknown as ArgonClient;
+    const txResult = new TxResult({
       accountAddress: 'sender',
       signedHash: '0x01',
       nonce: 0,
@@ -65,7 +66,7 @@ it.each([
       submittedTime: new Date('2026-09-01T12:00:00Z'),
       submittedAtBlockNumber: 10,
     });
-    await txResult.setSeenInBlock({
+    await txResult.setSeenInBlock(client, {
       blockHash: Uint8Array.of(1),
       blockNumber: 11,
       extrinsicIndex: 0,
@@ -82,7 +83,7 @@ it.each([
         },
       ],
     });
-    await txResult.setFinalized();
+    await txResult.setFinalized(client);
 
     expect(decoded).toMatchObject({ errorCode, message });
     expect(txResult.extrinsicError).toMatchObject({
