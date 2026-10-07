@@ -2126,7 +2126,7 @@ describe('EthereumOutboundTransferTracker integration', { tags: ['no-argon-netwo
     });
   });
 
-  it('caps ARGN transfers to leave room for the tip, transaction fee, and minimum balance', async () => {
+  it('adds outbound costs to the requested amount and caps only at the available balance', async () => {
     getMainchainClientMock.mockResolvedValue(createMainchainClient());
 
     const tracker = new EthereumOutboundTransferTracker(
@@ -2139,17 +2139,19 @@ describe('EthereumOutboundTransferTracker integration', { tags: ['no-argon-netwo
 
     const ethereumWallet = new WalletForEthereum('0x0000000000000000000000000000000000000001');
     const availableAmount = 3_930_212_614n;
-    const amountToSpend = 100_000_000n;
-    const quote = await tracker.quoteTransferOutFromAmountToSpend({
-      amountToSpend,
+    const amount = 100_000_000n;
+    const quote = await tracker.quoteTransferOut({
+      amount,
+      availableAmount,
       moveToken: MoveToken.ARGN,
       sourceWalletType: WalletType.argon,
       ethereumWallet,
     });
     const senderDebit = (amount: bigint) => amount + (amount * 10n) / 10_000n + 2_070n;
-    expect(senderDebit(quote.amountToTransfer)).toBeLessThanOrEqual(amountToSpend);
-    expect(senderDebit(quote.amountToTransfer + 1n)).toBeGreaterThan(amountToSpend);
-    expect(quote.amountToTransfer).toBeLessThan(amountToSpend);
+    expect(quote.amountToTransfer).toBe(amount);
+    expect(quote.mintingAuthorityTip).toBe(100_000n);
+    expect(quote.transactionFeeMicrogons).toBe(2_070n);
+    expect(quote.amountToSpend).toBe(senderDebit(amount));
     await expect(
       tracker.startMove({
         moveToken: MoveToken.ARGN,
@@ -2160,26 +2162,29 @@ describe('EthereumOutboundTransferTracker integration', { tags: ['no-argon-netwo
       }),
     ).rejects.toThrow('network fee changed');
 
-    const argonotQuote = await tracker.quoteTransferOutFromAmountToSpend({
-      amountToSpend,
+    const argonotQuote = await tracker.quoteTransferOut({
+      amount,
+      availableAmount,
       moveToken: MoveToken.ARGNOT,
       sourceWalletType: WalletType.argon,
       ethereumWallet,
     });
-    expect(argonotQuote.amountToTransfer + argonotQuote.mintingAuthorityTip).toBeLessThanOrEqual(amountToSpend);
+    expect(argonotQuote.amountToTransfer).toBe(amount);
+    expect(argonotQuote.amountToSpend).toBe(amount + 100_000n);
     await expect(
       tracker.startMove({
         moveToken: MoveToken.ARGNOT,
         amount: argonotQuote.amountToTransfer,
-        amountToSpend,
+        amountToSpend: argonotQuote.amountToSpend,
         availableArgonAmount: 1_000n,
         sourceWalletType: WalletType.argon,
         ethereumWallet,
       }),
     ).rejects.toThrow('not have enough ARGN');
 
-    const maximumQuote = await tracker.quoteTransferOutFromAmountToSpend({
-      amountToSpend: availableAmount - 10_000n,
+    const maximumQuote = await tracker.quoteTransferOut({
+      amount: availableAmount,
+      availableAmount,
       moveToken: MoveToken.ARGN,
       sourceWalletType: WalletType.argon,
       ethereumWallet,
@@ -2199,8 +2204,9 @@ describe('EthereumOutboundTransferTracker integration', { tags: ['no-argon-netwo
       }),
     ).rejects.toThrow('network fee');
 
-    const maximumArgonotQuote = await tracker.quoteTransferOutFromAmountToSpend({
-      amountToSpend: 205293660000n - 10_000n,
+    const maximumArgonotQuote = await tracker.quoteTransferOut({
+      amount: 205293660000n,
+      availableAmount: 205293660000n,
       moveToken: MoveToken.ARGNOT,
       sourceWalletType: WalletType.argon,
       ethereumWallet,

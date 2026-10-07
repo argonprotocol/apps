@@ -218,11 +218,7 @@ import BitcoinReleases, { type IBitcoinSendRelease } from '../../lib/BitcoinRele
 import type { IEthereumMoveToken } from '../../lib/EthereumClient.ts';
 import type { IArgonWalletType } from '../../interfaces/IEthereumInboundTransferTracker.ts';
 import { WalletType } from '../../lib/Wallet.ts';
-import {
-  existentialDepositMicrogons,
-  existentialDepositMicronots,
-  type WalletForArgon,
-} from '../../lib/WalletForArgon.ts';
+import { existentialDepositMicrogons, type WalletForArgon } from '../../lib/WalletForArgon.ts';
 import type { WalletForBitcoin } from '../../lib/WalletForBitcoin.ts';
 import type { WalletForEthereum } from '../../lib/WalletForEthereum.ts';
 import { createNumeralHelpers } from '../../lib/numeral.ts';
@@ -268,10 +264,13 @@ const selectedMoveToken = Vue.ref<MoveToken>(MoveToken.ARGN);
 const destination = Vue.ref('');
 const destinationAddress = Vue.ref('');
 const maximumSpendableAmount = Vue.ref<bigint>();
-const outboundTransferAmount = Vue.ref<bigint>();
+const outboundQuote = Vue.ref<Awaited<ReturnType<typeof outboundTracker.quoteTransferOut>>>();
 const feeEstimateWei = Vue.ref<bigint>();
 const feeEstimateMicrogon = Vue.ref<bigint>();
-const feeEstimateMicronot = Vue.ref<bigint>();
+const feeEstimateMicronot = Vue.computed(() => {
+  if (selectedMoveToken.value !== MoveToken.ARGNOT) return;
+  return outboundQuote.value?.mintingAuthorityTip;
+});
 const directArgonFeeMicrogons = Vue.ref<bigint>();
 const bitcoinFeeEstimate = Vue.ref<{
   argonFee: bigint;
@@ -286,7 +285,7 @@ const bitcoinFeeRateOptions = Vue.ref<IOption[]>([
   { name: 'Slow = ~60 min', value: 'slow', sats: 3n },
 ]);
 const selectedBitcoinFeeRateKey = Vue.ref('medium');
-const feeEstimateError = Vue.ref('');
+const amountFeeEstimateError = Vue.ref('');
 const feeEstimateRetry = Vue.ref(0);
 const maximumTransferError = Vue.ref('');
 const submissionError = Vue.ref('');
@@ -427,6 +426,11 @@ const hasSufficientArgonFeeBalance = Vue.computed(() => {
     props.fromWallet.data.availableMicrogons >= feeEstimateMicrogon.value + existentialDepositMicrogons
   );
 });
+const feeEstimateError = Vue.computed(() => {
+  if (amountFeeEstimateError.value) return amountFeeEstimateError.value;
+  if (isOutboundTransfer.value) return maximumTransferError.value;
+  return '';
+});
 const showFeeError = Vue.computed(() => {
   if (!showFees.value || tokensToMove.value <= 0n || isEstimatingFees.value) return false;
   if (feeEstimateError.value) return true;
@@ -443,9 +447,11 @@ const destinationAddressError = Vue.computed(() => {
   if (!isDirectArgonTransfer.value || !address || isValidArgonAccountAddress(address)) return '';
   return 'Enter a valid Argon address.';
 });
-const formError = Vue.computed(
-  () => submissionError.value || maximumTransferError.value || bitcoinDestinationError.value,
-);
+const formError = Vue.computed(() => {
+  if (submissionError.value) return submissionError.value;
+  if (!isOutboundTransfer.value && maximumTransferError.value) return maximumTransferError.value;
+  return bitcoinDestinationError.value;
+});
 const hasValidDestination = Vue.computed(
   () =>
     !!selectedDestinationWallet.value &&
@@ -459,7 +465,7 @@ const isReady = Vue.computed(() => {
   if (isDirectArgonTransfer.value) return directArgonFeeMicrogons.value !== undefined;
   if (isBitcoinTransfer.value) return bitcoinFeeEstimate.value?.canAfford === true;
   if (isOutboundTransfer.value) {
-    if (!outboundTransferAmount.value || !hasSufficientArgonFeeBalance.value) return false;
+    if (!outboundQuote.value?.amountToTransfer || !hasSufficientArgonFeeBalance.value) return false;
   }
   if (showEthereumFees.value) return hasSufficientEthereumFeeBalance.value;
   return true;
@@ -529,7 +535,7 @@ Vue.watch(
   () => [tokensToMove.value, selectedMoveToken.value, destination.value, destinationAddress.value] as const,
   () => {
     submissionError.value = '';
-    outboundTransferAmount.value = undefined;
+    outboundQuote.value = undefined;
   },
 );
 Vue.watch(
@@ -540,6 +546,7 @@ Vue.watch(
       destinationAddress.value,
       availableAmount.value,
       props.fromWallet.data.availableMicrogons,
+      feeEstimateRetry.value,
     ] as const,
   async ([moveToken, _destination, address, available], _oldValues, onCleanup) => {
     maximumTransferError.value = '';
@@ -563,9 +570,20 @@ Vue.watch(
     isCalculatingMaximum.value = true;
     try {
       if (isEthereumWallet(destinationWallet)) {
-        const minimumBalance =
-          moveToken === MoveToken.ARGNOT ? existentialDepositMicronots : existentialDepositMicrogons;
-        maximumSpendableAmount.value = bigIntMax(available - minimumBalance, 0n);
+        const quote = await raceWithTimeout(
+          outboundTracker.quoteTransferOut({
+            amount: available,
+            availableAmount: available,
+            moveToken,
+            sourceWalletType: WalletType.argon,
+            ethereumWallet: destinationWallet,
+          }),
+          30_000,
+          () => {
+            throw new Error('Fee estimation timed out. Check your connection and try again.');
+          },
+        );
+        if (!cancelled) maximumSpendableAmount.value = quote.amountToTransfer;
       } else {
         const quote = await moveCapital.getExternalTransferQuote({
           destinationAddress: address,
@@ -580,9 +598,11 @@ Vue.watch(
         }
       }
     } catch (error) {
-      if (!cancelled)
-        maximumTransferError.value =
-          error instanceof Error ? error.message : 'Unable to calculate the maximum transfer.';
+      if (!cancelled) {
+        let errorMessage = 'Unable to calculate the maximum transfer.';
+        if (error instanceof Error) errorMessage = error.message;
+        maximumTransferError.value = errorMessage;
+      }
     } finally {
       if (!cancelled) isCalculatingMaximum.value = false;
     }
@@ -606,9 +626,11 @@ Vue.watch(
       destinationAddress.value,
       bitcoinFeeRatePerSatVb.value,
       feeEstimateRetry.value,
+      availableAmount.value,
     ] as const,
   async ([sliding, amount], _oldValues, onCleanup) => {
-    feeEstimateError.value = '';
+    amountFeeEstimateError.value = '';
+    outboundQuote.value = undefined;
     if (sliding) {
       isEstimatingFees.value = false;
       return;
@@ -617,7 +639,6 @@ Vue.watch(
     if (isBitcoinTransfer.value) {
       feeEstimateWei.value = undefined;
       feeEstimateMicrogon.value = undefined;
-      feeEstimateMicronot.value = undefined;
       bitcoinReleasePlan.value = [];
       bitcoinFeeEstimate.value = undefined;
       const channels = sendableBitcoinChannels.value;
@@ -690,7 +711,9 @@ Vue.watch(
         if (!cancelled) {
           bitcoinReleasePlan.value = [];
           bitcoinFeeEstimate.value = undefined;
-          feeEstimateError.value = error instanceof Error ? error.message : 'Unable to estimate the transfer fees.';
+          let errorMessage = 'Unable to estimate the transfer fees.';
+          if (error instanceof Error) errorMessage = error.message;
+          amountFeeEstimateError.value = errorMessage;
         }
       } finally {
         if (!cancelled) isEstimatingFees.value = false;
@@ -705,7 +728,6 @@ Vue.watch(
     if (isDirectArgonTransfer.value || amount <= 0n || !moveToken || !ethereumWallet) {
       feeEstimateWei.value = undefined;
       feeEstimateMicrogon.value = directArgonFeeMicrogons.value;
-      feeEstimateMicronot.value = undefined;
       isEstimatingFees.value = false;
       return;
     }
@@ -723,35 +745,43 @@ Vue.watch(
         if (!cancelled) {
           feeEstimateWei.value = estimate;
           feeEstimateMicrogon.value = undefined;
-          feeEstimateMicronot.value = undefined;
         }
       } else if (isArgonWallet(props.fromWallet) && isEthereumWallet(selectedDestinationWallet.value)) {
-        const quote = await outboundTracker.quoteTransferOutFromAmountToSpend({
-          amountToSpend: amount,
+        const quote = await outboundTracker.quoteTransferOut({
+          amount,
+          availableAmount: availableAmount.value,
           moveToken,
           sourceWalletType: WalletType.argon,
           ethereumWallet: selectedDestinationWallet.value,
         });
+        if (cancelled) return;
         if (quote.amountToTransfer <= 0n) throw new Error('Enter a larger amount to cover the transfer costs.');
+        if (quote.amountToTransfer !== amount) {
+          tokensToMove.value = quote.amountToTransfer;
+          return;
+        }
         const ethereumFeeRange = await outboundTracker.estimateFeeRangeWei({
           moveToken,
           amount: quote.amountToTransfer,
           ethereumWallet: selectedDestinationWallet.value,
         });
         if (!cancelled) {
-          outboundTransferAmount.value = quote.amountToTransfer;
+          let argonNetworkCost = quote.transactionFeeMicrogons;
+          if (moveToken === MoveToken.ARGN) {
+            argonNetworkCost += quote.mintingAuthorityTip;
+          }
+          outboundQuote.value = quote;
           feeEstimateWei.value = ethereumFeeRange?.[1];
-          feeEstimateMicrogon.value =
-            quote.transactionFeeMicrogons + (moveToken === MoveToken.ARGN ? quote.mintingAuthorityTip : 0n);
-          feeEstimateMicronot.value = moveToken === MoveToken.ARGNOT ? quote.mintingAuthorityTip : 0n;
+          feeEstimateMicrogon.value = argonNetworkCost;
         }
       }
     } catch (error) {
       if (!cancelled) {
         feeEstimateWei.value = undefined;
         feeEstimateMicrogon.value = undefined;
-        feeEstimateMicronot.value = undefined;
-        feeEstimateError.value = error instanceof Error ? error.message : 'Unable to estimate the transfer fees.';
+        let errorMessage = 'Unable to estimate the transfer fees.';
+        if (error instanceof Error) errorMessage = error.message;
+        amountFeeEstimateError.value = errorMessage;
       }
     } finally {
       if (!cancelled) isEstimatingFees.value = false;
@@ -797,7 +827,7 @@ defineExpose({
   destinationAddress,
   hasTokens,
   isReady,
-  outboundTransferAmount,
+  outboundQuote,
   selectedDestinationWallet,
   selectedMoveToken,
   setFormError,

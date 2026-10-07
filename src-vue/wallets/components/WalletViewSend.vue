@@ -223,8 +223,8 @@ async function initiateTransfer() {
 
   const ethereumWallet = selectedEthereumWallet.value;
   const moveToken = form?.selectedMoveToken;
-  const amount = form?.outboundTransferAmount;
-  const amountToSpend = form?.tokensToMove;
+  const amount = form?.outboundQuote?.amountToTransfer;
+  const amountToSpend = form?.outboundQuote?.amountToSpend;
   const availableAmount = form?.availableAmount;
   if (
     !ethereumWallet ||
