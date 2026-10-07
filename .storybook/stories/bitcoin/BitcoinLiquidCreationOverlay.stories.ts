@@ -465,6 +465,39 @@ export const TransactionFailed: Story = {
   },
 };
 
+export const TransactionRejected: Story = {
+  args: {
+    state: {
+      ...state,
+      stage: 'creating',
+      progressPct: 48,
+      errorMessage: 'The requested target-normalized BTC value is not present in recent price history.',
+    },
+  },
+};
+
+export const ExistingLiquidsPriceUnavailable: Story = {
+  args: {
+    state: {
+      ...state,
+      preview: undefined,
+      errorMessage:
+        'Existing Liquids need a Bitcoin price that is no longer available. Reduce the amount to Bitcoin already insured, or wait for an eligible price.',
+    },
+  },
+};
+
+export const InsufficientLiquidCoverage: Story = {
+  args: {
+    state: {
+      ...state,
+      preview: undefined,
+      errorMessage:
+        'This Bitcoin cannot cover the existing and selected Liquids at the current price. Reduce the amount or wait for an eligible price.',
+    },
+  },
+};
+
 export const CollectingArgons: Story = {
   args: {
     liquid: collectingLiquid,

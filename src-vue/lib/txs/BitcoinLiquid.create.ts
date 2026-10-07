@@ -1,6 +1,7 @@
 import {
   bigIntMax,
   bigIntMin,
+  bigNumberToBigInt,
   BitcoinFission,
   BitcoinLock,
   Currency,
@@ -14,6 +15,7 @@ import {
   type Vaults,
 } from '@argonprotocol/apps-core';
 import type { PriceIndex } from '@argonprotocol/mainchain';
+import type { BitcoinLocksLocksByIdResult } from '@argonprotocol/runtime-client';
 
 import BitcoinLocks, { BitcoinLockWalletFundingError } from '../BitcoinLocks.ts';
 import type { BitcoinFissions } from '../BitcoinFissions.ts';
@@ -61,6 +63,8 @@ export interface IBitcoinLiquidCreateFission {
 type CurrentAllocation = {
   input: BitcoinLiquidCreateAllocation;
   lock: BitcoinLock;
+  runtimeLock: NonNullable<BitcoinLocksLocksByIdResult>;
+  needsResecuritization: boolean;
   vault: Vault;
   maximumSatoshis: bigint;
   securitizedSatoshis: bigint;
@@ -200,15 +204,10 @@ export class BitcoinLiquidCreate extends TransactionOperation<
 
     try {
       for (const allocation of allocations) {
-        const { input, lock: currentLock, vault, securitizedSatoshis, totalSecurityFee } = allocation;
+        const { input, lock: currentLock, runtimeLock, vault, securitizedSatoshis, totalSecurityFee } = allocation;
         const { lock, operatorCoupon } = input;
         await table.updateFromCurrentLock(lock, currentLock);
-        if (
-          securitizedSatoshis === currentLock.securitizedSatoshis &&
-          allocation.microgonsAtTargetPerBtc === currentLock.microgonsAtTargetPerBtc
-        ) {
-          continue;
-        }
+        if (!allocation.needsResecuritization) continue;
 
         const availableFeeCredit = operatorCoupon
           ? (remainingFeeCreditByCouponId.get(operatorCoupon.coupon.id) ?? 0n)
@@ -227,6 +226,7 @@ export class BitcoinLiquidCreate extends TransactionOperation<
           client,
           priceIndex,
           currentBitcoinHeight,
+          currentCoverageMicrogons: runtimeLock.securitizationCoverageMicrogons,
           maximumFeeCreditMicrogons: feeCreditMicrogons,
         });
         resecuritizationTxs.push(prepared.tx);
@@ -391,20 +391,23 @@ export class BitcoinLiquidCreate extends TransactionOperation<
       });
     }
     const lockIds = allocations.map(({ lock }) => lock.lockId).filter((lockId): lockId is number => lockId != null);
-    const [currentLocks, releaseRequests, bitcoinTip, nextFissionId, eligibleRates] = await Promise.all([
-      BitcoinLock.getMany(snapshotClient, lockIds),
+    const [runtimeLocks, releaseRequests, bitcoinTip, nextFissionId, eligibleRates] = await Promise.all([
+      snapshotClient.query.bitcoinLocks.locksById.multi(lockIds),
       Promise.all(lockIds.map(lockId => BitcoinLock.getReleaseRequest(snapshotClient, lockId))),
       snapshotClient.query.bitcoinUtxos.confirmedBitcoinBlockTip(),
       BitcoinFission.nextId(snapshotClient, txSigner.address),
       snapshotClient.query.bitcoinLocks.microgonPerBtcHistory(),
     ]);
-    const eligibleRate = eligibleRates?.at(-1);
-    if (!eligibleRate) {
+    if (!eligibleRates?.length) {
       throw new BitcoinLiquidCreateStateChangedError('Network Bitcoin pricing is currently unavailable.');
     }
-    const [microgonsAtTargetPerBtcTick, microgonsAtTargetPerBtc] = eligibleRate;
+    const [microgonsAtTargetPerBtcTick, microgonsAtTargetPerBtc] = eligibleRates.at(-1)!;
+    const currentLocks = runtimeLocks ?? [];
+    const currentFissions = currentLocks.some(lock => lock && lock.fissionedSatoshis > 0n)
+      ? await BitcoinFission.getAllByOwner(snapshotClient, txSigner.address)
+      : [];
     const currentBitcoinHeight = bitcoinTip?.blockHeight ?? 0;
-    const remainingCoverageByVaultId = new Map<number, bigint>();
+    const remainingCapacityByVaultId = new Map<number, Vault>();
     const maximumSatoshisByLockId: Record<number, bigint> = {};
     const currentAllocations: CurrentAllocation[] = [];
     let capacityChanged = false;
@@ -412,10 +415,11 @@ export class BitcoinLiquidCreate extends TransactionOperation<
     for (const [index, input] of allocations.entries()) {
       const { lock: localLock, satoshis } = input;
       const lockId = localLock.lockId;
-      const lock = currentLocks[index];
-      if (lockId == null || !lock) {
+      const runtimeLock = currentLocks[index];
+      if (lockId == null || !runtimeLock) {
         throw new BitcoinLiquidCreateStateChangedError('Some of this Bitcoin is no longer available on Argon.');
       }
+      const lock = BitcoinLock.fromRuntime(lockId, runtimeLock);
       if (lock.ownerAccount !== txSigner.address) {
         throw new Error(`Bitcoin Lock #${lockId} belongs to a different account.`);
       }
@@ -430,37 +434,144 @@ export class BitcoinLiquidCreate extends TransactionOperation<
         throw new BitcoinLiquidCreateStateChangedError(`The vault for Bitcoin Lock #${lockId} is unavailable.`);
       }
       this.vaults.vaultsById[vault.vaultId] = vault;
-      const remainingCoverage =
-        remainingCoverageByVaultId.get(vault.vaultId) ?? vault.availableBitcoinSpace(txSigner.address);
-      const lockRate = bigIntMax(lock.microgonsAtTargetPerBtc, microgonsAtTargetPerBtc);
-      const maximumSatoshis = this.getMaximumSatoshis(lock, priceIndex, lockRate, remainingCoverage);
+      // Native replacement unwinds the old insurance before purchasing its replacement.
+      // Keep the batch projection separate from the published Vault snapshot.
+      const remainingCapacity = Object.assign(
+        Object.create(Vault.prototype) as Vault,
+        remainingCapacityByVaultId.get(vault.vaultId) ?? vault,
+      );
+      const currentCollateral = bigNumberToBigInt(
+        runtimeLock.securitizationRatio.multipliedBy(runtimeLock.securitizationCoverageMicrogons),
+      );
+      remainingCapacity.securitizationLocked -= currentCollateral;
+      if (lock.isFlexible) {
+        remainingCapacity.flexibleSecuritizationLocked -= bigNumberToBigInt(
+          runtimeLock.securitizationRatio.multipliedBy(lock.securitizationCoverageMicrogons),
+        );
+      }
+      const availableCollateral = lock.isFlexible
+        ? bigIntMax(remainingCapacity.securitization - remainingCapacity.securitizationLocked, 0n)
+        : remainingCapacity.availableSecuritizationSpace(txSigner.address);
+
+      const lockFissions = currentFissions.filter(fission => fission.lockId === lockId);
+      let existingLiquidityPromised = 0n;
+      let requiredRate = microgonsAtTargetPerBtc;
+      let requiredTick = lock.securitizationTick;
+      for (const fission of lockFissions) {
+        existingLiquidityPromised += fission.liquidityPromised;
+        requiredRate = bigIntMax(requiredRate, fission.microgonsAtTargetPerBtc);
+        requiredTick = Math.max(requiredTick, fission.lastRatchetTick ?? 0);
+      }
+
+      const requiredLiquidity =
+        existingLiquidityPromised +
+        BitcoinLock.calculateLiquidityPromised({
+          priceIndex,
+          satoshis,
+          microgonsAtTargetPerBtc,
+        });
+      const securitizedSatoshis = bigIntMax(lock.securitizedSatoshis, lock.fissionedSatoshis + satoshis);
+      const increasesSatoshis = securitizedSatoshis > lock.securitizedSatoshis;
+      const increasesRate = microgonsAtTargetPerBtc > lock.microgonsAtTargetPerBtc;
+      const exceedsCoverage = requiredLiquidity > lock.securitizationCoverageMicrogons;
+      const needsResecuritization = increasesSatoshis || increasesRate || exceedsCoverage;
+
+      const capacityInput = {
+        lock,
+        runtimeLock,
+        priceIndex,
+        existingLiquidityPromised,
+        availableCollateral,
+        allocationRate: microgonsAtTargetPerBtc,
+      };
+      let lockRate = lock.microgonsAtTargetPerBtc;
+      if (needsResecuritization) {
+        const compatibleRates = eligibleRates.filter(([tick, rate]) => {
+          if (tick < requiredTick) return false;
+          return rate >= requiredRate;
+        });
+        if (!compatibleRates.length) {
+          throw new BitcoinLiquidCreateStateChangedError(
+            'Existing Liquids need a Bitcoin price that is no longer available. Reduce the amount to Bitcoin already insured, or wait for an eligible price.',
+          );
+        }
+
+        const coverageRates = compatibleRates.filter(([, rate]) => {
+          const sameSatoshis = securitizedSatoshis === runtimeLock.securitizationBasis.satoshis;
+          if (sameSatoshis && rate === runtimeLock.securitizationBasis.microgonsAtTargetPerBtc) return false;
+
+          const replacementCoverage = BitcoinLock.calculateLiquidityPromised({
+            priceIndex,
+            satoshis: securitizedSatoshis,
+            microgonsAtTargetPerBtc: rate,
+          });
+          return replacementCoverage >= requiredLiquidity;
+        });
+        if (!coverageRates.length) {
+          throw new BitcoinLiquidCreateStateChangedError(
+            'This Bitcoin cannot cover the existing and selected Liquids at the current price. Reduce the amount or wait for an eligible price.',
+          );
+        }
+
+        const affordableRates = coverageRates.filter(([, rate]) => {
+          const maximumSatoshis = this.getMaximumAffordableSatoshis({ ...capacityInput, replacementRate: rate });
+          return maximumSatoshis >= satoshis;
+        });
+        let selectableRates = coverageRates;
+        if (affordableRates.length) {
+          selectableRates = affordableRates;
+        }
+
+        const existingRate = selectableRates.findLast(([, rate]) => rate === lock.microgonsAtTargetPerBtc);
+        const replacementRate = existingRate ?? selectableRates.at(-1)!;
+        lockRate = replacementRate[1];
+      }
+
+      const eligibleReplacement = eligibleRates.some(([tick, rate]) => {
+        if (tick < requiredTick || rate < requiredRate) return false;
+        return rate === lockRate;
+      });
+      const maximumSatoshis = this.getMaximumAffordableSatoshis({
+        ...capacityInput,
+        replacementRate: eligibleReplacement ? lockRate : undefined,
+      });
       maximumSatoshisByLockId[lockId] = maximumSatoshis;
       if (satoshis > maximumSatoshis) {
         capacityChanged = true;
       }
 
       const acceptedSatoshis = bigIntMin(satoshis, maximumSatoshis);
-      const securitizedSatoshis = bigIntMax(lock.securitizedSatoshis, lock.fissionedSatoshis + acceptedSatoshis);
-      const replacementCoverageMicrogons = BitcoinLock.calculateLiquidityPromised({
-        priceIndex,
-        satoshis: securitizedSatoshis,
-        microgonsAtTargetPerBtc: lockRate,
-      });
-      const additionalCoverageMicrogons = bigIntMax(
-        replacementCoverageMicrogons - lock.securitizationCoverageMicrogons,
-        0n,
+      const acceptedSecuritizedSatoshis = bigIntMax(
+        lock.securitizedSatoshis,
+        lock.fissionedSatoshis + acceptedSatoshis,
       );
-      remainingCoverageByVaultId.set(vault.vaultId, remainingCoverage - additionalCoverageMicrogons);
+      const replacementCoverageMicrogons = needsResecuritization
+        ? BitcoinLock.calculateLiquidityPromised({
+            priceIndex,
+            satoshis: acceptedSecuritizedSatoshis,
+            microgonsAtTargetPerBtc: lockRate,
+          })
+        : runtimeLock.securitizationCoverageMicrogons;
+      if (needsResecuritization) {
+        const replacementCollateral = bigNumberToBigInt(
+          runtimeLock.securitizationRatio.multipliedBy(replacementCoverageMicrogons),
+        );
+        remainingCapacity.securitizationLocked += replacementCollateral;
+        if (lock.isFlexible) remainingCapacity.flexibleSecuritizationLocked += replacementCollateral;
+        remainingCapacityByVaultId.set(vault.vaultId, remainingCapacity);
+      }
       currentAllocations.push({
         input: { ...input, satoshis: acceptedSatoshis },
         lock,
+        runtimeLock,
+        needsResecuritization,
         vault,
         maximumSatoshis,
-        securitizedSatoshis,
+        securitizedSatoshis: acceptedSecuritizedSatoshis,
         microgonsAtTargetPerBtc: lockRate,
         totalSecurityFee: BitcoinLock.calculateResecuritizationFee({
           vault,
-          currentCoverageMicrogons: lock.securitizationCoverageMicrogons,
+          currentCoverageMicrogons: runtimeLock.securitizationCoverageMicrogons,
           replacementCoverageMicrogons,
           createdAtBitcoinHeight: lock.createdAtHeight,
           vaultClaimBitcoinHeight: lock.vaultClaimHeight,
@@ -488,32 +599,62 @@ export class BitcoinLiquidCreate extends TransactionOperation<
     };
   }
 
-  private getMaximumSatoshis(
-    lock: BitcoinLock,
-    priceIndex: PriceIndex,
-    microgonsAtTargetPerBtc: bigint,
-    availableCoverageMicrogons: bigint,
+  private getMaximumAffordableSatoshis(
+    args: Pick<CurrentAllocation, 'lock' | 'runtimeLock'> & {
+      priceIndex: PriceIndex;
+      allocationRate: bigint;
+      replacementRate?: bigint;
+      existingLiquidityPromised: bigint;
+      availableCollateral: bigint;
+    },
   ): bigint {
+    const {
+      lock,
+      runtimeLock,
+      priceIndex,
+      allocationRate,
+      replacementRate,
+      existingLiquidityPromised,
+      availableCollateral,
+    } = args;
     const availableSatoshis = bigIntMax(lock.fundedSatoshis - lock.fissionedSatoshis, 0n);
-    const canSecuritize = (allocationSatoshis: bigint) => {
-      const securitizedSatoshis = bigIntMax(lock.securitizedSatoshis, lock.fissionedSatoshis + allocationSatoshis);
+    const findMaximum = (canUse: (satoshis: bigint) => boolean) => {
+      if (canUse(availableSatoshis)) return availableSatoshis;
+      let lower = 0n;
+      let upper = availableSatoshis;
+      while (lower + 1n < upper) {
+        const middle = (lower + upper) / 2n;
+        if (canUse(middle)) lower = middle;
+        else upper = middle;
+      }
+      return lower;
+    };
+    const retainedMaximum = findMaximum(satoshis => {
+      if (lock.fissionedSatoshis + satoshis > lock.securitizedSatoshis) return false;
+      if (allocationRate > lock.microgonsAtTargetPerBtc) return false;
+      const requiredLiquidity =
+        existingLiquidityPromised +
+        BitcoinLock.calculateLiquidityPromised({
+          priceIndex,
+          satoshis,
+          microgonsAtTargetPerBtc: allocationRate,
+        });
+      return requiredLiquidity <= lock.securitizationCoverageMicrogons;
+    });
+    if (replacementRate === undefined) return retainedMaximum;
+
+    // The selected allocation already passed its basis, rate and liability checks.
+    // This upper bound measures affordability; other allocations must be quoted again.
+    const replacementMaximum = findMaximum(satoshis => {
       const coverage = BitcoinLock.calculateLiquidityPromised({
         priceIndex,
-        satoshis: securitizedSatoshis,
-        microgonsAtTargetPerBtc,
+        satoshis: bigIntMax(lock.securitizedSatoshis, lock.fissionedSatoshis + satoshis),
+        microgonsAtTargetPerBtc: replacementRate,
       });
-      return bigIntMax(coverage - lock.securitizationCoverageMicrogons, 0n) <= availableCoverageMicrogons;
-    };
-    if (canSecuritize(availableSatoshis)) return availableSatoshis;
-
-    let lower = 0n;
-    let upper = availableSatoshis;
-    while (lower + 1n < upper) {
-      const middle = (lower + upper) / 2n;
-      if (canSecuritize(middle)) lower = middle;
-      else upper = middle;
-    }
-    return lower;
+      const collateral = bigNumberToBigInt(runtimeLock.securitizationRatio.multipliedBy(coverage));
+      return collateral <= availableCollateral;
+    });
+    return bigIntMax(retainedMaximum, replacementMaximum);
   }
 
   private getAvailableFeeCreditByCouponId(allocations: CurrentAllocation[]): Map<number, bigint> {

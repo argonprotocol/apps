@@ -229,9 +229,9 @@ export class BitcoinLocksTable extends BaseTable {
       `UPDATE BitcoinLocks SET
         status = ?, lockId = COALESCE(lockId, ?), securitizedSatoshis = ?, fundedSatoshis = ?,
         fundingUtxoIds = ?, activeReleaseId = ?, ownerAccount = ?,
-        microgonsAtTargetPerBtc = COALESCE(microgonsAtTargetPerBtc, ?),
-        securitizationCoverageMicrogons = COALESCE(securitizationCoverageMicrogons, ?),
-        securitizationTick = COALESCE(securitizationTick, ?),
+        microgonsAtTargetPerBtc = COALESCE(?, microgonsAtTargetPerBtc),
+        securitizationCoverageMicrogons = COALESCE(?, securitizationCoverageMicrogons),
+        securitizationTick = COALESCE(?, securitizationTick),
         fissionedSatoshis = COALESCE(fissionedSatoshis, ?), securitizationRatio = ?, securityFees = ?,
         couponFeesPaid = ?, scriptDetails = ?, securitizationHoldExpirationBitcoinHeight = ?, isFlexible = ?,
         fundHoldExtensionsByBitcoinExpirationHeight = ?, createdAtArgonBlock = ?,

@@ -4,6 +4,7 @@ import {
   BitcoinFission,
   BitcoinLock,
   type ArgonApi,
+  type IBitcoinLock,
   type IBitcoinLockDetails,
   type IBitcoinLockFundingUtxo,
 } from '@argonprotocol/apps-core';
@@ -13,12 +14,12 @@ type HistoricalBitcoinLock = NonNullable<HistoricalQueryRecord<'bitcoinLocks', '
 // Historical runtimes through spec 158 enforced this window without exposing it as a constant.
 const LEGACY_PENDING_CONFIRMATION_BLOCKS = 144;
 
-export type IHistoricalBitcoinLock = Omit<IBitcoinLockDetails, 'lockId' | 'fundingUtxos'> & {
-  utxoId: number;
-  lockedTargetPrice: bigint;
-  liquidityPromised: bigint;
-  securitizationCoverageMicrogons?: bigint;
-};
+export type IHistoricalBitcoinLock = Omit<IBitcoinLockDetails, 'lockId' | 'fundingUtxos'> &
+  Partial<Pick<IBitcoinLock, 'microgonsAtTargetPerBtc' | 'securitizationCoverageMicrogons' | 'securitizationTick'>> & {
+    utxoId: number;
+    lockedTargetPrice: bigint;
+    liquidityPromised: bigint;
+  };
 
 export interface IHistoricalBitcoinReleaseRequest {
   releaseNumber?: number;

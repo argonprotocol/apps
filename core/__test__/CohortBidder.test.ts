@@ -1015,13 +1015,13 @@ describe('CohortBidder unit tests', () => {
     // @ts-expect-error exercising private mortality fallback behavior
     cohortBidder.startBidMortalityFallback(txResult, deathBlock);
     const found = createFoundTransaction(includedBlock);
-    await txResult.setSeenInBlock({
+    await txResult.setSeenInBlock(accountset.client, {
       blockHash: Uint8Array.from({ length: 32 }, () => 1),
       blockNumber: found.blockNumber,
       events: found.extrinsicEvents,
       extrinsicIndex: found.extrinsicIndex,
     });
-    await txResult.setFinalized();
+    await txResult.setFinalized(accountset.client);
 
     const deathHeader = createBlockHeader(deathBlock, `0x${'08'.repeat(32)}`);
     Object.assign(blockWatch, { bestBlockHeader: deathHeader });
@@ -1088,7 +1088,7 @@ describe('CohortBidder unit tests', () => {
 
     // @ts-expect-error exercising private mortality fallback behavior
     cohortBidder.startBidMortalityFallback(txResult, deathBlock);
-    await txResult.setSeenInBlock({
+    await txResult.setSeenInBlock(accountset.client, {
       blockHash: Uint8Array.from({ length: 32 }, () => 1),
       blockNumber: found.blockNumber,
       events: found.extrinsicEvents,
@@ -1230,7 +1230,7 @@ describe('CohortBidder unit tests', () => {
       tip: 0n,
     };
 
-    const txResult = new TxResult({} as ArgonClient, {
+    const txResult = new TxResult({
       signedHash: `0x${'ff'.repeat(32)}`,
       method: {},
       submittedTime: new Date(),
@@ -1359,7 +1359,7 @@ function createBidRecoveryHarness(accountset: Accountset, args: { latestBlockNum
       bidDelay: 1,
     },
   );
-  const txResult = new TxResult({} as ArgonClient, {
+  const txResult = new TxResult({
     signedHash: `0x${'ff'.repeat(32)}`,
     method: {},
     submittedTime: new Date(),

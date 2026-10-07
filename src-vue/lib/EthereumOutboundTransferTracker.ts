@@ -330,37 +330,55 @@ export class EthereumOutboundTransferTracker {
     };
   }
 
-  public async quoteTransferOutFromAmountToSpend(args: {
-    amountToSpend: bigint;
+  public async quoteTransferOut(args: {
+    amount: bigint;
+    availableAmount: bigint;
     moveToken: MoveToken.ARGN | MoveToken.ARGNOT;
     sourceWalletType: IArgonWalletType;
     ethereumWallet: WalletForEthereum;
-  }): Promise<{ amountToTransfer: bigint; transactionFeeMicrogons: bigint; mintingAuthorityTip: bigint }> {
-    const { amountToSpend, moveToken, sourceWalletType, ethereumWallet } = args;
-    if (amountToSpend <= 0n) {
-      return { amountToTransfer: 0n, transactionFeeMicrogons: 0n, mintingAuthorityTip: 0n };
+  }): Promise<{
+    amountToTransfer: bigint;
+    amountToSpend: bigint;
+    transactionFeeMicrogons: bigint;
+    mintingAuthorityTip: bigint;
+  }> {
+    const { amount, availableAmount, moveToken, sourceWalletType, ethereumWallet } = args;
+    if (amount <= 0n) {
+      return { amountToTransfer: 0n, amountToSpend: 0n, transactionFeeMicrogons: 0n, mintingAuthorityTip: 0n };
     }
 
     const client = await getMainchainClient(false);
     const transaction = this.createTransferOutTransaction(client, {
       moveToken,
       destinationAddress: ethereumWallet.address,
-      amount: amountToSpend,
+      amount,
     });
     const fee = await transaction.paymentInfo(this.walletKeys.getWalletAddress(sourceWalletType));
     const transactionFeeMicrogons = fee.partialFee.toBigInt();
     const tipBasisPoints = BigInt(
       client.consts.crosschainTransfer.transferOutMintingAuthorityTipBasisPoints.toNumber(),
     );
-    const amountToTransfer = calculateMaximumTransferOutAmount(
-      amountToSpend - (moveToken === MoveToken.ARGN ? transactionFeeMicrogons : 0n),
-      tipBasisPoints,
-      0n,
-    );
+    let transactionFeeInSendToken = 0n;
+    let minimumBalance = existentialDepositMicronots;
+    if (moveToken === MoveToken.ARGN) {
+      transactionFeeInSendToken = transactionFeeMicrogons;
+      minimumBalance = existentialDepositMicrogons;
+    }
+
+    const availableForTransfer = availableAmount - transactionFeeInSendToken;
+    const maximumAmount = calculateMaximumTransferOutAmount(availableForTransfer, tipBasisPoints, minimumBalance);
+    let amountToTransfer = amount;
+    if (amountToTransfer > maximumAmount) {
+      amountToTransfer = maximumAmount;
+    }
+
+    const mintingAuthorityTip = calculateTransferOutMintingAuthorityTip(amountToTransfer, tipBasisPoints);
+    const amountToSpend = amountToTransfer + mintingAuthorityTip + transactionFeeInSendToken;
     return {
       amountToTransfer,
+      amountToSpend,
       transactionFeeMicrogons,
-      mintingAuthorityTip: calculateTransferOutMintingAuthorityTip(amountToTransfer, tipBasisPoints),
+      mintingAuthorityTip,
     };
   }
 
@@ -422,12 +440,16 @@ export class EthereumOutboundTransferTracker {
     } = args;
     if (amountToSpend != null || availableAmount != null || availableArgonAmount != null) {
       const fees = await this.estimateArgonFees({ moveToken, amount, sourceWalletType, ethereumWallet });
-      const spentAmount =
-        amount + fees.mintingAuthorityTip + (moveToken === MoveToken.ARGN ? fees.transactionFeeMicrogons : 0n);
+      let spentAmount = amount + fees.mintingAuthorityTip;
+      let minimumBalance = existentialDepositMicronots;
+      if (moveToken === MoveToken.ARGN) {
+        spentAmount += fees.transactionFeeMicrogons;
+        minimumBalance = existentialDepositMicrogons;
+      }
+
       if (amountToSpend != null && spentAmount > amountToSpend) {
         throw new Error('The Argon network fee changed. Review the amount to send and try again.');
       }
-      const minimumBalance = moveToken === MoveToken.ARGNOT ? existentialDepositMicronots : existentialDepositMicrogons;
       if (availableAmount != null && spentAmount + minimumBalance > availableAmount) {
         throw new Error(
           `Leave enough ${moveToken} for the transfer, tip, and minimum balance, plus ARGN for the network fee.`,
@@ -1752,16 +1774,23 @@ function calculateMaximumTransferOutAmount(
   tipBasisPoints: bigint,
   existentialDeposit: bigint,
 ) {
-  const spendableAmount = availableAmount > existentialDeposit ? availableAmount - existentialDeposit : 0n;
+  if (availableAmount <= existentialDeposit) {
+    return 0n;
+  }
+
+  const spendableAmount = availableAmount - existentialDeposit;
   if (tipBasisPoints <= 0n) {
     return spendableAmount;
   }
 
   const amount = (spendableAmount * 10_000n) / (10_000n + tipBasisPoints);
   const nextAmount = amount + 1n;
-  return nextAmount + calculateTransferOutMintingAuthorityTip(nextAmount, tipBasisPoints) <= spendableAmount
-    ? nextAmount
-    : amount;
+  const nextAmountTip = calculateTransferOutMintingAuthorityTip(nextAmount, tipBasisPoints);
+  const nextAmountToSpend = nextAmount + nextAmountTip;
+  if (nextAmountToSpend <= spendableAmount) {
+    return nextAmount;
+  }
+  return amount;
 }
 
 function calculateTransferOutMintingAuthorityTip(amount: bigint, tipBasisPoints: bigint) {

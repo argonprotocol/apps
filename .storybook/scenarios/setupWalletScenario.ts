@@ -1154,11 +1154,28 @@ function createOutboundTransferTracker(
   });
   tracker.load = fn(async () => undefined);
   tracker.getTransfer = fn((id: string) => tracker.data.transfersById[id]);
-  tracker.quoteTransferOutFromAmountToSpend = fn(async ({ amountToSpend, moveToken }) => ({
-    amountToTransfer: bigIntMax(amountToSpend - (moveToken === MoveToken.ARGN ? 75_000n : 50_000n), 0n),
-    transactionFeeMicrogons: 25_000n,
-    mintingAuthorityTip: 50_000n,
-  }));
+  tracker.quoteTransferOut = fn(async ({ amount, availableAmount, moveToken }) => {
+    const transactionFeeMicrogons = 25_000n;
+    const mintingAuthorityTip = 50_000n;
+    let costs = mintingAuthorityTip;
+    if (moveToken === MoveToken.ARGN) {
+      costs += transactionFeeMicrogons;
+    }
+
+    const maximumAmount = bigIntMax(availableAmount - costs - 10_000n, 0n);
+    let amountToTransfer = amount;
+    if (amountToTransfer > maximumAmount) {
+      amountToTransfer = maximumAmount;
+    }
+
+    const amountToSpend = amountToTransfer + costs;
+    return {
+      amountToTransfer,
+      amountToSpend,
+      transactionFeeMicrogons,
+      mintingAuthorityTip,
+    };
+  });
   tracker.getTransferOutUnavailableReason = fn(async () => undefined);
 
   let cleanup: (() => void) | undefined;

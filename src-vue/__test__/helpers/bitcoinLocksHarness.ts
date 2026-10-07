@@ -202,7 +202,7 @@ export async function cleanupBitcoinLocksClientHarness(harness: BitcoinLocksClie
 export async function shutdownBitcoinLocksClientHarness(harness: BitcoinLocksClientHarness): Promise<void> {
   await harness.bitcoinLocks.shutdown();
   await harness.transactionTracker.shutdown();
-  harness.miningFrames.blockWatch.stop();
+  await harness.miningFrames.stop();
   await harness.clients.disconnect();
 }
 

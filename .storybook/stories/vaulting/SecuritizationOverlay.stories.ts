@@ -1,5 +1,5 @@
 import type { Meta, StoryObj } from '@storybook/vue3-vite';
-import { type ArgonClient, TxResult } from '@argonprotocol/apps-core';
+import { TxResult } from '@argonprotocol/apps-core';
 import * as Vue from 'vue';
 import { fn, mocked, spyOn, userEvent, within } from 'storybook/test';
 import { TopTab } from '../../../src-vue/interfaces/IConfig.ts';
@@ -295,7 +295,7 @@ function createSecuritizationTransaction(): TransactionInfo<IVaultIncreaseAlloca
     createdAt: submittedAtTime,
     updatedAt: submittedAtTime,
   };
-  const txResult = new TxResult({} as ArgonClient, {
+  const txResult = new TxResult({
     accountAddress: tx.accountAddress,
     method: tx.extrinsicMethodJson,
     nonce: 0,

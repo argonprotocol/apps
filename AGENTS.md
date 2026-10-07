@@ -7,7 +7,7 @@ These rules apply to implementation and review in this repository. Keep changes 
 - Never stage changes unless the user explicitly asks. The user stages reviewed work as a review marker.
 - Never push to `main` or identify users in branch names, commits, or pull-request text.
 - Never SSH to a server without an explicit permission prompt.
-- Do not mix unrelated cleanup into a feature or fix.
+- Small, behavior-preserving cleanup of the touched function, coherent Vue block, or directly affected call path is in scope. Do not mix unrelated cleanup into a feature or fix.
 
 ## Claude Code Reviews
 
@@ -28,7 +28,8 @@ These rules apply to implementation and review in this repository. Keep changes 
 - Reuse established components, controls, checklist items, overlays, and status sources. Do not add duplicate affordances or fake intermediate states.
 - Reuse the repository's established spacing, typography, control sizes, and responsive patterns. Avoid page-specific size systems, arbitrary Tailwind values, and near-duplicate style variants.
 - Keep a Vue element's opening tag on one line when it has exactly one attribute, regardless of line length. If Prettier would wrap it, add `<!-- prettier-ignore -->` immediately before the element.
-- Keep directly related declarations together, with spacing between separate concerns. Do not crunch setup code into dense blocks or nested ternaries.
+- Group `<script setup>` declarations by concern, with blank lines between groups. Keep related reactive state, computed values, and watchers together, and keep declarations near their use.
+- Use `v-if`/`v-else` for substantial rendering branches. Allow ternaries only for short, simple value choices; do not use nested or multiline ternaries in templates.
 
 ## Storybook UI States
 
@@ -75,6 +76,7 @@ These rules apply to implementation and review in this repository. Keep changes 
 
 ## Structure and Simplicity
 
+- Before extending an existing pattern, check its intended behavior, state ownership, layer boundaries, and readability against these rules. Correct a flawed local pattern when changing it. Existing code alone does not justify propagating workarounds, duplicate state, or unnecessary indirection.
 - Put primary execution and flow logic before private helpers unless a framework requires another order.
 - Do not add pass-through wrappers, facade layers, duplicate interfaces, field-by-field DTO copies, or single-use helpers unless they hide meaningful complexity or establish a materially narrower boundary.
 - Prefer durable domain names. Avoid vague names such as `target`, historical names such as `legacy`, and public names that expose transitional storage details.
@@ -104,6 +106,7 @@ These rules apply to implementation and review in this repository. Keep changes 
 - Review the final diff, including uncommitted changes. Run `stateful-workflow-review` for the stateful changes listed above and `architecture-boundary-review` when authority, ownership, layer placement, or a durable handoff changes. Cosmetic, documentation, and behavior-preserving changes do not require these reviews unless they alter those boundaries.
 - When the changed fact can arrive through a submitted transaction, ambient live collection, current reconciliation, or historical recovery, include each supported producer in the stateful review. Verify that equivalent facts reach the same domain-owned result and that older recovery cannot overwrite newer live state.
 - Before describing a behavioral change as complete or ready, have one independent reviewer, a separate agent or human, inspect the decisive test scenarios and assertions and verify which boundary reviews apply. The reviewer must check the production producers and expected outcomes rather than accepting the author's case list, mock setup, or `PASS` label. One reviewer can perform both applicable boundary reviews; reuse completed review evidence when it covers the final diff.
+- Include readability and the suitability of reused patterns in the existing independent review of code changes. Check reading order, logical spacing, compound conditions, ternaries, and unnecessary indirection in the final diff. Check reused patterns against the intended behavior and ownership boundaries. Passing formatting checks alone does not establish readability.
 - Start with relevant existing tests and extend a scenario when it can catch the defect. Add a separate test only for a distinct uncovered history or invariant, and identify the incorrect behavior its assertion catches. Reusing an existing recovery or persistence subsystem is not itself a reason to retest that lifecycle. An existing regression can satisfy a bug fix; no new test, test file, or suite is required on every PR.
 - The independent reviewer must explicitly return `Test evidence: PASS` or `BLOCKED` after inspecting all added or updated tests and any existing tests relied on for readiness. The confirmation must cite the decisive test or scenario, identify the real production code and boundary exercised, name the mocked boundaries, and explain which observable or durable assertion would fail for incorrect production behavior. A generic assurance that there are no mock tests is insufficient. Use the inspection procedure in `.agents/skills/stateful-workflow-review/references/test-evidence.md` even when no stateful review is otherwise required; this does not require expanding the change into a stateful audit.
 - Tests that mock the behavior under review, inject the asserted result through fixture setup, or merely check passthrough values or helper calls do not qualify as behavior evidence. Replace, strengthen, or remove newly added tests that do only that. Synthetic inputs and external-service mocks are valid when real production behavior crosses the claimed boundary and the expected outcome is independently justified. For a bug regression, a compile, import, or fixture-setup failure on the old revision is not evidence that the test caught the defect.

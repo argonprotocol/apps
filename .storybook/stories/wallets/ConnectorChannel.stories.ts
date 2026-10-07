@@ -558,6 +558,7 @@ export const __namedExportsOrder = [
   'BitcoinReceiveGuideInteractive',
   'CosignerChoiceWithExistingAddress',
   'ExpiredRequestedChannel',
+  'RetiredChannel',
   'CreateWithoutInsurance',
   'CreatedChannelSurvivesFinalizationHandoff',
   'FeeWaiver',
@@ -578,3 +579,12 @@ export const __namedExportsOrder = [
   'ArchivedChannel',
   'OrphanAfterLastChannelClosed',
 ];
+
+export const RetiredChannel: Story = {
+  beforeEach: () => {
+    const cleanup = useScenario(BitcoinLockStatus.LockPendingFunding);
+    scenario.lock.removalReason = 'expired';
+    requestedChannelUuid = scenario.lock.uuid;
+    return cleanup;
+  },
+};

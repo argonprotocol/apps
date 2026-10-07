@@ -1,11 +1,11 @@
 ---
 name: independent-diff-review
-description: Find actionable bugs in an Apps PR, branch, commit, or working diff using a fresh reviewer, producer-to-consumer tracing, and explicit attempts to disprove findings. Use for an independent correctness review or a Copilot review replacement. Reuses the repository's stateful and architecture reviews when applicable.
+description: Independently review an Apps PR, branch, commit, or working diff for actionable bugs, readability, and the suitability of reused patterns. Trace real contracts and try to disprove findings. Reuses the repository's stateful and architecture reviews when applicable.
 ---
 
 # Independent Diff Review
 
-Find a concrete supported input or production history that makes the change produce the wrong result. Review the code independently of the implementation author's explanation. A clean report is valid; do not manufacture findings to meet a quota.
+Find a concrete supported input or production history that makes the change produce the wrong result. Also assess how a person reads the changed code and whether reused patterns fit its responsibilities. Keep correctness findings separate from readability and pattern issues. Review independently of the implementation author's explanation. A clean report is valid; do not manufacture findings to meet a quota.
 
 ## Freeze the review scope
 
@@ -20,10 +20,12 @@ Find a concrete supported input or production history that makes the change prod
 If coordinating work you implemented or have already discussed, use one fresh independent reviewer. Honor the provider the user selects. Choose one available provider for this pass: use the [Claude Code reviewer procedure](references/claude-code.md) when selected and authorized, or delegate to an independent subagent with `fork_turns: "none"`. Provider diversity is an option, not evidence of higher quality. Supply the packet below. For independent discovery, withhold the implementation conversation, suspected defects, proposed fixes, prior reviewer findings, and claims that tests prove correctness. For feedback validation, supply the comments being assessed as candidates, with their original and requested current revisions. If you are already that independent reviewer, perform discovery directly; do not recursively delegate.
 
 ```text
-Review this exact change for actionable introduced bugs and incomplete fixes
-within the stated outcome. Label pre-existing gaps separately.
+Review this exact change for actionable introduced bugs, incomplete fixes,
+readability, and the suitability of reused patterns within the stated outcome.
+Label pre-existing gaps separately.
 Review mode: <discovery, existing-feedback validation, or behavioral readiness>
-Required verdicts: <findings only, or applicable boundary reviews and test evidence>
+Required verdicts: <correctness findings, readability/pattern verdict, and any
+requested boundary reviews and test evidence>
 Repository: <absolute path>
 Scope: <base and head, or immutable patch/snapshot and fingerprint>
 Intended outcome: <brief user-visible/domain goal>
@@ -40,6 +42,8 @@ For readiness, the same reviewer inspects the applicable repository gates and
 returns their required verdicts with evidence; skipped gates remain blocked.
 Return candidates with trigger, causal trace, expected versus actual outcome,
 baseline comparison, exact locations, disconfirming evidence checked, and gaps.
+Return the readability/pattern verdict separately, with exact locations,
+the concrete reading burden or violated boundary, and the smallest correction.
 ```
 
 Default to one discovery reviewer plus coordinator validation. Split only a change with genuinely separate workflows that one reviewer cannot cover coherently; partition by workflow and give each the same neutral constraints. For a large migration, plan that partition before discovery. Unexamined changed paths remain a review gap even when sampled paths yield good findings. If effort is capped, record elapsed effort and whether the cap was reached or work stopped earlier; spend remaining discovery effort on unexamined relevant workflows rather than polishing an already adequate report.
@@ -54,14 +58,14 @@ First read the diff, including deletions, and identify the changed behaviors. Be
 
 Choose the probes that match the change:
 
-| Changed surface | Concrete probe |
-| --- | --- |
-| Values, filters, lookups, totals | Can the producer supply zero, absent, unknown, pending, a different identity/kind, or multiple records? Does the consumer treat those as the same thing? Check units, cardinality, fallback values, and membership from real definitions. For accounting, reconcile intended allocations with completed side effects and downstream notifications; identical final balances can hide different domain accounting. |
-| Removed code or changed ownership | Which supported caller, durable record, platform, configuration, or previous release still depends on the removed behavior? Trace its replacement end to end. |
-| Async work, recovery, caches | Start with valid state, cross the changed boundary, and follow failure/retry/restart or newer live work only where at risk. Inspect the actual shared queue/promise/cache behavior and the already-mounted observer. |
-| Repeated events or polling | Follow the emitted event into its listeners. Derive work per event and total work across independently growing collections from the actual loops; distinguish constructing a client from performing I/O. |
-| UI and stories | Trace the real state selector, DOM/portal boundary, and inherited interaction handlers. Check that changed story fixtures actually reach their named state through production selectors; a mocked helper can hide a broken contract. Distinguish unavailable from empty, and fixed previews from behavior tests. |
-| Build, process, service or runtime boundary | Inspect the invoked command/configuration and the real implementation/type at both ends. Establish which platform/version pairings are supported before alleging incompatibility. |
+| Changed surface                             | Concrete probe                                                                                                                                                                                                                                                                                                                                                                                                    |
+| ------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Values, filters, lookups, totals            | Can the producer supply zero, absent, unknown, pending, a different identity/kind, or multiple records? Does the consumer treat those as the same thing? Check units, cardinality, fallback values, and membership from real definitions. For accounting, reconcile intended allocations with completed side effects and downstream notifications; identical final balances can hide different domain accounting. |
+| Removed code or changed ownership           | Which supported caller, durable record, platform, configuration, or previous release still depends on the removed behavior? Trace its replacement end to end.                                                                                                                                                                                                                                                     |
+| Async work, recovery, caches                | Start with valid state, cross the changed boundary, and follow failure/retry/restart or newer live work only where at risk. Inspect the actual shared queue/promise/cache behavior and the already-mounted observer.                                                                                                                                                                                              |
+| Repeated events or polling                  | Follow the emitted event into its listeners. Derive work per event and total work across independently growing collections from the actual loops; distinguish constructing a client from performing I/O.                                                                                                                                                                                                          |
+| UI and stories                              | Trace the real state selector, DOM/portal boundary, and inherited interaction handlers. Check that changed story fixtures actually reach their named state through production selectors; a mocked helper can hide a broken contract. Distinguish unavailable from empty, and fixed previews from behavior tests.                                                                                                  |
+| Build, process, service or runtime boundary | Inspect the invoked command/configuration and the real implementation/type at both ends. Establish which platform/version pairings are supported before alleging incompatibility.                                                                                                                                                                                                                                 |
 
 Follow a promising path beyond the diff until its outcome is established or contradicted. A helper name, type name, comment, or generic library rule is a search lead, not proof. Do not broaden into an unrelated repository audit.
 
@@ -81,6 +85,19 @@ The coordinator checks each candidate against source at the frozen revision. An 
 
 If evidence contradicts the reviewer, return that concrete evidence once for reconsideration. Do not dismiss a finding merely because the author intended the behavior or tests passed. Conversely, do not retain it merely because the reviewer insists. Classify each candidate as confirmed, disproved, or unresolved; keep product/support decisions and verification gaps separate from confirmed bugs.
 
+## Review readability and existing patterns
+
+Read each changed function or coherent Vue block from top to bottom, including the surrounding code needed to understand it. Apply the user's and repository's rules. Check the actual reading burden rather than substituting personal formatting preferences:
+
+- Declarations and spacing: are related declarations grouped by purpose, with blank lines between setup, decisions, actions, and result handling? Are declarations near their use, or must a reader track an unrelated wall of `const`s?
+- Branching: can a reader follow the normal path and recognize each decision? Check compounded rejection reasons, nested branches, dense call chains, and ternaries. Prefer explicit branches for substantial logic. A short, simple value choice or a compound condition representing one clear domain concept can be appropriate.
+- Indirection: do local variables clarify meaningful steps? Do helpers hide real complexity or provide reuse? Flag one-use wrappers and presentation aliases that make the reader jump without clarifying the flow. Keep rendering choices visible in Vue templates.
+- Existing patterns: before accepting a copied or extended pattern, trace its intended behavior, authoritative owner, and layer boundaries. Inspect the closest established flow as evidence, then judge whether its structure fits this change. Existing code alone does not justify propagating workarounds, duplicate state, or unnecessary indirection.
+
+Name the exact block and explain what the reader must remember, infer, or jump between, or which responsibility is misplaced. Group issues that need the same correction. Separate introduced or extended issues from nearby pre-existing debt. Small, behavior-preserving cleanup of the touched function, coherent UI block, or directly affected call path is in scope; do not expand into unrelated cleanup or a repository-wide redesign. An ownership violation still requires the applicable architecture review.
+
+Return `Readability and patterns: PASS` only after inspecting the relevant changed code. Return `BLOCKED` with concrete remaining issues or unexamined scope. Use `NOT APPLICABLE` for a change with no code to assess. A clean correctness report or successful formatter run does not establish this verdict.
+
 ## Apply repository requirements
 
 Read the review and test requirements that apply in the reviewed repository and revision. For Apps, use [the Apps review requirements](references/apps.md). Resolve repository-local procedures from the reviewed repository; do not assume skills or commands from another checkout exist. Carry the frozen scope, explicit user constraints, and source restrictions into every procedure. Discovery alone does not complete an implementation task or satisfy a requested readiness verdict; repository-required reviews and checks still apply.
@@ -95,7 +112,7 @@ When asked to assess existing comments, use the same source validation and dispr
 
 ## Report and stop
 
-Lead with confirmed findings, ordered by impact. Each finding needs a concise title, precise file/line or symbol, trigger, causal explanation, user/domain consequence, and evidence. Cite the changed location plus the producer/consumer that establishes the contract when needed. Avoid style requests and speculative hardening without a supported failure.
+Lead with confirmed correctness findings, ordered by impact. Each finding needs a concise title, precise file/line or symbol, trigger, causal explanation, user/domain consequence, and evidence. Cite the changed location plus the producer/consumer that establishes the contract when needed. Report concrete readability and pattern issues separately with their verdict; do not present them as functional bugs without a supported failure. Avoid personal style preferences and speculative hardening.
 
 Close with the reviewed revision/fingerprint, meaningful coverage limits, and unresolved assumptions or missing checks. Preserve a concise disposition for each finding submitted by the independent reviewer: confirmed, disproved with the protecting source, or unresolved with the missing fact. A linked review record can hold these dispositions; exploratory leads need not become findings.
 

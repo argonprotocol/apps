@@ -117,7 +117,7 @@ export class TransactionTracker {
         delete this.data.txInfosByType[extrinsicType as ExtrinsicType];
       }
       for (const tx of txs) {
-        const txResult = new TxResult(client, {
+        const txResult = new TxResult({
           accountAddress: tx.accountAddress,
           method: tx.extrinsicMethodJson,
           nonce: tx.txNonce ?? 0,
@@ -132,7 +132,7 @@ export class TransactionTracker {
         txResult.finalFee = tx.txFeePlusTip ?? 0n;
         txResult.finalFeeTip = tx.txTip ?? 0n;
         if (tx.blockHeight) {
-          void txResult.setSeenInBlock({
+          void txResult.setSeenInBlock(client, {
             blockHash: hexToU8a(tx.blockHash),
             blockNumber: tx.blockHeight,
             extrinsicIndex: tx.blockExtrinsicIndex!,
@@ -154,7 +154,7 @@ export class TransactionTracker {
         }
 
         if (tx.isFinalized || txResult.submissionError) {
-          await txResult.setFinalized();
+          await txResult.setFinalized(client);
         }
         this.data.txInfos.push(txInfo);
         this.data.txInfosByType[tx.extrinsicType] = txInfo;
@@ -308,7 +308,7 @@ export class TransactionTracker {
         submittedTime: new Date(),
         submittedAtBlockNumber: submittedAtBlockHeight,
       };
-      const txResult = new TxResult(client, txResultExtrinsic);
+      const txResult = new TxResult(txResultExtrinsic);
       txInfo = await this.registerTxResult({
         txResult,
         extrinsicType,
@@ -321,7 +321,7 @@ export class TransactionTracker {
           if (this.#isClosed) {
             return;
           }
-          txResult.onSubscriptionResult(result);
+          txResult.onSubscriptionResult(client, result);
           void this.handleWatchedResult(txInfo.tx, txResult, result);
         });
       } catch (error) {
@@ -641,6 +641,7 @@ export class TransactionTracker {
 
     const table = await this.getTable();
     let reconciliationState: TxReconciliationState | undefined;
+    const client = await getMainchainClient(false);
     const latestHistoryStatus = this.getLatestHistoryStatus(tx.id);
     const shouldRescanBestBlockTx =
       latestHistoryStatus === TransactionHistoryStatus.Retracted || this.isNonResumableWatchStatus(latestHistoryStatus);
@@ -653,7 +654,7 @@ export class TransactionTracker {
             blockNumber: finalizedHeight,
             blockTime: new Date(finalizedBlockTime),
           });
-          await txResult.setFinalized();
+          await txResult.setFinalized(client);
           reconciliationState = TxReconciliationState.Included;
         }
       } else if (!shouldRescanBestBlockTx) {
@@ -698,7 +699,7 @@ export class TransactionTracker {
             transactionEvents: extrinsicEvents,
             extrinsicIndex,
           });
-          await txResult.setSeenInBlock({
+          await txResult.setSeenInBlock(client, {
             blockHash: hexToU8a(blockHash),
             blockNumber,
             events: extrinsicEvents,
@@ -710,7 +711,7 @@ export class TransactionTracker {
               blockNumber: finalizedHeight,
               blockTime: new Date(finalizedBlockTime),
             });
-            await txResult.setFinalized();
+            await txResult.setFinalized(client);
           }
         }
       } else {
@@ -768,7 +769,7 @@ export class TransactionTracker {
             } else {
               console.log(`[TransactionTracker] Marking transaction #${tx.id} expired:`, tx.extrinsicHash);
               txResult.extrinsicError = new Error('Transaction expired waiting for block inclusion');
-              await txResult.setFinalized();
+              await txResult.setFinalized(client);
               await table.markExpiredWaitingForBlock(tx);
             }
           } catch (error) {

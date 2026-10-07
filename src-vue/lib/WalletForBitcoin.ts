@@ -153,6 +153,9 @@ export class WalletForBitcoin extends WalletForChain<WalletType.bitcoin> {
 
   public getChannelFundingAddress(lock: IBitcoinLockRecord): string {
     const bitcoinLocks = this.getBitcoinLocks();
+    if (bitcoinLocks.isTerminalLock(lock)) {
+      throw new Error('This Bitcoin channel no longer accepts funding.');
+    }
     bitcoinLocks.confirmAddress(lock);
     return bitcoinLocks.formatP2wshAddress(lock.scriptDetails!.p2wshScriptHashHex);
   }

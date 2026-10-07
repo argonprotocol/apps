@@ -12,6 +12,7 @@ import type { Db } from '../lib/Db.ts';
 import type { TransactionTracker } from '../lib/TransactionTracker.ts';
 import type { TransactionInfo } from '../lib/TransactionInfo.ts';
 import type { WalletKeys } from '../lib/WalletKeys.ts';
+import type BitcoinMempool from '../lib/BitcoinMempool.ts';
 import { BitcoinLockStatus, type IBitcoinLockRecord } from '../lib/db/BitcoinLocksTable.ts';
 import { BitcoinUtxoSpendStatus, BitcoinUtxoStatus, type IBitcoinUtxoRecord } from '../lib/db/BitcoinUtxosTable.ts';
 import {
@@ -498,91 +499,161 @@ describe('BitcoinLocks Argon cosign gating', () => {
     });
   });
 
-  it('reads orphan cosign events only after an owner vault counter decreases', async () => {
-    const lock = createLock({ status: BitcoinLockStatus.Released });
-    const orphanRecord = createFundingUtxo({ activeReleaseId: 'orphan-release-1' });
-    const orphanRelease = createRelease({ id: 'orphan-release-1', kind: BitcoinReleaseKind.Orphan });
-    const counterCallbacks: Array<(count: number) => void> = [];
-    const subscribe = vi.fn(async (_vaultId: number, _owner: string, callback: (count: number) => void) => {
-      counterCallbacks.push(callback);
-      callback(1);
-      return vi.fn();
-    });
-    const subscriptionClient = {
-      query: { vaults: { orphanedUtxoAccountsByVaultId: subscribe } },
-    } as unknown as ArgonClient;
-    const blockHeaders = new Map([
-      [101, { blockNumber: 101, blockHash: '0x101' }],
-      [102, { blockNumber: 102, blockHash: '0x102' }],
-    ]);
-    const cosignEvent = {
-      event: {
-        section: 'bitcoinLocks',
-        method: 'OrphanedUtxoCosigned',
-        data: {
-          lockId: lock.lockId,
-          utxoRef: { txid: orphanRecord.txid, outputIndex: orphanRecord.vout },
-          vaultId: lock.vaultId,
-          accountId: lock.ownerAccount,
-          signature: new Uint8Array([1, 2, 3]),
+  it.each(['before the event', 'after the event', 'ahead of block headers', 'during a Bitcoin broadcast outage'])(
+    'persists an orphan cosign when its counter update arrives %s',
+    async timing => {
+      const db = await createTestDb();
+      const hasBroadcastOutage = timing === 'during a Bitcoin broadcast outage';
+      const lock = createLock({ status: BitcoinLockStatus.Released });
+      const orphanRecord = await db.bitcoinUtxosTable.insert(createFundingUtxo());
+      const counterCallbacks: Array<(count: number) => void> = [];
+      const subscribe = vi.fn(async (_vaultId: number, _owner: string, callback: (count: number) => void) => {
+        counterCallbacks.push(callback);
+        callback(1);
+        return vi.fn();
+      });
+      const subscriptionClient = {
+        query: { vaults: { orphanedUtxoAccountsByVaultId: subscribe } },
+      } as unknown as ArgonClient;
+      const cosignBlockNumber = timing === 'ahead of block headers' ? 104 : 102;
+      const cosignEvent = {
+        event: {
+          section: 'bitcoinLocks',
+          method: 'OrphanedUtxoCosigned',
+          data: {
+            lockId: lock.lockId,
+            utxoRef: { txid: orphanRecord.txid, outputIndex: orphanRecord.vout },
+            vaultId: lock.vaultId,
+            accountId: lock.ownerAccount,
+            signature: new Uint8Array([1, 2, 3]),
+          },
         },
-      },
-    };
-    const getEvents = vi.fn(async (block: { blockNumber: number }) => {
-      return block.blockNumber === 102 ? [cosignEvent] : [];
-    });
-    const blockApi = {
-      query: {
-        bitcoinLocks: {
-          orphanedUtxosByAccount: { entries: vi.fn().mockResolvedValue([]) },
+      };
+      const getEvents = vi.fn(async (block: { blockNumber: number }) => {
+        return block.blockNumber === cosignBlockNumber ? [cosignEvent] : [];
+      });
+      let oracleBitcoinBlockHeight = 100n;
+      const blockApi = {
+        query: {
+          bitcoinLocks: {
+            orphanedUtxosByAccount: { entries: vi.fn().mockResolvedValue([]) },
+          },
+          bitcoinUtxos: {
+            confirmedBitcoinBlockTip: vi.fn(async () => ({ blockHeight: oracleBitcoinBlockHeight })),
+          },
         },
-        bitcoinUtxos: {
-          confirmedBitcoinBlockTip: vi.fn().mockResolvedValue(null),
-        },
-      },
-    };
-    const blockWatchStub = {
-      bestBlockHeader: { blockNumber: 101, blockHash: '0x101' },
-      getFinalizedApi: vi.fn(async () => blockApi),
-      getHeaderByBlockNumber: vi.fn(async (blockNumber: number) => blockHeaders.get(blockNumber)),
-      getApi: vi.fn().mockResolvedValue(blockApi),
-      getEvents,
-      getEventsWithSpec: vi.fn(async (block: { blockNumber: number }) => ({
-        api: blockApi,
-        events: await getEvents(block),
-        specVersion: 157,
-      })),
-    };
-    const blockWatch = blockWatchStub as unknown as BlockWatch;
-    const store = new BitcoinLocks(
-      Promise.resolve({} as Db),
-      { defaultArgonAddress: lock.ownerAccount } as WalletKeys,
-      blockWatch,
-      {} as CurrencyBase,
-      {} as TransactionTracker,
-    );
-    store.data.locksByLockId = { 11: lock };
-    store.utxoTracking.load([orphanRecord]);
-    store.releases.data.releasesById = { [orphanRelease.id]: orphanRelease };
-    const recordVaultCosign = vi.spyOn(store.releases, 'recordVaultCosign').mockResolvedValue(undefined);
-    Object.assign(store, {
-      getTable: vi.fn().mockResolvedValue({}),
-    });
-    const testStore = store as unknown as IBitcoinLocksTestTarget;
+      };
+      const blockWatchStub = {
+        bestBlockHeader: { blockNumber: 101, blockHash: '0x101' },
+        getFinalizedApi: vi.fn(async () => blockApi),
+        getHeaderByBlockNumber: vi.fn(async (blockNumber: number) => ({ blockNumber, blockHash: `0x${blockNumber}` })),
+        getApi: vi.fn().mockResolvedValue(blockApi),
+        getEvents,
+        getEventsWithSpec: vi.fn(async (block: { blockNumber: number }) => ({
+          api: blockApi,
+          events: await getEvents(block),
+          specVersion: 157,
+        })),
+      };
+      const blockWatch = blockWatchStub as unknown as BlockWatch;
+      const bitcoinTxid = `0x${'ab'.repeat(32)}`;
+      const broadcastTx = vi.fn().mockRejectedValue(new Error('Bitcoin transport unavailable'));
+      const mempool = {
+        getTxStatus: vi.fn().mockResolvedValue(undefined),
+        broadcastTx,
+        getTipHeight: vi.fn().mockResolvedValue(100),
+      } as unknown as BitcoinMempool;
+      const store = new BitcoinLocks(
+        Promise.resolve(db),
+        {
+          defaultArgonAddress: lock.ownerAccount,
+          canSign: hasBroadcastOutage,
+          getBitcoinChildXpriv: vi.fn().mockResolvedValue({}),
+        } as unknown as WalletKeys,
+        blockWatch,
+        {} as CurrencyBase,
+        {} as TransactionTracker,
+        mempool,
+      );
+      if (hasBroadcastOutage) {
+        vi.spyOn(store, 'createCosignScript').mockReturnValue({
+          cosignAndGenerateTx: () => ({
+            isFinal: true,
+            hash: bitcoinTxid.slice(2),
+            toBytes: () => new Uint8Array([1]),
+          }),
+        } as unknown as ReturnType<BitcoinLocks['createCosignScript']>);
+      }
+      store.data.locksByLockId = { 11: lock };
+      store.utxoTracking.load([orphanRecord]);
+      const orphanRelease = await store.releases.createOrphanRelease(
+        orphanRecord,
+        createRelease({ id: 'orphan-release-1', kind: BitcoinReleaseKind.Orphan, inputUtxoIds: [orphanRecord.id] }),
+      );
+      const testStore = store as unknown as IBitcoinLocksTestTarget;
 
-    await store.releases.syncOrphanCosignCounterSubscriptions(subscriptionClient);
-    await testStore.checkIncomingArgonBlock({ blockNumber: 101, blockHash: '0x101' });
-    expect(recordVaultCosign).not.toHaveBeenCalled();
+      await store.releases.syncOrphanCosignCounterSubscriptions(subscriptionClient);
+      await testStore.checkIncomingArgonBlock({ blockNumber: 101, blockHash: '0x101' });
+      expect(await db.bitcoinReleasesTable.getById(orphanRelease.id)).toMatchObject({
+        status: BitcoinReleaseStatus.WaitingForVaultCosign,
+        vaultSignatures: [],
+      });
 
-    counterCallbacks[0](0);
-    blockWatchStub.bestBlockHeader = { blockNumber: 102, blockHash: '0x102' };
-    await testStore.checkIncomingArgonBlock({ blockNumber: 102, blockHash: '0x102' });
+      if (timing === 'after the event') {
+        vi.spyOn(db, 'transaction').mockRejectedValueOnce(new Error('signature persistence unavailable'));
+        await testStore.checkIncomingArgonBlocks([{ blockNumber: 102, blockHash: '0x102' }]);
+        expect(store.data.latestArgonBlock?.blockNumber).toBe(101);
+        expect(await db.bitcoinReleasesTable.getById(orphanRelease.id)).toMatchObject({
+          status: BitcoinReleaseStatus.WaitingForVaultCosign,
+          vaultSignatures: [],
+        });
+        blockWatchStub.bestBlockHeader = { blockNumber: 105, blockHash: '0x105' };
+      }
+      counterCallbacks[0](0);
+      const nextBlock = timing === 'after the event' ? 106 : cosignBlockNumber;
+      blockWatchStub.bestBlockHeader = { blockNumber: nextBlock, blockHash: `0x${nextBlock}` };
+      oracleBitcoinBlockHeight = 101n;
+      await testStore.checkIncomingArgonBlocks([blockWatchStub.bestBlockHeader]);
 
-    expect(recordVaultCosign).toHaveBeenCalledWith(orphanRelease, {
-      vaultSignatures: [new Uint8Array([1, 2, 3])],
-      cosignBlockNumber: 102,
-    });
-  });
+      expect(orphanRelease).toMatchObject({
+        status: BitcoinReleaseStatus.ReadyForBitcoinBroadcast,
+        vaultSignatures: [new Uint8Array([1, 2, 3])],
+        cosignBlockNumber,
+      });
+      expect(await db.bitcoinReleasesTable.getById(orphanRelease.id)).toMatchObject({
+        status: BitcoinReleaseStatus.ReadyForBitcoinBroadcast,
+        vaultSignatures: [new Uint8Array([1, 2, 3])],
+        cosignBlockNumber,
+      });
+
+      if (hasBroadcastOutage) {
+        await testStore.checkIncomingArgonBlocks([{ blockNumber: 103, blockHash: '0x103' }]);
+        expect(store.data.latestArgonBlock?.blockNumber).toBe(103);
+        expect(store.data.oracleBitcoinBlockHeight).toBe(101);
+        expect(await db.bitcoinReleasesTable.getById(orphanRelease.id)).toMatchObject({
+          status: BitcoinReleaseStatus.ReadyForBitcoinBroadcast,
+          bitcoinTxid,
+          statusError: 'Error: Bitcoin transport unavailable',
+        });
+
+        broadcastTx.mockResolvedValue(bitcoinTxid);
+        await testStore.checkIncomingArgonBlocks([{ blockNumber: 104, blockHash: '0x104' }]);
+        expect(orphanRelease).toMatchObject({
+          status: BitcoinReleaseStatus.ConfirmingOnBitcoin,
+          bitcoinTxid,
+          statusError: undefined,
+        });
+        expect(await db.bitcoinReleasesTable.getById(orphanRelease.id)).toMatchObject({
+          status: BitcoinReleaseStatus.ConfirmingOnBitcoin,
+          bitcoinTxid,
+          bitcoinFirstSeenOracleHeight: 101,
+        });
+        expect(store.data.latestArgonBlock?.blockNumber).toBe(104);
+      }
+      await store.shutdown();
+      await db.close();
+    },
+  );
 });
 
 function createLock(overrides: Partial<IBitcoinLockRecord> = {}): IBitcoinLockRecord {

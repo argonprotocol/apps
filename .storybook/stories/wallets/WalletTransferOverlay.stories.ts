@@ -1,7 +1,7 @@
 import type { Meta, StoryObj } from '@storybook/vue3-vite';
 import { MoveFrom, MoveTo, MoveToken } from '@argonprotocol/apps-core';
 import * as Vue from 'vue';
-import { fn, userEvent, within } from 'storybook/test';
+import { fn, mocked, userEvent, within } from 'storybook/test';
 import { setupWalletTransferScenario, type WalletTransferScenario } from '../../scenarios/setupWalletScenario.ts';
 import basicEmitter, { type IWalletOverlayOptions } from '../../../src-vue/emitters/basicEmitter.ts';
 import { WalletType } from '../../../src-vue/lib/Wallet.ts';
@@ -9,6 +9,7 @@ import WalletOverlay from '../../../src-vue/wallets/WalletOverlay.vue';
 import type { ITransactionMoveMetadata } from '../../../src-vue/lib/txs/Balance.transfer.ts';
 import type { TransactionInfo } from '../../../src-vue/lib/TransactionInfo.ts';
 import { getMoveCapital, useWallets } from '../../../src-vue/stores/wallets.ts';
+import { getEthereumOutboundTransferTracker } from '../../../src-vue/stores/moveToEthereum.ts';
 
 let request: IWalletOverlayOptions;
 const fixedPreview = Vue.ref(false);
@@ -339,6 +340,43 @@ export const ExistingOutbound = stories.existingOutbound;
 export const OutboundCustomAmount: Story = {
   beforeEach: () => useScenario('outboundForm'),
   play: async () => {
+    const canvas = await getOutboundCanvas();
+    const amount = within(canvas.getByTestId('WalletViewSend.amount')).getByTestId('input-number');
+    await userEvent.clear(amount);
+    await userEvent.type(amount, '100');
+  },
+};
+
+export const OutboundMaximumUnavailable: Story = {
+  beforeEach: () => {
+    useScenario('outboundForm');
+    const outboundTracker = mocked(getEthereumOutboundTransferTracker());
+    outboundTracker.quoteTransferOut.mockRejectedValueOnce(new Error('Unable to calculate the maximum transfer.'));
+  },
+  play: waitForWalletOverlay,
+};
+
+export const OutboundMaximumRecovered: Story = {
+  beforeEach: OutboundMaximumUnavailable.beforeEach,
+  play: async () => {
+    const canvas = await getOutboundCanvas();
+    await userEvent.click(await canvas.findByRole('button', { name: 'Retry fee estimate' }));
+  },
+};
+
+export const OutboundArgonotMaximum: Story = {
+  beforeEach: () => useScenario('outboundForm'),
+  play: async () => {
+    const canvas = await getOutboundCanvas();
+    await userEvent.click(canvas.getByTestId('WalletViewSend.token'));
+    await userEvent.click(canvas.getByTestId('ARGNOT'));
+  },
+};
+
+export const OutboundArgonotCustomAmount: Story = {
+  beforeEach: OutboundArgonotMaximum.beforeEach,
+  play: async context => {
+    await OutboundArgonotMaximum.play!(context);
     const canvas = await getOutboundCanvas();
     const amount = within(canvas.getByTestId('WalletViewSend.amount')).getByTestId('input-number');
     await userEvent.clear(amount);

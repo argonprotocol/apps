@@ -95,6 +95,8 @@ export type IHistoricalBitcoinLockRecord = Omit<IBitcoinLockRecord, 'lockId'> & 
   utxoId: number;
   removalTick?: number;
   satoshis: bigint;
+  /** The pre-migration allocation, which later Lock resecuritization does not change. */
+  migratedFissionSatoshis?: bigint;
   lockedTargetPrice: bigint;
   liquidityPromised: bigint;
   ratchets: IHistoricalBitcoinLockRatchet[];
