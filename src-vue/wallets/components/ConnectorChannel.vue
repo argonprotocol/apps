@@ -1083,6 +1083,10 @@ const channelDisplayError = Vue.computed(() => {
   if (!channel) return '';
   const error = props.wallet.getChannelError(channel);
   if (error) return error;
+  if (channel.removalReason === 'expired') {
+    return 'This channel expired and can no longer receive Bitcoin. Create a new channel to receive Bitcoin.';
+  }
+
   if (channel.status === BitcoinLockStatus.LockPendingFunding && !channelFundingAddress.value) {
     return 'Unable to load the Bitcoin funding address for this channel.';
   }
@@ -1347,7 +1351,7 @@ async function retryLoadChannels(): Promise<void> {
 
 function shouldDisplayRequestedChannel(channel: IBitcoinLockRecord): boolean {
   if (props.mode === 'insurance') return true;
-  if (channel.status === BitcoinLockStatus.LockFailed) return true;
+  if (channel.status === BitcoinLockStatus.LockFailed || channel.removalReason === 'expired') return true;
   if (props.wallet.hasActiveSecuritizationHold(channel)) return true;
   return bitcoinLocks.utxoTracking.getObservedFundingUtxos(channel).length > 0;
 }

@@ -444,10 +444,16 @@ const walletBitcoinSections = computed(() => {
     ...[...locksByVaultId].map(([vaultId, locks]) => ({
       key: `vault-${vaultId}`,
       label: `Cosigner: ${getCosignerName(vaultId)}`,
-      entries: locks.map(entry => ({
-        ...entry,
-        address: locks.length > 1 ? wallets.bitcoinWallet.getChannelFundingAddress(entry.lock) : undefined,
-      })),
+      entries: locks.map(entry => {
+        let address: string | undefined;
+        if (locks.length > 1 && entry.lock.scriptDetails) {
+          address = bitcoinLocks.isTerminalLock(entry.lock)
+            ? bitcoinLocks.formatP2wshAddress(entry.lock.scriptDetails.p2wshScriptHashHex)
+            : wallets.bitcoinWallet.getChannelFundingAddress(entry.lock);
+        }
+
+        return { ...entry, address };
+      }),
     })),
   ];
 });

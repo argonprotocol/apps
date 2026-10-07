@@ -67,7 +67,7 @@ export function createStore(
   const currency = Object.assign(Object.create(null), {
     isLoadedPromise: Promise.resolve(),
     load: async () => undefined,
-    priceIndex: { btcUsdPrice: BigNumber(1), getSatoshiPriceInTargetMicrogons: () => 2_000n },
+    priceIndex: { btcUsdPrice: BigNumber(1), rValue: BigNumber(1), getSatoshiPriceInTargetMicrogons: () => 2_000n },
     convertSatToBtc: () => 0,
     convertBtcToMicrogon: () => 0n,
     fetchPriceIndex: (api: Parameters<typeof Currency.fetchPriceIndex>[0]) => Currency.fetchPriceIndex(api),

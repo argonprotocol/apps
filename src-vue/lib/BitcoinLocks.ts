@@ -1797,7 +1797,8 @@ export default class BitcoinLocks {
 
     return {
       hasObservedFundingSignal,
-      showReadyForBitcoin: !hasObservedFundingSignal && lockProcessingDetails.confirmations < 0,
+      showReadyForBitcoin:
+        !this.isTerminalLock(lock) && !hasObservedFundingSignal && lockProcessingDetails.confirmations < 0,
       isFundingSeenInMempoolOnly: hasObservedFundingSignal && lockProcessingDetails.confirmations < 0,
     };
   }

@@ -1235,7 +1235,7 @@ describe('ArgonBonds', () => {
       const restarted = createBonds(liveDb);
       await restarted.load();
       await restarted.recordFinalizedTransaction(block.blockNumber);
-      expect(restarted.data.bondHistory).toEqual(live.data.bondHistory);
+      expect(restarted.data.bondHistory).toEqual([{ ...liveHistory, updatedAt: expect.any(Date) }]);
       currentLot = {
         ...storedLot,
         cumulativeEarnings: 1_000_000n,
