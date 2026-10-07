@@ -293,6 +293,7 @@ const release = Vue.computed(
 const canRequestReturn = Vue.computed(
   () =>
     props.record.status === BitcoinUtxoStatus.Orphaned &&
+    props.record.isOnArgonChain !== false &&
     (!release.value ||
       release.value.status === BitcoinReleaseStatus.Cancelled ||
       release.value.status === BitcoinReleaseStatus.Failed ||

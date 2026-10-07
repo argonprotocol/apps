@@ -122,7 +122,10 @@ export default class BitcoinUtxoTracking {
     if (lock.lockId === undefined) return;
     const fundingUtxoIds = new Set(lock.fundingUtxoIds);
     const receivedUtxos = this.getUtxosForLock(lock.lockId).filter(record => {
-      return fundingUtxoIds.has(record.id) || record.status === BitcoinUtxoStatus.SeenOnMempool;
+      return (
+        fundingUtxoIds.has(record.id) ||
+        (record.status === BitcoinUtxoStatus.SeenOnMempool && !record.fundingRejectionReason)
+      );
     });
     if (!receivedUtxos.length) return;
     return receivedUtxos.reduce((total, record) => total + record.satoshis, 0n);
@@ -135,7 +138,7 @@ export default class BitcoinUtxoTracking {
   public getObservedFundingUtxos(lock: IBitcoinLockRecord): IBitcoinUtxoRecord[] {
     if (lock.lockId === undefined) return [];
     return this.getUtxosForLock(lock.lockId)
-      .filter(record => record.status === BitcoinUtxoStatus.SeenOnMempool)
+      .filter(record => record.status === BitcoinUtxoStatus.SeenOnMempool && !record.fundingRejectionReason)
       .sort((a, b) => a.firstSeenAt.getTime() - b.firstSeenAt.getTime());
   }
 
@@ -193,31 +196,58 @@ export default class BitcoinUtxoTracking {
 
     for (const [ownerAccount, ownerLocks] of locksByOwner) {
       const locksByLockId = new Map(ownerLocks.map(lock => [lock.lockId, lock]));
-      const entries = (await apiClient.query.bitcoinLocks.orphanedUtxosByAccount.entries(ownerAccount)) ?? [];
-
-      for (const [orphanKey, orphanMaybe] of entries) {
-        if (!orphanMaybe) continue;
-        const orphan = orphanMaybe;
-        const lock = locksByLockId.get(orphan.lockId);
-        if (!lock) continue;
-
-        const utxoRef = orphanKey.args[1];
-        const record = await this.upsertUtxoRecord(
-          lock,
-          {
-            txid: utxoRef.txid,
-            vout: utxoRef.outputIndex,
-            satoshis: orphan.satoshis,
-          },
-          { markOrphaned: true },
-        );
-        records.push(record);
-      }
+      const entries = await apiClient.query.bitcoinLocks.orphanedUtxosByAccount.entries(ownerAccount);
+      // An unsupported query cannot establish absence.
+      if (!entries) continue;
+      const db = await this.deps.dbPromise;
+      const snapshot = await db.transaction(async transaction => {
+        const present: IBitcoinUtxoRecord[] = [];
+        for (const [orphanKey, orphan] of entries) {
+          if (!orphan) continue;
+          const lock = locksByLockId.get(orphan.lockId);
+          if (!lock) continue;
+          const utxoRef = orphanKey.args[1];
+          const record = await this.persistUtxoRecord(
+            transaction.bitcoinUtxosTable,
+            lock,
+            {
+              txid: utxoRef.txid,
+              vout: utxoRef.outputIndex,
+              satoshis: orphan.satoshis,
+            },
+            BitcoinUtxoStatus.Orphaned,
+          );
+          record.isOnArgonChain = true;
+          await transaction.bitcoinUtxosTable.updateDepositMetadata(record);
+          present.push(record);
+        }
+        const presentIds = new Set(present.map(record => record.id));
+        const absent: IBitcoinUtxoRecord[] = [];
+        for (const lock of ownerLocks) {
+          for (const record of await transaction.bitcoinUtxosTable.fetchByLockId(lock.lockId!)) {
+            if (
+              record.status !== BitcoinUtxoStatus.Orphaned ||
+              presentIds.has(record.id) ||
+              record.isOnArgonChain === false
+            )
+              continue;
+            record.isOnArgonChain = false;
+            await transaction.bitcoinUtxosTable.updateDepositMetadata(record);
+            absent.push(record);
+          }
+        }
+        return { present, absent };
+      });
+      snapshot.absent.forEach(record => this.publishUtxo(record));
+      records.push(...snapshot.present.map(record => this.publishUtxo(record)));
     }
     return records;
   }
 
-  public async observeMempoolFunding(lock: IBitcoinLockRecord): Promise<IMempoolFundingObservation | undefined> {
+  public async observeMempoolFunding(
+    lock: IBitcoinLockRecord,
+    client: ArgonQueryClient,
+  ): Promise<IMempoolFundingObservation | undefined> {
     if (!lock.lockId) return undefined;
     // Mempool is a best-effort preview. The runtime-confirmed funding or orphan state remains authoritative.
     const payToScriptAddress = lock.scriptDetails?.p2wshScriptHashHex;
@@ -229,8 +259,13 @@ export default class BitcoinUtxoTracking {
       return undefined;
     }
 
+    let minimumSatoshis: bigint | undefined;
+    try {
+      minimumSatoshis = (await client.query.bitcoinLocks.minimumSatoshis()) ?? undefined;
+    } catch (error) {
+      console.warn('[BitcoinUtxoTracking] Unable to determine Bitcoin deposit eligibility', error);
+    }
     const tip = await this.deps.mempool.getTipHeight();
-    const mempoolRecords: IBitcoinUtxoRecord[] = [];
     for (const tx of txs) {
       const status = tx.status;
       const mempoolObservation: IMempoolFundingObservation = {
@@ -243,12 +278,11 @@ export default class BitcoinUtxoTracking {
         transactionBlockTime: status.block_time ?? 0,
         argonBitcoinHeight: this.deps.getOracleBitcoinBlockHeight(),
       };
-      const record = await this.upsertUtxoRecord(
+      await this.upsertUtxoRecord(
         lock,
         { txid: tx.txid, vout: tx.vout, satoshis: BigInt(tx.value) },
-        { mempoolObservation },
+        { mempoolObservation, minimumSatoshis },
       );
-      mempoolRecords.push(record);
     }
 
     return this.getObservedFundingUtxos(lock).at(-1)?.mempoolObservation;
@@ -262,10 +296,14 @@ export default class BitcoinUtxoTracking {
 
     let mempoolObservation: IMempoolFundingObservation | undefined;
 
-    const client = preferredClient ?? (await this.deps.getMainchainClient(true));
+    let client = preferredClient;
+    if (!client) {
+      const archiveClient = await this.deps.getMainchainClient(true);
+      client = await archiveClient.at(await archiveClient.rpc.chain.getFinalizedHead());
+    }
     const [orphanResult, mempoolObservationResult] = await Promise.allSettled([
       this.syncArgonOrphans([lock], client),
-      this.observeMempoolFunding(lock),
+      this.observeMempoolFunding(lock, client),
     ]);
 
     if (orphanResult.status === 'rejected') {
@@ -284,7 +322,9 @@ export default class BitcoinUtxoTracking {
     }
 
     const hasFundingUtxos = this.getFundingUtxos(lock).length > 0;
-    const hasOrphan = this.getUtxosForLock(lock.lockId).some(record => record.status === BitcoinUtxoStatus.Orphaned);
+    const hasOrphan = this.getUtxosForLock(lock.lockId).some(
+      record => record.status === BitcoinUtxoStatus.Orphaned && record.isOnArgonChain !== false,
+    );
     return hasFundingUtxos || hasOrphan || !!mempoolObservation;
   }
 
@@ -360,8 +400,26 @@ export default class BitcoinUtxoTracking {
     const lockIds = new Set(locks.map(lock => lock.lockId).filter(lockId => lockId !== undefined));
 
     return this.getAllOrphanLifecycleUtxos()
-      .filter(record => lockIds.has(record.lockId) && record.spendStatus !== BitcoinUtxoSpendStatus.Spent)
+      .filter(
+        record =>
+          lockIds.has(record.lockId) &&
+          record.isOnArgonChain !== false &&
+          record.spendStatus !== BitcoinUtxoSpendStatus.Spent,
+      )
       .sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime());
+  }
+
+  public async acknowledgeBelowMinimum(record: IBitcoinUtxoRecord): Promise<void> {
+    const db = await this.deps.dbPromise;
+    const acknowledged = await db.transaction(async transaction => {
+      const current = await transaction.bitcoinUtxosTable.getByLockOutpoint(record.lockId, record.txid, record.vout);
+      if (current?.status !== BitcoinUtxoStatus.SeenOnMempool || current.fundingRejectionReason !== 'BelowMinimum')
+        return;
+      current.isFailureAcknowledged = true;
+      await transaction.bitcoinUtxosTable.updateDepositMetadata(current);
+      return current;
+    });
+    if (acknowledged) this.publishUtxo(acknowledged);
   }
 
   public async clearStatusError(record: IBitcoinUtxoRecord): Promise<void> {
@@ -405,16 +463,20 @@ export default class BitcoinUtxoTracking {
     options?: {
       mempoolObservation?: IMempoolFundingObservation;
       markOrphaned?: boolean;
+      minimumSatoshis?: bigint;
     },
   ): Promise<IBitcoinUtxoRecord> {
     if (!lock.lockId) throw new Error('Lock has no lockId for UTXO tracking.');
-    const table = await this.getTable();
-    const record = await this.persistUtxoRecord(
-      table,
-      lock,
-      deposit,
-      this.getObservedStatusForUpsert(options),
-      options?.mempoolObservation,
+    const db = await this.deps.dbPromise;
+    const record = await db.transaction(transaction =>
+      this.persistUtxoRecord(
+        transaction.bitcoinUtxosTable,
+        lock,
+        deposit,
+        this.getObservedStatusForUpsert(options),
+        options?.mempoolObservation,
+        options?.minimumSatoshis,
+      ),
     );
     return this.publishUtxo(record);
   }
@@ -425,6 +487,7 @@ export default class BitcoinUtxoTracking {
     deposit: { txid: string; vout: number; satoshis: bigint },
     observedStatus?: BitcoinUtxoStatus,
     mempoolObservation?: IMempoolFundingObservation,
+    minimumSatoshis?: bigint,
   ): Promise<IBitcoinUtxoRecord> {
     if (!lock.lockId) throw new Error('Lock has no lockId for UTXO tracking.');
 
@@ -432,8 +495,7 @@ export default class BitcoinUtxoTracking {
     const wasSeenOnArgon =
       observedStatus === BitcoinUtxoStatus.FundingUtxo || observedStatus === BitcoinUtxoStatus.Orphaned;
     const seenOnArgonAt = wasSeenOnArgon ? dayjs.utc().toDate() : undefined;
-    const existing = this.getUtxoRecord(lock.lockId, deposit.txid, deposit.vout);
-    let record = existing ? { ...existing } : undefined;
+    let record = await table.getByLockOutpoint(lock.lockId, deposit.txid, deposit.vout);
     if (!record) {
       record = await table.insert({
         lockId: lock.lockId,
@@ -443,6 +505,8 @@ export default class BitcoinUtxoTracking {
         network: lock.network,
         status: observedStatus ?? BitcoinUtxoStatus.SeenOnMempool,
         spendStatus: BitcoinUtxoSpendStatus.Unspent,
+        fundingRejectionReason:
+          !wasSeenOnArgon && minimumSatoshis != null && satoshis < minimumSatoshis ? 'BelowMinimum' : undefined,
         mempoolObservation,
         firstSeenAt: dayjs.utc().toDate(),
         firstSeenOnArgonAt: seenOnArgonAt,
@@ -457,6 +521,21 @@ export default class BitcoinUtxoTracking {
     let needsUpdate = false;
     if (this.shouldUpdateObservedStatus(record, observedStatus)) {
       record.status = observedStatus;
+      needsUpdate = true;
+    }
+    if (wasSeenOnArgon && record.fundingRejectionReason) {
+      record.fundingRejectionReason = undefined;
+      record.isFailureAcknowledged = false;
+      needsUpdate = true;
+    }
+    if (
+      record.status === BitcoinUtxoStatus.SeenOnMempool &&
+      !record.fundingRejectionReason &&
+      minimumSatoshis != null &&
+      satoshis < minimumSatoshis
+    ) {
+      record.fundingRejectionReason = 'BelowMinimum';
+      record.isFailureAcknowledged = false;
       needsUpdate = true;
     }
     if (record.satoshis !== satoshis) {

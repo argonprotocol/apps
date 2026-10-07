@@ -346,9 +346,14 @@ const openWallet = Vue.ref<IOpenWallet>();
 const unattachedBitcoinView = Vue.computed(() => {
   const centerView = openWallet.value?.centerView;
   if (centerView?.type !== 'unattachedBitcoin') return;
-  const record = bitcoinLocks.utxoTracking.getUtxoRecordById(centerView.recordId);
+  const record = walletStore.bitcoinWallet
+    .getUnresolvedOrphanDeposits()
+    .find(record => record.id === centerView.recordId);
   const lock = record ? bitcoinLocks.getLockById(record.lockId) : undefined;
   return record && lock ? { record, lock } : undefined;
+});
+Vue.watch(unattachedBitcoinView, view => {
+  if (!view && openWallet.value?.centerView.type === 'unattachedBitcoin') showView('main');
 });
 const ethereumWallets = Vue.computed(() => walletStore.ethereumWallets.persistedWallets);
 

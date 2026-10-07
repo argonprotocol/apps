@@ -164,6 +164,7 @@ export function setupVaultingPortfolioScenario() {
       getUtxosForLock: fn(() => []),
       getObservedFundingUtxos: fn(() => []),
       getUnresolvedOrphanRecords: fn(() => []),
+      getAllOrphanLifecycleUtxos: fn(() => []),
     },
   } as unknown as ReturnType<typeof getBitcoinLocks>);
 

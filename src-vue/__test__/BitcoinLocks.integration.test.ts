@@ -528,7 +528,10 @@ describe.skipIf(skipE2E).sequential('BitcoinLocks integration', { timeout: 240e3
 
         const currentLock = getCurrentLock(owner, lock.lockId!);
         const observedFunding = await waitFor(30e3, 'release-window deposit observed by the app', async () => {
-          return await owner.bitcoinLocks.utxoTracking.observeMempoolFunding(currentLock);
+          return await owner.bitcoinLocks.utxoTracking.observeMempoolFunding(
+            currentLock,
+            await owner.clients.get(true),
+          );
         });
         const canonicalTxid = observedFunding.txid;
         if (!canonicalTxid) throw new Error('Observed release-window deposit has no canonical txid.');
@@ -545,10 +548,8 @@ describe.skipIf(skipE2E).sequential('BitcoinLocks integration', { timeout: 240e3
 
         const orphan = await waitFor(
           90e3,
-          'release-window deposit recorded as orphan',
-          async () => {
-            const chainClient = await clients.get(false);
-            await owner.bitcoinLocks.utxoTracking.syncPendingFundingSignals(currentLock, chainClient);
+          'finalized release-window deposit published as orphan',
+          () => {
             return owner.bitcoinLocks.utxoTracking
               .getUnresolvedOrphanRecords([currentLock])
               .find(record => record.txid === canonicalTxid);

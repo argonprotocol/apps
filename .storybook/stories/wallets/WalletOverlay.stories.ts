@@ -1,8 +1,9 @@
 import type { Meta, StoryObj } from '@storybook/vue3-vite';
 import * as Vue from 'vue';
 import { BitcoinFission, MoveToken } from '@argonprotocol/apps-core';
+import { encodeAddress } from '@polkadot/util-crypto';
 import { BitcoinLockStatus } from '../../../src-vue/lib/db/BitcoinLocksTable.ts';
-import { fn, mocked, userEvent, within } from 'storybook/test';
+import { fn, mocked, spyOn, userEvent, within } from 'storybook/test';
 import {
   setupWalletScenario,
   setupWalletTransferScenario,
@@ -28,6 +29,9 @@ import { loadEthereumChainConfig } from '../../../src-vue/lib/EthereumClient.ts'
 import { getConfig } from '../../../src-vue/stores/config.ts';
 import { getCurrency } from '../../../src-vue/stores/currency.ts';
 import { OperationalStepId, useCertificationController } from '../../../src-vue/stores/certificationController.ts';
+import { BitcoinReleaseKind, BitcoinReleaseStatus } from '../../../src-vue/interfaces/IBitcoinReleaseRecord.ts';
+import { createBitcoinRelease } from '../../scenarios/setupBitcoinOverlayScenario.ts';
+import { BitcoinUtxoStatus } from '../../../src-vue/interfaces/IBitcoinUtxoRecord.ts';
 
 let request: IWalletOverlayOptions;
 let showTreasuryUpgrade = false;
@@ -248,12 +252,77 @@ export const BitcoinWalletHistoricalChannel: Story = {
 
 export const FundedBitcoinConnector: Story = {
   name: 'Funded Bitcoin connector receive',
-  beforeEach: useBitcoinWalletDetailsScenario,
+  beforeEach: useBitcoinConnectorReceiveScenario,
   play: async () => {
     const connector = document.querySelector<HTMLElement>('[data-wallet-connector-id="bitcoin"]');
     if (!connector) throw new Error('Bitcoin connector was not rendered');
 
     await userEvent.click(within(connector).getByText('Bitcoin', { exact: true }));
+    isInteractive.value = false;
+  },
+};
+
+export const BitcoinReceiveMinimumLoading: Story = {
+  ...FundedBitcoinConnector,
+  name: 'Bitcoin receive minimum loading',
+  beforeEach: () => {
+    useBitcoinConnectorReceiveScenario();
+    getBitcoinLocks().minimumSatoshiPerLock = fn(
+      () =>
+        new Promise<bigint>(() => {
+          // Keep this fixed preview at the external query's loading boundary.
+        }),
+    );
+  },
+};
+
+export const BitcoinReceiveMinimumUnavailable: Story = {
+  ...FundedBitcoinConnector,
+  name: 'Bitcoin receive minimum unavailable',
+  beforeEach: () => {
+    useBitcoinConnectorReceiveScenario();
+    getBitcoinLocks().minimumSatoshiPerLock = fn(async () => {
+      throw new Error('Synthetic minimum query unavailable');
+    });
+  },
+};
+
+export const BitcoinReceiveProposedMinimum: Story = {
+  name: 'Bitcoin receive with proposed 1,000-sat minimum',
+  beforeEach: () => {
+    useBitcoinConnectorReceiveScenario();
+    const reservationExpiresAt = Date.now() + 25 * 60 * 60_000;
+    getBitcoinLocks().getSecuritizationHoldExpirationTime = fn(() => reservationExpiresAt);
+    getBitcoinLocks().minimumSatoshiPerLock = fn(async () => 1_000n);
+  },
+  play: async () => {
+    const connector = document.querySelector<HTMLElement>('[data-wallet-connector-id="bitcoin"]');
+    if (!connector) throw new Error('Bitcoin connector was not rendered');
+    await userEvent.click(within(connector).getByText('Bitcoin', { exact: true }));
+    isInteractive.value = false;
+  },
+};
+
+function useBitcoinConnectorReceiveScenario() {
+  useBitcoinWalletDetailsScenario();
+  getConfig().upstreamOperator = { name: 'Testing', vaultId: 101 };
+  const reservationExpiresAt = Date.now() + (12 * 60 + 27) * 60_000;
+  getBitcoinLocks().getSecuritizationHoldExpirationTime = fn(() => reservationExpiresAt);
+  useWallets().bitcoinWallet.getChannelFundingAddress = lock =>
+    getBitcoinLocks().formatP2wshAddress(lock.scriptDetails!.p2wshScriptHashHex);
+}
+
+export const BitcoinReceiveQrCode: Story = {
+  ...FundedBitcoinConnector,
+  name: 'Bitcoin receive QR code',
+  play: async () => {
+    const canvas = within(document.body);
+    const connector = document.querySelector<HTMLElement>('[data-wallet-connector-id="bitcoin"]');
+    if (!connector) throw new Error('Bitcoin connector was not rendered');
+
+    await userEvent.click(within(connector).getByText('Bitcoin', { exact: true }));
+    await userEvent.hover(await canvas.findByRole('button', { name: 'Show Bitcoin address QR code' }));
+    await canvas.findByRole('img', { name: 'Bitcoin receive address QR code' });
     isInteractive.value = false;
   },
 };
@@ -883,6 +952,52 @@ export const BitcoinChannelFundingPending: Story = {
   },
 };
 
+export const BitcoinDepositBelowMinimum: Story = {
+  beforeEach: () => {
+    usePendingBitcoinFundingScenario();
+    const tracking = getBitcoinLocks().utxoTracking;
+    const record = tracking.getUtxosForLock(101)[0];
+    record.satoshis = 500n;
+    record.fundingRejectionReason = 'BelowMinimum';
+    record.firstSeenBitcoinHeight = 0;
+    if (record.mempoolObservation) {
+      record.mempoolObservation.isConfirmed = false;
+      record.mempoolObservation.confirmations = 0;
+      record.mempoolObservation.transactionBlockHeight = 0;
+    }
+  },
+  play: async () => {
+    await userEvent.click(await within(document.body).findByRole('button', { name: '1 Transfer Needs Attention' }));
+    await within(document.body).findByText('100,000 sats.', { exact: true });
+    isInteractive.value = false;
+  },
+};
+
+export const BitcoinDepositMinimumUnavailable: Story = {
+  beforeEach: () => {
+    usePendingBitcoinFundingScenario();
+    const record = getBitcoinLocks().utxoTracking.getUtxosForLock(101)[0];
+    record.satoshis = 500n;
+    record.fundingRejectionReason = 'BelowMinimum';
+    spyOn(getBitcoinLocks(), 'minimumSatoshiPerLock').mockRejectedValue(new Error('Synthetic minimum query failure'));
+  },
+  play: async () => {
+    await userEvent.click(await within(document.body).findByRole('button', { name: '1 Transfer Needs Attention' }));
+    isInteractive.value = false;
+  },
+};
+
+export const BitcoinDepositErrorAcknowledged: Story = {
+  beforeEach: () => {
+    usePendingBitcoinFundingScenario();
+    const record = getBitcoinLocks().utxoTracking.getUtxosForLock(101)[0];
+    record.satoshis = 500n;
+    record.fundingRejectionReason = 'BelowMinimum';
+    record.isFailureAcknowledged = true;
+    isInteractive.value = false;
+  },
+};
+
 export const BitcoinChannelReleasePending: Story = {
   beforeEach: usePendingBitcoinReleaseScenario,
   play: async () => {
@@ -953,6 +1068,32 @@ export const BitcoinUnattachedDepositReturn: Story = {
     const canvas = within(document.body);
 
     await userEvent.click(await canvas.findByTestId('WalletViewMain.unattachedBitcoinDeposit'));
+  },
+};
+
+export const BitcoinUnattachedReturnHistoryUnavailable: Story = {
+  beforeEach: () => {
+    useBitcoinUnattachedDepositScenario();
+    const locks = getBitcoinLocks();
+    const record = locks.utxoTracking
+      .getUtxosForLock(101)
+      .find(record => record.status === BitcoinUtxoStatus.Orphaned)!;
+    record.isOnArgonChain = false;
+    record.activeReleaseId = 'synthetic-unattached-return';
+    const release = createBitcoinRelease({
+      id: record.activeReleaseId,
+      kind: BitcoinReleaseKind.Orphan,
+      lockId: record.lockId,
+      inputUtxoIds: [record.id],
+      status: BitcoinReleaseStatus.WaitingForVaultCosign,
+      statusError: 'The activity index is not ready to restore this Bitcoin return. Please retry shortly.',
+      requestedReleaseAtTick: 10_001,
+    });
+    locks.releases.data.releasesById[release.id] = release;
+  },
+  play: async () => {
+    await userEvent.click(await within(document.body).findByTestId('WalletViewMain.unattachedBitcoinDeposit'));
+    isInteractive.value = false;
   },
 };
 
@@ -1280,8 +1421,24 @@ export const SendBitcoinAtZeroBalance: Story = {
 };
 
 export const ReceiveTokens: Story = {
-  beforeEach: () => useScenario(WalletType.argon, 'receive', 'defaultArgon', true),
+  beforeEach: () => {
+    useScenario(WalletType.argon, 'receive');
+    useWallets().defaultArgonWallet.address = encodeAddress(new Uint8Array(32).fill(1));
+  },
   play: waitForWalletOverlay,
+};
+
+export const ReceiveTokensQrCode: Story = {
+  name: 'Receive tokens QR code',
+  beforeEach: ReceiveTokens.beforeEach,
+  play: async () => {
+    isInteractive.value = true;
+    await waitForWalletOverlay();
+    const canvas = within(document.body);
+    await userEvent.hover(await canvas.findByRole('button', { name: 'Show Argon address QR code' }));
+    await canvas.findByRole('img', { name: 'Argon receive address QR code' });
+    isInteractive.value = false;
+  },
 };
 
 export const PrivateKey: Story = {

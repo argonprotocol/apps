@@ -174,6 +174,7 @@ describe('Historically expired Bitcoin funding', () => {
       }
       await migrateToLatest();
       await scenario.store.load();
+      await vi.waitFor(() => expect(scenario.store.data.isReconciliationPending).toBe(false));
       const current = scenario.store.getLockById(7)!;
       expect(current.removalReason).toBeUndefined();
       expect(scenario.store.isSecuritizationHoldExpired(current)).toBe(true);

@@ -1,4 +1,5 @@
 import {
+  AccountActivityKind,
   BitcoinLock,
   bigIntMax,
   bigIntMin,
@@ -36,6 +37,7 @@ import type { TransactionTracker } from './TransactionTracker.ts';
 import { ExtrinsicType, TransactionStatus } from './db/TransactionsTable.ts';
 import { isWalletSigningUnavailableError, type WalletKeys } from './WalletKeys.ts';
 import { assignIfUnset } from './Utils.ts';
+import { findAddressActivity } from './IndexerClient.ts';
 
 const releaseProgress: Partial<Record<BitcoinReleaseStatus, number>> = {
   [BitcoinReleaseStatus.SubmittingRequestOnArgon]: 0,
@@ -426,7 +428,11 @@ export default class BitcoinReleases {
     ) {
       throw new Error('Bitcoin orphan release does not belong to the selected UTXO.');
     }
-    if (utxo.status !== BitcoinUtxoStatus.Orphaned || utxo.spendStatus === BitcoinUtxoSpendStatus.Spent) {
+    if (
+      utxo.status !== BitcoinUtxoStatus.Orphaned ||
+      utxo.isOnArgonChain === false ||
+      utxo.spendStatus === BitcoinUtxoSpendStatus.Spent
+    ) {
       throw new Error('This orphan return is not currently available.');
     }
     if (utxo.activeReleaseId && utxo.activeReleaseId !== release.id) {
@@ -657,10 +663,28 @@ export default class BitcoinReleases {
       const utxo = this.getInputUtxos(release)[0];
       if (!utxo || utxo.activeReleaseId !== release.id) continue;
 
-      if (release.status === BitcoinReleaseStatus.SubmittingRequestOnArgon) {
-        const txInfo = this.getOrphanTransactionInfo(release);
-        const txFailure = getTransactionFailureMessage(txInfo);
+      const txInfo =
+        release.status === BitcoinReleaseStatus.SubmittingRequestOnArgon
+          ? this.getOrphanTransactionInfo(release)
+          : undefined;
+      const txFailure = getTransactionFailureMessage(txInfo);
+      if (txInfo && !txFailure && txInfo.tx.status !== TransactionStatus.Finalized) continue;
 
+      if (
+        utxo.isOnArgonChain === false &&
+        (release.status === BitcoinReleaseStatus.SubmittingRequestOnArgon ||
+          release.status === BitcoinReleaseStatus.WaitingForVaultCosign)
+      ) {
+        try {
+          await this.reconcileMissingOrphanReturn(lock, utxo, release);
+        } catch (error) {
+          await this.recordRetryableError(release, error);
+          continue;
+        }
+        release = this.getById(release.id) ?? release;
+      }
+
+      if (release.status === BitcoinReleaseStatus.SubmittingRequestOnArgon) {
         if (!txInfo || txFailure) {
           const recoveredFromChain = await this.syncOrphanRequestFromChain(lock, utxo, release);
           if (!recoveredFromChain) {
@@ -671,7 +695,6 @@ export default class BitcoinReleases {
             continue;
           }
         } else {
-          if (txInfo.tx.status !== TransactionStatus.Finalized) continue;
           const blockHash = txInfo.tx.blockHash ?? (await txInfo.txResult.waitForInFirstBlock);
           await this.finalizeOrphanRequest(release, typeof blockHash === 'string' ? hexToU8a(blockHash) : blockHash);
         }
@@ -1305,6 +1328,84 @@ export default class BitcoinReleases {
     await this.recordArgonRequest(release, { requestedReleaseAtTick: Number(currentTick) });
     await this.syncOrphanCosignCounterSubscriptions(client);
     return true;
+  }
+
+  private async reconcileMissingOrphanReturn(
+    lock: IBitcoinLockRecord,
+    utxo: IBitcoinUtxoRecord,
+    release: IBitcoinReleaseRecord,
+  ): Promise<void> {
+    // A cosign removes the orphan too. Find its finalized event before retiring an active return.
+    const requestBlock = this.getOrphanTransactionInfo(release)?.tx.blockHeight ?? lock.createdAtArgonBlock;
+    if (!lock.ownerAccount || requestBlock == null) {
+      throw new Error('Use Find Missing Data to restore the history for this Bitcoin return.');
+    }
+    const finalizedBlock = this.blockWatch.finalizedBlockHeader;
+    const toBlock = finalizedBlock.blockNumber;
+    if (toBlock < requestBlock) return;
+    const api = await this.blockWatch.getApi(finalizedBlock);
+    const orphan = await api.query.bitcoinLocks.orphanedUtxosByAccount(lock.ownerAccount, {
+      txid: utxo.txid,
+      outputIndex: utxo.vout,
+    });
+    if (orphan) return;
+    const activity = await findAddressActivity(lock.ownerAccount, {
+      afterBlock: requestBlock - 1,
+      toBlock,
+      activityMask: AccountActivityKind.BitcoinLock,
+    });
+    if (activity.definitionVersion < 3) {
+      throw new Error('Upgrade and rebuild the activity indexer to restore this Bitcoin return.');
+    }
+    if (
+      activity.asOfBlock < toBlock ||
+      activity.coverage.fromBlock > requestBlock ||
+      activity.coverage.toBlock < toBlock ||
+      activity.coverage.gaps.length
+    ) {
+      throw new Error('The activity index is not ready to restore this Bitcoin return. Please retry shortly.');
+    }
+    for (const block of activity.blocks) {
+      const { events } = await this.blockWatch.getEventsWithSpec(block);
+      for (const { event } of events) {
+        const runtimeEvent = toRuntimeEvent(event);
+        if (runtimeEvent?.section !== 'bitcoinLocks' || runtimeEvent.method !== 'OrphanedUtxoCosigned') continue;
+        const { accountId, utxoRef, signature } = runtimeEvent.data;
+        if (
+          (runtimeEvent.data.lockId ?? runtimeEvent.data.utxoId) !== lock.lockId ||
+          (accountId && accountId !== lock.ownerAccount) ||
+          utxoRef.txid !== utxo.txid ||
+          utxoRef.outputIndex !== utxo.vout
+        )
+          continue;
+        await this.recordVaultCosign(release, { vaultSignatures: [signature], cosignBlockNumber: block.blockNumber });
+        return;
+      }
+    }
+
+    const db = await this.dbPromise;
+    const retired = await db.transaction(async transaction => {
+      const currentRelease = await transaction.bitcoinReleasesTable.getById(release.id);
+      const currentUtxo = await transaction.bitcoinUtxosTable.getByLockOutpoint(utxo.lockId, utxo.txid, utxo.vout);
+      if (
+        !currentRelease ||
+        (currentRelease.status !== BitcoinReleaseStatus.SubmittingRequestOnArgon &&
+          currentRelease.status !== BitcoinReleaseStatus.WaitingForVaultCosign) ||
+        currentUtxo?.activeReleaseId !== release.id ||
+        currentUtxo.isOnArgonChain !== false
+      )
+        return;
+      await transaction.bitcoinReleasesTable.update(currentRelease, {
+        status: BitcoinReleaseStatus.Cancelled,
+        statusError: 'This Bitcoin deposit is no longer available for return on Argon.',
+      });
+      await transaction.bitcoinUtxosTable.setActiveRelease(currentUtxo, undefined);
+      return { currentRelease, currentUtxo };
+    });
+    if (retired) {
+      Object.assign(release, retired.currentRelease);
+      this.utxoTracking.publishUtxo(retired.currentUtxo);
+    }
   }
 
   private async submitOrphanToBitcoin(lock: IBitcoinLockRecord, release: IBitcoinReleaseRecord): Promise<void> {

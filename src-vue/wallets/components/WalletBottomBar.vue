@@ -72,10 +72,13 @@
                   {{ transfer.fromLabel }} to {{ transfer.toLabel }}
                 </div>
                 <div class="mt-0.5 truncate text-xs text-slate-500">
-                  Started {{ formatStartedAt(transfer.startedAt) }} ·
-                  {{ transfer.progress.detail || transfer.progress.stepLabel }}
+                  Started {{ formatStartedAt(transfer.startedAt) }}
+                  <template v-if="transfer.bitcoinUtxo?.fundingRejectionReason !== 'BelowMinimum'">
+                    · {{ transfer.progress.detail || transfer.progress.stepLabel }}
+                  </template>
                 </div>
                 <ProgressBar
+                  v-if="transfer.bitcoinUtxo?.fundingRejectionReason !== 'BelowMinimum'"
                   :progress="transfer.progress.progressPct"
                   :hasError="!!transfer.progress.error"
                   :showLabel="false"
@@ -84,9 +87,31 @@
                 <div v-if="transfer.progress.hint" class="mt-1 text-xs text-slate-500">
                   {{ transfer.progress.hint }}
                 </div>
-                <div v-if="transfer.progress.error" class="mt-1 text-xs text-amber-700">
-                  {{ transfer.progress.error }}
+                <div
+                  v-if="transfer.progress.error"
+                  class="text-amber-700"
+                  :class="
+                    transfer.bitcoinUtxo?.fundingRejectionReason === 'BelowMinimum' ? 'mt-3 text-sm' : 'mt-1 text-xs'
+                  "
+                >
+                  <template v-if="transfer.bitcoinUtxo?.fundingRejectionReason === 'BelowMinimum'">
+                    This deposit is too small; send a new deposit
+                    <template v-if="minimumDepositSatoshis != null">
+                      of at least
+                      <strong class="font-semibold">{{ minimumDepositSatoshis.toLocaleString() }} sats.</strong>
+                    </template>
+                    <template v-else>meeting the minimum shown on your channel's receive screen.</template>
+                  </template>
+                  <template v-else>{{ transfer.progress.error }}</template>
                 </div>
+                <button
+                  v-if="transfer.bitcoinUtxo?.fundingRejectionReason === 'BelowMinimum'"
+                  type="button"
+                  class="border-argon-600 text-argon-600 hover:bg-argon-50 mt-3 cursor-pointer rounded-lg border px-5 py-1 font-semibold"
+                  @click="acknowledgeDeposit(transfer.bitcoinUtxo)"
+                >
+                  Acknowledge &amp; Dismiss
+                </button>
               </article>
               <div v-if="loadError" class="border-t border-slate-200 py-3 text-xs text-amber-700">
                 Some transfer status could not be loaded. {{ loadError }}
@@ -136,6 +161,7 @@ import { getConfig } from '../../stores/config.ts';
 import { getCurrency } from '../../stores/currency.ts';
 import { getBitcoinLocks, getBitcoinTransactionOperations } from '../../stores/bitcoin.ts';
 import { getBitcoinReleaseProgress } from '../../stores/bitcoinLockProgress.ts';
+import type { IBitcoinUtxoRecord } from '../../interfaces/IBitcoinUtxoRecord.ts';
 import { getMiningFrames } from '../../stores/mainchain.ts';
 import { getEthereumMoveTracker } from '../../stores/moveFromEthereum.ts';
 import { getEthereumOutboundTransferTracker } from '../../stores/moveToEthereum.ts';
@@ -157,6 +183,7 @@ type PendingTransfer = {
   startedAt: number;
   updatedAt: number;
   progress: ITransferProgressView;
+  bitcoinUtxo?: IBitcoinUtxoRecord;
 };
 
 const props = defineProps<{ showTransferGuide?: boolean; showBitcoinGuide?: boolean }>();
@@ -172,6 +199,7 @@ const outboundTracker = getEthereumOutboundTransferTracker();
 const { microgonToArgonNm, micronotToArgonotNm, satToBtcNm } = createNumeralHelpers(getCurrency());
 const floatingZIndex = useFloatingZIndex(2);
 const isOpen = Vue.ref(false);
+const minimumDepositSatoshis = Vue.ref<bigint>();
 const isLoadingTransfers = Vue.ref(true);
 const loadError = Vue.ref('');
 const progressNow = Vue.ref(Date.now());
@@ -232,11 +260,15 @@ const pendingTransfers = Vue.computed<PendingTransfer[]>(() => {
         toLabel: getBitcoinChannelLabel(channel.vaultId),
         startedAt: utxo.firstSeenAt.getTime(),
         updatedAt: utxo.updatedAt.getTime(),
+        bitcoinUtxo: utxo,
         progress: {
           progressPct: progress.progressPct,
           stepLabel: 'Funding Bitcoin channel',
           detail,
-          error: utxo.statusError ?? wallets.bitcoinWallet.getChannelError(channel),
+          error:
+            utxo.fundingRejectionReason === 'BelowMinimum'
+              ? 'This Bitcoin deposit is too small to fund your channel.'
+              : (utxo.statusError ?? wallets.bitcoinWallet.getChannelError(channel)),
         },
       },
     ];
@@ -296,6 +328,30 @@ const failedTransferCount = Vue.computed(
   () => pendingTransfers.value.filter(transfer => !!transfer.progress.error).length,
 );
 const activeTransferCount = Vue.computed(() => pendingTransfers.value.length - failedTransferCount.value);
+
+Vue.watch(
+  () =>
+    isOpen.value &&
+    pendingTransfers.value.some(transfer => transfer.bitcoinUtxo?.fundingRejectionReason === 'BelowMinimum'),
+  async (open, _, onCleanup) => {
+    if (!open) return;
+    let cancelled = false;
+    onCleanup(() => (cancelled = true));
+    minimumDepositSatoshis.value = undefined;
+    try {
+      const minimum = await bitcoinLocks.minimumSatoshiPerLock();
+      if (!cancelled) minimumDepositSatoshis.value = minimum;
+    } catch (error) {
+      console.warn('[WalletBottomBar] Unable to load the Bitcoin deposit minimum', error);
+    }
+  },
+);
+
+async function acknowledgeDeposit(record: IBitcoinUtxoRecord): Promise<void> {
+  await bitcoinLocks.utxoTracking.acknowledgeBelowMinimum(record).catch(error => {
+    console.error('[WalletBottomBar] Unable to acknowledge Bitcoin deposit', error);
+  });
+}
 
 function getEthereumWalletLabel(address: string) {
   const wallet = wallets.ethereumWallets.findByAddress(address);

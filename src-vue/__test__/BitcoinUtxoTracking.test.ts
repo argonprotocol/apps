@@ -1,13 +1,25 @@
 import { describe, expect, it, vi } from 'vitest';
 import * as Vue from 'vue';
 import { BitcoinNetwork } from '@argonprotocol/bitcoin';
-import { createTestDb } from './helpers/db.ts';
+import { u8aToHex } from '@polkadot/util';
+import { createTestDb, createTestDbAtMigration } from './helpers/db.ts';
 import BitcoinUtxoTracking, { type IUtxoTrackingDeps } from '../lib/BitcoinUtxoTracking.ts';
 import { BitcoinLockStatus } from '../lib/db/BitcoinLocksTable.ts';
 import type { IBitcoinLockRecord } from '../interfaces/IBitcoinLockRecord.ts';
 import { BitcoinUtxoStatus } from '../lib/db/BitcoinUtxosTable.ts';
-import type { ArgonClient } from '@argonprotocol/apps-core';
-import { createBitcoinLockConfig, createCurrentLock } from './helpers/bitcoin.ts';
+import { BitcoinLock, type ArgonClient, type BlockWatch, type IBlockHeaderInfo } from '@argonprotocol/apps-core';
+import {
+  createBitcoinLockConfig,
+  createCurrentLock,
+  createStore,
+  historyBlock,
+  historyEvent,
+} from './helpers/bitcoin.ts';
+import { WalletForBitcoin } from '../lib/WalletForBitcoin.ts';
+import * as indexerClient from '../lib/IndexerClient.ts';
+import * as mainchain from '../stores/mainchain.ts';
+import { BitcoinReleaseKind, BitcoinReleaseStatus } from '../interfaces/IBitcoinReleaseRecord.ts';
+import { BitcoinHistoryUtxoState } from '../lib/recovery/BitcoinLockReplay.ts';
 
 type IMempoolTestDeps = Pick<IUtxoTrackingDeps['mempool'], 'getAddressUtxos' | 'getTipHeight' | 'getTxStatus'>;
 
@@ -70,6 +82,555 @@ function createLockDetails(): NonNullable<IBitcoinLockRecord['scriptDetails']> {
 }
 
 describe('BitcoinUtxoTracking', () => {
+  it('rejects unconfirmed below-minimum deposits immediately and preserves dismissal through restart and replay', async () => {
+    const { db, migrateToLatest } = await createTestDbAtMigration(36);
+    const txid = '1'.repeat(64);
+    await db.execute(
+      `INSERT INTO BitcoinUtxos (lockId, txid, vout, satoshis, network, status, firstSeenAt, firstSeenBitcoinHeight)
+       VALUES (1, ?, 0, '1000', 'testnet', 'SeenOnMempool', '2026-01-01T00:00:00Z', 0)`,
+      [txid],
+    );
+    const beforeUpgrade = await db.select<object[]>('SELECT * FROM BitcoinUtxos');
+    const historyBeforeUpgrade = await db.bitcoinUtxosTable.fetchStatusHistory(1);
+    await migrateToLatest();
+    expect(await db.select<object[]>('SELECT * FROM BitcoinUtxos')).toEqual([
+      expect.objectContaining(beforeUpgrade[0]),
+    ]);
+    expect(await db.bitcoinUtxosTable.fetchStatusHistory(1)).toEqual(historyBeforeUpgrade);
+    const mempool = {
+      getAddressUtxos: vi.fn(async () => [
+        { txid, vout: 0, value: 1_000, status: { confirmed: false } },
+        { txid, vout: 1, value: 100_000, status: { confirmed: false } },
+      ]),
+      getTipHeight: vi.fn(async () => 132),
+    } as unknown as IUtxoTrackingDeps['mempool'];
+    const store = createStore({ db, mempool });
+    store.data = Vue.reactive(store.data);
+    store.utxoTracking.data = Vue.reactive(store.utxoTracking.data);
+    store.utxoTracking.load(await db.bitcoinUtxosTable.fetchAll());
+    const currentLock = createCurrentLock({ lockId: 1, fundedSatoshis: 0n, fundingUtxos: [] });
+    const pendingLock = await db.bitcoinLocksTable.insertPending(createLock());
+    const lock = await db.bitcoinLocksTable.finalizePending({ uuid: pendingLock.uuid, lock: currentLock });
+    store.data.locksByLockId[lock.lockId!] = lock;
+    const wallet = new WalletForBitcoin(
+      () => store,
+      () => lock.ownerAccount!,
+      {} as never,
+    );
+    const pending = Vue.computed(() => wallet.getPendingInboundUtxos());
+    const minimumSatoshis = vi.fn(async () => 100_000n);
+    const entries = vi.fn(async () => []);
+    const client = {
+      query: { bitcoinLocks: { minimumSatoshis, orphanedUtxosByAccount: { entries } } },
+    } as unknown as ArgonClient;
+
+    minimumSatoshis.mockRejectedValueOnce(new Error('RPC unavailable'));
+    await store.utxoTracking.syncPendingFundingSignals(lock, client);
+    expect(pending.value).toHaveLength(2);
+    const observed = store.utxoTracking.getUtxoRecord(lock.lockId!, txid, 0)!;
+    const historicalObservation = { ...observed };
+    expect(observed.status).toBe('SeenOnMempool');
+    expect(observed).not.toHaveProperty('fundingRejectionReason', 'BelowMinimum');
+
+    let finishOrphanQuery!: () => void;
+    entries.mockImplementationOnce(() => new Promise(resolve => (finishOrphanQuery = () => resolve([]))));
+    const sync = store.utxoTracking.syncPendingFundingSignals(lock, client);
+    try {
+      await vi.waitFor(() => expect(observed).toHaveProperty('fundingRejectionReason', 'BelowMinimum'));
+    } finally {
+      finishOrphanQuery();
+      await sync;
+    }
+    expect(observed).toMatchObject({
+      status: 'SeenOnMempool',
+      fundingRejectionReason: 'BelowMinimum',
+      firstSeenBitcoinHeight: 0,
+    });
+    expect(observed.mempoolObservation?.isConfirmed).toBe(false);
+    expect(store.utxoTracking.getObservedFundingUtxos(lock).map(record => record.vout)).toEqual([1]);
+    expect(store.utxoTracking.getReceivedFundingSatoshis(lock)).toBe(100_000n);
+    expect(pending.value).toHaveLength(2);
+    expect(await db.bitcoinUtxosTable.fetchStatusHistory(observed.id)).toEqual([
+      expect.objectContaining({ newStatus: 'SeenOnMempool' }),
+    ]);
+
+    await store.utxoTracking.acknowledgeBelowMinimum(observed);
+    expect(pending.value.map(record => record.vout)).toEqual([1]);
+    const restarted = createStore({ db, mempool });
+    restarted.data.locksByLockId[lock.lockId!] = lock;
+    restarted.utxoTracking.load(await db.bitcoinUtxosTable.fetchAll());
+    await restarted.applyRecoveredHistory(
+      {
+        lockId: lock.lockId!,
+        utxos: [historicalObservation],
+        releases: [],
+        fissions: [],
+        hdKeys: [],
+        securitizationTerms: [],
+      },
+      1,
+    );
+    minimumSatoshis.mockResolvedValue(500n);
+    await restarted.utxoTracking.syncPendingFundingSignals(lock, client);
+    const restartedWallet = new WalletForBitcoin(
+      () => restarted,
+      () => lock.ownerAccount!,
+      {} as never,
+    );
+    expect(restartedWallet.getPendingInboundUtxos().map(record => record.vout)).toEqual([1]);
+    expect(await db.bitcoinUtxosTable.getByLockOutpoint(lock.lockId!, txid, 0)).toMatchObject({
+      status: 'SeenOnMempool',
+      fundingRejectionReason: 'BelowMinimum',
+      isFailureAcknowledged: true,
+    });
+
+    await restarted.utxoTracking.syncFundingUtxos(
+      lock,
+      createCurrentLock({
+        lockId: 1,
+        fundedSatoshis: 1_000n,
+        fundingUtxos: [{ utxoRef: { txid, vout: 0 }, satoshis: 1_000n }],
+      }),
+    );
+    expect(restarted.utxoTracking.getUtxoRecord(lock.lockId!, txid, 0)).toMatchObject({
+      status: 'FundingUtxo',
+      isFailureAcknowledged: false,
+    });
+    expect(
+      (await db.bitcoinUtxosTable.getByLockOutpoint(lock.lockId!, txid, 0))?.fundingRejectionReason,
+    ).toBeUndefined();
+    expect(restartedWallet.getPendingInboundUtxos().map(record => record.vout)).toEqual([1]);
+  });
+
+  it('hides absent chain orphans while retaining cosigned returns through restart and completion', async () => {
+    const db = await createTestDb();
+    const store = createStore({ db });
+    store.utxoTracking.data = Vue.reactive(store.utxoTracking.data);
+    const lock = createLock({ status: BitcoinLockStatus.LockFunded });
+    store.data.locksByLockId[lock.lockId!] = lock;
+    const wallet = new WalletForBitcoin(
+      () => store,
+      () => lock.ownerAccount!,
+      {} as never,
+    );
+    const visible = Vue.computed(() => wallet.getUnresolvedOrphanDeposits());
+    const entries = vi.fn(async () => [
+      [
+        { args: [lock.ownerAccount, { txid: '2'.repeat(64), outputIndex: 0 }] },
+        { lockId: lock.lockId, satoshis: 100_000n },
+      ],
+      [
+        { args: [lock.ownerAccount, { txid: '3'.repeat(64), outputIndex: 0 }] },
+        { lockId: lock.lockId, satoshis: 100_000n },
+      ],
+    ]);
+    const client = { query: { bitcoinLocks: { orphanedUtxosByAccount: { entries } } } } as unknown as ArgonClient;
+    await store.utxoTracking.syncArgonOrphans([lock], client);
+    const [expired, returning] = store.utxoTracking.getUnresolvedOrphanRecords([lock]);
+    const historicalOrphan = { ...expired };
+    const release = await store.releases.createOrphanRelease(returning, {
+      id: 'orphan-return',
+      kind: BitcoinReleaseKind.Orphan,
+      lockId: returning.lockId,
+      sendId: 'orphan-return',
+      status: BitcoinReleaseStatus.WaitingForVaultCosign,
+      inputUtxoIds: [returning.id],
+      toScriptPubkey: `0x0014${'11'.repeat(20)}`,
+      bitcoinNetworkFee: 200n,
+      destinationSatoshis: 99_800n,
+      changeSatoshis: 0n,
+      vaultSignatures: [],
+    });
+    await store.releases.recordVaultCosign(release, { vaultSignatures: [new Uint8Array(64).fill(44)] });
+    expect(visible.value).toHaveLength(2);
+
+    entries.mockRejectedValueOnce(new Error('RPC unavailable'));
+    await expect(store.utxoTracking.syncArgonOrphans([lock], client)).rejects.toThrow('RPC unavailable');
+    expect(visible.value).toHaveLength(2);
+    entries.mockResolvedValue([]);
+    await store.utxoTracking.syncArgonOrphans([lock], client);
+    expect(visible.value.map(record => record.id)).toEqual([returning.id]);
+    expect(expired.status).toBe('Orphaned');
+    expect(expired.isOnArgonChain).toBe(false);
+    expect(returning.spendStatus).toBe('Unspent');
+    expect(store.utxoTracking.getUnresolvedOrphanRecords([lock])).toEqual([]);
+    await expect(
+      store.releases.createOrphanRelease(expired, {
+        ...release,
+        id: 'expired-return',
+        inputUtxoIds: [expired.id],
+      }),
+    ).rejects.toThrow('This orphan return is not currently available.');
+
+    const restarted = createStore({ db });
+    restarted.data.locksByLockId[lock.lockId!] = lock;
+    restarted.utxoTracking.load(await db.bitcoinUtxosTable.fetchAll());
+    await restarted.releases.load();
+    await restarted.applyRecoveredHistory(
+      {
+        lockId: lock.lockId!,
+        utxos: [historicalOrphan],
+        releases: [],
+        fissions: [],
+        hdKeys: [],
+        securitizationTerms: [],
+      },
+      1,
+    );
+    const restartedWallet = new WalletForBitcoin(
+      () => restarted,
+      () => lock.ownerAccount!,
+      {} as never,
+    );
+    expect(restartedWallet.getUnresolvedOrphanDeposits().map(record => record.id)).toEqual([returning.id]);
+    const input = restarted.utxoTracking.getUtxoRecordById(returning.id)!;
+    await restarted.releases.completeOrphanRelease(input, restarted.releases.getById(release.id)!, 132);
+    expect(restartedWallet.getUnresolvedOrphanDeposits()).toEqual([]);
+    expect(await db.bitcoinUtxosTable.getByLockOutpoint(lock.lockId!, expired.txid, expired.vout)).toMatchObject({
+      status: 'Orphaned',
+      isOnArgonChain: false,
+    });
+  });
+
+  it('restores an offline cosign after restart and retires expired pending and interrupted returns only with complete evidence', async () => {
+    const db = await createTestDb();
+    const store = createStore({ db });
+    const lock = Object.assign(createLock({ status: BitcoinLockStatus.Released }), { createdAtArgonBlock: 100 });
+    store.data.locksByLockId[lock.lockId!] = lock;
+    const returning = await store.utxoTracking.upsertUtxoRecord(
+      lock,
+      { txid: `0x${'4'.repeat(64)}`, vout: 0, satoshis: 100_000n },
+      { markOrphaned: true },
+    );
+    const expired = await store.utxoTracking.upsertUtxoRecord(
+      lock,
+      { txid: `0x${'5'.repeat(64)}`, vout: 0, satoshis: 100_000n },
+      { markOrphaned: true },
+    );
+    const interrupted = await store.utxoTracking.upsertUtxoRecord(
+      lock,
+      { txid: `0x${'6'.repeat(64)}`, vout: 0, satoshis: 100_000n },
+      { markOrphaned: true },
+    );
+    for (const record of [returning, expired, interrupted]) {
+      const release = await store.releases.createOrphanRelease(record, {
+        id: `return-${record.id}`,
+        kind: BitcoinReleaseKind.Orphan,
+        lockId: record.lockId,
+        sendId: `return-${record.id}`,
+        status: BitcoinReleaseStatus.SubmittingRequestOnArgon,
+        inputUtxoIds: [record.id],
+        toScriptPubkey: `0x0014${'11'.repeat(20)}`,
+        bitcoinNetworkFee: 200n,
+        destinationSatoshis: 99_800n,
+        changeSatoshis: 0n,
+        vaultSignatures: [],
+      });
+      // A transport failure can leave the durable reservation without a recorded Argon request.
+      if (record.id !== interrupted.id) {
+        await store.releases.recordArgonRequest(release, { requestedReleaseAtTick: 100 });
+      }
+    }
+    const signature = new Uint8Array(64).fill(44);
+    let expiredStillAvailable = false;
+    const currentOrphan = { lockId: lock.lockId, satoshis: expired.satoshis };
+    const client = {
+      query: {
+        bitcoinLocks: {
+          orphanedUtxosByAccount: Object.assign(
+            async (_owner: string, outpoint: { txid: string }) =>
+              expiredStillAvailable && outpoint.txid === expired.txid ? currentOrphan : null,
+            {
+              entries: async () =>
+                expiredStillAvailable
+                  ? [[{ args: [lock.ownerAccount, { txid: expired.txid, outputIndex: expired.vout }] }, currentOrphan]]
+                  : [],
+            },
+          ),
+        },
+        bitcoinUtxos: { confirmedBitcoinBlockTip: async () => ({ blockHeight: 111n }) },
+      },
+    } as unknown as ArgonClient;
+    const currentClient = vi.spyOn(mainchain, 'getMainchainClient').mockResolvedValue(client);
+    const blockWatch = {
+      finalizedBlockHeader: historyBlock(110),
+      getFinalizedApi: async () => client,
+      getApi: async () => client,
+      getEventsWithSpec: vi.fn(async (block: Pick<IBlockHeaderInfo, 'blockNumber'>) => ({
+        api: client,
+        events:
+          block.blockNumber === 107
+            ? [
+                historyEvent(160, 'bitcoinLocks', 'OrphanedUtxoCosigned', {
+                  lockId: lock.lockId,
+                  vaultId: lock.vaultId,
+                  accountId: lock.ownerAccount,
+                  utxoRef: { txid: returning.txid, outputIndex: returning.vout },
+                  signature: u8aToHex(signature),
+                }),
+              ]
+            : [],
+      })),
+    } as unknown as BlockWatch;
+    const restarted = createStore({ db, blockWatch });
+    restarted.utxoTracking.data = Vue.reactive(restarted.utxoTracking.data);
+    restarted.releases.data = Vue.reactive(restarted.releases.data);
+    restarted.data.locksByLockId[lock.lockId!] = lock;
+    restarted.utxoTracking.load(await db.bitcoinUtxosTable.fetchAll());
+    await restarted.releases.load();
+    const wallet = new WalletForBitcoin(
+      () => restarted,
+      () => lock.ownerAccount!,
+      {} as never,
+    );
+    const visible = Vue.computed(() => wallet.getUnresolvedOrphanDeposits());
+    await restarted.utxoTracking.syncArgonOrphans([lock], client);
+    expect(visible.value).toHaveLength(3);
+    const activity = vi.spyOn(indexerClient, 'findAddressActivity').mockResolvedValue({
+      blocks: [{ blockNumber: 107, blockHash: '0x107', specVersion: 160, activityMask: 8 }],
+      asOfBlock: 110,
+      definitionVersion: 3,
+      coverage: { fromBlock: 100, toBlock: 110, gaps: [{ fromBlock: 106, toBlock: 108, reason: 'Indexing delayed' }] },
+    });
+    try {
+      restarted.data.isReconciliationPending = true;
+      // @ts-expect-error Exercise the production startup queue over the loaded records.
+      await restarted.runPendingLoadReconciliation();
+      expect(visible.value).toHaveLength(3);
+      expect(await db.bitcoinReleasesTable.getById(`return-${returning.id}`)).toMatchObject({
+        status: BitcoinReleaseStatus.WaitingForVaultCosign,
+        vaultSignatures: [],
+        statusError: expect.stringContaining('Please retry shortly'),
+      });
+      expect(await db.bitcoinReleasesTable.getById(`return-${interrupted.id}`)).toMatchObject({
+        status: BitcoinReleaseStatus.SubmittingRequestOnArgon,
+      });
+      activity.mockResolvedValue({
+        blocks: [{ blockNumber: 107, blockHash: '0x107', specVersion: 160, activityMask: 8 }],
+        asOfBlock: 111,
+        definitionVersion: 3,
+        coverage: { fromBlock: 100, toBlock: 111, gaps: [] },
+      });
+      expiredStillAvailable = true;
+      Object.assign(blockWatch, { finalizedBlockHeader: historyBlock(111) });
+      await restarted.releases.reconcileOrphanReleases(lock);
+      expect(restarted.releases.getById(`return-${returning.id}`)?.statusError).toBeUndefined();
+      expect(await db.bitcoinReleasesTable.getById(`return-${returning.id}`)).toMatchObject({
+        status: BitcoinReleaseStatus.ReadyForBitcoinBroadcast,
+        vaultSignatures: [signature],
+        cosignBlockNumber: 107,
+      });
+      // A cached absence cannot retire a return still present at the finalized evidence boundary.
+      expect(await db.bitcoinReleasesTable.getById(`return-${expired.id}`)).toMatchObject({
+        status: BitcoinReleaseStatus.WaitingForVaultCosign,
+      });
+      expect((await db.bitcoinUtxosTable.getByLockOutpoint(lock.lockId!, expired.txid, 0))?.activeReleaseId).toBe(
+        `return-${expired.id}`,
+      );
+      expect(visible.value.map(record => record.id)).toEqual([returning.id, expired.id]);
+      expiredStillAvailable = false;
+      Object.assign(blockWatch, { finalizedBlockHeader: historyBlock(112) });
+      activity.mockResolvedValue({
+        blocks: [{ blockNumber: 107, blockHash: '0x107', specVersion: 160, activityMask: 8 }],
+        asOfBlock: 112,
+        definitionVersion: 3,
+        coverage: { fromBlock: 100, toBlock: 112, gaps: [] },
+      });
+      // @ts-expect-error Exercise finalized-block reconciliation of a terminal parent lock.
+      expect(await restarted.checkIncomingArgonBlock(historyBlock(112))).toBe(true);
+      expect(visible.value.map(record => record.id)).toEqual([returning.id]);
+      expect(await db.bitcoinReleasesTable.getById(`return-${expired.id}`)).toMatchObject({
+        status: BitcoinReleaseStatus.Cancelled,
+      });
+      expect(
+        (await db.bitcoinUtxosTable.getByLockOutpoint(lock.lockId!, expired.txid, 0))?.activeReleaseId,
+      ).toBeUndefined();
+      expect(await db.bitcoinReleasesTable.getById(`return-${interrupted.id}`)).toMatchObject({
+        status: BitcoinReleaseStatus.Cancelled,
+      });
+      expect(
+        (await db.bitcoinUtxosTable.getByLockOutpoint(lock.lockId!, interrupted.txid, 0))?.activeReleaseId,
+      ).toBeUndefined();
+    } finally {
+      activity.mockRestore();
+      currentClient.mockRestore();
+    }
+  });
+
+  it('checks current availability before publishing newly recovered orphans and keeps failed recovery retryable', async () => {
+    const db = await createTestDb();
+    const entries = vi.fn(async () => []);
+    const client = {
+      query: {
+        bitcoinLocks: { orphanedUtxosByAccount: { entries } },
+        bitcoinUtxos: { confirmedBitcoinBlockTip: async () => ({ blockHeight: 111n }) },
+      },
+      rpc: { chain: { getFinalizedHead: async () => '0x120' } },
+      at: async () => client,
+    } as unknown as ArgonClient;
+    const blockWatch = {
+      finalizedBlockHeader: historyBlock(120),
+      getFinalizedApi: async () => client,
+      getEventsWithSpec: async () => ({ api: client, events: [] }),
+    } as unknown as BlockWatch;
+    const store = createStore({ db, blockWatch });
+    const lock = Object.assign(createLock({ status: BitcoinLockStatus.Released }), { createdAtArgonBlock: 100 });
+    store.data.locksByLockId[lock.lockId!] = lock;
+    store.data.oracleBitcoinBlockHeight = 111;
+    await store.utxoTracking.syncArgonOrphans([lock], client);
+    const history = new BitcoinHistoryUtxoState();
+    const expired = history.upsert(lock, { txid: `0x${'a'.repeat(64)}`, vout: 0, satoshis: 100_000n }, true);
+    const unit = {
+      lockId: lock.lockId!,
+      utxos: [expired],
+      releases: [],
+      fissions: [],
+      hdKeys: [],
+      securitizationTerms: [],
+    };
+    const wallet = new WalletForBitcoin(
+      () => store,
+      () => lock.ownerAccount!,
+      {} as never,
+    );
+    const currentClient = vi.spyOn(mainchain, 'getMainchainClient').mockResolvedValue(client);
+    try {
+      entries.mockRejectedValueOnce(new Error('Current orphan snapshot unavailable'));
+      await expect(store.applyRecoveredHistory(unit, 110)).rejects.toThrow('Current orphan snapshot unavailable');
+      expect(await db.bitcoinUtxosTable.fetchAll()).toEqual([]);
+      expect(wallet.getUnresolvedOrphanDeposits()).toEqual([]);
+
+      await store.applyRecoveredHistory(unit, 110);
+      expect(await db.bitcoinUtxosTable.fetchAll()).toEqual([
+        expect.objectContaining({ status: BitcoinUtxoStatus.Orphaned, isOnArgonChain: false }),
+      ]);
+      expect(wallet.getUnresolvedOrphanDeposits()).toEqual([]);
+      // @ts-expect-error A normal finalized block need not contain any new Bitcoin state.
+      expect(await store.checkIncomingArgonBlock(historyBlock(120))).toBe(true);
+      expect(wallet.getUnresolvedOrphanDeposits()).toEqual([]);
+    } finally {
+      currentClient.mockRestore();
+    }
+  });
+
+  it('retries orphan snapshots without letting older block state replace current availability', async () => {
+    const db = await createTestDb();
+    const pending = await db.bitcoinLocksTable.insertPending(createLock());
+    const lock = await db.bitcoinLocksTable.finalizePending({
+      uuid: pending.uuid,
+      lock: createCurrentLock({ lockId: 1 }),
+    });
+    await db.bitcoinLocksTable.setStatus(lock, BitcoinLockStatus.Released);
+    const original = createStore({ db });
+    await original.utxoTracking.upsertUtxoRecord(
+      lock,
+      { txid: `0x${'b'.repeat(64)}`, vout: 0, satoshis: 100_000n },
+      { markOrphaned: true },
+    );
+    let snapshotAvailable = false;
+    let orphanAvailable = false;
+    let bitcoinTip = 111n;
+    const laterOrphanTxid = `0x${'d'.repeat(64)}`;
+    const client = {
+      consts: { bitcoinLocks: { argonTicksPerDay: { toNumber: () => 1_440 } } },
+      query: {
+        bitcoinLocks: {
+          orphanedUtxosByAccount: {
+            entries: async () => {
+              if (!snapshotAvailable) throw new Error('Current orphan snapshot unavailable');
+              return orphanAvailable
+                ? [
+                    [
+                      { args: [lock.ownerAccount, { txid: laterOrphanTxid, outputIndex: 0 }] },
+                      { lockId: 1, satoshis: 100_000n },
+                    ],
+                  ]
+                : [];
+            },
+          },
+        },
+        bitcoinUtxos: { confirmedBitcoinBlockTip: async () => ({ blockHeight: bitcoinTip }) },
+      },
+    } as unknown as ArgonClient;
+    const archivedClient = {
+      ...client,
+      query: {
+        ...client.query,
+        bitcoinLocks: { orphanedUtxosByAccount: { entries: async () => [] } },
+      },
+    } as unknown as ArgonClient;
+    let finalized!: (headers: IBlockHeaderInfo[]) => void;
+    const blockWatch = {
+      start: async () => undefined,
+      events: {
+        on: (_event: string, listener: typeof finalized) => {
+          finalized = listener;
+          return () => undefined;
+        },
+      },
+      finalizedBlockHeader: historyBlock(120),
+      getFinalizedApi: async () => client,
+      getEventsWithSpec: async () => ({ api: archivedClient, events: [] }),
+    } as unknown as BlockWatch;
+    const restarted = createStore({ db, blockWatch });
+    restarted.data = Vue.reactive(restarted.data);
+    restarted.utxoTracking.data = Vue.reactive(restarted.utxoTracking.data);
+    const wallet = new WalletForBitcoin(
+      () => restarted,
+      () => lock.ownerAccount!,
+      {} as never,
+    );
+    const visible = Vue.computed(() => wallet.getUnresolvedOrphanDeposits());
+    const currentClient = vi.spyOn(mainchain, 'getMainchainClient').mockResolvedValue(client);
+    const config = vi.spyOn(BitcoinLock, 'getConfig').mockResolvedValue(createBitcoinLockConfig());
+    const activeIds = vi.spyOn(BitcoinLock, 'idsByOwner').mockResolvedValue([]);
+    try {
+      await restarted.load();
+      await vi.waitFor(() => expect(restarted.data.latestArgonBlock?.blockNumber).toBe(120));
+      expect(visible.value).toHaveLength(1);
+      expect((await db.bitcoinUtxosTable.fetchAll())[0].isOnArgonChain).toBeUndefined();
+
+      snapshotAvailable = true;
+      finalized([historyBlock(121)]);
+      await vi.waitFor(() => expect(visible.value).toEqual([]));
+      expect(await db.bitcoinUtxosTable.fetchAll()).toEqual([
+        expect.objectContaining({ status: BitcoinUtxoStatus.Orphaned, isOnArgonChain: false }),
+      ]);
+      await vi.waitFor(() => expect(restarted.data.isReconciliationPending).toBe(false));
+
+      orphanAvailable = true;
+      bitcoinTip = 112n;
+      // The finalized reader can advance while the domain drains older block work.
+      Object.assign(blockWatch, { finalizedBlockHeader: historyBlock(123) });
+      finalized([historyBlock(122)]);
+      await vi.waitFor(() => expect(restarted.data.latestArgonBlock?.blockNumber).toBe(122));
+      expect(visible.value).toHaveLength(1);
+
+      snapshotAvailable = false;
+      orphanAvailable = false;
+      bitcoinTip = 113n;
+      finalized([historyBlock(123)]);
+      await vi.waitFor(() => expect(restarted.data.latestArgonBlock?.blockNumber).toBe(123));
+      expect(visible.value).toHaveLength(1);
+      expect(await db.bitcoinUtxosTable.fetchAll()).toContainEqual(
+        expect.objectContaining({ txid: laterOrphanTxid, isOnArgonChain: true }),
+      );
+      expect(restarted.data.isReconciliationPending).toBe(true);
+
+      snapshotAvailable = true;
+      finalized([historyBlock(124)]);
+      await vi.waitFor(() => expect(visible.value).toEqual([]));
+      expect(await db.bitcoinUtxosTable.fetchAll()).toContainEqual(
+        expect.objectContaining({ txid: laterOrphanTxid, isOnArgonChain: false }),
+      );
+      await vi.waitFor(() => expect(restarted.data.isReconciliationPending).toBe(false));
+    } finally {
+      currentClient.mockRestore();
+      config.mockRestore();
+      activeIds.mockRestore();
+    }
+  });
+
   it('upserts funding records and stores mempool observations', async () => {
     const db = await createTestDb();
     const tracking = createTracking(db);

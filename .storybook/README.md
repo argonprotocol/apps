@@ -14,7 +14,9 @@ Use the highest production component that owns the experience:
 
 Do not add stories for every leaf component. Full-screen release stories should render the production parent screen in the app frame, while focused overlays and independently useful panels can remain isolated. Do not mount `App.vue`; `AppScreen.vue` supplies its visible chrome without initializing unrelated application services and global overlays.
 
-Add or update stories when a change affects visible layout, copy, controls, or workflow state. Cover each materially different reachable state affected by the change, including relevant empty, loading, progress, blocked, error, success, recovery, and populated states. Avoid permutations that render identically.
+Reuse or update existing stories first. Add a story only for a materially distinct visible layout, message, control, or interaction that the current catalog does not represent. Cover affected empty, loading, progress, blocked, error, success, recovery, and populated states when they have a distinct visual result.
+
+Different backend flags, amounts, failure causes, or reasons for an existing empty or hidden state do not by themselves justify another story. Verify those behaviors in Vitest or E2E, extending an existing scenario when possible. A behavior fix does not automatically need a new story; identify the existing visual coverage in the handoff.
 
 ## Defining state
 

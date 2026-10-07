@@ -2,7 +2,12 @@ import { bigIntMax, type TxSigningAccount, type Vault } from '@argonprotocol/app
 import * as Vue from 'vue';
 import { BitcoinLockStatus, type IBitcoinLockRecord } from '../interfaces/IBitcoinLockRecord.ts';
 import type { IBitcoinLockProcessingDetails } from '../interfaces/IBitcoinLockSummary.ts';
-import type { IBitcoinUtxoRecord } from '../interfaces/IBitcoinUtxoRecord.ts';
+import {
+  BitcoinUtxoStatus,
+  BitcoinUtxoSpendStatus,
+  type IBitcoinUtxoRecord,
+} from '../interfaces/IBitcoinUtxoRecord.ts';
+import { BitcoinReleaseStatus } from '../interfaces/IBitcoinReleaseRecord.ts';
 import BitcoinLocks, { type IOperatorBitcoinLockCouponRoute } from './BitcoinLocks.ts';
 import type { BitcoinLockCreate } from './txs/BitcoinLock.create.ts';
 import { WalletForChain, WalletType } from './Wallet.ts';
@@ -72,7 +77,9 @@ export class WalletForBitcoin extends WalletForChain<WalletType.bitcoin> {
       .getActiveLocks()
       .flatMap(lock => {
         const release = bitcoinLocks.releases.getActiveForLock(lock);
-        return bitcoinLocks.utxoTracking.getObservedFundingUtxos(lock).filter(record => {
+        return bitcoinLocks.utxoTracking.getUtxosForLock(lock.lockId!).filter(record => {
+          if (record.status !== BitcoinUtxoStatus.SeenOnMempool) return false;
+          if (record.fundingRejectionReason && record.isFailureAcknowledged) return false;
           return !(
             release?.expectedTransactionId === record.txid &&
             release.changeSatoshis === record.satoshis &&
@@ -103,7 +110,22 @@ export class WalletForBitcoin extends WalletForChain<WalletType.bitcoin> {
 
   public getUnresolvedOrphanDeposits(): IBitcoinUtxoRecord[] {
     const bitcoinLocks = this.getBitcoinLocks();
-    return bitcoinLocks.utxoTracking.getUnresolvedOrphanRecords(bitcoinLocks.getAllLocks());
+    return bitcoinLocks
+      .getAllLocks()
+      .flatMap(lock => bitcoinLocks.getUtxosForLock(lock))
+      .filter(record => {
+        if (record.status !== BitcoinUtxoStatus.Orphaned) return false;
+        if (record.spendStatus === BitcoinUtxoSpendStatus.Spent) return false;
+        if (record.isOnArgonChain !== false) return true;
+        const release = bitcoinLocks.releases.getActiveForUtxo(record);
+        return (
+          release?.status === BitcoinReleaseStatus.SubmittingRequestOnArgon ||
+          release?.status === BitcoinReleaseStatus.WaitingForVaultCosign ||
+          release?.status === BitcoinReleaseStatus.ReadyForBitcoinBroadcast ||
+          release?.status === BitcoinReleaseStatus.ConfirmingOnBitcoin
+        );
+      })
+      .sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime());
   }
 
   public getRemainingChannelInsurance(lock: IBitcoinLockRecord): bigint {

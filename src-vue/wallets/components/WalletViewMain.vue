@@ -447,9 +447,11 @@ const walletBitcoinSections = computed(() => {
       entries: locks.map(entry => {
         let address: string | undefined;
         if (locks.length > 1 && entry.lock.scriptDetails) {
-          address = bitcoinLocks.isTerminalLock(entry.lock)
-            ? bitcoinLocks.formatP2wshAddress(entry.lock.scriptDetails.p2wshScriptHashHex)
-            : wallets.bitcoinWallet.getChannelFundingAddress(entry.lock);
+          if (bitcoinLocks.isTerminalLock(entry.lock)) {
+            address = bitcoinLocks.formatP2wshAddress(entry.lock.scriptDetails.p2wshScriptHashHex);
+          } else {
+            address = wallets.bitcoinWallet.getChannelFundingAddress(entry.lock);
+          }
         }
 
         return { ...entry, address };
