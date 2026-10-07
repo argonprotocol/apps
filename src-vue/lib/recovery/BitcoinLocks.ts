@@ -200,6 +200,7 @@ export class BitcoinLockRecovery {
         const recovered = createHistoricalBitcoinLockRecord(lock);
         recovered.utxoId = fission.fissionId;
         recovered.satoshis = fission.satoshis;
+        recovered.migratedFissionSatoshis = fission.satoshis;
         recovered.ratchets = fission.ratchets
           .filter(ratchet => ratchet.source === 'lock')
           .map(ratchet => ({
@@ -1638,8 +1639,16 @@ export class BitcoinLockRecovery {
 
   private applyHistoricalLockSnapshot(record: IHistoricalBitcoinLockRecord, chainLock: IHistoricalBitcoinLock): void {
     const lockDetails = toBitcoinLockDetails(chainLock);
+    // Pre-Fission snapshots establish the migration allocation; native Lock basis changes leave it intact.
+    if (chainLock.microgonsAtTargetPerBtc === undefined) {
+      record.migratedFissionSatoshis = chainLock.securitizedSatoshis;
+    }
     Object.assign(record, {
       securitizedSatoshis: lockDetails.securitizedSatoshis,
+      microgonsAtTargetPerBtc: chainLock.microgonsAtTargetPerBtc ?? record.microgonsAtTargetPerBtc,
+      securitizationCoverageMicrogons:
+        chainLock.securitizationCoverageMicrogons ?? record.securitizationCoverageMicrogons,
+      securitizationTick: chainLock.securitizationTick ?? record.securitizationTick,
       ownerAccount: lockDetails.ownerAccount,
       securitizationRatio: lockDetails.securitizationRatio,
       securityFees: lockDetails.securityFees,
@@ -1742,6 +1751,7 @@ export class BitcoinLockRecovery {
       utxoId,
       removalTick: _removalTick,
       satoshis: _satoshis,
+      migratedFissionSatoshis: _migratedFissionSatoshis,
       lockedTargetPrice: _lockedTargetPrice,
       liquidityPromised: _liquidityPromised,
       ratchets: _ratchets,

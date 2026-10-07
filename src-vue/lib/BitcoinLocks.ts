@@ -683,7 +683,7 @@ export default class BitcoinLocks {
           });
           if (current) Object.assign(stored, current);
         }
-        lock = isNewRecord ? Object.assign(stored, recovered) : this.mergeRecoveredLock(stored, recovered);
+        lock = isNewRecord ? Object.assign(stored, recovered) : this.mergeRecoveredLock(stored, recovered, asOfBlock);
         lock.lockId = unit.lockId;
         const completedActiveRelease = releases.find(release => {
           return release.id === lock?.activeReleaseId && release.status === BitcoinReleaseStatus.Complete;
@@ -743,7 +743,7 @@ export default class BitcoinLocks {
     });
     this.utxoTracking.publishRecovered(publication.utxos);
     this.releases.publishRecovered(publication.releases);
-    if (publication.lock) this.publishRecoveredLock(publication.lock);
+    if (publication.lock) this.publishRecoveredLock(publication.lock, asOfBlock);
     await bitcoinFissions?.publishRecoveredHistory(publication.fissions);
     this.publishFinancialRevision();
   }
@@ -1462,6 +1462,7 @@ export default class BitcoinLocks {
       const archivedBitcoinBlockHeight = this.data.oracleBitcoinBlockHeight;
 
       const { api: clientAt, events } = await this.blockWatch.getEventsWithSpec(header);
+      await this.releases.applyOrphanCosignEvents(header, events);
       const runtimeEvents = events.flatMap(record => {
         const event = toRuntimeEvent(record.event);
         return event ? [{ event, record }] : [];
@@ -1512,9 +1513,10 @@ export default class BitcoinLocks {
         });
       }
 
+      const orphanLockIds = new Set(this.releases.getActiveOrphanReleases().map(release => release.lockId));
       const promises = Object.values(this.data.locksByLockId)
         .map(lockRecord => {
-          if (this.isTerminalLock(lockRecord)) {
+          if (this.isTerminalLock(lockRecord) && !orphanLockIds.has(lockRecord.lockId!)) {
             return undefined;
           }
           if (lockRecord.status === BitcoinLockStatus.LockIsProcessingOnArgon) {
@@ -1524,6 +1526,13 @@ export default class BitcoinLocks {
           return this.runInQueueForLock(
             lockRecord,
             async () => {
+              if (this.isTerminalLock(lockRecord)) {
+                await this.releases.reconcileOrphanReleases(lockRecord).catch(err => {
+                  console.warn(`[BitcoinLocks] Error reconciling orphan return for utxo ${lockRecord.uuid}`, err);
+                });
+                return;
+              }
+
               const releaseCompletionEvent = runtimeEvents.find(({ event }) => {
                 if (event.section !== 'bitcoinLocks') return false;
                 if (event.method === 'BitcoinSpentAfterRelease') {
@@ -1712,8 +1721,34 @@ export default class BitcoinLocks {
     if (this.data.readiness === 'ready') this.data.financialRevision += 1;
   }
 
-  private mergeRecoveredLock(current: IBitcoinLockRecord, recovered: IBitcoinLockRecord): IBitcoinLockRecord {
+  private mergeRecoveredLock(
+    current: IBitcoinLockRecord,
+    recovered: IBitcoinLockRecord,
+    asOfBlock: number,
+  ): IBitcoinLockRecord {
     const createdAt = current.createdAt < recovered.createdAt ? current.createdAt : recovered.createdAt;
+    const hasCompleteBasis =
+      recovered.microgonsAtTargetPerBtc !== undefined &&
+      recovered.securitizationCoverageMicrogons !== undefined &&
+      recovered.securitizationTick !== undefined;
+    const replayCoversRetirement =
+      this.isTerminalLock(current) &&
+      this.isTerminalLock(recovered) &&
+      recovered.removalBlockNumber !== undefined &&
+      recovered.removalBlockNumber <= asOfBlock;
+    const basisIsAtLeastAsRecent =
+      (recovered.securitizationTick ?? -1) >= (current.securitizationTick ?? -1) &&
+      (recovered.removalBlockNumber ?? -1) >= (current.removalBlockNumber ?? -1);
+
+    // Current active Locks own their basis. A complete terminal replay can repair an older retired basis.
+    if (hasCompleteBasis && replayCoversRetirement && basisIsAtLeastAsRecent) {
+      Object.assign(current, {
+        securitizedSatoshis: recovered.securitizedSatoshis,
+        microgonsAtTargetPerBtc: recovered.microgonsAtTargetPerBtc,
+        securitizationCoverageMicrogons: recovered.securitizationCoverageMicrogons,
+        securitizationTick: recovered.securitizationTick,
+      });
+    }
     if (recovered.removalReason === 'expired') current.removalReason ??= 'expired';
     assignIfUnset(current, recovered, [
       'removalBlockNumber',
@@ -1727,7 +1762,7 @@ export default class BitcoinLocks {
     return current;
   }
 
-  private publishRecoveredLock(recovered: IBitcoinLockRecord): IBitcoinLockRecord {
+  private publishRecoveredLock(recovered: IBitcoinLockRecord, asOfBlock: number): IBitcoinLockRecord {
     const lockId = recovered.lockId;
     if (lockId === undefined) return recovered;
 
@@ -1738,13 +1773,13 @@ export default class BitcoinLocks {
         current.activeReleaseId = undefined;
         current.status = recovered.status;
       }
-      return this.mergeRecoveredLock(current, recovered);
+      return this.mergeRecoveredLock(current, recovered, asOfBlock);
     }
 
     const pendingIndex = this.data.pendingLocks.findIndex(lock => lock.uuid === recovered.uuid);
     if (pendingIndex >= 0) {
       const pending = this.data.pendingLocks.splice(pendingIndex, 1)[0];
-      this.mergeRecoveredLock(pending, recovered);
+      this.mergeRecoveredLock(pending, recovered, asOfBlock);
       pending.lockId = lockId;
       this.data.locksByLockId[lockId] = pending;
       return pending;

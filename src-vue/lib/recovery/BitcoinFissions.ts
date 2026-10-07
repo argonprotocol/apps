@@ -318,6 +318,7 @@ export class BitcoinFissionRecovery {
     }
     if (activeFission && !matchesMigratedFission(lock, lockId, activeFission)) return;
 
+    const satoshis = lock.migratedFissionSatoshis ?? lock.securitizedSatoshis;
     const ratchets = lock.ratchets.map<IBitcoinFissionRatchetRecord>((ratchet, sourceRatchetIndex) => ({
       source: 'lock',
       sourceRatchetIndex,
@@ -353,8 +354,8 @@ export class BitcoinFissionRecovery {
       fissionId,
       liquidId: fissionId,
       lockId,
-      satoshis: lock.securitizedSatoshis,
-      microgonsAtTargetPerBtc: convertBitcoinTargetValueToPricePerBtc(lock.lockedTargetPrice, lock.securitizedSatoshis),
+      satoshis,
+      microgonsAtTargetPerBtc: convertBitcoinTargetValueToPricePerBtc(lock.lockedTargetPrice, satoshis),
       liquidityPromised: lock.liquidityPromised,
       createdAtArgonBlock,
       ratchetNumber: 0,
