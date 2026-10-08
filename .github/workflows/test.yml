@@ -143,6 +143,10 @@ jobs:
         # Vitest unions repeated negative project filters, so exclude E2E by file instead.
         run: yarn vitest --run --project '!storybook' --exclude 'e2e/__test__/**/*.e2e.test.ts'
 
+      - name: Warm local VM image layers
+        if: matrix.suite == 'e2e'
+        run: docker build --progress=plain local-machine
+
       # xvfb-run provides a virtual display required by WebKit/GTK in CI.
       # dbus-run-session provides a D-Bus session bus for WebKit/GTK and the wallet key store.
       - name: E2E tests
