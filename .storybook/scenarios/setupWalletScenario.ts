@@ -23,6 +23,7 @@ import { BitcoinReleaseStatus } from '../../src-vue/interfaces/IBitcoinReleaseRe
 import type { IWalletRecord } from '../../src-vue/lib/db/WalletsTable.ts';
 import { ExtrinsicType } from '../../src-vue/interfaces/ITransactionRecord.ts';
 import BitcoinLocks from '../../src-vue/lib/BitcoinLocks.ts';
+import BitcoinUtxoTracking from '../../src-vue/lib/BitcoinUtxoTracking.ts';
 import BitcoinReleases from '../../src-vue/lib/BitcoinReleases.ts';
 import {
   completeInboundTransferProgress,
@@ -410,6 +411,7 @@ export function setupWalletScenario(state: WalletScenario): WalletScenarioState 
           return utxo?.lockId === lock.lockId ? [utxo] : [];
         }),
       ),
+      getUnacknowledgedFundingUtxos: BitcoinUtxoTracking.prototype.getUnacknowledgedFundingUtxos,
       getObservedFundingUtxos: fn((lock: IBitcoinLockRecord) => {
         return bitcoinUtxos
           .filter(
@@ -426,7 +428,7 @@ export function setupWalletScenario(state: WalletScenario): WalletScenarioState 
         expectedConfirmations: 4,
       })),
       acknowledgeBelowMinimum: fn(async (record: IBitcoinUtxoRecord) => {
-        record.isFailureAcknowledged = true;
+        record.isDepositAcknowledged = true;
       }),
     },
     load: fn(async () => undefined),

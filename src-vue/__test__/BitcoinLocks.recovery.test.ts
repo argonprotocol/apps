@@ -884,6 +884,52 @@ function createFissionHistoryRecord(
 }
 
 describe('BitcoinLocks history replay publication', () => {
+  it('acknowledges current funding on a restored channel while retaining receipts for later deposits', async () => {
+    const db = await createTestDb();
+    const accountId = encodeAddress(new Uint8Array(32).fill(0x44));
+    const options = {
+      db,
+      blockWatch: { getFinalizedApi: vi.fn(async () => ({})) } as unknown as BlockWatch,
+      walletKeys: { canSign: false, defaultArgonAddress: accountId } as WalletKeys,
+    };
+    let store = createStore(options);
+    const chainLock = createCurrentLock({ lockId: 7, ownerAccount: accountId });
+    getBitcoinLockIdsByOwner.mockResolvedValue([7]);
+    getBitcoinLock.mockResolvedValue(new BitcoinLock(chainLock));
+    await db.execute(`CREATE TRIGGER reject_restored_funding BEFORE INSERT ON BitcoinUtxos
+      BEGIN SELECT RAISE(ABORT, 'funding restoration failed'); END`);
+    await expect(store.syncCurrentLocks({ requireComplete: true })).rejects.toThrow(
+      'Current Bitcoin lock loading is incomplete',
+    );
+    expect(await db.bitcoinLocksTable.getByLockId(7)).toBeUndefined();
+    expect(await db.bitcoinUtxosTable.fetchByLockId(7)).toEqual([]);
+    expect(store.getLockById(7)).toBeUndefined();
+    await db.execute('DROP TRIGGER reject_restored_funding');
+    store = createStore(options);
+    await store.syncCurrentLocks({ requireComplete: true });
+    const restored = store.getLockById(7)!;
+    expect(store.utxoTracking.getFundingUtxos(restored)).toEqual([
+      expect.objectContaining({ satoshis: chainLock.fundedSatoshis, isDepositAcknowledged: true }),
+    ]);
+    expect((await db.bitcoinUtxosTable.fetchByLockId(7))[0]?.isDepositAcknowledged).toBe(true);
+    expect(store.utxoTracking.getUnacknowledgedFundingUtxos(restored)).toEqual([]);
+
+    const topUpTxid = 'e'.repeat(64);
+    getBitcoinLock.mockResolvedValue(
+      new BitcoinLock(
+        createCurrentLock({
+          ...chainLock,
+          fundedSatoshis: chainLock.fundedSatoshis + 50_000n,
+          fundingUtxos: [...chainLock.fundingUtxos, { utxoRef: { txid: topUpTxid, vout: 0 }, satoshis: 50_000n }],
+        }),
+      ),
+    );
+    await store.syncCurrentLocks({ requireComplete: true });
+    expect(store.utxoTracking.getUnacknowledgedFundingUtxos(restored).map(record => record.satoshis)).toEqual([
+      50_000n,
+    ]);
+  });
+
   it('restores readonly Bitcoin lock history from public account ownership', async () => {
     const db = await createTestDb();
     const accountId = encodeAddress(new Uint8Array(32).fill(0x44));

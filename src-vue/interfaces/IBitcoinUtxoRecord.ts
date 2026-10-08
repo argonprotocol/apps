@@ -34,7 +34,7 @@ export interface IBitcoinUtxoRecord {
   spentByReleaseId?: string;
   statusError?: string;
   fundingRejectionReason?: 'BelowMinimum';
-  isFailureAcknowledged?: boolean;
+  isDepositAcknowledged?: boolean;
   isOnArgonChain?: boolean;
   mempoolObservation?: IMempoolFundingObservation;
   firstSeenAt: Date;

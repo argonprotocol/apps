@@ -54,7 +54,7 @@ export default function setup(project: TestProject): () => Promise<void> {
                 { encoding: 'utf8' },
               )
             : 'No test-network containers remain.\n';
-          const logs = await docker.logs(['archive-node', 'miner-1', 'notary'], {
+          const logs = await docker.logs(['archive-node', 'miner-1', 'notary', 'indexer'], {
             ...composeOptions,
             timestamps: true,
           });

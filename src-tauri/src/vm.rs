@@ -4,6 +4,7 @@ use std::fs;
 use std::net::TcpListener;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::time::Instant;
 use tauri::AppHandle;
 
 static VM_FILES: Dir<'_> = include_dir!("$CARGO_MANIFEST_DIR/../local-machine");
@@ -208,28 +209,86 @@ impl Vm {
     }
 
     fn run_compose_command(vm_path: &Path, args: &[&str]) -> anyhow::Result<String, String> {
-        let output = Command::new("docker")
-            .args(["compose"].iter().chain(args))
+        let started = Instant::now();
+        log::info!("Starting docker compose {args:?}");
+        let mut command = Command::new("docker");
+        command.arg("compose");
+        if cfg!(debug_assertions) && args.contains(&"--build") {
+            command.args(["--progress", "plain"]);
+        }
+        let output = command
+            .args(args)
             .current_dir(vm_path)
             .output()
             .map_err(|e| format!("Failed to run docker compose: {e} at {vm_path:?}. {args:?}"))?;
+        log::info!(
+            "Finished docker compose {args:?} in {:?}, success={}",
+            started.elapsed(),
+            output.status.success()
+        );
+
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        if cfg!(debug_assertions) && args.contains(&"--build") {
+            // Build instructions expand SSH_PUBKEY. Keep only phase labels and completion timings.
+            for line in stdout.lines().chain(stderr.lines()) {
+                if let Some(progress) = compose_build_progress(line) {
+                    log::info!("Docker build: {progress}");
+                }
+            }
+        }
 
         if !output.status.success() {
-            return Err(format!(
-                "docker compose {:?} failed: {}",
-                args,
-                String::from_utf8_lossy(&output.stderr)
-            ));
+            return Err(format!("docker compose {args:?} failed: {stderr}"));
         }
-        Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
+        Ok(stdout.trim().to_string())
     }
+}
+
+fn compose_build_progress(line: &str) -> Option<&str> {
+    let (step, progress) = line.split_once(' ')?;
+    let number = step.strip_prefix('#')?;
+    if number.is_empty() || !number.bytes().all(|byte| byte.is_ascii_digit()) {
+        return None;
+    }
+
+    if progress.starts_with('[') {
+        return line.find(']').map(|end| &line[..=end]);
+    }
+    if progress == "CACHED" || progress == "DONE" || progress.starts_with("DONE ") {
+        return Some(line);
+    }
+    None
 }
 
 #[cfg(test)]
 mod tests {
-    use super::has_vm_definition;
+    use super::{compose_build_progress, has_vm_definition};
     use std::fs;
     use std::time::{SystemTime, UNIX_EPOCH};
+
+    #[test]
+    fn build_progress_omits_expanded_keys_and_command_output() {
+        assert_eq!(
+            compose_build_progress(
+                "#11 [7/12] RUN echo \"ssh-ed25519 synthetic-test-key\" > /root/.ssh/authorized_keys"
+            ),
+            Some("#11 [7/12]")
+        );
+        assert_eq!(
+            compose_build_progress("#11 DONE 1.3s"),
+            Some("#11 DONE 1.3s")
+        );
+        assert_eq!(compose_build_progress("#11 CACHED"), Some("#11 CACHED"));
+        assert_eq!(
+            compose_build_progress("#11 0.3 ssh-ed25519 synthetic-test-key"),
+            None
+        );
+        assert_eq!(
+            compose_build_progress("ssh-ed25519 synthetic-test-key"),
+            None
+        );
+    }
 
     #[test]
     fn gateway_cert_staging_directory_is_not_an_installed_vm() {
