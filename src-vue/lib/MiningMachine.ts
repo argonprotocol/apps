@@ -132,37 +132,56 @@ export class MiningMachine {
       return existing;
     }
 
+    const options = await this.getDigitalOceanDropletOptions(apiKey, userLocation);
     const dropletName = `Argonot-Operator-${NETWORK_NAME}-${INSTANCE_NAME.replace(/\s+/g, '-')}`.toLowerCase();
     const sshKey = await this.setupSshKeyOnDigitalOcean(dropletName, apiKey, sshPublicKey);
     progressFn?.(25);
-    const { region, size } = await this.chooseRegionAndSize(apiKey, userLocation);
     progressFn?.(40);
 
-    const createRes = await fetch('https://api.digitalocean.com/v2/droplets', {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        'Content-Type': 'application/json',
-        Accept: 'application/json',
-      },
-      body: JSON.stringify({
-        name: dropletName,
+    let createData: ICreateDropletResponse | undefined;
+    for (const { region, size } of options) {
+      const createRes = await fetch('https://api.digitalocean.com/v2/droplets', {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          'Content-Type': 'application/json',
+          Accept: 'application/json',
+        },
+        body: JSON.stringify({
+          name: dropletName,
+          region,
+          size,
+          image: DEFAULT_DIGITALOCEAN_IMAGE,
+          ssh_keys: [sshKey],
+          tags: [miningBotAccountAddress],
+        }),
+      });
+      const responseData = (await createRes.json()) as ICreateDropletResponse;
+      if (createRes.status === 202) {
+        createData = responseData;
+        break;
+      }
+
+      const extraDetail = (responseData as { message?: string }).message ?? '';
+      console.warn('[MINING_MACHINE] DigitalOcean creation rejected', {
         region,
         size,
-        image: DEFAULT_DIGITALOCEAN_IMAGE,
-        ssh_keys: [sshKey],
-        tags: [miningBotAccountAddress],
-      }),
-    });
-    const createData = (await createRes.json()) as ICreateDropletResponse;
-
-    if (createRes.status !== 202) {
-      console.log('[MINING_MACHINE] DigitalOcean setup response', createRes, createData);
-      const extraDetail = (createData as { message?: string }).message ?? '';
+        status: createRes.status,
+        message: extraDetail,
+      });
+      if (createRes.status === 422 && extraDetail.toLowerCase().includes('size is not available in this region')) {
+        continue;
+      }
       if (extraDetail.toLowerCase().includes('invalid image')) {
         throw new MiningMachineError(`DigitalOcean default image ${DEFAULT_DIGITALOCEAN_IMAGE} is no longer supported`);
       }
       throw new MiningMachineError(`Failed to create DigitalOcean droplet${extraDetail ? ` - ${extraDetail}` : ''}`);
+    }
+
+    if (!createData) {
+      throw new MiningMachineError(
+        'DigitalOcean has no capacity for the available 4 CPU / 8 GB machines. Please try again later.',
+      );
     }
     progressFn?.(60);
 
@@ -193,39 +212,49 @@ export class MiningMachine {
     }
   }
 
-  public static async chooseRegionAndSize(
+  private static async getDigitalOceanDropletOptions(
     apiKey: string,
     userLocation: { latitude: string; longitude: string },
-  ): Promise<{ region: string; size: string }> {
+  ): Promise<{ region: string; size: string }[]> {
     const preferredRegion = await this.chooseBestDigitalOceanRegion(userLocation);
-    const regions = await fetch('https://api.digitalocean.com/v2/regions', {
+    const regions = await fetch('https://api.digitalocean.com/v2/regions?per_page=200', {
       headers: {
         Authorization: `Bearer ${apiKey}`,
         'Content-Type': 'application/json',
         Accept: 'application/json',
       },
     });
+    if (!regions.ok) {
+      throw new MiningMachineError(`Failed to check DigitalOcean region availability (HTTP ${regions.status})`);
+    }
     const regionsData = (await regions.json()) as {
       regions: {
-        name: string;
         slug: string;
-        features: string;
         available: boolean;
         sizes: string[];
       }[];
     };
-    const regionSlugs = regionsData.regions.find(r => r.slug === preferredRegion && r.available);
-    let size: string | null = null;
+
+    const regionSlugs = new Set([
+      preferredRegion,
+      ...this.findClosestRegions({ lat: Number(userLocation.latitude), long: Number(userLocation.longitude) }),
+    ]);
     const preferences = ['s-4vcpu-8gb', 's-4vcpu-8gb-amd', 's-4vcpu-8gb-intel'];
-    if (regionSlugs) {
-      for (const pref of preferences) {
-        if (regionSlugs.sizes.includes(pref)) {
-          size = pref;
-          return { region: preferredRegion, size };
-        }
+    const options: { region: string; size: string }[] = [];
+    for (const slug of regionSlugs) {
+      const region = regionsData.regions.find(r => r.slug === slug);
+      if (!region?.available) continue;
+
+      for (const size of preferences) {
+        if (region.sizes.includes(size)) options.push({ region: slug, size });
       }
     }
-    return { region: DEFAULT_REGION, size: preferences[0] };
+    if (options.length === 0) {
+      throw new MiningMachineError(
+        'DigitalOcean has no available 4 CPU / 8 GB machines in the supported regions. Please try again later.',
+      );
+    }
+    return options;
   }
 
   public static async chooseBestDigitalOceanRegion(userJurisdiction: {
@@ -242,7 +271,7 @@ export class MiningMachine {
       });
       return DEFAULT_REGION;
     }
-    const regions = this.findClosestRegions({ lat, long });
+    const regions = this.findClosestRegions({ lat, long }).slice(0, 3);
     let best = null;
     let bestMs = BigInt(Number.MAX_SAFE_INTEGER);
 
@@ -267,9 +296,6 @@ export class MiningMachine {
       distances.push({ region, distance: d });
     }
     distances.sort((a, b) => a.distance - b.distance);
-    if (distances.length > 3) {
-      distances.length = 3;
-    }
     return distances.map(x => x.region);
   }
 
