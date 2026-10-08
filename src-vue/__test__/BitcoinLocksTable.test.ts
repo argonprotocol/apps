@@ -25,8 +25,8 @@ describe('BitcoinLocksTable', () => {
     await db.execute(
       `INSERT INTO BitcoinLocks (
         uuid, status, utxoId, satoshis, lockedTargetPrice, liquidityPromised, ratchets, cosignVersion,
-        lockDetails, fundingUtxoRecordId, network, hdPath, vaultId
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        lockDetails, fundingUtxoRecordId, network, hdPath, vaultId, createdAt
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         'migration-lock',
         'LockedAndMinted',
@@ -62,13 +62,14 @@ describe('BitcoinLocksTable', () => {
         'regtest',
         "m/84'/1'/0'/0/0",
         3,
+        new Date('2026-01-01T00:00:00Z'),
       ],
     );
     await db.execute(
       `INSERT INTO BitcoinLocks (
         uuid, status, utxoId, satoshis, lockedTargetPrice, liquidityPromised, ratchets, cosignVersion,
-        lockDetails, network, hdPath, vaultId, releaseRedemptionMicrogons
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        lockDetails, network, hdPath, vaultId, releaseRedemptionMicrogons, createdAt
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         'released-liquid-lock',
         'Released',
@@ -114,6 +115,7 @@ describe('BitcoinLocksTable', () => {
         "m/84'/1'/0'/0/1",
         3,
         650n,
+        new Date('2026-01-02T00:00:00Z'),
       ],
     );
     await db.execute(
@@ -344,7 +346,7 @@ describe('BitcoinLocksTable', () => {
     );
 
     const table = new BitcoinLocksTable(db);
-    const [lock] = await table.fetchAll();
+    const lock = (await table.fetchAll()).find(record => record.uuid === 'migration-lock')!;
     expect(lock).not.toBeInstanceOf(BitcoinLock);
     expect(lock).toMatchObject({
       uuid: 'migration-lock',
