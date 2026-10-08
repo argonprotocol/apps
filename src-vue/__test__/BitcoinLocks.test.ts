@@ -32,7 +32,7 @@ describe('BitcoinLocks fee coupon recovery', () => {
     const walletKeys = createMockWalletKeys('//FeeCouponEstimate');
     const store = createStore({ walletKeys });
     const client = {
-      consts: { balances: { existentialDeposit: { toBigInt: () => 5n } } },
+      consts: { balances: { existentialDeposit: 5n } },
     };
     vi.mocked(getMainchainClient).mockResolvedValue(client as never);
     vi.spyOn(BitcoinLock, 'createInitializeTx').mockResolvedValue({
@@ -155,7 +155,7 @@ describe('BitcoinLocks fee coupon recovery', () => {
       updatedAt: new Date('2026-08-13T12:00:00Z'),
     };
     const client = {
-      consts: { balances: { existentialDeposit: { toBigInt: () => 5n } } },
+      consts: { balances: { existentialDeposit: 5n } },
       query: { bitcoinLocks: { minimumSatoshis: async () => 1n } },
       tx: { bitcoinLocks: { initialize: vi.fn() } },
     };
@@ -274,7 +274,7 @@ it('keeps a funding expiration estimate stable until the oracle Bitcoin height c
 
   const db = await createTestDb();
   const archiveClient = {
-    consts: { bitcoinLocks: { argonTicksPerDay: { toNumber: () => 1_440 } } },
+    consts: { bitcoinLocks: { argonTicksPerDay: 1_440 } },
     query: {
       bitcoinLocks: {
         utxoIdsByOwnerAccount: { keys: vi.fn(async () => []) },
@@ -363,7 +363,7 @@ describe('BitcoinLocks capacity owners', () => {
         reservedSecuritizationSpace: 100n,
         securitization: 1_000n,
         securitizationLocked: 800n,
-        securitizationRatioBN: () => BigNumber(1),
+        securitizationRatio: BigNumber(1),
       } as never,
       projectedFlexibleSecuritizationLocked: 300n,
     });

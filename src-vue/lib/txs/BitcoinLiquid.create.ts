@@ -1,3 +1,4 @@
+import { runtimeClient } from '@argonprotocol/runtime-client';
 import {
   bigIntMax,
   bigIntMin,
@@ -347,9 +348,7 @@ export class BitcoinLiquidCreate extends TransactionOperation<
     prepared: PreparedTransactionOperation<IBitcoinLiquidCreateMetadata, BitcoinLiquidCreateBuild>,
   ): Error {
     const requiredWalletBalanceMicrogons =
-      (prepared.unavailableBalance ?? 0n) +
-      prepared.txFeePlusTip +
-      prepared.client.consts.balances.existentialDeposit.toBigInt();
+      (prepared.unavailableBalance ?? 0n) + prepared.txFeePlusTip + prepared.client.consts.balances.existentialDeposit;
     return new BitcoinLockWalletFundingError(requiredWalletBalanceMicrogons);
   }
 
@@ -369,7 +368,7 @@ export class BitcoinLiquidCreate extends TransactionOperation<
 
     const client = providedClient ?? (await getMainchainClient(false));
     const finalizedHead = await client.rpc.chain.getFinalizedHead();
-    const snapshotClient = await client.at(finalizedHead);
+    const snapshotClient = runtimeClient(await client.raw.at(finalizedHead));
     const priceIndex = await Currency.fetchPriceIndex(snapshotClient);
     if (allocations.some(({ operatorCoupon }) => operatorCoupon)) {
       const currentCoupons = await this.upstreamOperatorClient.getBitcoinLockCoupons();

@@ -5,6 +5,7 @@ export interface RuntimeCompatibilityProvenance {
 }
 
 export interface RuntimeInterfaceSources {
+  consts: string;
   events: string;
   lookup: string;
   query: string;
@@ -30,6 +31,12 @@ interface RuntimeImport {
 }
 
 const RUNTIME_SURFACES: RuntimeSurface[] = [
+  {
+    sourceName: 'consts',
+    moduleName: '@polkadot/api-base/types/consts',
+    interfaceName: 'AugmentedConsts',
+    compatibilityName: 'Constants',
+  },
   {
     sourceName: 'tx',
     moduleName: '@polkadot/api-base/types/submittable',

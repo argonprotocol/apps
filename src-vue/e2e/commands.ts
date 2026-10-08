@@ -1,3 +1,4 @@
+import { MyVault } from '../lib/MyVault.ts';
 import { JsonExt } from '@argonprotocol/apps-core';
 import { invoke } from '@tauri-apps/api/core';
 import { getConfig } from '../stores/config';
@@ -1239,6 +1240,7 @@ async function getAppQueryRefs(): Promise<IAppQueryRefs> {
     coreEthereumAddress: walletKeys.coreEthereumAddress,
     overlayIsOpen: basics.overlayIsOpen,
     getArgonBonds,
+    getVaultFundingState: () => MyVault.getFundingState(config, wallets.defaultArgonWallet),
     getBitcoinFissions,
     getEthereumMoveTracker,
     getEthereumOutboundTransferTracker,

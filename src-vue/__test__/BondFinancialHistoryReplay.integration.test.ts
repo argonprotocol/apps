@@ -1,9 +1,10 @@
+import { runtimeClient } from '@argonprotocol/runtime-client';
 import { financialHistoryTest as it } from './FinancialHistoryReplay.ts';
 import Fs from 'node:fs';
 import Path from 'node:path';
 import {
   AccountActivityKind,
-  type ArgonQueryClient,
+  type ArgonCurrentQueryClient,
   type BlockWatch,
   Currency,
   type MainchainClients,
@@ -89,7 +90,7 @@ runWithReplay('Bond financial history replay corpus', { tags: ['no-argon-network
       expect(capturedLifecycleEvents.length).toBeGreaterThan(0);
 
       const latestBlock = await reader.getHeader(reader.latestBlockNumber);
-      const latestApi = (await reader.getApi(latestBlock)) as unknown as ArgonQueryClient;
+      const latestApi = runtimeClient((await reader.getApi(latestBlock)).raw);
       const miningFrames = new MiningFrames({} as MainchainClients, reader as unknown as BlockWatch);
       const earliestEventBackedBondFrame = miningFrames.earliestWithSpec(151);
       const currentLotsByAccount = new Map<string, Awaited<ReturnType<ArgonBonds['getOwnBondLots']>>>();
@@ -161,7 +162,7 @@ runWithReplay('Bond financial history replay corpus', { tags: ['no-argon-network
 
       const currentLots = [...currentLotsByAccount.values()].flat();
       const migratedVaultLots = currentLots.filter(lot => {
-        return lot.programType === 'Vault' && lot.createdFrame < earliestEventBackedBondFrame;
+        return lot.programType === 'Vault' && lot.createdFrameId < earliestEventBackedBondFrame;
       });
       expect(migratedVaultLots.length).toBeGreaterThan(0);
       expect(recovered.some(record => record.programType === 'Vault')).toBe(true);
@@ -185,14 +186,14 @@ runWithReplay('Bond financial history replay corpus', { tags: ['no-argon-network
       for (const lot of currentLots) {
         const record = recovered.find(candidate => {
           return (
-            candidate.accountId === lot.accountId &&
+            candidate.accountId === lot.owner &&
             candidate.programType === lot.programType &&
             candidate.bondLotId === lot.id
           );
         });
-        expect(record, `${lot.programType} bond lot ${lot.id} for ${lot.accountId}`).toBeDefined();
+        expect(record, `${lot.programType} bond lot ${lot.id} for ${lot.owner}`).toBeDefined();
 
-        if (lot.programType === 'Vault' && lot.createdFrame < earliestEventBackedBondFrame) {
+        if (lot.programType === 'Vault' && lot.createdFrameId < earliestEventBackedBondFrame) {
           expect(record?.purchaseBlockHash, `Migrated Vault bond lot ${lot.id}`).toBeUndefined();
         } else {
           expect(record?.purchaseBlockHash, `${lot.programType} bond lot ${lot.id}`).toBeDefined();

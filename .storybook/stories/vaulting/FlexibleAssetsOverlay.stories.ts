@@ -13,7 +13,10 @@ const meta = {
     setup() {
       Vue.onMounted(() => basicEmitter.emit('openFlexibleAssetsOverlay'));
     },
-    template: '<FlexibleAssetsOverlay />',
+    template: `
+      <div class="fixed top-2 right-3 z-[10000] rounded-full border border-slate-400/40 bg-white/90 px-2.5 py-1 text-xs font-semibold text-slate-600 shadow-sm">Fixed state preview</div>
+      <FlexibleAssetsOverlay inert />
+    `,
   }),
   play: async () => {
     await within(document.body).findByRole('heading', { name: 'Manage Flexible Assets' });
@@ -33,6 +36,18 @@ export const LoadingAssets: Story = {
 
 export const EligibleAssets: Story = {
   beforeEach: () => setupFlexibleAssetsScenario('eligible'),
+};
+
+export const PartiallyDisplacedAssets: Story = {
+  beforeEach: () => setupFlexibleAssetsScenario('partiallyDisplaced'),
+};
+
+export const FullyDisplacedAssets: Story = {
+  beforeEach: () => setupFlexibleAssetsScenario('fullyDisplaced'),
+};
+
+export const DisplacementUnavailable: Story = {
+  beforeEach: () => setupFlexibleAssetsScenario('displacementUnavailable'),
 };
 
 export const UpdatingAssets: Story = {

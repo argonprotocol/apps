@@ -1,6 +1,7 @@
 import type { Meta, StoryObj } from '@storybook/vue3-vite';
 import * as Vue from 'vue';
 import { setupBondPurchaseScenario } from '../../scenarios/setupPurchaseOverlayScenario.ts';
+import { useVaultingStats } from '../../../src-vue/stores/vaultingStats.ts';
 import basicEmitter from '../../../src-vue/emitters/basicEmitter.ts';
 import BondPurchaseOverlay from '../../../src-vue/overlays/BondPurchaseOverlay.vue';
 
@@ -44,6 +45,18 @@ export const WalletLimitedMax: Story = {
   beforeEach: () => setupBondPurchaseScenario('walletLimited'),
 };
 
+export const WalletBelowMinimum: Story = {
+  beforeEach: () => setupBondPurchaseScenario('belowMinimum'),
+};
+
+export const NetworkLotLimit: Story = {
+  beforeEach: () => setupBondPurchaseScenario('lotLimit'),
+};
+
+export const PendingWithdrawalLimitsPurchase: Story = {
+  beforeEach: () => setupBondPurchaseScenario('withdrawalLimited'),
+};
+
 export const VaultSelection: Story = {
   beforeEach: () => setupBondPurchaseScenario('selection'),
 };
@@ -54,6 +67,14 @@ export const OwnerWithFlexibleBonds: Story = {
 
 export const OwnerUnfilledCapacity: Story = {
   beforeEach: () => setupBondPurchaseScenario('ownerFlexible'),
+};
+
+export const OwnerWithReservedSpace: Story = {
+  beforeEach: () => setupBondPurchaseScenario('ownerFlexibleReserved'),
+};
+
+export const OwnerWithPendingWithdrawal: Story = {
+  beforeEach: () => setupBondPurchaseScenario('ownerFlexibleWithdrawal'),
 };
 
 export const OwnerOverUnfilledCapacity: Story = {
@@ -78,4 +99,11 @@ export const NoUpstream: Story = {
 
 export const OwnedVaultWithoutCapacity: Story = {
   beforeEach: () => setupBondPurchaseScenario('ownedNoCapacity'),
+};
+
+export const ReturnsUnavailable: Story = {
+  beforeEach: () => {
+    setupBondPurchaseScenario('available');
+    useVaultingStats().argonBondsAPR = undefined;
+  },
 };

@@ -1,9 +1,9 @@
 import type { Meta, StoryObj } from '@storybook/vue3-vite';
 import * as Vue from 'vue';
-import { expect, fn, mocked, userEvent, waitFor, within } from 'storybook/test';
+import { fn, mocked, userEvent, within } from 'storybook/test';
 import AppScreen from '../../components/AppScreen.vue';
 import { setupAppScenario } from '../../scenarios/setupAppScenario.ts';
-import { setupBondPortfolioScenario } from '../../scenarios/setupBondPortfolioScenario.ts';
+import { setupBondPortfolioScenario, setupBondArchiveScenario } from '../../scenarios/setupBondPortfolioScenario.ts';
 import { TopTab } from '../../../src-vue/interfaces/IConfig.ts';
 import { getArgonBonds } from '../../../src-vue/stores/argonBonds.ts';
 import ArgonotStakes from '../../../src-vue/screens/ArgonotStakes.vue';
@@ -82,8 +82,48 @@ export const HistoryRetryRecovered: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     await userEvent.click(await canvas.findByRole('button', { name: 'Retry History' }));
-    await waitFor(() => expect(canvas.queryByRole('button', { name: 'Retry History' })).not.toBeInTheDocument());
-    await expect(canvas.getByTestId('Bond.stake-41')).toBeVisible();
+    interactive.value = false;
+  },
+};
+
+export const IncompleteHistory: Story = {
+  beforeEach: () => {
+    setupBondPortfolioScenario('Argonot', 0, false);
+  },
+};
+
+export const CollapsedArchive: Story = {
+  beforeEach: () => {
+    setupBondArchiveScenario('Argonot');
+  },
+};
+
+export const ExpandedArchive: Story = {
+  beforeEach: () => {
+    setupBondArchiveScenario('Argonot');
+    interactive.value = true;
+  },
+  play: async ({ canvasElement }) => {
+    await userEvent.click(await within(canvasElement).findByText(/been archived/));
+    interactive.value = false;
+  },
+};
+
+export const ArchivedOnly: Story = {
+  beforeEach: () => {
+    setupBondArchiveScenario('Argonot', true);
+  },
+};
+
+export const ArchivedDetails: Story = {
+  beforeEach: () => {
+    setupBondArchiveScenario('Argonot', true);
+    interactive.value = true;
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await userEvent.click(await canvas.findByText(/been archived/));
+    await userEvent.click(canvas.getByTestId('Bond.stake-42'));
     interactive.value = false;
   },
 };

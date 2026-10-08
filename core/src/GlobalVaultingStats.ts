@@ -12,7 +12,7 @@ export class GlobalVaultingStats {
   public activeAPR: number = 0;
   public activeAPY: number = 0;
 
-  public argonBondsAPR: number = 0;
+  public argonBondsAPR: number | undefined;
   public argonotStakingAPR: number = 0;
 
   public bitcoinLocked: number = 0;

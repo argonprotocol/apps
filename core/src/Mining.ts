@@ -1,5 +1,4 @@
 import type { ArgonClient, ArgonQueryClient, MainchainClients } from './MainchainClients.js';
-import { FIXED_U128_DECIMALS, fromFixedNumber } from '@argonprotocol/mainchain';
 import { bigIntMax, bigIntMin, bigNumberToBigInt, numericToAlpha } from './utils.js';
 import type { IWinningBid } from './interfaces/index.js';
 import type { IMiningIndex } from './Accountset.ts';
@@ -478,7 +477,7 @@ export class Mining {
   public async fetchMicrogonsPerBlockForMiner(api: ArgonQueryClient, frameId?: number): Promise<bigint> {
     frameId ??= await this.fetchNextFrameId(api);
     if (frameId <= 1) {
-      return api.consts.blockRewards.startingArgonsPerBlock.toBigInt();
+      return api.consts.blockRewards.startingArgonsPerBlock;
     }
     const microgonsPerBlockByCohort = (await api.query.blockRewards.blockRewardsByCohort()) ?? [];
     for (const [cohortFrameActivationId, blockReward] of microgonsPerBlockByCohort) {
@@ -491,7 +490,7 @@ export class Mining {
 
   public async getMiningRewardCut(microgons: bigint, api?: ArgonQueryClient): Promise<bigint> {
     const client = api ?? (await this.prunedClientOrArchivePromise);
-    const minerPercent = fromFixedNumber(client.consts.blockRewards.minerPayoutPercent.toBigInt(), FIXED_U128_DECIMALS);
+    const minerPercent = client.consts.blockRewards.minerPayoutPercent;
     return bigNumberToBigInt(minerPercent.times(microgons));
   }
 
@@ -501,13 +500,13 @@ export class Mining {
     api?: ArgonQueryClient,
   ): Promise<bigint> {
     const client = api ?? (await this.prunedClientOrArchivePromise);
-    const halvingStartTick = client.consts.blockRewards.halvingBeginTicks.toNumber();
-    const halvingTicks = client.consts.blockRewards.halvingTicks.toNumber();
+    const halvingStartTick = client.consts.blockRewards.halvingBeginTicks;
+    const halvingTicks = client.consts.blockRewards.halvingTicks;
     const ticksSinceGenesis = this.getTicksSinceGenesis(tickStart);
     const [incrementAmount, incrementTicks, maxMicrogonsPerBlock] = client.consts.blockRewards.incrementalGrowth;
-    const blockRewardMax = maxMicrogonsPerBlock.toBigInt();
-    const incrementIntervalTicks = incrementTicks.toNumber();
-    const increasePerIntervalMicrogons = incrementAmount.toBigInt();
+    const blockRewardMax = maxMicrogonsPerBlock;
+    const incrementIntervalTicks = Number(incrementTicks);
+    const increasePerIntervalMicrogons = incrementAmount;
 
     const initialReward = 500_000n; // Initial microgons reward per block
 

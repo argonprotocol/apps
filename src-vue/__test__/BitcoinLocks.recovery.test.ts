@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
+import BigNumber from 'bignumber.js';
 import {
   type ArgonClient,
   type BlockWatch,
@@ -72,7 +73,7 @@ describe('BitcoinLocks recovery', () => {
       bestBlockHeader: { blockNumber: 0, blockHash: '0x0' },
     } as unknown as BlockWatch;
     const archiveClient = {
-      consts: { bitcoinLocks: { argonTicksPerDay: { toNumber: () => 1_440 } } },
+      consts: { bitcoinLocks: { argonTicksPerDay: 1_440 } },
     };
     vi.mocked(getMainchainClient).mockResolvedValue(archiveClient as never);
     const configSpy = vi.spyOn(BitcoinLock, 'getConfig').mockResolvedValue(createBitcoinLockConfig());
@@ -2021,7 +2022,7 @@ describe('BitcoinLocks history replay publication', () => {
       ratchetNumber: 0,
     });
     const client = {
-      consts: { bitcoinFissions: { minimumRatchetPercent: { toBigInt: () => 5n } } },
+      consts: { bitcoinFissions: { minimumRatchetPercent: new BigNumber(0.05) } },
       query: {
         bitcoinFissions: {
           fissionByOwnerAndId: {

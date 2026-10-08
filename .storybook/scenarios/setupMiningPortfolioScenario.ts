@@ -1,5 +1,14 @@
 import * as Vue from 'vue';
-import { numericToAlpha, type IMiningFrameDetail, type IMiningSlot, type IWinningBid } from '@argonprotocol/apps-core';
+import {
+  BotActivityType,
+  Currency,
+  getPercent,
+  numericToAlpha,
+  type IHistoryFile,
+  type IMiningFrameDetail,
+  type IMiningSlot,
+  type IWinningBid,
+} from '@argonprotocol/apps-core';
 import { fn, mocked } from 'storybook/test';
 import type { IDashboardFrameStats } from '../../src-vue/interfaces/IMiningSeatStats.ts';
 import { MiningSetupStatus, TopTab } from '../../src-vue/interfaces/IConfig.ts';
@@ -120,10 +129,40 @@ export function setupMiningPortfolioScenario(selectedFrameId = 120) {
       },
       refreshState: fn(async () => undefined),
       getClient: fn(async () => ({
-        fetch: fn(
-          async (_path: string, frameId: number) =>
-            detailsByFrame.get(frameId) ?? createFrameDetail(frameId, createMiningSlots(frameId), winningBids),
-        ),
+        fetch: fn(async (path: string, frameId: number) => {
+          if (path === '/history') {
+            return {
+              activities: [
+                {
+                  id: 1,
+                  tick: 2_000_050,
+                  frameId,
+                  type: BotActivityType.BidsSubmitted,
+                  data: {
+                    microgonsPerSeat: 56_000_000n,
+                    submittedCount: frameId === 120 ? 3 : 1,
+                    txFeePlusTip: 100_000n,
+                  },
+                },
+                {
+                  id: 2,
+                  tick: 2_000_060,
+                  frameId,
+                  type: BotActivityType.BidsRejected,
+                  data: { microgonsPerSeat: 57_000_000n, submittedCount: 2, rejectedCount: 1 },
+                },
+                {
+                  id: 3,
+                  tick: 2_000_080,
+                  frameId,
+                  type: BotActivityType.BidsSubmitted,
+                  data: { microgonsPerSeat: 58_000_000n, submittedCount: 2, txFeePlusTip: 100_000n },
+                },
+              ],
+            } satisfies IHistoryFile;
+          }
+          return detailsByFrame.get(frameId) ?? createFrameDetail(frameId, createMiningSlots(frameId), winningBids);
+        }),
       })),
     }) as unknown as ReturnType<typeof getBot>,
   );
@@ -215,29 +254,44 @@ export function setupMiningPortfolioScenario(selectedFrameId = 120) {
       },
     }) as unknown as ReturnType<typeof useFinancials>,
   );
+  return detailsByFrame;
 }
 
 function createFrame(id: number): IDashboardFrameStats {
   const activeSeatCount = Math.max(0, id - 112);
+  const microgonsMinedTotal = BigInt(activeSeatCount) * 11_000_000n;
+  const microgonsMintedTotal = BigInt(activeSeatCount) * 3_000_000n;
+  const micronotsMinedTotal = BigInt(activeSeatCount) * 2_000_000n;
+  const argonotPrice = 14_000_000n;
+  const seatCostTotalFramed = BigInt(activeSeatCount) * (45_000_000n - BigInt(activeSeatCount) * 1_000_000n);
+  const microgonValueOfRewards = Currency.microgonValueOfMiningRewards({
+    microgonsMined: microgonsMinedTotal,
+    microgonsMinted: microgonsMintedTotal,
+    micronotsMined: micronotsMinedTotal,
+    argonotPrice,
+  });
+  const profit = microgonValueOfRewards - seatCostTotalFramed;
+  const profitPct = getPercent(profit, seatCostTotalFramed);
+
   return {
     id,
     date: `2026-08-${String(id - 105).padStart(2, '0')}`,
     firstTick: 2_000_000 + id * 10 - 9,
     allMinersCount: 40 + (id % 8),
     seatCountActive: activeSeatCount,
-    seatCostTotalFramed: BigInt(activeSeatCount) * 55_000_000n,
+    seatCostTotalFramed,
     blocksMinedTotal: activeSeatCount * 74,
     microgonToUsd: [1_000_000n],
-    microgonToArgonot: [14_000_000n],
-    microgonsMinedTotal: BigInt(activeSeatCount) * 11_000_000n,
-    microgonsMintedTotal: BigInt(activeSeatCount) * 3_000_000n,
-    micronotsMinedTotal: BigInt(activeSeatCount) * 2_000_000n,
+    microgonToArgonot: [argonotPrice],
+    microgonsMinedTotal,
+    microgonsMintedTotal,
+    micronotsMinedTotal,
     microgonFeesCollectedTotal: BigInt(activeSeatCount) * 500_000n,
-    microgonValueOfRewards: BigInt(activeSeatCount) * 14_000_000n,
+    microgonValueOfRewards,
     progress: id === 120 ? 62 : 100,
-    profit: activeSeatCount * 9,
-    profitPct: activeSeatCount * 1.2,
-    score: activeSeatCount * 12,
+    profit: Number(profit),
+    profitPct,
+    score: profitPct,
     expected: {
       blocksMinedTotal: activeSeatCount * 95,
       micronotsMinedTotal: BigInt(activeSeatCount) * 3_000_000n,

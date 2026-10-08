@@ -5,7 +5,7 @@ import type { Bytes, Vec } from '@polkadot/types-codec';
 import { hexToU8a } from '@polkadot/util';
 import { AccountActivityDecoder, isGatewayOperationSourceEvent } from './AccountActivity.js';
 import type { IAccountActivityBlock, IndexerDb } from './IndexerDb.js';
-import { AccountActivityCoverageError } from '@argonprotocol/runtime-client/events';
+import { AccountActivityCoverageError, toHistoricalEvent } from '@argonprotocol/runtime-client/events';
 
 export class AccountActivityIndexer {
   public coverageGap?: { fromBlock: number; toBlock: number; reason: string };
@@ -204,13 +204,34 @@ export class AccountActivityIndexer {
           if (activity.bondLots.length) {
             const blockApi = await client.at(blockHashes[index]);
             for (const { bondLotId, mask } of activity.bondLots) {
-              const lot = await blockApi.query.treasury.bondLotById(bondLotId);
-              if (lot.isNone) {
-                throw new AccountActivityCoverageError(
-                  `Bond lot ${bondLotId} has flexibility activity at block ${blockNumber} but no owner state`,
-                );
+              let address: string | undefined;
+              for (const { event } of eventsByBlock[index]) {
+                if (event.section !== 'treasury') continue;
+                const decoded = toHistoricalEvent(event);
+                if (
+                  decoded?.section !== 'treasury' ||
+                  (decoded.method !== 'BondLotPurchased' &&
+                    decoded.method !== 'BondLotReleased' &&
+                    decoded.method !== 'BondLotReleaseScheduled' &&
+                    decoded.method !== 'CouldNotReleaseBondLot')
+                )
+                  continue;
+                if (decoded.data.bondLotId !== bondLotId) continue;
+                address = decoded.data.accountId;
+                break;
               }
-              const address = lot.unwrap().owner.toString();
+              if (!address) {
+                let lot = await blockApi.query.treasury.bondLotById(bondLotId);
+                if (lot.isNone && blockNumber > 0) {
+                  const parentApi = await client.at(await client.rpc.chain.getBlockHash(blockNumber - 1));
+                  lot = await parentApi.query.treasury.bondLotById(bondLotId);
+                }
+                if (lot.isNone)
+                  throw new AccountActivityCoverageError(
+                    `Bond lot ${bondLotId} has position activity at block ${blockNumber} but no owner state`,
+                  );
+                address = lot.unwrap().owner.toString();
+              }
               const account = activity.accounts.find(record => record.address === address);
               if (account) account.mask |= mask;
               else activity.accounts.push({ address, mask });

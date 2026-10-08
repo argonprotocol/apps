@@ -1,6 +1,6 @@
 import { getOfflineRegistry, type PalletTreasuryBondLot } from '@argonprotocol/mainchain';
 import { BondLot } from '@argonprotocol/apps-core';
-import { toPlain, type TreasuryBondLotByIdResult } from '@argonprotocol/runtime-client';
+import { toPlain, type TreasuryBondLotByIdResultSpec160Variant6 } from '@argonprotocol/runtime-client';
 import { describe, expect, it } from 'vitest';
 import { createTestDb } from './helpers/db.ts';
 
@@ -176,5 +176,9 @@ function createBondLot(args: {
     releaseFrameId: args.releaseFrame ?? null,
     releaseReason: args.releaseFrame === undefined ? null : 'UserLiquidation',
   });
-  return BondLot.fromRuntime(args.id, toPlain(codec) as NonNullable<TreasuryBondLotByIdResult>, accountId);
+  return BondLot.fromRuntime(
+    args.id,
+    toPlain(codec) as NonNullable<TreasuryBondLotByIdResultSpec160Variant6>,
+    accountId,
+  );
 }

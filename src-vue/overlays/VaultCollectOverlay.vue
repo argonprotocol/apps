@@ -18,9 +18,7 @@
         <div v-if="collectRevenue">
           <p>
             Your vault has
-            <strong>
-              {{ currency.symbol }}{{ microgonToMoneyNm(collectRevenue).format('0,0.00') }}
-            </strong>
+            <strong>{{ microgonToMoneyNm(collectRevenue).formatCurrency(currency.symbol) }}</strong>
             in uncollected revenue.
             <CountdownClock :time="nextCollectDueDate" v-slot="{ hours, minutes, days, seconds }">
               <template v-if="hours || minutes || days || seconds">
@@ -34,10 +32,7 @@
                   <span v-else-if="seconds">{{ seconds }} second{{ seconds === 1 ? '' : 's' }}</span>
                 </span>;
                 if not,
-                <strong>
-                  {{ currency.symbol
-                  }}{{ microgonToMoneyNm(myVault.data.expiringCollectAmount).format('0,0.00') }}
-                </strong>
+                <strong>{{ microgonToMoneyNm(myVault.data.expiringCollectAmount).formatCurrency(currency.symbol) }}</strong>
                 will be lost forever.
               </template>
             </CountdownClock>

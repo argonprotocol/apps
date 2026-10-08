@@ -324,7 +324,7 @@ describe('GlobalCouncil', () => {
     const approveQueueEntries = vi.fn((_chain: string, signatures: string[]) => ({ signatures }));
     await globalCouncil.buildApprovePendingGatewayUpdateTxs(
       {
-        consts: { crosschainTransfer: { maxQueueApprovalsPerCall: { toNumber: () => 10 } } },
+        consts: { crosschainTransfer: { maxQueueApprovalsPerCall: 10 } },
         createType: vi.fn((_type: string, signatures: string[]) => signatures),
         tx: { crosschainTransfer: { approveQueueEntries } },
       } as any,

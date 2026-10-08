@@ -1,12 +1,21 @@
 import BigNumber from 'bignumber.js';
+import { getOfflineRegistry } from '@argonprotocol/mainchain';
+import {
+  getBundledMetadata,
+  runtimeClient,
+  toPlain,
+  type VaultsVaultsByIdResultSpec159Variant15,
+} from '@argonprotocol/runtime-client';
+import { Metadata, TypeRegistry } from '@polkadot/types';
+import type { RuntimeSystemEventRecord } from '../src/index.ts';
 import { nextTick, reactive, shallowReactive, watchEffect } from 'vue';
-import type { VaultsVaultsByIdResultSpec159Variant15 } from '@argonprotocol/runtime-client';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { createDeferred } from '../src/Deferred.ts';
 import { calculateRestabilizationLeverage } from '../src/GlobalVaultingStats.ts';
 import type { IAllVaultStats, IVaultFrameStats, IVaultStats } from '../src/interfaces/IVaultStats.ts';
 import { NetworkConfig } from '../src/NetworkConfig.ts';
 import { VAULT_STATS_FORMAT_VERSION, Vaults } from '../src/Vaults.ts';
+import mainnetVaultRevenueHistory from '../src/data/vaultRevenue.mainnet.json' with { type: 'json' };
 
 beforeEach(() => {
   NetworkConfig.setNetwork('mainnet');
@@ -39,6 +48,10 @@ it('publishes current vaults before statistics and preserves them through failur
   const statsReady = createDeferred();
   const entries = vi.fn().mockRejectedValueOnce(new Error('offline'));
   const client = {
+    consts: {
+      vaults: {},
+      operationalAccounts: { operationalMinimumVaultSecuritization: 100_000_000n },
+    },
     query: {
       vaults: { vaultsById: { entries } },
       operationalAccounts: {
@@ -111,7 +124,7 @@ it('times out current-state loading and ignores a late response after a successf
     await vaults.loadCurrentState(true);
     delayed.resolve([[{ args: [7] }, currentVault]]);
     await vi.advanceTimersByTimeAsync(1);
-    expect(vaults.currentState).toEqual({ isLoaded: true, isLoading: false, error: '' });
+    expect(vaults.currentState).toMatchObject({ isLoaded: true, isLoading: false, error: '' });
     expect(vaults.vaultsById).toEqual({});
   } finally {
     vi.useRealTimers();
@@ -124,6 +137,7 @@ describe('Vaults load retry', () => {
       load: vi.fn().mockRejectedValueOnce(new Error('offline')).mockResolvedValueOnce(undefined),
     };
     const client = {
+      consts: { vaults: {} },
       query: {
         vaults: {
           vaultsById: {
@@ -150,6 +164,7 @@ describe('Vaults load retry', () => {
       load: vi.fn().mockResolvedValue(undefined),
     };
     const client = {
+      consts: { vaults: {} },
       query: {
         vaults: {
           vaultsById: { entries: vi.fn().mockResolvedValue([]) },
@@ -169,11 +184,34 @@ describe('Vaults load retry', () => {
     expect(vaults.stats?.argonotStakingByFrame).toEqual([]);
   });
 
+  it('restores bundled staking history through its serializer instead of dropping it', async () => {
+    vi.useFakeTimers();
+    try {
+      const frames = {
+        load: async () => undefined,
+        currentFrameId: mainnetVaultRevenueHistory.synchedToFrame + 1,
+      };
+      const clients = { get: async () => ({ query: { vaults: { vaultsById: { entries: async () => [] } } } }) };
+      const vaults = new Vaults('mainnet', {} as any, frames as any, clients as any);
+      await vaults.load();
+
+      expect(typeof vaults.stats?.argonotStakingByFrame[0]?.poolDistributed).toBe('bigint');
+      expect(vaults.calculateArgonotStakingApr()).toBeGreaterThan(0);
+    } finally {
+      vi.clearAllTimers();
+      vi.useRealTimers();
+    }
+  });
+
   it('finishes loading before operator profile names are available', async () => {
     const operatorAccountId = `0x${'02'.repeat(32)}`;
     const operationalAccountId = `0x${'01'.repeat(32)}`;
     const profileEntries = createDeferred<any[]>();
     const client = {
+      consts: {
+        vaults: {},
+        operationalAccounts: { operationalMinimumVaultSecuritization: 100_000_000n },
+      },
       query: {
         vaults: {
           vaultsById: { entries: vi.fn().mockResolvedValue([]) },
@@ -201,19 +239,221 @@ describe('Vaults load retry', () => {
 });
 
 describe('Vault revenue sync', () => {
+  it('excludes historical flexible bond income while retaining direct vault income after the upgrade', async () => {
+    const deployedRegistry = new TypeRegistry();
+    const metadata = Object.entries(getBundledMetadata()).find(([key]) => key.endsWith('-159'))![1];
+    deployedRegistry.setMetadata(new Metadata(deployedRegistry, metadata));
+    const registry = getOfflineRegistry();
+    const historicalRevenue = deployedRegistry.createType('Vec<PalletVaultsVaultFrameRevenue>', [
+      {
+        frameId: 20,
+        bitcoinLockFeeRevenue: 100_000_000n,
+        bitcoinLockFeeCouponValueUsed: 40_000_000n,
+        treasuryTotalEarnings: 101_000_001n,
+        treasuryVaultEarnings: 43_666_666n,
+        treasuryExternalCapital: 50_000_000n,
+        treasuryVaultCapital: 50_000_000n,
+        securitization: 1_000_000_000n,
+      },
+    ]);
+    const currentRevenue = registry.createType('Vec<PalletVaultsVaultFrameRevenue>', [
+      {
+        frameId: 21,
+        treasuryTotalEarnings: 70_000_000n,
+        treasuryVaultEarnings: 70_000_000n,
+        treasuryExternalCapital: 100_000_000n,
+        securitization: 1_000_000_000n,
+      },
+    ]);
+    const capital = deployedRegistry.createType('PalletTreasuryFrameVaultCapital', {
+      frameId: 20,
+      vaults: {
+        1: {
+          eligibleBonds: 100,
+          flexibleBondsEligible: 50,
+          // Capacity is 150 bonds: eligible capital alone would incorrectly imply a 50% flexible share.
+          flexibleProrata: 333_333_333_333_333_333n,
+        },
+      },
+    });
+    const miningFrames = createRevenueMiningFrames([22, 21], frameId => ({
+      specVersion: frameId === 22 ? 160 : 159,
+      api: {
+        query: {
+          treasury: {},
+          vaults: {
+            revenuePerFrameByVault: {
+              entries: async () => [[{ args: [1] }, toPlain(frameId === 22 ? currentRevenue : historicalRevenue)]],
+            },
+          },
+        },
+      },
+    }));
+    Object.assign(miningFrames.blockWatch, {
+      getHeader: async (blockNumber: number) => ({ blockNumber, blockHash: `0x${blockNumber}` }),
+      getApi: async () => ({ query: { treasury: { currentFrameVaultCapital: async () => toPlain(capital) } } }),
+    });
+    const clients = { get: async () => ({ query: { vaults: { vaultsById: { entries: async () => [] } } } }) };
+    const vaults = new Vaults('mainnet', {} as any, miningFrames as any, clients as any);
+    vaults.stats = createStats([]);
+    vaults.stats.revenueBackfill = { nextFrame: 22, throughFrame: 21 };
+    await vaults.updateRevenue();
+
+    // Each frame earned 70 ARGN on 1,000 ARGN securitization; the 33.666666 flexible income belongs to bonds.
+    expect(vaults.calculateApr()).toBeCloseTo(2_555);
+    expect(vaults.calculateVaultApr(1)).toBeCloseTo(2_555);
+    expect(vaults.calculateApy()).toBeCloseTo((1.07 ** 365 - 1) * 100);
+    await vaults.updateVaultRevenue(1, toPlain(historicalRevenue) as any);
+    expect(vaults.calculateApr()).toBeCloseTo(2_555);
+  });
+
+  it('uses completed-frame capital and opening prices, preserving returns when a payout snapshot needs retry', async () => {
+    const registry = getOfflineRegistry();
+    const events: RuntimeSystemEventRecord[] = [
+      {
+        phase: { type: 'Initialization' },
+        topics: [],
+        event: {
+          section: 'treasury',
+          method: 'FrameEarningsDistributed',
+          data: {
+            frameId: 20,
+            argonBondPoolDistributed: 1_000_000n,
+            bidPoolDistributed: 10_000_000n,
+            vaultPoolDistributed: 8_000_000n,
+            stakePoolDistributed: 1_000_000n,
+            treasuryReserves: 0n,
+            burned: 0n,
+            participatingVaults: 1,
+          },
+        },
+      },
+    ];
+    const api = {
+      query: {
+        system: { events: async () => events },
+        treasury: {
+          currentFrameArgonotBondParticipants: async () => ({ frameId: 21, totalBonds: 10_000 }),
+          currentFrameVaultCapital: async () => ({ frameId: 21, totalActiveBonds: 10_000n }),
+        },
+        vaults: { revenuePerFrameByVault: { entries: async () => [] } },
+      },
+    };
+    let capitalFrame = 20;
+    let participantsFrame = 20;
+    const parentApi = runtimeClient({
+      query: {
+        treasury: {
+          currentFrameArgonotBondParticipants: async () =>
+            registry.createType('Option<PalletTreasuryFrameArgonotBondParticipants>', {
+              frameId: participantsFrame,
+              totalBonds: 100,
+            }),
+          currentFrameVaultCapital: async () =>
+            registry.createType('Option<PalletTreasuryFrameVaultCapital>', {
+              frameId: capitalFrame,
+              totalActiveBonds: 100n,
+              targetSecuritization: 1_000_000_000n,
+              totalSecuritization: 1_000_000_000n,
+              vaultSecuritizationPositions: {},
+            }),
+        },
+      },
+    });
+    const frames = createRevenueMiningFrames([21, 20], () => ({ api, specVersion: 160 }));
+    Object.assign(frames.blockWatch, {
+      getHeader: async (blockNumber: number) => ({ blockNumber, blockHash: `0x${blockNumber}` }),
+      getApi: async () => parentApi,
+    });
+    const clients = { get: async () => ({ query: { vaults: { vaultsById: { entries: async () => [] } } } }) };
+    const vaults = new Vaults(
+      'mainnet',
+      {
+        fetchMainchainRatesAtBlock: async ({ block }: { block: { blockHash: string } }) => ({
+          ARGNOT: block.blockHash === '0x20' ? 10_000n : 20_000n,
+        }),
+      } as any,
+      frames as any,
+      clients as any,
+    );
+    vaults.stats = createStats([createFrame({ totalEarnings: 99n, externalCapital: 100n })]);
+    vaults.stats.argonBondsByFrame = [
+      { frameId: 1, poolDistributed: 1n },
+      { frameId: 20, poolDistributed: 1_000_000n },
+    ];
+    vaults.stats.revenueBackfill = { nextFrame: 21, throughFrame: 21 };
+    await vaults.updateRevenue();
+    // One ARGN actually paid over 100 eligible ARGN, rather than the next frame's 10,000 or the target 1,000.
+    expect(vaults.calculateArgonBondsApr()).toBeCloseTo(365);
+    expect(vaults.calculateArgonBondsApr(1)).toBeCloseTo(365);
+    expect(vaults.stats.argonotStakingByFrame[0]).toMatchObject({
+      frameId: 20,
+      participatingBonds: 100,
+      microgonsPerArgonot: 10_000n,
+      poolDistributed: 1_000_000n,
+    });
+    expect(vaults.calculateArgonotStakingApr()).toBeCloseTo(36_500);
+
+    frames.frameIds[0] = 22;
+    frames.currentFrameId = 22;
+    frames.framesById[22] = { firstBlockHash: '0x22' };
+    const payout = events[0].event;
+    if (payout.method === 'FrameEarningsDistributed') {
+      events[0] = { ...events[0], event: { ...payout, data: { ...payout.data, frameId: 21 } } };
+    }
+    await expect(vaults.updateRevenue()).rejects.toThrow('missing its Argonot payout participants');
+    expect(vaults.calculateArgonBondsApr()).toBeCloseTo(365);
+    expect(vaults.calculateArgonotStakingApr()).toBeCloseTo(36_500);
+    expect(vaults.stats.synchedToFrame).toBe(20);
+
+    participantsFrame = 21;
+    await expect(vaults.updateRevenue()).rejects.toThrow('missing its Argon bond payout capital');
+    expect(vaults.calculateArgonBondsApr()).toBeCloseTo(365);
+    expect(vaults.calculateArgonotStakingApr()).toBeCloseTo(36_500);
+    expect(vaults.stats.synchedToFrame).toBe(20);
+
+    capitalFrame = 21;
+    await vaults.updateRevenue();
+    expect(vaults.calculateArgonBondsApr()).toBeCloseTo(365);
+    expect(vaults.stats.argonBondsByFrame).toHaveLength(3);
+    expect(vaults.calculateArgonotStakingApr()).toBeCloseTo(24_333.333333);
+    expect(vaults.stats.synchedToFrame).toBe(21);
+
+    // An unavailable old denominator stays unknown; it must not restart archive scans on ordinary updates.
+    api.query.vaults.revenuePerFrameByVault.entries = async () => {
+      throw new Error('Unexpected old history scan');
+    };
+    await vaults.updateRevenue();
+    expect(vaults.stats.revenueBackfill).toBeUndefined();
+    expect(vaults.stats.argonBondsByFrame?.find(frame => frame.frameId === 1)?.participatingBonds).toBeUndefined();
+  });
+
   it('stores the latest completed frame when the current frame has finalized blocks', async () => {
     vi.useFakeTimers();
 
+    const revenue = {
+      frameId: 19,
+      bitcoinLockFeeRevenue: 100n,
+      bitcoinLockFeeCouponValueUsed: 0n,
+      treasuryTotalEarnings: 0n,
+      treasuryVaultEarnings: 0n,
+      treasuryExternalCapital: 0n,
+      treasuryVaultCapital: 0n,
+      securitization: 1_000n,
+    };
     const api = {
       query: {
         treasury: {},
         vaults: {
-          revenuePerFrameByVault: { entries: vi.fn().mockResolvedValue([]) },
+          revenuePerFrameByVault: {
+            entries: async () => [[{ args: [1] }, [revenue, { ...revenue, frameId: 20, bitcoinLockFeeRevenue: 900n }]]],
+          },
         },
       },
     };
     const miningFrames = {
       load: vi.fn().mockResolvedValue(undefined),
+      currentFrameId: 20,
       frameIds: [20],
       framesById: { 20: { firstBlockHash: '0x20' } },
       getFrameStart: vi.fn().mockResolvedValue({
@@ -237,7 +477,9 @@ describe('Vault revenue sync', () => {
       }),
     };
     const vaults = new Vaults('mainnet', {} as any, miningFrames as any, mainchainClients as any);
-    vaults.stats = createStats([]);
+    vaults.stats = createStats([
+      createFrame({ frameId: 19, bitcoinFeeRevenue: 1n, bitcoinFeeCouponValueUsed: 0n, securitization: 1_000n }),
+    ]);
     vaults.stats.synchedToFrame = 18;
 
     await vaults.updateRevenue();
@@ -246,12 +488,12 @@ describe('Vault revenue sync', () => {
     vi.useRealTimers();
 
     expect(vaults.stats.synchedToFrame).toBe(19);
+    expect(vaults.calculateApr()).toBeCloseTo(3_650);
   });
 
   it('saves each 20-frame revenue batch and resumes the next batch after restart', async () => {
     vi.useFakeTimers();
 
-    let revenueFrameId = 10;
     const apiAtFrame = (observedAtFrame: number) => ({
       query: {
         treasury: {},
@@ -260,26 +502,24 @@ describe('Vault revenue sync', () => {
             entries: vi.fn().mockResolvedValue([
               [
                 { args: [1] },
-                [
-                  {
-                    frameId: revenueFrameId,
-                    bitcoinLocksNewLiquidityPromised: 0n,
-                    bitcoinLocksReleasedLiquidity: 0n,
-                    bitcoinLocksAddedSatoshis: 0n,
-                    bitcoinLocksReleasedSatoshis: 0n,
-                    bitcoinLockFeeRevenue: BigInt(observedAtFrame),
-                    bitcoinLockFeeCouponValueUsed: 0n,
-                    bitcoinLocksCreated: 0,
-                    treasuryTotalEarnings: 0n,
-                    treasuryVaultEarnings: 0n,
-                    treasuryExternalCapital: 0n,
-                    treasuryVaultCapital: 0n,
-                    securitization: 0n,
-                    securitizationActivated: 0n,
-                    securitizationRelockable: 0n,
-                    uncollectedRevenue: 0n,
-                  },
-                ],
+                Array.from({ length: 10 }, (_, index) => ({
+                  frameId: observedAtFrame - index - 1,
+                  bitcoinLocksNewLiquidityPromised: 0n,
+                  bitcoinLocksReleasedLiquidity: 0n,
+                  bitcoinLocksAddedSatoshis: 0n,
+                  bitcoinLocksReleasedSatoshis: 0n,
+                  bitcoinLockFeeRevenue: BigInt(observedAtFrame - index - 1),
+                  bitcoinLockFeeCouponValueUsed: 0n,
+                  bitcoinLocksCreated: 0,
+                  treasuryTotalEarnings: 0n,
+                  treasuryVaultEarnings: 0n,
+                  treasuryExternalCapital: 0n,
+                  treasuryVaultCapital: 0n,
+                  securitization: 0n,
+                  securitizationActivated: 0n,
+                  securitizationRelockable: 0n,
+                  uncollectedRevenue: 0n,
+                })),
               ],
             ]),
           },
@@ -299,12 +539,15 @@ describe('Vault revenue sync', () => {
     const frameIds = Array.from({ length: 41 }, (_, index) => 40 - index);
     const firstMiningFrames = createRevenueMiningFrames(frameIds, frameId => {
       firstReadFrames.push(frameId);
-      return { api: apiAtFrame(frameId), specVersion: frameId === 14 ? 144 : 200 };
+      return { api: apiAtFrame(frameId), specVersion: 200 };
     });
     const firstVaults = new Vaults('mainnet', {} as any, firstMiningFrames as any, mainchainClients as any);
-    firstVaults.stats = createStats([]);
+    firstVaults.stats = createStats([
+      createFrame({ frameId: 10, bitcoinFeeRevenue: 1n }),
+      createFrame({ frameId: 9, bitcoinFeeRevenue: 9n }),
+    ]);
     firstVaults.stats.formatVersion = VAULT_STATS_FORMAT_VERSION;
-    firstVaults.stats.synchedToFrame = 0;
+    firstVaults.stats.synchedToFrame = 9;
     let persistedStats: IAllVaultStats | undefined;
     vi.spyOn(firstVaults as any, 'saveStats').mockImplementation(async () => {
       persistedStats = structuredClone(firstVaults.stats);
@@ -315,15 +558,18 @@ describe('Vault revenue sync', () => {
     expect(firstReadFrames).toEqual(Array.from({ length: 20 }, (_, index) => 40 - index));
     expect(persistedStats).toMatchObject({
       synchedToFrame: 39,
-      revenueBackfill: { nextFrame: 20, throughFrame: 1 },
+      revenueBackfill: { nextFrame: 20, throughFrame: 11 },
     });
-    expect(persistedStats?.vaultsById[1].changesByFrame[0].bitcoinFeeRevenue).toBe(40n);
+    expect(persistedStats?.vaultsById[1].changesByFrame[0].bitcoinFeeRevenue).toBe(39n);
+    expect(persistedStats?.vaultsById[1].changesByFrame.find(frame => frame.frameId === 10)?.bitcoinFeeRevenue).toBe(
+      1n,
+    );
     vi.clearAllTimers();
 
     const secondReadFrames: number[] = [];
     const secondMiningFrames = createRevenueMiningFrames(frameIds, frameId => {
       secondReadFrames.push(frameId);
-      return { api: apiAtFrame(frameId), specVersion: frameId === 14 ? 144 : 200 };
+      return { api: apiAtFrame(frameId), specVersion: 200 };
     });
     const secondVaults = new CachedVaults(
       structuredClone(persistedStats!),
@@ -338,16 +584,22 @@ describe('Vault revenue sync', () => {
     vi.clearAllTimers();
     vi.useRealTimers();
 
-    expect(secondReadFrames).toEqual([20, 19, 18, 17, 16, 15, 14]);
+    expect(secondReadFrames).toEqual([20, 19, 18, 17, 16, 15, 14, 13, 12, 11]);
     expect(secondVaults.stats).toMatchObject({
       synchedToFrame: 39,
     });
     expect(secondVaults.stats?.revenueBackfill).toBeUndefined();
-    expect(secondVaults.stats?.vaultsById[1].changesByFrame[0].bitcoinFeeRevenue).toBe(40n);
+    expect(secondVaults.stats?.vaultsById[1].changesByFrame[0].bitcoinFeeRevenue).toBe(39n);
+    expect(
+      secondVaults.stats?.vaultsById[1].changesByFrame.find(frame => frame.frameId === 10)?.bitcoinFeeRevenue,
+    ).toBe(10n);
+    expect(secondVaults.stats?.vaultsById[1].changesByFrame.find(frame => frame.frameId === 9)?.bitcoinFeeRevenue).toBe(
+      9n,
+    );
 
     const revenueHistory = secondVaults.stats!.vaultsById[1].changesByFrame;
-    revenueHistory.push({ ...revenueHistory[0], frameId: 35, bitcoinFeeRevenue: 35n });
-    revenueFrameId = 35;
+    const savedFrame = revenueHistory.find(frame => frame.frameId === 35)!;
+    const savedFees = savedFrame.bitcoinFeeRevenue;
     frameIds.unshift(41);
     secondMiningFrames.currentFrameId = 41;
     secondMiningFrames.framesById[41] = { firstBlockHash: '0x41' };
@@ -355,8 +607,11 @@ describe('Vault revenue sync', () => {
 
     await secondVaults.updateRevenue();
 
-    expect(secondReadFrames).toEqual(Array.from({ length: 13 }, (_, index) => 41 - index));
-    expect(revenueHistory.find(frame => frame.frameId === 35)?.bitcoinFeeRevenue).toBe(41n);
+    expect(secondReadFrames).toEqual([41]);
+    expect(secondVaults.stats?.vaultsById[1].changesByFrame[0]).toMatchObject({ frameId: 40, bitcoinFeeRevenue: 40n });
+    expect(
+      secondVaults.stats!.vaultsById[1].changesByFrame.find(frame => frame.frameId === 35)?.bitcoinFeeRevenue,
+    ).toBe(savedFees);
   });
 });
 

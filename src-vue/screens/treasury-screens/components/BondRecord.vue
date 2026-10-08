@@ -1,27 +1,31 @@
 <template>
   <div
     class="BondRecord Component flex flex-col"
-    :data-testid="`Bond.${bondLot.programType === 'Argonot' ? 'stake' : 'bond'}-${bondLot.id}`"
+    :data-testid="`Bond.${programType === 'Argonot' ? 'stake' : 'bond'}-${lotId}`"
   >
-    <section ActiveRecord>
-      <StakeIcon v-if="bondLot.programType === 'Argonot'" MainIcon />
+    <section ActiveRecord :class="{ archived: history }">
+      <StakeIcon v-if="programType === 'Argonot'" MainIcon />
       <BondIcon v-else MainIcon />
       <div ContentWrapper>
         <div FirstRow>
           <span class="font-semibold">
-            {{ numeral(bondLot.bonds).format('0,0') }}
-            {{ bondLot.programType === 'Argonot' ? 'Argonot Stakes' : 'Argon Bonds' }}
+            <template v-if="bondLot">{{ numeral(bondLot.bonds).format('0,0') }}</template>
+            <template v-else-if="programType === 'Argonot'">
+              {{ micronotToArgonotNm(history!.nativePrincipal).format('0,0') }}
+            </template>
+            <template v-else>{{ microgonToArgonNm(history!.nativePrincipal).format('0,0') }}</template>
+            {{ programType === 'Argonot' ? 'Argonot Stakes' : 'Argon Bonds' }}
           </span>
           <span class="font-light">
             bought
-            {{ dayjs.utc(miningFrames.getFrameDate(bondLot.createdFrame)).local().format('M/D/YYYY [at] h:mm a') }}
+            {{ dayjs.utc(purchasedAt).local().format('M/D/YYYY [at] h:mm a') }}
           </span>
           <span v-if="vaultLabel" class="font-light text-slate-400">·</span>
           <span v-if="vaultLabel" class="font-light text-slate-500">{{ vaultLabel }}</span>
-          <div v-if="isReleasing" class="text-sm text-amber-700">
+          <div v-if="bondLot && isReleasing" class="text-sm text-amber-700">
             Releasing
             <span class="font-semibold">
-              <template v-if="bondLot.programType === 'Argonot'">
+              <template v-if="programType === 'Argonot'">
                 {{ micronotToArgonotNm(bondLot.returningBondMicrogons).format('0,0.00') }} ARGNOT
               </template>
               <template v-else>
@@ -29,7 +33,7 @@
               </template>
             </span>
             <CountdownClock
-              :time="dayjs.utc(miningFrames.getFrameDate(bondLot.releaseFrame!))"
+              :time="dayjs.utc(miningFrames.getFrameDate(bondLot.releaseFrameId!))"
               v-slot="{ hours, minutes, seconds, days }"
             >
               in
@@ -42,6 +46,7 @@
               <span v-else>{{ seconds }}s</span>
             </CountdownClock>
           </div>
+          <span v-if="history" class="ml-auto font-semibold text-slate-500">Archived</span>
         </div>
         <div SecondRow>
           <span>
@@ -54,32 +59,18 @@
             <span class="h-full w-px bg-slate-400/50"></span>
           </div>
           <span>
-            <template v-if="bondLot.isFlexible">Flexible Bond</template>
-            <template v-else>
-              {{ currency.symbol }}{{ microgonToMoneyNm(bondLot.lifetimeEarnings).format('0,0.00') }}
-              in distributions
+            <template v-if="lifetimeEarnings !== undefined">
+              {{ currency.symbol }}{{ microgonToMoneyNm(lifetimeEarnings).format('0,0.00') }} in distributions
             </template>
+            <template v-else>Distributions unavailable</template>
           </span>
           <div class="flex grow flex-row items-stretch justify-center">
             <span class="h-full w-px bg-slate-400/50"></span>
           </div>
           <span>
-            <Tooltip
-              v-if="bondLot.isFlexible"
-              :asChild="true"
-              content="Flexible bond earnings roll up into the vault's returns and cannot be attributed to an individual bond."
-              side="top"
-            >
-              <span class="inline-flex cursor-help items-center gap-1">
-                Rolled up return
-                <InformationCircleIcon class="size-3.5" />
-              </span>
-            </Tooltip>
-            <template v-else>
-              <template v-if="returnPercent === undefined">--</template>
-              <template v-else>{{ numeral(returnPercent).format('0,0.00') }}%</template>
-              return
-            </template>
+            <template v-if="position?.returnIsComplete === false">History incomplete</template>
+            <template v-else-if="returnPercent === undefined">-- return</template>
+            <template v-else>{{ numeral(returnPercent).format('0,0.00') }}% return</template>
           </span>
         </div>
       </div>
@@ -91,13 +82,11 @@
 import * as Vue from 'vue';
 import dayjs from 'dayjs';
 import utc from 'dayjs/plugin/utc.js';
-import { InformationCircleIcon } from '@heroicons/vue/24/outline';
 import BondIcon from '../../../assets/bond.svg?component';
 import StakeIcon from '../../../assets/stake.svg?component';
 import numeral, { createNumeralHelpers } from '../../../lib/numeral.ts';
 import { getCurrency } from '../../../stores/currency.ts';
 import CountdownClock from '../../../components/CountdownClock.vue';
-import Tooltip from '../../../components/Tooltip.vue';
 import { BondLot } from '@argonprotocol/apps-core';
 import { getMiningFrames } from '../../../stores/mainchain.ts';
 import { getVaults } from '../../../stores/vaults.ts';
@@ -115,7 +104,7 @@ const argonSymbol = currency.recordsByKey[UnitOfMeasurement.ARGN].symbol;
 
 const props = withDefaults(
   defineProps<{
-    bondLot: BondLot;
+    bondLot?: BondLot;
     isReleasing?: boolean;
     ownedVaultId?: number;
     position?: IBondFinancialPosition;
@@ -126,10 +115,19 @@ const props = withDefaults(
   },
 );
 
-const vaultLabel = Vue.computed(() => {
-  if (props.bondLot.programType === 'Argonot') return;
+const history = Vue.computed(() => props.position?.history);
+const lifetimeEarnings = Vue.computed(() => props.position?.paidIncome ?? props.bondLot?.cumulativeEarnings);
+const lotId = Vue.computed(() => props.bondLot?.id ?? history.value!.bondLotId);
+const programType = Vue.computed(() => props.bondLot?.programType ?? history.value!.programType);
+const purchasedAt = Vue.computed(() => {
+  if (history.value?.purchaseBlockTime) return history.value.purchaseBlockTime;
+  return miningFrames.getFrameDate(props.bondLot?.createdFrameId ?? history.value!.createdFrame);
+});
 
-  const vaultId = props.bondLot.vaultId;
+const vaultLabel = Vue.computed(() => {
+  if (programType.value === 'Argonot') return;
+
+  const vaultId = props.bondLot?.vaultId ?? history.value?.vaultId;
   if (vaultId == null) return;
 
   const name = vaultId === props.ownedVaultId ? 'Yours' : vaults.operatorNamesByVaultId[vaultId];
@@ -150,6 +148,10 @@ const vaultLabel = Vue.computed(() => {
 
   section[ActiveRecord] {
     @apply flex cursor-pointer flex-row items-center gap-2.5 rounded border border-slate-900/30 bg-white px-3.5 py-2 shadow hover:bg-slate-50;
+
+    &.archived {
+      @apply border-slate-900/20 bg-slate-50 opacity-60 shadow-none hover:opacity-80;
+    }
   }
 
   [ContentWrapper] {

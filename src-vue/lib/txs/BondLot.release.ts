@@ -1,4 +1,5 @@
 import { BondLot, type ArgonClient, TreasuryBonds, type TxSigningAccount } from '@argonprotocol/apps-core';
+import { runtimeClient } from '@argonprotocol/runtime-client';
 import type { ArgonBonds } from '../ArgonBonds.ts';
 import type { TransactionInfo } from '../TransactionInfo.ts';
 import type { TransactionTracker } from '../TransactionTracker.ts';
@@ -83,10 +84,9 @@ export class BondLotRelease extends TransactionOperation<
       );
       if (!event) return;
       const block = await this.argonBonds.miningFrames.blockWatch.getHeader(blockNumber);
-      const api = await this.argonBonds.miningFrames.blockWatch.getApi(block);
-      const storedLot = await api.query.treasury.bondLotById(info.tx.metadataJson.bondLotId);
-      if (!storedLot) return;
-      const lot = BondLot.fromRuntime(info.tx.metadataJson.bondLotId, storedLot, this.walletKeys.defaultArgonAddress);
+      const api = runtimeClient(await this.argonBonds.miningFrames.blockWatch.getApi(block));
+      const lot = await BondLot.get(api, info.tx.metadataJson.bondLotId, info.tx.accountAddress);
+      if (!lot) return;
       await this.argonBonds.recordBondReleaseRequest(lot, block);
     } catch (error) {
       console.warn(`[BondLotRelease] Bond history is pending after finalized block ${blockNumber}`, error);

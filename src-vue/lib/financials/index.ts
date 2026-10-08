@@ -215,11 +215,6 @@ export function reduceFinancialPositions(snapshots: readonly IFinancialGroupSnap
     // internal collateral transitions to the term-return denominator.
     let returnPositions = groupPositions;
     if (group === 'mining') returnPositions = groupPositions.filter(position => position.kind === 'mining-cohort');
-    if (group === 'bonds') {
-      returnPositions = groupPositions.filter(
-        position => position.kind !== 'bond' || position.returnAttribution !== 'vault',
-      );
-    }
     const returnSummary = calculatePositionReturn(returnPositions, { now: snapshot.observation?.observedAt });
     groups.push({
       group,
@@ -248,10 +243,7 @@ export function reduceFinancialPositions(snapshots: readonly IFinancialGroupSnap
     readiness = hasUnavailableGroup || hasUnavailableValue ? 'partial' : 'ready';
   }
 
-  const accountReturn = calculatePositionReturn(
-    accountPositions.filter(position => position.kind !== 'bond' || position.returnAttribution !== 'vault'),
-    { now: accountObservedAt },
-  );
+  const accountReturn = calculatePositionReturn(accountPositions, { now: accountObservedAt });
   const accountReturnAvailability =
     readiness === 'partial' && accountReturn.availability === 'available' ? 'partial' : accountReturn.availability;
   const groupSummaries = Object.fromEntries(groups.map(summary => [summary.group, summary])) as Record<
@@ -316,13 +308,16 @@ export function calculatePositionReturn(
 
   const eligibleInvestments: IPerformanceReturnInput[] = [];
   let paidIncome = 0n;
+  let hasUnknownIncome = false;
   let settledPrincipalValue = 0n;
 
   for (const position of investments) {
     const positionIncome = position.paidIncome;
-    paidIncome += positionIncome;
+    if (positionIncome === undefined) hasUnknownIncome = true;
+    else paidIncome += positionIncome;
     settledPrincipalValue += position.settledPrincipalValue ?? 0n;
-    if (position.kind === 'bond' && position.returnIsComplete === false) continue;
+    if (positionIncome === undefined) continue;
+    if ((position.kind === 'bond' || position.kind === 'vault') && position.returnIsComplete === false) continue;
 
     const { investedCost } = position;
     if (position.lifecycle === 'unavailable') continue;
@@ -367,7 +362,7 @@ export function calculatePositionReturn(
     return {
       availability: 'unavailable',
       investedCost: 0n,
-      paidIncome,
+      paidIncome: hasUnknownIncome ? undefined : paidIncome,
       settledPrincipalValue,
       eligiblePositionCount: 0,
       investmentPositionCount: investments.length,
@@ -380,7 +375,7 @@ export function calculatePositionReturn(
   return {
     availability,
     investedCost: performance.eligibleCapitalInvested,
-    paidIncome,
+    paidIncome: hasUnknownIncome ? undefined : paidIncome,
     settledPrincipalValue,
     returnAmount: performance.totalProfits,
     basisPoints: performance.basisPoints,

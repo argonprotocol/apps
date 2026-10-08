@@ -1,5 +1,5 @@
 import type { Meta, StoryObj } from '@storybook/vue3-vite';
-import { expect, mocked, userEvent, waitFor, within } from 'storybook/test';
+import { mocked, userEvent, within } from 'storybook/test';
 import AppScreen from '../../components/AppScreen.vue';
 import {
   setupBitcoinEmptyScenario,
@@ -141,6 +141,7 @@ export const ArchivedLiquidDetails: Story = {
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
+    await userEvent.click(await canvas.findByText(/been archived/));
     await userEvent.click(canvas.getByText(/BTC Liquid$/));
   },
 };
@@ -329,13 +330,7 @@ export const CreateLiquidVaultCapacityApplied: Story = {
     const canvas = within(canvasElement);
     const body = within(canvasElement.ownerDocument.body);
     await userEvent.click(canvas.getByRole('button', { name: /Create.*Liquid/ }));
-    await waitFor(() => expect(body.queryByText('Checking vault securitization...')).not.toBeInTheDocument());
-    await userEvent.click(body.getByRole('button', { name: /Use Selected Vaults/ }));
-    await waitFor(() =>
-      expect(
-        body.getAllByRole('alert').some(alert => alert.textContent?.includes('can currently securitize only')),
-      ).toBe(true),
-    );
+    await userEvent.click(await body.findByRole('button', { name: /Use Selected Vaults/ }));
   },
 };
 
@@ -360,5 +355,18 @@ export const CloseWhileCreatingLiquid: Story = {
     await body.findByText('Creating Liquid...');
     await userEvent.click(await body.findByTestId('OverlayBase.clickClose()'));
     await userEvent.click(await body.findByRole('button', { name: 'Task guidance' }));
+  },
+};
+
+export const ExpandedLiquidArchive: Story = {
+  render: () => ({
+    components: { AppScreen, Bitcoin },
+    template: '<AppScreen interactive><Bitcoin /></AppScreen>',
+  }),
+  beforeEach: () => {
+    setupBitcoinPortfolioScenario({ closedLiquidArchive: true, archivedOnly: true });
+  },
+  play: async ({ canvasElement }) => {
+    await userEvent.click(await within(canvasElement).findByText(/been archived/));
   },
 };

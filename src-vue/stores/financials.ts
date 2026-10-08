@@ -185,9 +185,6 @@ export const useFinancials = defineStore('financials', () => {
         miningSlot: miningClaimsHolds,
         vaults: vaultClaimsHolds,
       },
-      claimedMicronotsByAccount: vaultClaimsHolds
-        ? new Map([[wallets.defaultArgonWallet.address, myVault.data.argonotCommitment.committedMicronots]])
-        : undefined,
       liveArgonotRateMicrogons: currency.microgonsPer.ARGNOT,
       hasConfirmedHistoryCoverage,
     });
@@ -539,9 +536,7 @@ export const useFinancials = defineStore('financials', () => {
     return {
       ARGN: {
         currentValue: argonPositions.reduce((total, position) => total + (position.currentValue ?? 0n), 0n),
-        returnSummary: calculatePositionReturn(
-          argonPositions.filter(position => position.returnAttribution !== 'vault'),
-        ),
+        returnSummary: calculatePositionReturn(argonPositions),
       },
       ARGNOT: {
         currentValue: argonotPositions.reduce((total, position) => total + (position.currentValue ?? 0n), 0n),
@@ -553,22 +548,18 @@ export const useFinancials = defineStore('financials', () => {
     return financialPositionAggregate.value.groupSummaries.bonds.currentValue;
   });
 
-  function getBondFinancialDetails(bondLot: BondLot) {
-    const existingPosition = financialPositionAggregate.value.groupSummaries.bonds.positions.find(
+  function getBondFinancialPosition(bondLot: BondLot) {
+    return financialPositionAggregate.value.groupSummaries.bonds.positions.find(
       (position): position is IBondFinancialPosition => {
         return (
           position.kind === 'bond' &&
           position.lifecycle !== 'completed' &&
           position.bondLot?.id === bondLot.id &&
-          position.bondLot.accountId === bondLot.accountId &&
+          position.bondLot.owner === bondLot.owner &&
           position.bondLot.programType === bondLot.programType
         );
       },
     );
-    return {
-      position: existingPosition,
-      returnPercent: existingPosition ? calculatePositionReturn([existingPosition]).percent : undefined,
-    };
   }
 
   // Bitcoin Liquid Locks ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -985,7 +976,7 @@ export const useFinancials = defineStore('financials', () => {
 
     bondsTotalValue,
     bondSummariesByAsset,
-    getBondFinancialDetails,
+    getBondFinancialPosition,
 
     liquidAllRecords,
     bitcoinLiquids,

@@ -233,7 +233,7 @@ export class EthereumOutboundTransferTracker {
     const ageMillis =
       currentBlockTimeMillis > anchorTimestampMillis ? currentBlockTimeMillis - anchorTimestampMillis : 0n;
     const maxAgeMillis =
-      client.consts.crosschainTransfer.maxVerifiedExecutionBlockAgeTicks.toBigInt() * BigInt(NetworkConfig.tickMillis);
+      client.consts.crosschainTransfer.maxVerifiedExecutionBlockAgeTicks * BigInt(NetworkConfig.tickMillis);
     if (ageMillis <= maxAgeMillis) {
       return;
     }
@@ -320,9 +320,7 @@ export class EthereumOutboundTransferTracker {
       amount,
     });
     const fee = await transaction.paymentInfo(this.walletKeys.getWalletAddress(sourceWalletType));
-    const tipBasisPoints = BigInt(
-      client.consts.crosschainTransfer.transferOutMintingAuthorityTipBasisPoints.toNumber(),
-    );
+    const tipBasisPoints = BigInt(client.consts.crosschainTransfer.transferOutMintingAuthorityTipBasisPoints);
 
     return {
       transactionFeeMicrogons: fee.partialFee.toBigInt(),
@@ -355,9 +353,7 @@ export class EthereumOutboundTransferTracker {
     });
     const fee = await transaction.paymentInfo(this.walletKeys.getWalletAddress(sourceWalletType));
     const transactionFeeMicrogons = fee.partialFee.toBigInt();
-    const tipBasisPoints = BigInt(
-      client.consts.crosschainTransfer.transferOutMintingAuthorityTipBasisPoints.toNumber(),
-    );
+    const tipBasisPoints = BigInt(client.consts.crosschainTransfer.transferOutMintingAuthorityTipBasisPoints);
     let transactionFeeInSendToken = 0n;
     let minimumBalance = existentialDepositMicronots;
     if (moveToken === MoveToken.ARGN) {

@@ -72,7 +72,7 @@
                             </span>
                           </span>
                         </td>
-                        <td>Bitcoin Security</td>
+                        <td>Argon Securitization</td>
                         <td>{{ microgonToArgonNm(baseMinimumMicrogonsNeeded).format('0,0.[00000000]') }} ARGN</td>
                       </tr>
                       <tr>
@@ -84,14 +84,10 @@
                         <td>Transactional Fees</td>
                         <td>{{ microgonToArgonNm(futureTransactionFeeBudgetMicrogons).format('0,0') }} ARGN</td>
                       </tr>
-                      <tr @click="includeVaultTreasuryBondSuggestion = !includeVaultTreasuryBondSuggestion">
-                        <td>
-                          <span class="origin-center scale-[0.57]">
-                            <Checkbox :isChecked="includeVaultTreasuryBondSuggestion" :size="4" class="shrink-0" />
-                          </span>
-                        </td>
-                        <td>Treasury Bonds</td>
-                        <td>{{ microgonToArgonNm(vaultTreasuryBondSuggestionMicrogons).format('0,0') }} ARGN</td>
+                      <tr v-if="minimumMicronotsNeeded > 0n">
+                        <td></td>
+                        <td>Argonot Securitization</td>
+                        <td>{{ micronotToArgonotNm(minimumMicronotsNeeded).format('0,0.[0]') }} ARGNOT</td>
                       </tr>
                       <tr Total class="font-bold">
                         <td colspan="2">TOTAL</td>
@@ -159,7 +155,6 @@ import { getConfig } from '../../stores/config.ts';
 import { createNumeralHelpers } from '../../lib/numeral.ts';
 import { getCurrency } from '../../stores/currency.ts';
 import CheckboxGray from '../../components/CheckboxGray.vue';
-import Checkbox from '../../components/Checkbox.vue';
 import { MiningSetupStatus, VaultingSetupStatus } from '../../interfaces/IConfig.ts';
 import { useWallets } from '../../stores/wallets.ts';
 import { bigIntMax, NetworkConfig } from '@argonprotocol/apps-core';
@@ -167,6 +162,7 @@ import { OperationalStepId, useCertificationController } from '../../stores/cert
 import AlertCalloutButton from '../../components/AlertCalloutButton.vue';
 import { getBiddingCalculator } from '../../stores/mainchain.ts';
 import { getMiningFundingState } from '../../screens/mining-screen/miningFunding.ts';
+import { MyVault } from '../../lib/MyVault.ts';
 import type { IWalletGuidanceContext } from '../../emitters/basicEmitter.ts';
 import { useFloatingZIndex } from '../../overlays/helpers/OverlayZIndex.ts';
 
@@ -188,8 +184,7 @@ const { microgonToArgonNm, micronotToArgonotNm } = createNumeralHelpers(currency
 const guidanceContext = Vue.computed<IWalletGuidanceContext>(() => props.guidanceContext ?? 'mining');
 
 const futureTransactionFeeBudgetMicrogons = 2n * BigInt(MICROGONS_PER_ARGON);
-const treasuryBondSuggestionIncrementMicrogons = 100n * BigInt(MICROGONS_PER_ARGON);
-const includeVaultTreasuryBondSuggestion = Vue.ref(true);
+const vaultFunding = Vue.computed(() => MyVault.getFundingState(config, wallets.defaultArgonWallet));
 const requiredMicrogonsForGoal = Vue.ref(0n);
 const requiredMicronotsForGoal = Vue.ref(0n);
 const isCalculatorReady = Vue.ref(guidanceContext.value !== 'mining');
@@ -218,6 +213,7 @@ const useProjectedMiningFundingGuidance = Vue.computed(() => {
 });
 
 const guidanceIsFullyFunded = Vue.computed<boolean>(() => {
+  if (guidanceContext.value === 'vaulting') return vaultFunding.value.isFullyFunded;
   if (walletAllocatedMicrogons.value < minimumMicrogonsNeeded.value) {
     return false;
   } else if (walletAllocatedMicronots.value < minimumMicronotsNeeded.value) {
@@ -238,23 +234,11 @@ const onboardingAdditionalMicrogons = Vue.computed(() => {
     return 0n;
   }
 
-  return (
-    futureTransactionFeeBudgetMicrogons +
-    (showVaultTreasuryBondSuggestion.value && includeVaultTreasuryBondSuggestion.value
-      ? vaultTreasuryBondSuggestionMicrogons.value
-      : 0n)
-  );
-});
-
-const showVaultTreasuryBondSuggestion = Vue.computed(() => {
-  return (
-    guidanceContext.value === 'vaulting' &&
-    config.vaultingSetupStatus !== VaultingSetupStatus.Finished &&
-    vaultTreasuryBondSuggestionMicrogons.value > 0n
-  );
+  return futureTransactionFeeBudgetMicrogons;
 });
 
 const minimumMicrogonsNeeded = Vue.computed(() => {
+  if (guidanceContext.value === 'vaulting') return vaultFunding.value.requiredMicrogons;
   if (useSetupMiningFundingGuidance.value) {
     return setupMiningFundingState.value.requiredMicrogons;
   }
@@ -267,7 +251,7 @@ const minimumMicronotsNeeded = Vue.computed(() => {
     const baseAmountNeeded = requiredMicronotsForGoal.value;
     return baseAmountNeeded + (config.biddingRules?.sidelinedMicronots ?? 0n);
   } else if (guidanceContext.value === 'vaulting') {
-    return config.vaultingRules?.baseMicronotCommitment || 0n;
+    return vaultFunding.value.requiredMicronots;
   }
   return 0n;
 });
@@ -319,19 +303,9 @@ const walletAllocatedMicronots = Vue.computed(() => {
   if (guidanceContext.value === 'mining') {
     return wallets.totalMiningMicronots || 0n;
   } else if (guidanceContext.value === 'vaulting') {
-    return wallets.defaultArgonWallet.reservedMicronots || 0n;
+    return wallets.defaultArgonWallet.availableMicronots ?? 0n;
   }
   return 0n;
-});
-
-const vaultTreasuryBondSuggestionMicrogons = Vue.computed(() => {
-  const suggestedMicrogons = (config.vaultingRules?.baseMicrogonCommitment ?? 0n) / 20n;
-  if (suggestedMicrogons <= 0n) return 0n;
-
-  return (
-    ((suggestedMicrogons + treasuryBondSuggestionIncrementMicrogons - 1n) / treasuryBondSuggestionIncrementMicrogons) *
-    treasuryBondSuggestionIncrementMicrogons
-  );
 });
 
 const baseMinimumMicrogonsNeeded = Vue.computed(() => {
@@ -343,7 +317,8 @@ const baseMinimumMicrogonsNeeded = Vue.computed(() => {
     const baseAmountNeeded = requiredMicrogonsForGoal.value;
     return baseAmountNeeded + (config.biddingRules?.sidelinedMicrogons ?? 0n);
   } else if (guidanceContext.value === 'vaulting') {
-    return config.vaultingRules?.baseMicrogonCommitment || 0n;
+    if (config.vaultingSetupStatus === VaultingSetupStatus.Finished) return 0n;
+    return config.vaultSetup.securitizationMicrogons;
   }
   return 0n;
 });

@@ -5,7 +5,6 @@ import {
   getCertificationProgressFromOperationalAccount,
   loadCertificationProgress,
 } from '../src/CertificationProgress.ts';
-import { bigintCodec, numberCodec } from './helpers/codecs.ts';
 
 describe('CertificationProgress', () => {
   afterEach(() => {
@@ -40,12 +39,12 @@ describe('CertificationProgress', () => {
     const client = {
       consts: {
         operationalAccounts: {
-          minimumBitcoin: bigintCodec(thresholds.treasuryMinimumBitcoin),
-          minimumBonds: bigintCodec(thresholds.treasuryMinimumBonds),
-          minimumUniswapTransfer: bigintCodec(thresholds.treasuryMinimumUniswapTransfer),
-          operationalMinimumUniswapTransfer: bigintCodec(thresholds.operationalMinimumUniswapTransfer),
-          operationalMinimumVaultSecuritization: bigintCodec(thresholds.operationalMinimumVaultSecuritization),
-          miningSeatsForOperational: numberCodec(thresholds.miningSeatsForOperational),
+          minimumBitcoin: thresholds.treasuryMinimumBitcoin,
+          minimumBonds: thresholds.treasuryMinimumBonds,
+          minimumUniswapTransfer: thresholds.treasuryMinimumUniswapTransfer,
+          operationalMinimumUniswapTransfer: thresholds.operationalMinimumUniswapTransfer,
+          operationalMinimumVaultSecuritization: thresholds.operationalMinimumVaultSecuritization,
+          miningSeatsForOperational: thresholds.miningSeatsForOperational,
         },
       },
       query: {
@@ -127,12 +126,12 @@ describe('CertificationProgress', () => {
       },
       consts: {
         operationalAccounts: {
-          minimumBitcoin: bigintCodec(500_000_000n),
-          minimumBonds: bigintCodec(200_000_000n),
-          minimumUniswapTransfer: bigintCodec(250_000_000n),
-          operationalMinimumUniswapTransfer: bigintCodec(3_000_000_000n),
-          operationalMinimumVaultSecuritization: bigintCodec(2_000_000_000n),
-          miningSeatsForOperational: numberCodec(2),
+          minimumBitcoin: 500_000_000n,
+          minimumBonds: 200_000_000n,
+          minimumUniswapTransfer: 250_000_000n,
+          operationalMinimumUniswapTransfer: 3_000_000_000n,
+          operationalMinimumVaultSecuritization: 2_000_000_000n,
+          miningSeatsForOperational: 2,
         },
       },
     };

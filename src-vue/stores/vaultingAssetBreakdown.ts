@@ -1,31 +1,16 @@
 import * as Vue from 'vue';
 import { defineStore } from 'pinia';
 import BigNumber from 'bignumber.js';
-import { bigIntMax, bigIntMin, BondLot, TreasuryBonds, UnitOfMeasurement } from '@argonprotocol/apps-core';
-import { useWallets } from './wallets.ts';
+import { bigIntMin, BondLot, TreasuryBonds } from '@argonprotocol/apps-core';
 import { getMyVault } from './vaults.ts';
-import { getCurrency } from './currency.ts';
-import { getSpendableDefaultArgonMicrogons } from '../lib/WalletForArgon.ts';
 import { getArgonBonds } from './argonBonds.ts';
+import { getCurrency } from './currency.ts';
 import { getCappedPercent } from '../lib/Utils.ts';
 
 export const useVaultingAssetBreakdown = defineStore('vaultingAssetBreakdown', () => {
-  const wallets = useWallets();
   const myVault = getMyVault();
   const argonBonds = getArgonBonds();
   const currency = getCurrency();
-
-  // Sidelined
-
-  const sidelinedMicrogons = Vue.computed(() => {
-    return getSpendableDefaultArgonMicrogons(wallets.defaultArgonWallet.availableMicrogons);
-  });
-
-  const sidelinedMicronots = Vue.computed(() => 0n);
-
-  const sidelinedTotalValue = Vue.computed(() => {
-    return sidelinedMicrogons.value + currency.convertMicronotTo(sidelinedMicronots.value, UnitOfMeasurement.Microgon);
-  });
 
   // Security
 
@@ -33,18 +18,12 @@ export const useVaultingAssetBreakdown = defineStore('vaultingAssetBreakdown', (
     return myVault.createdVault?.securitization ?? 0n;
   });
 
-  const securityMicrogonsUnused = Vue.computed<bigint>(() => {
-    const vault = myVault.createdVault;
-    if (!vault) return 0n;
-    return bigIntMax(0n, vault.availableSecuritizationSpace() - vault.getRelockCapacity());
-  });
-
   const securityMicrogonsPending = Vue.computed(() => {
     return myVault.createdVault?.securitizationPendingActivation ?? 0n;
   });
 
   const securityMicrogonsActivated = Vue.computed<bigint>(() => {
-    return myVault.createdVault?.securitizationLocked ?? 0n;
+    return myVault.createdVault?.activatedSecuritization() ?? 0n;
   });
 
   const securityMicrogonsActivatedPct = Vue.computed<number>(() => {
@@ -54,22 +33,32 @@ export const useVaultingAssetBreakdown = defineStore('vaultingAssetBreakdown', (
     return pctBn.multipliedBy(100).toNumber();
   });
 
-  const securityMicronots = Vue.computed(() => myVault.data.argonotCommitment.committedMicronots);
-  const securityMicronotsUnused = Vue.computed(() => {
-    return bigIntMax(0n, securityMicronots.value - myVault.data.argonotCommitment.encumberedMicronots);
-  });
-  const securityMicronotsPending = Vue.computed(() => 0n);
-  const securityMicronotsActivated = Vue.computed(() => myVault.data.argonotCommitment.encumberedMicronots);
-  const securityMicronotsActivatedPct = Vue.computed<number>(() => {
-    if (securityMicronots.value <= 0n) return 0;
+  const bitcoinLockedValueMicrogons = Vue.computed(() => {
+    const vault = myVault.createdVault;
+    if (!vault) return;
+    const price = currency.priceIndex;
+    if (!price.btcUsdPrice?.gt(0) || !price.argonUsdTargetPrice?.gt(0)) return;
 
-    const pctBn = BigNumber(securityMicronotsActivated.value).div(securityMicronots.value);
-    return pctBn.multipliedBy(100).toNumber();
+    return currency.convertSatToMicrogon(vault.totalSatoshis);
   });
 
-  const securityTotalValue = Vue.computed(() => {
-    return securityMicrogons.value + currency.convertMicronotTo(securityMicronots.value, UnitOfMeasurement.Microgon);
+  const bitcoinRequiredSecuritizationMicrogons = Vue.computed(() => {
+    const vault = myVault.createdVault;
+    if (!vault) return;
+    const price = currency.priceIndex;
+    if (!price.btcUsdPrice?.gt(0) || !price.argonUsdPrice?.gt(0)) return;
+
+    return price.getSatoshiPriceInMarketMicrogons(vault.totalSatoshis);
   });
+
+  const bitcoinUndersecuritized = Vue.computed(() => {
+    if (bitcoinRequiredSecuritizationMicrogons.value === undefined) return false;
+    const shortfall = bitcoinRequiredSecuritizationMicrogons.value - securityMicrogons.value;
+    if (shortfall <= 0n) return false;
+    return shortfall * 100n >= securityMicrogons.value;
+  });
+
+  const securityMicronots = Vue.computed(() => myVault.data.argonotCommitment.heldMicronots);
 
   // Treasury
 
@@ -82,20 +71,7 @@ export const useVaultingAssetBreakdown = defineStore('vaultingAssetBreakdown', (
     return BondLot.getTotals(vaultBondState.value?.bondLots ?? []);
   });
 
-  // What this vault owns now.
-  const treasuryBondMicrogons = Vue.computed(() => {
-    return treasuryBondTotals.value.totalBondMicrogons;
-  });
-
-  const treasuryActiveBondMicrogons = Vue.computed(() => {
-    return treasuryBondTotals.value.activeBondMicrogons;
-  });
-
-  const treasuryReturningBondMicrogons = Vue.computed(() => {
-    return treasuryBondTotals.value.returningBondMicrogons;
-  });
-
-  // What the vault's eligible Bitcoin security can support at the current market price.
+  // The bond capacity supported by this vault.
   const treasuryBondCapacityMicrogons = Vue.computed(() => {
     if (!myVault.createdVault) return 0n;
 
@@ -103,7 +79,7 @@ export const useVaultingAssetBreakdown = defineStore('vaultingAssetBreakdown', (
   });
 
   const treasuryBondCapacityUsedMicrogons = Vue.computed(() => {
-    return bigIntMin(treasuryActiveBondMicrogons.value, treasuryBondCapacityMicrogons.value);
+    return bigIntMin(treasuryBondTotals.value.activeBondMicrogons, treasuryBondCapacityMicrogons.value);
   });
 
   const treasuryBondCapacityUsedPct = Vue.computed(() => {
@@ -118,58 +94,40 @@ export const useVaultingAssetBreakdown = defineStore('vaultingAssetBreakdown', (
     return TreasuryBonds.getBondPurchaseCapacity(treasuryBondCapacityMicrogons.value);
   });
 
-  // The remaining next-frame room for buying new bonds.
-  const treasuryBondMicrogonsAvailable = Vue.computed(() => {
-    if (!myVault.createdVault) return 0n;
-
-    return argonBonds.availableBondSpace(myVault.createdVault);
+  const revenuePotential = Vue.computed(() => {
+    const vault = myVault.createdVault;
+    return vault ? argonBonds.vaultRevenuePotential(vault.vaultId) : undefined;
   });
 
-  // Operational Fees
-
-  const operationalFeeMicrogons = Vue.computed(() => {
-    return myVault.metadata?.operationalFeeMicrogons ?? 0n;
-  });
-
-  // Total Vault
-
-  const totalVaultValue = Vue.computed(() => {
-    return bigIntMax(0n, securityMicrogons.value + treasuryBondMicrogons.value - operationalFeeMicrogons.value);
+  const argonotRewardBacking = Vue.computed(() => {
+    const vault = myVault.createdVault;
+    if (!vault || !argonBonds.data.frameCapital?.vaultSecuritizationPositions[vault.vaultId]) return;
+    return argonBonds.argonotRewardBacking({ vault, argonotSecuritization: myVault.data.argonotCommitment });
   });
 
   const revenueCapturedPct = Vue.computed(() => {
+    if (argonBonds.data.frameCapital) return revenuePotential.value?.capturedPercent;
     const currentBonds = vaultBondState.value?.currentFrame.vaultBonds ?? 0;
     return getCappedPercent(currentBonds, treasuryBondPurchaseCapacityBonds.value);
   });
 
   return {
-    sidelinedMicrogons,
-    sidelinedMicronots,
-    sidelinedTotalValue,
-
     securityMicrogons,
     securityMicronots,
-    securityMicrogonsUnused,
-    securityMicronotsUnused,
     securityMicrogonsPending,
-    securityMicronotsPending,
     securityMicrogonsActivated,
-    securityMicronotsActivated,
     securityMicrogonsActivatedPct,
-    securityMicronotsActivatedPct,
-    securityTotalValue,
+    bitcoinLockedValueMicrogons,
+    bitcoinRequiredSecuritizationMicrogons,
+    bitcoinUndersecuritized,
 
-    treasuryBondMicrogons,
-    treasuryActiveBondMicrogons,
-    treasuryReturningBondMicrogons,
     treasuryBondCapacityMicrogons,
     treasuryBondCapacityUsedMicrogons,
     treasuryBondCapacityUsedPct,
     treasuryBondPurchaseCapacityBonds,
-    treasuryBondMicrogonsAvailable,
 
-    operationalFeeMicrogons,
-    totalVaultValue,
     revenueCapturedPct,
+    revenuePotential,
+    argonotRewardBacking,
   };
 });

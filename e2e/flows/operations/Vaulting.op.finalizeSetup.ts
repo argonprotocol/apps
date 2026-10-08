@@ -33,8 +33,11 @@ export default new Operation<IVaultingFlowContext, IFinalizeSetupState>(import.m
     const [fundingState, dashboard, createVaultEntry, installingState] = await Promise.all([
       flow.queryApp(
         refs => {
-          const requiredMicrogons = refs.config.vaultingRules?.baseMicrogonCommitment ?? 0n;
-          const requiredMicronots = refs.config.vaultingRules?.baseMicronotCommitment ?? 0n;
+          const {
+            requiredMicrogons,
+            requiredMicronots,
+            isFullyFunded: walletIsFullyFunded,
+          } = refs.getVaultFundingState();
           const availableMicrogons = refs.wallets.defaultArgonWallet.availableMicrogons ?? 0n;
           const availableMicronots = refs.wallets.defaultArgonWallet.availableMicronots ?? 0n;
           const hasMiningMachine =
@@ -42,8 +45,6 @@ export default new Operation<IVaultingFlowContext, IFinalizeSetupState>(import.m
             !!refs.config.serverAdd?.localComputer ||
             !!refs.config.serverAdd?.digitalOcean;
           const walletsLoaded = refs.wallets.isLoaded;
-          const walletIsFullyFunded =
-            availableMicrogons >= requiredMicrogons && availableMicronots >= requiredMicronots;
 
           return {
             walletIsFullyFunded,

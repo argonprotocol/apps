@@ -240,7 +240,7 @@ export class EthereumGatewayProverService {
 
       const gatewayActivityNonceGap = proofPayload.gatewayActivityNonceRange.end - currentRuntimeGatewayActivityNonce;
       this.stateData.gatewayActivityNonceGap = gatewayActivityNonceGap;
-      const freeHeaderInterval = client.consts.ethereumVerifier.freeHeadersInterval.toBigInt();
+      const freeHeaderInterval = BigInt(client.consts.ethereumVerifier.freeHeadersInterval);
       const sharedRelayExecutionBlockLag =
         latestExecutionHeader.blockNumber > proofPayload.executionBlockNumberRange.end
           ? latestExecutionHeader.blockNumber - proofPayload.executionBlockNumberRange.end
@@ -455,7 +455,7 @@ export class EthereumGatewayProverService {
       );
       const estimatedFee = (await tx.paymentInfo(this.submitLane.address)).partialFee.toBigInt();
       const delegateBalance = await client.query.system.account(this.submitLane.address).then(x => x.data.free);
-      const existentialDeposit = client.consts.balances.existentialDeposit.toBigInt();
+      const existentialDeposit = client.consts.balances.existentialDeposit;
       const minimumRequiredBalance = estimatedFee + existentialDeposit;
 
       if (delegateBalance < minimumRequiredBalance) {
@@ -775,17 +775,17 @@ function getEthereumFinalityMillisFromEnv(): number | undefined {
 }
 
 function getStallSweepWindow(
-  client: { consts: { ethereumVerifier: { freeHeadersInterval: { toBigInt(): bigint } } } },
+  client: Pick<ArgonClient, 'consts'>,
   operatorAddress: string,
   stalledSince: number,
   now: number,
 ): { windowIndex: number; stalledMs: number } | undefined {
-  const rotationSlots = client.consts.ethereumVerifier.freeHeadersInterval.toBigInt();
-  if (rotationSlots <= 0n) {
+  const rotationSlots = client.consts.ethereumVerifier.freeHeadersInterval;
+  if (rotationSlots <= 0) {
     throw new Error('Ethereum verifier free header interval must be positive.');
   }
 
-  const rotationMs = Number(rotationSlots * 12_000n);
+  const rotationMs = rotationSlots * 12_000;
   if (!Number.isFinite(rotationMs) || rotationMs <= 0) {
     return;
   }
@@ -806,18 +806,18 @@ function getStallSweepWindow(
 }
 
 function getNextStallSweepDelayMs(
-  client: { consts: { ethereumVerifier: { freeHeadersInterval: { toBigInt(): bigint } } } },
+  client: Pick<ArgonClient, 'consts'>,
   operatorAddress: string,
   stalledSince: number,
   now: number,
   lastAttemptedWindowIndex?: number,
 ): number | undefined {
-  const rotationSlots = client.consts.ethereumVerifier.freeHeadersInterval.toBigInt();
-  if (rotationSlots <= 0n) {
+  const rotationSlots = client.consts.ethereumVerifier.freeHeadersInterval;
+  if (rotationSlots <= 0) {
     throw new Error('Ethereum verifier free header interval must be positive.');
   }
 
-  const rotationMs = Number(rotationSlots * 12_000n);
+  const rotationMs = rotationSlots * 12_000;
   if (!Number.isFinite(rotationMs) || rotationMs <= 0) {
     return;
   }

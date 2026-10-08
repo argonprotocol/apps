@@ -273,9 +273,8 @@ export class AppVaultOperator {
     }
 
     const txInfo = await this.myVault.createNew({
-      rules: this.config.vaultingRules,
+      vaultSetup: this.config.vaultSetup,
       masterXpubPath: DEFAULT_MASTER_XPUB_PATH,
-      config: this.config,
     });
     await txInfo.waitForPostProcessing;
 
@@ -297,7 +296,7 @@ export class AppVaultOperator {
 
     const rewardConfig = await getOperationalRewardConfig(client);
     const requiredVaultingBalance =
-      this.config.vaultingRules.baseMicrogonCommitment +
+      this.config.vaultSetup.securitizationMicrogons +
       rewardConfig.treasuryMinimumBonds +
       20n * BigInt(MICROGONS_PER_ARGON);
     const [existingTreasuryArgons, existingTreasuryArgonots] = await Promise.all([
@@ -533,9 +532,9 @@ export class AppVaultOperator {
 
   public async ensureCommittedArgonots(args: { amount: bigint }): Promise<void> {
     await this.ensureVaultReady();
-    const { committedMicronots, encumberedMicronots } = this.myVault.data.argonotCommitment;
+    const { heldMicronots, encumberedMicronots } = this.myVault.data.argonotCommitment;
     const requiredMicronots = args.amount > encumberedMicronots ? args.amount : encumberedMicronots;
-    if (committedMicronots >= requiredMicronots) return;
+    if (heldMicronots >= requiredMicronots) return;
 
     const txInfo = await this.myVault.setCommittedArgonots(requiredMicronots);
     await txInfo.waitForPostProcessing;

@@ -282,11 +282,11 @@
               </div>
             </div>
 
-            <template v-if="config.hasSavedBiddingRules && config.hasSavedVaultingRules">
+            <template v-if="config.hasSavedBiddingRules && vaultingStatus !== Status.WaitingForSetup">
               <div class="my-1 h-px bg-gray-300/60" />
             </template>
 
-            <template v-if="config.hasSavedVaultingRules">
+            <template v-if="vaultingStatus !== Status.WaitingForSetup">
               <div v-if="vaultingStatus === 'Funded'" class="rounded-md px-4 py-4">
                 <header class="flex flex-row items-center gap-x-2 text-lg font-bold whitespace-nowrap text-lime-600">
                   <StatusHappy class="h-5 w-5" />
@@ -314,7 +314,7 @@
                   Your accounts needs
                   {{
                     microgonToArgonNm(
-                      config.vaultingRules.baseMicrogonCommitment - wallets.totalVaultingMicrogons,
+                      config.vaultSetup.securitizationMicrogons - wallets.totalVaultingMicrogons,
                     ).formatIfElse('< 100', '0,0.[000000]', '0,0.[00]')
                   }}
                   argons in order to fully operate your vault efficiently.
@@ -337,7 +337,7 @@
                   Your accounts needs
                   {{
                     microgonToArgonNm(
-                      config.vaultingRules.baseMicrogonCommitment - wallets.totalVaultingMicrogons,
+                      config.vaultSetup.securitizationMicrogons - wallets.totalVaultingMicrogons,
                     ).formatIfElse('< 100', '0,0.[000000]', '0,0.[00]')
                   }}
                   argons in order to complete your initial vault setup.
@@ -360,12 +360,12 @@
                   Your account has an extra
                   {{
                     microgonToArgonNm(
-                      wallets.defaultArgonWallet.availableMicrogons - config.vaultingRules.baseMicrogonCommitment,
+                      wallets.defaultArgonWallet.availableMicrogons - config.vaultSetup.securitizationMicrogons,
                     ).formatIfElse('< 100', '0,0.[000000]', '0,0.[00]')
                   }}
                   argon{{
                     microgonToArgonNm(
-                      wallets.defaultArgonWallet.availableMicrogons - config.vaultingRules.baseMicrogonCommitment,
+                      wallets.defaultArgonWallet.availableMicrogons - config.vaultSetup.securitizationMicrogons,
                     ).formatIfElse('< 100', '0,0.[000000]', '0,0.[00]') === '1'
                       ? ''
                       : 's'
@@ -467,12 +467,10 @@ const miningStatus = Vue.computed<Status>(() => {
 });
 
 const vaultingStatus = Vue.computed<Status>(() => {
-  if (!config.hasSavedVaultingRules) {
+  if (config.vaultingSetupStatus === VaultingSetupStatus.Finished) return Status.Funded;
+  if (!config.hasSavedVaultSetup) {
     return Status.WaitingForSetup;
-  } else if (
-    config.vaultingSetupStatus !== VaultingSetupStatus.Finished &&
-    wallets.defaultArgonWallet.availableMicrogons === 0n
-  ) {
+  } else if (wallets.defaultArgonWallet.availableMicrogons === 0n) {
     return Status.WaitingForFunding;
   }
 

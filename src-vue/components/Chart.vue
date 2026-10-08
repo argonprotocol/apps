@@ -1,360 +1,314 @@
-<!-- prettier-ignore -->
 <template>
-  <div Wrapper class="grow h-full flex flex-col relative w-full">
-    <div class="absolute w-full h-full">
-      <slot />
-      <!-- <Charttip :config="tooltipConfig" /> -->
-    </div>
-
-    <div ChartWrapper class="grow relative w-full">
-      <div class="absolute top-0 left-[-6px] w-[calc(100%+12px)] h-[calc(100%-27px)]">
-        <canvas id="MyChart" ref="chartRef"></canvas>
+  <div
+    ref="wrapperRef"
+    tabindex="0"
+    role="group"
+    aria-label="Chart history. Hover to preview, click to hold. Use left and right arrow keys to inspect frames."
+    data-chart-history
+    class="focus-visible:outline-argon-600 relative flex h-full w-full grow flex-col focus-visible:outline-2"
+    @pointermove="showTooltip"
+    @pointerleave="onPointerLeave"
+    @click="pinTooltip"
+  >
+    <div class="relative w-full grow">
+      <div class="absolute top-0 -left-1.5 h-[calc(100%-27px)] w-[calc(100%+12px)]">
+        <canvas ref="chartRef" aria-label="Earnings history"></canvas>
+        <span
+          v-if="latestPosition"
+          aria-label="Latest return"
+          class="bg-argon-600 pointer-events-none absolute size-2.5 -translate-x-1/2 -translate-y-1/2 rounded-full border border-white"
+          :style="{ left: `${latestPosition.x}px`, top: `${latestPosition.y}px` }"
+        />
       </div>
     </div>
-
-    <div
-      v-if="markerPos.show"
-      StartMarker
-      class="MARKER cursor-pointer"
-      :style="`left: ${markerPos.left}px; top: ${markerPos.top}px`"
-    ></div>
-    <XAxis class="absolute bottom-0 left-0 w-full z-10" />
+    <XAxis class="absolute bottom-0 left-0 z-10 w-full" />
+    <span
+      v-if="hoveredItem"
+      class="pointer-events-none absolute top-0 bottom-7 z-10 w-px bg-slate-400/60"
+      :style="{ left: `${guidePosition.x}px` }"
+    />
+    <PopoverRoot :open="!!hoveredItem" @update:open="if (!$event) clearTooltip();">
+      <PopoverAnchor as-child>
+        <span
+          class="pointer-events-none absolute size-px"
+          :style="{ left: `${guidePosition.x}px`, top: `${guidePosition.y}px` }"
+        />
+      </PopoverAnchor>
+      <PopoverPortal>
+        <PopoverContent
+          v-if="hoveredItem"
+          side="top"
+          :sideOffset="12"
+          :collisionPadding="12"
+          :style="floatingZIndex"
+          aria-label="Chart frame details"
+          class="w-max min-w-96 rounded-md border border-gray-800/20 bg-white px-4 py-3 text-sm text-slate-600 shadow-xl"
+          @openAutoFocus.prevent
+          @closeAutoFocus.prevent
+          @pointerenter="cancelTooltipClose"
+          @pointerleave="onPointerLeave"
+          @click.stop="holdTooltip"
+        >
+          <!-- prettier-ignore -->
+          <div class="mb-3 flex items-start justify-between gap-4 border-b border-slate-200 pb-3 font-semibold whitespace-nowrap text-slate-700">
+            <div class="flex items-start gap-3">
+              <div v-if="tooltipPinned" class="flex shrink-0 gap-1">
+                <button
+                  type="button"
+                  aria-label="Previous frame"
+                  :disabled="!hoveredItem.previous"
+                  class="text-argon-600/70 focus-visible:outline-argon-600 inline-flex size-5 cursor-pointer items-center justify-center rounded-sm opacity-50 hover:opacity-100 focus-visible:outline-2 disabled:cursor-default disabled:opacity-20"
+                  @click.stop="inspectAdjacentFrame(-1)"
+                >
+                  <ChevronLeftIcon class="size-5" />
+                </button>
+                <button
+                  type="button"
+                  aria-label="Next frame"
+                  :disabled="!hoveredItem.next"
+                  class="text-argon-600/70 focus-visible:outline-argon-600 inline-flex size-5 cursor-pointer items-center justify-center rounded-sm opacity-50 hover:opacity-100 focus-visible:outline-2 disabled:cursor-default disabled:opacity-20"
+                  @click.stop="inspectAdjacentFrame(1)"
+                >
+                  <ChevronRightIcon class="size-5" />
+                </button>
+              </div>
+              <div>
+                <slot name="tooltipHeader" :item="hoveredItem">
+                  {{ dayjs.utc(hoveredItem.date).format('MMM D, YYYY') }}
+                  <div v-if="isLocalChain" class="font-normal">
+                    {{ dayjs.utc(hoveredItem.date).format('HH:mm:ss') }} UTC
+                  </div>
+                </slot>
+              </div>
+            </div>
+            <button
+              v-if="tooltipPinned"
+              type="button"
+              aria-label="Close chart details"
+              class="hover:text-argon-600 focus-visible:outline-argon-600 inline-flex size-5 shrink-0 cursor-pointer items-center justify-center rounded-sm text-slate-400 focus-visible:outline-2"
+              @click.stop="clearTooltip"
+            >
+              <XMarkIcon class="size-5" />
+            </button>
+          </div>
+          <slot name="tooltip" :item="hoveredItem" />
+          <p
+            v-if="!tooltipPinned"
+            class="mt-3 border-t border-slate-200 pt-2 text-center text-xs font-light text-slate-400 italic"
+          >
+            Click to pin in place
+          </p>
+          <PopoverPanelArrow class="-translate-y-px" />
+        </PopoverContent>
+      </PopoverPortal>
+    </PopoverRoot>
   </div>
 </template>
 
 <script setup lang="ts">
 import * as Vue from 'vue';
-import dayjs, { Dayjs } from 'dayjs';
-import dayjsUtc from 'dayjs/plugin/utc';
-import {
-  CategoryScale,
-  Chart,
-  LinearScale,
-  LineController,
-  LineElement,
-  PointElement,
-  TimeScale,
-  Tooltip,
-  TooltipModel,
-} from 'chart.js';
+import dayjs from 'dayjs';
+import utc from 'dayjs/plugin/utc';
+import { CategoryScale, Chart, LinearScale, LineController, LineElement, PointElement, TimeScale } from 'chart.js';
 import 'chartjs-adapter-dayjs-4/dist/chartjs-adapter-dayjs-4.esm';
+import { PopoverAnchor, PopoverContent, PopoverPortal, PopoverRoot } from 'reka-ui';
+import { NetworkConfig } from '@argonprotocol/apps-core';
+import { ChevronLeftIcon, ChevronRightIcon, XMarkIcon } from '@heroicons/vue/24/outline';
+import type { IChartItem } from '../interfaces/IChartItem';
 import { createChartOptions } from '../lib/ChartOptions';
+import { useFloatingZIndex } from '../overlays/helpers/OverlayZIndex.ts';
+import PopoverPanelArrow from './PopoverPanelArrow.vue';
 import XAxis, { startDate, endDate } from './XAxis.vue';
 
-dayjs.extend(dayjsUtc);
-Chart.register(LineController, LineElement, PointElement, LinearScale, CategoryScale, TimeScale, Tooltip);
+Chart.register(LineController, LineElement, PointElement, LinearScale, CategoryScale, TimeScale);
+dayjs.extend(utc);
 
-const props = defineProps<{
-  isRunning?: boolean;
-  disableTooltip?: boolean;
-}>();
+const wrapperRef = Vue.ref<HTMLElement>();
+const chartRef = Vue.ref<HTMLCanvasElement>();
+let chart: Chart<'line', { x: number; y: number | null }[]> | undefined;
+const fillerPoints: { x: number; y: number }[] = [];
+const chartPoints: { x: number; y: number | null }[] = [];
+let items: IChartItem[] = [];
 
-const totalDays = dayjs('2025-12-31').diff(dayjs('2020-10-01'), 'day');
-const loadPct = Vue.ref(0);
+const latestPosition = Vue.ref<{ x: number; y: number }>();
+const hoveredItem = Vue.shallowRef<IChartItem>();
+const guidePosition = Vue.ref({ x: 0, y: 0 });
+const floatingZIndex = useFloatingZIndex();
+const isLocalChain = NetworkConfig.networkName === 'dev-docker';
+const emit = defineEmits<{ inspectFrame: [frameId: number | undefined] }>();
+let lastPointer: PointerEvent | undefined;
+const tooltipPinned = Vue.ref(false);
+let tooltipCloseTimer: ReturnType<typeof setTimeout> | undefined;
 
-const markerPos = Vue.ref({ show: false, left: 0, top: 0 });
-
-const chartRef = Vue.ref<HTMLCanvasElement | null>(null);
-let chart: Chart | null = null;
-
-const fillerPoints: any[] = [];
-const chartPoints: any[] = [];
-const pointItems: any[] = [];
-const pointItemsByDate: Record<string, any> = {};
-
-const tooltipConfig = Vue.ref({
-  opacity: 0,
-  class: '',
-  left: 0,
-  top: 0,
-  item: {} as any,
-});
-
-function toggleDatasetVisibility(index: number, visible: boolean) {
-  const dataset = chart?.data.datasets[index];
-  if (dataset) {
-    dataset.hidden = !visible;
+function reloadData(newItems: IChartItem[]) {
+  items = newItems;
+  chartPoints.length = 0;
+  fillerPoints.length = 0;
+  const latest = items.at(-1);
+  if (items[0]?.isFiller) fillerPoints.push({ x: startDate.valueOf(), y: 0 });
+  for (const [index, item] of items.entries()) {
+    let date = dayjs.utc(item.date);
+    // Accelerated dev-chain frames occupy one chart day; tooltips retain their actual timestamps.
+    if (isLocalChain && latest) date = dayjs.utc(latest.date).subtract(latest.id - item.id, 'day');
+    const x = date.valueOf();
+    chartPoints.push({ x, y: item.score });
+    if (item.isFiller) fillerPoints.push({ x, y: 0 });
+    // Join the inactive baseline to the first known return without bridging missing history.
+    if (item.score !== null && items[index - 1]?.isFiller) chartPoints[index - 1].y = 0;
   }
-  chart?.update();
-}
-
-function clearPoints() {
-  resetPoints();
-  chart?.update();
-}
-
-function setDateRange(min: string, max: string) {
-  if (!chart) return;
-  (chart as any).options.scales.x.min = dayjs.utc(min).valueOf();
-  (chart as any).options.scales.x.max = dayjs.utc(max).valueOf();
-  chart.update();
-}
-
-function addPoints(items: { date: string; score: number; isFiller: boolean }[]) {
-  for (const item of items) {
-    const date = dayjs.utc(item.date);
-    const score = item.score;
-
-    chartPoints.push({ x: date.valueOf(), y: score });
-    pointItems.push(item);
-    pointItemsByDate[item.date] = item;
-    if (item.isFiller) {
-      fillerPoints.push({ x: date.valueOf(), y: 0 });
-    }
+  if (chart) {
+    chart.update();
+    if (lastPointer) showTooltip(lastPointer);
+    else if (hoveredItem.value) inspectItem(items.findIndex(item => item.id === hoveredItem.value?.id));
   }
-
-  const daysLoaded = chartPoints.length / totalDays;
-  loadPct.value = Math.round(daysLoaded * 100);
-
-  if (!chart) return;
-  chart.update();
-
-  const dataset = chart.data.datasets[0];
-  const datasetData = dataset.data;
-  const currentIndex = datasetData.length - 1;
-
-  const meta = chart?.getDatasetMeta(0);
-  const currentDataPoint = meta?.data[currentIndex];
-
-  markerPos.value.left = currentDataPoint?.x || 0;
-  markerPos.value.top = currentDataPoint?.y || 0;
-
-  // Trigger tooltip on the latest point
-  if (props.isRunning && currentDataPoint && pointItems.length > 10) {
-    chart?.tooltip?.setActiveElements([{ datasetIndex: 0, index: currentIndex }], {
-      x: currentDataPoint.x,
-      y: currentDataPoint.y,
-    });
-    chart?.update();
-  }
-
-  return { x: currentDataPoint?.x, y: currentDataPoint?.y };
-}
-
-const tooltipOpened = Vue.ref(false);
-
-function reloadData(items: any[]) {
-  if (!chart) return;
-
-  resetPoints();
-  addPoints(items);
 }
 
 function getPointPosition(index: number) {
-  if (!chart || !chartPoints.length) {
-    return { x: undefined, y: undefined };
-  }
-
-  const nextIndex = Math.min(Math.max(index, 0), chartPoints.length - 1);
-  const point = chartPoints[nextIndex];
-  const xScale = chart.scales.x;
-  const yScale = chart.scales.y;
-
+  const point = chartPoints[index];
+  if (!chart || !point) return { x: undefined, y: undefined };
   return {
-    x: xScale?.getPixelForValue(point.x),
-    y: yScale?.getPixelForValue(point.y),
+    x: chart.scales.x.getPixelForValue(point.x),
+    y: chart.scales.y.getPixelForValue(point.y ?? 0),
   };
 }
 
-function getItem(index: number) {
-  index = Math.max(0, index);
-  index = Math.min(pointItems.length - 1, index);
-  return pointItems[index];
-}
-
-function getItems(startIndex: number, endIndex: number) {
-  return pointItems.slice(startIndex, endIndex);
-}
-
-function getItemCount() {
-  return pointItems.length;
-}
-
-function getItemIndexFromDate(date: string | Dayjs) {
-  if (dayjs.isDayjs(date)) {
-    date = date.format('YYYY-MM-DD');
+function getItemIndexFromEvent(event: MouseEvent, override: { x?: number } = {}) {
+  if (!chartRef.value || !chart || !chartPoints.length) return;
+  const x = override.x ?? event.clientX - chartRef.value.getBoundingClientRect().left;
+  let nearestIndex = 0;
+  let nearestDistance = Infinity;
+  for (const [index, point] of chartPoints.entries()) {
+    const distance = Math.abs(chart.scales.x.getPixelForValue(point.x) - x);
+    if (distance < nearestDistance) {
+      nearestDistance = distance;
+      nearestIndex = index;
+    }
   }
-  return pointItemsByDate[date] ? pointItems.indexOf(pointItemsByDate[date]) : -1;
+  return nearestIndex;
 }
 
-function getItemIndexFromEvent(event: MouseEvent, override: { x?: number; y?: number } = {}) {
-  if (!chartRef.value) return;
+function showTooltip(event: PointerEvent | MouseEvent) {
+  cancelTooltipClose();
+  if (tooltipPinned.value) return;
+  if (event instanceof PointerEvent) lastPointer = event;
+  if (!chartRef.value || !chart || !wrapperRef.value) return;
+  const index = getItemIndexFromEvent(event);
+  const item = index === undefined ? undefined : items[index];
+  const canvas = chartRef.value.getBoundingClientRect();
+  const x = event.clientX - canvas.left;
+  const firstPoint = chartPoints[0];
+  const lastPoint = chartPoints.at(-1);
+  if (!chart || !firstPoint || !lastPoint) return;
+  const date = chart.scales.x.getValueForPixel(x);
+  if (date === undefined) return;
+  const halfFrame = (chartPoints[1]?.x - firstPoint.x) / 2 || 43_200_000;
+  if (date < firstPoint.x - halfFrame || date > lastPoint.x + halfFrame) {
+    clearTooltip();
+    return;
+  }
+  if (item) inspectItem(index!);
+}
 
-  const rect = chartRef.value.getBoundingClientRect();
-  const maxY = rect.height - rect.top;
-  const eventX = override.x || event.x;
-  const eventY = override.y || event.y;
-
-  const myCustomEvent = new MouseEvent('click', {
-    clientX: eventX,
-    clientY: eventY,
-    bubbles: true,
-    cancelable: true,
-  });
-
-  const wrappedEvent = {
-    chart: chart,
-    native: myCustomEvent,
-    offsetX: undefined,
-    offsetY: undefined,
-    type: event.type,
-    x: eventX,
-    y: rect.height / 2,
+function inspectItem(index: number) {
+  if (!chartRef.value || !wrapperRef.value) return;
+  hoveredItem.value = items[index];
+  if (!hoveredItem.value) return;
+  const canvas = chartRef.value.getBoundingClientRect();
+  const wrapper = wrapperRef.value.getBoundingClientRect();
+  const point = getPointPosition(index);
+  guidePosition.value = {
+    x: (point.x ?? 0) + canvas.left - wrapper.left,
+    y: (point.y ?? 0) + canvas.top - wrapper.top,
   };
-  const interactionItems =
-    chart?.getElementsAtEventForMode(wrappedEvent as any, 'index', { intersect: false }, true) || [];
-  return interactionItems[0]?.index;
 }
 
-function getPrevMonthIndex(index: number) {
-  const currentDate = dayjs.utc(pointItems[index].date);
-  const dayOfMonth = currentDate.date();
-  const previousDate = dayOfMonth === 1 ? currentDate.subtract(1, 'month') : currentDate.startOf('month');
-  const daysToSubtract = currentDate.diff(previousDate, 'day');
-  return index - daysToSubtract;
+function inspectWithKeyboard(event: KeyboardEvent) {
+  if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return;
+  if (event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return;
+  if (!items.length) return;
+  if (!hoveredItem.value && document.activeElement !== wrapperRef.value) return;
+  if (event.target instanceof Element && event.target.closest('input, textarea, select, [contenteditable]')) return;
+
+  event.preventDefault();
+  inspectAdjacentFrame(event.key === 'ArrowLeft' ? -1 : 1);
 }
 
-function getNextMonthIndex(index: number) {
-  const currentDate = dayjs.utc(pointItems[index].date);
-  const nextDate = currentDate.add(1, 'month').startOf('month');
-  const daysToAdd = nextDate.diff(currentDate, 'day');
-  return index + daysToAdd;
+function inspectAdjacentFrame(direction: -1 | 1) {
+  if (!items.length) return;
+  let index = items.findIndex(item => item.id === hoveredItem.value?.id);
+  if (index < 0) index = items.length;
+  index = Math.max(0, Math.min(items.length - 1, index + direction));
+  inspectItem(index);
+  holdTooltip();
 }
 
-function onTooltipFn(tooltip: TooltipModel<any>, closeIfItemMatchesThis?: any) {
-  if (tooltipOpened.value) return;
-  // Hide if no tooltip
-  if (tooltip.opacity === 0 || !tooltip.dataPoints || props.disableTooltip) {
-    tooltipConfig.value.opacity = 0;
-    return;
-  }
-
-  const pointIndex = tooltip.dataPoints[0].dataIndex;
-  const item = pointItems[pointIndex];
-
-  if (closeIfItemMatchesThis === item) {
-    tooltipConfig.value.opacity = 0;
-    return;
-  }
-
-  tooltipConfig.value.item = item;
-
-  // Set caret Position
-  if (tooltip.yAlign) {
-    tooltipConfig.value.class = tooltip.yAlign; // above or below
-  } else {
-    tooltipConfig.value.class = 'no-transform';
-  }
-
-  tooltipConfig.value.opacity = 1;
-  tooltipConfig.value.left = tooltip.caretX;
-  tooltipConfig.value.top = tooltip.caretY;
+function pinTooltip(event: MouseEvent) {
+  tooltipPinned.value = false;
+  showTooltip(event);
+  holdTooltip();
 }
 
-function startPulsing() {
-  markerPos.value.show = true;
+function holdTooltip() {
+  cancelTooltipClose();
+  lastPointer = undefined;
+  tooltipPinned.value = !!hoveredItem.value;
 }
 
-function stopPulsing() {
-  markerPos.value.show = false;
+function cancelTooltipClose() {
+  clearTimeout(tooltipCloseTimer);
 }
+
+function onPointerLeave() {
+  lastPointer = undefined;
+  if (tooltipPinned.value) return;
+  cancelTooltipClose();
+  tooltipCloseTimer = setTimeout(clearTooltip, 300);
+}
+
+function clearTooltip() {
+  cancelTooltipClose();
+  lastPointer = undefined;
+  hoveredItem.value = undefined;
+  tooltipPinned.value = false;
+}
+
+Vue.watch(hoveredItem, item => emit('inspectFrame', item?.id));
 
 function doResize() {
-  chart?.update('resize');
-}
-
-function resetPoints() {
-  fillerPoints.splice(0, fillerPoints.length);
-  chartPoints.splice(0, chartPoints.length);
-  pointItems.splice(0, pointItems.length);
-
-  for (const key of Object.keys(pointItemsByDate)) {
-    delete pointItemsByDate[key];
-  }
+  chart?.resize();
+  if (hoveredItem.value) inspectItem(items.findIndex(item => item.id === hoveredItem.value?.id));
 }
 
 Vue.onMounted(() => {
-  if (chartRef.value) {
-    const chartOptions = createChartOptions(startDate, endDate, fillerPoints, chartPoints, [], onTooltipFn);
-    chart = new Chart(chartRef.value, chartOptions as any);
-  }
+  window.addEventListener('keydown', inspectWithKeyboard);
+  chart = new Chart(chartRef.value!, {
+    ...createChartOptions(startDate, endDate, fillerPoints, chartPoints),
+    plugins: [
+      {
+        id: 'latest-return-marker',
+        afterDraw(instance) {
+          const point = chartPoints.findLast(point => point.y !== null);
+          if (!point) {
+            latestPosition.value = undefined;
+            return;
+          }
+          const x = instance.scales.x.getPixelForValue(point.x);
+          if (x < instance.chartArea.left || x > instance.chartArea.right) {
+            latestPosition.value = undefined;
+            return;
+          }
+          latestPosition.value = { x, y: instance.scales.y.getPixelForValue(point.y!) };
+        },
+      },
+    ],
+  });
 });
 
 Vue.onBeforeUnmount(() => {
-  if (chart) {
-    chart.destroy();
-  }
+  cancelTooltipClose();
+  window.removeEventListener('keydown', inspectWithKeyboard);
+  chart?.destroy();
 });
 
-defineExpose({
-  getPrevMonthIndex,
-  getNextMonthIndex,
-  getItems,
-  getItem,
-  getItemIndexFromEvent,
-  getItemCount,
-  getItemIndexFromDate,
-  addPoints,
-  reloadData,
-  doResize,
-  startPulsing,
-  stopPulsing,
-  clearPoints,
-  toggleDatasetVisibility,
-  setDateRange,
-  getPointPosition,
-});
+defineExpose({ reloadData, getPointPosition, getItemIndexFromEvent, doResize });
 </script>
-
-<style lang="scss" scoped>
-.MARKER {
-  @apply absolute z-20 rounded-full border border-slate-400 bg-[#63298E];
-  width: 10px;
-  height: 10px;
-  transform: translate(-50%, -50%);
-  pointer-events: none;
-}
-
-[ShadowSelection] {
-  box-shadow:
-    1px 1px 1px 0 rgb(0 0 0),
-    inset 1px 1px 1px 0 rgb(0 0 0);
-}
-
-.MARKER {
-  pointer-events: none;
-
-  &:before,
-  &:after {
-    content: '';
-    display: block;
-    position: absolute;
-    border: 2px solid #63298e;
-    left: -20px;
-    right: -20px;
-    top: -20px;
-    bottom: -20px;
-    border-radius: 50%;
-    animation: animate 1.5s linear infinite;
-    backface-visibility: hidden;
-  }
-
-  &:after {
-    animation-delay: 0.5s;
-  }
-}
-
-@keyframes animate {
-  0% {
-    transform: scale(0.5);
-    opacity: 0;
-  }
-  50% {
-    opacity: 1;
-  }
-  100% {
-    transform: scale(1.2);
-    opacity: 0;
-  }
-}
-</style>

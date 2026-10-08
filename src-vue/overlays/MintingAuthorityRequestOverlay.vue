@@ -274,9 +274,12 @@
               <button
                 type="button"
                 class="text-argon-600 hover:text-argon-800 cursor-pointer text-xs font-semibold"
-                @click="openCommitment">
+                @click="openSecuritization">
                 Manage
               </button>
+            </div>
+            <div class="mt-1 text-xs text-slate-500">
+              {{ micronotToArgonotNm(encumberedMicronots).format('0,0.[00]') }} ARGNOT encumbered
             </div>
           </div>
         </div>
@@ -372,6 +375,7 @@ import {
   minimumVaultDelegateBalance,
   targetVaultDelegateBalance,
   TreasuryBonds,
+  Vault,
 } from '@argonprotocol/apps-core';
 import { MICROGONS_PER_ARGON } from '@argonprotocol/mainchain';
 import InputToken from '../components/InputToken.vue';
@@ -406,6 +410,7 @@ const vaultId = Vue.ref<number>();
 
 const remainingBondMicrogons = Vue.ref(0n);
 const remainingCommittedMicronots = Vue.ref(0n);
+const encumberedMicronots = Vue.ref(0n);
 const minimumRequiredMicrogons = Vue.ref(MINIMUM_REQUEST_VALUE_MICROGONS);
 const epochMicrogonsPerArgonot = Vue.ref(0n);
 const relayDelegateAddress = Vue.ref('');
@@ -483,9 +488,9 @@ function closeOverlay() {
   isOpen.value = false;
 }
 
-function openCommitment() {
+function openSecuritization() {
   closeOverlay();
-  basicEmitter.emit('openArgonotCommitmentOverlay');
+  basicEmitter.emit('openVaultSettingsOverlay', { fundingAsset: 'ARGNOT' });
 }
 
 function resetProgress() {
@@ -511,6 +516,7 @@ async function loadState() {
   activationRelayError.value = '';
   remainingBondMicrogons.value = 0n;
   remainingCommittedMicronots.value = 0n;
+  encumberedMicronots.value = 0n;
   minimumRequiredMicrogons.value = MINIMUM_REQUEST_VALUE_MICROGONS;
   epochMicrogonsPerArgonot.value = 0n;
   relayDelegateAddress.value = '';
@@ -546,7 +552,7 @@ async function loadState() {
       minimumMintingAuthorityValue,
       relayDelegateAccount,
     ] = await Promise.all([
-      finalizedClient.query.vaults.argonotCommitmentByVaultId(vaultId.value),
+      Vault.getArgonotSecuritization(finalizedClient, vaultId.value),
       TreasuryBonds.getBondLots(finalizedClient, vaultId.value, walletKeys.vaultingAddress),
       finalizedClient.query.treasury.encumberedBondMicrogonsByAccount(walletKeys.vaultingAddress),
       finalizedClient.query.crosschainTransfer.activeGlobalIssuanceCouncilByDestinationChain('Ethereum'),
@@ -555,9 +561,9 @@ async function loadState() {
     ]);
 
     if (commitmentOption) {
-      const committedMicronots = commitmentOption.committedMicronots;
-      const encumberedMicronots = commitmentOption.encumberedMicronots;
-      remainingCommittedMicronots.value = bigintMax(committedMicronots - encumberedMicronots, 0n);
+      const heldMicronots = commitmentOption.heldMicronots;
+      encumberedMicronots.value = commitmentOption.encumberedMicronots;
+      remainingCommittedMicronots.value = bigintMax(heldMicronots - encumberedMicronots.value, 0n);
     }
 
     const bondTotals = BondLot.getTotals(bondLots);
@@ -673,12 +679,15 @@ function bigintMax(left: bigint, right: bigint) {
   return left > right ? left : right;
 }
 
-basicEmitter.on('openMintingAuthorityRequestOverlay', () => {
+function openOverlay() {
   isOpen.value = true;
   void loadState();
-});
+}
+
+basicEmitter.on('openMintingAuthorityRequestOverlay', openOverlay);
 
 Vue.onUnmounted(() => {
+  basicEmitter.off('openMintingAuthorityRequestOverlay', openOverlay);
   unsubProgress?.();
 });
 </script>

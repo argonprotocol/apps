@@ -43,7 +43,7 @@
         >
           <template v-if="!rect.isTiny">
             <div v-if="rect.label" class="treemap__value text-[1.05rem] leading-[1.2] font-bold">
-              {{ rect.label }}
+              <slot name="label" :item="rect">{{ rect.label }}</slot>
             </div>
             <div
               v-if="rect.displayValue && !rect.isCompact"

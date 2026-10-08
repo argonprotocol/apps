@@ -1,6 +1,7 @@
 import {
   runtimeTypeOverrides,
-  type CurrentRuntimeQueries,
+  type LiveRuntimeConstants,
+  type LiveRuntimeQueries,
   type RuntimeQueries,
 } from './RuntimeQueries.generated.js';
 import type BigNumber from 'bignumber.js';
@@ -54,7 +55,9 @@ export type RuntimeQuery<Args extends readonly unknown[], Result> = {
   readonly at: (...args: readonly unknown[]) => Promise<Result>;
   readonly entries: (...args: readonly unknown[]) => Promise<readonly (readonly [RuntimeStorageKey<Args>, Result])[]>;
   readonly entriesAt: (...args: readonly unknown[]) => Promise<readonly (readonly [RuntimeStorageKey<Args>, Result])[]>;
-  readonly entriesPaged: (...args: readonly unknown[]) => Promise<readonly (readonly [RuntimeStorageKey<Args>, Result])[]>;
+  readonly entriesPaged: (
+    ...args: readonly unknown[]
+  ) => Promise<readonly (readonly [RuntimeStorageKey<Args>, Result])[]>;
   readonly hash: (...args: readonly unknown[]) => Promise<string>;
   readonly key: (...args: readonly unknown[]) => string;
   readonly keyPrefix: (...args: readonly unknown[]) => string;
@@ -70,9 +73,15 @@ export type OptionalRuntimeQuery<Args extends readonly unknown[], Result> = {
   (...args: [...RuntimeQueryArgs<Args>, callback: (value: Result) => void]): Promise<() => void> | null;
   readonly multi: OptionalRuntimeStorageMulti<Result>;
   readonly at: (...args: readonly unknown[]) => Promise<Result> | null;
-  readonly entries: (...args: readonly unknown[]) => Promise<readonly (readonly [RuntimeStorageKey<Args>, Result])[]> | null;
-  readonly entriesAt: (...args: readonly unknown[]) => Promise<readonly (readonly [RuntimeStorageKey<Args>, Result])[]> | null;
-  readonly entriesPaged: (...args: readonly unknown[]) => Promise<readonly (readonly [RuntimeStorageKey<Args>, Result])[]> | null;
+  readonly entries: (
+    ...args: readonly unknown[]
+  ) => Promise<readonly (readonly [RuntimeStorageKey<Args>, Result])[]> | null;
+  readonly entriesAt: (
+    ...args: readonly unknown[]
+  ) => Promise<readonly (readonly [RuntimeStorageKey<Args>, Result])[]> | null;
+  readonly entriesPaged: (
+    ...args: readonly unknown[]
+  ) => Promise<readonly (readonly [RuntimeStorageKey<Args>, Result])[]> | null;
   readonly hash: (...args: readonly unknown[]) => Promise<string> | null;
   readonly key: (...args: readonly unknown[]) => string | null;
   readonly keyPrefix: (...args: readonly unknown[]) => string | null;
@@ -85,12 +94,13 @@ export type OptionalRuntimeQuery<Args extends readonly unknown[], Result> = {
 
 export type CurrentRuntimeQuery<Args extends readonly unknown[], Result> = RuntimeQuery<Args, Result>;
 
-type RuntimeQueryResult<Query> = Query extends RuntimeQuery<infer _Args, infer Result>
-  ? Result
-  : Query extends OptionalRuntimeQuery<infer _Args, infer Result>
+export type RuntimeQueryResult<Query> =
+  Query extends RuntimeQuery<infer _Args, infer Result>
     ? Result
-    : never;
-type RuntimeQueryMultiResult<Call> = Call extends readonly [infer Query, ...readonly unknown[]]
+    : Query extends OptionalRuntimeQuery<infer _Args, infer Result>
+      ? Result
+      : never;
+type RuntimeQueryMultiResult<Call> = Call extends readonly [infer Query, ...(readonly unknown[])]
   ? RuntimeQueryResult<Query>
   : RuntimeQueryResult<Call>;
 type RuntimeClientQueryMulti = {
@@ -110,10 +120,11 @@ type RuntimeQueryMetadata = {
 
 export type RuntimeClient<
   Api extends { readonly query: object } = { readonly query: object },
-  Queries extends object = CurrentRuntimeQueries,
-> = Omit<Api, 'at' | 'query' | 'queryMulti'> & {
+  Queries extends object = LiveRuntimeQueries,
+> = Omit<Api, 'at' | 'query' | 'queryMulti' | 'consts'> & {
   readonly raw: Api;
   readonly query: Queries;
+  readonly consts: LiveRuntimeConstants;
 } & (Api extends { readonly queryMulti: unknown } ? { readonly queryMulti: RuntimeClientQueryMulti } : object) &
   (Api extends { at: (...args: infer Args) => Promise<infer HistoricalApi> }
     ? { at: (...args: Args) => Promise<RuntimeClient<HistoricalApi & { readonly query: object }, RuntimeQueries>> }
@@ -128,7 +139,15 @@ export function isRuntimeClient<Api extends { readonly query: object }, Queries 
   return apiByClient.has(value);
 }
 
-export function runtimeClient<Api extends { readonly query: object }, Queries extends object = CurrentRuntimeQueries>(
+export function runtimeClient<
+  Api extends { readonly query: object },
+  ExistingQueries extends object,
+  Queries extends object = LiveRuntimeQueries,
+>(api: RuntimeClient<Api, ExistingQueries>): RuntimeClient<Api, Queries>;
+export function runtimeClient<Api extends { readonly query: object }, Queries extends object = LiveRuntimeQueries>(
+  api: Api,
+): RuntimeClient<Api, Queries>;
+export function runtimeClient<Api extends { readonly query: object }, Queries extends object = LiveRuntimeQueries>(
   api: Api,
 ): RuntimeClient<Api, Queries> {
   if (apiByClient.has(api)) return api as unknown as RuntimeClient<Api, Queries>;
@@ -161,10 +180,32 @@ export function runtimeClient<Api extends { readonly query: object }, Queries ex
   );
 
   const boundMethods = new WeakMap<(...args: never[]) => unknown, (...args: never[]) => unknown>();
+  const constants = new Proxy(
+    {},
+    {
+      get(_target, section) {
+        return new Proxy(
+          {},
+          {
+            get(_sectionTarget, name) {
+              const values = readProperty(readProperty(api, 'consts'), section);
+              const overrides: Readonly<Record<string, RuntimeTypeOverride>> = runtimeTypeOverrides.fields;
+              return toPlain(readProperty(values, name), overrides[String(name)]);
+            },
+            has(_sectionTarget, name) {
+              const values = readProperty(readProperty(api, 'consts'), section);
+              return typeof values === 'object' && values !== null && Reflect.has(values, name);
+            },
+          },
+        );
+      },
+    },
+  );
   const client = new Proxy(api, {
     get(target, property) {
       if (property === 'raw') return target;
       if (property === 'query') return sections;
+      if (property === 'consts') return constants;
 
       const value = Reflect.get(target, property, target) as unknown;
       if (property === 'rpc' || property === 'tx') return value;
@@ -235,16 +276,13 @@ function invokeQueryMulti(
       override: queryOverride(metadata.section, metadata.method),
     };
   });
-  const rawCalls = queryCalls.map(({ call }) => call);
+  const rawCalls = queryCalls.map(({ call }): unknown => call);
   const overrides = queryCalls.map(({ override }) => override);
   const normalize = (values: readonly unknown[]) => values.map((value, index) => toPlain(value, overrides[index]));
   const callback = args[1];
   if (typeof callback === 'function') {
     const onValues = callback as (values: readonly unknown[]) => void;
-    return Reflect.apply(queryMulti, client, [
-      rawCalls,
-      (values: readonly unknown[]) => onValues(normalize(values)),
-    ]);
+    return Reflect.apply(queryMulti, client, [rawCalls, (values: readonly unknown[]) => onValues(normalize(values))]);
   }
   return Promise.resolve(Reflect.apply(queryMulti, client, [rawCalls])).then(values =>
     normalize(values as readonly unknown[]),

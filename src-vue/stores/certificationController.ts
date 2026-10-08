@@ -902,7 +902,7 @@ export const useCertificationController = defineStore('certificationController',
           }
 
           const bondAmount = bondLots.reduce((total, bondLot) => {
-            return bondLot.accountId === defaultAccountId ? total + bondLot.activeBondMicrogons : total;
+            return bondLot.owner === defaultAccountId ? total + bondLot.activeBondMicrogons : total;
           }, 0n);
 
           return {

@@ -1,7 +1,9 @@
 import {
   type ArgonClient,
-  type ArgonQueryClient,
+  type ArgonCurrentQueryClient,
   BondLot,
+  bigIntMax,
+  bigIntMin,
   type Currency,
   createDeferred,
   type IBlockHeaderInfo,
@@ -10,20 +12,36 @@ import {
   type MiningFrames,
   type RuntimeSystemEventRecord,
   TreasuryBonds,
-  type VaultBondCapacityState,
   type Vault,
 } from '@argonprotocol/apps-core';
+import BigNumber from 'bignumber.js';
 import type { Config } from './Config.ts';
+import {
+  runtimeClient,
+  type CurrentRuntimeQueries,
+  type LiveQueryRecord,
+  type RuntimeQueryResult,
+} from '@argonprotocol/runtime-client';
 import type { Db } from './Db.ts';
 import type { WalletKeys } from './WalletKeys.ts';
-import type { IBondLotFlexibilityTransition, IBondLotHistoryRecord } from './db/BondLotHistoryTable.ts';
+import type {
+  IBondLotEarningsBackfill,
+  IBondLotFlexibilityTransition,
+  IBondLotHistoryRecord,
+} from './db/BondLotHistoryTable.ts';
+import type { IBondEarningsRecord } from './db/BondEarningsTable.ts';
 import { SyncStateKeys } from './db/SyncStateTable.ts';
 import { getMainchainClient } from '../stores/mainchain.ts';
 import { ArgonBondsRecovery } from './recovery/ArgonBonds.ts';
+import { getBondEarnings } from './BondEarnings.ts';
 
 const INITIAL_FINALIZED_HISTORY_BLOCKS = 90;
 
 export type IBondHistoryFact =
+  | { kind: 'earnings-coverage'; fromFrame: number; throughFrame: number }
+  | { kind: 'daily-earnings'; record: IBondEarningsRecord }
+  | { kind: 'earnings-observation'; lot: BondLot; block: IBlockHeaderInfo }
+  | { kind: 'earnings-backfill'; lot: BondLot; backfill: IBondLotEarningsBackfill }
   | { kind: 'release-scheduled'; lot: BondLot; block: IBlockHeaderInfo; extrinsicIndex?: number }
   | {
       kind: 'purchase';
@@ -41,14 +59,11 @@ export type IBondHistoryFact =
       extrinsicIndex?: number;
       closingArgonotRateMicrogons?: bigint;
       wasFlexible: boolean;
+      earningsComplete?: boolean;
     }
   | { kind: 'flexibility'; lot: BondLot; transition: IBondLotFlexibilityTransition };
 
-export interface IVaultArgonBondState {
-  bondLots: BondLot[];
-  ordinaryBonds: number;
-  flexibleBonds: number;
-  reservedBondSpace: number;
+export interface IVaultArgonBondState extends Awaited<ReturnType<typeof TreasuryBonds.getVaultBondState>> {
   currentFrame: {
     frameId: number;
     vaultBonds: number;
@@ -75,6 +90,7 @@ export class ArgonBonds {
   public data = {
     bondLots: [] as BondLot[],
     bondHistory: [] as IBondLotHistoryRecord[],
+    dailyEarnings: [] as IBondEarningsRecord[],
     isLoaded: false,
     historyCoveragePending: false,
     historyError: undefined as string | undefined,
@@ -82,20 +98,26 @@ export class ArgonBonds {
     vaultId: 0,
     currentFrameId: 0,
     distributableBidPool: 0n,
+    fullBidPool: 0n,
+    bondPoolPercent: 0,
     totalActiveBonds: 0,
+    frameCapital: null as RuntimeQueryResult<CurrentRuntimeQueries['treasury']['currentFrameVaultCapital']>,
+    vaultRewardRate: BigNumber(0),
+    averageMicrogonsPerArgonot: undefined as bigint | undefined,
     vaultsById: {} as Record<number, IVaultArgonBondState>,
-    capacityStatesByVault: {} as Record<number, VaultBondCapacityState>,
   };
 
   private blockSubscription?: VoidFunction;
   private finalizedHistorySubscription?: VoidFunction;
   private waitForLoad?: IDeferred<void>;
   private isGlobalSubscribed = false;
-  private readonly vaultSubscriptionArgs = new Map<number, IVaultBondSubscription>();
-  private nextVaultRefreshVersion = 0;
+  private readonly vaultSubscriptions = new Map<number, Map<symbol, IVaultBondSubscription>>();
+  private readonly pendingVaultRefreshes = new Set<number>();
+  private nextRefreshVersion = 0;
+  private lastBondLotsRefreshVersion = 0;
+  private lastBidPoolRefreshVersion = 0;
   private lastTotalActiveBondsRefreshVersion = 0;
   private readonly publishedVaultRefreshVersions = new Map<number, number>();
-  private readonly vaultSubscriptionTokens = new Map<number, symbol>();
   private readonly historyRecovery: ArgonBondsRecovery;
   private recoveredHistoryFacts: IBondHistoryFact[] = [];
   private finalizedHistoryQueue = Promise.resolve();
@@ -119,35 +141,84 @@ export class ArgonBonds {
     return this.data.bondHistory.some(record => !record.flexibilityHistoryComplete);
   }
 
+  public getEarningsHistory(bondLotId: number) {
+    const records = this.data.dailyEarnings.filter(record => record.bondLotId === bondLotId);
+    const history = this.data.bondHistory.find(record => record.bondLotId === bondLotId);
+    // Daily rows and their counters are published together from finalized history.
+    const completedFrame = history?.earningsHistoryThroughFrame ?? (history ? history.createdFrame - 1 : undefined);
+    const earnings = getBondEarnings(undefined, history, records, completedFrame);
+    if (history?.programType === 'Vault' && !history.flexibilityHistoryComplete) earnings.isComplete = false;
+    return earnings;
+  }
+
   public getVaultBondCapacityMicrogons(vault: Vault): bigint {
-    return TreasuryBonds.getVaultBondCapacityMicrogons({ vault, priceIndex: this.currency.priceIndex });
+    return vault.bondCapacityMicrogons(this.currency.priceIndex);
+  }
+
+  public argonotRewardBacking({
+    vault,
+    argonotSecuritization,
+    securitizationMicrogons = vault.securitization,
+  }: {
+    vault: Vault;
+    argonotSecuritization: NonNullable<Awaited<ReturnType<typeof Vault.getArgonotSecuritization>>>;
+    securitizationMicrogons?: bigint;
+  }) {
+    if (!this.data.frameCapital) return;
+    const totalMicronots = TreasuryBonds.getVaultArgonotSecuritizationTarget({
+      securitizationMicrogons: bigIntMax(securitizationMicrogons, vault.securitization),
+      averageMicrogonsPerArgonot: this.data.averageMicrogonsPerArgonot,
+    });
+    if (totalMicronots === undefined) return;
+
+    let pendingWithdrawals = 0n;
+    for (const entry of vault.securitizationReleaseSchedule.values()) pendingWithdrawals += entry.argonotWithdrawals;
+    const { heldMicronots } = argonotSecuritization;
+    const requestedMicronots = heldMicronots - pendingWithdrawals;
+    return {
+      totalMicronots,
+      additionalMicronots: bigIntMax(totalMicronots - heldMicronots, 0n),
+      withdrawalCancellationMicronots: bigIntMax(bigIntMin(totalMicronots, heldMicronots) - requestedMicronots, 0n),
+    };
+  }
+
+  public vaultRevenuePotential(vaultId: number, fullBidPool: bigint = this.data.fullBidPool) {
+    const frameCapital = this.data.frameCapital;
+    const position = frameCapital?.vaultSecuritizationPositions[vaultId];
+    if (!position || !frameCapital) return;
+    return TreasuryBonds.vaultRevenuePotential({
+      position,
+      frameCapital,
+      fullBidPool,
+      percentForVaultPool: this.data.vaultRewardRate,
+    });
   }
 
   public getFlexibleBondDisplacementPercent(vaultId: number): number | undefined {
     const vault = this.data.vaultsById[vaultId];
-    if (!vault?.isLoaded || vault.currentFrame.frameId <= 0 || vault.flexibleBonds <= 0) return;
-
-    const displacedBonds = Math.max(
-      0,
-      Math.min(vault.flexibleBonds, vault.currentFrame.vaultBonds) - vault.currentFrame.flexibleBondsEligible,
-    );
-    return Math.min(100, (displacedBonds / vault.flexibleBonds) * 100);
+    if (!vault?.isLoaded || vault.flexibleBonds <= 0) return;
+    return Math.min(100, (vault.displacedFlexibleBonds / vault.flexibleBonds) * 100);
   }
 
   public availableBondSpace(vault: Vault): bigint {
-    const bondState = this.data.capacityStatesByVault[vault.vaultId];
+    const bondState = this.data.vaultsById[vault.vaultId];
+    if (!bondState?.isLoaded) return 0n;
 
     return TreasuryBonds.availableBondSpace({
       capacityMicrogons: this.getVaultBondCapacityMicrogons(vault),
       bondState,
+      vault,
     });
   }
 
   public availableBondSpaceWithoutFlexibleDisplacement(vault: Vault): bigint {
-    const available = this.availableBondSpace(vault);
-    const flexibleBonds = this.data.vaultsById[vault.vaultId]?.flexibleBonds ?? 0;
-    const flexibleMicrogons = BondLot.bondsToMicrogons(flexibleBonds);
-    return available > flexibleMicrogons ? available - flexibleMicrogons : 0n;
+    const state = this.data.vaultsById[vault.vaultId];
+    if (!state?.isLoaded) return 0n;
+
+    const capacity = TreasuryBonds.getBondPurchaseCapacity(this.getVaultBondCapacityMicrogons(vault));
+    const unoccupiedBonds = Math.max(0, capacity - state.regularBonds - state.flexibleBonds);
+    const roomWithoutDisplacement = BondLot.bondsToMicrogons(unoccupiedBonds + state.replacementBonds);
+    return bigIntMin(this.availableBondSpace(vault), roomWithoutDisplacement);
   }
 
   public async load(): Promise<void> {
@@ -183,19 +254,24 @@ export class ArgonBonds {
           ...this.finalizedHistoryCursor,
         });
       }
-      const finalizedClient = await blockWatch.getApi(finalizedBlock);
+      const finalizedApi = await blockWatch.getApi(finalizedBlock);
+      const finalizedClient = runtimeClient(finalizedApi);
       const lots = await this.getOwnBondLots(finalizedClient);
-      this.data.bondLots = lots;
-      await Promise.all(
-        lots.map(lot =>
-          db.bondLotHistoryTable.recordObservation({
+      await db.transaction(async transaction => {
+        for (const lot of lots)
+          await transaction.bondLotHistoryTable.recordObservation({
             lot,
             blockNumber: finalizedBlock.blockNumber,
             blockHash: finalizedBlock.blockHash,
-          }),
-        ),
-      );
-      await this.refreshHistory();
+          });
+      });
+      const [history, dailyEarnings] = await Promise.all([
+        db.bondLotHistoryTable.fetchAll(this.walletKeys.defaultArgonAddress),
+        db.bondEarningsTable.fetchAll(this.walletKeys.defaultArgonAddress),
+      ]);
+      this.data.bondLots = this.excludeRecordedReleases(lots, history);
+      this.data.bondHistory = history;
+      this.data.dailyEarnings = dailyEarnings;
 
       this.ensureBlockSubscription();
       this.data.isLoaded = true;
@@ -209,9 +285,15 @@ export class ArgonBonds {
     return this.waitForLoad.promise;
   }
 
-  public async refreshBondLots(client?: ArgonQueryClient): Promise<void> {
+  public async refreshBondLots(
+    client?: ArgonCurrentQueryClient,
+    refreshVersion = ++this.nextRefreshVersion,
+  ): Promise<void> {
     client ??= await getMainchainClient(false);
-    this.data.bondLots = await this.getOwnBondLots(client);
+    const lots = await this.getOwnBondLots(client);
+    if (refreshVersion < this.lastBondLotsRefreshVersion) return;
+    this.lastBondLotsRefreshVersion = refreshVersion;
+    this.data.bondLots = this.excludeRecordedReleases(lots);
     this.setDisplayVaultId(this.config.upstreamOperator?.vaultId ?? this.data.vaultId);
     if (this.data.isLoaded) this.data.financialRevision += 1;
   }
@@ -229,18 +311,21 @@ export class ArgonBonds {
     await this.load();
     await this.enqueueHistoryWork(async () => {
       const db = await this.dbPromise;
-      await db.bondLotHistoryTable.recordReleaseSchedule({
-        lot,
-        blockNumber: block.blockNumber,
-        blockHash: block.blockHash,
-      });
+      await db.transaction(transaction =>
+        this.applyHistoryFacts(transaction, [{ kind: 'release-scheduled', lot, block }], true),
+      );
       await this.publishBondState();
     });
   }
 
   public async refreshHistory(): Promise<void> {
     const db = await this.dbPromise;
-    this.data.bondHistory = await db.bondLotHistoryTable.fetchAll(this.walletKeys.defaultArgonAddress);
+    const [history, dailyEarnings] = await Promise.all([
+      db.bondLotHistoryTable.fetchAll(this.walletKeys.defaultArgonAddress),
+      db.bondEarningsTable.fetchAll(this.walletKeys.defaultArgonAddress),
+    ]);
+    this.data.bondHistory = history;
+    this.data.dailyEarnings = dailyEarnings;
     this.data.bondLots = this.excludeRecordedReleases(this.data.bondLots);
     for (const vault of Object.values(this.data.vaultsById)) {
       vault.bondLots = this.excludeRecordedReleases(vault.bondLots);
@@ -249,15 +334,22 @@ export class ArgonBonds {
   }
 
   private async publishBondState(): Promise<void> {
+    const refreshVersion = ++this.nextRefreshVersion;
     const db = await this.dbPromise;
-    const [history, client] = await Promise.all([
+    const [history, dailyEarnings, client] = await Promise.all([
       db.bondLotHistoryTable.fetchAll(this.walletKeys.defaultArgonAddress),
+      db.bondEarningsTable.fetchAll(this.walletKeys.defaultArgonAddress),
       this.miningFrames.blockWatch.getCurrentApi(),
     ]);
     const lots = await this.getOwnBondLots(client, history);
 
     this.data.bondHistory = history;
-    this.data.bondLots = lots;
+    this.data.dailyEarnings = dailyEarnings;
+    if (refreshVersion >= this.lastBondLotsRefreshVersion) {
+      this.lastBondLotsRefreshVersion = refreshVersion;
+      this.data.bondLots = lots;
+    }
+    this.data.bondLots = this.excludeRecordedReleases(this.data.bondLots, history);
     for (const vault of Object.values(this.data.vaultsById)) {
       vault.bondLots = this.excludeRecordedReleases(vault.bondLots, history);
     }
@@ -295,107 +387,131 @@ export class ArgonBonds {
     return this.recoveredHistoryFacts.some(
       fact =>
         fact.kind === 'purchase' &&
-        fact.lot.accountId === lot.accountId &&
+        fact.lot.owner === lot.owner &&
         fact.lot.programType === lot.programType &&
         fact.lot.id === lot.id,
     );
   }
 
-  public async refreshActiveState(args: { client: ArgonQueryClient; currentFrameId: number }): Promise<void> {
+  public async refreshActiveState(): Promise<void> {
     if (!this.data.isLoaded) return;
 
-    this.data.currentFrameId = args.currentFrameId;
-
-    const refreshes: Promise<void>[] = [];
-    refreshes.push(this.miningFrames.blockWatch.getCurrentApi().then(client => this.refreshBondLots(client)));
+    const refreshVersion = ++this.nextRefreshVersion;
+    this.data.currentFrameId = this.miningFrames.blockWatch.bestBlockHeader.frameId ?? this.data.currentFrameId;
+    const client = await this.miningFrames.blockWatch.getCurrentApi();
+    const refreshes: Promise<void>[] = [this.refreshBondLots(client, refreshVersion)];
     if (this.isGlobalSubscribed) {
       refreshes.push(
-        TreasuryBonds.getDistributableBidPool(args.client).then(value => {
+        TreasuryBonds.getDistributableBidPool(client).then(value => {
+          if (refreshVersion < this.lastBidPoolRefreshVersion) return;
+          this.lastBidPoolRefreshVersion = refreshVersion;
           this.data.distributableBidPool = value;
         }),
       );
     }
-    if (this.vaultSubscriptionArgs.size) refreshes.push(this.refreshSubscribedVaults(args.client));
+    if (this.vaultSubscriptions.size) refreshes.push(this.refreshSubscribedVaults(client, refreshVersion));
     await Promise.all(refreshes);
   }
 
   public async subscribeGlobal(client?: ArgonClient): Promise<void> {
     if (this.isGlobalSubscribed) return;
 
+    const refreshVersion = ++this.nextRefreshVersion;
     client ??= await getMainchainClient(false);
     await this.miningFrames.blockWatch.start();
     this.data.currentFrameId = this.miningFrames.blockWatch.bestBlockHeader.frameId ?? this.data.currentFrameId;
-    this.data.distributableBidPool = await TreasuryBonds.getDistributableBidPool(client);
+    const distributableBidPool = await TreasuryBonds.getDistributableBidPool(client);
+    if (refreshVersion >= this.lastBidPoolRefreshVersion) {
+      this.lastBidPoolRefreshVersion = refreshVersion;
+      this.data.distributableBidPool = distributableBidPool;
+    }
+    this.data.bondPoolPercent = TreasuryBonds.getBidPoolPercentForVaults(client);
     this.isGlobalSubscribed = true;
     this.ensureBlockSubscription();
   }
 
   public async subscribeVault(args: IVaultBondSubscription, client?: ArgonClient): Promise<() => void> {
-    client ??= await getMainchainClient(false);
     this.ensureBlockSubscription();
-    this.unsubscribeVault(args.vaultId);
     const token = Symbol();
-    this.vaultSubscriptionArgs.set(args.vaultId, args);
-    this.vaultSubscriptionTokens.set(args.vaultId, token);
+    const subscriptions = this.vaultSubscriptions.get(args.vaultId) ?? new Map<symbol, IVaultBondSubscription>();
+    subscriptions.set(token, args);
+    this.vaultSubscriptions.set(args.vaultId, subscriptions);
     try {
       await this.refreshVault(args, client);
     } catch (error) {
-      if (this.vaultSubscriptionTokens.get(args.vaultId) === token) this.unsubscribeVault(args.vaultId);
-      throw error;
+      this.pendingVaultRefreshes.add(args.vaultId);
+      console.warn(`[ArgonBonds] Vault ${args.vaultId} refresh will retry on the next block`, error);
     }
     return () => {
-      if (this.vaultSubscriptionTokens.get(args.vaultId) === token) this.unsubscribeVault(args.vaultId);
+      this.unsubscribeVault(args.vaultId, token);
     };
   }
 
-  public async refreshVault(args: IVaultBondSubscription, client?: ArgonQueryClient): Promise<void> {
-    const refreshVersion = ++this.nextVaultRefreshVersion;
+  public async refreshVault(
+    args: IVaultBondSubscription,
+    client?: ArgonCurrentQueryClient,
+    refreshVersion = ++this.nextRefreshVersion,
+    snapshot?: {
+      frameCapital: LiveQueryRecord<'treasury', 'currentFrameVaultCapital'>;
+      activeBonds: Awaited<ReturnType<typeof TreasuryBonds.getActiveBonds>>;
+    },
+  ): Promise<void> {
     client ??= await getMainchainClient(false);
 
     const vault = this.getVaultBonds(args.vaultId);
     const frameId = args.frameId ?? this.data.currentFrameId;
-    const [activeBonds, bondState, frameBonds] = await Promise.all([
-      TreasuryBonds.getActiveBonds(client, args.vaultId),
+    const frameCapital = snapshot ? snapshot.frameCapital : await client.query.treasury.currentFrameVaultCapital();
+    const [activeBonds, bondState] = await Promise.all([
+      snapshot?.activeBonds ?? TreasuryBonds.getActiveBonds(client, frameCapital),
       TreasuryBonds.getVaultBondState(client, args.vaultId, args.accountId ?? args.operatorAddress),
-      frameId > 0
-        ? TreasuryBonds.getCurrentFrameBondLots(client, args.vaultId, args.operatorAddress)
-        : Promise.resolve({
-            bondLots: [],
-            totalActiveBonds: 0,
-            flexibleBondsEligible: 0,
-            distributedEarnings: 0n,
-          }),
     ]);
+    const frameBonds =
+      frameId > 0
+        ? await TreasuryBonds.getCurrentFrameBondLots(client, args.vaultId, args.operatorAddress, {
+            frameCapital,
+            bondState,
+          })
+        : { bondLots: [], totalActiveBonds: 0, flexibleBondsEligible: 0 };
 
     if (refreshVersion < (this.publishedVaultRefreshVersions.get(args.vaultId) ?? 0)) return;
     this.publishedVaultRefreshVersions.set(args.vaultId, refreshVersion);
+    this.pendingVaultRefreshes.delete(args.vaultId);
     if (refreshVersion >= this.lastTotalActiveBondsRefreshVersion) {
       this.data.totalActiveBonds = activeBonds.totalActiveBonds;
+      this.data.frameCapital = activeBonds.frameCapital ?? null;
+      this.data.vaultRewardRate = activeBonds.vaultRewardRate ?? BigNumber(0);
+      this.data.averageMicrogonsPerArgonot = activeBonds.averageMicrogonsPerArgonot;
+      this.data.fullBidPool = activeBonds.fullBidPool ?? 0n;
       this.lastTotalActiveBondsRefreshVersion = refreshVersion;
     }
-    this.data.capacityStatesByVault[args.vaultId] = bondState.capacityState;
-    vault.bondLots = this.excludeRecordedReleases(bondState.bondLots);
-    vault.ordinaryBonds = bondState.ordinaryBonds;
-    vault.flexibleBonds = bondState.flexibleBonds;
-    vault.reservedBondSpace = bondState.reservedBondSpace;
+    Object.assign(vault, bondState, { bondLots: this.excludeRecordedReleases(bondState.bondLots) });
     vault.currentFrame.frameId = frameId;
-    vault.currentFrame.vaultBonds = activeBonds.vaultActiveBonds;
+    vault.currentFrame.vaultBonds = frameBonds.totalActiveBonds;
     vault.currentFrame.flexibleBondsEligible = frameBonds.flexibleBondsEligible;
     vault.currentFrame.bondLots = frameBonds.bondLots;
     vault.isLoaded = true;
   }
 
-  public unsubscribeVault(vaultId: number): void {
-    this.vaultSubscriptionArgs.delete(vaultId);
-    this.vaultSubscriptionTokens.delete(vaultId);
+  public unsubscribeVault(vaultId: number, token?: symbol): void {
+    const subscriptions = this.vaultSubscriptions.get(vaultId);
+    if (token) subscriptions?.delete(token);
+    if (!token || !subscriptions?.size) {
+      this.vaultSubscriptions.delete(vaultId);
+      this.pendingVaultRefreshes.delete(vaultId);
+    }
   }
 
   public getVaultBonds(vaultId: number): IVaultArgonBondState {
     return (this.data.vaultsById[vaultId] ??= {
       bondLots: [],
-      ordinaryBonds: 0,
+      regularBonds: 0,
       flexibleBonds: 0,
+      displacedFlexibleBonds: 0,
+      lockedFrameTerms: null,
       reservedBondSpace: 0,
+      replacementBonds: 0,
+      minimumPurchaseBonds: 1,
+      isAtBondLotLimit: false,
       currentFrame: {
         frameId: 0,
         vaultBonds: 0,
@@ -408,6 +524,37 @@ export class ArgonBonds {
 
   public async importHistoryBlock(block: IBlockHeaderInfo, events: readonly RuntimeSystemEventRecord[]): Promise<void> {
     this.recoveredHistoryFacts.push(...(await this.historyRecovery.readBlock(block, events)));
+  }
+
+  public async recoverDailyEarnings(throughBlock: number, afterBlock: number): Promise<void> {
+    const db = await this.dbPromise;
+    const lifetimes = new Map(
+      (await db.bondLotHistoryTable.fetchAll(this.walletKeys.defaultArgonAddress)).map(record => [
+        record.bondLotId,
+        { createdFrame: record.createdFrame, releaseFrame: record.releaseFrame },
+      ]),
+    );
+    for (const fact of this.recoveredHistoryFacts) {
+      if (fact.kind === 'daily-earnings' || fact.kind === 'earnings-coverage') continue;
+      const lot = fact.lot;
+      lifetimes.set(lot.id, { createdFrame: lot.createdFrameId, releaseFrame: lot.releaseFrameId ?? undefined });
+    }
+    this.recoveredHistoryFacts.push(
+      ...(await this.historyRecovery.readDailyEarnings([...lifetimes.values()], throughBlock, afterBlock)),
+    );
+    const coveredFrames = this.miningFrames.frames.filter(
+      frame =>
+        frame.firstBlockNumber !== null &&
+        frame.firstBlockNumber > afterBlock &&
+        frame.firstBlockNumber <= throughBlock,
+    );
+    if (coveredFrames.length) {
+      this.recoveredHistoryFacts.push({
+        kind: 'earnings-coverage',
+        fromFrame: Math.min(...coveredFrames.map(frame => frame.frameId)) - 1,
+        throughFrame: Math.max(...coveredFrames.map(frame => frame.frameId)) - 1,
+      });
+    }
   }
 
   public async recordFinalizedTransaction(blockNumber: number): Promise<void> {
@@ -470,6 +617,15 @@ export class ArgonBonds {
       const nextCursor = { blockNumber, blockHash: block.blockHash };
       await db.transaction(async transaction => {
         await this.applyHistoryFacts(transaction, facts, true);
+        for (const { event } of events) {
+          if (event.section === 'treasury' && event.method === 'FrameEarningsDistributed') {
+            await transaction.bondLotHistoryTable.recordEarningsCoverage(
+              this.walletKeys.defaultArgonAddress,
+              event.data.frameId,
+              event.data.frameId,
+            );
+          }
+        }
         await transaction.syncStateTable.upsert(SyncStateKeys.BondHistory, {
           accountId: this.walletKeys.defaultArgonAddress,
           ...nextCursor,
@@ -496,31 +652,73 @@ export class ArgonBonds {
     block: IBlockHeaderInfo,
     events: readonly RuntimeSystemEventRecord[],
   ): Promise<IBondHistoryFact[]> {
-    const hasRelevantEvent = events.some(
-      ({ event }) =>
-        event.section === 'treasury' &&
-        (event.method === 'BondLotPurchased' ||
-          event.method === 'BondLotReleaseScheduled' ||
-          event.method === 'BondLotReleased' ||
-          event.method === 'CouldNotReleaseBondLot' ||
-          event.method === 'BondLotFlexibilityChanged' ||
-          event.method === 'BondLotBackfillChanged'),
-    );
-    if (!hasRelevantEvent) return [];
+    const bondEvents = [...events.entries()].filter(([, { event }]) => {
+      if (event.section !== 'treasury') return false;
+      return [
+        'BondLotPurchased',
+        'BondLotReleaseScheduled',
+        'BondLotReleased',
+        'CouldNotReleaseBondLot',
+        'BondLotFlexibilityChanged',
+        'BondLotBackfillChanged',
+        'BondLotEarningsBackfilled',
+        'FrameEarningsDistributed',
+        'EncumberedBondMicrogonsBurned',
+      ].includes(event.method);
+    });
+    if (!bondEvents.length) return [];
 
     const accountId = this.walletKeys.defaultArgonAddress;
-    const api = await this.miningFrames.blockWatch.getApi(block);
+    const api = runtimeClient(await this.miningFrames.blockWatch.getApi(block));
     const facts: IBondHistoryFact[] = [];
     const flexibilityByLot = new Map<number, boolean>();
-    for (const [index, { event, phase }] of events.entries()) {
+    const earningsBackfillsByLot = new Map<number, Pick<IBondLotEarningsBackfill, 'addedFrames' | 'addedEarnings'>>();
+    const distributesEarnings = bondEvents.some(([, { event }]) => event.method === 'FrameEarningsDistributed');
+    const hasBondBurn = bondEvents.some(([, { event }]) => event.method === 'EncumberedBondMicrogonsBurned');
+    if (distributesEarnings || hasBondBurn) {
+      for (const lot of await this.getOwnBondLots(api)) facts.push({ kind: 'earnings-observation', lot, block });
+    }
+    for (const [, { event }] of bondEvents) {
+      if (event.section !== 'treasury' || event.method !== 'FrameEarningsDistributed') continue;
+      const { frameId } = event.data;
+      const parent = await this.miningFrames.blockWatch.getHeader(block.blockNumber - 1);
+      const [beforePayout, frameStart] = await Promise.all([
+        this.miningFrames.blockWatch.getApi(parent),
+        this.miningFrames.getFrameStart(frameId),
+      ]);
+      const startClient = runtimeClient(frameStart.api);
+      const parentClient = runtimeClient(beforePayout);
+      const earnings = await TreasuryBonds.getFrameEarnings({
+        frameId,
+        accountId,
+        frameStart: startClient,
+        beforePayout: parentClient,
+        payout: api,
+        events,
+      });
+      for (const { lot, ...entry } of earnings) {
+        facts.push({
+          kind: 'daily-earnings',
+          record: {
+            ...entry,
+            accountId,
+            programType: lot.programType,
+            bondLotId: lot.id,
+            frameId,
+            payoutBlockNumber: block.blockNumber,
+            payoutBlockHash: block.blockHash,
+          },
+        });
+      }
+    }
+    for (const [index, { event, phase }] of bondEvents) {
       if (event.section !== 'treasury') continue;
       const extrinsicIndex = phase.type === 'ApplyExtrinsic' ? phase.value : undefined;
       if (event.method === 'BondLotPurchased') {
         if (event.data.accountId !== accountId) continue;
-        const stored = await api.query.treasury.bondLotById(event.data.bondLotId);
-        if (!stored)
+        const lot = await BondLot.get(api, event.data.bondLotId, accountId);
+        if (!lot)
           throw new Error(`Purchased bond lot ${event.data.bondLotId} is unavailable at block ${block.blockNumber}`);
-        const lot = BondLot.fromRuntime(event.data.bondLotId, stored, accountId);
         const entryArgonotRateMicrogons =
           lot.programType === 'Argonot'
             ? (await this.currency.fetchMainchainRatesAtBlock({ api, block })).ARGNOT
@@ -533,14 +731,44 @@ export class ArgonBonds {
           entryArgonotRateMicrogons,
           isFlexibleAtPurchase: false,
         });
+      } else if (event.method === 'BondLotEarningsBackfilled') {
+        const preceding = earningsBackfillsByLot.get(event.data.bondLotId);
+        const backfill = {
+          addedFrames: (preceding?.addedFrames ?? 0) + event.data.addedFrames,
+          addedEarnings: (preceding?.addedEarnings ?? 0n) + event.data.addedEarnings,
+        };
+        earningsBackfillsByLot.set(event.data.bondLotId, backfill);
+        let lot = await BondLot.get(api, event.data.bondLotId, accountId);
+        if (!lot) {
+          const parent = await this.miningFrames.blockWatch.getHeader(block.blockNumber - 1);
+          const parentApi = runtimeClient(await this.miningFrames.blockWatch.getApi(parent));
+          const previous = await BondLot.get(parentApi, event.data.bondLotId, accountId);
+          if (previous) {
+            lot = previous.withEarningsBackfill(backfill.addedFrames, backfill.addedEarnings);
+          }
+        }
+        if (!lot)
+          throw new Error(`Backfilled bond lot ${event.data.bondLotId} is unavailable at block ${block.blockNumber}`);
+        if (lot.owner !== accountId) continue;
+        facts.push({
+          kind: 'earnings-backfill',
+          lot,
+          backfill: {
+            blockNumber: block.blockNumber,
+            blockHash: block.blockHash,
+            eventIndex: index,
+            addedFrames: event.data.addedFrames,
+            addedEarnings: event.data.addedEarnings,
+          },
+        });
       } else if (event.method === 'BondLotReleaseScheduled') {
         if (event.data.accountId !== accountId) continue;
-        const stored = await api.query.treasury.bondLotById(event.data.bondLotId);
-        if (!stored)
+        const lot = await BondLot.get(api, event.data.bondLotId, accountId);
+        if (!lot)
           throw new Error(`Scheduled bond lot ${event.data.bondLotId} is unavailable at block ${block.blockNumber}`);
         facts.push({
           kind: 'release-scheduled',
-          lot: BondLot.fromRuntime(event.data.bondLotId, stored, accountId),
+          lot,
           block,
           extrinsicIndex,
         });
@@ -553,11 +781,14 @@ export class ArgonBonds {
           if (!block.isFinalized || block.blockNumber === 0) throw error;
           parent = await this.miningFrames.blockWatch.getHeader(block.blockNumber - 1);
         }
-        const parentApi = await this.miningFrames.blockWatch.getApi(parent);
-        const stored = await parentApi.query.treasury.bondLotById(event.data.bondLotId);
-        if (!stored)
+        const parentApi = runtimeClient(await this.miningFrames.blockWatch.getApi(parent));
+        let lot = await BondLot.get(parentApi, event.data.bondLotId, accountId);
+        if (!lot)
           throw new Error(`Released bond lot ${event.data.bondLotId} is unavailable before block ${block.blockNumber}`);
-        const lot = BondLot.fromRuntime(event.data.bondLotId, stored, accountId);
+        const backfill = earningsBackfillsByLot.get(lot.id);
+        if (backfill) {
+          lot = lot.withEarningsBackfill(backfill.addedFrames, backfill.addedEarnings);
+        }
         if (
           event.method === 'CouldNotReleaseBondLot' &&
           !(await TreasuryBonds.didFailedReleaseRemoveHold({ accountId, lot, events, parentApi, api }))
@@ -576,13 +807,13 @@ export class ArgonBonds {
           extrinsicIndex,
           closingArgonotRateMicrogons,
           wasFlexible: flexibilityByLot.get(lot.id) ?? lot.isFlexible,
+          earningsComplete: !distributesEarnings,
         });
       } else if (event.method === 'BondLotFlexibilityChanged' || event.method === 'BondLotBackfillChanged') {
-        const stored = await api.query.treasury.bondLotById(event.data.bondLotId);
-        if (!stored)
+        const lot = await BondLot.get(api, event.data.bondLotId, accountId);
+        if (!lot)
           throw new Error(`Flexible bond lot ${event.data.bondLotId} is unavailable at block ${block.blockNumber}`);
-        const lot = BondLot.fromRuntime(event.data.bondLotId, stored, accountId);
-        if (lot.accountId !== accountId || lot.programType !== 'Vault') continue;
+        if (lot.owner !== accountId || lot.programType !== 'Vault') continue;
         const isFlexible = event.method === 'BondLotFlexibilityChanged' ? event.data.isFlexible : event.data.isBackfill;
         flexibilityByLot.set(lot.id, isFlexible);
         facts.push({
@@ -590,7 +821,7 @@ export class ArgonBonds {
           lot,
           transition: {
             isFlexible,
-            cumulativeEarningsMicrogons: lot.lifetimeEarnings,
+            cumulativeEarningsMicrogons: lot.cumulativeEarnings,
             source: 'flexibility-change',
             blockNumber: block.blockNumber,
             blockHash: block.blockHash,
@@ -605,22 +836,47 @@ export class ArgonBonds {
   }
 
   private async onNewBestBlocks(blocks: IBlockHeaderInfo[]): Promise<void> {
+    // Keep the notification's order even when an older event read finishes later.
+    const refreshVersion = ++this.nextRefreshVersion;
     const latestBlock = blocks.at(-1);
     if (!latestBlock) return;
 
     let refreshBonds = false;
-    let refreshMarket = false;
+    let refreshMarket = this.pendingVaultRefreshes.size > 0;
     let refreshBidPool = false;
     let latestRefreshBlock: IBlockHeaderInfo | undefined;
+    if (latestBlock.frameId != null) this.data.currentFrameId = latestBlock.frameId;
     for (const block of blocks) {
-      if (block.frameId != null) this.data.currentFrameId = block.frameId;
-
       const events = await this.miningFrames.blockWatch.getEvents(block);
       for (const { event } of events) {
         if (event.section === 'miningSlot' && event.method === 'SlotBidderAdded' && event.data.bidAmount > 0n) {
           refreshBidPool = true;
         } else if (event.section === 'miningSlot' && event.method === 'SlotBidderDropped') {
           refreshBidPool = true;
+        } else if (
+          event.section === 'vaults' &&
+          (event.method === 'VaultModified' ||
+            event.method === 'VaultClosed' ||
+            event.method === 'FundsReleased' ||
+            event.method === 'FundsScheduledForRelease' ||
+            event.method === 'SecuritizationExitRequested' ||
+            event.method === 'SecuritizationExitReleased' ||
+            event.method === 'LostBitcoinCompensated' ||
+            event.method === 'SecuritizationReturned')
+        ) {
+          refreshMarket = true;
+        } else if (
+          (event.section === 'priceIndex' && event.method === 'NewIndex') ||
+          (event.section === 'bitcoinUtxos' && (event.method === 'UtxoDetected' || event.method === 'UtxoSpent')) ||
+          (event.section === 'bitcoinLocks' &&
+            (event.method === 'BitcoinLockTerminated' ||
+              event.method === 'BitcoinLockFlexibleChanged' ||
+              event.method === 'BitcoinLockResecuritized' ||
+              event.method === 'BitcoinSpentAfterRelease'))
+        ) {
+          // Runtime 159 also derives current displacement from funded Bitcoin
+          // and market prices. Runtime 160 can burn vault capital on termination.
+          refreshMarket = true;
         } else if (event.section === 'treasury' && event.method === 'FrameEarningsDistributed') {
           refreshBonds = true;
           refreshMarket = true;
@@ -633,6 +889,7 @@ export class ArgonBonds {
             event.method === 'BondLotReleaseScheduled' ||
             event.method === 'BondLotReleased' ||
             event.method === 'CouldNotReleaseBondLot' ||
+            event.method === 'BondLotEarningsBackfilled' ||
             event.method === 'BondLotFlexibilityChanged' ||
             event.method === 'BondLotBackfillChanged')
         ) {
@@ -654,30 +911,46 @@ export class ArgonBonds {
     }
 
     if (refreshBidPool && this.isGlobalSubscribed) {
-      this.data.distributableBidPool = await TreasuryBonds.getDistributableBidPool(
+      const distributableBidPool = await TreasuryBonds.getDistributableBidPool(
         await this.miningFrames.blockWatch.getApi(latestBlock),
       );
+      if (refreshVersion >= this.lastBidPoolRefreshVersion) {
+        this.lastBidPoolRefreshVersion = refreshVersion;
+        this.data.distributableBidPool = distributableBidPool;
+      }
     }
     if (!latestRefreshBlock) return;
 
-    const client = await this.miningFrames.blockWatch.getApi(latestRefreshBlock);
+    const refreshApi = await this.miningFrames.blockWatch.getApi(latestRefreshBlock);
+    const client = runtimeClient(refreshApi);
     const refreshes: Promise<void>[] = [];
-    if (refreshBonds && this.data.isLoaded) refreshes.push(this.refreshBondLots(client));
-    if (refreshMarket && this.isGlobalSubscribed) refreshes.push(this.refreshSubscribedVaults(client));
+    if (refreshBonds && this.data.isLoaded) refreshes.push(this.refreshBondLots(client, refreshVersion));
+    if (refreshMarket && this.isGlobalSubscribed) refreshes.push(this.refreshSubscribedVaults(client, refreshVersion));
     await Promise.all(refreshes);
   }
 
-  private async refreshSubscribedVaults(client: ArgonQueryClient): Promise<void> {
+  private async refreshSubscribedVaults(client: ArgonCurrentQueryClient, refreshVersion: number): Promise<void> {
+    if (!this.vaultSubscriptions.size) return;
+    const snapshot = client.query.treasury.currentFrameVaultCapital().then(async frameCapital => ({
+      frameCapital,
+      activeBonds: await TreasuryBonds.getActiveBonds(client, frameCapital),
+    }));
     await Promise.all(
-      [...this.vaultSubscriptionArgs.values()].map(args => {
+      [...this.vaultSubscriptions.values()].map(async subscriptions => {
+        const args = [...subscriptions.values()].at(-1)!;
         const nextArgs = args.frameId === undefined ? { ...args, frameId: this.data.currentFrameId } : args;
-        return this.refreshVault(nextArgs, client);
+        try {
+          await this.refreshVault(nextArgs, client, refreshVersion, await snapshot);
+        } catch (error) {
+          if (this.vaultSubscriptions.has(args.vaultId)) this.pendingVaultRefreshes.add(args.vaultId);
+          throw error;
+        }
       }),
     );
   }
 
   public async getOwnBondLots(
-    client: ArgonQueryClient,
+    client: ArgonCurrentQueryClient,
     history: readonly IBondLotHistoryRecord[] = this.data.bondHistory,
   ): Promise<BondLot[]> {
     const accountId = this.walletKeys.defaultArgonAddress;
@@ -706,7 +979,7 @@ export class ArgonBonds {
         .filter(record => record.releaseBlockHash !== undefined)
         .map(record => `${record.accountId}:${record.programType}:${record.bondLotId}`),
     );
-    return lots.filter(lot => !released.has(`${lot.accountId}:${lot.programType}:${lot.id}`));
+    return lots.filter(lot => !released.has(`${lot.owner}:${lot.programType}:${lot.id}`));
   }
 
   private setDisplayVaultId(preferredVaultId: number): void {
@@ -721,7 +994,33 @@ export class ArgonBonds {
 
   private async applyHistoryFacts(db: Db, facts: readonly IBondHistoryFact[], live = false): Promise<void> {
     for (const fact of facts) {
-      if (fact.kind === 'release-scheduled') {
+      if (fact.kind === 'earnings-coverage') {
+        await db.bondLotHistoryTable.recordEarningsCoverage(
+          this.walletKeys.defaultArgonAddress,
+          fact.fromFrame,
+          fact.throughFrame,
+        );
+      } else if (fact.kind === 'daily-earnings') {
+        await db.bondEarningsTable.upsert(fact.record);
+      } else if (fact.kind === 'earnings-observation') {
+        await db.bondLotHistoryTable.recordObservation({
+          lot: fact.lot,
+          blockNumber: fact.block.blockNumber,
+          blockHash: fact.block.blockHash,
+        });
+      } else if (fact.kind === 'earnings-backfill') {
+        await db.bondLotHistoryTable.recordObservation({
+          lot: fact.lot,
+          blockNumber: fact.backfill.blockNumber,
+          blockHash: fact.backfill.blockHash,
+        });
+        await db.bondLotHistoryTable.recordEarningsBackfill(fact.lot, fact.backfill);
+      } else if (fact.kind === 'release-scheduled') {
+        await db.bondLotHistoryTable.recordObservation({
+          lot: fact.lot,
+          blockNumber: fact.block.blockNumber,
+          blockHash: fact.block.blockHash,
+        });
         await db.bondLotHistoryTable.recordReleaseSchedule({
           lot: fact.lot,
           blockNumber: fact.block.blockNumber,
@@ -741,7 +1040,7 @@ export class ArgonBonds {
         if (fact.lot.programType === 'Vault' && fact.isFlexibleAtPurchase) {
           await db.bondLotHistoryTable.recordFlexibility(fact.lot, {
             isFlexible: true,
-            cumulativeEarningsMicrogons: fact.lot.lifetimeEarnings,
+            cumulativeEarningsMicrogons: fact.lot.cumulativeEarnings,
             source: 'purchase',
             blockNumber: fact.block.blockNumber,
             blockHash: fact.block.blockHash,
@@ -749,24 +1048,26 @@ export class ArgonBonds {
             extrinsicIndex: fact.extrinsicIndex,
           });
         }
-        if (live) await db.bondLotHistoryTable.confirmFlexibilityHistory(fact.lot.accountId, fact.lot.id);
+        if (live) await db.bondLotHistoryTable.confirmFlexibilityHistory(fact.lot.owner, fact.lot.id);
       } else if (fact.kind === 'release') {
         await db.bondLotHistoryTable.recordRelease({
           lot: fact.lot,
           parentBlockNumber: fact.parent.blockNumber,
           parentBlockHash: fact.parent.blockHash,
           release: {
+            frameId: fact.block.frameId,
             blockNumber: fact.block.blockNumber,
             blockHash: fact.block.blockHash,
             blockTime: new Date(fact.block.blockTime),
             extrinsicIndex: fact.extrinsicIndex,
             closingArgonotRateMicrogons: fact.closingArgonotRateMicrogons,
+            earningsComplete: fact.earningsComplete,
           },
         });
         if (fact.lot.programType === 'Vault' && fact.wasFlexible) {
           await db.bondLotHistoryTable.recordFlexibility(fact.lot, {
             isFlexible: false,
-            cumulativeEarningsMicrogons: fact.lot.lifetimeEarnings,
+            cumulativeEarningsMicrogons: fact.lot.cumulativeEarnings,
             source: 'release',
             blockNumber: fact.block.blockNumber,
             blockHash: fact.block.blockHash,

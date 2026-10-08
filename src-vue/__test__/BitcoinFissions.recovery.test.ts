@@ -1,3 +1,4 @@
+import BigNumber from 'bignumber.js';
 import {
   BitcoinFission,
   createDeferred,
@@ -86,7 +87,7 @@ describe('Bitcoin Fission current state', () => {
       liquidityPromised: activeRecord.liquidityPromised,
     });
     const client = {
-      consts: { bitcoinFissions: { minimumRatchetPercent: { toBigInt: () => 5n } } },
+      consts: { bitcoinFissions: { minimumRatchetPercent: new BigNumber(0.05) } },
       query: {
         bitcoinFissions: {
           fissionByOwnerAndId: { entries: async () => [[{ args: [ownerAccount, active.fissionId] }, active]] },
@@ -148,7 +149,7 @@ describe('Bitcoin Fission current state', () => {
   it('can retry a failed current-state load without losing the mounted state owner', async () => {
     const db = await createTestDb();
     const client = {
-      consts: { bitcoinFissions: { minimumRatchetPercent: { toBigInt: () => 5n } } },
+      consts: { bitcoinFissions: { minimumRatchetPercent: new BigNumber(0.05) } },
       query: {
         bitcoinFissions: { fissionByOwnerAndId: { entries: async () => [] } },
         mint: {
@@ -212,7 +213,7 @@ describe('Bitcoin Fission current state', () => {
     });
     const createClient = (current: IBitcoinFission, wait?: Promise<void>) =>
       ({
-        consts: { bitcoinFissions: { minimumRatchetPercent: { toBigInt: () => 5n } } },
+        consts: { bitcoinFissions: { minimumRatchetPercent: new BigNumber(0.05) } },
         query: {
           bitcoinFissions: {
             fissionByOwnerAndId: {
@@ -259,7 +260,7 @@ describe('Bitcoin Fission current state', () => {
       });
       return {
         client: {
-          consts: { bitcoinFissions: { minimumRatchetPercent: { toBigInt: () => 5n } } },
+          consts: { bitcoinFissions: { minimumRatchetPercent: new BigNumber(0.05) } },
           query: {
             bitcoinFissions: { fissionByOwnerAndId: { entries } },
             mint: {
@@ -300,7 +301,7 @@ describe('Bitcoin Fission current state', () => {
       lastUpdatedArgonBlock: 170,
     };
     const client = {
-      consts: { bitcoinFissions: { minimumRatchetPercent: { toBigInt: () => 5n } } },
+      consts: { bitcoinFissions: { minimumRatchetPercent: new BigNumber(0.05) } },
       query: {
         bitcoinFissions: {
           fissionByOwnerAndId: {
@@ -343,7 +344,7 @@ describe('Bitcoin Fission current state', () => {
       fissions.data.fissionsById = { 11: new BitcoinFission(record) };
       const block = { ...historyBlock(170), tick: 550 };
       const client = {
-        consts: { bitcoinFissions: { minimumRatchetPercent: { toBigInt: () => 5n } } },
+        consts: { bitcoinFissions: { minimumRatchetPercent: new BigNumber(0.05) } },
         query: {
           bitcoinFissions: { fissionByOwnerAndId: { entries: async () => [] } },
           mint: {
@@ -438,7 +439,7 @@ describe('Bitcoin Fission current state', () => {
     await db.bitcoinFissionsTable.replaceRecords([incomplete]);
 
     const client = {
-      consts: { bitcoinFissions: { minimumRatchetPercent: { toBigInt: () => 5n } } },
+      consts: { bitcoinFissions: { minimumRatchetPercent: new BigNumber(0.05) } },
       query: {
         bitcoinFissions: { fissionByOwnerAndId: { entries: async () => [] } },
         mint: {
@@ -473,7 +474,7 @@ describe('Bitcoin Fission current state', () => {
     historical.closeTxFee = 7n;
     await db.bitcoinFissionsTable.replaceRecord(historical);
     const client = {
-      consts: { bitcoinFissions: { minimumRatchetPercent: { toBigInt: () => 5n } } },
+      consts: { bitcoinFissions: { minimumRatchetPercent: new BigNumber(0.05) } },
       query: {
         bitcoinFissions: {
           fissionByOwnerAndId: {
@@ -537,7 +538,7 @@ describe('Bitcoin Fission current state', () => {
         },
       );
       const client = {
-        consts: { bitcoinFissions: { minimumRatchetPercent: { toBigInt: () => 5n } } },
+        consts: { bitcoinFissions: { minimumRatchetPercent: new BigNumber(0.05) } },
         query: {
           bitcoinFissions: {
             fissionByOwnerAndId: {
@@ -713,7 +714,7 @@ describe('Bitcoin Fission current state', () => {
       },
     );
     const client = {
-      consts: { bitcoinFissions: { minimumRatchetPercent: { toBigInt: () => 5n } } },
+      consts: { bitcoinFissions: { minimumRatchetPercent: new BigNumber(0.05) } },
       query: {
         bitcoinFissions: { fissionByOwnerAndId: { entries: async () => [] } },
         mint: {
@@ -764,7 +765,7 @@ describe('Bitcoin Fission current state', () => {
       },
     );
     const client = {
-      consts: { bitcoinFissions: { minimumRatchetPercent: { toBigInt: () => 5n } } },
+      consts: { bitcoinFissions: { minimumRatchetPercent: new BigNumber(0.05) } },
       query: {
         bitcoinFissions: { fissionByOwnerAndId: { entries: async () => [] } },
         mint: {
@@ -811,7 +812,7 @@ describe('Bitcoin Fission current state', () => {
     const db = await createTestDb();
     const current = createCurrentFission();
     const client = {
-      consts: { bitcoinFissions: { minimumRatchetPercent: { toBigInt: () => 5n } } },
+      consts: { bitcoinFissions: { minimumRatchetPercent: new BigNumber(0.05) } },
       query: {
         bitcoinFissions: {
           fissionByOwnerAndId: {
@@ -878,7 +879,7 @@ describe('Bitcoin Fission current state', () => {
       };
       const createdSnapshot = current;
       const client = {
-        consts: { bitcoinFissions: { minimumRatchetPercent: { toBigInt: () => 5n } } },
+        consts: { bitcoinFissions: { minimumRatchetPercent: new BigNumber(0.05) } },
         query: {
           bitcoinFissions: {
             fissionByOwnerAndId: {
@@ -1197,7 +1198,7 @@ describe('Bitcoin Fission current state', () => {
     await db.bitcoinFissionsTable.replaceRecords([historical]);
 
     const client = {
-      consts: { bitcoinFissions: { minimumRatchetPercent: { toBigInt: () => 5n } } },
+      consts: { bitcoinFissions: { minimumRatchetPercent: new BigNumber(0.05) } },
       query: {
         bitcoinFissions: { fissionByOwnerAndId: { entries: async () => [] } },
         mint: {
@@ -1958,7 +1959,7 @@ describe('Bitcoin Fission recovery', () => {
       });
 
       const client = {
-        consts: { bitcoinFissions: { minimumRatchetPercent: { toBigInt: () => 5n } } },
+        consts: { bitcoinFissions: { minimumRatchetPercent: new BigNumber(0.05) } },
         query: {
           bitcoinFissions: { fissionByOwnerAndId: { entries: async () => [] } },
           mint: {
@@ -2116,7 +2117,7 @@ describe('Bitcoin Fission recovery', () => {
     ]);
 
     const client = {
-      consts: { bitcoinFissions: { minimumRatchetPercent: { toBigInt: () => 5n } } },
+      consts: { bitcoinFissions: { minimumRatchetPercent: new BigNumber(0.05) } },
       query: {
         bitcoinFissions: { fissionByOwnerAndId: { entries: async () => [] } },
         mint: {
@@ -2223,7 +2224,7 @@ describe('Bitcoin Fission finalized events', () => {
       lastUpdatedArgonBlock: block.blockNumber,
     };
     const client = {
-      consts: { bitcoinFissions: { minimumRatchetPercent: { toBigInt: () => 5n } } },
+      consts: { bitcoinFissions: { minimumRatchetPercent: new BigNumber(0.05) } },
       query: {
         bitcoinFissions: {
           fissionByOwnerAndId: { entries: async () => [[{ args: [ownerAccount, current.fissionId] }, current]] },
@@ -2291,7 +2292,7 @@ describe('Bitcoin Fission finalized events', () => {
       lastUpdatedArgonBlock: 159,
     };
     const client = {
-      consts: { bitcoinFissions: { minimumRatchetPercent: { toBigInt: () => 5n } } },
+      consts: { bitcoinFissions: { minimumRatchetPercent: new BigNumber(0.05) } },
       query: {
         bitcoinFissions: {
           fissionByOwnerAndId: { entries: async () => [[{ args: [ownerAccount, current.fissionId] }, current]] },

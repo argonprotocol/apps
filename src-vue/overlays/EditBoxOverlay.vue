@@ -20,10 +20,7 @@
         <BotExpectedGrowth v-else-if="id === 'expectedGrowth'" @update:data="updateData" ref="editorInstance" />
         <BotCloudMachine v-else-if="id === 'cloudMachine'" @update:data="updateData" ref="editorInstance" />
 
-        <VaultProjectedUtilization v-else-if="id === 'projectedUtilization'" @update:data="updateData" ref="editorInstance" />
         <VaultBtcLockingFees v-else-if="id === 'btcLockingFees'" @update:data="updateData" ref="editorInstance" />
-        <VaultPoolRevenueShare v-else-if="id === 'poolRevenueShare'" @update:data="updateData" ref="editorInstance" />
-        <VaultSecuritizationRatio v-else-if="id === 'securitizationRatio'" @update:data="updateData" ref="editorInstance" />
       </div>
 
       <div v-if="shouldHideSaveButton" class="flex flex-row justify-end pb-3 pr-3 space-x-3 mt-5 mx-2 border-t border-slate-400/50 pt-3">
@@ -56,11 +53,7 @@ export type IEditBoxOverlayTypeForMining =
   | 'expectedGrowth'
   | 'cloudMachine';
 
-export type IEditBoxOverlayTypeForVaulting =
-  | 'securitizationRatio'
-  | 'poolRevenueShare'
-  | 'btcLockingFees'
-  | 'projectedUtilization';
+export type IEditBoxOverlayTypeForVaulting = 'btcLockingFees';
 
 export type IEditBoxOverlayType = IEditBoxOverlayTypeForMining | IEditBoxOverlayTypeForVaulting;
 </script>
@@ -72,14 +65,12 @@ import BotRebiddingStrategy from './edit-box/BotRebiddingStrategy.vue';
 import BotCapitalAllocation from './edit-box/BotCapitalAllocation.vue';
 import BotExpectedGrowth from './edit-box/BotExpectedGrowth.vue';
 import BotCloudMachine from './edit-box/BotCloudMachine.vue';
-import VaultProjectedUtilization from './edit-box/VaultProjectedUtilization.vue';
 import VaultBtcLockingFees from './edit-box/VaultBtcLockingFees.vue';
-import VaultPoolRevenueShare from './edit-box/VaultPoolRevenueShare.vue';
-import VaultSecuritizationRatio from './edit-box/VaultSecuritizationRatio.vue';
 import { ChevronLeftIcon, ChevronRightIcon } from '@heroicons/vue/24/outline';
 import { getConfig } from '../stores/config.ts';
 import { JsonExt } from '@argonprotocol/apps-core';
 import { IBiddingRules } from '@argonprotocol/apps-core';
+import type { IConfig } from '../interfaces/IConfig.ts';
 import { useFloatingZIndex } from './helpers/OverlayZIndex.ts';
 
 const props = defineProps<{
@@ -103,6 +94,7 @@ const saveButtonLabel = Vue.ref('Save');
 const shouldHideSaveButton = Vue.ref(false);
 
 let previousBiddingRules = JsonExt.stringify(config.biddingRules);
+const previousVaultSetup = JsonExt.stringify(config.vaultSetup);
 let lastBoundingClientRect: DOMRect | null = null;
 
 const titles = {
@@ -113,10 +105,7 @@ const titles = {
   expectedGrowth: 'Expected Growth',
   cloudMachine: 'Mining Machine',
 
-  projectedUtilization: 'Projected Utilization',
   btcLockingFees: 'Bitcoin Locking Fees',
-  poolRevenueShare: 'Treasury Revenue Split',
-  securitizationRatio: 'Securitization Ratio',
 };
 
 // --- Draggable Modal Logic ---
@@ -164,7 +153,12 @@ async function cancelOverlay(e?: MouseEvent) {
   await editorInstance.value?.beforeCancel?.(stopCancelFn);
   if (stopCancel) return;
 
-  config.biddingRules = JsonExt.parse<IBiddingRules>(previousBiddingRules);
+  if (props.id === 'btcLockingFees') {
+    const { btcFlatFee, btcPctFee } = JsonExt.parse<IConfig['vaultSetup']>(previousVaultSetup);
+    Object.assign(config.vaultSetup, { btcFlatFee, btcPctFee });
+  } else {
+    config.biddingRules = JsonExt.parse<IBiddingRules>(previousBiddingRules);
+  }
   emit('close', props.id);
   e?.preventDefault();
   e?.stopPropagation();

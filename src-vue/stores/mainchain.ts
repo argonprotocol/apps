@@ -10,14 +10,13 @@ import {
   Mining,
   MiningFrames,
 } from '@argonprotocol/apps-core';
-import { runtimeClient, type CurrentRuntimeQueries } from '@argonprotocol/runtime-client';
+import { runtimeClient, type LiveRuntimeQueries } from '@argonprotocol/runtime-client';
 import type { ApiDecoration } from '@argonprotocol/mainchain';
 import { INSTANCE_NAME, LOG_DEBUG, NETWORK_NAME, NETWORK_URL } from '../lib/Env.ts';
 import { getConfig } from './config';
 import { botEmitter } from '../lib/Bot.ts';
 import { BotStatus } from '../lib/BotSyncer.ts';
 import { getBot } from './bot.ts';
-import { VaultCalculator } from '../lib/VaultCalculator.ts';
 import { Config } from '../lib/Config.ts';
 import { BaseDirectory, readTextFile, writeTextFile } from '@tauri-apps/plugin-fs';
 import { BlockWatch } from '@argonprotocol/apps-core/src/BlockWatch.ts';
@@ -31,7 +30,6 @@ let miningFrames: MiningFrames;
 let blockWatch: BlockWatch;
 let biddingCalculator: BiddingCalculator;
 let biddingCalculatorData: BiddingCalculatorData;
-let vaultCalculator: VaultCalculator;
 let refreshPrunedClientPromise: Promise<void> | undefined;
 let shouldRefreshPrunedClient = false;
 
@@ -51,7 +49,7 @@ export async function getFinalizedClient(client?: ArgonClient): Promise<ArgonCur
   client ??= await getMainchainClient(false);
   const finalized = await client.rpc.chain.getFinalizedHead();
   const api = await client.raw.at(finalized);
-  return runtimeClient<ApiDecoration<'promise'>, CurrentRuntimeQueries>(api);
+  return runtimeClient<ApiDecoration<'promise'>, LiveRuntimeQueries>(api);
 }
 
 export async function getEthereumGatewayPauseReason(finalizedClient?: ArgonQueryClient): Promise<string | undefined> {
@@ -186,18 +184,6 @@ export function getBiddingCalculator(): BiddingCalculator {
 export function getBiddingCalculatorData(): BiddingCalculatorData {
   biddingCalculatorData ??= new BiddingCalculatorData(getMining(), getMiningFrames());
   return biddingCalculatorData;
-}
-
-export function getVaultCalculator(): VaultCalculator {
-  if (!vaultCalculator) {
-    const config = getConfig();
-    if (!config.isLoaded) {
-      throw new Error('Config must be loaded before VaultCalculator can be initialized');
-    }
-    vaultCalculator = new VaultCalculator(getMainchainClients());
-    void vaultCalculator.load(config.vaultingRules);
-  }
-  return vaultCalculator;
 }
 
 async function connectPrunedClientToConfiguredServer(): Promise<void> {

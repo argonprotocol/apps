@@ -74,7 +74,7 @@ export const useNetworkStats = defineStore('networkStats', () => {
       vault =>
         ({
           valueLabel: 'satoshis',
-          value: vault.securitizedSatoshis,
+          value: vault.totalSatoshis,
           vault,
         }) satisfies IActiveVaultNode,
     ),

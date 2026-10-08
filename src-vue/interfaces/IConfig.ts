@@ -1,6 +1,5 @@
 import { z } from 'zod';
 import { BiddingRulesSchema, type ICurrencyKey, UnitOfMeasurement } from '@argonprotocol/apps-core';
-import { VaultingRulesSchema } from './IVaultingRules.ts';
 
 const CurrencyKeySchema = z
   .nativeEnum(UnitOfMeasurement)
@@ -233,7 +232,13 @@ export const ConfigSchema = z.object({
   hasMiningSeats: z.boolean(),
   hasMiningBids: z.boolean(),
   biddingRules: BiddingRulesSchema,
-  vaultingRules: VaultingRulesSchema,
+  vaultSetup: z.object({
+    securitizationMicrogons: z.bigint(),
+    committedMicronots: z.bigint(),
+    securitizationRatio: z.number(),
+    btcFlatFee: z.bigint(),
+    btcPctFee: z.number(),
+  }),
 
   defaultCurrencyKey: CurrencyKeySchema,
   userJurisdiction: z.object({
@@ -310,7 +315,7 @@ export interface IConfigDefaults {
   hasMiningSeats: () => IConfig['hasMiningSeats'];
   hasMiningBids: () => IConfig['hasMiningBids'];
   biddingRules: () => IConfig['biddingRules'];
-  vaultingRules: () => IConfig['vaultingRules'];
+  vaultSetup: () => IConfig['vaultSetup'];
   defaultCurrencyKey: () => IConfig['defaultCurrencyKey'];
   userJurisdiction: () => Promise<IConfig['userJurisdiction']>;
   certificationDetails: () => IConfig['certificationDetails'];

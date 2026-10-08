@@ -2258,12 +2258,8 @@ function createMainchainClient() {
     },
     consts: {
       crosschainTransfer: {
-        maxVerifiedExecutionBlockAgeTicks: {
-          toBigInt: () => 60n,
-        },
-        transferOutMintingAuthorityTipBasisPoints: {
-          toNumber: () => 10,
-        },
+        maxVerifiedExecutionBlockAgeTicks: 60n,
+        transferOutMintingAuthorityTipBasisPoints: 10,
       },
     },
     events: {

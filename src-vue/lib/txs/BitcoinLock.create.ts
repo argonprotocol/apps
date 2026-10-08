@@ -94,7 +94,7 @@ export class BitcoinLockCreate extends TransactionOperation<
     });
     const securityFee = bigIntMax(estimate.securityFee - feeDiscountMicrogons, 0n);
     const requiredWalletBalanceMicrogons =
-      securityFee + estimate.txFeePlusTip + client.consts.balances.existentialDeposit.toBigInt();
+      securityFee + estimate.txFeePlusTip + client.consts.balances.existentialDeposit;
 
     return {
       canAfford: estimate.availableBalance >= requiredWalletBalanceMicrogons,
@@ -174,7 +174,7 @@ export class BitcoinLockCreate extends TransactionOperation<
         satoshis,
         tip,
       });
-      const existentialDeposit = client.consts.balances.existentialDeposit.toBigInt();
+      const existentialDeposit = client.consts.balances.existentialDeposit;
       const memberSecurityFee = bigIntMax(feeEstimate.securityFee - feeCreditMicrogons, 0n);
       const requiredWalletBalanceMicrogons = memberSecurityFee + feeEstimate.txFeePlusTip + existentialDeposit;
       if (feeEstimate.availableBalance < requiredWalletBalanceMicrogons) {
@@ -316,7 +316,7 @@ export class BitcoinLockCreate extends TransactionOperation<
     const requiredWalletBalanceMicrogons =
       prepared.metadata.bitcoin.securityFee +
       prepared.txFeePlusTip +
-      prepared.client.consts.balances.existentialDeposit.toBigInt();
+      prepared.client.consts.balances.existentialDeposit;
     return new BitcoinLockWalletFundingError(requiredWalletBalanceMicrogons);
   }
 

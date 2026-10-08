@@ -1,3 +1,5 @@
+import { runtimeClient, type LiveQueryRecord } from '@argonprotocol/runtime-client';
+import BigNumber from 'bignumber.js';
 import { integrationNetwork as sharedNetwork } from '@argonprotocol/apps-core/__test__/integration.setup.ts';
 import { mnemonicGenerate } from '@argonprotocol/mainchain';
 import { teardown } from '@argonprotocol/testing';
@@ -8,6 +10,7 @@ import {
   MiningFrames,
   minimumVaultDelegateBalance,
   TreasuryBonds,
+  Vault,
 } from '@argonprotocol/apps-core';
 import { it, beforeAll, afterAll, describe, expect, vi } from 'vitest';
 import { submitAndFinalize } from '@argonprotocol/apps-core/__test__/helpers/mainchain.ts';
@@ -16,7 +19,7 @@ import { DEFAULT_MASTER_XPUB_PATH, MyVault } from '../lib/MyVault.ts';
 import { createTestDb } from './helpers/db.ts';
 import { Vaults } from '../lib/Vaults.ts';
 import { Config } from '../lib/Config.ts';
-import type { IVaultingRules } from '../interfaces/IVaultingRules.ts';
+import type { IConfig } from '../interfaces/IConfig.ts';
 import { BitcoinNetwork } from '@argonprotocol/bitcoin';
 import { MyVaultRecovery } from '../lib/recovery/MyVaultRecovery.ts';
 import { setMainchainClients } from '../stores/mainchain.ts';
@@ -44,17 +47,13 @@ describe.skipIf(skipE2E).sequential('Your Vault tests', {}, () => {
   const trackedBlockWatches: BlockWatch[] = [];
   const trackedDbs: Db[] = [];
   const trackedMiningFrames: MiningFrames[] = [];
-  const vaultRules: IVaultingRules = {
-    ...(Config.getDefault('vaultingRules') as IVaultingRules),
-    personalBtcPct: 50,
+  const vaultSetup: IConfig['vaultSetup'] = {
+    ...(Config.getDefault('vaultSetup') as IConfig['vaultSetup']),
     securitizationRatio: 1,
-    capitalForTreasuryPct: 50,
-    capitalForSecuritizationPct: 50,
-    baseMicrogonCommitment: 10_000_000n,
-    baseMicronotCommitment: 0n,
+    securitizationMicrogons: 10_000_000n,
+    committedMicronots: 10_000_000n,
     btcFlatFee: 1_000_000n,
     btcPctFee: 2.5,
-    profitSharingPct: 5,
   };
   let vaultCreatedBlockNumber: number;
   let vaultCreationFees: bigint;
@@ -140,10 +139,24 @@ describe.skipIf(skipE2E).sequential('Your Vault tests', {}, () => {
       const config = new Config(Promise.resolve(db), walletKeys);
       await config.load();
       await myVault.load();
+      // Insufficient ARGNOT must roll back the vault and delegate setup together.
+      const failedCreation = await myVault.createNew({
+        masterXpubPath: DEFAULT_MASTER_XPUB_PATH,
+        vaultSetup,
+      });
+      await expect(failedCreation.waitForPostProcessing).rejects.toThrow();
+      expect(myVault.createdVault).toBeNull();
+      expect(await MyVaultRecovery.findOperatorVault(clients, BitcoinNetwork.Regtest, walletKeys)).toBeUndefined();
+
+      await sudoFundWallet({
+        address: walletKeys.vaultingAddress,
+        microgons: 100_000_000n,
+        micronots: 100_000_000n,
+        archiveUrl: mainchainUrl,
+      });
       const vaultCreation = await myVault.createNew({
         masterXpubPath: DEFAULT_MASTER_XPUB_PATH,
-        rules: vaultRules,
-        config,
+        vaultSetup,
       });
       await vaultCreation.txResult.waitForFinalizedBlock;
       vaultCreationFees = vaultCreation.txResult.finalFee ?? 0n;
@@ -153,7 +166,17 @@ describe.skipIf(skipE2E).sequential('Your Vault tests', {}, () => {
       const createdVault = myVault.createdVault!;
       expect(createdVault).toBeTruthy();
       expect(createdVault.vaultId).toBeGreaterThan(0);
+      expect(createdVault.securitization).toBe(vaultSetup.securitizationMicrogons);
+      expect(myVault.data.argonotCommitment.heldMicronots).toBe(vaultSetup.committedMicronots);
+      const commitment = await Vault.getArgonotSecuritization(await clients.get(false), createdVault.vaultId);
+      expect(commitment?.heldMicronots).toBe(vaultSetup.committedMicronots);
       expect(createdVault.operatorAccountId).toBe(walletKeys.vaultingAddress);
+      const createdState = (await client.query.vaults.vaultsById(createdVault.vaultId)) as NonNullable<
+        LiveQueryRecord<'vaults', 'vaultsById'>
+      >;
+      if ('treasuryProfitSharing' in createdState.terms) {
+        expect(createdState.terms.treasuryProfitSharing.toNumber()).toBe(0.1);
+      }
       const delegateAddress = await walletKeys.getVaultDelegateKeypair().then(x => x.address);
       const delegateBalance = await client.query.system.account(delegateAddress).then(x => x.data.free);
       expect(createdVault.delegateAccountId).toBe(delegateAddress);
@@ -165,7 +188,14 @@ describe.skipIf(skipE2E).sequential('Your Vault tests', {}, () => {
 
       expect(txFee).toBe(vaultCreationFees);
       expect(createBlockNumber).toBe(vaultCreatedBlockNumber);
-      expect(vault).toStrictEqual(createdVault);
+      expect(vault).toMatchObject({
+        vaultId: createdVault.vaultId,
+        operatorAccountId: createdVault.operatorAccountId,
+        securitization: createdVault.securitization,
+        securitizationTarget: createdVault.securitizationTarget,
+        terms: createdVault.terms,
+        delegateAccountId: createdVault.delegateAccountId,
+      });
       expect(masterXpubPath).toBe(DEFAULT_MASTER_XPUB_PATH);
       vaultId = vault.vaultId;
     },
@@ -240,6 +270,124 @@ describe.skipIf(skipE2E).sequential('Your Vault tests', {}, () => {
       expect(treasuryBondLots).toEqual([]);
     },
   );
+
+  it('finalizes settings, bond lots and ARGNOT securitization with either runtime', { timeout: 180e3 }, async () => {
+    const client = await clients.get(false);
+    const signer = await walletKeys.getVaultingKeypair();
+    await sudoFundWallet({ address: signer.address, microgons: 1_000_000_000n, micronots: 100_000_000n, client });
+    const settings = { ...vaultSetup, btcFlatFee: 2_000_000n, btcPctFee: 1.5 };
+    const settingsTx = await myVault.updateSettings({
+      terms: {
+        bitcoinBaseFee: settings.btcFlatFee,
+        bitcoinAnnualPercentRate: BigNumber(settings.btcPctFee).div(100),
+      },
+      txProgressCallback: () => undefined,
+    });
+    await settingsTx?.waitForPostProcessing;
+    const updatedVault = await Vault.get(client, vaultId);
+    const updatedTerms = updatedVault.pendingTerms?.[1] ?? updatedVault.terms;
+    expect(updatedTerms.bitcoinBaseFee).toBe(2_000_000n);
+    expect(updatedTerms.bitcoinAnnualPercentRate.toNumber()).toBe(0.015);
+    const publishedTerms = myVault.createdVault!.pendingTerms?.[1] ?? myVault.createdVault!.terms;
+    expect(publishedTerms.bitcoinBaseFee).toBe(updatedTerms.bitcoinBaseFee);
+    expect(publishedTerms.bitcoinAnnualPercentRate.toNumber()).toBe(0.015);
+    const updatedState = (await client.query.vaults.vaultsById(vaultId)) as NonNullable<
+      LiveQueryRecord<'vaults', 'vaultsById'>
+    >;
+    if (!('committedMicrogons' in updatedState)) {
+      const updatedTerms = updatedState.pendingTerms?.[1] ?? updatedState.terms;
+      expect(updatedTerms.treasuryProfitSharing.toNumber()).toBe(0.1);
+    }
+
+    const commitment = await myVault.setVaultSecuritization({ committedMicronots: 20_000_000n });
+    await commitment.waitForPostProcessing;
+    expect(myVault.data.argonotCommitment.heldMicronots).toBe(20_000_000n);
+    expect(myVault.argonotSecuritizationTarget).toBe(20_000_000n);
+
+    const minimumPurchase = client.consts.treasury.minimumArgonsPerContributor;
+    const increased = await myVault.setVaultSecuritization({ securitizationMicrogons: minimumPurchase * 3n });
+    await increased.waitForPostProcessing;
+    expect(myVault.createdVault?.securitizationTarget).toBe(minimumPurchase * 3n);
+    const additionalLock = await bitcoinLockCreate.submit({
+      satoshis: await myVault.bitcoinLocks.satoshisForArgonLiquidity(
+        (myVault.createdVault!.availableBitcoinSpace() * 4n) / 5n,
+      ),
+      vault: myVault.createdVault!,
+      txSigner: await walletKeys.getLiquidLockingKeypair(),
+    });
+    await additionalLock.waitForPostProcessing;
+    const purchase = await TreasuryBonds.buildBuyBondTx({ client, vaultId, bondPurchaseMicrogons: minimumPurchase });
+    const purchaseVault = await Vault.get(client, vaultId);
+    if (purchaseVault.bondCapacitySource === 'Bitcoin' && purchaseVault.ratioAdjustedSatoshis === 0n) {
+      // The deployed runtime requires verified Bitcoin. This network has unfunded
+      // locks, so the app must decode its terminal rejection rather than hang.
+      await expect(submitAndFinalize(client, purchase, signer)).rejects.toMatchObject({
+        errorCode: 'treasury.VaultNotAcceptingBondPurchases',
+      });
+      expect(await TreasuryBonds.getBondLots(client, vaultId, signer.address)).toEqual([]);
+    } else {
+      const bought = await submitAndFinalize(client, purchase, signer);
+      const purchaseApi = runtimeClient(await client.raw.at(await bought.waitForFinalizedBlock));
+      const bonds = await TreasuryBonds.getBondLots(purchaseApi, vaultId, signer.address);
+      expect(bonds).toHaveLength(1);
+      expect(bonds[0]).toMatchObject({
+        bonds: Number(minimumPurchase / 1_000_000n),
+        owner: signer.address,
+        isOwn: true,
+      });
+      if (purchaseVault.securitizationExitNoticeBlocks !== undefined) {
+        const reduction = await myVault.setVaultSecuritization({ securitizationMicrogons: minimumPurchase });
+        await reduction.waitForPostProcessing;
+        const reducedVault = await Vault.get(client, vaultId);
+        const reducedBonds = await TreasuryBonds.getVaultBondState(client, vaultId, signer.address);
+        const prices = await CurrencyBase.fetchPriceIndex(client);
+        expect(
+          TreasuryBonds.availableBondSpace({
+            vault: reducedVault,
+            capacityMicrogons: reducedVault.bondCapacityMicrogons(prices),
+            bondState: reducedBonds,
+          }),
+        ).toBe(0n);
+        await expect(submitAndFinalize(client, purchase, signer)).rejects.toMatchObject({
+          errorCode: 'treasury.InsufficientBondSpace',
+        });
+        const cancellation = await myVault.setVaultSecuritization({ securitizationMicrogons: minimumPurchase * 3n });
+        await cancellation.waitForPostProcessing;
+        const restoredVault = await Vault.get(client, vaultId);
+        expect(
+          TreasuryBonds.availableBondSpace({
+            vault: restoredVault,
+            capacityMicrogons: restoredVault.bondCapacityMicrogons(prices),
+            bondState: reducedBonds,
+          }),
+        ).toBe(minimumPurchase * 2n);
+      }
+      const released = await submitAndFinalize(
+        client,
+        await TreasuryBonds.buildReleaseBondLotTx({ client, bondLotId: bonds[0].id }),
+        signer,
+      );
+      const releaseApi = runtimeClient(await client.raw.at(await released.waitForFinalizedBlock));
+      const releasing = await TreasuryBonds.getBondLots(releaseApi, vaultId, signer.address);
+      expect(releasing.find(lot => lot.id === bonds[0].id)).toMatchObject({ isReleasing: true });
+    }
+    const reduced = await myVault.setVaultSecuritization({ committedMicronots: 1_000_000n });
+    await reduced.waitForPostProcessing;
+    expect(myVault.argonotSecuritizationTarget).toBe(1_000_000n);
+    const finalizedVault = await Vault.get(client, vaultId);
+    const argonots = await Vault.getArgonotSecuritization(client, vaultId);
+    if (finalizedVault.securitizationExitNoticeBlocks !== undefined) {
+      expect(argonots!.heldMicronots).toBeGreaterThan(1_000_000n);
+      expect(
+        [...finalizedVault.securitizationReleaseSchedule.values()].reduce(
+          (sum, entry) => sum + entry.argonotWithdrawals,
+          0n,
+        ),
+      ).toBe(argonots!.heldMicronots - 1_000_000n);
+    } else {
+      expect(argonots!.heldMicronots).toBe(1_000_000n);
+    }
+  });
 
   async function cleanupTrackedResources(): Promise<void> {
     await Promise.allSettled(trackedBitcoinLocks.map(x => x.shutdown()));

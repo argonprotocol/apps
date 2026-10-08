@@ -557,6 +557,11 @@ const vaultBitcoinMethods = [
   'ObligationModified',
 ];
 const vaultPositionMethods = [
+  'ArgonotSecuritizationSet',
+  'ArgonotExitRequested',
+  'ArgonotExitReleased',
+  'SecuritizationExitRequested',
+  'SecuritizationExitReleased',
   'BackfillSecuritizationReservedChanged',
   'CommittedArgonotsSet',
   'FundsReleased',
@@ -601,9 +606,8 @@ const ignoredBitcoinLockMethods = [
   'OrphanedUtxoCleanupScheduleOverflow',
   'OrphanedUtxoExpirationError',
 ];
-const indexedBitcoinUtxoMethods = ['UtxoUnwatched', 'UtxoVerified'];
+const indexedBitcoinUtxoMethods = ['UtxoDetected', 'UtxoUnwatched', 'UtxoVerified'];
 const ignoredBitcoinUtxoMethods = [
-  'UtxoDetected',
   'UtxoDetectedError',
   'UtxoExpiredError',
   'UtxoRejected',
@@ -613,6 +617,7 @@ const ignoredBitcoinUtxoMethods = [
   'UtxoVerifiedError',
 ];
 const treasuryBondMethods = [
+  'BondLotEarningsBackfilled',
   'BondLotBackfillChanged',
   'BondLotFlexibilityChanged',
   'BondLotPurchased',
@@ -638,6 +643,9 @@ const treasuryRevenueMethods = [
   'CouldNotFundTreasury',
 ];
 const ignoredTreasuryMethods = [
+  // Global reward configuration and burn failures do not change account custody.
+  'RewardEconomicsConfigured',
+  'CouldNotBurnRewardAllocation',
   'CouldNotDistributeEarningsToArgonotBondLot',
   'CouldNotDistributeEarningsToBondLot',
   'CouldNotTransferToTreasuryReserves',

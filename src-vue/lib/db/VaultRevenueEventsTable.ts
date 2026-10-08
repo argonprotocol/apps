@@ -5,6 +5,7 @@ export interface IVaultRevenueEventsRecord {
   id: number;
   amount: bigint;
   source: 'vaultCollect' | 'vaultBurn';
+  frameId?: number;
   blockNumber: number;
   blockHash: string;
   blockTime?: Date;
@@ -36,11 +37,11 @@ export class VaultRevenueEventsTable extends BaseTable {
   public async insert(
     args: Omit<IVaultRevenueEventsRecord, 'id' | 'createdAt' | 'updatedAt'>,
   ): Promise<IVaultRevenueEventsRecord | undefined> {
-    const { amount, source, blockNumber, blockHash, blockTime, extrinsicIndex } = args;
+    const { amount, source, frameId, blockNumber, blockHash, blockTime, extrinsicIndex } = args;
     const records = await this.db.select<IVaultRevenueEventsRecord[]>(
       `INSERT INTO VaultRevenueEvents
-        (amount, source, blockNumber, blockHash, blockTime, extrinsicIndex)
-        VALUES (?, ?, ?, ?, ?, ?)
+        (amount, source, frameId, blockNumber, blockHash, blockTime, extrinsicIndex)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT DO UPDATE SET
           amount = CASE
             WHEN VaultRevenueEvents.blockHash IS NOT excluded.blockHash THEN excluded.amount
@@ -53,7 +54,7 @@ export class VaultRevenueEventsTable extends BaseTable {
            OR (VaultRevenueEvents.blockTime IS NULL AND excluded.blockTime IS NOT NULL)
            OR (VaultRevenueEvents.extrinsicIndex IS NULL AND excluded.extrinsicIndex IS NOT NULL)
         RETURNING *;`,
-      toSqlParams([amount, source, blockNumber, blockHash, blockTime, extrinsicIndex]),
+      toSqlParams([amount, source, frameId, blockNumber, blockHash, blockTime, extrinsicIndex]),
     );
     const record = convertFromSqliteFields<IVaultRevenueEventsRecord[]>(records, this.fields)[0];
     if (record) this.revision += 1;

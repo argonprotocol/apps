@@ -58,7 +58,7 @@ aroundAll(async runSuite => {
         const fundingCalls = [client.tx.balances.forceSetBalance(account.address, 500_000_000n)];
         if (controlsAuction) {
           const stakePerSeat = await client.query.miningSlot.argonotsPerMiningSeat();
-          const maximumSeats = BigInt(client.consts.mint.maxPossibleMiners.toNumber());
+          const maximumSeats = BigInt(client.consts.mint.maxPossibleMiners);
           fundingCalls.push(client.tx.ownership.forceSetBalance(account.address, stakePerSeat * maximumSeats));
         }
         const result = await sudoSubmitAndFinalize(client, client.tx.utility.batchAll(fundingCalls), {

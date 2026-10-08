@@ -1,15 +1,10 @@
 import { MICROGONS_PER_ARGON } from '@argonprotocol/mainchain';
-import type { HistoricalQueryRecord } from '@argonprotocol/runtime-client';
+import type { CurrentRuntimeQueries, LiveQueryRecord, RuntimeQueryResult } from '@argonprotocol/runtime-client';
 
 import { MICRONOTS_PER_ARGONOT } from './Currency.js';
-import { calculateAnnualPercentageYield } from './FinancialReturns.js';
+import type { ArgonCurrentQueryClient } from './MainchainClients.js';
 
-type RuntimeBondLot = NonNullable<HistoricalQueryRecord<'treasury', 'bondLotById'>>;
-
-export interface IBondLotSource {
-  id: number;
-  lot: RuntimeBondLot;
-}
+type RuntimeBondLot = NonNullable<RuntimeQueryResult<CurrentRuntimeQueries['treasury']['bondLotById']>>;
 
 export type IBondLotTotals = {
   totalBonds: number;
@@ -23,111 +18,80 @@ export type IBondLotTotals = {
   totalArgonotBondMicronots: bigint;
 };
 
-type IBondLotModel = {
-  id: number;
-  programType: 'Vault' | 'Argonot';
-  accountId: string;
-  vaultId?: number;
-  bonds: number;
-  createdFrame: number;
-  participatedFrames: number;
-  lastEarningsFrame: number | null;
-  lastEarnings: bigint;
-  lifetimeEarnings: bigint;
-  lifetimeBondedFrameMicrogons: bigint;
-  sharingPercent?: number;
-  bonusPercent: number;
-  releaseFrame: number | null;
-  releaseReason?: NonNullable<RuntimeBondLot['releaseReason']>['type'];
-  isReleasing: boolean;
-  isFlexible: boolean;
-  isOwn: boolean;
-  canRelease: boolean;
-};
+export class BondLot implements RuntimeBondLot {
+  declare public readonly owner: RuntimeBondLot['owner'];
+  declare public readonly program: RuntimeBondLot['program'];
+  declare public readonly bonds: RuntimeBondLot['bonds'];
+  declare public readonly isFlexible: RuntimeBondLot['isFlexible'];
+  declare public readonly lockedFrameTerms: RuntimeBondLot['lockedFrameTerms'];
+  declare public readonly createdFrameId: RuntimeBondLot['createdFrameId'];
+  declare public readonly participatedFrames: RuntimeBondLot['participatedFrames'];
+  declare public readonly lastFrameEarningsFrameId: RuntimeBondLot['lastFrameEarningsFrameId'];
+  declare public readonly lastFrameEarnings: RuntimeBondLot['lastFrameEarnings'];
+  declare public readonly cumulativeEarnings: RuntimeBondLot['cumulativeEarnings'];
+  declare public readonly releaseFrameId: RuntimeBondLot['releaseFrameId'];
+  declare public readonly releaseReason: RuntimeBondLot['releaseReason'];
 
-export class BondLot {
-  public readonly id: number;
-  public readonly programType: 'Vault' | 'Argonot';
-  public readonly nativeAsset: 'ARGN' | 'ARGNOT';
-  public readonly accountId: string;
-  public readonly vaultId?: number;
-  public readonly bonds: number;
-  public readonly createdFrame: number;
-  public readonly participatedFrames: number;
-  public readonly lastEarningsFrame: number | null;
-  public readonly lastEarnings: bigint;
-  public readonly lifetimeEarnings: bigint;
-  public readonly lifetimeBondedFrameMicrogons: bigint;
-  public sharingPercent?: number;
-  public readonly bonusPercent: number;
-  public readonly releaseFrame: number | null;
-  public readonly releaseReason?: NonNullable<RuntimeBondLot['releaseReason']>['type'];
-  public readonly isReleasing: boolean;
-  public readonly isFlexible: boolean;
-  public readonly isOwn: boolean;
-  public readonly canRelease: boolean;
+  public earningsDestination: 'Owner' | 'VaultForFlexible' = 'Owner';
 
-  constructor(model: IBondLotModel) {
-    this.id = model.id;
-    this.programType = model.programType;
-    this.nativeAsset = model.programType === 'Vault' ? 'ARGN' : 'ARGNOT';
-    this.accountId = model.accountId;
-    this.vaultId = model.vaultId;
-    this.bonds = model.bonds;
-    this.createdFrame = model.createdFrame;
-    this.participatedFrames = model.participatedFrames;
-    this.lastEarningsFrame = model.lastEarningsFrame;
-    this.lastEarnings = model.lastEarnings;
-    this.lifetimeEarnings = model.lifetimeEarnings;
-    this.lifetimeBondedFrameMicrogons = model.lifetimeBondedFrameMicrogons;
-    this.sharingPercent = model.sharingPercent;
-    this.bonusPercent = model.bonusPercent;
-    this.releaseFrame = model.releaseFrame;
-    this.releaseReason = model.releaseReason;
-    this.isReleasing = model.isReleasing;
-    this.isFlexible = model.isFlexible;
-    this.isOwn = model.isOwn;
-    this.canRelease = model.canRelease;
+  constructor(
+    public readonly id: number,
+    lot: RuntimeBondLot,
+    public readonly ownAddress?: string,
+  ) {
+    Object.assign(this, lot);
   }
 
-  public static fromRuntime(id: number, lot: RuntimeBondLot, ownAddress?: string): BondLot {
-    const accountId = lot.owner;
-    const bonds = lot.bonds;
-    const participatedFrames = lot.participatedFrames;
-    const programType = lot.program?.type ?? 'Vault';
-    let vaultId: number | undefined;
-    let sharingPercent: number | undefined;
-    let bonusPercent = 0;
+  public static fromRuntime(
+    id: number,
+    lot: NonNullable<LiveQueryRecord<'treasury', 'bondLotById'>>,
+    ownAddress?: string,
+  ): BondLot {
+    if ('lockedFrameTerms' in lot) return new BondLot(id, lot, ownAddress);
+    const normalized = new BondLot(id, { ...lot, lockedFrameTerms: null }, ownAddress);
+    normalized.earningsDestination = 'VaultForFlexible';
+    return normalized;
+  }
 
-    if (programType === 'Vault') {
-      const vaultTerms = lot.program?.type === 'Vault' ? lot.program.value : undefined;
-      vaultId = vaultTerms?.vaultId ?? lot.vaultId;
-      sharingPercent = (vaultTerms?.sharingPercent ?? lot.sharingPercent)?.times(100).toNumber();
-      bonusPercent = (vaultTerms?.bonusPercent ?? lot.bonusPercent)?.times(100).toNumber() ?? 0;
-    }
+  public static async get(client: ArgonCurrentQueryClient, id: number, ownAddress?: string): Promise<BondLot | null> {
+    const lot = await client.query.treasury.bondLotById(id);
+    return lot ? BondLot.fromRuntime(id, lot, ownAddress) : null;
+  }
 
-    return new BondLot({
-      id,
-      programType,
-      accountId,
-      vaultId,
-      bonds,
-      createdFrame: lot.createdFrameId,
-      participatedFrames,
-      lastEarningsFrame: lot.lastFrameEarningsFrameId,
-      lastEarnings: lot.lastFrameEarnings ?? 0n,
-      lifetimeEarnings: lot.cumulativeEarnings,
-      lifetimeBondedFrameMicrogons:
-        programType === 'Vault' ? BondLot.bondsToMicrogons(bonds) * BigInt(participatedFrames) : 0n,
-      sharingPercent,
-      bonusPercent,
-      releaseFrame: lot.releaseFrameId,
-      releaseReason: lot.releaseReason?.type,
-      isReleasing: lot.releaseReason !== null,
-      isFlexible: lot.isFlexible ?? lot.isBackfill ?? false,
-      isOwn: accountId === ownAddress,
-      canRelease: accountId === ownAddress,
-    });
+  public withEarningsBackfill(addedFrames: number, addedEarnings: bigint): BondLot {
+    return new BondLot(
+      this.id,
+      {
+        ...this,
+        cumulativeEarnings: this.cumulativeEarnings + addedEarnings,
+        participatedFrames: this.participatedFrames + addedFrames,
+      },
+      this.ownAddress,
+    );
+  }
+
+  public get programType(): RuntimeBondLot['program']['type'] {
+    return this.program.type;
+  }
+
+  public get nativeAsset(): 'ARGN' | 'ARGNOT' {
+    return this.program.type === 'Vault' ? 'ARGN' : 'ARGNOT';
+  }
+
+  public get vaultId(): number | undefined {
+    return this.program.type === 'Vault' ? this.program.value.vaultId : undefined;
+  }
+
+  public get isReleasing(): boolean {
+    return this.releaseReason !== null;
+  }
+
+  public get isOwn(): boolean {
+    return this.owner === this.ownAddress;
+  }
+
+  public get canRelease(): boolean {
+    return this.isOwn;
   }
 
   public get activeBonds(): number {
@@ -160,26 +124,6 @@ export class BondLot {
     return BondLot.bondsToMicrogons(this.returningBonds);
   }
 
-  public getAPY(): number {
-    return BondLot.getAPY([this]);
-  }
-
-  public static getAPY(lots: BondLot[]): number {
-    const vaultLots = lots.filter(lot => lot.programType === 'Vault');
-    const lifetimeEarnings = vaultLots.reduce((sum, lot) => sum + lot.lifetimeEarnings, 0n);
-    const lifetimeBondedFrameAmount = vaultLots.reduce((sum, lot) => {
-      return sum + lot.lifetimeBondedFrameMicrogons;
-    }, 0n);
-
-    if (lifetimeBondedFrameAmount <= 0n) return 0;
-
-    return calculateAnnualPercentageYield({
-      startingValue: lifetimeBondedFrameAmount,
-      endingValue: lifetimeBondedFrameAmount + lifetimeEarnings,
-      periodDays: 1,
-    });
-  }
-
   public static getTotals(lots: BondLot[]): IBondLotTotals {
     return lots.reduce<IBondLotTotals>(
       (totals, lot) => ({
@@ -192,8 +136,8 @@ export class BondLot {
         returningBondMicrogons:
           totals.returningBondMicrogons +
           (lot.programType === 'Vault' ? BondLot.bondsToMicrogons(lot.returningBonds) : 0n),
-        returningBondFrame: BondLot.getEarliestFrame(totals.returningBondFrame, lot.releaseFrame),
-        lifetimeEarnings: totals.lifetimeEarnings + lot.lifetimeEarnings,
+        returningBondFrame: BondLot.getEarliestFrame(totals.returningBondFrame, lot.releaseFrameId),
+        lifetimeEarnings: totals.lifetimeEarnings + lot.cumulativeEarnings,
         totalArgonotBondMicronots: totals.totalArgonotBondMicronots + (lot.principalMicronots ?? 0n),
       }),
       {

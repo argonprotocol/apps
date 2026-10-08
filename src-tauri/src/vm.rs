@@ -4,10 +4,12 @@ use std::fs;
 use std::net::TcpListener;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::sync::Mutex;
 use std::time::Instant;
 use tauri::AppHandle;
 
 static VM_FILES: Dir<'_> = include_dir!("$CARGO_MANIFEST_DIR/../local-machine");
+static VM_ACTIVATION: Mutex<()> = Mutex::new(());
 
 pub struct Vm {
     pub ssh_port: u16,
@@ -53,7 +55,9 @@ pub async fn activate_local_vm(app: AppHandle) -> Result<Option<u16>, String> {
         return Ok(None);
     }
     let work_dir = get_vm_work_dir(&app);
-    let vm = Vm::activate(&vm_path, &work_dir)?;
+    let vm = tauri::async_runtime::spawn_blocking(move || Vm::activate(&vm_path, &work_dir))
+        .await
+        .map_err(|e| format!("Local VM activation failed: {e}"))??;
     Ok(Some(vm.ssh_port))
 }
 
@@ -89,10 +93,12 @@ fn get_uid_gid() -> (u32, u32) {
 
 impl Vm {
     pub fn activate(vm_path: &Path, work_dir: &Path) -> anyhow::Result<Vm, String> {
+        // Native commands survive webview reloads; serialize the Docker check/start boundary.
+        let _activation = VM_ACTIVATION.lock().map_err(|e| e.to_string())?;
         if !vm_path.exists() {
             return Err(format!("VM path {} does not exist", vm_path.display()));
         }
-        Self::run_compose_command(vm_path, &["up", "-d"])?;
+        Self::start_inactive_services(vm_path)?;
         let server_dir = work_dir.join("server");
         if let Some(compose_dir) = [work_dir, server_dir.as_path()].into_iter().find(|dir| {
             [
@@ -104,7 +110,7 @@ impl Vm {
             .iter()
             .any(|file_name| dir.join(file_name).exists())
         }) {
-            Self::run_compose_command(compose_dir, &["up", "-d"])?;
+            Self::start_inactive_services(compose_dir)?;
         }
         Self::get_vm(vm_path)
     }
@@ -208,6 +214,34 @@ impl Vm {
         Ok(())
     }
 
+    fn start_inactive_services(compose_dir: &Path) -> Result<(), String> {
+        let configured = Self::run_compose_command(compose_dir, &["config", "--services"])?;
+        let active = Self::run_compose_command(
+            compose_dir,
+            &[
+                "ps",
+                "--status",
+                "running",
+                "--status",
+                "restarting",
+                "--services",
+            ],
+        )?;
+        let inactive: Vec<_> = configured
+            .lines()
+            .filter(|service| !active.lines().any(|running| running == *service))
+            .collect();
+        if inactive.is_empty() {
+            return Ok(());
+        }
+
+        // Installation owns configuration updates. Reconnect only starts missing/stopped services.
+        let mut args = vec!["up", "-d", "--no-recreate"];
+        args.extend(inactive);
+        Self::run_compose_command(compose_dir, &args)?;
+        Ok(())
+    }
+
     fn run_compose_command(vm_path: &Path, args: &[&str]) -> anyhow::Result<String, String> {
         let started = Instant::now();
         log::info!("Starting docker compose {args:?}");
@@ -263,7 +297,7 @@ fn compose_build_progress(line: &str) -> Option<&str> {
 
 #[cfg(test)]
 mod tests {
-    use super::{compose_build_progress, has_vm_definition};
+    use super::{Vm, compose_build_progress, has_vm_definition};
     use std::fs;
     use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -308,5 +342,102 @@ mod tests {
         assert!(has_vm_definition(&test_vm_path));
 
         fs::remove_dir_all(test_vm_path).unwrap();
+    }
+
+    #[test]
+    #[ignore = "Requires Docker and the alpine:3.17 image"]
+    fn activation_preserves_running_containers_and_resumes_stopped_services() {
+        let unique_id = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let project = format!("argon-vm-activation-{}-{unique_id}", std::process::id());
+        let vm_path = std::env::temp_dir().join(&project);
+        let work_dir = vm_path.join("app");
+        let server_dir = work_dir.join("server");
+        fs::create_dir_all(&server_dir).unwrap();
+        for dir in [&vm_path, &server_dir] {
+            fs::write(
+                dir.join(".env"),
+                format!("COMPOSE_PROJECT_NAME={project}\n"),
+            )
+            .unwrap();
+        }
+        fs::write(
+            vm_path.join("docker-compose.yml"),
+            "services:\n  vm:\n    image: alpine:3.17\n    command: sleep 600\n    ports: ['127.0.0.1:0:22']\n",
+        )
+        .unwrap();
+        let server_compose = "services:\n  router:\n    image: alpine:3.17\n    command: sleep 600\n  worker:\n    image: alpine:3.17\n    command: sleep 600\n    profiles: [miners]\n";
+        fs::write(server_dir.join("compose.yaml"), server_compose).unwrap();
+
+        let result = std::panic::catch_unwind(|| {
+            let vm = std::thread::scope(|scope| {
+                let first = scope.spawn(|| Vm::activate(&vm_path, &work_dir));
+                let second = scope.spawn(|| Vm::activate(&vm_path, &work_dir));
+                let vm = first.join().unwrap().unwrap();
+                assert_eq!(second.join().unwrap().unwrap().ssh_port, vm.ssh_port);
+                vm
+            });
+            let vm_id = Vm::run_compose_command(&vm_path, &["ps", "--quiet", "vm"]).unwrap();
+            let router_id =
+                Vm::run_compose_command(&server_dir, &["ps", "--quiet", "router"]).unwrap();
+            assert!(!vm_id.is_empty());
+            assert!(!router_id.is_empty());
+            assert!(
+                Vm::run_compose_command(&server_dir, &["ps", "--all", "--quiet", "worker"])
+                    .unwrap()
+                    .is_empty()
+            );
+
+            // Reconnecting must not apply installer-owned configuration changes.
+            fs::write(
+                server_dir.join("compose.yaml"),
+                server_compose.replace("sleep 600", "sleep 601"),
+            )
+            .unwrap();
+            std::thread::scope(|scope| {
+                let first = scope.spawn(|| Vm::activate(&vm_path, &work_dir));
+                let second = scope.spawn(|| Vm::activate(&vm_path, &work_dir));
+                assert_eq!(first.join().unwrap().unwrap().ssh_port, vm.ssh_port);
+                assert_eq!(second.join().unwrap().unwrap().ssh_port, vm.ssh_port);
+            });
+            assert_eq!(
+                Vm::run_compose_command(&server_dir, &["ps", "--quiet", "router"]).unwrap(),
+                router_id
+            );
+
+            // A partial shutdown must resume the existing container and start a missing active service.
+            Vm::run_compose_command(&server_dir, &["stop", "router"]).unwrap();
+            fs::write(
+                server_dir.join(".env"),
+                format!("COMPOSE_PROJECT_NAME={project}\nCOMPOSE_PROFILES=miners\n"),
+            )
+            .unwrap();
+            assert_eq!(
+                Vm::activate(&vm_path, &work_dir).unwrap().ssh_port,
+                vm.ssh_port
+            );
+            assert_eq!(
+                Vm::run_compose_command(&server_dir, &["ps", "--quiet", "router"]).unwrap(),
+                router_id
+            );
+            assert_eq!(
+                Vm::run_compose_command(&vm_path, &["ps", "--quiet", "vm"]).unwrap(),
+                vm_id
+            );
+            assert!(
+                !Vm::run_compose_command(&server_dir, &["ps", "--quiet", "worker"])
+                    .unwrap()
+                    .is_empty()
+            );
+        });
+
+        let cleanup = Vm::run_compose_command(&vm_path, &["down", "--remove-orphans", "--volumes"]);
+        fs::remove_dir_all(&vm_path).unwrap();
+        cleanup.unwrap();
+        if let Err(error) = result {
+            std::panic::resume_unwind(error);
+        }
     }
 }

@@ -1,7 +1,7 @@
 import './helpers/mocks.ts';
 import { beforeAll, expect, it, vi } from 'vitest';
 import { Config } from '../lib/Config';
-import { createMockedDbPromise, createTestDb } from './helpers/db';
+import { createMockedDbPromise, createTestDb, createTestDbAtMigration } from './helpers/db';
 import { instanceChecks } from '../lib/Utils.js';
 import { WalletKeys } from '../lib/WalletKeys.ts';
 import { createTestWallet } from './helpers/wallet.ts';
@@ -12,7 +12,9 @@ import {
   ServerType,
   VaultingSetupStatus,
 } from '../interfaces/IConfig.ts';
-import { JsonExt } from '@argonprotocol/apps-core';
+import { JsonExt, Vault } from '@argonprotocol/apps-core';
+import { getOfflineRegistry, type ArgonPrimitivesVault } from '@argonprotocol/mainchain';
+import { toPlain } from '@argonprotocol/runtime-client';
 import Restarter from '../lib/Restarter.ts';
 import PluginSql from '@tauri-apps/plugin-sql';
 import { LocalMachine } from '../lib/LocalMachine.ts';
@@ -37,6 +39,97 @@ it('can load config defaults', async () => {
   expect(config.biddingRules).toBeTruthy();
   expect(config.postWelcomeLaunchCount).toBe(0);
   expect(config.hasConnectedDiscord).toBe(false);
+});
+
+it.each([
+  VaultingSetupStatus.None,
+  VaultingSetupStatus.Checklist,
+  VaultingSetupStatus.Installing,
+  VaultingSetupStatus.Finished,
+])('migrates vault creation choices and status across restart: %s', async status => {
+  const { db, migrateToLatest } = await createTestDbAtMigration(37);
+  const oldRules = {
+    baseMicrogonCommitment: 3_000_000_000n,
+    baseMicronotCommitment: 5_000_000n,
+    securitizationRatio: 1.5,
+    btcFlatFee: 3_000_000n,
+    btcPctFee: 4.5,
+    capitalForSecuritizationPct: 90,
+    capitalForTreasuryPct: 10,
+    profitSharingPct: 37,
+  };
+  await db.configTable.insertOrReplace({
+    vaultingSetupStatus: JsonExt.stringify(status),
+    vaultingRules: JsonExt.stringify(oldRules),
+  } as Record<string, string>);
+  await migrateToLatest();
+  const expected = {
+    securitizationMicrogons: 3_000_000_000n,
+    committedMicronots: 5_000_000n,
+    securitizationRatio: 1.5,
+    btcFlatFee: 3_000_000n,
+    btcPctFee: 4.5,
+  };
+  const stored = await db.configTable.fetchAllAsObject();
+  expect(JsonExt.parse(stored.vaultSetup!)).toEqual(expected);
+  expect(stored).not.toHaveProperty('vaultingRules');
+
+  const { walletKeys } = createTestWallet('//Alice');
+  instanceChecks.delete(Config.prototype.constructor);
+  const config = new Config(Promise.resolve(db), walletKeys);
+  await config.load();
+  expect(config.vaultSetup).toEqual(expected);
+  expect(config.vaultingSetupStatus).toBe(status);
+  expect(config.hasSavedVaultSetup).toBe(true);
+
+  instanceChecks.delete(Config.prototype.constructor);
+  const restarted = new Config(Promise.resolve(db), walletKeys);
+  await restarted.load();
+  expect(restarted.vaultSetup).toEqual(expected);
+  expect(restarted.vaultingSetupStatus).toBe(status);
+  await db.close();
+});
+
+it.each([false, true])('restores a vault without replacing its creation draft (saved: %s)', async saved => {
+  const db = await createTestDb();
+  const { walletKeys } = createTestWallet('//Alice');
+  const vault = new Vault(
+    7,
+    toPlain(
+      getOfflineRegistry().createType<ArgonPrimitivesVault>('ArgonPrimitivesVault', {
+        operatorAccountId: walletKeys.vaultingAddress,
+        securitization: 9_000_000n,
+      }),
+    ) as ConstructorParameters<typeof Vault>[1],
+    1_000,
+  );
+  const vaultSetup = {
+    ...(Config.getDefault('vaultSetup') as Config['vaultSetup']),
+    securitizationMicrogons: 4_000_000n,
+    committedMicronots: 6_000_000n,
+  };
+  await db.configTable.insertOrReplace({
+    walletAccountsHadPreviousLife: 'true',
+    walletPreviousLifeRecovered: 'false',
+    ...(saved ? { vaultSetup: JsonExt.stringify(vaultSetup) } : {}),
+  });
+  instanceChecks.delete(Config.prototype.constructor);
+  const config = new Config(Promise.resolve(db), walletKeys, async () => ({ vault }));
+  await config.load();
+  await config.recoverPreviousWalletHistory();
+
+  expect(config.vaultingSetupStatus).toBe(VaultingSetupStatus.Finished);
+  expect(config.vaultSetup).toEqual(saved ? vaultSetup : Config.getDefault('vaultSetup'));
+  expect(config.hasSavedVaultSetup).toBe(saved);
+  expect(config.walletPreviousLifeRecovered).toBe(true);
+
+  instanceChecks.delete(Config.prototype.constructor);
+  const restarted = new Config(Promise.resolve(db), walletKeys);
+  await restarted.load();
+  expect(restarted.vaultingSetupStatus).toBe(VaultingSetupStatus.Finished);
+  expect(restarted.vaultSetup).toEqual(config.vaultSetup);
+  expect(restarted.walletPreviousLifeRecovered).toBe(true);
+  await db.close();
 });
 
 it('keeps mnemonic-restored accounts eligible for financial history without mining or vault history', async () => {
@@ -184,13 +277,34 @@ it('remembers that Discord was connected after config reloads', async () => {
   await db.close();
 });
 
+it('persists unchanged vault fees when retrying a failed settings write', async () => {
+  const db = await createTestDb();
+  const { walletKeys } = createTestWallet('//Alice');
+  instanceChecks.delete(Config.prototype.constructor);
+  const config = new Config(Promise.resolve(db), walletKeys);
+  await config.load();
+  config.vaultSetup.btcFlatFee = 2_000_000n;
+  await config.saveVaultSetup();
+
+  config.vaultSetup.btcFlatFee = 3_000_000n;
+  vi.spyOn(db, 'execute').mockRejectedValueOnce(new Error('Synthetic settings write failure'));
+  await expect(config.saveVaultSetup()).rejects.toThrow('Synthetic settings write failure');
+  await config.saveVaultSetup();
+
+  instanceChecks.delete(Config.prototype.constructor);
+  const restarted = new Config(Promise.resolve(db), walletKeys);
+  await restarted.load();
+  expect(restarted.vaultSetup.btcFlatFee).toBe(3_000_000n);
+  await db.close();
+});
+
 it('does not recover operation state from cached mining or vault activity', async () => {
   const dbPromise = createMockedDbPromise({
     miningSetupStatus: `"${MiningSetupStatus.Checklist}"`,
     vaultingSetupStatus: `"${VaultingSetupStatus.Installing}"`,
     hasMiningBids: 'false',
     hasMiningSeats: 'true',
-    vaultingRules: JsonExt.stringify(Config.getDefault('vaultingRules'), 2),
+    vaultSetup: JsonExt.stringify(Config.getDefault('vaultSetup'), 2),
   });
   const db = await dbPromise;
   const miningActivitySpy = vi

@@ -57,5 +57,11 @@ export default new OperationalFlow<IVaultingFlowContext, IOnboardingState>(impor
     await flow.run(vaultingCompleteChecklist);
     await flow.run(vaultingFundWallet);
     await flow.run(vaultingFinalizeSetup);
+    const capital = await flow.queryApp(refs => ({
+      argons: refs.myVault.createdVault!.securitization.toString(),
+      argonots: refs.myVault.data.argonotCommitment.heldMicronots.toString(),
+      configuredArgonots: refs.config.vaultSetup.committedMicronots.toString(),
+    }));
+    flow.setData('createdVaultCapital', capital);
   },
 });

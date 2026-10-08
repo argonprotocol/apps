@@ -1,6 +1,12 @@
 <template>
-  <Chart ref="chartRef" />
+  <Chart ref="chartRef" @inspectFrame="emit('inspectFrame', $event)">
+    <template v-if="$slots.tooltipHeader" #tooltipHeader="{ item }">
+      <slot name="tooltipHeader" :item="item" />
+    </template>
+    <template #tooltip="{ item }"><slot name="tooltip" :item="item" /></template>
+  </Chart>
   <NibSlider
+    v-if="!navigationDisabled"
     ref="nibSliderRef"
     position="right"
     :pos="sliderLeftPosX"
@@ -21,10 +27,12 @@ import type { IChartItem } from '../interfaces/IChartItem';
 const props = defineProps<{
   chartItems: IChartItem[];
   selectedIndex?: number;
+  navigationDisabled?: boolean;
 }>();
 
 const emit = defineEmits<{
   (e: 'changedFrame', index: number, isUserAction: boolean): void;
+  (e: 'inspectFrame', frameId: number | undefined): void;
 }>();
 
 let dragMeta: any = {};
@@ -119,6 +127,7 @@ let isUserNavigatingHistory = false;
 let frameSyncRequestId = 0;
 
 function updateFrameSliderPos(index: number, isUserAction = true) {
+  if (props.navigationDisabled && isUserAction) return;
   if (isUserNavigatingHistory && !isUserAction) return;
   const nextFrameIndex = getFrameIndex(index);
   const item = props.chartItems[nextFrameIndex];
@@ -129,6 +138,7 @@ function updateFrameSliderPos(index: number, isUserAction = true) {
 }
 
 function handleKeyDown(e: KeyboardEvent) {
+  if (props.navigationDisabled) return;
   if (e.key === 'ArrowRight' || e.key === 'ArrowLeft') {
     const action = e.key === 'ArrowRight' ? goToNextFrame : goToPrevFrame;
     action();

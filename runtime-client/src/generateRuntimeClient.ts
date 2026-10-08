@@ -47,13 +47,14 @@ async function generateRuntimeClient(): Promise<void> {
   const installedVersion = installedPackage.version;
   const localSource = process.argv.includes('--local') ? source : undefined;
   const installedContents = await readInstalledRuntimeSource(packageDirectory);
+  const liveSpecs = Object.keys(effectiveRegistry).map(Number).sort((a, b) => b - a).slice(0, 2);
   const runtimeSources = await Promise.all(
     Object.entries(effectiveRegistry).flatMap(([rawVersion, sourceVersions]) => {
       return sourceVersions.map(async sourceVersion => {
         const contents =
           sourceVersion === installedVersion || sourceVersion === localSource
             ? installedContents
-            : await readRuntimeSource(sourceVersion);
+            : await readRuntimeSource(sourceVersion, liveSpecs.includes(Number(rawVersion)));
         return {
           specVersion: Number(rawVersion),
           source: sourceLabel(sourceVersion),

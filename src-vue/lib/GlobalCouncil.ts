@@ -243,7 +243,7 @@ export class GlobalCouncil {
     pendingApprovals: IGlobalCouncilApproval[] = this.data.pendingApprovals,
   ): Promise<SubmittableExtrinsic[]> {
     const txs: SubmittableExtrinsic[] = [];
-    const maxQueueApprovalsPerCall = client.consts.crosschainTransfer.maxQueueApprovalsPerCall.toNumber();
+    const maxQueueApprovalsPerCall = client.consts.crosschainTransfer.maxQueueApprovalsPerCall;
 
     for (let i = 0; i < pendingApprovals.length; i += maxQueueApprovalsPerCall) {
       const approvals = pendingApprovals.slice(i, i + maxQueueApprovalsPerCall);

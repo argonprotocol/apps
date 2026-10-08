@@ -8,6 +8,7 @@ export { runtimeClient } from '@argonprotocol/runtime-client';
 
 export * from './interfaces/index.js';
 export * from './FinancialReturns.js';
+export * from './FixedU128.js';
 export * from './BitcoinLockReturns.js';
 export * from './FinancialPositions.js';
 export * from './MainchainClients.js';

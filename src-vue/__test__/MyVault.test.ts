@@ -1,7 +1,14 @@
+import { SyncStateKeys } from '../lib/db/SyncStateTable.ts';
+import type { Db } from '../lib/Db.ts';
+import { createTestDb } from './helpers/db.ts';
 import { describe, expect, it, vi } from 'vitest';
 import * as AppsCore from '@argonprotocol/apps-core';
 import { type MiningFrames, Vault, targetVaultDelegateBalance } from '@argonprotocol/apps-core';
 import { reactive } from 'vue';
+import { VaultFinancials } from '../lib/financials/MyVault.ts';
+import { FinancialPositionBook } from '../lib/financials/index.ts';
+import type { IArgonAccountBalance } from '../lib/WalletsForArgon.ts';
+import { WalletForArgon } from '../lib/WalletForArgon.ts';
 import { MyVault, type IVaultIncreaseAllocationMetadata } from '../lib/MyVault.ts';
 import type BitcoinLocks from '../lib/BitcoinLocks.ts';
 import { TransactionInfo } from '../lib/TransactionInfo.ts';
@@ -15,9 +22,10 @@ import {
 import { createMockWalletKeys } from './helpers/wallet.ts';
 import { bigintCodec, numberCodec, optionCodec } from '../../core/__test__/helpers/codecs.ts';
 import { getOfflineRegistry, type ArgonPrimitivesVault } from '@argonprotocol/mainchain';
-import { toPlain } from '@argonprotocol/runtime-client';
+import { Metadata, TypeRegistry } from '@polkadot/types';
+import type { PreviousRuntimeSpec as RuntimeSpec159 } from '../../core/src/runtimeCompatibility.ts';
+import { runtimeClient, toPlain, getBundledMetadata } from '@argonprotocol/runtime-client';
 import BigNumber from 'bignumber.js';
-import { MyVaultRecovery } from '../lib/recovery/MyVaultRecovery.ts';
 import { createCurrentLock } from './helpers/bitcoin.ts';
 import { BitcoinNetwork, CosignScript } from '@argonprotocol/bitcoin';
 import type { IBitcoinLockCosignMetadata } from '../lib/txs/BitcoinLock.cosign.ts';
@@ -36,28 +44,70 @@ type IMyVaultTestTarget = {
   onIncreaseVaultSecuritization(txInfo: TransactionInfo<IVaultIncreaseAllocationMetadata>): Promise<void>;
 };
 
-describe('MyVaultRecovery', () => {
-  it('restores sensible percentages when the vault has no committed capital', () => {
-    const rules = MyVaultRecovery.rebuildRules({
-      feesInMicrogons: 0n,
-      vault: {
-        securitization: 0n,
-        securitizationRatio: 1,
-        terms: {
-          treasuryProfitSharing: BigNumber(0.1),
-          bitcoinBaseFee: 0n,
-          bitcoinAnnualPercentRate: BigNumber(0.02),
-        },
-      },
-    });
-
-    expect(rules).toMatchObject({
-      baseMicrogonCommitment: 0n,
-      capitalForSecuritizationPct: 100,
-      capitalForTreasuryPct: 0,
-      personalBtcPct: 0,
-    });
+it.each([false, true])('keeps runtime 159 sharing when editing Bitcoin fees (pending: %s)', async pending => {
+  const registry = new TypeRegistry();
+  const metadata = Object.entries(getBundledMetadata()).find(([key]) => key.endsWith('-159'))![1];
+  registry.setMetadata(new Metadata(registry, metadata));
+  const rawVault = registry.createType<RuntimeSpec159.ArgonPrimitivesVault>('ArgonPrimitivesVault', {
+    terms: {
+      bitcoinBaseFee: 1_000_000n,
+      bitcoinAnnualPercentRate: 20_000_000_000_000_000n,
+      treasuryProfitSharing: 370_000,
+    },
+    pendingTerms: pending
+      ? [
+          100,
+          {
+            bitcoinBaseFee: 2_000_000n,
+            bitcoinAnnualPercentRate: 30_000_000_000_000_000n,
+            treasuryProfitSharing: 480_000,
+          },
+        ]
+      : null,
   });
+  const info = new TransactionInfo({
+    tx: createTxInfo({ extrinsicType: ExtrinsicType.VaultModifySettings }).tx,
+    txResult: { waitForFinalizedBlock: new Promise<Uint8Array>(() => undefined) } as AppsCore.TxResult,
+  });
+  const submitAndWatch = vi.fn(async (_args: Parameters<TransactionTracker['submitAndWatch']>[0]) => info);
+  const { myVault } = createVault({ submitAndWatch });
+  myVault.data.createdVault = Vault.fromRuntime(
+    7,
+    toPlain(rawVault) as Parameters<typeof Vault.fromRuntime>[1],
+    1_000,
+    {
+      vaults: {},
+      operationalAccounts: { operationalMinimumVaultSecuritization: 100_000_000n },
+    } as Parameters<typeof Vault.fromRuntime>[3],
+  );
+  const client = {
+    registry,
+    tx: { vaults: { modifyTerms: (_id: number, terms: RuntimeSpec159.ArgonPrimitivesVaultVaultTerms) => terms } },
+  };
+  const getMainchainClient = vi.spyOn(mainchainStore, 'getMainchainClient').mockResolvedValue(client as any);
+  try {
+    // Matching the scheduled terms should not send another command.
+    await myVault.updateSettings({
+      terms: myVault.createdVault!.pendingTerms?.[1] ?? myVault.createdVault!.terms,
+      txProgressCallback: () => undefined,
+    });
+    expect(submitAndWatch).not.toHaveBeenCalled();
+
+    await myVault.updateSettings({
+      terms: { bitcoinBaseFee: 3_000_000n, bitcoinAnnualPercentRate: BigNumber(0.045) },
+      txProgressCallback: () => undefined,
+    });
+    const submitted = submitAndWatch.mock.calls[0][0];
+    const decoded = registry.createType<RuntimeSpec159.ArgonPrimitivesVaultVaultTerms>(
+      'ArgonPrimitivesVaultVaultTerms',
+      submitted.tx.toU8a(),
+    );
+    expect(decoded.bitcoinBaseFee.toBigInt()).toBe(3_000_000n);
+    expect(decoded.bitcoinAnnualPercentRate.toBigInt()).toBe(45_000_000_000_000_000n);
+    expect(decoded.treasuryProfitSharing.toNumber()).toBe(pending ? 480_000 : 370_000);
+  } finally {
+    getMainchainClient.mockRestore();
+  }
 });
 
 describe('MyVault crosschain queue history', () => {
@@ -191,9 +241,14 @@ describe('MyVault cosign recovery', () => {
       events: { bitcoinLocks: bitcoinEvents },
     };
     const finalizedApi = {
+      raw: { query: { vaults: {} } },
+      consts: { vaults: { securitizationExitNoticeBlocks: 52_560 } },
       events: { bitcoinLocks: bitcoinEvents, vaults: vaultEvents },
       query: {
+        ticks: { genesisTicker: async () => ({ tickDurationMillis: 1_000 }) },
         vaults: {
+          vaultsById: async () => getOfflineRegistry().createType<ArgonPrimitivesVault>('ArgonPrimitivesVault'),
+          argonotCommitmentByVaultId: vi.fn(async () => null),
           revenuePerFrameByVault: frameRevenues,
           pendingCosignByVaultId: vi.fn(async () => []),
           orphanedUtxoAccountsByVaultId: { entries: orphanEntries },
@@ -206,7 +261,9 @@ describe('MyVault cosign recovery', () => {
     };
     const getMainchainClients = vi.spyOn(mainchainStore, 'getMainchainClients').mockReturnValue(clients as any);
     const getMainchainClient = vi.spyOn(mainchainStore, 'getMainchainClient').mockResolvedValue(eventClient as any);
+    const db = await createTestDb();
     const { myVault, blockWatchEventOn, getBlockEventsWithSpec } = createVault({
+      db,
       blockEvents,
       finalizedApi,
     });
@@ -259,6 +316,90 @@ describe('MyVault cosign recovery', () => {
 
     expect(myVault.data.pendingCollectRevenue).toBe(84n);
     expect(getBlockEventsWithSpec).toHaveBeenCalledTimes(5);
+
+    myVault.data.isLoaded = true;
+    const account: IArgonAccountBalance = {
+      address: myVault.walletKeys.vaultingAddress,
+      wallet: new WalletForArgon('operational', myVault.walletKeys.vaultingAddress, Promise.resolve(db)),
+      availableMicrogons: 0n,
+      availableMicronots: 0n,
+      reservedMicrogons: 89n,
+      reservedMicronots: 0n,
+      microgonHolds: [
+        { id: { type: 'Vaults', value: { type: 'EnterVault' } }, amount: 5n },
+        { id: { type: 'Vaults', value: { type: 'PendingCollect' } }, amount: 84n },
+      ],
+      micronotHolds: [],
+    };
+    const source = new VaultFinancials(myVault, {
+      bondLots: [],
+      bondHistory: [],
+      dailyEarnings: [],
+      isLoaded: true,
+      currentFrameId: 2,
+    });
+    const book = new FinancialPositionBook();
+    book.setScope({ ownedAccounts: [myVault.walletKeys.defaultArgonAddress] });
+    book.publish(book.beginRefresh('vaulting'), await source.loadPositions({ account, liveArgonotRateMicrogons: 0n }), {
+      observedAt: new Date(),
+    });
+    expect(book.snapshots.find(snapshot => snapshot.group === 'vaulting')?.positions[0]).toMatchObject({
+      currentValue: 89n,
+      paidIncome: 0n,
+    });
+    const revision = myVault.data.financialRevision;
+    const collectedBlock = { blockNumber: 14, blockHash: '0x14', blockTime: Date.UTC(2026, 6, 1) };
+    const collectedEvents = [
+      {
+        event: { section: 'vaults', method: 'VaultCollected', data: { vaultId: 7, revenue: 84n } },
+        phase: { type: 'ApplyExtrinsic', value: 1 },
+        topics: [],
+      },
+    ];
+    getBlockEventsWithSpec.mockImplementation(async (header?: { blockNumber: number }) => ({
+      api: finalizedApi,
+      specVersion: 159,
+      events: header?.blockNumber === 14 ? collectedEvents : [],
+    }));
+    frameRevenues.mockResolvedValue([{ frameId: 1, uncollectedRevenue: 0n }]);
+    await db.execute(`CREATE TEMP TRIGGER FailVaultRevenue BEFORE INSERT ON VaultRevenueEvents
+      BEGIN SELECT RAISE(ABORT, 'disk temporarily unavailable'); END`);
+    await onFinalized([collectedBlock]);
+    expect(myVault.data.pendingCollectRevenue).toBe(84n);
+    expect(myVault.data.financialRevision).toBe(revision);
+    expect(await db.vaultRevenueEventsTable.fetchAll()).toEqual([]);
+    expect((await db.syncStateTable.get(SyncStateKeys.VaultRevenue))?.throughBlock).toBe(13);
+    await db.execute('DROP TRIGGER FailVaultRevenue');
+    frameRevenues.mockRejectedValueOnce(new Error('chain temporarily unavailable'));
+    await onFinalized([{ ...collectedBlock, blockNumber: 15, blockHash: '0x15' }]);
+    expect(await db.vaultRevenueEventsTable.fetchAll()).toEqual([
+      expect.objectContaining({ source: 'vaultCollect', amount: 84n, blockNumber: 14 }),
+    ]);
+    expect(myVault.pendingRevenueFrames).toEqual([{ frameId: 1, uncollectedEarnings: 84n }]);
+    const refresh = book.beginRefresh('vaulting');
+    await expect(source.loadPositions({ account, liveArgonotRateMicrogons: 0n })).rejects.toThrow(
+      'chain temporarily unavailable',
+    );
+    book.fail(refresh, 'chain temporarily unavailable');
+    expect(book.snapshots.find(snapshot => snapshot.group === 'vaulting')).toMatchObject({
+      state: 'stale',
+      positions: [expect.objectContaining({ currentValue: 89n, paidIncome: 0n })],
+    });
+    await onFinalized([{ ...collectedBlock, blockNumber: 16, blockHash: '0x16' }]);
+    account.microgonHolds.pop();
+    book.publish(book.beginRefresh('vaulting'), await source.loadPositions({ account, liveArgonotRateMicrogons: 0n }), {
+      observedAt: new Date(),
+    });
+    expect(book.snapshots.find(snapshot => snapshot.group === 'vaulting')).toMatchObject({
+      state: 'ready',
+      positions: [expect.objectContaining({ currentValue: 5n, paidIncome: 84n })],
+    });
+    expect(myVault.data.pendingCollectRevenue).toBe(0n);
+    expect(myVault.data.financialRevision).toBeGreaterThan(revision);
+    expect(await db.vaultRevenueEventsTable.fetchAll()).toEqual([
+      expect.objectContaining({ source: 'vaultCollect', amount: 84n, blockNumber: 14 }),
+    ]);
+    expect((await db.syncStateTable.get(SyncStateKeys.VaultRevenue))?.throughBlock).toBe(16);
 
     myVault.unsubscribe();
     getMainchainClient.mockRestore();
@@ -465,7 +606,11 @@ describe('MyVault cosign recovery', () => {
       securitizationTarget: 900n,
       securitizationRatio: 1,
     } as any;
-    myVault.data.argonotCommitment.committedMicronots = 100n;
+    myVault.data.argonotCommitment = {
+      ...myVault.data.argonotCommitment,
+      heldMicronots: 100n,
+      committedMicronots: 100n,
+    };
     const buildSecuritizationTx = vi
       .spyOn(myVault as unknown as { buildSecuritizationTx: MyVault['buildSecuritizationTx'] }, 'buildSecuritizationTx')
       .mockResolvedValue(tx as any);
@@ -573,9 +718,15 @@ describe('MyVault cosign recovery', () => {
     myVault.data.createdVault = {
       vaultId: 7,
       securitization: 1_000n,
+      securitizationTarget: 1_000n,
+      securitizationReleaseSchedule: new Map(),
       securitizationRatio: 1,
     } as any;
-    myVault.data.argonotCommitment.committedMicronots = 100n;
+    myVault.data.argonotCommitment = {
+      ...myVault.data.argonotCommitment,
+      heldMicronots: 100n,
+      committedMicronots: 100n,
+    };
     const client = {
       tx: {
         vaults: {
@@ -1053,17 +1204,17 @@ describe('MyVault cosign recovery', () => {
       extrinsicType: ExtrinsicType.VaultSetBitcoinLockDelegate,
     });
     const submitAndWatch = vi.fn().mockResolvedValueOnce(completedTxInfo).mockResolvedValueOnce(submittedTxInfo);
-    const getMainchainClient = vi.spyOn(mainchainStore, 'getMainchainClient').mockResolvedValue({
+    const client = runtimeClient({
       consts: {
         vaults: {
-          revenueCollectionExpirationFrames: {
-            toNumber: () => 10,
-          },
+          revenueCollectionExpirationFrames: 10,
         },
       },
       query: {
+        ticks: { genesisTicker: async () => ({ tickDurationMillis: 1_000 }) },
         vaults: {
-          argonotCommitmentByVaultId: vi.fn(async () => optionCodec()),
+          vaultsById: async () => getOfflineRegistry().createType<ArgonPrimitivesVault>('ArgonPrimitivesVault'),
+          argonotCommitmentByVaultId: vi.fn(async () => null),
         },
       },
       tx: {
@@ -1075,6 +1226,7 @@ describe('MyVault cosign recovery', () => {
         },
       },
     } as any);
+    const getMainchainClient = vi.spyOn(mainchainStore, 'getMainchainClient').mockResolvedValue(client as any);
     const myVault = new MyVault(
       Promise.resolve({
         vaultsTable: {
@@ -1112,6 +1264,10 @@ describe('MyVault cosign recovery', () => {
       {
         load: vi.fn(async () => undefined),
         currentFrameId: 2,
+        blockWatch: {
+          bestBlockHeader: { blockNumber: 1, blockHash: '0x01' },
+          getApi: async () => client,
+        },
       } as any,
       {
         load: vi.fn(async () => undefined),
@@ -1443,7 +1599,7 @@ describe('MyVault cosign recovery', () => {
           lot: {
             id: 22,
             vaultId: 7,
-            accountId: signer.address,
+            owner: signer.address,
             isOwn: true,
             programType: 'Vault',
             isReleasing: false,
@@ -1498,16 +1654,16 @@ describe('MyVault cosign recovery', () => {
     const mintingAuthoritiesLoad = new Promise<void>(resolve => {
       resolveMintingAuthoritiesLoad = resolve;
     });
-    const getMainchainClient = vi.spyOn(mainchainStore, 'getMainchainClient').mockResolvedValue({
+    const client = runtimeClient({
       consts: {
         vaults: {
-          revenueCollectionExpirationFrames: {
-            toNumber: () => 10,
-          },
+          revenueCollectionExpirationFrames: 10,
         },
       },
       query: {
+        ticks: { genesisTicker: async () => ({ tickDurationMillis: 1_000 }) },
         vaults: {
+          vaultsById: async () => getOfflineRegistry().createType<ArgonPrimitivesVault>('ArgonPrimitivesVault'),
           argonotCommitmentByVaultId: vi.fn(async () => ({
             committedMicronots: 25n,
             encumberedMicronots: 10n,
@@ -1515,6 +1671,7 @@ describe('MyVault cosign recovery', () => {
         },
       },
     } as any);
+    const getMainchainClient = vi.spyOn(mainchainStore, 'getMainchainClient').mockResolvedValue(client as any);
     const myVault = new MyVault(
       Promise.resolve({
         vaultsTable: {
@@ -1546,6 +1703,10 @@ describe('MyVault cosign recovery', () => {
       {
         load: vi.fn(async () => undefined),
         currentFrameId: 2,
+        blockWatch: {
+          bestBlockHeader: { blockNumber: 1, blockHash: '0x01' },
+          getApi: async () => client,
+        },
       } as any,
       {
         load: vi.fn(() => globalCouncilLoad),
@@ -1573,7 +1734,8 @@ describe('MyVault cosign recovery', () => {
       expect(myVault.data.isLoaded).toBe(true);
     });
     expect(myVault.data.argonotCommitment).toEqual({
-      committedMicronots: 25n,
+      heldMicronots: 25n,
+      committedMicronots: 0n,
       encumberedMicronots: 10n,
     });
     expect(isResolved).toBe(false);
@@ -1587,55 +1749,73 @@ describe('MyVault cosign recovery', () => {
     getMainchainClient.mockRestore();
   });
 
-  it('records finalized vault capital from the resulting vault state after re-inclusion', async () => {
-    const capitalInsert = vi.fn(async () => undefined);
+  it('records command capital at its block without replacing newer current withdrawals', async () => {
+    const db = await createTestDb();
     const walletKeys = createMockWalletKeys();
-    const api = {
+    const registry = getOfflineRegistry();
+    const olderVault = registry.createType<ArgonPrimitivesVault>('ArgonPrimitivesVault', {
+      operatorAccountId: walletKeys.vaultingAddress,
+      securitization: 900n,
+      securitizationTarget: 700n,
+      securitizationReleaseSchedule: {
+        100: { lockedCommitments: 0n, relockableCommitments: 0n, argonWithdrawals: 200n, argonotWithdrawals: 400n },
+      },
+    });
+    const currentVault = registry.createType<ArgonPrimitivesVault>('ArgonPrimitivesVault', {
+      operatorAccountId: walletKeys.vaultingAddress,
+      securitization: 900n,
+      securitizationTarget: 900n,
+      securitizationReleaseSchedule: {},
+    });
+    const commandApi = {
+      consts: { vaults: { securitizationExitNoticeBlocks: 52_560 } },
       query: {
-        system: { number: vi.fn(async () => 55) },
+        system: { number: async () => 55 },
+        ticks: { genesisTicker: async () => ({ tickDurationMillis: 1_000 }) },
+        vaults: { vaultsById: async () => olderVault },
+      },
+    };
+    const currentApi = {
+      ...commandApi,
+      query: {
+        ...commandApi.query,
         vaults: {
-          argonotCommitmentByVaultId: vi.fn(async () => ({
-            committedMicronots: 25n,
-            encumberedMicronots: 10n,
-          })),
+          vaultsById: async () => currentVault,
+          argonotSecuritizationByVaultId: async () => ({
+            heldMicronots: 2_000n,
+            committedMicronots: 2_000n,
+            encumberedMicronots: 100n,
+          }),
         },
       },
     };
-    const client = { at: vi.fn(async () => api) };
-    const getMainchainClient = vi.spyOn(mainchainStore, 'getMainchainClient').mockResolvedValue(client as any);
-    const liveVault = Object.assign(
-      createTestVault({
-        vaultId: 7,
-        operatorAccountId: walletKeys.vaultingAddress,
-        delegateAccountId: null,
-      }),
-      {
-        securitization: 900n,
-        securitizationReleaseSchedule: new Map([[0, 200n]]),
-      },
-    );
-    const getVault = vi.spyOn(AppsCore.Vault, 'get').mockResolvedValue(liveVault);
-    const { myVault } = createVault({
-      db: {
-        vaultCapitalHistoryTable: { insert: capitalInsert },
-      },
-      walletKeys,
-    });
+    const getMainchainClient = vi.spyOn(mainchainStore, 'getMainchainClient').mockResolvedValue({
+      at: async () => commandApi,
+    } as any);
+    const { myVault, blockWatch } = createVault({ db, walletKeys, finalizedApi: currentApi });
+    blockWatch.bestBlockHeader = { blockNumber: 56, blockHash: '0x56' };
     myVault.data.metadata = { id: 7 } as any;
-    myVault.vaults.vaultsById[7] = { securitization: 1_000n } as Vault;
+    myVault.data.isLoaded = true;
+    myVault.data.createdVault = new Vault(
+      7,
+      toPlain(currentVault) as ConstructorParameters<typeof Vault>[1],
+      1_000,
+      52_560,
+    );
+    myVault.vaults.vaultsById[7] = myVault.createdVault!;
+    myVault.data.argonotCommitment = { heldMicronots: 2_000n, committedMicronots: 2_000n, encumberedMicronots: 100n };
 
-    await myVault.recordFinalizedVaultCapital({
+    const txInfo = {
       tx: { blockHeight: 55, blockHash: '0x55', blockExtrinsicIndex: 2 },
       txResult: { waitForFinalizedBlock: Promise.resolve(new Uint8Array([0xfa])) },
-    } as any);
+    } as any;
+    await myVault.recordFinalizedVaultCapital(txInfo);
 
-    expect(myVault.data.createdVault).toBe(liveVault);
-    expect(myVault.vaults.vaultsById[7]).toBe(liveVault);
-    expect(myVault.data.argonotCommitment).toEqual({
-      committedMicronots: 25n,
-      encumberedMicronots: 10n,
-    });
-    expect(capitalInsert).toHaveBeenCalledWith(
+    expect(myVault.createdVault?.securitizationTarget).toBe(900n);
+    expect(myVault.createdVault?.securitizationReleaseSchedule.size).toBe(0);
+    expect(myVault.argonotSecuritizationTarget).toBe(2_000n);
+    expect(myVault.vaults.vaultsById[7]).toBe(myVault.createdVault);
+    expect(await db.vaultCapitalHistoryTable.fetchAll(walletKeys.defaultArgonAddress, 7)).toEqual([
       expect.objectContaining({
         eventType: 'modified',
         securitization: 900n,
@@ -1643,8 +1823,40 @@ describe('MyVault cosign recovery', () => {
         blockHash: '0xfa',
         extrinsicIndex: 2,
       }),
-    );
-    getVault.mockRestore();
+    ]);
+
+    let rejectCurrentRead!: (error: Error) => void;
+    const pendingRead = new Promise<typeof currentVault>((_, reject) => {
+      rejectCurrentRead = reject;
+    });
+    currentApi.query.vaults.vaultsById = () => pendingRead;
+    const retry = myVault.recordFinalizedVaultCapital(txInfo);
+    await vi.waitFor(() => expect(blockWatch.getApi).toHaveBeenCalledTimes(2));
+    rejectCurrentRead(new Error('current state temporarily unavailable'));
+    await expect(retry).rejects.toThrow('current state temporarily unavailable');
+    expect(myVault.createdVault?.securitizationReleaseSchedule.size).toBe(0);
+    expect(myVault.data.argonotCommitment.heldMicronots).toBe(2_000n);
+    currentApi.query.vaults.vaultsById = async () => currentVault;
+    await myVault.recordFinalizedVaultCapital(txInfo);
+    expect(await db.vaultCapitalHistoryTable.fetchAll(walletKeys.defaultArgonAddress, 7)).toHaveLength(1);
+    expect(myVault.argonotSecuritizationTarget).toBe(2_000n);
+
+    let finishOlderRead!: (vault: typeof currentVault) => void;
+    const olderRead = new Promise<typeof currentVault>(resolve => {
+      finishOlderRead = resolve;
+    });
+    blockWatch.getApi.mockResolvedValueOnce({
+      ...currentApi,
+      query: { ...currentApi.query, vaults: { ...currentApi.query.vaults, vaultsById: () => olderRead } },
+    });
+    const movedHead = myVault.recordFinalizedVaultCapital(txInfo);
+    await vi.waitFor(() => expect(blockWatch.getApi).toHaveBeenCalledTimes(4));
+    blockWatch.bestBlockHeader = { blockNumber: 57, blockHash: '0x57' };
+    finishOlderRead(olderVault);
+    await movedHead;
+    expect(myVault.createdVault?.securitizationReleaseSchedule.size).toBe(0);
+    expect(myVault.argonotSecuritizationTarget).toBe(2_000n);
+    expect(blockWatch.getApi.mock.calls.at(-1)).toEqual([blockWatch.bestBlockHeader]);
     getMainchainClient.mockRestore();
   });
 
@@ -1673,6 +1885,7 @@ describe('MyVault cosign recovery', () => {
     const api = {
       query: {
         system: { number: vi.fn(async () => 55) },
+        vaults: { argonotSecuritizationByVaultId: async () => null },
       },
     };
     const client = {
@@ -1708,7 +1921,18 @@ describe('MyVault cosign recovery', () => {
     const getMainchainClient = vi
       .spyOn(mainchainStore, 'getMainchainClient')
       .mockRejectedValue(new Error('archive unavailable'));
-    const { myVault } = createVault();
+    const { myVault } = createVault({
+      finalizedApi: {
+        consts: { vaults: { securitizationExitNoticeBlocks: 52_560 } },
+        query: {
+          ticks: { genesisTicker: async () => ({ tickDurationMillis: 1_000 }) },
+          vaults: {
+            vaultsById: async () => getOfflineRegistry().createType<ArgonPrimitivesVault>('ArgonPrimitivesVault'),
+            argonotSecuritizationByVaultId: async () => null,
+          },
+        },
+      },
+    });
     myVault.data.metadata = { id: 7 } as any;
 
     await expect(
@@ -1717,6 +1941,7 @@ describe('MyVault cosign recovery', () => {
         txResult: { waitForFinalizedBlock: Promise.resolve(new Uint8Array()) },
       } as any),
     ).resolves.toBeUndefined();
+    expect(myVault.createdVault?.vaultId).toBe(7);
 
     getMainchainClient.mockRestore();
   });
@@ -1729,7 +1954,7 @@ function createVault(args?: {
   submitAndWatch?: ReturnType<typeof vi.fn>;
   trackTxResult?: ReturnType<typeof vi.fn>;
   historyByTxId?: Record<number, Partial<ITransactionStatusHistoryRecord>[]>;
-  db?: Record<string, unknown>;
+  db?: Db | Record<string, unknown>;
   walletKeys?: ReturnType<typeof createMockWalletKeys>;
   ensureStoredEvents?: ReturnType<typeof vi.fn>;
   blockEvents?: unknown[];
@@ -1743,8 +1968,10 @@ function createVault(args?: {
   const getBlockEventsWithSpec = vi.fn(async () => ({
     api: args?.finalizedApi ?? {},
     events: args?.blockEvents ?? [],
+    specVersion: 159,
   }));
   const blockWatch = {
+    bestBlockHeader: { blockNumber: args?.finalizedHeight ?? 100, blockHash: '0x64' },
     finalizedBlockHeader: { blockNumber: args?.finalizedHeight ?? 100 },
     events: { on: blockWatchEventOn },
     getEvents: getBlockEvents,
@@ -1755,6 +1982,7 @@ function createVault(args?: {
       return {
         blockNumber: blockHeight,
         blockHash: args?.headerByHeight?.[blockHeight] ?? `0x${blockHeight.toString(16)}`,
+        blockTime: Date.UTC(2026, 0, 1) + blockHeight * 60_000,
       };
     }),
   };
@@ -1926,12 +2154,12 @@ function createVault(args?: {
   };
 
   const myVault = new MyVault(
-    Promise.resolve({
-      transactionsTable: {
-        fetchStatusHistory: vi.fn(async () => []),
-      },
-      ...args?.db,
-    } as any),
+    Promise.resolve(
+      args?.db ??
+        ({
+          transactionsTable: { fetchStatusHistory: vi.fn(async () => []) },
+        } as any),
+    ),
     {
       vaultsById: {},
       operatorNamesByVaultId: {},

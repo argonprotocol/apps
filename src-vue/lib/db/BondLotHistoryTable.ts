@@ -13,6 +13,14 @@ export interface IBondLotFlexibilityTransition {
   eventIndex?: number;
 }
 
+export interface IBondLotEarningsBackfill {
+  blockNumber: number;
+  blockHash: string;
+  eventIndex: number;
+  addedFrames: number;
+  addedEarnings: bigint;
+}
+
 export interface IBondLotHistoryRecord {
   id: number;
   accountId: string;
@@ -41,13 +49,18 @@ export interface IBondLotHistoryRecord {
   closingArgonotRateMicrogons?: bigint;
   flexibilityHistory: IBondLotFlexibilityTransition[];
   flexibilityHistoryComplete: boolean;
+  lastObservedBlockNumber: number;
+  earningsDestination: BondLot['earningsDestination'];
+  earningsBackfills: IBondLotEarningsBackfill[];
+  earningsComplete: boolean;
+  earningsHistoryThroughFrame?: number;
   createdAt: Date;
   updatedAt: Date;
 }
 
 export class BondLotHistoryTable extends BaseTable {
   private fields: IFieldTypes = {
-    boolean: ['flexibilityHistoryComplete'] satisfies (keyof IBondLotHistoryRecord)[],
+    boolean: ['flexibilityHistoryComplete', 'earningsComplete'] satisfies (keyof IBondLotHistoryRecord)[],
     bigint: [
       'nativePrincipal',
       'entryArgonotRateMicrogons',
@@ -55,7 +68,7 @@ export class BondLotHistoryTable extends BaseTable {
       'closingArgonotRateMicrogons',
     ] satisfies (keyof IBondLotHistoryRecord)[],
     date: ['purchaseBlockTime', 'releaseBlockTime', 'createdAt', 'updatedAt'] satisfies (keyof IBondLotHistoryRecord)[],
-    json: ['flexibilityHistory'] satisfies (keyof IBondLotHistoryRecord)[],
+    json: ['flexibilityHistory', 'earningsBackfills'] satisfies (keyof IBondLotHistoryRecord)[],
   };
 
   public async fetchAll(accountId: string): Promise<IBondLotHistoryRecord[]> {
@@ -100,13 +113,13 @@ export class BondLotHistoryTable extends BaseTable {
            AND json_extract(value, '$.isFlexible') = ?
        )`,
       toSqlParams([
-        lot.accountId,
+        lot.owner,
         lot.programType,
         lot.id,
         lot.vaultId,
         lot.nativeAsset,
         nativePrincipal,
-        lot.createdFrame,
+        lot.createdFrameId,
         transition.blockNumber,
         transition.blockHash,
         [transition],
@@ -145,19 +158,19 @@ export class BondLotHistoryTable extends BaseTable {
          updatedAt = CURRENT_TIMESTAMP
        WHERE BondLotHistory.releaseBlockNumber IS NULL`,
       toSqlParams([
-        lot.accountId,
+        lot.owner,
         lot.programType,
         lot.id,
         lot.vaultId,
         lot.nativeAsset,
         nativePrincipal,
-        lot.createdFrame,
+        lot.createdFrameId,
         blockNumber,
         blockHash,
-        lot.releaseFrame,
-        lot.releaseReason,
+        lot.releaseFrameId,
+        lot.releaseReason?.type,
         lot.participatedFrames,
-        lot.lifetimeEarnings,
+        lot.cumulativeEarnings,
       ]),
     );
   }
@@ -185,9 +198,7 @@ export class BondLotHistoryTable extends BaseTable {
            BondLotHistory.entryArgonotRateMicrogons
          )`
       : `releaseFrame = excluded.releaseFrame,
-         releaseReason = excluded.releaseReason,
-         participatedFrames = excluded.participatedFrames,
-         cumulativeEarningsMicrogons = excluded.cumulativeEarningsMicrogons`;
+         releaseReason = excluded.releaseReason`;
 
     const records = await this.db.select<IBondLotHistoryRecord[]>(
       `INSERT INTO BondLotHistory (
@@ -208,21 +219,28 @@ export class BondLotHistoryTable extends BaseTable {
          releaseFrame,
          releaseReason,
          participatedFrames,
-         cumulativeEarningsMicrogons
-       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         cumulativeEarningsMicrogons, lastObservedBlockNumber, earningsDestination
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(accountId, programType, bondLotId) DO UPDATE SET
          ${updateFields},
+         participatedFrames = CASE WHEN excluded.lastObservedBlockNumber >= BondLotHistory.lastObservedBlockNumber
+           THEN excluded.participatedFrames ELSE BondLotHistory.participatedFrames END,
+         cumulativeEarningsMicrogons = CASE WHEN excluded.lastObservedBlockNumber >= BondLotHistory.lastObservedBlockNumber
+           THEN excluded.cumulativeEarningsMicrogons ELSE BondLotHistory.cumulativeEarningsMicrogons END,
+         earningsDestination = CASE WHEN excluded.lastObservedBlockNumber >= BondLotHistory.lastObservedBlockNumber
+           THEN excluded.earningsDestination ELSE BondLotHistory.earningsDestination END,
+         lastObservedBlockNumber = MAX(BondLotHistory.lastObservedBlockNumber, excluded.lastObservedBlockNumber),
          updatedAt = CURRENT_TIMESTAMP
        ${purchase ? '' : 'WHERE BondLotHistory.releaseBlockNumber IS NULL'}
       RETURNING *`,
       toSqlParams([
-        lot.accountId,
+        lot.owner,
         lot.programType,
         lot.id,
         lot.vaultId,
         lot.nativeAsset,
         nativePrincipal,
-        lot.createdFrame,
+        lot.createdFrameId,
         blockNumber,
         blockHash,
         purchase ? blockNumber : undefined,
@@ -230,13 +248,35 @@ export class BondLotHistoryTable extends BaseTable {
         purchase?.blockTime,
         purchase?.extrinsicIndex,
         purchase?.entryArgonotRateMicrogons,
-        lot.releaseFrame,
-        lot.releaseReason,
+        lot.releaseFrameId,
+        lot.releaseReason?.type,
         lot.participatedFrames,
-        lot.lifetimeEarnings,
+        lot.cumulativeEarnings,
+        blockNumber,
+        lot.earningsDestination,
       ]),
     );
     return convertFromSqliteFields<IBondLotHistoryRecord[]>(records, this.fields)[0];
+  }
+
+  public async recordEarningsBackfill(lot: BondLot, backfill: IBondLotEarningsBackfill): Promise<void> {
+    await this.db.execute(
+      `UPDATE BondLotHistory SET
+         earningsBackfills = json_insert(earningsBackfills, '$[#]', json(?)), updatedAt = CURRENT_TIMESTAMP
+       WHERE accountId = ? AND programType = ? AND bondLotId = ?
+         AND NOT EXISTS (SELECT 1 FROM json_each(earningsBackfills)
+           WHERE json_extract(value, '$.blockHash') = ? AND json_extract(value, '$.eventIndex') = ?)`,
+      toSqlParams([backfill, lot.owner, lot.programType, lot.id, backfill.blockHash, backfill.eventIndex]),
+    );
+  }
+
+  public async recordEarningsCoverage(accountId: string, fromFrame: number, throughFrame: number): Promise<void> {
+    await this.db.execute(
+      `UPDATE BondLotHistory SET earningsHistoryThroughFrame = ?
+       WHERE accountId = ? AND COALESCE(earningsHistoryThroughFrame, createdFrame - 1) >= ? - 1
+         AND COALESCE(earningsHistoryThroughFrame, -1) < ?`,
+      [throughFrame, accountId, fromFrame, throughFrame],
+    );
   }
 
   public async recordRelease(args: {
@@ -244,11 +284,13 @@ export class BondLotHistoryTable extends BaseTable {
     parentBlockNumber: number;
     parentBlockHash: string;
     release: {
+      frameId?: number;
       blockNumber: number;
       blockHash: string;
       blockTime: Date;
       extrinsicIndex?: number;
       closingArgonotRateMicrogons?: bigint;
+      earningsComplete?: boolean;
     };
   }): Promise<IBondLotHistoryRecord | undefined> {
     const { lot, parentBlockNumber, parentBlockHash, release } = args;
@@ -275,38 +317,42 @@ export class BondLotHistoryTable extends BaseTable {
          releaseReason,
          participatedFrames,
          cumulativeEarningsMicrogons,
-         closingArgonotRateMicrogons
-       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         closingArgonotRateMicrogons, lastObservedBlockNumber, earningsDestination, earningsComplete
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(accountId, programType, bondLotId) DO UPDATE SET
          (releaseFrame, releaseBlockNumber, releaseBlockHash, releaseBlockTime, releaseExtrinsicIndex,
           releaseParentHash, releaseReason, participatedFrames, cumulativeEarningsMicrogons,
-          closingArgonotRateMicrogons, updatedAt) =
+          closingArgonotRateMicrogons, lastObservedBlockNumber, earningsDestination, earningsComplete, updatedAt) =
          (excluded.releaseFrame, excluded.releaseBlockNumber, excluded.releaseBlockHash,
           excluded.releaseBlockTime, excluded.releaseExtrinsicIndex, excluded.releaseParentHash,
           excluded.releaseReason, excluded.participatedFrames, excluded.cumulativeEarningsMicrogons,
-          excluded.closingArgonotRateMicrogons, CURRENT_TIMESTAMP)
+          excluded.closingArgonotRateMicrogons, excluded.lastObservedBlockNumber,
+          excluded.earningsDestination, excluded.earningsComplete, CURRENT_TIMESTAMP)
        WHERE BondLotHistory.releaseBlockNumber IS NULL
       RETURNING *`,
       toSqlParams([
-        lot.accountId,
+        lot.owner,
         lot.programType,
         lot.id,
         lot.vaultId,
         lot.nativeAsset,
         nativePrincipal,
-        lot.createdFrame,
+        lot.createdFrameId,
         parentBlockNumber,
         parentBlockHash,
-        lot.releaseFrame,
+        release.frameId ?? lot.releaseFrameId,
         release.blockNumber,
         release.blockHash,
         release.blockTime,
         release.extrinsicIndex,
         parentBlockHash,
-        lot.releaseReason,
+        lot.releaseReason?.type,
         lot.participatedFrames,
-        lot.lifetimeEarnings,
+        lot.cumulativeEarnings,
         release.closingArgonotRateMicrogons,
+        release.blockNumber,
+        lot.earningsDestination,
+        release.earningsComplete ?? true,
       ]),
     );
     return convertFromSqliteFields<IBondLotHistoryRecord[]>(records, this.fields)[0];

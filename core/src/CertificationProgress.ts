@@ -186,12 +186,12 @@ export function getCertificationThresholds(client: ArgonClient): ICertificationT
   const operationalConsts = client.consts.operationalAccounts;
 
   return {
-    treasuryMinimumBitcoin: operationalConsts.minimumBitcoin.toBigInt(),
-    treasuryMinimumBonds: operationalConsts.minimumBonds.toBigInt(),
-    treasuryMinimumUniswapTransfer: operationalConsts.minimumUniswapTransfer.toBigInt(),
-    operationalMinimumUniswapTransfer: operationalConsts.operationalMinimumUniswapTransfer.toBigInt(),
-    operationalMinimumVaultSecuritization: operationalConsts.operationalMinimumVaultSecuritization.toBigInt(),
-    miningSeatsForOperational: operationalConsts.miningSeatsForOperational.toNumber(),
+    treasuryMinimumBitcoin: operationalConsts.minimumBitcoin,
+    treasuryMinimumBonds: operationalConsts.minimumBonds,
+    treasuryMinimumUniswapTransfer: operationalConsts.minimumUniswapTransfer,
+    operationalMinimumUniswapTransfer: operationalConsts.operationalMinimumUniswapTransfer,
+    operationalMinimumVaultSecuritization: operationalConsts.operationalMinimumVaultSecuritization,
+    miningSeatsForOperational: operationalConsts.miningSeatsForOperational,
   };
 }
 

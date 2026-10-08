@@ -58,9 +58,8 @@
       <ConnectorDisconnectOverlay />
       <TransactionsOverlay />
       <CrosschainHistoryOverlay />
-      <SecuritizationOverlay />
+      <VaultSettingsPanel />
       <FlexibleAssetsOverlay />
-      <ArgonotCommitmentOverlay />
       <MintingAuthorityRequestOverlay />
       <GatewayRelayOverlay />
       <ServerSettingsOverlay />
@@ -97,6 +96,7 @@
 </template>
 
 <script setup lang="ts">
+import { runtimeClient } from '@argonprotocol/runtime-client';
 import './lib/Env.ts'; // load env first
 import * as Vue from 'vue';
 import { createMenu } from './NativeMenu.ts';
@@ -130,9 +130,8 @@ import AppUpdatesOverlay from './overlays/AppUpdatesOverlay.vue';
 import AlertBars from './navigation/AlertBars.vue';
 import WelcomeTour from './overlays/WelcomeTour.vue';
 import BotEditOverlay from './overlays/BotEditOverlay.vue';
-import SecuritizationOverlay from './overlays/SecuritizationOverlay.vue';
+import VaultSettingsPanel from './panels/VaultSettingsPanel.vue';
 import FlexibleAssetsOverlay from './overlays/FlexibleAssetsOverlay.vue';
-import ArgonotCommitmentOverlay from './overlays/ArgonotCommitmentOverlay.vue';
 import MintingAuthorityRequestOverlay from './overlays/MintingAuthorityRequestOverlay.vue';
 import GatewayRelayOverlay from './overlays/GatewayRelayOverlay.vue';
 import ServerSettingsOverlay from './overlays/ServerSettingsOverlay.vue';
@@ -241,7 +240,7 @@ function refreshFinalizedStateOnFocus() {
     const blockHash = finalizedHash.toHex();
     if (blockHash === lastForegroundFinalizedHash) return;
 
-    const finalizedClient = await archiveClient.at(finalizedHash);
+    const finalizedClient = runtimeClient(await archiveClient.raw.at(finalizedHash));
     const nextFrameId = await finalizedClient.query.miningSlot.nextFrameId();
     if (nextFrameId === null) return;
     const currentFrameId = nextFrameId - 1;
@@ -250,7 +249,7 @@ function refreshFinalizedStateOnFocus() {
 
     await Promise.all([
       myVault.refreshFinalizedState({ client: finalizedClient, currentFrameId }),
-      argonBonds.refreshActiveState({ client: finalizedClient, currentFrameId }),
+      argonBonds.refreshActiveState(),
     ]);
     lastForegroundFinalizedHash = blockHash;
   })()

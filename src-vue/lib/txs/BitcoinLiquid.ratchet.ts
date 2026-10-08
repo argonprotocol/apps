@@ -1,3 +1,4 @@
+import { runtimeClient } from '@argonprotocol/runtime-client';
 import {
   bigIntMax,
   bigIntMin,
@@ -10,7 +11,7 @@ import {
   type TxSigningAccount,
   Vault,
   type Vaults,
-  type ArgonQueryClient,
+  type ArgonCurrentQueryClient,
 } from '@argonprotocol/apps-core';
 import type { PriceIndex } from '@argonprotocol/mainchain';
 
@@ -87,7 +88,7 @@ export class BitcoinLiquidRatchet extends TransactionOperation<
   public async previewRatchet(
     liquidId: number,
     microgonsAtTargetPerBtc: bigint,
-    client?: ArgonQueryClient,
+    client?: ArgonCurrentQueryClient,
     priceIndex = this.currency.priceIndex,
   ): Promise<IBitcoinLiquidRatchetPreview> {
     return (await this.loadRatchetPreview(liquidId, microgonsAtTargetPerBtc, client, priceIndex)).preview;
@@ -97,7 +98,7 @@ export class BitcoinLiquidRatchet extends TransactionOperation<
     const { liquidId, microgonsAtTargetPerBtc, txSigner, tip, client: providedClient } = args;
     const client = providedClient ?? (await getMainchainClient(false));
     const finalizedHead = await client.rpc.chain.getFinalizedHead();
-    const snapshotClient = await client.at(finalizedHead);
+    const snapshotClient = runtimeClient(await client.raw.at(finalizedHead));
     const priceIndex = await Currency.fetchPriceIndex(snapshotClient);
     const { preview, currentFissions } = await this.loadRatchetPreview(
       liquidId,
@@ -204,7 +205,7 @@ export class BitcoinLiquidRatchet extends TransactionOperation<
   private async loadRatchetPreview(
     liquidId: number,
     microgonsAtTargetPerBtc: bigint,
-    client?: ArgonQueryClient,
+    client?: ArgonCurrentQueryClient,
     priceIndex = this.currency.priceIndex,
   ): Promise<{ preview: IBitcoinLiquidRatchetPreview; currentFissions: BitcoinFission[] }> {
     const queryClient = client ?? (await getMainchainClient(false));
@@ -212,7 +213,9 @@ export class BitcoinLiquidRatchet extends TransactionOperation<
     const liquidFissions = currentFissions.filter(fission => fission.liquidId === liquidId);
     if (!liquidFissions.length) throw new Error(`Liquid #${liquidId} is unavailable from current chain state.`);
 
-    const minimumRatchetPercent = queryClient.consts.bitcoinFissions.minimumRatchetPercent.toBigInt();
+    const minimumRatchetPercent = BigInt(
+      queryClient.consts.bitcoinFissions.minimumRatchetPercent.times(100).toNumber(),
+    );
     const errors: string[] = [];
     const lockIds = [...new Set(liquidFissions.map(fission => fission.lockId))];
     const releaseRequests = await Promise.all(
@@ -320,7 +323,7 @@ export class BitcoinLiquidRatchet extends TransactionOperation<
   }
 
   private async getLockChanges(args: {
-    client: ArgonQueryClient;
+    client: ArgonCurrentQueryClient;
     liquidFissions: BitcoinFission[];
     microgonsAtTargetPerBtc: bigint;
     priceIndex: PriceIndex;
@@ -406,7 +409,7 @@ export class BitcoinLiquidRatchet extends TransactionOperation<
   private async prepareResecuritizations(args: {
     changes: IBitcoinLiquidRatchetLockChange[];
     client: ArgonClient;
-    snapshotClient: ArgonQueryClient;
+    snapshotClient: ArgonCurrentQueryClient;
     priceIndex: PriceIndex;
     currentBitcoinHeight: number;
     currentCoupons: IBitcoinLockCouponStatus[];

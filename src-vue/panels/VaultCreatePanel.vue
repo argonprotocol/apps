@@ -1,498 +1,343 @@
-<!-- prettier-ignore -->
 <template>
-  <DialogRoot class="absolute inset-0 z-10" :open="true">
-    <DialogPortal>
-      <DialogOverlay asChild>
-        <BgOverlay :style="{ zIndex: overlayZIndex.backdropZIndex }" @close="cancelPanel" />
-      </DialogOverlay>
-
-      <DialogContent asChild @escapeKeyDown="cancelPanel" :aria-describedby="undefined" :style="{ zIndex: overlayZIndex.contentZIndex }">
-        <div class="pointer-events-none absolute inset-0">
-          <VaultTour v-if="currentTourStep" @close="closeTour" @changeStep="currentTourStep = $event" :getPositionCheck="getTourPositionCheck" />
-          <div
-            class="VaultCreatePanel pointer-events-auto absolute top-[40px] left-3 right-3 bottom-3 flex flex-col rounded-md border border-black/30 inner-input-shadow bg-argon-menu-bg text-left transition-all focus:outline-none"
-            style="box-shadow: 0 -1px 2px 0 rgba(0, 0, 0, 0.1), inset 0 2px 0 rgba(255, 255, 255, 1)">
-          <BgOverlay v-if="hasEditBoxOverlay" @close="closeEditBoxOverlay" :showWindowControls="false" rounded="md" :style="editBoxBackdropZIndex" />
-          <div v-if="isSuggestingTour" class="absolute inset-0 bg-black/20 z-20 rounded-md"></div>
-          <div class="flex flex-col h-full w-full">
-            <h2
-              class="relative text-3xl font-bold text-left border-b border-slate-300 pt-5 pb-4 pl-3 mx-4 text-[#672D73]"
-              style="box-shadow: 0 1px 4px rgba(0, 0, 0, 0.1)"
-            >
-              <DialogTitle as="div" class="relative z-10">Configure Your Stabilization Vault</DialogTitle>
-              <div @click="cancelPanel" class="absolute top-[22px] right-0 z-10 flex items-center justify-center text-sm/6 font-semibold cursor-pointer border rounded-md w-[30px] h-[30px] focus:outline-none border-slate-400/60 hover:border-slate-500/70 hover:bg-[#D6D9DF]">
-                <XMarkIcon class="w-5 h-5 text-[#B74CBA] stroke-4" />
-              </div>
-            </h2>
-
-            <div v-if="isLoaded" class="flex flex-col grow relative w-full">
-              <DialogDescription class="text-gray-600 font-light py-6 pl-10 pr-[6%]">
-                Vaults are special holding mechanisms that stabilize the Argon stablecoin and provide liquidity to the broader network.
-                You can earn revenue by creating and managing these vaults. Use the screen below to configure your vault.
-                <PopoverRoot :open="isSuggestingTour">
-                  <PopoverTrigger asChild>
-                    <div :class="[isSuggestingTour ? '' : 'hover:underline']" class="inline-block relative cursor-pointer text-argon-600/80 hover:text-argon-800 decoration-dashed underline-offset-4 z-30" @click="startTour">
-                      <span class="relative z-10 font-semibold">Take our quick vaulting tour</span>
-                      <div v-if="isSuggestingTour" class="border rounded-full border-argon-600/30 bg-white/50 absolute -top-0 -left-2 -right-2 -bottom-0"></div>
-                    </div>
-                  </PopoverTrigger>
-                  <PopoverPortal>
-                    <PopoverContent @escapeKeyDown="stopSuggestingTour" side="bottom" :style="{ zIndex: overlayZIndex.contentZIndex + 1 }" class="rounded-lg p-5 -translate-y-1 w-[400px] bg-white shadow-sm border border-slate-800/30">
-                      <p class="text-gray-800 font-light">We recommend first-time vaulters start with a brief tour of how to use this panel.</p>
-                      <div class="flex flex-row space-x-2 mt-6">
-                        <button @click="stopSuggestingTour" tabindex="-1" class="cursor-pointer grow rounded-md border border-slate-500/30 px-4 py-1 focus:outline-none">Not Now</button>
-                        <button @click="startTour" tabindex="0" class="cursor-pointer grow rounded-md bg-argon-button border border-argon-button-hover hover:bg-argon-button-hover text-white font-bold inner-button-shadow px-4 py-1 focus:outline-none">Start Tour</button>
-                      </div>
-                      <PopoverArrow :width="24" :height="12" class="fill-white stroke-gray-400/50 shadow-2xl -mt-px" />
-                    </PopoverContent>
-                  </PopoverPortal>
-                </PopoverRoot>.
-              </DialogDescription>
-
-              <section class="flex flex-row border-t border-b border-slate-500/30 text-center pt-8 pb-8 px-3.5 mx-5 justify-stretch">
-                <div class="w-1/2 flex flex-col grow">
-                  <div PrimaryStat :isTouring="currentTourStep === 1" ref="capitalToCommitElement" class="flex flex-col grow group border border-slate-500/30 rounded-lg shadow-sm">
-                    <header StatHeader class="mx-0.5 pt-5 pb-0 relative">
-                      <tooltip side="top" content="The amount you're willing to invest in your vault">
-                        Capital {{ config.vaultingSetupStatus === VaultingSetupStatus.Finished ? 'Committed' : 'to Commit' }}
-                      </tooltip>
-                    </header>
-                    <div class="grow flex flex-col mt-3 border-t border-slate-500/30 border-dashed w-10/12 mx-auto">
-                      <div class="text-gray-500/60 border-b border-slate-500/30 border-dashed py-3 w-full">
-                        You are <tooltip content="We'll show you how to create it in the next step">creating a new vault</tooltip> with a
-                        <tooltip content="This includes everything, even transaction fees">total capital need</tooltip> of
-                      </div>
-                      <div class="flex flex-row items-center justify-center grow relative h-26 font-bold font-mono text-argon-600">
-                        <InputMoney v-model="rules.baseMicrogonCommitment" :min="2_000_000_000n" :minDecimals="0" class="focus:outline-none" />
-                        <CapitalOverlay align="end">
-                          <div class="relative ml-1 w-10 h-10">
-                            <PiechartIcon PiechartIcon class="absolute top-0 left-0 w-10 h-10 text-gray-300 hover:!text-argon-600 pointer-events-none" />
-                          </div>
-                        </CapitalOverlay>
-                      </div>
-                      <div class="text-gray-500/60 border-t border-slate-500/30 border-dashed py-5 w-full mx-auto">
-                        <tooltip content="The amount shown is what you're are committing">This capital</tooltip> will allow you to
-                        <tooltip content="The total amount of bitcoin your vault can lock">secure {{ numeral(btcSpaceAvailable).format('0,0.[00000000]') }} in BTC</tooltip><br/>
-                        with
-                        <tooltip content="This is funded by revenue from mining auctions">treasury pool</tooltip> investment <tooltip content="You are not required to participate in the treasury">options</tooltip> of
-                        <tooltip content="This can be invested by yourself or third parties">{{ microgonToArgonNm(poolSpace).format('0,0.[00]') }} argons</tooltip>.
-                      </div>
-                    </div>
-                  </div>
-                </div>
-
-                <div class="flex flex-col items-center justify-center text-3xl mx-2 text-center">
-                  <span class="relative -top-1 opacity-50">
-                    =
-                  </span>
-                </div>
-
-                <div class="w-1/2 flex flex-col grow">
-                  <div PrimaryStat :isTouring="currentTourStep === 2" ref="returnOnCapitalElement" class="flex flex-col grow group border border-slate-500/30 rounded-lg shadow-sm">
-                    <header StatHeader class="mx-0.5 pt-5 pb-0 relative">
-                      <tooltip side="top" content="The amount you might earn on your capital">
-                        Return on Capital
-                      </tooltip>
-                    </header>
-                    <div class="grow flex flex-col mt-3 border-t border-slate-500/30 border-dashed w-10/12 mx-auto">
-                      <div class="text-gray-500/60 border-b border-slate-500/30 border-dashed py-3 w-full">
-                        Your <tooltip content="This is not a guarantee, simply an estimate">vault is expected</tooltip>
-                        to earn {{ currency.symbol }}{{ microgonToMoneyNm(averageEpochEarnings).format('0,0.00') }}
-                        <tooltip content="An epoch is equivalent to ten days">per epoch</tooltip> at an <tooltip content="Annual Percent Yield">APY</tooltip> of
-                      </div>
-                      <div class="flex flex-row items-center justify-center grow relative h-26 text-6xl font-bold font-mono text-argon-600">
-                        <span>~{{ numeral(averageAPY).formatIfElseCapped('>=100', '0,0', '0,0.00', 999_999) }}%</span>
-                        <ReturnsOverlay align="start">
-                          <PiechartIcon PiechartIcon class="ml-4 w-10 h-10 text-gray-300 hover:!text-argon-600" />
-                        </ReturnsOverlay>
-                      </div>
-                      <div class="text-gray-500/60 border-t border-slate-500/30 border-dashed py-5 w-full">
-                      This <tooltip content="It's more of a blended approximation">represents an average</tooltip> of all your estimated vaulting<br/>
-                      returns
-                      <template v-if="vaultLowUtilizationAPY < 999_999 || vaultHighUtilizationAPY < 999_999">
-                        which range between
-                        <tooltip content="This is the minimum APY we expect">{{ numeral(vaultLowUtilizationAPY).formatIfElseCapped('>=100', '0,0', '0,0.[00]', 999_999) }}%</tooltip>
-                        and <tooltip content="This is the maximum APY we expect">{{ numeral(vaultHighUtilizationAPY).formatIfElseCapped('>=100', '0,0', '0,0.[00]', 999_999) }}%</tooltip> APY.
-                      </template>
-                      <template v-else>
-                        at the <tooltip content="Customize your projected utilization ranges below">full range of projected utilization levels</tooltip>.
-                      </template>
-                    </div>
-                    </div>
-                  </div>
-                </div>
-              </section>
-
-              <VaultSettings ref="vaultSettingsInstance" @toggleEditBoxOverlay="(x: boolean) => hasEditBoxOverlay = x" :includeProjections="true" />
-            </div>
-            <div v-else class="grow flex items-center justify-center">Loading...</div>
-
-            <div class="flex flex-row justify-end border-t border-slate-300 mx-4 py-4 space-x-4 rounded-b-lg">
-              <div class="flex flex-row space-x-4 justify-center items-center">
-                <ExistingNetworkVaultsOverlayButton class=" mr-10" />
-                <button @click="cancelPanel" class="border border-argon-button/50 text-xl font-bold text-gray-500 px-7 py-1 rounded-md cursor-pointer">
-                  <span>Cancel</span>
-                </button>
-                <Tooltip asChild :calculateWidth="() => calculateElementWidth(saveButtonElement)" side="top" content="Clicking this button does not commit you to anything.">
-                  <button @click="saveRules" ref="saveButtonElement" class="bg-argon-button text-xl font-bold text-white px-7 py-1 rounded-md cursor-pointer">
-                    <span v-if="!isSaving">{{ isBrandNew ? 'Confirm' : 'Update' }} Rules</span>
-                    <span v-else>{{ isBrandNew ? 'Saving' : 'Updating' }} Rules...</span>
+  <OverlayBase :isOpen="true" title="Configure Your Stabilization Vault" class="w-240" @close="cancelPanel">
+    <div class="flex flex-col px-10 py-5">
+      <div ref="editBoxParent" class="relative flex flex-col pt-3">
+        <p class="leading-relaxed font-light">
+          Vaults are special holding mechanisms that stabilize the Argon stablecoin and provide liquidity to the broader
+          network. You can earn revenue by creating and managing these vaults.
+          <a href="https://argon.network/docs/system-design/economic-drivers#Vaulting" target="_blank">Learn more.</a>
+        </p>
+        <div class="mt-5 border-b border-slate-200" />
+        <div class="mt-5 flex flex-col gap-6">
+          <div>
+            <div class="flex items-center">
+              <div class="mb-2 flex grow items-center gap-1 font-bold text-gray-600/60">
+                <label>Argon Securitization</label>
+                <Tooltip as-child side="top">
+                  <button type="button" class="inline-flex cursor-help" aria-label="Argon securitization details">
+                    <InformationCircleIcon class="size-3.5" />
                   </button>
+                  <template #content>Argon securitization supports Bitcoin locks and treasury bonds.</template>
+                </Tooltip>
+              </div>
+              <button
+                type="button"
+                :disabled="isSaving"
+                class="text-argon-600 hover:text-argon-700 cursor-pointer text-sm"
+                @click="vaultSetup.securitizationMicrogons = minimumSecuritization"
+              >
+                Min
+              </button>
+              <span class="mx-3 h-4 border-l border-gray-300" />
+              <Tooltip as-child side="top">
+                <span class="inline-flex cursor-help items-center gap-0.5 text-sm">
+                  <button
+                    type="button"
+                    :disabled="isSaving"
+                    class="text-argon-600 hover:text-argon-700 cursor-pointer"
+                    @click="vaultSetup.securitizationMicrogons = certificationSecuritization"
+                  >
+                    Certification
+                  </button>
+                  <button type="button" class="inline-flex cursor-help" aria-label="Certification guidance">
+                    <InformationCircleIcon class="size-3.5 text-gray-400" />
+                  </button>
+                </span>
+                <template #content>Sets securitization to the amount needed for Treasury Certification.</template>
+              </Tooltip>
+              <span class="mx-3 h-4 border-l border-gray-300" />
+              <button
+                type="button"
+                :disabled="isSaving || walletMaximum < minimumSecuritization"
+                class="text-argon-600 hover:text-argon-700 cursor-pointer text-sm disabled:text-gray-400"
+                @click="vaultSetup.securitizationMicrogons = walletMaximum"
+              >
+                Max
+              </button>
+            </div>
+            <InputToken
+              data-testid="vault-create-argn"
+              v-model="vaultSetup.securitizationMicrogons"
+              :min="minimumSecuritization"
+              :disabled="isSaving"
+              suffix=" ARGN"
+              :minDecimals="0"
+              :maxDecimals="1"
+              class="px-1 py-2 text-[17px]!"
+            />
+            <div class="mt-2 text-sm text-gray-600/70">
+              Bitcoin Capacity:
+              <template v-if="currency.isLoaded">
+                {{
+                  numeral(currency.convertMicrogonTo(bitcoinCapacityMicrogons, UnitOfMeasurement.BTC)).format(
+                    '0,0.[0000]',
+                  )
+                }}
+                BTC
+              </template>
+              <template v-else>&mdash;</template>
+            </div>
+          </div>
+          <div>
+            <div class="flex items-center">
+              <div class="mb-2 flex grow items-center gap-1 font-bold text-gray-600/60">
+                <label>Argonot Securitization</label>
+                <Tooltip as-child side="top">
+                  <button type="button" class="inline-flex cursor-help" aria-label="Argonot securitization details">
+                    <InformationCircleIcon class="size-3.5" />
+                  </button>
+                  <template #content>Argonot securitization maximizes your vault’s share of network revenue.</template>
+                </Tooltip>
+              </div>
+              <div class="flex items-center gap-1">
+                <button
+                  type="button"
+                  :disabled="isSaving || maximumReturnsMicronots === undefined"
+                  class="text-argon-600 hover:text-argon-700 cursor-pointer text-sm disabled:text-gray-400"
+                  @click="vaultSetup.committedMicronots = maximumReturnsMicronots!"
+                >
+                  Max Returns
+                </button>
+                <Tooltip as-child side="top">
+                  <button type="button" class="text-argon-600 inline-flex cursor-help" aria-label="ARGNOT guidance">
+                    <InformationCircleIcon class="size-3.5" />
+                  </button>
+                  <template #content>
+                    <template v-if="maximumReturnsMicronots !== undefined">
+                      Lock {{ micronotToArgonotNm(maximumReturnsMicronots).format('0,0.[0]') }} ARGNOT to maximize your
+                      vault’s earnings. Argonot securitization is optional.
+                    </template>
+                    <template v-else>Max Returns guidance is unavailable.</template>
+                  </template>
                 </Tooltip>
               </div>
             </div>
-
+            <InputToken
+              data-testid="vault-create-argnot"
+              v-model="vaultSetup.committedMicronots"
+              :min="0n"
+              :disabled="isSaving"
+              suffix=" ARGNOT"
+              :minDecimals="0"
+              :maxDecimals="1"
+              class="px-1 py-2 text-[17px]!"
+            />
+            <div class="mt-2 text-sm text-gray-600/70">
+              <template v-if="maximumReturnsMicronots !== undefined">
+                {{ micronotToArgonotNm(maximumReturnsMicronots).format('0,0.[0]') }} ARGNOT for Max Returns
+              </template>
+              <template v-else>Max Returns guidance is unavailable.</template>
+            </div>
           </div>
         </div>
+        <div class="mt-5 border-b border-slate-200" />
+        <div class="mt-5 flex items-center gap-2">
+          <span class="inline-flex items-center gap-1 font-bold text-gray-600/60">
+            Bitcoin Locking Fee:
+            <Tooltip as-child side="top">
+              <button type="button" class="inline-flex cursor-help" aria-label="Bitcoin locking fee details">
+                <InformationCircleIcon class="size-3.5" />
+              </button>
+              <template #content>
+                Paid to your vault when someone locks Bitcoin. Includes a flat ARGN fee and a percentage fee.
+              </template>
+            </Tooltip>
+          </span>
+          <span ref="feeEditAnchor" data-testid="fee-edit-preview" class="group inline-flex items-center">
+            <button
+              type="button"
+              aria-label="Edit Bitcoin locking fee"
+              :disabled="isSaving"
+              @click="openFeeEditor"
+              class="text-argon-700/80 inline-flex cursor-pointer items-center gap-2 font-mono text-lg font-bold"
+            >
+              {{ currency.symbol }}{{ microgonToMoneyNm(vaultSetup.btcFlatFee).format('0,0.00') }} +
+              {{ numeral(vaultSetup.btcPctFee).format('0.[00]') }}%
+              <EditIcon class="text-argon-600/50 h-4.5 w-4.5 opacity-0 group-hover:opacity-100" />
+            </button>
+          </span>
+        </div>
+        <section class="border-argon-600/30 mt-6 rounded-md border">
+          <div class="flex flex-row py-7 text-center">
+            <div class="w-1/3 px-3">
+              <header class="text-sm font-bold opacity-40">TERM</header>
+              <div class="text-argon-600 py-1 text-3xl font-bold">1 YEAR+</div>
+              <div class="inline-flex items-center gap-1 text-sm font-light opacity-80">
+                Requires Exit Notice
+                <Tooltip as-child side="top">
+                  <button type="button" class="inline-flex cursor-help" aria-label="Withdrawal notice details">
+                    <InformationCircleIcon class="size-3.5" />
+                  </button>
+                  <template #content>
+                    Withdrawals require a one year exit notice. ARGNOT above max rewards are available for immediate
+                    withdrawal.
+                  </template>
+                </Tooltip>
+              </div>
+            </div>
+            <div class="min-h-full min-w-px bg-slate-600/20" />
+            <div class="w-1/3 px-3">
+              <header class="text-sm font-bold opacity-40">AVG VAULT RETURNS</header>
+              <div class="text-argon-600 py-1 text-3xl font-bold">
+                <template v-if="projectionsReady">
+                  {{ numeral(vaultingStats.averageAPR).format('0,0.0') }}% APR
+                </template>
+                <template v-else>&mdash;</template>
+              </div>
+              <div class="text-sm font-light opacity-80">Based on Past Performance</div>
+            </div>
+            <div class="min-h-full min-w-px bg-slate-600/20" />
+            <div class="w-1/3 px-3">
+              <header class="text-sm font-bold opacity-40">PROJECTED EARNINGS</header>
+              <div class="text-argon-600 py-1 text-3xl font-bold">
+                <template v-if="projectionsReady">
+                  +{{ currency.symbol }}{{ microgonToMoneyNm(projectedEarningsMicrogons).format('0,0') }}
+                </template>
+                <template v-else>&mdash;</template>
+              </div>
+              <a
+                href="https://argon.network/docs/system-design/economic-drivers#Vaulting"
+                target="_blank"
+                rel="noopener noreferrer"
+                class="text-argon-600 inline-flex cursor-pointer items-center gap-1 text-sm font-light underline"
+              >
+                Modeled Over One Year
+                <ArrowTopRightOnSquareIcon class="h-3 w-3" />
+              </a>
+            </div>
+          </div>
+        </section>
+        <div v-if="projectionError && !projectionsReady" class="mt-2 text-sm text-slate-500">
+          Returns are unavailable.
+          <button type="button" class="text-argon-600 cursor-pointer underline" @click="retryProjections">Retry</button>
+        </div>
+        <EditBoxOverlay
+          v-if="feeEditorPosition"
+          id="btcLockingFees"
+          :position="feeEditorPosition"
+          @close="feeEditorPosition = undefined"
+        />
       </div>
-      </DialogContent>
-    </DialogPortal>
-  </DialogRoot>
+      <div v-if="savingError" class="mt-4 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+        {{ savingError }}
+      </div>
+      <div class="mt-3 flex flex-row items-center justify-end gap-x-3 py-3">
+        <button
+          type="button"
+          :disabled="isSaving"
+          @click="cancelPanel"
+          class="cursor-pointer rounded-md border border-slate-300 px-10 py-2 text-slate-600 hover:bg-slate-50"
+        >
+          Cancel
+        </button>
+        <button
+          type="button"
+          :disabled="isSaving || !!feeEditorPosition || vaultSetup.securitizationMicrogons < minimumSecuritization"
+          @click="saveSettings"
+          class="bg-argon-button enabled:hover:bg-argon-button-hover cursor-pointer rounded-md px-10 py-2 font-semibold text-white disabled:opacity-40"
+        >
+          {{ isSaving ? 'Saving...' : 'Confirm Settings »' }}
+        </button>
+      </div>
+    </div>
+  </OverlayBase>
 </template>
 
 <script setup lang="ts">
 import * as Vue from 'vue';
-import {
-  DialogContent,
-  DialogDescription,
-  DialogOverlay,
-  DialogPortal,
-  DialogRoot,
-  DialogTitle,
-  PopoverArrow,
-  PopoverContent,
-  PopoverPortal,
-  PopoverRoot,
-  PopoverTrigger,
-} from 'reka-ui';
-import { getConfig } from '../stores/config.ts';
-import { getVaultCalculator } from '../stores/mainchain.ts';
-import { getCurrency } from '../stores/currency.ts';
-import numeral, { createNumeralHelpers } from '../lib/numeral.ts';
-import BgOverlay from '../components/BgOverlay.vue';
-import { XMarkIcon } from '@heroicons/vue/24/outline';
-import { JsonExt, UnitOfMeasurement } from '@argonprotocol/apps-core';
-import InputMoney from '../components/InputMoney.vue';
-import ExistingNetworkVaultsOverlayButton from '../overlays/ExistingNetworkVaultsOverlayButton.vue';
-import CapitalOverlay from '../overlays/vault/VaultCapital.vue';
-import ReturnsOverlay from '../overlays/vault/VaultReturns.vue';
-import type { IVaultingRules } from '../interfaces/IVaultingRules.ts';
-import VaultTour from './vault-create-tour/Base.vue';
-import PiechartIcon from '../assets/piechart.svg?component';
+import BigNumber from 'bignumber.js';
+import { ArrowTopRightOnSquareIcon, InformationCircleIcon } from '@heroicons/vue/24/outline';
+import { bigIntMax, bigNumberToBigInt, JsonExt, TreasuryBonds, UnitOfMeasurement } from '@argonprotocol/apps-core';
+import EditIcon from '../assets/edit.svg?component';
+import InputToken from '../components/InputToken.vue';
 import Tooltip from '../components/Tooltip.vue';
-import { ITourPos } from '../stores/tour.ts';
-import { provideOverlayContentZIndex, useFloatingZIndex, useOverlayZIndex } from '../overlays/helpers/OverlayZIndex.ts';
+import type { IConfig } from '../interfaces/IConfig.ts';
+import numeral, { createNumeralHelpers } from '../lib/numeral.ts';
+import EditBoxOverlay from '../overlays/EditBoxOverlay.vue';
+import OverlayBase from '../overlays/OverlayBase.vue';
+import { getArgonBonds } from '../stores/argonBonds.ts';
 import { useCertificationController } from '../stores/certificationController.ts';
-import VaultSettings from '../components/VaultSettings.vue';
-import { VaultingSetupStatus } from '../interfaces/IConfig.ts';
+import { getConfig } from '../stores/config.ts';
+import { getCurrency } from '../stores/currency.ts';
+import { useVaultingStats } from '../stores/vaultingStats.ts';
+import { useWallets } from '../stores/wallets.ts';
+import { MyVault } from '../lib/MyVault.ts';
 
+const emit = defineEmits<{ close: [] }>();
 const config = getConfig();
 const currency = getCurrency();
+const wallets = useWallets();
 const controller = useCertificationController();
-const { microgonToMoneyNm, microgonToArgonNm } = createNumeralHelpers(currency);
-const emit = defineEmits<{
-  (e: 'close'): void;
-}>();
-let previousVaultingRules: string | null = null;
+const argonBonds = getArgonBonds();
+const vaultingStats = useVaultingStats();
+const { micronotToArgonotNm, microgonToMoneyNm } = createNumeralHelpers(currency);
+const vaultSetup = Vue.computed(() => config.vaultSetup);
+const previousSetup = JsonExt.stringify(vaultSetup.value);
+const minimumSecuritization = 2_000_000_000n;
+const certificationSecuritization = Vue.computed(() =>
+  bigIntMax(minimumSecuritization, controller.rewardConfig.operationalMinimumVaultSecuritization),
+);
+const walletMaximum = Vue.computed(() =>
+  bigIntMax(0n, wallets.defaultArgonWallet.availableMicrogons - MyVault.setupFeeBudgetMicrogons),
+);
+const bitcoinCapacityMicrogons = Vue.computed(() =>
+  bigNumberToBigInt(BigNumber(vaultSetup.value.securitizationMicrogons).div(vaultSetup.value.securitizationRatio)),
+);
+const maximumReturnsMicronots = Vue.computed(() =>
+  TreasuryBonds.getVaultArgonotSecuritizationTarget({
+    securitizationMicrogons: vaultSetup.value.securitizationMicrogons,
+    averageMicrogonsPerArgonot: argonBonds.data.averageMicrogonsPerArgonot,
+  }),
+);
+const projectedEarningsMicrogons = Vue.computed(() =>
+  bigNumberToBigInt(BigNumber(vaultSetup.value.securitizationMicrogons).times(vaultingStats.averageAPR).div(100)),
+);
 
-const rules = Vue.computed(() => {
-  return config.vaultingRules as IVaultingRules;
-});
-
-const calculator = getVaultCalculator();
-
-const isBrandNew = Vue.ref(true);
-const isSuggestingTour = Vue.ref(false);
-const currentTourStep = Vue.ref<number>(0);
-const isLoaded = Vue.ref(false);
 const isSaving = Vue.ref(false);
-const hasEditBoxOverlay = Vue.ref(false);
-const overlayZIndex = useOverlayZIndex(() => true);
-const editBoxBackdropZIndex = useFloatingZIndex();
-provideOverlayContentZIndex(Vue.toRef(overlayZIndex, 'contentZIndex'));
-
-const capitalToCommitElement = Vue.ref<HTMLElement | null>(null);
-const returnOnCapitalElement = Vue.ref<HTMLElement | null>(null);
-const vaultSettingsInstance = Vue.ref<typeof VaultSettings | null>(null);
-const saveButtonElement = Vue.ref<HTMLElement | null>(null);
-
-const averageAPY = Vue.ref(0);
-const averageEpochEarnings = Vue.ref(0n);
-
-const vaultLowUtilizationAPY = Vue.ref(0);
-const vaultHighUtilizationAPY = Vue.ref(0);
-const externalLowUtilizationAPY = Vue.ref(0);
-const externalHighUtilizationAPY = Vue.ref(0);
-
-const btcSpaceAvailable = Vue.ref(0);
-const poolSpace = Vue.ref(0n);
-
-const hasExternalPoolCapitalLow = Vue.ref(false);
-const hasExternalPoolCapitalHigh = Vue.ref(false);
-
-function getTourPositionCheck(name: string): ITourPos {
-  if (name === 'capitalToCommit') {
-    const rect = capitalToCommitElement.value?.getBoundingClientRect() as DOMRect;
-    return {
-      left: rect.left,
-      top: rect.top,
-      right: rect.left + rect.width,
-      bottom: rect.top + rect.height,
-      width: rect.width,
-      height: rect.height,
-    };
-  } else if (name === 'returnOnCapital') {
-    const rect = returnOnCapitalElement.value?.getBoundingClientRect() as DOMRect;
-    return {
-      left: rect.left,
-      top: rect.top,
-      right: rect.left + rect.width,
-      bottom: rect.top + rect.height,
-      width: rect.width,
-      height: rect.height,
-    };
-  } else if (name === 'configBoxes') {
-    const rect = vaultSettingsInstance.value?.$el.getBoundingClientRect() as DOMRect;
-    const left = rect.left + 20;
-    const width = rect.width - 40;
-    return {
-      left: left,
-      top: rect.top,
-      right: left + width,
-      bottom: rect.top + rect.height,
-      width: width,
-      height: rect.height,
-    };
-  } else if (name === 'saveButton') {
-    const rect = saveButtonElement.value?.getBoundingClientRect() as DOMRect;
-    const left = rect.left - 10;
-    const width = rect.width + 20;
-    const top = rect.top - 10;
-    const height = rect.height + 20;
-    return { left: left, top: top, right: left + width, bottom: top + height, width: width, height: height };
-  } else {
-    return { left: 100, top: 100, right: 200, bottom: 200, width: 100, height: 100 };
-  }
-}
-
-function calculateElementWidth(element: HTMLElement | null) {
-  if (!element) return;
-  const elementWidth = element.getBoundingClientRect().width;
-  return `${elementWidth}px`;
-}
+const savingError = Vue.ref('');
+const projectionsReady = Vue.computed(() => vaultingStats.isLoaded);
+const projectionError = Vue.ref(false);
+const editBoxParent = Vue.ref<HTMLElement>();
+const feeEditAnchor = Vue.ref<HTMLElement>();
+const feeEditorPosition = Vue.ref<{ top: number; left: number; width: number }>();
 
 function cancelPanel() {
-  if (hasEditBoxOverlay.value) return;
-
-  if (previousVaultingRules) {
-    config.vaultingRules = JsonExt.parse<IVaultingRules>(previousVaultingRules);
-  }
+  if (isSaving.value || feeEditorPosition.value) return;
+  config.vaultSetup = JsonExt.parse<IConfig['vaultSetup']>(previousSetup);
   emit('close');
 }
 
-function closeEditBoxOverlay() {
-  vaultSettingsInstance.value?.closeEditBoxOverlay();
-}
-
-async function saveRules() {
+async function saveSettings() {
+  if (isSaving.value || feeEditorPosition.value || vaultSetup.value.securitizationMicrogons < minimumSecuritization)
+    return;
   isSaving.value = true;
-
-  if (rules.value) {
-    await config.saveVaultingRules();
+  savingError.value = '';
+  try {
+    await config.saveVaultSetup();
+    emit('close');
+  } catch (error) {
+    savingError.value = error instanceof Error ? error.message : 'Unable to save vault settings.';
+  } finally {
+    isSaving.value = false;
   }
-
-  isSaving.value = false;
-  emit('close');
 }
 
-function updateAPYs() {
-  const btcSpaceInMicrogons = calculator.calculateBtcSpaceInMicrogons();
-  btcSpaceAvailable.value = currency.convertMicrogonTo(btcSpaceInMicrogons, UnitOfMeasurement.BTC);
-
-  vaultLowUtilizationAPY.value = calculator.calculateInternalAPY('Low', 'Low');
-  vaultHighUtilizationAPY.value = calculator.calculateInternalAPY('High', 'High');
-  externalLowUtilizationAPY.value = calculator.calculateExternalAPY('Low', 'Low');
-  externalHighUtilizationAPY.value = calculator.calculateExternalAPY('High', 'High');
-
-  hasExternalPoolCapitalLow.value = calculator.calculateExternalPoolCapital('Low', 'Low') > 0;
-  hasExternalPoolCapitalHigh.value = calculator.calculateExternalPoolCapital('High', 'High') > 0;
-
-  averageAPY.value = (vaultLowUtilizationAPY.value + vaultHighUtilizationAPY.value) / 2;
-
-  const highVaultRevenue = calculator.calculateInternalRevenue('High', 'High');
-  const lowVaultRevenue = calculator.calculateInternalRevenue('Low', 'Low');
-  averageEpochEarnings.value = (highVaultRevenue + lowVaultRevenue) / 2n;
-
-  poolSpace.value = calculator.calculateTotalPoolSpace('High');
+function openFeeEditor() {
+  const parent = editBoxParent.value!.getBoundingClientRect();
+  const anchor = feeEditAnchor.value!.getBoundingClientRect();
+  feeEditorPosition.value = { top: anchor.top - parent.top, left: anchor.left - parent.left, width: parent.width / 2 };
 }
 
-function startTour() {
-  currentTourStep.value = 1;
-  isSuggestingTour.value = false;
+async function retryProjections() {
+  projectionError.value = false;
+  try {
+    await vaultingStats.update(true);
+  } catch {
+    projectionError.value = true;
+  }
 }
 
-function closeTour() {
-  currentTourStep.value = 0;
-}
-
-function stopSuggestingTour() {
-  controller.stopSuggestingVaultTour = true;
-  isSuggestingTour.value = false;
-}
-
-Vue.watch(rules, () => updateAPYs(), { deep: true });
-
-Vue.onMounted(async () => {
-  isLoaded.value = false;
-  isBrandNew.value = !config.hasSavedVaultingRules;
-  isSuggestingTour.value = isBrandNew.value && !controller.stopSuggestingVaultTour;
-
-  await calculator.load(rules.value);
-  previousVaultingRules = JsonExt.stringify(config.vaultingRules);
-  updateAPYs();
-
-  isLoaded.value = true;
+void vaultingStats.isLoadedPromise.catch(() => {
+  projectionError.value = true;
 });
 </script>
-
-<style>
-@reference "../main.css";
-
-.VaultCreatePanel {
-  h2 {
-    position: relative;
-    &:before {
-      @apply from-argon-menu-bg bg-gradient-to-r to-transparent;
-      content: '';
-      display: block;
-      width: 30px;
-      position: absolute;
-      z-index: 1;
-      left: -5px;
-      top: 0;
-      bottom: -5px;
-    }
-    &:after {
-      @apply from-argon-menu-bg bg-gradient-to-l to-transparent;
-      content: '';
-      display: block;
-      width: 30px;
-      position: absolute;
-      z-index: 1;
-      right: -5px;
-      top: 0;
-      bottom: -5px;
-    }
-  }
-
-  [StatHeader] {
-    @apply group-hover:text-argon-600/70 text-lg font-bold text-[#a08fb7];
-  }
-
-  [PrimaryStat] {
-    @apply relative;
-
-    [tooltip] {
-      @apply text-argon-600/60 transition-all duration-300;
-
-      &:focus {
-        @apply text-argon-600;
-      }
-    }
-
-    &:hover {
-      [tooltip] {
-        @apply text-argon-600;
-      }
-      [PiechartIcon] {
-        animation: fadeToArgon 2s ease-in-out 1;
-      }
-    }
-
-    [InputFieldWrapper] {
-      @apply text-argon-600 border-none font-mono text-6xl font-bold !outline-none hover:bg-transparent focus:!outline-none;
-      box-shadow: none;
-    }
-    [NumArrows] {
-      @apply relative top-2;
-    }
-    svg[NumArrowUp],
-    svg[NumArrowDown] {
-      @apply size-[24px];
-    }
-
-    [StatHeader] {
-      @apply text-argon-600/70;
-      background: linear-gradient(to bottom, oklch(0.88 0.09 320 / 0.2) 0%, transparent 100%);
-      text-shadow: 1px 1px 0 white;
-    }
-  }
-
-  section div[MainWrapper] {
-    @apply cursor-pointer;
-
-    &:hover {
-      @apply bg-argon-20;
-      [MainRule]::before {
-        background: linear-gradient(to right, var(--color-argon-20) 0%, transparent 100%);
-      }
-      [MainRule]::after {
-        background: linear-gradient(to left, var(--color-argon-20) 0%, transparent 100%);
-      }
-      [StatHeader] {
-        @apply text-argon-600/70;
-      }
-      [EditIcon] {
-        @apply inline-block;
-      }
-    }
-
-    [StatHeader] {
-      @apply pt-1;
-    }
-
-    [EditIcon] {
-      @apply text-argon-600/50 relative z-10 -mt-0.5 ml-2 hidden h-4.5 min-h-4.5 w-4.5 min-w-4.5;
-    }
-
-    [MainRule] {
-      @apply text-argon-700/80 relative my-1.5 border-t border-b border-dashed border-slate-500/30 py-1 text-center font-mono font-bold;
-      &::before {
-        content: '';
-        display: block;
-        width: 10%;
-        height: calc(100% + 4px);
-        background: linear-gradient(to right, var(--color-argon-menu-bg) 0%, transparent 100%);
-        position: absolute;
-        top: -2px;
-        left: 0;
-      }
-      &::after {
-        content: '';
-        display: block;
-        width: 10%;
-        height: calc(100% + 4px);
-        background: linear-gradient(to left, var(--color-argon-menu-bg) 0%, transparent 100%);
-        position: absolute;
-        top: -2px;
-        right: 0;
-      }
-      span {
-        @apply relative z-10;
-      }
-    }
-  }
-
-  @keyframes fadeToArgon {
-    0% {
-      color: rgb(209 213 219); /* text-gray-300 */
-    }
-    10% {
-      color: oklch(0.48 0.24 320); /* text-argon-600 */
-    }
-    100% {
-      color: rgb(209 213 219); /* text-gray-300 */
-    }
-  }
-}
-</style>

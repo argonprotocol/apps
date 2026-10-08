@@ -76,13 +76,16 @@ export default new OperationalFlow<IVaultingFlowContext, ITransferOutToEthereumS
           if (!runtimeState || runtimeState.executionRpcUrl !== executionRpcUrl) {
             return;
           }
+          if (runtimeState.mintingAuthorityStatus === 'error') {
+            throw new Error(runtimeState.mintingAuthorityError ?? 'Backend minting authority setup failed.');
+          }
           if (runtimeState.setupStatus !== 'ready' || runtimeState.mintingAuthorityStatus !== 'ready') {
             return;
           }
 
           return runtimeState;
         },
-        { pollMs: 1_000 },
+        { pollMs: 1_000, retryErrors: false },
       );
     } catch (error) {
       throw new Error(

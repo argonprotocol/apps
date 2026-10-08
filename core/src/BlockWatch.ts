@@ -5,9 +5,8 @@ import {
   type SignedBlock,
   getTickFromHeader,
   type Header,
-  type ApiDecoration,
 } from '@argonprotocol/mainchain';
-import { runtimeClient, type CurrentRuntimeQueries, type HistoricalQueryRecord } from '@argonprotocol/runtime-client';
+import { runtimeClient, type HistoricalQueryRecord } from '@argonprotocol/runtime-client';
 import { createDeferred, type IDeferred } from './Deferred.js';
 import type { ArgonApi, ArgonClient, ArgonCurrentQueryClient, MainchainClients } from './MainchainClients.js';
 import { NetworkConfig } from './NetworkConfig.js';
@@ -464,13 +463,14 @@ export class BlockWatch {
 
   public async getFinalizedApi(): Promise<ArgonCurrentQueryClient> {
     const api = await this.getApi(this.finalizedBlockHeader);
-    return runtimeClient<ApiDecoration<'promise'>, CurrentRuntimeQueries>(api.raw);
+    return runtimeClient(api);
   }
 
-  public async getCurrentApi(): Promise<ArgonApi> {
+  public async getCurrentApi(): Promise<ArgonCurrentQueryClient> {
     const initialBestHeader = this.bestBlockHeader;
     try {
-      return await this.getApi(initialBestHeader);
+      const api = await this.getApi(initialBestHeader);
+      return runtimeClient(api);
     } catch (error) {
       if (initialBestHeader.isFinalized) {
         throw error;
@@ -484,7 +484,8 @@ export class BlockWatch {
           error: String(error),
         });
         try {
-          return await this.getApi(latestBestHeader);
+          const api = await this.getApi(latestBestHeader);
+          return runtimeClient(api);
         } catch (nextError) {
           error = nextError;
         }
@@ -504,7 +505,8 @@ export class BlockWatch {
         error: String(error),
       });
 
-      return await this.getApi(archiveBestHeader);
+      const api = await this.getApi(archiveBestHeader);
+      return runtimeClient(api);
     }
   }
 

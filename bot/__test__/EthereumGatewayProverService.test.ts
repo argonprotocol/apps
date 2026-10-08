@@ -600,7 +600,7 @@ describe('EthereumGatewayProverService', () => {
       method: { toHuman: () => ({ section: 'crosschainTransfer', method: 'proveGatewayActivity' }) },
       nonce: { toNumber: () => 5 },
     };
-    const client = createClient({ runtimeGatewayActivityNonce: 6n, accountNextNonce: 5, freeHeadersInterval: 2n });
+    const client = createClient({ runtimeGatewayActivityNonce: 6n, accountNextNonce: 5, freeHeadersInterval: 2 });
     const service = new EthereumGatewayProverService(createSubmitLane(client));
 
     gatewayProofMock.buildGatewayActivityProofPayload.mockResolvedValue({
@@ -638,7 +638,7 @@ describe('EthereumGatewayProverService', () => {
       method: { toHuman: () => ({ section: 'crosschainTransfer', method: 'proveGatewayActivity' }) },
       nonce: { toNumber: () => 5 },
     };
-    const client = createClient({ runtimeGatewayActivityNonce: 6n, accountNextNonce: 5, freeHeadersInterval: 2n });
+    const client = createClient({ runtimeGatewayActivityNonce: 6n, accountNextNonce: 5, freeHeadersInterval: 2 });
     const service = new EthereumGatewayProverService(createSubmitLane(client), {
       shouldApplySharedRelayStagger: false,
     });
@@ -678,7 +678,7 @@ describe('EthereumGatewayProverService', () => {
       method: { toHuman: () => ({ section: 'crosschainTransfer', method: 'proveGatewayActivity' }) },
       nonce: { toNumber: () => 5 },
     };
-    const client = createClient({ runtimeGatewayActivityNonce: 6n, accountNextNonce: 5, freeHeadersInterval: 2n });
+    const client = createClient({ runtimeGatewayActivityNonce: 6n, accountNextNonce: 5, freeHeadersInterval: 2 });
     const service = new EthereumGatewayProverService(createSubmitLane(client));
 
     gatewayProofMock.buildGatewayActivityProofPayload.mockResolvedValue({
@@ -719,7 +719,7 @@ describe('EthereumGatewayProverService', () => {
       method: { toHuman: () => ({ section: 'crosschainTransfer', method: 'proveGatewayActivity' }) },
       nonce: { toNumber: () => 5 },
     };
-    const client = createClient({ runtimeGatewayActivityNonce: 6n, accountNextNonce: 5, freeHeadersInterval: 2n });
+    const client = createClient({ runtimeGatewayActivityNonce: 6n, accountNextNonce: 5, freeHeadersInterval: 2 });
     const service = new EthereumGatewayProverService(createSubmitLane(client), {
       backgroundSweepMs: 1_000,
       shouldApplySharedRelayStagger: true,
@@ -778,7 +778,7 @@ describe('EthereumGatewayProverService', () => {
       method: { toHuman: () => ({ section: 'crosschainTransfer', method: 'proveGatewayActivity' }) },
       nonce: { toNumber: () => 5 },
     };
-    const client = createClient({ runtimeGatewayActivityNonce: 6n, accountNextNonce: 5, freeHeadersInterval: 2n });
+    const client = createClient({ runtimeGatewayActivityNonce: 6n, accountNextNonce: 5, freeHeadersInterval: 2 });
     const service = new EthereumGatewayProverService(createSubmitLane(client), {
       backgroundSweepMs: 1_000,
     });
@@ -833,7 +833,7 @@ describe('EthereumGatewayProverService', () => {
       method: { toHuman: () => ({ section: 'crosschainTransfer', method: 'proveGatewayActivity' }) },
       nonce: { toNumber: () => 5 },
     };
-    const client = createClient({ runtimeGatewayActivityNonce: 6n, accountNextNonce: 5, freeHeadersInterval: 2n });
+    const client = createClient({ runtimeGatewayActivityNonce: 6n, accountNextNonce: 5, freeHeadersInterval: 2 });
     const service = new EthereumGatewayProverService(createSubmitLane(client));
 
     gatewayProofMock.buildGatewayActivityProofPayload.mockResolvedValue({
@@ -888,7 +888,7 @@ describe('EthereumGatewayProverService', () => {
       method: { toHuman: () => ({ section: 'crosschainTransfer', method: 'proveGatewayActivity' }) },
       nonce: { toNumber: () => 5 },
     };
-    const client = createClient({ runtimeGatewayActivityNonce: 6n, accountNextNonce: 5, freeHeadersInterval: 2n });
+    const client = createClient({ runtimeGatewayActivityNonce: 6n, accountNextNonce: 5, freeHeadersInterval: 2 });
     const service = new EthereumGatewayProverService(createSubmitLane(client));
 
     gatewayProofMock.buildGatewayActivityProofPayload.mockResolvedValue({
@@ -939,7 +939,7 @@ describe('EthereumGatewayProverService', () => {
     const client = createClient({
       runtimeGatewayActivityNonce: 6n,
       accountNextNonce: 5,
-      freeHeadersInterval: 2n,
+      freeHeadersInterval: 2,
       mintingAuthorityOwnersBySigner: {
         '0x00000000000000000000000000000000000000aa': '5VaultOperator',
       },
@@ -1008,7 +1008,7 @@ function createClient(
     };
     hasLatestExecutionHeaderAnchor?: boolean;
     runtimeGatewayActivityNonce?: bigint;
-    freeHeadersInterval?: bigint;
+    freeHeadersInterval?: number;
     mintingAuthorityOwnersBySigner?: Record<string, string>;
     latestLocatorIndex?: bigint;
     latestLocatorEndGatewayActivityNonce?: bigint;
@@ -1083,14 +1083,10 @@ function createClient(
     },
     consts: {
       balances: {
-        existentialDeposit: {
-          toBigInt: () => args.existentialDeposit ?? 10_000n,
-        },
+        existentialDeposit: args.existentialDeposit ?? 10_000n,
       },
       ethereumVerifier: {
-        freeHeadersInterval: {
-          toBigInt: () => args.freeHeadersInterval ?? 32n,
-        },
+        freeHeadersInterval: args.freeHeadersInterval ?? 32,
       },
     },
     rpc: {

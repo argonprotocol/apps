@@ -1,10 +1,10 @@
 <template>
-  <TooltipProvider :disableHoverableContent="true" :disableClosingTrigger="true" :delayDuration="300">
+  <TooltipProvider :disableClosingTrigger="true" :delayDuration="300">
     <TooltipRoot
       v-bind="props.open === undefined ? {} : { open: props.open }"
       @update:open="handleOpen"
       :disableClosingTrigger="true"
-      :disableHoverableContent="true"
+      :disableHoverableContent="false"
     >
       <TooltipTrigger :asChild="props.asChild || undefined" tooltip>
         <slot />
@@ -17,7 +17,7 @@
           :collisionPadding="30"
           :style="[floatingZIndex, { width: width, maxWidth: maxWidth }]"
           role="tooltip"
-          class="data-[state=delayed-open]:data-[side=top]:animate-slideDownAndFade data-[state=delayed-open]:data-[side=right]:animate-slideLeftAndFade data-[state=delayed-open]:data-[side=left]:animate-slideRightAndFade data-[state=delayed-open]:data-[side=bottom]:animate-slideUpAndFade text-md pointer-events-none rounded-md border border-gray-800/20 bg-white px-4 py-3 text-left leading-5.5 text-gray-600 shadow-xl will-change-[transform,opacity] select-none"
+          class="data-[state=delayed-open]:data-[side=top]:animate-slideDownAndFade data-[state=delayed-open]:data-[side=right]:animate-slideLeftAndFade data-[state=delayed-open]:data-[side=left]:animate-slideRightAndFade data-[state=delayed-open]:data-[side=bottom]:animate-slideUpAndFade text-md rounded-md border border-gray-800/20 bg-white px-4 py-3 text-left leading-5.5 text-gray-600 shadow-xl will-change-[transform,opacity] select-none"
         >
           <slot name="content">{{ content }}</slot>
           <TooltipArrow :width="24" :height="12" class="fill-white stroke-gray-400/30 shadow-xl/50" />
@@ -30,15 +30,7 @@
 <script setup lang="ts">
 import * as Vue from 'vue';
 import type { TooltipRootEmits, TooltipRootProps } from 'reka-ui';
-import {
-  TooltipArrow,
-  TooltipContent,
-  TooltipPortal,
-  TooltipProvider,
-  TooltipRoot,
-  TooltipTrigger,
-  useForwardPropsEmits,
-} from 'reka-ui';
+import { TooltipArrow, TooltipContent, TooltipPortal, TooltipProvider, TooltipRoot, TooltipTrigger } from 'reka-ui';
 import { useFloatingZIndex } from '../overlays/helpers/OverlayZIndex.ts';
 
 const props = withDefaults(
@@ -59,6 +51,7 @@ const maxWidth = Vue.ref();
 const floatingZIndex = useFloatingZIndex();
 
 function handleOpen(isOpen: boolean) {
+  emits('update:open', isOpen);
   if (!isOpen) return;
   const calculatedWidth = props.calculateWidth?.();
   if (calculatedWidth) {
@@ -69,6 +62,4 @@ function handleOpen(isOpen: boolean) {
     maxWidth.value = '400px';
   }
 }
-
-const forward = useForwardPropsEmits(props, emits);
 </script>

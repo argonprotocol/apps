@@ -1,3 +1,4 @@
+import { runtimeClient as createRuntimeClient } from '@argonprotocol/runtime-client';
 import { integrationNetwork as sharedNetwork } from '@argonprotocol/apps-core/__test__/integration.setup.ts';
 import { createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
@@ -326,7 +327,9 @@ describe.skipIf(skipE2E).sequential('BitcoinLocks integration', { timeout: 240e3
         expect(owner.bitcoinLocks.releases.getInputUtxos(requestedRelease)).toHaveLength(2);
 
         const runtimeClient = await owner.clients.get(false);
-        const finalizedClient = await runtimeClient.at(await runtimeClient.rpc.chain.getFinalizedHead());
+        const finalizedClient = createRuntimeClient(
+          await runtimeClient.raw.at(await runtimeClient.rpc.chain.getFinalizedHead()),
+        );
         const rateHistory = await finalizedClient.query.bitcoinLocks.microgonPerBtcHistory();
         const currentRate = rateHistory?.at(-1)?.[1];
         if (currentRate === undefined) throw new Error('The current Bitcoin target rate is unavailable');

@@ -78,7 +78,8 @@ export interface IStartDevEthereumResult {
 }
 
 export interface IDevEthereumRuntimeState extends IStartDevEthereumResult {
-  mintingAuthorityStatus?: 'starting' | 'ready';
+  mintingAuthorityStatus?: 'starting' | 'ready' | 'error';
+  mintingAuthorityError?: string;
   setupStatus: 'starting' | 'ready';
   updatedAt: string;
 }
@@ -633,7 +634,9 @@ export function writeDevEthereumRuntimeState(state: Omit<IDevEthereumRuntimeStat
 
 export function updateDevEthereumRuntimeState(
   executionRpcUrl: string,
-  updates: Partial<Pick<IDevEthereumRuntimeState, 'gateway' | 'setupStatus' | 'mintingAuthorityStatus'>>,
+  updates: Partial<
+    Pick<IDevEthereumRuntimeState, 'gateway' | 'setupStatus' | 'mintingAuthorityStatus' | 'mintingAuthorityError'>
+  >,
 ): Promise<void> {
   return queueDevEthereumRuntimeStateOperation(async () => {
     const runtimeState = await readDevEthereumRuntimeState(executionRpcUrl);

@@ -65,10 +65,10 @@
             {{ numeral(vault.terms.bitcoinAnnualPercentRate.times(100)).format('0,[0.0]') }}%
           </div>
           <div v-else-if="props.unitType === 'ArgonBond'" class="mt-0.5 text-xs text-slate-500">
-            <template v-if="vault.vaultId !== myVault.vaultId">
-              {{ numeral(vault.terms.treasuryProfitSharing.times(100)).format('0,[0.0]') }}% sharing ·
+            <template v-if="vaultStore.calculateArgonBondsApr(vault.vaultId) !== undefined">
+              {{ numeral(vaultStore.calculateArgonBondsApr(vault.vaultId)).format('0,0.[0]') }}% avg APR
             </template>
-            {{ numeral(vaultStore.calculateArgonBondsApr(vault.vaultId)).format('0,0.[0]') }}% avg APR
+            <template v-else>APR unavailable</template>
           </div>
         </div>
         <div class="shrink-0 text-right">

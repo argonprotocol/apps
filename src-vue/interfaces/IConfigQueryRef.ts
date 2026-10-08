@@ -6,7 +6,7 @@ export interface IConfigQueryRef
     | 'miningSetupStatus'
     | 'vaultingSetupStatus'
     | 'biddingRules'
-    | 'vaultingRules'
+    | 'vaultSetup'
     | 'serverAdd'
     | 'upstreamOperator'
     | 'hasExtensionTreasury'
@@ -14,7 +14,7 @@ export interface IConfigQueryRef
   > {
   showWelcomeOverlay: boolean;
   hasSavedBiddingRules: boolean;
-  hasSavedVaultingRules: boolean;
+  hasSavedVaultSetup: boolean;
   isServerAdded: boolean;
   isBootingUpPreviousWalletHistory: boolean;
   save(): Promise<void>;

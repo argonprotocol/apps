@@ -6,6 +6,7 @@ import { gunzipSync } from 'node:zlib';
 
 export type RuntimeSourceContents = {
   querySource: string;
+  constantSource?: string;
   eventSource: string;
   lookupSource: string;
   definitionSource?: string;
@@ -17,15 +18,16 @@ type CachedRuntimeSource = RuntimeSourceContents & { source: string };
 
 const sourceCache = new Map<string, Promise<RuntimeSourceContents>>();
 
-export function readRuntimeSource(source: string): Promise<RuntimeSourceContents> {
-  const cached = sourceCache.get(source);
+export function readRuntimeSource(source: string, includeConstants = false): Promise<RuntimeSourceContents> {
+  const cacheKey = includeConstants ? `${source}:constants` : source;
+  const cached = sourceCache.get(cacheKey);
   if (cached) return cached;
 
-  const contents = readCachedRuntimeSource(source).catch(error => {
-    if (sourceCache.get(source) === contents) sourceCache.delete(source);
+  const contents = readCachedRuntimeSource(source, includeConstants).catch(error => {
+    if (sourceCache.get(cacheKey) === contents) sourceCache.delete(cacheKey);
     throw error;
   });
-  sourceCache.set(source, contents);
+  sourceCache.set(cacheKey, contents);
   return contents;
 }
 
@@ -38,6 +40,11 @@ export async function readInstalledRuntimeSource(packageDirectory: string): Prom
   const metadata = readBundledMetadata(sourceMap);
 
   return {
+    constantSource: await readFirstFile(
+      [Path.join(interfaces, 'augment-api-consts.ts'), Path.join(declarations, 'augment-api-consts.d.ts')],
+      bundle,
+      'AugmentedConsts',
+    ),
     querySource: await readFirstFile(
       [Path.join(interfaces, 'augment-api-query.ts'), Path.join(declarations, 'augment-api-query.d.ts')],
       bundle,
@@ -63,7 +70,7 @@ export async function readInstalledRuntimeSource(packageDirectory: string): Prom
   };
 }
 
-async function readCachedRuntimeSource(source: string): Promise<RuntimeSourceContents> {
+async function readCachedRuntimeSource(source: string, includeConstants: boolean): Promise<RuntimeSourceContents> {
   const cachePath = runtimeSourceCachePath(source);
   const cached = await Fs.readFile(cachePath, 'utf8').catch(() => undefined);
   if (cached !== undefined) {
@@ -75,6 +82,11 @@ async function readCachedRuntimeSource(source: string): Promise<RuntimeSourceCon
     }
     if (isCachedRuntimeSource(parsed, source)) {
       const { source: _cachedSource, ...contents } = parsed;
+      if (includeConstants && !contents.constantSource) {
+        const refreshed = await (source.startsWith('argonprotocol/') ? fetchGitSource(source) : fetchNpmSource(source));
+        await writeCachedRuntimeSource(cachePath, { source, ...refreshed }).catch(() => undefined);
+        return refreshed;
+      }
       if (contents.metadataSource) return contents;
       // Enrich the existing declarations without downloading their package again.
       contents.metadataSource = await fetchMetadataSource(source);
@@ -122,6 +134,7 @@ function isCachedRuntimeSource(value: unknown, source: string): value is CachedR
   return (
     cached.source === source &&
     typeof cached.querySource === 'string' &&
+    (cached.constantSource === undefined || typeof cached.constantSource === 'string') &&
     typeof cached.eventSource === 'string' &&
     typeof cached.lookupSource === 'string' &&
     (cached.definitionSource === undefined || typeof cached.definitionSource === 'string') &&
@@ -140,6 +153,11 @@ async function fetchNpmSource(version: string): Promise<RuntimeSourceContents> {
     readTarFile(archive, 'package/lib/index.js.map') ?? readTarFile(archive, 'package/browser/index.js.map'),
   );
   return {
+    constantSource:
+      readTarFile(archive, 'package/src/interfaces/augment-api-consts.ts') ??
+      readTarFile(archive, 'package/lib/types/interfaces/augment-api-consts.d.ts') ??
+      bundle ??
+      missingSource(version, 'AugmentedConsts'),
     querySource:
       readTarFile(archive, 'package/src/interfaces/augment-api-query.ts') ??
       readTarFile(archive, 'package/lib/types/interfaces/augment-api-query.d.ts') ??
@@ -164,19 +182,22 @@ async function fetchNpmSource(version: string): Promise<RuntimeSourceContents> {
 async function fetchGitSource(source: string): Promise<RuntimeSourceContents> {
   const commit = source.slice(source.lastIndexOf('@') + 1);
   const baseUrl = `https://raw.githubusercontent.com/argonprotocol/mainchain/${commit}/client/nodejs/src/interfaces`;
-  const [queryResponse, eventResponse, lookupResponse, definitionResponse, metadataSource] = await Promise.all([
-    fetch(`${baseUrl}/augment-api-query.ts`),
-    fetch(`${baseUrl}/augment-api-events.ts`),
-    fetch(`${baseUrl}/types-lookup.ts`),
-    fetch(`${baseUrl}/lookup.ts`),
-    fetchMetadataSource(source),
-  ]);
+  const [queryResponse, eventResponse, lookupResponse, definitionResponse, metadataSource, constantResponse] =
+    await Promise.all([
+      fetch(`${baseUrl}/augment-api-query.ts`),
+      fetch(`${baseUrl}/augment-api-events.ts`),
+      fetch(`${baseUrl}/types-lookup.ts`),
+      fetch(`${baseUrl}/lookup.ts`),
+      fetchMetadataSource(source),
+      fetch(`${baseUrl}/augment-api-consts.ts`),
+    ]);
   if (!queryResponse.ok || !eventResponse.ok || !lookupResponse.ok) {
     throw new Error(
       `Unable to download ${source}: query=${queryResponse.status}, events=${eventResponse.status}, lookup=${lookupResponse.status}`,
     );
   }
   return {
+    constantSource: constantResponse.ok ? await constantResponse.text() : undefined,
     querySource: await queryResponse.text(),
     eventSource: await eventResponse.text(),
     lookupSource: await lookupResponse.text(),

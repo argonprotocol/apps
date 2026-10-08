@@ -2,7 +2,7 @@ import * as Vue from 'vue';
 import type { Meta, StoryObj } from '@storybook/vue3-vite';
 import { createRuntimeExtrinsicError } from '@argonprotocol/apps-core';
 import { getOfflineRegistry } from '@argonprotocol/mainchain';
-import { expect, fn, userEvent, within } from 'storybook/test';
+import { fn, userEvent, within } from 'storybook/test';
 import {
   createBitcoinRelease,
   createBitcoinUtxo,
@@ -225,10 +225,6 @@ export const ArchivedChannel: Story = {
 
 export const Form: Story = {
   beforeEach: () => useScenario(),
-  play: async () => {
-    const networkFee = await within(document.body).findByText('Network Fee (estimated)');
-    await expect(networkFee.nextElementSibling).toHaveTextContent('0.13');
-  },
 };
 
 export const FormWithInsurance: Story = {

@@ -6,6 +6,8 @@ import { calculatePositionReturn } from '../lib/financials/index.ts';
 const vaultFinancials = new VaultFinancials({} as any, {
   bondLots: [],
   bondHistory: [],
+  dailyEarnings: [],
+  currentFrameId: 0,
   isLoaded: true,
 });
 
@@ -16,6 +18,7 @@ describe('VaultHistory financial positions', () => {
     const fetchVaultIds = vi.fn(async (_address: string) => []);
     const history = new VaultHistory(
       Promise.resolve({
+        syncStateTable: { get: async () => undefined },
         vaultCapitalHistoryTable: { revision: 0, fetchAllByWallet, fetchVaultIds },
         vaultRevenueEventsTable: { revision: 0, fetchAll: vi.fn(async () => []) },
       } as any),
@@ -25,7 +28,7 @@ describe('VaultHistory financial positions', () => {
     await history.loadPositionHistory();
     accountId = '5configured';
     await history.loadPositionHistory();
-    await history.importBlock({ blockNumber: 1 } as any, []);
+    await history.importBlock({ blockNumber: 1 } as any, [], 159);
 
     expect(fetchAllByWallet.mock.calls.map(([address]) => address)).toEqual(['5initial', '5configured']);
     expect(fetchVaultIds).toHaveBeenCalledWith('5configured');
@@ -94,6 +97,7 @@ describe('VaultHistory financial positions', () => {
     ];
     const history = new VaultHistory(
       Promise.resolve({
+        syncStateTable: { get: async () => undefined },
         vaultCapitalHistoryTable: {
           revision: 0,
           fetchAllByWallet: async () => capital,

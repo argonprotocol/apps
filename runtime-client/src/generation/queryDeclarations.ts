@@ -58,6 +58,37 @@ export function readRuntimeQueries(
   return queries;
 }
 
+export function readRuntimeConstants(
+  constantSource: string,
+  lookupSource: string,
+  definitionSource?: string,
+  typeOverrides: RuntimeTypeOverrides = { fields: {}, queries: {}, queryArgs: {} },
+): Record<string, Record<string, string>> {
+  const sourceFile = ts.createSourceFile('augment-api-consts.ts', constantSource, ts.ScriptTarget.Latest, true);
+  const constantsInterface = findInterface(sourceFile, 'AugmentedConsts');
+  if (!constantsInterface) throw new Error('Unable to find AugmentedConsts');
+  const translator = createNativeTypeTranslator(lookupSource, typeOverrides.fields, definitionSource);
+  const constants: Record<string, Record<string, string>> = {};
+  for (const sectionMember of constantsInterface.members) {
+    if (!ts.isPropertySignature(sectionMember) || !sectionMember.type || !ts.isTypeLiteralNode(sectionMember.type))
+      continue;
+    const section = propertyName(sectionMember.name);
+    if (!section) continue;
+    const fields: Record<string, string> = (constants[section] = {});
+    for (const member of sectionMember.type.members) {
+      if (!ts.isPropertySignature(member) || !member.type) continue;
+      const name = propertyName(member.name);
+      const valueType = ts.isIntersectionTypeNode(member.type)
+        ? member.type.types.find(
+            type => !ts.isTypeReferenceNode(type) || type.typeName.getText(sourceFile) !== 'AugmentedConst',
+          )
+        : member.type;
+      if (name && valueType) fields[name] = translator.translateField(name, valueType);
+    }
+  }
+  return constants;
+}
+
 function unwrapObservable(node: ts.TypeNode): ts.TypeNode {
   if (!ts.isTypeReferenceNode(node) || node.typeName.getText(node.getSourceFile()) !== 'Observable') {
     throw new Error(`Expected query Observable result, received ${node.getText(node.getSourceFile())}`);

@@ -89,7 +89,9 @@ export class BitcoinFissions {
       const queryClient = client ?? this.blockWatch?.subscriptionClient ?? (await getMainchainClient(false));
       const active = await this.loadActive(queryClient);
 
-      this.data.minimumRatchetPercent = queryClient.consts.bitcoinFissions.minimumRatchetPercent.toBigInt();
+      this.data.minimumRatchetPercent = BigInt(
+        queryClient.consts.bitcoinFissions.minimumRatchetPercent.times(100).toNumber(),
+      );
       this.updateCurrentState(active);
       if (this.blockWatch?.subscriptionClient) {
         try {
@@ -371,7 +373,7 @@ export class BitcoinFissions {
     if (this.blockWatch) await this.blockWatch.start();
     const client = this.blockWatch?.subscriptionClient ?? (await getMainchainClient(false));
     const [records, current] = await Promise.all([recordsPromise, this.loadActive(client)]);
-    this.data.minimumRatchetPercent = client.consts.bitcoinFissions.minimumRatchetPercent.toBigInt();
+    this.data.minimumRatchetPercent = BigInt(client.consts.bitcoinFissions.minimumRatchetPercent.times(100).toNumber());
     this.restoreLoadedState(records, current);
     await this.loadPendingMints(client, this.getArchived());
     const subscriptionClient = this.blockWatch?.subscriptionClient;

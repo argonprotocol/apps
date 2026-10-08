@@ -1,6 +1,4 @@
 import { u8aToHex } from '@argonprotocol/mainchain';
-import { IVaultingRules } from '../../interfaces/IVaultingRules.ts';
-import BigNumber from 'bignumber.js';
 import {
   AccountActivityKind,
   getVaultByOperator,
@@ -10,7 +8,6 @@ import {
   TransactionEvents,
 } from '@argonprotocol/apps-core';
 import { TICK_MILLIS } from '../Env.ts';
-import { Config } from '../Config.ts';
 import bs58check from 'bs58check';
 import { BitcoinNetwork } from '@argonprotocol/bitcoin';
 import { hexToU8a } from '@polkadot/util';
@@ -20,53 +17,6 @@ import { findAddressActivity } from '../IndexerClient.ts';
 import type { HistoricalQueryRecord } from '@argonprotocol/runtime-client';
 
 export class MyVaultRecovery {
-  public static rebuildRules(args: {
-    feesInMicrogons: bigint;
-    vault: Pick<Vault, 'securitization' | 'securitizationRatio' | 'terms'>;
-    treasuryMicrogons?: bigint;
-    bitcoin?: { liquidityPromised: bigint };
-  }): IVaultingRules {
-    const { vault, treasuryMicrogons = 0n, bitcoin = { liquidityPromised: 0n } } = args;
-
-    const securitization = vault.securitization;
-    const securitizationRatio = vault.securitizationRatio;
-    const baseMicrogonCommitment = securitization + treasuryMicrogons;
-    let capitalForSecuritizationPct = 100;
-    if (baseMicrogonCommitment > 0n) {
-      capitalForSecuritizationPct = BigNumber(securitization)
-        .div(baseMicrogonCommitment)
-        .times(100)
-        .decimalPlaces(1, BigNumber.ROUND_HALF_EVEN)
-        .toNumber();
-    }
-
-    const capitalForTreasuryPct = 100 - capitalForSecuritizationPct;
-    const profitSharingPct = vault.terms.treasuryProfitSharing.times(100).toNumber();
-    const btcFlatFee = vault.terms.bitcoinBaseFee;
-    const btcPctFee = vault.terms.bitcoinAnnualPercentRate.times(100).toNumber();
-
-    let personalBtcPct = 0;
-    if (securitization > 0n) {
-      personalBtcPct = BigNumber(bitcoin.liquidityPromised)
-        .dividedBy(securitization)
-        .times(100)
-        .integerValue(BigNumber.ROUND_CEIL)
-        .toNumber();
-    }
-
-    return {
-      ...(Config.getDefault('vaultingRules') as IVaultingRules),
-      capitalForSecuritizationPct,
-      capitalForTreasuryPct,
-      profitSharingPct,
-      securitizationRatio,
-      btcPctFee,
-      btcFlatFee,
-      baseMicrogonCommitment,
-      personalBtcPct,
-    };
-  }
-
   public static async findOperatorVault(
     mainchainClients: MainchainClients,
     bitcoinNetwork: BitcoinNetwork,

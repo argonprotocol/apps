@@ -82,6 +82,9 @@
                 <span class="block text-sm font-semibold text-slate-800">Bitcoin lock #{{ index + 1 }}</span>
                 <span class="mt-0.5 block text-xs text-slate-400">
                   {{ satToBtcNm(lock.securitizedSatoshis).format('0,0.[00000000]') }} BTC
+                  <span v-if="lock.isFlexible && flexibleBitcoinDisplacementPercent !== undefined" class="text-slate-500">
+                    · {{ numeral(flexibleBitcoinDisplacementPercent).format('0,0.[0]') }}% displaced
+                  </span>
                 </span>
               </span>
               <span class="font-mono text-sm font-semibold text-slate-800">
@@ -111,6 +114,9 @@
                 <span class="block text-sm font-semibold text-slate-800">Bond lot #{{ index + 1 }}</span>
                 <span class="mt-0.5 block text-xs text-slate-400">
                   {{ lot.bonds.toLocaleString() }} bonds
+                  <span v-if="lot.isFlexible && flexibleBondDisplacementPercent !== undefined" class="text-slate-500">
+                    · {{ numeral(flexibleBondDisplacementPercent).format('0,0.[0]') }}% displaced
+                  </span>
                 </span>
               </span>
               <span class="font-mono text-sm font-semibold text-slate-800">
@@ -169,6 +175,12 @@ const isLoading = Vue.ref(false);
 const returnTo = Vue.ref<'memberInvite' | 'onboardingSettings'>();
 const eligibleLocks = Vue.ref<IBitcoinLock[]>([]);
 const eligibleBondLots = Vue.ref<BondLot[]>([]);
+const flexibleBitcoinDisplacementPercent = Vue.computed(() =>
+  myVault.createdVault?.flexibleSecuritizationDisplacementPercent(),
+);
+const flexibleBondDisplacementPercent = Vue.computed(() =>
+  myVault.vaultId === undefined ? undefined : argonBonds.getFlexibleBondDisplacementPercent(myVault.vaultId),
+);
 const bitcoinSelectionByLockId = Vue.ref<Record<number, boolean>>({});
 const bondSelectionById = Vue.ref<Record<number, boolean>>({});
 const activeChangeCount = Vue.ref(0);

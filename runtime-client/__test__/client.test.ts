@@ -1,13 +1,83 @@
 import { TypeRegistry } from '@polkadot/types/create';
+import { Metadata } from '@polkadot/types';
+import { decorateConstants, decorateStorage } from '@polkadot/types/metadata/decorate';
+import BigNumber from 'bignumber.js';
+import { getBundledMetadata } from '../src/index.ts';
 import { describe, expect, it, vi } from 'vitest';
 import { runtimeClient } from '../src/client.ts';
 
 describe('runtimeClient', () => {
+  it.each([159, 160])('reads native constants and bond IDs from runtime %s metadata', async spec => {
+    const registry = new TypeRegistry();
+    const metadata = new Metadata(
+      registry,
+      Object.entries(getBundledMetadata()).find(([key]) => key.endsWith(`-${spec}`))![1],
+    );
+    registry.setMetadata(metadata);
+    const storage = decorateStorage(registry, metadata.asLatest, metadata.version);
+    const accountId = registry.createType('AccountId32', `0x${'11'.repeat(32)}`);
+    const accountKey = registry.createType('StorageKey', [storage.treasury.bondLotIdsByAccount, [accountId, 7]]);
+    const treasury = {
+      bondLotIdsByAccount: Object.assign(vi.fn(), { keys: async () => [accountKey] }),
+      ...(spec === 160
+        ? {
+            bondLotIdsByVault: Object.assign(vi.fn(), {
+              keys: async () => [registry.createType('StorageKey', [storage.treasury.bondLotIdsByVault, [4, 7]])],
+            }),
+          }
+        : {}),
+    };
+    const raw = { query: { treasury }, consts: decorateConstants(registry, metadata.asLatest, metadata.version) };
+    const client = runtimeClient(raw);
+    expect(client.consts.balances.existentialDeposit).toBe(BigInt(raw.consts.balances.existentialDeposit.toString()));
+    expect(typeof client.consts.bitcoinLocks.maxBtcPriceTickAge).toBe('number');
+    expect(client.consts.bitcoinLocks.lockReleaseCosignDeadlineFrames).toBe(10);
+    expect(client.consts.bitcoinLocks.securitizationHoldBlocks).toBe(144);
+    expect(client.consts.vaults.revenueCollectionExpirationFrames).toBe(10);
+    expect(client.consts.blockRewards.minerPayoutPercent).toEqual(new BigNumber(0.75));
+    expect(typeof client.consts.treasury.palletId).toBe('string');
+    expect('securitizationExitNoticeBlocks' in client.consts.vaults).toBe(spec === 160);
+    if ('percentForVaultPool' in client.consts.treasury) {
+      expect(client.consts.treasury.percentForVaultPool).toEqual(new BigNumber(0.51));
+      expect(client.consts.vaults).toHaveProperty('securitizationExitNoticeBlocks');
+    } else {
+      expect(client.consts.treasury.percentForTreasuryReserves).toBeInstanceOf(BigNumber);
+    }
+    const accountKeys = await client.query.treasury.bondLotIdsByAccount.keys(accountId);
+    expect(accountKeys[0].args).toEqual([accountId.toString(), 7]);
+    if (spec === 160) {
+      const vaultKeys = await client.query.treasury.bondLotIdsByVault.keys(4);
+      expect(vaultKeys?.[0].args).toEqual([4, 7]);
+    }
+  });
+
   it('reflects installed query presence through nested sections', () => {
     const client = runtimeClient({ query: { treasury: { currentFrameArgonotBondParticipants: vi.fn() } } });
 
     expect('currentFrameArgonotBondParticipants' in client.query.treasury).toBe(true);
     expect('bondLotById' in client.query.treasury).toBe(false);
+  });
+
+  it('refreshes retained constant sections when runtime metadata is replaced', () => {
+    const constants = [159, 160].map(spec => {
+      const registry = new TypeRegistry();
+      const metadata = new Metadata(
+        registry,
+        Object.entries(getBundledMetadata()).find(([key]) => key.endsWith(`-${spec}`))![1],
+      );
+      registry.setMetadata(metadata);
+      return decorateConstants(registry, metadata.asLatest, metadata.version);
+    });
+    const raw = { query: {}, consts: constants[0] };
+    const client = runtimeClient(raw);
+    const treasury = client.consts.treasury;
+    const vaults = client.consts.vaults;
+    expect('percentForVaultPool' in treasury).toBe(false);
+    expect('securitizationExitNoticeBlocks' in vaults).toBe(false);
+    raw.consts = constants[1];
+    expect('percentForVaultPool' in treasury).toBe(true);
+    expect('securitizationExitNoticeBlocks' in vaults).toBe(true);
+    if ('percentForVaultPool' in treasury) expect(treasury.percentForVaultPool).toEqual(new BigNumber(0.51));
   });
 
   it('returns null synchronously when a query is absent from the supplied API', () => {
