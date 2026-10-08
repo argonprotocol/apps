@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+import { afterAll, beforeAll, describe, expect, inject, it, vi } from 'vitest';
 import {
   Currency,
   MoveTo,
@@ -20,6 +20,7 @@ import {
   sudoSubmitAndFinalize,
 } from '@argonprotocol/apps-core/__test__/helpers/mainchain.ts';
 import { sudoFundWallet } from '@argonprotocol/apps-core/__test__/helpers/sudoFundWallet.ts';
+import { integrationAccountUri } from '@argonprotocol/apps-core/__test__/integrationNetwork.ts';
 import { buildGatewayActivityProofPayload, EvmContracts, Keyring, toFixedNumber } from '@argonprotocol/mainchain';
 import {
   sudo,
@@ -39,6 +40,7 @@ import { EthereumOutboundTransferTracker } from '../lib/EthereumOutboundTransfer
 import { GlobalCouncil } from '../lib/GlobalCouncil.ts';
 import { DEFAULT_MASTER_XPUB_PATH, MyVault } from '../lib/MyVault.ts';
 import { MintingAuthorities } from '../lib/MintingAuthorities.ts';
+import { MemoryWalletKeys } from '../lib/MemoryWalletKeys.ts';
 import { TransactionTracker } from '../lib/TransactionTracker.ts';
 import { Vaults } from '../lib/Vaults.ts';
 import { CrosschainInboundTransferStatus } from '../lib/db/CrosschainInboundTransfersTable.ts';
@@ -723,6 +725,141 @@ describe.skipIf(skipE2E || !TestEthereum.isInstalled())('EthereumCrosschain inte
       expect(transferState.targetWalletType).toBe(WalletType.argon);
       expect(transferState.progress.overallProgressPct).toBe(100);
       expect(transferState.error).toBe('');
+    },
+    420_000,
+  );
+
+  it.sequential.each([MoveToken.ARGN, MoveToken.ARGNOT] as const)(
+    'transfers the maximum %s balance to Ethereum and retains the minimum balance',
+    async moveToken => {
+      if (!didActivateMintingAuthority) {
+        throw new Error('Run the whole EthereumCrosschain integration suite. The minting authority must be active.');
+      }
+
+      const senderKeys = new MemoryWalletKeys({
+        substrateSuri: integrationAccountUri(inject('argonIntegrationRunId'), import.meta.filename, `maximum-${moveToken}`),
+        masterMnemonic: TEST_WALLET_MNEMONIC,
+      });
+      await sudoFundWallet({
+        client,
+        address: senderKeys.defaultArgonAddress,
+        microgons: 200_000n,
+        micronots: 100_000n,
+      });
+      const senderTracker = new EthereumOutboundTransferTracker(
+        Promise.resolve(db),
+        transactionTracker,
+        miningFrames.blockWatch,
+        senderKeys,
+        ethereumClient,
+      );
+      const ethereumWallet = new WalletForEthereum(walletKeys.coreEthereumAddress, undefined, undefined, true);
+      const finalizedClient = await getFinalizedClient(client);
+      const [argonAccount, argonotAccount] = await Promise.all([
+        finalizedClient.query.system.account(senderKeys.defaultArgonAddress),
+        finalizedClient.query.ownership.account(senderKeys.defaultArgonAddress),
+      ]);
+      let availableAmount = argonAccount.data.free;
+      let minimumBalance = client.consts.balances.existentialDeposit.toBigInt();
+      let tokenAddress = argonTokenAddress;
+      if (moveToken === MoveToken.ARGNOT) {
+        availableAmount = argonotAccount.free;
+        minimumBalance = client.consts.ownership.existentialDeposit.toBigInt();
+        tokenAddress = argonotTokenAddress;
+      }
+
+      const quote = await senderTracker.quoteTransferOut({
+        amount: availableAmount,
+        availableAmount,
+        moveToken,
+        sourceWalletType: WalletType.argon,
+        ethereumWallet,
+      });
+      expect(quote.amountToTransfer).toBeGreaterThan(0n);
+      expect(quote.amountToSpend + minimumBalance).toBeLessThanOrEqual(availableAmount);
+      const tipBasisPoints = BigInt(client.consts.crosschainTransfer.transferOutMintingAuthorityTipBasisPoints.toNumber());
+      const amountAboveMaximum = quote.amountToTransfer + 1n;
+      let costAboveMaximum = amountAboveMaximum + (amountAboveMaximum * tipBasisPoints) / 10_000n;
+      if (moveToken === MoveToken.ARGN) costAboveMaximum += quote.transactionFeeMicrogons;
+      expect(costAboveMaximum + minimumBalance).toBeGreaterThan(availableAmount);
+      const startingEthereumBalance = (await publicClient.readContract({
+        address: tokenAddress,
+        abi: EvmContracts.argonTokenArtifact.abi,
+        functionName: 'balanceOf',
+        args: [walletKeys.coreEthereumAddress as Address],
+      })) as bigint;
+
+      const transfer = await senderTracker.startMove({
+        amount: quote.amountToTransfer,
+        amountToSpend: quote.amountToSpend,
+        availableAmount,
+        availableArgonAmount: argonAccount.data.free,
+        moveToken,
+        sourceWalletType: WalletType.argon,
+        ethereumWallet,
+      });
+      expect(transfer).toBeDefined();
+      await vi.waitFor(async () => {
+        const activeTransfer = senderTracker.getTransfer(transfer!.id);
+        if (activeTransfer?.transferState.error) throw new Error(activeTransfer.transferState.error);
+        const request = await db.crosschainOutboundTransfersTable.get(transfer!.id);
+        expect(request?.status).toBe(CrosschainOutboundTransferStatus.RequestFinalizedOnArgon);
+        expect(request?.amount).toBe(quote.amountToTransfer);
+      }, 120_000);
+
+      const request = (await db.crosschainOutboundTransfersTable.get(transfer!.id))!;
+      const requestFinalizedClient = await getFinalizedClient(client);
+      const [chainTransfer, remainingArgons, remainingArgonots] = await Promise.all([
+        requestFinalizedClient.query.crosschainTransfer.transferOutById(request.transferId!),
+        requestFinalizedClient.query.system.account(senderKeys.defaultArgonAddress),
+        requestFinalizedClient.query.ownership.account(senderKeys.defaultArgonAddress),
+      ]);
+      expect(chainTransfer?.amount).toBe(quote.amountToTransfer);
+      expect(chainTransfer?.mintingAuthorityTip).toBe(quote.mintingAuthorityTip);
+      expect(remainingArgons.data.free).toBeGreaterThanOrEqual(client.consts.balances.existentialDeposit.toBigInt());
+      if (moveToken === MoveToken.ARGN) {
+        const senderTransactions = await db.transactionsTable.fetchByAccountAddress(senderKeys.defaultArgonAddress);
+        const requestTransaction = senderTransactions.find(tx => tx.id === request.argonRequestTransactionId);
+        expect(requestTransaction?.txFeePlusTip).toBeDefined();
+        expect(remainingArgons.data.free).toBe(
+          argonAccount.data.free - quote.amountToTransfer - quote.mintingAuthorityTip - requestTransaction!.txFeePlusTip!,
+        );
+        expect(remainingArgons.data.free).toBeLessThanOrEqual(minimumBalance + quote.transactionFeeMicrogons);
+        expect(remainingArgonots.free).toBe(argonotAccount.free);
+      } else {
+        expect(remainingArgonots.free).toBe(availableAmount - quote.amountToSpend);
+        expect(remainingArgonots.free).toBeGreaterThanOrEqual(minimumBalance);
+        expect(remainingArgonots.free).toBeLessThanOrEqual(minimumBalance + 1n);
+        expect(remainingArgons.data.free).toBeLessThan(argonAccount.data.free);
+      }
+
+      await mintingAuthorities.refresh(requestFinalizedClient);
+      const pendingAuthorization = mintingAuthorities.data.pendingMintingAuthorizations.find(
+        authorization => authorization.transferId === request.transferId,
+      );
+      expect(pendingAuthorization?.moveToken).toBe(moveToken);
+      const authorizeTx = await mintingAuthorities.authorize();
+      await authorizeTx.txResult.waitForFinalizedBlock;
+      await authorizeTx.waitForPostProcessing;
+      await vi.waitFor(async () => {
+        const activeTransfer = senderTracker.getTransfer(transfer!.id);
+        if (activeTransfer?.transferState.error) throw new Error(activeTransfer.transferState.error);
+        const completed = await db.crosschainOutboundTransfersTable.get(transfer!.id);
+        expect(completed?.status).toBe(CrosschainOutboundTransferStatus.TransferFinalizedOnTargetChain);
+        expect(completed?.finalizeRequestJson?.amount).toBe(quote.amountToTransfer);
+        expect(activeTransfer?.transferState.isComplete).toBe(true);
+        expect(activeTransfer?.transferState.progress.overallProgressPct).toBe(100);
+      }, 120_000);
+
+      const finalEthereumBalance = await publicClient.readContract({
+        address: tokenAddress,
+        abi: EvmContracts.argonTokenArtifact.abi,
+        functionName: 'balanceOf',
+        args: [walletKeys.coreEthereumAddress as Address],
+      });
+      expect(finalEthereumBalance).toBe(
+        startingEthereumBalance + quote.amountToTransfer * EvmContracts.MINTING_GATEWAY_RUNTIME_TO_ERC20_SCALE,
+      );
     },
     420_000,
   );

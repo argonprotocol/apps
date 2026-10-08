@@ -993,7 +993,7 @@ export const BitcoinDepositErrorAcknowledged: Story = {
     const record = getBitcoinLocks().utxoTracking.getUtxosForLock(101)[0];
     record.satoshis = 500n;
     record.fundingRejectionReason = 'BelowMinimum';
-    record.isFailureAcknowledged = true;
+    record.isDepositAcknowledged = true;
     isInteractive.value = false;
   },
 };

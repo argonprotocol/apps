@@ -82,6 +82,104 @@ function createLockDetails(): NonNullable<IBitcoinLockRecord['scriptDetails']> {
 }
 
 describe('BitcoinUtxoTracking', () => {
+  it('retains new funding receipts through restart and recovery until their deposits are acknowledged', async () => {
+    const { db, migrateToLatest } = await createTestDbAtMigration(36);
+    const previousTxid = 'a'.repeat(64);
+    const depositTxid = 'b'.repeat(64);
+    await db.execute(
+      `INSERT INTO BitcoinUtxos (lockId, txid, vout, satoshis, network, status, firstSeenAt, firstSeenBitcoinHeight)
+       VALUES (1, ?, 0, '100000', 'testnet', 'FundingUtxo', '2026-01-01T00:00:00Z', 100),
+              (1, ?, 0, '5000000', 'testnet', 'SeenOnMempool', '2026-01-02T00:00:00Z', 101)`,
+      [previousTxid, depositTxid],
+    );
+    await migrateToLatest();
+    const store = createStore({ db });
+    store.utxoTracking.data = Vue.reactive(store.utxoTracking.data);
+    store.utxoTracking.load(await db.bitcoinUtxosTable.fetchAll());
+    const pendingLock = await db.bitcoinLocksTable.insertPending(createLock());
+    const currentLock = createCurrentLock({
+      lockId: 1,
+      fundedSatoshis: 100_000n,
+      fundingUtxos: [{ utxoRef: { txid: previousTxid, vout: 0 }, satoshis: 100_000n }],
+    });
+    const lock = await db.bitcoinLocksTable.finalizePending({ uuid: pendingLock.uuid, lock: currentLock });
+    store.data.locksByLockId[lock.lockId!] = lock;
+    await store.utxoTracking.syncFundingUtxos(lock, currentLock);
+    expect(store.utxoTracking.getUnacknowledgedFundingUtxos(lock)).toEqual([]);
+
+    const acceptedLock = createCurrentLock({
+      ...currentLock,
+      fundedSatoshis: 5_100_000n,
+      fundingUtxos: [...currentLock.fundingUtxos, { utxoRef: { txid: depositTxid, vout: 0 }, satoshis: 5_000_000n }],
+    });
+    await store.utxoTracking.syncFundingUtxos(lock, acceptedLock);
+    const deposit = store.utxoTracking.getUtxoRecord(1, depositTxid, 0)!;
+    expect(store.utxoTracking.getUnacknowledgedFundingUtxos(lock).map(record => record.satoshis)).toEqual([5_000_000n]);
+
+    const restarted = createStore({ db });
+    restarted.utxoTracking.data = Vue.reactive(restarted.utxoTracking.data);
+    restarted.utxoTracking.load(await db.bitcoinUtxosTable.fetchAll());
+    const restoredLock = Vue.reactive((await db.bitcoinLocksTable.getByLockId(1))!);
+    restarted.data.locksByLockId[1] = restoredLock;
+    const receipt = Vue.computed(() => restarted.utxoTracking.getUnacknowledgedFundingUtxos(restoredLock));
+    expect(receipt.value.map(record => record.satoshis)).toEqual([5_000_000n]);
+    const recoveredDeposit = { ...deposit };
+    await restarted.applyRecoveredHistory(
+      { lockId: 1, utxos: [recoveredDeposit], releases: [], fissions: [], hdKeys: [], securitizationTerms: [] },
+      1,
+    );
+    expect(receipt.value.map(record => record.satoshis)).toEqual([5_000_000n]);
+
+    const historicalTxid = 'd'.repeat(64);
+    await restarted.applyRecoveredHistory(
+      {
+        lockId: 1,
+        utxos: [{ ...recoveredDeposit, id: 999, txid: historicalTxid }],
+        releases: [],
+        fissions: [],
+        hdKeys: [],
+        securitizationTerms: [],
+      },
+      1,
+    );
+    expect((await db.bitcoinUtxosTable.getByLockOutpoint(1, historicalTxid, 0))?.isDepositAcknowledged).toBe(true);
+    expect(restarted.utxoTracking.getUtxoRecord(1, historicalTxid, 0)?.isDepositAcknowledged).toBe(true);
+
+    await db.execute(`CREATE TRIGGER reject_receipt_ack BEFORE UPDATE OF isDepositAcknowledged ON BitcoinUtxos
+      WHEN NEW.isDepositAcknowledged = 1 BEGIN SELECT RAISE(ABORT, 'receipt acknowledgment failed'); END`);
+    await expect(restarted.utxoTracking.acknowledgeFunding(receipt.value)).rejects.toThrow(
+      'receipt acknowledgment failed',
+    );
+    expect(receipt.value.map(record => record.satoshis)).toEqual([5_000_000n]);
+    expect((await db.bitcoinUtxosTable.getByLockOutpoint(1, depositTxid, 0))?.isDepositAcknowledged).toBe(false);
+    await db.execute('DROP TRIGGER reject_receipt_ack');
+    await restarted.utxoTracking.acknowledgeFunding(receipt.value);
+    expect(receipt.value).toEqual([]);
+
+    await restarted.applyRecoveredHistory(
+      { lockId: 1, utxos: [recoveredDeposit], releases: [], fissions: [], hdKeys: [], securitizationTerms: [] },
+      1,
+    );
+    await restarted.utxoTracking.syncFundingUtxos(restoredLock, acceptedLock);
+    expect(receipt.value).toEqual([]);
+    const afterDone = createTracking(db);
+    afterDone.load(await db.bitcoinUtxosTable.fetchAll());
+    expect(afterDone.getUnacknowledgedFundingUtxos(restoredLock)).toEqual([]);
+
+    const topUpTxid = 'c'.repeat(64);
+    await restarted.utxoTracking.syncFundingUtxos(
+      restoredLock,
+      createCurrentLock({
+        ...acceptedLock,
+        fundedSatoshis: 6_100_000n,
+        fundingUtxos: [...acceptedLock.fundingUtxos, { utxoRef: { txid: topUpTxid, vout: 0 }, satoshis: 1_000_000n }],
+      }),
+    );
+    await restarted.utxoTracking.acknowledgeFunding([deposit]);
+    expect(receipt.value.map(record => record.satoshis)).toEqual([1_000_000n]);
+    expect(restarted.utxoTracking.getUnacknowledgedFundingUtxos(createLock({ lockId: 2 }))).toEqual([]);
+  });
+
   it('rejects unconfirmed below-minimum deposits immediately and preserves dismissal through restart and replay', async () => {
     const { db, migrateToLatest } = await createTestDbAtMigration(36);
     const txid = '1'.repeat(64);
@@ -181,7 +279,7 @@ describe('BitcoinUtxoTracking', () => {
     expect(await db.bitcoinUtxosTable.getByLockOutpoint(lock.lockId!, txid, 0)).toMatchObject({
       status: 'SeenOnMempool',
       fundingRejectionReason: 'BelowMinimum',
-      isFailureAcknowledged: true,
+      isDepositAcknowledged: true,
     });
 
     await restarted.utxoTracking.syncFundingUtxos(
@@ -194,7 +292,7 @@ describe('BitcoinUtxoTracking', () => {
     );
     expect(restarted.utxoTracking.getUtxoRecord(lock.lockId!, txid, 0)).toMatchObject({
       status: 'FundingUtxo',
-      isFailureAcknowledged: false,
+      isDepositAcknowledged: false,
     });
     expect(
       (await db.bitcoinUtxosTable.getByLockOutpoint(lock.lockId!, txid, 0))?.fundingRejectionReason,

@@ -64,6 +64,7 @@ import { useFloatingZIndex } from '../../overlays/helpers/OverlayZIndex.ts';
 const props = defineProps<{
   address: string;
   networkName: string;
+  qrCodeContent?: string;
   qrCodeTitle?: string;
   addressTestId?: string;
 }>();
@@ -73,14 +74,14 @@ const qrCode = Vue.ref('');
 const isQrCodeOpen = Vue.ref(false);
 
 Vue.watch(
-  () => props.address,
-  async (address, _, onCleanup) => {
+  () => [props.address, props.qrCodeContent] as const,
+  async ([address, qrCodeContent], _, onCleanup) => {
     let cancelled = false;
     onCleanup(() => (cancelled = true));
     isQrCodeOpen.value = false;
     qrCode.value = '';
     if (!address) return;
-    const svg = await QRCode.toString(address, {
+    const svg = await QRCode.toString(qrCodeContent ?? address, {
       type: 'svg',
       margin: 0,
       color: { dark: '#0f172a', light: '#ffffff' },

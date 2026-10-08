@@ -91,6 +91,7 @@ function useScenario(status?: BitcoinLockStatus, hasObservedFunding = false) {
   scenario.locks.splice(0);
   if (status) {
     scenario.lock.status = status;
+    if (hasObservedFunding) scenario.fundingUtxo.status = BitcoinUtxoStatus.SeenOnMempool;
     if (status === BitcoinLockStatus.LockFunded || status === BitcoinLockStatus.Releasing || hasObservedFunding) {
       scenario.replaceUtxoRecords([scenario.fundingUtxo]);
     } else {
@@ -101,7 +102,6 @@ function useScenario(status?: BitcoinLockStatus, hasObservedFunding = false) {
       requestedChannelUuid = scenario.lock.uuid;
     }
   }
-  scenario.bitcoinLocks.hasObservedFundingSignal = fn(lock => scenario.bitcoinLocks.getFundingUtxos(lock).length > 0);
   scenario.bitcoinLocks.isSecuritizationHoldExpired = fn(() => false);
   scenario.bitcoinLocks.confirmAddress = fn();
   return () => scenario.cleanup();
@@ -459,6 +459,7 @@ export const FundingObservedDuringCurrentVisit: Story = {
   beforeEach: () => {
     const cleanup = useScenario(BitcoinLockStatus.LockPendingFunding);
     observeFunding = () => {
+      scenario.fundingUtxo.status = BitcoinUtxoStatus.SeenOnMempool;
       scenario.replaceUtxoRecords([scenario.fundingUtxo]);
     };
     return cleanup;
@@ -489,6 +490,7 @@ export const AdditionalFundingDetected: Story = {
         id: 202,
         lockId: scenario.lock.lockId!,
         status: BitcoinUtxoStatus.SeenOnMempool,
+        isDepositAcknowledged: false,
         satoshis: 5_000_000n,
       }),
     ]);
@@ -498,12 +500,29 @@ export const AdditionalFundingDetected: Story = {
 
 export const FundingFinalizesDuringCurrentVisit: Story = {
   beforeEach: () => {
-    const cleanup = useScenario(BitcoinLockStatus.LockPendingFunding, true);
-    isInteractive = true;
+    const cleanup = useScenario(BitcoinLockStatus.LockFunded);
+    scenario.fundingUtxo.satoshis = 5_000_000n;
+    scenario.fundingUtxo.isDepositAcknowledged = false;
+    scenario.replaceUtxoRecords([scenario.fundingUtxo]);
+    return cleanup;
+  },
+};
+
+export const FundingAcknowledgmentUnavailable: Story = {
+  beforeEach: () => {
+    const cleanup = useScenario(BitcoinLockStatus.LockFunded);
+    scenario.fundingUtxo.satoshis = 5_000_000n;
+    scenario.fundingUtxo.isDepositAcknowledged = false;
+    scenario.replaceUtxoRecords([scenario.fundingUtxo]);
+    scenario.bitcoinLocks.utxoTracking.acknowledgeFunding = fn(async () => {
+      throw new Error('Synthetic database write failure');
+    });
     return cleanup;
   },
   play: async () => {
-    scenario.lock.status = BitcoinLockStatus.LockFunded;
+    const canvas = within(document.body);
+    const done = await canvas.findByRole('button', { name: 'Done' });
+    done.click();
     await Vue.nextTick();
   },
 };
@@ -574,6 +593,7 @@ export const __namedExportsOrder = [
   'PendingChannelFunding',
   'AdditionalFundingDetected',
   'FundingFinalizesDuringCurrentVisit',
+  'FundingAcknowledgmentUnavailable',
   'PreviousFundedChannel',
   'FailedChannel',
   'ArchivedChannel',

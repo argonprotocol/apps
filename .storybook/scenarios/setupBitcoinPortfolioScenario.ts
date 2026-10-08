@@ -1,4 +1,5 @@
 import * as Vue from 'vue';
+import BitcoinUtxoTracking from '../../src-vue/lib/BitcoinUtxoTracking.ts';
 import { BitcoinFission, createDeferred, SATOSHIS_PER_BITCOIN, UnitOfMeasurement } from '@argonprotocol/apps-core';
 import type { IBitcoinLockCouponStatus } from '@argonprotocol/apps-router';
 import BigNumber from 'bignumber.js';
@@ -396,6 +397,7 @@ export function setupBitcoinPortfolioScenario(
           return utxo?.lockId === lock.lockId ? [utxo] : [];
         }),
       ),
+      getUnacknowledgedFundingUtxos: BitcoinUtxoTracking.prototype.getUnacknowledgedFundingUtxos,
     },
     load: fn(async () => undefined),
     getAllLocks: fn(() =>

@@ -22,7 +22,7 @@ export {
 
 export class BitcoinUtxosTable extends BaseTable {
   private readonly fieldTypes: IFieldTypes = {
-    boolean: ['isFailureAcknowledged', 'isOnArgonChain'],
+    boolean: ['isDepositAcknowledged', 'isOnArgonChain'],
     bigint: ['satoshis'],
     json: ['mempoolObservation'],
     date: ['firstSeenAt', 'firstSeenOnArgonAt', 'lastConfirmationCheckAt', 'createdAt', 'updatedAt'],
@@ -65,7 +65,7 @@ export class BitcoinUtxosTable extends BaseTable {
       `INSERT INTO BitcoinUtxos (
         lockId, txid, vout, satoshis, network, status, spendStatus,
         activeReleaseId, createdByReleaseId, spentByReleaseId, statusError,
-        fundingRejectionReason, isFailureAcknowledged, isOnArgonChain,
+        fundingRejectionReason, isDepositAcknowledged, isOnArgonChain,
         mempoolObservation, firstSeenAt, firstSeenOnArgonAt, firstSeenBitcoinHeight,
         firstSeenOracleHeight, lastConfirmationCheckAt, lastConfirmationCheckOracleHeight
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -100,7 +100,7 @@ export class BitcoinUtxosTable extends BaseTable {
         record.spentByReleaseId,
         record.statusError,
         record.fundingRejectionReason,
-        record.isFailureAcknowledged ?? false,
+        record.isDepositAcknowledged ?? true,
         record.isOnArgonChain,
         record.mempoolObservation,
         record.firstSeenAt,
@@ -178,13 +178,13 @@ export class BitcoinUtxosTable extends BaseTable {
   public async updateObservedDeposit(record: IBitcoinUtxoRecord): Promise<void> {
     await this.db.execute(
       `UPDATE BitcoinUtxos SET status = ?, satoshis = ?, firstSeenOnArgonAt = ?,
-        fundingRejectionReason = ?, isFailureAcknowledged = ? WHERE id = ?`,
+        fundingRejectionReason = ?, isDepositAcknowledged = ? WHERE id = ?`,
       toSqlParams([
         record.status,
         record.satoshis,
         record.firstSeenOnArgonAt,
         record.fundingRejectionReason,
-        record.isFailureAcknowledged ?? false,
+        record.isDepositAcknowledged ?? true,
         record.id,
       ]),
     );
@@ -192,11 +192,11 @@ export class BitcoinUtxosTable extends BaseTable {
 
   public async updateDepositMetadata(record: IBitcoinUtxoRecord): Promise<void> {
     await this.db.execute(
-      `UPDATE BitcoinUtxos SET fundingRejectionReason = ?, isFailureAcknowledged = ?,
+      `UPDATE BitcoinUtxos SET fundingRejectionReason = ?, isDepositAcknowledged = ?,
         isOnArgonChain = ? WHERE id = ?`,
       toSqlParams([
         record.fundingRejectionReason,
-        record.isFailureAcknowledged ?? false,
+        record.isDepositAcknowledged ?? false,
         record.isOnArgonChain,
         record.id,
       ]),
@@ -207,6 +207,10 @@ export class BitcoinUtxosTable extends BaseTable {
     record.status = BitcoinUtxoStatus.FundingUtxo;
     record.firstSeenOnArgonAt ??= dayjs.utc().toDate();
     await this.persistInboundStatus(record);
+  }
+
+  public async acknowledgeDeposit(record: IBitcoinUtxoRecord): Promise<void> {
+    await this.db.execute('UPDATE BitcoinUtxos SET isDepositAcknowledged = 1 WHERE id = ?', [record.id]);
   }
 
   public async setOrphaned(record: IBitcoinUtxoRecord): Promise<void> {

@@ -412,15 +412,45 @@
                   You can close this window while the transaction continues.
                 </div>
               </div>
-              <div v-else class="flex flex-col items-center gap-4 text-center text-sm">
-                <div v-if="hasPendingInboundUtxos" class="font-semibold text-slate-700">Bitcoin funding detected</div>
-                <div v-if="hasPendingInboundUtxos" class="text-slate-500">
+              <div v-else-if="hasPendingInboundUtxos" class="flex flex-col items-center gap-4 text-center text-sm">
+                <div class="text-slate-700">
+                  <span v-if="pendingFundingSatoshis > 0n">
+                    <strong>{{ satToBtcNm(pendingFundingSatoshis).format('0,0.[00000000]') }} BTC</strong>
+                  </span>
+                  <span v-else>Bitcoin</span>
+                  funding detected
+                </div>
+                <div class="text-slate-500">
                   {{ channelProgressLabel }}
                 </div>
+                <ProgressBar :progress="channelProgress.progressPct" class="h-5" />
+              </div>
+              <div
+                v-else-if="receivedFundingSatoshis > 0n"
+                data-testid="ConnectorChannel.fundingReceived"
+                class="flex flex-col items-center gap-4 text-center text-sm"
+              >
+                <BitcoinIcon class="h-12 w-12 text-slate-600/60" />
+                <div class="text-lg font-semibold text-slate-700">Bitcoin received</div>
+                <p class="text-slate-600">
+                  <strong>{{ satToBtcNm(receivedFundingSatoshis).format('0,0.[00000000]') }} BTC</strong>
+                  is now in your app wallet.
+                </p>
+                <button
+                  type="button"
+                  :disabled="isAcknowledgingFunding"
+                  class="bg-argon-600 hover:bg-argon-700 w-full cursor-pointer rounded-md px-5 py-2 font-semibold text-white"
+                  @click="acknowledgeFunding"
+                >
+                  {{ isAcknowledgingFunding ? 'Saving...' : 'Done' }}
+                </button>
+                <p v-if="fundingReceiptError" class="text-red-600">{{ fundingReceiptError }}</p>
+              </div>
+              <div v-else class="flex flex-col items-center gap-4 text-center text-sm">
                 <p class="w-full text-left leading-6 text-slate-700">
                   Send Bitcoin to the address listed below
                   <CountdownClock
-                    v-if="!hasPendingInboundUtxos && props.wallet.hasActiveSecuritizationHold(displayedChannel)"
+                    v-if="props.wallet.hasActiveSecuritizationHold(displayedChannel)"
                     :time="securitizationHoldExpirationTime"
                     v-slot="{ days, hours, minutes }"
                   >
@@ -445,7 +475,6 @@
                     autoOpenGuidance
                     :open="
                       isBitcoinFundingGuideActive &&
-                      !hasPendingInboundUtxos &&
                       !!channelFundingAddress &&
                       treasuryCertificationFundingSatoshis !== 0n
                     "
@@ -459,6 +488,8 @@
                     <WalletReceiveAddress
                       :address="channelFundingAddress"
                       networkName="Bitcoin"
+                      :qrCodeContent="`bitcoin:${channelFundingAddress}`"
+                      qrCodeTitle="Address on Bitcoin network:"
                       addressTestId="ConnectorChannel.fundingAddress"
                     />
                   </WalletGuideAnchor>
@@ -476,7 +507,6 @@
                   <template v-else-if="minimumDepositSatoshis === null">Minimum deposit unavailable.</template>
                   <template v-else>Loading minimum deposit...</template>
                 </p>
-                <ProgressBar v-if="hasPendingInboundUtxos" :progress="channelProgress.progressPct" class="h-5" />
               </div>
             </div>
             <div v-else-if="isChoosingCosigner" class="min-h-48 px-5 py-4">
@@ -756,6 +786,7 @@ import {
 import { provideOverlayContentZIndex, useFloatingZIndex } from '../../overlays/helpers/OverlayZIndex.ts';
 import WalletGuideAnchor from './WalletGuideAnchor.vue';
 import WalletReceiveAddress from './WalletReceiveAddress.vue';
+import BitcoinIcon from '../../assets/wallets/bitcoin.svg?component';
 import ButtonClose from './ButtonClose.vue';
 import InputToken from '../../components/InputToken.vue';
 import CountdownClock from '../../components/CountdownClock.vue';
@@ -802,6 +833,7 @@ import { getMainchainClient, getMiningFrames } from '../../stores/mainchain.ts';
 import { getWalletKeys } from '../../stores/wallets.ts';
 import BitcoinMempool from '../../lib/BitcoinMempool.ts';
 import { ESPLORA_HOST } from '../../lib/Env.ts';
+import { BitcoinUtxoSpendStatus, BitcoinUtxoStatus } from '../../interfaces/IBitcoinUtxoRecord.ts';
 import basicEmitter from '../../emitters/basicEmitter.ts';
 import {
   treasuryBitcoinCertificationDisplayAmount,
@@ -997,6 +1029,14 @@ const securitizationHoldChannel = Vue.computed(() => {
   return props.wallet.getChannelWithActiveSecuritizationHold();
 });
 const defaultDisplayedChannel = Vue.computed(() => {
+  if (props.mode === 'channel') {
+    const receiptChannel = bitcoinLocks.getAllLocks().find(channel => {
+      if (props.vaultId != null && channel.vaultId !== props.vaultId) return false;
+      if (selectedVaultId.value && channel.vaultId.toString() !== selectedVaultId.value) return false;
+      return bitcoinLocks.utxoTracking.getUnacknowledgedFundingUtxos(channel).length > 0;
+    });
+    if (receiptChannel) return receiptChannel;
+  }
   const choice = cosignerChoices.value.find(({ vault }) => vault.vaultId.toString() === selectedVaultId.value);
   return choice?.channel;
 });
@@ -1005,22 +1045,26 @@ const displayedChannel = Vue.computed(() => {
   if (!uuid) return;
   return props.wallet.getChannel(uuid) ?? (openedChannel.value?.uuid === uuid ? openedChannel.value : undefined);
 });
+
 const pendingAddInsuranceTxInfo = Vue.computed(() => {
   if (!props.open || props.mode !== 'insurance') return;
   const lockId = displayedChannel.value?.lockId;
   return lockId == null ? undefined : bitcoinLockResecuritize.getPendingResecuritizationTxInfo(lockId);
 });
+
 const archivedChannels = Vue.computed(() => props.wallet.getArchivedChannels());
 const hasChannelOverviewContent = Vue.computed(() => archivedChannels.value.length > 0);
 const showChannelOverview = Vue.computed(
   () => hasChannelOverviewContent.value && !displayedChannel.value && !isShowingChannelForm.value,
 );
+
 const currentInsuranceCoverageMicrogons = Vue.computed(
   () => displayedChannel.value?.securitizationCoverageMicrogons ?? 0n,
 );
 const insuranceActionLabel = Vue.computed(() =>
   currentInsuranceCoverageMicrogons.value > 0n ? 'Update Insurance' : 'Add Insurance',
 );
+
 const archivedRelease = Vue.computed(() => {
   const channel = displayedChannel.value;
   return channel?.status === BitcoinLockStatus.Released ? bitcoinLocks.releases.getLatestForLock(channel) : undefined;
@@ -1035,14 +1079,36 @@ const archivedDestinationAddress = Vue.computed(() => {
   }
 });
 const archivedReleaseTxid = Vue.computed(() => archivedRelease.value?.bitcoinTxid);
+
 const releaseState = Vue.computed(() => bitcoinLocks.getLockUnlockReleaseState(displayedChannel.value));
+
+const pendingInboundUtxos = Vue.computed(() => {
+  const channel = displayedChannel.value;
+  if (channel?.lockId == null) return [];
+
+  const observedFundingUtxos = bitcoinLocks.utxoTracking.getObservedFundingUtxos(channel);
+
+  // Accepted UTXOs publish before the channel's fundingUtxoIds refresh. Keep progress visible across that gap.
+  const unpublishedFundingUtxos = bitcoinLocks.utxoTracking.getUtxosForLock(channel.lockId).filter(utxo => {
+    return (
+      utxo.status === BitcoinUtxoStatus.FundingUtxo &&
+      utxo.isDepositAcknowledged === false &&
+      utxo.spendStatus === BitcoinUtxoSpendStatus.Unspent &&
+      !utxo.createdByReleaseId &&
+      !channel.fundingUtxoIds.includes(utxo.id)
+    );
+  });
+
+  return [...observedFundingUtxos, ...unpublishedFundingUtxos];
+});
+const hasPendingInboundUtxos = Vue.computed(() => pendingInboundUtxos.value.length > 0);
+const pendingFundingSatoshis = Vue.computed(() => {
+  return pendingInboundUtxos.value.reduce((total, utxo) => total + utxo.satoshis, 0n);
+});
+
 const isArgonChannelProcessing = Vue.computed(
   () => displayedChannel.value?.status === BitcoinLockStatus.LockIsProcessingOnArgon,
 );
-const hasPendingInboundUtxos = Vue.computed(() => {
-  const channel = displayedChannel.value;
-  return channel ? bitcoinLocks.utxoTracking.getObservedFundingUtxos(channel).length > 0 : false;
-});
 const channelProgress = Vue.computed(() => {
   progressNow.value;
   const channel = displayedChannel.value;
@@ -1050,6 +1116,30 @@ const channelProgress = Vue.computed(() => {
     ? props.wallet.getChannelProgress(channel)
     : { progressPct: 0, confirmations: -1, expectedConfirmations: 0 };
 });
+const channelProgressLabel = Vue.computed(() => {
+  const { confirmations, expectedConfirmations } = channelProgress.value;
+  if (isArgonChannelProcessing.value) {
+    if (confirmations < 0 || expectedConfirmations <= 0) return 'Submitting to the Argon network...';
+    return `Argon confirmation ${Math.min(confirmations + 1, expectedConfirmations)} of ${expectedConfirmations}`;
+  }
+  if (confirmations < 0) return 'Detected in the Bitcoin mempool. Waiting for the first confirmation...';
+  if (expectedConfirmations <= 0) return 'Bitcoin funding detected.';
+  return `Bitcoin confirmation ${Math.min(confirmations + 1, expectedConfirmations)} of ${expectedConfirmations}`;
+});
+
+const isAcknowledgingFunding = Vue.ref(false);
+const fundingReceiptError = Vue.ref('');
+const unacknowledgedFundingUtxos = Vue.computed(() => {
+  const channel = displayedChannel.value;
+  if (props.mode !== 'channel' || !channel) return [];
+  return bitcoinLocks.utxoTracking.getUnacknowledgedFundingUtxos(channel);
+});
+const receivedFundingSatoshis = Vue.computed(() => {
+  return unacknowledgedFundingUtxos.value.reduce((total, utxo) => total + utxo.satoshis, 0n);
+});
+Vue.watch(displayedChannel, () => (fundingReceiptError.value = ''));
+
+const minimumDepositSatoshis = Vue.ref<bigint | null>();
 const channelFundingAddress = Vue.computed(() => {
   const channel = displayedChannel.value;
   if (!channel || isArgonChannelProcessing.value || channel.status === BitcoinLockStatus.LockFailed) return '';
@@ -1059,7 +1149,6 @@ const channelFundingAddress = Vue.computed(() => {
     return '';
   }
 });
-const minimumDepositSatoshis = Vue.ref<bigint | null>();
 
 async function requestTreasuryAccess() {
   emit('update:open', false);
@@ -1094,16 +1183,7 @@ const channelDisplayError = Vue.computed(() => {
   }
   return '';
 });
-const channelProgressLabel = Vue.computed(() => {
-  const { confirmations, expectedConfirmations } = channelProgress.value;
-  if (isArgonChannelProcessing.value) {
-    if (confirmations < 0 || expectedConfirmations <= 0) return 'Submitting to the Argon network...';
-    return `Argon confirmation ${Math.min(confirmations + 1, expectedConfirmations)} of ${expectedConfirmations}`;
-  }
-  if (confirmations < 0) return 'Detected in the Bitcoin mempool. Waiting for the first confirmation...';
-  if (expectedConfirmations <= 0) return 'Bitcoin funding detected.';
-  return `Bitcoin confirmation ${Math.min(confirmations + 1, expectedConfirmations)} of ${expectedConfirmations}`;
-});
+
 const isVaultOperator = Vue.computed(() => {
   return walletKeys.defaultArgonAddress === defaultVault.value?.operatorAccountId;
 });
@@ -1371,7 +1451,21 @@ function shouldDisplayRequestedChannel(channel: IBitcoinLockRecord): boolean {
   if (props.mode === 'insurance') return true;
   if (channel.status === BitcoinLockStatus.LockFailed || channel.removalReason === 'expired') return true;
   if (props.wallet.hasActiveSecuritizationHold(channel)) return true;
+  if (bitcoinLocks.utxoTracking.getUnacknowledgedFundingUtxos(channel).length > 0) return true;
   return bitcoinLocks.utxoTracking.getObservedFundingUtxos(channel).length > 0;
+}
+
+async function acknowledgeFunding(): Promise<void> {
+  if (isAcknowledgingFunding.value) return;
+  isAcknowledgingFunding.value = true;
+  fundingReceiptError.value = '';
+  try {
+    await bitcoinLocks.utxoTracking.acknowledgeFunding(unacknowledgedFundingUtxos.value);
+  } catch {
+    fundingReceiptError.value = 'Unable to save your acknowledgment. Please try again.';
+  } finally {
+    isAcknowledgingFunding.value = false;
+  }
 }
 
 async function updateMaximumInsurance(vault: Vault | undefined, onCleanup: (cleanup: () => void) => void) {

@@ -118,6 +118,17 @@ export default class BitcoinUtxoTracking {
     });
   }
 
+  public getUnacknowledgedFundingUtxos(lock: IBitcoinLockRecord): IBitcoinUtxoRecord[] {
+    return this.getFundingUtxos(lock).filter(record => {
+      return (
+        record.status === BitcoinUtxoStatus.FundingUtxo &&
+        record.isDepositAcknowledged === false &&
+        record.spendStatus === BitcoinUtxoSpendStatus.Unspent &&
+        !record.createdByReleaseId
+      );
+    });
+  }
+
   public getReceivedFundingSatoshis(lock: IBitcoinLockRecord): bigint | undefined {
     if (lock.lockId === undefined) return;
     const fundingUtxoIds = new Set(lock.fundingUtxoIds);
@@ -144,39 +155,37 @@ export default class BitcoinUtxoTracking {
 
   public async syncFundingUtxos(lock: IBitcoinLockRecord, currentLock: IBitcoinLock): Promise<IBitcoinUtxoRecord[]> {
     if (!lock.lockId) throw new Error('Lock has no lockId for UTXO tracking.');
-
     const db = await this.deps.dbPromise;
-    const records = await db.transaction(async transaction => {
-      const records: IBitcoinUtxoRecord[] = [];
-      for (const fundingUtxo of currentLock.fundingUtxos) {
-        records.push(
-          await this.persistUtxoRecord(
-            transaction.bitcoinUtxosTable,
-            lock,
-            {
-              txid: fundingUtxo.utxoRef.txid,
-              vout: fundingUtxo.utxoRef.vout,
-              satoshis: fundingUtxo.satoshis,
-            },
-            BitcoinUtxoStatus.FundingUtxo,
-          ),
-        );
-      }
-
-      const updatedLock = {
-        ...lock,
-        fundingUtxoIds: records.map(record => record.id),
-        fundedSatoshis: currentLock.fundedSatoshis,
-      };
-      await transaction.bitcoinLocksTable.updateFromCurrentLock(updatedLock, currentLock);
-      return records;
-    });
-
+    const lockDraft = { ...lock };
+    const records = await db.transaction(transaction => this.persistFundingUtxos(transaction, lockDraft, currentLock));
     const publishedRecords = records.map(record => this.publishUtxo(record));
     const updatedLock = await db.bitcoinLocksTable.getByLockId(lock.lockId);
     if (!updatedLock) throw new Error(`Bitcoin lock ${lock.lockId} does not exist`);
     Object.assign(lock, updatedLock);
     return publishedRecords;
+  }
+
+  public async persistFundingUtxos(
+    transaction: Db,
+    lock: IBitcoinLockRecord,
+    currentLock: IBitcoinLock,
+    acknowledgeNewFunding = false,
+  ): Promise<IBitcoinUtxoRecord[]> {
+    const records: IBitcoinUtxoRecord[] = [];
+    for (const fundingUtxo of currentLock.fundingUtxos) {
+      records.push(
+        await this.persistUtxoRecord(
+          transaction.bitcoinUtxosTable,
+          lock,
+          { txid: fundingUtxo.utxoRef.txid, vout: fundingUtxo.utxoRef.vout, satoshis: fundingUtxo.satoshis },
+          { observedStatus: BitcoinUtxoStatus.FundingUtxo, acknowledgeNewFunding },
+        ),
+      );
+    }
+
+    lock.fundingUtxoIds = records.map(record => record.id);
+    await transaction.bitcoinLocksTable.updateFromCurrentLock(lock, currentLock);
+    return records;
   }
 
   public async syncArgonOrphans(
@@ -215,7 +224,7 @@ export default class BitcoinUtxoTracking {
               vout: utxoRef.outputIndex,
               satoshis: orphan.satoshis,
             },
-            BitcoinUtxoStatus.Orphaned,
+            { observedStatus: BitcoinUtxoStatus.Orphaned },
           );
           record.isOnArgonChain = true;
           await transaction.bitcoinUtxosTable.updateDepositMetadata(record);
@@ -415,11 +424,27 @@ export default class BitcoinUtxoTracking {
       const current = await transaction.bitcoinUtxosTable.getByLockOutpoint(record.lockId, record.txid, record.vout);
       if (current?.status !== BitcoinUtxoStatus.SeenOnMempool || current.fundingRejectionReason !== 'BelowMinimum')
         return;
-      current.isFailureAcknowledged = true;
-      await transaction.bitcoinUtxosTable.updateDepositMetadata(current);
+      await transaction.bitcoinUtxosTable.acknowledgeDeposit(current);
+      current.isDepositAcknowledged = true;
       return current;
     });
     if (acknowledged) this.publishUtxo(acknowledged);
+  }
+
+  public async acknowledgeFunding(records: readonly IBitcoinUtxoRecord[]): Promise<void> {
+    const db = await this.deps.dbPromise;
+    const acknowledged = await db.transaction(async transaction => {
+      const acknowledged: IBitcoinUtxoRecord[] = [];
+      for (const record of records) {
+        const current = await transaction.bitcoinUtxosTable.getByLockOutpoint(record.lockId, record.txid, record.vout);
+        if (current?.status !== BitcoinUtxoStatus.FundingUtxo || current.createdByReleaseId) continue;
+        await transaction.bitcoinUtxosTable.acknowledgeDeposit(current);
+        current.isDepositAcknowledged = true;
+        acknowledged.push(current);
+      }
+      return acknowledged;
+    });
+    for (const record of acknowledged) this.publishUtxo(record);
   }
 
   public async clearStatusError(record: IBitcoinUtxoRecord): Promise<void> {
@@ -469,14 +494,10 @@ export default class BitcoinUtxoTracking {
     if (!lock.lockId) throw new Error('Lock has no lockId for UTXO tracking.');
     const db = await this.deps.dbPromise;
     const record = await db.transaction(transaction =>
-      this.persistUtxoRecord(
-        transaction.bitcoinUtxosTable,
-        lock,
-        deposit,
-        this.getObservedStatusForUpsert(options),
-        options?.mempoolObservation,
-        options?.minimumSatoshis,
-      ),
+      this.persistUtxoRecord(transaction.bitcoinUtxosTable, lock, deposit, {
+        ...options,
+        observedStatus: this.getObservedStatusForUpsert(options),
+      }),
     );
     return this.publishUtxo(record);
   }
@@ -485,10 +506,14 @@ export default class BitcoinUtxoTracking {
     table: BitcoinUtxosTable,
     lock: IBitcoinLockRecord,
     deposit: { txid: string; vout: number; satoshis: bigint },
-    observedStatus?: BitcoinUtxoStatus,
-    mempoolObservation?: IMempoolFundingObservation,
-    minimumSatoshis?: bigint,
+    observation: {
+      observedStatus?: BitcoinUtxoStatus;
+      mempoolObservation?: IMempoolFundingObservation;
+      minimumSatoshis?: bigint;
+      acknowledgeNewFunding?: boolean;
+    } = {},
   ): Promise<IBitcoinUtxoRecord> {
+    const { observedStatus, mempoolObservation, minimumSatoshis, acknowledgeNewFunding } = observation;
     if (!lock.lockId) throw new Error('Lock has no lockId for UTXO tracking.');
 
     const satoshis = deposit.satoshis;
@@ -497,6 +522,8 @@ export default class BitcoinUtxoTracking {
     const seenOnArgonAt = wasSeenOnArgon ? dayjs.utc().toDate() : undefined;
     let record = await table.getByLockOutpoint(lock.lockId, deposit.txid, deposit.vout);
     if (!record) {
+      const isLiveDeposit =
+        !!mempoolObservation || observedStatus === BitcoinUtxoStatus.FundingUtxo || minimumSatoshis != null;
       record = await table.insert({
         lockId: lock.lockId,
         txid: deposit.txid,
@@ -505,6 +532,7 @@ export default class BitcoinUtxoTracking {
         network: lock.network,
         status: observedStatus ?? BitcoinUtxoStatus.SeenOnMempool,
         spendStatus: BitcoinUtxoSpendStatus.Unspent,
+        isDepositAcknowledged: acknowledgeNewFunding || !isLiveDeposit,
         fundingRejectionReason:
           !wasSeenOnArgon && minimumSatoshis != null && satoshis < minimumSatoshis ? 'BelowMinimum' : undefined,
         mempoolObservation,
@@ -520,12 +548,15 @@ export default class BitcoinUtxoTracking {
 
     let needsUpdate = false;
     if (this.shouldUpdateObservedStatus(record, observedStatus)) {
+      if (observedStatus === BitcoinUtxoStatus.FundingUtxo && !record.createdByReleaseId) {
+        record.isDepositAcknowledged = false;
+      }
       record.status = observedStatus;
       needsUpdate = true;
     }
     if (wasSeenOnArgon && record.fundingRejectionReason) {
       record.fundingRejectionReason = undefined;
-      record.isFailureAcknowledged = false;
+      record.isDepositAcknowledged = false;
       needsUpdate = true;
     }
     if (
@@ -535,7 +566,7 @@ export default class BitcoinUtxoTracking {
       satoshis < minimumSatoshis
     ) {
       record.fundingRejectionReason = 'BelowMinimum';
-      record.isFailureAcknowledged = false;
+      record.isDepositAcknowledged = false;
       needsUpdate = true;
     }
     if (record.satoshis !== satoshis) {

@@ -5605,5 +5605,32 @@
     "firstBlockSpecVersion": 159,
     "frameStartTick": 29851996,
     "dateStart": "2026-10-04T13:16:00.000Z"
+  },
+  {
+    "frameId": 584,
+    "firstBlockNumber": 942631,
+    "firstBlockHash": "0x57297e1137296cd1cd6efe731a04bc20e079198ff055ff4f08e7769d7a94671e",
+    "firstBlockTick": 29853436,
+    "firstBlockSpecVersion": 159,
+    "frameStartTick": 29853436,
+    "dateStart": "2026-10-05T13:16:00.000Z"
+  },
+  {
+    "frameId": 585,
+    "firstBlockNumber": 944071,
+    "firstBlockHash": "0xb40e465bda2e2f43b941574ba88b5745c81ec0dfaf8e2cafd94bf69c18103071",
+    "firstBlockTick": 29854876,
+    "firstBlockSpecVersion": 159,
+    "frameStartTick": 29854876,
+    "dateStart": "2026-10-06T13:16:00.000Z"
+  },
+  {
+    "frameId": 586,
+    "firstBlockNumber": 945511,
+    "firstBlockHash": "0x3544986de19ea164e259b1ae0364bf7299ef842deeb5688416d97d44cc31bc8c",
+    "firstBlockTick": 29856316,
+    "firstBlockSpecVersion": 159,
+    "frameStartTick": 29856316,
+    "dateStart": "2026-10-07T13:16:00.000Z"
   }
 ]

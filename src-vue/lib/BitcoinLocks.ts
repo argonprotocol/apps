@@ -674,7 +674,7 @@ export default class BitcoinLocks {
         }
         const persisted = durable
           ? this.utxoTracking.mergeRecovered(durable, recovered)
-          : await transaction.bitcoinUtxosTable.insert(recovered);
+          : await transaction.bitcoinUtxosTable.insert({ ...recovered, isDepositAcknowledged: true });
         if (durable) await transaction.bitcoinUtxosTable.saveRecoveredHistory(persisted);
         utxos.push(persisted);
         persistedUtxoIdByReplayId.set(recovered.id, persisted.id);
@@ -796,9 +796,9 @@ export default class BitcoinLocks {
 
     record ??= derivedPubkey ? await table.findPendingByHdPath(derivedPubkey.hdPath) : undefined;
     if (!record) {
+      const db = await this.dbPromise;
       let recoveredUuid: string | undefined;
       if (derivedPubkey) {
-        const db = await this.dbPromise;
         const transaction = (await db.transactionsTable.fetchAll()).find(candidate => {
           if (candidate.extrinsicType !== ExtrinsicType.BitcoinRequestLock) return false;
 
@@ -807,12 +807,23 @@ export default class BitcoinLocks {
         });
         recoveredUuid = (transaction?.metadataJson as Partial<IBitcoinRequestLockMetadata> | undefined)?.bitcoin?.uuid;
       }
-      record = await this.insertPending({
-        uuid: recoveredUuid ?? BitcoinLocksTable.createUuid(),
-        vaultId: lock.vaultId,
-        securitizedSatoshis: lock.securitizedSatoshis,
-        hdPath: derivedPubkey?.hdPath ?? '',
+      const restored = await db.transaction(async transaction => {
+        const pending = await transaction.bitcoinLocksTable.insertPending({
+          uuid: recoveredUuid ?? BitcoinLocksTable.createUuid(),
+          vaultId: lock.vaultId,
+          securitizedSatoshis: lock.securitizedSatoshis,
+          hdPath: derivedPubkey?.hdPath ?? '',
+          status: BitcoinLockStatus.LockIsProcessingOnArgon,
+          cosignVersion: 'v1',
+          network: BitcoinNetwork[this.bitcoinNetwork],
+        });
+        const channel = await transaction.bitcoinLocksTable.finalizePending({ uuid: pending.uuid, lock });
+        const utxos = await this.utxoTracking.persistFundingUtxos(transaction, channel, lock, true);
+        return { channel, utxos };
       });
+      for (const utxo of restored.utxos) this.utxoTracking.publishUtxo(utxo);
+      this.locksByLockId[lock.lockId] = restored.channel;
+      return restored.channel;
     }
     if (record.status === BitcoinLockStatus.LockIsProcessingOnArgon) {
       record = await table.finalizePending({ uuid: record.uuid, lock });

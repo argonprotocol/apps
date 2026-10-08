@@ -3,6 +3,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.4.2] - 2026-10-07
+- Preserve send amounts when transferring to Ethereum and charge fees separately
+- Fix Bitcoin Liquid creation with expired insurance and prevent rejected transactions from stalling
+- Keep Bitcoin Lock and Liquid balances and conversion rates accurate when restoring history
+- Keep expired Bitcoin channels retired after upgrades
+- Fix stalled Bitcoin returns and clear stale return options
+- Show Bitcoin deposit minimums and let small deposits be dismissed
+- Improve receive address copying, QR codes, and Bitcoin deposit confirmation
+
 ## [2.4.1] - 2026-10-04
 - Restore missing Bitcoin Lock and Liquid history and preserve balances and minting progress
 - Restore missing mining history and keep balances and bids up to date

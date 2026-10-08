@@ -79,7 +79,7 @@ export class WalletForBitcoin extends WalletForChain<WalletType.bitcoin> {
         const release = bitcoinLocks.releases.getActiveForLock(lock);
         return bitcoinLocks.utxoTracking.getUtxosForLock(lock.lockId!).filter(record => {
           if (record.status !== BitcoinUtxoStatus.SeenOnMempool) return false;
-          if (record.fundingRejectionReason && record.isFailureAcknowledged) return false;
+          if (record.fundingRejectionReason && record.isDepositAcknowledged) return false;
           return !(
             release?.expectedTransactionId === record.txid &&
             release.changeSatoshis === record.satoshis &&
