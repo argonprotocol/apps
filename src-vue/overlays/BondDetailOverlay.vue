@@ -78,7 +78,7 @@
             <header class="text-sm font-bold opacity-40">LIFETIME DISTRIBUTIONS</header>
             <div data-testid="Bond.details.distributions" class="py-1 text-2xl font-bold text-slate-600">
               <template v-if="lifetimeEarnings !== undefined">
-                {{ argonSymbol }}{{ microgonToArgonNm(lifetimeEarnings).format('0,0.00') }}
+                {{ microgonToArgonNm(lifetimeEarnings).formatCurrency(argonSymbol) }}
               </template>
               <template v-else>&mdash;</template>
             </div>
@@ -155,7 +155,11 @@
             </tr>
           </thead>
           <tbody class="divide-y divide-slate-100 text-slate-600">
-            <tr v-for="record in dailyEarnings" :key="record.frameId" :data-testid="`Bond.earnings-${record.frameId}`">
+            <tr
+              v-for="record in showAllEarnings ? dailyEarnings : dailyEarnings.slice(0, 5)"
+              :key="record.frameId"
+              :data-testid="`Bond.earnings-${record.frameId}`"
+            >
               <td class="py-2">{{ dayjs(miningFrames.getFrameDate(record.frameId)).format('M/D/YYYY') }}</td>
               <td class="py-2 text-right">
                 <template v-if="record.bonds != null">{{ numeral(record.bonds).format('0,0') }}</template>
@@ -176,37 +180,47 @@
             </tr>
           </tbody>
         </table>
+        <button
+          v-if="dailyEarnings.length > 5"
+          type="button"
+          class="text-argon-600 mt-3 cursor-pointer text-sm"
+          @click="showAllEarnings = !showAllEarnings"
+        >
+          {{ showAllEarnings ? 'Collapse earnings' : 'Show all earnings' }}
+        </button>
       </section>
     </div>
 
-    <div
-      v-if="canLiquidate && !isLiquidating"
-      class="flex items-start justify-between gap-4 border-t border-slate-200 px-10 py-4"
-    >
-      <div class="text-sm text-slate-500">
-        Liquidate this {{ programType === 'Argonot' ? 'stake' : 'bond' }} lot to schedule its return.
-      </div>
-      <button
-        type="button"
-        class="bg-argon-button hover:bg-argon-button-hover shrink-0 rounded px-5 py-2 text-sm font-semibold text-white"
-        @click="liquidateBondLot"
+    <div class="sticky bottom-0 z-10 shrink-0 bg-white">
+      <div
+        v-if="canLiquidate && !isLiquidating"
+        class="flex items-start justify-between gap-4 border-t border-slate-200 px-10 py-4"
       >
-        Liquidate {{ programType === 'Argonot' ? 'Stake' : 'Bond' }} Lot
-      </button>
-    </div>
-
-    <div v-if="liquidationError" class="border-t border-slate-200 px-10 py-4">
-      <div class="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
-        {{ liquidationError }}
+        <div class="text-sm text-slate-500">
+          Liquidate this {{ programType === 'Argonot' ? 'stake' : 'bond' }} lot to schedule its return.
+        </div>
+        <button
+          type="button"
+          class="bg-argon-button hover:bg-argon-button-hover shrink-0 rounded px-5 py-2 text-sm font-semibold text-white"
+          @click="liquidateBondLot"
+        >
+          Liquidate {{ programType === 'Argonot' ? 'Stake' : 'Bond' }} Lot
+        </button>
       </div>
-    </div>
 
-    <div v-if="isLiquidating" class="space-y-3 border-t border-slate-200 px-10 py-5">
-      <div class="text-sm font-medium text-slate-600">
-        Liquidating {{ programType === 'Argonot' ? 'stake' : 'bond' }} lot...
+      <div v-if="liquidationError" class="border-t border-slate-200 px-10 py-4">
+        <div class="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+          {{ liquidationError }}
+        </div>
       </div>
-      <ProgressBar :progress="liquidationProgressPct" :hasError="!!liquidationError" />
-      <div class="text-xs text-slate-500">{{ liquidationProgressLabel }}</div>
+
+      <div v-if="isLiquidating" class="space-y-3 border-t border-slate-200 px-10 py-5">
+        <div class="text-sm font-medium text-slate-600">
+          Liquidating {{ programType === 'Argonot' ? 'stake' : 'bond' }} lot...
+        </div>
+        <ProgressBar :progress="liquidationProgressPct" :hasError="!!liquidationError" />
+        <div class="text-xs text-slate-500">{{ liquidationProgressLabel }}</div>
+      </div>
     </div>
   </OverlayBase>
 </template>
@@ -269,6 +283,7 @@ const isLiquidating = Vue.ref(false);
 const liquidationError = Vue.ref('');
 const liquidationProgressPct = Vue.ref(0);
 const liquidationProgressLabel = Vue.ref('');
+const showAllEarnings = Vue.ref(false);
 
 let unsubscribeLiquidationProgress: VoidFunction | undefined;
 
@@ -292,9 +307,17 @@ const dailyEarnings = Vue.computed(() => earningsHistory.value.records.toSorted(
 
 const purchasedAtLabel = Vue.computed(() => {
   const createdFrame = displayedLot.value?.createdFrameId ?? history.value?.createdFrame;
-  if (!createdFrame) return 'before frame tracking started';
-  const date = history.value?.purchaseBlockTime ?? miningFrames.getFrameDate(createdFrame);
-  return dayjs.utc(date).local().format('M/D/YYYY [at] h:mm a');
+  const purchase = argonBonds.data.bondHistory.find(record => record.bondLotId === lotId.value);
+  const date = purchase?.purchaseBlockTime ?? props.position?.startedAt;
+  if (!date && !createdFrame) return 'before frame tracking started';
+  return dayjs
+    .utc(date ?? miningFrames.getFrameDate(createdFrame!))
+    .local()
+    .format('M/D/YYYY [at] h:mm a');
+});
+
+Vue.watch(lotId, () => {
+  showAllEarnings.value = false;
 });
 
 const externalMemberName = Vue.computed(() => {

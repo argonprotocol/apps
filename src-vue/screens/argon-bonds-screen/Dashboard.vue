@@ -11,13 +11,13 @@
       <div class="h-full w-px bg-slate-400/30" />
       <div class="w-1/3 border-b border-slate-400/30 py-5">
         <div class="text-argon-600 inline-flex text-5xl font-bold">
-          <span>{{ currency.symbol }}</span>
           <FormattedMoney
             v-if="!isSummaryReady || bondsSummary?.returnSummary.paidIncome !== undefined"
             :isLoaded="isSummaryReady"
             :value="bondsSummary?.returnSummary.paidIncome ?? 0n"
+            :symbol="currency.symbol"
           />
-          <span v-else>&mdash;</span>
+          <span v-else>{{ currency.symbol }}&mdash;</span>
         </div>
         <div>Distributed Income</div>
       </div>

@@ -350,6 +350,8 @@ export class TreasuryBonds {
     return {
       actualEarnings,
       maximumEarnings,
+      securitizationPercent:
+        denominator > 0n ? BigNumber(position.securitization).div(denominator).times(100).toNumber() : undefined,
       capturedPercent: maximumRate > 0n ? BigNumber(actualRate).div(maximumRate).times(100).toNumber() : undefined,
       capturedWithMaximumArgonotsPercent:
         maximumRate > 0n ? BigNumber(maximumArgonotRate).div(maximumRate).times(100).toNumber() : undefined,

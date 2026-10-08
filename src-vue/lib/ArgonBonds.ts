@@ -144,8 +144,11 @@ export class ArgonBonds {
   public getEarningsHistory(bondLotId: number) {
     const records = this.data.dailyEarnings.filter(record => record.bondLotId === bondLotId);
     const history = this.data.bondHistory.find(record => record.bondLotId === bondLotId);
-    const lot = this.data.bondLots.find(entry => entry.id === bondLotId);
-    return getBondEarnings(lot, history, records, this.data.currentFrameId - 1);
+    // Daily rows and their counters are published together from finalized history.
+    const completedFrame = history?.earningsHistoryThroughFrame ?? (history ? history.createdFrame - 1 : undefined);
+    const earnings = getBondEarnings(undefined, history, records, completedFrame);
+    if (history?.programType === 'Vault' && !history.flexibilityHistoryComplete) earnings.isComplete = false;
+    return earnings;
   }
 
   public getVaultBondCapacityMicrogons(vault: Vault): bigint {

@@ -1,5 +1,10 @@
 <template>
-  <Chart ref="chartRef" />
+  <Chart ref="chartRef" @inspectFrame="emit('inspectFrame', $event)">
+    <template v-if="$slots.tooltipHeader" #tooltipHeader="{ item }">
+      <slot name="tooltipHeader" :item="item" />
+    </template>
+    <template #tooltip="{ item }"><slot name="tooltip" :item="item" /></template>
+  </Chart>
   <NibSlider
     v-if="!navigationDisabled"
     ref="nibSliderRef"
@@ -27,6 +32,7 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   (e: 'changedFrame', index: number, isUserAction: boolean): void;
+  (e: 'inspectFrame', frameId: number | undefined): void;
 }>();
 
 let dragMeta: any = {};

@@ -207,7 +207,112 @@
               ref="frameSliderRef"
               :chartItems="chartItems"
               :selectedIndex="sliderFrameIndex"
-              @changedFrame="updateSliderFrame" />
+              @inspectFrame="inspectedFrameId = $event"
+              :navigationDisabled="true"
+              @changedFrame="updateSliderFrame">
+              <template #tooltipHeader="{ item }">
+                {{ dayjs.utc(chartFramesById[item.id].firstTick * TICK_MILLIS).local().format('MMMM D, h:mm A') }} to
+                {{ dayjs.utc((miningFrames.getTickEnd(item.id) + 1) * TICK_MILLIS).local().format('MMMM D, h:mm A') }}
+              </template>
+              <template #tooltip="{ item }">
+                <div v-if="chartFramesById[item.id]" class="space-y-3 whitespace-nowrap">
+                  <div class="grid grid-cols-3 divide-x divide-slate-300 border-b border-slate-200 py-1 pb-4 text-center">
+                    <div class="px-4">
+                      <header class="font-semibold text-slate-500">Earnings</header>
+                      <div class="text-argon-600 pt-1 font-mono text-3xl font-bold">
+                        {{ currency.recordsByKey.ARGN.symbol }}{{
+                          microgonToArgonNm(chartFramesById[item.id].microgonValueOfRewards).formatIfElse('< 100', '0,0.00', '0,0')
+                        }}
+                      </div>
+                      <p class="mt-1 text-slate-500">
+                        <template v-if="chartFramesById[item.id].profitPct > 0 && chartFramesById[item.id].profitPct < 0.1">&lt;0.1%</template>
+                        <template v-else>{{ numeral(chartFramesById[item.id].profitPct).format('0,0.[0]') }}%</template>
+                        return
+                      </p>
+                    </div>
+                    <div class="px-4">
+                      <header class="font-semibold text-slate-500">Active Seats</header>
+                      <div class="text-argon-600 pt-1 font-mono text-3xl font-bold">
+                        {{ numeral(chartFramesById[item.id].seatCountActive).format('0,0') }}
+                      </div>
+                      <p class="mt-1 text-slate-500">of {{ numeral(chartFramesById[item.id].allMinersCount).format('0,0') }} network</p>
+                    </div>
+                    <div class="px-4">
+                      <header class="font-semibold text-slate-500">New Seats Won</header>
+                      <div class="text-argon-600 pt-1 font-mono text-3xl font-bold">
+                        <template v-if="inspectedWinningBids && inspectedFrameDetail && (item.id < myMiningSeats.latestFrameId || inspectedFrameDetail.auctionCloseTick)">
+                          {{ numeral(inspectedWinningBids.length).format('0,0') }}
+                        </template>
+                        <template v-else>&mdash;</template>
+                      </div>
+                      <p class="mt-1 text-slate-500">
+                        <template v-if="failedInspectionFrameId === item.id || !bot.isReady || item.id < 1">Unavailable</template>
+                        <template v-else-if="!inspectedFrameDetail || !inspectedWinningBids">Loading…</template>
+                        <template v-else-if="item.id === myMiningSeats.latestFrameId && !inspectedFrameDetail.auctionCloseTick">Auction open</template>
+                        <template v-else>of {{ numeral(inspectedFrameDetail.winningBids.length).format('0,0') }} in auction</template>
+                      </p>
+                    </div>
+                  </div>
+                  <div>
+                    <h4 class="mb-2 font-semibold text-slate-700">Earnings Breakdown</h4>
+                    <div class="space-y-1">
+                      <p class="flex justify-between">
+                        <span class="text-slate-500">Tokens Mined</span>
+                        <span>
+                          {{ microgonToArgonNm(chartFramesById[item.id].microgonsMinedTotal).format('0,0.[00]') }} ARGN +
+                          {{ micronotToArgonotNm(chartFramesById[item.id].micronotsMinedTotal).format('0,0.[00]') }} ARGNOT
+                        </span>
+                      </p>
+                      <p class="flex justify-between">
+                        <span class="text-slate-500">Tokens Minted</span>
+                        <span>{{ microgonToArgonNm(chartFramesById[item.id].microgonsMintedTotal).format('0,0.[00]') }} ARGN</span>
+                      </p>
+                    </div>
+                  </div>
+                  <div class="border-t border-slate-200 pt-3">
+                    <h4 class="mb-2 font-semibold text-slate-700">Result of Day's Auction</h4>
+                    <div class="space-y-2">
+                      <p class="flex justify-between gap-6">
+                        <span class="text-slate-500">Winning Bid Range</span>
+                        <span class="text-right">
+                          <template v-if="inspectedWinningBidRange">
+                            <template v-if="inspectedWinningBidRange.minimum !== undefined && inspectedWinningBidRange.maximum !== undefined">
+                              {{ currency.recordsByKey.ARGN.symbol }}{{ microgonToArgonNm(inspectedWinningBidRange.minimum).format('0,0.00') }}–{{ currency.recordsByKey.ARGN.symbol }}{{ microgonToArgonNm(inspectedWinningBidRange.maximum).format('0,0.00') }} / seat
+                            </template>
+                            <template v-else>None</template>
+                          </template>
+                          <template v-else-if="failedInspectionFrameId === item.id || !bot.isReady || item.id < 1">Unavailable</template>
+                          <template v-else>Loading…</template>
+                        </span>
+                      </p>
+                      <p class="flex justify-between gap-6">
+                        <span class="text-slate-500">Your Bids Placed</span>
+                        <span class="text-right">
+                          <template v-if="inspectedBidActivity && inspectedFrameDetail">
+                            {{ numeral(inspectedBidActivity.submittedCount).format('0,0') }}
+                            of {{ numeral(inspectedFrameDetail.totalBidCount).format('0,0') }} across network
+                          </template>
+                          <template v-else-if="failedBidHistoryFrameId === item.id || failedInspectionFrameId === item.id || !bot.isReady || item.id < 1">Unavailable</template>
+                          <template v-else-if="inspectedBidHistory?.frameId === item.id && !inspectedBidActivity">Unavailable</template>
+                          <template v-else>Loading…</template>
+                        </span>
+                      </p>
+                      <p class="flex justify-between gap-6">
+                        <span class="text-slate-500">Your Max Bid</span>
+                        <span class="text-right">
+                          <template v-if="inspectedBidActivity?.maximumMicrogons !== undefined">
+                            {{ currency.recordsByKey.ARGN.symbol }}{{ microgonToArgonNm(inspectedBidActivity.maximumMicrogons).format('0,0.00') }} / seat
+                          </template>
+                          <template v-else-if="inspectedBidActivity">None</template>
+                          <template v-else-if="failedBidHistoryFrameId === item.id || !bot.isReady || item.id < 1 || inspectedBidHistory?.frameId === item.id">Unavailable</template>
+                          <template v-else>Loading…</template>
+                        </span>
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              </template>
+            </FrameSlider>
           </section>
         </div>
       </section>
@@ -217,7 +322,7 @@
 
 <script lang="ts">
 import * as Vue from 'vue';
-import type { IMiningFrameDetail } from '@argonprotocol/apps-core';
+import { BotActivityType, type IHistoryFile, type IMiningFrameDetail } from '@argonprotocol/apps-core';
 import type { IChartItem } from '../../interfaces/IChartItem.ts';
 import type { IDashboardGlobalStats } from '../../interfaces/IMiningSeatStats.ts';
 import type { IFinancialReturnSummary } from '../../interfaces/IFinancialPosition.ts';
@@ -245,6 +350,7 @@ dayjs.extend(utc);
 </script>
 
 <script setup lang="ts">
+import { watchDebounced } from '@vueuse/core';
 import { BigNumber } from 'bignumber.js';
 import { Mining } from '@argonprotocol/apps-core';
 import { getMyMiningSeats } from '../../stores/myMiningSeats.ts';
@@ -262,7 +368,7 @@ import { getBlockWatch, getMainchainClient, getMining, getMiningFrames } from '.
 import { botEmitter } from '../../lib/Bot.ts';
 import { getBot } from '../../stores/bot.ts';
 import { getConfig } from '../../stores/config.ts';
-import { useWallets } from '../../stores/wallets.ts';
+import { getWalletKeys, useWallets } from '../../stores/wallets.ts';
 import { useFinancials } from '../../stores/financials.ts';
 import MiningIcon from '../../assets/mining.svg?component';
 import ServerConnectionStatus from '../../components/ServerConnectionStatus.vue';
@@ -275,10 +381,11 @@ const blockWatch = getBlockWatch();
 const mining = getMining();
 const miningFrames = getMiningFrames();
 const wallets = useWallets();
+const walletKeys = getWalletKeys();
 const financials = useFinancials();
 const floatingZIndex = useFloatingZIndex();
 
-const { microgonToMoneyNm, micronotToArgonotNm } = createNumeralHelpers(currency);
+const { microgonToArgonNm, microgonToMoneyNm, micronotToArgonotNm } = createNumeralHelpers(currency);
 
 const isHistoricalMetricsPending = Vue.computed(
   () =>
@@ -499,6 +606,109 @@ function loadChartData() {
 
   chartItems.value = items;
 }
+
+const chartFramesById = Vue.computed(() => Object.fromEntries(myMiningSeats.frames.map(frame => [frame.id, frame])));
+const inspectedFrameId = Vue.ref<number>();
+const failedInspectionFrameId = Vue.ref<number>();
+const inspectedHistoricalDetail = Vue.shallowRef<IMiningFrameDetail>();
+const inspectedFrameDetail = Vue.computed(() => {
+  if (inspectedFrameId.value === myMiningSeats.latestFrameId) return currentFrameDetail.value;
+  const cached = historicalFrameDetailByFrameId.get(inspectedFrameId.value ?? -1);
+  if (cached) return cached;
+  if (inspectedHistoricalDetail.value?.frameId === inspectedFrameId.value) return inspectedHistoricalDetail.value;
+});
+const ourBidAddresses = Vue.shallowRef<Set<string>>();
+const inspectedWinningBids = Vue.computed(() => {
+  const detail = inspectedFrameDetail.value;
+  const addresses = ourBidAddresses.value;
+  if (!detail || !addresses) return;
+  return detail.winningBids.filter(bid => addresses.has(bid.address));
+});
+
+Vue.watch(
+  () => myMiningSeats.financialRevision,
+  async () => {
+    const subaccounts = await walletKeys.getMiningBotSubaccounts();
+    ourBidAddresses.value = new Set(Object.keys(subaccounts));
+  },
+  { immediate: true },
+);
+
+const bidHistoryByFrame = new Map<number, IHistoryFile>();
+const inspectedBidHistory = Vue.shallowRef<{ frameId: number; history: IHistoryFile }>();
+const failedBidHistoryFrameId = Vue.ref<number>();
+const inspectedBidActivity = Vue.computed(() => {
+  const record = inspectedBidHistory.value;
+  if (!record || record.frameId !== inspectedFrameId.value) return;
+  if (!record.history.activities.length) return;
+  let submittedCount = 0;
+  let maximumMicrogons: bigint | undefined;
+  for (const activity of record.history.activities) {
+    if (activity.type !== BotActivityType.BidsSubmitted && activity.type !== BotActivityType.BidsRejected) continue;
+    submittedCount += activity.data.submittedCount;
+    const amount = activity.data.microgonsPerSeat;
+    if (maximumMicrogons === undefined || amount > maximumMicrogons) maximumMicrogons = amount;
+  }
+  return { submittedCount, maximumMicrogons };
+});
+
+watchDebounced(
+  [inspectedFrameId, () => bot.isReady, () => bot.state?.lastBid?.isFinalized],
+  async ([frameId]) => {
+    if (frameId === undefined || frameId < 1 || !bot.isReady) return;
+    failedBidHistoryFrameId.value = undefined;
+    try {
+      let history = bidHistoryByFrame.get(frameId);
+      if (!history) {
+        const client = await bot.getClient();
+        // Bid activity is stored with the cohort it enters, one frame after its auction.
+        history = await client.fetch('/history', frameId + 1);
+        if (history.activities.length && frameId < finalizedFrameId.value) bidHistoryByFrame.set(frameId, history);
+      }
+      if (inspectedFrameId.value !== frameId) return;
+      inspectedBidHistory.value = { frameId, history };
+    } catch (error) {
+      if (inspectedFrameId.value !== frameId) return;
+      failedBidHistoryFrameId.value = frameId;
+      console.warn('[Mining Dashboard] Bid activity is unavailable', error);
+    }
+  },
+  { debounce: 150 },
+);
+
+const inspectedWinningBidRange = Vue.computed(() => {
+  const bids = inspectedFrameDetail.value?.winningBids;
+  if (!bids) return;
+
+  let minimum: bigint | undefined;
+  let maximum: bigint | undefined;
+  for (const bid of bids) {
+    const amount = bid.microgonsPerSeat;
+    if (amount === undefined) return;
+    if (minimum === undefined || amount < minimum) minimum = amount;
+    if (maximum === undefined || amount > maximum) maximum = amount;
+  }
+  return { minimum, maximum };
+});
+watchDebounced(
+  [inspectedFrameId, () => bot.isReady, () => myMiningSeats.latestFrameId],
+  async ([frameId]) => {
+    if (frameId === undefined || frameId < 1 || !bot.isReady) return;
+    if (frameId === myMiningSeats.latestFrameId) return;
+    failedInspectionFrameId.value = undefined;
+    if (historicalFrameDetailByFrameId.has(frameId)) return;
+    try {
+      const detail = await loadFrameDetail(frameId);
+      if (inspectedFrameId.value !== frameId) return;
+      inspectedHistoricalDetail.value = detail;
+    } catch (error) {
+      if (inspectedFrameId.value !== frameId) return;
+      failedInspectionFrameId.value = frameId;
+      console.warn('[Mining Dashboard] Historical auction details are unavailable', error);
+    }
+  },
+  { debounce: 150 },
+);
 
 const frameSlots = Vue.computed(() => {
   return currentFrameDetail.value?.slots ?? [];

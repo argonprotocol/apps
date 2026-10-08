@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
+import BigNumber from 'bignumber.js';
 import {
   type ArgonClient,
   type BlockWatch,
@@ -2021,7 +2022,7 @@ describe('BitcoinLocks history replay publication', () => {
       ratchetNumber: 0,
     });
     const client = {
-      consts: { bitcoinFissions: { minimumRatchetPercent: { toBigInt: () => 5n } } },
+      consts: { bitcoinFissions: { minimumRatchetPercent: new BigNumber(0.05) } },
       query: {
         bitcoinFissions: {
           fissionByOwnerAndId: {

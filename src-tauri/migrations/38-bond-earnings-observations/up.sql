@@ -25,18 +25,13 @@ DROP INDEX idxVaultRevenueEventsBlockIdentity;
 CREATE UNIQUE INDEX idxVaultRevenueEventsBlockIdentity
 ON VaultRevenueEvents (blockNumber, source, COALESCE(frameId, -1));
 
--- Draft vault creation uses the full ARGN investment and asks for no ARGNOT.
--- Keep funding choices for installations already in progress or completed.
 UPDATE Config
-SET value = json_set(
-  value,
-  '$.capitalForSecuritizationPct', 100,
-  '$.capitalForTreasuryPct', 0,
-  '$.baseMicronotCommitment', '0n'
-)
-WHERE key = 'vaultingRules'
-  AND json_valid(value)
-  AND COALESCE(
-    (SELECT value FROM Config WHERE key = 'vaultingSetupStatus'),
-    '"None"'
-  ) IN ('"None"', '"Checklist"');
+SET key = 'vaultSetup',
+    value = json_object(
+      'securitizationMicrogons', json_extract(value, '$.baseMicrogonCommitment'),
+      'committedMicronots', COALESCE(json_extract(value, '$.baseMicronotCommitment'), '0n'),
+      'securitizationRatio', json_extract(value, '$.securitizationRatio'),
+      'btcFlatFee', json_extract(value, '$.btcFlatFee'),
+      'btcPctFee', json_extract(value, '$.btcPctFee')
+    )
+WHERE key = 'vaultingRules' AND json_valid(value);

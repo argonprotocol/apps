@@ -39,7 +39,6 @@ import {
   getBiddingCalculatorData,
   getMainchainClient,
   getMiningFrames,
-  getVaultCalculator,
 } from '../../src-vue/stores/mainchain.ts';
 import { useMiningAssetBreakdown } from '../../src-vue/stores/miningAssetBreakdown.ts';
 import { useMiningStats } from '../../src-vue/stores/miningStats.ts';
@@ -102,7 +101,7 @@ export function setupAppScenario({
     onboardingSetupStatus: OnboardingSetupStatus.None,
     miningBotAccountPreviousHistory: null,
     hasSavedBiddingRules: false,
-    hasSavedVaultingRules: false,
+    hasSavedVaultSetup: false,
     isServerAdded: false,
     isServerInstalled: false,
     isServerInstalling: false,
@@ -111,7 +110,7 @@ export function setupAppScenario({
     certificationDetails,
     hasMiningSeats: false,
     biddingRules: Config.getDefault('biddingRules') as IConfig['biddingRules'],
-    vaultingRules: Config.getDefault('vaultingRules') as IConfig['vaultingRules'],
+    vaultSetup: Config.getDefault('vaultSetup') as IConfig['vaultSetup'],
     save: fn(async () => undefined),
     setCertificationDetails,
     ...configOverrides,
@@ -415,24 +414,6 @@ export function setupAppScenario({
     currentMicronotsForBid: 0n,
     maxPossibleMiningSeatCount: 0,
   });
-  mocked(getVaultCalculator, { partial: true }).mockReturnValue({
-    epochPoolCapitalTotal: 0n,
-    epochPoolRewards: 0n,
-    load: fn(async () => undefined),
-    calculateBtcSpaceInMicrogons: fn(() => 0n),
-    calculateExternalAPY: fn(() => 0),
-    calculateExternalPoolCapital: fn(() => 0n),
-    calculateExternalRevenue: fn(() => 0n),
-    calculateInternalAPY: fn(() => 0),
-    calculateInternalBtcRevenue: fn(() => 0n),
-    calculateInternalPoolCapital: fn(() => 0n),
-    calculateInternalRevenue: fn(() => 0n),
-    calculatePercentOfTreasuryClaimed: fn(() => 0),
-    calculateSecuritization: fn(() => 0n),
-    calculateTotalPoolCapital: fn(() => 0n),
-    calculateTotalPoolSpace: fn(() => 0n),
-    personalBtcInMicrogons: fn(() => 0n),
-  });
   mocked(getMiningFrames, { partial: true }).mockReturnValue({
     currentFrameId: 10_000,
     currentTick: 10_000,
@@ -445,6 +426,7 @@ export function setupAppScenario({
     update: fn(async () => undefined),
   });
   mocked(useVaultingStats, { partial: true }).mockReturnValue({
+    isLoaded: true,
     bitcoinAPR: 11.4,
     averageAPR: 12.4,
     isLoadedPromise: Promise.resolve(),
@@ -454,7 +436,7 @@ export function setupAppScenario({
     load: fn(async () => undefined),
     operatorNamesByVaultId: Vue.reactive({}),
     vaultsById: {},
-    currentState: Vue.reactive({ isLoaded: true, isLoading: false, error: '' }),
+    currentState: Vue.reactive({ isLoaded: true, isLoading: false, error: '', statsRevision: 0 }),
     updateRevenue: fn(async () => ({
       synchedToFrame: 0,
       argonotStakingByFrame: [],

@@ -100,7 +100,7 @@
           Existing bond lots must finish returning before another purchase can be accepted.
         </template>
         <template v-else-if="isOwnedVault && vault?.bondCapacitySource === 'Securitization'">
-          Add ARGN securitization to create more Bond space.
+          Add Argon securitization to create more Bond space.
         </template>
         <template v-else-if="ownedVaultHasFlexibleBonds">
           Lock more Bitcoin to buy Bonds without displacing your flexible bonds.
@@ -204,7 +204,7 @@
                 now.
               </template>
               <template v-if="isOwnedVault && vault?.bondCapacitySource === 'Securitization'">
-                Add ARGN securitization to create more Bond space.
+                Add Argon securitization to create more Bond space.
               </template>
               <template v-else-if="ownedVaultHasFlexibleBonds">
                 Lock more Bitcoin to buy this amount without displacing your flexible bonds.

@@ -273,9 +273,8 @@ export class AppVaultOperator {
     }
 
     const txInfo = await this.myVault.createNew({
-      rules: this.config.vaultingRules,
+      vaultSetup: this.config.vaultSetup,
       masterXpubPath: DEFAULT_MASTER_XPUB_PATH,
-      config: this.config,
     });
     await txInfo.waitForPostProcessing;
 
@@ -297,7 +296,7 @@ export class AppVaultOperator {
 
     const rewardConfig = await getOperationalRewardConfig(client);
     const requiredVaultingBalance =
-      this.config.vaultingRules.baseMicrogonCommitment +
+      this.config.vaultSetup.securitizationMicrogons +
       rewardConfig.treasuryMinimumBonds +
       20n * BigInt(MICROGONS_PER_ARGON);
     const [existingTreasuryArgons, existingTreasuryArgonots] = await Promise.all([

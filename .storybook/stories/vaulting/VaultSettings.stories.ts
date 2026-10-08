@@ -19,10 +19,10 @@ type Story = StoryObj<typeof meta>;
 
 export const Creation: Story = {
   beforeEach: () => {
-    setupAppScenario({ selectedTab: TopTab.Vaulting, config: { hasSavedVaultingRules: true } });
+    setupAppScenario({ selectedTab: TopTab.Vaulting, config: { hasSavedVaultSetup: true } });
     getCurrency().isLoaded = true;
     getCurrency().microgonsPer.BTC = 68_000_000_000n;
-    getConfig().saveVaultingRules = fn(async () => undefined);
+    getConfig().saveVaultSetup = fn(async () => undefined);
   },
   render: () => ({
     components: { AppScreen, Vaulting, VaultCreatePanel },
@@ -51,7 +51,7 @@ export const CreationWithoutGuidance: Story = {
     getArgonBonds().data.averageMicrogonsPerArgonot = undefined;
     getCurrency().isLoaded = true;
     getCurrency().microgonsPer.BTC = 68_000_000_000n;
-    getConfig().saveVaultingRules = fn(async () => undefined);
+    getConfig().saveVaultSetup = fn(async () => undefined);
   },
 };
 
@@ -62,7 +62,7 @@ export const CreationLoadingReturns: Story = {
     useVaultingStats().isLoadedPromise = new Promise<void>(fn());
     getCurrency().isLoaded = true;
     getCurrency().microgonsPer.BTC = 68_000_000_000n;
-    getConfig().saveVaultingRules = fn(async () => undefined);
+    getConfig().saveVaultSetup = fn(async () => undefined);
   },
 };
 
@@ -72,7 +72,7 @@ export const CreationSaveError: Story = {
     setupAppScenario({ selectedTab: TopTab.Vaulting });
     getCurrency().isLoaded = true;
     getCurrency().microgonsPer.BTC = 68_000_000_000n;
-    getConfig().saveVaultingRules = fn(async () => {
+    getConfig().saveVaultSetup = fn(async () => {
       throw new Error('Unable to save vault settings. Please retry.');
     });
   },

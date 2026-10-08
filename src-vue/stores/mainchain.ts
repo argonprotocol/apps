@@ -17,7 +17,6 @@ import { getConfig } from './config';
 import { botEmitter } from '../lib/Bot.ts';
 import { BotStatus } from '../lib/BotSyncer.ts';
 import { getBot } from './bot.ts';
-import { VaultCalculator } from '../lib/VaultCalculator.ts';
 import { Config } from '../lib/Config.ts';
 import { BaseDirectory, readTextFile, writeTextFile } from '@tauri-apps/plugin-fs';
 import { BlockWatch } from '@argonprotocol/apps-core/src/BlockWatch.ts';
@@ -31,7 +30,6 @@ let miningFrames: MiningFrames;
 let blockWatch: BlockWatch;
 let biddingCalculator: BiddingCalculator;
 let biddingCalculatorData: BiddingCalculatorData;
-let vaultCalculator: VaultCalculator;
 let refreshPrunedClientPromise: Promise<void> | undefined;
 let shouldRefreshPrunedClient = false;
 
@@ -186,20 +184,6 @@ export function getBiddingCalculator(): BiddingCalculator {
 export function getBiddingCalculatorData(): BiddingCalculatorData {
   biddingCalculatorData ??= new BiddingCalculatorData(getMining(), getMiningFrames());
   return biddingCalculatorData;
-}
-
-export function getVaultCalculator(): VaultCalculator {
-  if (!vaultCalculator) {
-    const config = getConfig();
-    if (!config.isLoaded) {
-      throw new Error('Config must be loaded before VaultCalculator can be initialized');
-    }
-    vaultCalculator = new VaultCalculator(getMainchainClients());
-    void vaultCalculator.load(config.vaultingRules).catch(error => {
-      console.warn('[Vault Calculator] Unable to load current vaulting data', error);
-    });
-  }
-  return vaultCalculator;
 }
 
 async function connectPrunedClientToConfiguredServer(): Promise<void> {

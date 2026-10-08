@@ -61,7 +61,7 @@ describe.skipIf(SKIP_E2E).sequential('Bitcoin Liquids integration', { timeout: 3
     const client = await getTestMainchainClient(network.archiveUrl);
     try {
       await waitFor(90_000, 'shared Bitcoin pricing', async () => {
-        const snapshot = await client.at(await client.rpc.chain.getFinalizedHead());
+        const snapshot = runtimeClient(await client.raw.at(await client.rpc.chain.getFinalizedHead()));
         const [price, history] = await Promise.all([
           snapshot.query.priceIndex.current(),
           snapshot.query.bitcoinLocks.microgonPerBtcHistory(),
@@ -155,7 +155,7 @@ describe.skipIf(SKIP_E2E).sequential('Bitcoin Liquids integration', { timeout: 3
       sendBitcoinToAddress(fundingAddress, insuredSatoshis);
       generateBlocks(8, minerAddress);
       const fundedLock = await waitFor(90_000, 'additional finalized Lock funding', async () => {
-        const snapshot = await client.at(await client.rpc.chain.getFinalizedHead());
+        const snapshot = runtimeClient(await client.raw.at(await client.rpc.chain.getFinalizedHead()));
         const current = await BitcoinLock.get(snapshot, lock.lockId!);
         return current?.fundedSatoshis === insuredSatoshis * 2n ? current : undefined;
       });
@@ -175,7 +175,7 @@ describe.skipIf(SKIP_E2E).sequential('Bitcoin Liquids integration', { timeout: 3
           [client.raw.query.bitcoinLocks.microgonPerBtcHistory.key(), expiredHistory.toHex()],
         ]),
       );
-      const snapshot = await client.at(await client.rpc.chain.getFinalizedHead());
+      const snapshot = runtimeClient(await client.raw.at(await client.rpc.chain.getFinalizedHead()));
       expect((await snapshot.query.bitcoinLocks.microgonPerBtcHistory())?.some(([, rate]) => rate === fundedLock.microgonsAtTargetPerBtc)).toBe(false);
 
       let satoshis = fundedLock.fundedSatoshis - fundedLock.fissionedSatoshis;
@@ -241,14 +241,14 @@ describe.skipIf(SKIP_E2E).sequential('Bitcoin Liquids integration', { timeout: 3
       sendBitcoinToAddress(harness.bitcoinLocks.formatP2wshAddress(lock.scriptDetails!.p2wshScriptHashHex), insuredSatoshis);
       generateBlocks(8, minerAddress);
       await waitFor(90_000, 'additional finalized Lock funding', async () => {
-        const snapshot = await client.at(await client.rpc.chain.getFinalizedHead());
+        const snapshot = runtimeClient(await client.raw.at(await client.rpc.chain.getFinalizedHead()));
         return (await BitcoinLock.get(snapshot, lock.lockId!))?.fundedSatoshis === insuredSatoshis * 2n;
       });
       await harness.bitcoinLocks.syncCurrentLocks({ requireComplete: true });
 
       const higherRate = await submitBitcoinPrice(client, { btcUsdPrice: 132_000 });
       const currentRate = await submitBitcoinPrice(client, { btcUsdPrice: 120_000 });
-      const snapshot = await client.at(await client.rpc.chain.getFinalizedHead());
+      const snapshot = runtimeClient(await client.raw.at(await client.rpc.chain.getFinalizedHead()));
       const priceIndex = await Currency.fetchPriceIndex(snapshot);
       const satoshis = insuredSatoshis / 5n;
       const requiredLiquidity = existingFission.liquidityPromised + BitcoinLock.calculateLiquidityPromised({
@@ -292,7 +292,7 @@ describe.skipIf(SKIP_E2E).sequential('Bitcoin Liquids integration', { timeout: 3
       sendBitcoinToAddress(harness.bitcoinLocks.formatP2wshAddress(lock.scriptDetails!.p2wshScriptHashHex), insuredSatoshis);
       generateBlocks(8, minerAddress);
       await waitFor(90_000, 'additional finalized Lock funding', async () => {
-        const snapshot = await client.at(await client.rpc.chain.getFinalizedHead());
+        const snapshot = runtimeClient(await client.raw.at(await client.rpc.chain.getFinalizedHead()));
         return (await BitcoinLock.get(snapshot, lock.lockId!))?.fundedSatoshis === insuredSatoshis * 2n;
       });
       await harness.bitcoinLocks.syncCurrentLocks({ requireComplete: true });
@@ -301,7 +301,7 @@ describe.skipIf(SKIP_E2E).sequential('Bitcoin Liquids integration', { timeout: 3
       await submitBitcoinPrice(client, { btcUsdPrice: 120_000 });
       const higherRate = await submitBitcoinPrice(client, { btcUsdPrice: 180_000 });
       const currentRate = await submitBitcoinPrice(client, { btcUsdPrice: 110_000 });
-      const snapshot = await client.at(await client.rpc.chain.getFinalizedHead());
+      const snapshot = runtimeClient(await client.raw.at(await client.rpc.chain.getFinalizedHead()));
       const currentLock = (await BitcoinLock.get(snapshot, lock.lockId!))!;
       const vault = await Vault.get(snapshot, lock.vaultId, NetworkConfig.tickMillis);
       const priceIndex = await Currency.fetchPriceIndex(snapshot);
@@ -386,7 +386,7 @@ describe.skipIf(SKIP_E2E).sequential('Bitcoin Liquids integration', { timeout: 3
         const lock = await createFundedLock(harness, harness.myVault.createdVault!.availableBitcoinSpace() / 10n, {
           fundingPercent: 50,
         });
-        const snapshot = await client.at(await client.rpc.chain.getFinalizedHead());
+        const snapshot = runtimeClient(await client.raw.at(await client.rpc.chain.getFinalizedHead()));
         const insured = (await snapshot.query.bitcoinLocks.locksById(lock.lockId!))!;
         const fundedSatoshis = insured.fundedSatoshis;
         const oldHoldHeight = insured.securitizationHoldExpirationBitcoinHeight;
@@ -402,7 +402,7 @@ describe.skipIf(SKIP_E2E).sequential('Bitcoin Liquids integration', { timeout: 3
         const creation = await createLiquid.submit({ allocations, txSigner, client });
         await creation.waitForPostProcessing;
 
-        const finalized = await client.at(await client.rpc.chain.getFinalizedHead());
+        const finalized = runtimeClient(await client.raw.at(await client.rpc.chain.getFinalizedHead()));
         const current = (await finalized.query.bitcoinLocks.locksById(lock.lockId!))!;
         const created = await BitcoinFission.getAllByOwner(finalized, txSigner.address);
         expect(current.securitizationBasis).toEqual({ satoshis: fundedSatoshis, microgonsAtTargetPerBtc: rate });
@@ -412,11 +412,11 @@ describe.skipIf(SKIP_E2E).sequential('Bitcoin Liquids integration', { timeout: 3
         const bitcoinHeight = (await finalized.query.bitcoinUtxos.confirmedBitcoinBlockTip())!.blockHeight;
         generateBlocks(Math.max(1, oldHoldHeight - bitcoinHeight + 8), minerAddress);
         await waitFor(90_000, 'old partial-funding hold boundary', async () => {
-          const snapshot = await client.at(await client.rpc.chain.getFinalizedHead());
+          const snapshot = runtimeClient(await client.raw.at(await client.rpc.chain.getFinalizedHead()));
           const tip = await snapshot.query.bitcoinUtxos.confirmedBitcoinBlockTip();
           return tip && tip.blockHeight > oldHoldHeight;
         });
-        const afterHold = await client.at(await client.rpc.chain.getFinalizedHead());
+        const afterHold = runtimeClient(await client.raw.at(await client.rpc.chain.getFinalizedHead()));
         expect((await afterHold.query.bitcoinLocks.locksById(lock.lockId!))?.securitizationCoverageMicrogons).toBe(
           current.securitizationCoverageMicrogons,
         );
@@ -459,7 +459,8 @@ describe.skipIf(SKIP_E2E).sequential('Bitcoin Liquids integration', { timeout: 3
             { useLatestNonce: true },
           );
         }
-        const initialPrice = await Currency.fetchPriceIndex(await client.at(await client.rpc.chain.getFinalizedHead()));
+        const initialSnapshot = runtimeClient(await client.raw.at(await client.rpc.chain.getFinalizedHead()));
+        const initialPrice = await Currency.fetchPriceIndex(initialSnapshot);
         const liquidity = hasRoundingBoundary
           ? BitcoinLock.calculateLiquidityPromised({ priceIndex: initialPrice, satoshis: 50_008n })
           : harness.myVault.createdVault!.availableBitcoinSpace() / 10n;
@@ -483,7 +484,7 @@ describe.skipIf(SKIP_E2E).sequential('Bitcoin Liquids integration', { timeout: 3
           );
           generateBlocks(8, minerAddress);
           await waitFor(90_000, 'additional finalized rounding-boundary funding', async () => {
-            const snapshot = await client.at(await client.rpc.chain.getFinalizedHead());
+            const snapshot = runtimeClient(await client.raw.at(await client.rpc.chain.getFinalizedHead()));
             return (
               (await BitcoinLock.get(snapshot, lock.lockId!))?.fundedSatoshis === insuredSatoshis + additionalSatoshis
             );
@@ -501,7 +502,7 @@ describe.skipIf(SKIP_E2E).sequential('Bitcoin Liquids integration', { timeout: 3
           client,
           client.tx.system.setStorage([[client.raw.query.bitcoinLocks.microgonPerBtcHistory.key(), eligible.toHex()]]),
         );
-        const snapshot = await client.at(await client.rpc.chain.getFinalizedHead());
+        const snapshot = runtimeClient(await client.raw.at(await client.rpc.chain.getFinalizedHead()));
         const priceIndex = await Currency.fetchPriceIndex(snapshot);
         const satoshis = hasRoundingBoundary ? 25_015n : (insuredSatoshis * 3n) / 10n;
         const coverage = BitcoinLock.calculateLiquidityPromised({
@@ -545,7 +546,7 @@ describe.skipIf(SKIP_E2E).sequential('Bitcoin Liquids integration', { timeout: 3
         expect(preview.maximumSatoshisByLockId[lock.lockId!]).toBeGreaterThanOrEqual(satoshis);
         const creation = await createLiquid.submit({ allocations, txSigner, client });
         await creation.waitForPostProcessing;
-        const finalized = await client.at(await client.rpc.chain.getFinalizedHead());
+        const finalized = runtimeClient(await client.raw.at(await client.rpc.chain.getFinalizedHead()));
         const current = (await BitcoinLock.get(finalized, lock.lockId!))!;
         const currentFissions = await BitcoinFission.getAllByOwner(finalized, txSigner.address);
         expect(current.microgonsAtTargetPerBtc).toBe(rate);
@@ -600,7 +601,7 @@ describe.skipIf(SKIP_E2E).sequential('Bitcoin Liquids integration', { timeout: 3
         }
         generateBlocks(8, minerAddress);
         await waitFor(90_000, 'two Locks with additional finalized funding', async () => {
-          const snapshot = await client.at(await client.rpc.chain.getFinalizedHead());
+          const snapshot = runtimeClient(await client.raw.at(await client.rpc.chain.getFinalizedHead()));
           const locks = await BitcoinLock.getMany(snapshot, [first.lockId!, second.lockId!]);
           return locks[0]?.fundedSatoshis === firstSatoshis * 2n && locks[1]?.fundedSatoshis === secondSatoshis * 2n;
         });
@@ -615,7 +616,7 @@ describe.skipIf(SKIP_E2E).sequential('Bitcoin Liquids integration', { timeout: 3
           client,
           client.tx.system.setStorage([[client.raw.query.bitcoinLocks.microgonPerBtcHistory.key(), eligible.toHex()]]),
         );
-        const snapshot = await client.at(await client.rpc.chain.getFinalizedHead());
+        const snapshot = runtimeClient(await client.raw.at(await client.rpc.chain.getFinalizedHead()));
         const vault = await Vault.get(snapshot, first.vaultId, NetworkConfig.tickMillis);
         await submitAndFinalize(
           client,
@@ -623,7 +624,7 @@ describe.skipIf(SKIP_E2E).sequential('Bitcoin Liquids integration', { timeout: 3
           await harness.walletKeys.getVaultingKeypair(),
           { useLatestNonce: true },
         );
-        const constrained = await client.at(await client.rpc.chain.getFinalizedHead());
+        const constrained = runtimeClient(await client.raw.at(await client.rpc.chain.getFinalizedHead()));
         expect((await Vault.get(constrained, first.vaultId, NetworkConfig.tickMillis)).availableBitcoinSpace()).toBe(
           0n,
         );
@@ -647,7 +648,7 @@ describe.skipIf(SKIP_E2E).sequential('Bitcoin Liquids integration', { timeout: 3
         ];
         const creation = await createLiquid.submit({ allocations, txSigner, client });
         await creation.waitForPostProcessing;
-        const finalized = await client.at(await client.rpc.chain.getFinalizedHead());
+        const finalized = runtimeClient(await client.raw.at(await client.rpc.chain.getFinalizedHead()));
         const current = await BitcoinLock.getMany(finalized, [first.lockId!, second.lockId!]);
         expect(current.map(lock => lock?.fissionedSatoshis)).toEqual(
           allocations.map(allocation => allocation.satoshis),
@@ -688,7 +689,7 @@ describe.skipIf(SKIP_E2E).sequential('Bitcoin Liquids integration', { timeout: 3
         const lock = await createFundedLock(harness, harness.myVault.createdVault!.availableBitcoinSpace() / 10n);
         const storedCoverage = lock.securitizationCoverageMicrogons!;
         await submitBitcoinPrice(client, { btcUsdPrice: 120_000, argonUsdPrice: 0.795 });
-        const snapshot = await client.at(await client.rpc.chain.getFinalizedHead());
+        const snapshot = runtimeClient(await client.raw.at(await client.rpc.chain.getFinalizedHead()));
         const vault = await Vault.get(snapshot, lock.vaultId, NetworkConfig.tickMillis);
         await submitAndFinalize(
           client,
@@ -696,7 +697,7 @@ describe.skipIf(SKIP_E2E).sequential('Bitcoin Liquids integration', { timeout: 3
           await harness.walletKeys.getVaultingKeypair(),
           { useLatestNonce: true },
         );
-        const constrained = await client.at(await client.rpc.chain.getFinalizedHead());
+        const constrained = runtimeClient(await client.raw.at(await client.rpc.chain.getFinalizedHead()));
         expect((await Vault.get(constrained, lock.vaultId, NetworkConfig.tickMillis)).availableBitcoinSpace()).toBe(0n);
         const priceIndex = await Currency.fetchPriceIndex(constrained);
         const rate = lock.microgonsAtTargetPerBtc!;
@@ -721,7 +722,7 @@ describe.skipIf(SKIP_E2E).sequential('Bitcoin Liquids integration', { timeout: 3
         const creation = await createLiquid.submit({ allocations, txSigner, client });
         await creation.waitForPostProcessing;
         expect(creation.tx.metadataJson.resecuritizations).toEqual([]);
-        const finalized = await client.at(await client.rpc.chain.getFinalizedHead());
+        const finalized = runtimeClient(await client.raw.at(await client.rpc.chain.getFinalizedHead()));
         expect((await BitcoinLock.get(finalized, lock.lockId!))?.securitizationCoverageMicrogons).toBe(storedCoverage);
         expect((await BitcoinFission.getAllByOwner(finalized, txSigner.address))[0].satoshis).toBe(satoshis);
         expect(fissions.getLiquids().some(liquid => liquid.liquidId === creation.tx.metadataJson.liquidId)).toBe(true);
@@ -1014,7 +1015,7 @@ async function submitBitcoinPrice(
   args: { btcUsdPrice: number; argonUsdPrice?: number },
 ): Promise<bigint> {
   const { btcUsdPrice, argonUsdPrice = 1.06 } = args;
-  const initialSnapshot = await client.at(await client.rpc.chain.getFinalizedHead());
+  const initialSnapshot = runtimeClient(await client.raw.at(await client.rpc.chain.getFinalizedHead()));
   const [currentPrice, rateHistory] = await Promise.all([
     initialSnapshot.query.priceIndex.current(),
     initialSnapshot.query.bitcoinLocks.microgonPerBtcHistory(),
@@ -1145,9 +1146,10 @@ async function createFundedLock(
   generateBlocks(8, minerAddress);
 
   await waitFor(90_000, `Bitcoin Lock #${lock.lockId} funding`, async () => {
-    const current = waitForFinalizedFunding
-      ? await BitcoinLock.get(await client.at(await client.rpc.chain.getFinalizedHead()), lock.lockId!)
-      : await BitcoinLock.get(client, lock.lockId!);
+    const snapshotClient = waitForFinalizedFunding
+      ? runtimeClient(await client.raw.at(await client.rpc.chain.getFinalizedHead()))
+      : client;
+    const current = await BitcoinLock.get(snapshotClient, lock.lockId!);
     if (current?.fundedSatoshis !== fundedSatoshis) return;
     return current;
   });

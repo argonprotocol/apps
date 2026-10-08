@@ -21,7 +21,7 @@ import type { IConfig } from '../interfaces/IConfig.ts';
 import {
   cleanupBitcoinLocksHarness,
   createBitcoinLocksHarness,
-  defaultVaultRules,
+  defaultVaultSetup,
 } from './helpers/bitcoinLocksHarness.ts';
 import BitcoinLocks from '../lib/BitcoinLocks.ts';
 import { Config } from '../lib/Config.ts';
@@ -59,18 +59,18 @@ describe.skipIf(skipE2E).sequential('OperationalAccount integration tests', { ti
     });
 
     const rewardConfig = await getOperationalRewardConfig(runtimeClient);
-    const configuredVaultRules = Config.getDefault('vaultingRules') as IConfig['vaultingRules'];
-    const vaultRules = {
-      ...defaultVaultRules,
-      baseMicrogonCommitment: configuredVaultRules.baseMicrogonCommitment,
+    const configuredVaultSetup = Config.getDefault('vaultSetup') as IConfig['vaultSetup'];
+    const vaultSetup = {
+      ...defaultVaultSetup,
+      securitizationMicrogons: configuredVaultSetup.securitizationMicrogons,
     };
     const harness = await createBitcoinLocksHarness({
       archiveUrl: network.archiveUrl,
       esploraHost: network.networkConfigOverride.esploraHost,
       network: 'dev-docker',
-      vaultRules,
+      vaultSetup,
       walletFundingMicrogons:
-        vaultRules.baseMicrogonCommitment + rewardConfig.treasuryMinimumBonds + 20n * BigInt(MICROGONS_PER_ARGON),
+        vaultSetup.securitizationMicrogons + rewardConfig.treasuryMinimumBonds + 20n * BigInt(MICROGONS_PER_ARGON),
     });
 
     try {

@@ -51,7 +51,7 @@ describe.skipIf(SKIP_E2E)('Cohort Integration Bidder tests', { tags: ['mining-au
       microgons: Argons(75),
       micronots:
         (await aliceClient.query.miningSlot.argonotsPerMiningSeat()) *
-        BigInt(aliceClient.consts.mint.maxPossibleMiners.toNumber()),
+        BigInt(aliceClient.consts.mint.maxPossibleMiners),
       archiveUrl: network.archiveUrl,
     });
     console.log('Bob funding is ready');

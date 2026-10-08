@@ -24,6 +24,7 @@ export async function sudoFundWallet(input: ISudoFundWalletInput): Promise<ISudo
   const client = input.client ?? (await getTestMainchainClient(resolveArchiveUrl(input.archiveUrl)));
   const ownsClient = !input.client;
   try {
+    const fundedAccountId = client.registry.createType('AccountId', input.address);
     let fundedMicrogons: bigint;
     let fundedMicronots: bigint;
 
@@ -40,6 +41,21 @@ export async function sudoFundWallet(input: ISudoFundWalletInput): Promise<ISudo
         if (result.extrinsicError) {
           throw result.extrinsicError;
         }
+
+        // Later calls in the same block can spend these funds. The funding
+        // transaction's own events establish whether each balance was set.
+        let argonFundingApplied = false;
+        let argonotFundingApplied = false;
+        for (const event of result.events) {
+          if (event.section === 'balances' && event.method === 'BalanceSet') {
+            if (fundedAccountId.eq(event.data.who)) argonFundingApplied ||= event.data.free === input.microgons;
+          }
+          if (event.section === 'ownership' && event.method === 'BalanceSet') {
+            if (fundedAccountId.eq(event.data.who)) argonotFundingApplied ||= event.data.free === input.micronots;
+          }
+        }
+        if (!argonFundingApplied) throw new Error('sudoFundWallet: microgons funding did not apply');
+        if (!argonotFundingApplied) throw new Error('sudoFundWallet: micronots funding did not apply');
 
         const fundedClient = await client.at(await result.waitForFinalizedBlock);
         const microgonBalance = await fundedClient.query.system.account(input.address);
@@ -65,17 +81,6 @@ export async function sudoFundWallet(input: ISudoFundWalletInput): Promise<ISudo
 
         await new Promise(resolve => setTimeout(resolve, attempt * 500));
       }
-    }
-
-    if (fundedMicrogons < input.microgons) {
-      throw new Error(
-        `sudoFundWallet: microgons funding did not apply (requested=${input.microgons}, funded=${fundedMicrogons})`,
-      );
-    }
-    if (fundedMicronots < input.micronots) {
-      throw new Error(
-        `sudoFundWallet: micronots funding did not apply (requested=${input.micronots}, funded=${fundedMicronots})`,
-      );
     }
 
     return {

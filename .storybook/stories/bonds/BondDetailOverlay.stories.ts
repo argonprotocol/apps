@@ -1,10 +1,11 @@
 import type { Meta, StoryObj } from '@storybook/vue3-vite';
-import { mocked } from 'storybook/test';
+import { mocked, userEvent, within } from 'storybook/test';
 import { getArgonBonds } from '../../../src-vue/stores/argonBonds.ts';
 import { getMyVault } from '../../../src-vue/stores/vaults.ts';
 import { BondLot } from '@argonprotocol/apps-core';
 import { setupBondPortfolioScenario, setupBondArchiveScenario } from '../../scenarios/setupBondPortfolioScenario.ts';
 import BondDetailOverlay from '../../../src-vue/overlays/BondDetailOverlay.vue';
+import { ArgonBondsFinancials } from '../../../src-vue/lib/financials/ArgonBonds.ts';
 
 let bondLot: ReturnType<typeof setupBondPortfolioScenario>['lots'][number] | undefined;
 let position: ReturnType<typeof setupBondPortfolioScenario>['positions'][number];
@@ -87,6 +88,85 @@ export const DailyEarnings: Story = {
   },
 };
 
+export const SmallEarnings: Story = {
+  beforeEach: () => {
+    const { lots, positions } = setupBondPortfolioScenario('Vault');
+    bondLot = lots[0];
+    position = positions[0];
+    position.paidIncome = 1_234n;
+    Object.assign(bondLot, { cumulativeEarnings: 1_234n });
+    const bonds = getArgonBonds();
+    bonds.data.bondHistory[0].cumulativeEarningsMicrogons = 1_234n;
+    const lastPayment = bonds.data.dailyEarnings.filter(record => record.bondLotId === bondLot!.id).at(-1)!;
+    lastPayment.earningsMicrogons = 1_234n;
+  },
+};
+
+export const ZeroEarnings: Story = {
+  beforeEach: () => {
+    const { lots, positions } = setupBondPortfolioScenario('Vault');
+    bondLot = lots[0];
+    position = positions[0];
+    position.paidIncome = 0n;
+    Object.assign(bondLot, { cumulativeEarnings: 0n });
+    const bonds = getArgonBonds();
+    bonds.data.bondHistory[0].cumulativeEarningsMicrogons = 0n;
+    for (const record of bonds.data.dailyEarnings) {
+      if (record.bondLotId === bondLot.id) record.earningsMicrogons = 0n;
+    }
+  },
+};
+
+export const NewlyCreatedFlexibleBond: Story = {
+  beforeEach: () => {
+    const { lots } = setupBondPortfolioScenario('Vault');
+    const bonds = getArgonBonds();
+    bondLot = new BondLot(
+      lots[0].id,
+      {
+        ...lots[0],
+        createdFrameId: bonds.data.currentFrameId,
+        participatedFrames: 0,
+        cumulativeEarnings: 0n,
+        lastFrameEarningsFrameId: null,
+        lastFrameEarnings: null,
+        isFlexible: true,
+      },
+      lots[0].owner,
+    );
+    bonds.data.bondLots = [bondLot];
+    bonds.data.dailyEarnings = [];
+    const history = bonds.data.bondHistory[0];
+    history.createdFrame = bondLot.createdFrameId;
+    history.participatedFrames = 0;
+    history.cumulativeEarningsMicrogons = 0n;
+    history.purchaseBlockNumber = history.firstObservedBlockNumber;
+    history.purchaseBlockHash = history.firstObservedBlockHash;
+    history.purchaseBlockTime = new Date('2026-08-17T12:00:00Z');
+    history.flexibilityHistory = [
+      {
+        isFlexible: true,
+        cumulativeEarningsMicrogons: 0n,
+        source: 'flexibility-change',
+        blockNumber: history.purchaseBlockNumber,
+        blockHash: history.purchaseBlockHash,
+        blockTime: history.purchaseBlockTime,
+        extrinsicIndex: 2,
+        eventIndex: 1,
+      },
+    ];
+    delete history.earningsHistoryThroughFrame;
+    bonds.data.bondHistory = [history];
+    position = new ArgonBondsFinancials(bonds).createFinancialPositions({
+      bondLots: bonds.data.bondLots,
+      historyRecords: bonds.data.bondHistory,
+      dailyEarnings: bonds.data.dailyEarnings,
+      completedFrame: bonds.data.currentFrameId - 1,
+      frameDates: new Map([[bondLot.createdFrameId, history.purchaseBlockTime]]),
+    })[0];
+  },
+};
+
 export const IncompleteDailyEarnings: Story = {
   beforeEach: () => {
     const { lots, positions } = setupBondPortfolioScenario('Vault');
@@ -104,6 +184,60 @@ export const NoDailyEarnings: Story = {
     bondLot = lots[0];
     position = positions[0];
     getArgonBonds().data.dailyEarnings = [];
+  },
+};
+
+export const AwaitingFinalizedEarnings: Story = {
+  beforeEach: () => {
+    const { lots, positions } = setupBondPortfolioScenario('Vault');
+    bondLot = new BondLot(
+      lots[0].id,
+      { ...lots[0], participatedFrames: 4, cumulativeEarnings: 1_220_000n },
+      lots[0].owner,
+    );
+    position = positions[0];
+    position.bondLot = bondLot;
+    position.paidIncome = bondLot.cumulativeEarnings;
+    const bonds = getArgonBonds();
+    bonds.data.bondLots[0] = bondLot;
+    bonds.data.currentFrameId += 1;
+  },
+};
+
+export const LongDailyHistory: Story = {
+  beforeEach: () => {
+    const { lots, positions } = setupBondPortfolioScenario('Vault');
+    bondLot = new BondLot(
+      lots[0].id,
+      { ...lots[0], participatedFrames: 24, cumulativeEarnings: 12_000_000n },
+      lots[0].owner,
+    );
+    position = positions[0];
+    position.bondLot = bondLot;
+    position.paidIncome = bondLot.cumulativeEarnings;
+    const bonds = getArgonBonds();
+    bonds.data.bondLots[0] = bondLot;
+    bonds.data.dailyEarnings = Array.from({ length: 24 }, (_, index) => ({
+      ...bonds.data.dailyEarnings[0],
+      frameId: bondLot!.createdFrameId + index,
+      earningsMicrogons: 500_000n,
+    }));
+    const history = bonds.data.bondHistory[0];
+    history.participatedFrames = 24;
+    history.cumulativeEarningsMicrogons = bondLot.cumulativeEarnings;
+    history.earningsHistoryThroughFrame = bondLot.createdFrameId + 23;
+    history.purchaseBlockTime = new Date('2026-08-11T12:03:00Z');
+    bonds.data.currentFrameId = bondLot.createdFrameId + 24;
+  },
+};
+
+export const AllDailyEarnings: Story = {
+  ...LongDailyHistory,
+  play: async () => {
+    const dialog = document.querySelector('[data-testid="BondDetailOverlay"]')!;
+    dialog.removeAttribute('inert');
+    await userEvent.click(within(dialog as HTMLElement).getByRole('button', { name: 'Show all earnings' }));
+    dialog.setAttribute('inert', '');
   },
 };
 

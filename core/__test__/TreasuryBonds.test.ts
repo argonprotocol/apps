@@ -108,7 +108,7 @@ describe('TreasuryBonds', () => {
     });
 
     // A 50 reduction can immediately release only 30: 60 collateral and 10 relockable remain held.
-    expect([...vault.previewArgonWithdrawals(30n, 200)]).toEqual([
+    expect([...vault.previewArgonWithdrawals(30n, 200, 499)]).toEqual([
       [100, 20n],
       [52_848, 20n],
     ]);
@@ -123,11 +123,11 @@ describe('TreasuryBonds', () => {
       argonWithdrawals: 20n,
       argonotWithdrawals: 0n,
     });
-    expect([...vault.previewArgonWithdrawals(30n, 52_900)]).toEqual([
+    expect([...vault.previewArgonWithdrawals(30n, 52_900, 500)]).toEqual([
       [100, 20n],
       [52_848, 20n],
     ]);
-    expect([...vault.previewArgonWithdrawals(55n, 52_900)]).toEqual([[100, 15n]]);
+    expect([...vault.previewArgonWithdrawals(55n, 52_900, 500)]).toEqual([[100, 15n]]);
     expect(vault.getRelockCapacity()).toBe(10n);
   });
 
@@ -138,20 +138,40 @@ describe('TreasuryBonds', () => {
       securitizationTarget: 100n,
       securitizationReleaseSchedule: { 100: 50n, 200: 30n },
     });
-    const vault = Vault.fromRuntime(
-      1,
-      toPlain(storedVault) as Parameters<typeof Vault.fromRuntime>[1],
-      60_000,
-      {} as Parameters<typeof Vault.fromRuntime>[3],
-    );
-    expect([...vault.previewArgonWithdrawals(100n, 300)]).toEqual([]);
+    const vault = Vault.fromRuntime(1, toPlain(storedVault) as Parameters<typeof Vault.fromRuntime>[1], 60_000, {
+      vaults: {},
+      operationalAccounts: { operationalMinimumVaultSecuritization: 100n },
+    } as Parameters<typeof Vault.fromRuntime>[3]);
+    expect([...vault.previewArgonWithdrawals(100n, 300, 500)]).toEqual([]);
 
     vault.securitizationTarget = 40n;
-    expect([...vault.previewArgonWithdrawals(40n, 300)]).toEqual([
+    expect([...vault.previewArgonWithdrawals(40n, 300, 500)]).toEqual([
       [100, 50n],
       [200, 10n],
     ]);
     expect(vault.getRelockCapacity()).toBe(80n);
+  });
+
+  it('keeps the deployed certification minimum held until its release tick', () => {
+    const storedVault = deployedRegistry.createType<RuntimeSpec159.ArgonPrimitivesVault>('ArgonPrimitivesVault', {
+      operatorAccountId: operatorAddress,
+      securitization: 100n,
+      securitizationTarget: 100n,
+      operationalMinimumReleaseTick: 500,
+    });
+    const vault = Vault.fromRuntime(1, toPlain(storedVault) as Parameters<typeof Vault.fromRuntime>[1], 60_000, {
+      vaults: {},
+      operationalAccounts: { operationalMinimumVaultSecuritization: 100n },
+    } as Parameters<typeof Vault.fromRuntime>[3]);
+
+    expect(vault.availableArgonWithdrawal(499)).toBe(0n);
+
+    vault.securitization = 150n;
+    expect(vault.availableArgonWithdrawal(499)).toBe(50n);
+    expect(vault.availableArgonWithdrawal(500)).toBe(150n);
+
+    vault.operationalMinimumReleaseTick = null;
+    expect(vault.availableArgonWithdrawal(499)).toBe(150n);
   });
 
   it('limits Argonot purchases to the unfilled portion of the circulation cap', () => {
@@ -273,6 +293,13 @@ describe('TreasuryBonds', () => {
       position: { ...position, argonotSecuritizationInMicrogons: 4_800_000_000n },
     });
     expect(empty.capturedPercent).toBeCloseTo(25.84, 2);
+    expect(empty.securitizationPercent).toBe(24);
+    expect(
+      TreasuryBonds.vaultRevenuePotential({
+        ...args,
+        frameCapital: { ...args.frameCapital, targetSecuritization: 6_000_000_000n },
+      }).securitizationPercent,
+    ).toBe(30);
     const paidOutPool = TreasuryBonds.vaultRevenuePotential({ ...args, fullBidPool: 0n });
     expect(paidOutPool.actualEarnings).toBe(0n);
     expect(paidOutPool.capturedPercent).toBeCloseTo(25.84, 2);
@@ -280,6 +307,26 @@ describe('TreasuryBonds', () => {
     expect(TreasuryBonds.vaultRevenuePotential({ ...args, fullBidPool: 1n }).capturedPercent).toBeCloseTo(25.84, 2);
     expect(half.capturedPercent).toBeCloseTo(59.17, 2);
     expect(full.capturedPercent).toBe(100);
+    const undersecuritizedBitcoin = TreasuryBonds.vaultRevenuePotential({
+      ...args,
+      position: {
+        ...position,
+        bitcoinLockedMicrogons: 2_880_000_000n,
+        argonotSecuritizationInMicrogons: 4_800_000_000n,
+      },
+    });
+    // Full Bitcoin allocation still loses rewards when its value exceeds ARGN securitization by 20%.
+    expect(undersecuritizedBitcoin.capturedPercent).toBeCloseTo(77.85, 2);
+    const noBitcoin = TreasuryBonds.vaultRevenuePotential({
+      ...args,
+      position: {
+        ...position,
+        activatedSecuritization: 0n,
+        bitcoinLockedMicrogons: 0n,
+        argonotSecuritizationInMicrogons: 4_800_000_000n,
+      },
+    });
+    expect(noBitcoin.capturedPercent).toBeCloseTo(5.88, 2);
     expect(empty.maximumEarnings).toBe(full.maximumEarnings);
     const partial = TreasuryBonds.vaultRevenuePotential({
       ...args,
@@ -753,7 +800,10 @@ describe('TreasuryBonds', () => {
 
 function createVaultBondClient(vaultState: Codec, lotsById: Map<number, Codec>, ownerLotIds: number[]) {
   return {
-    consts: { treasury: { minimumArgonsPerContributor: 1_000_000n, maxTreasuryContributors: 2 } },
+    consts: {
+      treasury: { minimumArgonsPerContributor: 1_000_000n, maxTreasuryContributors: 2 },
+      operationalAccounts: { operationalMinimumVaultSecuritization: 100_000_000n },
+    },
     query: {
       ticks: { genesisTicker: async () => ({ tickDurationMillis: 60_000 }) },
       vaults: {

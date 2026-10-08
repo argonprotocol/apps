@@ -13,10 +13,10 @@ const meta = {
   title: 'Vaulting/Creation Proposal',
   component: VaultCreatePanel,
   beforeEach: () => {
-    setupAppScenario({ selectedTab: TopTab.Vaulting, config: { hasSavedVaultingRules: true } });
+    setupAppScenario({ selectedTab: TopTab.Vaulting, config: { hasSavedVaultSetup: true } });
     getCurrency().isLoaded = true;
     getCurrency().microgonsPer.BTC = 68_000_000_000n;
-    getConfig().saveVaultingRules = fn(async () => undefined);
+    getConfig().saveVaultSetup = fn(async () => undefined);
   },
   render: () => ({
     components: { AppScreen, Vaulting, VaultCreatePanel },
@@ -103,7 +103,7 @@ export const ExitNoticeDetails: Story = {
 export const ArgonSecuritizationDetails: Story = {
   play: async () => {
     const canvas = within(document.body);
-    await userEvent.hover(await canvas.findByRole('button', { name: 'ARGN securitization details' }));
+    await userEvent.hover(await canvas.findByRole('button', { name: 'Argon securitization details' }));
     await canvas.findByRole('tooltip');
     document.querySelector('[role="dialog"]')?.setAttribute('inert', '');
   },
@@ -112,7 +112,7 @@ export const ArgonSecuritizationDetails: Story = {
 export const ArgonotSecuritizationDetails: Story = {
   play: async () => {
     const canvas = within(document.body);
-    await userEvent.hover(await canvas.findByRole('button', { name: 'ARGNOT securitization details' }));
+    await userEvent.hover(await canvas.findByRole('button', { name: 'Argonot securitization details' }));
     await canvas.findByRole('tooltip');
     document.querySelector('[role="dialog"]')?.setAttribute('inert', '');
   },

@@ -70,7 +70,7 @@ import { ChevronLeftIcon, ChevronRightIcon } from '@heroicons/vue/24/outline';
 import { getConfig } from '../stores/config.ts';
 import { JsonExt } from '@argonprotocol/apps-core';
 import { IBiddingRules } from '@argonprotocol/apps-core';
-import type { IVaultingRules } from '../interfaces/IVaultingRules.ts';
+import type { IConfig } from '../interfaces/IConfig.ts';
 import { useFloatingZIndex } from './helpers/OverlayZIndex.ts';
 
 const props = defineProps<{
@@ -94,7 +94,7 @@ const saveButtonLabel = Vue.ref('Save');
 const shouldHideSaveButton = Vue.ref(false);
 
 let previousBiddingRules = JsonExt.stringify(config.biddingRules);
-const previousVaultingRules = JsonExt.stringify(config.vaultingRules);
+const previousVaultSetup = JsonExt.stringify(config.vaultSetup);
 let lastBoundingClientRect: DOMRect | null = null;
 
 const titles = {
@@ -154,8 +154,8 @@ async function cancelOverlay(e?: MouseEvent) {
   if (stopCancel) return;
 
   if (props.id === 'btcLockingFees') {
-    const { btcFlatFee, btcPctFee } = JsonExt.parse<IVaultingRules>(previousVaultingRules);
-    Object.assign(config.vaultingRules, { btcFlatFee, btcPctFee });
+    const { btcFlatFee, btcPctFee } = JsonExt.parse<IConfig['vaultSetup']>(previousVaultSetup);
+    Object.assign(config.vaultSetup, { btcFlatFee, btcPctFee });
   } else {
     config.biddingRules = JsonExt.parse<IBiddingRules>(previousBiddingRules);
   }

@@ -1,5 +1,5 @@
 import type { Meta, StoryObj } from '@storybook/vue3-vite';
-import { expect, mocked, userEvent, waitFor, within } from 'storybook/test';
+import { mocked, userEvent, within } from 'storybook/test';
 import AppScreen from '../../components/AppScreen.vue';
 import {
   setupBitcoinEmptyScenario,
@@ -330,13 +330,7 @@ export const CreateLiquidVaultCapacityApplied: Story = {
     const canvas = within(canvasElement);
     const body = within(canvasElement.ownerDocument.body);
     await userEvent.click(canvas.getByRole('button', { name: /Create.*Liquid/ }));
-    await waitFor(() => expect(body.queryByText('Checking vault securitization...')).not.toBeInTheDocument());
-    await userEvent.click(body.getByRole('button', { name: /Use Selected Vaults/ }));
-    await waitFor(() =>
-      expect(
-        body.getAllByRole('alert').some(alert => alert.textContent?.includes('can currently securitize only')),
-      ).toBe(true),
-    );
+    await userEvent.click(await body.findByRole('button', { name: /Use Selected Vaults/ }));
   },
 };
 

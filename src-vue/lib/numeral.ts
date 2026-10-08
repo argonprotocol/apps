@@ -7,6 +7,7 @@ import { IOtherToken } from './Wallet.ts';
 // Extend the Numeral interface to include our custom method
 declare module 'numeral' {
   interface Numeral {
+    formatCurrency(symbol: string, hideDecimalsAt?: number): string;
     formatIfElse(condition: ICondition, ifFormat: string, elseFormat: string): string;
     formatIfElseCapped(condition: ICondition, ifFormat: string, elseFormat: string, max: number): string;
     formatCapped(format: string, max: number): string;
@@ -56,6 +57,11 @@ export default function numeral(input?: any): Numeral {
 export function formatBtc(btc: number): string {
   return numeral(btc).format('0,0.00[000000]');
 }
+
+numeralOriginal.fn.formatCurrency = function (symbol, hideDecimalsAt = Infinity) {
+  if (this._value > 0 && this._value < 0.01) return `<${symbol}0.01`;
+  return `${symbol}${this.format(this._value >= hideDecimalsAt ? '0,0' : '0,0.00')}`;
+};
 
 numeralOriginal.fn.formatIfElse = function (condition, ifFormat, elseFormat) {
   const format = chooseIfElseFormat(condition, ifFormat, elseFormat, this._value);

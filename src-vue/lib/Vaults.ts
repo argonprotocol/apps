@@ -3,8 +3,11 @@ import {
   type IAllVaultStats,
   JsonExt,
   MiningFrames,
+  TreasuryBonds,
+  bigNumberToBigInt,
   Vaults as VaultsBase,
 } from '@argonprotocol/apps-core';
+import BigNumber from 'bignumber.js';
 import { u8aToString } from '@polkadot/util';
 import { BaseDirectory, mkdir, readTextFile, rename, writeTextFile } from '@tauri-apps/plugin-fs';
 import { getMainchainClient, getMainchainClients } from '../stores/mainchain.ts';
@@ -50,6 +53,54 @@ export class Vaults extends VaultsBase {
     } catch (error) {
       console.warn(`[Vaults] Unable to subscribe to the operator profile for vault ${vaultId}`, error);
       return () => undefined;
+    }
+  }
+
+  protected override async loadFrameHistory(
+    stats: IAllVaultStats,
+    { frameId, firstBlockMeta, api, parentApi }: Parameters<VaultsBase['loadFrameHistory']>[1],
+  ): Promise<void> {
+    const constants = api.consts.treasury;
+    if (!('percentForVaultPool' in constants)) return;
+
+    const missing = Object.entries(stats.vaultsById).flatMap(([vaultId, vault]) => {
+      const frame = vault.changesByFrame.find(change => change.frameId === frameId);
+      if (!frame || frame.argonotSecuritizationMicronots !== undefined) return [];
+      return [{ vaultId: Number(vaultId), frame }];
+    });
+    const needsNetworkPool = !stats.networkPoolsByFrame?.[frameId];
+    if (!missing.length && !needsNetworkPool) return;
+
+    // Frame-start extrinsics can change holdings after the completed frame's snapshot.
+    if (!parentApi) {
+      const parent = await this.miningFrames.blockWatch.getHeader(firstBlockMeta.blockNumber - 1);
+      parentApi = await this.miningFrames.blockWatch.getApi(parent);
+    }
+    if (needsNetworkPool) {
+      const pool = await parentApi.query.system.account(TreasuryBonds.getBidPoolAccountId(api));
+      const auctionPoolMicrogons = pool.data.free;
+      const vaultPoolMicrogons = bigNumberToBigInt(
+        BigNumber(auctionPoolMicrogons).times(constants.percentForVaultPool),
+      );
+      stats.networkPoolsByFrame = {
+        ...stats.networkPoolsByFrame,
+        [frameId]: { auctionPoolMicrogons, vaultPoolMicrogons, includesBondPayments: false },
+      };
+    }
+
+    if (missing.length) {
+      const commitments = await parentApi.query.vaults.argonotSecuritizationByVaultId.entries();
+      if (!commitments) return;
+      const heldByVault = new Map(commitments.map(([key, value]) => [key.args[0], value?.heldMicronots ?? 0n]));
+      for (const { vaultId, frame } of missing) {
+        const vault = stats.vaultsById[vaultId];
+        stats.vaultsById[vaultId] = {
+          ...vault,
+          changesByFrame: vault.changesByFrame.map(change =>
+            change === frame ? { ...frame, argonotSecuritizationMicronots: heldByVault.get(vaultId) ?? 0n } : change,
+          ),
+        };
+      }
     }
   }
 

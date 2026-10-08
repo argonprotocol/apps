@@ -46,9 +46,7 @@ export class TxSubmitter {
     if (unavailableBalance) {
       availableBalance -= unavailableBalance;
     }
-    const existentialDeposit = options.includeExistentialDeposit
-      ? this.client.consts.balances.existentialDeposit
-      : 0n;
+    const existentialDeposit = options.includeExistentialDeposit ? this.client.consts.balances.existentialDeposit : 0n;
     const fees = await this.feeEstimate(tip);
     const totalCharge = fees + (tip ?? 0n);
     const canAfford = availableBalance >= totalCharge + existentialDeposit;

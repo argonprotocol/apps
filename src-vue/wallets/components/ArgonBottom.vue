@@ -72,7 +72,7 @@
                             </span>
                           </span>
                         </td>
-                        <td>ARGN Securitization</td>
+                        <td>Argon Securitization</td>
                         <td>{{ microgonToArgonNm(baseMinimumMicrogonsNeeded).format('0,0.[00000000]') }} ARGN</td>
                       </tr>
                       <tr>
@@ -86,7 +86,7 @@
                       </tr>
                       <tr v-if="minimumMicronotsNeeded > 0n">
                         <td></td>
-                        <td>ARGNOT Securitization</td>
+                        <td>Argonot Securitization</td>
                         <td>{{ micronotToArgonotNm(minimumMicronotsNeeded).format('0,0.[0]') }} ARGNOT</td>
                       </tr>
                       <tr Total class="font-bold">
@@ -317,7 +317,8 @@ const baseMinimumMicrogonsNeeded = Vue.computed(() => {
     const baseAmountNeeded = requiredMicrogonsForGoal.value;
     return baseAmountNeeded + (config.biddingRules?.sidelinedMicrogons ?? 0n);
   } else if (guidanceContext.value === 'vaulting') {
-    return config.vaultingRules?.baseMicrogonCommitment || 0n;
+    if (config.vaultingSetupStatus === VaultingSetupStatus.Finished) return 0n;
+    return config.vaultSetup.securitizationMicrogons;
   }
   return 0n;
 });

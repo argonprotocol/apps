@@ -11,7 +11,7 @@ type ICompleteChecklistUiState = {
   dashboardVisible: boolean;
 };
 
-type IVaultingChecklistState = Pick<IAppQueryRefs['config'], 'hasSavedVaultingRules'> & {
+type IVaultingChecklistState = Pick<IAppQueryRefs['config'], 'hasSavedVaultSetup'> & {
   matchesRequestedCapital: boolean;
 };
 
@@ -22,9 +22,9 @@ export default new Operation<IVaultingFlowContext, ICompleteChecklistState>(impo
     const [setupState, checklistEntry, fundStepEntry, dashboard] = await Promise.all([
       flow.queryApp(
         refs => ({
-          hasSavedVaultingRules: refs.config.hasSavedVaultingRules,
-          microgons: refs.config.vaultingRules.baseMicrogonCommitment.toString(),
-          micronots: refs.config.vaultingRules.baseMicronotCommitment.toString(),
+          hasSavedVaultSetup: refs.config.hasSavedVaultSetup,
+          microgons: refs.config.vaultSetup.securitizationMicrogons.toString(),
+          micronots: refs.config.vaultSetup.committedMicronots.toString(),
         }),
         { timeoutMs: 10_000 },
       ),
@@ -32,7 +32,7 @@ export default new Operation<IVaultingFlowContext, ICompleteChecklistState>(impo
       flow.isVisible('SetupChecklist.openFundVaultingAccountOverlay()'),
       flow.isVisible('VaultingDashboard'),
     ]);
-    const hasSavedVaultingRules = setupState?.hasSavedVaultingRules ?? false;
+    const hasSavedVaultSetup = setupState?.hasSavedVaultSetup ?? false;
     const requestedMicrogons =
       input.securitizationArgons === null
         ? undefined
@@ -44,7 +44,7 @@ export default new Operation<IVaultingFlowContext, ICompleteChecklistState>(impo
     const matchesRequestedCapital =
       (requestedMicrogons === undefined || requestedMicrogons === setupState?.microgons) &&
       (requestedMicronots === undefined || requestedMicronots === setupState?.micronots);
-    const isComplete = (hasSavedVaultingRules && matchesRequestedCapital) || dashboard.visible;
+    const isComplete = (hasSavedVaultSetup && matchesRequestedCapital) || dashboard.visible;
     const canRun = checklistEntry.visible && !isComplete;
     let operationState: 'complete' | 'runnable' | 'processing' = 'processing';
     if (isComplete) {
@@ -57,7 +57,7 @@ export default new Operation<IVaultingFlowContext, ICompleteChecklistState>(impo
     if (!isComplete && !checklistEntry.visible) blockers.push('Vaulting checklist is not visible.');
     return {
       chainState: {
-        hasSavedVaultingRules,
+        hasSavedVaultSetup,
         matchesRequestedCapital,
       },
       uiState: {
@@ -78,7 +78,7 @@ export default new Operation<IVaultingFlowContext, ICompleteChecklistState>(impo
       return;
     }
 
-    if (!state.chainState.hasSavedVaultingRules || !state.chainState.matchesRequestedCapital) {
+    if (!state.chainState.hasSavedVaultSetup || !state.chainState.matchesRequestedCapital) {
       await flow.click('SetupChecklist.openVaultCreateOverlay()');
       if (input.securitizationArgons !== null) {
         await flow.type(
@@ -94,7 +94,7 @@ export default new Operation<IVaultingFlowContext, ICompleteChecklistState>(impo
           { clear: true },
         );
       }
-      await flow.click('VaultCreatePanel.saveRules()');
+      await flow.click('VaultCreatePanel.saveSettings()');
       await flow.waitFor('SetupChecklist.openFundVaultingAccountOverlay()', { timeoutMs: 15_000 });
     }
   },

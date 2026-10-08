@@ -61,7 +61,7 @@ export const ManageWithPendingWithdrawal: Story = {
   beforeEach: () => setupMintingAuthorityRequest(500_000_000n, true),
   play: async () => {
     await userEvent.click(await within(document.body).findByRole('button', { name: 'Manage' }));
-    await within(document.body).findByRole('button', { name: 'Edit ARGNOT securitization' });
+    await within(document.body).findByRole('button', { name: 'Edit Argonot securitization' });
     document.querySelector('[role="dialog"]')?.setAttribute('inert', '');
   },
 };

@@ -1,11 +1,11 @@
 import { IMiningAccountPreviousHistoryBid, IMiningAccountPreviousHistoryRecord } from '../interfaces/IConfig.ts';
-import type { IVaultingRules } from '../interfaces/IVaultingRules.ts';
 import {
   AccountActivityKind,
   ArgonClient,
   FrameIterator,
   MainchainClients,
   MiningFrames,
+  type Vault,
 } from '@argonprotocol/apps-core';
 import { MyVault } from './MyVault.ts';
 import { WalletKeys } from './WalletKeys.ts';
@@ -25,7 +25,7 @@ export class WalletRecovery {
 
   public async findHistory(onLoadHistoryProgress?: (loadPct: number) => void): Promise<{
     miningHistory?: IMiningAccountPreviousHistoryRecord[];
-    vaultingRules?: IVaultingRules;
+    vault?: Vault;
   }> {
     let lastReportedProgress = -1;
     const reportProgress = (progressPct: number) => {
@@ -64,18 +64,18 @@ export class WalletRecovery {
       : Promise.resolve(undefined);
     if (!this.walletKeys.miningBotAddress) onProgress('miner', 100);
 
-    let vaultingHistoryPromise: Promise<IVaultingRules | undefined> = Promise.resolve(undefined);
+    let vaultHistoryPromise: Promise<Vault | undefined> = Promise.resolve(undefined);
     if (hasVaultHistory) {
       await this.myVault.load();
-      vaultingHistoryPromise = this.myVault.recoverAccountVault({
+      vaultHistoryPromise = this.myVault.recoverAccountVault({
         onProgress: pct => onProgress('vault', pct),
       });
     }
-    const [miningHistory, vaultingRules] = await Promise.all([miningHistoryPromise, vaultingHistoryPromise]);
+    const [miningHistory, vault] = await Promise.all([miningHistoryPromise, vaultHistoryPromise]);
     reportProgress(100);
     return {
       miningHistory,
-      vaultingRules,
+      vault,
     };
   }
 

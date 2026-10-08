@@ -1,4 +1,5 @@
 import * as Vue from 'vue';
+import { Chart } from 'chart.js';
 import type { Meta, StoryObj } from '@storybook/vue3-vite';
 import { MICROGONS_PER_ARGON, MICRONOTS_PER_ARGONOT, MINING_BID_PROXY_FEE_FLOAT } from '@argonprotocol/apps-core';
 import { fn, mocked, userEvent, within } from 'storybook/test';
@@ -16,6 +17,7 @@ import {
   type IConfig,
 } from '../../../src-vue/interfaces/IConfig.ts';
 import { Config } from '../../../src-vue/lib/Config.ts';
+import type { TransactionInfo } from '../../../src-vue/lib/TransactionInfo.ts';
 import { getBot } from '../../../src-vue/stores/bot.ts';
 import { getConfig } from '../../../src-vue/stores/config.ts';
 import { getInstaller } from '../../../src-vue/stores/installer.ts';
@@ -36,9 +38,17 @@ const meta = {
   component: Mining,
   render: (_args, { parameters }) => ({
     components: { AppScreen, Mining },
-    setup: () => ({ hoverInfo: Boolean(parameters.hoverInfo) }),
+    setup() {
+      function preventCommands(event: Event) {
+        if (event instanceof KeyboardEvent && ['ArrowLeft', 'ArrowRight'].includes(event.key)) return;
+        if (event.target instanceof Element && event.target.closest('[data-chart-history]')) return;
+        event.preventDefault();
+        event.stopPropagation();
+      }
+      return { hoverInfo: Boolean(parameters.hoverInfo), preventCommands };
+    },
     template:
-      '<AppScreen :interactive="hoverInfo" :scenarioLabel="hoverInfo ? \'Tooltip preview\' : undefined"><div class="h-full" @click.capture.stop.prevent @pointerdown.capture.stop.prevent @keydown.capture.stop.prevent><Mining /></div></AppScreen>',
+      '<AppScreen :interactive="hoverInfo" :scenarioLabel="hoverInfo ? \'Chart details preview\' : undefined"><div class="h-full" @click.capture="preventCommands" @keydown.capture="preventCommands"><Mining /></div></AppScreen>',
   }),
 } satisfies Meta<typeof Mining>;
 
@@ -149,8 +159,14 @@ export const MiningSetupTransactionRecovery: Story = {
         txInfo: {
           tx: { id: 42 },
           getStatus: fn(() => ({ progressPct: 62 })),
-          subscribeToProgress: fn((callback: any) => {
-            void callback({ progressPct: 62, progressMessage: 'Waiting for 4th Block...' });
+          subscribeToProgress: fn((callback: Parameters<TransactionInfo['subscribeToProgress']>[0]) => {
+            void callback({
+              progressPct: 62,
+              progressMessage: 'Waiting for 4th Block...',
+              confirmations: 2,
+              expectedConfirmations: 4,
+              isMaxed: false,
+            });
             return fn();
           }),
         } as any,
@@ -258,6 +274,46 @@ export const ReadyToLaunch: Story = {
   },
 };
 
+export const ChartHistory: Story = {
+  parameters: { hoverInfo: true },
+  beforeEach: async () => {
+    const frameDetails = setupMiningPortfolioScenario();
+    getBot().state!.finalizedFrameId = 117;
+
+    const frame = getMyMiningSeats().frames.at(-2)!;
+    frame.allMinersCount = 1_440;
+
+    const client = await getBot().getClient();
+    const detail = structuredClone(await client.fetch('/mining-frame', frame.id));
+    detail.totalBidCount = 144;
+    for (const [index, bid] of detail.winningBids.entries()) {
+      bid.bidPosition = index;
+      bid.microgonsPerSeat = BigInt(58 - index * 2) * 1_000_000n;
+    }
+    for (let index = detail.winningBids.length; index < 144; index++) {
+      detail.winningBids.push({
+        address: `5SyntheticAuctionMiner${index}`,
+        bidPosition: index,
+        microgonsPerSeat: BigInt(52 + (index % 7)) * 1_000_000n,
+        micronotsStakedPerSeat: 5_000_000n,
+      });
+    }
+    frameDetails.set(frame.id, detail);
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = await within(canvasElement).findByLabelText('Earnings history');
+    const bounds = canvas.getBoundingClientRect();
+    const point = Chart.getChart(canvas as HTMLCanvasElement)!
+      .getDatasetMeta(1)
+      .data.at(-2)!;
+    await userEvent.pointer({
+      target: canvas,
+      coords: { clientX: bounds.left + point.x, clientY: bounds.top + point.y },
+      keys: '[MouseLeft]',
+    });
+  },
+};
+
 export const OwnedSeatPortfolio: Story = {
   beforeEach: () => {
     setupMiningPortfolioScenario();
@@ -319,7 +375,9 @@ export const PartiallyRecoveredMiningHistory: Story = {
 };
 
 export const UpdatingWithPreviousTotals: Story = {
-  beforeEach: () => setupMiningPortfolioScenario(),
+  beforeEach: () => {
+    setupMiningPortfolioScenario();
+  },
   render: () => ({
     components: { AppScreen, Mining },
     setup() {

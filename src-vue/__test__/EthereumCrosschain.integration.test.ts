@@ -75,17 +75,13 @@ const TEST_ACCOUNT = {
 } as const;
 const TEST_WALLET_MNEMONIC =
   'abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about';
-const VAULT_RULES = {
-  ...(Config.getDefault('vaultingRules') as any),
-  personalBtcPct: 50,
+const VAULT_SETUP = {
+  ...(Config.getDefault('vaultSetup') as any),
   securitizationRatio: 1,
-  capitalForTreasuryPct: 50,
-  capitalForSecuritizationPct: 50,
-  baseMicrogonCommitment: 10_000_000n,
-  baseMicronotCommitment: 0n,
+  securitizationMicrogons: 10_000_000n,
+  committedMicronots: 0n,
   btcFlatFee: 1_000_000n,
   btcPctFee: 2.5,
-  profitSharingPct: 5,
 };
 const skipE2E = Boolean(JSON.parse(process.env.SKIP_E2E ?? '0'));
 type EthereumEndpoints = Awaited<ReturnType<TestEthereum['launch']>>;
@@ -336,8 +332,7 @@ describe.skipIf(skipE2E || !TestEthereum.isInstalled())('EthereumCrosschain inte
     async () => {
       const vaultCreation = await myVault.createNew({
         masterXpubPath: DEFAULT_MASTER_XPUB_PATH,
-        rules: VAULT_RULES,
-        config,
+        vaultSetup: VAULT_SETUP,
       });
       await vaultCreation.txResult.waitForFinalizedBlock;
       await vaultCreation.waitForPostProcessing;
@@ -761,11 +756,11 @@ describe.skipIf(skipE2E || !TestEthereum.isInstalled())('EthereumCrosschain inte
         finalizedClient.query.ownership.account(senderKeys.defaultArgonAddress),
       ]);
       let availableAmount = argonAccount.data.free;
-      let minimumBalance = client.consts.balances.existentialDeposit.toBigInt();
+      let minimumBalance = client.consts.balances.existentialDeposit;
       let tokenAddress = argonTokenAddress;
       if (moveToken === MoveToken.ARGNOT) {
         availableAmount = argonotAccount.free;
-        minimumBalance = client.consts.ownership.existentialDeposit.toBigInt();
+        minimumBalance = client.consts.ownership.existentialDeposit;
         tokenAddress = argonotTokenAddress;
       }
 
@@ -778,7 +773,7 @@ describe.skipIf(skipE2E || !TestEthereum.isInstalled())('EthereumCrosschain inte
       });
       expect(quote.amountToTransfer).toBeGreaterThan(0n);
       expect(quote.amountToSpend + minimumBalance).toBeLessThanOrEqual(availableAmount);
-      const tipBasisPoints = BigInt(client.consts.crosschainTransfer.transferOutMintingAuthorityTipBasisPoints.toNumber());
+      const tipBasisPoints = BigInt(client.consts.crosschainTransfer.transferOutMintingAuthorityTipBasisPoints);
       const amountAboveMaximum = quote.amountToTransfer + 1n;
       let costAboveMaximum = amountAboveMaximum + (amountAboveMaximum * tipBasisPoints) / 10_000n;
       if (moveToken === MoveToken.ARGN) costAboveMaximum += quote.transactionFeeMicrogons;
@@ -817,7 +812,7 @@ describe.skipIf(skipE2E || !TestEthereum.isInstalled())('EthereumCrosschain inte
       ]);
       expect(chainTransfer?.amount).toBe(quote.amountToTransfer);
       expect(chainTransfer?.mintingAuthorityTip).toBe(quote.mintingAuthorityTip);
-      expect(remainingArgons.data.free).toBeGreaterThanOrEqual(client.consts.balances.existentialDeposit.toBigInt());
+      expect(remainingArgons.data.free).toBeGreaterThanOrEqual(client.consts.balances.existentialDeposit);
       if (moveToken === MoveToken.ARGN) {
         const senderTransactions = await db.transactionsTable.fetchByAccountAddress(senderKeys.defaultArgonAddress);
         const requestTransaction = senderTransactions.find(tx => tx.id === request.argonRequestTransactionId);

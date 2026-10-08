@@ -362,17 +362,45 @@ describe('financial history spec boundaries', () => {
     const db = await createTestDb();
     const history = new VaultHistory(Promise.resolve(db), accountId);
     const created = { blockNumber: 159, blockHash: '0x159', blockTime: Date.UTC(2026, 8, 1) };
-    await history.importBlock(created as any, [eventRecord(159, 'VaultCreated', {
-      vaultId: 7, securitization: 1_000n, securitizationRatio: 1, operatorAccountId: accountId, openedTick: 1,
-    }, 1)], 159);
+    await history.importBlock(
+      created as any,
+      [
+        eventRecord(
+          159,
+          'VaultCreated',
+          {
+            vaultId: 7,
+            securitization: 1_000n,
+            securitizationRatio: 1,
+            operatorAccountId: accountId,
+            openedTick: 1,
+          },
+          1,
+        ),
+      ],
+      159,
+    );
     const requested = { blockNumber: 160, blockHash: '0x160', blockTime: Date.UTC(2026, 8, 2) };
-    await history.importBlock(requested as any, [
-      eventRecord(160, 'VaultModified', { vaultId: 7, securitization: 1_000n, securitizationTarget: 600n, securitizationRatio: 1 }, 1),
-      eventRecord(160, 'SecuritizationExitRequested', { vaultId: 7, amount: 400n, noticeEndsAt: 777 }, 1),
-      eventRecord(160, 'FundsReleased', { vaultId: 7, securitization: 400n }, 2),
-    ], 160);
+    await history.importBlock(
+      requested as any,
+      [
+        eventRecord(
+          160,
+          'VaultModified',
+          { vaultId: 7, securitization: 1_000n, securitizationTarget: 600n, securitizationRatio: 1 },
+          1,
+        ),
+        eventRecord(160, 'SecuritizationExitRequested', { vaultId: 7, amount: 400n, noticeEndsAt: 777 }, 1),
+        eventRecord(160, 'FundsReleased', { vaultId: 7, securitization: 400n }, 2),
+      ],
+      160,
+    );
     const restarted = new VaultHistory(Promise.resolve(db), accountId);
-    expect((await restarted.loadPositionHistory()).capital.map(record => record.eventType)).toEqual(['created', 'modified', 'releaseScheduled']);
+    expect((await restarted.loadPositionHistory()).capital.map(record => record.eventType)).toEqual([
+      'created',
+      'modified',
+      'releaseScheduled',
+    ]);
     const released = { blockNumber: 161, blockHash: '0x161', blockTime: Date.UTC(2026, 8, 3) };
     const events = [eventRecord(160, 'SecuritizationExitReleased', { vaultId: 7, amount: 400n }, 1)];
     await restarted.importBlock(released as any, events, 160);

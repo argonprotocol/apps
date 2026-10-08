@@ -219,6 +219,23 @@ describe('native bond earnings recovery', () => {
       domain.data.currentFrameId = 10;
       return domain;
     };
+    // 159 paid flexible yield to the vault without updating this lot's counters.
+    const deployedSnapshot = (await BondLot.get(snapshots.get(125) as any, 7, owner))!;
+    await db.bondLotHistoryTable.recordObservation({
+      lot: deployedSnapshot,
+      blockNumber: 125,
+      blockHash: '0x125',
+    });
+    const imported = createDomain();
+    imported.data.bondLots = [deployedSnapshot];
+    await imported.refreshHistory();
+    expect(imported.data.bondHistory[0]).toMatchObject({
+      cumulativeEarningsMicrogons: 0n,
+      participatedFrames: 0,
+      flexibilityHistoryComplete: false,
+    });
+    expect(imported.getEarningsHistory(7).isComplete).toBe(false);
+
     const newerLot = (await BondLot.get(current as any, 7, owner))!;
     await db.bondLotHistoryTable.recordObservation({
       lot: newerLot,
@@ -240,7 +257,7 @@ describe('native bond earnings recovery', () => {
     })[0];
     // Current Owner metrics do not prove that earlier vault-paid flexible income was recovered.
     expect(domain.data.bondHistory[0].earningsDestination).toBe('Owner');
-    expect(domain.getEarningsHistory(7).attributionIsComplete).toBe(false);
+    expect(domain.getEarningsHistory(7).isComplete).toBe(false);
     expect(visiblePosition).toMatchObject({ paidIncome: 4_000_000n, returnIsComplete: false });
     const stopObserver = watch(
       () => domain.data.financialRevision,
@@ -449,7 +466,7 @@ it('keeps frozen displacement, zero payouts and missing payouts distinct across 
   const db = await createTestDb();
   const { SyncStateKeys } = await import('../lib/db/SyncStateTable.ts');
   const parent = { ...block, blockNumber: 149, blockHash: '0x149', frameId: 9 };
-  const payoutEvent: RuntimeSystemEventRecord = {
+  const payoutEvent = {
     event: {
       section: 'treasury',
       method: 'FrameEarningsDistributed',
@@ -466,7 +483,7 @@ it('keeps frozen displacement, zero payouts and missing payouts distinct across 
     },
     phase: { type: 'Initialization' },
     topics: [],
-  };
+  } satisfies RuntimeSystemEventRecord;
   const flexible = registry.createType<Option<PalletTreasuryBondLot>>('Option<PalletTreasuryBondLot>', {
     ...Object.fromEntries(storedLot(4_000_000n).unwrap()),
     lastFrameEarningsFrameId: 8,
@@ -563,15 +580,18 @@ it('keeps frozen displacement, zero payouts and missing payouts distinct across 
     start: async () => undefined,
     events: { on: () => () => undefined },
     getHeader: async (height: number) => (height === 149 ? parent : block),
-    getEvents: async () => [payoutEvent],
+    getEvents: async (_header: IBlockHeaderInfo) => [payoutEvent],
     getApi: async (header: IBlockHeaderInfo) => (header.blockNumber === 150 ? paid : before),
     getCurrentApi: async () => newer,
   };
   const miningFrames = {
     blockWatch,
     load: async () => undefined,
-    frames: [{ frameId: 10, firstBlockNumber: 150, firstBlockSpecVersion: 160 }],
-    getFrameStart: async () => ({ api: before }),
+    frames: [
+      { frameId: 10, firstBlockNumber: 150, firstBlockSpecVersion: 160 },
+      { frameId: 11, firstBlockNumber: 151, firstBlockSpecVersion: 160 },
+    ],
+    getFrameStart: async (frameId: number) => ({ api: frameId === 10 ? paid : before }),
   } as unknown as MiningFrames;
   const createDomain = () => {
     const domain = new ArgonBonds(
@@ -607,10 +627,12 @@ it('keeps frozen displacement, zero payouts and missing payouts distinct across 
   const domain = createDomain();
   await domain.load();
   let visible = domain.data.dailyEarnings;
+  let visibleStakeHistory = domain.getEarningsHistory(9);
   const stop = watch(
     () => domain.data.financialRevision,
     () => {
       visible = domain.data.dailyEarnings;
+      visibleStakeHistory = domain.getEarningsHistory(9);
     },
     { flush: 'sync' },
   );
@@ -641,12 +663,71 @@ it('keeps frozen displacement, zero payouts and missing payouts distinct across 
   expect(domain.data.historyError).toBeUndefined();
   expect(domain.getEarningsHistory(7)).toMatchObject({ lifetimeEarnings: 9_000_000n, isComplete: false });
   expect(domain.getEarningsHistory(9)).toMatchObject({ lifetimeEarnings: 0n, isComplete: true });
+
+  // Best-head counters can advance before this payout enters finalized daily history.
+  const nextStake = registry.createType<Option<PalletTreasuryBondLot>>('Option<PalletTreasuryBondLot>', {
+    ...Object.fromEntries(paidStake.unwrap()),
+    participatedFrames: 2,
+    cumulativeEarnings: 1_000_000n,
+    lastFrameEarningsFrameId: 10,
+    lastFrameEarnings: 1_000_000n,
+  });
+  const live = snapshot(
+    new Map([
+      [7, storedLot(9_000_000n)],
+      [9, nextStake],
+    ]),
+    11,
+  );
+  domain.data.currentFrameId = 11;
+  await domain.refreshBondLots(live as any);
+  expect(visibleStakeHistory).toMatchObject({ lifetimeEarnings: 0n, isComplete: true });
+  expect(visible.filter(record => record.bondLotId === 9)).toHaveLength(1);
+  const positions = new ArgonBondsFinancials(domain).createFinancialPositions({
+    bondLots: domain.data.bondLots,
+    historyRecords: domain.data.bondHistory,
+    dailyEarnings: domain.data.dailyEarnings,
+    completedFrame: 10,
+    frameDates: new Map([[3, new Date(block.blockTime)]]),
+  });
+  expect(positions.find(position => position.bondLot?.id === 9)?.paidIncome).toBe(1_000_000n);
+
+  const nextBlock = { ...block, blockNumber: 151, blockHash: '0x151', parentHash: '0x150', frameId: 11 };
+  const nextPayout = {
+    ...payoutEvent,
+    event: {
+      ...payoutEvent.event,
+      data: {
+        ...payoutEvent.event.data,
+        frameId: 10,
+        stakePoolDistributed: 1_000_000n,
+        bidPoolDistributed: 2_000_000n,
+      },
+    },
+  } satisfies RuntimeSystemEventRecord;
+  blockWatch.getHeader = async height => {
+    if (height === 149) return parent;
+    return height === 151 ? nextBlock : block;
+  };
+  blockWatch.getEvents = async header => [header.blockNumber === 151 ? nextPayout : payoutEvent];
+  blockWatch.getApi = async header => {
+    if (header.blockNumber === 151) return live;
+    return header.blockNumber === 150 ? paid : before;
+  };
+  blockWatch.getCurrentApi = async () => live;
+  blockWatch.finalizedBlockHeader = nextBlock;
+  await domain.recordFinalizedTransaction(151);
+  expect(visibleStakeHistory).toMatchObject({ lifetimeEarnings: 1_000_000n, isComplete: true });
+  expect(visible.filter(record => record.bondLotId === 9)).toEqual([
+    expect.objectContaining({ frameId: 9, earningsMicrogons: 0n }),
+    expect.objectContaining({ frameId: 10, earningsMicrogons: 1_000_000n }),
+  ]);
   stop();
   const durable = await db.bondEarningsTable.fetchAll(owner);
   const restarted = createDomain();
   await restarted.load();
   restarted.beginHistoryReplay();
-  await restarted.recoverDailyEarnings(150, 0);
+  await restarted.recoverDailyEarnings(151, 0);
   await restarted.publishRecoveredHistory();
   expect(restarted.data.dailyEarnings).toEqual(durable);
   expect(restarted.data.bondHistory.find(x => x.bondLotId === 7)?.cumulativeEarningsMicrogons).toBe(9_000_000n);

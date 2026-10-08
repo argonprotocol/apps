@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createPinia, disposePinia, setActivePinia, type Pinia } from 'pinia';
-import { nextTick, reactive } from 'vue';
+import { nextTick, reactive, shallowReactive } from 'vue';
 import {
   BitcoinFission,
   type ArgonQueryClient,
@@ -28,6 +28,7 @@ import type { IVaultCapitalHistoryRecord } from '../lib/db/VaultCapitalHistoryTa
 import type { IVaultRevenueEventsRecord } from '../lib/db/VaultRevenueEventsTable.ts';
 import type { IBitcoinPublishedSecuritizationHistory } from '../lib/db/BitcoinSecuritizationHistoryTable.ts';
 import type { IBondLotHistoryRecord } from '../lib/db/BondLotHistoryTable.ts';
+import type { IBondEarningsRecord } from '../lib/db/BondEarningsTable.ts';
 import type { IWallet } from '../lib/Wallet.ts';
 import { BitcoinLiquid } from '../lib/BitcoinLiquid.ts';
 import { createBitcoinLiquids } from '../lib/BitcoinFissions.ts';
@@ -56,7 +57,7 @@ const mocks = vi.hoisted(() => {
       data: {
         bondLots: [] as BondLot[],
         bondHistory: [] as IBondLotHistoryRecord[],
-        dailyEarnings: [],
+        dailyEarnings: [] as IBondEarningsRecord[],
         currentFrameId: 1,
         isLoaded: false,
         financialRevision: 0,
@@ -344,6 +345,8 @@ describe('financials store lifecycle', () => {
     mocks.argonBonds.publishRecoveredHistory.mockClear();
     mocks.argonBonds.data.bondLots = [];
     mocks.argonBonds.data.bondHistory = [];
+    mocks.argonBonds.data.dailyEarnings = [];
+    mocks.argonBonds.data.currentFrameId = 1;
     mocks.argonBonds.data.isLoaded = true;
     mocks.argonBonds.data.financialRevision = 0;
     mocks.argonBonds.getOwnBondLots.mockImplementation(async () => mocks.argonBonds.data.bondLots);
@@ -1554,9 +1557,9 @@ describe('financials store lifecycle', () => {
         program: { Vault: { vaultId: 10, sharingPercent: 0, bonusPercent: 0 } },
         bonds: 10,
         createdFrameId: 1,
-        participatedFrames: 0,
+        participatedFrames: 1,
         lastFrameEarningsFrameId: 1,
-        lastFrameEarnings: 0,
+        lastFrameEarnings: 1_000_000,
         cumulativeEarnings: 1_000_000,
         releaseFrameId: null,
         releaseReason: null,
@@ -1581,6 +1584,14 @@ describe('financials store lifecycle', () => {
         },
       ),
     ) as IArgonAccountBalance['microgonHolds'][number];
+    mocks.blockWatch.bestBlockHeader = { ...mocks.blockWatch.bestBlockHeader, blockNumber: 2, blockHash: '0x2' };
+    mocks.blockWatch.finalizedBlockHeader = mocks.blockWatch.bestBlockHeader;
+    mocks.blockWatch.latestHeaders = [mocks.blockWatch.finalizedBlockHeader];
+    mocks.blockWatch.getApi.mockImplementation(async () => ({
+      query: { ticks: { currentTick: async () => 2 }, miningSlot: { nextFrameId: async () => 3 } },
+    }));
+    mocks.argonBonds.data = shallowReactive({ ...mocks.argonBonds.data, currentFrameId: 2 });
+
     const snapshot = createAccountSnapshot(mocks.blockWatch.bestBlockHeader);
     snapshot.accounts[0].reservedMicrogons = 18_000_000n;
     snapshot.accounts[0].microgonHolds = [treasuryHold, vaultHold];
@@ -1591,7 +1602,6 @@ describe('financials store lifecycle', () => {
     mocks.getEnabledFinancialHistoryDomains.mockReturnValue(['bitcoin', 'bonds', 'vaulting']);
     mocks.needsFinancialHistoryRecovery.mockResolvedValue(true);
     const bondLot = BondLot.fromRuntime(1, runtimeLot, '5default');
-    bondLot.earningsDestination = 'VaultForFlexible';
     mocks.argonBonds.data.bondLots = [bondLot];
     mocks.argonBonds.data.bondHistory = [
       {
@@ -1603,6 +1613,7 @@ describe('financials store lifecycle', () => {
         nativeAsset: bondLot.nativeAsset,
         nativePrincipal: bondLot.bondMicrogons,
         createdFrame: bondLot.createdFrameId,
+        purchaseBlockTime: new Date('2026-07-01T00:00:00Z'),
         firstObservedBlockNumber: 1,
         firstObservedBlockHash: '0x1',
         flexibilityHistory: [
@@ -1616,8 +1627,8 @@ describe('financials store lifecycle', () => {
           },
         ],
         flexibilityHistoryComplete: true,
-        lastObservedBlockNumber: 1,
-        earningsDestination: 'VaultForFlexible',
+        lastObservedBlockNumber: 2,
+        earningsDestination: 'Owner',
         earningsBackfills: [],
         earningsComplete: true,
         createdAt: new Date('2026-07-01T00:00:00Z'),
@@ -1648,8 +1659,8 @@ describe('financials store lifecycle', () => {
     });
     mocks.walletsForArgon.readAccountSnapshot.mockResolvedValue(snapshot);
     mocks.restoreFinancialHistory.mockImplementation(async (args?: FinancialHistoryRestoreArgs) => {
-      args?.onDomainComplete?.({ domain: 'bonds', asOfBlock: 1 });
-      args?.onDomainComplete?.({ domain: 'vaulting', asOfBlock: 1 });
+      args?.onDomainComplete?.({ domain: 'bonds', asOfBlock: 2 });
+      args?.onDomainComplete?.({ domain: 'vaulting', asOfBlock: 2 });
       args?.onDomainComplete?.({ domain: 'bitcoin', asOfBlock: 0, error: 'indexer unavailable' });
       throw new Error('indexer unavailable');
     });
@@ -1663,6 +1674,8 @@ describe('financials store lifecycle', () => {
     expect(financialHistory.historyRecoveryByDomain.bonds.state).toBe('ready');
     expect(financialHistory.historyRecoveryByDomain.vaulting.state).toBe('ready');
     expect(financialHistory.historyRecoveryByDomain.bitcoin.state).toBe('error');
+    expect(financials.financialPositionAggregate.groupSummaries.bonds.currentValue).toBe(10_000_000n);
+    expect(financials.financialPositionAggregate.groupSummaries.vaulting.currentValue).toBe(8_000_000n);
     expect(financials.financialPositionAggregate.groupSummaries.bonds.returnSummary).toMatchObject({
       availability: 'unavailable',
       investedCost: 0n,
@@ -1671,6 +1684,38 @@ describe('financials store lifecycle', () => {
       availability: 'unavailable',
       investedCost: 0n,
     });
+
+    mocks.argonBonds.data.dailyEarnings = [
+      {
+        accountId: bondLot.owner,
+        programType: bondLot.programType,
+        bondLotId: bondLot.id,
+        frameId: 1,
+        bonds: 10,
+        isFlexible: true,
+        displacedMicrogons: 0n,
+        earningsMicrogons: 1_000_000n,
+        earningsDestination: 'Owner',
+        payoutBlockNumber: 2,
+        payoutBlockHash: '0x2',
+      },
+    ];
+    mocks.argonBonds.data.bondHistory[0].earningsHistoryThroughFrame = 1;
+    mocks.argonBonds.data.financialRevision += 1;
+
+    await vi.waitFor(() => {
+      expect(financials.financialPositionAggregate.groupSummaries.bonds.returnSummary).toMatchObject({
+        availability: 'available',
+        investedCost: 10_000_000n,
+        paidIncome: 1_000_000n,
+      });
+      expect(financials.financialPositionAggregate.groupSummaries.vaulting.returnSummary).toMatchObject({
+        availability: 'available',
+        investedCost: 8_000_000n,
+        paidIncome: 0n,
+      });
+    });
+    expect(financialHistory.historyRecoveryByDomain.bitcoin.state).toBe('error');
   });
 });
 

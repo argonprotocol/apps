@@ -60,7 +60,7 @@
           class="flex flex-row cursor-pointer py-5 grow items-center hover:bg-argon-menu-hover"
         >
           <div class="flex flex-row">
-            <Checkbox :isChecked="config.hasSavedVaultingRules" />
+            <Checkbox :isChecked="config.hasSavedVaultSetup" />
             <div class="px-4 text-slate-600">
               <h2 class="text-argon-600 relative inline-block text-2xl font-bold">
                 Confirm Your Vault Settings
@@ -70,13 +70,13 @@
                   class="pointer-events-none absolute top-1/2 -right-3 -translate-y-1/2 translate-x-full z-50 -mt-0.5"
                 />
               </h2>
-              <p v-if="!config.hasSavedVaultingRules">
-                Choose your ARGN and ARGNOT securitization and Bitcoin locking fees.
+              <p v-if="!config.hasSavedVaultSetup">
+                Choose your Argon and Argonot securitization and Bitcoin locking fees.
               </p>
               <p v-else>
-                You confirmed {{ microgonToArgonNm(config.vaultingRules.baseMicrogonCommitment).format('0,0.[0]') }} ARGN
-                <template v-if="config.vaultingRules.baseMicronotCommitment > 0n">
-                  and {{ micronotToArgonotNm(config.vaultingRules.baseMicronotCommitment).format('0,0.[0]') }} ARGNOT
+                You confirmed {{ microgonToArgonNm(config.vaultSetup.securitizationMicrogons).format('0,0.[0]') }} ARGN
+                <template v-if="config.vaultSetup.committedMicronots > 0n">
+                  and {{ micronotToArgonotNm(config.vaultSetup.committedMicronots).format('0,0.[0]') }} ARGNOT
                 </template>
                 in securitization.
               </p>
@@ -182,7 +182,7 @@ const currentStep = Vue.computed(() => {
     return null;
   } else if (!serverConnectIsChecked.value) {
     return 'ServerConnect';
-  } else if (!config.hasSavedVaultingRules) {
+  } else if (!config.hasSavedVaultSetup) {
     return 'VaultingRules';
   } else if (!walletIsFullyFunded.value) {
     return 'FundWallet';

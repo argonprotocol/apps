@@ -34,8 +34,9 @@ export function getBondEarnings(
   let lifetimeEarnings = chainEarnings;
   if (chainEarnings !== undefined) lifetimeEarnings = chainEarnings + vaultEarnings - backfilledEarnings;
   const earningThroughFrame = history?.releaseFrame === undefined ? completedFrame : history.releaseFrame - 1;
-  const hasDailyCoverage =
-    earningThroughFrame !== undefined && (history?.earningsHistoryThroughFrame ?? -1) >= earningThroughFrame;
+  const createdFrame = lot?.createdFrameId ?? history?.createdFrame;
+  const historyThroughFrame = history?.earningsHistoryThroughFrame ?? (createdFrame ?? 0) - 1;
+  const hasDailyCoverage = earningThroughFrame !== undefined && historyThroughFrame >= earningThroughFrame;
   let attributionIsComplete = !hasMissingPayout;
   if (!hasDailyCoverage) {
     if (lot?.isFlexible || history?.flexibilityHistory.some(transition => transition.isFlexible)) {

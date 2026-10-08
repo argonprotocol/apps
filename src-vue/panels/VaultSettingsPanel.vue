@@ -20,7 +20,7 @@
           >
             <button
               type="button"
-              aria-label="Edit ARGN securitization"
+              aria-label="Edit Argon securitization"
               :disabled="
                 !!pendingTransaction && pendingTransaction.tx.metadataJson.securitizationMicrogons === undefined
               "
@@ -28,16 +28,16 @@
               @click="openFundingEditor('ARGN')"
             ></button>
             <div class="group-hover:text-argon-600/70 inline-flex items-center gap-1 text-lg font-bold text-[#a08fb7]">
-              ARGN Securitization
+              Argon Securitization
               <Tooltip as-child side="top">
                 <button
                   type="button"
                   class="relative z-20 inline-flex cursor-help"
-                  aria-label="ARGN securitization details"
+                  aria-label="Argon securitization details"
                 >
                   <InformationCircleIcon class="size-3.5" />
                 </button>
-                <template #content>ARGN securitization supports Bitcoin locks and treasury bonds.</template>
+                <template #content>Argon securitization supports Bitcoin locks and treasury bonds.</template>
               </Tooltip>
             </div>
             <div
@@ -56,7 +56,7 @@
                   </span>
                   <span
                     v-else
-                    aria-label="ARGN securitization transaction in progress"
+                    aria-label="Argon securitization transaction in progress"
                     class="border-t-argon-600 size-3 animate-spin rounded-full border-2 border-slate-300"
                   />
                 </template>
@@ -79,28 +79,28 @@
           <div ref="argonotPosition" class="group hover:bg-argon-20 relative flex w-1/3 flex-col items-center px-4">
             <button
               type="button"
-              aria-label="Edit ARGNOT securitization"
+              aria-label="Edit Argonot securitization"
               :disabled="!!pendingTransaction && pendingTransaction.tx.metadataJson.committedMicronots === undefined"
               class="focus-visible:outline-argon-600 absolute inset-0 z-10 cursor-pointer rounded-md focus-visible:outline-2 disabled:cursor-default"
               @click="openFundingEditor('ARGNOT')"
             ></button>
             <div class="group-hover:text-argon-600/70 inline-flex items-center gap-1 text-lg font-bold text-[#a08fb7]">
-              ARGNOT Securitization
+              Argonot Securitization
               <Tooltip as-child side="top">
                 <button
                   type="button"
                   class="relative z-20 inline-flex cursor-help"
-                  aria-label="ARGNOT securitization details"
+                  aria-label="Argonot securitization details"
                 >
                   <InformationCircleIcon class="size-3.5" />
                 </button>
                 <template #content>
-                  ARGNOT securitization maximizes your vault’s share of network revenue.
+                  Argonot securitization maximizes your vault’s share of network revenue.
                   <p class="mt-2">
                     {{ micronotToArgonotNm(myVault.data.argonotCommitment.committedMicronots).format('0,0.[0]') }}
                     ARGNOT committed to vault rewards.
                   </p>
-                  <p class="mt-2">
+                  <p v-if="myVault.mintingAuthorities.data.authorities.length > 0" class="mt-2">
                     {{ micronotToArgonotNm(myVault.data.argonotCommitment.encumberedMicronots).format('0,0.[0]') }}
                     ARGNOT encumbered by minting. These amounts can overlap.
                   </p>
@@ -123,7 +123,7 @@
                   </span>
                   <span
                     v-else
-                    aria-label="ARGNOT securitization transaction in progress"
+                    aria-label="Argonot securitization transaction in progress"
                     class="border-t-argon-600 size-3 animate-spin rounded-full border-2 border-slate-300"
                   />
                 </template>
@@ -464,6 +464,24 @@
                     {{ fundingAsset }}
                   </span>
                 </div>
+                <p
+                  v-if="
+                    fundingAsset === 'ARGN' &&
+                    vault?.operationalMinimumReleaseTick != null &&
+                    currentTick < vault.operationalMinimumReleaseTick &&
+                    proposedSecuritization < vault.operationalMinimumMicrogons
+                  "
+                  class="mt-2 text-slate-500"
+                >
+                  Certification minimum remains held until
+                  {{
+                    new Date(vault.operationalMinimumReleaseTick * vault.tickDuration).toLocaleDateString(undefined, {
+                      month: 'short',
+                      day: 'numeric',
+                      year: 'numeric',
+                    })
+                  }}.
+                </p>
                 <div
                   v-for="[height, amount] in proposedWithdrawals"
                   :key="height"
@@ -523,7 +541,9 @@
               class="bg-argon-button border-argon-600 cursor-pointer rounded-md border px-3 text-sm text-white disabled:opacity-40"
               @click="submitChange"
             >
-              {{ isSubmitting ? 'Submitting…' : fundingAction === 'add' ? 'Add Funds' : 'Request Withdrawal' }}
+              <template v-if="isSubmitting">Submitting…</template>
+              <template v-else-if="fundingAction === 'add'">Add Funds</template>
+              <template v-else>Request Withdrawal</template>
             </button>
             <button
               v-else-if="transactionError"
@@ -572,7 +592,7 @@ import basicEmitter from '../emitters/basicEmitter.ts';
 import WalletFundingCallout from '../components/WalletFundingCallout.vue';
 import { existentialDepositMicronots } from '../lib/WalletForArgon.ts';
 import { getConfig } from '../stores/config.ts';
-import { getMainchainClient } from '../stores/mainchain.ts';
+import { getMiningFrames } from '../stores/mainchain.ts';
 import { getTransactionFailureMessage } from '../lib/TransactionInfo.ts';
 import numeral, { createNumeralHelpers } from '../lib/numeral.ts';
 import EditBoxOverlay from '../overlays/EditBoxOverlay.vue';
@@ -588,6 +608,11 @@ const currency = getCurrency();
 const wallets = useWallets();
 const argonBonds = getArgonBonds();
 const bitcoinLocks = getBitcoinLocks();
+const miningFrames = getMiningFrames();
+const currentTick = Vue.ref(miningFrames.currentTick);
+const tickSubscription = miningFrames.onTick(tick => {
+  currentTick.value = tick;
+});
 const config = getConfig();
 const { microgonToArgonNm, micronotToArgonotNm, microgonToMoneyNm } = createNumeralHelpers(currency);
 
@@ -614,6 +639,7 @@ const pendingArgonWithdrawals = Vue.computed(
     vault.value?.previewArgonWithdrawals(
       vault.value.securitizationTarget,
       bitcoinLocks.data.oracleBitcoinBlockHeight,
+      currentTick.value,
     ) ?? new Map<number, bigint>(),
 );
 
@@ -691,7 +717,7 @@ const fundingSlider = Vue.computed<number[]>({
   },
 });
 
-const fundingChange = Vue.computed<Parameters<MyVault['buildSecuritizationTx']>[0]>(() => {
+const fundingChange = Vue.computed<Parameters<MyVault['estimateSecuritizationFee']>[0]>(() => {
   if (fundingAsset.value === 'ARGN') return { securitizationMicrogons: proposedSecuritization.value };
   return { committedMicronots: proposedSecuritization.value };
 });
@@ -721,6 +747,7 @@ const proposedWithdrawals = Vue.computed(() => {
     return vault.value.previewArgonWithdrawals(
       proposedSecuritization.value,
       bitcoinLocks.data.oracleBitcoinBlockHeight,
+      currentTick.value,
     );
   return vault.value.previewArgonotWithdrawals(
     proposedSecuritization.value,
@@ -731,7 +758,8 @@ const proposedWithdrawals = Vue.computed(() => {
 
 const availableImmediateWithdrawal = Vue.computed(() => {
   if (!vault.value || fundingAction.value !== 'withdraw') return 0n;
-  if (fundingAsset.value === 'ARGN') return bigIntMin(maximumChange.value, vault.value.availableArgonWithdrawal());
+  if (fundingAsset.value === 'ARGN')
+    return bigIntMin(maximumChange.value, vault.value.availableArgonWithdrawal(currentTick.value));
   return bigIntMin(maximumChange.value, vault.value.availableArgonotWithdrawal(myVault.data.argonotCommitment));
 });
 
@@ -812,8 +840,8 @@ function openWallet() {
 
 function openFeeEditor() {
   const terms = bitcoinTerms.value!;
-  config.vaultingRules.btcFlatFee = terms.bitcoinBaseFee;
-  config.vaultingRules.btcPctFee = terms.bitcoinAnnualPercentRate.times(100).toNumber();
+  config.vaultSetup.btcFlatFee = terms.bitcoinBaseFee;
+  config.vaultSetup.btcPctFee = terms.bitcoinAnnualPercentRate.times(100).toNumber();
 
   const parent = editBoxParent.value!.getBoundingClientRect();
   const anchor = feeEditAnchor.value!.getBoundingClientRect();
@@ -835,11 +863,9 @@ async function updateFee() {
   transactionError.value = '';
 
   try {
-    const client = await getMainchainClient(false);
-    const tx = await myVault.buildSecuritizationTx(change, client);
-    const fee = await tx.paymentInfo(wallets.defaultArgonWallet.address);
+    const fee = await myVault.estimateSecuritizationFee(change, wallets.defaultArgonWallet.address);
     if (request !== feeRequest) return;
-    txFee.value = fee.partialFee.toBigInt();
+    txFee.value = fee;
     if (usingWalletMaximum) changeAmount.value = maximumChange.value;
   } catch (error) {
     if (request !== feeRequest) return;
@@ -943,6 +969,7 @@ Vue.watch(
 
 basicEmitter.on('openVaultSettingsOverlay', openOverlay);
 Vue.onBeforeUnmount(() => {
+  tickSubscription.unsubscribe();
   feeRequest += 1;
   basicEmitter.off('openVaultSettingsOverlay', openOverlay);
 });

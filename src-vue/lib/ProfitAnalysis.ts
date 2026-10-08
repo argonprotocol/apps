@@ -22,10 +22,11 @@ export class ProfitAnalysis {
     const frames = (this.myVault.data.stats?.changesByFrame ?? []).filter(
       frame => frame.frameId >= firstFrameId && frame.frameId < this.currentFrameId,
     );
-    const returns = VaultFinancials.getFrameReturns(this.myVault.vaultId!, frames, this.argonBonds.data);
-    const maxReturn = Math.max(0, ...[...returns.values()].map(Math.abs));
+    const earnings = VaultFinancials.getFrameEarnings(this.myVault.vaultId!, frames, this.argonBonds.data);
+    const maxReturn = Math.max(0, ...[...earnings.values()].map(frame => Math.abs(frame.returnPercent)));
     const records: IVaultFrameRecord[] = [];
     const items: IChartItem[] = [];
+    const openedTick = this.myVault.createdVault?.openedTick ?? this.myVault.data.stats?.openedTick ?? 0;
 
     for (let frameId = firstFrameId; frameId <= this.currentFrameId; frameId++) {
       let firstTick: number;
@@ -35,13 +36,15 @@ export class ProfitAnalysis {
         continue;
       }
       const date = dayjs.utc(MiningFrames.getTickDate(firstTick)).toISOString();
-      const frameProfitPercent = returns.get(frameId);
-      records.push({ id: frameId, date, firstTick, frameProfitPercent });
+      const frameEarnings = earnings.get(frameId);
+      const frameProfitPercent = frameEarnings?.returnPercent;
+      records.push({ id: frameId, date, firstTick, frameProfitPercent, earningsMicrogons: frameEarnings?.income });
       let score: number | null = null;
       if (frameProfitPercent !== undefined) {
         score = maxReturn > 0 ? (frameProfitPercent / maxReturn) * 100 : 0;
       }
       const previous = items.at(-1);
+      if (previous && firstTick <= openedTick) previous.isFiller = previous.score === null;
       const item: IChartItem = {
         id: frameId,
         date,

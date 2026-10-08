@@ -568,7 +568,7 @@ export function setupBitcoinOverlayScenario() {
   });
 
   const vaults = {
-    currentState: Vue.reactive({ isLoaded: true, isLoading: false, error: '' }),
+    currentState: Vue.reactive({ isLoaded: true, isLoading: false, error: '', statsRevision: 0 }),
     operatorNamesByVaultId: { [vault.vaultId]: 'Atlas Operator' },
     vaultsById: { [vault.vaultId]: vault, [ownVault.vaultId]: ownVault },
     fetchAndCalculateRedemptionAmount: fn(async () => 825_000_000n),

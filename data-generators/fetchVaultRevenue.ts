@@ -4,12 +4,12 @@ import * as path from 'path';
 import dayjs from 'dayjs';
 import utc from 'dayjs/plugin/utc.js';
 import {
-  JsonExt,
   MainchainClients,
   MiningFrames,
   NetworkConfig,
   NetworkConfigSettings,
   Currency,
+  JsonExt,
 } from '@argonprotocol/apps-core';
 import { Vaults } from '../src-vue/lib/Vaults.ts';
 import { setMainchainClients } from '../src-vue/stores/mainchain.ts';
@@ -66,7 +66,7 @@ export async function fetchVaultRevenue() {
       }
     }
 
-    fs.writeFileSync(filePath, JsonExt.stringify(data, 2) + '\n');
+    fs.writeFileSync(filePath, JsonExt.stringify(data, 2, { sortKeys: true }) + '\n');
     console.log(`Successfully saved Vault revenue data`);
   }
 }

@@ -1,6 +1,14 @@
 export interface IAllVaultStats {
   formatVersion?: number;
   synchedToFrame: number;
+  networkPoolsByFrame?: Record<
+    number,
+    {
+      auctionPoolMicrogons: bigint;
+      vaultPoolMicrogons?: bigint;
+      includesBondPayments: boolean;
+    }
+  >;
   revenueBackfill?: {
     nextFrame: number;
     throughFrame: number;
@@ -43,6 +51,8 @@ export interface IVaultFrameStats {
   bitcoinLocksCreated: number;
   microgonLiquidityAdded: bigint;
   securitization: bigint;
+  /** Held Argonots at frame end; recorded from the securitization runtime onward. */
+  argonotSecuritizationMicronots?: bigint;
   securitizationActivated: bigint;
   securitizationRelockable?: bigint;
   treasuryPool: {
@@ -50,6 +60,8 @@ export interface IVaultFrameStats {
     vaultCapital: bigint;
     totalEarnings: bigint;
     vaultEarnings: bigint;
+    /** Flexible bond income included in older vault payouts; absent until its frame allocation is recovered. */
+    flexibleBondEarnings?: bigint;
   };
   uncollectedEarnings: bigint;
 }

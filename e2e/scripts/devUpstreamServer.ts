@@ -530,8 +530,8 @@ export function planDevUpstreamFunding(input: {
   if (input.miningBot.microgons === 0n || input.miningBot.micronots === 0n) {
     funding.push({
       address: input.miningBot.address,
-      microgons: input.miningBot.microgons || 100_000_000n * BigInt(MICROGONS_PER_ARGON),
-      micronots: input.miningBot.micronots || 100_000_000n * BigInt(MICRONOTS_PER_ARGONOT),
+      microgons: input.miningBot.microgons || 1_000n * BigInt(MICROGONS_PER_ARGON),
+      micronots: input.miningBot.micronots || 1_000n * BigInt(MICRONOTS_PER_ARGONOT),
     });
   }
   if (input.treasury.microgons === 0n) {

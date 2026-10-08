@@ -8,7 +8,7 @@ import {
 } from '@argonprotocol/mainchain';
 import BigNumber from 'bignumber.js';
 import { getBundledMetadata, toPlain } from '@argonprotocol/runtime-client';
-import { BitcoinFission, BondLot, BitcoinLock, type Vault, type IVaultFrameStats } from '@argonprotocol/apps-core';
+import { BitcoinFission, BondLot, type Vault, type IVaultFrameStats } from '@argonprotocol/apps-core';
 import type { IBitcoinLockRecord } from '../interfaces/IBitcoinLockRecord.ts';
 import type { IBitcoinFissionRecord } from '../interfaces/IBitcoinFissionRecord.ts';
 import { BitcoinReleaseKind, BitcoinReleaseStatus } from '../interfaces/IBitcoinReleaseRecord.ts';
@@ -2912,7 +2912,7 @@ describe('financial position accounting', () => {
       },
       uncollectedEarnings: 0n,
     };
-    const stats = { changesByFrame: [frame, { ...frame, frameId: 10 }] };
+    const stats = { openedTick: 7 * 1_440, changesByFrame: [frame, { ...frame, frameId: 10 }] };
     const chartBonds = {
       bondLots: [], // Released lots still own their historical income.
       bondHistory: [{ ...history, releaseFrame: 11 }],
@@ -2927,19 +2927,33 @@ describe('financial position accounting', () => {
     );
     analysis.update();
     // 159: (3 vault + 1 fee − 1 coupon − 1 flexible) / 100 securitization.
-    expect(analysis.records.find(record => record.id === 9)?.frameProfitPercent).toBe(2);
+    expect(analysis.records.find(record => record.id === 9)).toMatchObject({
+      frameProfitPercent: 2,
+      earningsMicrogons: 2_000_000n,
+    });
     // 160 owner-paid income is already outside vault revenue.
-    expect(analysis.records.find(record => record.id === 10)?.frameProfitPercent).toBe(3);
-    expect(analysis.items.find(item => item.id === 8)?.score).toBeNull();
+    expect(analysis.records.find(record => record.id === 10)).toMatchObject({
+      frameProfitPercent: 3,
+      earningsMicrogons: 3_000_000n,
+    });
+    expect(analysis.items.find(item => item.id === 6)).toMatchObject({ score: null, isFiller: true });
+    expect(analysis.items.find(item => item.id === 8)).toMatchObject({ score: null, isFiller: false });
     expect(analysis.items.at(-1)).toMatchObject({ id: 11, score: null });
 
     chartBonds.dailyEarnings[0] = { ...dailyEarnings[0], earningsMicrogons: undefined } as any;
     analysis.update();
-    expect(analysis.items.find(item => item.id === 9)?.score).toBeNull();
-    expect(analysis.records.find(record => record.id === 10)?.frameProfitPercent).toBe(3);
+    expect(analysis.items.find(item => item.id === 9)).toMatchObject({ score: null, isFiller: false });
+    expect(analysis.records.find(record => record.id === 9)?.earningsMicrogons).toBeUndefined();
+    expect(analysis.records.find(record => record.id === 10)).toMatchObject({
+      frameProfitPercent: 3,
+      earningsMicrogons: 3_000_000n,
+    });
     chartBonds.dailyEarnings[0] = dailyEarnings[0];
     analysis.update();
-    expect(analysis.records.find(record => record.id === 9)?.frameProfitPercent).toBe(2);
+    expect(analysis.records.find(record => record.id === 9)).toMatchObject({
+      frameProfitPercent: 2,
+      earningsMicrogons: 2_000_000n,
+    });
 
     stats.changesByFrame = [{ ...frame, treasuryPool: { ...frame.treasuryPool, vaultEarnings: 1_000_000n } }];
     analysis.update();

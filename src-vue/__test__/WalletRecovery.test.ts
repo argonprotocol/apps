@@ -26,7 +26,7 @@ it('scans mining history during restore when the mining wallet is currently empt
   );
   vi.spyOn(recovery as any, 'loadMiningHistory').mockResolvedValue(miningHistory);
 
-  await expect(recovery.findHistory()).resolves.toEqual({ miningHistory, vaultingRules: undefined });
+  await expect(recovery.findHistory()).resolves.toEqual({ miningHistory, vault: undefined });
 });
 
 it('skips operator recovery for a readonly wallet without operational accounts', async () => {
@@ -46,7 +46,7 @@ it('skips operator recovery for a readonly wallet without operational accounts',
   );
   const loadMiningHistory = vi.spyOn(recovery as any, 'loadMiningHistory');
 
-  await expect(recovery.findHistory()).resolves.toEqual({ miningHistory: undefined, vaultingRules: undefined });
+  await expect(recovery.findHistory()).resolves.toEqual({ miningHistory: undefined, vault: undefined });
 
   expect(loadMiningHistory).not.toHaveBeenCalled();
   expect(myVault.load).not.toHaveBeenCalled();

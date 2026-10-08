@@ -68,11 +68,8 @@
 import * as Vue from 'vue';
 import { DialogContent, DialogDescription, DialogOverlay, DialogPortal, DialogRoot, DialogTitle } from 'reka-ui';
 import { getConfig } from '../stores/config.ts';
-import { getVaultCalculator } from '../stores/mainchain.ts';
 import BgOverlay from '../components/BgOverlay.vue';
 import { XMarkIcon } from '@heroicons/vue/24/outline';
-import { JsonExt } from '@argonprotocol/apps-core';
-import type { IVaultingRules } from '../interfaces/IVaultingRules.ts';
 import Tooltip from '../components/Tooltip.vue';
 import BotSettings from '../components/BotSettings.vue';
 import Draggable from './helpers/Draggable.ts';
@@ -84,14 +81,6 @@ const config = getConfig();
 const bot = getBot();
 
 const draggable = Vue.reactive(new Draggable());
-
-let previousVaultingRules: string | null = null;
-
-const rules = Vue.computed(() => {
-  return config.vaultingRules as IVaultingRules;
-});
-
-const calculator = getVaultCalculator();
 
 const isOpen = Vue.ref(false);
 const isLoaded = Vue.ref(false);
@@ -114,10 +103,6 @@ function calculateElementWidth(element: HTMLElement | null) {
 function cancelOverlay() {
   if (isSaving.value || hasEditBoxOverlay.value) return;
 
-  if (previousVaultingRules) {
-    config.vaultingRules = JsonExt.parse<IVaultingRules>(previousVaultingRules);
-  }
-
   isOpen.value = false;
 }
 
@@ -128,19 +113,17 @@ function closeEditBoxOverlay() {
 async function saveRules() {
   if (isSaving.value || hasEditBoxOverlay.value) return;
 
-  if (rules.value) {
-    try {
-      savingError.value = null;
-      isSaving.value = true;
-      await bot.resyncBiddingRules();
-      await config.saveBiddingRules();
-    } catch (error) {
-      console.error('Failed to reload server bidding rules:', error);
-      savingError.value = 'Failed to save bidding rules. Please try again.';
-      return;
-    } finally {
-      isSaving.value = false;
-    }
+  try {
+    savingError.value = null;
+    isSaving.value = true;
+    await bot.resyncBiddingRules();
+    await config.saveBiddingRules();
+  } catch (error) {
+    console.error('Failed to reload server bidding rules:', error);
+    savingError.value = 'Failed to save bidding rules. Please try again.';
+    return;
+  } finally {
+    isSaving.value = false;
   }
 
   isOpen.value = false;
@@ -151,8 +134,6 @@ basicEmitter.on('openBotEditOverlay', async () => {
   isLoaded.value = false;
 
   await bot.loadServerConfig();
-  await calculator.load(rules.value);
-  previousVaultingRules = JsonExt.stringify(config.vaultingRules);
 
   isLoaded.value = true;
   isOpen.value = true;

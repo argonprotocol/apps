@@ -1,4 +1,5 @@
 import { runtimeClient, type LiveQueryRecord } from '@argonprotocol/runtime-client';
+import BigNumber from 'bignumber.js';
 import { integrationNetwork as sharedNetwork } from '@argonprotocol/apps-core/__test__/integration.setup.ts';
 import { mnemonicGenerate } from '@argonprotocol/mainchain';
 import { teardown } from '@argonprotocol/testing';
@@ -18,7 +19,7 @@ import { DEFAULT_MASTER_XPUB_PATH, MyVault } from '../lib/MyVault.ts';
 import { createTestDb } from './helpers/db.ts';
 import { Vaults } from '../lib/Vaults.ts';
 import { Config } from '../lib/Config.ts';
-import type { IVaultingRules } from '../interfaces/IVaultingRules.ts';
+import type { IConfig } from '../interfaces/IConfig.ts';
 import { BitcoinNetwork } from '@argonprotocol/bitcoin';
 import { MyVaultRecovery } from '../lib/recovery/MyVaultRecovery.ts';
 import { setMainchainClients } from '../stores/mainchain.ts';
@@ -46,17 +47,13 @@ describe.skipIf(skipE2E).sequential('Your Vault tests', {}, () => {
   const trackedBlockWatches: BlockWatch[] = [];
   const trackedDbs: Db[] = [];
   const trackedMiningFrames: MiningFrames[] = [];
-  const vaultRules: IVaultingRules = {
-    ...(Config.getDefault('vaultingRules') as IVaultingRules),
-    personalBtcPct: 50,
+  const vaultSetup: IConfig['vaultSetup'] = {
+    ...(Config.getDefault('vaultSetup') as IConfig['vaultSetup']),
     securitizationRatio: 1,
-    capitalForTreasuryPct: 50,
-    capitalForSecuritizationPct: 50,
-    baseMicrogonCommitment: 10_000_000n,
-    baseMicronotCommitment: 10_000_000n,
+    securitizationMicrogons: 10_000_000n,
+    committedMicronots: 10_000_000n,
     btcFlatFee: 1_000_000n,
     btcPctFee: 2.5,
-    profitSharingPct: 5,
   };
   let vaultCreatedBlockNumber: number;
   let vaultCreationFees: bigint;
@@ -145,8 +142,7 @@ describe.skipIf(skipE2E).sequential('Your Vault tests', {}, () => {
       // Insufficient ARGNOT must roll back the vault and delegate setup together.
       const failedCreation = await myVault.createNew({
         masterXpubPath: DEFAULT_MASTER_XPUB_PATH,
-        rules: vaultRules,
-        config,
+        vaultSetup,
       });
       await expect(failedCreation.waitForPostProcessing).rejects.toThrow();
       expect(myVault.createdVault).toBeNull();
@@ -160,8 +156,7 @@ describe.skipIf(skipE2E).sequential('Your Vault tests', {}, () => {
       });
       const vaultCreation = await myVault.createNew({
         masterXpubPath: DEFAULT_MASTER_XPUB_PATH,
-        rules: vaultRules,
-        config,
+        vaultSetup,
       });
       await vaultCreation.txResult.waitForFinalizedBlock;
       vaultCreationFees = vaultCreation.txResult.finalFee ?? 0n;
@@ -171,10 +166,10 @@ describe.skipIf(skipE2E).sequential('Your Vault tests', {}, () => {
       const createdVault = myVault.createdVault!;
       expect(createdVault).toBeTruthy();
       expect(createdVault.vaultId).toBeGreaterThan(0);
-      expect(createdVault.securitization).toBe(vaultRules.baseMicrogonCommitment);
-      expect(myVault.data.argonotCommitment.heldMicronots).toBe(vaultRules.baseMicronotCommitment);
+      expect(createdVault.securitization).toBe(vaultSetup.securitizationMicrogons);
+      expect(myVault.data.argonotCommitment.heldMicronots).toBe(vaultSetup.committedMicronots);
       const commitment = await Vault.getArgonotSecuritization(await clients.get(false), createdVault.vaultId);
-      expect(commitment?.heldMicronots).toBe(vaultRules.baseMicronotCommitment);
+      expect(commitment?.heldMicronots).toBe(vaultSetup.committedMicronots);
       expect(createdVault.operatorAccountId).toBe(walletKeys.vaultingAddress);
       const createdState = (await client.query.vaults.vaultsById(createdVault.vaultId)) as NonNullable<
         LiveQueryRecord<'vaults', 'vaultsById'>
@@ -280,10 +275,12 @@ describe.skipIf(skipE2E).sequential('Your Vault tests', {}, () => {
     const client = await clients.get(false);
     const signer = await walletKeys.getVaultingKeypair();
     await sudoFundWallet({ address: signer.address, microgons: 1_000_000_000n, micronots: 100_000_000n, client });
-    const settings = { ...vaultRules, btcFlatFee: 2_000_000n, btcPctFee: 1.5 };
+    const settings = { ...vaultSetup, btcFlatFee: 2_000_000n, btcPctFee: 1.5 };
     const settingsTx = await myVault.updateSettings({
-      rules: settings,
-      previousRules: vaultRules,
+      terms: {
+        bitcoinBaseFee: settings.btcFlatFee,
+        bitcoinAnnualPercentRate: BigNumber(settings.btcPctFee).div(100),
+      },
       txProgressCallback: () => undefined,
     });
     await settingsTx?.waitForPostProcessing;

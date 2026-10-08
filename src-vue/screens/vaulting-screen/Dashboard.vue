@@ -7,7 +7,8 @@
           <TooltipRoot>
             <TooltipTrigger as="div" box stat-box class="flex flex-col w-[20%] !py-4 group">
               <span>
-                {{ currency.symbol }}{{ microgonToMoneyNm(bitcoinLockedMarketValue).formatIfElse('< 1_000', '0,0.00', '0,0') }}
+                <template v-if="vaultingBreakdown.bitcoinLockedValueMicrogons !== undefined">{{ currency.symbol }}{{ microgonToMoneyNm(vaultingBreakdown.bitcoinLockedValueMicrogons).formatIfElse('< 1_000', '0,0.00', '0,0') }}</template>
+                <template v-else>&mdash;</template>
               </span>
               <label>Total Bitcoin Locked</label>
             </TooltipTrigger>
@@ -54,7 +55,7 @@
           </TooltipRoot>
           <TooltipRoot>
             <TooltipTrigger box stat-box class="flex flex-col w-[20%] !py-4 group">
-              <span v-if="revenueMicrogons !== undefined">{{ currency.symbol }}{{ microgonToMoneyNm(revenueMicrogons).formatIfElse('< 1_000', '0,0.00', '0,0') }}</span>
+              <span v-if="revenueMicrogons !== undefined">{{ microgonToMoneyNm(revenueMicrogons).formatCurrency(currency.symbol, 1_000) }}</span>
               <span v-else>--</span>
               <label>Total Earnings</label>
             </TooltipTrigger>
@@ -165,7 +166,7 @@
                   <div class="mb-2 flex items-center gap-x-3 text-center">
                     <span class="h-px grow bg-slate-400/30"></span>
                   </div>
-                  <div class="grid grid-cols-3 gap-x-4 gap-y-5 text-center text-base leading-none text-slate-700/80 pt-3">
+                  <div class="grid grid-cols-3 items-start gap-x-4 gap-y-5 text-center text-base leading-none text-slate-700/80 pt-3">
                     <TooltipRoot :delayDuration="200">
                       <TooltipTrigger as="div" class="cursor-help">{{currency.symbol}}{{ microgonToMoneyNm(bitcoinLockCapacity).format('0,0.00') }} In Potential BTC Locks</TooltipTrigger>
                       <TooltipContent side="bottom" :sideOffset="4" :collisionPadding="9" class="text-md z-50 w-xs rounded-md border border-gray-800/20 bg-white px-4 py-3 text-left leading-5.5 font-light text-slate-900/60 shadow-2xl">
@@ -175,7 +176,7 @@
                     </TooltipRoot>
                     <TooltipRoot :delayDuration="200">
                       <TooltipTrigger as="div" class="cursor-help">
-                        {{ currency.symbol }}{{ microgonToMoneyNm(potentialDailyRevenue).formatIfElse('< 1_000', '0,0.00', '0,0') }}
+                        {{ microgonToMoneyNm(potentialDailyRevenue).formatCurrency(currency.symbol, 1_000) }}
                         Potential Daily Revenue
                       </TooltipTrigger>
                       <TooltipContent side="bottom" :sideOffset="4" :collisionPadding="9" class="text-md z-50 w-xs rounded-md border border-gray-800/20 bg-white px-4 py-3 text-left leading-5.5 font-light text-slate-900/60 shadow-2xl">
@@ -196,30 +197,28 @@
                       <TooltipTrigger
                         as="button"
                         type="button"
-                        class="flex w-full cursor-pointer flex-col items-center justify-center gap-1 hover:underline"
-                        @click="openSecuritization"
+                        class="flex w-full cursor-pointer flex-col items-center justify-start gap-1 hover:underline"
+                        @click="openSecuritization('ARGN')"
                       >
                         <span
                           class="flex items-center gap-1"
-                          :class="bitcoinMapSecuritizationShortfall ? 'text-yellow-800' : ''"
+                          :class="vaultingBreakdown.bitcoinUndersecuritized ? 'text-yellow-800' : ''"
                         >
                           <AlertIcon
-                            v-if="bitcoinMapSecuritizationShortfall > 0n"
+                            v-if="vaultingBreakdown.bitcoinUndersecuritized"
                             class="size-4 shrink-0 text-yellow-700"
                           />
-                          {{ numeral(vaultingBreakdown.securityMicrogonsActivatedPct).format('0,0.[00]') }}% of Allowed BTC Is Locked
+                          {{ numeral(vaultingBreakdown.securityMicrogonsActivatedPct).format('0,0.0') }}% of Allowed BTC Is Locked
                         </span>
-                        <span v-if="bitcoinMapSecuritizationShortfall > 0n" class="text-xs text-yellow-800">
-                          Under Securitized
+                        <span v-if="vaultingBreakdown.bitcoinUndersecuritized" class="text-xs text-yellow-800">
+                          Add Argon Securitization
                         </span>
                       </TooltipTrigger>
                       <TooltipContent side="bottom" :sideOffset="4" :collisionPadding="9" class="text-md z-50 w-xs rounded-md border border-gray-800/20 bg-white px-4 py-3 text-left leading-5.5 font-light text-slate-900/60 shadow-2xl">
-                        <template v-if="bitcoinMapSecuritizationShortfall > 0n">
-                          {{ numeral(vaultingBreakdown.securityMicrogonsActivatedPct).format('0,0.[00]') }}% is the
+                        <template v-if="vaultingBreakdown.bitcoinUndersecuritized">
+                          {{ numeral(vaultingBreakdown.securityMicrogonsActivatedPct).format('0,0.0') }}% is the
                           securitization currently assigned to active Bitcoin locks. Their market value exceeds your
-                          current securitization by
-                          {{ microgonToArgonNm(bitcoinMapSecuritizationShortfall).format('0,0.[00]') }} ARGN. Click to
-                          update it.
+                          current securitization. Click to update it.
                         </template>
                         <template v-else>
                           The percentage of your vault's bitcoin security space that is currently filled with active locks.
@@ -227,42 +226,174 @@
                         <TooltipArrow :width="27" :height="15" class="-mt-px fill-white stroke-gray-800/20 stroke-[0.5px]" />
                       </TooltipContent>
                     </TooltipRoot>
-                    <TooltipRoot :delayDuration="200">
-                      <TooltipTrigger
-                        as="button"
+                    <PopoverRoot v-model:open="revenuePopoverOpen">
+                      <PopoverAnchor as-child>
+                      <button
                         type="button"
-                        class="flex w-full cursor-pointer flex-col items-center justify-center gap-1 hover:underline"
-                        @click="openSecuritization"
+                        class="flex w-full cursor-pointer flex-col items-center justify-start gap-1 hover:underline"
+                        data-revenue-capture
+                        aria-haspopup="dialog"
+                        :aria-expanded="revenuePopoverOpen"
+                        @pointerenter="showRevenuePopover"
+                        @pointerleave="closeRevenuePopoverLater"
+                        @click="pinRevenuePopover"
                       >
                         <span class="flex items-center gap-1" :class="hasArgonotRewardAlert ? 'text-yellow-800' : ''">
                           <AlertIcon v-if="hasArgonotRewardAlert" class="size-4 shrink-0 text-yellow-700" />
-                          <template v-if="vaultingBreakdown.revenueCapturedPct !== undefined">{{ numeral(vaultingBreakdown.revenueCapturedPct).format('0,0.[00]') }}% of Potential Revenue Captured</template>
-                          <template v-else>Potential Revenue Capture Unavailable</template>
+                          <template v-if="vaultingBreakdown.revenueCapturedPct !== undefined">{{ numeral(vaultingBreakdown.revenueCapturedPct).format('0,0.0') }}% of Revenue Captured</template>
+                          <template v-else>Daily Revenue Capture Unavailable</template>
                         </span>
-                        <span v-if="hasArgonotRewardAlert" class="text-xs text-yellow-800">
-                          <template v-if="(vaultingBreakdown.argonotRewardBacking?.additionalMicronots ?? 0n) > 0n">ARGNOT Below Maximum Backing</template>
-                          <template v-else-if="(vaultingBreakdown.argonotRewardBacking?.withdrawalCancellationMicronots ?? 0n) > 0n">ARGNOT Withdrawal Reduces Backing</template>
-                          <template v-else>ARGNOT Update Applies Next Frame</template>
-                        </span>
-                      </TooltipTrigger>
-                      <TooltipContent side="bottom" :sideOffset="4" :collisionPadding="9" class="text-md z-50 w-xs rounded-md border border-gray-800/20 bg-white px-4 py-3 text-left leading-5.5 font-light text-slate-900/60 shadow-2xl">
-                        <template v-if="hasArgonotRewardAlert && vaultingBreakdown.argonotRewardBacking">
-                          <template v-if="vaultingBreakdown.argonotRewardBacking.additionalMicronots > 0n">
-                            Add {{ micronotToArgonotNm(vaultingBreakdown.argonotRewardBacking.additionalMicronots).format('0,0.[000000]') }} ARGNOT to reach maximum reward backing.
-                          </template>
-                          <template v-if="vaultingBreakdown.argonotRewardBacking.withdrawalCancellationMicronots > 0n">
-                            Cancel {{ micronotToArgonotNm(vaultingBreakdown.argonotRewardBacking.withdrawalCancellationMicronots).format('0,0.[000000]') }} ARGNOT of pending withdrawals to retain maximum reward backing.
-                          </template>
-                          <template v-if="vaultingBreakdown.argonotRewardBacking.additionalMicronots + vaultingBreakdown.argonotRewardBacking.withdrawalCancellationMicronots === 0n">Your ARGNOT backing is funded. Its reward contribution updates at the next frame.</template>
-                          With the current Bitcoin and bond usage, maximum ARGNOT backing would capture
-                          {{ numeral(vaultingBreakdown.revenuePotential!.capturedWithMaximumArgonotsPercent).format('0,0.[00]') }}% of potential revenue.
+                      </button>
+                      </PopoverAnchor>
+                      <PopoverPortal>
+                      <PopoverContent aria-label="Maximizing Daily Revenue" @openAutoFocus.prevent @pointerenter="showRevenuePopover" @pointerleave="closeRevenuePopoverLater" side="bottom" :sideOffset="8" :collisionPadding="24" :style="floatingZIndex" class="text-md w-xs rounded-md border border-gray-800/20 bg-white py-3 text-left leading-5.5 font-light text-slate-900/60 shadow-2xl">
+                        <template v-if="vaultingBreakdown.revenuePotential?.capturedPercent !== undefined && currentVaultFramePosition && argonBonds.data.frameCapital">
+                          <h3 class="border-b border-slate-300 px-4 pb-2 text-base font-semibold text-slate-700">Maximizing Daily Revenue</h3>
+                          <table class="w-full text-sm tabular-nums">
+                            <tbody>
+                              <tr class="group border-b border-slate-100">
+                                <th scope="row" class="py-2 pl-4 text-left font-normal">
+                                  <span class="inline-flex items-center gap-1">
+                                    Bitcoin Locked
+                                    <Tooltip @update:open="revenueTooltipOpen = $event" as-child side="left">
+                                      <button type="button" aria-label="Bitcoin locked percentage" class="inline-flex cursor-help">
+                                        <InformationCircleIcon class="size-3.5" />
+                                      </button>
+                                      <template #content>Maximize rewards by filling your Bitcoin space and keeping enough Argon securitization for all Bitcoin locks.</template>
+                                    </Tooltip>
+                                  </span>
+                                </th>
+                                <td class="py-2 pl-3 text-right">
+                                  <span class="inline-flex items-center gap-1">
+                                    <Tooltip @update:open="revenueTooltipOpen = $event" v-if="frameBitcoinUndersecuritized" as-child side="left">
+                                      <button type="button" aria-label="Bitcoin is undersecuritized" class="inline-flex cursor-help">
+                                        <AlertIcon class="size-3.5 text-yellow-700" />
+                                      </button>
+                                      <template #content>
+                                        Bitcoin was undersecuritized when this frame began, reducing the Bitcoin usage counted for rewards.
+                                        <template v-if="vaultingBreakdown.bitcoinUndersecuritized">Add Argon securitization to restore it.</template>
+                                        <template v-else-if="vaultingBreakdown.bitcoinRequiredSecuritizationMicrogons !== undefined">Your current funding is sufficient; rewards update next frame.</template>
+                                      </template>
+                                    </Tooltip>
+                                    <template v-if="frameBitcoinUsagePercent > 0 && frameBitcoinUsagePercent < 0.1">&lt;0.1%</template>
+                                    <template v-else>{{ numeral(frameBitcoinUsagePercent).format('0,0.0') }}%</template>
+                                  </span>
+                                </td>
+                              <td class="w-10 pr-4 pl-2 text-right">
+                                  <button type="button" data-revenue-action aria-label="Edit Bitcoin securitization" class="text-argon-600/60 inline-flex cursor-pointer opacity-0 group-hover:opacity-100 focus-visible:opacity-100" @click="openSecuritization('ARGN')">
+                                    <EditIcon class="size-3.5" />
+                                  </button>
+                                </td>
+                              </tr>
+                              <tr class="group border-b border-slate-100">
+                                <th scope="row" class="py-2 pl-4 text-left font-normal">
+                                  <span class="inline-flex items-center gap-1">
+                                    Argon Bonds
+                                    <Tooltip @update:open="revenueTooltipOpen = $event" as-child side="left">
+                                      <button type="button" aria-label="Argon bond capacity percentage" class="inline-flex cursor-help">
+                                        <InformationCircleIcon class="size-3.5" />
+                                      </button>
+                                      <template #content>Maximize rewards by selling 100% of your vault’s Argon Bonds.</template>
+                                    </Tooltip>
+                                  </span>
+                                </th>
+                                <td class="py-2 pl-3 text-right">
+                                  <template v-if="frameBondUsagePercent > 0 && frameBondUsagePercent < 0.1">&lt;0.1%</template>
+                                  <template v-else>{{ numeral(frameBondUsagePercent).format('0,0.0') }}%</template>
+                                </td>
+                              <td class="w-10 pr-4 pl-2 text-right">
+                                  <button type="button" data-revenue-action aria-label="Invite bond investors" class="text-argon-600/60 inline-flex cursor-pointer opacity-0 group-hover:opacity-100 focus-visible:opacity-100" @click="openInvestorInvite">
+                                    <EditIcon class="size-3.5" />
+                                  </button>
+                                </td>
+                              </tr>
+                              <tr class="group border-b border-slate-100">
+                                <th scope="row" class="py-2 pl-4 text-left font-normal">
+                                  <span class="inline-flex items-center gap-1">
+                                    Argonot Securitization
+                                    <Tooltip @update:open="revenueTooltipOpen = $event" as-child side="left">
+                                      <button type="button" aria-label="Argonot securitization percentage" class="inline-flex cursor-help">
+                                        <InformationCircleIcon class="size-3.5" />
+                                      </button>
+                                      <template #content>
+                                        Maximize rewards by locking ARGNOT worth 2× your Argon securitization.
+                                        <template v-if="vaultingBreakdown.argonotRewardBacking">
+                                          Your vault needs {{ micronotToArgonotNm(vaultingBreakdown.argonotRewardBacking.totalMicronots).format('0,0') }} ARGNOT at the protocol price.
+                                        </template>
+                                        <template v-else>The required ARGNOT amount is unavailable.</template>
+                                      </template>
+                                    </Tooltip>
+                                  </span>
+                                </th>
+                                <td class="py-2 pl-3 text-right">
+                                  <template v-if="argonotMaxReturnsPercent === undefined">&mdash;</template>
+                                  <template v-else-if="argonotMaxReturnsPercent > 0 && argonotMaxReturnsPercent < 0.1">&lt;0.1%</template>
+                                  <template v-else>{{ numeral(argonotMaxReturnsPercent).format('0,0.0') }}%</template>
+                                </td>
+                              <td class="w-10 pr-4 pl-2 text-right">
+                                  <button type="button" data-revenue-action aria-label="Edit Argonot securitization" class="text-argon-600/60 inline-flex cursor-pointer opacity-0 group-hover:opacity-100 focus-visible:opacity-100" @click="openSecuritization('ARGNOT')">
+                                    <EditIcon class="size-3.5" />
+                                  </button>
+                                </td>
+                              </tr>
+                              <tr class="group">
+                                <th scope="row" class="py-2 pl-4 text-left font-normal">
+                                  <span class="inline-flex items-center gap-1">
+                                    Argon Securitization
+                                    <Tooltip @update:open="revenueTooltipOpen = $event" as-child side="left">
+                                      <button type="button" aria-label="Argon network securitization percentage" class="inline-flex cursor-help">
+                                        <InformationCircleIcon class="size-3.5" />
+                                      </button>
+                                      <template #content>
+                                        Increase Argon securitization to earn a larger share of network rewards.
+                                        Network target: {{ microgonToArgonNm(argonBonds.data.frameCapital.targetSecuritization).format('0,0') }} ARGN.
+                                      </template>
+                                    </Tooltip>
+                                  </span>
+                                </th>
+                                <td class="py-2 pl-3 text-right">
+                                  <template v-if="vaultingBreakdown.revenuePotential.securitizationPercent === undefined">&mdash;</template>
+                                  <template v-else-if="vaultingBreakdown.revenuePotential.securitizationPercent > 0 && vaultingBreakdown.revenuePotential.securitizationPercent < 0.1">&lt;0.1%</template>
+                                  <template v-else>{{ numeral(vaultingBreakdown.revenuePotential.securitizationPercent).format('0,0.0') }}%</template>
+                                </td>
+                              <td class="w-10 pr-4 pl-2 text-right">
+                                  <button type="button" data-revenue-action aria-label="Edit Argon securitization" class="text-argon-600/60 inline-flex cursor-pointer opacity-0 group-hover:opacity-100 focus-visible:opacity-100" @click="openSecuritization('ARGN')">
+                                    <EditIcon class="size-3.5" />
+                                  </button>
+                                </td>
+                              </tr>
+                            </tbody>
+                            <tfoot class="border-t border-slate-300 font-semibold text-slate-700">
+                              <tr>
+                                <th scope="row" class="pt-2 pl-4 text-left font-semibold">Daily Revenue Captured</th>
+                                <td class="pt-2 pl-3 text-right">
+                                  <template v-if="vaultingBreakdown.revenuePotential.capturedPercent > 0 && vaultingBreakdown.revenuePotential.capturedPercent < 0.1">&lt;0.1%</template>
+                                  <template v-else>{{ numeral(vaultingBreakdown.revenuePotential.capturedPercent).format('0,0.0') }}%</template>
+                                </td>
+                                <td class="w-10 pr-4 pl-2" />
+                              </tr>
+                            </tfoot>
+                          </table>
+                          <p class="mt-3 px-4 text-xs">
+                            Explore revenue using the
+                            <a
+                              href="https://argon.network/docs/system-design/economic-drivers#Vaulting"
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              class="text-argon-600 inline-flex items-center gap-1 underline"
+                            >
+                              calculator
+                              <ArrowTopRightOnSquareIcon class="size-3" />
+                            </a>.
+                          </p>
                         </template>
-                        <template v-else>How much of your vault's potential network revenue is being earned. Bitcoin locks, bonds, and ARGNOT backing determine this percentage.</template>
-                        <TooltipArrow :width="27" :height="15" class="-mt-px fill-white stroke-gray-800/20 stroke-[0.5px]" />
-                      </TooltipContent>
-                    </TooltipRoot>
+                        <template v-else>Daily revenue capture is unavailable for this frame.</template>
+                        <PopoverPanelArrow class="-translate-y-px" />
+                      </PopoverContent>
+                      </PopoverPortal>
+                    </PopoverRoot>
                     <TooltipRoot :delayDuration="200">
-                      <TooltipTrigger as="div" class="cursor-help">{{ numeral(vaultingBreakdown.treasuryBondCapacityUsedPct).format('0,0.[00]')}}% of Allowed Bonds Are Secured</TooltipTrigger>
+                      <TooltipTrigger as="div" class="cursor-help">{{ numeral(vaultingBreakdown.treasuryBondCapacityUsedPct).format('0,0.0')}}% of Allowed Bonds Are Secured</TooltipTrigger>
                       <TooltipContent side="bottom" :sideOffset="4" :collisionPadding="9" class="text-md z-50 w-xs rounded-md border border-gray-800/20 bg-white px-4 py-3 text-left leading-5.5 font-light text-slate-900/60 shadow-2xl">
                         The percentage of your vault's treasury bond capacity that has been purchased by all investors.
                         <TooltipArrow :width="27" :height="15" class="-mt-px fill-white stroke-gray-800/20 stroke-[0.5px]" />
@@ -280,7 +411,97 @@
               :navigationDisabled="true"
               :chartItems="chartItems"
               :selectedIndex="sliderFrameIndex"
-              @changedFrame="updateSliderFrame" />
+              @changedFrame="updateSliderFrame">
+              <template #tooltipHeader="{ item }">
+                {{ dayjs.utc(item.date).local().format('MMMM D, h:mm A') }} to
+                {{ dayjs.utc((miningFrames.getTickEnd(item.id) + 1) * TICK_MILLIS).local().format('MMMM D, h:mm A') }}
+              </template>
+              <template #tooltip="{ item }">
+                <div v-if="chartReturnsByFrame[item.id]" class="space-y-3 whitespace-nowrap">
+                  <div class="grid grid-cols-3 divide-x divide-slate-300 border-b border-slate-200 py-1 pb-4 text-center">
+                    <div class="px-4">
+                      <header class="font-semibold text-slate-500">Earnings</header>
+                      <div class="text-argon-600 pt-1 font-mono text-3xl font-bold">
+                        <template v-if="chartReturnsByFrame[item.id].earningsMicrogons !== undefined">
+                          {{ currency.recordsByKey.ARGN.symbol }}{{ microgonToArgonNm(chartReturnsByFrame[item.id].earningsMicrogons!).formatIfElse('< 100', '0,0.00', '0,0') }}
+                        </template>
+                        <template v-else>&mdash;</template>
+                      </div>
+                      <p class="mt-1 text-slate-500">
+                        <template v-if="chartReturnsByFrame[item.id].frameProfitPercent !== undefined">
+                          <template v-if="chartReturnsByFrame[item.id].frameProfitPercent! > 0 && chartReturnsByFrame[item.id].frameProfitPercent! < 0.1">&lt;0.1%</template>
+                          <template v-else>{{ numeral(chartReturnsByFrame[item.id].frameProfitPercent).format('0,0.[0]') }}%</template>
+                          return
+                        </template>
+                        <template v-else-if="item.isFiller">Not active</template>
+                        <template v-else-if="item.id === miningFrames.currentFrameId">In progress</template>
+                        <template v-else>Unavailable</template>
+                      </p>
+                    </div>
+                    <div class="px-4">
+                      <header class="font-semibold text-slate-500">Bitcoin Locked</header>
+                      <div class="text-argon-600 pt-1 font-mono text-3xl font-bold">
+                        <template v-if="chartStatsByFrame[item.id]?.securitization > 0n">
+                          {{ numeral(getCappedPercent(chartStatsByFrame[item.id].securitizationActivated, chartStatsByFrame[item.id].securitization)).format('0,0.[0]') }}%
+                        </template>
+                        <template v-else>&mdash;</template>
+                      </div>
+                      <p class="mt-1 text-slate-500">of space filled</p>
+                    </div>
+                    <div class="px-4">
+                      <header class="font-semibold text-slate-500">Argon Bonds</header>
+                      <div class="text-argon-600 pt-1 font-mono text-3xl font-bold">
+                        <template v-if="chartStatsByFrame[item.id]?.securitization > 0n">
+                          {{ numeral(getPercent(chartStatsByFrame[item.id].treasuryPool.externalCapital + chartStatsByFrame[item.id].treasuryPool.vaultCapital, chartStatsByFrame[item.id].securitization)).format('0,0.[0]') }}%
+                        </template>
+                        <template v-else>&mdash;</template>
+                      </div>
+                      <p class="mt-1 text-slate-500">of space filled</p>
+                    </div>
+                  </div>
+                  <div v-if="chartReturnsByFrame[item.id].earningsMicrogons !== undefined && chartStatsByFrame[item.id]?.bitcoinFeeCouponValueUsed !== undefined">
+                    <h4 class="mb-2 font-semibold text-slate-700">Earnings Breakdown</h4>
+                    <div class="space-y-1">
+                      <p class="flex justify-between gap-6">
+                        <span class="text-slate-500">Bitcoin Locking Fees</span>
+                        <span>{{ currency.recordsByKey.ARGN.symbol }}{{ microgonToArgonNm(chartStatsByFrame[item.id].bitcoinFeeRevenue - chartStatsByFrame[item.id].bitcoinFeeCouponValueUsed!).format('0,0.00') }}</span>
+                      </p>
+                      <p class="flex justify-between gap-6">
+                        <span class="text-slate-500">Vault Rewards</span>
+                        <span>{{ currency.recordsByKey.ARGN.symbol }}{{ microgonToArgonNm(chartReturnsByFrame[item.id].earningsMicrogons! - chartStatsByFrame[item.id].bitcoinFeeRevenue + chartStatsByFrame[item.id].bitcoinFeeCouponValueUsed!).format('0,0.00') }}</span>
+                      </p>
+                    </div>
+                  </div>
+                  <div v-if="chartStatsByFrame[item.id]?.securitization > 0n" class="border-t border-slate-200 pt-3">
+                    <h4 class="mb-2 font-semibold text-slate-700">Vault Capital</h4>
+                    <p class="flex justify-between gap-6">
+                      <span class="text-slate-500">Argon Securitization</span>
+                      <span>{{ microgonToArgonNm(chartStatsByFrame[item.id].securitization).format('0,0.[00]') }} ARGN</span>
+                    </p>
+                    <p v-if="chartStatsByFrame[item.id].argonotSecuritizationMicronots !== undefined" class="mt-1 flex justify-between gap-6">
+                      <span class="text-slate-500">Argonot Securitization</span>
+                      <span>{{ micronotToArgonotNm(chartStatsByFrame[item.id].argonotSecuritizationMicronots!).format('0,0.[00]') }} ARGNOT</span>
+                    </p>
+                  </div>
+                  <div class="border-t border-slate-200 pt-3">
+                    <h4 class="mb-2 font-semibold text-slate-700">Network</h4>
+                    <p class="flex justify-between gap-6">
+                      <span class="text-slate-500">Auction Pool</span>
+                      <span v-if="chartNetworkPoolsByFrame[item.id]">{{ microgonToArgonNm(chartNetworkPoolsByFrame[item.id].auctionPoolMicrogons).format('0,0.[00]') }} ARGN</span>
+                      <span v-else>&mdash;</span>
+                    </p>
+                    <p class="mt-1 flex justify-between gap-6">
+                      <span class="text-slate-500">
+                        <template v-if="chartNetworkPoolsByFrame[item.id]?.includesBondPayments">Vault &amp; Bond Pool</template>
+                        <template v-else>Vault Rewards Pool</template>
+                      </span>
+                      <span v-if="chartNetworkPoolsByFrame[item.id]?.vaultPoolMicrogons !== undefined">{{ microgonToArgonNm(chartNetworkPoolsByFrame[item.id].vaultPoolMicrogons!).format('0,0.[00]') }} ARGN</span>
+                      <span v-else>&mdash;</span>
+                    </p>
+                  </div>
+                </div>
+              </template>
+            </FrameSlider>
           </section>
         </div>
       </section>
@@ -327,7 +548,7 @@ const chartItems = Vue.ref<IChartItem[]>([]);
 import { createNumeralHelpers } from '../../lib/numeral.ts';
 import { getCurrency } from '../../stores/currency.ts';
 import numeral from '../../lib/numeral.ts';
-import { getMyVault } from '../../stores/vaults.ts';
+import { getMyVault, getVaults } from '../../stores/vaults.ts';
 import type { IExternalBitcoinLock } from '../../lib/MyVault.ts';
 import { getConfig } from '../../stores/config.ts';
 import { TICK_MILLIS } from '../../lib/Env.ts';
@@ -337,10 +558,23 @@ import {
   bigIntMax,
   bigNumberToBigInt,
   BondLot,
+  getPercent,
   NetworkConfig,
   TreasuryBonds,
+  type IAllVaultStats,
+  type IVaultFrameStats,
 } from '@argonprotocol/apps-core';
-import { TooltipProvider, TooltipRoot, TooltipTrigger, TooltipContent, TooltipArrow } from 'reka-ui';
+import {
+  TooltipProvider,
+  TooltipRoot,
+  TooltipTrigger,
+  TooltipContent,
+  TooltipArrow,
+  PopoverRoot,
+  PopoverAnchor,
+  PopoverContent,
+  PopoverPortal,
+} from 'reka-ui';
 import { getMainchainClient, getMiningFrames } from '../../stores/mainchain.ts';
 import { getBitcoinLocks } from '../../stores/bitcoin.ts';
 import basicEmitter from '../../emitters/basicEmitter.ts';
@@ -355,6 +589,12 @@ import { OperationalStepId, useCertificationController } from '../../stores/cert
 import ArrowCalloutButton from '../../components/ArrowCalloutButton.vue';
 import { useFinancials } from '../../stores/financials.ts';
 import AlertIcon from '../../assets/alert.svg?component';
+import EditIcon from '../../assets/edit.svg?component';
+import PopoverPanelArrow from '../../components/PopoverPanelArrow.vue';
+import { useFloatingZIndex } from '../../overlays/helpers/OverlayZIndex.ts';
+import { ArrowTopRightOnSquareIcon, InformationCircleIcon } from '@heroicons/vue/24/outline';
+import Tooltip from '../../components/Tooltip.vue';
+import { getCappedPercent } from '../../lib/Utils.ts';
 import BigNumber from 'bignumber.js';
 import { useWallets } from '../../stores/wallets.ts';
 import { useMiningStats } from '../../stores/miningStats.ts';
@@ -362,6 +602,7 @@ import { useMiningStats } from '../../stores/miningStats.ts';
 dayjs.extend(utc);
 
 const myVault = getMyVault();
+const vaults = getVaults();
 const controller = useCertificationController();
 const bitcoinLocks = getBitcoinLocks();
 const config = getConfig();
@@ -372,6 +613,69 @@ const wallets = useWallets();
 const miningStats = useMiningStats();
 
 const vaultingBreakdown = useVaultingAssetBreakdown();
+const currentVaultFramePosition = Vue.computed(() => {
+  const vaultId = myVault.vaultId;
+  return vaultId == null ? undefined : argonBonds.data.frameCapital?.vaultSecuritizationPositions[vaultId];
+});
+const revenuePopoverOpen = Vue.ref(false);
+let revenuePopoverPinned = false;
+let revenuePopoverHovered = false;
+const revenueTooltipOpen = Vue.ref(false);
+let revenueCloseTimer: ReturnType<typeof setTimeout> | undefined;
+
+function showRevenuePopover() {
+  revenuePopoverHovered = true;
+  clearTimeout(revenueCloseTimer);
+  revenuePopoverOpen.value = true;
+}
+
+function closeRevenuePopoverLater() {
+  revenuePopoverHovered = false;
+  if (revenuePopoverPinned) return;
+  if (revenueTooltipOpen.value) return;
+  clearTimeout(revenueCloseTimer);
+  revenueCloseTimer = setTimeout(() => {
+    revenuePopoverOpen.value = false;
+  }, 200);
+}
+
+function pinRevenuePopover() {
+  clearTimeout(revenueCloseTimer);
+  revenuePopoverPinned = !revenuePopoverPinned;
+  revenuePopoverOpen.value = revenuePopoverPinned;
+}
+
+Vue.watch(revenueTooltipOpen, isOpen => {
+  if (!isOpen && !revenuePopoverHovered) closeRevenuePopoverLater();
+});
+Vue.watch(revenuePopoverOpen, isOpen => {
+  if (!isOpen) revenuePopoverPinned = false;
+});
+Vue.onBeforeUnmount(() => clearTimeout(revenueCloseTimer));
+const floatingZIndex = useFloatingZIndex();
+const frameBitcoinUsagePercent = Vue.computed(() => {
+  const position = currentVaultFramePosition.value;
+  if (!position) return 0;
+  return getCappedPercent(position.activatedSecuritization, position.securitization);
+});
+const frameBondUsagePercent = Vue.computed(() => {
+  const position = currentVaultFramePosition.value;
+  if (!position) return 0;
+  return getCappedPercent(position.activeBondMicrogons, position.securitization);
+});
+const argonotMaxReturnsPercent = Vue.computed(() => {
+  const position = currentVaultFramePosition.value;
+  if (!position) return;
+  return getCappedPercent(position.argonotSecuritizationInMicrogons, position.securitization * 2n);
+});
+const frameBitcoinUndersecuritized = Vue.computed(() => {
+  const position = currentVaultFramePosition.value;
+  if (!position) return false;
+  const shortfall = position.bitcoinLockedMicrogons - position.securitization;
+  if (shortfall <= 0n) return false;
+  return shortfall * 100n >= position.securitization;
+});
+
 const hasArgonotRewardAlert = Vue.computed(() => {
   const backing = vaultingBreakdown.argonotRewardBacking;
   if (!backing) return false;
@@ -382,13 +686,15 @@ const hasArgonotRewardAlert = Vue.computed(() => {
   return (potential.capturedWithMaximumArgonotsPercent ?? 0) > potential.capturedPercent;
 });
 
-const rules = config.vaultingRules;
-
 const latestFrameId = Vue.computed(() => {
   return frameRecords.value.at(-1)?.id ?? 0;
 });
 
-const { microgonToArgonNm, microgonToMoneyNm, micronotToArgonotNm } = createNumeralHelpers(currency);
+const { microgonToMoneyNm, microgonToArgonNm, micronotToArgonotNm } = createNumeralHelpers(currency);
+
+const chartReturnsByFrame = Vue.computed(() => Object.fromEntries(frameRecords.value.map(frame => [frame.id, frame])));
+const chartStatsByFrame = Vue.shallowRef<Record<number, IVaultFrameStats>>({});
+const chartNetworkPoolsByFrame = Vue.shallowRef<NonNullable<IAllVaultStats['networkPoolsByFrame']>>({});
 
 const vaultBondState = Vue.computed<IVaultArgonBondState | undefined>(() => {
   const vaultId = myVault.vaultId;
@@ -446,7 +752,7 @@ const potentialDailyRevenue = Vue.computed(() => {
     globalActiveBonds: bondFrame.globalBonds,
     myActiveBonds: bondFrame.vaultBonds,
     fullTreasuryBondCapacity: vaultingBreakdown.treasuryBondPurchaseCapacityBonds,
-    operatorKeepPct: 100 - (rules.profitSharingPct ?? 0),
+    operatorKeepPct: 100 - (myVault.createdVault.bondProfitSharing?.times(100).toNumber() ?? 0),
   });
 });
 
@@ -542,23 +848,6 @@ function handleBitcoinTileClick(key: string) {
   }
 }
 
-const bitcoinLockedMarketValue = Vue.computed(() => {
-  let value = 0n;
-
-  for (const lock of localVaultLocks.value) {
-    if (!bitcoinLocks.isLockFunded(lock) && !bitcoinLocks.isReleaseStatus(lock)) continue;
-
-    value += currency.convertSatToMicrogon(lock.fundedSatoshis);
-  }
-  for (const lock of Object.values(myVault.data.externalLocks)) {
-    if (lock.isPending) continue;
-
-    value += currency.convertSatToMicrogon(lock.satoshis);
-  }
-
-  return value;
-});
-
 const bitcoinLockCapacity = Vue.computed(() => {
   const vault = myVault.createdVault;
   if (!vault) return 0n;
@@ -631,10 +920,6 @@ const bitcoinMapUsed = Vue.computed(() => {
 
 const bitcoinMapRemainder = Vue.computed(() => {
   return bitcoinMapTotal.value > bitcoinMapUsed.value ? bitcoinMapTotal.value - bitcoinMapUsed.value : 0n;
-});
-
-const bitcoinMapSecuritizationShortfall = Vue.computed(() => {
-  return bigIntMax(bitcoinLockedMarketValue.value - vaultingBreakdown.securityMicrogons, 0n);
 });
 
 const bondMapTotal = Vue.computed(() => {
@@ -837,8 +1122,14 @@ function openVaultEditOverlay() {
   basicEmitter.emit('openVaultSettingsOverlay');
 }
 
-function openSecuritization() {
-  basicEmitter.emit('openVaultSettingsOverlay');
+function openSecuritization(fundingAsset: 'ARGN' | 'ARGNOT') {
+  revenuePopoverOpen.value = false;
+  basicEmitter.emit('openVaultSettingsOverlay', { fundingAsset });
+}
+
+function openInvestorInvite() {
+  revenuePopoverOpen.value = false;
+  basicEmitter.emit('openMemberInviteOverlay');
 }
 
 const miningFrames = getMiningFrames();
@@ -849,6 +1140,9 @@ function loadChartData(currentFrameId?: number) {
 
   chartItems.value = profitAnalysis.items;
   frameRecords.value = profitAnalysis.records;
+  const stats = vaults.stats?.vaultsById[myVault.vaultId!] ?? myVault.data.stats;
+  chartStatsByFrame.value = Object.fromEntries((stats?.changesByFrame ?? []).map(frame => [frame.frameId, frame]));
+  chartNetworkPoolsByFrame.value = vaults.stats?.networkPoolsByFrame ?? {};
   const targetFrameId = currentFrameId ?? currentFrame.value.id;
   currentFrame.value =
     frameRecords.value.find(frame => frame.id === targetFrameId) ?? frameRecords.value.at(-1) ?? currentFrame.value;
@@ -871,16 +1165,13 @@ async function refreshCurrentFrameBonds() {
 
 let onFrameSubscription: { unsubscribe: () => void };
 
+Vue.watch(
+  () => [myVault.data.stats, vaults.currentState.statsRevision, argonBonds.data.financialRevision] as const,
+  () => loadChartData(miningFrames.currentFrameId),
+  { deep: true, immediate: true },
+);
+
 Vue.onMounted(async () => {
-  await miningFrames.load();
-  await myVault.load();
-
-  Vue.watch(
-    () => [myVault.data.stats, argonBonds.data.financialRevision] as const,
-    () => loadChartData(),
-    { deep: true },
-  );
-
   onFrameSubscription = miningFrames.onFrameId(async frameId => {
     loadChartData(frameId);
     await refreshCurrentFrameBonds();
@@ -889,7 +1180,6 @@ Vue.onMounted(async () => {
   const client = await getMainchainClient(false);
   await argonBonds.subscribeGlobal(client);
 
-  loadChartData();
   await refreshCurrentFrameBonds();
 });
 

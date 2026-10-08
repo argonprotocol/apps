@@ -9,7 +9,7 @@ import utc from 'dayjs/plugin/utc.js';
 dayjs.extend(utc);
 
 export const useVaultingStats = defineStore('vaultingStats', () => {
-  let hasLoaded = false;
+  const isLoaded = Vue.ref(false);
   let updatePromise: Promise<void> | undefined = undefined;
   let isLoadedPromise: Promise<void> | undefined = undefined;
 
@@ -40,13 +40,13 @@ export const useVaultingStats = defineStore('vaultingStats', () => {
     ratchetThreshold: 0.1,
   }).percent;
 
-  async function update() {
+  async function update(refreshRevenue = false) {
+    if (refreshRevenue) await vaults.updateRevenue();
     if (updatePromise) return await updatePromise;
 
     updatePromise = (async () => {
-      if (!hasLoaded) {
+      if (!isLoaded.value) {
         await stats.load();
-        hasLoaded = true;
       } else {
         await stats.update();
       }
@@ -61,6 +61,7 @@ export const useVaultingStats = defineStore('vaultingStats', () => {
       argonotStakingAPR.value = stats.argonotStakingAPR;
       argonBurnCapacity.value = stats.argonBurnCapacity;
       finalPriceAfterTerraCollapse.value = stats.finalPriceAfterTerraCollapse;
+      isLoaded.value = true;
     })();
 
     try {
@@ -71,6 +72,12 @@ export const useVaultingStats = defineStore('vaultingStats', () => {
   }
 
   isLoadedPromise = update();
+  Vue.watch(
+    () => vaults.currentState.statsRevision,
+    () => {
+      void update().catch(error => console.warn('[VaultingStats] Unable to refresh returns', error));
+    },
+  );
 
   return {
     vaultCount,
@@ -85,6 +92,7 @@ export const useVaultingStats = defineStore('vaultingStats', () => {
     argonBurnCapacity,
     finalPriceAfterTerraCollapse,
     isLoadedPromise,
+    isLoaded,
     update,
   };
 });

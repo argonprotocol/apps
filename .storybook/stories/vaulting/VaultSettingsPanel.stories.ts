@@ -24,12 +24,7 @@ const meta = {
     currency.isLoaded = true;
     currency.microgonsPer.BTC = 68_000_000_000n;
     const myVault = getMyVault();
-    myVault.buildSecuritizationTx = fn(
-      async () =>
-        ({
-          paymentInfo: fn(async () => ({ partialFee: { toBigInt: () => 10_000n } })),
-        }) as unknown as Awaited<ReturnType<MyVault['buildSecuritizationTx']>>,
-    );
+    myVault.estimateSecuritizationFee = fn(async () => 10_000n);
     myVault.setVaultSecuritization = fn(async () => {
       throw new Error('Funding is disabled in this fixed preview.');
     });
@@ -39,7 +34,7 @@ const meta = {
     myVault.data.argonotCommitment = {
       heldMicronots: 750_000_000n,
       committedMicronots: 750_000_000n,
-      encumberedMicronots: 100_000_000n,
+      encumberedMicronots: 0n,
     };
     Object.defineProperty(
       myVault,
@@ -47,8 +42,8 @@ const meta = {
       Object.getOwnPropertyDescriptor(MyVault.prototype, 'argonotSecuritizationTarget')!,
     );
     myVault.createdVault!.terms = { bitcoinBaseFee: 2_000_000n, bitcoinAnnualPercentRate: BigNumber(0.034) };
-    getConfig().vaultingRules.btcFlatFee = 2_000_000n;
-    getConfig().vaultingRules.btcPctFee = 3.4;
+    getConfig().vaultSetup.btcFlatFee = 2_000_000n;
+    getConfig().vaultSetup.btcPctFee = 3.4;
     Object.assign(useWallets(), { defaultArgonSpendableMicrogons: 1_000_000_000n });
     useWallets().defaultArgonWallet.availableMicronots = 3_000_000_000n;
     getBitcoinLocks().data.oracleBitcoinBlockHeight = 860_000;
@@ -93,6 +88,32 @@ const meta = {
 export default meta;
 type Story = StoryObj<typeof meta>;
 
+export const ArgonotDetails: Story = {
+  play: async () => {
+    await userEvent.hover(await within(document.body).findByRole('button', { name: 'Argonot securitization details' }));
+  },
+};
+
+export const PastMintingAuthority: Story = {
+  beforeEach: () => {
+    getMyVault().mintingAuthorities.data.authorities = [
+      {
+        signer: '0x3333333333333333333333333333333333333333',
+        authorityIndex: 1,
+        isPendingActivation: false,
+        isDeactivating: false,
+        isActive: false,
+        gatewayRemainingMicrogonCollateral: 0n,
+        pendingReservedMicrogonCollateral: 0n,
+        gatewayRemainingMicronotCollateral: 0n,
+        pendingReservedMicronotCollateral: 0n,
+        activePendingTransferIds: [],
+      },
+    ];
+  },
+  play: ArgonotDetails.play,
+};
+
 export const Settings: Story = {};
 
 export const PositionEdit: Story = {
@@ -114,7 +135,7 @@ export const FullySecuritized: Story = {
     getMyVault().data.argonotCommitment = {
       heldMicronots: 2_400_000_000n,
       committedMicronots: 2_400_000_000n,
-      encumberedMicronots: 100_000_000n,
+      encumberedMicronots: 0n,
     };
   },
 };
@@ -122,7 +143,7 @@ export const FullySecuritized: Story = {
 export const AddArgons: Story = {
   play: async () => {
     const canvas = within(document.body);
-    await userEvent.click(await canvas.findByRole('button', { name: 'Edit ARGN securitization' }));
+    await userEvent.click(await canvas.findByRole('button', { name: 'Edit Argon securitization' }));
     const popover = within(await canvas.findByRole('dialog', { name: 'Securitization editor' }));
     const input = within(popover.getByTestId('settings-funding-amount')).getByTestId('input-number');
     await userEvent.clear(input);
@@ -134,7 +155,7 @@ export const AddArgons: Story = {
 export const AddArgonotsForMaxReturns: Story = {
   play: async () => {
     const canvas = within(document.body);
-    await userEvent.click(await canvas.findByRole('button', { name: 'Edit ARGNOT securitization' }));
+    await userEvent.click(await canvas.findByRole('button', { name: 'Edit Argonot securitization' }));
     const popover = within(await canvas.findByRole('dialog', { name: 'Securitization editor' }));
     await userEvent.click(popover.getByRole('button', { name: 'Max Returns' }));
   },
@@ -143,7 +164,7 @@ export const AddArgonotsForMaxReturns: Story = {
 export const AddArgonsWalletMaximum: Story = {
   play: async () => {
     const canvas = within(document.body);
-    await userEvent.click(await canvas.findByRole('button', { name: 'Edit ARGN securitization' }));
+    await userEvent.click(await canvas.findByRole('button', { name: 'Edit Argon securitization' }));
     const popover = within(await canvas.findByRole('dialog', { name: 'Securitization editor' }));
     const slider = popover.getByRole('slider', { name: 'ARGN amount to add' });
     await userEvent.click(slider);
@@ -154,7 +175,7 @@ export const AddArgonsWalletMaximum: Story = {
 export const AddArgonotsWalletMaximum: Story = {
   play: async () => {
     const canvas = within(document.body);
-    await userEvent.click(await canvas.findByRole('button', { name: 'Edit ARGNOT securitization' }));
+    await userEvent.click(await canvas.findByRole('button', { name: 'Edit Argonot securitization' }));
     const popover = within(await canvas.findByRole('dialog', { name: 'Securitization editor' }));
     const slider = popover.getByRole('slider', { name: 'ARGNOT amount to add' });
     await userEvent.click(slider);
@@ -170,7 +191,7 @@ export const WithdrawBeforeFrameCommitment: Story = {
   },
   play: async () => {
     const canvas = within(document.body);
-    await userEvent.click(await canvas.findByRole('button', { name: 'Edit ARGN securitization' }));
+    await userEvent.click(await canvas.findByRole('button', { name: 'Edit Argon securitization' }));
     const popover = within(await canvas.findByRole('dialog', { name: 'Securitization editor' }));
     await userEvent.click(popover.getByRole('radio', { name: 'Withdraw' }));
   },
@@ -182,7 +203,7 @@ export const EmptyWallet: Story = {
   },
   play: async () => {
     const canvas = within(document.body);
-    await userEvent.click(await canvas.findByRole('button', { name: 'Edit ARGN securitization' }));
+    await userEvent.click(await canvas.findByRole('button', { name: 'Edit Argon securitization' }));
     await canvas.findByRole('dialog', { name: 'Securitization editor' });
   },
 };
@@ -190,7 +211,7 @@ export const EmptyWallet: Story = {
 export const RemoveArgons: Story = {
   play: async () => {
     const canvas = within(document.body);
-    await userEvent.click(await canvas.findByRole('button', { name: 'Edit ARGN securitization' }));
+    await userEvent.click(await canvas.findByRole('button', { name: 'Edit Argon securitization' }));
     const popover = within(await canvas.findByRole('dialog', { name: 'Securitization editor' }));
     await userEvent.click(popover.getByRole('radio', { name: 'Withdraw' }));
     const input = within(popover.getByTestId('settings-funding-amount')).getByTestId('input-number');
@@ -207,7 +228,7 @@ export const RemoveArgonots: Story = {
   },
   play: async () => {
     const canvas = within(document.body);
-    await userEvent.click(await canvas.findByRole('button', { name: 'Edit ARGNOT securitization' }));
+    await userEvent.click(await canvas.findByRole('button', { name: 'Edit Argonot securitization' }));
     const popover = within(await canvas.findByRole('dialog', { name: 'Securitization editor' }));
     await userEvent.click(popover.getByRole('radio', { name: 'Withdraw' }));
     const input = within(popover.getByTestId('settings-funding-amount')).getByTestId('input-number');
@@ -232,7 +253,7 @@ export const TransactionInProgress: Story = {
   },
   play: async () => {
     const canvas = within(document.body);
-    await userEvent.click(await canvas.findByRole('button', { name: 'Edit ARGN securitization' }));
+    await userEvent.click(await canvas.findByRole('button', { name: 'Edit Argon securitization' }));
     await canvas.findByRole('dialog', { name: 'Securitization editor' });
   },
 };
@@ -308,7 +329,7 @@ export const ArgonotTransactionInProgress: Story = {
   },
   play: async () => {
     const canvas = within(document.body);
-    await userEvent.click(await canvas.findByRole('button', { name: 'Edit ARGNOT securitization' }));
+    await userEvent.click(await canvas.findByRole('button', { name: 'Edit Argonot securitization' }));
     await canvas.findByRole('dialog', { name: 'Securitization editor' });
   },
 };
@@ -334,7 +355,7 @@ export const InsufficientWalletFunds: Story = {
 
 export const FeeEstimateFailed: Story = {
   beforeEach: () => {
-    getMyVault().buildSecuritizationTx = fn(async () => {
+    getMyVault().estimateSecuritizationFee = fn(async () => {
       throw new Error('Unable to estimate the transaction fee. Please retry.');
     });
   },
@@ -359,7 +380,7 @@ export const BitcoinFeePersistenceFailed: Story = {
         status: TransactionStatus.Finalized,
       }),
     );
-    getConfig().saveVaultingRules = fn(async () => {
+    getConfig().saveVaultSetup = fn(async () => {
       throw new Error('Unable to save Bitcoin locking fees. Please retry.');
     });
   },

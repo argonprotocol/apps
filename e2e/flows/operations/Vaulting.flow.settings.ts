@@ -56,10 +56,10 @@ export default new OperationalFlow<IVaultingFlowContext, SettingsState>(import.m
       { clear: true },
     );
     await flow.click('EditBoxOverlay.cancelOverlay()');
-    const cancelledFee = await flow.queryApp(refs => refs.config.vaultingRules.btcFlatFee.toString());
+    const cancelledFee = await flow.queryApp(refs => refs.config.vaultSetup.btcFlatFee.toString());
     if (cancelledFee !== initial.flatFee) throw new Error('Cancelled Bitcoin fee changes were retained.');
 
-    await flow.click({ selector: '[aria-label="Edit ARGN securitization"]' });
+    await flow.click({ selector: '[aria-label="Edit Argon securitization"]' });
     await flow.type({ selector: '[data-testid="settings-funding-amount"] [data-testid="input-number"]' }, '10', {
       clear: true,
     });
@@ -68,7 +68,7 @@ export default new OperationalFlow<IVaultingFlowContext, SettingsState>(import.m
     await flow.click('VaultSettingsPanel.fundingPopoverOpen = false');
     await flow.click('VaultSettingsPanel.closeOverlay()');
     await flow.click('Dashboard.openVaultEditOverlay()');
-    await flow.click({ selector: '[aria-label="Edit ARGN securitization"]' });
+    await flow.click({ selector: '[aria-label="Edit Argon securitization"]' });
     await flow.waitFor({ selector: '[aria-label="Securitization editor"]' });
     // Finalization may complete while settings are closed; reopening then shows a new draft.
     const reopenedDraft = await flow.isVisible({
@@ -81,7 +81,7 @@ export default new OperationalFlow<IVaultingFlowContext, SettingsState>(import.m
     if (!addedArgons.includes(`${((BigInt(initial.argons) + 10_000_000n) / 1_000_000n).toLocaleString('en-US')} ARGN`))
       throw new Error(`Finalized ARGN was not displayed: ${addedArgons}`);
 
-    await flow.click({ selector: '[aria-label="Edit ARGNOT securitization"]' });
+    await flow.click({ selector: '[aria-label="Edit Argonot securitization"]' });
     await flow.type({ selector: '[data-testid="settings-funding-amount"] [data-testid="input-number"]' }, '10', {
       clear: true,
     });
@@ -103,7 +103,7 @@ export default new OperationalFlow<IVaultingFlowContext, SettingsState>(import.m
       },
       { timeoutMs: 60_000 },
     );
-    await flow.click({ selector: '[aria-label="Edit ARGN securitization"]' });
+    await flow.click({ selector: '[aria-label="Edit Argon securitization"]' });
     await flow.click({ selector: '[aria-label="Securitization action"] input[value="withdraw"]' });
     await flow.type({ selector: '[data-testid="settings-funding-amount"] [data-testid="input-number"]' }, '10', {
       clear: true,
@@ -141,7 +141,7 @@ export default new OperationalFlow<IVaultingFlowContext, SettingsState>(import.m
         if (
           command === 'sql_execute_write' &&
           sql?.query?.startsWith('INSERT INTO Config') &&
-          sql.values?.includes('vaultingRules')
+          sql.values?.includes('vaultSetup')
         ) {
           internals.invoke = invoke;
           return Promise.reject(new Error('Synthetic vault settings persistence failure'));
@@ -169,7 +169,7 @@ export default new OperationalFlow<IVaultingFlowContext, SettingsState>(import.m
         argons: vault.securitizationTarget.toString(),
         argonots: refs.myVault.data.argonotCommitment.heldMicronots.toString(),
         flatFee: terms.bitcoinBaseFee.toString(),
-        configuredFlatFee: refs.config.vaultingRules.btcFlatFee.toString(),
+        configuredFlatFee: refs.config.vaultSetup.btcFlatFee.toString(),
       };
     });
     flow.setData('updatedVaultSettings', result);

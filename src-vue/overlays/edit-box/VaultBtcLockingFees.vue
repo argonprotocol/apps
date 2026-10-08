@@ -8,14 +8,14 @@
     Flat Fee
   </div>
   <div class="flex flex-row items-center gap-2 w-full">
-    <InputMoney v-model="config.vaultingRules.btcFlatFee" :disabled="isSaving || !!transaction" :min="BigInt(MICROGONS_PER_ARGON)" class="w-full" />
+    <InputMoney v-model="config.vaultSetup.btcFlatFee" :disabled="isSaving || !!transaction" :min="BigInt(MICROGONS_PER_ARGON)" class="w-full" />
   </div>
 
   <div class="mt-3 font-bold opacity-60 mb-0.5">
     Percentage Fee
   </div>
   <div class="flex flex-row items-center gap-2 w-full">
-    <InputNumber v-model="config.vaultingRules.btcPctFee" :disabled="isSaving || !!transaction" :min="0" :dragBy="1" :dragByMin="0.1" :maxDecimals="1" format="percent" class="w-full" />
+    <InputNumber v-model="config.vaultSetup.btcPctFee" :disabled="isSaving || !!transaction" :min="0" :dragBy="1" :dragByMin="0.1" :maxDecimals="1" format="percent" class="w-full" />
   </div>
   <div v-if="isSaving" class="mt-4">
     <ProgressBar :progress="progressPct" />
@@ -25,8 +25,7 @@
 
 <script setup lang="ts">
 import * as Vue from 'vue';
-import { JsonExt } from '@argonprotocol/apps-core';
-import type { IVaultingRules } from '../../interfaces/IVaultingRules.ts';
+import BigNumber from 'bignumber.js';
 import { getMyVault } from '../../stores/vaults.ts';
 import { getTransactionFailureMessage } from '../../lib/TransactionInfo.ts';
 import ProgressBar from '../../components/ProgressBar.vue';
@@ -37,7 +36,6 @@ import { MICROGONS_PER_ARGON } from '@argonprotocol/mainchain';
 
 const config = getConfig();
 const myVault = getMyVault();
-const previousRules = JsonExt.parse<IVaultingRules>(JsonExt.stringify(config.vaultingRules));
 const isSaving = Vue.ref(false);
 const savingError = Vue.ref('');
 const progressPct = Vue.ref(0);
@@ -58,8 +56,10 @@ async function beforeSave(stopSave: () => void) {
       await myVault.recordFinalizedVaultCapital(transaction.value);
     } else {
       transaction.value = await myVault.updateSettings({
-        rules: Vue.toRaw(config.vaultingRules),
-        previousRules,
+        terms: {
+          bitcoinBaseFee: config.vaultSetup.btcFlatFee,
+          bitcoinAnnualPercentRate: BigNumber(config.vaultSetup.btcPctFee).div(100),
+        },
         txProgressCallback: progress => {
           progressPct.value = progress;
         },
@@ -69,7 +69,7 @@ async function beforeSave(stopSave: () => void) {
       });
       await transaction.value?.waitForPostProcessing;
     }
-    await config.saveVaultingRules();
+    await config.saveVaultSetup();
   } catch (error) {
     savingError.value = error instanceof Error ? error.message : 'Unable to save Bitcoin locking fees.';
     stopSave();

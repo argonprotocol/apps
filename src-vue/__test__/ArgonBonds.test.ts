@@ -30,6 +30,13 @@ import { numberCodec } from '../../core/__test__/helpers/codecs.ts';
 import { TransactionStatus } from '../lib/db/TransactionsTable.ts';
 import { SyncStateKeys } from '../lib/db/SyncStateTable.ts';
 import { createScenarioVault } from '../../.storybook/scenarios/createScenarioVault.ts';
+import { createPinia, setActivePinia } from 'pinia';
+import { reactive } from 'vue';
+import { Currency as AppCurrency } from '../lib/Currency.ts';
+import * as vaultStore from '../stores/vaults.ts';
+import * as bondStore from '../stores/argonBonds.ts';
+import * as currencyStore from '../stores/currency.ts';
+import { useVaultingAssetBreakdown } from '../stores/vaultingAssetBreakdown.ts';
 
 const registry = getOfflineRegistry();
 const deployedRegistry = new TypeRegistry();
@@ -39,6 +46,59 @@ deployedRegistry.setMetadata(
 const accountId = encodeAddress(new Uint8Array(32).fill(0x22));
 
 describe('ArgonBonds', () => {
+  it('compares current Bitcoin backing at market prices and updates after funding', () => {
+    setActivePinia(createPinia());
+    const oneArgon = BigInt(MICROGONS_PER_ARGON);
+    const vault = reactive(
+      createScenarioVault({
+        totalSatoshis: 100_000_000n,
+        securitization: 100n * oneArgon,
+        securitizationLocked: 100n * oneArgon,
+      }),
+    );
+    const currency = reactive(new AppCurrency({ events: { on: vi.fn() } } as any, {} as any));
+    currency.priceIndex.btcUsdPrice = BigNumber(104);
+    currency.priceIndex.argonUsdPrice = BigNumber(1.05);
+    currency.priceIndex.argonUsdTargetPrice = BigNumber(1);
+    currency.microgonsPer = { ...currency.microgonsPer, BTC: 104n * oneArgon };
+    const vaultAccessor = vi
+      .spyOn(vaultStore, 'getMyVault')
+      .mockReturnValue(reactive({ createdVault: vault }) as ReturnType<typeof vaultStore.getMyVault>);
+    const bondAccessor = vi.spyOn(bondStore, 'getArgonBonds').mockReturnValue({} as ArgonBonds);
+    const currencyAccessor = vi.spyOn(currencyStore, 'getCurrency').mockReturnValue(currency as AppCurrency);
+
+    try {
+      const breakdown = useVaultingAssetBreakdown();
+      expect(breakdown.securityMicrogonsActivatedPct).toBe(100);
+      // Target-price display conversion is 104 ARGN; actual Bitcoin backing is below 100 ARGN.
+      expect(breakdown.bitcoinLockedValueMicrogons).toBe(104n * oneArgon);
+      expect(breakdown.bitcoinUndersecuritized).toBe(false);
+      expect(breakdown.bitcoinRequiredSecuritizationMicrogons).toBe(99_047_619n);
+
+      currency.priceIndex.argonUsdPrice = BigNumber(1);
+      expect(breakdown.bitcoinUndersecuritized).toBe(true);
+      vault.securitization = 104n * oneArgon;
+      expect(breakdown.bitcoinUndersecuritized).toBe(false);
+
+      currency.priceIndex.btcUsdPrice = BigNumber(105.039999);
+      expect(breakdown.bitcoinUndersecuritized).toBe(false);
+      currency.priceIndex.btcUsdPrice = BigNumber(105.04);
+      expect(breakdown.bitcoinUndersecuritized).toBe(true);
+
+      vault.totalSatoshis = 0n;
+      expect(breakdown.bitcoinRequiredSecuritizationMicrogons).toBe(0n);
+      expect(breakdown.bitcoinUndersecuritized).toBe(false);
+      currency.priceIndex.argonUsdPrice = BigNumber(0);
+      expect(breakdown.bitcoinRequiredSecuritizationMicrogons).toBeUndefined();
+      expect(breakdown.bitcoinUndersecuritized).toBe(false);
+    } finally {
+      useVaultingAssetBreakdown().$dispose();
+      vaultAccessor.mockRestore();
+      bondAccessor.mockRestore();
+      currencyAccessor.mockRestore();
+    }
+  });
+
   it('keeps owner purchases within bond space not occupied by flexible bonds', () => {
     const bonds = new ArgonBonds(
       Promise.resolve({} as any),
@@ -222,7 +282,7 @@ describe('ArgonBonds', () => {
       securitizationReleaseSchedule: { 1000: { argonWithdrawals: 600_000_000n } },
     });
     const vault = Vault.fromRuntime(4, toPlain(runtimeVault) as any, 60_000, {
-      securitizationExitNoticeBlocks: 52_560,
+      vaults: { securitizationExitNoticeBlocks: 52_560 },
     } as any);
     let currentBondState = registry.createType('PalletTreasuryVaultBondState', {
       regularBonds: 100,
@@ -1409,6 +1469,7 @@ describe('ArgonBonds', () => {
     { specVersion: 158, changes: [true] },
     { specVersion: 158, changes: [true, false] },
     { specVersion: 159, changes: [true, false, true] },
+    { specVersion: 160, changes: [true] },
   ])(
     'keeps live and recovered purchase history equal for spec $specVersion with changes $changes',
     async ({ specVersion, changes }) => {
@@ -1475,7 +1536,17 @@ describe('ArgonBonds', () => {
           }),
         ),
       ];
-      let currentLot = { ...ordinaryLot, isFlexible: finalFlexibility };
+      let currentLot =
+        specVersion === 160
+          ? (toPlain(
+              registry.createType('PalletTreasuryBondLot', {
+                ...ordinaryLot,
+                program: { Vault: { vaultId: 4, sharingPercent: 0, bonusPercent: 0 } },
+                isFlexible: finalFlexibility,
+                lockedFrameTerms: null,
+              }),
+            ) as NonNullable<LiveQueryRecord<'treasury', 'bondLotById'>>)
+          : { ...ordinaryLot, isFlexible: finalFlexibility };
       const api = {
         query: {
           treasury: {
@@ -1546,15 +1617,19 @@ describe('ArgonBonds', () => {
           eventIndex: index + 1,
         })),
       });
+      expect(live.getEarningsHistory(7)).toMatchObject({ lifetimeEarnings: 0n, isComplete: true });
+      expect(recovered.getEarningsHistory(7)).toMatchObject({ lifetimeEarnings: 0n, isComplete: true });
       const positions = new ArgonBondsFinancials(live).createFinancialPositions({
         bondLots: live.data.bondLots,
         historyRecords: live.data.bondHistory,
+        completedFrame: block.frameId! - 1,
         frameDates: new Map([[3, new Date(block.blockTime)]]),
       });
       expect(positions).toEqual(
         new ArgonBondsFinancials(recovered).createFinancialPositions({
           bondLots: recovered.data.bondLots,
           historyRecords: recovered.data.bondHistory,
+          completedFrame: block.frameId! - 1,
           frameDates: new Map([[3, new Date(block.blockTime)]]),
         }),
       );
@@ -1562,15 +1637,26 @@ describe('ArgonBonds', () => {
         lifecycle: 'active',
         investedCost: 10_000_000n,
         paidIncome: 0n,
+        returnIsComplete: true,
         startedAt: new Date(block.blockTime),
       });
 
       expect(positions).toHaveLength(1);
+      if (changes.includes(true)) {
+        const [missingPayout] = new ArgonBondsFinancials(live).createFinancialPositions({
+          bondLots: live.data.bondLots,
+          historyRecords: live.data.bondHistory,
+          completedFrame: block.frameId!,
+          frameDates: new Map([[3, new Date(block.blockTime)]]),
+        });
+        expect(missingPayout.returnIsComplete).toBe(false);
+      }
 
       const restarted = createBonds(liveDb);
       await restarted.load();
       await restarted.recordFinalizedTransaction(block.blockNumber);
       expect(restarted.data.bondHistory).toEqual([{ ...liveHistory, updatedAt: expect.any(Date) }]);
+      expect(restarted.getEarningsHistory(7)).toMatchObject({ lifetimeEarnings: 0n, isComplete: true });
       currentLot = {
         ...currentLot,
         cumulativeEarnings: 1_000_000n,

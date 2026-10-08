@@ -1,5 +1,5 @@
 import * as Vue from 'vue';
-import { bigIntMin, BondLot, Vault } from '@argonprotocol/apps-core';
+import { bigIntMin, BondLot, type IBitcoinLock, Vault } from '@argonprotocol/apps-core';
 import type { IMemberInvite } from '@argonprotocol/apps-router';
 
 import BigNumber from 'bignumber.js';
@@ -60,13 +60,29 @@ export function setupOperationalProfileScenario(state: 'draft' | 'loadError' | '
   });
 }
 
-export function setupFlexibleAssetsScenario(state: 'empty' | 'loading' | 'eligible' | 'progress' | 'progressError') {
+export function setupFlexibleAssetsScenario(
+  state:
+    | 'empty'
+    | 'loading'
+    | 'eligible'
+    | 'partiallyDisplaced'
+    | 'fullyDisplaced'
+    | 'displacementUnavailable'
+    | 'progress'
+    | 'progressError',
+) {
   setupAppScenario({ selectedTab: TopTab.Onboarding });
 
   if (state === 'empty') return;
 
   const currentMyVault = getMyVault();
-  const createdVault = createScenarioVault();
+  const createdVault = createScenarioVault({
+    securitizationLocked: 1_662_500_000n,
+    flexibleSecuritizationLocked: 950_000_000n,
+  });
+  if (state === 'partiallyDisplaced') createdVault.securitization = 1_282_500_000n;
+  if (state === 'fullyDisplaced') createdVault.securitization = 712_500_000n;
+  if (state === 'displacementUnavailable') createdVault.flexibleSecuritizationLocked = 0n;
   mocked(getMyVault).mockReturnValue({
     ...currentMyVault,
     data: Vue.shallowReactive({ ...currentMyVault.data, createdVault }),
@@ -82,10 +98,10 @@ export function setupFlexibleAssetsScenario(state: 'empty' | 'loading' | 'eligib
 
   const bonds = [createFlexibleBond(71, false), createFlexibleBond(72, true), createFlexibleBond(73, false)];
   const locks = [
-    { lockId: 81, satoshis: 12_500_000n, liquidityPromised: 475_000_000n, isFlexible: false },
-    { lockId: 82, satoshis: 25_000_000n, liquidityPromised: 950_000_000n, isFlexible: true },
-    { lockId: 83, satoshis: 6_250_000n, liquidityPromised: 237_500_000n, isFlexible: false },
-  ];
+    { lockId: 81, securitizedSatoshis: 12_500_000n, securitizationCoverageMicrogons: 475_000_000n, isFlexible: false },
+    { lockId: 82, securitizedSatoshis: 25_000_000n, securitizationCoverageMicrogons: 950_000_000n, isFlexible: true },
+    { lockId: 83, securitizedSatoshis: 6_250_000n, securitizationCoverageMicrogons: 237_500_000n, isFlexible: false },
+  ] satisfies Pick<IBitcoinLock, 'lockId' | 'securitizedSatoshis' | 'securitizationCoverageMicrogons' | 'isFlexible'>[];
   mocked(getMainchainClient).mockResolvedValue({} as Awaited<ReturnType<typeof getMainchainClient>>);
   mocked(getBitcoinLocks).mockReturnValue({
     getAllLocks: fn(() => []),
@@ -94,6 +110,12 @@ export function setupFlexibleAssetsScenario(state: 'empty' | 'loading' | 'eligib
   mocked(getArgonBonds).mockReturnValue({
     refreshVault: fn(async () => undefined),
     getVaultBonds: fn(() => ({ bondLots: bonds })),
+    getFlexibleBondDisplacementPercent: fn(() => {
+      if (state === 'displacementUnavailable') return;
+      if (state === 'partiallyDisplaced') return 50;
+      if (state === 'fullyDisplaced') return 100;
+      return 0;
+    }),
   } as unknown as ReturnType<typeof getArgonBonds>);
 
   if (state === 'progress' || state === 'progressError') {
@@ -254,20 +276,27 @@ export function setupOperationalRewardsScenario(
 }
 
 function createFlexibleBond(id: number, isFlexible: boolean) {
-  return new BondLot(id, {
-    owner: '5SyntheticVaultingWallet',
-    program: { type: 'Vault', value: { vaultId: 7, sharingPercent: new BigNumber(1), bonusPercent: new BigNumber(0.02) } },
-    bonds: 20 + id - 70,
-    createdFrameId: 10_000,
-    participatedFrames: 12,
-    lastFrameEarningsFrameId: 10_011,
-    lastFrameEarnings: 50_000n,
-    cumulativeEarnings: 600_000n,
-    lockedFrameTerms: null,
-    releaseFrameId: null,
-    releaseReason: null,
-    isFlexible,
-  }, '5SyntheticVaultingWallet');
+  return new BondLot(
+    id,
+    {
+      owner: '5SyntheticVaultingWallet',
+      program: {
+        type: 'Vault',
+        value: { vaultId: 7, sharingPercent: new BigNumber(1), bonusPercent: new BigNumber(0.02) },
+      },
+      bonds: 20 + id - 70,
+      createdFrameId: 10_000,
+      participatedFrames: 12,
+      lastFrameEarningsFrameId: 10_011,
+      lastFrameEarnings: 50_000n,
+      cumulativeEarnings: 600_000n,
+      lockedFrameTerms: null,
+      releaseFrameId: null,
+      releaseReason: null,
+      isFlexible,
+    },
+    '5SyntheticVaultingWallet',
+  );
 }
 
 function createInviteSetupTransaction(): TransactionInfo {

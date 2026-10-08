@@ -176,5 +176,9 @@ function createBondLot(args: {
     releaseFrameId: args.releaseFrame ?? null,
     releaseReason: args.releaseFrame === undefined ? null : 'UserLiquidation',
   });
-  return BondLot.fromRuntime(args.id, toPlain(codec) as NonNullable<TreasuryBondLotByIdResultSpec160Variant6>, accountId);
+  return BondLot.fromRuntime(
+    args.id,
+    toPlain(codec) as NonNullable<TreasuryBondLotByIdResultSpec160Variant6>,
+    accountId,
+  );
 }

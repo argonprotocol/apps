@@ -14,7 +14,7 @@
     "tsc": "tsc"
   },
   "dependencies": {
-    "@argonprotocol/mainchain": "1.4.13-dev.c9362e5f",
+    "@argonprotocol/mainchain": "1.4.13-dev.479a6416",
     "@polkadot/api": "17.0.1",
     "@polkadot/api-base": "17.0.1",
     "@polkadot/types": "17.0.1",

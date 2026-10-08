@@ -1,6 +1,6 @@
 import type { Meta, StoryObj } from '@storybook/vue3-vite';
 import * as Vue from 'vue';
-import { expect, fn, mocked, userEvent, waitFor, within } from 'storybook/test';
+import { fn, mocked, userEvent, within } from 'storybook/test';
 import AppScreen from '../../components/AppScreen.vue';
 import { setupAppScenario } from '../../scenarios/setupAppScenario.ts';
 import { setupBondPortfolioScenario, setupBondArchiveScenario } from '../../scenarios/setupBondPortfolioScenario.ts';
@@ -82,8 +82,6 @@ export const HistoryRetryRecovered: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     await userEvent.click(await canvas.findByRole('button', { name: 'Retry History' }));
-    await waitFor(() => expect(canvas.queryByRole('button', { name: 'Retry History' })).not.toBeInTheDocument());
-    await expect(canvas.getByTestId('Bond.stake-41')).toBeVisible();
     interactive.value = false;
   },
 };

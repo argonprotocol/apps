@@ -147,7 +147,7 @@ async function activateDevEthereumMintingAuthority(args: {
   const { actor, archiveUrl, client, executionRpcUrl, logPrefix } = args;
   const initialCommittedMicronots = 1n * BigInt(MICROGONS_PER_ARGON);
   const mintingAuthorityRegistrationMicrogonCollateral = 2000n * BigInt(MICROGONS_PER_ARGON);
-  const requiredVaultingBalance = actor.config.vaultingRules.baseMicrogonCommitment + 2n * BigInt(MICROGONS_PER_ARGON);
+  const requiredVaultingBalance = actor.config.vaultSetup.securitizationMicrogons + 2n * BigInt(MICROGONS_PER_ARGON);
 
   NetworkConfig.setRuntimeOverride('dev-docker', {
     ethereumNetwork: {
@@ -360,6 +360,7 @@ async function updateMintingAuthorityRuntimeState(
 ): Promise<void> {
   await updateDevEthereumRuntimeState(executionRpcUrl, {
     mintingAuthorityStatus,
+    mintingAuthorityError: '',
   });
 }
 

@@ -4,24 +4,26 @@ import BigNumber from 'bignumber.js';
  * JSON with support for exact numeric values in JSON.stringify and JSON.parse
  */
 export class JsonExt {
-  public static stringify(obj: any, space?: number): string {
+  public static stringify(obj: any, space?: number, options?: { sortKeys?: boolean }): string {
     return JSON.stringify(
       obj,
       function (this: Record<string, unknown>, key, v) {
         const original = this[key];
         if (BigNumber.isBigNumber(original)) {
-          return { type: 'BigNumber', value: original.toString() };
-        }
-        if (typeof v === 'bigint') {
+          v = { type: 'BigNumber', value: original.toString() };
+        } else if (typeof v === 'bigint') {
           return `${v}n`; // Append 'n' to indicate BigInt
-        }
-        // convert Uint8Array objects to a JSON representation
-        if (v instanceof Uint8Array) {
-          return {
+        } else if (v instanceof Uint8Array) {
+          v = {
             type: 'Buffer',
             data: Array.from(v), // Convert Uint8Array to an array of numbers
           };
         }
+
+        if (options?.sortKeys && v !== null && typeof v === 'object' && !Array.isArray(v)) {
+          return Object.fromEntries(Object.entries(v).sort(([a], [b]) => a.localeCompare(b, 'en')));
+        }
+
         // eslint-disable-next-line @typescript-eslint/no-unsafe-return
         return v;
       },

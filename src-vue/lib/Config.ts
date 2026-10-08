@@ -117,7 +117,7 @@ export class Config implements IConfig {
       hasMiningSeats: Config.getDefault(dbFields.hasMiningSeats) as boolean,
       hasMiningBids: Config.getDefault(dbFields.hasMiningBids) as boolean,
       biddingRules: Config.getDefault(dbFields.biddingRules) as IConfig['biddingRules'],
-      vaultingRules: Config.getDefault(dbFields.vaultingRules) as IConfig['vaultingRules'],
+      vaultSetup: Config.getDefault(dbFields.vaultSetup) as IConfig['vaultSetup'],
       defaultCurrencyKey: Config.getDefault(dbFields.defaultCurrencyKey) as ICurrencyKey,
       userJurisdiction: {
         ipAddress: '',
@@ -148,7 +148,7 @@ export class Config implements IConfig {
           'serverDetails',
           'isServerInstalled',
           'biddingRules',
-          'vaultingRules',
+          'vaultSetup',
           'miningSetupStatus',
           'vaultingSetupStatus',
           'onboardingSetupStatus',
@@ -262,7 +262,7 @@ export class Config implements IConfig {
           // eslint-disable-next-line @typescript-eslint/no-unsafe-call
           const defaultValue = await value();
           loadedData[key] = defaultValue;
-          if (key !== dbFields.biddingRules && key !== dbFields.vaultingRules) {
+          if (key !== dbFields.biddingRules && key !== dbFields.vaultSetup) {
             fieldsToSave.add(key);
             rawData[key as keyof typeof rawData] = JsonExt.stringify(defaultValue, 2);
           }
@@ -620,12 +620,12 @@ export class Config implements IConfig {
     this.setField('biddingRules', value, false);
   }
 
-  public get vaultingRules(): IConfig['vaultingRules'] {
-    return this.getField('vaultingRules');
+  public get vaultSetup(): IConfig['vaultSetup'] {
+    return this.getField('vaultSetup');
   }
 
-  public set vaultingRules(value: IConfig['vaultingRules']) {
-    this.setField('vaultingRules', value, false);
+  public set vaultSetup(value: IConfig['vaultSetup']) {
+    this.setField('vaultSetup', value, false);
   }
 
   public get upstreamOperator(): IConfig['upstreamOperator'] {
@@ -669,9 +669,9 @@ export class Config implements IConfig {
     return !!this._rawData[dbFields.biddingRules];
   }
 
-  public get hasSavedVaultingRules(): boolean {
+  public get hasSavedVaultSetup(): boolean {
     this._throwErrorIfNotLoaded();
-    return !!this._rawData[dbFields.vaultingRules];
+    return !!this._rawData[dbFields.vaultSetup];
   }
 
   public async saveBiddingRules() {
@@ -679,8 +679,8 @@ export class Config implements IConfig {
     await this.save();
   }
 
-  public async saveVaultingRules() {
-    this._tryFieldsToSave(dbFields.vaultingRules, this.vaultingRules);
+  public async saveVaultSetup() {
+    this._tryFieldsToSave(dbFields.vaultSetup, this.vaultSetup);
     await this.save();
   }
 
@@ -756,11 +756,11 @@ export class Config implements IConfig {
       throw new Error('Config: No account recovery function provided');
     }
 
-    const { miningHistory, vaultingRules } = await this.accountRecoveryFn(pct => {
+    const { miningHistory, vault } = await this.accountRecoveryFn(pct => {
       const recoveryProgress = Math.min(100, Math.max(0, pct));
       this._walletPreviousHistoryLoadPct = Math.max(this._walletPreviousHistoryLoadPct, recoveryProgress * 0.95);
     });
-    if (!miningHistory?.length && !vaultingRules) {
+    if (!miningHistory?.length && !vault) {
       console.warn('Config: No previous mining or vault history found');
       this.walletPreviousLifeRecovered = true;
       await this.save();
@@ -799,12 +799,8 @@ export class Config implements IConfig {
       this.setCertificationDetails({ showBonusTooltip: false });
     }
 
-    if (vaultingRules) {
-      console.log('Config: Previous vaulting rules found');
-      this.vaultingRules = vaultingRules;
+    if (vault) {
       this.vaultingSetupStatus = VaultingSetupStatus.Finished;
-
-      this._tryFieldsToSave(dbFields.vaultingRules, vaultingRules);
     }
 
     this.walletPreviousLifeRecovered = true;
@@ -867,7 +863,7 @@ const dbFields = {
   hasMiningSeats: 'hasMiningSeats',
   hasMiningBids: 'hasMiningBids',
   biddingRules: 'biddingRules',
-  vaultingRules: 'vaultingRules',
+  vaultSetup: 'vaultSetup',
   defaultCurrencyKey: 'defaultCurrencyKey',
   userJurisdiction: 'userJurisdiction',
   certificationDetails: 'certificationDetails',
@@ -971,27 +967,13 @@ const defaults: IConfigDefaults = {
       sidelinedMicrogons: 0n,
     };
   },
-  vaultingRules: () => {
-    return {
-      capitalForSecuritizationPct: 100,
-      capitalForTreasuryPct: 0,
-      securitizationRatio: 1,
-      profitSharingPct: 10,
-      btcFlatFee: 2n * BigInt(MICROGONS_PER_ARGON),
-      btcPctFee: 3.4,
-
-      btcUtilizationPctMin: 50,
-      btcUtilizationPctMax: 100,
-
-      poolUtilizationPctMin: 50,
-      poolUtilizationPctMax: 100,
-
-      personalBtcPct: 0,
-
-      baseMicrogonCommitment: 2_000n * BigInt(MICROGONS_PER_ARGON),
-      baseMicronotCommitment: 0n,
-    };
-  },
+  vaultSetup: () => ({
+    securitizationMicrogons: 2_000n * BigInt(MICROGONS_PER_ARGON),
+    committedMicronots: 0n,
+    securitizationRatio: 1,
+    btcFlatFee: 2n * BigInt(MICROGONS_PER_ARGON),
+    btcPctFee: 3.4,
+  }),
   defaultCurrencyKey: () => UnitOfMeasurement.ARGN,
   userJurisdiction: async () => {
     try {

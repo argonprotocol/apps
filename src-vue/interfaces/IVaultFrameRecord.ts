@@ -4,4 +4,5 @@ export interface IVaultFrameRecord {
   firstTick: number;
   /** Absent for the active frame or when completed earnings evidence is incomplete. */
   frameProfitPercent?: number;
+  earningsMicrogons?: bigint;
 }

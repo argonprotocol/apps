@@ -22,9 +22,10 @@ import {
 import { createMockWalletKeys } from './helpers/wallet.ts';
 import { bigintCodec, numberCodec, optionCodec } from '../../core/__test__/helpers/codecs.ts';
 import { getOfflineRegistry, type ArgonPrimitivesVault } from '@argonprotocol/mainchain';
-import { runtimeClient, toPlain } from '@argonprotocol/runtime-client';
+import { Metadata, TypeRegistry } from '@polkadot/types';
+import type { PreviousRuntimeSpec as RuntimeSpec159 } from '../../core/src/runtimeCompatibility.ts';
+import { runtimeClient, toPlain, getBundledMetadata } from '@argonprotocol/runtime-client';
 import BigNumber from 'bignumber.js';
-import { MyVaultRecovery } from '../lib/recovery/MyVaultRecovery.ts';
 import { createCurrentLock } from './helpers/bitcoin.ts';
 import { BitcoinNetwork, CosignScript } from '@argonprotocol/bitcoin';
 import type { IBitcoinLockCosignMetadata } from '../lib/txs/BitcoinLock.cosign.ts';
@@ -43,28 +44,70 @@ type IMyVaultTestTarget = {
   onIncreaseVaultSecuritization(txInfo: TransactionInfo<IVaultIncreaseAllocationMetadata>): Promise<void>;
 };
 
-describe('MyVaultRecovery', () => {
-  it('restores sensible percentages when the vault has no committed capital', () => {
-    const rules = MyVaultRecovery.rebuildRules({
-      feesInMicrogons: 0n,
-      vault: {
-        securitization: 0n,
-        securitizationRatio: BigNumber(1),
-        bondProfitSharing: BigNumber(0.1),
-        terms: {
-          bitcoinBaseFee: 0n,
-          bitcoinAnnualPercentRate: BigNumber(0.02),
-        },
-      },
-    });
-
-    expect(rules).toMatchObject({
-      baseMicrogonCommitment: 0n,
-      capitalForSecuritizationPct: 100,
-      capitalForTreasuryPct: 0,
-      personalBtcPct: 0,
-    });
+it.each([false, true])('keeps runtime 159 sharing when editing Bitcoin fees (pending: %s)', async pending => {
+  const registry = new TypeRegistry();
+  const metadata = Object.entries(getBundledMetadata()).find(([key]) => key.endsWith('-159'))![1];
+  registry.setMetadata(new Metadata(registry, metadata));
+  const rawVault = registry.createType<RuntimeSpec159.ArgonPrimitivesVault>('ArgonPrimitivesVault', {
+    terms: {
+      bitcoinBaseFee: 1_000_000n,
+      bitcoinAnnualPercentRate: 20_000_000_000_000_000n,
+      treasuryProfitSharing: 370_000,
+    },
+    pendingTerms: pending
+      ? [
+          100,
+          {
+            bitcoinBaseFee: 2_000_000n,
+            bitcoinAnnualPercentRate: 30_000_000_000_000_000n,
+            treasuryProfitSharing: 480_000,
+          },
+        ]
+      : null,
   });
+  const info = new TransactionInfo({
+    tx: createTxInfo({ extrinsicType: ExtrinsicType.VaultModifySettings }).tx,
+    txResult: { waitForFinalizedBlock: new Promise<Uint8Array>(() => undefined) } as AppsCore.TxResult,
+  });
+  const submitAndWatch = vi.fn(async (_args: Parameters<TransactionTracker['submitAndWatch']>[0]) => info);
+  const { myVault } = createVault({ submitAndWatch });
+  myVault.data.createdVault = Vault.fromRuntime(
+    7,
+    toPlain(rawVault) as Parameters<typeof Vault.fromRuntime>[1],
+    1_000,
+    {
+      vaults: {},
+      operationalAccounts: { operationalMinimumVaultSecuritization: 100_000_000n },
+    } as Parameters<typeof Vault.fromRuntime>[3],
+  );
+  const client = {
+    registry,
+    tx: { vaults: { modifyTerms: (_id: number, terms: RuntimeSpec159.ArgonPrimitivesVaultVaultTerms) => terms } },
+  };
+  const getMainchainClient = vi.spyOn(mainchainStore, 'getMainchainClient').mockResolvedValue(client as any);
+  try {
+    // Matching the scheduled terms should not send another command.
+    await myVault.updateSettings({
+      terms: myVault.createdVault!.pendingTerms?.[1] ?? myVault.createdVault!.terms,
+      txProgressCallback: () => undefined,
+    });
+    expect(submitAndWatch).not.toHaveBeenCalled();
+
+    await myVault.updateSettings({
+      terms: { bitcoinBaseFee: 3_000_000n, bitcoinAnnualPercentRate: BigNumber(0.045) },
+      txProgressCallback: () => undefined,
+    });
+    const submitted = submitAndWatch.mock.calls[0][0];
+    const decoded = registry.createType<RuntimeSpec159.ArgonPrimitivesVaultVaultTerms>(
+      'ArgonPrimitivesVaultVaultTerms',
+      submitted.tx.toU8a(),
+    );
+    expect(decoded.bitcoinBaseFee.toBigInt()).toBe(3_000_000n);
+    expect(decoded.bitcoinAnnualPercentRate.toBigInt()).toBe(45_000_000_000_000_000n);
+    expect(decoded.treasuryProfitSharing.toNumber()).toBe(pending ? 480_000 : 370_000);
+  } finally {
+    getMainchainClient.mockRestore();
+  }
 });
 
 describe('MyVault crosschain queue history', () => {
@@ -1753,7 +1796,12 @@ describe('MyVault cosign recovery', () => {
     blockWatch.bestBlockHeader = { blockNumber: 56, blockHash: '0x56' };
     myVault.data.metadata = { id: 7 } as any;
     myVault.data.isLoaded = true;
-    myVault.data.createdVault = new Vault(7, toPlain(currentVault) as ConstructorParameters<typeof Vault>[1], 1_000, 52_560);
+    myVault.data.createdVault = new Vault(
+      7,
+      toPlain(currentVault) as ConstructorParameters<typeof Vault>[1],
+      1_000,
+      52_560,
+    );
     myVault.vaults.vaultsById[7] = myVault.createdVault!;
     myVault.data.argonotCommitment = { heldMicronots: 2_000n, committedMicronots: 2_000n, encumberedMicronots: 100n };
 
@@ -1794,7 +1842,9 @@ describe('MyVault cosign recovery', () => {
     expect(myVault.argonotSecuritizationTarget).toBe(2_000n);
 
     let finishOlderRead!: (vault: typeof currentVault) => void;
-    const olderRead = new Promise<typeof currentVault>(resolve => { finishOlderRead = resolve; });
+    const olderRead = new Promise<typeof currentVault>(resolve => {
+      finishOlderRead = resolve;
+    });
     blockWatch.getApi.mockResolvedValueOnce({
       ...currentApi,
       query: { ...currentApi.query, vaults: { ...currentApi.query.vaults, vaultsById: () => olderRead } },

@@ -12,19 +12,19 @@
           <div>
             <div class="flex items-center">
               <div class="mb-2 flex grow items-center gap-1 font-bold text-gray-600/60">
-                <label>ARGN Securitization</label>
+                <label>Argon Securitization</label>
                 <Tooltip as-child side="top">
-                  <button type="button" class="inline-flex cursor-help" aria-label="ARGN securitization details">
+                  <button type="button" class="inline-flex cursor-help" aria-label="Argon securitization details">
                     <InformationCircleIcon class="size-3.5" />
                   </button>
-                  <template #content>ARGN securitization supports Bitcoin locks and treasury bonds.</template>
+                  <template #content>Argon securitization supports Bitcoin locks and treasury bonds.</template>
                 </Tooltip>
               </div>
               <button
                 type="button"
                 :disabled="isSaving"
                 class="text-argon-600 hover:text-argon-700 cursor-pointer text-sm"
-                @click="rules.baseMicrogonCommitment = minimumSecuritization"
+                @click="vaultSetup.securitizationMicrogons = minimumSecuritization"
               >
                 Min
               </button>
@@ -35,7 +35,7 @@
                     type="button"
                     :disabled="isSaving"
                     class="text-argon-600 hover:text-argon-700 cursor-pointer"
-                    @click="rules.baseMicrogonCommitment = certificationSecuritization"
+                    @click="vaultSetup.securitizationMicrogons = certificationSecuritization"
                   >
                     Certification
                   </button>
@@ -50,14 +50,14 @@
                 type="button"
                 :disabled="isSaving || walletMaximum < minimumSecuritization"
                 class="text-argon-600 hover:text-argon-700 cursor-pointer text-sm disabled:text-gray-400"
-                @click="rules.baseMicrogonCommitment = walletMaximum"
+                @click="vaultSetup.securitizationMicrogons = walletMaximum"
               >
                 Max
               </button>
             </div>
             <InputToken
               data-testid="vault-create-argn"
-              v-model="rules.baseMicrogonCommitment"
+              v-model="vaultSetup.securitizationMicrogons"
               :min="minimumSecuritization"
               :disabled="isSaving"
               suffix=" ARGN"
@@ -81,12 +81,12 @@
           <div>
             <div class="flex items-center">
               <div class="mb-2 flex grow items-center gap-1 font-bold text-gray-600/60">
-                <label>ARGNOT Securitization</label>
+                <label>Argonot Securitization</label>
                 <Tooltip as-child side="top">
-                  <button type="button" class="inline-flex cursor-help" aria-label="ARGNOT securitization details">
+                  <button type="button" class="inline-flex cursor-help" aria-label="Argonot securitization details">
                     <InformationCircleIcon class="size-3.5" />
                   </button>
-                  <template #content>ARGNOT securitization maximizes your vault’s share of network revenue.</template>
+                  <template #content>Argonot securitization maximizes your vault’s share of network revenue.</template>
                 </Tooltip>
               </div>
               <div class="flex items-center gap-1">
@@ -94,7 +94,7 @@
                   type="button"
                   :disabled="isSaving || maximumReturnsMicronots === undefined"
                   class="text-argon-600 hover:text-argon-700 cursor-pointer text-sm disabled:text-gray-400"
-                  @click="rules.baseMicronotCommitment = maximumReturnsMicronots!"
+                  @click="vaultSetup.committedMicronots = maximumReturnsMicronots!"
                 >
                   Max Returns
                 </button>
@@ -105,7 +105,7 @@
                   <template #content>
                     <template v-if="maximumReturnsMicronots !== undefined">
                       Lock {{ micronotToArgonotNm(maximumReturnsMicronots).format('0,0.[0]') }} ARGNOT to maximize your
-                      vault’s earnings. ARGNOT securitization is optional.
+                      vault’s earnings. Argonot securitization is optional.
                     </template>
                     <template v-else>Max Returns guidance is unavailable.</template>
                   </template>
@@ -114,7 +114,7 @@
             </div>
             <InputToken
               data-testid="vault-create-argnot"
-              v-model="rules.baseMicronotCommitment"
+              v-model="vaultSetup.committedMicronots"
               :min="0n"
               :disabled="isSaving"
               suffix=" ARGNOT"
@@ -151,8 +151,8 @@
               @click="openFeeEditor"
               class="text-argon-700/80 inline-flex cursor-pointer items-center gap-2 font-mono text-lg font-bold"
             >
-              {{ currency.symbol }}{{ microgonToMoneyNm(rules.btcFlatFee).format('0,0.00') }} +
-              {{ numeral(rules.btcPctFee).format('0.[00]') }}%
+              {{ currency.symbol }}{{ microgonToMoneyNm(vaultSetup.btcFlatFee).format('0,0.00') }} +
+              {{ numeral(vaultSetup.btcPctFee).format('0.[00]') }}%
               <EditIcon class="text-argon-600/50 h-4.5 w-4.5 opacity-0 group-hover:opacity-100" />
             </button>
           </span>
@@ -207,7 +207,7 @@
             </div>
           </div>
         </section>
-        <div v-if="projectionError" class="mt-2 text-sm text-slate-500">
+        <div v-if="projectionError && !projectionsReady" class="mt-2 text-sm text-slate-500">
           Returns are unavailable.
           <button type="button" class="text-argon-600 cursor-pointer underline" @click="retryProjections">Retry</button>
         </div>
@@ -232,8 +232,8 @@
         </button>
         <button
           type="button"
-          :disabled="isSaving || !!feeEditorPosition || rules.baseMicrogonCommitment < minimumSecuritization"
-          @click="saveRules"
+          :disabled="isSaving || !!feeEditorPosition || vaultSetup.securitizationMicrogons < minimumSecuritization"
+          @click="saveSettings"
           class="bg-argon-button enabled:hover:bg-argon-button-hover cursor-pointer rounded-md px-10 py-2 font-semibold text-white disabled:opacity-40"
         >
           {{ isSaving ? 'Saving...' : 'Confirm Settings »' }}
@@ -251,7 +251,7 @@ import { bigIntMax, bigNumberToBigInt, JsonExt, TreasuryBonds, UnitOfMeasurement
 import EditIcon from '../assets/edit.svg?component';
 import InputToken from '../components/InputToken.vue';
 import Tooltip from '../components/Tooltip.vue';
-import type { IVaultingRules } from '../interfaces/IVaultingRules.ts';
+import type { IConfig } from '../interfaces/IConfig.ts';
 import numeral, { createNumeralHelpers } from '../lib/numeral.ts';
 import EditBoxOverlay from '../overlays/EditBoxOverlay.vue';
 import OverlayBase from '../overlays/OverlayBase.vue';
@@ -271,8 +271,8 @@ const controller = useCertificationController();
 const argonBonds = getArgonBonds();
 const vaultingStats = useVaultingStats();
 const { micronotToArgonotNm, microgonToMoneyNm } = createNumeralHelpers(currency);
-const rules = Vue.computed(() => config.vaultingRules as IVaultingRules);
-const previousRules = JsonExt.stringify(rules.value);
+const vaultSetup = Vue.computed(() => config.vaultSetup);
+const previousSetup = JsonExt.stringify(vaultSetup.value);
 const minimumSecuritization = 2_000_000_000n;
 const certificationSecuritization = Vue.computed(() =>
   bigIntMax(minimumSecuritization, controller.rewardConfig.operationalMinimumVaultSecuritization),
@@ -281,21 +281,21 @@ const walletMaximum = Vue.computed(() =>
   bigIntMax(0n, wallets.defaultArgonWallet.availableMicrogons - MyVault.setupFeeBudgetMicrogons),
 );
 const bitcoinCapacityMicrogons = Vue.computed(() =>
-  bigNumberToBigInt(BigNumber(rules.value.baseMicrogonCommitment).div(rules.value.securitizationRatio)),
+  bigNumberToBigInt(BigNumber(vaultSetup.value.securitizationMicrogons).div(vaultSetup.value.securitizationRatio)),
 );
 const maximumReturnsMicronots = Vue.computed(() =>
   TreasuryBonds.getVaultArgonotSecuritizationTarget({
-    securitizationMicrogons: rules.value.baseMicrogonCommitment,
+    securitizationMicrogons: vaultSetup.value.securitizationMicrogons,
     averageMicrogonsPerArgonot: argonBonds.data.averageMicrogonsPerArgonot,
   }),
 );
 const projectedEarningsMicrogons = Vue.computed(() =>
-  bigNumberToBigInt(BigNumber(rules.value.baseMicrogonCommitment).times(vaultingStats.averageAPR).div(100)),
+  bigNumberToBigInt(BigNumber(vaultSetup.value.securitizationMicrogons).times(vaultingStats.averageAPR).div(100)),
 );
 
 const isSaving = Vue.ref(false);
 const savingError = Vue.ref('');
-const projectionsReady = Vue.ref(false);
+const projectionsReady = Vue.computed(() => vaultingStats.isLoaded);
 const projectionError = Vue.ref(false);
 const editBoxParent = Vue.ref<HTMLElement>();
 const feeEditAnchor = Vue.ref<HTMLElement>();
@@ -303,16 +303,17 @@ const feeEditorPosition = Vue.ref<{ top: number; left: number; width: number }>(
 
 function cancelPanel() {
   if (isSaving.value || feeEditorPosition.value) return;
-  config.vaultingRules = JsonExt.parse<IVaultingRules>(previousRules);
+  config.vaultSetup = JsonExt.parse<IConfig['vaultSetup']>(previousSetup);
   emit('close');
 }
 
-async function saveRules() {
-  if (isSaving.value || feeEditorPosition.value || rules.value.baseMicrogonCommitment < minimumSecuritization) return;
+async function saveSettings() {
+  if (isSaving.value || feeEditorPosition.value || vaultSetup.value.securitizationMicrogons < minimumSecuritization)
+    return;
   isSaving.value = true;
   savingError.value = '';
   try {
-    await config.saveVaultingRules();
+    await config.saveVaultSetup();
     emit('close');
   } catch (error) {
     savingError.value = error instanceof Error ? error.message : 'Unable to save vault settings.';
@@ -330,18 +331,13 @@ function openFeeEditor() {
 async function retryProjections() {
   projectionError.value = false;
   try {
-    await vaultingStats.update();
-    projectionsReady.value = true;
+    await vaultingStats.update(true);
   } catch {
     projectionError.value = true;
   }
 }
 
-void vaultingStats.isLoadedPromise
-  .then(() => {
-    projectionsReady.value = true;
-  })
-  .catch(() => {
-    projectionError.value = true;
-  });
+void vaultingStats.isLoadedPromise.catch(() => {
+  projectionError.value = true;
+});
 </script>

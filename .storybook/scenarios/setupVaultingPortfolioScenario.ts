@@ -3,6 +3,7 @@ import * as Vue from 'vue';
 import {
   BondLot,
   MICROGONS_PER_ARGON,
+  MICRONOTS_PER_ARGONOT,
   NetworkConfig,
   type IFrameBondLot,
   type IVaultStats,
@@ -49,15 +50,16 @@ export function setupVaultingPortfolioScenario() {
       vaultingSetupStatus: VaultingSetupStatus.Finished,
       isServerAdded: true,
       isServerInstalled: true,
-      hasSavedVaultingRules: true,
+      hasSavedVaultSetup: true,
       hasExtensionOperations: true,
     },
   });
 
   useCertificationController().setOperationalInvites([onboardingMemberInvite]);
 
-  const currency = getCurrency();
+  const currency = Vue.reactive(getCurrency()) as ReturnType<typeof getCurrency>;
   currency.microgonsPer.BTC = 12_000n * microgonsPerArgon;
+  currency.priceIndex.btcUsdPrice = BigNumber(12_000);
   mocked(getCurrency, { partial: true }).mockReturnValue(
     Object.assign(currency, {
       fetchMicrogonsInCirculation: fn(async () => 10_000_000_000n),
@@ -66,11 +68,13 @@ export function setupVaultingPortfolioScenario() {
   );
 
   const createdVault = createScenarioVault({
+    openedTick: Math.floor(Date.UTC(2026, 7, 1, 12) / NetworkConfig.tickMillis),
     securitization: 2_400n * microgonsPerArgon,
     securitizationTarget: 2_400n * microgonsPerArgon,
     securitizationLocked: 2_400n * microgonsPerArgon,
     securitizationPendingActivation: 500n * microgonsPerArgon,
     securitizedSatoshis: 23_700_000n,
+    totalSatoshis: 23_700_000n,
   });
   const localLocks = [
     createLock(1, BitcoinLockStatus.LockFunded, 13_100_000n, 800n * microgonsPerArgon),
@@ -154,7 +158,7 @@ export function setupVaultingPortfolioScenario() {
       bitcoinLocks: 0,
       microgonLiquidityRealized: 0n,
     },
-    changesByFrame: [3, 2, 1].map((framesAgo, index) => ({
+    changesByFrame: Array.from({ length: 14 }, (_, index) => 14 - index).map((framesAgo, index) => ({
       frameId: currentFrameId - framesAgo,
       bitcoinFeeRevenue: 1n * microgonsPerArgon,
       bitcoinFeeCouponValueUsed: 0n,
@@ -163,11 +167,12 @@ export function setupVaultingPortfolioScenario() {
       microgonLiquidityAdded: 0n,
       securitization: createdVault.securitization,
       securitizationActivated: createdVault.securitization,
+      argonotSecuritizationMicronots: 750n * BigInt(MICRONOTS_PER_ARGONOT),
       treasuryPool: {
         externalCapital: 310n * microgonsPerArgon,
         vaultCapital: 560n * microgonsPerArgon,
-        totalEarnings: BigInt(index + 4) * microgonsPerArgon,
-        vaultEarnings: BigInt(index + 4) * microgonsPerArgon,
+        totalEarnings: BigInt(4 + (index % 3)) * microgonsPerArgon,
+        vaultEarnings: BigInt(4 + (index % 3)) * microgonsPerArgon,
       },
       uncollectedEarnings: 0n,
     })),
@@ -199,6 +204,16 @@ export function setupVaultingPortfolioScenario() {
     stats: Vue.reactive({
       synchedToFrame: currentFrameId,
       argonotStakingByFrame: [],
+      networkPoolsByFrame: Object.fromEntries(
+        vaultStats.changesByFrame.map(frame => [
+          frame.frameId,
+          {
+            auctionPoolMicrogons: 10_000n * microgonsPerArgon,
+            vaultPoolMicrogons: 3_000n * microgonsPerArgon,
+            includesBondPayments: false,
+          },
+        ]),
+      ),
       vaultsById: { [createdVault.vaultId]: vaultStats },
     }),
   } as unknown as ReturnType<typeof getVaults>);
@@ -251,42 +266,19 @@ export function setupVaultingPortfolioScenario() {
       vaultsById: { [createdVault.vaultId]: vaultBondState },
     }),
     bondTotals: BondLot.getTotals(bondLots),
+    // These production methods intentionally use the mocked store's data as `this`.
+    /* eslint-disable @typescript-eslint/unbound-method */
     getEarningsHistory: ArgonBonds.prototype.getEarningsHistory,
     argonotRewardBacking: ArgonBonds.prototype.argonotRewardBacking,
     vaultRevenuePotential: ArgonBonds.prototype.vaultRevenuePotential,
+    /* eslint-enable @typescript-eslint/unbound-method */
     getVaultBondCapacityMicrogons: fn(() => 2_400n * microgonsPerArgon),
     availableBondSpace: fn(() => 1_360n * microgonsPerArgon),
     subscribeGlobal: fn(async () => undefined),
     refreshVault: fn(async () => undefined),
   } as unknown as ReturnType<typeof getArgonBonds>);
 
-  mocked(useVaultingAssetBreakdown).mockReturnValue(
-    Vue.reactive({
-      securityMicrogons: 2_400n * microgonsPerArgon,
-      get securityMicronots() {
-        return getMyVault().data.argonotCommitment.heldMicronots;
-      },
-      securityMicrogonsPending: 500n * microgonsPerArgon,
-      securityMicrogonsActivated: 1_900n * microgonsPerArgon,
-      securityMicrogonsActivatedPct: 79.17,
-      treasuryBondCapacityMicrogons: 2_400n * microgonsPerArgon,
-      treasuryBondCapacityUsedMicrogons: 1_040n * microgonsPerArgon,
-      treasuryBondCapacityUsedPct: 43.33,
-      treasuryBondPurchaseCapacityBonds: 2_400,
-      get revenueCapturedPct() {
-        return getArgonBonds().vaultRevenuePotential(createdVault.vaultId)?.capturedPercent;
-      },
-      get revenuePotential() {
-        return getArgonBonds().vaultRevenuePotential(createdVault.vaultId);
-      },
-      get argonotRewardBacking() {
-        return getArgonBonds().argonotRewardBacking({
-          vault: createdVault,
-          argonotSecuritization: getMyVault().data.argonotCommitment,
-        });
-      },
-    }) as unknown as ReturnType<typeof useVaultingAssetBreakdown>,
-  );
+  mocked(useVaultingAssetBreakdown).mockRestore();
 
   const financials = useFinancials();
   Object.assign(
@@ -315,8 +307,9 @@ export function setupVaultingPortfolioScenario() {
   });
 
   const frameStartTick = Math.floor(Date.UTC(2026, 7, 15, 12, 0, 0) / NetworkConfig.tickMillis);
+  const ticksPerDay = 86_400_000 / NetworkConfig.tickMillis;
   const getTickStart = (frameId: number) => {
-    return frameStartTick - (currentFrameId - frameId) * NetworkConfig.rewardTicksPerFrame;
+    return frameStartTick - (currentFrameId - frameId) * ticksPerDay;
   };
   mocked(getMiningFrames).mockReturnValue({
     currentFrameId,
@@ -324,7 +317,7 @@ export function setupVaultingPortfolioScenario() {
     load: fn(async () => undefined),
     getFrameDate: fn((frameId: number) => new Date(Date.UTC(2026, 7, 15 - (currentFrameId - frameId), 12))),
     getTickStart: fn(getTickStart),
-    getTickEnd: fn((frameId: number) => getTickStart(frameId) + NetworkConfig.rewardTicksPerFrame - 1),
+    getTickEnd: fn((frameId: number) => getTickStart(frameId) + ticksPerDay - 1),
     getCurrentFrameProgress: fn(() => 43),
     getFrameRewardTicksRemaining: fn(() => Math.round(NetworkConfig.rewardTicksPerFrame * 0.57)),
     onFrameId: fn(() => ({ unsubscribe: fn() })),

@@ -70,9 +70,8 @@ async function createVault() {
 
   try {
     const txInfo = await myVault.createNew({
-      rules: config.vaultingRules,
+      vaultSetup: config.vaultSetup,
       masterXpubPath,
-      config: config as Config,
     });
 
     unsubscribeCreation = txInfo.subscribeToProgress(

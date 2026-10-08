@@ -37,13 +37,13 @@ export class VaultFinancials implements IFinancialPositionSource<VaultFinancialP
   ) {}
 
   /** Completed-frame income belongs to the vault only after excluding vault-paid bond income. */
-  public static getFrameReturns(
+  public static getFrameEarnings(
     vaultId: number,
     frames: readonly IVaultFrameStats[],
     { bondLots, bondHistory, dailyEarnings, isLoaded }: VaultBondState,
-  ): Map<number, number> {
-    const returns = new Map<number, number>();
-    if (!isLoaded) return returns;
+  ) {
+    const earningsByFrame = new Map<number, { income: bigint; returnPercent: number }>();
+    if (!isLoaded) return earningsByFrame;
 
     const vaultEarnings = new Map<number, bigint | undefined>(
       frames.map(frame => [frame.frameId, frame.treasuryPool.vaultEarnings]),
@@ -85,9 +85,9 @@ export class VaultFinancials implements IFinancialPositionSource<VaultFinancialP
       if (frame.bitcoinFeeCouponValueUsed === undefined) continue;
       if (frame.securitization <= 0n) continue;
       const income = earnings + frame.bitcoinFeeRevenue - frame.bitcoinFeeCouponValueUsed;
-      returns.set(frame.frameId, getPercent(income, frame.securitization));
+      earningsByFrame.set(frame.frameId, { income, returnPercent: getPercent(income, frame.securitization) });
     }
-    return returns;
+    return earningsByFrame;
   }
 
   public async loadPositions(args: VaultFinancialPositionArgs): Promise<VaultPosition[]> {

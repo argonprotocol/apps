@@ -14,6 +14,7 @@ const props = withDefaults(
     isLoaded?: boolean;
     unitOfMeasurement?: UnitOfMeasurement;
     hideDecimalsWhenMoreThan?: number;
+    symbol?: string;
     value: bigint;
   }>(),
   {
@@ -26,7 +27,7 @@ const currency = getCurrency();
 const { microgonToMoneyNm, satToMoneyNm } = createNumeralHelpers(currency);
 
 const integer = Vue.computed(() => {
-  if (!props.isLoaded) return '--';
+  if (!props.isLoaded) return `${props.symbol ?? ''}--`;
 
   const showDecimals = !props.hideDecimalsWhenMoreThan || props.value <= props.hideDecimalsWhenMoreThan;
   const money = convertToMoney(props.value, showDecimals);
@@ -45,6 +46,7 @@ function convertToMoney(value: bigint, showDecimals = false): string {
   const isSats = props.unitOfMeasurement === UnitOfMeasurement.Satoshi;
   const money = isSats ? satToMoneyNm(value) : microgonToMoneyNm(value);
   if (!showDecimals) money.set(Math.floor(money.value() ?? 0));
+  if (props.symbol !== undefined) return money.formatCurrency(props.symbol, showDecimals ? Infinity : 0);
   return money.format(showDecimals ? '0,0.00' : '0,0');
 }
 </script>

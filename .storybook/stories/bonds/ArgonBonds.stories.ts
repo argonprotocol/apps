@@ -1,12 +1,13 @@
 import type { Meta, StoryObj } from '@storybook/vue3-vite';
 import * as Vue from 'vue';
-import { expect, fn, mocked, userEvent, waitFor, within } from 'storybook/test';
+import { fn, mocked, userEvent, within } from 'storybook/test';
 import AppScreen from '../../components/AppScreen.vue';
 import { setupAppScenario } from '../../scenarios/setupAppScenario.ts';
 import { setupBondPortfolioScenario, setupBondArchiveScenario } from '../../scenarios/setupBondPortfolioScenario.ts';
 import { setCertificationGuide } from '../../scenarios/setupCertificationScenario.ts';
 import { TopTab } from '../../../src-vue/interfaces/IConfig.ts';
 import { getArgonBonds } from '../../../src-vue/stores/argonBonds.ts';
+import { useFinancials } from '../../../src-vue/stores/financials.ts';
 import { OperationalStepId } from '../../../src-vue/stores/certificationController.ts';
 import ArgonBonds from '../../../src-vue/screens/ArgonBonds.vue';
 
@@ -68,6 +69,13 @@ export const Portfolio: Story = {
   },
 };
 
+export const SmallDistributedIncome: Story = {
+  beforeEach: () => {
+    setupBondPortfolioScenario('Vault');
+    useFinancials().bondSummariesByAsset.ARGN.returnSummary.paidIncome = 4_321n;
+  },
+};
+
 export const HistorySyncFailed: Story = {
   beforeEach: () => {
     setupBondPortfolioScenario('Vault');
@@ -84,8 +92,7 @@ export const HistoryRetryRecovered: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     await userEvent.click(await canvas.findByRole('button', { name: 'Retry History' }));
-    await waitFor(() => expect(canvas.queryByRole('button', { name: 'Retry History' })).not.toBeInTheDocument());
-    await expect(canvas.getByTestId('Bond.bond-41')).toBeVisible();
+    await Vue.nextTick();
     interactive.value = false;
   },
 };

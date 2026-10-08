@@ -185,7 +185,7 @@ export function setupBondPurchaseScenario(state: BondPurchaseState) {
       21: 'Unrelated One',
       22: 'Unrelated Two',
     }),
-    currentState: Vue.reactive({ isLoaded: true, isLoading: false, error: '' }),
+    currentState: Vue.reactive({ isLoaded: true, isLoading: false, error: '', statsRevision: 0 }),
     vaultsById: Object.fromEntries(vaults.map(vault => [vault.vaultId, vault])),
     calculateArgonBondsApr: fn(vaultId => (vaultId === 7 ? 14.8 : 11.2)),
   });

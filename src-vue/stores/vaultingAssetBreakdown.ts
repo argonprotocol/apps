@@ -4,11 +4,13 @@ import BigNumber from 'bignumber.js';
 import { bigIntMin, BondLot, TreasuryBonds } from '@argonprotocol/apps-core';
 import { getMyVault } from './vaults.ts';
 import { getArgonBonds } from './argonBonds.ts';
+import { getCurrency } from './currency.ts';
 import { getCappedPercent } from '../lib/Utils.ts';
 
 export const useVaultingAssetBreakdown = defineStore('vaultingAssetBreakdown', () => {
   const myVault = getMyVault();
   const argonBonds = getArgonBonds();
+  const currency = getCurrency();
 
   // Security
 
@@ -29,6 +31,31 @@ export const useVaultingAssetBreakdown = defineStore('vaultingAssetBreakdown', (
 
     const pctBn = BigNumber(securityMicrogonsActivated.value).div(securityMicrogons.value);
     return pctBn.multipliedBy(100).toNumber();
+  });
+
+  const bitcoinLockedValueMicrogons = Vue.computed(() => {
+    const vault = myVault.createdVault;
+    if (!vault) return;
+    const price = currency.priceIndex;
+    if (!price.btcUsdPrice?.gt(0) || !price.argonUsdTargetPrice?.gt(0)) return;
+
+    return currency.convertSatToMicrogon(vault.totalSatoshis);
+  });
+
+  const bitcoinRequiredSecuritizationMicrogons = Vue.computed(() => {
+    const vault = myVault.createdVault;
+    if (!vault) return;
+    const price = currency.priceIndex;
+    if (!price.btcUsdPrice?.gt(0) || !price.argonUsdPrice?.gt(0)) return;
+
+    return price.getSatoshiPriceInMarketMicrogons(vault.totalSatoshis);
+  });
+
+  const bitcoinUndersecuritized = Vue.computed(() => {
+    if (bitcoinRequiredSecuritizationMicrogons.value === undefined) return false;
+    const shortfall = bitcoinRequiredSecuritizationMicrogons.value - securityMicrogons.value;
+    if (shortfall <= 0n) return false;
+    return shortfall * 100n >= securityMicrogons.value;
   });
 
   const securityMicronots = Vue.computed(() => myVault.data.argonotCommitment.heldMicronots);
@@ -90,6 +117,9 @@ export const useVaultingAssetBreakdown = defineStore('vaultingAssetBreakdown', (
     securityMicrogonsPending,
     securityMicrogonsActivated,
     securityMicrogonsActivatedPct,
+    bitcoinLockedValueMicrogons,
+    bitcoinRequiredSecuritizationMicrogons,
+    bitcoinUndersecuritized,
 
     treasuryBondCapacityMicrogons,
     treasuryBondCapacityUsedMicrogons,

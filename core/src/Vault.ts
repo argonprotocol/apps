@@ -12,6 +12,8 @@ import {
 import { bigNumberToBigInt, bigIntMax, bigIntMin } from './utils.js';
 import { fixedU128Rational, fixedU128Multiply } from './FixedU128.js';
 
+const VAULT_CREATION_BOND_PROFIT_SHARING = BigNumber(0.1);
+
 type RuntimeVault = NonNullable<RuntimeQueryResult<CurrentRuntimeQueries['vaults']['vaultsById']>>;
 type SecuritizationScheduleEntry = RuntimeVault['securitizationReleaseSchedule'][string];
 
@@ -39,7 +41,9 @@ export class Vault implements Omit<RuntimeVault, 'securitizationReleaseSchedule'
   public securitizationReleaseSchedule: Map<number, SecuritizationScheduleEntry>;
   /** Deployed-runtime bonds share vault income; the new vault pool pays operators directly. */
   public bondProfitSharing?: BigNumber;
+  public pendingBondProfitSharing?: BigNumber;
   public operationalMinimumReleaseTick?: number | null;
+  public operationalMinimumMicrogons = 0n;
   public bondCapacitySource: 'Securitization' | 'Bitcoin' = 'Securitization';
 
   constructor(
@@ -76,18 +80,22 @@ export class Vault implements Omit<RuntimeVault, 'securitizationReleaseSchedule'
     id: number,
     vault: NonNullable<LiveQueryRecord<'vaults', 'vaultsById'>>,
     tickDuration: number,
-    constants: ArgonQueryClient['consts']['vaults'],
+    constants: Pick<ArgonCurrentQueryClient['consts'], 'vaults' | 'operationalAccounts'>,
   ): Vault {
     if ('committedMicrogons' in vault) {
       const securitizationExitNoticeBlocks =
-        'securitizationExitNoticeBlocks' in constants ? constants.securitizationExitNoticeBlocks : undefined;
+        'securitizationExitNoticeBlocks' in constants.vaults
+          ? constants.vaults.securitizationExitNoticeBlocks
+          : undefined;
       return new Vault(id, vault, tickDuration, securitizationExitNoticeBlocks);
     }
     const { treasuryProfitSharing, ...terms } = vault.terms;
     let pendingTerms: RuntimeVault['pendingTerms'] = vault.pendingTerms;
+    let pendingBondProfitSharing: BigNumber | undefined;
     if (vault.pendingTerms) {
       const [applyTick, { treasuryProfitSharing: pendingProfitSharing, ...bitcoinTerms }] = vault.pendingTerms;
       pendingTerms = [applyTick, bitcoinTerms];
+      pendingBondProfitSharing = pendingProfitSharing;
     }
     const schedule = Object.fromEntries(
       Object.entries(vault.securitizationReleaseSchedule).map(([height, amount]) => [
@@ -112,7 +120,9 @@ export class Vault implements Omit<RuntimeVault, 'securitizationReleaseSchedule'
       tickDuration,
     );
     normalized.operationalMinimumReleaseTick = vault.operationalMinimumReleaseTick;
+    normalized.operationalMinimumMicrogons = constants.operationalAccounts.operationalMinimumVaultSecuritization;
     normalized.bondProfitSharing = treasuryProfitSharing;
+    normalized.pendingBondProfitSharing = pendingBondProfitSharing;
     normalized.bondCapacitySource = 'Bitcoin';
     return normalized;
   }
@@ -129,7 +139,7 @@ export class Vault implements Omit<RuntimeVault, 'securitizationReleaseSchedule'
   }
 
   /** Preview ARGN withdrawals using the funding command's commitment and collateral constraints. */
-  public previewArgonWithdrawals(amount: bigint, bitcoinHeight: number): Map<number, bigint> {
+  public previewArgonWithdrawals(amount: bigint, bitcoinHeight: number, currentTick: number): Map<number, bigint> {
     const withdrawals = new Map(
       this.scheduledArgonWithdrawals.filter(([, value]) => value > 0n).sort(([a], [b]) => a - b),
     );
@@ -144,13 +154,23 @@ export class Vault implements Omit<RuntimeVault, 'securitizationReleaseSchedule'
       }
       return withdrawals;
     }
-    return this.previewWithdrawals(withdrawals, amount - this.securitizationTarget, this.availableArgonWithdrawal(), bitcoinHeight);
+    return this.previewWithdrawals(
+      withdrawals,
+      amount - this.securitizationTarget,
+      this.availableArgonWithdrawal(currentTick),
+      bitcoinHeight,
+    );
   }
 
   /** ARGN that can return immediately, excluding commitments and Bitcoin collateral. */
-  public availableArgonWithdrawal(): bigint {
+  public availableArgonWithdrawal(currentTick: number): bigint {
+    let committedMicrogons = this.committedMicrogons;
+    if (this.operationalMinimumReleaseTick != null && currentTick < this.operationalMinimumReleaseTick) {
+      committedMicrogons = bigIntMax(committedMicrogons, this.operationalMinimumMicrogons);
+    }
+
     return bigIntMin(
-      bigIntMax(0n, this.securitization - this.committedMicrogons),
+      bigIntMax(0n, this.securitization - committedMicrogons),
       bigIntMin(
         bigIntMax(0n, this.securitization - this.securitizationLocked - this.getRelockCapacity()),
         this.availableSecuritizationSpace(),
@@ -181,7 +201,11 @@ export class Vault implements Omit<RuntimeVault, 'securitizationReleaseSchedule'
   }
 
   /** ARGNOT that can return immediately, excluding reward and minting commitments. */
-  public availableArgonotWithdrawal({ heldMicronots, committedMicronots, encumberedMicronots }: NonNullable<LiveQueryRecord<'vaults', 'argonotSecuritizationByVaultId'>>): bigint {
+  public availableArgonotWithdrawal({
+    heldMicronots,
+    committedMicronots,
+    encumberedMicronots,
+  }: NonNullable<LiveQueryRecord<'vaults', 'argonotSecuritizationByVaultId'>>): bigint {
     return bigIntMax(0n, heldMicronots - bigIntMax(committedMicronots, encumberedMicronots));
   }
 
@@ -265,14 +289,18 @@ export class Vault implements Omit<RuntimeVault, 'securitizationReleaseSchedule'
   }
 
   /** Encode current Bitcoin terms against the connected runtime's actual terms schema. */
-  public static encodeTerms(registry: ArgonClient['registry'], terms: RuntimeVault['terms']) {
+  public static encodeTerms(
+    registry: ArgonClient['registry'],
+    terms: RuntimeVault['terms'],
+    bondProfitSharing: BigNumber = VAULT_CREATION_BOND_PROFIT_SHARING,
+  ) {
     return registry.createType<ArgonPrimitivesVaultVaultTerms | RuntimeSpec159.ArgonPrimitivesVaultVaultTerms>(
       'ArgonPrimitivesVaultVaultTerms',
       {
         bitcoinAnnualPercentRate: toFixedNumber(terms.bitcoinAnnualPercentRate, FIXED_U128_DECIMALS),
         bitcoinBaseFee: terms.bitcoinBaseFee,
         // The deployed terms schema still requires this field; the new schema omits it.
-        treasuryProfitSharing: toFixedNumber(0.1, PERMILL_DECIMALS),
+        treasuryProfitSharing: toFixedNumber(bondProfitSharing, PERMILL_DECIMALS),
       },
     );
   }
@@ -288,7 +316,7 @@ export class Vault implements Omit<RuntimeVault, 'securitizationReleaseSchedule'
     }
     const tickDuration =
       tickDurationMillis ?? (await client.query.ticks.genesisTicker().then(x => x.tickDurationMillis))!;
-    return Vault.fromRuntime(vaultId, rawVault, tickDuration, client.consts.vaults);
+    return Vault.fromRuntime(vaultId, rawVault, tickDuration, client.consts);
   }
 
   public static async getArgonotSecuritization(client: ArgonQueryClient, vaultId: number) {

@@ -11,7 +11,7 @@ import BitcoinLocks from '../../lib/BitcoinLocks.ts';
 import BitcoinMempool from '../../lib/BitcoinMempool.ts';
 import type { Db } from '../../lib/Db.ts';
 import { GlobalCouncil } from '../../lib/GlobalCouncil.ts';
-import type { IVaultingRules } from '../../interfaces/IVaultingRules.ts';
+import type { IConfig } from '../../interfaces/IConfig.ts';
 import { MintingAuthorities } from '../../lib/MintingAuthorities.ts';
 import { DEFAULT_MASTER_XPUB_PATH, MyVault } from '../../lib/MyVault.ts';
 import { TransactionTracker } from '../../lib/TransactionTracker.ts';
@@ -27,17 +27,13 @@ import { createMockWalletKeys } from './wallet.ts';
 
 export const walletFundingMicrogons = 100_000_000n;
 
-export const defaultVaultRules: IVaultingRules = {
-  ...(Config.getDefault('vaultingRules') as IVaultingRules),
-  personalBtcPct: 0,
+export const defaultVaultSetup: IConfig['vaultSetup'] = {
+  ...(Config.getDefault('vaultSetup') as IConfig['vaultSetup']),
   securitizationRatio: 1,
-  capitalForTreasuryPct: 50,
-  capitalForSecuritizationPct: 50,
-  baseMicrogonCommitment: 10_000_000n,
-  baseMicronotCommitment: 0n,
+  securitizationMicrogons: 10_000_000n,
+  committedMicronots: 0n,
   btcFlatFee: 1_000_000n,
   btcPctFee: 2.5,
-  profitSharingPct: 5,
 };
 
 export type BitcoinLocksClientHarness = {
@@ -117,10 +113,10 @@ export async function createBitcoinLocksHarness(args: {
   esploraHost: string;
   network: string;
   walletKeys?: WalletKeys;
-  vaultRules?: IVaultingRules;
+  vaultSetup?: IConfig['vaultSetup'];
   walletFundingMicrogons?: bigint;
 }): Promise<BitcoinLocksHarness> {
-  const { archiveUrl, esploraHost, network, vaultRules = defaultVaultRules } = args;
+  const { archiveUrl, esploraHost, network, vaultSetup = defaultVaultSetup } = args;
   const clientHarness = await createBitcoinLocksClientHarness({
     archiveUrl,
     esploraHost,
@@ -176,8 +172,7 @@ export async function createBitcoinLocksHarness(args: {
 
   const vaultCreation = await myVault.createNew({
     masterXpubPath: DEFAULT_MASTER_XPUB_PATH,
-    rules: vaultRules,
-    config,
+    vaultSetup,
   });
   await vaultCreation.txResult.waitForFinalizedBlock;
   await vaultCreation.waitForPostProcessing;
