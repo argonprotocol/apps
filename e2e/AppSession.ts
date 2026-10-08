@@ -127,15 +127,20 @@ export class AppSession {
   ): Promise<IAccountHistoryRecoveryReport> {
     const recoverHistory: IAppQueryFn<IAccountHistoryRecoveryReport, { throughBlock: number }> = (refs, args) =>
       refs.accountHistoryRecovery.recoverThrough(args.throughBlock);
-    const result = await this.driver.command<{ value?: IAccountHistoryRecoveryReport }>('command.queryApp', {
-      fn: recoverHistory.toString(),
-      args: { throughBlock },
-      timeoutMs,
-    });
-    if (!result.value) {
-      throw new Error(`Account history did not finish recovery through block ${throughBlock.toLocaleString()}`);
+    try {
+      const result = await this.driver.command<{ value?: IAccountHistoryRecoveryReport }>('command.queryApp', {
+        fn: recoverHistory.toString(),
+        args: { throughBlock },
+        timeoutMs,
+      });
+      if (!result.value) {
+        throw new Error(`Account history did not finish recovery through block ${throughBlock.toLocaleString()}`);
+      }
+      return result.value;
+    } catch (error) {
+      await this.reportFlowFailure('account-history-recovery', error);
+      throw error;
     }
-    return result.value;
   }
 
   public async loadInstance(name: string): Promise<void> {
@@ -178,7 +183,11 @@ export class AppSession {
   }
 
   protected async reportFlowFailure(flowName: string, error: unknown): Promise<void> {
-    await this.diagnostics.printFailure(flowName, error);
+    try {
+      await this.diagnostics.printFailure(flowName, error, this.testNetwork);
+    } catch (diagnosticError) {
+      console.warn('[E2E] Could not collect failure diagnostics', diagnosticError);
+    }
     this.appProcess.output.printTail('flow-failure');
     const frontendErrors = this.driver.getFrontendErrors();
     if (frontendErrors.length > 0) {
@@ -400,7 +409,7 @@ export class AppSession {
         });
       }
     } catch (error) {
-      await diagnostics.printFailure('session-startup', error);
+      await diagnostics.printFailure('session-startup', error, testNetwork);
       driver.close();
       await driverServer.close();
       if (devUpstreamDir) {
@@ -448,7 +457,7 @@ export class AppSession {
       await appProcess.waitForUiReady(driver, APP_STARTUP_READY_TIMEOUT_MS);
     } catch (error) {
       appProcess.output.printTail('connect-error');
-      await diagnostics.printFailure('session-startup', error);
+      await diagnostics.printFailure('session-startup', error, testNetwork);
       await diagnostics.printStartup({
         repoRoot,
         sessionMode,

@@ -173,6 +173,7 @@ jobs:
             /tmp/troubleshooting-*
             ${{ env.CI_TEMP_DIR }}/e2e-app-output-*.log
             ${{ env.CI_TEMP_DIR }}/e2e-upstream-worker-*.log
+            ${{ env.CI_TEMP_DIR }}/e2e-network-*.log
           if-no-files-found: ignore
 
       - name: Upload e2e screenshots

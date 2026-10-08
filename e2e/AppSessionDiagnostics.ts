@@ -1,9 +1,13 @@
 import { type ChildProcess, execFileSync } from 'node:child_process';
-import { copyFileSync, existsSync, readdirSync, readFileSync } from 'node:fs';
+import { copyFileSync, existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import Path from 'node:path';
 import process from 'node:process';
 import { isPortAvailable } from '../scripts/utils.ts';
-import type { StartedArgonTestNetwork } from '@argonprotocol/apps-core/__test__/startArgonTestNetwork.ts';
+import {
+  COMPOSE_CONFIG,
+  COMPOSE_DIR,
+  type StartedArgonTestNetwork,
+} from '@argonprotocol/apps-core/__test__/startArgonTestNetwork.ts';
 
 const FAILED_STEP_LOG_TAIL_LINES = 180;
 const TROUBLESHOOTING_BUNDLE_TIMEOUT_MS = 30_000;
@@ -26,7 +30,11 @@ export class AppSessionDiagnostics {
     return Path.join(this.getConfigBaseDirectory(), appConfigId, networkName, instanceName);
   }
 
-  public async printFailure(label: string, error: unknown): Promise<void> {
+  public async printFailure(
+    label: string,
+    error: unknown,
+    testNetwork?: Pick<StartedArgonTestNetwork, 'composeEnv'> | null,
+  ): Promise<void> {
     const instanceDirectory = AppSessionDiagnostics.getInstanceDirectory(
       this.appConfigId,
       this.networkName,
@@ -39,6 +47,34 @@ export class AppSessionDiagnostics {
     console.error('[E2E] Flow failed; fetching server install logs before teardown');
     console.error(`[E2E] Flow: ${label}`);
     console.error(`[E2E] Error: ${error instanceof Error ? error.message : String(error)}`);
+
+    if (testNetwork) {
+      try {
+        const args = COMPOSE_CONFIG.flatMap(file => ['-f', file]);
+        const output = execFileSync(
+          'docker',
+          ['compose', ...args, 'logs', '--no-color', '--timestamps', '--tail', '1000', 'indexer'],
+          {
+            cwd: COMPOSE_DIR,
+            env: testNetwork.composeEnv,
+            encoding: 'utf8',
+            timeout: TROUBLESHOOTING_BUNDLE_TIMEOUT_MS,
+            maxBuffer: 10 * 1024 * 1024,
+          },
+        );
+        console.error('[E2E] Recent test-network indexer output:');
+        console.error(this.tailText(output, FAILED_STEP_LOG_TAIL_LINES));
+
+        const ciTempDir = process.env.CI_TEMP_DIR?.trim();
+        if (ciTempDir) {
+          const artifactPath = Path.join(ciTempDir, `e2e-network-${this.instanceName}.log`);
+          writeFileSync(artifactPath, output, { mode: 0o600 });
+          console.error(`[E2E] Test-network indexer log: ${artifactPath}`);
+        }
+      } catch (networkLogError) {
+        console.warn('[E2E] Could not preserve test-network indexer logs', networkLogError);
+      }
+    }
 
     const workerLogPath = Path.join(instanceDirectory, 'dev-upstream', 'operator-worker.log');
     if (existsSync(workerLogPath)) {

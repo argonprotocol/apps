@@ -60,7 +60,10 @@ afterAll(async () => {
 
 describe.skipIf(skipE2E).sequential('BitcoinLocks integration', { timeout: 240e3 }, () => {
   beforeAll(async () => {
-    vi.spyOn(console, 'log').mockImplementation(() => {});
+    const logSubmission = console.log.bind(console);
+    vi.spyOn(console, 'log').mockImplementation((...args) => {
+      if (args[0] === '[TransactionTracker] SUBMITTING TRANSACTION') logSubmission(...args);
+    });
     vi.spyOn(console, 'info').mockImplementation(() => {});
     vi.spyOn(console, 'warn').mockImplementation(() => {});
 
