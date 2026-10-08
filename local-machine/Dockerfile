@@ -6,8 +6,6 @@ ENV DEBIAN_FRONTEND=noninteractive
 
 VOLUME ["/sys/fs/cgroup"]
 
-ARG SSH_PUBKEY
-
 RUN sed -i 's/noble/plucky/g' /etc/apt/sources.list.d/ubuntu.sources && \
     apt-get update && \
     apt-get install -y --no-install-recommends openssh-server sudo ufw netcat-openbsd systemd systemd-sysv && \
@@ -42,6 +40,16 @@ RUN sed -i 's/#\?PermitRootLogin.*/PermitRootLogin yes/' /etc/ssh/sshd_config &&
     sed -i '/pam_nologin.so/d' /etc/pam.d/sshd
 
 
+RUN systemctl enable ssh
+
+EXPOSE 22
+COPY entrypoint.sh /usr/local/bin/entrypoint.sh
+RUN mkdir -p /etc/systemd/system/ssh.service.d
+COPY ssh-runtime-dir.conf /etc/systemd/system/ssh.service.d/runtime-dir.conf
+RUN chmod +x /usr/local/bin/entrypoint.sh
+
+ARG SSH_PUBKEY
+
 RUN mkdir -p /home/argon/.ssh && \
     echo "$SSH_PUBKEY" > /home/argon/.ssh/authorized_keys && \
     chown -R argon:argon /home/argon/.ssh && \
@@ -50,14 +58,6 @@ RUN mkdir -p /home/argon/.ssh && \
     mkdir -p /root/.ssh && \
     cp /home/argon/.ssh/authorized_keys /root/.ssh/authorized_keys && \
     chmod 600 /root/.ssh/authorized_keys
-
-RUN systemctl enable ssh
-
-EXPOSE 22
-COPY entrypoint.sh /usr/local/bin/entrypoint.sh
-RUN mkdir -p /etc/systemd/system/ssh.service.d
-COPY ssh-runtime-dir.conf /etc/systemd/system/ssh.service.d/runtime-dir.conf
-RUN chmod +x /usr/local/bin/entrypoint.sh
 
 ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
 CMD ["/lib/systemd/systemd"]
