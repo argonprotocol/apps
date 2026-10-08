@@ -1,7 +1,7 @@
 <template>
   <ul class="space-y-4 px-4 pt-2 pb-5">
     <li class="flex flex-col">
-      <p>Download a troubleshooting package from your mining machine:</p>
+      <p>Download a debugging package to share with support:</p>
       <ProgressBar
         :progress="troubleshootingProgress"
         class="my-2"
@@ -9,9 +9,6 @@
       />
       <span v-if="troubleshootingError" class="text-sm text-red-500">
         {{ troubleshootingError }}
-      </span>
-      <span v-if="troubleshootingWarning" class="text-sm text-amber-600">
-        {{ troubleshootingWarning }}
       </span>
       <div class="mt-5 flex flex-row items-center gap-2">
         <button
@@ -27,6 +24,7 @@
         <button
           @click="includeWalletMnemonics = !includeWalletMnemonics"
           type="button"
+          :disabled="isCreatingTroubleshootingPackage"
           class="ml-2 flex cursor-pointer flex-row items-center space-x-2 whitespace-nowrap text-gray-800"
         >
           <Checkbox :isChecked="includeWalletMnemonics" :size="5" />
@@ -61,14 +59,12 @@ const localLogDir = Vue.ref('');
 const troubleshootingProgress = Vue.ref(0);
 const isCreatingTroubleshootingPackage = Vue.ref(false);
 const troubleshootingError = Vue.ref('');
-const troubleshootingWarning = Vue.ref('');
 const includeWalletMnemonics = Vue.ref(false);
 
 async function downloadTroubleshooting() {
   isCreatingTroubleshootingPackage.value = true;
   troubleshootingProgress.value = 0;
   troubleshootingError.value = '';
-  troubleshootingWarning.value = '';
   const removeOnFinish: { path: string; recursive?: boolean }[] = [];
   let unsubZipProgress: (() => void) | undefined;
 
@@ -89,15 +85,14 @@ async function downloadTroubleshooting() {
     if (diagnostics.hasServer()) {
       try {
         await diagnostics.load();
-        const downloadPath = await diagnostics.downloadTroubleshootingPackage(x => {
-          troubleshootingProgress.value = Math.min(60, x);
+        const downloadPath = await diagnostics.downloadTroubleshootingPackage(progress => {
+          troubleshootingProgress.value = progress * 0.6;
         });
         serverPackagePath = downloadPath;
         removeOnFinish.push({ path: downloadPath });
       } catch (error) {
-        console.warn('Unable to include server troubleshooting package:', error);
-        collectionErrors.push(`Server troubleshooting package: ${String(error)}`);
-        troubleshootingWarning.value = 'Server diagnostics failed. The downloaded package contains local diagnostics.';
+        console.warn('Unable to include server debugging package:', error);
+        collectionErrors.push(`Server debugging package: ${String(error)}`);
         troubleshootingProgress.value = Math.max(troubleshootingProgress.value, 15);
       }
     } else {
@@ -155,12 +150,13 @@ async function downloadTroubleshooting() {
       300e3,
     );
 
-    troubleshootingProgress.value = Math.max(troubleshootingProgress.value, 99);
-    await revealItemInDir(zipPath);
     troubleshootingProgress.value = 100;
+    await revealItemInDir(zipPath).catch(error => {
+      console.warn('Unable to reveal the saved debugging package:', error);
+    });
   } catch (err) {
-    console.error('Error downloading troubleshooting package:', err);
-    troubleshootingError.value = `Error downloading troubleshooting package: ${err}`;
+    console.error('Error downloading debugging package:', err);
+    troubleshootingError.value = 'Could not save the debugging package. Please try again.';
   } finally {
     unsubZipProgress?.();
 

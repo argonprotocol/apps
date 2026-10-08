@@ -166,16 +166,12 @@ export class SSHConnection {
     const eventProgressKey = remotePath.replace(/[^a-zA-Z0-9]/g, '_') + '_dl_progress';
     const unsub = await listen(eventProgressKey, event => {
       progressCallback(event.payload as number);
-      if (event.payload === 100) {
-        unsub(); // Unsubscribe when upload is complete
-      }
     });
     try {
       const payload = { address: this.address, downloadPath, remotePath, eventProgressKey };
       await invokeWithTimeout('ssh_download_file', payload, timeout);
-    } catch (e) {
+    } finally {
       unsub();
-      throw e;
     }
   }
 

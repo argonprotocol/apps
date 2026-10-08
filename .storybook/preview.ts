@@ -6,6 +6,12 @@ import '../src-vue/main.css';
 NetworkConfig.setNetwork('localnet');
 
 sb.mock(import('@tauri-apps/plugin-dialog'));
+sb.mock(import('@tauri-apps/plugin-opener'), { spy: true });
+sb.mock(import('../src-vue/lib/Diagnostics.ts'));
+sb.mock(import('@tauri-apps/api/core'), { spy: true });
+sb.mock(import('@tauri-apps/api/path'), { spy: true });
+sb.mock(import('@tauri-apps/api/event'), { spy: true });
+sb.mock(import('@tauri-apps/plugin-fs'), { spy: true });
 sb.mock(import('../src-vue/stores/argonBonds.ts'), { spy: true });
 sb.mock(import('../src-vue/stores/basics.ts'), { spy: true });
 sb.mock(import('../src-vue/stores/bitcoin.ts'), { spy: true });

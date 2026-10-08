@@ -171,7 +171,7 @@ export class ServerAdmin {
         const downloadPercent = Math.min(75, x * 0.75);
         onProgress(25 + downloadPercent); // 25% for creation, 75% for download
       },
-      60e3,
+      300e3,
     );
     return downloadPath;
   }
