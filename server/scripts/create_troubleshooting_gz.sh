@@ -5,6 +5,9 @@ set -uo pipefail
 DIRNAME="$(dirname "$0")"
 ROOT_DIR="$(realpath "$DIRNAME/../..")"
 INSTALL_LOG_DIR="$ROOT_DIR/logs"
+LOG_END="$(date +%s)"
+LOG_LINES=20000
+LOG_BYTES=$((8 * 1024 * 1024))
 
 STAMP="$(date -u +%Y%m%dT%H%M%SZ)"
 HOST="$(hostname -s || echo host)"
@@ -19,6 +22,48 @@ COLLECTION_ERRORS_TEE_PID=$!
 
 record_collection_error() {
   echo "[$(date -u +%Y-%m-%dT%H:%M:%SZ)] $*" >&2
+}
+
+capture_logs() {
+  local output="$1"
+  local duration="$2"
+  shift 2
+  timeout --kill-after=2s "$duration" "$@" 2>&1 | head -c "$LOG_BYTES" > "$output"
+  local statuses=("${PIPESTATUS[@]}")
+  if (( statuses[0] != 0 || $(wc -c < "$output") >= LOG_BYTES )); then
+    record_collection_error "Log capture stopped early or reached its size limit: $(basename "$output"). Available log lines are included."
+  fi
+}
+
+capture_daily_logs() {
+  local prefix="$1"
+  local oldest="$2"
+  shift 2
+  local deadline=$((SECONDS + 30))
+  local until="$LOG_END"
+  local since=$((until - until % 86400))
+
+  while (( until > oldest )); do
+    local duration=$((deadline - SECONDS))
+    if (( duration <= 0 )); then break; fi
+    if (( duration > 5 )); then duration=5; fi
+    local day
+    day="$(date -u -d "@$since" +%F 2>/dev/null || date -u -r "$since" +%F)"
+    local output="${prefix}.${day}.log"
+
+    if [[ "$1" == journalctl ]]; then
+      capture_logs "$output" "${duration}s" "$@" --since "@$since" --until "@$until"
+    else
+      capture_logs "$output" "${duration}s" "$@" --since "$since" --until "$until"
+    fi
+    if [[ ! -s "$output" ]]; then rm -f "$output"; fi
+    until="$since"
+    since=$((until - 86400))
+  done
+
+  if (( until > oldest )); then
+    record_collection_error "Log history collection reached its time limit: $(basename "$prefix"). Available days are included."
+  fi
 }
 
 # --- System snapshots ---
@@ -99,29 +144,32 @@ docker compose ls > "${OUT}/docker/compose-ls.txt" 2>&1 || true
 
 echo "[*] Capturing logs for all containers"
 # Dump stdout/stderr (human-readable) + metadata for every container
-docker ps -a --format '{{.ID}} {{.Names}}' | while read -r id name; do
+timeout --kill-after=2s 15s docker ps -a --format '{{.ID}} {{.Names}}' | head -n 50 | while read -r id name; do
   safe="${name//\//_}"
-  docker logs --timestamps --details "$id" > "${OUT}/logs/${safe}.log" 2>&1 || true
   docker inspect "$id" > "${OUT}/docker/${safe}.inspect.json" 2>&1 || true
+  created="$(timeout --kill-after=2s 5s docker inspect --format '{{.Created}}' "$id" 2>/dev/null)"
+  oldest=0
+  if [[ -n "$created" ]]; then oldest="$(date -u -d "$created" +%s 2>/dev/null || echo 0)"; fi
+  capture_daily_logs "${OUT}/logs/${safe}" "$oldest" docker logs --timestamps --details "$id"
 done
 
 if command -v journalctl >/dev/null 2>&1; then
   echo "[*] Capturing retained logs across container upgrades"
-  if ! journalctl --disk-usage > "${OUT}/docker/journal-disk-usage.txt" 2>&1; then
+  if ! timeout --kill-after=2s 15s journalctl --disk-usage > "${OUT}/docker/journal-disk-usage.txt" 2>&1; then
     record_collection_error "Could not read journal disk usage."
   fi
 
   JOURNAL_CONTAINER_NAMES="${OUT}/docker/journal-container-names.txt"
   JOURNAL_CONTAINER_NAMES_ERROR="${OUT}/docker/journal-container-names.error.txt"
-  if journalctl --no-pager -F CONTAINER_NAME > "$JOURNAL_CONTAINER_NAMES" 2> "$JOURNAL_CONTAINER_NAMES_ERROR"; then
+  if timeout --kill-after=2s 30s journalctl --no-pager -F CONTAINER_NAME > "$JOURNAL_CONTAINER_NAMES" 2> "$JOURNAL_CONTAINER_NAMES_ERROR"; then
     while read -r name; do
       [[ -z "$name" ]] && continue
       safe="${name//[^[:alnum:]_.-]/_}"
-      if ! journalctl --no-pager -o short-iso-precise CONTAINER_NAME="$name" \
-        > "${OUT}/logs/${safe}.journal.log" 2>&1; then
-        record_collection_error "Could not collect retained journal logs for container '$name'."
-      fi
-    done < "$JOURNAL_CONTAINER_NAMES"
+      oldest="$(timeout --kill-after=2s 5s journalctl --quiet --no-pager -o short-unix CONTAINER_NAME="$name" | head -n 1 | cut -d. -f1)"
+      if [[ ! "$oldest" =~ ^[0-9]+$ ]]; then oldest=0; fi
+      capture_daily_logs "${OUT}/logs/${safe}.journal" "$oldest" journalctl --no-pager -o short-iso-precise \
+        -n "$LOG_LINES" CONTAINER_NAME="$name"
+    done < <(head -n 50 "$JOURNAL_CONTAINER_NAMES")
   else
     record_collection_error "Could not enumerate retained container journals."
   fi
@@ -129,7 +177,11 @@ fi
 
 echo "[*] Copying install logs"
 if [[ -d "$INSTALL_LOG_DIR" ]]; then
-  rsync -a --delete "$INSTALL_LOG_DIR"/ "${OUT}/install/" || true
+  while IFS= read -r -d '' file; do
+    relative="${file#"$INSTALL_LOG_DIR/"}"
+    mkdir -p "$OUT/install/$(dirname "$relative")"
+    capture_logs "$OUT/install/$relative" 30s tail -n "$LOG_LINES" "$file"
+  done < <(timeout --kill-after=2s 15s find "$INSTALL_LOG_DIR" -maxdepth 2 -type f -print0)
 else
   echo "INSTALL_LOG_DIR '$INSTALL_LOG_DIR' not found" > "${OUT}/install/README.txt"
 fi

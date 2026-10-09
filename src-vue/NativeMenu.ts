@@ -80,7 +80,7 @@ export async function createMenu() {
     items: [
       {
         id: 'save',
-        text: 'Save Troubleshooting Package',
+        text: 'Save Debugging Package',
       },
     ],
   });

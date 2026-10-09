@@ -17,9 +17,10 @@ const SENSITIVE_COMMANDS = new Set([
 ]);
 
 export async function invokeWithTimeout<T>(cmd: string, args: Record<string, any>, timeoutMs: number): Promise<T> {
-  const timeout = new Promise<never>((_, reject) =>
-    setTimeout(() => reject(new InvokeTimeout('Invoke timed out')), timeoutMs),
-  );
+  let timer: ReturnType<typeof setTimeout>;
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new InvokeTimeout('Invoke timed out')), timeoutMs);
+  });
 
   try {
     if (SENSITIVE_COMMANDS.has(cmd)) {
@@ -32,5 +33,7 @@ export async function invokeWithTimeout<T>(cmd: string, args: Record<string, any
   } catch (e) {
     console.error(`[TAURI] Error invoking ${cmd}`, e);
     throw e;
+  } finally {
+    clearTimeout(timer!);
   }
 }

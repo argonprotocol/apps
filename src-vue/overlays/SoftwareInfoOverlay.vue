@@ -46,7 +46,7 @@
             offer help through the Discord and GitHub links in the app, but support is voluntary and not guaranteed.
           </p>
           <p>
-            Troubleshooting packages are created only when you choose to download one. They contain local app data and
+            Debugging packages are created only when you choose to download one. They contain local app data and
             logs; wallet mnemonic files are excluded unless you explicitly include them.
           </p>
         </div>
