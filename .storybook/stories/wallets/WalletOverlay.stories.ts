@@ -164,24 +164,24 @@ function useBitcoinWalletDetailsScenario() {
   useScenario(WalletType.argon, undefined, 'bitcoinWalletDetails', true);
 }
 
-function useBitcoinWalletInsurancePendingScenario() {
-  useScenario(WalletType.argon, undefined, 'bitcoinWalletInsurancePending', true);
+function useBitcoinWalletGuaranteePendingScenario() {
+  useScenario(WalletType.argon, undefined, 'bitcoinWalletGuaranteePending', true);
 }
 
-function useBitcoinWalletInsuranceUnavailableScenario() {
-  useScenario(WalletType.argon, undefined, 'bitcoinWalletInsuranceUnavailable', true);
+function useBitcoinWalletGuaranteeUnavailableScenario() {
+  useScenario(WalletType.argon, undefined, 'bitcoinWalletGuaranteeUnavailable', true);
 }
 
-function useBitcoinWalletInsurancePriceIncreaseScenario() {
-  useScenario(WalletType.argon, undefined, 'bitcoinWalletInsurancePriceIncrease', true);
+function useBitcoinWalletGuaranteePriceIncreaseScenario() {
+  useScenario(WalletType.argon, undefined, 'bitcoinWalletGuaranteePriceIncrease', true);
 }
 
-function useBitcoinWalletInsuranceSubmittingScenario() {
-  useScenario(WalletType.argon, undefined, 'bitcoinWalletInsuranceSubmitting', true);
+function useBitcoinWalletGuaranteeSubmittingScenario() {
+  useScenario(WalletType.argon, undefined, 'bitcoinWalletGuaranteeSubmitting', true);
 }
 
-function useBitcoinWalletInsuranceErrorScenario() {
-  useScenario(WalletType.argon, undefined, 'bitcoinWalletInsuranceError', true);
+function useBitcoinWalletGuaranteeErrorScenario() {
+  useScenario(WalletType.argon, undefined, 'bitcoinWalletGuaranteeError', true);
 }
 
 function useBitcoinFeeErrorScenario() {
@@ -327,8 +327,8 @@ export const BitcoinReceiveQrCode: Story = {
   },
 };
 
-export const UpdateInsurancePending: Story = {
-  beforeEach: useBitcoinWalletInsurancePendingScenario,
+export const UpdateGuaranteePending: Story = {
+  beforeEach: useBitcoinWalletGuaranteePendingScenario,
   play: async () => {
     const canvas = within(document.body);
 
@@ -338,8 +338,8 @@ export const UpdateInsurancePending: Story = {
   },
 };
 
-export const UpdateInsuranceWithoutCosignerCapacity: Story = {
-  beforeEach: useBitcoinWalletInsuranceUnavailableScenario,
+export const UpdateGuaranteeWithoutCosignerCapacity: Story = {
+  beforeEach: useBitcoinWalletGuaranteeUnavailableScenario,
   play: async () => {
     const canvas = within(document.body);
 
@@ -348,8 +348,8 @@ export const UpdateInsuranceWithoutCosignerCapacity: Story = {
   },
 };
 
-export const UpdateInsuranceAfterBitcoinPriceIncrease: Story = {
-  beforeEach: useBitcoinWalletInsurancePriceIncreaseScenario,
+export const UpdateGuaranteeAfterBitcoinPriceIncrease: Story = {
+  beforeEach: useBitcoinWalletGuaranteePriceIncreaseScenario,
   play: async () => {
     const canvas = within(document.body);
 
@@ -358,35 +358,35 @@ export const UpdateInsuranceAfterBitcoinPriceIncrease: Story = {
   },
 };
 
-export const UpdatingInsurance: Story = {
-  beforeEach: useBitcoinWalletInsuranceSubmittingScenario,
+export const UpdatingGuarantee: Story = {
+  beforeEach: useBitcoinWalletGuaranteeSubmittingScenario,
   play: async () => {
     const canvas = within(document.body);
 
     await userEvent.click(await canvas.findByRole('button', { name: 'Show Bitcoin details' }));
     await userEvent.click(canvas.getAllByRole('button', { name: /Channel/ })[0]);
-    const insuranceOverlay = await canvas.findByTestId('ConnectorChannel');
-    const amount = within(insuranceOverlay).getByTestId('input-number');
+    const guaranteeOverlay = await canvas.findByTestId('ConnectorChannel');
+    const amount = within(guaranteeOverlay).getByTestId('input-number');
     await userEvent.click(amount);
     await userEvent.keyboard('{Control>}a{/Control}600');
-    await userEvent.click(within(insuranceOverlay).getByRole('button', { name: 'Update Insurance' }));
+    await userEvent.click(within(guaranteeOverlay).getByRole('button', { name: 'Update Guarantee' }));
     await new Promise(resolve => setTimeout(resolve, 350));
   },
 };
 
-export const UpdateInsuranceError: Story = {
-  beforeEach: useBitcoinWalletInsuranceErrorScenario,
+export const UpdateGuaranteeError: Story = {
+  beforeEach: useBitcoinWalletGuaranteeErrorScenario,
   play: async () => {
     const canvas = within(document.body);
 
     await userEvent.click(await canvas.findByRole('button', { name: 'Show Bitcoin details' }));
     await userEvent.click(canvas.getAllByRole('button', { name: /Channel/ })[0]);
-    const insuranceOverlay = await canvas.findByTestId('ConnectorChannel');
-    const amount = within(insuranceOverlay).getByTestId('input-number');
+    const guaranteeOverlay = await canvas.findByTestId('ConnectorChannel');
+    const amount = within(guaranteeOverlay).getByTestId('input-number');
     await userEvent.click(amount);
     await userEvent.keyboard('{Control>}a{/Control}600');
-    await userEvent.click(within(insuranceOverlay).getByRole('button', { name: 'Update Insurance' }));
-    await within(insuranceOverlay).findByText('Unable to update Bitcoin insurance.');
+    await userEvent.click(within(guaranteeOverlay).getByRole('button', { name: 'Update Guarantee' }));
+    await within(guaranteeOverlay).findByText('Unable to update Bitcoin guarantee.');
   },
 };
 
@@ -782,7 +782,7 @@ export const BitcoinReceiveGuide: Story = {
 };
 
 export const BitcoinReceiveConnectorGuide: Story = {
-  name: 'Bitcoin Receive Insurance Guide',
+  name: 'Bitcoin Receive Guarantee Guide',
   beforeEach: () => useBitcoinReceiveGuideScenario(),
   play: () => openBitcoinReceiveConnector(undefined, false),
 };

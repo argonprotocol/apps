@@ -24,7 +24,7 @@
 
     <template #subline>
       <template v-if="notice.kind === 'securitizationHoldExpiring'">
-        Insurance is only reserved for
+        The cosigner guarantee is only reserved for
         <CountdownClock :time="securitizationHoldExpirationTime" v-slot="{ days, hours, minutes }">
           <template v-if="days > 0">{{ days }} more day{{ days === 1 ? '' : 's' }}</template>
           <template v-else>another {{ hours }}h {{ minutes }}m</template>
@@ -96,7 +96,7 @@ const lockExpirationTime = Vue.computed(() => {
 
 const title = Vue.computed(() => {
   if (props.notice.kind === 'securitizationHoldExpiring') {
-    return `${amountLabel.value} Bitcoin securitization hold expiring`;
+    return `${amountLabel.value} cosigner guarantee expiring`;
   }
   if (props.notice.kind === 'unlockNeedsAttention') return `${amountLabel.value} Bitcoin unlock needs attention`;
   return `${amountLabel.value} Bitcoin lock nearing expiration`;
@@ -114,7 +114,7 @@ const amountLabel = Vue.computed(() => {
 
 const tooltipContent = Vue.computed(() => {
   if (props.notice.kind === 'securitizationHoldExpiring') {
-    return 'The reserved securitization for this Bitcoin Lock is about to expire.';
+    return 'The reserved cosigner guarantee for this Bitcoin Lock is about to expire.';
   }
 
   if (props.notice.kind === 'unlockNeedsAttention') {

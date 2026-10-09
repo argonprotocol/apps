@@ -17,7 +17,7 @@ import { OperationalStepId, useCertificationController } from '../../../src-vue/
 
 const isInteractive = Vue.ref(false);
 
-const insuredSources: IBitcoinLiquidSource[] = [
+const guaranteedSources: IBitcoinLiquidSource[] = [
   {
     key: 'atlas',
     vaultId: 7,
@@ -78,7 +78,7 @@ const preview = {
 } satisfies IBitcoinLiquidCreatePreview;
 const state = {
   stage: 'form',
-  sources: insuredSources,
+  sources: guaranteedSources,
   selectedVaultIds: [7, 12],
   vaultCapacity: {
     status: 'ready',
@@ -353,7 +353,7 @@ export const SelectedVaultAmount: Story = {
     state: {
       ...state,
       selectedVaultIds: [7],
-      sources: [insuredSources[0]!, { ...insuredSources[1]!, selectedSatoshis: 0n }],
+      sources: [guaranteedSources[0]!, { ...guaranteedSources[1]!, selectedSatoshis: 0n }],
     },
   },
 };
@@ -362,7 +362,7 @@ export const InMyVault: Story = {
   args: {
     state: {
       ...state,
-      sources: [insuredSources[1]!],
+      sources: [guaranteedSources[1]!],
       selectedVaultIds: [12],
     },
   },
@@ -373,9 +373,9 @@ export const VaultCapacityCapped: Story = {
     state: {
       ...state,
       sources: [
-        insuredSources[0]!,
+        guaranteedSources[0]!,
         {
-          ...insuredSources[1],
+          ...guaranteedSources[1],
           unallocatedSatoshis: 30_000_000n,
           maximumLiquidSatoshis: 12_000_000n,
           selectedSatoshis: 12_000_000n,
@@ -399,7 +399,7 @@ export const VaultCapacityExplanation: Story = {
       selectedVaultIds: [7],
       sources: [
         {
-          ...insuredSources[0]!,
+          ...guaranteedSources[0]!,
           unallocatedSatoshis: 50_000_000n,
           maximumLiquidSatoshis: 1_324_999n,
           selectedSatoshis: 1_324_999n,
@@ -415,7 +415,7 @@ export const BelowVaultCapacity: Story = {
     state: {
       ...state,
       selectedVaultIds: [7],
-      sources: [{ ...insuredSources[0]!, maximumLiquidSatoshis: 25_000_000n, selectedSatoshis: 20_000_000n }],
+      sources: [{ ...guaranteedSources[0]!, maximumLiquidSatoshis: 25_000_000n, selectedSatoshis: 20_000_000n }],
       preview: { ...preview, liquidityMicrogons: 13_600_000_000n },
     },
   },
@@ -431,7 +431,7 @@ export const NoBitcoinAvailable: Story = {
   args: {
     state: {
       ...state,
-      sources: insuredSources.map(source => ({
+      sources: guaranteedSources.map(source => ({
         ...source,
         unallocatedSatoshis: 0n,
         maximumLiquidSatoshis: 0n,
@@ -482,7 +482,7 @@ export const ExistingLiquidsPriceUnavailable: Story = {
       ...state,
       preview: undefined,
       errorMessage:
-        'Existing Liquids need a Bitcoin price that is no longer available. Reduce the amount to Bitcoin already insured, or wait for an eligible price.',
+        'Existing Liquids need a Bitcoin price that is no longer available. Reduce the amount to Bitcoin already guaranteed, or wait for an eligible price.',
     },
   },
 };

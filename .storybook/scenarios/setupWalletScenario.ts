@@ -79,11 +79,11 @@ export type WalletScenario =
   | 'bitcoinWalletReleaseFailed'
   | 'bitcoinSend'
   | 'bitcoinWalletDetails'
-  | 'bitcoinWalletInsurancePending'
-  | 'bitcoinWalletInsuranceUnavailable'
-  | 'bitcoinWalletInsurancePriceIncrease'
-  | 'bitcoinWalletInsuranceSubmitting'
-  | 'bitcoinWalletInsuranceError'
+  | 'bitcoinWalletGuaranteePending'
+  | 'bitcoinWalletGuaranteeUnavailable'
+  | 'bitcoinWalletGuaranteePriceIncrease'
+  | 'bitcoinWalletGuaranteeSubmitting'
+  | 'bitcoinWalletGuaranteeError'
   | 'importReady'
   | 'importScanning'
   | 'importAccounts'
@@ -146,13 +146,13 @@ export function setupWalletScenario(state: WalletScenario): WalletScenarioState 
   const isPendingBitcoinRelease = state === 'pendingBitcoinRelease' || isWalletRelease;
   const isBitcoinWalletDetails =
     state === 'bitcoinWalletDetails' ||
-    state === 'bitcoinWalletInsurancePending' ||
-    state === 'bitcoinWalletInsuranceUnavailable' ||
-    state === 'bitcoinWalletInsurancePriceIncrease' ||
-    state === 'bitcoinWalletInsuranceSubmitting' ||
-    state === 'bitcoinWalletInsuranceError';
+    state === 'bitcoinWalletGuaranteePending' ||
+    state === 'bitcoinWalletGuaranteeUnavailable' ||
+    state === 'bitcoinWalletGuaranteePriceIncrease' ||
+    state === 'bitcoinWalletGuaranteeSubmitting' ||
+    state === 'bitcoinWalletGuaranteeError';
   const hasBitcoinChannelAccess = isBitcoinWalletDetails || isWalletRelease;
-  const insuranceRateMicrogonsPerBtc = state === 'bitcoinWalletInsuranceUnavailable' ? 6_800_000_000n : 68_000_000_000n;
+  const guaranteeRateMicrogonsPerBtc = state === 'bitcoinWalletGuaranteeUnavailable' ? 6_800_000_000n : 68_000_000_000n;
   const { wallets } = setupAppScenario({
     selectedTab: TopTab.Home,
     config: hasBitcoinChannelAccess ? { hasExtensionTreasury: true } : undefined,
@@ -222,7 +222,7 @@ export function setupWalletScenario(state: WalletScenario): WalletScenarioState 
     bitcoinChannels[0].securitizationCoverageMicrogons = 500n * argon;
     bitcoinChannels[1].securitizationCoverageMicrogons = 750n * argon;
     bitcoinChannels[2].securitizationCoverageMicrogons = 350n * argon;
-    if (state === 'bitcoinWalletInsurancePriceIncrease') {
+    if (state === 'bitcoinWalletGuaranteePriceIncrease') {
       bitcoinChannels[0].microgonsAtTargetPerBtc = 34_000_000_000n;
       bitcoinChannels[0].securitizationCoverageMicrogons = 340n * argon;
     }
@@ -444,7 +444,7 @@ export function setupWalletScenario(state: WalletScenario): WalletScenarioState 
     })),
     getLockProcessingError: fn(() => ''),
     formatP2wshAddress: fn((scriptHex: string) => BitcoinLocks.formatP2wshAddress(scriptHex, BitcoinNetwork.Bitcoin)),
-    argonLiquidityForSatoshis: fn((satoshis: bigint, microgonsAtTargetPerBtc = insuranceRateMicrogonsPerBtc) => {
+    argonLiquidityForSatoshis: fn((satoshis: bigint, microgonsAtTargetPerBtc = guaranteeRateMicrogonsPerBtc) => {
       return (satoshis * microgonsAtTargetPerBtc) / 100_000_000n;
     }),
     isSecuritizationHoldExpired: fn(() => false),
@@ -502,28 +502,28 @@ export function setupWalletScenario(state: WalletScenario): WalletScenarioState 
   });
   Object.assign(releases, { utxoTracking: bitcoinLocks.utxoTracking });
   if (isBitcoinWalletDetails) {
-    const insuranceVaults = Object.fromEntries(
+    const guaranteeVaults = Object.fromEntries(
       [101, 102, 103].map(vaultId => [vaultId, createScenarioVault({ vaultId })]),
     );
     Object.assign(getVaults(), {
-      vaultsById: insuranceVaults,
-      refreshVault: fn(async (vaultId: number) => insuranceVaults[vaultId]),
+      vaultsById: guaranteeVaults,
+      refreshVault: fn(async (vaultId: number) => guaranteeVaults[vaultId]),
     });
     Object.assign(bitcoinLocks, {
       getTable: fn(async () => ({ updateFromCurrentLock: fn(async () => undefined) })),
       satoshisForArgonLiquidity: fn(
-        async (microgons: bigint) => (microgons * 100_000_000n) / insuranceRateMicrogonsPerBtc,
+        async (microgons: bigint) => (microgons * 100_000_000n) / guaranteeRateMicrogonsPerBtc,
       ),
     });
     currency.fetchMainchainRates = fn(async () => ({
       [UnitOfMeasurement.ARGNOT]: 14_000_000n,
       [UnitOfMeasurement.USD]: 1_000_000n,
-      [UnitOfMeasurement.BTC]: insuranceRateMicrogonsPerBtc,
+      [UnitOfMeasurement.BTC]: guaranteeRateMicrogonsPerBtc,
     }));
     mocked(getMainchainClient).mockResolvedValue({
       query: {
         bitcoinLocks: {
-          microgonPerBtcHistory: fn(async () => [[10_000, insuranceRateMicrogonsPerBtc]]),
+          microgonPerBtcHistory: fn(async () => [[10_000, guaranteeRateMicrogonsPerBtc]]),
         },
         crosschainTransfer: {
           transferTotalsByAccount: fn(async () => ({ microgonsIn: 0n })),
@@ -540,7 +540,7 @@ export function setupWalletScenario(state: WalletScenario): WalletScenarioState 
         p2wshScriptHashHex: scriptDetails.p2wshScriptHashHex,
         vaultId: record.vaultId,
         securitizedSatoshis: record.securitizedSatoshis,
-        microgonsAtTargetPerBtc: record.microgonsAtTargetPerBtc ?? insuranceRateMicrogonsPerBtc,
+        microgonsAtTargetPerBtc: record.microgonsAtTargetPerBtc ?? guaranteeRateMicrogonsPerBtc,
         securitizationCoverageMicrogons: record.securitizationCoverageMicrogons ?? 0n,
         securitizationTick: record.securitizationTick ?? 10_000,
         fundedSatoshis: record.fundedSatoshis,
@@ -678,8 +678,8 @@ export function setupWalletScenario(state: WalletScenario): WalletScenarioState 
   WalletForEthereum.inspect = ethereumBalanceScan.mock;
   mocked(loadEthereumChainConfig).mockResolvedValue(undefined);
   mocked(getBitcoinLocks).mockReturnValue(bitcoinLocks);
-  const pendingInsuranceTransaction =
-    state === 'bitcoinWalletInsurancePending'
+  const pendingGuaranteeTransaction =
+    state === 'bitcoinWalletGuaranteePending'
       ? createScenarioTransactionInfo({
           extrinsicType: ExtrinsicType.BitcoinResecuritize,
           metadata: {
@@ -697,16 +697,16 @@ export function setupWalletScenario(state: WalletScenario): WalletScenarioState 
   mocked(getBitcoinTransactionOperations).mockReturnValue({
     bitcoinLockResecuritize: {
       getPendingResecuritizationTxInfo: fn((lockId: number) =>
-        pendingInsuranceTransaction?.tx.metadataJson.bitcoin.lockId === lockId
-          ? pendingInsuranceTransaction
+        pendingGuaranteeTransaction?.tx.metadataJson.bitcoin.lockId === lockId
+          ? pendingGuaranteeTransaction
           : undefined,
       ),
       submit:
-        state === 'bitcoinWalletInsuranceSubmitting'
+        state === 'bitcoinWalletGuaranteeSubmitting'
           ? fn(() => new Promise(() => undefined))
-          : state === 'bitcoinWalletInsuranceError'
+          : state === 'bitcoinWalletGuaranteeError'
             ? fn(async () => {
-                throw new Error('Unable to update Bitcoin insurance.');
+                throw new Error('Unable to update Bitcoin guarantee.');
               })
             : fn(async () => undefined),
     },

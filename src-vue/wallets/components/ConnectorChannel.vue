@@ -280,16 +280,16 @@
                     disabled
                     class="bg-argon-600 w-full cursor-not-allowed rounded-md px-5 py-2 font-semibold text-white opacity-50"
                   >
-                    Updating Insurance...
+                    Updating Guarantee...
                   </button>
                 </div>
 
                 <div v-else class="space-y-4">
                   <div v-if="isLoadingAddInsuranceTerms" class="py-5 text-center text-sm text-slate-500">
-                    Loading current insurance terms...
+                    Loading current guarantee terms...
                   </div>
                   <div v-else class="relative flex flex-col">
-                    <label class="mb-1 font-bold text-gray-500/80">Insurance guarantee</label>
+                    <label class="mb-1 font-bold text-gray-500/80">Cosigner guarantee</label>
                     <InputToken
                       v-model="addInsuranceTargetCoverageMicrogons"
                       data-testid="ConnectorChannel.addInsuranceAmount"
@@ -335,11 +335,12 @@
                     "
                     class="rounded-md bg-amber-50 px-3 py-3 text-sm text-amber-800"
                   >
-                    {{ channelCosignerLabel(displayedChannel) }} does not currently have capacity for more insurance.
+                    {{ channelCosignerLabel(displayedChannel) }} does not currently have capacity for a larger
+                    guarantee.
                   </div>
 
                   <div v-if="!isLoadingAddInsuranceTerms" class="flex flex-col gap-x-3">
-                    <label class="mb-1 font-bold text-gray-500/80">Cost of Insurance</label>
+                    <label class="mb-1 font-bold text-gray-500/80">Cost of Guarantee</label>
                     <div class="border-b border-gray-300 text-sm">
                       <div class="flex border-t border-gray-300 py-2">
                         <span class="grow">Guaranteed repayment</span>
@@ -348,7 +349,7 @@
                         </span>
                       </div>
                       <div class="flex border-t border-gray-300 py-2">
-                        <span class="grow">One-time insurance fee</span>
+                        <span class="grow">Guarantee fee</span>
                         <span v-if="addInsuranceCouponCreditMicrogons">
                           <span class="mr-1 line-through">
                             {{ argonSymbol
@@ -564,15 +565,16 @@
                         Channel creation in progress
                       </span>
                       <span v-else class="mt-0.5 block text-xs text-slate-500">
-                        {{ choice.isOwnedVault ? 'Reusable personal Bitcoin address' : 'Create with insurance' }}
+                        <template v-if="choice.isOwnedVault">Reusable personal Bitcoin address</template>
+                        <template v-else>Create with cosigner guarantee</template>
                       </span>
                     </button>
                     <Tooltip
                       :asChild="true"
                       :content="
                         choice.isOwnedVault
-                          ? 'Your vault cosigns this Bitcoin address. No insurance guarantee is required.'
-                          : 'This vault cosigns your Bitcoin address and can insure its Bitcoin against loss.'
+                          ? 'Your vault cosigns this Bitcoin address. No cosigner guarantee is required.'
+                          : 'This vault cosigns your Bitcoin address and can provide a cosigner guarantee.'
                       "
                       side="top"
                     >
@@ -612,7 +614,7 @@
                   <span class="min-w-0 grow truncate whitespace-nowrap">{{ selectedCosignerLabel }}</span>
                   <Tooltip
                     :asChild="true"
-                    content="A cosigner is a multisig guarantor of your BTC. They provide insurance against any loss of your underlying BTC so you can re-purchase if necessary."
+                    content="A cosigner provides the second signature needed to unlock your Bitcoin. Their guarantee is the amount they owe if they fail to unlock it when you request it."
                     side="top"
                   >
                     <button
@@ -628,7 +630,7 @@
 
               <div v-if="!isOwnedDefaultVault" class="relative mt-4 flex flex-col">
                 <div class="flex flex-row items-center">
-                  <label class="mb-1 grow font-bold text-gray-500/80">Insurance guarantee</label>
+                  <label class="mb-1 grow font-bold text-gray-500/80">Cosigner guarantee</label>
                   <a
                     :href="`${NetworkConfig.websiteHost}/docs/assets-and-entities/bitcoin-locks`"
                     target="_blank"
@@ -641,7 +643,7 @@
                 <WalletGuideAnchor
                   autoOpenGuidance
                   :open="isBitcoinFundingGuideActive && !!defaultVault && !hasReviewedInsurance"
-                  guidance="Bitcoin Insurance is the amount your Cosigner is on the hook for if they fail to unlock your Bitcoin when you request it. Adjust the amount as needed."
+                  guidance="The cosigner guarantee is the amount your cosigner owes if they fail to unlock your Bitcoin when you request it. Adjust the amount as needed."
                   @close="emit('update:open', false)"
                 >
                   <InputToken
@@ -691,7 +693,7 @@
                 <label class="mb-1 font-bold text-gray-500/80">Cost of Channel</label>
                 <div class="border-b border-gray-300 text-sm">
                   <div class="flex flex-row border-t border-gray-300 py-2">
-                    <div class="grow">{{ insuranceAmount === 0n ? 'Base Channel Cost' : 'Insurance Fee' }}</div>
+                    <div class="grow">{{ insuranceAmount === 0n ? 'Base Channel Cost' : 'Guarantee Fee' }}</div>
                     <div class="relative">
                       <template v-if="isVaultOperator">Waived</template>
                       <template v-else-if="channelCouponCreditMicrogons">
@@ -1062,7 +1064,7 @@ const currentInsuranceCoverageMicrogons = Vue.computed(
   () => displayedChannel.value?.securitizationCoverageMicrogons ?? 0n,
 );
 const insuranceActionLabel = Vue.computed(() =>
-  currentInsuranceCoverageMicrogons.value > 0n ? 'Update Insurance' : 'Add Insurance',
+  currentInsuranceCoverageMicrogons.value > 0n ? 'Update Guarantee' : 'Add Guarantee',
 );
 
 const archivedRelease = Vue.computed(() => {
@@ -1604,7 +1606,7 @@ async function beginAddInsurance(): Promise<void> {
       if (isAddingInsurance.value) updateAddInsuranceFee();
     })
     .catch(error => {
-      console.warn('Unable to refresh the Bitcoin insurance fee gift', error);
+      console.warn('Unable to refresh the Bitcoin guarantee fee gift', error);
     });
   try {
     await miningFrames.load();
@@ -1626,11 +1628,11 @@ async function beginAddInsurance(): Promise<void> {
         })
         .catch(error => {
           addInsuranceError.value =
-            error instanceof Error ? error.message : 'Unable to refresh current insurance terms.';
+            error instanceof Error ? error.message : 'Unable to refresh current guarantee terms.';
         });
     }).unsubscribe;
   } catch (error) {
-    addInsuranceError.value = error instanceof Error ? error.message : 'Unable to load current insurance terms.';
+    addInsuranceError.value = error instanceof Error ? error.message : 'Unable to load current guarantee terms.';
   } finally {
     isLoadingAddInsuranceTerms.value = false;
   }
@@ -1648,7 +1650,7 @@ async function refreshAddInsuranceTerms(): Promise<void> {
     BitcoinLock.get(client, channel.lockId),
   ]);
   const eligibleRate = rates?.at(-1);
-  if (!eligibleRate || !vault || !currentLock) throw new Error('Current insurance terms are unavailable.');
+  if (!eligibleRate || !vault || !currentLock) throw new Error('Current guarantee terms are unavailable.');
   const [rateTick, rate] = eligibleRate;
 
   await (await bitcoinLocks.getTable()).updateFromCurrentLock(channel, currentLock);
@@ -1738,7 +1740,7 @@ async function submitAddInsurance(): Promise<void> {
     trackAddInsuranceTransaction(txInfo);
   } catch (error) {
     isAddingInsuranceTransaction.value = false;
-    addInsuranceError.value = error instanceof Error ? error.message : 'Unable to add Bitcoin insurance.';
+    addInsuranceError.value = error instanceof Error ? error.message : 'Unable to add a Bitcoin cosigner guarantee.';
   }
 }
 

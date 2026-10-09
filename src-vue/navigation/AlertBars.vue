@@ -60,7 +60,7 @@
 
         <div class="pr-3 text-white">
           <template v-if="singleBitcoinAlert.kind === 'securitizationHoldExpiring'">
-            Unused bitcoin insurance is expiring.
+            Unused Bitcoin cosigner guarantee is expiring.
           </template>
           <template v-else-if="singleBitcoinAlert.kind === 'unlockNeedsAttention'">
             Bitcoin unlock needs attention.

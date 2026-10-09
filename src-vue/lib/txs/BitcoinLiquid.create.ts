@@ -493,7 +493,7 @@ export class BitcoinLiquidCreate extends TransactionOperation<
         });
         if (!compatibleRates.length) {
           throw new BitcoinLiquidCreateStateChangedError(
-            'Existing Liquids need a Bitcoin price that is no longer available. Reduce the amount to Bitcoin already insured, or wait for an eligible price.',
+            'Existing Liquids need a Bitcoin price that is no longer available. Reduce the amount to Bitcoin already guaranteed, or wait for an eligible price.',
           );
         }
 
@@ -583,7 +583,7 @@ export class BitcoinLiquidCreate extends TransactionOperation<
 
     if (capacityChanged) {
       throw new BitcoinLiquidCreateStateChangedError(
-        'The selected vaults can no longer insure the full selected Bitcoin amount.',
+        'The selected vaults can no longer guarantee the full selected Bitcoin amount.',
         maximumSatoshisByLockId,
       );
     }
