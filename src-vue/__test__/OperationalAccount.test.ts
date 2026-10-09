@@ -1,11 +1,19 @@
+import { Metadata, TypeRegistry } from '@polkadot/types';
+import { decorateConstants } from '@polkadot/types/metadata/decorate';
+import { getBundledMetadata, runtimeClient } from '@argonprotocol/runtime-client';
+import type { ArgonClient } from '@argonprotocol/apps-core';
+import type { WalletKeys } from '../lib/WalletKeys.ts';
 import { expect, it, vi } from 'vitest';
-import { getOfflineRegistry, Keyring } from '@argonprotocol/mainchain';
+import { getOfflineRegistry, Keyring, type PalletOperationalAccountsRewardsConfig } from '@argonprotocol/mainchain';
 import {
   activateOperationalAccountSetup,
   ensureOperationalAccountRegistered,
   getOnboardingSetupStatus,
   isValidOperatorName,
   setOperationalProfileName,
+  subscribeOperationalAccount,
+  type IOperationalChainProgress,
+  type IOperationalRewardConfig,
 } from '../lib/OperationalAccount.ts';
 import { ExtrinsicType } from '../interfaces/ITransactionRecord.ts';
 import { OnboardingSetupStatus } from '../interfaces/IConfig.ts';
@@ -482,4 +490,127 @@ it('waits for the runtime upgrade before submitting an access-proof registration
   expect(transactionTracker.submitAndWatch).not.toHaveBeenCalled();
   expect(tx.paymentInfo).not.toHaveBeenCalled();
   expect(txInfo).toBeUndefined();
+});
+
+it('refreshes mounted certification progress from positions after a runtime upgrade and retries without losing valid progress', async () => {
+  const registries = [159, 160].map(spec => {
+    const registry = new TypeRegistry();
+    const metadata = new Metadata(
+      registry,
+      Object.entries(getBundledMetadata()).find(([key]) => key.endsWith(`-${spec}`))![1],
+    );
+    registry.setMetadata(metadata);
+    return { registry, consts: decorateConstants(registry, metadata.asLatest, metadata.version) };
+  });
+  const deployed = registries[0];
+  const next = registries[1];
+  const vaultAccount = new Uint8Array(32).fill(0x11);
+  const operatorAccount = new Uint8Array(32).fill(0x22);
+  const walletKeys = {
+    operationalAddress: next.registry.createType('AccountId32', operatorAccount).toString(),
+    vaultingAddress: next.registry.createType('AccountId32', vaultAccount).toString(),
+  } as WalletKeys;
+  const account = deployed.registry.createType('Option<PalletOperationalAccountsOperationalAccount>', {
+    vaultAccount,
+    miningAccount: vaultAccount,
+    encryptionPubkey: vaultAccount,
+    accountBitcoinAmount: 500_000_000n,
+    accountVaultBondAmount: 200_000_000n,
+  });
+  let position = next.registry.createType('Option<PalletTreasuryPositionsPosition>', {
+    bondPrincipal: 2_500_000_000n,
+    quantities: { fissionLiquidity: 1_000_000_000n },
+  });
+  let singleCallback: ((value: typeof account) => void) | undefined;
+  let multiCallback: ((values: unknown[]) => void) | undefined;
+  let decorated: (() => void) | undefined;
+  const raw = {
+    consts: deployed.consts,
+    query: {
+      operationalAccounts: {
+        rewards: vi.fn(async () =>
+          next.registry.createType<PalletOperationalAccountsRewardsConfig>('PalletOperationalAccountsRewardsConfig', {
+            operationalCertificationReward: 500_000_000n,
+            operationalCertificationBonusReward: 5_000_000_000n,
+          }),
+        ),
+        operationalAccounts: vi.fn(async (_id: string, callback?: (value: typeof account) => void) => {
+          if (!callback) return account;
+          singleCallback = callback;
+          callback(account);
+          return () => {};
+        }),
+      },
+      treasuryPositions: {},
+    },
+    queryMulti: vi.fn(async (_calls: unknown[], callback: (values: unknown[]) => void) => {
+      multiCallback = callback;
+      callback([account, position]);
+      return () => {};
+    }),
+    on: vi.fn((_event, callback) => {
+      decorated = callback;
+    }),
+    off: vi.fn(),
+  };
+  const observed: { progress: IOperationalChainProgress; config: IOperationalRewardConfig }[] = [];
+  vi.useFakeTimers();
+  const startupError = vi.spyOn(console, 'error').mockImplementation(() => {});
+  raw.query.operationalAccounts.rewards.mockRejectedValueOnce(new Error('temporary startup configuration failure'));
+  const subscription = subscribeOperationalAccount(
+    walletKeys,
+    (progress, config) => observed.push({ progress, config }),
+    runtimeClient(raw) as unknown as ArgonClient,
+  );
+  await vi.advanceTimersByTimeAsync(1);
+  expect(observed).toEqual([]);
+  await vi.advanceTimersByTimeAsync(5_000);
+  const stop = await subscription;
+  startupError.mockRestore();
+  vi.useRealTimers();
+  expect(observed.at(-1)?.progress.hasBitcoinLock).toBe(true);
+  expect(observed.at(-1)?.progress.hasTreasuryBondParticipation).toBe(true);
+  expect(observed.at(-1)?.config.treasuryMinimumBitcoin).toBe(500_000_000n);
+
+  raw.consts = next.consts;
+  raw.query.treasuryPositions = { positionsByAccount: async () => position };
+  decorated!();
+  await vi.waitFor(() => expect(observed.at(-1)?.config.treasuryMinimumBitcoin).toBe(2_500_000_000n));
+  expect(observed.at(-1)?.progress.hasBitcoinLock).toBe(false);
+  expect(observed.at(-1)?.progress.hasTreasuryBondParticipation).toBe(true);
+  singleCallback!(account);
+  expect(observed.at(-1)?.progress.hasBitcoinLock).toBe(false);
+
+  position = next.registry.createType('Option<PalletTreasuryPositionsPosition>', {
+    bondPrincipal: 2_500_000_000n,
+    quantities: { fissionLiquidity: 2_475_000_000n },
+  });
+  multiCallback!([account, position]);
+  expect(observed.at(-1)?.progress.hasBitcoinLock).toBe(true);
+
+  vi.useFakeTimers();
+  const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
+  try {
+    raw.query.operationalAccounts.rewards.mockRejectedValueOnce(new Error('temporary configuration failure'));
+    decorated!();
+    await vi.advanceTimersByTimeAsync(1);
+    expect(observed.at(-1)?.progress.hasBitcoinLock).toBe(true);
+    position = next.registry.createType('Option<PalletTreasuryPositionsPosition>', null);
+    await vi.advanceTimersByTimeAsync(5_000);
+    expect(observed.at(-1)?.progress.hasBitcoinLock).toBe(false);
+    expect(observed.at(-1)?.progress.hasTreasuryBondParticipation).toBe(false);
+    stop();
+    multiCallback!([
+      account,
+      next.registry.createType('Option<PalletTreasuryPositionsPosition>', {
+        bondPrincipal: 9_000_000_000n,
+        quantities: { fissionLiquidity: 9_000_000_000n },
+      }),
+    ]);
+    expect(observed.at(-1)?.progress.hasBitcoinLock).toBe(false);
+  } finally {
+    stop();
+    consoleError.mockRestore();
+    vi.useRealTimers();
+  }
 });

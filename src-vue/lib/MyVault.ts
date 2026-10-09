@@ -1602,11 +1602,11 @@ export class MyVault {
       const registerCouncilSignerTx = await this.globalCouncil.buildRegisterCouncilSignerTx(client);
       if (registerCouncilSignerTx) txs.push(registerCouncilSignerTx);
       const tx = txs.length === 1 ? txs[0] : client.tx.utility.batchAll(txs);
-      const txResult = await new TxSubmitter(client, tx, txSigner).submit({
+      const txInfo = await this.#transactionTracker.submitAndWatch({
+        client,
+        tx,
+        txSigner,
         useLatestNonce: true,
-      });
-      const txInfo = await this.#transactionTracker.trackTxResult({
-        txResult,
         extrinsicType: ExtrinsicType.VaultCreate,
         metadata: { masterXpub, masterXpubPath },
       });
@@ -1615,13 +1615,11 @@ export class MyVault {
         console.warn(`[MyVault] Unable to finish vault creation transaction #${txInfo.tx.id}`, error);
       });
       deferred.resolve(txInfo);
-
-      return txInfo;
     } catch (error) {
       this.#singleRunTransactions.delete(ExtrinsicType.VaultCreate);
       deferred.reject(error as Error);
-      throw error;
     }
+    return deferred.promise;
   }
 
   private async onVaultCreated(txInfo: TransactionInfo<{ masterXpubPath: string }>): Promise<Vault> {

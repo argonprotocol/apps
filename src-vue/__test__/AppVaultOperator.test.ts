@@ -104,6 +104,7 @@ describe('AppVaultOperator', () => {
         },
       },
       query: {
+        treasuryPositions: {},
         operationalAccounts: {
           operationalAccounts: async () => ({
             vaultAccount: downstreamOperationalAccountId,

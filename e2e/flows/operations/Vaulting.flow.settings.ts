@@ -63,6 +63,20 @@ export default new OperationalFlow<IVaultingFlowContext, SettingsState>(import.m
     await flow.type({ selector: '[data-testid="settings-funding-amount"] [data-testid="input-number"]' }, '10', {
       clear: true,
     });
+    let retriedArgonFee = false;
+    await pollEvery(
+      250,
+      async () => {
+        if ((await flow.isVisible('VaultSettingsPanel.submitChange()')).clickable) return true;
+        if (retriedArgonFee) return false;
+        if (!(await flow.isVisible('VaultSettingsPanel.updateFee()')).clickable) return false;
+
+        retriedArgonFee = true;
+        await flow.click('VaultSettingsPanel.updateFee()');
+        return false;
+      },
+      { timeoutMs: 120_000, timeoutMessage: 'ARGN funding draft did not become ready after fee estimation.' },
+    );
     await flow.click('VaultSettingsPanel.submitChange()');
     await flow.waitFor({ selector: '[aria-label="Argon securitization transaction in progress"]' });
     await flow.click('VaultSettingsPanel.fundingPopoverOpen = false');
@@ -87,6 +101,20 @@ export default new OperationalFlow<IVaultingFlowContext, SettingsState>(import.m
     await flow.type({ selector: '[data-testid="settings-funding-amount"] [data-testid="input-number"]' }, '10', {
       clear: true,
     });
+    let retriedArgonotFee = false;
+    await pollEvery(
+      250,
+      async () => {
+        if ((await flow.isVisible('VaultSettingsPanel.submitChange()')).clickable) return true;
+        if (retriedArgonotFee) return false;
+        if (!(await flow.isVisible('VaultSettingsPanel.updateFee()')).clickable) return false;
+
+        retriedArgonotFee = true;
+        await flow.click('VaultSettingsPanel.updateFee()');
+        return false;
+      },
+      { timeoutMs: 120_000, timeoutMessage: 'ARGNOT funding draft did not become ready after fee estimation.' },
+    );
     await flow.click('VaultSettingsPanel.submitChange()');
     await waitForSecuritizationToFinish(flow);
     const addedArgonots = await flow.getText('Vault.settings.argnot');
@@ -110,6 +138,20 @@ export default new OperationalFlow<IVaultingFlowContext, SettingsState>(import.m
     await flow.type({ selector: '[data-testid="settings-funding-amount"] [data-testid="input-number"]' }, '10', {
       clear: true,
     });
+    let retriedWithdrawalFee = false;
+    await pollEvery(
+      250,
+      async () => {
+        if ((await flow.isVisible('VaultSettingsPanel.submitChange()')).clickable) return true;
+        if (retriedWithdrawalFee) return false;
+        if (!(await flow.isVisible('VaultSettingsPanel.updateFee()')).clickable) return false;
+
+        retriedWithdrawalFee = true;
+        await flow.click('VaultSettingsPanel.updateFee()');
+        return false;
+      },
+      { timeoutMs: 120_000, timeoutMessage: 'ARGN withdrawal draft did not become ready after fee estimation.' },
+    );
     await flow.click('VaultSettingsPanel.submitChange()');
     await waitForSecuritizationToFinish(flow);
     const withdrawal = await flow.queryApp(refs => ({

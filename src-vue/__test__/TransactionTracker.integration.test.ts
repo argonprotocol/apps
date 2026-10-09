@@ -255,10 +255,17 @@ describe.skipIf(skipE2E).sequential('Transaction tracker tests', { timeout: 60e3
         ]),
       );
       const restored = new TransactionTracker(Promise.resolve(db), createTrackedBlockWatch());
+      await transactionTracker.shutdown();
       await restored.load();
-      expect(restored.data.txInfos[0].tx.status).toBe(TransactionStatus.TimedOutWaitingForBlock);
+      const restoredTxInfo = restored.data.txInfos[0];
+      expect(restoredTxInfo.tx.status).toBe(TransactionStatus.TimedOutWaitingForBlock);
+      expect(restoredTxInfo.getStatus().error?.message).toBe('Transaction expired waiting for block inclusion');
+      await expect(restoredTxInfo.txResult.waitForInFirstBlock).rejects.toThrow('Transaction expired');
+      await expect(restoredTxInfo.txResult.waitForFinalizedBlock).rejects.toThrow('Transaction expired');
       expect(restored.pendingBlockTxInfosAtLoad).toHaveLength(0);
+      await restored.shutdown();
     } finally {
+      await transactionTracker.shutdown();
       absent.mockRestore();
       pauseWatch.mockRestore();
       await db.close();

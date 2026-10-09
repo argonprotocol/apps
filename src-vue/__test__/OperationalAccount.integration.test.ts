@@ -16,6 +16,7 @@ import {
   TreasuryBonds,
   BitcoinFission,
   BitcoinLock,
+  bigIntMax,
 } from '@argonprotocol/apps-core';
 import type { IConfig } from '../interfaces/IConfig.ts';
 import {
@@ -62,7 +63,13 @@ describe.skipIf(skipE2E).sequential('OperationalAccount integration tests', { ti
     const configuredVaultSetup = Config.getDefault('vaultSetup') as IConfig['vaultSetup'];
     const vaultSetup = {
       ...defaultVaultSetup,
-      securitizationMicrogons: configuredVaultSetup.securitizationMicrogons,
+      // Leave room for Bitcoin coverage to round above the minimum when converting to satoshis.
+      securitizationMicrogons:
+        bigIntMax(
+          configuredVaultSetup.securitizationMicrogons,
+          rewardConfig.treasuryMinimumBitcoin,
+          rewardConfig.treasuryMinimumBonds,
+        ) + BigInt(MICROGONS_PER_ARGON),
     };
     const harness = await createBitcoinLocksHarness({
       archiveUrl: network.archiveUrl,
@@ -70,7 +77,10 @@ describe.skipIf(skipE2E).sequential('OperationalAccount integration tests', { ti
       network: 'dev-docker',
       vaultSetup,
       walletFundingMicrogons:
-        vaultSetup.securitizationMicrogons + rewardConfig.treasuryMinimumBonds + 20n * BigInt(MICROGONS_PER_ARGON),
+        vaultSetup.securitizationMicrogons +
+        rewardConfig.treasuryMinimumBonds +
+        rewardConfig.treasuryMinimumBitcoin +
+        20n * BigInt(MICROGONS_PER_ARGON),
     });
 
     try {

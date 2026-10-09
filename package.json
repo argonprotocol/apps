@@ -82,8 +82,8 @@
     "@actions/github": "^9.1.1",
     "@argonprotocol/apps-bot": "workspace:*",
     "@argonprotocol/apps-core": "workspace:*",
-    "@argonprotocol/bitcoin": "1.4.13-dev.479a6416",
-    "@argonprotocol/mainchain": "1.4.13-dev.479a6416",
+    "@argonprotocol/bitcoin": "1.4.13-dev.754f4641",
+    "@argonprotocol/mainchain": "1.4.13-dev.754f4641",
     "@argonprotocol/runtime-client": "workspace:*",
     "@chenfengyuan/vue-countdown": "^2.1.3",
     "@ethereumjs/rlp": "^10.1.1",
@@ -154,7 +154,7 @@
     "e2e"
   ],
   "devDependencies": {
-    "@argonprotocol/testing": "1.4.13-dev.479a6416",
+    "@argonprotocol/testing": "1.4.13-dev.754f4641",
     "@scure/bip39": "^1.6.0",
     "@storybook/addon-vitest": "10.5.7",
     "@storybook/vue3-vite": "^10.5.7",
@@ -212,13 +212,13 @@
     }
   },
   "resolutions": {
-    "@argonprotocol/mainchain": "1.4.13-dev.479a6416",
-    "@argonprotocol/bitcoin": "1.4.13-dev.479a6416",
+    "@argonprotocol/mainchain": "1.4.13-dev.754f4641",
+    "@argonprotocol/bitcoin": "1.4.13-dev.754f4641",
     "@openzeppelin/contracts@npm:3.4.1-solc-0.7-2": "npm:3.4.2-solc-0.7",
     "axios": "1.20.0",
     "ws": "8.21.0",
     "tar": "7.5.21",
-    "@argonprotocol/testing": "1.4.13-dev.479a6416",
+    "@argonprotocol/testing": "1.4.13-dev.754f4641",
     "@polkadot/api": "17.0.1",
     "@polkadot/api-augment": "17.0.1",
     "@polkadot/api-base": "17.0.1",

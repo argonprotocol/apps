@@ -33,6 +33,7 @@ import { UpstreamOperatorClient } from '../lib/UpstreamOperatorClient.ts';
 import { createMockWalletKeys } from './helpers/wallet.ts';
 import { BlockWatch } from '@argonprotocol/apps-core/src/BlockWatch.ts';
 import { setDbPromise } from '../stores/helpers/dbPromise.ts';
+import { ExtrinsicType, TransactionStatus } from '../lib/db/TransactionsTable.ts';
 
 const skipE2E = Boolean(JSON.parse(process.env.SKIP_E2E ?? '0'));
 
@@ -104,18 +105,12 @@ describe.skipIf(skipE2E).sequential('Your Vault tests', {}, () => {
       await currency.fetchMainchainRates();
       const miningFrames = trackMiningFrames(new MiningFrames(clients));
       const vaults = new Vaults('dev-docker', currency, miningFrames);
-      const transactionTracker = new TransactionTracker(Promise.resolve(db), miningFrames.blockWatch);
-      const bitcoinLocks = trackBitcoinLocks(
+      let transactionTracker = new TransactionTracker(Promise.resolve(db), miningFrames.blockWatch);
+      let bitcoinLocks = trackBitcoinLocks(
         new BitcoinLocks(Promise.resolve(db), walletKeys, miningFrames.blockWatch, currency, transactionTracker),
       );
-      bitcoinLockCreate = new BitcoinLockCreate(
-        bitcoinLocks,
-        transactionTracker,
-        currency,
-        new UpstreamOperatorClient(),
-      );
       const globalCouncil = new GlobalCouncil(Promise.resolve(db), walletKeys, miningFrames);
-      const mintingAuthorities = new MintingAuthorities(
+      let mintingAuthorities = new MintingAuthorities(
         Promise.resolve(db),
         walletKeys,
         miningFrames,
@@ -139,6 +134,48 @@ describe.skipIf(skipE2E).sequential('Your Vault tests', {}, () => {
       const config = new Config(Promise.resolve(db), walletKeys);
       await config.load();
       await myVault.load();
+
+      // The signed creation survives a crash before RPC submission.
+      const broadcast = vi.spyOn(client.rpc.author, 'submitAndWatchExtrinsic').mockResolvedValueOnce(() => undefined);
+      let unbroadcastCreation;
+      try {
+        unbroadcastCreation = await myVault.createNew({ masterXpubPath: DEFAULT_MASTER_XPUB_PATH, vaultSetup });
+      } finally {
+        broadcast.mockRestore();
+      }
+      expect(unbroadcastCreation.tx.status).toBe(TransactionStatus.Submitted);
+      await transactionTracker.shutdown();
+      await bitcoinLocks.shutdown();
+      myVault.unsubscribe();
+      await db.transactionsTable.markExpiredWaitingForBlock(unbroadcastCreation.tx);
+
+      transactionTracker = new TransactionTracker(Promise.resolve(db), miningFrames.blockWatch);
+      bitcoinLocks = trackBitcoinLocks(
+        new BitcoinLocks(Promise.resolve(db), walletKeys, miningFrames.blockWatch, currency, transactionTracker),
+      );
+      mintingAuthorities = new MintingAuthorities(Promise.resolve(db), walletKeys, miningFrames, transactionTracker);
+      myVault = new MyVault(
+        Promise.resolve(db),
+        vaults,
+        walletKeys,
+        transactionTracker,
+        bitcoinLocks,
+        miningFrames,
+        globalCouncil,
+        mintingAuthorities,
+      );
+      bitcoinLockCreate = new BitcoinLockCreate(
+        bitcoinLocks,
+        transactionTracker,
+        currency,
+        new UpstreamOperatorClient(),
+      );
+      await myVault.load();
+      const restoredCreation = myVault.getTxInfoByType(ExtrinsicType.VaultCreate)!;
+      expect(restoredCreation.getStatus().error?.message).toBe('Transaction expired waiting for block inclusion');
+      await expect(restoredCreation.txResult.waitForInFirstBlock).rejects.toThrow('Transaction expired');
+      await expect(restoredCreation.txResult.waitForFinalizedBlock).rejects.toThrow('Transaction expired');
+
       // Insufficient ARGNOT must roll back the vault and delegate setup together.
       const failedCreation = await myVault.createNew({
         masterXpubPath: DEFAULT_MASTER_XPUB_PATH,
@@ -154,15 +191,39 @@ describe.skipIf(skipE2E).sequential('Your Vault tests', {}, () => {
         micronots: 100_000_000n,
         archiveUrl: mainchainUrl,
       });
-      const vaultCreation = await myVault.createNew({
-        masterXpubPath: DEFAULT_MASTER_XPUB_PATH,
-        vaultSetup,
-      });
+      const signer = await walletKeys.getVaultingKeypair();
+      const nextNonce = await client.rpc.system.accountNextIndex(signer.address);
+      const nonceQuery = vi
+        .spyOn(client.rpc.system, 'accountNextIndex')
+        .mockImplementation(vi.fn().mockResolvedValue(nextNonce));
+      let vaultCreation;
+      try {
+        // A remote RPC may not yet see this app's pending transaction.
+        const transfer = await transactionTracker.submitAndWatch({
+          client,
+          tx: client.tx.balances.transferKeepAlive(signer.address, 1_000_000n),
+          txSigner: signer,
+          extrinsicType: ExtrinsicType.Transfer,
+          useLatestNonce: true,
+        });
+        vaultCreation = await myVault.createNew({
+          masterXpubPath: DEFAULT_MASTER_XPUB_PATH,
+          vaultSetup,
+        });
+        expect(vaultCreation.tx.txNonce).toBe(transfer.tx.txNonce! + 1);
+        await transfer.txResult.waitForFinalizedBlock;
+      } finally {
+        nonceQuery.mockRestore();
+      }
       await vaultCreation.txResult.waitForFinalizedBlock;
       vaultCreationFees = vaultCreation.txResult.finalFee ?? 0n;
       expect(vaultCreation.tx.metadataJson.masterXpubPath).toBe(DEFAULT_MASTER_XPUB_PATH);
       vaultCreatedBlockNumber = vaultCreation.txResult.blockNumber!;
       await vaultCreation.waitForPostProcessing;
+      expect(vaultCreation.tx.id).not.toBe(unbroadcastCreation.tx.id);
+      expect((await db.transactionsTable.fetchAll()).find(tx => tx.id === unbroadcastCreation.tx.id)?.status).toBe(
+        TransactionStatus.TimedOutWaitingForBlock,
+      );
       const createdVault = myVault.createdVault!;
       expect(createdVault).toBeTruthy();
       expect(createdVault.vaultId).toBeGreaterThan(0);

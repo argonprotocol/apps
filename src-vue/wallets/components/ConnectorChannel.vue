@@ -481,7 +481,7 @@
                     "
                     :guidance="
                       treasuryCertificationFundingSatoshis !== undefined
-                        ? `Copy this address, then send at least ${satToBtcNm(treasuryCertificationFundingSatoshis).format('0,0.[00000000]')} BTC from your Bitcoin wallet for the ${argonSymbol}${microgonToArgonNm(treasuryBitcoinCertificationDisplayAmount).format('0,0')} certification target at the current rate.`
+                        ? `Copy this address, then send at least ${satToBtcNm(treasuryCertificationFundingSatoshis).format('0,0.[00000000]')} BTC from your Bitcoin wallet for the ${argonSymbol}${microgonToArgonNm(controller.rewardConfig.treasuryMinimumBitcoin).format('0,0')} certification target at the current rate.`
                         : 'Bitcoin pricing is unavailable. Wait for the certification amount before sending Bitcoin.'
                     "
                     @close="emit('update:open', false)"
@@ -837,10 +837,7 @@ import BitcoinMempool from '../../lib/BitcoinMempool.ts';
 import { ESPLORA_HOST } from '../../lib/Env.ts';
 import { BitcoinUtxoSpendStatus, BitcoinUtxoStatus } from '../../interfaces/IBitcoinUtxoRecord.ts';
 import basicEmitter from '../../emitters/basicEmitter.ts';
-import {
-  treasuryBitcoinCertificationDisplayAmount,
-  useCertificationController,
-} from '../../stores/certificationController.ts';
+import { useCertificationController } from '../../stores/certificationController.ts';
 
 dayjs.extend(utc);
 
@@ -882,7 +879,7 @@ const { microgonToArgonNm, satToBtcNm } = createNumeralHelpers(currency);
 const argonSymbol = currency.recordsByKey[UnitOfMeasurement.ARGN].symbol;
 const treasuryCertificationFundingSatoshis = Vue.computed(() => {
   const currentLiquidity = bitcoinFissions.getAll().reduce((total, fission) => total + fission.liquidityPromised, 0n);
-  const remainingLiquidity = bigIntMax(treasuryBitcoinCertificationDisplayAmount - currentLiquidity, 0n);
+  const remainingLiquidity = bigIntMax(controller.rewardConfig.treasuryMinimumBitcoin - currentLiquidity, 0n);
   if (remainingLiquidity === 0n) return 0n;
   const priceIndex = currency.priceIndex;
   if (!priceIndex.btcUsdPrice?.gt(0) || !priceIndex.argonUsdPrice?.gt(0) || !priceIndex.argonUsdTargetPrice?.gt(0)) {

@@ -18,17 +18,13 @@ import {
   type ArgonClient,
   type INetworkConfigOverride,
 } from '@argonprotocol/apps-core';
-import {
-  createBitcoinAddress,
-  generateBlocks,
-  sendBitcoinToAddress,
-} from '@argonprotocol/apps-core/__test__/helpers/bitcoinCli.ts';
 import { waitFor } from '@argonprotocol/apps-core/__test__/helpers/waitFor.ts';
 import { Keyring, MICROGONS_PER_ARGON } from '@argonprotocol/mainchain';
 import type { SubmittableExtrinsic } from '@argonprotocol/mainchain';
 import { sudoFundWallet } from '@argonprotocol/apps-core/__test__/helpers/sudoFundWallet.ts';
 import { sudo } from '@argonprotocol/testing';
 import type { IInviteResponse, IListInvitesResponse } from '@argonprotocol/apps-router';
+import { runtimeClient, type CurrentRuntimeQueries } from '@argonprotocol/runtime-client';
 import { DelegateSubmitLane } from '../../bot/src/DelegateSubmitLane.ts';
 import { EthereumGatewayProverService } from '../../bot/src/EthereumGatewayProverService.ts';
 import BitcoinLocks from '../../src-vue/lib/BitcoinLocks.ts';
@@ -48,7 +44,6 @@ import {
   loadOperationalAccount,
 } from '../../src-vue/lib/OperationalAccount.ts';
 import { TransactionTracker } from '../../src-vue/lib/TransactionTracker.ts';
-import { BitcoinLockCreate } from '../../src-vue/lib/txs/BitcoinLock.create.ts';
 import { BitcoinLiquidCreate } from '../../src-vue/lib/txs/BitcoinLiquid.create.ts';
 import { BitcoinLockResecuritize } from '../../src-vue/lib/txs/BitcoinLock.resecuritize.ts';
 import { UpstreamOperatorClient } from '../../src-vue/lib/UpstreamOperatorClient.ts';
@@ -96,7 +91,6 @@ export class AppVaultOperator {
     transactionTracker: TransactionTracker;
     bitcoinLocks: BitcoinLocks;
     bitcoinFissions: BitcoinFissions;
-    bitcoinLockCreate: BitcoinLockCreate;
     bitcoinLiquidCreate: BitcoinLiquidCreate;
   }) {
     this.#db = args.db;
@@ -109,7 +103,6 @@ export class AppVaultOperator {
     this.transactionTracker = args.transactionTracker;
     this.#bitcoinLocks = args.bitcoinLocks;
     this.#bitcoinFissions = args.bitcoinFissions;
-    this.#bitcoinLockCreate = args.bitcoinLockCreate;
     this.#bitcoinLiquidCreate = args.bitcoinLiquidCreate;
   }
 
@@ -117,7 +110,6 @@ export class AppVaultOperator {
   #miningFrames: MiningFrames;
   #bitcoinLocks: BitcoinLocks;
   #bitcoinFissions: BitcoinFissions;
-  #bitcoinLockCreate: BitcoinLockCreate;
   #bitcoinLiquidCreate: BitcoinLiquidCreate;
 
   public static async load(args: {
@@ -147,7 +139,6 @@ export class AppVaultOperator {
       transactionTracker,
       new BitcoinMempool(NetworkConfig.get().esploraHost),
     );
-    const bitcoinLockCreate = new BitcoinLockCreate(bitcoinLocks, transactionTracker, currency, upstreamOperatorClient);
     const bitcoinFissions = new BitcoinFissions(
       dbPromise,
       walletKeys.defaultArgonAddress,
@@ -231,7 +222,7 @@ export class AppVaultOperator {
     await myVault.load();
     await bitcoinLocks.load();
     await bitcoinFissions.load();
-    await Promise.all([bitcoinLockCreate.load(), bitcoinLockResecuritize.load(), bitcoinLiquidCreate.load()]);
+    await Promise.all([bitcoinLockResecuritize.load(), bitcoinLiquidCreate.load()]);
 
     return new AppVaultOperator({
       db,
@@ -244,7 +235,6 @@ export class AppVaultOperator {
       transactionTracker,
       bitcoinLocks,
       bitcoinFissions,
-      bitcoinLockCreate,
       bitcoinLiquidCreate,
     });
   }
@@ -298,10 +288,17 @@ export class AppVaultOperator {
     }
 
     const rewardConfig = await getOperationalRewardConfig(client);
+    let requiredSecuritization = this.config.vaultSetup.securitizationMicrogons;
+    if (rewardConfig.treasuryMinimumBonds > requiredSecuritization) {
+      requiredSecuritization = rewardConfig.treasuryMinimumBonds;
+    }
+    if (rewardConfig.operationalMinimumVaultSecuritization > requiredSecuritization) {
+      requiredSecuritization = rewardConfig.operationalMinimumVaultSecuritization;
+    }
+    this.config.vaultSetup = { ...this.config.vaultSetup, securitizationMicrogons: requiredSecuritization };
+
     const requiredVaultingBalance =
-      this.config.vaultSetup.securitizationMicrogons +
-      rewardConfig.treasuryMinimumBonds +
-      20n * BigInt(MICROGONS_PER_ARGON);
+      requiredSecuritization + rewardConfig.treasuryMinimumBonds + 20n * BigInt(MICROGONS_PER_ARGON);
     const [existingTreasuryArgons, existingTreasuryArgonots] = await Promise.all([
       client.query.system.account(this.walletKeys.treasuryAddress),
       client.query.ownership.account(this.walletKeys.treasuryAddress),
@@ -321,6 +318,10 @@ export class AppVaultOperator {
     if (!vault) {
       throw new Error(`AppVaultOperator could not load a vault for ${this.walletKeys.treasuryAddress}.`);
     }
+    if (vault.securitization < requiredSecuritization) {
+      const txInfo = await this.myVault.setVaultSecuritization({ securitizationMicrogons: requiredSecuritization });
+      await txInfo.waitForPostProcessing;
+    }
 
     const existingOperationalAccount = await loadOperationalAccount(this.walletKeys, client);
     const existingProgress = getOperationalChainProgressFromAccount(existingOperationalAccount, rewardConfig);
@@ -333,94 +334,82 @@ export class AppVaultOperator {
     const operatorIsReady =
       existingSetup.operatorName === operatorName &&
       existingSetup.vaultDelegateIsReady &&
+      existingProgress.hasBitcoinLock &&
+      existingProgress.hasTreasuryBondParticipation &&
+      existingProgress.hasTreasuryUniswapTransfer &&
       existingProgress.isOperational &&
       existingProgress.availableAccessCodes > 0;
 
-    if (!existingOperationalAccount) {
-      const certification = await loadCertificationProgress({
+    const treasuryPositions = runtimeClient<ArgonClient['raw'], CurrentRuntimeQueries>(client.raw).query
+      .treasuryPositions;
+    const certification = await loadCertificationProgress({
+      client,
+      defaultAccountId: this.walletKeys.defaultArgonAddress,
+      operationalAccountId: this.walletKeys.operationalAddress,
+      operationalAccountPromise: Promise.resolve(existingOperationalAccount),
+    });
+
+    if (!existingOperationalAccount && !certification.hasTreasuryUniswapTransfer) {
+      console.info('[dev-upstream] Setting treasury Uniswap transfer certification progress');
+      const transferTotalsKey = client.query.crosschainTransfer.transferTotalsByAccount.key(
+        this.walletKeys.treasuryAddress,
+      );
+      const transferTotals = await client.query.crosschainTransfer.transferTotalsByAccount(
+        this.walletKeys.treasuryAddress,
+      );
+      const transferTotalsValue = client
+        .createType('PalletCrosschainTransferAccountTransferTotals', {
+          ...transferTotals,
+          microgonsIn: rewardConfig.treasuryMinimumUniswapTransfer,
+          argonTransfersInCount: transferTotals.argonTransfersInCount || 1,
+        })
+        .toHex();
+
+      await submitAndFinalize(
         client,
-        defaultAccountId: this.walletKeys.defaultArgonAddress,
-      });
-      if (!certification.hasTreasuryBitcoin) {
-        console.info('[dev-upstream] Funding treasury Bitcoin certification lock');
-        const existingLockIds = await BitcoinLock.idsByOwner(client, this.walletKeys.defaultArgonAddress);
-        if (existingLockIds.length) {
-          throw new Error(
-            'Existing upstream Bitcoin locks have not met the funding requirement. Finish funding those locks before retrying bootstrap.',
-          );
-        }
-        const satoshis = await this.#bitcoinLocks.satoshisForArgonLiquidity(rewardConfig.treasuryMinimumBitcoin);
-        const txInfo = await this.#bitcoinLockCreate.submit({
-          vault,
-          satoshis,
-          txSigner: await this.walletKeys.getLiquidLockingKeypair(),
-        });
-        await txInfo.waitForPostProcessing;
-
-        const blockHash = txInfo.tx.blockHash ?? (await txInfo.txResult.waitForInFirstBlock);
-        const apiAt = await client.at(blockHash);
-        const { lock: treasuryLock } = await BitcoinLock.getBitcoinLockFromTxResult(apiAt, txInfo.txResult);
-
-        const fundingAddress = BitcoinLocks.formatP2wshAddress(
-          treasuryLock.p2wshScriptHashHex,
-          this.#bitcoinLocks.bitcoinNetwork,
-        );
-        const minerAddress = createBitcoinAddress();
-        sendBitcoinToAddress(fundingAddress, treasuryLock.securitizedSatoshis);
-        generateBlocks(8, minerAddress);
-
-        await waitFor(45e3, 'upstream treasury bitcoin funded', async () => {
-          const currentLock = await BitcoinLock.get(client, treasuryLock.lockId);
-          if (!currentLock?.fundedSatoshis) return;
-          return currentLock;
-        });
-        console.info(`[dev-upstream] Treasury Bitcoin lock funded after ${Date.now() - bootstrapStartedAt}ms`);
-      }
-
-      if (!certification.hasTreasuryUniswapTransfer) {
-        console.info('[dev-upstream] Setting treasury Uniswap transfer certification progress');
-        const transferTotalsKey = client.query.crosschainTransfer.transferTotalsByAccount.key(
-          this.walletKeys.treasuryAddress,
-        );
-        const transferTotals = await client.query.crosschainTransfer.transferTotalsByAccount(
-          this.walletKeys.treasuryAddress,
-        );
-        const transferTotalsValue = client
-          .createType('PalletCrosschainTransferAccountTransferTotals', {
-            ...transferTotals,
-            microgonsIn: rewardConfig.treasuryMinimumUniswapTransfer,
-            argonTransfersInCount: transferTotals.argonTransfersInCount || 1,
-          })
-          .toHex();
-
-        await submitAndFinalize(
-          client,
-          client.tx.sudo.sudo(client.tx.system.setStorage([[transferTotalsKey, transferTotalsValue]])),
-          sudo(),
-          { useLatestNonce: true },
-        );
-        console.info(`[dev-upstream] Treasury Uniswap progress ready after ${Date.now() - bootstrapStartedAt}ms`);
-      }
-
-      if (!certification.hasTreasuryBonds) {
-        console.info('[dev-upstream] Buying treasury certification bond');
-        const bondTx = await TreasuryBonds.buildBuyBondTx({
-          client,
-          vaultId: vault.vaultId,
-          bondPurchaseMicrogons: rewardConfig.treasuryMinimumBonds - (certification.treasuryBondAmount ?? 0n),
-        });
-        const txSigner = await this.walletKeys.getTreasuryKeypair();
-        const txResult = await new TxSubmitter(client, bondTx, txSigner).submit({
-          useLatestNonce: true,
-        });
-        await txResult.waitForFinalizedBlock;
-        console.info(`[dev-upstream] Treasury bond ready after ${Date.now() - bootstrapStartedAt}ms`);
-      }
+        client.tx.sudo.sudo(client.tx.system.setStorage([[transferTotalsKey, transferTotalsValue]])),
+        sudo(),
+        { useLatestNonce: true },
+      );
+      console.info(`[dev-upstream] Treasury Uniswap progress ready after ${Date.now() - bootstrapStartedAt}ms`);
     }
 
-    console.info('[dev-upstream] Ensuring upstream Liquid');
-    await this.ensureOperationalLiquid({ client });
-    console.info(`[dev-upstream] Upstream Liquid ready after ${Date.now() - bootstrapStartedAt}ms`);
+    if (!certification.hasTreasuryBonds) {
+      console.info('[dev-upstream] Buying treasury certification bond');
+      const bondTx = await TreasuryBonds.buildBuyBondTx({
+        client,
+        vaultId: vault.vaultId,
+        bondPurchaseMicrogons: rewardConfig.treasuryMinimumBonds - (certification.treasuryBondAmount ?? 0n),
+      });
+      const txSigner = await this.walletKeys.getTreasuryKeypair();
+      const txResult = await new TxSubmitter(client, bondTx, txSigner).submit({
+        useLatestNonce: true,
+      });
+      await txResult.waitForFinalizedBlock;
+      console.info(`[dev-upstream] Treasury bond ready after ${Date.now() - bootstrapStartedAt}ms`);
+    }
+
+    if (!certification.hasTreasuryBitcoin) {
+      console.info('[dev-upstream] Setting treasury Bitcoin certification liquidity');
+      const positionOwner = existingOperationalAccount?.vaultAccount ?? this.walletKeys.defaultArgonAddress;
+      const position = await treasuryPositions.positionsByAccount(positionOwner);
+      // Synthetic certification progress is not a Fission and must not increase network liquidity.
+      const positionValue = client.createType('PalletTreasuryPositionsPosition', {
+        ...position,
+        quantities: { ...position?.quantities, fissionLiquidity: rewardConfig.treasuryMinimumBitcoin },
+      });
+      await submitAndFinalize(
+        client,
+        client.tx.sudo.sudo(
+          client.tx.system.setStorage([
+            [treasuryPositions.positionsByAccount.key(positionOwner), positionValue.toHex()],
+          ]),
+        ),
+        sudo(),
+        { useLatestNonce: true },
+      );
+      console.info(`[dev-upstream] Treasury Bitcoin progress ready after ${Date.now() - bootstrapStartedAt}ms`);
+    }
 
     if (operatorIsReady) return;
 

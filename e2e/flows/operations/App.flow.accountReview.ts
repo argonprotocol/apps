@@ -64,6 +64,7 @@ type IAccountReviewFlowState = IE2EOperationInspectState<
 export default new OperationalFlow<IAccountReviewFlowContext, IAccountReviewFlowState>(import.meta, {
   description: 'Verify that an operational account loads its available state without signing or server access.',
   defaultTimeoutMs: 60_000,
+  postRunTimeoutMs: 60_000,
   createContext: flow => ({ flow }),
   async inspect({ flow }) {
     const expectsBitcoinLiquid = flow.input.expectsBitcoinLiquid === true;
