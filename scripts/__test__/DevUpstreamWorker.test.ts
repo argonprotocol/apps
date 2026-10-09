@@ -1,9 +1,12 @@
 import { spawn } from 'node:child_process';
+import { createServer } from 'node:https';
+import type { AddressInfo } from 'node:net';
 import Fs from 'node:fs';
 import Os from 'node:os';
 import Path from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, onTestFinished } from 'vitest';
+import { ensureDevGatewayCerts } from '../devGatewayCerts.ts';
 import {
   getDevUpstreamWorkerPaths,
   restartDevUpstreamWorker,
@@ -16,6 +19,7 @@ describe('dev upstream worker lifecycle', () => {
   let devUpstreamDir: string | undefined;
   let unrelatedWorkerPid: number | undefined;
 
+  // Cleanup includes native process ownership checks and the worker's shutdown grace period.
   afterEach(async () => {
     if (devUpstreamDir) await stopDevUpstreamWorker(devUpstreamDir);
     if (unrelatedWorkerPid && isProcessRunning(unrelatedWorkerPid)) {
@@ -26,7 +30,57 @@ describe('dev upstream worker lifecycle', () => {
       }
     }
     if (devUpstreamDir) Fs.rmSync(devUpstreamDir, { recursive: true, force: true });
-  });
+  }, 30_000);
+
+  // Certificate generation and a cold worker launch need the same budget as the replacement test below.
+  it('lets the detached Node worker read the mailbox capability over local gateway TLS', async () => {
+    devUpstreamDir = Fs.mkdtempSync(Path.join(Os.tmpdir(), 'argon-dev-upstream-tls-'));
+    const certHome = Path.join(devUpstreamDir, 'ca');
+    env = {
+      ...process.env,
+      ARGON_DEV_GATEWAY_CERT_HOME: certHome,
+      ARGON_DEV_GATEWAY_CERT_TARGETS: Path.join(devUpstreamDir, 'gateway-certs'),
+      ARGON_DEV_GATEWAY_SKIP_TRUST: '1',
+    };
+    await ensureDevGatewayCerts({ env });
+
+    const gateway = createServer(
+      {
+        key: Fs.readFileSync(Path.join(certHome, 'localhost', 'privkey.pem')),
+        cert: Fs.readFileSync(Path.join(certHome, 'localhost', 'fullchain.pem')),
+      },
+      (_request, response) => {
+        response.setHeader('Content-Type', 'application/json');
+        response.end(JSON.stringify({ bitcoinCooperativeReleaseMailboxVersion: 1 }));
+      },
+    );
+    onTestFinished(() => new Promise<void>(resolve => gateway.close(() => resolve())));
+    await new Promise<void>(resolve => gateway.listen(0, '127.0.0.1', resolve));
+    const gatewayUrl = `https://127.0.0.1:${(gateway.address() as AddressInfo).port}`;
+
+    const { statePath } = getDevUpstreamWorkerPaths(devUpstreamDir);
+    const resultPath = Path.join(devUpstreamDir, 'gateway-response.json');
+    const workerPath = Path.join(devUpstreamDir, 'gateway-worker.cjs');
+    Fs.writeFileSync(
+      workerPath,
+      `
+      const Fs = require('node:fs');
+      fetch(${JSON.stringify(gatewayUrl)}).then(async response => {
+        Fs.writeFileSync(${JSON.stringify(resultPath)}, await response.text());
+        const state = JSON.parse(Fs.readFileSync(${JSON.stringify(statePath)}, 'utf8'));
+        Fs.writeFileSync(${JSON.stringify(statePath)}, JSON.stringify({ ...state, ready: true }));
+        setInterval(() => undefined, 1_000);
+      }).catch(error => { console.error(error); process.exit(1); });
+    `,
+    );
+    await restartDevUpstreamWorker({
+      archiveUrl: 'ws://127.0.0.1:9944',
+      env: { ...env, NODE_EXTRA_CA_CERTS: '' },
+      devUpstreamDir,
+      workerPath,
+    });
+    expect(JSON.parse(Fs.readFileSync(resultPath, 'utf8'))).toEqual({ bitcoinCooperativeReleaseMailboxVersion: 1 });
+  }, 60_000);
 
   it('releases the process owner when its app instance directory is removed', async () => {
     const instanceDir = Fs.mkdtempSync(Path.join(Os.tmpdir(), 'argon-app-instance-'));

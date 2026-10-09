@@ -11,6 +11,10 @@ import {
   NetworkConfig,
   signRouterAuthAccountBinding,
   signRouterAuthChallenge,
+  signBitcoinCooperativeReleaseRequest,
+  type ArgonCurrentQueryClient,
+  type IBitcoinCooperativeReleaseRequest,
+  type IBitcoinCooperativeReleaseMailboxRecord,
   UserRole,
   type IEthereumGatewayCatchUpResponse,
   type IEthereumGatewayRelayStatus,
@@ -82,6 +86,200 @@ describe('RouterServer', () => {
     await new Promise<void>(resolve => botServer?.close(() => resolve()) ?? resolve());
     vi.restoreAllMocks();
     mainchainMocks.getMainchainClient.mockReset();
+  });
+
+  it('requires authentication for every mailbox operation while keeping existing routes available', async () => {
+    routerDb = createDb('router-bitcoin-cooperative-releases-disabled-');
+    const started = await startRouterServer(routerDb, () => ({ status: 200, body: { isReady: true } }));
+    routerServer = started.routerServer;
+    botServer = started.botServer;
+    const base = `http://${started.routerAddress.host}:${started.routerAddress.port}`;
+    expect((await fetch(`${base}/bitcoin-cooperative-releases/pending`)).status).toBe(503);
+    expect((await requestJson(started.routerAddress, '/bitcoin-cooperative-releases', {})).status).toBe(503);
+    expect(
+      (await requestJson(started.routerAddress, '/bitcoin-cooperative-releases/missing/response', {})).status,
+    ).toBe(503);
+    expect(JsonExt.parse(await (await fetch(base)).text()).bitcoinCooperativeReleaseMailboxVersion).toBe(0);
+    expect((await fetch(`${base}/bot-sync-status`)).status).toBe(200);
+  });
+
+  it('delivers immutable owner-authorized returns through authenticated sessions and retains signatures after restart', async () => {
+    const dbPath = Path.join(
+      Fs.mkdtempSync(Path.join(os.tmpdir(), 'router-bitcoin-cooperative-releases-')),
+      'router.sqlite',
+    );
+    routerDb = new RouterDb(dbPath);
+    routerDb.migrate();
+    const keys = new Keyring({ type: 'sr25519' });
+    const operator = keys.addFromUri('//MailboxOperational');
+    const vaultOperator = keys.addFromUri('//MailboxVault');
+    const member = keys.addFromUri('//MailboxMember');
+    const other = keys.addFromUri('//MailboxOther');
+    for (const account of [member, other]) {
+      const invite = insertMemberInvite(routerDb, {
+        inviteCode: account === member ? 'mailbox-member' : 'mailbox-other',
+        name: 'Synthetic member',
+        fromName: 'Synthetic operator',
+      });
+      routerDb.userInvitesTable.claimInvite(invite.id, account.address, account.derive('//auth').address);
+    }
+    // The finalized chain is the external boundary; HTTP auth, authorization and SQLite remain real.
+    vi.spyOn(RouterServer.prototype as any, 'queryFinalizedState').mockImplementation(async query => {
+      const read = query as (client: ArgonCurrentQueryClient) => Promise<unknown>;
+      return read({
+        query: {
+          vaults: {
+            vaultsById: async (id: number) => (id === 7 ? { operatorAccountId: vaultOperator.address } : null),
+            vaultIdByOperator: async (account: string) => (account === vaultOperator.address ? 7 : null),
+          },
+        },
+      } as unknown as ArgonCurrentQueryClient);
+    });
+    const started = await startRouterServer(routerDb, () => ({ status: 404, body: {} }), {
+      adminOperatorAccountId: operator.address,
+      vaultOperatorAddress: vaultOperator.address,
+    });
+    routerServer = started.routerServer;
+    botServer = started.botServer;
+    const { session: memberSession } = await login(
+      started.routerAddress,
+      member,
+      UserRole.Member,
+      member.derive('//auth'),
+    );
+    const { session: otherSession } = await login(
+      started.routerAddress,
+      other,
+      UserRole.Member,
+      other.derive('//auth'),
+    );
+    const { session: adminSession } = await login(started.routerAddress, operator);
+    const request = createCooperativeReleaseRequest(member);
+    const path = withSessionId('/bitcoin-cooperative-releases', memberSession.sessionId);
+    expect((await requestJson(started.routerAddress, path, request)).status).toBe(200);
+    const duplicate = await requestJson(started.routerAddress, path, request);
+    expect(duplicate.status).toBe(200);
+    const original = JsonExt.parse<{ bitcoinCooperativeRelease: IBitcoinCooperativeReleaseMailboxRecord }>(
+      await duplicate.text(),
+    ).bitcoinCooperativeRelease;
+    expect(routerDb.bitcoinCooperativeReleasesTable.pending(7).requests).toHaveLength(1);
+    expect(original.request.destinationSatoshis).toBe(49_000n);
+    const withRemovalEvidence = { ...request, removalBlockNumber: 180 };
+    const amended = await requestJson(started.routerAddress, path, withRemovalEvidence);
+    expect(amended.status).toBe(200);
+    expect(JsonExt.parse(await amended.text()).bitcoinCooperativeRelease.request).toEqual(withRemovalEvidence);
+    expect(
+      (await requestJson(started.routerAddress, path, { ...withRemovalEvidence, removalBlockNumber: 181 })).status,
+    ).toBe(409);
+    const alteredTerms = { ...withRemovalEvidence, destinationSatoshis: 48_000n, bitcoinNetworkFee: 2_000n };
+    alteredTerms.requestSignature = signBitcoinCooperativeReleaseRequest(member, alteredTerms);
+    expect((await requestJson(started.routerAddress, path, alteredTerms)).status).toBe(409);
+    expect((await requestJson(started.routerAddress, path, { ...request, destinationSatoshis: 48_000n })).status).toBe(
+      403,
+    );
+    const changed = { ...request, releaseId: 'different-approved-request' };
+    changed.requestSignature = signBitcoinCooperativeReleaseRequest(member, changed);
+    expect((await requestJson(started.routerAddress, path, changed)).status).toBe(409);
+    expect(
+      (
+        await requestJson(
+          started.routerAddress,
+          withSessionId('/bitcoin-cooperative-releases', otherSession.sessionId),
+          request,
+        )
+      ).status,
+    ).toBe(403);
+    const base = `http://${started.routerAddress.host}:${started.routerAddress.port}`;
+    expect(
+      (await fetch(withSessionId(`${base}/bitcoin-cooperative-releases/pending`, memberSession.sessionId))).status,
+    ).toBe(403);
+    const wrongVault = {
+      ...request,
+      releaseId: 'wrong-vault',
+      vaultId: 8,
+      utxoRef: { ...request.utxoRef, outputIndex: 1 },
+    };
+    wrongVault.requestSignature = signBitcoinCooperativeReleaseRequest(member, wrongVault);
+    expect((await requestJson(started.routerAddress, path, wrongVault)).status).toBe(403);
+    // An unrelated member's signed claim cannot reserve the original owner's outpoint.
+    const unrelated = createCooperativeReleaseRequest(other, 'unrelated-member');
+    expect(
+      (
+        await requestJson(
+          started.routerAddress,
+          withSessionId('/bitcoin-cooperative-releases', otherSession.sessionId),
+          unrelated,
+        )
+      ).status,
+    ).toBe(200);
+
+    const responsePath = withSessionId(
+      `/bitcoin-cooperative-releases/${request.releaseId}/response`,
+      adminSession.sessionId,
+    );
+    const signature = `0x${'30'.repeat(72)}`;
+    expect((await requestJson(started.routerAddress, responsePath, { vaultSignatureHex: signature })).status).toBe(200);
+    expect((await requestJson(started.routerAddress, responsePath, { error: 'Late explanation.' })).status).toBe(200);
+    expect(
+      (await requestJson(started.routerAddress, responsePath, { vaultSignatureHex: `0x${'31'.repeat(72)}` })).status,
+    ).toBe(200);
+    const rejectionPath = withSessionId(
+      '/bitcoin-cooperative-releases/unrelated-member/response',
+      adminSession.sessionId,
+    );
+    expect(
+      (await requestJson(started.routerAddress, rejectionPath, { error: 'Deposit amount does not match.' })).status,
+    ).toBe(200);
+    expect((await requestJson(started.routerAddress, rejectionPath, { vaultSignatureHex: signature })).status).toBe(
+      200,
+    );
+    const rejected = await requestJson(
+      started.routerAddress,
+      withSessionId('/bitcoin-cooperative-releases', otherSession.sessionId),
+      unrelated,
+    );
+    expect(JsonExt.parse(await rejected.text()).bitcoinCooperativeRelease.operatorError).toBe(
+      'Deposit amount does not match.',
+    );
+    await routerServer.close();
+    routerServer = undefined;
+    routerDb.close();
+    routerDb = new RouterDb(dbPath);
+    routerDb.migrate();
+    const stored = routerDb.bitcoinCooperativeReleasesTable.fetch(request.releaseId)!;
+    expect(stored.request).toEqual(withRemovalEvidence);
+    expect(stored.vaultSignatureHex).toBe(signature);
+    expect(stored.operatorError).toBeUndefined();
+    expect(
+      routerDb.bitcoinCooperativeReleasesTable.pending(7).requests.map(record => record.request.releaseId),
+    ).toEqual([]);
+    expect(routerDb.bitcoinCooperativeReleasesTable.fetch('unrelated-member')?.vaultSignatureHex).toBeUndefined();
+    expect(routerDb.bitcoinCooperativeReleasesTable.fetch('unrelated-member')?.operatorError).toBe(
+      'Deposit amount does not match.',
+    );
+  });
+
+  it('pages pending requests while excluding terminal rejections', async () => {
+    routerDb = createDb('router-bitcoin-return-pages-');
+    const member = new Keyring({ type: 'sr25519' }).addFromUri('//MailboxPagingMember');
+    for (let i = 0; i < 205; i += 1) {
+      const request = createCooperativeReleaseRequest(member, `page-${i.toString().padStart(3, '0')}`);
+      request.utxoRef = { ...request.utxoRef, outputIndex: i };
+      request.requestSignature = signBitcoinCooperativeReleaseRequest(member, request);
+      routerDb.bitcoinCooperativeReleasesTable.insert(request);
+      if (i < 100)
+        routerDb.bitcoinCooperativeReleasesTable.respond(request.releaseId, {
+          error: 'Unable to verify this deposit.',
+        });
+    }
+    const first = routerDb.bitcoinCooperativeReleasesTable.pending(7);
+    expect(first.requests).toHaveLength(100);
+    expect(first.requests[0].request.releaseId).toBe('page-100');
+    const second = routerDb.bitcoinCooperativeReleasesTable.pending(7, first.nextCursor);
+    expect(second.requests).toHaveLength(5);
+    expect(second.requests.at(-1)?.request.releaseId).toBe('page-204');
+    expect(second.nextCursor).toBeUndefined();
+    expect(new Set([...first.requests, ...second.requests].map(record => record.request.releaseId)).size).toBe(105);
   });
 
   it('publicly exposes the bot sync status', async () => {
@@ -1424,11 +1622,13 @@ async function startRouterServer(
     restoreKey?: string;
     localNodeUrl?: string;
     mainNodeUrl?: string;
+    vaultOperatorAddress?: string;
   },
 ): Promise<{ routerAddress: IRouterAddress; routerServer: RouterServer; botServer: Http.Server }> {
   const {
     localNodeUrl = 'ws://local-mainchain.test',
     mainNodeUrl = 'ws://archive-mainchain.test',
+    vaultOperatorAddress,
     ...auth
   } = options ?? {};
   const botServer = Http.createServer(async (req, res) => {
@@ -1456,6 +1656,7 @@ async function startRouterServer(
     db,
     botInternalUrl: `http://127.0.0.1:${botAddress.port}`,
     port: 0,
+    vaultOperatorAddress,
     auth: options ? auth : undefined,
     localNodeUrl,
     mainNodeUrl,
@@ -1632,4 +1833,29 @@ function withSessionId(path: string, sessionId: string): string {
   }
 
   return `${url.pathname}${url.search}`;
+}
+
+function createCooperativeReleaseRequest(
+  member: KeyringPair,
+  releaseId = 'approved-return',
+): IBitcoinCooperativeReleaseRequest {
+  const request: IBitcoinCooperativeReleaseRequest = {
+    version: 1,
+    releaseId,
+    ownerAccount: member.address,
+    vaultId: 7,
+    lockId: 42,
+    createdAtArgonBlock: 123,
+    utxoRef: { txid: `0x${'42'.repeat(32)}`, outputIndex: 0 },
+    satoshis: 50_000n,
+    toScriptPubkey: `0x0014${'12'.repeat(20)}`,
+    destinationSatoshis: 49_000n,
+    changeSatoshis: 0n,
+    bitcoinNetworkFee: 1_000n,
+    feeRatePerSatVb: 5n,
+    expectedTransactionId: `0x${'24'.repeat(32)}`,
+    requestSignature: '',
+  };
+  request.requestSignature = signBitcoinCooperativeReleaseRequest(member, request);
+  return request;
 }

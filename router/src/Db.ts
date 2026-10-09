@@ -4,6 +4,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { runSqliteMigrations } from '@argonprotocol/apps-core';
 import { SessionsTable } from './db/SessionsTable.ts';
 import { BitcoinLockCouponsTable } from './db/BitcoinLockCouponsTable.ts';
+import { BitcoinCooperativeReleasesTable } from './db/BitcoinCooperativeReleasesTable.ts';
 import { migrations } from './db/migrations/index.ts';
 import { UsersTable } from './db/UsersTable.ts';
 import { UserInvitesTable } from './db/UserInvitesTable.ts';
@@ -14,6 +15,7 @@ export class Db {
   public readonly sql: DatabaseSync;
   #sessionsTable?: SessionsTable;
   #bitcoinLockCouponsTable?: BitcoinLockCouponsTable;
+  #bitcoinCooperativeReleasesTable?: BitcoinCooperativeReleasesTable;
   #usersTable?: UsersTable;
   #userInvitesTable?: UserInvitesTable;
 
@@ -39,6 +41,11 @@ export class Db {
   public get bitcoinLockCouponsTable(): BitcoinLockCouponsTable {
     this.#bitcoinLockCouponsTable ??= new BitcoinLockCouponsTable(this);
     return this.#bitcoinLockCouponsTable;
+  }
+
+  public get bitcoinCooperativeReleasesTable(): BitcoinCooperativeReleasesTable {
+    this.#bitcoinCooperativeReleasesTable ??= new BitcoinCooperativeReleasesTable(this);
+    return this.#bitcoinCooperativeReleasesTable;
   }
 
   public get userInvitesTable(): UserInvitesTable {

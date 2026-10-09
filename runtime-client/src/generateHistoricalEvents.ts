@@ -4,6 +4,7 @@ import * as ts from 'typescript';
 import { format, resolveConfig } from 'prettier';
 import { createNativeTypeTranslator } from './generation/nativeTypes.js';
 import { readRuntimeSource } from './generation/readRuntimeSource.js';
+import { writeGeneratedFile } from './generation/writeGeneratedFile.js';
 import type { RuntimeTypeOverrides } from './typeOverrides.js';
 
 const outputPath = Path.join(import.meta.dirname, 'HistoricalEvents.generated.ts');
@@ -116,14 +117,7 @@ export const historicalEventChanges = ${JSON.stringify(changes)} as const;
 `;
 const prettierConfig = await resolveConfig(outputPath);
 const formattedOutput = await format(output, { ...prettierConfig, parser: 'typescript' });
-if (process.argv.includes('--check')) {
-  const currentOutput = await Fs.readFile(outputPath, 'utf8');
-  if (currentOutput !== formattedOutput) {
-    throw new Error('HistoricalEvents.generated.ts is out of date; run the runtime client generator');
-  }
-} else {
-  await Fs.writeFile(outputPath, formattedOutput);
-}
+await writeGeneratedFile(outputPath, formattedOutput, process.argv.includes('--check'));
 
 async function verifyPinnedRuntimeSource(): Promise<void> {
   const packageJson = JSON.parse(await Fs.readFile(rootPackageJsonPath, 'utf8')) as {

@@ -377,7 +377,10 @@ function vaultSource(
 function createCollectBuilder(source: ReturnType<typeof vaultSource>, ownLockIds = new Set<number>()) {
   return new VaultCollectBuilder({
     createdVault: source.createdVault,
-    bitcoinLocks: { getLockById: (lockId: number) => (ownLockIds.has(lockId) ? { lockId } : undefined) },
+    bitcoinLocks: {
+      getLockById: (lockId: number) => (ownLockIds.has(lockId) ? { lockId } : undefined),
+      cooperativeReleases: { data: { requests: [] } },
+    },
     globalCouncil: source.globalCouncil,
     mintingAuthorities: source.mintingAuthorities,
     data: source.data,

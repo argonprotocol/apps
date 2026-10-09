@@ -1,8 +1,30 @@
-import { BitcoinLock, bigIntMin, type ArgonClient, type ArgonQueryClient, type MoveTo } from '@argonprotocol/apps-core';
-import { type SubmittableExtrinsic } from '@argonprotocol/mainchain';
+import {
+  BitcoinLock,
+  bigNumberToBigInt,
+  bigIntMin,
+  type ArgonClient,
+  type ArgonQueryClient,
+  type MoveTo,
+  type IReleaseRequest,
+  type IBitcoinCooperativeReleaseMailboxRecord,
+  type IBitcoinLockFundingUtxo,
+} from '@argonprotocol/apps-core';
+import BigNumber from 'bignumber.js';
+import { u8aToHex, type SubmittableExtrinsic } from '@argonprotocol/mainchain';
 import type { IMintingAuthorityAuthorizeMetadata } from './MintingAuthorities.ts';
 import type { MyVault } from './MyVault.ts';
 import { TxAttemptState } from './TransactionTracker.ts';
+
+// Read-only display projection over the current chain and mailbox requests.
+export interface IVaultBitcoinSigningRequest {
+  kind: 'Lock' | 'Orphan' | 'Mailbox';
+  lockId: number;
+  ownerAccount: string;
+  releaseRequest: IReleaseRequest;
+  utxos: IBitcoinLockFundingUtxo[];
+  mailbox?: IBitcoinCooperativeReleaseMailboxRecord;
+  securitizationReleased?: bigint;
+}
 
 export type ICollectOrphanCosignMetadata = {
   lockId: number;
@@ -57,6 +79,65 @@ export type IVaultCollectNotice = {
 export class VaultCollectBuilder {
   constructor(private readonly myVault: MyVault) {}
 
+  public getBitcoinSigningRequests(): IVaultBitcoinSigningRequest[] {
+    const releases: IVaultBitcoinSigningRequest[] = getManualPendingCosignEntries(this.myVault).flatMap(
+      ([lockId, { lock, releaseRequest }]) => {
+        if (!lock || !releaseRequest) return [];
+        const request: IVaultBitcoinSigningRequest = {
+          kind: 'Lock',
+          lockId,
+          ownerAccount: lock.ownerAccount,
+          releaseRequest,
+          utxos: lock.fundingUtxos,
+        };
+        // A full release frees the lock's collateral once Bitcoin confirms the spend.
+        if (releaseRequest.changeSatoshis === 0n) {
+          request.securitizationReleased =
+            lock.securitizationCollateralMicrogons ??
+            bigNumberToBigInt(BigNumber(lock.securitizationCoverageMicrogons).times(lock.securitizationRatio));
+        }
+        return [request];
+      },
+    );
+    const orphans: IVaultBitcoinSigningRequest[] = this.myVault.data.pendingOrphanCosignRequests.flatMap(
+      ({ ownerAccount, utxoRef, orphan }) => {
+        if (orphan.lockId === undefined || !orphan.cosignRequest) return [];
+        const { toScriptPubkey, bitcoinNetworkFee } = orphan.cosignRequest;
+        return [
+          {
+            kind: 'Orphan',
+            lockId: orphan.lockId,
+            ownerAccount,
+            releaseRequest: {
+              toScriptPubkey: u8aToHex(toScriptPubkey),
+              bitcoinNetworkFee,
+              destinationSatoshis: orphan.satoshis - bitcoinNetworkFee,
+              changeSatoshis: 0n,
+            },
+            utxos: [{ utxoRef: { txid: utxoRef.txid, vout: utxoRef.outputIndex }, satoshis: orphan.satoshis }],
+          },
+        ];
+      },
+    );
+    const mailbox = this.myVault.bitcoinLocks.cooperativeReleases.data.requests.flatMap(record => {
+      if (record.verificationError) return [];
+      const { request } = record;
+      return [
+        {
+          kind: 'Mailbox',
+          lockId: request.lockId,
+          ownerAccount: request.ownerAccount,
+          releaseRequest: request,
+          utxos: [
+            { utxoRef: { txid: request.utxoRef.txid, vout: request.utxoRef.outputIndex }, satoshis: request.satoshis },
+          ],
+          mailbox: record,
+        } satisfies IVaultBitcoinSigningRequest,
+      ];
+    });
+    return [...releases, ...orphans, ...mailbox];
+  }
+
   public getNotice(): IVaultCollectNotice | null {
     const { myVault } = this;
     const manualPendingCosignEntries = getManualPendingCosignEntries(myVault);
@@ -69,7 +150,11 @@ export class VaultCollectBuilder {
     );
 
     const collectRevenue = myVault.data.pendingCollectRevenue;
-    const signatureCount = manualPendingCosignEntries.length + myVault.data.pendingOrphanCosignCount;
+    const returnSignatureCount = myVault.bitcoinLocks.cooperativeReleases.data.requests.filter(
+      record => !record.verificationError,
+    ).length;
+    const chainSignatureCount = manualPendingCosignEntries.length + myVault.data.pendingOrphanCosignCount;
+    const signatureCount = chainSignatureCount + returnSignatureCount;
     const councilApprovalCount = myVault.globalCouncil.data.pendingApprovals.length;
 
     const pendingMintingAuthorizations = myVault.mintingAuthorities.data.pendingMintingAuthorizations;
@@ -110,7 +195,7 @@ export class VaultCollectBuilder {
       return null;
     }
 
-    const hasCollectWork = collectRevenue > 0n || signatureCount > 0;
+    const hasCollectWork = collectRevenue > 0n || chainSignatureCount > 0;
 
     return {
       isProcessing,

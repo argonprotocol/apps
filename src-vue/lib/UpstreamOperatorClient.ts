@@ -7,6 +7,8 @@ import {
   JsonExt,
   signRouterAuthAccountBinding,
   type ITreasuryMemberSeal,
+  type IBitcoinCooperativeReleaseRequest,
+  type IBitcoinCooperativeReleaseMailboxRecord,
 } from '@argonprotocol/apps-core';
 import type { KeyringPair } from '@argonprotocol/mainchain';
 import type {
@@ -53,6 +55,40 @@ export class UpstreamOperatorClient {
 
   public get operatorHost(): string | undefined {
     return this.getOperatorHost();
+  }
+
+  public async submitBitcoinCooperativeRelease(
+    request: IBitcoinCooperativeReleaseRequest,
+  ): Promise<IBitcoinCooperativeReleaseMailboxRecord> {
+    await this.checkBitcoinCooperativeReleaseSupport();
+    return this.requestWithOperatorHost(async operatorHost => {
+      const result = await this.requestWithSessionRetry(this.getMemberSessionAuth(operatorHost), sessionId =>
+        UpstreamOperatorClient.request<{ bitcoinCooperativeRelease: IBitcoinCooperativeReleaseMailboxRecord }>(
+          operatorHost,
+          '/bitcoin-cooperative-releases',
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JsonExt.stringify(request),
+            signal: AbortSignal.timeout(10_000),
+          },
+          sessionId,
+        ),
+      );
+      return result.bitcoinCooperativeRelease;
+    });
+  }
+
+  public async checkBitcoinCooperativeReleaseSupport(): Promise<void> {
+    await this.requestWithOperatorHost(async operatorHost => {
+      const status = await UpstreamOperatorClient.request<{ bitcoinCooperativeReleaseMailboxVersion?: number }>(
+        operatorHost,
+        '/',
+        { signal: AbortSignal.timeout(10_000) },
+      );
+      if (status.bitcoinCooperativeReleaseMailboxVersion !== 1)
+        throw new Error('The operator server needs an upgrade with authenticated Bitcoin return requests.');
+    });
   }
 
   public getWebsocketUrl(path: string, sessionId?: string): string {

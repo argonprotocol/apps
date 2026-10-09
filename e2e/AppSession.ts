@@ -25,6 +25,7 @@ import {
   restartDevUpstreamWorker,
   stopDevUpstreamWorker,
 } from './scripts/devUpstreamProcess.ts';
+import { ensureDevGatewayCerts } from '../scripts/devGatewayCerts.ts';
 
 const DEFAULT_APP_CONNECT_TIMEOUT_MS = 18 * 60_000;
 const CLEANUP_PORT_WAIT_TIMEOUT_MS = 30_000;
@@ -344,6 +345,7 @@ export class AppSession {
         if (useDevUpstream) {
           devUpstreamDir = isolatedDataEnv.ARGON_DEV_UPSTREAM_DIR;
           if (!devUpstreamDir) throw new Error('[E2E] Dev upstream requires an isolated data directory.');
+          await ensureDevGatewayCerts({ appInstance: appInstanceName, network: 'dev-docker', env: tauriEnv });
           await restartDevUpstreamWorker({
             archiveUrl: testNetwork.archiveUrl,
             devUpstreamDir,

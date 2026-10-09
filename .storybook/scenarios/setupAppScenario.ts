@@ -3,6 +3,8 @@ import { BondLot, defaultMicrogonsPer, MoveFrom, MoveTo, MoveToken, UnitOfMeasur
 import { PriceIndex } from '@argonprotocol/mainchain';
 import BigNumber from 'bignumber.js';
 import { BitcoinNetwork } from '@argonprotocol/bitcoin';
+import { BitcoinCooperativeReleases } from '../../src-vue/lib/BitcoinCooperativeReleases.ts';
+import { VaultCollectBuilder } from '../../src-vue/lib/VaultCollectBuilder.ts';
 import { BitcoinFissions } from '../../src-vue/lib/BitcoinFissions.ts';
 import { createPinia, setActivePinia } from 'pinia';
 import { fn, mocked } from 'storybook/test';
@@ -186,6 +188,9 @@ export function setupAppScenario({
     pendingCollectRevenue: 0n,
     pendingCosignLocksById: new Map(),
     pendingOrphanCosignCount: 0,
+    pendingOrphanCosignRequests: [],
+    isRefreshingBitcoinCosigns: false,
+    bitcoinCosignRefreshError: '',
     myPendingBitcoinCosignTxInfosByLockId: new Map(),
     nextCollectDueDate: 0,
     nextCosignDueDate: 0,
@@ -212,8 +217,19 @@ export function setupAppScenario({
     }),
     getAllLocks: fn(() => []),
     getLockById: fn(() => undefined),
+    findMissingDeposits: fn(async () => undefined),
     load: fn(async () => undefined),
     currentLoadPromise: Promise.resolve(),
+    cooperativeReleases: Object.assign(Object.create(BitcoinCooperativeReleases.prototype), {
+      refresh: fn(async () => undefined),
+      data: Vue.reactive({
+        requests: [],
+        isRefreshing: false,
+        isSigning: false,
+        refreshError: '',
+        deliveryMessage: '',
+      } satisfies BitcoinCooperativeReleases['data']),
+    }),
     utxoTracking: {
       getAllOrphanLifecycleUtxos: fn(() => []),
       getUnresolvedOrphanRecords: fn(() => []),
@@ -470,9 +486,12 @@ export function setupAppScenario({
     },
     mintingAuthorities,
     globalCouncil,
+    bitcoinLocks: getBitcoinLocks(),
+    refreshBitcoinCosigns: fn(async () => undefined),
     getCrosschainQueueTxInfos: fn(() => []),
     load: fn(async () => getVaults().load()),
   });
+  Object.assign(getMyVault(), { collectBuilder: new VaultCollectBuilder(getMyVault()) });
   mocked(getCrosschainHistory, { partial: true }).mockReturnValue({
     data: Vue.reactive({
       records: [],

@@ -1,4 +1,4 @@
-import type { ITreasuryMemberSeal } from '@argonprotocol/apps-core';
+import type { ITreasuryMemberSeal, IBitcoinCooperativeReleaseRequest } from '@argonprotocol/apps-core';
 import { afterEach, expect, it, vi } from 'vitest';
 import { RequestStatusError, ServerAuthClient } from '../lib/ServerAuthClient.ts';
 import { hasOperationsUpgradeRequest, UpstreamOperatorClient } from '../lib/UpstreamOperatorClient.ts';
@@ -36,6 +36,34 @@ vi.mock('../stores/bootstrapRecovery.ts', () => ({
 
 afterEach(() => {
   vi.unstubAllGlobals();
+});
+
+it('shows an upgrade requirement before authenticating or posting a return to the current router protocol', async () => {
+  const fetchMock = vi.fn(async () => new Response(JSON.stringify({ status: 'ok', authEnabled: true })));
+  vi.stubGlobal('fetch', fetchMock);
+  const authClient = new ServerAuthClient(() => createMockWalletKeys('//ReturnMailboxUpgrade'));
+  const getMemberSessionId = vi.spyOn(authClient, 'getMemberSessionId');
+  const client = new UpstreamOperatorClient(authClient, () => 'https://operator.example');
+  const request: IBitcoinCooperativeReleaseRequest = {
+    version: 1,
+    releaseId: 'synthetic-return',
+    ownerAccount: '5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY',
+    vaultId: 7,
+    lockId: 42,
+    createdAtArgonBlock: 123,
+    utxoRef: { txid: `0x${'42'.repeat(32)}`, outputIndex: 0 },
+    satoshis: 50_000n,
+    toScriptPubkey: `0x0014${'12'.repeat(20)}`,
+    destinationSatoshis: 49_000n,
+    changeSatoshis: 0n,
+    bitcoinNetworkFee: 1_000n,
+    feeRatePerSatVb: 5n,
+    expectedTransactionId: `0x${'24'.repeat(32)}`,
+    requestSignature: `0x${'11'.repeat(65)}`,
+  };
+  await expect(client.submitBitcoinCooperativeRelease(request)).rejects.toThrow('operator server needs an upgrade');
+  expect(getMemberSessionId).not.toHaveBeenCalled();
+  expect(fetchMock.mock.calls).toHaveLength(1);
 });
 
 it('keeps an operations upgrade pending after the upstream records the request', () => {

@@ -116,7 +116,34 @@
                     :remainder-minimum="bitcoinMapRemainderMinimum"
                     :remainder-display-value="formatMoney(bitcoinMapRemainder)"
                     @tile-click="handleBitcoinTileClick"
-                  />
+                  >
+                    <template #displayValue="{ item }">
+                      <Tooltip v-if="item.key === bitcoinMapOverflow.lock?.id" as-child>
+                        <span tabindex="0" aria-label="Bitcoin exceeds vault capacity" class="inline-flex items-center gap-1 text-yellow-800">
+                          <AlertIcon class="size-4 shrink-0" />
+                          {{ item.displayValue }}
+                        </span>
+                        <template #content>
+                          Bitcoin exceeds your vault’s capacity by {{ currency.symbol }}{{ microgonToMoneyNm(bitcoinMapOverflow.microgons).format('0,0', Math.ceil) }}. Add securitization to cover it.
+                        </template>
+                      </Tooltip>
+                      <span v-else class="opacity-60">{{ item.displayValue }}</span>
+                    </template>
+                    <template #footer="{ rectangles }">
+                      <Tooltip
+                        v-if="bitcoinMapOverflow.lock && !rectangles.some(rect => rect.key === bitcoinMapOverflow.lock?.id && !rect.isCompact)"
+                        as-child
+                      >
+                        <div tabindex="0" aria-label="Bitcoin exceeds vault capacity" class="flex items-center justify-center gap-1 rounded border border-yellow-400 bg-yellow-100 px-2 py-1 text-sm text-yellow-800">
+                          <AlertIcon class="size-4 shrink-0" />
+                          {{ bitcoinMapOverflow.lock?.label }} · {{ bitcoinMapOverflow.lock?.displayValue }}
+                        </div>
+                        <template #content>
+                          Bitcoin exceeds your vault’s capacity by {{ currency.symbol }}{{ microgonToMoneyNm(bitcoinMapOverflow.microgons).format('0,0', Math.ceil) }}. Add securitization to cover it.
+                        </template>
+                      </Tooltip>
+                    </template>
+                  </TreemapChart>
                   <ArrowCalloutButton
                     v-if="[OperationalStepId.LiquidLock].includes(controller.activeGuideId!)"
                     class="absolute top-1/2 right-2 -translate-y-1/2 translate-x-full z-50"
@@ -200,29 +227,21 @@
                         class="flex w-full cursor-pointer flex-col items-center justify-start gap-1 hover:underline"
                         @click="openSecuritization('ARGN')"
                       >
-                        <span
-                          class="flex items-center gap-1"
-                          :class="vaultingBreakdown.bitcoinUndersecuritized ? 'text-yellow-800' : ''"
-                        >
-                          <AlertIcon
-                            v-if="vaultingBreakdown.bitcoinUndersecuritized"
-                            class="size-4 shrink-0 text-yellow-700"
-                          />
-                          {{ numeral(vaultingBreakdown.securityMicrogonsActivatedPct).format('0,0.0') }}% of Allowed BTC Is Locked
+                        <span class="inline-flex items-center gap-1" :class="{ 'text-yellow-800': vaultingBreakdown.bitcoinUndersecuritized }">
+                          <AlertIcon v-if="vaultingBreakdown.bitcoinUndersecuritized" class="size-4 shrink-0" />
+                          <template v-if="vaultingBreakdown.bitcoinUndersecuritized">Only {{ numeral(getCappedPercent(vaultingBreakdown.securityMicrogons, vaultingBreakdown.bitcoinRequiredSecuritizationMicrogons!)).format('0,0.[0]') }}% of BTC Securitizable</template>
+                          <template v-else-if="bitcoinMapTotal > 0n">{{ numeral(getCappedPercent(bitcoinMapUsed, bitcoinMapTotal)).format('0,0.[0]') }}% of Bitcoin Is Securitized</template>
+                          <template v-else>No Bitcoin Capacity</template>
                         </span>
                         <span v-if="vaultingBreakdown.bitcoinUndersecuritized" class="text-xs text-yellow-800">
-                          Add Argon Securitization
+                          Add {{ microgonToArgonNm(vaultingBreakdown.bitcoinFundingShortfallMicrogons).format('0,0', Math.ceil) }} ARGN
                         </span>
                       </TooltipTrigger>
                       <TooltipContent side="bottom" :sideOffset="4" :collisionPadding="9" class="text-md z-50 w-xs rounded-md border border-gray-800/20 bg-white px-4 py-3 text-left leading-5.5 font-light text-slate-900/60 shadow-2xl">
-                        <template v-if="vaultingBreakdown.bitcoinUndersecuritized">
-                          {{ numeral(vaultingBreakdown.securityMicrogonsActivatedPct).format('0,0.0') }}% is the
-                          securitization currently assigned to active Bitcoin locks. Their market value exceeds your
-                          current securitization. Click to update it.
-                        </template>
-                        <template v-else>
-                          The percentage of your vault's bitcoin security space that is currently filled with active locks.
-                        </template>
+                        <template v-if="vaultingBreakdown.bitcoinUndersecuritized">The percentage of your Bitcoin's current market value that your vault's ARGN can cover.</template>
+                        <template v-else>The percentage of your vault's Bitcoin capacity in use, capped at 100%.</template>
+                        Liquids retain their collateral space. Ordinary locks fill the rest, biggest first.
+                        Tile amounts show their full requirement, even when it exceeds the space available.
                         <TooltipArrow :width="27" :height="15" class="-mt-px fill-white stroke-gray-800/20 stroke-[0.5px]" />
                       </TooltipContent>
                     </TooltipRoot>
@@ -556,6 +575,7 @@ import BitcoinLockDetailOverlay from '../../overlays/BitcoinLockDetailOverlay.vu
 import BondDetailOverlay from '../../overlays/BondDetailOverlay.vue';
 import {
   bigIntMax,
+  bigIntMin,
   bigNumberToBigInt,
   BondLot,
   getPercent,
@@ -579,7 +599,7 @@ import { getMainchainClient, getMiningFrames } from '../../stores/mainchain.ts';
 import { getBitcoinLocks } from '../../stores/bitcoin.ts';
 import basicEmitter from '../../emitters/basicEmitter.ts';
 import { ProfitAnalysis } from '../../lib/ProfitAnalysis.ts';
-import { useVaultingAssetBreakdown } from '../../stores/vaultingAssetBreakdown.ts';
+import { allocateBitcoinVaultSpace, useVaultingAssetBreakdown } from '../../stores/vaultingAssetBreakdown.ts';
 import { getArgonBonds } from '../../stores/argonBonds.ts';
 import type { IVaultArgonBondState } from '../../lib/ArgonBonds.ts';
 import TreemapChart, { type TileStatus } from '../../components/TreemapChart.vue';
@@ -768,6 +788,8 @@ type MapItem = {
   id: string;
   label: string;
   amount: bigint;
+  requiredMicrogons?: bigint;
+  isLiquid?: boolean;
   displayValue?: string;
   emphasis?: 'default' | 'strong';
   status?: TileStatus;
@@ -790,13 +812,6 @@ function formatLockLabel(lock: { satoshis: bigint } | IBitcoinLockRecord): strin
   const satoshis = 'satoshis' in lock ? lock.satoshis : lock.fundedSatoshis || lock.securitizedSatoshis;
   const btc = currency.convertSatToBtc(satoshis);
   return `${numeral(btc).format('0,0.[0000]')} BTC`;
-}
-
-function getLockTileStatus(lock: IBitcoinLockRecord): TileStatus {
-  if (lock.isHistoryRecoveryPending) return 'pending';
-  if (bitcoinLocks.isLockFunded(lock)) return 'active';
-  if (bitcoinLocks.isReleaseStatus(lock)) return 'active';
-  return 'pending';
 }
 
 const localVaultLocks = Vue.computed(() => {
@@ -855,28 +870,34 @@ const bitcoinLockCapacity = Vue.computed(() => {
 });
 
 const bitcoinMapTotal = Vue.computed(() => {
-  return bigIntMax(vaultingBreakdown.securityMicrogons, bitcoinMapUsed.value);
+  return vaultingBreakdown.securityMicrogons;
 });
 
 const bitcoinMapItems = Vue.computed((): MapItem[] => {
   // Historical frames: collapse to locked vs open aggregate
   if (!currentFrameIsActive.value) {
     const items: MapItem[] = [];
-    if (vaultingBreakdown.securityMicrogonsActivated > 0n) {
+    const activated = bigIntMin(bitcoinMapTotal.value, vaultingBreakdown.securityMicrogonsActivated);
+    const pending = bigIntMin(
+      bigIntMax(0n, bitcoinMapTotal.value - activated),
+      vaultingBreakdown.securityMicrogonsPending,
+    );
+    if (activated > 0n) {
       items.push({
         id: 'locked-aggregate',
         label: 'Bitcoin Locked',
-        amount: vaultingBreakdown.securityMicrogonsActivated,
-        displayValue: formatMoney(vaultingBreakdown.securityMicrogonsActivated),
+        amount: activated,
+        displayValue: formatMoney(activated),
         emphasis: 'strong',
       });
     }
-    if (vaultingBreakdown.securityMicrogonsPending > 0n) {
+    if (pending > 0n) {
       items.push({
         id: 'pending-aggregate',
         label: 'Pending Activation',
-        amount: vaultingBreakdown.securityMicrogonsPending,
-        displayValue: formatMoney(vaultingBreakdown.securityMicrogonsPending),
+        amount: pending,
+        displayValue: formatMoney(pending),
+        status: 'pending',
       });
     }
     return items;
@@ -884,34 +905,70 @@ const bitcoinMapItems = Vue.computed((): MapItem[] => {
 
   // Current frame: per-lock items
   const items: MapItem[] = [];
+  const allocations = allocateBitcoinVaultSpace(
+    [...localVaultLocks.value, ...Object.values(myVault.data.externalLocks).map(lock => lock.lockDetails)],
+    bitcoinMapTotal.value,
+    currency.priceIndex,
+  );
 
   for (const lock of localVaultLocks.value) {
-    const microgons = lock.securitizationCoverageMicrogons ?? 0n;
-    const tileStatus = getLockTileStatus(lock);
+    const allocation = allocations.get(lock)!;
+    const isLiquid = (lock.fissionedSatoshis ?? 0n) > 0n;
+    const needsSecuritization = allocation.allocatedMicrogons < allocation.requiredMicrogons;
+    const tileIsPending = !isLiquid || needsSecuritization || lock.isHistoryRecoveryPending;
+
     items.push({
       id: lock.uuid,
       label: formatLockLabel(lock),
-      amount: microgons,
-      displayValue: formatMoney(microgons),
+      amount: allocation.allocatedMicrogons,
+      requiredMicrogons: allocation.requiredMicrogons,
+      isLiquid,
+      displayValue: formatMoney(allocation.requiredMicrogons),
       emphasis: bitcoinLocks.isLockFunded(lock) && !lock.isHistoryRecoveryPending ? 'strong' : 'default',
-      status: tileStatus,
+      status: tileIsPending ? 'pending' : 'active',
     });
   }
 
   for (const extLock of Object.values(myVault.data.externalLocks)) {
-    const microgons = extLock.securitizationCoverageMicrogons;
-    const status: TileStatus = extLock.isPending ? 'pending' : 'active';
+    const allocation = allocations.get(extLock.lockDetails)!;
+    const isLiquid = extLock.lockDetails.fissionedSatoshis > 0n;
+    const needsSecuritization = allocation.allocatedMicrogons < allocation.requiredMicrogons;
+
     items.push({
       id: `chain:${extLock.lockId}`,
       label: formatLockLabel(extLock),
-      amount: microgons,
-      displayValue: formatMoney(microgons),
+      amount: allocation.allocatedMicrogons,
+      requiredMicrogons: allocation.requiredMicrogons,
+      isLiquid,
+      displayValue: formatMoney(allocation.requiredMicrogons),
       emphasis: 'strong',
-      status,
+      status: !isLiquid || needsSecuritization || extLock.isPending ? 'pending' : 'active',
     });
   }
 
   return items;
+});
+
+const bitcoinMapOverflow = Vue.computed(() => {
+  let requiredTotal = 0n;
+  let largestLock: MapItem | undefined;
+  let largestLiquid: MapItem | undefined;
+  for (const item of bitcoinMapItems.value) {
+    const required = item.requiredMicrogons ?? item.amount;
+    requiredTotal += required;
+    if (item.amount === 0n) continue;
+
+    if (item.isLiquid) {
+      if (!largestLiquid || required > largestLiquid.requiredMicrogons!) largestLiquid = item;
+      continue;
+    }
+
+    // The largest displayed ordinary lock carries the vault-wide warning, even if a later lock overflows.
+    if (!largestLock || required > largestLock.requiredMicrogons!) largestLock = item;
+  }
+  const microgons = bigIntMax(0n, requiredTotal - bitcoinMapTotal.value);
+  if (microgons === 0n) return { microgons };
+  return { microgons, lock: largestLock ?? largestLiquid };
 });
 
 const bitcoinMapUsed = Vue.computed(() => {

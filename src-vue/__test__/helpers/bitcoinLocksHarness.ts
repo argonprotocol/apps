@@ -20,6 +20,7 @@ import { BitcoinOrphanRelease } from '../../lib/txs/BitcoinOrphan.release.ts';
 import { UpstreamOperatorClient } from '../../lib/UpstreamOperatorClient.ts';
 import { Vaults } from '../../lib/Vaults.ts';
 import type { WalletKeys } from '../../lib/WalletKeys.ts';
+import type { ServerApiClient } from '../../lib/ServerApiClient.ts';
 import { setDbPromise } from '../../stores/helpers/dbPromise.ts';
 import { setMainchainClients } from '../../stores/mainchain.ts';
 import { createTestDb } from './db.ts';
@@ -83,6 +84,7 @@ export async function createBitcoinLocksClientHarness(args: {
     currency,
     transactionTracker,
     new BitcoinMempool(esploraHost),
+    upstreamOperatorClient,
   );
   await bitcoinLocks.load();
   const bitcoinOrphanRelease = new BitcoinOrphanRelease(bitcoinLocks, transactionTracker);
@@ -115,6 +117,7 @@ export async function createBitcoinLocksHarness(args: {
   walletKeys?: WalletKeys;
   vaultSetup?: IConfig['vaultSetup'];
   walletFundingMicrogons?: bigint;
+  getOperatorServer?: () => ServerApiClient | undefined;
 }): Promise<BitcoinLocksHarness> {
   const { archiveUrl, esploraHost, network, vaultSetup = defaultVaultSetup } = args;
   const clientHarness = await createBitcoinLocksClientHarness({
@@ -159,6 +162,7 @@ export async function createBitcoinLocksHarness(args: {
     miningFrames,
     globalCouncil,
     mintingAuthorities,
+    args.getOperatorServer,
   );
 
   Object.assign(myVault.vaults, {

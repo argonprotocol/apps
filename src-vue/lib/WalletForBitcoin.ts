@@ -7,7 +7,7 @@ import {
   BitcoinUtxoSpendStatus,
   type IBitcoinUtxoRecord,
 } from '../interfaces/IBitcoinUtxoRecord.ts';
-import { BitcoinReleaseStatus } from '../interfaces/IBitcoinReleaseRecord.ts';
+import { BitcoinReleaseKind, BitcoinReleaseStatus } from '../interfaces/IBitcoinReleaseRecord.ts';
 import BitcoinLocks, { type IOperatorBitcoinLockCouponRoute } from './BitcoinLocks.ts';
 import type { BitcoinLockCreate } from './txs/BitcoinLock.create.ts';
 import { WalletForChain, WalletType } from './Wallet.ts';
@@ -78,6 +78,7 @@ export class WalletForBitcoin extends WalletForChain<WalletType.bitcoin> {
       .flatMap(lock => {
         const release = bitcoinLocks.releases.getActiveForLock(lock);
         return bitcoinLocks.utxoTracking.getUtxosForLock(lock.lockId!).filter(record => {
+          if (record.spendStatus === BitcoinUtxoSpendStatus.Spent || record.activeReleaseId) return false;
           if (record.status !== BitcoinUtxoStatus.SeenOnMempool) return false;
           if (record.fundingRejectionReason && record.isDepositAcknowledged) return false;
           return !(
@@ -108,24 +109,39 @@ export class WalletForBitcoin extends WalletForChain<WalletType.bitcoin> {
       .filter(lock => bitcoinLocks.isLockFunded(lock) && lock.fundedSatoshis > (lock.fissionedSatoshis ?? 0n));
   }
 
-  public getUnresolvedOrphanDeposits(): IBitcoinUtxoRecord[] {
+  public getUnattachedDeposits({ includeReturned = false }: { includeReturned?: boolean } = {}): IBitcoinUtxoRecord[] {
     const bitcoinLocks = this.getBitcoinLocks();
+    // Use durable deposit IDs so confirmation checks cannot change discovery order.
     return bitcoinLocks
       .getAllLocks()
-      .flatMap(lock => bitcoinLocks.getUtxosForLock(lock))
-      .filter(record => {
-        if (record.status !== BitcoinUtxoStatus.Orphaned) return false;
-        if (record.spendStatus === BitcoinUtxoSpendStatus.Spent) return false;
-        if (record.isOnArgonChain !== false) return true;
-        const release = bitcoinLocks.releases.getActiveForUtxo(record);
-        return (
-          release?.status === BitcoinReleaseStatus.SubmittingRequestOnArgon ||
-          release?.status === BitcoinReleaseStatus.WaitingForVaultCosign ||
-          release?.status === BitcoinReleaseStatus.ReadyForBitcoinBroadcast ||
-          release?.status === BitcoinReleaseStatus.ConfirmingOnBitcoin
-        );
-      })
-      .sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime());
+      .flatMap(lock =>
+        bitcoinLocks.getUtxosForLock(lock).filter(record => {
+          if (record.status === BitcoinUtxoStatus.FundingUtxo) return false;
+
+          if (
+            includeReturned &&
+            bitcoinLocks.releases.getLatestForUtxo(record)?.status === BitcoinReleaseStatus.Complete
+          )
+            return true;
+
+          if (record.spendStatus === BitcoinUtxoSpendStatus.Spent) return false;
+
+          const release = bitcoinLocks.releases.getActiveForUtxo(record);
+          if (!release) {
+            return (
+              bitcoinLocks.releases.canRequestDepositReturn(lock, record) ||
+              bitcoinLocks.releases.getLatestForUtxo(record)?.kind === BitcoinReleaseKind.Cooperative
+            );
+          }
+          return (
+            release.status === BitcoinReleaseStatus.SubmittingRequestOnArgon ||
+            release.status === BitcoinReleaseStatus.WaitingForVaultCosign ||
+            release.status === BitcoinReleaseStatus.ReadyForBitcoinBroadcast ||
+            release.status === BitcoinReleaseStatus.ConfirmingOnBitcoin
+          );
+        }),
+      )
+      .sort((left, right) => right.id - left.id);
   }
 
   public getRemainingChannelInsurance(lock: IBitcoinLockRecord): bigint {

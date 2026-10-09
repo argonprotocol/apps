@@ -54,6 +54,7 @@ export function createStore(
     transactionTracker?: TransactionTracker;
     walletKeys?: WalletKeys;
     mempool?: BitcoinMempool;
+    upstreamOperator?: UpstreamOperatorClient;
   } = {},
 ): BitcoinLocks {
   const blockWatch =
@@ -102,6 +103,7 @@ export function createStore(
     currency,
     transactionTracker,
     options.mempool,
+    options.upstreamOperator,
   );
 }
 

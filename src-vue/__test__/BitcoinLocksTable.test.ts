@@ -523,7 +523,7 @@ describe('BitcoinLocksTable', () => {
     });
 
     await table.setActiveRelease(lock, 'release-1');
-    await table.recordReleaseCosign(lock, {
+    await table.recordRemovalEvidence(lock, {
       removalBlockNumber: 120,
       removalBlockHash: undefined,
       removalBlockTime: new Date('2026-07-16T12:00:00Z'),

@@ -443,7 +443,7 @@ export class BitcoinLockRecovery {
     }
     const completedLocks: IBitcoinLockRecord[] = [];
 
-    const orphanLifecycleLockIds = new Set(this.releases.getActiveOrphanReleases().map(release => release.lockId));
+    const orphanLifecycleLockIds = new Set(this.releases.getActiveDepositReleases().map(release => release.lockId));
     for (const uuid of [...this.historyRecoveryPendingUuids]) {
       if (failedLockUuids.has(uuid)) continue;
 
@@ -590,7 +590,11 @@ export class BitcoinLockRecovery {
           grossFee: chainLock.securityFees,
           recordedCoupon: chainLock.couponFeesPaid,
         });
-        const recoveredChainLock = { ...chainLock, couponFeesPaid: securityFeeCoupon };
+        const recoveredChainLock = {
+          ...chainLock,
+          couponFeesPaid: securityFeeCoupon,
+          createdAtArgonBlock: chainLock.createdAtArgonBlock || block.blockNumber,
+        };
         this.recordSecuritizationTerm(block, eventRecords[eventIndex], recoveredChainLock, 'created');
         const creationLiquidity = event.data.liquidityPromised ?? 0n;
         const creationTargetPrice =
@@ -629,6 +633,12 @@ export class BitcoinLockRecovery {
           existing.ratchets = [];
         }
         if (existing) {
+          if (!existing.createdAtArgonBlock) {
+            const recovered = this.createDetachedRecord(existing);
+            recovered.createdAtArgonBlock = recoveredChainLock.createdAtArgonBlock;
+            await this.saveRecoveredHistory(table, recovered);
+            existing = this.applyRecoveredRecord(recovered);
+          }
           if (existing.ratchets.length) {
             const creationRatchetIndex = existing.ratchets.findIndex(
               ratchet => ratchet.blockHeight === block.blockNumber,
@@ -973,8 +983,22 @@ export class BitcoinLockRecovery {
       } else if (event.section === 'bitcoinLocks' && event.method === 'BitcoinCosignPastDue') {
         const compensation = event.data.compensationAmount;
         const release = this.getRecoveredRelease(record, BitcoinReleaseKind.Lock, event.data.releaseNumber);
-        if (!release) continue;
-        release.compensationMicrogons ??= compensation;
+        if (release) release.compensationMicrogons ??= compensation;
+
+        // Partial-release deadlines retain the lock; full-release penalties remove it in this block.
+        if (!(await getHistoricalBitcoinLock(api, utxoId))) {
+          const recovered = this.createDetachedRecord(record);
+          assignIfUnset(
+            recovered,
+            {
+              removalBlockNumber: block.blockNumber,
+              removalBlockHash: block.blockHash,
+              removalBlockTime: new Date(block.blockTime),
+            },
+            ['removalBlockNumber', 'removalBlockHash', 'removalBlockTime'],
+          );
+          this.applyRecoveredRecord(recovered);
+        }
       } else if (
         event.section === 'bitcoinLocks' &&
         (event.method === 'BitcoinSpentAfterRelease' ||
@@ -1657,7 +1681,7 @@ export class BitcoinLockRecovery {
       securitizationHoldExpirationBitcoinHeight: chainLock.securitizationHoldExpirationBitcoinHeight,
       isFlexible: lockDetails.isFlexible,
       fundHoldExtensionsByBitcoinExpirationHeight: lockDetails.fundHoldExtensionsByBitcoinExpirationHeight,
-      createdAtArgonBlock: lockDetails.createdAtArgonBlock,
+      createdAtArgonBlock: lockDetails.createdAtArgonBlock || record.createdAtArgonBlock,
     });
   }
 

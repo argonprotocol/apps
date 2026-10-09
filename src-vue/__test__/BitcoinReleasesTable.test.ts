@@ -5,7 +5,7 @@ import {
   BitcoinReleaseStatus,
   type IBitcoinReleaseRecord,
 } from '../lib/db/BitcoinReleasesTable.ts';
-import { createTestDb } from './helpers/db.ts';
+import { createTestDb, createTestDbAtMigration } from './helpers/db.ts';
 
 function createRelease(overrides: Partial<IBitcoinReleaseRecord> = {}) {
   const kind = overrides.kind ?? BitcoinReleaseKind.Lock;
@@ -46,8 +46,20 @@ function createRelease(overrides: Partial<IBitcoinReleaseRecord> = {}) {
 }
 
 describe('BitcoinReleasesTable', () => {
-  it('round trips ordered inputs, signatures, exact amounts, and lifecycle checkpoints after restart', async () => {
-    const db = await createTestDb();
+  it('preserves existing releases through migration and round trips lifecycle checkpoints after restart', async () => {
+    const { db, migrateToLatest } = await createTestDbAtMigration(38);
+    await db.execute(`INSERT INTO BitcoinReleases (
+      id, kind, lockId, sendId, releaseNumber, status, inputUtxoIds,
+      toScriptPubkey, bitcoinNetworkFee, destinationSatoshis, changeSatoshis
+    ) VALUES
+      ('existing-lock', 'Lock', 8, 'existing-lock', 1, 'ConfirmingOnBitcoin', '[5]', '0x0014abcd', '500', '8000', '0'),
+      ('existing-orphan', 'Orphan', 8, 'existing-orphan', NULL, 'WaitingForVaultCosign', '[6]', '0x0014abcd', '500', '8000', '0')`);
+    const existing = await db.bitcoinReleasesTable.fetchAll();
+    await migrateToLatest();
+    expect(await db.bitcoinReleasesTable.fetchAll()).toEqual(existing);
+    await expect(
+      db.bitcoinReleasesTable.insert(createRelease({ id: 'duplicate-lock', lockId: 8, releaseNumber: 1 })),
+    ).rejects.toThrow('UNIQUE constraint');
     const release = await db.bitcoinReleasesTable.insert(
       createRelease({
         bitcoinNetworkFee: 9_007_199_254_740_993n,

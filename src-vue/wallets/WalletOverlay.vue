@@ -116,9 +116,17 @@
                   @goto="showView"
                   @close="closeWalletViewOrOverlay"
                 />
+                <WalletViewUnattachedBitcoinList
+                  v-else-if="openWallet.centerView.type === 'unattachedBitcoinList'"
+                  :isDragging="draggable.isDragging"
+                  @dragStart="draggable.onMouseDown($event)"
+                  @goto="showView"
+                  @close="closeWalletViewOrOverlay"
+                />
                 <template v-else-if="openWallet.centerView.type === 'unattachedBitcoin'">
                   <WalletViewUnattachedBitcoin
                     v-if="unattachedBitcoinView"
+                    :key="unattachedBitcoinView.record.id"
                     :record="unattachedBitcoinView.record"
                     :lock="unattachedBitcoinView.lock"
                     :isDragging="draggable.isDragging"
@@ -318,6 +326,7 @@ import WalletViewPrivateKey from './components/WalletViewPrivateKey.vue';
 import WalletViewReceive from './components/WalletViewReceive.vue';
 import WalletViewSend from './components/WalletViewSend.vue';
 import WalletViewUnattachedBitcoin from './components/WalletViewUnattachedBitcoin.vue';
+import WalletViewUnattachedBitcoinList from './components/WalletViewUnattachedBitcoinList.vue';
 import {
   closeWalletView,
   getInitialAddWalletOverlayState,
@@ -346,8 +355,9 @@ const openWallet = Vue.ref<IOpenWallet>();
 const unattachedBitcoinView = Vue.computed(() => {
   const centerView = openWallet.value?.centerView;
   if (centerView?.type !== 'unattachedBitcoin') return;
+  // Retain completed returns while still leaving this view if the deposit becomes lock funding.
   const record = walletStore.bitcoinWallet
-    .getUnresolvedOrphanDeposits()
+    .getUnattachedDeposits({ includeReturned: true })
     .find(record => record.id === centerView.recordId);
   const lock = record ? bitcoinLocks.getLockById(record.lockId) : undefined;
   return record && lock ? { record, lock } : undefined;

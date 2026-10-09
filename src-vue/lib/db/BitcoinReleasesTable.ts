@@ -28,7 +28,7 @@ export class BitcoinReleasesTable extends BaseTable {
       'argonTxFeeMicrogons',
       'compensationMicrogons',
     ],
-    json: ['inputUtxoIds', 'vaultSignatures'],
+    json: ['inputUtxoIds', 'vaultSignatures', 'cooperativeRequest'],
     date: [
       'bitcoinFirstSeenAt',
       'bitcoinLastConfirmationCheckAt',
@@ -81,8 +81,8 @@ export class BitcoinReleasesTable extends BaseTable {
         bitcoinFirstSeenAt, bitcoinFirstSeenHeight, bitcoinFirstSeenOracleHeight,
         bitcoinLastConfirmationCheckAt, bitcoinLastConfirmationCheckOracleHeight,
         bitcoinConfirmedHeight, argonCompletionBlockNumber, argonCompletionBlockHash,
-        argonCompletionBlockTime, argonCompletionExtrinsicIndex, statusError
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        argonCompletionBlockTime, argonCompletionExtrinsicIndex, statusError, cooperativeRequest
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(id) DO NOTHING
       RETURNING *`,
       toSqlParams([
@@ -117,6 +117,7 @@ export class BitcoinReleasesTable extends BaseTable {
         release.argonCompletionBlockTime,
         release.argonCompletionExtrinsicIndex,
         release.statusError,
+        release.cooperativeRequest,
       ]),
     );
     if (records[0]) return this.toRecord(records[0]);
@@ -143,7 +144,7 @@ export class BitcoinReleasesTable extends BaseTable {
         bitcoinFirstSeenHeight = ?, bitcoinFirstSeenOracleHeight = ?, bitcoinLastConfirmationCheckAt = ?,
         bitcoinLastConfirmationCheckOracleHeight = ?, bitcoinConfirmedHeight = ?,
         argonCompletionBlockNumber = ?, argonCompletionBlockHash = ?, argonCompletionBlockTime = ?,
-        argonCompletionExtrinsicIndex = ?, statusError = ?, updatedAt = CURRENT_TIMESTAMP
+        argonCompletionExtrinsicIndex = ?, statusError = ?, cooperativeRequest = ?, updatedAt = CURRENT_TIMESTAMP
        WHERE id = ? RETURNING *`,
       toSqlParams([
         release.sendId,
@@ -174,6 +175,7 @@ export class BitcoinReleasesTable extends BaseTable {
         release.argonCompletionBlockTime,
         release.argonCompletionExtrinsicIndex,
         release.statusError,
+        release.cooperativeRequest,
         release.id,
       ]),
     );

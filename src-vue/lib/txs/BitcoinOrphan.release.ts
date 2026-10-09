@@ -163,7 +163,7 @@ export class BitcoinOrphanRelease extends TransactionOperation<
           throw new Error(`Bitcoin release ${metadata.releaseId} is missing its return request`);
         }
 
-        await this.bitcoinLocks.releases.createOrphanRelease(record, {
+        await this.bitcoinLocks.releases.createDepositRelease(record, {
           id: metadata.releaseId,
           sendId: metadata.releaseId,
           kind: BitcoinReleaseKind.Orphan,

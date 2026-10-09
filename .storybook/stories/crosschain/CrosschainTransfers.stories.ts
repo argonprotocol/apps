@@ -145,6 +145,7 @@ export const PendingAuthorizationOverlay: Story = {
     Object.assign(myVault, {
       collectBuilder: {
         getNotice: () => pendingAuthorizationNotice,
+        getBitcoinSigningRequests: () => [],
       },
     });
   },

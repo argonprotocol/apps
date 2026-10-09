@@ -41,6 +41,7 @@ describe('BitcoinLock current runtime state', () => {
     await expect(BitcoinLock.get(client, 7)).resolves.toMatchObject({
       securitizedSatoshis: 1_000_001n,
       securitizationCoverageMicrogons: 1_000_001n,
+      securitizationCollateralMicrogons: 1_000_001n,
     });
 
     runtimeLock.fundedSatoshis = 500_000n;
@@ -48,6 +49,7 @@ describe('BitcoinLock current runtime state', () => {
     await expect(BitcoinLock.get(client, 7)).resolves.toMatchObject({
       securitizedSatoshis: 500_000n,
       securitizationCoverageMicrogons: 499_999n,
+      securitizationCollateralMicrogons: 1_000_001n,
     });
   });
 

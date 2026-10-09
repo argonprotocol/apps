@@ -6,6 +6,7 @@ export interface IMempoolTxStatus {
   isConfirmed: boolean;
   transactionBlockHeight: number;
   transactionBlockTime: number;
+  transactionBlockHash?: string;
   argonBitcoinHeight: number;
 }
 
@@ -38,6 +39,20 @@ export default class BitcoinMempool {
     return await this.fetchJson<number>('blocks/tip/height');
   }
 
+  public async getRawTransaction(txid: string): Promise<string> {
+    const response = await this.fetchText(`tx/${this.convertBoundaryTxid(txid, 'mempool')}/hex`, { timeoutMs: 10_000 });
+    if (!response.ok) throw new Error('Unable to read the Bitcoin deposit transaction.');
+    return (await response.text()).trim();
+  }
+
+  public async getBlockHash(height: number): Promise<string> {
+    const response = await this.fetchText(`block-height/${height}`, { timeoutMs: 10_000 });
+    if (!response.ok) throw new Error('Unable to verify the canonical Bitcoin block.');
+    const hash = (await response.text()).trim();
+    if (!/^[0-9a-f]{64}$/.test(hash)) throw new Error('Invalid Bitcoin block hash.');
+    return this.convertBoundaryTxid(hash, 'argon');
+  }
+
   public async getTxStatus(
     txid: string,
     oracleBitcoinBlockHeight: number,
@@ -64,6 +79,7 @@ export default class BitcoinMempool {
       isConfirmed: status.confirmed,
       transactionBlockHeight: status.block_height,
       transactionBlockTime: status.block_time,
+      transactionBlockHash: status.block_hash && this.convertBoundaryTxid(status.block_hash, 'argon'),
       argonBitcoinHeight: oracleBitcoinBlockHeight,
     };
   }
@@ -218,11 +234,13 @@ export default class BitcoinMempool {
     }
 
     try {
-      return await fetch(url, {
+      const response = await fetch(url, {
         ...init,
         signal: controller.signal,
         cache: init.cache ?? 'no-store',
       });
+      const body = await response.text();
+      return new Response(body || null, response);
     } catch (error) {
       if (error instanceof Error && error.name === 'AbortError') {
         throw new Error(`Fetch to ${url} aborted due to timeout after ${timeoutMs} ms`);

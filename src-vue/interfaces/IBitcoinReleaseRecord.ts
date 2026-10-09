@@ -1,6 +1,9 @@
+import type { IBitcoinCooperativeReleaseRequest } from '@argonprotocol/apps-core';
+
 export enum BitcoinReleaseKind {
   Lock = 'Lock',
   Orphan = 'Orphan',
+  Cooperative = 'Cooperative',
 }
 
 export enum BitcoinReleaseStatus {
@@ -30,6 +33,7 @@ export interface IBitcoinReleaseRecord {
   changeSatoshis: bigint;
   cosignDueFrame?: number;
   expectedTransactionId?: string;
+  cooperativeRequest?: IBitcoinCooperativeReleaseRequest;
   insuredMicrogons?: bigint;
   argonTxFeeMicrogons?: bigint;
   compensationMicrogons?: bigint;

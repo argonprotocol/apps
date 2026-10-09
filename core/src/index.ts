@@ -36,6 +36,7 @@ export * from './Vaults.js';
 export * from './Vault.js';
 export * from './BitcoinFission.js';
 export * from './BitcoinLock.js';
+export * from './BitcoinCooperativeReleaseRequest.js';
 export * from './Currency.js';
 export * from './SingleFileQueue.js';
 export * from './JsonExt.js';

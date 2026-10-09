@@ -7,6 +7,7 @@ import { setTimeout as delay } from 'node:timers/promises';
 import { fileURLToPath } from 'node:url';
 import type { INetworkConfigOverride } from '@argonprotocol/apps-core';
 import type { IDevEthereumConfig, IStartDevEthereumResult } from '../devEthereum.ts';
+import { getDevGatewayRootCaPath } from '../../scripts/devGatewayCerts.ts';
 
 const WORKER_START_TIMEOUT_MS = 15 * 60_000;
 const WORKER_STOP_TIMEOUT_MS = 10_000;
@@ -73,6 +74,7 @@ export async function restartDevUpstreamWorker(options: IDevUpstreamWorkerStartO
       detached: true,
       env: {
         ...options.env,
+        NODE_EXTRA_CA_CERTS: options.env.NODE_EXTRA_CA_CERTS?.trim() || getDevGatewayRootCaPath(options.env),
         ARGON_DEV_UPSTREAM_ARCHIVE_URL: options.archiveUrl,
         ARGON_DEV_UPSTREAM_ETHEREUM: options.devEthereum ? JSON.stringify(options.devEthereum) : '',
         ARGON_DEV_UPSTREAM_ETHEREUM_CONFIG: options.devEthereumConfig ? JSON.stringify(options.devEthereumConfig) : '',

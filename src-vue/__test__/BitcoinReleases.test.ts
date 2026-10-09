@@ -844,7 +844,7 @@ describe('Bitcoin lock release', () => {
       bitcoinFirstSeenHeight: 120,
       bitcoinFirstSeenOracleHeight: 115,
     });
-    await restarted.releases.completeOrphanRelease(restarted.orphan, restarted.release, 126);
+    await restarted.releases.completeDepositRelease(restarted.orphan, restarted.release, 126);
 
     restarted = await loadOrphanReleaseState(db, orphanUtxo.id);
     expect(restarted.release).toMatchObject({
