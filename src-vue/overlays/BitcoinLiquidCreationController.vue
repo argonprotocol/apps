@@ -34,11 +34,7 @@ import {
   getBitcoinLocks,
   getBitcoinTransactionOperations,
 } from '../stores/bitcoin.ts';
-import {
-  OperationalStepId,
-  treasuryBitcoinCertificationDisplayAmount,
-  useCertificationController,
-} from '../stores/certificationController.ts';
+import { OperationalStepId, useCertificationController } from '../stores/certificationController.ts';
 import { getMiningFrames } from '../stores/mainchain.ts';
 import { getMyVault, getVaults } from '../stores/vaults.ts';
 import { getWalletKeys } from '../stores/wallets.ts';
@@ -515,7 +511,7 @@ async function updateTreasuryCertificationRequirement(rate: bigint): Promise<voi
     return;
   }
   const currentLiquidity = activeFissions.value.reduce((total, fission) => total + fission.liquidityPromised, 0n);
-  const remainingLiquidity = bigIntMax(treasuryBitcoinCertificationDisplayAmount - currentLiquidity, 0n);
+  const remainingLiquidity = bigIntMax(controller.rewardConfig.treasuryMinimumBitcoin - currentLiquidity, 0n);
   state.treasuryCertificationRequiredSatoshis = remainingLiquidity
     ? await bitcoinLocks.satoshisForArgonLiquidity(remainingLiquidity, rate)
     : 0n;

@@ -2,15 +2,18 @@ import { getOfflineRegistry, type KeyringPair, type SubmittableExtrinsic, u8aToH
 import {
   type ArgonClient,
   createDeferred,
+  type ICertificationThresholds,
   getCertificationProgressFromOperationalAccount,
   getCertificationThresholds,
+  getCertificationPositionsQuery,
+  type ICertificationProgress,
   getVaultByOperator,
   type IOperationalAccessProof,
   MICROGONS_PER_ARGON,
   type Vault,
   type PreviousRuntimeSpec as RuntimeSpec159,
 } from '@argonprotocol/apps-core';
-import type { HistoricalQueryRecord } from '@argonprotocol/runtime-client';
+import type { HistoricalQueryRecord, LiveQueryRecord } from '@argonprotocol/runtime-client';
 import { stringToU8a, u8aToString } from '@polkadot/util';
 import { blake2AsU8a, signatureVerify } from '@polkadot/util-crypto';
 import { getMainchainClient } from '../stores/mainchain.ts';
@@ -27,20 +30,14 @@ export { isValidOperatorName } from './Utils.ts';
 const OPERATIONAL_ACCOUNT_PROOF_MESSAGE_KEY = 'operational_primary_account';
 const VAULT_ACCOUNT_PROOF_MESSAGE_KEY = 'operational_vault_account';
 const MINING_ACCOUNT_PROOF_MESSAGE_KEY = 'operational_mining_account';
-type RuntimeOperationalAccount = HistoricalQueryRecord<'operationalAccounts', 'operationalAccounts'>;
+type RuntimeOperationalAccount = LiveQueryRecord<'operationalAccounts', 'operationalAccounts'>;
 const OPERATIONAL_REWARDS_UPGRADE_ERROR = 'Reward claims cannot be submitted until the next Argon upgrade is active.';
 
-export type IOperationalRewardConfig = {
+export type IOperationalRewardConfig = ICertificationThresholds & {
   operationalActivationReward: bigint;
   operationalReferralBonusReward: bigint;
   operationalReferralsPerBonusReward: number;
-  operationalMinimumUniswapTransfer: bigint;
   operationalMinimumVaultLockTicks: bigint;
-  operationalMinimumVaultSecuritization: bigint;
-  miningSeatsForOperational: number;
-  treasuryMinimumBitcoin: bigint;
-  treasuryMinimumBonds: bigint;
-  treasuryMinimumUniswapTransfer: bigint;
   bitcoinLockSizeForUpgradeCode: bigint;
   miningSeatsPerUpgradeCode: number;
   maxAvailableUpgradeCodes: number;
@@ -207,7 +204,9 @@ export async function ensureOperationalAccountRegistered(
   });
 }
 
-export function getOperationalProfileName(account: RuntimeOperationalAccount): string {
+export function getOperationalProfileName(
+  account: HistoricalQueryRecord<'operationalAccounts', 'operationalAccounts'>,
+): string {
   return account?.name ? u8aToString(account.name).trim() : '';
 }
 
@@ -395,14 +394,9 @@ export async function getOperationalRewardConfig(client?: ArgonClient): Promise<
     operationalReferralBonusReward:
       rewards?.operationalCertificationBonusReward ?? consts.operationalCertificationBonusReward,
     operationalReferralsPerBonusReward: consts.operationalCertificationsPerBonusReward,
-    operationalMinimumUniswapTransfer: consts.operationalMinimumUniswapTransfer,
+    ...certificationThresholds,
     operationalMinimumVaultLockTicks:
       'operationalMinimumVaultLockTicks' in vaultConstants ? vaultConstants.operationalMinimumVaultLockTicks : 0n,
-    operationalMinimumVaultSecuritization: consts.operationalMinimumVaultSecuritization,
-    miningSeatsForOperational: consts.miningSeatsForOperational,
-    treasuryMinimumBitcoin: certificationThresholds.treasuryMinimumBitcoin,
-    treasuryMinimumBonds: certificationThresholds.treasuryMinimumBonds,
-    treasuryMinimumUniswapTransfer: certificationThresholds.treasuryMinimumUniswapTransfer,
     bitcoinLockSizeForUpgradeCode: consts.bitcoinLockSizeForAccessCode,
     miningSeatsPerUpgradeCode: consts.miningSeatsPerAccessCode,
     maxAvailableUpgradeCodes: consts.maxAvailableAccessCodes,
@@ -466,25 +460,87 @@ export async function buildOperationalRewardsClaimTx(
 
 export async function subscribeOperationalAccount(
   walletKeys: WalletKeys,
-  onUpdate: (update: IOperationalChainProgress) => void,
-  rewardConfig?: IOperationalRewardConfig,
+  onUpdate: (update: IOperationalChainProgress, rewardConfig: IOperationalRewardConfig) => void,
   client?: ArgonClient,
 ) {
   client ??= await getMainchainClient(false);
-  const deferred = createDeferred<void>();
-  const unsubscribe = await client.query.operationalAccounts.operationalAccounts(
-    walletKeys.operationalAddress,
-    accountRaw => {
-      onUpdate(getOperationalChainProgressFromAccount(accountRaw, rewardConfig));
+  const connectedClient = client;
+  const initialProgress = createDeferred<void>();
+  let unsubscribe: (() => void) | undefined;
+  let retryTimer: ReturnType<typeof setTimeout> | undefined;
+  let subscriptionVersion = 0;
+  let isStopped = false;
+  let vaultAccount = walletKeys.vaultingAddress;
 
-      if (!deferred.isResolved) {
-        deferred.resolve();
+  async function subscribe(): Promise<void> {
+    const version = ++subscriptionVersion;
+    unsubscribe?.();
+    unsubscribe = undefined;
+    if (retryTimer) clearTimeout(retryTimer);
+
+    try {
+      const currentRewardConfig = await getOperationalRewardConfig(connectedClient);
+      if (isStopped || version !== subscriptionVersion) return;
+
+      let nextUnsubscribe: () => void;
+      const positionsQuery = getCertificationPositionsQuery(connectedClient);
+      if (positionsQuery) {
+        nextUnsubscribe = await connectedClient.queryMulti(
+          [
+            [connectedClient.query.operationalAccounts.operationalAccounts, walletKeys.operationalAddress],
+            [positionsQuery, vaultAccount],
+          ],
+          ([account, positions]) => {
+            if (isStopped || version !== subscriptionVersion) return;
+            if (account && account.vaultAccount !== vaultAccount) {
+              vaultAccount = account.vaultAccount;
+              void subscribe();
+              return;
+            }
+            const certificationProgress = getCertificationProgressFromOperationalAccount(
+              account,
+              currentRewardConfig,
+              undefined,
+              positions,
+            );
+            onUpdate(
+              getOperationalChainProgressFromAccount(account, currentRewardConfig, certificationProgress),
+              currentRewardConfig,
+            );
+            initialProgress.resolve();
+          },
+        );
+      } else {
+        nextUnsubscribe = await connectedClient.query.operationalAccounts.operationalAccounts(
+          walletKeys.operationalAddress,
+          account => {
+            if (isStopped || version !== subscriptionVersion) return;
+            onUpdate(getOperationalChainProgressFromAccount(account, currentRewardConfig), currentRewardConfig);
+            initialProgress.resolve();
+          },
+        );
       }
-    },
-  );
 
-  await deferred.promise;
-  return unsubscribe;
+      if (isStopped || version !== subscriptionVersion) nextUnsubscribe();
+      else unsubscribe = nextUnsubscribe;
+    } catch (error) {
+      if (isStopped || version !== subscriptionVersion) return;
+      console.error('[Operational Account] Unable to subscribe to certification progress; retrying.', error);
+      retryTimer = setTimeout(() => void subscribe(), 5_000);
+    }
+  }
+
+  const refreshRuntime = () => void subscribe();
+  connectedClient.on('decorated', refreshRuntime);
+  await subscribe();
+  await initialProgress.promise;
+  return () => {
+    isStopped = true;
+    subscriptionVersion += 1;
+    if (retryTimer) clearTimeout(retryTimer);
+    unsubscribe?.();
+    connectedClient.off('decorated', refreshRuntime);
+  };
 }
 
 export async function loadOperationalAccount(
@@ -498,6 +554,7 @@ export async function loadOperationalAccount(
 export function getOperationalChainProgressFromAccount(
   account: RuntimeOperationalAccount,
   rewardConfig?: IOperationalRewardConfig,
+  certificationProgress: ICertificationProgress = getCertificationProgressFromOperationalAccount(account, rewardConfig),
 ): IOperationalChainProgress {
   const entry: IOperationalChainProgress = {
     hasOperationalAccount: !!account,
@@ -525,11 +582,9 @@ export function getOperationalChainProgressFromAccount(
 
   if (!account) return entry;
 
-  const certificationProgress = getCertificationProgressFromOperationalAccount(account, rewardConfig);
-
   const operationalMinimumUniswapTransfer = rewardConfig?.operationalMinimumUniswapTransfer ?? 0n;
 
-  const bitcoinAccrual = account.vaultBitcoinAccrual ?? account.bitcoinAccrual ?? 0n;
+  const bitcoinAccrual = account.vaultBitcoinAccrual;
   const miningSeatAccrualValue = account.miningSeatAccrual;
   const uniswapArgonTransfersInAmountValue = account.uniswapArgonTransfersInAmount ?? 0n;
 
@@ -545,18 +600,16 @@ export function getOperationalChainProgressFromAccount(
     hasBitcoinLock: certificationProgress.hasTreasuryBitcoin,
     bitcoinAccrual,
     miningSeatAccrual: miningSeatAccrualValue,
-    operationalCertificationsCount: account.operationalCertificationsCount ?? account.operationalReferralsCount ?? 0,
-    accessCodePending:
-      account.accessCodePending ?? account.referralAccessCodePending ?? account.referralPending ?? false,
-    availableAccessCodes:
-      account.availableAccessCodes ?? account.issuableAccessCodes ?? account.availableReferrals ?? 0,
-    unactivatedAccessCodes: account.unactivatedAccessCodes ?? 0,
+    operationalCertificationsCount: account.operationalCertificationsCount,
+    accessCodePending: false,
+    availableAccessCodes: account.availableAccessCodes,
+    unactivatedAccessCodes: 0,
     rewardsEarnedCount: account.rewardsEarnedCount,
     rewardsEarnedAmount: account.rewardsEarnedAmount,
     rewardsCollectedAmount: account.rewardsCollectedAmount,
     isUpgradedToOperations: certificationProgress.isUpgradedToOperations,
     isOperational: certificationProgress.isOperationallyCertified,
-    hasUpstreamAccount: !!account.upstreamAccount || !!account.sponsor,
+    hasUpstreamAccount: !!account.upstreamAccount,
   };
 }
 

@@ -8,6 +8,7 @@ import { IOtherToken } from './Wallet.ts';
 declare module 'numeral' {
   interface Numeral {
     formatCurrency(symbol: string, hideDecimalsAt?: number): string;
+    formatPercent(decimalPlaces?: number): string;
     formatIfElse(condition: ICondition, ifFormat: string, elseFormat: string): string;
     formatIfElseCapped(condition: ICondition, ifFormat: string, elseFormat: string, max: number): string;
     formatCapped(format: string, max: number): string;
@@ -61,6 +62,15 @@ export function formatBtc(btc: number): string {
 numeralOriginal.fn.formatCurrency = function (symbol, hideDecimalsAt = Infinity) {
   if (this._value > 0 && this._value < 0.01) return `<${symbol}0.01`;
   return `${symbol}${this.format(this._value >= hideDecimalsAt ? '0,0' : '0,0.00')}`;
+};
+
+// Input is already expressed in percentage points, e.g. 50 means 50%.
+numeralOriginal.fn.formatPercent = function (decimalPlaces = 1) {
+  const minimum = 10 ** -decimalPlaces;
+  if (this._value > 0 && this._value < minimum) return `<${minimum.toFixed(decimalPlaces)}%`;
+
+  const format = decimalPlaces > 0 ? `0,0.${'0'.repeat(decimalPlaces)}` : '0,0';
+  return `${this.format(format)}%`;
 };
 
 numeralOriginal.fn.formatIfElse = function (condition, ifFormat, elseFormat) {

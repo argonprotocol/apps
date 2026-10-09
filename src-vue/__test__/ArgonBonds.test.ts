@@ -425,6 +425,7 @@ describe('ArgonBonds', () => {
                     activatedSecuritization: 1_000_000_000n,
                     bitcoinLockedMicrogons: 1_000_000_000n,
                     activeBondMicrogons: 1_000_000_000n,
+                    upstreamParticipation: 10n ** 18n,
                   },
                 },
               }),
@@ -648,6 +649,22 @@ describe('ArgonBonds', () => {
                 codecs.createType('PalletTreasuryFrameVaultCapital', {
                   frameId: 10,
                   totalActiveBonds: bonds * 2,
+                  targetSecuritization: 2n * BigInt(bonds) * 1_000_000n,
+                  totalSecuritization: 2n * BigInt(bonds) * 1_000_000n,
+                  vaultSecuritizationPositions: Object.fromEntries(
+                    [4, 7].map(vaultId => [
+                      vaultId,
+                      {
+                        operatorAccountId: accountId,
+                        securitization: BigInt(bonds) * 1_000_000n,
+                        activatedSecuritization: BigInt(bonds) * 1_000_000n,
+                        bitcoinLockedMicrogons: BigInt(bonds) * 1_000_000n,
+                        activeBondMicrogons: BigInt(bonds) * 1_000_000n,
+                        argonotSecuritizationInMicrogons: 2n * BigInt(bonds) * 1_000_000n,
+                        upstreamParticipation: 500_000_000_000_000_000n,
+                      },
+                    ]),
+                  ),
                   vaults: Object.fromEntries(
                     [4, 7].map(vaultId => [
                       vaultId,
@@ -724,6 +741,16 @@ describe('ArgonBonds', () => {
       // The market balance refresh is independent of the vault reward inputs.
       expect(currentClient.query.system.account).toHaveBeenCalledTimes(runtime === 'candidate' ? 2 : 1);
       expect(argonBonds.data.totalActiveBonds).toBe(20);
+      if (runtime === 'candidate') {
+        expect(argonBonds.vaultRevenuePotential(4)).toMatchObject({
+          actualEarnings: 1_300_000n,
+          maximumEarnings: 2_550_000n,
+          upstreamParticipationPercent: 50,
+        });
+      } else {
+        expect(argonBonds.vaultRevenuePotential(4)).toBeUndefined();
+        expect(argonBonds.data.frameCapital).toBeNull();
+      }
       for (const vaultId of [4, 7]) {
         const vault = argonBonds.getVaultBonds(vaultId);
         expect(vault.currentFrame.vaultBonds).toBe(10);

@@ -221,10 +221,18 @@ export class TreasuryBonds {
     return Math.min(Number(U32_MAX), BondLot.microgonsToWholeBonds(totalBondCapacityMicrogons));
   }
 
+  public static async getActiveArgonotBonds(client: ArgonCurrentQueryClient): Promise<bigint> {
+    if ('networkTotals' in client.query.treasuryPositions) {
+      const networkTotals = await client.query.treasuryPositions.networkTotals();
+      return networkTotals!.stakes;
+    }
+    return BigInt((await client.query.treasury.totalActiveArgonotBonds()) ?? 0);
+  }
+
   public static getArgonotBondPurchaseCapacity(args: {
     totalIssuanceMicronots: bigint;
     maxBondedPercent: number;
-    totalActiveBonds: number;
+    totalActiveBonds: number | bigint;
     replacedBonds?: number;
   }): bigint {
     const { totalIssuanceMicronots, maxBondedPercent, totalActiveBonds, replacedBonds = 0 } = args;
@@ -333,6 +341,7 @@ export class TreasuryBonds {
       bitcoinLockedMicrogons: position.securitization,
       activeBondMicrogons: position.securitization,
       argonotSecuritizationInMicrogons: bigIntMin(U128_MAX, position.securitization * 2n),
+      upstreamParticipation: new BigNumber(1),
     };
     const maximumArgonotPosition = {
       ...position,
@@ -350,6 +359,7 @@ export class TreasuryBonds {
     return {
       actualEarnings,
       maximumEarnings,
+      upstreamParticipationPercent: position.upstreamParticipation.times(100).toNumber(),
       securitizationPercent:
         denominator > 0n ? BigNumber(position.securitization).div(denominator).times(100).toNumber() : undefined,
       capturedPercent: maximumRate > 0n ? BigNumber(actualRate).div(maximumRate).times(100).toNumber() : undefined,
@@ -632,6 +642,7 @@ export class TreasuryBonds {
       bitcoinLockedMicrogons,
       activeBondMicrogons,
       argonotSecuritizationInMicrogons,
+      upstreamParticipation,
     } = position;
     if (securitization <= 0n) return 0n;
     const excessBitcoinValue = bigIntMax(0n, bitcoinLockedMicrogons - securitization);
@@ -655,7 +666,12 @@ export class TreasuryBonds {
     const argonotBonus =
       FIXED_U128_ONE +
       fixedU128Multiply(fixedU128Multiply(fixedU128Rational(29n, 100n), argonotUtilization), bitcoinUtilization);
-    return bigIntMin(maximumRate, fixedU128Multiply(fixedU128Multiply(coreRate, capitalMultiplier), argonotBonus));
+    const profitRate = bigIntMin(
+      maximumRate,
+      fixedU128Multiply(fixedU128Multiply(coreRate, capitalMultiplier), argonotBonus),
+    );
+    const participation = bigNumberToBigInt(upstreamParticipation.times(FIXED_U128_ONE));
+    return minimumRate + fixedU128Multiply(participation, bigIntMax(0n, profitRate - minimumRate));
   }
 
   /** Read the quantity frozen for a payout, before that payout clears the frame terms. */

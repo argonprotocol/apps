@@ -36,6 +36,7 @@ export interface IOperationImpl<Context, State> {
   run: (this: Operation<Context, State>, context: Context, state: State) => Promise<void>;
   diagnose?: (this: Operation<Context, State>, context: Context, state: State, error: unknown) => Promise<void>;
   inputs?: ReadonlyArray<IOperationInputDefinition>;
+  postRunTimeoutMs?: number;
 }
 
 export type AnyOperation<Context, State = unknown> = Operation<Context, State>;
@@ -50,11 +51,13 @@ export interface IOperationalFlowImpl<Context, State> extends IOperationImpl<Con
 export class Operation<Context, State = unknown> {
   readonly name: string;
   readonly inputs: ReadonlyArray<IOperationInputDefinition>;
+  readonly postRunTimeoutMs?: number;
   private readonly impl: IOperationImpl<Context, State>;
 
   constructor(meta: ImportMeta, impl: IOperationImpl<Context, State>) {
     this.name = flowNameFromFile(meta);
     this.inputs = impl.inputs ?? [];
+    this.postRunTimeoutMs = impl.postRunTimeoutMs;
     this.impl = impl;
   }
 
@@ -141,7 +144,20 @@ async function runOperationNow<Context, State>(context: Context, operation: Oper
     await withBoundFlowRuntime(context, operation, async () => {
       await operation.run(context, state);
     });
-    const postRunState = await inspectOperation(context, operation);
+    let postRunState: State;
+    if (operation.postRunTimeoutMs) {
+      postRunState = await pollOperationState(
+        context,
+        operation,
+        latest => {
+          state = latest;
+          return readOperationLifecycleState(latest).state === 'complete';
+        },
+        { timeoutMs: operation.postRunTimeoutMs },
+      );
+    } else {
+      postRunState = await inspectOperation(context, operation);
+    }
     const postRunLifecycle = readOperationLifecycleState(postRunState);
     if (postRunLifecycle.state !== 'complete') {
       const blockerMessage =

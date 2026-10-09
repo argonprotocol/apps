@@ -133,6 +133,7 @@ export function setupVaultingPortfolioScenario() {
         bitcoinLockedMicrogons: 2_844n * microgonsPerArgon,
         argonotSecuritizationInMicrogons: 0n,
         activeBondMicrogons: 870n * microgonsPerArgon,
+        upstreamParticipation: BigNumber(1),
       },
     },
   } satisfies NonNullable<RuntimeQueryResult<CurrentRuntimeQueries['treasury']['currentFrameVaultCapital']>>;

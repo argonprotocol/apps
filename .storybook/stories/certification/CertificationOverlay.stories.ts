@@ -62,7 +62,7 @@ export const TreasuryOverviewInProgress: Story = {
   render: () => renderCertification(OperationalStepId.LiquidLock, true),
   play: async () => {
     const canvas = within(document.body);
-    const detailHeading = await canvas.findByRole('heading', { name: 'Liquid Lock ₳600 of Bitcoin' });
+    const detailHeading = await canvas.findByRole('heading', { name: 'Liquid Lock ₳2,500 of Bitcoin' });
     const backControl = detailHeading.parentElement?.closest('h2')?.querySelector(':scope > span');
 
     if (!backControl) throw new Error('Certification detail Back control is missing');
@@ -77,7 +77,7 @@ export const TreasuryOverviewComplete: Story = {
   render: () => renderCertification(OperationalStepId.LiquidLock, true),
   play: async () => {
     const canvas = within(document.body);
-    const detailHeading = await canvas.findByRole('heading', { name: 'Liquid Lock ₳600 of Bitcoin' });
+    const detailHeading = await canvas.findByRole('heading', { name: 'Liquid Lock ₳2,500 of Bitcoin' });
     const backControl = detailHeading.parentElement?.closest('h2')?.querySelector(':scope > span');
 
     if (!backControl) throw new Error('Certification detail Back control is missing');
@@ -92,7 +92,7 @@ export const OperationsOverviewInProgress: Story = {
   render: () => renderCertification(OperationalStepId.ActivateVault, true),
   play: async () => {
     const canvas = within(document.body);
-    const detailHeading = await canvas.findByRole('heading', { name: 'Create a ₳1,000 Vault' });
+    const detailHeading = await canvas.findByRole('heading', { name: 'Create a ₳2,000 Vault' });
     const backControl = detailHeading.parentElement?.closest('h2')?.querySelector(':scope > span');
 
     if (!backControl) throw new Error('Certification detail Back control is missing');
@@ -107,7 +107,7 @@ export const OperationsOverviewComplete: Story = {
   render: () => renderCertification(OperationalStepId.ActivateVault, true),
   play: async () => {
     const canvas = within(document.body);
-    const detailHeading = await canvas.findByRole('heading', { name: 'Create a ₳1,000 Vault' });
+    const detailHeading = await canvas.findByRole('heading', { name: 'Create a ₳2,000 Vault' });
     const backControl = detailHeading.parentElement?.closest('h2')?.querySelector(':scope > span');
 
     if (!backControl) throw new Error('Certification detail Back control is missing');

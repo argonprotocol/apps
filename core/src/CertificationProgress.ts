@@ -1,15 +1,16 @@
 import type {
   CrosschainTransferTransferTotalsByAccountResultSpec156,
-  HistoricalQueryRecord,
+  LiveQueryRecord,
 } from '@argonprotocol/runtime-client';
 import { MICROGONS_PER_ARGON } from '@argonprotocol/mainchain';
 import { BondLot } from './BondLot.js';
 import { TreasuryBonds } from './TreasuryBonds.js';
 import { BitcoinLock } from './BitcoinLock.js';
 import { BitcoinFission } from './BitcoinFission.js';
-import type { ArgonClient } from './MainchainClients.js';
+import type { ArgonCurrentQueryClient } from './MainchainClients.js';
+import { bigNumberToBigInt } from './utils.js';
 
-type RuntimeOperationalAccount = NonNullable<HistoricalQueryRecord<'operationalAccounts', 'operationalAccounts'>>;
+type RuntimeOperationalAccount = NonNullable<LiveQueryRecord<'operationalAccounts', 'operationalAccounts'>>;
 
 export interface ICertificationProgress {
   hasOperationalAccount: boolean;
@@ -34,9 +35,11 @@ export const operationalCertificationRequirementCount = 3;
 
 export interface ICertificationThresholds {
   treasuryMinimumBitcoin: bigint;
+  treasuryBitcoinTolerance?: bigint;
   treasuryMinimumBonds: bigint;
   treasuryMinimumUniswapTransfer: bigint;
   operationalMinimumVaultSecuritization: bigint;
+  operationalVaultTolerance?: bigint;
   operationalMinimumUniswapTransfer: bigint;
   miningSeatsForOperational: number;
 }
@@ -63,7 +66,7 @@ export function hasCompletedOperationalCertificationRequirements(progress: ICert
 }
 
 export async function loadCertificationProgress(args: {
-  client: ArgonClient;
+  client: ArgonCurrentQueryClient;
   defaultAccountId: string;
   operationalAccountId?: string;
   operationalAccountPromise?: Promise<RuntimeOperationalAccount | null>;
@@ -71,27 +74,46 @@ export async function loadCertificationProgress(args: {
 }): Promise<ICertificationProgress> {
   const { client, defaultAccountId, operationalAccountId, operationalAccountPromise, transferTotalsPromise } = args;
   const thresholds = getCertificationThresholds(client);
+  const positionsQuery = getCertificationPositionsQuery(client);
 
   if (operationalAccountId) {
     const accountRaw = await (operationalAccountPromise ??
       client.query.operationalAccounts.operationalAccounts(operationalAccountId));
     if (accountRaw) {
+      const positions = positionsQuery ? await positionsQuery(accountRaw.vaultAccount) : undefined;
       const vaultId = await client.query.vaults.vaultIdByOperator(accountRaw.vaultAccount);
       const vault = vaultId == null ? null : await client.query.vaults.vaultsById(vaultId);
-      return getCertificationProgressFromOperationalAccount(accountRaw, thresholds, vault?.securitization ?? 0n);
+      return getCertificationProgressFromOperationalAccount(
+        accountRaw,
+        thresholds,
+        vault?.securitization ?? 0n,
+        positions,
+      );
     }
   }
 
-  const [bondLots, fissions, transferTotals] = await Promise.all([
-    TreasuryBonds.getBondLotsByAccount(client, defaultAccountId),
-    BitcoinFission.getAllByOwner(client, defaultAccountId),
-    transferTotalsPromise ?? client.query.crosschainTransfer.transferTotalsByAccount(defaultAccountId),
-  ]);
-
-  const treasuryBitcoinAmount = fissions.reduce((total, fission) => total + fission.liquidityPromised, 0n);
-  const treasuryBondAmount = BondLot.getTotals(bondLots).activeBondMicrogons;
+  let treasuryBitcoinAmount: bigint;
+  let treasuryBondAmount: bigint;
+  if (positionsQuery) {
+    const positions = await positionsQuery(defaultAccountId);
+    treasuryBitcoinAmount = positions?.quantities.fissionLiquidity ?? 0n;
+    treasuryBondAmount = positions?.bondPrincipal ?? 0n;
+  } else {
+    const [bondLots, fissions] = await Promise.all([
+      TreasuryBonds.getBondLotsByAccount(client, defaultAccountId),
+      BitcoinFission.getAllByOwner(client, defaultAccountId),
+    ]);
+    treasuryBitcoinAmount = fissions.reduce((total, fission) => total + fission.liquidityPromised, 0n);
+    treasuryBondAmount = BondLot.getTotals(bondLots).activeBondMicrogons;
+  }
+  const transferTotals = await (transferTotalsPromise ??
+    client.query.crosschainTransfer.transferTotalsByAccount(defaultAccountId));
   const treasuryUniswapTransferAmount = transferTotals.microgonsIn;
-  const hasTreasuryBitcoin = meetsCertificationAmountMinimum(treasuryBitcoinAmount, thresholds.treasuryMinimumBitcoin);
+  const hasTreasuryBitcoin = meetsCertificationAmountMinimum(
+    treasuryBitcoinAmount,
+    thresholds.treasuryMinimumBitcoin,
+    thresholds.treasuryBitcoinTolerance,
+  );
   const hasTreasuryBonds = treasuryBondAmount >= thresholds.treasuryMinimumBonds;
   const hasTreasuryUniswapTransfer = treasuryUniswapTransferAmount >= thresholds.treasuryMinimumUniswapTransfer;
 
@@ -112,10 +134,17 @@ export async function loadCertificationProgress(args: {
   };
 }
 
+export function getCertificationPositionsQuery(client: ArgonCurrentQueryClient) {
+  if ('positionsByAccount' in client.query.treasuryPositions) {
+    return client.query.treasuryPositions.positionsByAccount;
+  }
+}
+
 export function getCertificationProgressFromOperationalAccount(
   account: RuntimeOperationalAccount | null,
   thresholds?: ICertificationThresholds,
   vaultSecuritization?: bigint,
+  positions?: LiveQueryRecord<'treasuryPositions', 'positionsByAccount'>,
 ): ICertificationProgress {
   const rewardThresholds = thresholds ?? {
     treasuryMinimumBitcoin: 0n,
@@ -146,12 +175,15 @@ export function getCertificationProgressFromOperationalAccount(
   const miningSeatAccrual = account.miningSeatAccrual;
   const miningSeatAppliedTotal = account.miningSeatAppliedTotal ?? 0;
   const operationalMiningSeatCount = miningSeatAccrual + miningSeatAppliedTotal;
-  const treasuryBitcoinAmount = account.accountBitcoinAmount ?? 0n;
-  const treasuryBondAmount = account.accountVaultBondAmount ?? 0n;
+  const treasuryBitcoinAmount =
+    positions === undefined ? account.accountBitcoinAmount : (positions?.quantities.fissionLiquidity ?? 0n);
+  const treasuryBondAmount =
+    positions === undefined ? account.accountVaultBondAmount : (positions?.bondPrincipal ?? 0n);
   const uniswapArgonTransfersInAmount = account.uniswapArgonTransfersInAmount ?? 0n;
   const hasTreasuryBitcoin = meetsCertificationAmountMinimum(
     treasuryBitcoinAmount,
     rewardThresholds.treasuryMinimumBitcoin,
+    rewardThresholds.treasuryBitcoinTolerance,
   );
   const hasTreasuryBonds = treasuryBondAmount >= rewardThresholds.treasuryMinimumBonds;
   const hasTreasuryUniswapTransfer = uniswapArgonTransfersInAmount >= rewardThresholds.treasuryMinimumUniswapTransfer;
@@ -161,32 +193,48 @@ export function getCertificationProgressFromOperationalAccount(
     isTreasuryCertified: hasTreasuryBitcoin && hasTreasuryBonds && hasTreasuryUniswapTransfer,
     hasTreasuryBitcoin,
     treasuryBitcoinAmount,
-    hasTreasuryBonds: account.hasTreasuryPoolParticipation ?? hasTreasuryBonds,
+    hasTreasuryBonds,
     treasuryBondAmount,
     hasTreasuryUniswapTransfer,
     uniswapArgonTransfersInAmount,
-    isUpgradedToOperations: account.isOperational ?? account.isOperationallyCertified !== undefined,
+    isUpgradedToOperations: true,
     hasOperationalVault:
       vaultSecuritization !== undefined &&
-      meetsCertificationAmountMinimum(vaultSecuritization, rewardThresholds.operationalMinimumVaultSecuritization),
+      meetsCertificationAmountMinimum(
+        vaultSecuritization,
+        rewardThresholds.operationalMinimumVaultSecuritization,
+        rewardThresholds.operationalVaultTolerance,
+      ),
     operationalVaultSecuritization: vaultSecuritization,
     hasOperationalMiningSeats: operationalMiningSeatCount >= rewardThresholds.miningSeatsForOperational,
     operationalMiningSeatCount,
     hasOperationalUniswapTransfer: uniswapArgonTransfersInAmount >= rewardThresholds.operationalMinimumUniswapTransfer,
-    isOperationallyCertified: account.isOperationallyCertified ?? account.isOperational ?? false,
+    isOperationallyCertified: account.isOperationallyCertified,
   };
 }
 
-export function meetsCertificationAmountMinimum(amount: bigint, minimum: bigint): boolean {
-  const tolerance = BigInt(MICROGONS_PER_ARGON);
+export function meetsCertificationAmountMinimum(
+  amount: bigint,
+  minimum: bigint,
+  tolerance = BigInt(MICROGONS_PER_ARGON),
+): boolean {
   return amount >= (minimum > tolerance ? minimum - tolerance : 0n);
 }
 
-export function getCertificationThresholds(client: ArgonClient): ICertificationThresholds {
+export function getCertificationThresholds(client: ArgonCurrentQueryClient): ICertificationThresholds {
   const operationalConsts = client.consts.operationalAccounts;
+  const hasBitcoinLiquidityTolerance = 'bitcoinLiquidityTolerance' in operationalConsts;
+  let treasuryBitcoinTolerance = BigInt(MICROGONS_PER_ARGON);
+  if (hasBitcoinLiquidityTolerance) {
+    treasuryBitcoinTolerance = bigNumberToBigInt(
+      operationalConsts.bitcoinLiquidityTolerance.times(operationalConsts.minimumBitcoin),
+    );
+  }
 
   return {
     treasuryMinimumBitcoin: operationalConsts.minimumBitcoin,
+    treasuryBitcoinTolerance,
+    operationalVaultTolerance: hasBitcoinLiquidityTolerance ? 0n : BigInt(MICROGONS_PER_ARGON),
     treasuryMinimumBonds: operationalConsts.minimumBonds,
     treasuryMinimumUniswapTransfer: operationalConsts.minimumUniswapTransfer,
     operationalMinimumUniswapTransfer: operationalConsts.operationalMinimumUniswapTransfer,
@@ -195,7 +243,7 @@ export function getCertificationThresholds(client: ArgonClient): ICertificationT
   };
 }
 
-export async function loadAccountLocks(args: { client: ArgonClient; defaultAccountId: string }) {
+export async function loadAccountLocks(args: { client: ArgonCurrentQueryClient; defaultAccountId: string }) {
   const { client, defaultAccountId } = args;
   const utxoIds = await BitcoinLock.idsByOwner(client, defaultAccountId);
   const lockOptions = await BitcoinLock.getMany(client, utxoIds);

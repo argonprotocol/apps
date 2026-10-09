@@ -210,6 +210,7 @@
                         Trailing network auction revenue: {{ currency.symbol }}{{ microgonToMoneyNm(miningStats.aggregatedBidCosts).format('0,0') }}.
                         The daily estimate averages this over a {{ numeral(revenueHistoryDays).format('0,0.[0]') }}-day mining term.
                         Assumes your Bitcoin and bond capacity is filled and you have enough ARGNOT to maximize earnings.
+                        <template v-if="vaultingBreakdown.revenuePotential">Also assumes full participation in your upstream vault.</template>
                         <TooltipArrow :width="27" :height="15" class="-mt-px fill-white stroke-gray-800/20 stroke-[0.5px]" />
                       </TooltipContent>
                     </TooltipRoot>
@@ -294,8 +295,7 @@
                                         <template v-else-if="vaultingBreakdown.bitcoinRequiredSecuritizationMicrogons !== undefined">Your current funding is sufficient; rewards update next frame.</template>
                                       </template>
                                     </Tooltip>
-                                    <template v-if="frameBitcoinUsagePercent > 0 && frameBitcoinUsagePercent < 0.1">&lt;0.1%</template>
-                                    <template v-else>{{ numeral(frameBitcoinUsagePercent).format('0,0.0') }}%</template>
+                                    {{ numeral(frameBitcoinUsagePercent).formatPercent() }}
                                   </span>
                                 </td>
                               <td class="w-10 pr-4 pl-2 text-right">
@@ -317,8 +317,7 @@
                                   </span>
                                 </th>
                                 <td class="py-2 pl-3 text-right">
-                                  <template v-if="frameBondUsagePercent > 0 && frameBondUsagePercent < 0.1">&lt;0.1%</template>
-                                  <template v-else>{{ numeral(frameBondUsagePercent).format('0,0.0') }}%</template>
+                                  {{ numeral(frameBondUsagePercent).formatPercent() }}
                                 </td>
                               <td class="w-10 pr-4 pl-2 text-right">
                                   <button type="button" data-revenue-action aria-label="Invite bond investors" class="text-argon-600/60 inline-flex cursor-pointer opacity-0 group-hover:opacity-100 focus-visible:opacity-100" @click="openInvestorInvite">
@@ -346,14 +345,34 @@
                                 </th>
                                 <td class="py-2 pl-3 text-right">
                                   <template v-if="argonotMaxReturnsPercent === undefined">&mdash;</template>
-                                  <template v-else-if="argonotMaxReturnsPercent > 0 && argonotMaxReturnsPercent < 0.1">&lt;0.1%</template>
-                                  <template v-else>{{ numeral(argonotMaxReturnsPercent).format('0,0.0') }}%</template>
+                                  <template v-else>{{ numeral(argonotMaxReturnsPercent).formatPercent() }}</template>
                                 </td>
                               <td class="w-10 pr-4 pl-2 text-right">
                                   <button type="button" data-revenue-action aria-label="Edit Argonot securitization" class="text-argon-600/60 inline-flex cursor-pointer opacity-0 group-hover:opacity-100 focus-visible:opacity-100" @click="openSecuritization('ARGNOT')">
                                     <EditIcon class="size-3.5" />
                                   </button>
                                 </td>
+                              </tr>
+                              <tr class="border-b border-slate-100">
+                                <th scope="row" class="py-2 pl-4 text-left font-normal">
+                                  <span class="inline-flex items-center gap-1">
+                                    Upstream Participation
+                                    <Tooltip @update:open="revenueTooltipOpen = $event" as-child side="left">
+                                      <button type="button" aria-label="Upstream participation percentage" class="inline-flex cursor-help">
+                                        <InformationCircleIcon class="size-3.5" />
+                                      </button>
+                                      <template #content>
+                                        Keep Bitcoin liquidity and Argon Bonds in your upstream vault to maximize rewards.
+                                        This score is fixed when the frame begins and scales only earnings above the minimum payout.
+                                        If your upstream vault cannot accept more participation, the requirement is reduced.
+                                      </template>
+                                    </Tooltip>
+                                  </span>
+                                </th>
+                                <td class="py-2 pl-3 text-right">
+                                  {{ numeral(vaultingBreakdown.revenuePotential.upstreamParticipationPercent).formatPercent() }}
+                                </td>
+                                <td class="w-10 pr-4 pl-2" />
                               </tr>
                               <tr class="group">
                                 <th scope="row" class="py-2 pl-4 text-left font-normal">
@@ -372,8 +391,7 @@
                                 </th>
                                 <td class="py-2 pl-3 text-right">
                                   <template v-if="vaultingBreakdown.revenuePotential.securitizationPercent === undefined">&mdash;</template>
-                                  <template v-else-if="vaultingBreakdown.revenuePotential.securitizationPercent > 0 && vaultingBreakdown.revenuePotential.securitizationPercent < 0.1">&lt;0.1%</template>
-                                  <template v-else>{{ numeral(vaultingBreakdown.revenuePotential.securitizationPercent).format('0,0.0') }}%</template>
+                                  <template v-else>{{ numeral(vaultingBreakdown.revenuePotential.securitizationPercent).formatPercent() }}</template>
                                 </td>
                               <td class="w-10 pr-4 pl-2 text-right">
                                   <button type="button" data-revenue-action aria-label="Edit Argon securitization" class="text-argon-600/60 inline-flex cursor-pointer opacity-0 group-hover:opacity-100 focus-visible:opacity-100" @click="openSecuritization('ARGN')">
@@ -386,8 +404,7 @@
                               <tr>
                                 <th scope="row" class="pt-2 pl-4 text-left font-semibold">Daily Revenue Captured</th>
                                 <td class="pt-2 pl-3 text-right">
-                                  <template v-if="vaultingBreakdown.revenuePotential.capturedPercent > 0 && vaultingBreakdown.revenuePotential.capturedPercent < 0.1">&lt;0.1%</template>
-                                  <template v-else>{{ numeral(vaultingBreakdown.revenuePotential.capturedPercent).format('0,0.0') }}%</template>
+                                  {{ numeral(vaultingBreakdown.revenuePotential.capturedPercent).formatPercent() }}
                                 </td>
                                 <td class="w-10 pr-4 pl-2" />
                               </tr>

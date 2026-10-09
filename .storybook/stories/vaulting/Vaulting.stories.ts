@@ -381,6 +381,28 @@ export const ArgonotCaptureDefinition: Story = {
   },
 };
 
+export const UpstreamParticipationDefinition: Story = {
+  beforeEach: () => {
+    setupVaultingPortfolioScenario();
+    const vaultId = getMyVault().vaultId!;
+    const capital = getArgonBonds().data.frameCapital!;
+    getArgonBonds().data.frameCapital = {
+      ...capital,
+      vaultSecuritizationPositions: {
+        ...capital.vaultSecuritizationPositions,
+        [vaultId]: { ...capital.vaultSecuritizationPositions[vaultId], upstreamParticipation: BigNumber(0.5) },
+      },
+    };
+  },
+  play: async context => {
+    await ArgonotRewardShortfall.play!(context);
+    await userEvent.hover(
+      (await within(document.body).findAllByRole('button', { name: 'Upstream participation percentage' }))[0],
+    );
+    await within(document.body).findAllByRole('tooltip');
+  },
+};
+
 export const LargeArgonotRequirement: Story = {
   beforeEach: () => {
     setupVaultingPortfolioScenario();

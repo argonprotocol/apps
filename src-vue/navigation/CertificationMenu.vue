@@ -229,7 +229,6 @@ import { createNumeralHelpers, formatBtc } from '../lib/numeral.ts';
 import {
   OperationalStepId,
   operationalSteps,
-  treasuryBitcoinCertificationDisplayAmount,
   treasuryCertificationStepIds,
   useCertificationController,
 } from '../stores/certificationController.ts';
@@ -403,7 +402,7 @@ function formatStepTitle(stepId: OperationalStepId) {
 
     const satoshis = BitcoinLock.satoshisRequiredForRedemptionAmount(
       currency.priceIndex,
-      treasuryBitcoinCertificationDisplayAmount,
+      controller.rewardConfig.treasuryMinimumBitcoin,
     );
     return `${title} (${formatBtc(currency.convertSatToBtc(satoshis))} BTC)`;
   }
