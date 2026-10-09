@@ -395,7 +395,7 @@ describe('BitcoinLocks recovery', () => {
       db,
     });
     store.data.locksByLockId[7] = lock;
-    const reconcileOrphanReleases = vi.spyOn(store.releases, 'reconcileOrphanReleases').mockResolvedValue();
+    const reconcileDepositReleases = vi.spyOn(store.releases, 'reconcileDepositReleases').mockResolvedValue();
 
     await store.recovery.beginHistoryReplay({ lockScope: 'all' });
     await store.recovery.recoverBlock(historyBlock(201), [
@@ -414,7 +414,7 @@ describe('BitcoinLocks recovery', () => {
     expect(store.utxoTracking.getUnresolvedOrphanRecords([lock])).toEqual([
       expect.objectContaining({ txid: utxoRef.txid, status: BitcoinUtxoStatus.Orphaned, isOnArgonChain: true }),
     ]);
-    expect(reconcileOrphanReleases).not.toHaveBeenCalled();
+    expect(reconcileDepositReleases).not.toHaveBeenCalled();
     expect(store.getLockById(7)).toBe(lock);
     expect(store.utxoTracking.getAllOrphanLifecycleUtxos()).toEqual([
       expect.objectContaining({ txid: utxoRef.txid, status: BitcoinUtxoStatus.Orphaned }),
@@ -461,7 +461,7 @@ describe('BitcoinLocks recovery', () => {
         updatedAt: record.updatedAt,
       },
     ]);
-    expect(wallet.getUnresolvedOrphanDeposits()).toEqual([]);
+    expect(wallet.getUnattachedDeposits()).toEqual([]);
     expect(store.utxoTracking.getAllOrphanLifecycleUtxos()).toHaveLength(1);
     expect(getBitcoinAlertNotices(store)).toEqual([]);
 
@@ -529,7 +529,7 @@ describe('BitcoinLocks recovery', () => {
 
     delete record.isHistoryRecoveryPending;
     expect(store.getAllLocks()).toEqual([regularRecord, record]);
-    expect(wallet.getUnresolvedOrphanDeposits()).toEqual(store.utxoTracking.getAllOrphanLifecycleUtxos());
+    expect(wallet.getUnattachedDeposits()).toEqual(store.utxoTracking.getAllOrphanLifecycleUtxos());
   });
 
   it('resumes an in-flight release that has already left the active chain index', async () => {
@@ -798,6 +798,63 @@ describe('BitcoinLocks recovery', () => {
     expect(record).not.toHaveProperty('ratchets');
   });
 
+  it.each([false, true])('backfills penalty removal evidence only for a removed lock (retained=%s)', async retained => {
+    const db = await createTestDb();
+    const chainLock = createHistoricalLock({
+      accountId: encodeAddress(new Uint8Array(32).fill(0x33)),
+      liquidityPromised: 1_000n,
+    });
+    const pending = await db.bitcoinLocksTable.insertPending({
+      uuid: 'penalty-removal-evidence',
+      status: BitcoinLockStatus.LockIsProcessingOnArgon,
+      securitizedSatoshis: chainLock.securitizedSatoshis,
+      cosignVersion: 'v1',
+      network: 'testnet',
+      hdPath: "m/84'/0'/0'",
+      vaultId: chainLock.vaultId,
+    });
+    const record = await db.bitcoinLocksTable.finalizePending({
+      uuid: pending.uuid,
+      lock: createCurrentLock(BitcoinHistory.toBitcoinLockDetails(chainLock)),
+    });
+    const store = createStore({
+      db,
+      blockWatch: { getApi: vi.fn(async () => ({})) } as unknown as BlockWatch,
+    });
+    store.data.locksByLockId[record.lockId!] = record;
+    vi.mocked(BitcoinHistory.getHistoricalBitcoinLock).mockResolvedValue(retained ? chainLock : undefined);
+    const removal = historyBlock(180);
+
+    await store.recovery.beginHistoryReplay({ lockScope: 'all', purpose: 'financial-backfill' });
+    await store.recovery.recoverBlock(removal, [
+      historyEvent(159, 'bitcoinLocks', 'BitcoinCosignPastDue', {
+        lockId: record.lockId,
+        vaultId: record.vaultId,
+        releaseNumber: 1,
+        compensationAmount: 0n,
+        compensatedAccountId: record.ownerAccount,
+      }),
+    ]);
+    expect(record.removalBlockNumber).toBeUndefined();
+    await publishRecoveredHistory(store, removal.blockNumber);
+
+    const durable = await db.bitcoinLocksTable.getByLockId(record.lockId!);
+    if (retained) {
+      expect(durable?.removalBlockNumber).toBeUndefined();
+      expect(record.removalBlockNumber).toBeUndefined();
+    } else {
+      expect(durable).toMatchObject({
+        removalBlockNumber: removal.blockNumber,
+        removalBlockHash: removal.blockHash,
+        removalBlockTime: new Date(removal.blockTime),
+      });
+      expect(record.removalBlockNumber).toBe(removal.blockNumber);
+    }
+    expect(durable?.status).toBe(record.status);
+    expect(durable?.removalReason).toBeUndefined();
+    await db.close();
+  });
+
   it('keeps recovered expired locks retired during a full history replay', async () => {
     const db = await createTestDb();
     const chainLock = createHistoricalLock({
@@ -935,6 +992,7 @@ describe('BitcoinLocks history replay publication', () => {
     const db = await createTestDb();
     const accountId = encodeAddress(new Uint8Array(32).fill(0x44));
     const creationLock = createHistoricalLock({ accountId, liquidityPromised: 1_000n, lockedTargetPrice: 1_000n });
+    creationLock.createdAtArgonBlock = 0;
     const walletKeys = {
       canSign: false,
       defaultArgonAddress: accountId,
@@ -944,21 +1002,36 @@ describe('BitcoinLocks history replay publication', () => {
     } as unknown as WalletKeys;
     const store = createStore({
       db,
-      blockWatch: { getApi: vi.fn(async () => ({})) } as unknown as BlockWatch,
+      blockWatch: {
+        getApi: async () => ({
+          query: { bitcoinUtxos: { confirmedBitcoinBlockTip: async () => ({ blockHeight: 100 }) } },
+        }),
+      } as unknown as BlockWatch,
       walletKeys,
     });
     vi.mocked(BitcoinHistory.getHistoricalBitcoinLock).mockResolvedValue(creationLock);
 
     await store.recovery.beginHistoryReplay({ lockScope: 'all' });
     await store.recovery.recoverBlock(historyBlock(151), [
-      historyEvent(157, 'bitcoinLocks', 'BitcoinLockCreated', {
+      historyEvent(130, 'bitcoinLocks', 'BitcoinLockCreated', {
         utxoId: 7,
         vaultId: 1,
         liquidityPromised: 1_000n,
-        securitization: 1_000n,
-        lockedTargetPrice: 1_000n,
+        peggedPrice: 1_000n,
         accountId,
         securityFee: 20n,
+      }),
+    ]);
+    await store.recovery.recoverBlock(historyBlock(200), [
+      historyEvent(130, 'bitcoinLocks', 'BitcoinLockRatcheted', {
+        utxoId: 7,
+        vaultId: 1,
+        liquidityPromised: 1_000n,
+        originalPeggedPrice: 1_000n,
+        newPeggedPrice: 1_000n,
+        amountBurned: 0n,
+        accountId,
+        securityFee: 0n,
       }),
     ]);
     await publishRecoveredHistory(store);
@@ -967,6 +1040,7 @@ describe('BitcoinLocks history replay publication', () => {
       lockId: 7,
       vaultId: 1,
       ownerAccount: accountId,
+      createdAtArgonBlock: 151,
       scriptDetails: { ownerPubkey: `02${'33'.repeat(32)}` },
     });
     const durable = await db.bitcoinLocksTable.getByLockId(7);
@@ -974,6 +1048,7 @@ describe('BitcoinLocks history replay publication', () => {
       lockId: 7,
       vaultId: 1,
       ownerAccount: accountId,
+      createdAtArgonBlock: 151,
       scriptDetails: { ownerPubkey: `02${'33'.repeat(32)}` },
     });
     expect(durable?.hdPath).toBe('');
@@ -1992,12 +2067,16 @@ describe('BitcoinLocks history replay publication', () => {
     },
   );
 
-  it.each(['active', 'closed'] as const)('keeps the original migrated Fission allocation (%s)', async lifecycle => {
+  it.each([
+    ['active', 198],
+    ['closed', 198],
+    ['active', 0],
+  ] as const)('keeps migrated Fission allocation (%s, %i)', async (lifecycle, createdAtArgonBlock) => {
     const db = await createTestDb();
     const accountId = encodeAddress(new Uint8Array(32).fill(0x33));
     const legacyLock = {
       ...createHistoricalLock({ accountId, liquidityPromised: 1_000n }),
-      createdAtArgonBlock: 198,
+      createdAtArgonBlock,
       securitizedSatoshis: 7_000n,
       fundedSatoshis: 7_000n,
     };
@@ -2017,8 +2096,8 @@ describe('BitcoinLocks history replay publication', () => {
       satoshis: 7_000n,
       liquidityPromised: 1_000n,
       microgonsAtTargetPerBtc: pricePerBtc,
-      createdAtArgonBlock: 198,
-      lastUpdatedArgonBlock: 198,
+      createdAtArgonBlock,
+      lastUpdatedArgonBlock: createdAtArgonBlock,
       ratchetNumber: 0,
     });
     const client = {
@@ -2186,10 +2265,11 @@ describe('BitcoinLocks history replay publication', () => {
     const [saved] = await db.bitcoinFissionsTable.fetchAll(accountId);
     expect(saved).toMatchObject({
       origin: 'lock-migration',
+      createdAtArgonBlock,
       satoshis: 7_000n,
       liquidityPromised: 1_000n,
       microgonsAtTargetPerBtc: pricePerBtc,
-      lastUpdatedArgonBlock: lifecycle === 'active' ? 198 : 200,
+      lastUpdatedArgonBlock: lifecycle === 'active' ? createdAtArgonBlock : 200,
     });
     expect(saved.closedAtArgonBlock).toBe(lifecycle === 'active' ? undefined : 200);
     expect(fissions.getRecords()[0]).toMatchObject({
@@ -2199,6 +2279,7 @@ describe('BitcoinLocks history replay publication', () => {
     });
     expect(await db.bitcoinLocksTable.getByLockId(7)).toMatchObject({
       ...appliedBasis,
+      createdAtArgonBlock: 198,
       fundedSatoshis: retainedSatoshis,
       activeReleaseId: undefined,
     });

@@ -336,7 +336,8 @@ export class BitcoinFissionRecovery {
       blockTime: ratchet.blockTime,
       extrinsicIndex: ratchet.extrinsicIndex,
     }));
-    const createdAtArgonBlock = lock.createdAtArgonBlock ?? 0;
+    // Older migrated Fissions retain zero on chain even after replay finds the Lock's creation block.
+    const createdAtArgonBlock = activeFission?.createdAtArgonBlock ?? lock.createdAtArgonBlock ?? 0;
     const wasReleased = lock.removalReason === 'released';
     const wasLockTerminated = lock.removalReason === 'spent' || lock.removalReason === 'expired';
     const isClosed = wasReleased || wasLockTerminated;
@@ -462,12 +463,11 @@ function readTransactionFee(
 }
 
 function matchesMigratedFission(lock: IHistoricalBitcoinLockRecord, lockId: number, fission: IBitcoinFission): boolean {
-  return (
-    lock.utxoId === fission.fissionId &&
-    fission.liquidId === fission.fissionId &&
-    fission.lockId === lockId &&
-    fission.createdAtArgonBlock === lock.createdAtArgonBlock
-  );
+  if (lock.utxoId !== fission.fissionId || fission.liquidId !== fission.fissionId || fission.lockId !== lockId)
+    return false;
+
+  // Zero means the original creation block was not stored; require agreement when the chain knows it.
+  return fission.createdAtArgonBlock === 0 || fission.createdAtArgonBlock === lock.createdAtArgonBlock;
 }
 
 function cloneRecord(record: IBitcoinFissionRecord): IBitcoinFissionRecord {

@@ -8,6 +8,21 @@ describe('ServerApiClient', () => {
     vi.unstubAllGlobals();
   });
 
+  it('requires a server upgrade before starting authenticated mailbox work on the current server protocol', async () => {
+    // The current router root contract has no Bitcoin mailbox capability.
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({ status: 'ok', authEnabled: true })));
+    vi.stubGlobal('fetch', fetchMock);
+    const getAdminOperatorSessionId = vi.fn(async () => 'admin-session');
+    const client = new ServerApiClient(
+      () => ({ type: ServerType.CustomServer, ipAddress: '203.0.113.10', gatewayPort: 443 }),
+      { getAdminOperatorSessionId, invalidateAdminOperatorSessionId: vi.fn() },
+      { canAccessServer: true },
+    );
+    await expect(client.getPendingBitcoinCooperativeReleases()).rejects.toThrow('Upgrade the operator server');
+    expect(getAdminOperatorSessionId).not.toHaveBeenCalled();
+    expect(fetchMock.mock.calls).toHaveLength(1);
+  });
+
   it('uses localhost for local loopback gateway urls', () => {
     const serverDetails = {
       type: ServerType.LocalComputer,

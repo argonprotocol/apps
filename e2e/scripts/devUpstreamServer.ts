@@ -24,10 +24,12 @@ import { sudoFundWallet, type ISudoFundWalletInput } from '@argonprotocol/apps-c
 import type { IDevEthereumConfig, IStartDevEthereumResult } from '../devEthereum.ts';
 import { AppVaultOperator } from '../actors/AppVaultOperator.ts';
 import { ensureDevGatewayCerts } from '../../scripts/devGatewayCerts.ts';
-import type { IConfig } from 'src-vue/interfaces/IConfig.ts';
+import { type IConfig, ServerType } from 'src-vue/interfaces/IConfig.ts';
 import { BootstrapRecovery } from 'src-vue/lib/BootstrapRecovery.ts';
 import { Config } from 'src-vue/lib/Config.ts';
 import { MemoryWalletKeys } from 'src-vue/lib/MemoryWalletKeys.ts';
+import { ServerApiClient } from 'src-vue/lib/ServerApiClient.ts';
+import { ServerAuthClient } from 'src-vue/lib/ServerAuthClient.ts';
 import { resolveDevUpstreamDir } from './devUpstreamProcess.ts';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -95,6 +97,15 @@ export function getDevUpstreamComposeContext(): DevDockerComposeContext {
     },
     profiles: UPSTREAM_COMPOSE_PROFILES,
   });
+}
+
+export async function stopDevUpstreamServer(context = getDevUpstreamComposeContext()): Promise<void> {
+  // Stop only the scripted upstream; keep shared chain services and all stored data.
+  await execFileAsync(
+    'docker',
+    [...getComposeArgs(context), 'stop', 'upstream-nginx', 'upstream-bot', 'upstream-router', 'upstream-miner'],
+    { cwd: context.composeDir, encoding: 'utf8', env: context.composeEnv },
+  );
 }
 
 export async function readDevUpstreamServerPorts(
@@ -262,12 +273,21 @@ export async function startDevUpstreamServer(args: {
     NetworkConfig.setRuntimeOverride('dev-docker', args.networkConfigOverride);
   }
 
+  const { botPort, gatewayPort, routerPort } = await readDevUpstreamServerPorts(context);
+  let publishedGatewayPort = gatewayPort;
+  const serverApiClient = new ServerApiClient(
+    () => ({ ipAddress: '127.0.0.1', gatewayPort: Number(publishedGatewayPort), type: ServerType.LocalComputer }),
+    new ServerAuthClient(() => walletKeys),
+    walletKeys,
+  );
+
   const clients = new MainchainClients(args.archiveUrl, () => false);
   let actor: AppVaultOperator;
   try {
     actor = await AppVaultOperator.load({
       clients,
       walletKeys,
+      serverApiClient,
     });
   } catch (error) {
     await clients.disconnect().catch(() => undefined);
@@ -281,7 +301,6 @@ export async function startDevUpstreamServer(args: {
   let vaultAlertPoller: Promise<void> | undefined;
   let endpointMonitor: NodeJS.Timeout | undefined;
   let isEndpointRefreshRunning = false;
-  let publishedGatewayPort: string | undefined;
   const detachOperator = async () => {
     const upgradePoller = operationsUpgradePoller;
     const alertPoller = vaultAlertPoller;
@@ -314,7 +333,6 @@ export async function startDevUpstreamServer(args: {
 
   try {
     const client = await clients.get(false);
-    const { botPort, gatewayPort, routerPort } = await readDevUpstreamServerPorts(context);
     await bootstrapRecovery.publishEndpoint({
       client,
       transactionTracker: actor.transactionTracker,
@@ -322,7 +340,6 @@ export async function startDevUpstreamServer(args: {
       host: '127.0.0.1',
       port: Number(gatewayPort),
     });
-    publishedGatewayPort = gatewayPort;
 
     endpointMonitor = setInterval(() => {
       if (isEndpointRefreshRunning) return;

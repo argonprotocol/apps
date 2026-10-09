@@ -4,9 +4,10 @@ import { BitcoinNetwork } from '@argonprotocol/bitcoin';
 import { u8aToHex } from '@polkadot/util';
 import { createTestDb, createTestDbAtMigration } from './helpers/db.ts';
 import BitcoinUtxoTracking, { type IUtxoTrackingDeps } from '../lib/BitcoinUtxoTracking.ts';
+import BitcoinMempool from '../lib/BitcoinMempool.ts';
 import { BitcoinLockStatus } from '../lib/db/BitcoinLocksTable.ts';
 import type { IBitcoinLockRecord } from '../interfaces/IBitcoinLockRecord.ts';
-import { BitcoinUtxoStatus } from '../lib/db/BitcoinUtxosTable.ts';
+import { BitcoinUtxoSpendStatus, BitcoinUtxoStatus } from '../lib/db/BitcoinUtxosTable.ts';
 import { BitcoinLock, type ArgonClient, type BlockWatch, type IBlockHeaderInfo } from '@argonprotocol/apps-core';
 import {
   createBitcoinLockConfig,
@@ -82,6 +83,115 @@ function createLockDetails(): NonNullable<IBitcoinLockRecord['scriptDetails']> {
 }
 
 describe('BitcoinUtxoTracking', () => {
+  it('finds deposits sent to closed addresses without reviving accepted or spent outputs, and permits retry', async () => {
+    const db = await createTestDb();
+    const mempool = new BitcoinMempool('https://bitcoin-indexer.test');
+    const client = {
+      consts: { bitcoinLocks: { argonTicksPerDay: { toNumber: () => 1_440 } } },
+      query: {
+        bitcoinLocks: {
+          minimumSatoshis: async () => 100_000n,
+          orphanedUtxosByAccount: { entries: async () => [] },
+        },
+        bitcoinUtxos: { confirmedBitcoinBlockTip: async () => ({ blockHeight: 125n }) },
+      },
+    } as unknown as ArgonClient;
+    const blockWatch = {
+      start: async () => undefined,
+      events: { on: () => () => undefined },
+      finalizedBlockHeader: historyBlock(120),
+      getFinalizedApi: async () => client,
+      getEventsWithSpec: async () => ({ api: client, events: [] }),
+    } as unknown as BlockWatch;
+    const store = createStore({ db, blockWatch, mempool });
+    store.utxoTracking.data = Vue.reactive(store.utxoTracking.data);
+
+    const pending = await db.bitcoinLocksTable.insertPending(createLock());
+    const fundingTxid = `0x${'a'.repeat(64)}`;
+    const current = createCurrentLock({
+      lockId: 1,
+      fundedSatoshis: 100_000n,
+      fundingUtxos: [{ utxoRef: { txid: fundingTxid, vout: 0 }, satoshis: 100_000n }],
+    });
+    const lock = await db.bitcoinLocksTable.finalizePending({ uuid: pending.uuid, lock: current });
+    await store.utxoTracking.syncFundingUtxos(lock, current);
+    await db.bitcoinLocksTable.recordRemoval(lock, BitcoinLockStatus.Released, {
+      removalReason: 'released',
+      removalBlockNumber: 120,
+    });
+    store.data.locksByLockId[1] = lock;
+
+    const spent = await store.utxoTracking.upsertUtxoRecord(lock, {
+      txid: `0x${'b'.repeat(64)}`,
+      vout: 1,
+      satoshis: 40_000n,
+    });
+    await db.bitcoinUtxosTable.setSpent(spent, 'completed-return');
+    const wallet = new WalletForBitcoin(
+      () => store,
+      () => lock.ownerAccount!,
+      {} as never,
+    );
+    const visible = Vue.computed(() => wallet.getUnattachedDeposits());
+    expect(visible.value).toEqual([]);
+
+    const missingTxid = `0x${'c'.repeat(64)}`;
+    const outputs = [
+      { txid: fundingTxid, vout: 0, value: 100_000, status: { confirmed: false } },
+      { txid: spent.txid, vout: 1, value: 40_000, status: { confirmed: false } },
+      { txid: missingTxid, vout: 2, value: 150_000, status: { confirmed: false } },
+    ] as Awaited<ReturnType<BitcoinMempool['getAddressUtxos']>>;
+    const lookup = vi.spyOn(mempool, 'getAddressUtxos').mockResolvedValue(outputs);
+    vi.spyOn(mempool, 'getTipHeight').mockResolvedValue(125);
+    const warning = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const error = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const archive = vi.spyOn(mainchain, 'getMainchainClient').mockResolvedValue(client);
+    const config = vi.spyOn(BitcoinLock, 'getConfig').mockResolvedValue(createBitcoinLockConfig());
+    const activeIds = vi.spyOn(BitcoinLock, 'idsByOwner').mockResolvedValue([]);
+    try {
+      // A closed lock is deliberately skipped by ordinary funding monitoring.
+      await store.utxoTracking.syncPendingFundingSignals(lock, client);
+      expect(visible.value).toEqual([]);
+
+      archive.mockRejectedValueOnce(new Error('Archive temporarily unavailable'));
+      await expect(store.load()).rejects.toThrow('Archive temporarily unavailable');
+      expect(store.data.readiness).toBe('error');
+      expect(visible.value).toEqual([]);
+
+      await store.findMissingDeposits();
+      expect(store.data.readiness).toBe('ready');
+      expect(visible.value).toEqual([
+        expect.objectContaining({ txid: missingTxid, status: BitcoinUtxoStatus.SeenOnMempool, satoshis: 150_000n }),
+      ]);
+      expect(await db.bitcoinUtxosTable.getByLockOutpoint(1, missingTxid, 2)).toMatchObject({
+        status: BitcoinUtxoStatus.SeenOnMempool,
+        spendStatus: BitcoinUtxoSpendStatus.Unspent,
+      });
+      expect(await db.bitcoinUtxosTable.getByLockOutpoint(1, fundingTxid, 0)).toMatchObject({
+        status: BitcoinUtxoStatus.FundingUtxo,
+      });
+      expect(await db.bitcoinUtxosTable.getByLockOutpoint(1, spent.txid, 1)).toMatchObject({
+        spendStatus: BitcoinUtxoSpendStatus.Spent,
+        spentByReleaseId: 'completed-return',
+      });
+
+      lookup.mockRejectedValueOnce(new Error('Bitcoin indexer unavailable'));
+      await expect(store.findMissingDeposits()).rejects.toThrow('Find missing deposits again to retry');
+      expect(visible.value.map(deposit => deposit.txid)).toEqual([missingTxid]);
+      await store.findMissingDeposits();
+      expect(visible.value.map(deposit => deposit.txid)).toEqual([missingTxid]);
+      expect(await db.bitcoinUtxosTable.fetchAll()).toHaveLength(3);
+    } finally {
+      await store.shutdown();
+      await db.close();
+      warning.mockRestore();
+      error.mockRestore();
+      archive.mockRestore();
+      config.mockRestore();
+      activeIds.mockRestore();
+    }
+  });
+
   it('retains new funding receipts through restart and recovery until their deposits are acknowledged', async () => {
     const { db, migrateToLatest } = await createTestDbAtMigration(36);
     const previousTxid = 'a'.repeat(64);
@@ -300,7 +410,7 @@ describe('BitcoinUtxoTracking', () => {
     expect(restartedWallet.getPendingInboundUtxos().map(record => record.vout)).toEqual([1]);
   });
 
-  it('hides absent chain orphans while retaining cosigned returns through restart and completion', async () => {
+  it('preserves discovered deposits when chain orphans disappear, including through return completion', async () => {
     const db = await createTestDb();
     const store = createStore({ db });
     store.utxoTracking.data = Vue.reactive(store.utxoTracking.data);
@@ -311,7 +421,7 @@ describe('BitcoinUtxoTracking', () => {
       () => lock.ownerAccount!,
       {} as never,
     );
-    const visible = Vue.computed(() => wallet.getUnresolvedOrphanDeposits());
+    const visible = Vue.computed(() => wallet.getUnattachedDeposits());
     const entries = vi.fn(async () => [
       [
         { args: [lock.ownerAccount, { txid: '2'.repeat(64), outputIndex: 0 }] },
@@ -326,7 +436,7 @@ describe('BitcoinUtxoTracking', () => {
     await store.utxoTracking.syncArgonOrphans([lock], client);
     const [expired, returning] = store.utxoTracking.getUnresolvedOrphanRecords([lock]);
     const historicalOrphan = { ...expired };
-    const release = await store.releases.createOrphanRelease(returning, {
+    const release = await store.releases.createDepositRelease(returning, {
       id: 'orphan-return',
       kind: BitcoinReleaseKind.Orphan,
       lockId: returning.lockId,
@@ -347,13 +457,13 @@ describe('BitcoinUtxoTracking', () => {
     expect(visible.value).toHaveLength(2);
     entries.mockResolvedValue([]);
     await store.utxoTracking.syncArgonOrphans([lock], client);
-    expect(visible.value.map(record => record.id)).toEqual([returning.id]);
+    expect(visible.value.map(record => record.id).sort()).toEqual([expired.id, returning.id].sort());
     expect(expired.status).toBe('Orphaned');
     expect(expired.isOnArgonChain).toBe(false);
     expect(returning.spendStatus).toBe('Unspent');
     expect(store.utxoTracking.getUnresolvedOrphanRecords([lock])).toEqual([]);
     await expect(
-      store.releases.createOrphanRelease(expired, {
+      store.releases.createDepositRelease(expired, {
         ...release,
         id: 'expired-return',
         inputUtxoIds: [expired.id],
@@ -380,10 +490,15 @@ describe('BitcoinUtxoTracking', () => {
       () => lock.ownerAccount!,
       {} as never,
     );
-    expect(restartedWallet.getUnresolvedOrphanDeposits().map(record => record.id)).toEqual([returning.id]);
+    expect(
+      restartedWallet
+        .getUnattachedDeposits()
+        .map(record => record.id)
+        .sort(),
+    ).toEqual([expired.id, returning.id].sort());
     const input = restarted.utxoTracking.getUtxoRecordById(returning.id)!;
-    await restarted.releases.completeOrphanRelease(input, restarted.releases.getById(release.id)!, 132);
-    expect(restartedWallet.getUnresolvedOrphanDeposits()).toEqual([]);
+    await restarted.releases.completeDepositRelease(input, restarted.releases.getById(release.id)!, 132);
+    expect(restartedWallet.getUnattachedDeposits().map(record => record.id)).toEqual([expired.id]);
     expect(await db.bitcoinUtxosTable.getByLockOutpoint(lock.lockId!, expired.txid, expired.vout)).toMatchObject({
       status: 'Orphaned',
       isOnArgonChain: false,
@@ -411,7 +526,7 @@ describe('BitcoinUtxoTracking', () => {
       { markOrphaned: true },
     );
     for (const record of [returning, expired, interrupted]) {
-      const release = await store.releases.createOrphanRelease(record, {
+      const release = await store.releases.createDepositRelease(record, {
         id: `return-${record.id}`,
         kind: BitcoinReleaseKind.Orphan,
         lockId: record.lockId,
@@ -481,7 +596,7 @@ describe('BitcoinUtxoTracking', () => {
       () => lock.ownerAccount!,
       {} as never,
     );
-    const visible = Vue.computed(() => wallet.getUnresolvedOrphanDeposits());
+    const visible = Vue.computed(() => wallet.getUnattachedDeposits());
     await restarted.utxoTracking.syncArgonOrphans([lock], client);
     expect(visible.value).toHaveLength(3);
     const activity = vi.spyOn(indexerClient, 'findAddressActivity').mockResolvedValue({
@@ -511,7 +626,7 @@ describe('BitcoinUtxoTracking', () => {
       });
       expiredStillAvailable = true;
       Object.assign(blockWatch, { finalizedBlockHeader: historyBlock(111) });
-      await restarted.releases.reconcileOrphanReleases(lock);
+      await restarted.releases.reconcileDepositReleases(lock);
       expect(restarted.releases.getById(`return-${returning.id}`)?.statusError).toBeUndefined();
       expect(await db.bitcoinReleasesTable.getById(`return-${returning.id}`)).toMatchObject({
         status: BitcoinReleaseStatus.ReadyForBitcoinBroadcast,
@@ -525,7 +640,7 @@ describe('BitcoinUtxoTracking', () => {
       expect((await db.bitcoinUtxosTable.getByLockOutpoint(lock.lockId!, expired.txid, 0))?.activeReleaseId).toBe(
         `return-${expired.id}`,
       );
-      expect(visible.value.map(record => record.id)).toEqual([returning.id, expired.id]);
+      expect(visible.value.map(record => record.id).sort()).toEqual([returning.id, expired.id, interrupted.id].sort());
       expiredStillAvailable = false;
       Object.assign(blockWatch, { finalizedBlockHeader: historyBlock(112) });
       activity.mockResolvedValue({
@@ -536,7 +651,7 @@ describe('BitcoinUtxoTracking', () => {
       });
       // @ts-expect-error Exercise finalized-block reconciliation of a terminal parent lock.
       expect(await restarted.checkIncomingArgonBlock(historyBlock(112))).toBe(true);
-      expect(visible.value.map(record => record.id)).toEqual([returning.id]);
+      expect(visible.value.map(record => record.id).sort()).toEqual([returning.id, expired.id, interrupted.id].sort());
       expect(await db.bitcoinReleasesTable.getById(`return-${expired.id}`)).toMatchObject({
         status: BitcoinReleaseStatus.Cancelled,
       });
@@ -596,16 +711,16 @@ describe('BitcoinUtxoTracking', () => {
       entries.mockRejectedValueOnce(new Error('Current orphan snapshot unavailable'));
       await expect(store.applyRecoveredHistory(unit, 110)).rejects.toThrow('Current orphan snapshot unavailable');
       expect(await db.bitcoinUtxosTable.fetchAll()).toEqual([]);
-      expect(wallet.getUnresolvedOrphanDeposits()).toEqual([]);
+      expect(wallet.getUnattachedDeposits()).toEqual([]);
 
       await store.applyRecoveredHistory(unit, 110);
       expect(await db.bitcoinUtxosTable.fetchAll()).toEqual([
         expect.objectContaining({ status: BitcoinUtxoStatus.Orphaned, isOnArgonChain: false }),
       ]);
-      expect(wallet.getUnresolvedOrphanDeposits()).toEqual([]);
+      expect(wallet.getUnattachedDeposits().map(record => record.txid)).toEqual([expired.txid]);
       // @ts-expect-error A normal finalized block need not contain any new Bitcoin state.
       expect(await store.checkIncomingArgonBlock(historyBlock(120))).toBe(true);
-      expect(wallet.getUnresolvedOrphanDeposits()).toEqual([]);
+      expect(wallet.getUnattachedDeposits().map(record => record.txid)).toEqual([expired.txid]);
     } finally {
       currentClient.mockRestore();
     }
@@ -678,7 +793,7 @@ describe('BitcoinUtxoTracking', () => {
       () => lock.ownerAccount!,
       {} as never,
     );
-    const visible = Vue.computed(() => wallet.getUnresolvedOrphanDeposits());
+    const visible = Vue.computed(() => wallet.getUnattachedDeposits());
     const currentClient = vi.spyOn(mainchain, 'getMainchainClient').mockResolvedValue(client);
     const config = vi.spyOn(BitcoinLock, 'getConfig').mockResolvedValue(createBitcoinLockConfig());
     const activeIds = vi.spyOn(BitcoinLock, 'idsByOwner').mockResolvedValue([]);
@@ -690,7 +805,8 @@ describe('BitcoinUtxoTracking', () => {
 
       snapshotAvailable = true;
       finalized([historyBlock(121)]);
-      await vi.waitFor(() => expect(visible.value).toEqual([]));
+      await vi.waitFor(async () => expect((await db.bitcoinUtxosTable.fetchAll())[0].isOnArgonChain).toBe(false));
+      expect(visible.value).toHaveLength(1);
       expect(await db.bitcoinUtxosTable.fetchAll()).toEqual([
         expect.objectContaining({ status: BitcoinUtxoStatus.Orphaned, isOnArgonChain: false }),
       ]);
@@ -702,14 +818,14 @@ describe('BitcoinUtxoTracking', () => {
       Object.assign(blockWatch, { finalizedBlockHeader: historyBlock(123) });
       finalized([historyBlock(122)]);
       await vi.waitFor(() => expect(restarted.data.latestArgonBlock?.blockNumber).toBe(122));
-      expect(visible.value).toHaveLength(1);
+      expect(visible.value).toHaveLength(2);
 
       snapshotAvailable = false;
       orphanAvailable = false;
       bitcoinTip = 113n;
       finalized([historyBlock(123)]);
       await vi.waitFor(() => expect(restarted.data.latestArgonBlock?.blockNumber).toBe(123));
-      expect(visible.value).toHaveLength(1);
+      expect(visible.value).toHaveLength(2);
       expect(await db.bitcoinUtxosTable.fetchAll()).toContainEqual(
         expect.objectContaining({ txid: laterOrphanTxid, isOnArgonChain: true }),
       );
@@ -717,7 +833,12 @@ describe('BitcoinUtxoTracking', () => {
 
       snapshotAvailable = true;
       finalized([historyBlock(124)]);
-      await vi.waitFor(() => expect(visible.value).toEqual([]));
+      await vi.waitFor(async () =>
+        expect(
+          (await db.bitcoinUtxosTable.fetchAll()).find(record => record.txid === laterOrphanTxid)?.isOnArgonChain,
+        ).toBe(false),
+      );
+      expect(visible.value).toHaveLength(2);
       expect(await db.bitcoinUtxosTable.fetchAll()).toContainEqual(
         expect.objectContaining({ txid: laterOrphanTxid, isOnArgonChain: false }),
       );

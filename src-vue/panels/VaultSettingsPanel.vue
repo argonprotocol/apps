@@ -67,12 +67,22 @@
               </span>
             </div>
             <div class="font-mono text-sm text-gray-500/60">
-              {{
-                numeral(currency.convertMicrogonTo(bitcoinCapacityMicrogons, UnitOfMeasurement.BTC)).format(
-                  '0,0.[0000]',
-                )
-              }}
-              BTC Capacity
+              <span
+                v-if="vaultingBreakdown.bitcoinFundingShortfallMicrogons > 0n"
+                class="inline-flex items-center gap-1 text-yellow-800"
+              >
+                <AlertIcon class="h-4 shrink-0" />
+                Add {{ microgonToArgonNm(vaultingBreakdown.bitcoinFundingShortfallMicrogons).format('0,0', Math.ceil) }}
+                ARGN
+              </span>
+              <template v-else>
+                {{
+                  numeral(currency.convertMicrogonTo(bitcoinCapacityMicrogons, UnitOfMeasurement.BTC)).format(
+                    '0,0.[0000]',
+                  )
+                }}
+                BTC Capacity
+              </template>
             </div>
           </div>
           <div class="mx-2 w-px bg-slate-300" />
@@ -301,7 +311,11 @@
               {{ fundingAsset }}
             </p>
             <div class="mt-4 border-t border-slate-300 pt-4">
-              <ProgressBar :progress="progressPct" :hasError="!!transactionError" />
+              <ProgressBar
+                :progress="progressPct"
+                :hasError="!!transactionError"
+                :class="transactionError ? '' : 'opacity-60'"
+              />
               <p class="mt-2 text-sm" :class="transactionError ? 'text-red-700' : 'text-slate-500'">
                 {{ transactionError || progressLabel }}
               </p>
@@ -339,10 +353,41 @@
                 Withdraw
               </label>
             </fieldset>
+            <div
+              v-if="
+                fundingAsset === 'ARGN' &&
+                fundingAction === 'add' &&
+                vaultingBreakdown.bitcoinFundingShortfallMicrogons > 0n
+              "
+              role="alert"
+              class="mb-4 flex items-center rounded border border-yellow-400/70 bg-yellow-100 px-3 py-3 text-sm text-yellow-900"
+            >
+              <AlertIcon class="mr-2 h-4 shrink-0 text-yellow-700" />
+              <span>
+                Add
+                {{
+                  microgonToMoneyNm(vaultingBreakdown.bitcoinFundingShortfallMicrogons).formatCurrency(currency.symbol)
+                }}
+                in securitization to fully back your Bitcoin for rewards.
+              </span>
+            </div>
             <div class="mb-2 flex items-center justify-between text-sm">
               <label class="font-bold text-gray-600/60">
                 Amount to {{ fundingAction === 'add' ? 'Add' : 'Withdraw' }}
               </label>
+              <button
+                v-if="
+                  fundingAsset === 'ARGN' &&
+                  fundingAction === 'add' &&
+                  vaultingBreakdown.bitcoinFundingShortfallMicrogons > 0n
+                "
+                type="button"
+                :disabled="isSubmitting"
+                class="text-argon-600 cursor-pointer disabled:text-gray-400"
+                @click="changeAmount = vaultingBreakdown.bitcoinFundingShortfallMicrogons"
+              >
+                Full Securitization
+              </button>
               <button
                 v-if="fundingAsset === 'ARGNOT' && fundingAction === 'add'"
                 type="button"
@@ -602,12 +647,14 @@ import { getArgonBonds } from '../stores/argonBonds.ts';
 import { getBitcoinLocks } from '../stores/bitcoin.ts';
 import { getCurrency } from '../stores/currency.ts';
 import { getMyVault } from '../stores/vaults.ts';
+import { useVaultingAssetBreakdown } from '../stores/vaultingAssetBreakdown.ts';
 import { useWallets } from '../stores/wallets.ts';
 
 const myVault = getMyVault();
 const currency = getCurrency();
 const wallets = useWallets();
 const argonBonds = getArgonBonds();
+const vaultingBreakdown = useVaultingAssetBreakdown();
 const bitcoinLocks = getBitcoinLocks();
 const miningFrames = getMiningFrames();
 const currentTick = Vue.ref(miningFrames.currentTick);

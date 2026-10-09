@@ -16,6 +16,9 @@ import {
   getBootstrapEndpointPubkey,
   raceWithTimeout,
   runtimeClient,
+  bitcoinCooperativeReleaseRequestSchema,
+  verifyBitcoinCooperativeReleaseRequest,
+  type IBitcoinCooperativeReleaseResponse,
 } from '@argonprotocol/apps-core';
 import { u8aToHex } from '@argonprotocol/mainchain';
 import { ArgonApis } from './ArgonApis.ts';
@@ -29,6 +32,7 @@ import {
   ROUTER_BOOTSTRAP_ENDPOINT_SECRET,
   ROUTER_RESTORE_KEY,
   SERVER_ROOT,
+  VAULT_OPERATOR_ADDRESS,
 } from './env.ts';
 import type { Db } from './Db.ts';
 import { MemberRestoreService } from './MemberRestoreService.ts';
@@ -66,6 +70,7 @@ type IRouterServerAuthOptions = Omit<IRouterAuthServiceOptions, 'db' | 'memberRe
 
 interface IRouterServerOptions {
   db: Db;
+  vaultOperatorAddress?: string;
   botInternalUrl: string;
   port?: number | string;
   localNodeUrl: string;
@@ -129,6 +134,7 @@ export class RouterServer {
     routerAuth.pruneInactiveSessions();
 
     const requireAdminOperatorAuth = routerAuth.requireAdminOperator();
+    const vaultOperatorAddress = this.options.vaultOperatorAddress ?? VAULT_OPERATOR_ADDRESS;
     const toTreasuryUserInvite = (invite: IUserInviteRecord) => {
       const inviteRecord = { ...invite };
       delete inviteRecord.operationsAccessProofSignature;
@@ -165,6 +171,7 @@ export class RouterServer {
         bitcoinConfig: BITCOIN_CONFIG,
         serverRoot: SERVER_ROOT,
         authEnabled: routerAuth.isEnabled,
+        bitcoinCooperativeReleaseMailboxVersion: routerAuth.isEnabled ? 1 : 0,
       })),
     );
 
@@ -566,6 +573,118 @@ export class RouterServer {
         }
 
         return { invite: toTreasuryUserInvite(invite) };
+      }),
+    );
+
+    app.post(
+      '/bitcoin-cooperative-releases',
+      express.text({ type: '*/*', limit: '8kb' }),
+      safeJsonRoute(async req => {
+        if (!routerAuth.isEnabled) {
+          throw new RouterError('Bitcoin return requests require router authentication.', 503);
+        }
+
+        const parsed = bitcoinCooperativeReleaseRequestSchema.safeParse(requireBody(req));
+        if (!parsed.success) {
+          throw new RouterError('Invalid Bitcoin return request.', 400);
+        }
+
+        const request = parsed.data;
+        routerAuth.requireMemberSession(req, request.ownerAccount);
+        if (!verifyBitcoinCooperativeReleaseRequest(request)) {
+          throw new RouterError('Invalid owner authorization for this return.', 403);
+        }
+
+        const vault = await this.queryFinalizedState(client => client.query.vaults.vaultsById(request.vaultId));
+        if (!vault || vault.operatorAccountId !== vaultOperatorAddress) {
+          throw new RouterError('This server does not serve the requested vault.', 403);
+        }
+
+        return { bitcoinCooperativeRelease: db.bitcoinCooperativeReleasesTable.insert(request) };
+      }),
+    );
+
+    app.get(
+      '/bitcoin-cooperative-releases/pending',
+      requireAdminOperatorAuth,
+      safeJsonRoute(async req => {
+        if (!routerAuth.isEnabled) {
+          throw new RouterError('Bitcoin return requests require router authentication.', 503);
+        }
+        if (!vaultOperatorAddress) {
+          throw new RouterError('Configure the vault operator address to receive Bitcoin returns.', 503);
+        }
+
+        const vaultId = await this.queryFinalizedState(client =>
+          client.query.vaults.vaultIdByOperator(vaultOperatorAddress),
+        );
+        if (!vaultId) {
+          return { requests: [] };
+        }
+
+        const { cursor } = req.query;
+        if (cursor !== undefined) {
+          if (typeof cursor !== 'string') {
+            throw new RouterError('Invalid Bitcoin return cursor.', 400);
+          }
+          if (cursor.length > 400) {
+            throw new RouterError('Invalid Bitcoin return cursor.', 400);
+          }
+        }
+
+        return db.bitcoinCooperativeReleasesTable.pending(vaultId, cursor);
+      }),
+    );
+
+    app.post(
+      '/bitcoin-cooperative-releases/:releaseId/response',
+      requireAdminOperatorAuth,
+      express.text({ type: '*/*', limit: '2kb' }),
+      safeJsonRoute(async req => {
+        if (!routerAuth.isEnabled) {
+          throw new RouterError('Bitcoin return requests require router authentication.', 503);
+        }
+
+        const { releaseId } = req.params;
+        const record = db.bitcoinCooperativeReleasesTable.fetch(releaseId);
+        if (!record) {
+          throw new RouterError('Bitcoin return request not found.', 404);
+        }
+
+        const vault = await this.queryFinalizedState(client => client.query.vaults.vaultsById(record.request.vaultId));
+        if (!vault || vault.operatorAccountId !== vaultOperatorAddress) {
+          throw new RouterError('This server does not serve the requested vault.', 403);
+        }
+
+        const body = requireBody<IBitcoinCooperativeReleaseResponse>(req);
+        if (!body || typeof body !== 'object') {
+          throw new RouterError('Invalid Bitcoin return response.', 400);
+        }
+
+        if ('vaultSignatureHex' in body) {
+          if (Object.keys(body).length !== 1) {
+            throw new RouterError('Invalid vault signature.', 400);
+          }
+          if (!/^0x[0-9a-f]{18,148}$/.test(body.vaultSignatureHex)) {
+            throw new RouterError('Invalid vault signature.', 400);
+          }
+        } else {
+          const { error } = body;
+          if (Object.keys(body).length !== 1) {
+            throw new RouterError('A short operator explanation is required.', 400);
+          }
+          if (typeof error !== 'string') {
+            throw new RouterError('A short operator explanation is required.', 400);
+          }
+          if (!error.trim()) {
+            throw new RouterError('A short operator explanation is required.', 400);
+          }
+          if (error.length > 500) {
+            throw new RouterError('A short operator explanation is required.', 400);
+          }
+        }
+
+        return { bitcoinCooperativeRelease: db.bitcoinCooperativeReleasesTable.respond(releaseId, body) };
       }),
     );
 

@@ -20,6 +20,7 @@ import { BitcoinReleaseStatus, type IBitcoinReleaseRecord } from '../interfaces/
 import type { IBitcoinUnlockReleaseState, IBitcoinVaultUnlockStateDetails } from '../interfaces/IBitcoinLocks.ts';
 import BitcoinUtxoTracking from './BitcoinUtxoTracking.ts';
 import BitcoinReleases from './BitcoinReleases.ts';
+import { BitcoinCooperativeReleases } from './BitcoinCooperativeReleases.ts';
 import BitcoinMempool from './BitcoinMempool.ts';
 import { recordFinalizedSecuritization } from './BitcoinSecuritizationTerms.ts';
 import { BlockProgress } from './BlockProgress.ts';
@@ -57,6 +58,7 @@ import { BitcoinLockRecovery, type IBitcoinHistoryReplayUnit } from './recovery/
 import type { BitcoinFissions } from './BitcoinFissions.ts';
 import { calculateBitcoinReturn, valueSatoshisAtRate } from './financials/BitcoinLocks.ts';
 import { assignIfUnset } from './Utils.ts';
+import type { UpstreamOperatorClient } from './UpstreamOperatorClient.ts';
 
 export type { IBitcoinUnlockReleaseState, IBitcoinVaultUnlockStateDetails };
 
@@ -132,6 +134,7 @@ export default class BitcoinLocks {
   public myVault?: MyVault;
   public readonly utxoTracking: BitcoinUtxoTracking;
   public readonly releases: BitcoinReleases;
+  public readonly cooperativeReleases: BitcoinCooperativeReleases;
   public readonly recovery: BitcoinLockRecovery;
 
   #config!: IBitcoinLockConfig;
@@ -145,6 +148,7 @@ export default class BitcoinLocks {
   #bitcoinKeyAllocationQueue = new SingleFileQueue();
   #txQueueByUuid: { [uuid: string]: SingleFileQueue } = {};
   #pendingArgonBlocks: IBlockHeaderInfo[] = [];
+  #missingDepositSearchPromise?: Promise<void>;
   #historyRecoveryWaitersByUuid: Record<string, IDeferred<void>> = {};
   #currentLockSyncPromise?: Promise<IBitcoinLock[]>;
   #failedCurrentLockIds = new Set<number>();
@@ -160,6 +164,7 @@ export default class BitcoinLocks {
     currency: CurrencyBase,
     transactionTracker: TransactionTracker,
     mempool: BitcoinMempool = new BitcoinMempool(ESPLORA_HOST),
+    upstreamOperator?: UpstreamOperatorClient,
   ) {
     this.#currency = currency;
     this.#transactionTracker = transactionTracker;
@@ -190,7 +195,9 @@ export default class BitcoinLocks {
       currency,
       blockWatch,
       transactionTracker,
+      upstreamOperator,
     );
+    this.cooperativeReleases = new BitcoinCooperativeReleases(blockWatch, this.#mempool);
     this.recovery = new BitcoinLockRecovery({
       walletKeys,
       blockWatch,
@@ -253,6 +260,40 @@ export default class BitcoinLocks {
 
   public getUtxosForLock(lock: Pick<IBitcoinLockRecord, 'lockId'>): IBitcoinUtxoRecord[] {
     return lock.lockId === undefined ? [] : this.utxoTracking.getUtxosForLock(lock.lockId);
+  }
+
+  public async findMissingDeposits(): Promise<void> {
+    if (this.#missingDepositSearchPromise) return this.#missingDepositSearchPromise;
+
+    this.#missingDepositSearchPromise = (async () => {
+      await this.load();
+      const client = await this.blockWatch.getFinalizedApi();
+      let hadFailure = false;
+
+      // Include closed addresses: Argon's one-pass scan will not discover deposits sent after their removal.
+      for (const lock of this.getAllLocks()) {
+        if (!lock.lockId || !lock.scriptDetails) continue;
+        try {
+          await this.runInQueueForLock(
+            lock,
+            async () => {
+              if (this.isHistoryRecoveryPendingForLock(lock)) return;
+              await this.utxoTracking.observeMempoolFunding(lock, client);
+            },
+            { skipActionAvailability: true },
+          );
+        } catch (error) {
+          hadFailure = true;
+          console.warn('[BitcoinLocks] Unable to check a Bitcoin address for missing deposits', error);
+        }
+      }
+
+      if (hadFailure)
+        throw new Error('Some Bitcoin addresses could not be checked. Find missing deposits again to retry.');
+    })().finally(() => {
+      this.#missingDepositSearchPromise = undefined;
+    });
+    return this.#missingDepositSearchPromise;
   }
 
   public getFundingUtxos(lock: IBitcoinLockRecord): IBitcoinUtxoRecord[] {
@@ -850,7 +891,7 @@ export default class BitcoinLocks {
       for (const lock of Object.values(this.locksByLockId)) {
         if (this.isHistoryRecoveryPendingForLock(lock)) continue;
         if (this.isTerminalLock(lock)) {
-          await this.runInQueueForLock(lock, () => this.releases.reconcileOrphanReleases(lock), {
+          await this.runInQueueForLock(lock, () => this.releases.reconcileDepositReleases(lock), {
             waitForHistoryRecovery: true,
             allowOrphanRecovery: true,
           });
@@ -860,13 +901,13 @@ export default class BitcoinLocks {
         await this.runInQueueForLock(
           lock,
           async () => {
-            await this.releases.reconcileOrphanReleases(lock);
+            await this.releases.reconcileDepositReleases(lock);
             await this.releases.reconcileLockRelease(lock, false);
           },
           { waitForHistoryRecovery: true },
         );
       }
-      await this.releases.syncOrphanBitcoinProcessing(this.oracleBitcoinBlockHeight);
+      await this.releases.syncDepositBitcoinProcessing(this.oracleBitcoinBlockHeight);
       this.data.isReconciliationPending = false;
     } catch (error) {
       console.warn('[BitcoinLocks] Startup reconciliation did not finish; will retry on the next block', error);
@@ -896,6 +937,7 @@ export default class BitcoinLocks {
   public async shutdown() {
     this.unsubscribeFromArgonBlocks();
     this.releases.shutdown();
+    await this.#missingDepositSearchPromise?.catch(() => undefined);
     await this.#blockQueue.stop(true);
     await this.#bitcoinKeyAllocationQueue.stop(true);
     await Promise.all(Object.values(this.#txQueueByUuid).map(queue => queue.stop(true)));
@@ -1559,10 +1601,10 @@ export default class BitcoinLocks {
         });
       }
 
-      const orphanLockIds = new Set(this.releases.getActiveOrphanReleases().map(release => release.lockId));
+      const depositReleaseLockIds = new Set(this.releases.getActiveDepositReleases().map(release => release.lockId));
       const promises = Object.values(this.data.locksByLockId)
         .map(lockRecord => {
-          if (this.isTerminalLock(lockRecord) && !orphanLockIds.has(lockRecord.lockId!)) {
+          if (this.isTerminalLock(lockRecord) && !depositReleaseLockIds.has(lockRecord.lockId!)) {
             return undefined;
           }
           if (lockRecord.status === BitcoinLockStatus.LockIsProcessingOnArgon) {
@@ -1572,9 +1614,27 @@ export default class BitcoinLocks {
           return this.runInQueueForLock(
             lockRecord,
             async () => {
+              // A full-release penalty removes the lock without a separate termination event.
+              const penalty = runtimeEvents.find(({ event }) => {
+                return (
+                  event.section === 'bitcoinLocks' &&
+                  event.method === 'BitcoinCosignPastDue' &&
+                  event.data.lockId === lockRecord.lockId
+                );
+              });
+              if (penalty && !(await BitcoinLock.get(clientAt, lockRecord.lockId!))) {
+                await (
+                  await this.getTable()
+                ).recordRemovalEvidence(lockRecord, {
+                  removalBlockNumber: header.blockNumber,
+                  removalBlockHash: header.blockHash,
+                  removalBlockTime: new Date(header.blockTime),
+                });
+              }
+
               if (this.isTerminalLock(lockRecord)) {
-                await this.releases.reconcileOrphanReleases(lockRecord).catch(err => {
-                  console.warn(`[BitcoinLocks] Error reconciling orphan return for utxo ${lockRecord.uuid}`, err);
+                await this.releases.reconcileDepositReleases(lockRecord).catch(err => {
+                  console.warn(`[BitcoinLocks] Error reconciling deposit return for lock ${lockRecord.uuid}`, err);
                 });
                 return;
               }
@@ -1638,8 +1698,8 @@ export default class BitcoinLocks {
                 console.warn(`[BitcoinLocks] Error syncing funding signals for utxo ${lockRecord.uuid}`, err);
               });
 
-              await this.releases.reconcileOrphanReleases(lockRecord).catch(err => {
-                console.warn(`[BitcoinLocks] Error reconciling orphan return for utxo ${lockRecord.uuid}`, err);
+              await this.releases.reconcileDepositReleases(lockRecord).catch(err => {
+                console.warn(`[BitcoinLocks] Error reconciling deposit return for lock ${lockRecord.uuid}`, err);
               });
 
               // Phase 3: accepted funding release sync.
@@ -1652,8 +1712,8 @@ export default class BitcoinLocks {
         })
         .filter(x => x !== undefined);
       if (hasNewOracleBitcoinBlockHeight) {
-        await this.releases.syncOrphanBitcoinProcessing(this.data.oracleBitcoinBlockHeight).catch(err => {
-          console.warn('[BitcoinLocks] Error syncing orphan return processing', err);
+        await this.releases.syncDepositBitcoinProcessing(this.data.oracleBitcoinBlockHeight).catch(err => {
+          console.warn('[BitcoinLocks] Error syncing deposit return processing', err);
         });
       }
       await Promise.all(promises);
@@ -1802,8 +1862,8 @@ export default class BitcoinLocks {
       'removalBlockTime',
       'removalExtrinsicIndex',
       'btcPriceAtRemovalMicrogons',
-      'createdAtArgonBlock',
     ]);
+    if (!current.createdAtArgonBlock) current.createdAtArgonBlock = recovered.createdAtArgonBlock;
     current.createdAt = createdAt;
     return current;
   }

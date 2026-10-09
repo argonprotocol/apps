@@ -7,6 +7,7 @@ import {
   MICRONOTS_PER_ARGONOT,
   MoveToken,
   UnitOfMeasurement,
+  type BlockWatch,
 } from '@argonprotocol/apps-core';
 import { BitcoinNetwork } from '@argonprotocol/bitcoin';
 import { getOfflineRegistry } from '@argonprotocol/mainchain';
@@ -23,6 +24,8 @@ import { BitcoinReleaseStatus } from '../../src-vue/interfaces/IBitcoinReleaseRe
 import type { IWalletRecord } from '../../src-vue/lib/db/WalletsTable.ts';
 import { ExtrinsicType } from '../../src-vue/interfaces/ITransactionRecord.ts';
 import BitcoinLocks from '../../src-vue/lib/BitcoinLocks.ts';
+import { BitcoinCooperativeReleases } from '../../src-vue/lib/BitcoinCooperativeReleases.ts';
+import BitcoinMempool from '../../src-vue/lib/BitcoinMempool.ts';
 import BitcoinUtxoTracking from '../../src-vue/lib/BitcoinUtxoTracking.ts';
 import BitcoinReleases from '../../src-vue/lib/BitcoinReleases.ts';
 import {
@@ -500,7 +503,29 @@ export function setupWalletScenario(state: WalletScenario): WalletScenarioState 
     minimumSatoshiPerLock: fn(async () => 100_000n),
     calculateBitcoinNetworkFee: fn(async () => 12_000n),
   });
-  Object.assign(releases, { utxoTracking: bitcoinLocks.utxoTracking });
+  Object.assign(releases, { bitcoinLocks, utxoTracking: bitcoinLocks.utxoTracking });
+  if (state === 'bitcoinUnattachedDeposit') {
+    mocked(getMainchainClient).mockResolvedValue({
+      query: {
+        bitcoinUtxos: {
+          synchedBitcoinBlock: fn(async () => ({ blockHeight: 250_050, blockHash: `0x${'45'.repeat(32)}` })),
+        },
+      },
+    } as never);
+    const mempool = new BitcoinMempool();
+    spyOn(mempool, 'getTxStatus').mockResolvedValue({
+      isConfirmed: true,
+      transactionBlockHeight: 250_020,
+      transactionBlockTime: 1,
+      argonBitcoinHeight: 250_050,
+    });
+    Object.assign(bitcoinLocks, {
+      cooperativeReleases: new BitcoinCooperativeReleases(
+        { getFinalizedApi: () => getMainchainClient(false) } as unknown as BlockWatch,
+        mempool,
+      ),
+    });
+  }
   if (isBitcoinWalletDetails) {
     const guaranteeVaults = Object.fromEntries(
       [101, 102, 103].map(vaultId => [vaultId, createScenarioVault({ vaultId })]),

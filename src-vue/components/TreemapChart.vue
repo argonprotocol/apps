@@ -45,16 +45,16 @@
             <div v-if="rect.label" class="treemap__value text-[1.05rem] leading-[1.2] font-bold">
               <slot name="label" :item="rect">{{ rect.label }}</slot>
             </div>
-            <div
-              v-if="rect.displayValue && !rect.isCompact"
-              class="treemap__label mt-1 text-[0.82rem] leading-[1.25] opacity-60"
-            >
-              {{ rect.displayValue }}
+            <div v-if="rect.displayValue && !rect.isCompact" class="treemap__label mt-1 text-[0.82rem] leading-[1.25]">
+              <slot name="displayValue" :item="rect">
+                <span class="opacity-60">{{ rect.displayValue }}</span>
+              </slot>
             </div>
           </template>
         </div>
       </div>
     </div>
+    <slot name="footer" :rectangles="rectangles" />
   </div>
 </template>
 
@@ -94,12 +94,7 @@ interface IRectNode {
 
 interface ITreemapNodeDatum {
   key: string;
-  label: string;
-  displayValue?: string;
   value: number;
-  kind: 'item' | 'remainder';
-  emphasis: 'default' | 'strong';
-  status: TileStatus;
   children?: ITreemapNodeDatum[];
 }
 
@@ -180,80 +175,83 @@ function toNumber(value: AmountLike): number {
   return typeof value === 'bigint' ? Number(value) : value;
 }
 
-const rectangles = Vue.computed(() => {
-  const normalizedItems: ITreemapNodeDatum[] = props.items
-    .map((item, index) => ({
-      key: item.id ?? `${item.label}-${index}`,
-      label: item.label,
-      displayValue: item.displayValue,
+const itemsByKey = Vue.computed(() => {
+  return new Map(props.items.map((item, index) => [item.id ?? `${item.label}-${index}`, item]));
+});
+
+// Only identities, amounts and container size affect geometry. Refreshes and label changes don't.
+const layout = Vue.computed<{
+  width: number;
+  height: number;
+  rectangles: Pick<IRectNode, 'key' | 'value' | 'x' | 'y' | 'width' | 'height'>[];
+}>(previous => {
+  const nodes: ITreemapNodeDatum[] = [...itemsByKey.value]
+    .map(([key, item]) => ({
+      key,
       value: Math.max(toNumber(item.amount), 0),
-      kind: 'item' as const,
-      emphasis: item.emphasis ?? 'default',
-      status: item.status ?? ('active' as TileStatus),
     }))
     .filter(item => item.value > 0);
 
   const total = Math.max(toNumber(props.total), 0);
-  const sortedItems = normalizedItems.sort((a, b) => b.value - a.value);
-
-  const used = sortedItems.reduce((sum, item) => sum + item.value, 0);
+  const used = nodes.reduce((sum, item) => sum + item.value, 0);
   const remainder = Math.max(total - used, 0);
 
-  const nodes: ITreemapNodeDatum[] = [...sortedItems];
   const remainderMin = toNumber(props.remainderMinimum);
   const remainderIsLarge = remainder > total * props.remainderThreshold;
   if (remainderIsLarge && remainder > remainderMin) {
-    nodes.push({
-      key: '__remainder__',
-      label: props.remainderLabel,
-      displayValue: props.remainderDisplayValue || undefined,
-      value: remainder,
-      kind: 'remainder' as const,
-      emphasis: 'default' as const,
-      status: 'active' as TileStatus,
-    });
+    nodes.push({ key: '__remainder__', value: remainder });
   }
 
-  if (nodes.length === 0) {
-    return [];
+  // Give equal-sized tiles a stable order even if refreshed records arrive in a different order.
+  nodes.sort((a, b) => b.value - a.value || a.key.localeCompare(b.key));
+  const width = containerWidth.value;
+  const height = containerHeight.value;
+  if (
+    previous?.width === width &&
+    previous.height === height &&
+    previous.rectangles.length === nodes.length &&
+    nodes.every((node, index) => {
+      const rectangle = previous.rectangles[index];
+      return rectangle.key === node.key && rectangle.value === node.value;
+    })
+  ) {
+    return previous;
   }
 
-  const w = containerWidth.value;
-  const h = containerHeight.value;
+  if (nodes.length === 0) return { width, height, rectangles: [] };
 
-  const root = treemap<ITreemapNodeDatum>().tile(treemapSquarify).size([w, h]).paddingInner(2).paddingOuter(0)(
+  const root = treemap<ITreemapNodeDatum>().tile(treemapSquarify).size([width, height]).paddingInner(2).paddingOuter(0)(
     hierarchy<ITreemapNodeDatum>({
       key: '__root__',
-      label: '',
       value: 0,
-      kind: 'item',
-      emphasis: 'default',
-      status: 'active' as TileStatus,
       children: nodes,
-    })
-      .sum(node => node.value)
-      .sort((a, b) => (b.value ?? 0) - (a.value ?? 0)),
+    }).sum(node => node.value),
   );
 
-  return root.leaves().map((node: HierarchyRectangularNode<ITreemapNodeDatum>) => {
-    const data = node.data;
-    const width = Math.max(node.x1 - node.x0, 0);
-    const height = Math.max(node.y1 - node.y0, 0);
+  const rectangles = root.leaves().map((node: HierarchyRectangularNode<ITreemapNodeDatum>) => ({
+    key: node.data.key,
+    value: node.data.value,
+    x: node.x0,
+    y: node.y0,
+    width: Math.max(node.x1 - node.x0, 0),
+    height: Math.max(node.y1 - node.y0, 0),
+  }));
+  return { width, height, rectangles };
+});
 
+const rectangles = Vue.computed((): IRectNode[] => {
+  return layout.value.rectangles.map(rect => {
+    const item = itemsByKey.value.get(rect.key);
+    const isRemainder = rect.key === '__remainder__';
     return {
-      key: data.key,
-      label: data.label,
-      displayValue: data.displayValue,
-      value: data.value,
-      kind: data.kind,
-      emphasis: data.emphasis,
-      status: data.status,
-      x: node.x0,
-      y: node.y0,
-      width,
-      height,
-      isCompact: width < 80 || height < 60,
-      isTiny: width < 40 || height < 30,
+      ...rect,
+      label: isRemainder ? props.remainderLabel : item!.label,
+      displayValue: isRemainder ? props.remainderDisplayValue : item!.displayValue,
+      kind: isRemainder ? 'remainder' : 'item',
+      emphasis: item?.emphasis ?? 'default',
+      status: item?.status ?? 'active',
+      isCompact: rect.width < 80 || rect.height < 60,
+      isTiny: rect.width < 40 || rect.height < 30,
     };
   });
 });
@@ -344,6 +342,15 @@ function getRectStyle(rect: IRectNode) {
     transparent 10px
   );
   pointer-events: none;
+}
+
+.treemap[data-theme='btc'] .treemap__tile--pending {
+  background: rgba(232, 185, 35, 0.1);
+  border-color: rgba(148, 163, 184, 0.35);
+}
+
+.treemap[data-theme='btc'] .treemap__tile--pending::before {
+  opacity: 0.25;
 }
 
 .treemap .treemap__tile--unclaimed {

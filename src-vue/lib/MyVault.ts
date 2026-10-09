@@ -8,7 +8,13 @@ import {
   u8aToHex,
 } from '@argonprotocol/mainchain';
 import { BitcoinNetwork, CosignScript, HDKey, type ICosignScriptLock } from '@argonprotocol/bitcoin';
-import { runtimeClient, type HistoricalQueryRecord, type LiveQueryRecord } from '@argonprotocol/runtime-client';
+import {
+  runtimeClient,
+  type BitcoinLocksOrphanedUtxosByAccountResult,
+  type BitcoinUtxosUtxoRefsByLockIdResult,
+  type HistoricalQueryRecord,
+  type LiveQueryRecord,
+} from '@argonprotocol/runtime-client';
 import { Db } from './Db.ts';
 import { getFinalizedClient, getMainchainClient, getMainchainClients } from '../stores/mainchain.ts';
 import {
@@ -36,6 +42,8 @@ import {
   TxResult,
   TxSubmitter,
   Vault,
+  type IReleaseRequestDetails,
+  type IBitcoinCooperativeReleaseRequest,
 } from '@argonprotocol/apps-core';
 import { IVaultRecord, VaultsTable } from './db/VaultsTable.ts';
 import type { IConfig } from '../interfaces/IConfig.ts';
@@ -60,6 +68,7 @@ import BigNumber from 'bignumber.js';
 import { VaultHistory } from './recovery/MyVault.ts';
 import { isValidOperatorName, OPERATOR_NAME_REQUIREMENTS } from './Utils.ts';
 import { BitcoinLockCosign, type IBitcoinLockCosignMetadata } from './txs/BitcoinLock.cosign.ts';
+import type { ServerApiClient } from './ServerApiClient.ts';
 
 export const DEFAULT_MASTER_XPUB_PATH = "m/84'/0'/0'";
 const MINIMUM_BITCOIN_BASE_FEE = BigInt(MICROGONS_PER_ARGON);
@@ -68,6 +77,8 @@ type IPendingCosignUtxo = {
   targetValue: bigint;
   releaseNumber: number;
   dueFrame?: number;
+  lock?: IBitcoinLock;
+  releaseRequest?: IReleaseRequestDetails;
 };
 
 type RuntimeVaultFrameRevenues = NonNullable<HistoricalQueryRecord<'vaults', 'revenuePerFrameByVault'>>;
@@ -159,6 +170,13 @@ export class MyVault {
     pendingCollectRevenue: bigint;
     pendingCosignLocksById: Map<number, IPendingCosignUtxo>;
     pendingOrphanCosignCount: number;
+    pendingOrphanCosignRequests: Array<{
+      ownerAccount: string;
+      utxoRef: BitcoinUtxosUtxoRefsByLockIdResult[number];
+      orphan: NonNullable<BitcoinLocksOrphanedUtxosByAccountResult>;
+    }>;
+    isRefreshingBitcoinCosigns: boolean;
+    bitcoinCosignRefreshError: string;
     myPendingBitcoinCosignTxInfosByLockId: Map<number, TransactionInfo<IBitcoinLockCosignMetadata>>;
     nextCollectDueDate: number;
     nextCosignDueDate: number;
@@ -204,6 +222,7 @@ export class MyVault {
   #pendingCosignUpdateSeq = 0;
   #externalLocksUpdateSeq = 0;
   #capitalUpdateSeq = 0;
+  #bitcoinCosignRefresh?: Promise<void>;
   public readonly collectBuilder: VaultCollectBuilder;
   public readonly history: VaultHistory;
   /** Resolves only after saved revenue events and current frame revenue agree. */
@@ -219,6 +238,7 @@ export class MyVault {
     private readonly miningFrames: MiningFrames,
     public readonly globalCouncil: GlobalCouncil,
     public readonly mintingAuthorities: MintingAuthorities,
+    private readonly getOperatorServer: () => ServerApiClient | undefined = () => undefined,
   ) {
     this.data = {
       isLoaded: false,
@@ -236,6 +256,9 @@ export class MyVault {
       pendingAllocateTxInfo: null,
       pendingCosignLocksById: new Map(),
       pendingOrphanCosignCount: 0,
+      pendingOrphanCosignRequests: [],
+      isRefreshingBitcoinCosigns: false,
+      bitcoinCosignRefreshError: '',
       myPendingBitcoinCosignTxInfosByLockId: new Map(),
       nextCollectDueDate: 0,
       nextCosignDueDate: 0,
@@ -447,6 +470,11 @@ export class MyVault {
         this.refreshFinalizedRevenueState(finalizedClient, vaultId),
         this.refreshFinalizedBitcoinCosignState(finalizedClient, vaultId),
       ]);
+      void this.bitcoinLocks.cooperativeReleases.refresh({
+        finalizedClient,
+        vaultId,
+        server: this.getOperatorServer(),
+      });
 
       const [sub, operatorNameSub] = await Promise.all([
         this.vaults.subscribeToVault(vaultId, () => {
@@ -464,6 +492,8 @@ export class MyVault {
       const { unsubscribe: sub4 } = this.miningFrames.onFrameId(frameId => {
         this.data.currentFrameId = frameId;
         this.updateCollectDeadlines();
+        void this.refreshBitcoinCosigns();
+        void this.bitcoinLocks.cooperativeReleases.refresh({ vaultId, server: this.getOperatorServer() });
       });
 
       const pendingRevenueBlocks = new Map<number, IBlockHeaderInfo>();
@@ -605,16 +635,26 @@ export class MyVault {
 
   private async refreshFinalizedBitcoinCosignState(client: ArgonQueryClient, vaultId: number): Promise<void> {
     const updateSeq = ++this.#finalizedBitcoinCosignUpdateSeq;
-    const [pendingCosignUtxos, orphanCosignEntries] = await Promise.all([
+    const [pendingCosignUtxos, ownerEntries] = await Promise.all([
       client.query.vaults.pendingCosignByVaultId(vaultId),
       client.query.vaults.orphanedUtxoAccountsByVaultId.entries(vaultId),
     ]);
+    const pendingOrphans: MyVault['data']['pendingOrphanCosignRequests'] = [];
+    for (const [ownerKey, count] of ownerEntries ?? []) {
+      if (!count) continue;
+      const ownerAccount = ownerKey.args[1];
+      const entries = await client.query.bitcoinLocks.orphanedUtxosByAccount.entries(ownerAccount);
+      for (const [key, orphan] of entries ?? []) {
+        if (!orphan?.cosignRequest || orphan.vaultId !== vaultId) continue;
+        pendingOrphans.push({ ownerAccount, utxoRef: key.args[1], orphan });
+      }
+    }
     if (updateSeq !== this.#finalizedBitcoinCosignUpdateSeq) return;
-
     await this.recordPendingCosignUtxos(pendingCosignUtxos ?? [], ++this.#pendingCosignUpdateSeq, client);
     if (updateSeq !== this.#finalizedBitcoinCosignUpdateSeq) return;
-
-    this.data.pendingOrphanCosignCount = (orphanCosignEntries ?? []).reduce((total, [, count]) => total + count, 0);
+    this.data.pendingOrphanCosignRequests = pendingOrphans;
+    this.data.pendingOrphanCosignCount = (ownerEntries ?? []).reduce((total, [, count]) => total + count, 0);
+    this.data.bitcoinCosignRefreshError = '';
   }
 
   private async refreshFinalizedRevenueState(client: ArgonQueryClient, vaultId: number): Promise<void> {
@@ -641,12 +681,18 @@ export class MyVault {
     for (const id of rawUtxoIds) {
       const lock = await BitcoinLock.get(client, id);
       const previousPending = previousPendingCosignsById.get(id);
-      const pendingReleaseRaw = await client.query.bitcoinLocks.lockReleaseRequestsById(id);
+      const pendingReleaseRaw = await BitcoinLock.getReleaseRequest(client, id);
       const releaseNumber = pendingReleaseRaw?.releaseNumber ?? previousPending?.releaseNumber;
       if (releaseNumber === undefined) continue;
       const dueFrame = pendingReleaseRaw?.cosignDueFrame ?? previousPending?.dueFrame;
       const targetValue = lock?.securitizationCoverageMicrogons ?? previousPending?.targetValue ?? 0n;
-      pendingCosignLocksById.set(id, { targetValue, releaseNumber, dueFrame });
+      pendingCosignLocksById.set(id, {
+        targetValue,
+        releaseNumber,
+        dueFrame,
+        lock: lock ?? previousPending?.lock,
+        releaseRequest: pendingReleaseRaw ?? previousPending?.releaseRequest,
+      });
     }
     if (updateSeq !== this.#pendingCosignUpdateSeq) {
       return;
@@ -677,7 +723,7 @@ export class MyVault {
     }
     try {
       this.data.finalizeMyBitcoinError = undefined;
-      const result = await this.buildOrphanSignature({
+      const result = await this.buildDepositSignature({
         lock: this.bitcoinLocks.getCosignScriptLock({ lock, fundedSatoshis: args.satoshis }),
         txid: args.txid,
         vout: args.vout,
@@ -690,6 +736,24 @@ export class MyVault {
       console.error(`Error creating orphan release signature for lock ${lock.lockId}`, error);
       this.data.finalizeMyBitcoinError = { lockId: lock.lockId, error: String(error) };
     }
+  }
+
+  public async createVaultSignatureForCooperativeRelease(request: IBitcoinCooperativeReleaseRequest): Promise<string> {
+    if (!this.createdVault) throw new Error('The vault is unavailable for signing.');
+    return this.bitcoinLocks.cooperativeReleases.sign({
+      request,
+      vaultId: this.createdVault.vaultId,
+      cosignQueue: this.#cosignQueue,
+      sign: async (terms, lock) => {
+        const result = await this.buildDepositSignature({
+          ...terms,
+          lock,
+          txid: terms.utxoRef.txid,
+          vout: terms.utxoRef.outputIndex,
+        });
+        return result.vaultSignatureHex;
+      },
+    });
   }
 
   public async setupVaultInviteProfile(args: {
@@ -1017,8 +1081,25 @@ export class MyVault {
     }
   }
 
+  public async refreshBitcoinCosigns(): Promise<void> {
+    if (this.#bitcoinCosignRefresh) return this.#bitcoinCosignRefresh;
+    if (!this.vaultId) return;
+    this.data.isRefreshingBitcoinCosigns = true;
+    this.#bitcoinCosignRefresh = this.miningFrames.blockWatch
+      .getFinalizedApi()
+      .then(client => this.refreshFinalizedBitcoinCosignState(client, this.vaultId!))
+      .catch(error => {
+        this.data.bitcoinCosignRefreshError = error instanceof Error ? error.message : String(error);
+      })
+      .finally(() => {
+        this.data.isRefreshingBitcoinCosigns = false;
+        this.#bitcoinCosignRefresh = undefined;
+      });
+    return this.#bitcoinCosignRefresh;
+  }
+
   public async collect(afterCollect: { moveTo: MoveTo }): Promise<TransactionInfo | undefined> {
-    return await this.#cosignQueue.add(async () => {
+    const argonCollect = this.#cosignQueue.add(async () => {
       if (this.data.pendingCollectTxInfo) {
         if (!this.data.pendingCollectTxInfo.isPostProcessed) {
           return this.data.pendingCollectTxInfo;
@@ -1075,6 +1156,30 @@ export class MyVault {
 
       return txInfo;
     }).promise;
+
+    const returns = this.bitcoinLocks.cooperativeReleases;
+    const [argonResult] = await Promise.allSettled([
+      argonCollect,
+      returns.signAndDeliver({
+        approved: returns.data.requests.filter(record => !record.verificationError),
+        vaultId: this.vaultId!,
+        server: this.getOperatorServer(),
+        cosignQueue: this.#cosignQueue,
+        sign: async (request, lock) => {
+          const { vaultSignatureHex } = await this.buildDepositSignature({
+            lock,
+            txid: request.utxoRef.txid,
+            vout: request.utxoRef.outputIndex,
+            ...request,
+          });
+          return vaultSignatureHex;
+        },
+      }),
+    ]);
+    void this.refreshBitcoinCosigns();
+    void returns.refresh({ vaultId: this.vaultId!, server: this.getOperatorServer() });
+    if (argonResult.status === 'rejected') throw argonResult.reason;
+    return argonResult.value;
   }
 
   public async findLatestOrphanCosignTxAttempt(args: {
@@ -1199,7 +1304,7 @@ export class MyVault {
     return txs;
   }
 
-  private async buildOrphanSignature(args: {
+  private async buildDepositSignature(args: {
     lock: ICosignScriptLock;
     txid: string;
     vout: number;
@@ -1224,7 +1329,7 @@ export class MyVault {
     const signedPsbt = cosign.vaultCosignPsbt(psbt, args.lock, vaultXpriv);
     const vaultSignature = signedPsbt.getInput(0).partialSig?.[0]?.[1];
     if (!vaultSignature) {
-      throw new Error(`Failed to get orphan vault signature for ${args.txid}:${args.vout}`);
+      throw new Error(`Failed to get deposit vault signature for ${args.txid}:${args.vout}`);
     }
     return { vaultSignature, vaultSignatureHex: u8aToHex(vaultSignature) };
   }
@@ -1241,7 +1346,7 @@ export class MyVault {
     vaultXpriv?: HDKey;
     bitcoinNetwork?: BitcoinNetwork;
   }): Promise<{ tx: SubmittableExtrinsic; vaultSignature: Uint8Array; vaultSignatureHex: string }> {
-    const { vaultSignature, vaultSignatureHex } = await this.buildOrphanSignature({
+    const { vaultSignature, vaultSignatureHex } = await this.buildDepositSignature({
       lock: args.lock,
       txid: args.txid,
       vout: args.vout,

@@ -1,4 +1,4 @@
-import type { HistoricalQueryRecord } from '@argonprotocol/runtime-client';
+import { toRuntimeEvent, type HistoricalQueryRecord } from '@argonprotocol/runtime-client';
 import { hexToU8a, u8aToHex } from '@polkadot/util';
 import {
   BitcoinFission,
@@ -7,6 +7,7 @@ import {
   type IBitcoinLock,
   type IBitcoinLockDetails,
   type IBitcoinLockFundingUtxo,
+  type RuntimeSystemEventRecord,
 } from '@argonprotocol/apps-core';
 
 type HistoricalBitcoinLock = NonNullable<HistoricalQueryRecord<'bitcoinLocks', 'locksByUtxoId'>>;
@@ -52,6 +53,10 @@ export async function getHistoricalBitcoinLock(
   client: ArgonApi,
   utxoId: number,
 ): Promise<IHistoricalBitcoinLock | undefined> {
+  if (!('locksById' in client.query.bitcoinLocks) && !('locksByUtxoId' in client.query.bitcoinLocks)) {
+    throw new Error('Bitcoin lock storage is unavailable at this historical block.');
+  }
+
   const currentLock = await BitcoinLock.get(client, utxoId);
   if (currentLock) {
     return {
@@ -66,6 +71,9 @@ export async function getHistoricalBitcoinLock(
   if (!lock) return;
 
   const securitizedSatoshis = lock.satoshis;
+  let fundedSatoshis = lock.utxoSatoshis ?? 0n;
+  // Before actual funding amounts were stored, verification required the exact requested amount.
+  if (lock.utxoSatoshis === undefined && (lock.isFunded ?? lock.isVerified)) fundedSatoshis = securitizedSatoshis;
   const lockedTargetPrice = lock.lockedTargetPrice ?? lock.lockedMarketRate ?? lock.peggedPrice ?? lock.lockPrice;
   if (securitizedSatoshis === undefined || lockedTargetPrice === undefined) {
     throw new Error(`Bitcoin lock ${utxoId} does not contain securitization economics`);
@@ -84,7 +92,7 @@ export async function getHistoricalBitcoinLock(
     ownerAccount: lock.ownerAccount,
     securitizationRatio: lock.securitizationRatio?.toNumber() ?? 1,
     securitizedSatoshis,
-    fundedSatoshis: lock.utxoSatoshis ?? 0n,
+    fundedSatoshis,
     vaultPubkey: lock.vaultPubkey,
     vaultClaimPubkey: lock.vaultClaimPubkey,
     ownerPubkey: lock.ownerPubkey,
@@ -122,6 +130,44 @@ export async function getHistoricalBitcoinFundingUtxos(
     (await client.query.bitcoinUtxos.utxoIdToFundingUtxoRef?.(lockId));
   if (!ref) return [];
   return [{ utxoRef: { txid: ref.txid, vout: ref.outputIndex }, satoshis: historicalSatoshis }];
+}
+
+// Summarize events for one lock in one Argon block, across historical event names.
+// Cooperative returns use creation to verify the supplied block, and funding/compensation to reject unsafe removals.
+export function summarizeBitcoinLockBlockEvents(blockEvents: RuntimeSystemEventRecord[], lockId: number) {
+  const summary = { lockWasCreated: false, fundingWasAccepted: false, compensationWasPaid: false };
+  for (const { event } of blockEvents) {
+    const runtimeEvent = toRuntimeEvent(event);
+    if (!runtimeEvent) continue;
+
+    if (runtimeEvent.section === 'bitcoinLocks') {
+      switch (runtimeEvent.method) {
+        case 'BitcoinLockCreated':
+          if ((runtimeEvent.data.lockId ?? runtimeEvent.data.utxoId) === lockId) summary.lockWasCreated = true;
+          break;
+        case 'UtxoFundedFromCandidate':
+          if (runtimeEvent.data.utxoId === lockId) summary.fundingWasAccepted = true;
+          break;
+        case 'BitcoinCosignPastDue':
+          if ((runtimeEvent.data.lockId ?? runtimeEvent.data.utxoId) !== lockId) break;
+          if (runtimeEvent.data.compensationAmount > 0n) summary.compensationWasPaid = true;
+          break;
+      }
+      continue;
+    }
+
+    if (runtimeEvent.section === 'bitcoinUtxos') {
+      switch (runtimeEvent.method) {
+        case 'UtxoDetected':
+          if (runtimeEvent.data.lockId === lockId) summary.fundingWasAccepted = true;
+          break;
+        case 'UtxoVerified':
+          if (runtimeEvent.data.utxoId === lockId) summary.fundingWasAccepted = true;
+          break;
+      }
+    }
+  }
+  return summary;
 }
 
 export async function getHistoricalBitcoinPendingMints(client: ArgonApi, utxoId: number): Promise<bigint[]> {

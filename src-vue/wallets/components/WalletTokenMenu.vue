@@ -26,7 +26,11 @@
         </DropdownMenuItem>
         <DropdownMenuSeparator class="my-1 h-px bg-slate-400/30" />
         <DropdownMenuItem @select="emit('receive')">Receive {{ props.moveToken }}</DropdownMenuItem>
-        <template v-if="props.moveToken !== MoveToken.BTC">
+        <template v-if="props.moveToken === MoveToken.BTC">
+          <DropdownMenuSeparator class="my-1 h-px bg-slate-400/30" />
+          <DropdownMenuItem @select="emit('findMissingDeposits')">Find missing deposits</DropdownMenuItem>
+        </template>
+        <template v-else>
           <DropdownMenuSeparator class="my-1 h-px bg-slate-400/30" />
           <DropdownMenuItem asChild :disabled="!uniswapUrl">
             <a :href="uniswapUrl" target="_blank" rel="noreferrer">Uniswap Market</a>
@@ -69,6 +73,7 @@ const props = defineProps<{
 const emit = defineEmits<{
   (event: 'send'): void;
   (event: 'receive'): void;
+  (event: 'findMissingDeposits'): void;
 }>();
 
 const floatingZIndex = useFloatingZIndex(2);

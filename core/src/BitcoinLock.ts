@@ -41,6 +41,7 @@ export class BitcoinLock implements IBitcoinLock {
   public securitizedSatoshis: bigint;
   public microgonsAtTargetPerBtc: bigint;
   public securitizationCoverageMicrogons: bigint;
+  public securitizationCollateralMicrogons?: bigint;
   public securitizationTick: number;
   public fundedSatoshis: bigint;
   public fundingUtxos: IBitcoinLockFundingUtxo[];
@@ -72,6 +73,7 @@ export class BitcoinLock implements IBitcoinLock {
     this.securitizedSatoshis = data.securitizedSatoshis;
     this.microgonsAtTargetPerBtc = data.microgonsAtTargetPerBtc;
     this.securitizationCoverageMicrogons = data.securitizationCoverageMicrogons;
+    this.securitizationCollateralMicrogons = data.securitizationCollateralMicrogons;
     this.securitizationTick = data.securitizationTick;
     this.fundedSatoshis = data.fundedSatoshis;
     this.fundingUtxos = data.fundingUtxos;
@@ -475,6 +477,10 @@ export class BitcoinLock implements IBitcoinLock {
       securitizationCoverageMicrogons: bigNumberToBigInt(
         securitizationShare.multipliedBy(lock.securitizationCoverageMicrogons),
       ),
+      // A full return unwinds the entire contract, including its unactivated collateral.
+      securitizationCollateralMicrogons: bigNumberToBigInt(
+        lock.securitizationRatio.multipliedBy(lock.securitizationCoverageMicrogons),
+      ),
       securitizationTick: lock.securitizationTick,
       fundedSatoshis: lock.fundedSatoshis,
       fundingUtxos: lock.fundingUtxos.map(([utxoRef, satoshis]) => ({
@@ -537,6 +543,8 @@ export interface IBitcoinLock {
   securitizedSatoshis: bigint;
   microgonsAtTargetPerBtc: bigint;
   securitizationCoverageMicrogons: bigint;
+  /** Full contract collateral; funded coverage may be smaller after a partial return. */
+  securitizationCollateralMicrogons?: bigint;
   securitizationTick: number;
   fundedSatoshis: bigint;
   fundingUtxos: IBitcoinLockFundingUtxo[];

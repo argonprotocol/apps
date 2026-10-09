@@ -137,7 +137,7 @@ describe('BitcoinLocks Argon cosign gating', () => {
     store.utxoTracking.load([fundingUtxo]);
     vi.spyOn(BitcoinLock, 'get').mockImplementation(async () => currentLock as BitcoinLock);
     vi.spyOn(store.releases, 'recoverPendingOrphanCosignEvents').mockResolvedValue(undefined);
-    vi.spyOn(store.releases, 'reconcileOrphanReleases').mockResolvedValue(undefined);
+    vi.spyOn(store.releases, 'reconcileDepositReleases').mockResolvedValue(undefined);
     vi.spyOn(
       store as unknown as { syncPendingFundingSignals(): Promise<void> },
       'syncPendingFundingSignals',
@@ -349,7 +349,7 @@ describe('BitcoinLocks Argon cosign gating', () => {
     store.releases.data.releasesById = { [release.id]: release };
     vi.spyOn(store.releases, 'recoverPendingOrphanCosignEvents').mockResolvedValue(undefined);
     vi.spyOn(store.utxoTracking, 'syncArgonOrphans').mockResolvedValue([]);
-    vi.spyOn(store.releases, 'reconcileOrphanReleases').mockResolvedValue(undefined);
+    vi.spyOn(store.releases, 'reconcileDepositReleases').mockResolvedValue(undefined);
     vi.spyOn(store.releases, 'reconcileLockRelease').mockResolvedValue(undefined);
     vi.spyOn(
       store as unknown as { syncPendingFundingSignals(): Promise<void> },
@@ -449,7 +449,7 @@ describe('BitcoinLocks Argon cosign gating', () => {
       firstSeenBitcoinHeight: 100,
     });
     store.utxoTracking.load([orphan]);
-    const release = await store.releases.createOrphanRelease(orphan, {
+    const release = await store.releases.createDepositRelease(orphan, {
       id: 'self-vault-orphan-release',
       sendId: 'self-vault-orphan-release',
       kind: BitcoinReleaseKind.Orphan,
@@ -586,7 +586,7 @@ describe('BitcoinLocks Argon cosign gating', () => {
       }
       store.data.locksByLockId = { 11: lock };
       store.utxoTracking.load([orphanRecord]);
-      const orphanRelease = await store.releases.createOrphanRelease(
+      const orphanRelease = await store.releases.createDepositRelease(
         orphanRecord,
         createRelease({ id: 'orphan-release-1', kind: BitcoinReleaseKind.Orphan, inputUtxoIds: [orphanRecord.id] }),
       );

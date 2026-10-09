@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
+import { computed, reactive } from 'vue';
 import type { IWalletRecord } from '../lib/db/WalletsTable.ts';
 import { WalletForBitcoin } from '../lib/WalletForBitcoin.ts';
 import { WalletForEthereum } from '../lib/WalletForEthereum.ts';
@@ -8,13 +9,18 @@ import {
   BitcoinReleaseStatus,
   type IBitcoinReleaseRecord,
 } from '../interfaces/IBitcoinReleaseRecord.ts';
-import { BitcoinUtxoSpendStatus, BitcoinUtxoStatus } from '../interfaces/IBitcoinUtxoRecord.ts';
+import {
+  BitcoinUtxoSpendStatus,
+  BitcoinUtxoStatus,
+  type IBitcoinUtxoRecord,
+} from '../interfaces/IBitcoinUtxoRecord.ts';
 import { createLock, createStore } from './helpers/bitcoin.ts';
 import {
   closeWalletView,
   getBitcoinDepositAttention,
   getInitialAddWalletOverlayState,
   getInitialWalletOverlayState,
+  getUnattachedBitcoinView,
   showAddWalletInOverlay,
   showWalletView,
   WALLET_MOVE_LABEL,
@@ -175,6 +181,103 @@ describe('wallet overlay state', () => {
       activeConnector: undefined,
       showBack: false,
     });
+  });
+
+  it('lists deposits in discovery order and archives returns without retaining lock funding', () => {
+    const bitcoinLocks = createStore();
+    bitcoinLocks.utxoTracking.data = reactive(bitcoinLocks.utxoTracking.data);
+    bitcoinLocks.releases.data = reactive(bitcoinLocks.releases.data);
+    const lock = createLock({
+      uuid: 'unattached-deposits',
+      utxoId: 7,
+      status: BitcoinLockStatus.LockFunded,
+      createdAt: '2026-09-13T00:00:00.000Z',
+    });
+    bitcoinLocks.data.locksByLockId[lock.lockId!] = lock;
+    const wallet = new WalletForBitcoin(
+      () => bitcoinLocks,
+      () => lock.ownerAccount!,
+      {} as never,
+    );
+    expect(getUnattachedBitcoinView(wallet)).toBe('main');
+
+    const older: IBitcoinUtxoRecord = {
+      id: 201,
+      lockId: lock.lockId!,
+      txid: `0x${'a'.repeat(64)}`,
+      vout: 0,
+      satoshis: 50_000n,
+      network: 'testnet',
+      status: BitcoinUtxoStatus.Orphaned,
+      spendStatus: BitcoinUtxoSpendStatus.Unspent,
+      firstSeenAt: new Date('2026-09-13T00:01:00.000Z'),
+      firstSeenBitcoinHeight: 100,
+      createdAt: new Date('2026-09-13T00:01:00.000Z'),
+      updatedAt: new Date('2026-09-13T00:01:00.000Z'),
+    };
+    bitcoinLocks.utxoTracking.load([older]);
+    expect(getUnattachedBitcoinView(wallet)).toEqual({ type: 'unattachedBitcoin', recordId: older.id });
+
+    const newer = { ...older, id: 202, vout: 1, updatedAt: new Date('2026-09-13T00:02:00.000Z') };
+    bitcoinLocks.utxoTracking.load([older, newer]);
+    expect(getUnattachedBitcoinView(wallet)).toBe('unattachedBitcoinList');
+    expect(wallet.getUnattachedDeposits().map(record => record.id)).toEqual([202, 201]);
+
+    older.updatedAt = new Date('2026-09-13T00:03:00.000Z');
+    older.isDepositAcknowledged = true;
+    expect(wallet.getUnattachedDeposits().map(record => record.id)).toEqual([202, 201]);
+
+    const detail = showWalletView(
+      getInitialWalletOverlayState(),
+      { type: 'unattachedBitcoin', recordId: newer.id },
+      undefined,
+    );
+    expect(closeWalletView(detail)?.centerView).toEqual({ type: 'main' });
+    expect(showWalletView(detail, 'main', undefined).centerView).toEqual({ type: 'main' });
+
+    const list = showWalletView(detail, 'unattachedBitcoinList', undefined);
+    expect(list.centerView).toEqual({ type: 'unattachedBitcoinList' });
+    expect(closeWalletView(list)?.centerView).toEqual({ type: 'main' });
+
+    const history = computed(() => wallet.getUnattachedDeposits({ includeReturned: true }));
+    expect(history.value.map(record => record.id)).toEqual([202, 201]);
+
+    const trackedNewer = bitcoinLocks.utxoTracking.getUtxoRecordById(newer.id)!;
+    trackedNewer.spendStatus = BitcoinUtxoSpendStatus.Spent;
+    expect(getUnattachedBitcoinView(wallet)).toEqual({ type: 'unattachedBitcoin', recordId: older.id });
+    expect(history.value.map(record => record.id)).toEqual([201]);
+
+    const completedReturn: IBitcoinReleaseRecord = {
+      id: 'completed-deposit-return',
+      kind: BitcoinReleaseKind.Cooperative,
+      lockId: lock.lockId!,
+      sendId: 'completed-deposit-return',
+      status: BitcoinReleaseStatus.Complete,
+      inputUtxoIds: [newer.id],
+      toScriptPubkey: `0x0014${'2'.repeat(40)}`,
+      bitcoinNetworkFee: 500n,
+      destinationSatoshis: newer.satoshis - 500n,
+      changeSatoshis: 0n,
+      vaultSignatures: [],
+      createdAt: newer.createdAt,
+      updatedAt: newer.updatedAt,
+    };
+    bitcoinLocks.releases.data.releasesById[completedReturn.id] = completedReturn;
+    expect(history.value.map(record => record.id)).toEqual([202, 201]);
+    expect(wallet.getUnattachedDeposits().map(record => record.id)).toEqual([201]);
+
+    // A newly accepted funding output must leave the detail/list even if it was previously below minimum.
+    const trackedOlder = bitcoinLocks.utxoTracking.getUtxoRecordById(older.id)!;
+    trackedOlder.status = BitcoinUtxoStatus.SeenOnMempool;
+    trackedOlder.fundingRejectionReason = 'BelowMinimum';
+    expect(history.value.map(record => record.id)).toEqual([202, 201]);
+    trackedOlder.status = BitcoinUtxoStatus.FundingUtxo;
+    expect(history.value.map(record => record.id)).toEqual([202]);
+    expect(getUnattachedBitcoinView(wallet)).toBe('main');
+
+    // Funding is never deposit-return history, even if a stale return record refers to that output.
+    trackedNewer.status = BitcoinUtxoStatus.FundingUtxo;
+    expect(history.value).toEqual([]);
   });
 
   it('labels cross-network transfers as moves', () => {

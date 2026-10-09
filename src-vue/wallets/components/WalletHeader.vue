@@ -17,17 +17,20 @@
         <slot name="name">{{ props.name }}</slot>
       </span>
     </span>
-    <ButtonCopy :address="defaultArgonWallet.address" />
-    <WalletMenu
-      :wallet="defaultArgonWallet"
-      :walletIsOpen="true"
-      :showBorders="true"
-      :testIdPrefix="'defaultArgonWalletAddress'"
-      class="h-[34px] shrink-0"
-      @click.stop
-      @pointerdown.stop
-      @mousedown.stop
-    />
+    <slot v-if="$slots.actions" name="actions" />
+    <template v-else>
+      <ButtonCopy :address="defaultArgonWallet.address" />
+      <WalletMenu
+        :wallet="defaultArgonWallet"
+        :walletIsOpen="true"
+        :showBorders="true"
+        :testIdPrefix="'defaultArgonWalletAddress'"
+        class="h-[34px] shrink-0"
+        @click.stop
+        @pointerdown.stop
+        @mousedown.stop
+      />
+    </template>
     <ButtonClose @close="emit('close')" />
   </h2>
 </template>
@@ -45,6 +48,7 @@ const props = defineProps<{
   name: string;
   isDragging: boolean;
   showHome?: boolean;
+  backView?: IWalletView;
 }>();
 
 const emit = defineEmits<{
@@ -58,6 +62,6 @@ const wallets = useWallets();
 const defaultArgonWallet = computed(() => wallets.defaultArgonWallet);
 
 function back() {
-  emit('goto', 'main');
+  emit('goto', props.backView ?? 'main');
 }
 </script>

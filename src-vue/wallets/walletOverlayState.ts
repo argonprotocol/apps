@@ -13,6 +13,7 @@ export type IWalletView =
   | 'send'
   | 'receive'
   | 'privateKey'
+  | 'unattachedBitcoinList'
   | { type: 'send'; moveToken?: MoveToken }
   | { type: 'unattachedBitcoin'; recordId: number };
 export type IWalletOverlayCenterView =
@@ -20,6 +21,7 @@ export type IWalletOverlayCenterView =
   | { type: 'send'; moveToken?: MoveToken }
   | { type: 'receive' }
   | { type: 'privateKey' }
+  | { type: 'unattachedBitcoinList' }
   | { type: 'unattachedBitcoin'; recordId: number }
   | {
       type: 'addEthereum';
@@ -46,8 +48,15 @@ export function getInitialWalletOverlayState(
 export function getBitcoinDepositAttention(wallet: WalletForBitcoin | undefined): string | undefined {
   if (!wallet) return;
 
-  const orphanCount = wallet.getUnresolvedOrphanDeposits().length;
+  const orphanCount = wallet.getUnattachedDeposits().length;
   if (orphanCount) return `${orphanCount} unattached Bitcoin deposit${orphanCount === 1 ? '' : 's'} need review`;
+}
+
+export function getUnattachedBitcoinView(wallet: WalletForBitcoin): IWalletView {
+  const deposits = wallet.getUnattachedDeposits();
+  if (!deposits.length) return 'main';
+  if (deposits.length === 1) return { type: 'unattachedBitcoin', recordId: deposits[0].id };
+  return 'unattachedBitcoinList';
 }
 
 export function getInitialAddWalletOverlayState(initialStep: IWalletSetupStep): IWalletOverlayState {

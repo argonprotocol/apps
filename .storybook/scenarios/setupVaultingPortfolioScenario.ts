@@ -29,6 +29,7 @@ import { useMiningStats } from '../../src-vue/stores/miningStats.ts';
 import { useVaultingAssetBreakdown } from '../../src-vue/stores/vaultingAssetBreakdown.ts';
 import { getMyVault, getVaults } from '../../src-vue/stores/vaults.ts';
 import { createScenarioVault } from './createScenarioVault.ts';
+import { createExternalBitcoinLock } from './setupBitcoinOverlayScenario.ts';
 import { setupAppScenario } from './setupAppScenario.ts';
 
 const microgonsPerArgon = BigInt(MICROGONS_PER_ARGON);
@@ -346,6 +347,7 @@ function createLock(
     couponFeesPaid: 0n,
     fundHoldExtensionsByBitcoinExpirationHeight: {},
     fundedSatoshis: status === BitcoinLockStatus.LockPendingFunding ? 0n : satoshis,
+    fissionedSatoshis: status === BitcoinLockStatus.LockPendingFunding ? 0n : satoshis,
     fundingUtxoIds: [],
     cosignVersion: 'v1',
     network: 'regtest',
@@ -364,13 +366,24 @@ function createExternalLock(
   isPending = false,
   ownerAccount = '5SyntheticExternalBitcoinOwner',
 ): IExternalBitcoinLock {
+  const external = createExternalBitcoinLock();
   return {
     lockId,
     satoshis,
     securitizationCoverageMicrogons,
     isPending,
     isReleasing: false,
-    lockDetails: { ownerAccount } as IExternalBitcoinLock['lockDetails'],
+    lockDetails: {
+      ...external.lockDetails,
+      lockId,
+      vaultId: 7,
+      ownerAccount,
+      securitizedSatoshis: satoshis,
+      fundedSatoshis: isPending ? 0n : satoshis,
+      fissionedSatoshis: isPending ? 0n : satoshis,
+      securitizationCoverageMicrogons,
+      securitizationRatio: 1,
+    },
   };
 }
 

@@ -63,6 +63,7 @@
               :canSend="wallets.bitcoinWallet.getSendableChannels().length > 0"
               @send="emit('goto', { type: 'send', moveToken: MoveToken.BTC })"
               @receive="emit('openBitcoinConnector')"
+              @findMissingDeposits="emit('goto', 'unattachedBitcoinList')"
             />
           </template>
           <template #bitcoinAction>
@@ -250,18 +251,27 @@
         data-testid="WalletViewMain.unattachedBitcoinDeposit"
         type="button"
         class="mb-3 flex w-full cursor-pointer items-center gap-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-3 text-left text-sm text-amber-800 hover:bg-amber-100/70"
-        @click="emit('goto', { type: 'unattachedBitcoin', recordId: unattachedBitcoinDeposits[0]!.id })"
+        @click="emit('goto', getUnattachedBitcoinView(wallets.bitcoinWallet))"
       >
         <AlertIcon class="size-5 shrink-0" />
         <span class="min-w-0 grow">
           <strong class="block">
-            {{ unattachedBitcoinDeposits.length }} unattached Bitcoin deposit{{
-              unattachedBitcoinDeposits.length === 1 ? '' : 's'
-            }}
+            Unattached Bitcoin · {{ satToBtcNm(unattachedBitcoinSatoshis).format('0,0.[00000000]') }} BTC
           </strong>
-          <span class="mt-0.5 block text-xs">Return the Bitcoin to an address you control.</span>
+          <span v-if="unattachedBitcoinDeposits.length > 1" class="mt-0.5 block text-xs">
+            {{ unattachedBitcoinDeposits.length }} deposits · Choose a deposit to return.
+          </span>
+          <span v-else class="mt-0.5 block text-xs">Return the Bitcoin to an address you control.</span>
         </span>
         <ChevronRightIcon class="size-4 shrink-0" />
+      </button>
+      <button
+        v-else-if="wallets.bitcoinWallet.getUnattachedDeposits({ includeReturned: true }).length"
+        type="button"
+        class="text-argon-600 mb-3 cursor-pointer self-end text-xs hover:underline"
+        @click="emit('goto', 'unattachedBitcoinList')"
+      >
+        Unattached Bitcoin history
       </button>
     </div>
   </div>
@@ -301,7 +311,7 @@ import ArgonTokens from './ArgonTokens.vue';
 import ConnectorChannel from './ConnectorChannel.vue';
 import WalletHeader from './WalletHeader.vue';
 import WalletTokenMenu from './WalletTokenMenu.vue';
-import type { IWalletView } from '../walletOverlayState.ts';
+import { getUnattachedBitcoinView, type IWalletView } from '../walletOverlayState.ts';
 
 interface IWalletBitcoinEntry {
   lock: IBitcoinLockRecord;
@@ -356,7 +366,10 @@ let progressRefreshInterval: ReturnType<typeof setInterval> | undefined;
 const defaultArgonWallet = computed(() => wallets.defaultArgonWallet);
 const walletValueIsLoaded = computed(() => financials.savingsIsLoaded);
 const walletTotalValue = computed(() => financials.savingsTotalValue);
-const unattachedBitcoinDeposits = computed(() => wallets.bitcoinWallet.getUnresolvedOrphanDeposits());
+const unattachedBitcoinDeposits = computed(() => wallets.bitcoinWallet.getUnattachedDeposits());
+const unattachedBitcoinSatoshis = computed(() =>
+  unattachedBitcoinDeposits.value.reduce((total, deposit) => total + deposit.satoshis, 0n),
+);
 const bitcoinReleasesBySendId = computed(() => {
   const releasesBySendId = new Map<string, IBitcoinReleaseRecord[]>();
   for (const release of Object.values(bitcoinLocks.releases.data.releasesById)) {

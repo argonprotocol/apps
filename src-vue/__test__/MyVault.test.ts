@@ -26,7 +26,7 @@ import { Metadata, TypeRegistry } from '@polkadot/types';
 import type { PreviousRuntimeSpec as RuntimeSpec159 } from '../../core/src/runtimeCompatibility.ts';
 import { runtimeClient, toPlain, getBundledMetadata } from '@argonprotocol/runtime-client';
 import BigNumber from 'bignumber.js';
-import { createCurrentLock } from './helpers/bitcoin.ts';
+import { createCurrentLock, createStore } from './helpers/bitcoin.ts';
 import { BitcoinNetwork, CosignScript } from '@argonprotocol/bitcoin';
 import type { IBitcoinLockCosignMetadata } from '../lib/txs/BitcoinLock.cosign.ts';
 
@@ -129,6 +129,106 @@ describe('MyVault crosschain queue history', () => {
 });
 
 describe('MyVault cosign recovery', () => {
+  it('shows only ready mailbox requests in the cosigning list and includes a waiting request after verification succeeds', () => {
+    const { myVault } = createVault();
+    const request: AppsCore.IBitcoinCooperativeReleaseRequest = {
+      version: 1,
+      releaseId: 'ready-return',
+      ownerAccount: 'synthetic-owner',
+      vaultId: 7,
+      lockId: 42,
+      createdAtArgonBlock: 123,
+      utxoRef: { txid: `0x${'42'.repeat(32)}`, outputIndex: 0 },
+      satoshis: 1_000n,
+      toScriptPubkey: `0x0014${'12'.repeat(20)}`,
+      destinationSatoshis: 900n,
+      changeSatoshis: 0n,
+      bitcoinNetworkFee: 100n,
+      feeRatePerSatVb: 1n,
+      expectedTransactionId: `0x${'24'.repeat(32)}`,
+      requestSignature: `0x${'11'.repeat(65)}`,
+    };
+    const cooperative = myVault.bitcoinLocks.cooperativeReleases;
+    cooperative.data.requests = ['ready-return', 'waiting-return'].map(releaseId => ({
+      request: { ...request, releaseId },
+      createdAt: new Date('2026-10-06T12:00:00Z'),
+      updatedAt: new Date('2026-10-06T12:00:00Z'),
+    }));
+    cooperative.data.requests[1].verificationError = 'Argon is still checking this deposit.';
+
+    expect(myVault.collectBuilder.getBitcoinSigningRequests().map(entry => entry.mailbox?.request.releaseId)).toEqual([
+      'ready-return',
+    ]);
+    expect(myVault.collectBuilder.getNotice()?.signatureCount).toBe(1);
+    expect(cooperative.data.requests).toHaveLength(2);
+
+    delete cooperative.data.requests[1].verificationError;
+    expect(myVault.collectBuilder.getBitcoinSigningRequests().map(entry => entry.mailbox?.request.releaseId)).toEqual([
+      'ready-return',
+      'waiting-return',
+    ]);
+    expect(myVault.collectBuilder.getNotice()?.signatureCount).toBe(2);
+  });
+
+  it('shows collateral released by a full Bitcoin return without treating partial or unattached returns as full releases', () => {
+    const { myVault } = createVault();
+    const original = createCurrentLock({ securitizationCoverageMicrogons: 2_001n, fundedSatoshis: 5_000n });
+    const lock = AppsCore.BitcoinLock.fromRuntime(original.lockId, {
+      ...original,
+      securitizationBasis: { satoshis: 10_000n, microgonsAtTargetPerBtc: original.microgonsAtTargetPerBtc },
+      securitizationRatio: new BigNumber(1.5),
+      utxoScriptPubkey: { type: 'P2WSH', value: { wscriptHash: `0x${'44'.repeat(32)}` } },
+      fundingUtxos: [[{ txid: `0x${'33'.repeat(32)}`, outputIndex: 0 }, 5_000n]],
+      couponPaidFees: original.couponFeesPaid,
+      vaultXpubSources: ['0x00000000', 0, 0],
+      fundHoldExtensions: {},
+    });
+    const releaseRequest: AppsCore.IReleaseRequestDetails = {
+      lockId: lock.lockId,
+      vaultId: lock.vaultId,
+      releaseNumber: 1,
+      cosignDueFrame: 100,
+      expectedTransactionId: `0x${'24'.repeat(32)}`,
+      toScriptPubkey: `0x0014${'12'.repeat(20)}`,
+      bitcoinNetworkFee: 100n,
+      destinationSatoshis: 4_900n,
+      changeSatoshis: 0n,
+      securitizationAtRisk: 2_001n,
+    };
+    myVault.data.pendingCosignLocksById.set(lock.lockId, {
+      lock,
+      releaseNumber: 1,
+      releaseRequest,
+      targetValue: lock.securitizationCoverageMicrogons,
+    });
+    myVault.data.pendingOrphanCosignRequests = [
+      {
+        ownerAccount: lock.ownerAccount,
+        utxoRef: { txid: `0x${'35'.repeat(32)}`, outputIndex: 0 },
+        orphan: {
+          vaultId: lock.vaultId,
+          lockId: lock.lockId,
+          satoshis: 1_000n,
+          recordedArgonBlockNumber: 120,
+          cosignRequest: {
+            bitcoinNetworkFee: 100n,
+            toScriptPubkey: new Uint8Array([0, 20, ...new Array(20).fill(2)]),
+            createdAtArgonBlockNumber: 121,
+          },
+        },
+      },
+    ];
+
+    const [fullReturn, unattachedReturn] = myVault.collectBuilder.getBitcoinSigningRequests();
+    expect(lock.securitizationCoverageMicrogons).toBe(1_000n);
+    expect(fullReturn.securitizationReleased).toBe(3_001n);
+    expect(unattachedReturn.securitizationReleased).toBeUndefined();
+
+    releaseRequest.destinationSatoshis = 2_400n;
+    releaseRequest.changeSatoshis = 2_500n;
+    expect(myVault.collectBuilder.getBitcoinSigningRequests()[0].securitizationReleased).toBeUndefined();
+  });
+
   it('creates one ordered vault signature for every funding output in a lock release', async () => {
     const { myVault } = createVault();
     const fundingUtxos = [
@@ -196,8 +296,25 @@ describe('MyVault cosign recovery', () => {
       .mockResolvedValueOnce([{ frameId: 1, uncollectedRevenue: 84n }]);
     const orphanEntries = vi
       .fn()
-      .mockResolvedValueOnce([[{}, 2]])
-      .mockResolvedValueOnce([[{}, 3]]);
+      .mockResolvedValueOnce([[{ args: [7, 'SyntheticOrphanOwner'] }, 2]])
+      .mockResolvedValueOnce([[{ args: [7, 'SyntheticOrphanOwner'] }, 3]]);
+    const orphanDetails = [0, 1].map(
+      outputIndex =>
+        [
+          { args: ['SyntheticOrphanOwner', { txid: `0x${'42'.repeat(32)}`, outputIndex }] },
+          {
+            vaultId: 7,
+            lockId: 42,
+            satoshis: 1_000n as bigint,
+            recordedArgonBlockNumber: 8,
+            cosignRequest: {
+              toScriptPubkey: new Uint8Array([0, 20, ...new Array(20).fill(1)]),
+              bitcoinNetworkFee: 100n,
+              createdAtArgonBlockNumber: 8,
+            },
+          },
+        ] as const,
+    );
     const requestEvent = {
       section: 'bitcoinLocks',
       method: 'OrphanedUtxoReleaseRequested',
@@ -253,6 +370,11 @@ describe('MyVault cosign recovery', () => {
           pendingCosignByVaultId: vi.fn(async () => []),
           orphanedUtxoAccountsByVaultId: { entries: orphanEntries },
         },
+        bitcoinLocks: {
+          orphanedUtxosByAccount: {
+            entries: vi.fn(async () => orphanDetails),
+          },
+        },
       },
     };
     const clients = {
@@ -276,6 +398,7 @@ describe('MyVault cosign recovery', () => {
 
     expect(myVault.data.pendingOrphanCosignCount).toBe(2);
     expect(myVault.data.pendingCollectRevenue).toBe(42n);
+    expect(myVault.collectBuilder.getBitcoinSigningRequests()[0].releaseRequest.destinationSatoshis).toBe(900n);
 
     const onFinalized = blockWatchEventOn.mock.calls.find(([event]) => event === 'finalized')![1];
     blockEvents.splice(
@@ -290,10 +413,27 @@ describe('MyVault cosign recovery', () => {
     expect(orphanEntries).toHaveBeenCalledTimes(1);
     expect(frameRevenues).toHaveBeenCalledTimes(1);
 
+    orphanDetails.push([
+      { args: ['SyntheticOrphanOwner', { txid: `0x${'42'.repeat(32)}`, outputIndex: 2 }] },
+      {
+        ...orphanDetails[0][1],
+        satoshis: 2_000n,
+        cosignRequest: {
+          ...orphanDetails[0][1].cosignRequest,
+          toScriptPubkey: new Uint8Array([0, 20, ...new Array(20).fill(2)]),
+        },
+      },
+    ]);
     blockEvents.splice(0, blockEvents.length, { event: requestEvent });
     await onFinalized([{ blockNumber: 10, blockHash: '0x10' }]);
 
     expect(myVault.data.pendingOrphanCosignCount).toBe(3);
+    const signingRequests = myVault.collectBuilder.getBitcoinSigningRequests();
+    expect(signingRequests).toHaveLength(3);
+    expect(myVault.collectBuilder.getNotice()?.signatureCount).toBe(signingRequests.length);
+    expect(signingRequests[2].utxos[0].utxoRef.vout).toBe(2);
+    expect(signingRequests[2].releaseRequest.destinationSatoshis).toBe(1_900n);
+    expect(signingRequests[2].releaseRequest.toScriptPubkey).toBe(`0x0014${'02'.repeat(20)}`);
     expect(myVault.data.pendingCollectRevenue).toBe(42n);
     expect(refreshExternalLocks).toHaveBeenCalledWith(finalizedApi);
 
@@ -972,7 +1112,7 @@ describe('MyVault cosign recovery', () => {
           pendingCosignByVaultId: vi.fn().mockResolvedValue([]),
           revenuePerFrameByVault: vi.fn().mockResolvedValue([{ uncollectedRevenue: 40n }]),
           orphanedUtxoAccountsByVaultId: {
-            entries: vi.fn().mockResolvedValue([[{}, 2]]),
+            entries: vi.fn().mockResolvedValue([[{ args: [7, 'SyntheticOrphanOwner'] }, 2]]),
           },
         },
       },
@@ -2093,7 +2233,7 @@ function createVault(args?: {
     onFrameId,
     getFrameDate: vi.fn(() => new Date('2026-01-01T00:00:00Z')),
   } as unknown as MiningFrames;
-  const bitcoinLocks = {} as BitcoinLocks;
+  const bitcoinLocks = createStore();
   const globalCouncil = {
     data: {
       isReady: true,

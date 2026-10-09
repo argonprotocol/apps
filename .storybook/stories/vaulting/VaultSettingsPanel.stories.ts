@@ -145,10 +145,7 @@ export const AddArgons: Story = {
     const canvas = within(document.body);
     await userEvent.click(await canvas.findByRole('button', { name: 'Edit Argon securitization' }));
     const popover = within(await canvas.findByRole('dialog', { name: 'Securitization editor' }));
-    const input = within(popover.getByTestId('settings-funding-amount')).getByTestId('input-number');
-    await userEvent.clear(input);
-    await userEvent.type(input, '500');
-    await userEvent.tab();
+    await userEvent.click(popover.getByRole('button', { name: 'Full Securitization' }));
   },
 };
 

@@ -9,7 +9,7 @@ use std::time::Instant;
 use tauri::AppHandle;
 
 static VM_FILES: Dir<'_> = include_dir!("$CARGO_MANIFEST_DIR/../local-machine");
-static VM_ACTIVATION: Mutex<()> = Mutex::new(());
+static VM_OPERATIONS: Mutex<()> = Mutex::new(());
 
 pub struct Vm {
     pub ssh_port: u16,
@@ -39,7 +39,9 @@ pub fn find_available_port(starting_port: u16) -> Result<u16, String> {
 pub async fn create_local_vm(app: AppHandle, env_text: String) -> Result<u16, String> {
     let vm_path = get_vm_path(&app);
     let work_dir = get_vm_work_dir(&app);
-    let vm = Vm::create(vm_path, work_dir, env_text)?;
+    let vm = tauri::async_runtime::spawn_blocking(move || Vm::create(vm_path, work_dir, env_text))
+        .await
+        .map_err(|e| format!("Local VM creation failed: {e}"))??;
     Ok(vm.ssh_port)
 }
 
@@ -64,7 +66,9 @@ pub async fn activate_local_vm(app: AppHandle) -> Result<Option<u16>, String> {
 #[tauri::command]
 pub async fn remove_local_vm(app: AppHandle) -> Result<(), String> {
     let vm_path = get_vm_path(&app);
-    Vm::destroy(&vm_path)?;
+    tauri::async_runtime::spawn_blocking(move || Vm::destroy(&vm_path))
+        .await
+        .map_err(|e| format!("Local VM removal failed: {e}"))??;
     Ok(())
 }
 
@@ -93,8 +97,8 @@ fn get_uid_gid() -> (u32, u32) {
 
 impl Vm {
     pub fn activate(vm_path: &Path, work_dir: &Path) -> anyhow::Result<Vm, String> {
-        // Native commands survive webview reloads; serialize the Docker check/start boundary.
-        let _activation = VM_ACTIVATION.lock().map_err(|e| e.to_string())?;
+        // Native commands survive webview reloads; serialize changes to the same VM and files.
+        let _operation = VM_OPERATIONS.lock().map_err(|e| e.to_string())?;
         if !vm_path.exists() {
             return Err(format!("VM path {} does not exist", vm_path.display()));
         }
@@ -120,29 +124,11 @@ impl Vm {
         work_dir: PathBuf,
         mut env_text: String,
     ) -> anyhow::Result<Vm, String> {
-        let nginx_certs_dir = work_dir.join("config").join("nginx-certs");
-        let tmp_nginx_certs_dir = vm_path.with_file_name("nginx-certs.tmp");
+        let _operation = VM_OPERATIONS.lock().map_err(|e| e.to_string())?;
 
-        if vm_path.exists() {
-            if nginx_certs_dir.exists() {
-                fs::rename(&nginx_certs_dir, &tmp_nginx_certs_dir).map_err(|e| {
-                    format!(
-                        "Error moving nginx cert directory {} to {}: {}",
-                        nginx_certs_dir.display(),
-                        tmp_nginx_certs_dir.display(),
-                        e
-                    )
-                })?;
-            }
-
-            std::fs::remove_dir_all(&vm_path)
-                .map_err(|e| format!("Error removing VM directory {}: {}", vm_path.display(), e))?;
-        }
-
-        if !vm_path.exists() {
-            fs::create_dir_all(&vm_path)
-                .map_err(|e| format!("Error creating directory {}: {}", vm_path.display(), e))?;
-        }
+        // Retrying creation must preserve app data and the directory already bind-mounted at /app.
+        fs::create_dir_all(&vm_path)
+            .map_err(|e| format!("Error creating directory {}: {}", vm_path.display(), e))?;
 
         let env_path = vm_path.join(".env");
         let (uid, gid) = get_uid_gid();
@@ -157,11 +143,13 @@ impl Vm {
                 .map_err(|e| format!("Error copying file to {}: {}", target_path.display(), e))?;
         }
 
-        if !work_dir.exists() {
-            fs::create_dir_all(&work_dir)
-                .map_err(|e| format!("Error creating directory {}: {}", work_dir.display(), e))?;
-        }
-        if tmp_nginx_certs_dir.exists() {
+        fs::create_dir_all(&work_dir)
+            .map_err(|e| format!("Error creating directory {}: {}", work_dir.display(), e))?;
+
+        // Older creation attempts temporarily moved certificates out of the VM directory.
+        let nginx_certs_dir = work_dir.join("config").join("nginx-certs");
+        let tmp_nginx_certs_dir = vm_path.with_file_name("nginx-certs.tmp");
+        if !nginx_certs_dir.exists() && tmp_nginx_certs_dir.exists() {
             fs::create_dir_all(nginx_certs_dir.parent().unwrap()).map_err(|e| {
                 format!(
                     "Error creating nginx config directory for {}: {}",
@@ -198,6 +186,7 @@ impl Vm {
     }
 
     pub fn destroy(vm_path: &Path) -> anyhow::Result<(), String> {
+        let _operation = VM_OPERATIONS.lock().map_err(|e| e.to_string())?;
         log::info!("Removing local VM at {}", vm_path.display());
         if !vm_path.exists() {
             return Ok(());
@@ -434,6 +423,70 @@ mod tests {
         });
 
         let cleanup = Vm::run_compose_command(&vm_path, &["down", "--remove-orphans", "--volumes"]);
+        fs::remove_dir_all(&vm_path).unwrap();
+        cleanup.unwrap();
+        if let Err(error) = result {
+            std::panic::resume_unwind(error);
+        }
+    }
+
+    #[test]
+    #[ignore = "Requires Docker and builds the local VM image"]
+    fn creation_retry_preserves_the_mounted_app_directory() {
+        let unique_id = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let project = format!("argon-vm-creation-{}-{unique_id}", std::process::id());
+        let vm_path = std::env::temp_dir().join(&project);
+        let work_dir = vm_path.join("app");
+        let certs_dir = work_dir.join("config/nginx-certs");
+        fs::create_dir_all(&certs_dir).unwrap();
+        fs::write(certs_dir.join("test.pem"), "synthetic certificate").unwrap();
+        let env_text = format!("COMPOSE_PROJECT_NAME={project}\nSSH_PUBKEY=synthetic-test-key\n");
+
+        let result = std::panic::catch_unwind(|| {
+            Vm::create(vm_path.clone(), work_dir.clone(), env_text.clone()).unwrap();
+            fs::write(work_dir.join("account"), "synthetic account").unwrap();
+            fs::create_dir_all(work_dir.join("data/argon")).unwrap();
+            let bot_state_path = work_dir.join("data/argon/bot-state.json");
+            let bot_state = r#"{"oldestFrameIdToSync":42}"#;
+            fs::write(&bot_state_path, bot_state).unwrap();
+            assert_eq!(
+                Vm::run_compose_command(&vm_path, &["exec", "-T", "vm", "cat", "/app/account"])
+                    .unwrap(),
+                "synthetic account"
+            );
+
+            Vm::create(vm_path.clone(), work_dir.clone(), env_text.clone()).unwrap();
+            assert_eq!(fs::read_to_string(&bot_state_path).unwrap(), bot_state);
+
+            // A retry may arrive from a reloaded webview while the original VM is still running.
+            std::thread::scope(|scope| {
+                let first =
+                    scope.spawn(|| Vm::create(vm_path.clone(), work_dir.clone(), env_text.clone()));
+                let second =
+                    scope.spawn(|| Vm::create(vm_path.clone(), work_dir.clone(), env_text.clone()));
+                first.join().unwrap().unwrap();
+                second.join().unwrap().unwrap();
+            });
+
+            assert_eq!(fs::read_to_string(&bot_state_path).unwrap(), bot_state);
+            assert_eq!(
+                fs::read_to_string(certs_dir.join("test.pem")).unwrap(),
+                "synthetic certificate"
+            );
+            assert_eq!(
+                Vm::run_compose_command(&vm_path, &["exec", "-T", "vm", "cat", "/app/account"])
+                    .unwrap(),
+                "synthetic account"
+            );
+        });
+
+        let cleanup = Vm::run_compose_command(
+            &vm_path,
+            &["down", "--remove-orphans", "--volumes", "--rmi", "local"],
+        );
         fs::remove_dir_all(&vm_path).unwrap();
         cleanup.unwrap();
         if let Err(error) = result {

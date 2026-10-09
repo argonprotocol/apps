@@ -28,10 +28,11 @@ import { getEthereumMoveTracker } from '../../../src-vue/stores/moveFromEthereum
 import { loadEthereumChainConfig } from '../../../src-vue/lib/EthereumClient.ts';
 import { getConfig } from '../../../src-vue/stores/config.ts';
 import { getCurrency } from '../../../src-vue/stores/currency.ts';
+import { getMainchainClient } from '../../../src-vue/stores/mainchain.ts';
 import { OperationalStepId, useCertificationController } from '../../../src-vue/stores/certificationController.ts';
 import { BitcoinReleaseKind, BitcoinReleaseStatus } from '../../../src-vue/interfaces/IBitcoinReleaseRecord.ts';
 import { createBitcoinRelease } from '../../scenarios/setupBitcoinOverlayScenario.ts';
-import { BitcoinUtxoStatus } from '../../../src-vue/interfaces/IBitcoinUtxoRecord.ts';
+import { BitcoinUtxoSpendStatus, BitcoinUtxoStatus } from '../../../src-vue/interfaces/IBitcoinUtxoRecord.ts';
 
 let request: IWalletOverlayOptions;
 let showTreasuryUpgrade = false;
@@ -1058,7 +1059,92 @@ export const BitcoinFailedOutboundInTransfers: Story = {
 };
 
 export const BitcoinUnattachedDeposit: Story = {
-  beforeEach: useBitcoinUnattachedDepositScenario,
+  beforeEach: () => {
+    useBitcoinUnattachedDepositScenario();
+    const locks = getBitcoinLocks();
+    const records = locks.utxoTracking.getUtxosForLock(101);
+    const orphan = records.find(record => record.status === BitcoinUtxoStatus.Orphaned)!;
+    const waiting = {
+      ...orphan,
+      id: 203,
+      vout: 2,
+      satoshis: 50_000n,
+      isOnArgonChain: false,
+      activeReleaseId: 'synthetic-waiting-return',
+    };
+    const failed = { ...orphan, id: 204, vout: 3, isOnArgonChain: false };
+    const returned = { ...orphan, id: 205, vout: 4, spendStatus: BitcoinUtxoSpendStatus.Spent };
+    locks.utxoTracking.load([...records, waiting, failed, returned]);
+    const release = createBitcoinRelease({
+      id: waiting.activeReleaseId,
+      kind: BitcoinReleaseKind.Cooperative,
+      lockId: waiting.lockId,
+      inputUtxoIds: [waiting.id],
+      status: BitcoinReleaseStatus.WaitingForVaultCosign,
+    });
+    locks.releases.data.releasesById[release.id] = release;
+
+    const failedRelease = createBitcoinRelease({
+      id: 'synthetic-failed-return',
+      kind: BitcoinReleaseKind.Cooperative,
+      lockId: failed.lockId,
+      inputUtxoIds: [failed.id],
+      status: BitcoinReleaseStatus.Failed,
+      statusError: 'The vault declined this cooperative return.',
+    });
+    locks.releases.data.releasesById[failedRelease.id] = failedRelease;
+
+    const completedRelease = createBitcoinRelease({
+      id: 'synthetic-archived-return',
+      kind: BitcoinReleaseKind.Orphan,
+      lockId: returned.lockId,
+      inputUtxoIds: [returned.id],
+      status: BitcoinReleaseStatus.Complete,
+    });
+    locks.releases.data.releasesById[completedRelease.id] = completedRelease;
+  },
+  play: waitForWalletOverlay,
+};
+
+export const BitcoinUnattachedDepositList: Story = {
+  beforeEach: BitcoinUnattachedDeposit.beforeEach,
+  play: async () => {
+    await userEvent.click(await within(document.body).findByTestId('WalletViewMain.unattachedBitcoinDeposit'));
+    isInteractive.value = false;
+  },
+};
+
+export const BitcoinUnattachedDepositListEmpty: Story = {
+  beforeEach: () => {
+    useBitcoinUnattachedDepositScenario();
+    getBitcoinLocks().utxoTracking.load([]);
+  },
+  play: async () => {
+    await openTokenMenu({ moveToken: MoveToken.BTC });
+    await userEvent.click(await within(document.body).findByRole('menuitem', { name: 'Find missing deposits' }));
+    isInteractive.value = false;
+  },
+};
+
+export const BitcoinUnattachedDepositSearch: Story = {
+  beforeEach: () => {
+    useBitcoinUnattachedDepositScenario();
+    getBitcoinLocks().findMissingDeposits = fn(() => new Promise<void>(() => undefined));
+    request.view = 'unattachedBitcoinList';
+    isInteractive.value = false;
+  },
+  play: waitForWalletOverlay,
+};
+
+export const BitcoinUnattachedDepositSearchFailed: Story = {
+  beforeEach: () => {
+    useBitcoinUnattachedDepositScenario();
+    getBitcoinLocks().findMissingDeposits = fn(async () => {
+      throw new Error('Some Bitcoin addresses could not be checked. Find missing deposits again to retry.');
+    });
+    request.view = 'unattachedBitcoinList';
+    isInteractive.value = false;
+  },
   play: waitForWalletOverlay,
 };
 
@@ -1069,6 +1155,59 @@ export const BitcoinUnattachedDepositReturn: Story = {
 
     await userEvent.click(await canvas.findByTestId('WalletViewMain.unattachedBitcoinDeposit'));
   },
+};
+
+export const BitcoinUnattachedDepositWaiting: Story = {
+  beforeEach: () => {
+    useBitcoinUnattachedDepositScenario();
+    const record = getBitcoinLocks().utxoTracking.getUtxoRecordById(202)!;
+    record.isOnArgonChain = false;
+    mocked(getMainchainClient).mockResolvedValue({
+      query: {
+        bitcoinUtxos: {
+          synchedBitcoinBlock: fn(async () => ({ blockHeight: 250_020, blockHash: `0x${'34'.repeat(32)}` })),
+        },
+      },
+    } as never);
+    request.view = { type: 'unattachedBitcoin', recordId: record.id };
+    isInteractive.value = false;
+  },
+  play: waitForWalletOverlay,
+};
+
+export const BitcoinUnattachedDepositTooSmall: Story = {
+  beforeEach: () => {
+    useBitcoinUnattachedDepositScenario();
+    const record = getBitcoinLocks().utxoTracking.getUtxoRecordById(202)!;
+    record.isOnArgonChain = false;
+    record.satoshis = 400n;
+    request.view = { type: 'unattachedBitcoin', recordId: record.id };
+    isInteractive.value = false;
+  },
+  play: waitForWalletOverlay,
+};
+
+export const BitcoinUnattachedDepositReturned: Story = {
+  beforeEach: () => {
+    useBitcoinUnattachedDepositScenario();
+    const locks = getBitcoinLocks();
+    const record = locks.utxoTracking
+      .getUtxosForLock(101)
+      .find(record => record.status === BitcoinUtxoStatus.Orphaned)!;
+    record.spendStatus = BitcoinUtxoSpendStatus.Spent;
+    const release = createBitcoinRelease({
+      id: 'synthetic-complete-return',
+      kind: BitcoinReleaseKind.Cooperative,
+      lockId: record.lockId,
+      inputUtxoIds: [record.id],
+      status: BitcoinReleaseStatus.Complete,
+      bitcoinTxid: `0x${'57'.repeat(32)}`,
+    });
+    locks.releases.data.releasesById[release.id] = release;
+    request.view = { type: 'unattachedBitcoin', recordId: record.id };
+    isInteractive.value = false;
+  },
+  play: waitForWalletOverlay,
 };
 
 export const BitcoinUnattachedReturnHistoryUnavailable: Story = {

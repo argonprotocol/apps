@@ -4,7 +4,7 @@ import Fs from 'node:fs';
 import Os from 'node:os';
 import Path from 'node:path';
 import process from 'node:process';
-import { DEV_UPSTREAM_MASTER_MNEMONIC } from './devUpstreamServer.ts';
+import { DEV_UPSTREAM_MASTER_MNEMONIC, stopDevUpstreamServer } from './devUpstreamServer.ts';
 import { resolveDevUpstreamDir, stopDevUpstreamWorker } from './devUpstreamProcess.ts';
 
 if (process.platform === 'win32') {
@@ -23,3 +23,6 @@ Fs.mkdirSync(visibleAppDir, { recursive: true });
 Fs.writeFileSync(Path.join(visibleAppDir, 'mnemonic'), `${DEV_UPSTREAM_MASTER_MNEMONIC}\n`);
 
 await stopDevUpstreamWorker(resolveDevUpstreamDir(), 'SIGUSR2');
+
+// A healthy old gateway masks endpoint recovery after the visible app publishes its replacement.
+await stopDevUpstreamServer();

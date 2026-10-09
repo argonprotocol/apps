@@ -168,7 +168,7 @@ export function setupBitcoinOverlayScenario() {
     ),
     getPendingReleaseTxInfo: fn(() => undefined),
   };
-  mocked(BitcoinLocks.getFeeRates).mockRestore?.();
+  spyOn(BitcoinLocks, 'getFeeRates').mockRestore();
   const getFeeRates = spyOn(BitcoinLocks, 'getFeeRates').mockResolvedValue({
     fast: { feeRate: 3n, estimatedMinutes: 10 },
     medium: { feeRate: 1n, estimatedMinutes: 30 },
@@ -251,7 +251,7 @@ export function setupBitcoinOverlayScenario() {
       BitcoinReleaseStatus.FailedAcknowledged,
     ].includes(release.status);
     if (release.kind === BitcoinReleaseKind.Lock) lock.activeReleaseId = isActive ? release.id : undefined;
-    if (release.kind === BitcoinReleaseKind.Orphan && inputUtxo) {
+    if (release.kind !== BitcoinReleaseKind.Lock && inputUtxo) {
       inputUtxo.activeReleaseId = isActive ? release.id : undefined;
     }
   }
@@ -302,6 +302,7 @@ export function setupBitcoinOverlayScenario() {
     getMintPercent: fn(() => 64),
     acknowledgeFailed: fn(async () => undefined),
   });
+  Object.assign(releases, { bitcoinLocks });
   Object.defineProperty(bitcoinLocks, 'currentLoadPromise', {
     configurable: true,
     writable: true,

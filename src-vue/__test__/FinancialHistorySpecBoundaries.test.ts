@@ -18,6 +18,11 @@ const accountId = encodeAddress(new Uint8Array(32).fill(0x33));
 const withBackgroundArchiveRead = async <T>(read: () => Promise<T>): Promise<T> => await read();
 
 describe('financial history spec boundaries', () => {
+  it('distinguishes unavailable Bitcoin lock storage from a removed lock', async () => {
+    const client = runtimeClient({ query: { bitcoinLocks: {} } });
+    await expect(getHistoricalBitcoinLock(client as never, 7)).rejects.toThrow('storage is unavailable');
+  });
+
   it.each([
     { specVersion: 130, priceField: 'peggedPrice' },
     { specVersion: 146, priceField: 'lockedMarketRate' },
@@ -46,7 +51,7 @@ describe('financial history spec boundaries', () => {
       couponFeesPaid: variant.specVersion >= 146 ? 2_000_000n : 0n,
       createdAtArgonBlock: variant.specVersion >= 146 ? 472_519 : 0,
     });
-    expect(lock?.fundedSatoshis).toBe(variant.specVersion >= 146 ? 488_275n : 0n);
+    expect(lock?.fundedSatoshis).toBe(variant.specVersion >= 146 ? 488_275n : 488_274n);
     expect(rawClient.query.bitcoinLocks.locksByUtxoId).toHaveBeenCalledOnce();
   });
 

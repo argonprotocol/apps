@@ -279,6 +279,7 @@ export class BitcoinLocksTable extends BaseTable {
       status = currentLock.fundedSatoshis > 0n ? BitcoinLockStatus.LockFunded : BitcoinLockStatus.LockPendingFunding;
     }
     const scriptDetails = toBitcoinLockScriptDetails(currentLock);
+    // Migrated early locks report 0 for creation; preserve the block recovered from their creation event.
     const [updated] = await this.db.select<IBitcoinLockRow[]>(
       `UPDATE BitcoinLocks SET
         status = CASE WHEN status IN (?, ?) THEN status ELSE ? END,
@@ -287,7 +288,7 @@ export class BitcoinLocksTable extends BaseTable {
         securitizationCoverageMicrogons = ?, securitizationTick = ?, fissionedSatoshis = ?,
         securitizationRatio = ?, securityFees = ?, couponFeesPaid = ?, scriptDetails = ?,
         securitizationHoldExpirationBitcoinHeight = ?, isFlexible = ?, fundHoldExtensionsByBitcoinExpirationHeight = ?,
-        createdAtArgonBlock = ?, updatedAt = CURRENT_TIMESTAMP
+        createdAtArgonBlock = COALESCE(NULLIF(?, 0), createdAtArgonBlock), updatedAt = CURRENT_TIMESTAMP
        WHERE lockId = ? RETURNING *`,
       toSqlParams([
         BitcoinLockStatus.Releasing,
@@ -369,7 +370,7 @@ export class BitcoinLocksTable extends BaseTable {
     return this.toLockRecord(rawRecords[0]);
   }
 
-  public async recordReleaseCosign(
+  public async recordRemovalEvidence(
     lock: IBitcoinLockRecord,
     facts: Pick<
       IBitcoinLockRecord,

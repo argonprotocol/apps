@@ -15,6 +15,8 @@
       </div>
 
       <section v-if="showCollectSection" class="flex flex-col gap-y-3">
+        <p v-if="myVault.data.bitcoinCosignRefreshError" class="text-argon-error text-sm">{{ myVault.data.bitcoinCosignRefreshError }} Last displayed requests are preserved.</p>
+        <p v-if="cooperativeReleases.data.refreshError" class="text-argon-error text-sm">{{ cooperativeReleases.data.refreshError }} Last displayed returns are preserved.</p>
         <div v-if="collectRevenue">
           <p>
             Your vault has
@@ -41,11 +43,11 @@
         </div>
 
         <p v-if="manualPendingCosignCount">
-          {{ collectRevenue ? 'Also, you' : 'You' }} have
           <strong>
             {{ manualPendingCosignCount }} transaction{{ manualPendingCosignCount === 1 ? '' : 's' }}
-          </strong>
-          that must be signed.
+          </strong>{{ ' ' }}
+          <template v-if="collectRevenue > 0n">will be cosigned when you collect.</template>
+          <template v-else>will be cosigned.</template>
           <template v-if="manualPendingCosignSum > 0n">
             Failure to do so within
             <CountdownClock :time="nextCosignDueDate" v-slot="{ hours, minutes, days }">
@@ -63,6 +65,27 @@
             in securitization.
           </template>
         </p>
+
+        <details v-if="bitcoinSigningRequests.length" class="text-sm">
+          <summary class="cursor-pointer underline decoration-dotted underline-offset-2">View cosigning requests</summary>
+          <div class="mt-3 flex max-h-96 flex-col gap-3 overflow-y-auto">
+            <div
+              v-for="(request, index) in bitcoinSigningRequests"
+              :key="request.mailbox?.request.releaseId ?? `${request.kind}-${index}`"
+              class="rounded-md border border-slate-200 bg-slate-50 px-4 py-3">
+              <p>
+                <strong>{{ request.ownerName }}</strong> is returning
+                <strong>{{ satToBtcNm(request.releaseRequest.destinationSatoshis + request.releaseRequest.bitcoinNetworkFee).format('0,0.[00000000]') }}</strong>{{ ' ' }}
+                <strong>BTC</strong>
+                <span class="text-slate-600">
+                  ({{ currency.symbol }}{{ microgonToMoneyNm(request.securitizationReleased ?? 0n).format('0,0') }} securitization)
+                </span>
+              </p>
+            </div>
+          </div>
+        </details>
+
+        <p v-if="cooperativeReleases.data.deliveryMessage" class="text-sm text-slate-600">{{ cooperativeReleases.data.deliveryMessage }}</p>
 
         <div
           v-if="councilApprovalCount"
@@ -136,7 +159,7 @@
 
         <button
           @click="submitCollect"
-          :disabled="isCollectBusy || !hasCollectWork"
+          :disabled="isCollectBusy || !hasCollectWork || myVault.data.isRefreshingBitcoinCosigns"
           class="bg-argon-600 hover:bg-argon-700 mt-2 mb-1 cursor-pointer rounded-md px-6 py-2 text-lg font-bold text-white disabled:cursor-default disabled:opacity-40">
           {{ collectButtonLabel }}
         </button>
@@ -317,6 +340,7 @@
 </template>
 
 <script setup lang="ts">
+import { getServerApiClient } from '../stores/server.ts';
 import * as Vue from 'vue';
 import dayjs from 'dayjs';
 import utc from 'dayjs/plugin/utc';
@@ -333,6 +357,7 @@ import { createNumeralHelpers } from '../lib/numeral.ts';
 import { formatCouncilTarget } from '../lib/CrosschainTransferView.ts';
 import ProgressBar from '../components/ProgressBar.vue';
 import OverlayBase from './OverlayBase.vue';
+import { useCertificationController } from '../stores/certificationController.ts';
 import { getActiveTransactionInfos, trackTransactionProgress } from '../lib/TransactionProgress.ts';
 import type { TransactionInfo } from '../lib/TransactionInfo.ts';
 import type { IMintingAuthorityAuthorizeMetadata } from '../lib/MintingAuthorities.ts';
@@ -345,18 +370,33 @@ const emit = defineEmits<{
 }>();
 
 const myVault = getMyVault();
+const cooperativeReleases = myVault.bitcoinLocks.cooperativeReleases;
 const crosschainHistory = getCrosschainHistory();
 const currency = getCurrency();
-const { microgonToArgonNm, microgonToMoneyNm, micronotToArgonotNm } = createNumeralHelpers(currency);
+const controller = useCertificationController();
+const { microgonToArgonNm, microgonToMoneyNm, micronotToArgonotNm, satToBtcNm } = createNumeralHelpers(currency);
 
 const knownSourceIdentities = Vue.computed(() => {
   return getKnownCrosschainSourceIdentities();
 });
 
 const isOpen = Vue.ref(true);
+const autoCloseRequested = Vue.ref(false);
+const bitcoinSigningRequests = Vue.computed(() => {
+  return myVault.collectBuilder.getBitcoinSigningRequests().map(request => {
+    const member = controller.operationalInvites.find(invite => invite.defaultAccountId === request.ownerAccount);
+    const ownerName = member?.name?.trim() || knownSourceIdentities.value.get(request.ownerAccount)?.name;
+    return {
+      ...request,
+      ownerName: ownerName || `${request.ownerAccount.slice(0, 6)}…${request.ownerAccount.slice(-6)}`,
+    };
+  });
+});
 
 Vue.onMounted(() => {
   void crosschainHistory.refresh();
+  void myVault.refreshBitcoinCosigns();
+  if (myVault.vaultId) void cooperativeReleases.refresh({ vaultId: myVault.vaultId, server: getServerApiClient() });
 });
 
 const collectRevenue = Vue.ref(0n);
@@ -426,7 +466,7 @@ const hasCollectWork = Vue.computed(() => {
 });
 
 const isCollectBusy = Vue.computed(() => {
-  return isSubmittingCollect.value || activeCollectTxInfos.value.length > 0;
+  return isSubmittingCollect.value || activeCollectTxInfos.value.length > 0 || cooperativeReleases.data.isSigning;
 });
 
 const isMintingAuthorizeBusy = Vue.computed(() => {
@@ -434,7 +474,15 @@ const isMintingAuthorizeBusy = Vue.computed(() => {
 });
 
 const showCollectSection = Vue.computed(() => {
-  return hasCollectWork.value || isCollectBusy.value || !!collectError.value;
+  if (hasCollectWork.value || isCollectBusy.value) return true;
+
+  if (myVault.data.isRefreshingBitcoinCosigns || cooperativeReleases.data.isRefreshing) return true;
+
+  if (collectError.value || myVault.data.bitcoinCosignRefreshError || cooperativeReleases.data.refreshError) {
+    return true;
+  }
+
+  return bitcoinSigningRequests.value.length > 0 || !!cooperativeReleases.data.deliveryMessage;
 });
 
 const showMintingAuthorizeSection = Vue.computed(() => {
@@ -448,7 +496,7 @@ const showMintingAuthorizeSection = Vue.computed(() => {
 });
 
 const showCollectProgress = Vue.computed(() => {
-  return isCollectBusy.value || collectProgressPct.value > 0;
+  return activeCollectTxInfos.value.length > 0 || collectProgressPct.value > 0;
 });
 
 const showMintingAuthorizeProgress = Vue.computed(() => {
@@ -484,7 +532,7 @@ const collectButtonLabel = Vue.computed(() => {
     return 'Collect Revenue';
   }
   if (collectRevenue.value === 0n && manualPendingCosignCount.value > 0 && councilApprovalCount.value === 0) {
-    return 'Sign Bitcoin Transactions';
+    return 'Cosign Bitcoin Transactions';
   }
   if (collectRevenue.value === 0n && manualPendingCosignCount.value === 0 && councilApprovalCount.value > 0) {
     return 'Approve Council Updates';
@@ -559,6 +607,9 @@ Vue.watch(
     myVault.mintingAuthorities.data.pendingMintingAuthorizeTxInfosByTransferId.size,
     myVault.data.pendingCosignLocksById.size,
     myVault.data.pendingOrphanCosignCount,
+    myVault.data.pendingCosignLocksById,
+    myVault.data.pendingOrphanCosignRequests,
+    bitcoinSigningRequests.value,
     myVault.data.myPendingBitcoinCosignTxInfosByLockId.size,
   ],
   () => {
@@ -573,21 +624,21 @@ async function submitCollect() {
   }
 
   isSubmittingCollect.value = true;
+  autoCloseRequested.value = true;
   collectError.value = '';
   collectProgressLabel.value = 'Preparing transaction...';
 
   try {
-    const txInfo = await myVault.collect({ moveTo: MoveTo.DefaultArgon });
-    if (!txInfo) {
+    await myVault.collect({ moveTo: MoveTo.DefaultArgon });
+  } catch (error) {
+    collectError.value = error instanceof Error ? error.message : `${error}`;
+  } finally {
+    // Transaction progress owns the busy state while post-processing remains active.
+    if (!activeCollectTxInfos.value.length) {
       isSubmittingCollect.value = false;
       collectProgressPct.value = 0;
       collectProgressLabel.value = '';
     }
-  } catch (error) {
-    collectError.value = error instanceof Error ? error.message : `${error}`;
-    isSubmittingCollect.value = false;
-    collectProgressPct.value = 0;
-    collectProgressLabel.value = '';
   }
 }
 
@@ -597,6 +648,7 @@ async function submitMintingAuthorize() {
   }
 
   isSubmittingMintingAuthorize.value = true;
+  autoCloseRequested.value = true;
   mintingAuthorizeError.value = '';
   mintingAuthorizeUpdateMessage.value = '';
   mintingAuthorizeProgressLabel.value = 'Preparing transaction...';
@@ -605,15 +657,20 @@ async function submitMintingAuthorize() {
     await myVault.mintingAuthorities.authorize();
   } catch (error) {
     mintingAuthorizeError.value = error instanceof Error ? error.message : `${error}`;
-    isSubmittingMintingAuthorize.value = false;
-    mintingAuthorizeProgressPct.value = 0;
-    mintingAuthorizeProgressLabel.value = '';
+  } finally {
+    if (!activeMintingAuthorizeTxInfos.value.length) {
+      isSubmittingMintingAuthorize.value = false;
+      mintingAuthorizeProgressPct.value = 0;
+      mintingAuthorizeProgressLabel.value = '';
+    }
   }
 }
 
 Vue.watch(
   activeCollectTxInfos,
   (txInfos, _, onCleanup) => {
+    if (txInfos.length) autoCloseRequested.value = true;
+
     trackTransactionProgress({
       txInfos,
       isSubmitting: isSubmittingCollect,
@@ -621,7 +678,6 @@ Vue.watch(
       progressLabel: collectProgressLabel,
       activeTransactionCount: activeCollectTransactionCount,
       error: collectError,
-      onIdle: maybeCloseOverlay,
       onCleanup,
     });
   },
@@ -631,6 +687,8 @@ Vue.watch(
 Vue.watch(
   activeMintingAuthorizeTxInfos,
   (txInfos, previousTxInfos, onCleanup) => {
+    if (txInfos.length) autoCloseRequested.value = true;
+
     if (!txInfos.length && previousTxInfos?.length) {
       const mintingAuthorizeCompletionMessage = getMintingAuthorizeCompletionMessage(previousTxInfos);
       if (mintingAuthorizeCompletionMessage) {
@@ -646,28 +704,52 @@ Vue.watch(
       progressLabel: mintingAuthorizeProgressLabel,
       activeTransactionCount: activeMintingAuthorizeTransactionCount,
       error: mintingAuthorizeError,
-      onIdle: maybeCloseOverlay,
       onCleanup,
     });
   },
   { immediate: true },
 );
 
+// Recheck after signing, refresh, and submission settle, including restored transactions.
+Vue.watchEffect(() => {
+  if (!autoCloseRequested.value || !isOpen.value) return;
+  maybeCloseOverlay();
+});
+
 function maybeCloseOverlay() {
   syncNoticeState();
+
+  // Keep the overlay open until submitted transactions and Bitcoin signing finish.
+  if (isCollectBusy.value || isMintingAuthorizeBusy.value) return;
+
+  // Wait for refreshed requests before deciding there is nothing left to collect.
+  if (myVault.data.isRefreshingBitcoinCosigns || cooperativeReleases.data.isRefreshing) return;
+
+  // Keep the overlay open while revenue, approvals, or signing requests remain.
   if (
-    activeCollectTxInfos.value.length === 0 &&
-    activeMintingAuthorizeTxInfos.value.length === 0 &&
-    collectRevenue.value === 0n &&
-    manualPendingCosignCount.value === 0 &&
-    councilApprovalCount.value === 0 &&
-    authorizedTransferCount.value === 0 &&
-    !collectError.value &&
-    !mintingAuthorizeUpdateMessage.value &&
-    !mintingAuthorizeError.value
+    collectRevenue.value !== 0n ||
+    manualPendingCosignCount.value !== 0 ||
+    councilApprovalCount.value !== 0 ||
+    authorizedTransferCount.value !== 0
   ) {
-    closeOverlay();
+    return;
   }
+  if (bitcoinSigningRequests.value.length > 0) return;
+
+  // Keep failures visible so the vault owner can read them.
+  if (
+    collectError.value ||
+    myVault.data.bitcoinCosignRefreshError ||
+    cooperativeReleases.data.refreshError ||
+    mintingAuthorizeError.value
+  ) {
+    return;
+  }
+
+  // Keep completion and delivery feedback visible instead of auto-closing.
+  if (cooperativeReleases.data.deliveryMessage || mintingAuthorizeUpdateMessage.value) return;
+
+  closeOverlay();
 }
 
 function getCollectActionTitle(actionType?: IVaultCollectMetadata['actionType']) {
@@ -675,7 +757,7 @@ function getCollectActionTitle(actionType?: IVaultCollectMetadata['actionType'])
     return 'Collect Revenue';
   }
   if (actionType === 'cosignBitcoin') {
-    return 'Sign Bitcoin Transactions';
+    return 'Cosign Bitcoin Transactions';
   }
   return 'Vault Approvals';
 }
@@ -685,7 +767,7 @@ function getCollectBusyLabel(actionType?: IVaultCollectMetadata['actionType']) {
     return 'Collecting Revenue...';
   }
   if (actionType === 'cosignBitcoin') {
-    return 'Signing Bitcoin Transactions...';
+    return 'Cosigning Bitcoin Transactions...';
   }
   if (actionType === 'approveCouncil') {
     return 'Approving Council Updates...';

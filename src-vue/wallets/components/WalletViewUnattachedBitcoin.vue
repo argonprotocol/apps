@@ -3,11 +3,14 @@
     <WalletHeader
       name="Return Bitcoin"
       :showHome="props.showBack"
+      backView="unattachedBitcoinList"
       :isDragging="props.isDragging"
       @dragStart="emit('dragStart', $event)"
       @goto="emit('goto', $event)"
       @close="emit('close')"
-    />
+    >
+      <template #actions />
+    </WalletHeader>
 
     <div class="min-h-0 grow space-y-5 overflow-y-auto px-5 py-4 text-sm text-slate-700">
       <div class="rounded-lg bg-slate-50/50 px-4 py-4 ring-1 ring-slate-200">
@@ -36,10 +39,71 @@
       </div>
 
       <div v-if="canRequestReturn" class="space-y-5">
-        <p>
-          This Bitcoin could not be added to your wallet because a return was already in progress or the account had
-          reached its UTXO limit. Choose an address you control to return it.
-        </p>
+        <p>This Bitcoin was not added to your wallet. Choose an address you control to return it.</p>
+
+        <div
+          v-if="isCooperativeReturn && (isCheckingDeposit || depositConfirmationWait)"
+          class="border-argon-100 bg-argon-50 space-y-2 rounded-lg border px-4 py-3"
+          role="status"
+        >
+          <template v-if="isCheckingDeposit">
+            <div class="font-semibold">Checking deposit</div>
+            <p>Checking whether this deposit is ready to return.</p>
+          </template>
+          <template v-else-if="depositConfirmationWait === 'Bitcoin'">
+            <div class="font-semibold">Waiting for Bitcoin confirmation</div>
+            <p>This deposit needs to confirm on Bitcoin before it can be returned.</p>
+          </template>
+          <template v-else>
+            <div class="font-semibold">Waiting for Argon</div>
+            <p>Argon needs to finish checking this deposit before it can be returned.</p>
+          </template>
+          <p v-if="!isCheckingDeposit">This screen will update automatically. You can close it and come back later.</p>
+        </div>
+
+        <div
+          v-if="depositCheckError"
+          class="border-argon-error/30 bg-argon-error/5 text-argon-error flex items-center justify-between gap-3 rounded-md border px-4 py-3 text-sm"
+          role="alert"
+        >
+          <p>{{ depositCheckError }}</p>
+          <button
+            type="button"
+            class="text-argon-600 shrink-0 cursor-pointer font-semibold hover:underline"
+            @click="checkDepositConfirmation"
+          >
+            Try again
+          </button>
+        </div>
+
+        <BitcoinFeeRateInput v-model="feeRatePerSatVb" dataTestid="WalletViewUnattachedBitcoin.feeRate" />
+
+        <div
+          v-if="minimumReturnError"
+          class="flex items-start gap-2 rounded-md bg-amber-50 px-3 py-3 text-sm text-amber-800"
+          role="alert"
+        >
+          <AlertIcon class="mt-0.5 h-4 shrink-0" />
+          <div class="space-y-2">
+            <p>{{ minimumReturnError }}</p>
+            <p>Choose a slower network speed or wait for Bitcoin fees to fall.</p>
+          </div>
+        </div>
+        <div
+          v-else-if="argonFeeQuoteError"
+          class="border-argon-error/30 bg-argon-error/5 text-argon-error flex items-center justify-between gap-3 rounded-md border px-4 py-3 text-sm"
+          role="alert"
+        >
+          <p>{{ argonFeeQuoteError }}</p>
+          <button
+            type="button"
+            data-testid="WalletViewUnattachedBitcoin.retryArgonFeeQuote()"
+            class="text-argon-600 shrink-0 cursor-pointer font-semibold hover:underline"
+            @click="queueArgonFeeQuote"
+          >
+            Try again
+          </button>
+        </div>
 
         <div>
           <label class="mb-1 block font-bold text-gray-500/80">Return To</label>
@@ -49,16 +113,15 @@
             type="text"
             autocomplete="off"
             spellcheck="false"
+            :disabled="!canEnterReturnDestination"
             placeholder="bc1q..."
-            :class="destinationError ? 'border-red-400 text-red-900' : 'border-slate-700/50'"
+            :class="destinationError ? 'border-argon-error text-argon-error' : 'border-slate-700/50'"
             class="h-[30px] w-full rounded-md border bg-white px-2 font-mono text-sm outline-none placeholder:text-gray-400"
           />
-          <p class="mt-2 text-sm" :class="destinationError ? 'font-semibold text-red-700' : 'text-slate-500'">
+          <p class="mt-2 text-sm" :class="destinationError ? 'text-argon-error font-semibold' : 'text-slate-500'">
             {{ destinationError || `Use a ${bitcoinNetworkName} address you control.` }}
           </p>
         </div>
-
-        <BitcoinFeeRateInput v-model="feeRatePerSatVb" dataTestid="WalletViewUnattachedBitcoin.feeRate" />
 
         <div
           v-if="trimmedDestination && !destinationError"
@@ -95,7 +158,7 @@
                 />
               </div>
             </div>
-            <div class="flex flex-row border-t border-gray-300 py-2">
+            <div v-if="!isCooperativeReturn" class="flex flex-row border-t border-gray-300 py-2">
               <div class="grow">Argon Network</div>
               <div class="relative ml-4 text-right">
                 <span :class="{ 'opacity-20': isCheckingArgonFee }">
@@ -106,22 +169,11 @@
           </div>
         </div>
 
-        <p v-if="argonFeeQuote && !argonFeeQuote.canAfford" class="text-sm text-red-700">
+        <p v-if="argonFeeQuote && !argonFeeQuote.canAfford" class="text-argon-error text-sm">
           Add
           <span class="font-mono font-semibold">{{ formatArgon(argonFeeShortfall) }}</span>
           to the Internal App Wallet to cover the Argon transaction fee.
         </p>
-        <div v-else-if="argonFeeQuoteError" class="flex items-center justify-between gap-3 text-sm text-red-700">
-          <p>{{ argonFeeQuoteError }}</p>
-          <button
-            type="button"
-            data-testid="WalletViewUnattachedBitcoin.retryArgonFeeQuote()"
-            class="text-argon-600 shrink-0 cursor-pointer font-semibold hover:underline"
-            @click="queueArgonFeeQuote"
-          >
-            Try again
-          </button>
-        </div>
 
         <button
           data-testid="WalletViewUnattachedBitcoin.requestReturn()"
@@ -150,6 +202,10 @@
           <template v-if="release?.status === BitcoinReleaseStatus.Complete">
             <div class="font-semibold text-slate-800">Bitcoin returned</div>
             <p class="text-sm text-slate-600">The Bitcoin was returned to the requested destination.</p>
+          </template>
+          <template v-else-if="release?.status === BitcoinReleaseStatus.Failed">
+            <div class="font-semibold text-slate-800">Return unavailable</div>
+            <p class="text-sm text-slate-600">The vault could not approve this deposit for a cooperative return.</p>
           </template>
           <template
             v-else-if="
@@ -214,7 +270,11 @@
         </div>
       </div>
 
-      <p v-if="release?.statusError || record.statusError || requestError" class="text-sm font-semibold text-red-700">
+      <p
+        v-if="release?.statusError || record.statusError || requestError"
+        class="border-argon-error/30 bg-argon-error/5 text-argon-error rounded-md border px-4 py-3 text-sm"
+        role="alert"
+      >
         {{ requestError || release?.statusError || record.statusError }}
       </p>
     </div>
@@ -227,9 +287,10 @@ import dayjs from 'dayjs';
 import utc from 'dayjs/plugin/utc';
 import { MiningFrames } from '@argonprotocol/apps-core';
 import { ArrowTopRightOnSquareIcon, InformationCircleIcon } from '@heroicons/vue/24/outline';
+import AlertIcon from '../../assets/alert.svg?component';
 import Tooltip from '../../components/Tooltip.vue';
 import ProgressBar from '../../components/ProgressBar.vue';
-import { BitcoinReleaseStatus } from '../../interfaces/IBitcoinReleaseRecord.ts';
+import { BitcoinReleaseKind, BitcoinReleaseStatus } from '../../interfaces/IBitcoinReleaseRecord.ts';
 import { getBitcoinNetworkName, validateBitcoinAddressForNetwork } from '../../lib/BitcoinAddressValidation.ts';
 import BitcoinLocks from '../../lib/BitcoinLocks.ts';
 import BitcoinMempool from '../../lib/BitcoinMempool.ts';
@@ -275,6 +336,9 @@ const destinationAddress = Vue.ref('');
 const feeRatePerSatVb = Vue.ref(5n);
 const isSubmitting = Vue.ref(false);
 const requestError = Vue.ref('');
+const isCheckingDeposit = Vue.ref(true);
+const depositConfirmationWait = Vue.ref<'Bitcoin' | 'Argon'>();
+const depositCheckError = Vue.ref('');
 const argonFeeQuote = Vue.ref<{
   canAfford: boolean;
   availableBalance: bigint;
@@ -290,15 +354,29 @@ const isArgonRequestInProgress = Vue.ref(false);
 const release = Vue.computed(
   () => bitcoinLocks.releases.getActiveForUtxo(props.record) ?? bitcoinLocks.releases.getLatestForUtxo(props.record),
 );
-const canRequestReturn = Vue.computed(
-  () =>
-    props.record.status === BitcoinUtxoStatus.Orphaned &&
-    props.record.isOnArgonChain !== false &&
-    (!release.value ||
-      release.value.status === BitcoinReleaseStatus.Cancelled ||
-      release.value.status === BitcoinReleaseStatus.Failed ||
-      release.value.status === BitcoinReleaseStatus.FailedAcknowledged),
+const canRequestReturn = Vue.computed(() => bitcoinLocks.releases.canRequestDepositReturn(props.lock, props.record));
+const isCooperativeReturn = Vue.computed(
+  () => props.record.status !== BitcoinUtxoStatus.Orphaned || props.record.isOnArgonChain === false,
 );
+
+const minimumReturnError = Vue.computed(() => {
+  if (!canRequestReturn.value) return '';
+  try {
+    bitcoinLocks.releases.prepareCooperativeRelease({
+      lock: props.lock,
+      record: props.record,
+      feeRatePerSatVb: feeRatePerSatVb.value,
+    });
+    return '';
+  } catch (error) {
+    return error instanceof Error ? error.message : String(error);
+  }
+});
+const canEnterReturnDestination = Vue.computed(() => {
+  if (minimumReturnError.value) return false;
+  if (!isCooperativeReturn.value) return true;
+  return !isCheckingDeposit.value && !depositConfirmationWait.value && !depositCheckError.value;
+});
 
 const bitcoinAmount = Vue.computed(() =>
   numeral(currency.convertSatToBtc(props.record.satoshis)).format('0,0.[00000000]'),
@@ -342,6 +420,8 @@ const releaseDestinationAddress = Vue.computed(() => {
   }
 });
 const releaseRequestedAt = Vue.computed(() => {
+  if (release.value?.kind === BitcoinReleaseKind.Cooperative)
+    return dayjs(release.value.createdAt).local().format('MMM D, YYYY [at] h:mm A');
   const requestedAtTick = release.value?.requestedReleaseAtTick;
   if (requestedAtTick == null) return '';
   return dayjs.utc(MiningFrames.getTickDate(requestedAtTick)).local().format('MMM D, YYYY [at] h:mm A');
@@ -369,6 +449,7 @@ const canSubmit = Vue.computed(
     trimmedDestination.value.length > 0 &&
     !destinationError.value &&
     argonFeeQuote.value?.canAfford === true &&
+    canEnterReturnDestination.value &&
     !isSubmitting.value,
 );
 const argonFeeShortfall = Vue.computed(() => {
@@ -389,10 +470,22 @@ const argonRequestProgressLabel = Vue.computed(() => {
 
 let feeQuoteTimeout: ReturnType<typeof setTimeout> | undefined;
 let feeQuoteRunId = 0;
+let depositCheckPromise: Promise<void> | undefined;
 let stopArgonRequestProgress: (() => void) | undefined;
 let isDisposed = false;
 
-Vue.watch([trimmedDestination, feeRatePerSatVb], queueArgonFeeQuote, { immediate: true });
+Vue.watch(
+  [canRequestReturn, isCooperativeReturn, () => props.record.id],
+  () => {
+    // A runtime orphan can become a cooperative return while this screen is already open.
+    isCheckingDeposit.value = true;
+    depositConfirmationWait.value = undefined;
+    void checkDepositConfirmation();
+  },
+  { immediate: true },
+);
+Vue.watch(() => bitcoinLocks.data.latestArgonBlock?.blockHash, checkDepositConfirmation);
+Vue.watch([trimmedDestination, feeRatePerSatVb, isCooperativeReturn], queueArgonFeeQuote, { immediate: true });
 Vue.watch(
   () => wallets.defaultArgonWallet.availableMicrogons,
   availableBalance => {
@@ -412,6 +505,31 @@ Vue.onUnmounted(() => {
 });
 
 Vue.onMounted(() => trackArgonRequestProgress());
+
+function checkDepositConfirmation(): Promise<void> {
+  if (depositCheckPromise) return depositCheckPromise;
+  const record = props.record;
+  if (depositCheckError.value) isCheckingDeposit.value = true;
+  depositCheckError.value = '';
+  if (!canRequestReturn.value || !isCooperativeReturn.value) {
+    isCheckingDeposit.value = false;
+    return Promise.resolve();
+  }
+  depositCheckPromise = (async () => {
+    try {
+      const wait = await bitcoinLocks.cooperativeReleases.getDepositConfirmationWait(record);
+      if (isDisposed || record.id !== props.record.id) return;
+      depositConfirmationWait.value = wait;
+    } catch (error) {
+      if (isDisposed || record.id !== props.record.id) return;
+      depositCheckError.value = error instanceof Error ? error.message : String(error);
+    } finally {
+      isCheckingDeposit.value = false;
+      depositCheckPromise = undefined;
+    }
+  })();
+  return depositCheckPromise;
+}
 
 function queueArgonFeeQuote(): void {
   if (feeQuoteTimeout) clearTimeout(feeQuoteTimeout);
@@ -434,10 +552,20 @@ function queueArgonFeeQuote(): void {
 async function requestReturn(): Promise<void> {
   if (!canSubmit.value) return;
   isSubmitting.value = true;
-  isArgonRequestInProgress.value = true;
+  isArgonRequestInProgress.value = !isCooperativeReturn.value;
   requestError.value = '';
 
   try {
+    if (isCooperativeReturn.value) {
+      await bitcoinLocks.releases.requestCooperativeRelease({
+        lock: props.lock,
+        record: props.record,
+        toScriptPubkey: trimmedDestination.value,
+        feeRatePerSatVb: feeRatePerSatVb.value,
+        owner: await getWalletKeys().getLiquidLockingKeypair(),
+      });
+      return;
+    }
     const txInfo = await bitcoinOrphanRelease.submit({
       lock: props.lock,
       record: props.record,
@@ -473,6 +601,22 @@ function trackArgonRequestProgress(
 
 async function refreshArgonFeeQuote(runId: number): Promise<void> {
   try {
+    if (isCooperativeReturn.value) {
+      const { releaseRequest } = bitcoinLocks.releases.prepareCooperativeRelease({
+        lock: props.lock,
+        record: props.record,
+        toScriptPubkey: trimmedDestination.value,
+        feeRatePerSatVb: feeRatePerSatVb.value,
+      });
+      if (runId !== feeQuoteRunId) return;
+      argonFeeQuote.value = {
+        canAfford: true,
+        availableBalance: 0n,
+        bitcoinNetworkFee: releaseRequest.bitcoinNetworkFee,
+        txFee: 0n,
+      };
+      return;
+    }
     const prepared = await bitcoinOrphanRelease.prepare({
       lock: props.lock,
       record: props.record,
@@ -490,7 +634,7 @@ async function refreshArgonFeeQuote(runId: number): Promise<void> {
   } catch (error) {
     if (runId !== feeQuoteRunId) return;
     console.warn('[WalletViewUnattachedBitcoin] Unable to check the Argon transaction fee', error);
-    argonFeeQuoteError.value = 'Unable to check the Argon transaction fee. Please try again.';
+    argonFeeQuoteError.value = error instanceof Error ? error.message : String(error);
   } finally {
     if (runId === feeQuoteRunId) isCheckingArgonFee.value = false;
   }

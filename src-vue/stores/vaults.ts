@@ -144,6 +144,7 @@ export function getMyVault(): MyVault {
       miningFrames,
       globalCouncil,
       mintingAuthorities,
+      () => (config.serverDetails.ipAddress ? getServerApiClient() : undefined),
     );
     myVault.data = reactive(myVault.data) as any;
     watch(

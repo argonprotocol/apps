@@ -6,6 +6,9 @@ import {
   type IEthereumGatewayCatchUpRequest,
   type IEthereumGatewayCatchUpResponse,
   type IEthereumGatewayRelayStatus,
+  type IBitcoinCooperativeReleaseMailboxRecord,
+  type IBitcoinCooperativeReleaseMailboxPage,
+  type IBitcoinCooperativeReleaseResponse,
 } from '@argonprotocol/apps-core';
 import type {
   ICreateInviteRequest,
@@ -91,6 +94,33 @@ export class ServerApiClient {
 
   public get canAccessServer(): boolean {
     return this.walletKeys.canAccessServer;
+  }
+
+  public async getPendingBitcoinCooperativeReleases(): Promise<IBitcoinCooperativeReleaseMailboxRecord[]> {
+    const status = await this.request<{ bitcoinCooperativeReleaseMailboxVersion?: number }>('/');
+    if (status.bitcoinCooperativeReleaseMailboxVersion !== 1)
+      throw new Error('Upgrade the operator server and enable authentication to receive Bitcoin return requests.');
+    const requests: IBitcoinCooperativeReleaseMailboxRecord[] = [];
+    let cursor: string | undefined;
+    do {
+      const path = `/bitcoin-cooperative-releases/pending${cursor ? `?cursor=${encodeURIComponent(cursor)}` : ''}`;
+      const page = await this.request<IBitcoinCooperativeReleaseMailboxPage>(path, { adminOperatorAuth: true });
+      requests.push(...page.requests);
+      cursor = page.nextCursor;
+    } while (cursor);
+    return requests;
+  }
+
+  public async respondToBitcoinCooperativeRelease(
+    releaseId: string,
+    response: IBitcoinCooperativeReleaseResponse,
+  ): Promise<IBitcoinCooperativeReleaseMailboxRecord> {
+    const result = await this.postJson<{ bitcoinCooperativeRelease: IBitcoinCooperativeReleaseMailboxRecord }>(
+      `/bitcoin-cooperative-releases/${encodeURIComponent(releaseId)}/response`,
+      response,
+      { adminOperatorAuth: true },
+    );
+    return result.bitcoinCooperativeRelease;
   }
 
   public getGatewayHttpUrl(path = '', sessionId?: string): string {

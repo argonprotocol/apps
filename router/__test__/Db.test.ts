@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { runSqliteMigrations, UserRole } from '@argonprotocol/apps-core';
 import { Db } from '../src/Db.ts';
 import { migrations } from '../src/db/migrations/index.ts';
+import { BitcoinLockCouponUseUtxoMigration } from '../src/db/migrations/006-bitcoin-lock-coupon-use-utxo.ts';
 
 describe('Db', () => {
   let db: Db | undefined;
@@ -35,7 +36,7 @@ describe('Db', () => {
   it('adds the Lock identity to existing coupon-use databases', () => {
     const testDb = new Db(Path.join(Fs.mkdtempSync(Path.join(os.tmpdir(), 'router-db-')), 'router.sqlite'));
     db = testDb;
-    runSqliteMigrations(testDb.sql, migrations.slice(0, -1));
+    runSqliteMigrations(testDb.sql, migrations.slice(0, migrations.indexOf(BitcoinLockCouponUseUtxoMigration)));
 
     const columnsBeforeUpgrade = testDb.sql.prepare('PRAGMA table_info(BitcoinLockCouponUses)').all();
     expect(columnsBeforeUpgrade.some(column => column.name === 'utxoId')).toBe(false);

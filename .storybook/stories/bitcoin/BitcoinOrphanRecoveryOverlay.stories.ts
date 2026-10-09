@@ -171,6 +171,35 @@ export const AffordableReturn: Story = {
   },
 };
 
+export const CooperativeReturn: Story = {
+  beforeEach: () => {
+    isInteractive.value = true;
+    scenario = setupBitcoinOverlayScenario();
+    orphanRecord = createOrphanRecord(414, { isOnArgonChain: false });
+  },
+  play: async () => {
+    try {
+      await userEvent.type(
+        await within(document.body).findByTestId('WalletViewUnattachedBitcoin.returnDestination'),
+        returnAddress(),
+      );
+    } finally {
+      disablePreview();
+    }
+  },
+};
+
+export const ReturnUnavailable: Story = {
+  beforeEach: () => {
+    isInteractive.value = false;
+    scenario = setupBitcoinOverlayScenario();
+    orphanRecord = createReleaseRecord(415, BitcoinReleaseStatus.Failed, {
+      kind: BitcoinReleaseKind.Cooperative,
+      statusError: 'This deposit was funding the lock when it was removed.',
+    });
+  },
+};
+
 export const ArgonRequest: Story = {
   beforeEach: () => {
     isInteractive.value = false;
@@ -199,7 +228,9 @@ export const AwaitingVaultSignature: Story = {
   beforeEach: () => {
     isInteractive.value = false;
     scenario = setupBitcoinOverlayScenario();
-    orphanRecord = createReleaseRecord(409, BitcoinReleaseStatus.WaitingForVaultCosign);
+    orphanRecord = createReleaseRecord(409, BitcoinReleaseStatus.WaitingForVaultCosign, {
+      kind: BitcoinReleaseKind.Cooperative,
+    });
   },
 };
 

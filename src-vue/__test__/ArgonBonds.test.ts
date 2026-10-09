@@ -36,7 +36,7 @@ import { Currency as AppCurrency } from '../lib/Currency.ts';
 import * as vaultStore from '../stores/vaults.ts';
 import * as bondStore from '../stores/argonBonds.ts';
 import * as currencyStore from '../stores/currency.ts';
-import { useVaultingAssetBreakdown } from '../stores/vaultingAssetBreakdown.ts';
+import { allocateBitcoinVaultSpace, useVaultingAssetBreakdown } from '../stores/vaultingAssetBreakdown.ts';
 
 const registry = getOfflineRegistry();
 const deployedRegistry = new TypeRegistry();
@@ -53,7 +53,8 @@ describe('ArgonBonds', () => {
       createScenarioVault({
         totalSatoshis: 100_000_000n,
         securitization: 100n * oneArgon,
-        securitizationLocked: 100n * oneArgon,
+        securitizationTarget: 100n * oneArgon,
+        securitizationLocked: 25n * oneArgon,
       }),
     );
     const currency = reactive(new AppCurrency({ events: { on: vi.fn() } } as any, {} as any));
@@ -69,16 +70,19 @@ describe('ArgonBonds', () => {
 
     try {
       const breakdown = useVaultingAssetBreakdown();
-      expect(breakdown.securityMicrogonsActivatedPct).toBe(100);
       // Target-price display conversion is 104 ARGN; actual Bitcoin backing is below 100 ARGN.
       expect(breakdown.bitcoinLockedValueMicrogons).toBe(104n * oneArgon);
       expect(breakdown.bitcoinUndersecuritized).toBe(false);
       expect(breakdown.bitcoinRequiredSecuritizationMicrogons).toBe(99_047_619n);
+      expect(breakdown.bitcoinFundingShortfallMicrogons).toBe(0n);
 
       currency.priceIndex.argonUsdPrice = BigNumber(1);
       expect(breakdown.bitcoinUndersecuritized).toBe(true);
+      expect(breakdown.bitcoinFundingShortfallMicrogons).toBe(4n * oneArgon);
       vault.securitization = 104n * oneArgon;
+      vault.securitizationTarget = 104n * oneArgon;
       expect(breakdown.bitcoinUndersecuritized).toBe(false);
+      expect(breakdown.bitcoinFundingShortfallMicrogons).toBe(0n);
 
       currency.priceIndex.btcUsdPrice = BigNumber(105.039999);
       expect(breakdown.bitcoinUndersecuritized).toBe(false);
@@ -97,6 +101,67 @@ describe('ArgonBonds', () => {
       bondAccessor.mockRestore();
       currencyAccessor.mockRestore();
     }
+  });
+
+  it('keeps liquids and fills the remaining Bitcoin chart space with the largest locks first', () => {
+    const currency = new Currency({ events: { on: vi.fn() } } as any);
+    currency.priceIndex.btcUsdPrice = BigNumber(1_000);
+    currency.priceIndex.argonUsdPrice = BigNumber(1);
+    const oneArgon = BigInt(MICROGONS_PER_ARGON);
+    const liquid = {
+      fundedSatoshis: 25_000_000n,
+      fissionedSatoshis: 25_000_000n,
+      securitizationCoverageMicrogons: 50n * oneArgon,
+      securitizationRatio: 2,
+    };
+    const lock = { lockId: 5, fundedSatoshis: 100_000_000n, fissionedSatoshis: 0n };
+    const otherLock = { lockId: 3, fundedSatoshis: 50_000_000n, fissionedSatoshis: 0n };
+    const locks = [otherLock, liquid, lock];
+
+    const allocations = allocateBitcoinVaultSpace(locks, 875n * oneArgon, currency.priceIndex);
+    expect(allocations.get(liquid)).toEqual({
+      allocatedMicrogons: 100n * oneArgon,
+      requiredMicrogons: 100n * oneArgon,
+    });
+    expect(allocations.get(lock)).toEqual({
+      allocatedMicrogons: 775n * oneArgon,
+      requiredMicrogons: 1_000n * oneArgon,
+    });
+    expect(allocations.get(otherLock)).toEqual({
+      allocatedMicrogons: 0n,
+      requiredMicrogons: 500n * oneArgon,
+    });
+    expect([...allocations.values()].reduce((sum, { allocatedMicrogons }) => sum + allocatedMicrogons, 0n)).toBe(
+      875n * oneArgon,
+    );
+
+    // With more funding, locks stop at their Bitcoin value and leave genuinely unused space.
+    const funded = allocateBitcoinVaultSpace(locks, 2_000n * oneArgon, currency.priceIndex);
+    expect(funded.get(liquid)?.allocatedMicrogons).toBe(100n * oneArgon);
+    expect(funded.get(lock)?.allocatedMicrogons).toBe(1_000n * oneArgon);
+    expect(funded.get(otherLock)?.allocatedMicrogons).toBe(500n * oneArgon);
+
+    // Once the largest lock fits, the next one gets only the space still available.
+    const partlyFull = allocateBitcoinVaultSpace(locks, 1_200n * oneArgon, currency.priceIndex);
+    expect(partlyFull.get(lock)?.allocatedMicrogons).toBe(1_000n * oneArgon);
+    expect(partlyFull.get(otherLock)?.allocatedMicrogons).toBe(100n * oneArgon);
+
+    // Keep all liquids visible even when their combined collateral exceeds held funding.
+    const anotherLiquid = { ...liquid, securitizationCoverageMicrogons: 20n * oneArgon };
+    const full = allocateBitcoinVaultSpace([...locks, anotherLiquid], 70n * oneArgon, currency.priceIndex);
+    expect(full.get(liquid)).toEqual({ allocatedMicrogons: 50n * oneArgon, requiredMicrogons: 100n * oneArgon });
+    expect(full.get(anotherLiquid)).toEqual({ allocatedMicrogons: 20n * oneArgon, requiredMicrogons: 40n * oneArgon });
+    expect(full.get(lock)?.allocatedMicrogons).toBe(0n);
+    expect(full.get(otherLock)?.allocatedMicrogons).toBe(0n);
+
+    // Equal-sized locks retain their selection when refreshed records arrive in another order.
+    const equalLock = { ...otherLock, lockId: 7 };
+    const tied = allocateBitcoinVaultSpace([equalLock, otherLock], 300n * oneArgon, currency.priceIndex);
+    const reordered = allocateBitcoinVaultSpace([otherLock, equalLock], 300n * oneArgon, currency.priceIndex);
+    expect(tied.get(otherLock)?.allocatedMicrogons).toBe(300n * oneArgon);
+    expect(tied.get(equalLock)?.allocatedMicrogons).toBe(0n);
+    expect(reordered.get(otherLock)).toEqual(tied.get(otherLock));
+    expect(reordered.get(equalLock)).toEqual(tied.get(equalLock));
   });
 
   it('keeps owner purchases within bond space not occupied by flexible bonds', () => {

@@ -58,6 +58,7 @@ import { getEthereumGatewayPauseReason, setMainchainClients } from '../../src-vu
 import { Db } from '../../src-vue/lib/Db.ts';
 import type { MemoryWalletKeys } from '../../src-vue/lib/MemoryWalletKeys.ts';
 import { ServerAuthClient } from '../../src-vue/lib/ServerAuthClient.ts';
+import type { ServerApiClient } from '../../src-vue/lib/ServerApiClient.ts';
 
 type IEthereumMintingAuthorityWalletSetup = {
   councilSigner: string;
@@ -123,8 +124,9 @@ export class AppVaultOperator {
     clients: MainchainClients;
     walletKeys: MemoryWalletKeys;
     networkConfigOverride?: INetworkConfigOverride;
+    serverApiClient?: ServerApiClient;
   }): Promise<AppVaultOperator> {
-    const { clients, walletKeys, networkConfigOverride } = args;
+    const { clients, walletKeys, networkConfigOverride, serverApiClient } = args;
 
     setMainchainClients(clients);
     if (networkConfigOverride) {
@@ -191,6 +193,7 @@ export class AppVaultOperator {
       miningFrames,
       globalCouncil,
       mintingAuthorities,
+      () => serverApiClient,
     );
     const bitcoinLockResecuritize = new BitcoinLockResecuritize(
       bitcoinLocks,

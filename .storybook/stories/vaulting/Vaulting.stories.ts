@@ -13,6 +13,7 @@ import {
 } from '../../scenarios/setupVaultingPortfolioScenario.ts';
 import basicEmitter from '../../../src-vue/emitters/basicEmitter.ts';
 import { TopTab, VaultingSetupStatus, type IConfig } from '../../../src-vue/interfaces/IConfig.ts';
+import { BitcoinLockStatus } from '../../../src-vue/interfaces/IBitcoinLockRecord.ts';
 import { Config } from '../../../src-vue/lib/Config.ts';
 import { VaultCollectBuilder } from '../../../src-vue/lib/VaultCollectBuilder.ts';
 import VaultCollectOverlay from '../../../src-vue/overlays/VaultCollectOverlay.vue';
@@ -177,6 +178,56 @@ export const Portfolio: Story = {
   beforeEach: () => {
     setupVaultingPortfolioScenario();
     Object.assign(getConfig(), { hasSavedVaultSetup: false });
+  },
+};
+
+export const BitcoinLocksFillRemainingSpace: Story = {
+  name: 'Bitcoin locks exceed vault capacity',
+  beforeEach: () => {
+    setupVaultingPortfolioScenario();
+    const myVault = getMyVault();
+    const locks = getBitcoinLocks().getAllLocks();
+    const liquid = locks[0];
+    liquid.fundedSatoshis = 5_000_000n;
+    liquid.securitizedSatoshis = liquid.fundedSatoshis;
+    liquid.microgonsAtTargetPerBtc = 12_000_000_000n;
+    liquid.securitizationCoverageMicrogons = 600_000_000n;
+    liquid.fissionedSatoshis = liquid.fundedSatoshis;
+    const lock = locks[1];
+    lock.status = BitcoinLockStatus.LockFunded;
+    lock.securitizationCoverageMicrogons = 0n;
+    lock.fissionedSatoshis = 0n;
+    lock.fundedSatoshis = 50_000_000n;
+    lock.securitizedSatoshis = lock.fundedSatoshis;
+    lock.microgonsAtTargetPerBtc = liquid.microgonsAtTargetPerBtc;
+    getBitcoinLocks().getAllLocks = fn(() => [liquid, lock]);
+    myVault.data.externalLocks = {};
+    myVault.createdVault!.securitizationLocked = 600_000_000n;
+    myVault.createdVault!.securitizationPendingActivation = 0n;
+    myVault.createdVault!.totalSatoshis = liquid.fundedSatoshis + lock.fundedSatoshis;
+    myVault.createdVault!.securitizedSatoshis = liquid.fundedSatoshis;
+
+    // Isolate Bitcoin overflow with sufficient ARGNOT backing and a matching frame snapshot.
+    myVault.data.argonotCommitment = {
+      heldMicronots: 2_400_000_000n,
+      committedMicronots: 2_400_000_000n,
+      encumberedMicronots: 0n,
+    };
+    const capital = getArgonBonds().data.frameCapital!;
+    getArgonBonds().data.frameCapital = {
+      ...capital,
+      vaultSecuritizationPositions: {
+        ...capital.vaultSecuritizationPositions,
+        [myVault.vaultId!]: {
+          ...capital.vaultSecuritizationPositions[myVault.vaultId!],
+          activatedSecuritization: myVault.createdVault!.activatedSecuritization(),
+          bitcoinLockedMicrogons: getCurrency().priceIndex.getSatoshiPriceInMarketMicrogons(
+            myVault.createdVault!.totalSatoshis,
+          ),
+          argonotSecuritizationInMicrogons: 4_800_000_000n,
+        },
+      },
+    };
   },
 };
 
@@ -478,7 +529,6 @@ export const RevenueCaptureWithoutBitcoin: Story = {
     mocked(useVaultingAssetBreakdown).mockReturnValue({
       ...breakdown,
       securityMicrogonsActivated: 0n,
-      securityMicrogonsActivatedPct: 0,
     });
   },
   play: ArgonotRewardShortfall.play,
@@ -541,9 +591,52 @@ export const ExternalBondDetails: Story = {
 };
 
 export const UnderSecuritized: Story = {
-  beforeEach: setupVaultingPortfolioScenario,
+  beforeEach: () => {
+    setupVaultingPortfolioScenario();
+    const myVault = getMyVault();
+    const [liquid, lock] = getBitcoinLocks().getAllLocks();
+    liquid.fundedSatoshis = 19_800_000n;
+    liquid.securitizedSatoshis = liquid.fundedSatoshis;
+    liquid.microgonsAtTargetPerBtc = 12_000_000_000n;
+    liquid.fissionedSatoshis = liquid.fundedSatoshis;
+    liquid.securitizationCoverageMicrogons = 2_376_000_000n;
+    lock.fundedSatoshis = 1_000_000n;
+    lock.status = BitcoinLockStatus.LockFunded;
+    lock.securitizedSatoshis = lock.fundedSatoshis;
+    lock.microgonsAtTargetPerBtc = liquid.microgonsAtTargetPerBtc;
+    lock.fissionedSatoshis = 0n;
+    lock.securitizationCoverageMicrogons = 0n;
+    getBitcoinLocks().getAllLocks = fn(() => [liquid, lock]);
+    myVault.data.externalLocks = {};
+    myVault.createdVault!.securitizationLocked = liquid.securitizationCoverageMicrogons;
+    myVault.createdVault!.securitizationPendingActivation = 0n;
+    myVault.createdVault!.totalSatoshis = liquid.fundedSatoshis + lock.fundedSatoshis;
+    myVault.createdVault!.securitizedSatoshis = liquid.fundedSatoshis;
+
+    myVault.data.argonotCommitment = {
+      heldMicronots: 2_400_000_000n,
+      committedMicronots: 2_400_000_000n,
+      encumberedMicronots: 0n,
+    };
+    const capital = getArgonBonds().data.frameCapital!;
+    getArgonBonds().data.frameCapital = {
+      ...capital,
+      vaultSecuritizationPositions: {
+        ...capital.vaultSecuritizationPositions,
+        [myVault.vaultId!]: {
+          ...capital.vaultSecuritizationPositions[myVault.vaultId!],
+          activatedSecuritization: myVault.createdVault!.activatedSecuritization(),
+          bitcoinLockedMicrogons: getCurrency().priceIndex.getSatoshiPriceInMarketMicrogons(
+            myVault.createdVault!.totalSatoshis,
+          ),
+          argonotSecuritizationInMicrogons: 4_800_000_000n,
+        },
+      },
+    };
+  },
   play: async ({ canvasElement }) => {
-    await userEvent.hover(within(canvasElement).getByRole('button', { name: /Allowed BTC Is Locked/ }));
+    await userEvent.hover(within(canvasElement).getByLabelText('Bitcoin exceeds vault capacity'));
+    await within(document.body).findAllByRole('tooltip', { hidden: true });
   },
 };
 

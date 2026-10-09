@@ -11,6 +11,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 export interface DevGatewayCertOptions {
   appInstance?: string;
   network?: string;
+  env?: NodeJS.ProcessEnv;
 }
 
 const scriptPath = fileURLToPath(import.meta.url);
@@ -28,8 +29,9 @@ if (isMainModule()) {
 }
 
 export async function ensureDevGatewayCerts(options: DevGatewayCertOptions = {}): Promise<void> {
-  const certHome = getCertHome();
-  const rootCaPath = Path.join(certHome, 'rootCA.pem');
+  const env = options.env ?? process.env;
+  const certHome = getCertHome(env);
+  const rootCaPath = getDevGatewayRootCaPath(env);
   const rootCaKeyPath = Path.join(certHome, 'rootCA-key.pem');
   const localhostCertDir = Path.join(certHome, 'localhost');
   const leafCertPath = Path.join(localhostCertDir, 'cert.pem');
@@ -55,7 +57,7 @@ export async function ensureDevGatewayCerts(options: DevGatewayCertOptions = {})
     });
   }
 
-  if (process.platform === 'darwin' && !readBooleanEnv('ARGON_DEV_GATEWAY_SKIP_TRUST')) {
+  if (process.platform === 'darwin' && !readBooleanEnv('ARGON_DEV_GATEWAY_SKIP_TRUST', env)) {
     trustRootCaOnMac(rootCaPath);
   }
 
@@ -71,13 +73,17 @@ export async function ensureDevGatewayCerts(options: DevGatewayCertOptions = {})
   console.info(`[dev-gateway-certs] Gateway certificate ready for ${targets.length} nginx target(s)`);
 }
 
+export function getDevGatewayRootCaPath(env: NodeJS.ProcessEnv = process.env): string {
+  return Path.join(getCertHome(env), 'rootCA.pem');
+}
+
 function isMainModule(): boolean {
   const executedPath = process.argv[1] ? Path.resolve(process.argv[1]) : '';
   return import.meta.url === pathToFileURL(executedPath).href;
 }
 
-function getCertHome(): string {
-  return readNonEmptyEnv('ARGON_DEV_GATEWAY_CERT_HOME') ?? Path.join(Os.homedir(), '.argon', 'dev-gateway-ca');
+function getCertHome(env: NodeJS.ProcessEnv): string {
+  return readNonEmptyEnv('ARGON_DEV_GATEWAY_CERT_HOME', env) ?? Path.join(Os.homedir(), '.argon', 'dev-gateway-ca');
 }
 
 function shouldCreateRootCa(rootCaPath: string, rootCaKeyPath: string): boolean {
@@ -177,15 +183,18 @@ function trustRootCaOnMac(rootCaPath: string): void {
 }
 
 function getCertificateTargetDirs(options: DevGatewayCertOptions): string[] {
-  const configuredTargets = readNonEmptyEnv('ARGON_DEV_GATEWAY_CERT_TARGETS');
+  const env = options.env ?? process.env;
+  const configuredTargets = readNonEmptyEnv('ARGON_DEV_GATEWAY_CERT_TARGETS', env);
   if (configuredTargets) {
     return configuredTargets.split(Path.delimiter).map(target => Path.resolve(target));
   }
 
-  const network = options.network ?? readNonEmptyEnv('ARGON_NETWORK_NAME') ?? 'dev-docker';
-  const instanceName = normalizeInstanceName(options.appInstance ?? readNonEmptyEnv('ARGON_APP_INSTANCE') ?? 'e2e');
+  const network = options.network ?? readNonEmptyEnv('ARGON_NETWORK_NAME', env) ?? 'dev-docker';
+  const instanceName = normalizeInstanceName(
+    options.appInstance ?? readNonEmptyEnv('ARGON_APP_INSTANCE', env) ?? 'e2e',
+  );
   const appIds = getLocalAppIds();
-  const appConfigBaseDir = getAppConfigBaseDir();
+  const appConfigBaseDir = getAppConfigBaseDir(env);
   const targets = new Set<string>([Path.join(repoRoot, 'config', 'nginx-certs')]);
 
   for (const appId of appIds) {
@@ -201,14 +210,14 @@ function getLocalAppIds(): string[] {
   return ['com.argon.desktop.local'];
 }
 
-function getAppConfigBaseDir(): string {
+function getAppConfigBaseDir(env: NodeJS.ProcessEnv): string {
   if (process.platform === 'darwin') {
     return Path.join(Os.homedir(), 'Library', 'Application Support');
   }
   if (process.platform === 'win32') {
-    return process.env.APPDATA || Path.join(Os.homedir(), 'AppData', 'Roaming');
+    return env.APPDATA || Path.join(Os.homedir(), 'AppData', 'Roaming');
   }
-  return process.env.XDG_CONFIG_HOME || Path.join(Os.homedir(), '.config');
+  return env.XDG_CONFIG_HOME || Path.join(Os.homedir(), '.config');
 }
 
 function normalizeInstanceName(appInstance: string): string {
@@ -315,12 +324,12 @@ function readExistingFile(path: string): string | undefined {
   }
 }
 
-function readNonEmptyEnv(name: string): string | undefined {
-  const value = process.env[name]?.trim();
+function readNonEmptyEnv(name: string, env: NodeJS.ProcessEnv): string | undefined {
+  const value = env[name]?.trim();
   return value ? value : undefined;
 }
 
-function readBooleanEnv(name: string): boolean {
-  const value = readNonEmptyEnv(name);
+function readBooleanEnv(name: string, env: NodeJS.ProcessEnv): boolean {
+  const value = readNonEmptyEnv(name, env);
   return value === '1' || value === 'true';
 }

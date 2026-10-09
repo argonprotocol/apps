@@ -46,9 +46,18 @@ export function getBitcoinLocks(): BitcoinLocks {
     const transactionTracker = getTransactionTracker();
     const keys = getWalletKeys();
     const blockWatch = getBlockWatch();
-    locks = new BitcoinLocks(dbPromise, keys, blockWatch, getCurrency(), transactionTracker);
+    locks = new BitcoinLocks(
+      dbPromise,
+      keys,
+      blockWatch,
+      getCurrency(),
+      transactionTracker,
+      undefined,
+      getUpstreamOperatorClient(),
+    );
     locks.data = Vue.reactive(locks.data) as any;
     locks.releases.data = Vue.reactive(locks.releases.data) as BitcoinReleases['data'];
+    locks.cooperativeReleases.data = Vue.reactive(locks.cooperativeReleases.data);
     locks.utxoTracking.data = Vue.reactive(locks.utxoTracking.data) as any;
   }
   void locks.load().catch(error => {

@@ -1,6 +1,10 @@
 import {
   AccountActivityKind,
   BitcoinLock,
+  JsonExt,
+  signBitcoinCooperativeReleaseRequest,
+  verifyBitcoinCooperativeReleaseRequest,
+  type IBitcoinCooperativeReleaseRequest,
   bigIntMax,
   bigIntMin,
   type ArgonClient,
@@ -12,7 +16,11 @@ import {
   type IReleaseRequestDetails,
   type RuntimeSystemEventRecord,
 } from '@argonprotocol/apps-core';
-import { hexToU8a, u8aToHex } from '@argonprotocol/mainchain';
+import { hexToU8a, u8aToHex, type KeyringPair } from '@argonprotocol/mainchain';
+import { addressBytesHex, type CosignScript } from '@argonprotocol/bitcoin';
+import { OutScript } from '@scure/btc-signer';
+import { sha256AsU8a } from '@polkadot/util-crypto';
+import { nanoid } from 'nanoid';
 import { toRuntimeEvent } from '@argonprotocol/runtime-client';
 
 import { BitcoinLockStatus, type IBitcoinLockRecord } from '../interfaces/IBitcoinLockRecord.ts';
@@ -38,6 +46,8 @@ import { ExtrinsicType, TransactionStatus } from './db/TransactionsTable.ts';
 import { isWalletSigningUnavailableError, type WalletKeys } from './WalletKeys.ts';
 import { assignIfUnset } from './Utils.ts';
 import { findAddressActivity } from './IndexerClient.ts';
+import type { UpstreamOperatorClient } from './UpstreamOperatorClient.ts';
+import { BitcoinCooperativeReleases, CooperativeReleaseRejected } from './BitcoinCooperativeReleases.ts';
 
 const releaseProgress: Partial<Record<BitcoinReleaseStatus, number>> = {
   [BitcoinReleaseStatus.SubmittingRequestOnArgon]: 0,
@@ -77,6 +87,7 @@ export default class BitcoinReleases {
     private readonly currency: Currency,
     private readonly blockWatch: BlockWatch,
     private readonly transactionTracker: TransactionTracker,
+    private readonly upstreamOperator?: UpstreamOperatorClient,
   ) {}
 
   public static createSendPlan(
@@ -95,11 +106,9 @@ export default class BitcoinReleases {
         const leftCanFullyRelease = (left.channel.fissionedSatoshis ?? 0n) === 0n;
         const rightCanFullyRelease = (right.channel.fissionedSatoshis ?? 0n) === 0n;
         if (leftCanFullyRelease !== rightCanFullyRelease) return leftCanFullyRelease ? -1 : 1;
-        return left.channel.fundedSatoshis < right.channel.fundedSatoshis
-          ? -1
-          : left.channel.fundedSatoshis > right.channel.fundedSatoshis
-            ? 1
-            : 0;
+        if (left.channel.fundedSatoshis < right.channel.fundedSatoshis) return -1;
+        if (left.channel.fundedSatoshis > right.channel.fundedSatoshis) return 1;
+        return 0;
       });
 
     const exactFullRelease = ordered.find(
@@ -183,7 +192,9 @@ export default class BitcoinReleases {
       .sort((left, right) => {
         const leftCapacity = left.maximumGrossSatoshis - left.minimumGrossSatoshis;
         const rightCapacity = right.maximumGrossSatoshis - right.minimumGrossSatoshis;
-        return rightCapacity < leftCapacity ? -1 : rightCapacity > leftCapacity ? 1 : 0;
+        if (leftCapacity > rightCapacity) return -1;
+        if (leftCapacity < rightCapacity) return 1;
+        return 0;
       });
 
     const selected: typeof candidates = [];
@@ -300,18 +311,19 @@ export default class BitcoinReleases {
     return utxo.activeReleaseId ? this.getById(utxo.activeReleaseId) : undefined;
   }
 
-  public getActiveOrphanReleases(): IBitcoinReleaseRecord[] {
+  public getActiveDepositReleases(): IBitcoinReleaseRecord[] {
     return Object.values(this.data.releasesById).filter(release => {
-      const inputUtxo =
-        release.inputUtxoIds.length === 1 ? this.utxoTracking.getUtxoRecordById(release.inputUtxoIds[0]) : undefined;
-      return (
-        release.kind === BitcoinReleaseKind.Orphan &&
-        inputUtxo?.activeReleaseId === release.id &&
-        release.status !== BitcoinReleaseStatus.Complete &&
-        release.status !== BitcoinReleaseStatus.Cancelled &&
-        release.status !== BitcoinReleaseStatus.Failed &&
-        release.status !== BitcoinReleaseStatus.FailedAcknowledged
-      );
+      if (release.inputUtxoIds.length !== 1) return false;
+      const inputUtxo = this.utxoTracking.getUtxoRecordById(release.inputUtxoIds[0]);
+      if (release.kind === BitcoinReleaseKind.Lock) return false;
+      if (inputUtxo?.activeReleaseId !== release.id) return false;
+
+      return ![
+        BitcoinReleaseStatus.Complete,
+        BitcoinReleaseStatus.Cancelled,
+        BitcoinReleaseStatus.Failed,
+        BitcoinReleaseStatus.FailedAcknowledged,
+      ].includes(release.status);
     });
   }
 
@@ -340,7 +352,7 @@ export default class BitcoinReleases {
     return Object.values(this.data.releasesById)
       .filter(
         release =>
-          release.kind === BitcoinReleaseKind.Orphan &&
+          release.kind !== BitcoinReleaseKind.Lock &&
           release.lockId === utxo.lockId &&
           release.inputUtxoIds.includes(utxo.id),
       )
@@ -416,23 +428,22 @@ export default class BitcoinReleases {
     return persisted;
   }
 
-  public async createOrphanRelease(
+  public async createDepositRelease(
     utxo: IBitcoinUtxoRecord,
     release: Omit<IBitcoinReleaseRecord, 'createdAt' | 'updatedAt'>,
   ): Promise<IBitcoinReleaseRecord> {
     if (
-      release.kind !== BitcoinReleaseKind.Orphan ||
+      release.kind === BitcoinReleaseKind.Lock ||
       release.lockId !== utxo.lockId ||
       release.inputUtxoIds.length !== 1 ||
       release.inputUtxoIds[0] !== utxo.id
     ) {
-      throw new Error('Bitcoin orphan release does not belong to the selected UTXO.');
+      throw new Error('Bitcoin deposit release does not belong to the selected UTXO.');
     }
-    if (
-      utxo.status !== BitcoinUtxoStatus.Orphaned ||
-      utxo.isOnArgonChain === false ||
-      utxo.spendStatus === BitcoinUtxoSpendStatus.Spent
-    ) {
+    const isUnavailableOrphan =
+      release.kind === BitcoinReleaseKind.Orphan &&
+      (utxo.status !== BitcoinUtxoStatus.Orphaned || utxo.isOnArgonChain === false);
+    if (isUnavailableOrphan || utxo.spendStatus === BitcoinUtxoSpendStatus.Spent) {
       throw new Error('This orphan return is not currently available.');
     }
     if (utxo.activeReleaseId && utxo.activeReleaseId !== release.id) {
@@ -448,6 +459,7 @@ export default class BitcoinReleases {
         persisted.lockId !== release.lockId ||
         persisted.toScriptPubkey !== release.toScriptPubkey ||
         persisted.bitcoinNetworkFee !== release.bitcoinNetworkFee ||
+        JsonExt.stringify(persisted.cooperativeRequest) !== JsonExt.stringify(release.cooperativeRequest) ||
         persisted.inputUtxoIds.length !== 1 ||
         persisted.inputUtxoIds[0] !== utxo.id
       ) {
@@ -460,6 +472,137 @@ export default class BitcoinReleases {
     Object.assign(utxo, utxoDraft);
     this.data.releasesById[persisted.id] = persisted;
     return persisted;
+  }
+
+  public canRequestDepositReturn(lock: IBitcoinLockRecord, utxo: IBitcoinUtxoRecord): boolean {
+    if (utxo.spendStatus === BitcoinUtxoSpendStatus.Spent || utxo.status === BitcoinUtxoStatus.FundingUtxo)
+      return false;
+    if (this.getActiveForUtxo(utxo)) return false;
+
+    const previousReturn = this.getLatestForUtxo(utxo);
+    if (previousReturn?.kind === BitcoinReleaseKind.Cooperative) return false;
+    if (utxo.status === BitcoinUtxoStatus.Orphaned) return true;
+    return utxo.fundingRejectionReason === 'BelowMinimum' || !!lock.removalBlockNumber;
+  }
+
+  public prepareCooperativeRelease({
+    lock,
+    record,
+    toScriptPubkey,
+    feeRatePerSatVb,
+  }: Omit<Parameters<BitcoinReleases['requestCooperativeRelease']>[0], 'owner' | 'toScriptPubkey'> & {
+    toScriptPubkey?: string;
+  }): {
+    cosign: CosignScript;
+    releaseRequest: IReleaseRequest;
+  } {
+    // Before an address is entered, quote the cheapest supported destination: a P2WPKH output.
+    // This script is only a size estimate; requestCooperativeRelease requires the actual destination.
+    let destination: string;
+    if (toScriptPubkey) destination = addressBytesHex(toScriptPubkey, this.bitcoinLocks.bitcoinNetwork);
+    else destination = u8aToHex(OutScript.encode({ type: 'wpkh', hash: new Uint8Array(20) }));
+    const cosign = this.bitcoinLocks.createCosignScript({ lock, fundedSatoshis: record.satoshis });
+    const bitcoinNetworkFee = cosign.calculateFee(feeRatePerSatVb, 1, destination, false);
+    if (bitcoinNetworkFee >= record.satoshis)
+      throw new Error('This deposit is too small to cover the Bitcoin network fee.');
+
+    if (record.satoshis - bitcoinNetworkFee < BitcoinCooperativeReleases.getMinimumDestinationSatoshis(destination))
+      throw new Error('This deposit is too small to pay the fee and create a spendable return.');
+
+    return {
+      cosign,
+      releaseRequest: {
+        toScriptPubkey: destination,
+        bitcoinNetworkFee,
+        destinationSatoshis: record.satoshis - bitcoinNetworkFee,
+        changeSatoshis: 0n,
+      },
+    };
+  }
+
+  public async requestCooperativeRelease({
+    lock,
+    record,
+    toScriptPubkey,
+    feeRatePerSatVb,
+    owner,
+  }: {
+    lock: IBitcoinLockRecord;
+    record: IBitcoinUtxoRecord;
+    toScriptPubkey: string;
+    feeRatePerSatVb: bigint;
+    owner: KeyringPair;
+  }): Promise<IBitcoinReleaseRecord> {
+    return this.bitcoinLocks.runInQueueForLock(
+      lock,
+      async () => {
+        if (!lock.lockId || !lock.createdAtArgonBlock || lock.ownerAccount !== owner.address)
+          throw new Error('The original lock owner and creation block are required for this return.');
+        if (record.lockId !== lock.lockId || !this.canRequestDepositReturn(lock, record))
+          throw new Error('This deposit is not available for a cooperative return.');
+        if (record.status === BitcoinUtxoStatus.Orphaned && record.isOnArgonChain !== false)
+          throw new Error('This deposit must use the existing Argon orphan return.');
+
+        // Bind owner authorization to the exact transaction before reserving the deposit.
+        const { cosign, releaseRequest } = this.prepareCooperativeRelease({
+          lock,
+          record,
+          toScriptPubkey,
+          feeRatePerSatVb,
+        });
+        const request: IBitcoinCooperativeReleaseRequest = {
+          version: 1,
+          releaseId: nanoid(),
+          ownerAccount: owner.address,
+          vaultId: lock.vaultId,
+          lockId: lock.lockId,
+          createdAtArgonBlock: lock.createdAtArgonBlock,
+          utxoRef: { txid: record.txid, outputIndex: record.vout },
+          satoshis: record.satoshis,
+          ...releaseRequest,
+          feeRatePerSatVb,
+          expectedTransactionId: '',
+          requestSignature: '',
+        };
+        if (lock.removalBlockNumber) request.removalBlockNumber = lock.removalBlockNumber;
+
+        const psbt = cosign.getCosignPsbt({
+          releaseRequest: request,
+          utxos: [{ utxoRef: { txid: record.txid, vout: record.vout }, satoshis: record.satoshis }],
+        });
+        // Bitcoin txids use double SHA-256; the PSBT's hash getter requires finalization.
+        // Hash the unsigned bytes so the owner can approve the transaction before signing.
+        request.expectedTransactionId = u8aToHex(sha256AsU8a(sha256AsU8a(psbt.unsignedTx)));
+        request.requestSignature = signBitcoinCooperativeReleaseRequest(owner, request);
+        const finalizedClient = await this.blockWatch.getFinalizedApi();
+        await this.bitcoinLocks.cooperativeReleases.verifyRequest(request, finalizedClient);
+
+        // Check operator support before creating a durable request that depends on its mailbox.
+        const isOwnVault = this.bitcoinLocks.myVault?.vaultId === lock.vaultId;
+        if (!isOwnVault) {
+          if (!this.upstreamOperator)
+            throw new Error('Connect to this vault operator to request a cooperative return.');
+          await this.upstreamOperator.checkBitcoinCooperativeReleaseSupport();
+        }
+
+        // Reserve the deposit durably before delivering the request or obtaining the vault signature.
+        const release = await this.createDepositRelease(record, {
+          id: request.releaseId,
+          sendId: request.releaseId,
+          kind: BitcoinReleaseKind.Cooperative,
+          lockId: lock.lockId,
+          status: BitcoinReleaseStatus.WaitingForVaultCosign,
+          inputUtxoIds: [record.id],
+          ...releaseRequest,
+          expectedTransactionId: request.expectedTransactionId,
+          cooperativeRequest: request,
+          vaultSignatures: [],
+        });
+        await this.reconcileDepositReleases(lock);
+        return release;
+      },
+      { allowOrphanRecovery: true },
+    );
   }
 
   public async recordArgonRequest(
@@ -597,7 +740,7 @@ export default class BitcoinReleases {
     await this.syncOrphanCosignCounterSubscriptions(client);
 
     const lock = this.bitcoinLocks.getLockById(release.lockId);
-    if (lock) await this.reconcileOrphanReleases(lock);
+    if (lock) await this.reconcileDepositReleases(lock);
   }
 
   public async reconcileLockRelease(lock: IBitcoinLockRecord, hasNewOracleBitcoinBlockHeight: boolean): Promise<void> {
@@ -656,12 +799,21 @@ export default class BitcoinReleases {
     }
   }
 
-  public async reconcileOrphanReleases(lock: IBitcoinLockRecord): Promise<void> {
-    const releases = this.getActiveOrphanReleases().filter(release => release.lockId === lock.lockId);
+  public async reconcileDepositReleases(lock: IBitcoinLockRecord): Promise<void> {
+    const releases = this.getActiveDepositReleases().filter(release => release.lockId === lock.lockId);
 
     for (let release of releases) {
       const utxo = this.getInputUtxos(release)[0];
       if (!utxo || utxo.activeReleaseId !== release.id) continue;
+
+      if (release.kind === BitcoinReleaseKind.Cooperative) {
+        // A mailbox reply can make this return ready to broadcast in the same pass.
+        if (release.status === BitcoinReleaseStatus.WaitingForVaultCosign && this.walletKeys.canSign)
+          await this.syncCooperativeVaultCosign(release);
+        if (release.status === BitcoinReleaseStatus.ReadyForBitcoinBroadcast && this.walletKeys.canSign)
+          await this.submitDepositToBitcoin(lock, release);
+        continue;
+      }
 
       const txInfo =
         release.status === BitcoinReleaseStatus.SubmittingRequestOnArgon
@@ -670,11 +822,10 @@ export default class BitcoinReleases {
       const txFailure = getTransactionFailureMessage(txInfo);
       if (txInfo && !txFailure && txInfo.tx.status !== TransactionStatus.Finalized) continue;
 
-      if (
-        utxo.isOnArgonChain === false &&
-        (release.status === BitcoinReleaseStatus.SubmittingRequestOnArgon ||
-          release.status === BitcoinReleaseStatus.WaitingForVaultCosign)
-      ) {
+      const isBeforeVaultCosign =
+        release.status === BitcoinReleaseStatus.SubmittingRequestOnArgon ||
+        release.status === BitcoinReleaseStatus.WaitingForVaultCosign;
+      if (utxo.isOnArgonChain === false && isBeforeVaultCosign) {
         try {
           await this.reconcileMissingOrphanReturn(lock, utxo, release);
         } catch (error) {
@@ -707,13 +858,13 @@ export default class BitcoinReleases {
       }
 
       if (release.status === BitcoinReleaseStatus.ReadyForBitcoinBroadcast && this.walletKeys.canSign) {
-        await this.submitOrphanToBitcoin(lock, release);
+        await this.submitDepositToBitcoin(lock, release);
       }
     }
   }
 
-  public async syncOrphanBitcoinProcessing(oracleBitcoinBlockHeight: number): Promise<void> {
-    const tasks = this.getActiveOrphanReleases()
+  public async syncDepositBitcoinProcessing(oracleBitcoinBlockHeight: number): Promise<void> {
+    const tasks = this.getActiveDepositReleases()
       .filter(release => release.status === BitcoinReleaseStatus.ConfirmingOnBitcoin && release.bitcoinTxid)
       .map(async release => {
         const utxo = this.getInputUtxos(release)[0];
@@ -722,14 +873,14 @@ export default class BitcoinReleases {
         try {
           await this.recordBitcoinConfirmationCheck(release, oracleBitcoinBlockHeight);
         } catch (error) {
-          console.warn('[BitcoinReleases] Error updating orphan return confirmation check', error);
+          console.warn('[BitcoinReleases] Error updating deposit return confirmation check', error);
         }
 
         const status = await this.mempool
           .getTxStatus(release.bitcoinTxid, oracleBitcoinBlockHeight)
           .catch(() => undefined);
         if (status?.isConfirmed) {
-          await this.completeOrphanRelease(utxo, release, status.transactionBlockHeight);
+          await this.completeDepositRelease(utxo, release, status.transactionBlockHeight);
         }
       });
 
@@ -757,7 +908,8 @@ export default class BitcoinReleases {
   public async syncOrphanCosignCounterSubscriptions(client: ArgonClient): Promise<void> {
     const subscriptions = new Map<string, { vaultId: number; ownerAccount: string }>();
 
-    for (const release of this.getActiveOrphanReleases()) {
+    for (const release of this.getActiveDepositReleases()) {
+      if (release.kind !== BitcoinReleaseKind.Orphan) continue;
       if (release.status !== BitcoinReleaseStatus.WaitingForVaultCosign) continue;
       const lock = this.bitcoinLocks.getLockById(release.lockId);
       if (!lock?.ownerAccount) continue;
@@ -1161,13 +1313,13 @@ export default class BitcoinReleases {
     this.data.releasesById[release.id] = release;
   }
 
-  public async completeOrphanRelease(
+  public async completeDepositRelease(
     utxo: IBitcoinUtxoRecord,
     release: IBitcoinReleaseRecord,
     bitcoinConfirmedHeight: number,
   ): Promise<void> {
     if (
-      release.kind !== BitcoinReleaseKind.Orphan ||
+      release.kind === BitcoinReleaseKind.Lock ||
       utxo.activeReleaseId !== release.id ||
       release.inputUtxoIds.length !== 1 ||
       release.inputUtxoIds[0] !== utxo.id
@@ -1196,7 +1348,13 @@ export default class BitcoinReleases {
     const db = await this.dbPromise;
     const failed = await db.transaction(async transaction => {
       const releaseDraft = await transaction.bitcoinReleasesTable.getById(release.id);
-      if (!releaseDraft || releaseDraft.status !== BitcoinReleaseStatus.SubmittingRequestOnArgon) return;
+      if (!releaseDraft) return;
+
+      const isSubmittingArgonRequest = releaseDraft.status === BitcoinReleaseStatus.SubmittingRequestOnArgon;
+      const isAwaitingCooperativeCosign =
+        releaseDraft.kind === BitcoinReleaseKind.Cooperative &&
+        releaseDraft.status === BitcoinReleaseStatus.WaitingForVaultCosign;
+      if (!isSubmittingArgonRequest && !isAwaitingCooperativeCosign) return;
 
       const inputIds = new Set(releaseDraft.inputUtxoIds);
       const utxoDrafts = (await transaction.bitcoinUtxosTable.fetchByLockId(releaseDraft.lockId)).filter(utxo =>
@@ -1408,7 +1566,55 @@ export default class BitcoinReleases {
     }
   }
 
-  private async submitOrphanToBitcoin(lock: IBitcoinLockRecord, release: IBitcoinReleaseRecord): Promise<void> {
+  private async syncCooperativeVaultCosign(release: IBitcoinReleaseRecord): Promise<void> {
+    let request = release.cooperativeRequest;
+    if (!request) {
+      await this.failRelease(release, 'The signed cooperative release request is missing.');
+      return;
+    }
+
+    try {
+      const lock = this.bitcoinLocks.getLockById(request.lockId);
+      if (!request.removalBlockNumber && lock?.removalBlockNumber) {
+        request = { ...request, removalBlockNumber: lock.removalBlockNumber };
+        await this.update(release, { cooperativeRequest: request });
+      }
+
+      const myVault = this.bitcoinLocks.myVault;
+      if (myVault?.vaultId === request.vaultId) {
+        const signature = await myVault.createVaultSignatureForCooperativeRelease(request);
+        await this.recordVaultCosign(release, { vaultSignatures: [hexToU8a(signature)] });
+        return;
+      }
+
+      if (!this.upstreamOperator) throw new Error('Connect to this vault operator to resume the return.');
+      // Resending the same immutable request also recovers a response lost before the local write.
+      const response = await this.upstreamOperator.submitBitcoinCooperativeRelease(request);
+      const hasApprovedTerms =
+        response.request.requestSignature === request.requestSignature &&
+        verifyBitcoinCooperativeReleaseRequest(response.request);
+      if (!hasApprovedTerms) throw new Error('The operator returned different cooperative release terms.');
+
+      if (response.vaultSignatureHex) {
+        await this.recordVaultCosign(release, { vaultSignatures: [hexToU8a(response.vaultSignatureHex)] });
+        return;
+      }
+      if (response.operatorError) {
+        await this.failRelease(release, response.operatorError);
+        return;
+      }
+      if (release.statusError) await this.update(release, { statusError: undefined });
+    } catch (error) {
+      if (isWalletSigningUnavailableError(error)) throw error;
+      if (error instanceof CooperativeReleaseRejected) {
+        await this.failRelease(release, error.message);
+        return;
+      }
+      await this.recordRetryableError(release, error);
+    }
+  }
+
+  private async submitDepositToBitcoin(lock: IBitcoinLockRecord, release: IBitcoinReleaseRecord): Promise<void> {
     if (release.status !== BitcoinReleaseStatus.ReadyForBitcoinBroadcast) return;
 
     try {
@@ -1430,9 +1636,12 @@ export default class BitcoinReleases {
         utxos: [{ utxoRef: { txid: utxo.txid, vout: utxo.vout }, satoshis: utxo.satoshis }],
         ownerXpriv,
       });
-      if (!tx?.isFinal) throw new Error('Failed to generate orphan release transaction.');
+      if (!tx?.isFinal) throw new Error('Failed to generate deposit release transaction.');
 
+      // Keep retries bound to the owner's approved transaction and any previously prepared transaction.
       const txid = `0x${tx.hash}`;
+      if (release.kind === BitcoinReleaseKind.Cooperative && txid !== release.cooperativeRequest?.expectedTransactionId)
+        throw new Error('The rebuilt Bitcoin transaction does not match the signed cooperative return.');
       if (release.bitcoinTxid && release.bitcoinTxid !== txid) {
         throw new Error(`Bitcoin release ${release.id} rebuilt a different transaction`);
       }
@@ -1447,7 +1656,7 @@ export default class BitcoinReleases {
           bitcoinFirstSeenHeight: existingTxStatus.transactionBlockHeight,
           bitcoinFirstSeenOracleHeight: release.bitcoinFirstSeenOracleHeight ?? oracleBitcoinBlockHeight,
         });
-        await this.completeOrphanRelease(utxo, release, existingTxStatus.transactionBlockHeight);
+        await this.completeDepositRelease(utxo, release, existingTxStatus.transactionBlockHeight);
         return;
       }
 
@@ -1466,6 +1675,7 @@ export default class BitcoinReleases {
         bitcoinTxid = txid;
       }
       if (bitcoinTxid !== txid) throw new Error(`Bitcoin release ${release.id} broadcast returned a different txid`);
+
       const tip = await this.mempool.getTipHeight();
       await this.recordBitcoinBroadcast(release, {
         bitcoinTxid,
