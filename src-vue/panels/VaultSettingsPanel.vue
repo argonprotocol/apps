@@ -548,7 +548,8 @@
             <button
               v-else-if="transactionError"
               type="button"
-              class="bg-argon-button border-argon-600 cursor-pointer rounded-md border px-3 text-sm text-white"
+              :disabled="isSubmitting"
+              class="bg-argon-button border-argon-600 cursor-pointer rounded-md border px-3 text-sm text-white disabled:opacity-40"
               @click="retryChange"
             >
               {{

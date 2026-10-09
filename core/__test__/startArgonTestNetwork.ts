@@ -1,4 +1,4 @@
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
 import { promises as Fs } from 'node:fs';
 import Path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -18,6 +18,7 @@ export const COMPOSE_CONFIG = [
   'docker-compose.yml',
   'upstream-server.docker-compose.yml',
   'indexer.docker-compose.yml',
+  'test-network.docker-compose.yml',
 ];
 
 export interface StartArgonTestNetworkOptions {
@@ -285,6 +286,11 @@ export async function startArgonTestNetwork(
       await client.disconnect();
     }
   } catch (error) {
+    if (process.env.CI) {
+      await captureNetworkStartupDiagnostics(composeEnv, error).catch(diagnosticError =>
+        console.error('[Integration] Failed to capture network startup diagnostics:', diagnosticError),
+      );
+    }
     await stop().catch(cleanupError => console.error('[Integration] Network cleanup failed:', cleanupError));
     throw error;
   }
@@ -344,6 +350,47 @@ export async function waitForQueryableClient(
   }
 
   throw new Error(`[E2E] client at ${label} never became queryable within ${timeoutMs}ms`);
+}
+
+async function captureNetworkStartupDiagnostics(composeEnv: Record<string, string>, error: unknown): Promise<void> {
+  const diagnostics = [
+    error instanceof Error ? (error.stack ?? error.message) : (JSON.stringify(error, null, 2) ?? String(error)),
+  ];
+  const commandOptions = { encoding: 'utf8' as const, timeout: 10_000 };
+  const listed = spawnSync(
+    'docker',
+    [
+      'ps',
+      '--all',
+      '--quiet',
+      '--filter',
+      `label=com.docker.compose.project=${composeEnv.COMPOSE_PROJECT_NAME}`,
+      '--filter',
+      'label=com.docker.compose.service=archive-node',
+    ],
+    commandOptions,
+  );
+  if (listed.status === 0) {
+    const container = listed.stdout.trim();
+    if (container) {
+      const inspected = spawnSync('docker', ['inspect', '--format', '{{json .State}}', container], commandOptions);
+      diagnostics.push(`archive-node state: ${inspected.stdout}${inspected.stderr}${inspected.error ?? ''}`);
+      const logs = spawnSync('docker', ['logs', '--tail', '200', '--timestamps', container], commandOptions);
+      diagnostics.push(`archive-node logs: ${logs.stdout}${logs.stderr}${logs.error ?? ''}`);
+    } else {
+      diagnostics.push('No archive-node container was created.');
+    }
+  } else {
+    diagnostics.push(`Could not find archive-node: ${listed.stderr}${listed.error ?? ''}`);
+  }
+
+  const directory = Path.join(REPO_ROOT, 'e2e/artifacts/integration-diagnostics');
+  await Fs.mkdir(directory, { recursive: true });
+  await Fs.writeFile(
+    Path.join(directory, `${composeEnv.COMPOSE_PROJECT_NAME}-startup-${process.pid}-${Date.now()}.log`),
+    diagnostics.join('\n'),
+    { mode: 0o600 },
+  );
 }
 
 async function waitForFirstMainchainBlock(

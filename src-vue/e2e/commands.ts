@@ -1231,6 +1231,7 @@ async function getAppQueryRefs(): Promise<IAppQueryRefs> {
 
   return {
     config,
+    db: await getDbPromise(),
     bitcoinLocks,
     myVault,
     wallets,

@@ -218,9 +218,12 @@ async function fetchMetadataSource(source: string): Promise<string> {
     throw new Error(`Runtime source ${source} does not identify an immutable metadata commit`);
   }
 
-  const response = await fetch(
-    `https://raw.githubusercontent.com/argonprotocol/mainchain/${commit}/client/nodejs/metadata.json`,
-  );
+  const url = `https://raw.githubusercontent.com/argonprotocol/mainchain/${commit}/client/nodejs/metadata.json`;
+  let response = await fetch(url);
+  for (let attempt = 0; !response.ok && response.status >= 500 && attempt < 3; attempt += 1) {
+    await new Promise(resolve => setTimeout(resolve, 1_000 * 2 ** attempt));
+    response = await fetch(url);
+  }
   if (!response.ok) throw new Error(`Unable to download metadata for ${source}: ${response.status}`);
   return await response.text();
 }
