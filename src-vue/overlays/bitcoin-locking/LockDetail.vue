@@ -11,8 +11,7 @@
         <span v-if="isOwnLock && isReleased" class="text-sm text-slate-500">
           <span>
             {{ currency.symbol
-            }}{{ microgonToMoneyNm(localLock!.securitizationCoverageMicrogons ?? 0n).format('0,0.[00]') }} security
-            coverage
+            }}{{ microgonToMoneyNm(localLock!.securitizationCoverageMicrogons ?? 0n).format('0,0.[00]') }} guaranteed
           </span>
           ·
           <Tooltip :asChild="true" content="The Argons returned to unlock and release this bitcoin.">
@@ -45,7 +44,7 @@
             ·
             <span>
               {{ currency.symbol }}{{ microgonToMoneyNm(lock.securitizationCoverageMicrogons).format('0,0.[00]') }}
-              security coverage
+              guaranteed
             </span>
           </template>
         </span>
@@ -125,9 +124,9 @@
       <div v-else class="mt-4 flex flex-row items-start gap-6">
         <div class="space-y-1.5 text-sm text-slate-600">
           <div v-if="!isPendingFunding && isOwnLock && localLock?.securitizationCoverageMicrogons !== undefined">
-            <Tooltip :asChild="true" content="The current Argon security coverage for this bitcoin.">
+            <Tooltip :asChild="true" content="The current cosigner guarantee for this Bitcoin, valued in Argons.">
               <span class="cursor-help">
-                Security coverage
+                Cosigner guarantee
                 <span class="font-semibold">
                   {{ currency.symbol
                   }}{{ microgonToMoneyNm(localLock.securitizationCoverageMicrogons).format('0,0.[00]') }}
@@ -390,7 +389,7 @@ const argonTransactionCost = Vue.computed(() => {
 });
 
 const timerLabel = Vue.computed(() => {
-  if (isPendingFunding.value) return 'Securitization Hold';
+  if (isPendingFunding.value) return 'Guarantee Reservation';
   if (isPendingCosign.value) return 'Cosign Deadline';
   return 'Term Progress';
 });

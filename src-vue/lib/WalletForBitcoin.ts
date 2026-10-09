@@ -202,7 +202,7 @@ export class WalletForBitcoin extends WalletForChain<WalletType.bitcoin> {
     operatorCoupon?: IOperatorBitcoinLockCouponRoute;
   }): Promise<IBitcoinLockRecord> {
     const { vault, liquidityMicrogons, txSigner, operatorCoupon } = args;
-    if (liquidityMicrogons < 0n) throw new Error('Bitcoin insurance cannot be negative.');
+    if (liquidityMicrogons < 0n) throw new Error('The Bitcoin cosigner guarantee cannot be negative.');
 
     const bitcoinLocks = this.getBitcoinLocks();
     const availableLiquidityMicrogons = await this.getMaximumChannelLiquidity(vault);

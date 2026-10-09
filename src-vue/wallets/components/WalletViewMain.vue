@@ -226,7 +226,7 @@
                     <span class="ml-auto text-xs text-slate-500">
                       {{ currency.symbol
                       }}{{ microgonToArgonNm(entry.lock.securitizationCoverageMicrogons ?? 0n).format('0,0.[00]') }}
-                      insurance
+                      guaranteed
                     </span>
                     <ChevronRightIcon class="size-3.5 shrink-0 text-slate-400" />
                   </button>

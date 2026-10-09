@@ -227,12 +227,12 @@ export const Form: Story = {
   beforeEach: () => useScenario(),
 };
 
-export const FormWithInsurance: Story = {
+export const FormWithCosignerGuarantee: Story = {
   beforeEach: () => useScenario(),
   play: async () => {
     const canvas = within(document.body);
-    const insurance = await canvas.findByTestId('ConnectorChannel.insuranceAmount');
-    const amount = within(insurance).getByTestId('input-number');
+    const guarantee = await canvas.findByTestId('ConnectorChannel.insuranceAmount');
+    const amount = within(guarantee).getByTestId('input-number');
     await userEvent.clear(amount);
     await userEvent.type(amount, '100');
     await userEvent.tab();
@@ -320,7 +320,7 @@ export const ExpiredRequestedChannel: Story = {
   },
 };
 
-export const CreateWithoutInsurance: Story = {
+export const CreateWithoutCosignerGuarantee: Story = {
   beforeEach: () => {
     const cleanup = useScenario();
     isInteractive = true;
@@ -564,7 +564,7 @@ export const RestoreError: Story = {
 export const __namedExportsOrder = [
   'WalletOverview',
   'Form',
-  'FormWithInsurance',
+  'FormWithCosignerGuarantee',
   'EstimatingRequiredBalance',
   'RequiredBalanceUnavailable',
   'CosignerInfo',
@@ -574,7 +574,7 @@ export const __namedExportsOrder = [
   'CosignerChoiceWithExistingAddress',
   'ExpiredRequestedChannel',
   'RetiredChannel',
-  'CreateWithoutInsurance',
+  'CreateWithoutCosignerGuarantee',
   'CreatedChannelSurvivesFinalizationHandoff',
   'FeeWaiver',
   'PreparingRequest',
