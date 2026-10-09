@@ -11,6 +11,7 @@
     "backfillProrata": "FixedU128",
     "bidAtTick": "number",
     "bitcoinAnnualPercentRate": "FixedU128",
+    "bitcoinLockDurationBlocks": "number",
     "blockHeight": "number",
     "bondLotId": "number",
     "bondedArgonsAnnualPercentRate": "FixedU128",
@@ -64,6 +65,7 @@
     "ticksBeforeBidEndForVrfClose": "number",
     "ticksBetweenSlots": "number",
     "totalUsdPrice": "FixedU128",
+    "upstreamParticipation": "FixedU128",
     "utxoId": "number",
     "vaultClaimHeight": "number",
     "watchForSpentUntilHeight": "number"

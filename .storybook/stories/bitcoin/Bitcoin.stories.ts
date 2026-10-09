@@ -224,6 +224,7 @@ export const CreateLiquidForTreasuryCertification: Story = {
     certification.rewardConfig = {
       ...certification.rewardConfig,
       treasuryMinimumBitcoin: 500_000_000n,
+      treasuryBitcoinTargetMicrogons: 600_000_000n,
     };
     certification.chainProgress = {
       ...certification.chainProgress,

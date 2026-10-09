@@ -103,7 +103,10 @@ export class ArgonBonds {
     totalActiveBonds: 0,
     frameCapital: null as RuntimeQueryResult<CurrentRuntimeQueries['treasury']['currentFrameVaultCapital']>,
     vaultRewardRate: BigNumber(0),
+    minimumVaultProfitRate: BigNumber(0),
     averageMicrogonsPerArgonot: undefined as bigint | undefined,
+    upstreamBitcoinTarget: undefined as bigint | undefined,
+    upstreamBondTarget: undefined as bigint | undefined,
     vaultsById: {} as Record<number, IVaultArgonBondState>,
   };
 
@@ -191,6 +194,7 @@ export class ArgonBonds {
       frameCapital,
       fullBidPool,
       percentForVaultPool: this.data.vaultRewardRate,
+      minimumVaultProfitRate: this.data.minimumVaultProfitRate,
     });
   }
 
@@ -480,7 +484,10 @@ export class ArgonBonds {
       this.data.totalActiveBonds = activeBonds.totalActiveBonds;
       this.data.frameCapital = activeBonds.frameCapital ?? null;
       this.data.vaultRewardRate = activeBonds.vaultRewardRate ?? BigNumber(0);
+      this.data.minimumVaultProfitRate = activeBonds.minimumVaultProfitRate ?? BigNumber(0);
       this.data.averageMicrogonsPerArgonot = activeBonds.averageMicrogonsPerArgonot;
+      this.data.upstreamBitcoinTarget = activeBonds.upstreamBitcoinTarget;
+      this.data.upstreamBondTarget = activeBonds.upstreamBondTarget;
       this.data.fullBidPool = activeBonds.fullBidPool ?? 0n;
       this.lastTotalActiveBondsRefreshVersion = refreshVersion;
     }

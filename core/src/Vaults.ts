@@ -33,8 +33,13 @@ import {
 
 const MILLISECONDS_PER_DAY = 24 * 60 * 60 * 1_000;
 const VAULT_REVENUE_BACKFILL_BATCH_FRAMES = 20;
+const VAULT_REVENUE_BACKFILL_PAUSE_MS = 250;
 export const VAULT_REVENUE_COUPON_SPEC_VERSION = 145;
 export const VAULT_STATS_FORMAT_VERSION = 2;
+export const bundledVaultRevenueHistory: Partial<Record<string, unknown>> = {
+  mainnet: mainnetVaultRevenueHistory,
+  testnet: testnetVaultRevenueHistory,
+};
 type RuntimeOperationalAccount = NonNullable<HistoricalQueryRecord<'operationalAccounts', 'operationalAccounts'>>;
 type RuntimeVaultFrameRevenue = MergeHistorical<
   NonNullable<HistoricalQueryRecord<'vaults', 'revenuePerFrameByVault'>>[number]
@@ -462,13 +467,17 @@ export class Vaults {
           changesByFrame: [...frames.values()].sort((a, b) => b.frameId - a.frameId),
         };
       }
+
       this.stats = stats;
       this.currentState.statsRevision += 1;
       await this.saveStats();
+
       if (stats.revenueBackfill) {
         console.info(`[VaultHistory] Saved revenue backfill through frame ${lastSnapshotFrameId}`);
+        await new Promise<void>(resolve => setTimeout(resolve, VAULT_REVENUE_BACKFILL_PAUSE_MS));
         this.queueRevenueUpdate(refreshClients);
       }
+
       return stats;
     })();
     this.refreshingPromise = refresh;
@@ -820,10 +829,7 @@ export class Vaults {
       };
     }
 
-    const bundledHistory = {
-      testnet: testnetVaultRevenueHistory,
-      mainnet: mainnetVaultRevenueHistory,
-    }[this.network];
+    const bundledHistory = bundledVaultRevenueHistory[this.network];
     let stats: IAllVaultStats;
     if (bundledHistory) {
       // JSON imports leave bigint values as strings; JsonExt restores "123n" to 123n throughout the history.

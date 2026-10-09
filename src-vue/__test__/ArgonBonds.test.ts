@@ -2,10 +2,12 @@ import { type FrameSystemEventRecord, getOfflineRegistry } from '@argonprotocol/
 import {
   toPlain,
   getBundledMetadata,
+  runtimeClient,
   type HistoricalQueryRecord,
   type LiveQueryRecord,
 } from '@argonprotocol/runtime-client';
 import { Metadata, TypeRegistry } from '@polkadot/types';
+import { decorateConstants } from '@polkadot/types/metadata/decorate';
 import { describe, expect, it, vi } from 'vitest';
 import BigNumber from 'bignumber.js';
 import { ArgonBonds } from '../lib/ArgonBonds.ts';
@@ -425,6 +427,7 @@ describe('ArgonBonds', () => {
                     activatedSecuritization: 1_000_000_000n,
                     bitcoinLockedMicrogons: 1_000_000_000n,
                     activeBondMicrogons: 1_000_000_000n,
+                    upstreamParticipation: 10n ** 18n,
                   },
                 },
               }),
@@ -622,21 +625,19 @@ describe('ArgonBonds', () => {
     async (runtime, codecs) => {
       const olderRead = createDeferred<void>(false);
       let failFrameRead = false;
+      const metadata = new Metadata(
+        codecs,
+        Object.entries(getBundledMetadata()).find(([key]) =>
+          key.endsWith(runtime === 'candidate' ? '-160' : '-159'),
+        )![1],
+      );
+      const consts = runtimeClient({
+        query: {},
+        consts: decorateConstants(codecs, metadata.asLatest, metadata.version),
+      }).consts;
       const clients = [10, 20, 30, 40].map(bonds => ({
         registry: codecs,
-        consts: {
-          treasury: {
-            palletId: '0x61722f7472656173',
-            minimumArgonsPerContributor: 1_000_000n,
-            ...(runtime === 'candidate'
-              ? {
-                  maxArgonBondLots: 10,
-                  percentForVaultPool: new BigNumber(0.51),
-                  percentForArgonBondPool: new BigNumber(0.49),
-                }
-              : { maxTreasuryContributors: 10, percentForTreasuryReserves: new BigNumber(0.1) }),
-          },
-        },
+        consts,
         query: {
           system: { account: vi.fn(async () => ({ data: { free: BigInt(bonds) * 1_000_000n } })) },
           priceIndex: { historicArgonotAverageByFrame: vi.fn(async () => ({ 9: 2_000_000n })) },
@@ -648,6 +649,22 @@ describe('ArgonBonds', () => {
                 codecs.createType('PalletTreasuryFrameVaultCapital', {
                   frameId: 10,
                   totalActiveBonds: bonds * 2,
+                  targetSecuritization: 2n * BigInt(bonds) * 1_000_000n,
+                  totalSecuritization: 2n * BigInt(bonds) * 1_000_000n,
+                  vaultSecuritizationPositions: Object.fromEntries(
+                    [4, 7].map(vaultId => [
+                      vaultId,
+                      {
+                        operatorAccountId: accountId,
+                        securitization: BigInt(bonds) * 1_000_000n,
+                        activatedSecuritization: BigInt(bonds) * 1_000_000n,
+                        bitcoinLockedMicrogons: BigInt(bonds) * 1_000_000n,
+                        activeBondMicrogons: BigInt(bonds) * 1_000_000n,
+                        argonotSecuritizationInMicrogons: 2n * BigInt(bonds) * 1_000_000n,
+                        upstreamParticipation: 500_000_000_000_000_000n,
+                      },
+                    ]),
+                  ),
                   vaults: Object.fromEntries(
                     [4, 7].map(vaultId => [
                       vaultId,
@@ -724,6 +741,20 @@ describe('ArgonBonds', () => {
       // The market balance refresh is independent of the vault reward inputs.
       expect(currentClient.query.system.account).toHaveBeenCalledTimes(runtime === 'candidate' ? 2 : 1);
       expect(argonBonds.data.totalActiveBonds).toBe(20);
+      if (runtime === 'candidate') {
+        expect(argonBonds.data.upstreamBitcoinTarget).toBe(5_000n * BigInt(MICROGONS_PER_ARGON));
+        expect(argonBonds.data.upstreamBondTarget).toBe(5_000n * BigInt(MICROGONS_PER_ARGON));
+        expect(argonBonds.vaultRevenuePotential(4)).toMatchObject({
+          actualEarnings: 1_300_000n,
+          maximumEarnings: 2_550_000n,
+          upstreamParticipationPercent: 50,
+        });
+      } else {
+        expect(argonBonds.data.upstreamBitcoinTarget).toBeUndefined();
+        expect(argonBonds.data.upstreamBondTarget).toBeUndefined();
+        expect(argonBonds.vaultRevenuePotential(4)).toBeUndefined();
+        expect(argonBonds.data.frameCapital).toBeNull();
+      }
       for (const vaultId of [4, 7]) {
         const vault = argonBonds.getVaultBonds(vaultId);
         expect(vault.currentFrame.vaultBonds).toBe(10);

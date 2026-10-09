@@ -31,7 +31,8 @@ export async function patchVaultHistory(stats: IAllVaultStats, miningFrames: Min
     const { frame: nextFrame, api } = await miningFrames.getFrameStart(frameId + 1);
     const missing = Object.entries(stats.vaultsById).flatMap(([vaultId, vault]) => {
       const frame = vault.changesByFrame.find(change => change.frameId === frameId);
-      if (!frame || frame.argonotSecuritizationMicronots !== undefined) return [];
+      if (!frame) return [];
+      if (frame.argonotSecuritizationMicronots !== undefined && frame.upstreamParticipation !== undefined) return [];
       return [{ vaultId: Number(vaultId), frame }];
     });
     const flexibleFrames = Object.entries(stats.vaultsById).flatMap(([vaultId, vault]) => {
@@ -41,15 +42,32 @@ export async function patchVaultHistory(stats: IAllVaultStats, miningFrames: Min
     });
     const bondPayout = stats.argonBondsByFrame?.find(payout => payout.frameId === frameId);
     const needsBondCapital = bondPayout !== undefined && bondPayout.participatingBonds === undefined;
-    const needsHoldings = missing.length > 0 && 'argonotSecuritizationByVaultId' in api.query.vaults;
+    const needsHoldings =
+      missing.some(({ frame }) => frame.argonotSecuritizationMicronots === undefined) &&
+      'argonotSecuritizationByVaultId' in api.query.vaults;
+    const needsParticipation = missing.some(({ frame }) => frame.upstreamParticipation === undefined);
     const needsPool = !stats.networkPoolsByFrame?.[frameId];
-    if (!needsHoldings && !needsPool && !flexibleFrames.length && !needsBondCapital) continue;
+    if (!needsHoldings && !needsParticipation && !needsPool && !flexibleFrames.length && !needsBondCapital) continue;
 
     // The payout block resets capital; its parent retains the completed frame's holdings and auction pool.
     const parent = await miningFrames.blockWatch.getHeader(nextFrame.firstBlockNumber! - 1);
     const parentApi = await miningFrames.blockWatch.getApi(parent);
-    if (flexibleFrames.length || needsBondCapital) {
+    if (flexibleFrames.length || needsBondCapital || needsParticipation) {
       const capital = await parentApi.query.treasury.currentFrameVaultCapital();
+      if (capital?.frameId === frameId && 'vaultSecuritizationPositions' in capital) {
+        for (const { vaultId } of missing) {
+          const participation = capital.vaultSecuritizationPositions?.[vaultId]?.upstreamParticipation;
+          if (participation === undefined) continue;
+          const vault = stats.vaultsById[vaultId];
+          stats.vaultsById[vaultId] = {
+            ...vault,
+            changesByFrame: vault.changesByFrame.map(change => {
+              if (change.frameId !== frameId || change.upstreamParticipation !== undefined) return change;
+              return { ...change, upstreamParticipation: participation };
+            }),
+          };
+        }
+      }
       if (needsBondCapital && capital?.frameId === frameId && 'totalActiveBonds' in capital) {
         stats.argonBondsByFrame = stats.argonBondsByFrame!.map(payout => {
           if (payout.frameId !== frameId) return payout;
@@ -122,7 +140,10 @@ export async function patchVaultHistory(stats: IAllVaultStats, miningFrames: Min
             ...vault,
             changesByFrame: vault.changesByFrame.map(change => {
               if (change.frameId !== frameId) return change;
-              return { ...change, argonotSecuritizationMicronots: heldByVault.get(vaultId) ?? 0n };
+              return {
+                ...change,
+                argonotSecuritizationMicronots: change.argonotSecuritizationMicronots ?? heldByVault.get(vaultId) ?? 0n,
+              };
             }),
           };
         }

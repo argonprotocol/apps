@@ -463,7 +463,7 @@ async function initializePurchase(session = ++purchaseSession) {
   const client = await getMainchainClient(false);
   const [totalIssuance, totalActiveBonds, activeLots] = await Promise.all([
     client.query.ownership.totalIssuance(),
-    client.query.treasury.totalActiveArgonotBonds(),
+    TreasuryBonds.getActiveArgonotBonds(client),
     client.query.treasury.argonotBondLots(),
   ]);
   if (session !== purchaseSession) return;

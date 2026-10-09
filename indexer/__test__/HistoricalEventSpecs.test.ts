@@ -9,6 +9,8 @@ import {
   type HistoricalEvent,
 } from '@argonprotocol/runtime-client/events';
 import { historicalEventChanges } from '@argonprotocol/runtime-client/events.generated';
+import runtimeSources from '../../runtime-client/src/history/RuntimeSources.json' with { type: 'json' };
+import packageJson from '../package.json' with { type: 'json' };
 import { createHistoricalEventData } from './helpers/historicalEvents.ts';
 
 type HistoricalBondCreated = Extract<HistoricalEvent, { section: 'bonds'; method: 'BondCreated' }>;
@@ -20,15 +22,20 @@ expectTypeOf<HistoricalBondCreated['data']['expiration']>().toMatchTypeOf<
 >();
 
 describe('HistoricalEventSpecs', () => {
-  it('covers every published-chain runtime spec', () => {
-    expect(supportedHistoricalEventSpecs).toEqual(Array.from({ length: 61 }, (_, index) => index + 100));
+  it('covers every registered runtime spec', () => {
+    const registeredSpecs = Object.keys(runtimeSources).map(Number);
+    const latestRegisteredSpec = Math.max(...registeredSpecs);
+
+    expect(supportedHistoricalEventSpecs).toEqual(registeredSpecs);
     expect(historicalEventSpecSources[100]).toBe('@argonprotocol/mainchain@0.0.25');
     expect(historicalEventSpecSources[124]).toBe('argonprotocol/mainchain@1fd3a9e9');
     expect(historicalEventSpecSources[149]).toBe('@argonprotocol/mainchain@1.4.2-dev.9a289267');
     expect(historicalEventSpecSources[152]).toBe('@argonprotocol/mainchain@1.4.6');
     expect(historicalEventSpecSources[157]).toBe('@argonprotocol/mainchain@1.4.11');
     expect(historicalEventSpecSources[158]).toBe('@argonprotocol/mainchain@1.4.12');
-    expect(historicalEventSpecSources[160]).toBe('@argonprotocol/mainchain@1.4.13-dev.479a6416');
+    expect(historicalEventSpecSources[latestRegisteredSpec]).toBe(
+      `@argonprotocol/mainchain@${packageJson.dependencies['@argonprotocol/mainchain']}`,
+    );
   });
 
   it('declares the spec 158 Bitcoin flexibility event', () => {

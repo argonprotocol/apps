@@ -491,7 +491,7 @@ describe('Vault revenue sync', () => {
     expect(vaults.calculateApr()).toBeCloseTo(3_650);
   });
 
-  it('saves each 20-frame revenue batch and resumes the next batch after restart', async () => {
+  it('saves and pauses each 20-frame revenue batch, then resumes after restart', async () => {
     vi.useFakeTimers();
 
     const apiAtFrame = (observedAtFrame: number) => ({
@@ -553,17 +553,36 @@ describe('Vault revenue sync', () => {
       persistedStats = structuredClone(firstVaults.stats);
     });
 
-    await firstVaults.updateRevenue();
+    let firstUpdateFinished = false;
+    const firstUpdate = firstVaults.updateRevenue().then(stats => {
+      firstUpdateFinished = true;
+      return stats;
+    });
+
+    await vi.advanceTimersByTimeAsync(0);
 
     expect(firstReadFrames).toEqual(Array.from({ length: 20 }, (_, index) => 40 - index));
     expect(persistedStats).toMatchObject({
       synchedToFrame: 39,
       revenueBackfill: { nextFrame: 20, throughFrame: 11 },
     });
+    expect(firstVaults.stats).toEqual(persistedStats);
     expect(persistedStats?.vaultsById[1].changesByFrame[0].bitcoinFeeRevenue).toBe(39n);
     expect(persistedStats?.vaultsById[1].changesByFrame.find(frame => frame.frameId === 10)?.bitcoinFeeRevenue).toBe(
       1n,
     );
+    expect(firstUpdateFinished).toBe(false);
+
+    // A finalized-block refresh must share the pause instead of starting another batch.
+    const repeatedUpdate = firstVaults.updateRevenue();
+    await vi.advanceTimersByTimeAsync(249);
+
+    expect(firstReadFrames).toEqual(Array.from({ length: 20 }, (_, index) => 40 - index));
+    expect(firstUpdateFinished).toBe(false);
+
+    await vi.advanceTimersByTimeAsync(1);
+    await Promise.all([firstUpdate, repeatedUpdate]);
+    expect(firstUpdateFinished).toBe(true);
     vi.clearAllTimers();
 
     const secondReadFrames: number[] = [];
@@ -582,7 +601,6 @@ describe('Vault revenue sync', () => {
     await vi.runOnlyPendingTimersAsync();
 
     vi.clearAllTimers();
-    vi.useRealTimers();
 
     expect(secondReadFrames).toEqual([20, 19, 18, 17, 16, 15, 14, 13, 12, 11]);
     expect(secondVaults.stats).toMatchObject({
@@ -612,6 +630,8 @@ describe('Vault revenue sync', () => {
     expect(
       secondVaults.stats!.vaultsById[1].changesByFrame.find(frame => frame.frameId === 35)?.bitcoinFeeRevenue,
     ).toBe(savedFees);
+
+    vi.useRealTimers();
   });
 });
 

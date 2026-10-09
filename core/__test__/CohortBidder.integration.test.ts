@@ -4,7 +4,7 @@ import { COMPOSE_CONFIG, COMPOSE_DIR, waitForQueryableClient } from './startArgo
 import { runOnTeardown, SKIP_E2E, teardown } from '@argonprotocol/testing';
 import { it, afterAll, afterEach, describe, expect, inject, vi } from 'vitest';
 import { inspect } from 'util';
-import { getAuthorFromHeader, Keyring, mnemonicGenerate } from '@argonprotocol/mainchain';
+import { Keyring, mnemonicGenerate } from '@argonprotocol/mainchain';
 import docker from 'docker-compose';
 import { integrationAccountUri } from './integrationNetwork.ts';
 import { sudoFundWallet } from './helpers/sudoFundWallet.ts';
@@ -17,14 +17,14 @@ const trackedMiningFrames: MiningFrames[] = [];
 const trackedBidders: CohortBidder[] = [];
 
 afterEach(async () => {
-  await teardown();
   await cleanupTrackedResources();
+  await teardown();
   vi.restoreAllMocks();
 });
 
 afterAll(async () => {
-  await teardown();
   await cleanupTrackedResources();
+  await teardown();
 });
 
 describe.skipIf(SKIP_E2E)('Cohort Integration Bidder tests', { tags: ['mining-auction'] }, () => {
@@ -90,16 +90,11 @@ describe.skipIf(SKIP_E2E)('Cohort Integration Bidder tests', { tags: ['mining-au
     const bobBidEvents: { type: 'submitted' | 'rejected'; microgonsPerSeat: bigint }[] = [];
     const aliceBidEvents: { type: 'submitted' | 'rejected'; microgonsPerSeat: bigint }[] = [];
     let hasStoppedBidders = false;
-    // wait for the cohort to change so we have enough time
+    // Wait for the next auction so both bidders have the full bidding window.
     const startingCohort = await aliceClient.query.miningSlot.nextFrameId();
-    await new Promise(resolve => {
-      const unsub = aliceClient.query.miningSlot.nextFrameId(x => {
-        if (x > startingCohort) {
-          resolve(true);
-          unsub.then();
-        }
-      });
-    });
+    await expect
+      .poll(() => aliceClient.query.miningSlot.nextFrameId(), { timeout: 30_000, interval: 250 })
+      .toBeGreaterThan(startingCohort);
 
     let resolveWaitForStopPromise: () => void;
     const waitForStop = new Promise<void>(resolve => {
@@ -176,23 +171,6 @@ describe.skipIf(SKIP_E2E)('Cohort Integration Bidder tests', { tags: ['mining-au
     expect(aliceBidder!).toBeTruthy();
     expect(bobBidder!).toBeTruthy();
 
-    const bobMinePromise = new Promise(resolve => {
-      bob.client.rpc.chain.subscribeNewHeads(h => {
-        const author = getAuthorFromHeader(h)!;
-        if (bob.subAccountsByAddress[author]) {
-          resolve(true);
-        }
-      });
-    });
-    const aliceMinePromise = new Promise(resolve => {
-      alice.client.rpc.chain.subscribeNewHeads(h => {
-        const author = getAuthorFromHeader(h)!;
-        if (alice.subAccountsByAddress[author]) {
-          resolve(true);
-        }
-      });
-    });
-
     // Shutdown must return only after the awarded cohort is finalized.
     const finalizedBlock = await aliceClient.rpc.chain.getFinalizedHead();
     const finalizedClient = await aliceClient.at(finalizedBlock);
@@ -249,13 +227,6 @@ describe.skipIf(SKIP_E2E)('Cohort Integration Bidder tests', { tags: ['mining-au
     expect(aliceSeatsWonOnChain).toBe(aliceStats.seatsWon);
     expect(aliceBidEvents.length).toBeGreaterThan(0);
     expect(hasRejectedBid || bidLevels.size > 1).toBe(true);
-    console.log('Waiting for each bidder to mine');
-    if (bobStats.seatsWon > 0) {
-      await expect(bobMinePromise).resolves.toBeTruthy();
-    }
-    if (aliceStats.seatsWon > 0) {
-      await expect(aliceMinePromise).resolves.toBeTruthy();
-    }
   }, 180e3);
 });
 

@@ -5,6 +5,8 @@ import {
   MiningFrames,
   TreasuryBonds,
   bigNumberToBigInt,
+  bundledVaultRevenueHistory,
+  VAULT_STATS_FORMAT_VERSION,
   Vaults as VaultsBase,
 } from '@argonprotocol/apps-core';
 import BigNumber from 'bignumber.js';
@@ -19,6 +21,8 @@ export interface IVaultStatsStorage {
 }
 
 export class Vaults extends VaultsBase {
+  private finalizedSubscription?: VoidFunction;
+
   constructor(
     network = NETWORK_NAME,
     currency: CurrencyBase,
@@ -27,6 +31,19 @@ export class Vaults extends VaultsBase {
   ) {
     const clients = getMainchainClients();
     super(network, currency, miningFrames, clients);
+  }
+
+  public override async load(reload = false): Promise<void> {
+    this.finalizedSubscription ??= this.miningFrames.blockWatch.events.on('finalized', headers => {
+      const frameId = headers.at(-1)?.frameId;
+      if (frameId === undefined || !this.stats) return;
+      if (!this.stats.revenueBackfill && this.stats.synchedToFrame >= frameId - 1) return;
+
+      void this.updateRevenue().catch(error => {
+        console.warn('[VaultHistory] Frame details will retry on the next finalized block', error);
+      });
+    });
+    await super.load(reload);
   }
 
   public async subscribeToOperatorName(vaultId: number, onUpdate: (name?: string) => void): Promise<VoidFunction> {
@@ -65,7 +82,8 @@ export class Vaults extends VaultsBase {
 
     const missing = Object.entries(stats.vaultsById).flatMap(([vaultId, vault]) => {
       const frame = vault.changesByFrame.find(change => change.frameId === frameId);
-      if (!frame || frame.argonotSecuritizationMicronots !== undefined) return [];
+      if (!frame) return [];
+      if (frame.argonotSecuritizationMicronots !== undefined && frame.upstreamParticipation !== undefined) return [];
       return [{ vaultId: Number(vaultId), frame }];
     });
     const needsNetworkPool = !stats.networkPoolsByFrame?.[frameId];
@@ -89,16 +107,28 @@ export class Vaults extends VaultsBase {
     }
 
     if (missing.length) {
-      const commitments = await parentApi.query.vaults.argonotSecuritizationByVaultId.entries();
+      const [commitments, capital] = await Promise.all([
+        parentApi.query.vaults.argonotSecuritizationByVaultId.entries(),
+        parentApi.query.treasury.currentFrameVaultCapital(),
+      ]);
       if (!commitments) return;
       const heldByVault = new Map(commitments.map(([key, value]) => [key.args[0], value?.heldMicronots ?? 0n]));
       for (const { vaultId, frame } of missing) {
         const vault = stats.vaultsById[vaultId];
         stats.vaultsById[vaultId] = {
           ...vault,
-          changesByFrame: vault.changesByFrame.map(change =>
-            change === frame ? { ...frame, argonotSecuritizationMicronots: heldByVault.get(vaultId) ?? 0n } : change,
-          ),
+          changesByFrame: vault.changesByFrame.map(change => {
+            if (change !== frame) return change;
+            const updatedFrame = {
+              ...frame,
+              argonotSecuritizationMicronots: frame.argonotSecuritizationMicronots ?? heldByVault.get(vaultId) ?? 0n,
+            };
+            if (capital?.frameId === frameId && 'vaultSecuritizationPositions' in capital) {
+              const participation = capital.vaultSecuritizationPositions?.[vaultId]?.upstreamParticipation;
+              if (participation !== undefined) updatedFrame.upstreamParticipation = participation;
+            }
+            return updatedFrame;
+          }),
         };
       }
     }
@@ -115,47 +145,53 @@ export class Vaults extends VaultsBase {
     return `${this.statsDirectory()}/vaultStats.json`;
   }
 
-  protected async saveStats(): Promise<void> {
-    if (!this.stats) return;
+  protected async saveStats(stats = this.stats): Promise<void> {
+    if (!stats) return;
     if (this.isSavingStats) return;
     if (!this.statsStorage && typeof window === 'undefined') return;
     this.isSavingStats = true;
     try {
-      const statsJson = JsonExt.stringify(this.stats, 2);
+      const statsJson = JsonExt.stringify(stats, 2);
       if (this.statsStorage) {
         await this.statsStorage.write(statsJson);
         return;
       }
 
-      await mkdir(this.statsDirectory(), { baseDir: BaseDirectory.AppConfig, recursive: true }).catch(() => null);
+      await mkdir(this.statsDirectory(), { baseDir: BaseDirectory.AppConfig, recursive: true });
       await writeTextFile(this.statsFile() + '.tmp', statsJson, {
         baseDir: BaseDirectory.AppConfig,
-      }).catch(error => {
-        console.error('Error saving vault stats:', error);
       });
       await rename(this.statsFile() + '.tmp', this.statsFile(), {
         oldPathBaseDir: BaseDirectory.AppConfig,
         newPathBaseDir: BaseDirectory.AppConfig,
-      }).catch(error => {
-        console.error('Error renaming vault stats file:', error);
       });
+    } catch (error) {
+      console.warn('[VaultHistory] Unable to save the cache; retaining loaded history', error);
     } finally {
       this.isSavingStats = false;
     }
   }
 
   protected async loadStatsFromFile(): Promise<IAllVaultStats | void> {
+    if (!this.statsStorage && typeof window === 'undefined') return;
+
+    let state: string | null | void;
     if (this.statsStorage) {
-      const state = await this.statsStorage.read();
-      return state ? JsonExt.parse(state) : undefined;
+      state = await this.statsStorage.read();
+    } else {
+      state = await readTextFile(this.statsFile(), {
+        baseDir: BaseDirectory.AppConfig,
+      }).catch(err => console.warn(`No existing vault stats file found: ${err}`));
     }
-    if (typeof window === 'undefined') return;
 
-    console.log('load stats from file', this.statsFile());
-    const state = await readTextFile(this.statsFile(), {
-      baseDir: BaseDirectory.AppConfig,
-    }).catch(err => console.warn(`No existing vault stats file found: ${err}`));
+    const cachedStats = state ? JsonExt.parse<IAllVaultStats>(state) : undefined;
+    if (cachedStats?.formatVersion === VAULT_STATS_FORMAT_VERSION) return cachedStats;
 
-    return state ? JsonExt.parse(state) : undefined;
+    const bundledHistory = bundledVaultRevenueHistory[this.network];
+    if (!bundledHistory) return cachedStats;
+
+    const stats = JsonExt.parse<IAllVaultStats>(JSON.stringify(bundledHistory));
+    await this.saveStats(stats);
+    return stats;
   }
 }
