@@ -1,4 +1,5 @@
 import type { ArgonClient } from '@argonprotocol/apps-core';
+import type { Db } from '../lib/Db.ts';
 import type { IConfigQueryRef } from './IConfigQueryRef.ts';
 import type { IEthereumMoveTrackerQueryRef } from './IEthereumInboundTransferTracker.ts';
 import type { IMyVaultQueryRef } from './IMyVault.ts';
@@ -14,6 +15,7 @@ import type { ArgonBonds } from '../lib/ArgonBonds.ts';
 
 export interface IAppQueryRefs {
   config: IConfigQueryRef;
+  db: Db;
   bitcoinLocks: BitcoinLocks;
   myVault: IMyVaultQueryRef;
   wallets: IWalletsQueryRef;

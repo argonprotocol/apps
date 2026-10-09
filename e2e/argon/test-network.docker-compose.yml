@@ -1,0 +1,4 @@
+services:
+  archive-node:
+    healthcheck:
+      start_period: 120s

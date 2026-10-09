@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url';
 import { Metadata, TypeRegistry } from '@polkadot/types';
 import { readInstalledRuntimeSource, readRuntimeSource } from '../src/generation/readRuntimeSource.ts';
 
-it('retains the existing declarations after a metadata download fails and enriches the same durable cache on retry and restart', async () => {
+it('retains declarations through a metadata outage and enriches the cache after a transient 503', async () => {
   const packageRoot = Path.resolve(Path.dirname(fileURLToPath(import.meta.resolve('@argonprotocol/mainchain'))), '..');
   const {
     metadataSource,
@@ -21,12 +21,17 @@ it('retains the existing declarations after a metadata download fails and enrich
   await Fs.writeFile(cachePath, previous);
   vi.stubEnv('ARGON_RUNTIME_CLIENT_CACHE', cacheDirectory);
   let metadataUnavailable = true;
+  let failNextMetadataFetch = false;
   vi.stubGlobal('fetch', async (url: string) => {
     if (url === 'https://registry.npmjs.org/@argonprotocol/mainchain/1.4.13') {
       return Response.json({ gitHead: '7df747f7563d5c79e0df762f60a2bf9449a03051' });
     }
     if (url.endsWith('/client/nodejs/metadata.json')) {
-      return metadataUnavailable ? new Response('unavailable', { status: 503 }) : new Response(metadataSource);
+      if (metadataUnavailable || failNextMetadataFetch) {
+        failNextMetadataFetch = false;
+        return new Response('unavailable', { status: 503 });
+      }
+      return new Response(metadataSource);
     }
     throw new Error(`The existing package declarations must not be downloaded again: ${url}`);
   });
@@ -34,7 +39,9 @@ it('retains the existing declarations after a metadata download fails and enrich
     await expect(readRuntimeSource(source)).rejects.toThrow('Unable to download metadata');
     expect(await Fs.readFile(cachePath, 'utf8')).toBe(previous);
     metadataUnavailable = false;
-    await readRuntimeSource(source);
+    failNextMetadataFetch = true;
+    const recovered = await readRuntimeSource(source);
+    expect(recovered.metadataSource).toBe(metadataSource);
 
     vi.resetModules();
     vi.stubGlobal('fetch', () => {
@@ -56,4 +63,4 @@ it('retains the existing declarations after a metadata download fails and enrich
     vi.unstubAllEnvs();
     await Fs.rm(cacheDirectory, { recursive: true, force: true });
   }
-});
+}, 15_000);

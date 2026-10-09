@@ -3,7 +3,7 @@ import { sudoFundWallet } from '../helpers/sudoFundWallet.ts';
 import { pollEvery } from '../helpers/utils.ts';
 import vaultingActivateTab from './Vaulting.op.activateTab.ts';
 import { OperationalFlow } from './index.ts';
-import type { IE2EOperationInspectState } from '../types.ts';
+import type { IE2EFlowRuntime, IE2EOperationInspectState } from '../types.ts';
 
 type SettingsState = IE2EOperationInspectState<{ hasVault: boolean }, { completed: boolean }>;
 
@@ -64,7 +64,7 @@ export default new OperationalFlow<IVaultingFlowContext, SettingsState>(import.m
       clear: true,
     });
     await flow.click('VaultSettingsPanel.submitChange()');
-    await flow.waitFor({ selector: '[aria-label="ARGN securitization transaction in progress"]' });
+    await flow.waitFor({ selector: '[aria-label="Argon securitization transaction in progress"]' });
     await flow.click('VaultSettingsPanel.fundingPopoverOpen = false');
     await flow.click('VaultSettingsPanel.closeOverlay()');
     await flow.click('Dashboard.openVaultEditOverlay()');
@@ -74,9 +74,11 @@ export default new OperationalFlow<IVaultingFlowContext, SettingsState>(import.m
     const reopenedDraft = await flow.isVisible({
       selector: '[data-testid="settings-funding-amount"] [data-testid="input-number"]',
     });
-    if (reopenedDraft.visible) await flow.click('VaultSettingsPanel.fundingPopoverOpen = false');
-    else
-      await flow.waitFor({ selector: '[aria-label="Securitization editor"]' }, { state: 'hidden', timeoutMs: 60_000 });
+    if (reopenedDraft.visible) {
+      await flow.click('VaultSettingsPanel.fundingPopoverOpen = false');
+    } else {
+      await flow.waitFor({ selector: '[aria-label="Securitization editor"]' }, { state: 'missing', timeoutMs: 60_000 });
+    }
     const addedArgons = await flow.getText('Vault.settings.argn');
     if (!addedArgons.includes(`${((BigInt(initial.argons) + 10_000_000n) / 1_000_000n).toLocaleString('en-US')} ARGN`))
       throw new Error(`Finalized ARGN was not displayed: ${addedArgons}`);
@@ -86,7 +88,7 @@ export default new OperationalFlow<IVaultingFlowContext, SettingsState>(import.m
       clear: true,
     });
     await flow.click('VaultSettingsPanel.submitChange()');
-    await flow.waitFor({ selector: '[aria-label="Securitization editor"]' }, { state: 'hidden', timeoutMs: 60_000 });
+    await waitForSecuritizationToFinish(flow);
     const addedArgonots = await flow.getText('Vault.settings.argnot');
     if (
       !addedArgonots.includes(
@@ -109,7 +111,7 @@ export default new OperationalFlow<IVaultingFlowContext, SettingsState>(import.m
       clear: true,
     });
     await flow.click('VaultSettingsPanel.submitChange()');
-    await flow.waitFor({ selector: '[aria-label="Securitization editor"]' }, { state: 'hidden', timeoutMs: 60_000 });
+    await waitForSecuritizationToFinish(flow);
     const withdrawal = await flow.queryApp(refs => ({
       target: refs.myVault.createdVault!.securitizationTarget.toString(),
       pending: refs.myVault
@@ -128,25 +130,17 @@ export default new OperationalFlow<IVaultingFlowContext, SettingsState>(import.m
       '3',
       { clear: true },
     );
-    // Fail the first local settings write after the real chain command finalizes.
-    await flow.queryApp(() => {
-      const internals = (
-        window as unknown as Window & {
-          __TAURI_INTERNALS__: { invoke: typeof import('@tauri-apps/api/core').invoke };
+    // The fee transaction finalizes before Config saves.
+    // Fail only the subsequent local write to exercise retry after chain success.
+    await flow.queryApp(refs => {
+      const { db } = refs;
+      const execute = db.execute.bind(db);
+      db.execute = async (query, values) => {
+        if (query.startsWith('INSERT INTO Config') && values?.includes('vaultSetup')) {
+          db.execute = execute;
+          throw new Error('Synthetic vault settings persistence failure');
         }
-      ).__TAURI_INTERNALS__;
-      const invoke = internals.invoke;
-      internals.invoke = (command, args, options) => {
-        const sql = args as { query?: string; values?: unknown[] } | undefined;
-        if (
-          command === 'sql_execute_write' &&
-          sql?.query?.startsWith('INSERT INTO Config') &&
-          sql.values?.includes('vaultSetup')
-        ) {
-          internals.invoke = invoke;
-          return Promise.reject(new Error('Synthetic vault settings persistence failure'));
-        }
-        return invoke(command, args, options);
+        return execute(query, values);
       };
     });
     await flow.click('EditBoxOverlay.saveOverlay()');
@@ -161,7 +155,7 @@ export default new OperationalFlow<IVaultingFlowContext, SettingsState>(import.m
     if (editable !== 'false')
       throw new Error('Finalized Bitcoin fees can still be edited before retry, diverging from the chain.');
     await flow.click('EditBoxOverlay.saveOverlay()');
-    await flow.waitFor('EditBoxOverlay', { state: 'hidden', timeoutMs: 60_000 });
+    await flow.waitFor('EditBoxOverlay', { state: 'missing', timeoutMs: 60_000 });
     const result = await flow.queryApp(refs => {
       const vault = refs.myVault.createdVault!;
       const terms = vault.pendingTerms?.[1] ?? vault.terms;
@@ -176,3 +170,29 @@ export default new OperationalFlow<IVaultingFlowContext, SettingsState>(import.m
     await flow.click('VaultSettingsPanel.closeOverlay()');
   },
 });
+
+async function waitForSecuritizationToFinish(flow: IE2EFlowRuntime): Promise<void> {
+  const editor = { selector: '[aria-label="Securitization editor"]' };
+  const retry = 'VaultSettingsPanel.retryChange()';
+
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    await pollEvery(
+      250,
+      async () => !(await flow.isVisible(editor)).visible || (await flow.isVisible(retry)).clickable,
+      {
+        timeoutMs: 60_000,
+      },
+    );
+    if (!(await flow.isVisible(editor)).visible) return;
+
+    const action = (await flow.getText(retry)).trim();
+    if (action !== 'Try Again') {
+      throw new Error(`Securitization transaction could not be reconciled: ${await flow.getText(editor)}`);
+    }
+    if (attempt === 2) {
+      throw new Error(`Securitization still needs retry after two refresh attempts: ${await flow.getText(editor)}`);
+    }
+    // The command is finalized; this retries the local refresh without submitting it again.
+    await flow.click(retry);
+  }
+}

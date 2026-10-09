@@ -83,7 +83,7 @@ export async function acquireIntegrationLock(
     sudo: 180_000,
     'network-access': 180_000,
     'network-exclusive': 15 * 60_000,
-    'network-start': 180_000,
+    'network-start': 6 * 60_000,
     'network-assets': 180_000,
     'mining-auction': 15 * 60_000,
     'financial-history-capture': 45 * 60_000,

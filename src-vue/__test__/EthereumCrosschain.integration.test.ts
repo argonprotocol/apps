@@ -314,7 +314,7 @@ describe.skipIf(skipE2E || !TestEthereum.isInstalled())('EthereumCrosschain inte
       tokenAddresses: [chainConfig.argonTokenAddress, chainConfig.argonotTokenAddress],
     });
     await myVault.load();
-  }, 420_000);
+  }, 12 * 60_000);
 
   afterAll(async () => {
     await gatewayProverService?.shutdown().catch(() => undefined);

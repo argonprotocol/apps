@@ -12,6 +12,7 @@ type IStartBitcoinLockUiState = {
 };
 
 type IStartBitcoinLockState = IE2EOperationInspectState<IBitcoinUnlockReleaseState, IStartBitcoinLockUiState>;
+const ARGON_CHANNEL_CONFIRMATION_TIMEOUT_MS = 120_000;
 
 export default new Operation<IBitcoinFlowContext, IStartBitcoinLockState>(import.meta, {
   async inspect({ flow }) {
@@ -70,7 +71,7 @@ export default new Operation<IBitcoinFlowContext, IStartBitcoinLockState>(import
       );
     }
     if (channelState === 'ProcessingOnArgon') {
-      await waitForChannelState(flow, 'ReadyForBitcoin', 60_000);
+      await waitForChannelState(flow, 'ReadyForBitcoin', ARGON_CHANNEL_CONFIRMATION_TIMEOUT_MS);
       return;
     }
     if (channelState === 'ReadyForBitcoin') return;
@@ -118,7 +119,7 @@ export default new Operation<IBitcoinFlowContext, IStartBitcoinLockState>(import
     const error = await flow.getText('ConnectorChannel.error', { timeoutMs: 300 }).catch(() => '');
     if (error.trim()) throw new Error(`${flowName}: channel creation failed: ${error.trim()}`);
 
-    await waitForChannelState(flow, 'ReadyForBitcoin', 60_000);
+    await waitForChannelState(flow, 'ReadyForBitcoin', ARGON_CHANNEL_CONFIRMATION_TIMEOUT_MS);
     const channelUuid = await flow.getAttribute('ConnectorChannel', 'data-channel-uuid', { timeoutMs: 1_000 });
     if (!channelUuid) throw new Error(`${flowName}: created Bitcoin channel has no wallet UUID.`);
 
