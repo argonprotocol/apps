@@ -85,17 +85,15 @@ function useScenario(state: WalletTransferScenario, restoreArgonTransfer = false
     'inboundArgon',
     'completeInbound',
   ].includes(state);
-  const ethereumWallet = useWallets().ethereumWallets.find(41);
-  if (isInbound && !ethereumWallet) throw new Error('Ethereum Treasury story wallet is missing.');
-  request = isInbound
-    ? {
-        wallet: ethereumWallet!,
-        view: 'main',
-      }
-    : {
-        wallet: useWallets().argonWallets.defaultArgonWallet,
-        view: 'send',
-      };
+  if (state === 'inboundTransactionUnavailable') {
+    request = { wallet: useWallets().argonWallets.defaultArgonWallet, view: 'main' };
+  } else if (isInbound) {
+    const ethereumWallet = useWallets().ethereumWallets.find(41);
+    if (!ethereumWallet) throw new Error('Ethereum Treasury story wallet is missing.');
+    request = { wallet: ethereumWallet, view: 'main' };
+  } else {
+    request = { wallet: useWallets().argonWallets.defaultArgonWallet, view: 'send' };
+  }
   return scenario.cleanup;
 }
 
@@ -187,7 +185,10 @@ const stories = {
 
   inboundTransactionUnavailable: {
     beforeEach: () => useScenario('inboundTransactionUnavailable'),
-    play: waitForWalletOverlay,
+    play: async () => {
+      await waitForWalletOverlay();
+      await userEvent.click(await within(document.body).findByRole('button', { name: /Transfer.*Needs Attention/ }));
+    },
   },
 
   inboundRelay: {

@@ -14,6 +14,7 @@
                 pendingTransfers.some(
                   transfer =>
                     transfer.direction === 'inbound' &&
+                    !transfer.inboundTransfer?.transferState.needsAttention &&
                     ((props.showTransferGuide && transfer.moveToken === MoveToken.ARGN) ||
                       (props.showBitcoinGuide && transfer.moveToken === MoveToken.BTC)),
                 )
@@ -105,10 +106,13 @@
                   <template v-else>{{ transfer.progress.error }}</template>
                 </div>
                 <button
-                  v-if="transfer.bitcoinUtxo?.fundingRejectionReason === 'BelowMinimum'"
+                  v-if="
+                    transfer.inboundTransfer?.transferState.needsAttention ||
+                    transfer.bitcoinUtxo?.fundingRejectionReason === 'BelowMinimum'
+                  "
                   type="button"
                   class="border-argon-600 text-argon-600 hover:bg-argon-50 mt-3 cursor-pointer rounded-lg border px-5 py-1 font-semibold"
-                  @click="acknowledgeDeposit(transfer.bitcoinUtxo)"
+                  @click="dismissTransfer(transfer)"
                 >
                   Acknowledge &amp; Dismiss
                 </button>
@@ -164,12 +168,14 @@ import { getBitcoinReleaseProgress } from '../../stores/bitcoinLockProgress.ts';
 import type { IBitcoinUtxoRecord } from '../../interfaces/IBitcoinUtxoRecord.ts';
 import { getMiningFrames } from '../../stores/mainchain.ts';
 import { getEthereumMoveTracker } from '../../stores/moveFromEthereum.ts';
+import type { IEthereumInboundActiveTransfer } from '../../lib/EthereumInboundTransferTracker.ts';
 import { getEthereumOutboundTransferTracker } from '../../stores/moveToEthereum.ts';
 import { getMyVault, getVaults } from '../../stores/vaults.ts';
 import { useWallets } from '../../stores/wallets.ts';
 import {
   getCrosschainTransferProgressView,
   isCrosschainTransferActive,
+  isCrosschainTransferUnresolved,
   type ITransferProgressView,
 } from './crosschainTransferView.ts';
 
@@ -183,6 +189,7 @@ type PendingTransfer = {
   startedAt: number;
   updatedAt: number;
   progress: ITransferProgressView;
+  inboundTransfer?: IEthereumInboundActiveTransfer;
   bitcoinUtxo?: IBitcoinUtxoRecord;
 };
 
@@ -207,7 +214,8 @@ let progressRefreshInterval: ReturnType<typeof setInterval> | undefined;
 
 const pendingTransfers = Vue.computed<PendingTransfer[]>(() => {
   const inboundTransfers = Object.values(inboundTracker.data.transfersById)
-    .filter(transfer => isCrosschainTransferActive(transfer.transferState))
+    // Failures belong in status until acknowledged, including after a restart.
+    .filter(transfer => isCrosschainTransferUnresolved(transfer.transferState))
     .map<PendingTransfer>(transfer => {
       const ethereumAddress = transfer.persistedRecord?.sourceAddress ?? transfer.sourceAddress ?? '';
       return {
@@ -220,6 +228,7 @@ const pendingTransfers = Vue.computed<PendingTransfer[]>(() => {
         startedAt: transfer.persistedRecord?.createdAt.getTime() ?? transfer.startedAt ?? 0,
         updatedAt: transfer.persistedRecord?.updatedAt.getTime() ?? transfer.startedAt ?? 0,
         progress: getCrosschainTransferProgressView(transfer.transferState, progressNow.value),
+        inboundTransfer: transfer,
       };
     });
   const outboundTransfers = Object.values(outboundTracker.data.transfersById)
@@ -347,10 +356,16 @@ Vue.watch(
   },
 );
 
-async function acknowledgeDeposit(record: IBitcoinUtxoRecord): Promise<void> {
-  await bitcoinLocks.utxoTracking.acknowledgeBelowMinimum(record).catch(error => {
-    console.error('[WalletBottomBar] Unable to acknowledge Bitcoin deposit', error);
-  });
+async function dismissTransfer(transfer: PendingTransfer): Promise<void> {
+  try {
+    if (transfer.inboundTransfer) {
+      await inboundTracker.dismissFailedTransfer(transfer.inboundTransfer.id);
+    } else if (transfer.bitcoinUtxo) {
+      await bitcoinLocks.utxoTracking.acknowledgeBelowMinimum(transfer.bitcoinUtxo);
+    }
+  } catch (error) {
+    console.error('[WalletBottomBar] Unable to dismiss transfer', error);
+  }
 }
 
 function getEthereumWalletLabel(address: string) {

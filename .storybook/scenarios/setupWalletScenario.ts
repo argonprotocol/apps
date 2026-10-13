@@ -819,7 +819,7 @@ export function setupWalletTransferScenario(state: WalletTransferScenario): Wall
   const inboundTransfer = createInboundTransfer(state);
   const outboundTransfer = createOutboundTransfer(state);
   const inboundTracker = createInboundTransferTracker(
-    state === 'existingInbound' ? inboundTransfer : undefined,
+    state === 'existingInbound' || state === 'inboundTransactionUnavailable' ? inboundTransfer : undefined,
     inboundTransfer,
   );
   const outbound = createOutboundTransferTracker(

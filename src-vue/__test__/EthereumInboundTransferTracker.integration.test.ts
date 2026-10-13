@@ -1,5 +1,6 @@
-import { MoveToken } from '@argonprotocol/apps-core';
+import { createDeferred, MoveToken } from '@argonprotocol/apps-core';
 import { nanoid } from 'nanoid';
+import { computed, reactive } from 'vue';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { createTestDb } from './helpers/db.ts';
 import { createMockWalletKeys } from './helpers/wallet.ts';
@@ -23,6 +24,10 @@ import {
 import type { TransactionTracker } from '../lib/TransactionTracker.ts';
 import { WalletType } from '../lib/Wallet.ts';
 import { convertEthereumTokenBaseUnitsToRuntimeAmount, WalletForEthereum } from '../lib/WalletForEthereum.ts';
+import {
+  getCrosschainTransferProgressView,
+  isCrosschainTransferUnresolved,
+} from '../wallets/components/crosschainTransferView.ts';
 
 type IWaitForTransactionFinalityArgs = Parameters<EthereumClient['waitForTransactionFinality']>[0];
 
@@ -329,10 +334,11 @@ describe('EthereumInboundTransferTracker integration', { tags: ['no-argon-networ
     });
 
     const upstreamCatchUp = vi.fn(async () => ({ outcome: 'Noop' as const, throughGatewayActivityNonce: 7n }));
+    const blockWatch = createBlockWatch(mainchainClient);
     const tracker = new EthereumInboundTransferTracker(
       Promise.resolve(db),
       createTransactionTracker(),
-      createBlockWatch(mainchainClient),
+      blockWatch,
       walletKeys,
       createEthereumClient({
         sourceAddress: walletKeys.coreEthereumAddress,
@@ -401,11 +407,14 @@ describe('EthereumInboundTransferTracker integration', { tags: ['no-argon-networ
 
     const requestBackendCatchUp = (
       tracker as unknown as {
-        requestBackendCatchUp: (transfer: typeof activeTransfer) => Promise<void>;
+        requestBackendCatchUp: (
+          transfer: typeof activeTransfer,
+          client: Awaited<ReturnType<typeof blockWatch.getApi>>,
+        ) => Promise<void>;
       }
     ).requestBackendCatchUp.bind(tracker);
 
-    await requestBackendCatchUp(activeTransfer);
+    await requestBackendCatchUp(activeTransfer, await blockWatch.getApi(blockWatch.finalizedBlockHeader));
 
     expect(upstreamCatchUp).toHaveBeenCalledWith({
       sourceChain: 'Ethereum',
@@ -428,10 +437,11 @@ describe('EthereumInboundTransferTracker integration', { tags: ['no-argon-networ
         getProvenNonce: () => 6n,
       });
 
+      const blockWatch = createBlockWatch(mainchainClient);
       const tracker = new EthereumInboundTransferTracker(
         Promise.resolve(db),
         createTransactionTracker(),
-        createBlockWatch(mainchainClient),
+        blockWatch,
         walletKeys,
         createEthereumClient({
           sourceAddress: walletKeys.coreEthereumAddress,
@@ -491,20 +501,23 @@ describe('EthereumInboundTransferTracker integration', { tags: ['no-argon-networ
 
       const requestBackendCatchUp = (
         tracker as unknown as {
-          requestBackendCatchUp: (transfer: typeof activeTransfer) => Promise<void>;
+          requestBackendCatchUp: (
+            transfer: typeof activeTransfer,
+            client: Awaited<ReturnType<typeof blockWatch.getApi>>,
+          ) => Promise<void>;
         }
       ).requestBackendCatchUp.bind(tracker);
 
-      await requestBackendCatchUp(activeTransfer);
-      await requestBackendCatchUp(activeTransfer);
+      await requestBackendCatchUp(activeTransfer, await blockWatch.getApi(blockWatch.finalizedBlockHeader));
+      await requestBackendCatchUp(activeTransfer, await blockWatch.getApi(blockWatch.finalizedBlockHeader));
       expect(requestEthereumGatewayCatchUp).toHaveBeenCalledTimes(1);
 
       await vi.advanceTimersByTimeAsync(999);
-      await requestBackendCatchUp(activeTransfer);
+      await requestBackendCatchUp(activeTransfer, await blockWatch.getApi(blockWatch.finalizedBlockHeader));
       expect(requestEthereumGatewayCatchUp).toHaveBeenCalledTimes(1);
 
       await vi.advanceTimersByTimeAsync(1);
-      await requestBackendCatchUp(activeTransfer);
+      await requestBackendCatchUp(activeTransfer, await blockWatch.getApi(blockWatch.finalizedBlockHeader));
       expect(requestEthereumGatewayCatchUp).toHaveBeenCalledTimes(2);
     } finally {
       vi.useRealTimers();
@@ -531,10 +544,11 @@ describe('EthereumInboundTransferTracker integration', { tags: ['no-argon-networ
         getProvenNonce: () => 6n,
       });
 
+      const blockWatch = createBlockWatch(mainchainClient);
       const tracker = new EthereumInboundTransferTracker(
         Promise.resolve(db),
         createTransactionTracker(),
-        createBlockWatch(mainchainClient),
+        blockWatch,
         walletKeys,
         createEthereumClient({
           sourceAddress: walletKeys.coreEthereumAddress,
@@ -594,15 +608,18 @@ describe('EthereumInboundTransferTracker integration', { tags: ['no-argon-networ
 
       const requestBackendCatchUp = (
         tracker as unknown as {
-          requestBackendCatchUp: (transfer: typeof activeTransfer) => Promise<void>;
+          requestBackendCatchUp: (
+            transfer: typeof activeTransfer,
+            client: Awaited<ReturnType<typeof blockWatch.getApi>>,
+          ) => Promise<void>;
         }
       ).requestBackendCatchUp.bind(tracker);
 
-      await requestBackendCatchUp(activeTransfer);
+      await requestBackendCatchUp(activeTransfer, await blockWatch.getApi(blockWatch.finalizedBlockHeader));
       expect(getEthereumRelayStatus).toHaveBeenCalledTimes(1);
       expect(requestEthereumGatewayCatchUp).not.toHaveBeenCalled();
 
-      await requestBackendCatchUp(activeTransfer);
+      await requestBackendCatchUp(activeTransfer, await blockWatch.getApi(blockWatch.finalizedBlockHeader));
       expect(getEthereumRelayStatus).toHaveBeenCalledTimes(2);
       expect(requestEthereumGatewayCatchUp).toHaveBeenCalledWith({
         sourceChain: 'Ethereum',
@@ -627,10 +644,11 @@ describe('EthereumInboundTransferTracker integration', { tags: ['no-argon-networ
         getProvenNonce: () => 6n,
       });
 
+      const blockWatch = createBlockWatch(mainchainClient);
       const tracker = new EthereumInboundTransferTracker(
         Promise.resolve(db),
         createTransactionTracker(),
-        createBlockWatch(mainchainClient),
+        blockWatch,
         walletKeys,
         createEthereumClient({
           sourceAddress: walletKeys.coreEthereumAddress,
@@ -690,21 +708,24 @@ describe('EthereumInboundTransferTracker integration', { tags: ['no-argon-networ
 
       const requestBackendCatchUp = (
         tracker as unknown as {
-          requestBackendCatchUp: (transfer: typeof activeTransfer) => Promise<void>;
+          requestBackendCatchUp: (
+            transfer: typeof activeTransfer,
+            client: Awaited<ReturnType<typeof blockWatch.getApi>>,
+          ) => Promise<void>;
         }
       ).requestBackendCatchUp.bind(tracker);
 
-      await requestBackendCatchUp(activeTransfer);
-      await requestBackendCatchUp(activeTransfer);
+      await requestBackendCatchUp(activeTransfer, await blockWatch.getApi(blockWatch.finalizedBlockHeader));
+      await requestBackendCatchUp(activeTransfer, await blockWatch.getApi(blockWatch.finalizedBlockHeader));
       expect(getEthereumRelayStatus).toHaveBeenCalledTimes(1);
       expect(requestEthereumGatewayCatchUp).not.toHaveBeenCalled();
 
       await vi.advanceTimersByTimeAsync(999);
-      await requestBackendCatchUp(activeTransfer);
+      await requestBackendCatchUp(activeTransfer, await blockWatch.getApi(blockWatch.finalizedBlockHeader));
       expect(getEthereumRelayStatus).toHaveBeenCalledTimes(1);
 
       await vi.advanceTimersByTimeAsync(1);
-      await requestBackendCatchUp(activeTransfer);
+      await requestBackendCatchUp(activeTransfer, await blockWatch.getApi(blockWatch.finalizedBlockHeader));
       expect(getEthereumRelayStatus).toHaveBeenCalledTimes(2);
     } finally {
       vi.useRealTimers();
@@ -796,16 +817,19 @@ describe('EthereumInboundTransferTracker integration', { tags: ['no-argon-networ
 
       const requestBackendCatchUp = (
         tracker as unknown as {
-          requestBackendCatchUp: (transfer: typeof activeTransfer) => Promise<void>;
+          requestBackendCatchUp: (
+            transfer: typeof activeTransfer,
+            client: Awaited<ReturnType<typeof blockWatch.getApi>>,
+          ) => Promise<void>;
         }
       ).requestBackendCatchUp.bind(tracker);
 
-      await requestBackendCatchUp(activeTransfer);
+      await requestBackendCatchUp(activeTransfer, await blockWatch.getApi(blockWatch.finalizedBlockHeader));
       expect(requestEthereumGatewayCatchUp).toHaveBeenCalledTimes(1);
 
       retainedAnchorBlockNumber = 101n;
       await vi.advanceTimersByTimeAsync(1_000);
-      await requestBackendCatchUp(activeTransfer);
+      await requestBackendCatchUp(activeTransfer, await blockWatch.getApi(blockWatch.finalizedBlockHeader));
       expect(requestEthereumGatewayCatchUp).toHaveBeenCalledTimes(2);
     } finally {
       vi.useRealTimers();
@@ -872,12 +896,12 @@ describe('EthereumInboundTransferTracker integration', { tags: ['no-argon-networ
     expect(activeTransfer?.transferState.progress.currentStepHint).toBeUndefined();
   });
 
-  it('resumes a transfer to the legacy Native Argon address after the default wallet address changes', async () => {
+  it('resumes a transfer to its recorded destination after the default wallet address changes', async () => {
     const db = await createTestDb();
     const walletKeys = createMockWalletKeys();
-    const legacyNativeArgonAddress = walletKeys.legacyVaultingAddress;
+    const previousNativeArgonAddress = 'previous-native-argon-address';
     walletKeys.configureDefaultArgonWallet({
-      address: 'current-native-argon-address',
+      address: previousNativeArgonAddress,
       keyReference: '//default',
     });
     const mainchainClient = createMainchainClient({
@@ -887,13 +911,18 @@ describe('EthereumInboundTransferTracker integration', { tags: ['no-argon-networ
     const persistedRecord = await insertTransferRecord(db, walletKeys.coreEthereumAddress, {
       id: 'eth-transfer-1',
       token: MoveToken.ARGNOT,
-      argonDestinationAddress: legacyNativeArgonAddress,
+      argonDestinationAddress: walletKeys.defaultArgonAddress,
       sourceTxHash: `0x${'55'.repeat(32)}`,
       sourceBlockNumber: 54,
       sourceBlockHash: `0x${'66'.repeat(32)}`,
       sourceLogIndex: 5,
       gatewayActivityNonce: 9n,
       status: CrosschainInboundTransferStatus.SourceFinalized,
+    });
+
+    walletKeys.configureDefaultArgonWallet({
+      address: 'current-native-argon-address',
+      keyReference: '//default',
     });
 
     const tracker = new EthereumInboundTransferTracker(
@@ -923,6 +952,7 @@ describe('EthereumInboundTransferTracker integration', { tags: ['no-argon-networ
       const updated = await db.crosschainInboundTransfersTable.get(persistedRecord.id);
       expect(updated).toMatchObject({
         status: CrosschainInboundTransferStatus.ArgonFinalized,
+        argonDestinationAddress: previousNativeArgonAddress,
         argonBlockNumber: 144,
         argonBlockHash: `0x${'aa'.repeat(32)}`,
       });
@@ -942,7 +972,7 @@ describe('EthereumInboundTransferTracker integration', { tags: ['no-argon-networ
   it('preserves a source-submitted transfer without Ethereum and resumes finalization once available', async () => {
     const db = await createTestDb();
     const walletKeys = createMockWalletKeys();
-    const releaseEthereumFinality = createDeferredPromise<void>();
+    const releaseEthereumFinality = createDeferred<void>();
     const mainchainClient = createMainchainClient({
       getProvenNonce: () => 9n,
     });
@@ -1057,6 +1087,7 @@ describe('EthereumInboundTransferTracker integration', { tags: ['no-argon-networ
       sourceLogIndex: 3,
       gatewayActivityNonce: 8n,
     });
+    const finality = createDeferred<Awaited<ReturnType<EthereumClient['waitForTransactionFinality']>>>();
     let shouldFailEthereumFinality = true;
     ethereumClient.waitForTransactionFinality = vi.fn(async () => {
       if (shouldFailEthereumFinality) {
@@ -1064,14 +1095,7 @@ describe('EthereumInboundTransferTracker integration', { tags: ['no-argon-networ
         throw new Error('rpc stalled');
       }
 
-      return {
-        blockNumber: 44,
-        blockHash: `0x${'92'.repeat(32)}`,
-        confirmations: 2,
-        expectedConfirmations: 2,
-        progressPct: 100,
-        isFinalized: true,
-      } satisfies IEthereumTransactionProgress;
+      return finality.promise;
     });
 
     const tracker = new EthereumInboundTransferTracker(
@@ -1087,11 +1111,29 @@ describe('EthereumInboundTransferTracker integration', { tags: ['no-argon-networ
       },
     );
 
+    tracker.data = reactive(tracker.data);
+    const ethereumWallet = new WalletForEthereum(walletKeys.coreEthereumAddress, undefined, undefined, true);
+    ethereumWallet.data.availableMicrogons = 5n;
+    const spendableAmount = computed(() => tracker.getAvailableAmount(ethereumWallet, MoveToken.ARGN));
     const activeTransfer = await tracker.startMove({
       moveToken: MoveToken.ARGN,
       amountBaseUnits: 5_000_000_000_000n,
       targetWalletType: WalletType.argon,
-      ethereumWallet: new WalletForEthereum(walletKeys.coreEthereumAddress, undefined, undefined, true),
+      ethereumWallet,
+    });
+
+    await vi.waitFor(() => expect(ethereumClient.waitForTransactionFinality).toHaveBeenCalledTimes(2));
+    expect(spendableAmount.value).toBe(0n);
+    expect(activeTransfer?.transferState.needsAttention).toBe(false);
+    const pendingRecord = await db.crosschainInboundTransfersTable.get(activeTransfer!.id);
+    expect(pendingRecord?.failureReason).toBeUndefined();
+    finality.resolve({
+      blockNumber: 44,
+      blockHash: `0x${'92'.repeat(32)}`,
+      confirmations: 2,
+      expectedConfirmations: 2,
+      progressPct: 100,
+      isFinalized: true,
     });
 
     await vi.waitFor(async () => {
@@ -1124,9 +1166,8 @@ describe('EthereumInboundTransferTracker integration', { tags: ['no-argon-networ
       sourceLogIndex: 0,
       gatewayActivityNonce: 9n,
     });
-    ethereumClient.waitForTransactionFinality = vi.fn(async () => {
-      throw new EthereumTransactionRevertedError(sourceTxHash);
-    });
+    const finality = createDeferred<Awaited<ReturnType<EthereumClient['waitForTransactionFinality']>>>();
+    ethereumClient.waitForTransactionFinality = vi.fn(() => finality.promise);
     const tracker = new EthereumInboundTransferTracker(
       Promise.resolve(db),
       createTransactionTracker(),
@@ -1144,7 +1185,24 @@ describe('EthereumInboundTransferTracker integration', { tags: ['no-argon-networ
       },
     );
 
+    tracker.data = reactive(tracker.data);
+    const ethereumWallet = new WalletForEthereum(walletKeys.coreEthereumAddress, undefined, undefined, true);
+    ethereumWallet.data.availableMicronots = convertEthereumTokenBaseUnitsToRuntimeAmount(
+      persistedRecord.amountBaseUnits,
+    );
+    // Keep the same Vue observer through submission and failure: a direct
+    // selector call would miss a cached value that no longer reacts to updates.
+    const spendableAmount = computed(() => tracker.getAvailableAmount(ethereumWallet, MoveToken.ARGNOT));
+    const statusTransfers = computed(() =>
+      Object.values(tracker.data.transfersById).filter(transfer =>
+        isCrosschainTransferUnresolved(transfer.transferState),
+      ),
+    );
+    expect(spendableAmount.value).toBe(5n);
     await tracker.load();
+    expect(spendableAmount.value).toBe(0n);
+    expect(statusTransfers.value.map(transfer => transfer.id)).toEqual([persistedRecord.id]);
+    finality.reject(new EthereumTransactionRevertedError(sourceTxHash));
 
     await vi.waitFor(async () => {
       const failedRecord = await db.crosschainInboundTransfersTable.get(persistedRecord.id);
@@ -1158,14 +1216,63 @@ describe('EthereumInboundTransferTracker integration', { tags: ['no-argon-networ
       });
     });
     expect(ethereumClient.waitForTransactionFinality).toHaveBeenCalledTimes(1);
+    expect(spendableAmount.value).toBe(5n);
+    expect(statusTransfers.value.map(transfer => transfer.id)).toEqual([persistedRecord.id]);
+    expect(getCrosschainTransferProgressView(statusTransfers.value[0].transferState, Date.now()).error).toContain(
+      'reverted',
+    );
 
-    await tracker.dismissFailedTransfer(persistedRecord.id);
+    // Reopening status after an app restart must still expose the saved error,
+    // even if Ethereum is unavailable. No transfer-window reference survives.
+    const restoredTracker = new EthereumInboundTransferTracker(
+      Promise.resolve(db),
+      createTransactionTracker(),
+      createBlockWatch(createMainchainClient({ getProvenNonce: () => 8n })),
+      walletKeys,
+      undefined,
+      undefined,
+      { resolveOperatorHost: async () => undefined, requestEthereumGatewayCatchUp: vi.fn() },
+    );
+    restoredTracker.data = reactive(restoredTracker.data);
+    await restoredTracker.load();
+    // This observer must lose the row when the restored owner dismisses it,
+    // without reconstructing the selection or reopening the wallet.
+    const restoredStatusTransfers = computed(() =>
+      Object.values(restoredTracker.data.transfersById).filter(transfer =>
+        isCrosschainTransferUnresolved(transfer.transferState),
+      ),
+    );
+    expect(restoredStatusTransfers.value.map(transfer => transfer.id)).toEqual([persistedRecord.id]);
+    expect(
+      getCrosschainTransferProgressView(restoredStatusTransfers.value[0].transferState, Date.now()).error,
+    ).toContain('reverted');
 
-    expect(tracker.getTransfer(persistedRecord.id)).toBeUndefined();
+    await restoredTracker.dismissFailedTransfer(persistedRecord.id);
+
+    expect(restoredTracker.getTransfer(persistedRecord.id)).toBeUndefined();
+    expect(restoredStatusTransfers.value).toEqual([]);
     await expect(db.crosschainInboundTransfersTable.get(persistedRecord.id)).resolves.toMatchObject({
       isFailureAcknowledged: true,
     });
-    expect(tracker.getTransferStateForToken(MoveToken.ARGNOT)).toMatchObject({
+    expect(restoredTracker.getTransferStateForToken(MoveToken.ARGNOT)).toMatchObject({
+      isSubmitting: false,
+      hasPersistedTransfer: false,
+      needsAttention: false,
+    });
+
+    // Dismissal is durable even when Ethereum is unavailable on the next startup.
+    const restartedTracker = new EthereumInboundTransferTracker(
+      Promise.resolve(db),
+      createTransactionTracker(),
+      createBlockWatch(createMainchainClient({ getProvenNonce: () => 8n })),
+      walletKeys,
+      undefined,
+      undefined,
+      { resolveOperatorHost: async () => undefined, requestEthereumGatewayCatchUp: vi.fn() },
+    );
+    await restartedTracker.load();
+    expect(restartedTracker.getTransfer(persistedRecord.id)).toBeUndefined();
+    expect(restartedTracker.getTransferStateForToken(MoveToken.ARGNOT)).toMatchObject({
       isSubmitting: false,
       hasPersistedTransfer: false,
       needsAttention: false,
@@ -1192,14 +1299,8 @@ describe('EthereumInboundTransferTracker integration', { tags: ['no-argon-networ
       sourceLogIndex: 0,
       gatewayActivityNonce: 10n,
     });
-    let finalityAttempt = 0;
-    ethereumClient.waitForTransactionFinality = vi.fn(async () => {
-      finalityAttempt += 1;
-      if (finalityAttempt === 1) {
-        throw new EthereumTransactionUnavailableError(sourceTxHash);
-      }
-      throw new EthereumTransactionRevertedError(sourceTxHash);
-    });
+    const finality = createDeferred<Awaited<ReturnType<EthereumClient['waitForTransactionFinality']>>>();
+    ethereumClient.waitForTransactionFinality = vi.fn(() => finality.promise);
     const tracker = new EthereumInboundTransferTracker(
       Promise.resolve(db),
       createTransactionTracker(),
@@ -1217,7 +1318,16 @@ describe('EthereumInboundTransferTracker integration', { tags: ['no-argon-networ
       },
     );
 
+    tracker.data = reactive(tracker.data);
+    const ethereumWallet = new WalletForEthereum(walletKeys.coreEthereumAddress, undefined, undefined, true);
+    ethereumWallet.data.availableMicrogons = convertEthereumTokenBaseUnitsToRuntimeAmount(
+      persistedRecord.amountBaseUnits,
+    );
+    const spendableAmount = computed(() => tracker.getAvailableAmount(ethereumWallet, MoveToken.ARGN));
+    expect(spendableAmount.value).toBe(5n);
     await tracker.load();
+    expect(spendableAmount.value).toBe(0n);
+    finality.reject(new EthereumTransactionUnavailableError(sourceTxHash));
 
     await vi.waitFor(async () => {
       const failedRecord = await db.crosschainInboundTransfersTable.get(persistedRecord.id);
@@ -1231,6 +1341,7 @@ describe('EthereumInboundTransferTracker integration', { tags: ['no-argon-networ
       });
     });
     expect(ethereumClient.waitForTransactionFinality).toHaveBeenCalledTimes(1);
+    expect(spendableAmount.value).toBe(5n);
     expect(ethereumClient.waitForTransactionFinality).toHaveBeenCalledWith(
       expect.objectContaining({ submittedAtMs: persistedRecord.createdAt.getTime() }),
     );
@@ -1267,11 +1378,17 @@ describe('EthereumInboundTransferTracker integration', { tags: ['no-argon-networ
       },
     );
 
+    tracker.data = reactive(tracker.data);
+    const ethereumWallet = new WalletForEthereum(walletKeys.coreEthereumAddress, undefined, undefined, true);
+    ethereumWallet.data.availableMicrogons = 5n;
+    const spendableAmount = computed(() => tracker.getAvailableAmount(ethereumWallet, MoveToken.ARGN));
+    expect(spendableAmount.value).toBe(5n);
+
     const activeTransfer = await tracker.startMove({
       moveToken: MoveToken.ARGN,
       amountBaseUnits: 5_000_000_000_000n,
       targetWalletType: WalletType.argon,
-      ethereumWallet: new WalletForEthereum(walletKeys.coreEthereumAddress, undefined, undefined, true),
+      ethereumWallet,
     });
 
     await vi.waitFor(() => {
@@ -1282,6 +1399,80 @@ describe('EthereumInboundTransferTracker integration', { tags: ['no-argon-networ
     });
 
     expect(ethereumClient.startTransferToArgon).not.toHaveBeenCalled();
+    expect(spendableAmount.value).toBe(5n);
+    await db.close();
+  });
+
+  it('restores the spendable ARGNOT amount after Ethereum rejects submission', async () => {
+    const db = await createTestDb();
+    const walletKeys = createMockWalletKeys();
+    const ethereumWallet = new WalletForEthereum(walletKeys.coreEthereumAddress, undefined, undefined, true);
+    ethereumWallet.data = reactive(ethereumWallet.data);
+    ethereumWallet.data.availableMicronots = 125_000_000n;
+    const ethereumClient = createEthereumClient({
+      sourceAddress: ethereumWallet.address,
+      destinationAddress: walletKeys.defaultArgonAddress,
+      sourceTxHash: `0x${'a1'.repeat(32)}`,
+      sourceBlockNumber: 42,
+      sourceBlockHash: `0x${'a2'.repeat(32)}`,
+      sourceLogIndex: 1,
+      gatewayActivityNonce: 7n,
+    });
+    const submission = createDeferred<Awaited<ReturnType<EthereumClient['startTransferToArgon']>>>();
+    ethereumClient.startTransferToArgon = vi.fn(() => submission.promise);
+    const tracker = new EthereumInboundTransferTracker(
+      Promise.resolve(db),
+      createTransactionTracker(),
+      createBlockWatch(createMainchainClient({ getProvenNonce: () => 7n })),
+      walletKeys,
+      ethereumClient,
+      undefined,
+      { resolveOperatorHost: async () => undefined, requestEthereumGatewayCatchUp: vi.fn() },
+    );
+    tracker.data = reactive(tracker.data);
+    // Keep the form's cached maximum alive so failure must invalidate it.
+    const spendableAmount = computed(() => tracker.getAvailableAmount(ethereumWallet, MoveToken.ARGNOT));
+    expect(spendableAmount.value).toBe(125_000_000n);
+
+    const transfer = await tracker.startMove({
+      moveToken: MoveToken.ARGNOT,
+      amountBaseUnits: 125_000_000_000_000_000_000n,
+      targetWalletType: WalletType.argon,
+      ethereumWallet,
+    });
+    expect(spendableAmount.value).toBe(0n);
+    submission.reject(new Error('Ethereum rejected this transaction'));
+
+    await vi.waitFor(() => expect(transfer?.transferState.needsAttention).toBe(true));
+    expect(transfer?.transferState.error).toBe('Ethereum rejected this transaction');
+    expect(isCrosschainTransferUnresolved(transfer?.transferState)).toBe(true);
+    expect(ethereumWallet.data.availableMicronots).toBe(125_000_000n);
+    expect(await db.crosschainInboundTransfersTable.fetchAll()).toEqual([]);
+    expect(spendableAmount.value).toBe(125_000_000n);
+
+    ethereumClient.startTransferToArgon = vi.fn(
+      async (args: Parameters<EthereumClient['startTransferToArgon']>[0]) => ({
+        moveToken: args.moveToken,
+        amountBaseUnits: args.amountBaseUnits,
+        destinationAddress: args.destinationAddress,
+        executionRpcUrl: 'http://ethereum.test',
+        sourceTxHash: `0x${'a1'.repeat(32)}` as const,
+      }),
+    );
+    const retriedTransfer = await tracker.startMove({
+      moveToken: MoveToken.ARGNOT,
+      amountBaseUnits: 125_000_000_000_000_000_000n,
+      targetWalletType: WalletType.argon,
+      ethereumWallet,
+    });
+    await vi.waitFor(async () => {
+      const record = await db.crosschainInboundTransfersTable.get(retriedTransfer!.id);
+      expect(record?.status).toBe(CrosschainInboundTransferStatus.ArgonFinalized);
+      expect(record?.amountBaseUnits).toBe(125_000_000_000_000_000_000n);
+    });
+    expect(retriedTransfer?.transferState.isComplete).toBe(true);
+    expect(spendableAmount.value).toBe(125_000_000n);
+    await db.close();
   });
 
   it('keeps the inbound Argon catch-up loop alive after a transient finalized-head read error', async () => {
@@ -1535,17 +1726,6 @@ function createTransactionTracker(
         throw new Error('submitAndWatch should not be called in this test');
       }),
   } as unknown as TransactionTracker;
-}
-
-function createDeferredPromise<T>() {
-  let resolve!: (value: T | PromiseLike<T>) => void;
-  let reject!: (reason?: unknown) => void;
-  const promise = new Promise<T>((innerResolve, innerReject) => {
-    resolve = innerResolve;
-    reject = innerReject;
-  });
-
-  return { promise, resolve, reject };
 }
 
 async function insertTransferRecord(
