@@ -4,12 +4,13 @@ import { toRaw } from 'vue';
 import { app } from '@tauri-apps/api';
 import { relaunch } from '@tauri-apps/plugin-process';
 import { check } from '@tauri-apps/plugin-updater';
-import { getErrorDiagnostics, getRuntimeDiagnostics } from '@argonprotocol/apps-core';
+import { getErrorDiagnostics, getRuntimeDiagnostics, raceWithTimeout } from '@argonprotocol/apps-core';
 import * as semver from 'semver';
 import { ENABLE_AUTO_UPDATE } from '../lib/Env.ts';
 
 type AppUpdate = Awaited<ReturnType<typeof check>>;
 const APP_UPDATE_RELAUNCH_KEY = 'argon-app-update-requires-relaunch';
+const UPDATE_CHECK_TIMEOUT_MILLIS = 30e3;
 
 export async function isAppUpdateBlockingServerInstall(): Promise<boolean> {
   const targetVersion = sessionStorage.getItem(APP_UPDATE_RELAUNCH_KEY);
@@ -92,7 +93,13 @@ export const useAppUpdater = defineStore('appUpdater', () => {
       isChecking.value = true;
 
       try {
-        const nextUpdate = await check();
+        const nextUpdate = await raceWithTimeout(
+          check({ timeout: UPDATE_CHECK_TIMEOUT_MILLIS }),
+          UPDATE_CHECK_TIMEOUT_MILLIS,
+          () => {
+            throw new Error('App update check timed out');
+          },
+        );
         if (updateCheckId !== latestUpdateCheckId) {
           return nextUpdate;
         }

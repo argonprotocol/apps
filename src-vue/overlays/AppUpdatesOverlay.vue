@@ -146,6 +146,7 @@ Vue.watch(
     lastAutoshownVersion = version;
     isOpen.value = true;
   },
+  { immediate: true },
 );
 
 basicEmitter.on('openCheckForAppUpdatesOverlay', () => {
