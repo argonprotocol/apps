@@ -1391,6 +1391,7 @@ describe('MyVault cosign recovery', () => {
         load: vi.fn(async () => undefined),
         pendingBlockTxInfosAtLoad: [],
         data: {
+          txInfos: [completedTxInfo],
           txInfosByType: {
             [ExtrinsicType.VaultSetBitcoinLockDelegate]: completedTxInfo,
           },
@@ -1835,7 +1836,7 @@ describe('MyVault cosign recovery', () => {
       {
         load: vi.fn(async () => undefined),
         pendingBlockTxInfosAtLoad: [],
-        data: { txInfosByType: {} },
+        data: { txInfos: [], txInfosByType: {} },
       } as any,
       {
         load: vi.fn(() => new Promise<void>(() => undefined)),

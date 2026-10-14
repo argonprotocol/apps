@@ -173,6 +173,7 @@ describe('MiningSetup', () => {
       true,
     );
     failedProxy.txResult.extrinsicError = new Error('Proxy setup failed.');
+    Object.assign(failedProxy.tx, { blockExtrinsicErrorJson: { message: 'Proxy setup failed.' } });
     const replacementProxy = createTxInfo(
       3,
       ExtrinsicType.MiningBidProxySetup,

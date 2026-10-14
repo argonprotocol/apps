@@ -264,6 +264,7 @@ describe('MoveCapital', () => {
         id: 2,
         extrinsicType: ExtrinsicType.Transfer,
         isFinalized: true,
+        blockExtrinsicErrorJson: { message: 'ARGNOT return failed.' },
         metadataJson: {
           ...allocationChange.legs[1],
           allocationChange: { ...allocationChange, legIndex: 1 },
