@@ -395,17 +395,13 @@ const ethereumBalanceWei = Vue.computed(
   () => selectedEthereumWallet.value?.data.otherTokens.find(token => token.symbol === 'ETH')?.value ?? 0n,
 );
 const availableAmount = Vue.computed(() => {
-  const rawAmount = getWalletAvailableAmount(props.fromWallet, selectedMoveToken.value);
   const moveToken = selectedEthereumMoveToken.value;
-  if (!moveToken) return rawAmount;
-  if (isEthereumWallet(props.fromWallet)) {
-    return bigIntMax(
-      rawAmount -
-        inboundTracker.getPendingAmount(props.fromWallet.address, moveToken, props.fromWallet.data.balanceUpdatedAt),
-      0n,
-    );
+  if (moveToken && isEthereumWallet(props.fromWallet)) {
+    return inboundTracker.getAvailableAmount(props.fromWallet, moveToken);
   }
-  if (isArgonWallet(props.fromWallet) && isEthereumWallet(selectedDestinationWallet.value)) {
+
+  const rawAmount = getWalletAvailableAmount(props.fromWallet, selectedMoveToken.value);
+  if (moveToken && isArgonWallet(props.fromWallet) && isEthereumWallet(selectedDestinationWallet.value)) {
     return bigIntMax(
       rawAmount -
         outboundTracker.getPendingAmount(props.fromWallet.address, selectedDestinationWallet.value.address, moveToken),

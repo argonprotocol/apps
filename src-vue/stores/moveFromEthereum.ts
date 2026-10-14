@@ -2,7 +2,6 @@ import { reactive } from 'vue';
 import { EthereumInboundTransferTracker } from '../lib/EthereumInboundTransferTracker.ts';
 import { EthereumClient, getEthereumExecutionRpcUrl } from '../lib/EthereumClient.ts';
 import { getConfig } from './config.ts';
-import handleFatalError from './helpers/handleFatalError.ts';
 import { getServerApiClient } from './server.ts';
 import { getBlockWatch } from './mainchain.ts';
 import { getTransactionTracker } from './transactions.ts';
@@ -35,7 +34,11 @@ export function getEthereumMoveTracker(): EthereumInboundTransferTracker {
       myVault,
     );
     ethereumMoveTracker.data = reactive(ethereumMoveTracker.data) as any;
-    ethereumMoveTracker.load().catch(handleFatalError.bind(ethereumMoveTracker));
+    // Startup RPC/read failures are retryable. The wallet status tray presents
+    // the load error and lets the user retry without restarting the app.
+    ethereumMoveTracker.load().catch(error => {
+      console.warn('[EthereumInboundTransferTracker] Unable to load inbound transfers; retry is available.', error);
+    });
   }
 
   return ethereumMoveTracker;

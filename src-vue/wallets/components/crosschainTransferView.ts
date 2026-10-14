@@ -23,7 +23,12 @@ export function isCrosschainTransferPending(transferState: IWalletCrosschainTran
 }
 
 export function isCrosschainTransferActive(transferState: IWalletCrosschainTransferState | undefined) {
-  return isCrosschainTransferPending(transferState) && !transferState?.needsAttention && !transferState?.isComplete;
+  return isCrosschainTransferUnresolved(transferState) && !transferState?.needsAttention;
+}
+
+export function isCrosschainTransferUnresolved(transferState: IWalletCrosschainTransferState | undefined) {
+  if (!transferState || transferState.isComplete) return false;
+  return isCrosschainTransferPending(transferState) || transferState.needsAttention;
 }
 
 export function isCrosschainTransferComplete(transferState: IWalletCrosschainTransferState | undefined) {
