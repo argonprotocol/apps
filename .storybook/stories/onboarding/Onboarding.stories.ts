@@ -255,8 +255,11 @@ function createMemberInvites(): IMemberInvite[] {
   const now = new Date('2026-08-15T16:00:00.000Z');
   const treasuryComplete = createCertificationProgress({
     hasTreasuryBitcoin: true,
+    treasuryBitcoinAmount: 2_500_000_000n,
     hasTreasuryBonds: true,
+    treasuryBondAmount: 2_500_000_000n,
     hasTreasuryUniswapTransfer: true,
+    uniswapArgonTransfersInAmount: 1_000_000_000n,
     isTreasuryCertified: true,
   });
 
@@ -266,14 +269,20 @@ function createMemberInvites(): IMemberInvite[] {
     createInvite(3, 'Jordan', {
       defaultAccountId: memberAccountId(3),
       firstClickedAt: now,
-      certificationProgress: createCertificationProgress({ hasTreasuryBitcoin: true }),
-      vaultContribution: { bitcoinAmount: 120_000_000n, pendingBitcoinAmount: 0n, bondAmount: 0n },
+      certificationProgress: createCertificationProgress({
+        hasTreasuryBitcoin: true,
+        treasuryBitcoinAmount: 2_500_000_000n,
+      }),
+      vaultContribution: { bitcoinAmount: 2_500_000_000n, pendingBitcoinAmount: 0n, bondAmount: 0n },
     }),
     createInvite(4, 'Riley', {
       defaultAccountId: memberAccountId(4),
       firstClickedAt: now,
-      certificationProgress: createCertificationProgress({ hasTreasuryBonds: true }),
-      vaultContribution: { bitcoinAmount: 0n, pendingBitcoinAmount: 600_000_000n, bondAmount: 800_000_000n },
+      certificationProgress: createCertificationProgress({
+        hasTreasuryBonds: true,
+        treasuryBondAmount: 2_500_000_000n,
+      }),
+      vaultContribution: { bitcoinAmount: 0n, pendingBitcoinAmount: 600_000_000n, bondAmount: 2_500_000_000n },
     }),
     createInvite(5, 'Taylor', {
       defaultAccountId: memberAccountId(5),
@@ -281,7 +290,7 @@ function createMemberInvites(): IMemberInvite[] {
       firstClickedAt: now,
       operationsUpgradeRequestedAt: now,
       certificationProgress: treasuryComplete,
-      vaultContribution: { bitcoinAmount: 600_000_000n, pendingBitcoinAmount: 0n, bondAmount: 1_000_000_000n },
+      vaultContribution: { bitcoinAmount: 2_500_000_000n, pendingBitcoinAmount: 0n, bondAmount: 2_500_000_000n },
     }),
     createInvite(6, 'Avery', {
       defaultAccountId: memberAccountId(6),
@@ -293,8 +302,13 @@ function createMemberInvites(): IMemberInvite[] {
         hasOperationalAccount: true,
         isUpgradedToOperations: true,
         hasOperationalVault: true,
+        operationalVaultSecuritization: 2_000_000_000n,
       }),
-      vaultContribution: { bitcoinAmount: 900_000_000n, pendingBitcoinAmount: 75_000_000n, bondAmount: 1_500_000_000n },
+      vaultContribution: {
+        bitcoinAmount: 2_500_000_000n,
+        pendingBitcoinAmount: 75_000_000n,
+        bondAmount: 2_500_000_000n,
+      },
     }),
     createInvite(7, 'Quinn', {
       defaultAccountId: memberAccountId(7),
@@ -302,18 +316,18 @@ function createMemberInvites(): IMemberInvite[] {
       firstClickedAt: now,
       operationsUpgradedAt: now,
       certificationProgress: createCertificationProgress({
+        ...treasuryComplete,
         hasOperationalAccount: true,
-        isTreasuryCertified: true,
-        hasTreasuryBitcoin: true,
-        hasTreasuryBonds: true,
-        hasTreasuryUniswapTransfer: true,
         isUpgradedToOperations: true,
         hasOperationalVault: true,
+        operationalVaultSecuritization: 2_000_000_000n,
         hasOperationalMiningSeats: true,
+        operationalMiningSeatCount: 2,
         hasOperationalUniswapTransfer: true,
+        uniswapArgonTransfersInAmount: 3_000_000_000n,
         isOperationallyCertified: true,
       }),
-      vaultContribution: { bitcoinAmount: 1_500_000_000n, pendingBitcoinAmount: 0n, bondAmount: 2_400_000_000n },
+      vaultContribution: { bitcoinAmount: 2_500_000_000n, pendingBitcoinAmount: 0n, bondAmount: 2_500_000_000n },
     }),
     createInvite(8, 'Jamie', {
       bitcoinLockCoupon: {

@@ -1,3 +1,4 @@
+import { runtimeClient } from '@argonprotocol/runtime-client';
 import * as Vue from 'vue';
 import { defineStore } from 'pinia';
 import type { IMemberInvite } from '@argonprotocol/apps-router';
@@ -23,7 +24,6 @@ import {
   getOnboardingSetupStatus,
   getOperationalChainProgressFromAccount,
   getOperationalProfileName,
-  getOperationalRewardConfig,
   type IOperationalChainProgress,
   type IOperationalRewardConfig,
   subscribeOperationalAccount,
@@ -136,7 +136,6 @@ export const operationalSteps: Record<OperationalStepId, IOperationalStep> = {
   },
 };
 
-export const treasuryBitcoinCertificationDisplayAmount = 600n * BigInt(MICROGONS_PER_ARGON);
 export const treasuryCertificationStepIds = [
   OperationalStepId.BackupMnemonic,
   OperationalStepId.TreasuryTransfer,
@@ -225,12 +224,14 @@ export const useCertificationController = defineStore('certificationController',
     operationalMinimumVaultSecuritization: 1_000n * BigInt(MICROGONS_PER_ARGON),
     miningSeatsForOperational: 2,
     treasuryMinimumBitcoin: 0n,
+    treasuryBitcoinTargetMicrogons: 0n,
     treasuryMinimumBonds: 0n,
     treasuryMinimumUniswapTransfer: 0n,
     bitcoinLockSizeForUpgradeCode: 5_000n * BigInt(MICROGONS_PER_ARGON),
     miningSeatsPerUpgradeCode: 5,
     maxAvailableUpgradeCodes: 3,
   });
+
   const remainingUniswapTransferMicrogons = Vue.computed(() => {
     const minimum =
       activeGuideId.value === OperationalStepId.TreasuryTransfer
@@ -315,23 +316,37 @@ export const useCertificationController = defineStore('certificationController',
       config.vaultingSetupStatus === VaultingSetupStatus.Finished
     );
   });
-  const hasCompletedOwnBitcoinLock = Vue.ref(false);
-  Vue.watchEffect(() => {
+
+  const isVaultCertificationComplete = Vue.computed(() => {
+    if (chainProgress.value.isOperational) return true;
+
+    if (!myVault.createdVault) return false;
+
+    return meetsCertificationAmountMinimum(
+      myVault.createdVault.securitization,
+      rewardConfig.value.operationalMinimumVaultSecuritization,
+      rewardConfig.value.operationalVaultTolerance,
+    );
+  });
+
+  const hasCompletedOwnBitcoinLock = Vue.computed(() => {
     const completedOwnBitcoinLockAmount = bitcoinFissions
-      .getRecords()
+      .getAll()
       .reduce((total, fission) => total + fission.liquidityPromised, 0n);
 
-    const hasCompletedLock =
-      rewardConfig.value.treasuryMinimumBitcoin <= 0n
-        ? completedOwnBitcoinLockAmount > 0n
-        : meetsCertificationAmountMinimum(completedOwnBitcoinLockAmount, rewardConfig.value.treasuryMinimumBitcoin);
+    if (rewardConfig.value.treasuryMinimumBitcoin <= 0n) return false;
 
-    if (hasCompletedLock) hasCompletedOwnBitcoinLock.value = true;
+    return meetsCertificationAmountMinimum(
+      completedOwnBitcoinLockAmount,
+      rewardConfig.value.treasuryMinimumBitcoin,
+      rewardConfig.value.treasuryBitcoinTolerance,
+    );
   });
+
   const certificationProgress = Vue.computed(() => {
     if (chainProgress.value.hasOperationalAccount) {
       return {
-        hasVault: chainProgress.value.hasVault,
+        hasVault: isVaultCertificationComplete.value,
         hasTreasuryBondParticipation: chainProgress.value.hasTreasuryBondParticipation,
         hasOperationalUniswapTransfer: chainProgress.value.hasUniswapTransfer,
         hasOperationalMiningSeats:
@@ -349,7 +364,7 @@ export const useCertificationController = defineStore('certificationController',
     const activeBondMicrogons = argonBonds.bondTotals.activeBondMicrogons;
 
     return {
-      hasVault: Boolean(myVault.createdVault),
+      hasVault: isVaultCertificationComplete.value,
       hasTreasuryBondParticipation:
         rewardConfig.value.treasuryMinimumBonds <= 0n
           ? activeBondMicrogons > 0n
@@ -524,6 +539,8 @@ export const useCertificationController = defineStore('certificationController',
     if (activeGuideId.value === stepId) return true;
 
     if (stepId === OperationalStepId.ActivateVault) {
+      if (myVault.createdVault) return false;
+
       return isVaultActivationUnderway.value;
     }
     if (stepId === OperationalStepId.LiquidLock) {
@@ -556,7 +573,7 @@ export const useCertificationController = defineStore('certificationController',
       return formatArgonRequirementText(rewardConfig.value.operationalMinimumVaultSecuritization, 'securitization');
     }
     if (stepId === OperationalStepId.LiquidLock) {
-      return formatArgonRequirementText(treasuryBitcoinCertificationDisplayAmount, 'bitcoin');
+      return formatArgonRequirementText(rewardConfig.value.treasuryBitcoinTargetMicrogons, 'bitcoin');
     }
     if (stepId === OperationalStepId.AcquireArgonBonds) {
       return formatArgonRequirementText(rewardConfig.value.treasuryMinimumBonds, 'bonds');
@@ -649,11 +666,10 @@ export const useCertificationController = defineStore('certificationController',
 
     const client = await getMainchainClient(false);
 
-    rewardConfig.value = await getOperationalRewardConfig();
-
-    void subscribeOperationalAccount(
+    operationalAccountUnsubscribe = await subscribeOperationalAccount(
       walletKeys,
-      x => {
+      (x, currentRewardConfig) => {
+        rewardConfig.value = currentRewardConfig;
         const isInitialOperationalProgress = !hasLoadedInitialOperationalProgress.value;
         chainProgress.value = x;
 
@@ -691,7 +707,9 @@ export const useCertificationController = defineStore('certificationController',
           void getFinalizedClient(client)
             .then(async finalizedClient => {
               const [accountRaw, ownedVault] = await Promise.all([
-                finalizedClient.query.operationalAccounts.operationalAccounts(walletKeys.operationalAddress),
+                runtimeClient(finalizedClient).query.operationalAccounts.operationalAccounts(
+                  walletKeys.operationalAddress,
+                ),
                 getVaultByOperator({ client: finalizedClient, operatorAddress: walletKeys.vaultingAddress }),
               ]);
               const onboardingProgress = getOperationalChainProgressFromAccount(accountRaw, rewardConfig.value);
@@ -742,14 +760,8 @@ export const useCertificationController = defineStore('certificationController',
             });
         }
       },
-      rewardConfig.value,
-    )
-      .then(unsub => {
-        operationalAccountUnsubscribe = unsub;
-      })
-      .catch(error => {
-        console.error('[Certification Controller] Unable to subscribe to operational progress.', error);
-      });
+      client,
+    );
 
     // detect newly completed steps and queue completion notices
     Vue.watch(

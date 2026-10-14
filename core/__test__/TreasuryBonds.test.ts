@@ -13,7 +13,7 @@ import {
   toFixedNumber,
 } from '@argonprotocol/mainchain';
 import { encodeAddress } from '@polkadot/util-crypto';
-import { getBundledMetadata, toPlain } from '@argonprotocol/runtime-client';
+import { getBundledMetadata, runtimeClient, toPlain } from '@argonprotocol/runtime-client';
 import { Metadata, TypeRegistry } from '@polkadot/types';
 import type { PreviousRuntimeSpec as RuntimeSpec159 } from '../src/runtimeCompatibility.ts';
 
@@ -174,14 +174,32 @@ describe('TreasuryBonds', () => {
     expect(vault.availableArgonWithdrawal(499)).toBe(150n);
   });
 
-  it('limits Argonot purchases to the unfilled portion of the circulation cap', () => {
+  it.each([159, 160])('limits Argonot purchases using active network stakes on runtime %s', async spec => {
     const oneArgonot = BigInt(MICRONOTS_PER_ARGONOT);
+    const client = runtimeClient({
+      query: {
+        treasuryPositions:
+          spec === 160
+            ? {
+                networkTotals: async () =>
+                  registry.createType('ArgonPrimitivesTreasuryPositionQuantities', { stakes: 325, bonds: 800 }),
+              }
+            : {},
+        treasury:
+          spec === 159
+            ? {
+                totalActiveArgonotBonds: async () => deployedRegistry.createType('u32', 325),
+              }
+            : {},
+      },
+    });
+    const totalActiveBonds = await TreasuryBonds.getActiveArgonotBonds(client as any);
 
     expect(
       TreasuryBonds.getArgonotBondPurchaseCapacity({
         totalIssuanceMicronots: 1_000n * oneArgonot,
         maxBondedPercent: 40,
-        totalActiveBonds: 325,
+        totalActiveBonds,
       }),
     ).toBe(75n * oneArgonot);
   });
@@ -276,30 +294,39 @@ describe('TreasuryBonds', () => {
       bitcoinLockedMicrogons: 2_400_000_000n,
       activeBondMicrogons: 2_400_000_000n,
       argonotSecuritizationInMicrogons: 0n,
+      upstreamParticipation: new BigNumber(1),
     };
     const args = {
       position,
       frameCapital: { targetSecuritization: 10_000_000_000n, totalSecuritization: 8_000_000_000n },
       fullBidPool: 1_000_000_000n,
       percentForVaultPool: new BigNumber(0.51),
+      minimumVaultProfitRate: new BigNumber(0.01),
     };
     const empty = TreasuryBonds.vaultRevenuePotential(args);
     const half = TreasuryBonds.vaultRevenuePotential({
       ...args,
       position: { ...position, argonotSecuritizationInMicrogons: 2_400_000_000n },
     });
-    const full = TreasuryBonds.vaultRevenuePotential({
-      ...args,
-      position: { ...position, argonotSecuritizationInMicrogons: 4_800_000_000n },
-    });
+    const fullyBackedPosition = { ...position, argonotSecuritizationInMicrogons: 4_800_000_000n };
+    const full = TreasuryBonds.vaultRevenuePotential({ ...args, position: fullyBackedPosition });
     expect(empty.capturedPercent).toBeCloseTo(25.84, 2);
-    expect(empty.securitizationPercent).toBe(24);
-    expect(
-      TreasuryBonds.vaultRevenuePotential({
-        ...args,
-        frameCapital: { ...args.frameCapital, targetSecuritization: 6_000_000_000n },
-      }).securitizationPercent,
-    ).toBe(30);
+    const networkAboveTarget = TreasuryBonds.vaultRevenuePotential({
+      ...args,
+      frameCapital: { ...args.frameCapital, targetSecuritization: 6_000_000_000n },
+    });
+    expect(networkAboveTarget.capturedPercent).toBe(empty.capturedPercent);
+    expect(networkAboveTarget.maximumEarnings).toBeGreaterThan(empty.maximumEarnings);
+
+    const smallShare = TreasuryBonds.vaultRevenuePotential({
+      ...args,
+      position: fullyBackedPosition,
+      frameCapital: { targetSecuritization: 1_000_000_000_000n, totalSecuritization: 800_000_000_000n },
+    });
+    expect(smallShare.capturedPercent).toBe(100);
+    expect(smallShare.actualEarnings).toBe(smallShare.maximumEarnings);
+    expect(smallShare.maximumEarnings).toBeLessThan(full.maximumEarnings);
+
     const paidOutPool = TreasuryBonds.vaultRevenuePotential({ ...args, fullBidPool: 0n });
     expect(paidOutPool.actualEarnings).toBe(0n);
     expect(paidOutPool.capturedPercent).toBeCloseTo(25.84, 2);
@@ -673,14 +700,30 @@ describe('TreasuryBonds', () => {
       bitcoinLockedMicrogons: 1_000n,
       activeBondMicrogons: 1_000n,
       argonotSecuritizationInMicrogons: 2_000n,
+      upstreamParticipation: new BigNumber(1),
     };
     const args = {
       position,
       frameCapital: { targetSecuritization: 1_000n, totalSecuritization: 1_000n },
       fullBidPool: 100_000n,
       percentForVaultPool: new BigNumber(0.57),
+      minimumVaultProfitRate: new BigNumber(0.01),
     };
     expect(TreasuryBonds.vaultPoolEarnings(args)).toBe(57_000n);
+    const upstreamHalf = { ...args, position: { ...position, upstreamParticipation: new BigNumber(0.5) } };
+    expect(TreasuryBonds.vaultPoolEarnings(upstreamHalf)).toBe(29_000n);
+    expect(
+      TreasuryBonds.vaultPoolEarnings({
+        ...args,
+        position: { ...position, upstreamParticipation: new BigNumber(0) },
+      }),
+    ).toBe(1_000n);
+    const potential = TreasuryBonds.vaultRevenuePotential(upstreamHalf);
+    expect(potential.actualEarnings).toBe(29_000n);
+    expect(potential.maximumEarnings).toBe(57_000n);
+    expect(potential.capturedPercent).toBeCloseTo((29 / 57) * 100, 8);
+    expect(potential.capturedWithMaximumArgonotsPercent).toBe(potential.capturedPercent);
+    expect(potential.upstreamParticipationPercent).toBe(50);
     expect(
       TreasuryBonds.vaultPoolEarnings({
         ...args,

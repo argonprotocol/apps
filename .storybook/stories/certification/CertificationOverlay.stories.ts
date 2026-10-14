@@ -13,6 +13,10 @@ import {
 import CertificationOverlay from '../../../src-vue/overlays/CertificationOverlay.vue';
 import { setupBitcoinPortfolioScenario } from '../../scenarios/setupBitcoinPortfolioScenario.ts';
 import { getBitcoinFissions } from '../../../src-vue/stores/bitcoin.ts';
+import { getMyVault } from '../../../src-vue/stores/vaults.ts';
+import { getConfig } from '../../../src-vue/stores/config.ts';
+import { VaultingSetupStatus } from '../../../src-vue/interfaces/IConfig.ts';
+import { createScenarioVault } from '../../scenarios/createScenarioVault.ts';
 
 const meta = {
   title: 'Certification/Workflow',
@@ -62,7 +66,7 @@ export const TreasuryOverviewInProgress: Story = {
   render: () => renderCertification(OperationalStepId.LiquidLock, true),
   play: async () => {
     const canvas = within(document.body);
-    const detailHeading = await canvas.findByRole('heading', { name: 'Liquid Lock ₳600 of Bitcoin' });
+    const detailHeading = await canvas.findByRole('heading', { name: 'Liquid Lock ₳2,500 of Bitcoin' });
     const backControl = detailHeading.parentElement?.closest('h2')?.querySelector(':scope > span');
 
     if (!backControl) throw new Error('Certification detail Back control is missing');
@@ -77,7 +81,7 @@ export const TreasuryOverviewComplete: Story = {
   render: () => renderCertification(OperationalStepId.LiquidLock, true),
   play: async () => {
     const canvas = within(document.body);
-    const detailHeading = await canvas.findByRole('heading', { name: 'Liquid Lock ₳600 of Bitcoin' });
+    const detailHeading = await canvas.findByRole('heading', { name: 'Liquid Lock ₳2,500 of Bitcoin' });
     const backControl = detailHeading.parentElement?.closest('h2')?.querySelector(':scope > span');
 
     if (!backControl) throw new Error('Certification detail Back control is missing');
@@ -92,7 +96,7 @@ export const OperationsOverviewInProgress: Story = {
   render: () => renderCertification(OperationalStepId.ActivateVault, true),
   play: async () => {
     const canvas = within(document.body);
-    const detailHeading = await canvas.findByRole('heading', { name: 'Create a ₳1,000 Vault' });
+    const detailHeading = await canvas.findByRole('heading', { name: 'Create a ₳2,500 Vault' });
     const backControl = detailHeading.parentElement?.closest('h2')?.querySelector(':scope > span');
 
     if (!backControl) throw new Error('Certification detail Back control is missing');
@@ -107,7 +111,7 @@ export const OperationsOverviewComplete: Story = {
   render: () => renderCertification(OperationalStepId.ActivateVault, true),
   play: async () => {
     const canvas = within(document.body);
-    const detailHeading = await canvas.findByRole('heading', { name: 'Create a ₳1,000 Vault' });
+    const detailHeading = await canvas.findByRole('heading', { name: 'Create a ₳2,500 Vault' });
     const backControl = detailHeading.parentElement?.closest('h2')?.querySelector(':scope > span');
 
     if (!backControl) throw new Error('Certification detail Back control is missing');
@@ -210,4 +214,15 @@ export const BitcoinLockComplete: Story = {
 export const AcquireArgonBonds = detailStories[OperationalStepId.AcquireArgonBonds];
 export const OperationalTransfer = detailStories[OperationalStepId.OperationalTransfer];
 export const ActivateVault = detailStories[OperationalStepId.ActivateVault];
+export const ExistingVaultNeedsFunding: Story = {
+  beforeEach: () => {
+    setupCertificationScenario({ track: 'operations', state: 'mixed' });
+    getMyVault().data.createdVault = createScenarioVault();
+    getConfig().vaultingSetupStatus = VaultingSetupStatus.Finished;
+    const controller = useCertificationController();
+    controller.chainProgress.hasVault = true;
+    controller.activeGuideId = null;
+  },
+  render: () => renderCertification(OperationalStepId.ActivateVault),
+};
 export const FirstMiningSeat = detailStories[OperationalStepId.FirstMiningSeat];

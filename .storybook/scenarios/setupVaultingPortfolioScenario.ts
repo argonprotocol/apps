@@ -133,6 +133,7 @@ export function setupVaultingPortfolioScenario() {
         bitcoinLockedMicrogons: 2_844n * microgonsPerArgon,
         argonotSecuritizationInMicrogons: 0n,
         activeBondMicrogons: 870n * microgonsPerArgon,
+        upstreamParticipation: BigNumber(1),
       },
     },
   } satisfies NonNullable<RuntimeQueryResult<CurrentRuntimeQueries['treasury']['currentFrameVaultCapital']>>;
@@ -169,6 +170,7 @@ export function setupVaultingPortfolioScenario() {
       securitization: createdVault.securitization,
       securitizationActivated: createdVault.securitization,
       argonotSecuritizationMicronots: 750n * BigInt(MICRONOTS_PER_ARGONOT),
+      upstreamParticipation: BigNumber(0.75),
       treasuryPool: {
         externalCapital: 310n * microgonsPerArgon,
         vaultCapital: 560n * microgonsPerArgon,
@@ -262,7 +264,10 @@ export function setupVaultingPortfolioScenario() {
       fullBidPool,
       bondPoolPercent: 0.1,
       vaultRewardRate,
+      minimumVaultProfitRate: BigNumber(0.01),
       averageMicrogonsPerArgonot: 2_000_000n,
+      upstreamBitcoinTarget: 5_000n * microgonsPerArgon,
+      upstreamBondTarget: 5_000n * microgonsPerArgon,
       totalActiveBonds: 8_400,
       vaultsById: { [createdVault.vaultId]: vaultBondState },
     }),
@@ -433,6 +438,9 @@ function createMainchainClient(
         percentForTreasuryReserves: BigNumber(0.03),
         percentForArgonBondPool: BigNumber(0.1),
         percentForVaultPool: BigNumber(0.51),
+        minimumVaultProfitPercent: BigNumber(0.01),
+        upstreamBitcoinTarget: 5_000n * microgonsPerArgon,
+        upstreamBondTarget: 5_000n * microgonsPerArgon,
       },
     },
     registry: {

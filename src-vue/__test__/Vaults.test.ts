@@ -1,4 +1,11 @@
-import { JsonExt, NetworkConfig, type ArgonClient, type IAllVaultStats } from '@argonprotocol/apps-core';
+import {
+  createTypedEventEmitter,
+  JsonExt,
+  NetworkConfig,
+  type ArgonClient,
+  type IAllVaultStats,
+  type IBlockHeaderInfo,
+} from '@argonprotocol/apps-core';
 import BigNumber from 'bignumber.js';
 import { getOfflineRegistry, PriceIndex } from '@argonprotocol/mainchain';
 import { getBundledMetadata, runtimeClient, toPlain } from '@argonprotocol/runtime-client';
@@ -10,6 +17,52 @@ import { Vaults } from '../lib/Vaults.ts';
 import { setMainchainClients } from '../stores/mainchain.ts';
 import { useVaultingStats } from '../stores/vaultingStats.ts';
 import { patchVaultHistory } from '../../scripts/patchVaultHistory.ts';
+import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+
+const cacheFiles = vi.hoisted(() => ({ directory: '', failNextWrite: false }));
+vi.mock('@tauri-apps/plugin-fs', async importOriginal => {
+  const actual = await importOriginal<typeof import('@tauri-apps/plugin-fs')>();
+  const fs = await import('node:fs/promises');
+  const path = await import('node:path');
+  return {
+    ...actual,
+    mkdir: async (name: string) => fs.mkdir(path.join(cacheFiles.directory, name), { recursive: true }),
+    readTextFile: async (name: string) => fs.readFile(path.join(cacheFiles.directory, name), 'utf8'),
+    writeTextFile: async (name: string, data: string) => {
+      if (cacheFiles.failNextWrite) {
+        cacheFiles.failNextWrite = false;
+        throw new Error('Cache disk unavailable');
+      }
+      await fs.writeFile(path.join(cacheFiles.directory, name), data);
+    },
+    rename: async (oldName: string, newName: string) =>
+      fs.rename(path.join(cacheFiles.directory, oldName), path.join(cacheFiles.directory, newName)),
+  };
+});
+vi.mock('../../core/src/data/vaultRevenue.mainnet.json', () => ({
+  default: {
+    formatVersion: 2,
+    synchedToFrame: 20,
+    argonotStakingByFrame: [],
+    vaultsById: {},
+    networkPoolsByFrame: {
+      20: { auctionPoolMicrogons: '1000000n', vaultPoolMicrogons: '300000n', includesBondPayments: false },
+    },
+  },
+}));
+vi.mock('../../core/src/data/vaultRevenue.testnet.json', () => ({
+  default: {
+    formatVersion: 2,
+    synchedToFrame: 24,
+    argonotStakingByFrame: [],
+    vaultsById: {},
+    networkPoolsByFrame: {
+      24: { auctionPoolMicrogons: '2000000n', vaultPoolMicrogons: '600000n', includesBondPayments: false },
+    },
+  },
+}));
 
 let observedVaults: Vaults;
 const currency = {
@@ -74,6 +127,8 @@ describe('Vaults stats storage', () => {
           ]),
         ) as Parameters<Vaults['updateVaultRevenue']>[1];
       let historyError = false;
+      let latestRevenueFrame = 21;
+      const events = createTypedEventEmitter<{ finalized: (headers: IBlockHeaderInfo[]) => void }>();
       const frames = {
         load: async () => undefined,
         currentFrameId: 21,
@@ -116,7 +171,7 @@ describe('Vaults stats storage', () => {
                 revenuePerFrameByVault: {
                   entries: async () => {
                     if (historyError) throw new Error('History RPC unavailable');
-                    return [[{ args: [1] }, [...revenue(), { ...revenue()[0], frameId: 21 }]]];
+                    return [[{ args: [1] }, [...revenue(), { ...revenue()[0], frameId: latestRevenueFrame }]]];
                   },
                 },
               },
@@ -124,6 +179,7 @@ describe('Vaults stats storage', () => {
           }),
         }),
         blockWatch: {
+          events,
           finalizedBlockHeader: { blockNumber: 100 },
           getHeader: async (blockNumber: number) => ({ blockNumber, blockHash: `0x${blockNumber}` }),
           getApi: async ({ blockNumber }: { blockNumber: number }) =>
@@ -140,7 +196,7 @@ describe('Vaults stats storage', () => {
                 treasury: {
                   currentFrameArgonotBondParticipants: async () => ({ frameId: 20, totalBonds: 10 }),
                   currentFrameVaultCapital: async () => {
-                    if (poolModel === 'combined vault and bond rewards') {
+                    if (poolModel === 'combined vault and bond rewards' && blockNumber === 20) {
                       return toPlain(
                         deployedRegistry.createType('PalletTreasuryFrameVaultCapital', {
                           frameId: blockNumber,
@@ -152,6 +208,9 @@ describe('Vaults stats storage', () => {
                       registry.createType('PalletTreasuryFrameVaultCapital', {
                         frameId: blockNumber,
                         totalActiveBonds: 100n,
+                        vaultSecuritizationPositions: {
+                          1: { upstreamParticipation: 500_000_000_000_000_000n },
+                        },
                       }),
                     );
                   },
@@ -294,9 +353,177 @@ describe('Vaults stats storage', () => {
         bitcoinFeeRevenue: fees,
         ...(hasSecuritizationHistory ? { argonotSecuritizationMicronots: 500_000_000n } : {}),
       });
+
+      // Live frame earnings arrive without pool or collateral history. Finalized
+      // blocks must enrich the mounted chart without replacing its valid history.
+      latestRevenueFrame = 22;
+      frames.currentFrameId = 23;
+      frames.frameIds.unshift(23);
+      Object.assign(frames.framesById, { 23: { firstBlockHash: '0x23' } });
+      events.emit('finalized', [{ blockNumber: 23, frameId: 23 } as IBlockHeaderInfo]);
+      await new Promise(resolve => setTimeout(resolve, 0));
+      expect(vaults.stats?.synchedToFrame).toBe(21);
+      expect(vaults.stats?.networkPoolsByFrame?.[21]).toEqual(restored?.networkPoolsByFrame?.[21]);
+
+      historyError = false;
+      events.emit('finalized', [{ blockNumber: 24, frameId: 23 } as IBlockHeaderInfo]);
+      await vi.waitFor(() => expect(vaults.stats?.synchedToFrame).toBe(22));
+      expect(vaults.stats?.networkPoolsByFrame?.[22]).toMatchObject({
+        auctionPoolMicrogons: 1_000_000_001n,
+        vaultPoolMicrogons: 300_000_000n,
+      });
+      expect(vaults.stats?.vaultsById[1].changesByFrame.find(frame => frame.frameId === 22)).toMatchObject({
+        argonotSecuritizationMicronots: 600_000_000n,
+        upstreamParticipation: new BigNumber(0.5),
+      });
+      expect(await vaults.restore()).toEqual(vaults.stats);
+
+      // Explicit maintenance can repair development caches created before the
+      // new chart detail without rebuilding the already-recorded pools/holdings.
+      const cachedStats = (await vaults.restore())!;
+      for (const vault of Object.values(cachedStats.vaultsById)) {
+        for (const frame of vault.changesByFrame) delete frame.upstreamParticipation;
+      }
+      await patchVaultHistory(cachedStats, frames as any);
+      expect(cachedStats.vaultsById[1].changesByFrame.find(frame => frame.frameId === 22)).toMatchObject({
+        argonotSecuritizationMicronots: 600_000_000n,
+        upstreamParticipation: new BigNumber(0.5),
+      });
+      expect(cachedStats.networkPoolsByFrame).toEqual(vaults.stats?.networkPoolsByFrame);
       returns.$dispose();
     },
   );
+});
+
+describe('Vaults cache upgrades', () => {
+  const originalWindow = globalThis.window;
+
+  afterEach(async () => {
+    vi.clearAllTimers();
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+    globalThis.window = originalWindow;
+    cacheFiles.failNextWrite = false;
+    if (cacheFiles.directory) await rm(cacheFiles.directory, { recursive: true, force: true });
+    cacheFiles.directory = '';
+  });
+
+  it.each([
+    { network: 'mainnet', checkpoint: 20, auctionPoolMicrogons: 1_000_000n },
+    { network: 'testnet', checkpoint: 24, auctionPoolMicrogons: 2_000_000n },
+  ])(
+    'replaces the old $network cache once and retains subsequent earnings on restart',
+    async ({ network, checkpoint, auctionPoolMicrogons }) => {
+      vi.useFakeTimers();
+      globalThis.window = {} as Window & typeof globalThis;
+      cacheFiles.directory = await mkdtemp(join(tmpdir(), 'vault-cache-upgrade-'));
+      await mkdir(join(cacheFiles.directory, network));
+      const statsFile = join(cacheFiles.directory, network, 'vaultStats.json');
+      await writeFile(
+        statsFile,
+        JsonExt.stringify({ formatVersion: 1, synchedToFrame: 30, argonotStakingByFrame: [], vaultsById: {} }),
+      );
+
+      setMainchainClients({
+        get: async () => ({ query: { vaults: { vaultsById: { entries: async () => [] } } } }),
+      } as any);
+      const frames = {
+        load: async () => undefined,
+        currentFrameId: checkpoint + 3,
+        blockWatch: { events: createTypedEventEmitter<{ finalized: (headers: IBlockHeaderInfo[]) => void }>() },
+      };
+      const vaults = new Vaults(network, currency as any, frames as any);
+      await vaults.load();
+
+      expect(vaults.stats?.synchedToFrame).toBe(checkpoint);
+      expect(vaults.stats?.networkPoolsByFrame?.[checkpoint].auctionPoolMicrogons).toBe(auctionPoolMicrogons);
+      expect(vaults.stats?.revenueBackfill).toEqual({ nextFrame: checkpoint + 3, throughFrame: checkpoint + 2 });
+      const replacement = JsonExt.parse<IAllVaultStats>(await readFile(statsFile, 'utf8'));
+      expect(replacement.formatVersion).toBe(2);
+      expect(replacement.synchedToFrame).toBe(checkpoint);
+      expect(replacement.networkPoolsByFrame).toEqual(vaults.stats?.networkPoolsByFrame);
+
+      const registry = getOfflineRegistry();
+      const revenue = toPlain(
+        registry.createType('Vec<PalletVaultsVaultFrameRevenue>', [
+          { frameId: checkpoint + 2, bitcoinLockFeeRevenue: 500_000n, securitization: 1_000_000n },
+        ]),
+      ) as Parameters<Vaults['updateVaultRevenue']>[1];
+      await vaults.updateVaultRevenue(1, revenue);
+      const updatedFile = await readFile(statsFile, 'utf8');
+
+      const restarted = new Vaults(network, currency as any, frames as any);
+      await restarted.load();
+      expect(restarted.stats?.vaultsById[1].changesByFrame[0]).toMatchObject({
+        frameId: checkpoint + 2,
+        bitcoinFeeRevenue: 500_000n,
+      });
+      expect(restarted.stats?.networkPoolsByFrame).toEqual(replacement.networkPoolsByFrame);
+      expect(restarted.stats?.revenueBackfill).toEqual({ nextFrame: checkpoint + 3, throughFrame: checkpoint + 2 });
+      expect(await readFile(statsFile, 'utf8')).toBe(updatedFile);
+    },
+  );
+
+  it('keeps previous files through failed cache writes and retries without blocking live earnings', async () => {
+    vi.useFakeTimers();
+    globalThis.window = {} as Window & typeof globalThis;
+    cacheFiles.directory = await mkdtemp(join(tmpdir(), 'vault-cache-upgrade-'));
+    await mkdir(join(cacheFiles.directory, 'mainnet'));
+    const statsFile = join(cacheFiles.directory, 'mainnet', 'vaultStats.json');
+    const oldCache = JsonExt.stringify({
+      formatVersion: 1,
+      synchedToFrame: 30,
+      argonotStakingByFrame: [],
+      vaultsById: {},
+    });
+    await writeFile(statsFile, oldCache);
+    await writeFile(statsFile + '.tmp', 'stale temporary file');
+    cacheFiles.failNextWrite = true;
+    vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+
+    setMainchainClients({
+      get: async () => ({ query: { vaults: { vaultsById: { entries: async () => [] } } } }),
+    } as any);
+    const frames = {
+      load: async () => undefined,
+      currentFrameId: 21,
+      blockWatch: { events: createTypedEventEmitter<{ finalized: (headers: IBlockHeaderInfo[]) => void }>() },
+    };
+    const vaults = new Vaults('mainnet', currency as any, frames as any);
+    await expect(vaults.load()).resolves.toBeUndefined();
+    expect(vaults.stats?.synchedToFrame).toBe(20);
+    expect(vaults.stats?.networkPoolsByFrame?.[20].auctionPoolMicrogons).toBe(1_000_000n);
+    expect(await readFile(statsFile, 'utf8')).toBe(oldCache);
+    expect(await readFile(statsFile + '.tmp', 'utf8')).toBe('stale temporary file');
+
+    const restarted = new Vaults('mainnet', currency as any, frames as any);
+    await restarted.load();
+    const savedStats = JsonExt.parse<IAllVaultStats>(await readFile(statsFile, 'utf8'));
+    expect(savedStats).toEqual(restarted.stats);
+    expect(savedStats.formatVersion).toBe(2);
+    expect(savedStats.synchedToFrame).toBe(20);
+    await expect(readFile(statsFile + '.tmp', 'utf8')).rejects.toMatchObject({ code: 'ENOENT' });
+
+    const savedFile = await readFile(statsFile, 'utf8');
+    await writeFile(statsFile + '.tmp', 'stale temporary file');
+    cacheFiles.failNextWrite = true;
+    const registry = getOfflineRegistry();
+    const revenue = toPlain(
+      registry.createType('Vec<PalletVaultsVaultFrameRevenue>', [
+        { frameId: 20, bitcoinLockFeeRevenue: 500_000n, securitization: 1_000_000n },
+      ]),
+    ) as Parameters<Vaults['updateVaultRevenue']>[1];
+    const previousRevision = restarted.currentState.statsRevision;
+    await expect(restarted.updateVaultRevenue(1, revenue)).resolves.toBeUndefined();
+    expect(restarted.stats?.vaultsById[1].changesByFrame[0].bitcoinFeeRevenue).toBe(500_000n);
+    expect(restarted.currentState.statsRevision).toBe(previousRevision + 1);
+    expect(await readFile(statsFile, 'utf8')).toBe(savedFile);
+    expect(await readFile(statsFile + '.tmp', 'utf8')).toBe('stale temporary file');
+
+    await restarted.updateVaultRevenue(1, revenue);
+    expect(JsonExt.parse<IAllVaultStats>(await readFile(statsFile, 'utf8'))).toEqual(restarted.stats);
+    await expect(readFile(statsFile + '.tmp', 'utf8')).rejects.toMatchObject({ code: 'ENOENT' });
+  });
 });
 
 describe('Vault operator names', () => {

@@ -4,10 +4,12 @@ import * as Vue from 'vue';
 import { fn, mocked } from 'storybook/test';
 import { UpstreamOperatorClient } from '../../src-vue/lib/UpstreamOperatorClient.ts';
 import { TopTab } from '../../src-vue/interfaces/IConfig.ts';
-import { getOperationalRewardConfig, subscribeOperationalAccount } from '../../src-vue/lib/OperationalAccount.ts';
+import { subscribeOperationalAccount } from '../../src-vue/lib/OperationalAccount.ts';
 import { OperationalStepId, useCertificationController } from '../../src-vue/stores/certificationController.ts';
 import { getMainchainClient } from '../../src-vue/stores/mainchain.ts';
 import { getUpstreamOperatorClient } from '../../src-vue/stores/upstreamOperator.ts';
+import { getMyVault } from '../../src-vue/stores/vaults.ts';
+import { createScenarioVault } from './createScenarioVault.ts';
 import { setupAppScenario } from './setupAppScenario.ts';
 import { setupHomeScenario } from './setupHomeScenario.ts';
 
@@ -23,10 +25,11 @@ const certificationRewardConfig = {
   operationalReferralsPerBonusReward: 5,
   operationalMinimumUniswapTransfer: 2_000n * microgonsPerArgon,
   operationalMinimumVaultLockTicks: 365n * 24n * 60n,
-  operationalMinimumVaultSecuritization: 1_000n * microgonsPerArgon,
+  operationalMinimumVaultSecuritization: 2_500n * microgonsPerArgon,
   miningSeatsForOperational: 2,
-  treasuryMinimumBitcoin: 600n * microgonsPerArgon,
-  treasuryMinimumBonds: 500n * microgonsPerArgon,
+  treasuryMinimumBitcoin: 2_500n * microgonsPerArgon,
+  treasuryBitcoinTargetMicrogons: 2_500n * microgonsPerArgon,
+  treasuryMinimumBonds: 2_500n * microgonsPerArgon,
   treasuryMinimumUniswapTransfer: 1_000n * microgonsPerArgon,
   bitcoinLockSizeForUpgradeCode: 5_000n * microgonsPerArgon,
   miningSeatsPerUpgradeCode: 5,
@@ -47,11 +50,11 @@ const scenarioMainchainClient = {
   },
   consts: {
     operationalAccounts: {
-      minimumBitcoin: scenarioRegistry.createType('u128', 600n * microgonsPerArgon),
-      minimumBonds: scenarioRegistry.createType('u128', 500n * microgonsPerArgon),
+      minimumBitcoin: scenarioRegistry.createType('u128', 2_500n * microgonsPerArgon),
+      minimumBonds: scenarioRegistry.createType('u128', 2_500n * microgonsPerArgon),
       minimumUniswapTransfer: scenarioRegistry.createType('u128', 1_000n * microgonsPerArgon),
       operationalMinimumUniswapTransfer: scenarioRegistry.createType('u128', 2_000n * microgonsPerArgon),
-      operationalMinimumVaultSecuritization: scenarioRegistry.createType('u128', 1_000n * microgonsPerArgon),
+      operationalMinimumVaultSecuritization: scenarioRegistry.createType('u128', 2_500n * microgonsPerArgon),
       miningSeatsForOperational: scenarioRegistry.createType('u32', 2),
     },
   },
@@ -76,14 +79,20 @@ export function setupCertificationScenario({ track, state }: CertificationScenar
   });
 
   config.setCertificationDetails({ hasSavedMnemonic: true });
+  if (state === 'complete') {
+    getMyVault().data.createdVault = createScenarioVault({
+      securitization: certificationRewardConfig.operationalMinimumVaultSecuritization,
+    });
+  }
   controller.isLoaded = true;
   controller.rewardConfig = {
     ...controller.rewardConfig,
-    treasuryMinimumBitcoin: 600n * microgonsPerArgon,
-    treasuryMinimumBonds: 500n * microgonsPerArgon,
+    treasuryMinimumBitcoin: 2_500n * microgonsPerArgon,
+    treasuryBitcoinTargetMicrogons: 2_500n * microgonsPerArgon,
+    treasuryMinimumBonds: 2_500n * microgonsPerArgon,
     treasuryMinimumUniswapTransfer: 1_000n * microgonsPerArgon,
     operationalMinimumUniswapTransfer: 2_000n * microgonsPerArgon,
-    operationalMinimumVaultSecuritization: 1_000n * microgonsPerArgon,
+    operationalMinimumVaultSecuritization: 2_500n * microgonsPerArgon,
     miningSeatsForOperational: 2,
   };
   controller.chainProgress = {
@@ -115,8 +124,10 @@ export async function setupCertificationMenuScenario(state: CertificationMenuSce
     const { config, controller } = setupHomeScenario('basic', { isLoadedPromise: Promise.resolve() });
 
     mocked(getMainchainClient).mockResolvedValue(scenarioMainchainClient);
-    mocked(getOperationalRewardConfig).mockResolvedValue(certificationRewardConfig);
-    mocked(subscribeOperationalAccount).mockResolvedValue(fn());
+    mocked(subscribeOperationalAccount).mockImplementation(async (_walletKeys, onUpdate) => {
+      onUpdate(controller.chainProgress, certificationRewardConfig);
+      return fn();
+    });
 
     await controller.isLoadedPromise;
 

@@ -200,10 +200,7 @@ import { getOperationalProfileName, loadOperationalAccount } from '../lib/Operat
 import { useBasics } from '../stores/basics.ts';
 import { getBitcoinLocks } from '../stores/bitcoin.ts';
 import { getArgonBonds } from '../stores/argonBonds.ts';
-import {
-  treasuryBitcoinCertificationDisplayAmount,
-  useCertificationController,
-} from '../stores/certificationController.ts';
+import { useCertificationController } from '../stores/certificationController.ts';
 import { getConfig } from '../stores/config.ts';
 import { getCurrency } from '../stores/currency.ts';
 import { getMainchainClient } from '../stores/mainchain.ts';
@@ -292,7 +289,7 @@ const maximumBitcoinLockSatoshis = Vue.computed(() => {
 const hasInsufficientBitcoinWaiver = Vue.computed(() => {
   return (
     maximumBitcoinLockMicrogons.value > 0n &&
-    maximumBitcoinLockMicrogons.value < treasuryBitcoinCertificationDisplayAmount
+    maximumBitcoinLockMicrogons.value < controller.rewardConfig.treasuryMinimumBitcoin
   );
 });
 const hasInsufficientBondCapacity = Vue.computed(() => {

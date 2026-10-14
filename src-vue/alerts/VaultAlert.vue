@@ -143,7 +143,11 @@
     :isLast="isLast"
     @open="$emit('open')">
     <template #icon>
-      <div class="flex items-center gap-x-1.5">
+      <div v-if="showMoneyIcon(notice) && showSigningIcon(notice)" class="relative h-9 w-9">
+        <MoneyIcon class="absolute top-0 left-0 h-6 w-6 text-argon-700/70" />
+        <SigningIcon class="absolute right-0 bottom-0 h-5 w-5 text-argon-700/70" />
+      </div>
+      <div v-else class="flex items-center gap-x-1.5">
         <MoneyIcon
           v-if="showMoneyIcon(notice)"
           class="relative top-0.5 h-9 w-9 text-argon-700/70" />

@@ -29,6 +29,9 @@ describe('runtimeClient', () => {
     };
     const raw = { query: { treasury }, consts: decorateConstants(registry, metadata.asLatest, metadata.version) };
     const client = runtimeClient(raw);
+    expect('treasuryPositions' in storage).toBe(spec === 160);
+    expect('totalActiveArgonotBonds' in storage.treasury).toBe(spec === 159);
+    expect('bitcoinLiquidityTolerance' in client.consts.operationalAccounts).toBe(spec === 160);
     expect(client.consts.balances.existentialDeposit).toBe(BigInt(raw.consts.balances.existentialDeposit.toString()));
     expect(typeof client.consts.bitcoinLocks.maxBtcPriceTickAge).toBe('number');
     expect(client.consts.bitcoinLocks.lockReleaseCosignDeadlineFrames).toBe(10);
@@ -56,6 +59,60 @@ describe('runtimeClient', () => {
 
     expect('currentFrameArgonotBondParticipants' in client.query.treasury).toBe(true);
     expect('bondLotById' in client.query.treasury).toBe(false);
+  });
+
+  it('normalizes Treasury positions and upstream participation from published runtime metadata', async () => {
+    const registry = new TypeRegistry();
+    const metadata = new Metadata(
+      registry,
+      Object.entries(getBundledMetadata()).find(([key]) => key.endsWith('-160'))![1],
+    );
+    registry.setMetadata(metadata);
+    const positionsByAccount = registry.createType('Option<PalletTreasuryPositionsPosition>', {
+      bondPrincipal: 2_500_000_000n,
+      quantities: { bonds: 9_007_199_254_740_993n, stakes: 42, fissionLiquidity: 3_000_000_000n },
+      upstream: {
+        vaultId: 4,
+        bitcoinSecuritization: 1_000_000_000n,
+        bitcoinAllocatedSecuritization: 2_000_000_000n,
+        bondPrincipal: 500_000_000n,
+      },
+    });
+    const currentFrameVaultCapital = registry.createType('Option<PalletTreasuryFrameVaultCapital>', {
+      frameId: 7,
+      vaultSecuritizationPositions: {
+        4: { operatorAccountId: new Uint8Array(32).fill(1), upstreamParticipation: 250_000_000_000_000_000n },
+      },
+    });
+    const client = runtimeClient({
+      query: {
+        treasuryPositions: { positionsByAccount: async () => positionsByAccount },
+        treasury: { currentFrameVaultCapital: async () => currentFrameVaultCapital },
+      },
+      consts: decorateConstants(registry, metadata.asLatest, metadata.version),
+    });
+
+    expect(await client.query.treasuryPositions.positionsByAccount(new Uint8Array(32).fill(1))).toMatchObject({
+      bondPrincipal: 2_500_000_000n,
+      quantities: { bonds: 9_007_199_254_740_993n, stakes: 42n, fissionLiquidity: 3_000_000_000n },
+      upstream: {
+        vaultId: 4,
+        bitcoinSecuritization: 1_000_000_000n,
+        bitcoinAllocatedSecuritization: 2_000_000_000n,
+        bondPrincipal: 500_000_000n,
+      },
+    });
+    const frameCapital = await client.query.treasury.currentFrameVaultCapital();
+    expect(frameCapital).toMatchObject({
+      frameId: 7,
+      vaultSecuritizationPositions: { 4: { upstreamParticipation: new BigNumber('0.25') } },
+    });
+    expect('bitcoinLockDurationBlocks' in client.consts.vaults).toBe(true);
+    if ('bitcoinLockDurationBlocks' in client.consts.vaults) {
+      expect(client.consts.vaults.bitcoinLockDurationBlocks).toBe(
+        Number(client.consts.bitcoinLocks.lockDurationBlocks),
+      );
+    }
   });
 
   it('refreshes retained constant sections when runtime metadata is replaced', () => {

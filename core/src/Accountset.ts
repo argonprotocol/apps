@@ -1,5 +1,4 @@
 import {
-  getClient,
   getOfflineRegistry,
   Keyring,
   type KeyringPair,
@@ -9,6 +8,7 @@ import {
 } from '@argonprotocol/mainchain';
 import { blake2AsU8a, ed25519DeriveHard, keyExtractSuri, mnemonicToMiniSecret } from '@polkadot/util-crypto';
 import { DEV_PHRASE } from '@polkadot/keyring';
+import { HttpProvider } from '@polkadot/rpc-provider';
 import { Mining } from './Mining.js';
 import { TxSubmitter } from './TxSubmitter.js';
 import type { ArgonClient, ArgonQueryClient } from './MainchainClients.js';
@@ -195,20 +195,27 @@ export class Accountset {
   }
 
   public async registerKeys(url: string) {
-    const client = await getClient(url.replace('ws:', 'http:'), { throwOnConnect: true });
     const keys = this.keys();
-    for (const [name, key] of Object.entries(keys)) {
-      console.log('Registering key', name, key.publicKey);
-      const result = await client.rpc.author.insertKey(name, key.privateKey, key.publicKey);
-      // verify keys
-      const saved = await client.rpc.author.hasKey(key.publicKey, name);
-      if (!saved) {
-        console.error('Failed to register key', name, key.publicKey);
-        throw new Error(`Failed to register ${name} key ${key.publicKey}`);
+
+    // Keystore RPCs do not require runtime metadata or an available chain-state snapshot.
+    const provider = new HttpProvider(url.replace(/^ws/, 'http'));
+
+    try {
+      for (const [name, key] of Object.entries(keys)) {
+        console.log('Registering key', name, key.publicKey);
+        await provider.send('author_insertKey', [name, key.privateKey, key.publicKey]);
+
+        const saved = await provider.send<boolean>('author_hasKey', [key.publicKey, name]);
+        if (!saved) {
+          console.error('Failed to register key', name, key.publicKey);
+          throw new Error(`Failed to register ${name} key ${key.publicKey}`);
+        }
+
+        console.log(`Registered ${name} key`);
       }
-      console.log(`Registered ${name} key`, result.toHuman());
+    } finally {
+      await provider.disconnect();
     }
-    await client.disconnect();
   }
 
   public keys(keysVersion?: number): {

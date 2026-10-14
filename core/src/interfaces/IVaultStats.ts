@@ -1,3 +1,5 @@
+import type BigNumber from 'bignumber.js';
+
 export interface IAllVaultStats {
   formatVersion?: number;
   synchedToFrame: number;
@@ -53,6 +55,8 @@ export interface IVaultFrameStats {
   securitization: bigint;
   /** Held Argonots at frame end; recorded from the securitization runtime onward. */
   argonotSecuritizationMicronots?: bigint;
+  /** Upstream participation frozen for this frame's vault rewards. */
+  upstreamParticipation?: BigNumber;
   securitizationActivated: bigint;
   securitizationRelockable?: bigint;
   treasuryPool: {

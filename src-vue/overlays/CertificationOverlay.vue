@@ -154,9 +154,11 @@ import {
 import { useBasics } from '../stores/basics.ts';
 import { open as tauriOpenUrl } from '@tauri-apps/plugin-shell';
 import { NetworkConfig } from '@argonprotocol/apps-core';
+import { getMyVault } from '../stores/vaults.ts';
 
 const basics = useBasics();
 const controller = useCertificationController();
+const myVault = getMyVault();
 
 const isOpen = Vue.ref(false);
 const currentStepId = Vue.ref<OperationalStepId | null>(null);
@@ -228,6 +230,9 @@ function startTask() {
   const stepId = currentStepId.value;
   closeOverlay();
   controller.activeGuideId = stepId;
+  if (stepId === OperationalStepId.ActivateVault && myVault.createdVault) {
+    basicEmitter.emit('openVaultSettingsOverlay', { fundingAsset: 'ARGN' });
+  }
 }
 
 function cancelTask() {

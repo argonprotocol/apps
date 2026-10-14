@@ -78,6 +78,42 @@ describe('TransactionTracker', () => {
     expect(tracker.data.txInfosByType[ExtrinsicType.VaultCollect]).toBeUndefined();
   });
 
+  it('restores a durable timeout as a terminal error that allows retry after restart', async () => {
+    const db = await createTestDb();
+    const walletKeys = createMockWalletKeys();
+    const blockWatch = {
+      start: vi.fn(async () => undefined),
+      events: { on: vi.fn() },
+    } as unknown as BlockWatch;
+    const tracker = new TransactionTracker(Promise.resolve(db), blockWatch);
+    vi.mocked(getMainchainClient).mockResolvedValueOnce({ registry: getOfflineRegistry() } as unknown as ArgonClient);
+
+    try {
+      const record = await db.transactionsTable.insert({
+        extrinsicHash: '0x01',
+        extrinsicMethodJson: {},
+        metadataJson: {},
+        extrinsicType: ExtrinsicType.VaultCreate,
+        accountAddress: walletKeys.vaultingAddress,
+        submittedAtBlockHeight: 10,
+        submittedAtTime: new Date('2026-09-01T12:00:00Z'),
+        txNonce: 0,
+      });
+      await db.transactionsTable.markExpiredWaitingForBlock(record);
+
+      await tracker.load();
+      const txInfo = tracker.data.txInfos[0];
+      expect(txInfo.getStatus().error?.message).toBe('Transaction expired waiting for block inclusion');
+      await expect(txInfo.txResult.waitForInFirstBlock).rejects.toThrow('Transaction expired');
+      await expect(txInfo.waitForPostProcessing).rejects.toThrow('Transaction expired');
+      await expect(tracker.getTxAttemptState(txInfo, 2)).resolves.toBe(TxAttemptState.Replace);
+      expect(tracker.pendingBlockTxInfosAtLoad).toHaveLength(0);
+    } finally {
+      await tracker.shutdown();
+      await db.close();
+    }
+  });
+
   it('waits for the initial load before finding the latest transaction attempt', async () => {
     let resolveLoad!: (value: ITransactionRecord[]) => void;
     const loadRows = new Promise<ITransactionRecord[]>(resolve => {

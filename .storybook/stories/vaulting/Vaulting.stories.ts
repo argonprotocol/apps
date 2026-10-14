@@ -43,7 +43,7 @@ const meta = {
       'click',
       event => {
         if (!(event.target instanceof Element)) return;
-        if (!event.target.closest('[data-revenue-action]')) return;
+        if (!event.target.closest('[data-revenue-capture], [aria-label="Maximizing Daily Revenue"]')) return;
         event.preventDefault();
         event.stopImmediatePropagation();
       },
@@ -55,8 +55,7 @@ const meta = {
     components: { AppScreen, Vaulting },
     setup() {
       function preventCommands(event: Event) {
-        if (event.target instanceof Element && event.target.closest('[data-revenue-capture], [data-chart-history]'))
-          return;
+        if (event.target instanceof Element && event.target.closest('[data-chart-history]')) return;
         event.preventDefault();
         event.stopPropagation();
       }
@@ -291,6 +290,9 @@ export const PotentialRevenue: Story = {
   beforeEach: setupVaultingPortfolioScenario,
   play: async ({ canvasElement }) => {
     await userEvent.hover(within(canvasElement).getByText(/Potential Daily Revenue/));
+    await within(canvasElement.ownerDocument.body).findAllByText(
+      /Your vault's estimated daily rewards at full participation/,
+    );
   },
 };
 
@@ -342,7 +344,8 @@ export const ArgonotRewardShortfall: Story = {
     };
   },
   play: async ({ canvasElement }) => {
-    await userEvent.click(within(canvasElement).getByRole('button', { name: /of Revenue Captured/ }));
+    await userEvent.hover(within(canvasElement).getByRole('button', { name: /of Revenue Captured/ }));
+    within(canvasElement.ownerDocument.body).queryByRole('button', { name: 'Edit vault settings' })?.focus();
   },
 };
 
@@ -381,6 +384,28 @@ export const ArgonotCaptureDefinition: Story = {
   },
 };
 
+export const UpstreamParticipationDefinition: Story = {
+  beforeEach: () => {
+    setupVaultingPortfolioScenario();
+    const vaultId = getMyVault().vaultId!;
+    const capital = getArgonBonds().data.frameCapital!;
+    getArgonBonds().data.frameCapital = {
+      ...capital,
+      vaultSecuritizationPositions: {
+        ...capital.vaultSecuritizationPositions,
+        [vaultId]: { ...capital.vaultSecuritizationPositions[vaultId], upstreamParticipation: BigNumber(0.5) },
+      },
+    };
+  },
+  play: async context => {
+    await ArgonotRewardShortfall.play!(context);
+    await userEvent.hover(
+      (await within(document.body).findAllByRole('button', { name: 'Upstream participation percentage' }))[0],
+    );
+    await within(document.body).findAllByRole('tooltip');
+  },
+};
+
 export const LargeArgonotRequirement: Story = {
   beforeEach: () => {
     setupVaultingPortfolioScenario();
@@ -389,16 +414,6 @@ export const LargeArgonotRequirement: Story = {
     getArgonBonds().data.averageMicrogonsPerArgonot = 700n;
   },
   play: ArgonotCaptureDefinition.play,
-};
-
-export const ArgonCaptureDefinition: Story = {
-  beforeEach: ArgonotRewardShortfall.beforeEach,
-  play: async context => {
-    await ArgonotRewardShortfall.play!(context);
-    await userEvent.hover(
-      (await within(document.body).findAllByRole('button', { name: 'Argon network securitization percentage' }))[0],
-    );
-  },
 };
 
 export const ArgonotFundedAwaitingFrame: Story = {
@@ -543,7 +558,7 @@ export const RevenueCaptureUnavailable: Story = {
     };
   },
   play: async ({ canvasElement }) => {
-    await userEvent.click(within(canvasElement).getByRole('button', { name: /Daily Revenue Capture Unavailable/ }));
+    await userEvent.hover(within(canvasElement).getByRole('button', { name: /Daily Revenue Capture Unavailable/ }));
   },
 };
 

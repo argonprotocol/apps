@@ -151,9 +151,11 @@ export class TransactionTracker {
             ...tx.blockExtrinsicErrorJson,
             txFee: txResult.finalFee,
           });
+        } else if (tx.status === TransactionStatus.TimedOutWaitingForBlock) {
+          txResult.extrinsicError = new Error('Transaction expired waiting for block inclusion');
         }
 
-        if (tx.isFinalized || txResult.submissionError) {
+        if (tx.isFinalized || txResult.submissionError || tx.status === TransactionStatus.TimedOutWaitingForBlock) {
           await txResult.setFinalized(client);
         }
         this.data.txInfos.push(txInfo);
