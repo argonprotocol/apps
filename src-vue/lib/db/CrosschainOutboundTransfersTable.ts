@@ -6,6 +6,7 @@ import { convertFromSqliteFields, toSqlParams } from '../Utils.ts';
 import { BaseTable, IFieldTypes } from './BaseTable.ts';
 
 export enum CrosschainOutboundTransferStatus {
+  RequestPendingSubmission = 'RequestPendingSubmission',
   RequestSubmittedToArgon = 'RequestSubmittedToArgon',
   RequestFinalizedOnArgon = 'RequestFinalizedOnArgon',
   MintingAuthorized = 'MintingAuthorized',
@@ -48,6 +49,7 @@ export type ICrosschainOutboundTransferInsert = Omit<
   ICrosschainOutboundTransferRecord,
   'createdAt' | 'updatedAt' | 'failureReason' | 'isFailureAcknowledged'
 > & {
+  createdAt?: Date;
   failureReason?: string | null;
   isFailureAcknowledged?: boolean;
 };
@@ -143,6 +145,7 @@ export class CrosschainOutboundTransfersTable extends BaseTable {
       isFailureAcknowledged = false,
       progressJson,
       status,
+      createdAt,
     } = args;
 
     const records = await this.db.select<ICrosschainOutboundTransferRecord[]>(
@@ -169,8 +172,9 @@ export class CrosschainOutboundTransfersTable extends BaseTable {
         failureReason,
         isFailureAcknowledged,
         progressJson,
-        status
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        status,
+        createdAt
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE(?, CURRENT_TIMESTAMP))
       ON CONFLICT(id) DO UPDATE SET
         transferId = excluded.transferId,
         destinationChain = excluded.destinationChain,
@@ -220,43 +224,18 @@ export class CrosschainOutboundTransfersTable extends BaseTable {
         isFailureAcknowledged,
         progressJson,
         status,
+        createdAt,
       ]),
     );
 
     return convertFromSqliteFields<ICrosschainOutboundTransferRecord[]>(records, this.fields)[0];
   }
 
-  public async recordRequestSubmittedToArgon(args: {
-    id: string;
-    destinationChain: string;
-    token: MoveToken.ARGN | MoveToken.ARGNOT;
-    amount: bigint;
-    argonSourceAddress: string;
-    destinationAddress: string;
-    argonRequestTransactionId?: number;
-    progressJson: ICrosschainTransferProgress;
-  }) {
-    const {
-      id,
-      destinationChain,
-      token,
-      amount,
-      argonSourceAddress,
-      destinationAddress,
-      argonRequestTransactionId,
-      progressJson,
-    } = args;
+  public async recordRequestSubmittedToArgon(args: Omit<ICrosschainOutboundTransferInsert, 'status'>) {
     return this.upsert({
-      id,
-      destinationChain,
-      token,
-      amount,
-      argonSourceAddress,
-      destinationAddress,
-      argonRequestTransactionId,
+      ...args,
       failureReason: null,
       isFailureAcknowledged: false,
-      progressJson,
       status: CrosschainOutboundTransferStatus.RequestSubmittedToArgon,
     });
   }
@@ -360,6 +339,10 @@ export class CrosschainOutboundTransfersTable extends BaseTable {
     return this.patch(id, {
       isFailureAcknowledged: true,
     });
+  }
+
+  public async delete(id: string): Promise<void> {
+    await this.db.execute('DELETE FROM CrosschainOutboundTransfers WHERE id = ?', toSqlParams([id]));
   }
 
   public async patch(

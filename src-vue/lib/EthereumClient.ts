@@ -94,7 +94,10 @@ export type IFinalizedEthereumTransactionProgress = IEthereumTransactionProgress
 };
 
 export class EthereumTransactionRevertedError extends Error {
-  constructor(txHash: Hash) {
+  constructor(
+    txHash: Hash,
+    public readonly blockNumber?: bigint,
+  ) {
     super(
       `Ethereum transaction ${txHash} reverted. Its contract changes were not applied, but the Ethereum network fee was still charged.`,
     );
@@ -413,24 +416,13 @@ export class EthereumClient {
     return blockNumbersByQueueNonce;
   }
 
-  public async getTransactionProgress(args: {
-    txHash: Hash;
-    blockNumber?: number;
-    blockHash?: Hash;
-  }): Promise<IEthereumTransactionProgress> {
-    const { txHash, blockNumber, blockHash } = args;
+  public async getTransactionProgress(args: { txHash: Hash }): Promise<IEthereumTransactionProgress> {
+    const { txHash } = args;
     const { publicClient } = await this.createExecutionClient();
     const expectedConfirmations = this.getTransactionFinalityBlocks();
-    let receiptBlockNumber = blockNumber;
-    let receiptBlockHash = blockHash;
-
-    if (receiptBlockNumber == null) {
-      const receipt = await getIndexedReceiptIfAvailable(publicClient, txHash);
-      receiptBlockNumber = receipt?.blockNumber != null ? Number(receipt.blockNumber) : undefined;
-      receiptBlockHash = receipt?.blockHash ?? undefined;
-    }
-
-    if (receiptBlockNumber == null) {
+    // Re-read inclusion until finality: an earlier receipt can be reorganized away or change outcome.
+    const receipt = await getIndexedReceiptIfAvailable(publicClient, txHash);
+    if (!receipt) {
       return {
         confirmations: -1,
         expectedConfirmations,
@@ -438,9 +430,12 @@ export class EthereumClient {
         isFinalized: false,
       };
     }
+    const receiptBlockNumber = Number(receipt.blockNumber);
+    const receiptBlockHash = receipt.blockHash;
 
     const latestExecutionBlockNumber = Number(await publicClient.getBlockNumber());
     const confirmations = Math.max(0, latestExecutionBlockNumber - receiptBlockNumber);
+    if (confirmations >= expectedConfirmations) assertEthereumTransactionSucceeded(receipt);
     const progressPct = Math.min(100, (Math.min(confirmations, expectedConfirmations) / expectedConfirmations) * 100);
 
     return {
@@ -460,29 +455,20 @@ export class EthereumClient {
 
   public async waitForTransactionFinality(args: {
     txHash: Hash;
-    blockNumber?: number;
-    blockHash?: Hash;
     submittedAtMs?: number;
     onProgress?: (progress: IEthereumTransactionProgress) => void;
     onRpcDelay?: (progress?: IEthereumTransactionProgress) => void;
   }): Promise<IFinalizedEthereumTransactionProgress> {
-    const { txHash, onProgress, onRpcDelay } = args;
+    const { txHash, submittedAtMs, onProgress, onRpcDelay } = args;
     const transactionVisibilityDeadlineMs =
-      args.submittedAtMs == null ? undefined : args.submittedAtMs + this.getTransactionFinalityWaitEstimateMs();
-    let blockNumber = args.blockNumber;
-    let blockHash = args.blockHash;
+      submittedAtMs == null ? undefined : submittedAtMs + this.getTransactionFinalityWaitEstimateMs();
     let lastProgress: IEthereumTransactionProgress | undefined;
 
     while (true) {
       try {
-        const progress = await this.getTransactionProgress({
-          txHash,
-          blockNumber,
-          blockHash,
-        });
+        const progress = await this.getTransactionProgress({ txHash });
         lastProgress = progress;
-        blockNumber = progress.blockNumber ?? blockNumber;
-        blockHash = progress.blockHash ?? blockHash;
+        const { blockNumber, blockHash } = progress;
         onProgress?.(progress);
 
         if (
@@ -518,31 +504,42 @@ export class EthereumClient {
   }
 
   public async finalizeTransferOutOfArgon(
-    args: IEthereumFinalizeTransferOutOfArgonArgs & { ethereumWallet: WalletForEthereum },
+    args: IEthereumFinalizeTransferOutOfArgonArgs & {
+      ethereumWallet: WalletForEthereum;
+      beforeBroadcast?: (txHash: Hash) => Promise<void>;
+    },
   ): Promise<Hash> {
+    const { request, proof, ethereumWallet, beforeBroadcast } = args;
+
     return await this.#outboundFinalizationQueue.add(async () => {
       const chainConfig = await this.loadChainConfig();
       const { chain, publicClient } = await this.createExecutionClient();
       const { transaction, unsignedTransaction } = await buildEthereumUnsignedTransaction({
         publicClient,
-        from: getAddress(args.ethereumWallet.address),
+        from: getAddress(ethereumWallet.address),
         chainId: chain.id,
         to: chainConfig.gatewayAddress,
         data: encodeFunctionData({
           abi: EvmContracts.mintingGatewayAbi,
           functionName: 'finalizeTransferOutOfArgon',
-          args: [args.request, args.proof],
+          args: [request, proof],
         }),
       });
+
       await this.ensureEthereumSignerPolicyConfigured(chainConfig);
       const signature = await this.walletKeys.signEthereumTransaction(
         unsignedTransaction,
         this.walletKeys.ethereumHdPath,
-        args.ethereumWallet,
+        ethereumWallet,
       );
+
+      const serializedTransaction = serializeTransaction(transaction, signature);
+      const txHash = keccak256(serializedTransaction);
+      await beforeBroadcast?.(txHash);
+
       return await submitEthereumTransaction({
         publicClient,
-        serializedTransaction: serializeTransaction(transaction, signature),
+        serializedTransaction,
         fallbackErrorMessage: 'Unable to submit the Ethereum transfer right now.',
       });
     }).promise;
@@ -583,6 +580,19 @@ export class EthereumClient {
       targetBlockHash: receipt.blockHash,
       gatewayActivityNonce: decodedEvent.gatewayState.gatewayActivityNonce,
     };
+  }
+
+  public async isTransferOutOfArgonFinalized(
+    request: EvmContracts.MintingGatewayTransferOutOfArgonRequest,
+  ): Promise<boolean> {
+    const chainConfig = await this.loadChainConfig();
+    const { publicClient } = await this.createExecutionClient();
+    return publicClient.readContract({
+      abi: EvmContracts.mintingGatewayAbi,
+      address: chainConfig.gatewayAddress,
+      functionName: 'finalizedTransferOutOfArgonIds',
+      args: [EvmContracts.hashMintingGatewayTransferOutOfArgonRequest(request)],
+    });
   }
 
   public async confirmTransferToArgon(transfer: IEthereumTransferToArgon): Promise<IEthereumTransferToArgon> {
@@ -1686,6 +1696,7 @@ async function waitForIndexedReceipt(publicClient: PublicClient, hash: Hash): Pr
 
     const indexedReceipt = await getIndexedReceiptIfAvailable(publicClient, hash);
     if (indexedReceipt) {
+      assertEthereumTransactionSucceeded(indexedReceipt);
       return indexedReceipt;
     }
 
@@ -1705,7 +1716,6 @@ async function getIndexedReceiptIfAvailable(
       return;
     }
 
-    assertEthereumTransactionSucceeded(receipt);
     return receipt;
   } catch (error) {
     if (error instanceof TransactionReceiptNotFoundError || isIndexingInProgressError(error)) {
@@ -1718,7 +1728,7 @@ async function getIndexedReceiptIfAvailable(
 
 function assertEthereumTransactionSucceeded(receipt: EthereumExecutionReceipt) {
   if (receipt.status === 'reverted') {
-    throw new EthereumTransactionRevertedError(receipt.transactionHash);
+    throw new EthereumTransactionRevertedError(receipt.transactionHash, receipt.blockNumber ?? undefined);
   }
 }
 

@@ -1,4 +1,9 @@
-import { TxSubmitter, type ArgonClient, type TxSigningAccount } from '@argonprotocol/apps-core';
+import {
+  TxSubmitter,
+  type ArgonClient,
+  type ISubmittableOptions,
+  type TxSigningAccount,
+} from '@argonprotocol/apps-core';
 import type { SubmittableExtrinsic } from '@argonprotocol/mainchain';
 
 import { getTransactionFailureMessage, type TransactionInfo } from '../TransactionInfo.ts';
@@ -11,6 +16,7 @@ export interface TransactionOperationBuild<Metadata> {
   txSigner: TxSigningAccount;
   metadata: Metadata;
   tip?: bigint;
+  era?: ISubmittableOptions['era'];
   unavailableBalance?: bigint;
   includeExistentialDeposit?: boolean;
 }
@@ -107,6 +113,13 @@ export abstract class TransactionOperation<Input, Metadata, Build extends Transa
     return new Error('There are not enough funds to submit this transaction.');
   }
 
+  protected async getTransactionsToRestore(
+    transactions: TransactionInfo<Metadata>[],
+  ): Promise<TransactionInfo<Metadata>[]> {
+    const pendingAtLoad = new Set(this.transactionTracker.pendingBlockTxInfosAtLoad);
+    return transactions.filter(txInfo => pendingAtLoad.has(txInfo));
+  }
+
   protected getPendingTransaction(
     matches: (txInfo: TransactionInfo<Metadata>) => boolean,
   ): TransactionInfo<Metadata> | undefined {
@@ -165,6 +178,7 @@ export abstract class TransactionOperation<Input, Metadata, Build extends Transa
         extrinsicType: this.extrinsicType,
         metadata: prepared.metadata,
         tip: prepared.tip,
+        era: prepared.era,
         useLatestNonce: true,
       });
       followOnTx?.resolve(txInfo);
@@ -203,10 +217,13 @@ export abstract class TransactionOperation<Input, Metadata, Build extends Transa
   private async processFinalization(txInfo: TransactionInfo<Metadata>): Promise<void> {
     await this.publishSubmitted(txInfo);
     try {
-      await txInfo.txResult.waitForFinalizedBlock;
+      if (!txInfo.tx.isFinalized) await txInfo.txResult.waitForFinalizedBlock;
     } catch (error) {
-      await this.onFailed?.(txInfo, error as Error);
-      throw error;
+      if (!txInfo.tx.isFinalized) {
+        await this.onFailed?.(txInfo, error as Error);
+        // Reconciliation may finalize the durable attempt while its failure hook is publishing.
+        if (!txInfo.tx.isFinalized) throw error;
+      }
     }
 
     const failureMessage = getTransactionFailureMessage(txInfo);
@@ -239,14 +256,24 @@ export abstract class TransactionOperation<Input, Metadata, Build extends Transa
 
   private async restorePendingTransactions(): Promise<void> {
     await this.transactionTracker.load();
-    const pendingTransactions = this.transactionTracker.pendingBlockTxInfosAtLoad
-      .filter(
-        txInfo =>
-          txInfo.tx.extrinsicType === this.extrinsicType && this.ownsTransaction(txInfo as TransactionInfo<Metadata>),
-      )
-      .reverse() as TransactionInfo<Metadata>[];
+    const ownedTransactions = this.transactionTracker.data.txInfos.filter(
+      txInfo =>
+        txInfo.tx.extrinsicType === this.extrinsicType && this.ownsTransaction(txInfo as TransactionInfo<Metadata>),
+    ) as TransactionInfo<Metadata>[];
+    const transactions = (await this.getTransactionsToRestore(ownedTransactions)).reverse();
 
-    for (const txInfo of pendingTransactions) {
+    for (const txInfo of transactions) {
+      if (txInfo.tx.isFinalized && txInfo.isPostProcessed && !txInfo.hasFailedPostProcessing) {
+        if (this.publishedSubmissionIds.has(txInfo.tx.id)) continue;
+      }
+      try {
+        await this.publishSubmitted(txInfo);
+      } catch (error) {
+        console.warn(
+          `[TransactionOperation] Unable to publish restored transaction #${txInfo.tx.id}; will retry`,
+          error,
+        );
+      }
       this.resume(txInfo);
       void txInfo.waitForPostProcessing.catch(error => {
         console.warn(`[TransactionOperation] Unable to restore transaction #${txInfo.tx.id}`, error);
