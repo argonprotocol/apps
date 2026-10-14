@@ -51,9 +51,23 @@ export class AppSessionDiagnostics {
     if (testNetwork) {
       try {
         const args = COMPOSE_CONFIG.flatMap(file => ['-f', file]);
-        const output = execFileSync(
+        let output = execFileSync(
           'docker',
-          ['compose', ...args, 'logs', '--no-color', '--timestamps', '--tail', '1000', 'indexer'],
+          [
+            'compose',
+            ...args,
+            'logs',
+            '--no-color',
+            '--timestamps',
+            '--tail',
+            '1000',
+            'indexer',
+            'archive-node',
+            'archive-rpc',
+            'upstream-miner',
+            'upstream-router',
+            'upstream-bot',
+          ],
           {
             cwd: COMPOSE_DIR,
             env: testNetwork.composeEnv,
@@ -62,17 +76,39 @@ export class AppSessionDiagnostics {
             maxBuffer: 10 * 1024 * 1024,
           },
         );
-        console.error('[E2E] Recent test-network indexer output:');
+        try {
+          const containerIds = execFileSync('docker', ['compose', ...args, 'ps', '--all', '--quiet'], {
+            cwd: COMPOSE_DIR,
+            env: testNetwork.composeEnv,
+            encoding: 'utf8',
+            timeout: TROUBLESHOOTING_BUNDLE_TIMEOUT_MS,
+          })
+            .trim()
+            .split(/\s+/)
+            .filter(Boolean);
+          if (containerIds.length) {
+            // State includes healthcheck history without copying container configuration.
+            output += execFileSync('docker', ['inspect', '--format', '{{.Name}} {{json .State}}', ...containerIds], {
+              encoding: 'utf8',
+              timeout: TROUBLESHOOTING_BUNDLE_TIMEOUT_MS,
+              maxBuffer: 10 * 1024 * 1024,
+            });
+          }
+        } catch (healthError) {
+          console.warn('[E2E] Could not preserve test-network healthchecks', healthError);
+        }
+
+        console.error('[E2E] Recent test-network service output and healthchecks:');
         console.error(this.tailText(output, FAILED_STEP_LOG_TAIL_LINES));
 
         const ciTempDir = process.env.CI_TEMP_DIR?.trim();
         if (ciTempDir) {
           const artifactPath = Path.join(ciTempDir, `e2e-network-${this.instanceName}.log`);
           writeFileSync(artifactPath, output, { mode: 0o600 });
-          console.error(`[E2E] Test-network indexer log: ${artifactPath}`);
+          console.error(`[E2E] Test-network service log: ${artifactPath}`);
         }
       } catch (networkLogError) {
-        console.warn('[E2E] Could not preserve test-network indexer logs', networkLogError);
+        console.warn('[E2E] Could not preserve test-network service logs', networkLogError);
       }
     }
 

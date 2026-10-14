@@ -141,8 +141,8 @@ async function runOperationNow<Context, State>(context: Context, operation: Oper
     await withBoundFlowRuntime(context, operation, async () => {
       await operation.run(context, state);
     });
-    const postRunState = await inspectOperation(context, operation);
-    const postRunLifecycle = readOperationLifecycleState(postRunState);
+    state = await inspectOperation(context, operation);
+    const postRunLifecycle = readOperationLifecycleState(state);
     if (postRunLifecycle.state !== 'complete') {
       const blockerMessage =
         postRunLifecycle.blockers.length > 0

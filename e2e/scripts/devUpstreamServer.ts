@@ -255,6 +255,8 @@ export async function startDevUpstreamServer(args: {
       ...getComposeArgs(context),
       'up',
       '-d',
+      // The session already owns a running chain; starting upstream must not recreate it.
+      '--no-deps',
       '--wait',
       'upstream-miner',
       'upstream-router',

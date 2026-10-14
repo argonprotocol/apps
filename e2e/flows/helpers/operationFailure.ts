@@ -1,4 +1,5 @@
 import type { IE2EFlowRuntime } from '../types.ts';
+import { JsonExt } from '@argonprotocol/apps-core';
 
 const INSPECT_STATE_ERROR_MAX_LENGTH = 20_000;
 const APP_DIAGNOSTICS_MAX_LENGTH = 40_000;
@@ -108,7 +109,7 @@ export async function logDefaultAppFailureDiagnostics(
 
 function safeStringify(value: unknown): string {
   try {
-    return JSON.stringify(value);
+    return JsonExt.stringify(value);
   } catch (_error) {
     return String(value);
   }

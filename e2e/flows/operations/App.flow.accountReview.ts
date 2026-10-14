@@ -234,9 +234,17 @@ export default new OperationalFlow<IAccountReviewFlowContext, IAccountReviewFlow
     const hasExpectedUpstreamState = expectsUpstream
       ? !!appState?.upstreamName && upstreamVisible
       : !appState?.upstreamName && !upstreamVisible;
+    // Stale groups preserve published values; aggregate readiness also measures freshness.
     const hasLoadedFinancialPositions =
-      financialSnapshot?.readiness === 'ready' &&
-      financialSnapshot.groups.every(group => group.state === 'ready' || group.state === 'stale');
+      financialSnapshot?.netWorth !== undefined &&
+      financialSnapshot.groups.every(group => {
+        if (group.state !== 'ready' && group.state !== 'stale') return false;
+        return group.positions.every(position => {
+          if (position.currentValue === undefined) return false;
+          // Unknown wallet basis affects returns, not its already-counted balance.
+          return position.lifecycle !== 'unavailable' || position.kind === 'wallet-holding';
+        });
+      });
     const readinessBlockers: string[] = [];
     if (appState?.canSign !== false) readinessBlockers.push('app still reports signing access');
     if (!badgeVisible) readinessBlockers.push('readonly badge is not visible');

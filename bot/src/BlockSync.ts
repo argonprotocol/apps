@@ -37,6 +37,7 @@ export class BlockSync {
   private unsubscribes: (() => void)[] = [];
 
   private isStopping: boolean = false;
+  private stopRequested = createDeferred<void>(false);
   private miningCapture: MiningCapture;
 
   constructor(
@@ -55,10 +56,24 @@ export class BlockSync {
   }
 
   public async ensureCurrentStateReady(): Promise<void> {
-    const localClient = await this.mainchainClients.prunedClientPromise;
+    if (this.isStopping) throw new Error('Block sync is stopping');
+    let localClient = await this.mainchainClients.prunedClientPromise;
     if (!localClient) {
-      throw new Error('Pruned client is not available');
+      const prunedUrl = this.mainchainClients.prunedUrl;
+      if (!prunedUrl) {
+        throw new Error('Pruned client is not available');
+      }
+
+      // A configured client can be temporarily demoted while its state recovers.
+      localClient = await Promise.race([
+        this.mainchainClients.setPrunedClient(prunedUrl),
+        this.stopRequested.promise.then(() => {
+          throw new Error('Block sync is stopping');
+        }),
+      ]);
     }
+    if (this.isStopping) throw new Error('Block sync is stopping');
+
     // The local node can be connected before its state is available.
     await localClient.query.system.number().catch(x => {
       console.error('[BlockSync] Error getting system number from local client', x);
@@ -106,6 +121,7 @@ export class BlockSync {
     if (this.isStopping) return;
     console.time('[BlockSync] STOPPING');
     this.isStopping = true;
+    this.stopRequested.resolve();
     for (const unsubscribe of this.unsubscribes.splice(0)) unsubscribe();
     if (this.retryTimer) {
       clearTimeout(this.retryTimer);

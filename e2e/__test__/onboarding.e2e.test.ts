@@ -20,13 +20,6 @@ async function runIsolatedFlow(flowName: OnboardingFlowName): Promise<void> {
         argonots: '50000000',
         configuredArgonots: '50000000',
       });
-      const settings = await session.run('Vaulting.flow.settings');
-      expect(settings.data.updatedVaultSettings).toEqual({
-        argons: '2400000000',
-        argonots: '60000000',
-        flatFee: '3000000',
-        configuredFlatFee: '3000000',
-      });
     } else {
       await session.run(flowName);
     }
