@@ -684,8 +684,6 @@ export class EthereumInboundTransferTracker {
     const ethereumClient = this.requireEthereumClient();
     return ethereumClient.waitForTransactionFinality({
       txHash: sourceTxHash,
-      blockNumber: record.sourceBlockNumber,
-      blockHash: record.sourceBlockHash,
       submittedAtMs: record.createdAt.getTime(),
       onProgress: txProgress => {
         transferState.progress = setInboundEthereumStepProgress(transferState.progress, {

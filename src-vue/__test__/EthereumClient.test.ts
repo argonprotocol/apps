@@ -1,5 +1,5 @@
 import { NetworkConfig, setFetchImplementation, type FetchImplementation } from '@argonprotocol/apps-core';
-import { decodeAddress, EvmContracts } from '@argonprotocol/mainchain';
+import { EvmContracts } from '@argonprotocol/mainchain';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   decodeFunctionData,
@@ -230,10 +230,10 @@ describe('EthereumClient', () => {
     ]);
   });
 
-  it('rejects a reverted receipt instead of counting its confirmations', async () => {
+  it('rejects a reverted receipt after the required confirmations', async () => {
     const txHash = `0x${'11'.repeat(32)}` as const;
     const ethereumClient = new EthereumClient(createMockWalletKeys(), 'https://ethereum.test');
-    const getBlockNumber = vi.fn(async () => 100n);
+    const getBlockNumber = vi.fn(async () => 106n);
 
     Object.assign(ethereumClient, {
       createExecutionClient: async () => ({
@@ -249,41 +249,51 @@ describe('EthereumClient', () => {
       }),
     });
 
-    await expect(ethereumClient.getTransactionProgress({ txHash })).rejects.toThrow(EthereumTransactionRevertedError);
-    expect(getBlockNumber).not.toHaveBeenCalled();
-  });
-
-  it('stops waiting when a submitted transaction remains absent past the finality window', async () => {
-    const txHash = `0x${'33'.repeat(32)}` as const;
-    const ethereumClient = new EthereumClient(createMockWalletKeys(), 'https://ethereum.test');
-    let receiptLookupCount = 0;
-
-    Object.assign(ethereumClient, {
-      createExecutionClient: async () => ({
-        publicClient: {
-          getTransactionReceipt: vi.fn(async () => {
-            receiptLookupCount += 1;
-            if (receiptLookupCount > 2) {
-              throw new Error('continued polling an absent transaction');
-            }
-            throw new TransactionReceiptNotFoundError({ hash: txHash });
-          }),
-          getTransaction: vi.fn(async () => {
-            throw new TransactionNotFoundError({ hash: txHash });
-          }),
-        },
-      }),
-      getTransactionFinalityPollMs: () => 0,
-      getTransactionFinalityWaitEstimateMs: () => 1_000,
+    await expect(ethereumClient.getTransactionProgress({ txHash })).rejects.toMatchObject({
+      name: EthereumTransactionRevertedError.name,
+      blockNumber: 90n,
     });
-
-    await expect(
-      ethereumClient.waitForTransactionFinality({
-        txHash,
-        submittedAtMs: Date.now() - 1_001,
-      }),
-    ).rejects.toThrow(`Ethereum transaction ${txHash} could not be found`);
+    expect(getBlockNumber).toHaveBeenCalledOnce();
   });
+
+  it.each(['never included', 'reorganized away'])(
+    'stops waiting when a transaction is %s and absent past the finality window',
+    async history => {
+      const txHash = `0x${'33'.repeat(32)}` as const;
+      const ethereumClient = new EthereumClient(createMockWalletKeys(), 'https://ethereum.test');
+      let receiptLookupCount = 0;
+
+      Object.assign(ethereumClient, {
+        createExecutionClient: async () => ({
+          publicClient: {
+            getTransactionReceipt: vi.fn(async () => {
+              receiptLookupCount += 1;
+              if (history === 'reorganized away' && receiptLookupCount === 1) {
+                return { blockNumber: 90n, blockHash: `0x${'66'.repeat(32)}`, status: 'success' };
+              }
+              if (receiptLookupCount > 3) {
+                throw new Error('continued polling an absent transaction');
+              }
+              throw new TransactionReceiptNotFoundError({ hash: txHash });
+            }),
+            getTransaction: vi.fn(async () => {
+              throw new TransactionNotFoundError({ hash: txHash });
+            }),
+            getBlockNumber: vi.fn(async () => 90n),
+          },
+        }),
+        getTransactionFinalityPollMs: () => 0,
+        getTransactionFinalityWaitEstimateMs: () => 1_000,
+      });
+
+      await expect(
+        ethereumClient.waitForTransactionFinality({
+          txHash,
+          submittedAtMs: Date.now() - 1_001,
+        }),
+      ).rejects.toThrow(`Ethereum transaction ${txHash} could not be found`);
+    },
+  );
 
   it('keeps waiting past the finality window when the submitted transaction is still visible', async () => {
     const txHash = `0x${'44'.repeat(32)}` as const;

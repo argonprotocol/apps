@@ -358,7 +358,7 @@ describe('cooperative release approval with simulated chain observations', () =>
           submitAndWatch,
           load: async () => undefined,
           pendingBlockTxInfosAtLoad: [],
-          data: { txInfosByType: {} },
+          data: { txInfos: [], txInfosByType: {} },
         } as unknown as TransactionTracker;
         const council = {
           load: async () => undefined,

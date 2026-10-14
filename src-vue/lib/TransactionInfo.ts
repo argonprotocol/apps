@@ -230,6 +230,9 @@ export class TransactionInfo<MetadataType = unknown> {
 export function getTransactionFailureMessage(txInfo?: TransactionInfo): string | undefined {
   if (!txInfo) return undefined;
 
+  // The durable finalized result supersedes an earlier subscription or submission failure.
+  if (txInfo.tx.isFinalized) return txInfo.tx.blockExtrinsicErrorJson?.message;
+
   const submissionError = txInfo.txResult.submissionError;
   if (submissionError) return submissionError.message || String(submissionError);
 
