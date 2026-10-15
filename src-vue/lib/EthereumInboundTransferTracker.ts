@@ -290,31 +290,43 @@ export class EthereumInboundTransferTracker {
         ethereumWallet,
       });
 
-      const submittedTransfer = await this.requireEthereumClient().startTransferToArgon({
+      await this.requireEthereumClient().startTransferToArgon({
         moveToken,
         amountBaseUnits,
         destinationAddress,
         ethereumWallet,
+        beforeBroadcast: async sourceTxHash => {
+          transfer.persistedRecord = await db.crosschainInboundTransfersTable.insertSourceSubmitted({
+            sourceChain: 'Ethereum',
+            id,
+            token: moveToken,
+            amountBaseUnits,
+            sourceAddress: transfer.sourceAddress,
+            argonDestinationAddress: destinationAddress,
+            sourceTxHash,
+            progressJson: transferState.progress,
+          });
+          if (!transfer.persistedRecord) {
+            throw new Error(`Transfer ${id} could not be persisted before Ethereum submission.`);
+          }
+          transferState.hasPersistedTransfer = true;
+        },
       });
-      transfer.persistedRecord = await db.crosschainInboundTransfersTable.insertSourceSubmitted({
-        sourceChain: 'Ethereum',
-        id,
-        token: submittedTransfer.moveToken,
-        amountBaseUnits: submittedTransfer.amountBaseUnits,
-        sourceAddress: submittedTransfer.sourceAddress ?? transfer.sourceAddress,
-        argonDestinationAddress: submittedTransfer.destinationAddress,
-        sourceTxHash: submittedTransfer.sourceTxHash,
-        progressJson: transferState.progress,
-      });
-      if (!transfer.persistedRecord) {
-        throw new Error(`Transfer ${id} could not be persisted after Ethereum submission.`);
-      }
-      transferState.hasPersistedTransfer = true;
-
-      await this.reconcileTransfer(transfer, 'Unable to move funds from Ethereum.');
     } catch (error) {
-      await this.failTransfer(id, error instanceof Error ? error.message : 'Unable to move funds from Ethereum.');
+      if (!transfer.persistedRecord) {
+        await this.failTransfer(id, error instanceof Error ? error.message : 'Unable to move funds from Ethereum.');
+        return;
+      }
+
+      // A saved signed hash may already be on Ethereum despite an RPC error.
+      // Reconcile that attempt rather than release its reservation for a retry.
+      transferState.progress = setInboundEthereumStepProgress(transferState.progress, {
+        progressPct: 1,
+        detail: 'Submitted to Ethereum. Waiting for confirmation...',
+      });
     }
+
+    await this.reconcileTransfer(transfer, 'Unable to move funds from Ethereum.');
   }
 
   private async ensureSufficientEthereumFeeBalance(args: {

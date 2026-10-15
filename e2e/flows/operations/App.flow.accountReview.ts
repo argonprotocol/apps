@@ -187,13 +187,13 @@ export default new OperationalFlow<IAccountReviewFlowContext, IAccountReviewFlow
       .filter(position => position.lifecycle === 'completed')
       .map(position => position.liquidId);
     const bondLotIds = bondPositions
-      .filter(position => position.bondLot?.programType === 'Vault')
+      .filter(position => position.bondLot?.program.type === 'Vault')
       .map(position => position.bondLot!.id);
     const flexibleBondLotIds = bondPositions
-      .filter(position => position.bondLot?.programType === 'Vault' && position.bondLot.isFlexible)
+      .filter(position => position.bondLot?.program.type === 'Vault' && position.bondLot.isFlexible)
       .map(position => position.bondLot!.id);
     const stakeLotIds = bondPositions
-      .filter(position => position.bondLot?.programType === 'Argonot')
+      .filter(position => position.bondLot?.program.type === 'Argonot')
       .map(position => position.bondLot!.id);
     const historicalBondLotIds = allBondPositions.flatMap(position =>
       position.lifecycle === 'completed' &&
@@ -429,6 +429,13 @@ export default new OperationalFlow<IAccountReviewFlowContext, IAccountReviewFlow
         await flow.click('LeftBar.goto(TopTab.BitcoinLocks)', { timeoutMs: 10_000 });
         await flow.waitFor('BitcoinScreen', { timeoutMs: 10_000 });
       }
+      if (ready.chainState.archivedBitcoinLiquidIds.length) {
+        const archiveSummary = {
+          selector:
+            '[data-testid="BitcoinScreen"] details:not([open]):has([data-testid^="BitcoinLiquid.archived-"]) > summary',
+        };
+        if ((await flow.isVisible(archiveSummary)).visible) await flow.click(archiveSummary);
+      }
     }
 
     const expectedHistoryReturns = flow.input.expectedBitcoinReturnPercentByLiquidId as
@@ -588,7 +595,7 @@ export default new OperationalFlow<IAccountReviewFlowContext, IAccountReviewFlow
             }
             const programType = section.rowKind === 'bond' ? 'Vault' : 'Argonot';
             const financialPosition = bondPositions.find(
-              position => position.bondLot?.id === bondLotId && position.bondLot.programType === programType,
+              position => position.bondLot?.id === bondLotId && position.bondLot.program.type === programType,
             );
             const expectedReturn = financialPosition ? calculatePositionReturn([financialPosition]).percent : undefined;
             const displayedReturn = Number(returnText.replaceAll(',', '').replaceAll('%', ''));

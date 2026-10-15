@@ -2902,15 +2902,12 @@ describe('financial position accounting', () => {
       bitcoinFeeRevenue: 1_000_000n,
       bitcoinFeeCouponValueUsed: 1_000_000n,
       bitcoinLocksCreated: 0,
-      satoshisAdded: 0n,
-      microgonLiquidityAdded: 0n,
       treasuryPool: {
         vaultEarnings: 3_000_000n,
         totalEarnings: 9_000_000n,
         externalCapital: 500_000_000n,
         vaultCapital: 10_000_000n,
       },
-      uncollectedEarnings: 0n,
     };
     const stats = { openedTick: 7 * 1_440, changesByFrame: [frame, { ...frame, frameId: 10 }] };
     const chartBonds = {

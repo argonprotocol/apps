@@ -1,14 +1,15 @@
 import { toRuntimeEvent, type HistoricalQueryRecord } from '@argonprotocol/runtime-client';
 import { hexToU8a, u8aToHex } from '@polkadot/util';
 import {
-  BitcoinFission,
-  BitcoinLock,
+  bigIntMin,
+  bigNumberToBigInt,
   type ArgonApi,
   type IBitcoinLock,
   type IBitcoinLockDetails,
   type IBitcoinLockFundingUtxo,
   type RuntimeSystemEventRecord,
 } from '@argonprotocol/apps-core';
+import BigNumber from 'bignumber.js';
 
 type HistoricalBitcoinLock = NonNullable<HistoricalQueryRecord<'bitcoinLocks', 'locksByUtxoId'>>;
 
@@ -53,17 +54,54 @@ export async function getHistoricalBitcoinLock(
   client: ArgonApi,
   utxoId: number,
 ): Promise<IHistoricalBitcoinLock | undefined> {
-  if (!('locksById' in client.query.bitcoinLocks) && !('locksByUtxoId' in client.query.bitcoinLocks)) {
+  const storage: Partial<ArgonApi['query']['bitcoinLocks']> = client.query.bitcoinLocks;
+  if (!('locksById' in storage) && !('locksByUtxoId' in storage)) {
     throw new Error('Bitcoin lock storage is unavailable at this historical block.');
   }
 
-  const currentLock = await BitcoinLock.get(client, utxoId);
-  if (currentLock) {
+  if ('locksById' in storage) {
+    const lock = await client.query.bitcoinLocks.locksById(utxoId);
+    if (!lock) return;
+
+    const basisSatoshis = lock.securitizationBasis.satoshis;
+    let securitizedSatoshis = basisSatoshis;
+    if (lock.fundedSatoshis > 0n) securitizedSatoshis = bigIntMin(lock.fundedSatoshis, basisSatoshis);
+    let securitizationShare = new BigNumber(0);
+    if (basisSatoshis > 0n) {
+      securitizationShare = new BigNumber(securitizedSatoshis)
+        .div(basisSatoshis)
+        .decimalPlaces(18, BigNumber.ROUND_DOWN);
+    }
+    const [fingerprint, cosignHdIndex, claimHdIndex] = lock.vaultXpubSources;
+
     return {
-      ...currentLock,
       utxoId,
-      lockedTargetPrice: currentLock.microgonsAtTargetPerBtc,
+      lockedTargetPrice: lock.securitizationBasis.microgonsAtTargetPerBtc,
       liquidityPromised: 0n,
+      p2wshScriptHashHex: `0x0020${lock.utxoScriptPubkey.value.wscriptHash.replace('0x', '')}`,
+      vaultId: lock.vaultId,
+      ownerAccount: lock.ownerAccount,
+      securitizedSatoshis,
+      fundedSatoshis: lock.fundedSatoshis,
+      microgonsAtTargetPerBtc: lock.securitizationBasis.microgonsAtTargetPerBtc,
+      securitizationCoverageMicrogons: bigNumberToBigInt(
+        securitizationShare.times(lock.securitizationCoverageMicrogons),
+      ),
+      securitizationTick: lock.securitizationTick,
+      securitizationRatio: lock.securitizationRatio.toNumber(),
+      securityFees: lock.securityFees,
+      couponFeesPaid: lock.couponPaidFees,
+      vaultPubkey: lock.vaultPubkey,
+      vaultClaimPubkey: lock.vaultClaimPubkey,
+      ownerPubkey: lock.ownerPubkey,
+      vaultXpubSources: { parentFingerprint: hexToU8a(fingerprint), cosignHdIndex, claimHdIndex },
+      vaultClaimHeight: lock.vaultClaimHeight,
+      openClaimHeight: lock.openClaimHeight,
+      createdAtHeight: lock.createdAtHeight,
+      createdAtArgonBlock: lock.createdAtArgonBlock,
+      securitizationHoldExpirationBitcoinHeight: lock.securitizationHoldExpirationBitcoinHeight,
+      isFlexible: lock.isFlexible,
+      fundHoldExtensionsByBitcoinExpirationHeight: lock.fundHoldExtensions,
     };
   }
 
@@ -120,9 +158,12 @@ export async function getHistoricalBitcoinFundingUtxos(
   lockId: number,
   historicalSatoshis: bigint,
 ): Promise<IBitcoinLockFundingUtxo[]> {
-  const currentLock = await BitcoinLock.get(client, lockId);
-  if (currentLock) {
-    return currentLock.fundingUtxos;
+  if ('locksById' in client.query.bitcoinLocks) {
+    const lock = await client.query.bitcoinLocks.locksById(lockId);
+    return (lock?.fundingUtxos ?? []).map(([ref, satoshis]) => ({
+      utxoRef: { txid: ref.txid, vout: ref.outputIndex },
+      satoshis,
+    }));
   }
 
   const ref =
@@ -171,15 +212,34 @@ export function summarizeBitcoinLockBlockEvents(blockEvents: RuntimeSystemEventR
 }
 
 export async function getHistoricalBitcoinPendingMints(client: ArgonApi, utxoId: number): Promise<bigint[]> {
-  return (await BitcoinFission.pendingMintsForLock(client, utxoId)).map(mint => mint.remainingAmount);
+  const mint = client.query.mint;
+  const storage: Partial<typeof mint> = mint;
+  if ('pendingMintIndicesByLockId' in storage && 'pendingBitcoinMintsByIndex' in storage) {
+    const indices = (await mint.pendingMintIndicesByLockId(utxoId)) ?? [];
+    const pending = await mint.pendingBitcoinMintsByIndex.multi(indices);
+    return (pending ?? []).flatMap(entry => (entry ? [entry.remainingAmount] : []));
+  }
+  if ('pendingMintUtxoIdLookup' in storage && 'pendingMintUtxosByIndex' in storage) {
+    const indices = (await mint.pendingMintUtxoIdLookup(utxoId)) ?? [];
+    const pending = await mint.pendingMintUtxosByIndex.multi(indices.map(BigInt));
+    return (pending ?? []).flatMap(entry => (entry ? [entry.remainingAmount] : []));
+  }
+  if ('pendingMintUtxos' in storage) {
+    const pending = (await mint.pendingMintUtxos()) ?? [];
+    return pending.filter(([id]) => id === BigInt(utxoId)).map(([, , amount]) => amount);
+  }
+  throw new Error('Bitcoin pending mint storage is unavailable at this historical block.');
 }
 
 export async function getHistoricalBitcoinReleaseRequest(
   client: ArgonApi,
   utxoId: number,
 ): Promise<IHistoricalBitcoinReleaseRequest | undefined> {
-  if (client.runtimeVersion.specVersion.toNumber() >= 159) {
-    return await BitcoinLock.getReleaseRequest(client, utxoId);
+  const storage: Partial<ArgonApi['query']['bitcoinLocks']> = client.query.bitcoinLocks;
+  if ('lockReleaseRequestsById' in storage) {
+    const request = await client.query.bitcoinLocks.lockReleaseRequestsById(utxoId);
+    if (!request) return;
+    return { ...request, toScriptPubkey: u8aToHex(request.toScriptPubkey) };
   }
 
   const request = await client.query.bitcoinLocks.lockReleaseRequestsByUtxoId(utxoId);

@@ -42,6 +42,7 @@ export interface AppSessionOptions {
   tauriDevConfig?: {
     capabilities: string[];
     beforeDevCommand?: string;
+    identifier?: string;
   };
   useTestNetwork?: boolean;
   sessionName?: string;
@@ -68,11 +69,15 @@ export class AppSession {
     return value?.trim().toLowerCase() === 'quiet' ? 'quiet' : 'inherit';
   }
 
-  public static resolveInstanceDirectory(args: { networkName: string; instanceName: string }): string {
-    const { networkName, instanceName } = args;
+  public static resolveInstanceDirectory(args: {
+    networkName: string;
+    instanceName: string;
+    appConfigId?: string;
+  }): string {
+    const { networkName, instanceName, appConfigId = LOCAL_APP_CONFIG_ID } = args;
     const identity = resolveTestSessionIdentity({ networkName, sessionName: instanceName });
     return AppSessionDiagnostics.getInstanceDirectory(
-      LOCAL_APP_CONFIG_ID,
+      appConfigId,
       identity.composeNetwork,
       identity.appInstanceName || identity.sessionName,
     );
@@ -257,7 +262,7 @@ export class AppSession {
     });
     const appInstanceName = sessionIdentity.appInstanceName || sessionIdentity.sessionName;
     const appPort = await chooseAvailablePort(sessionIdentity.appInstancePort);
-    const appConfigId = LOCAL_APP_CONFIG_ID;
+    const appConfigId = options.tauriDevConfig?.identifier ?? LOCAL_APP_CONFIG_ID;
     const appInstanceDirectory = AppSessionDiagnostics.getInstanceDirectory(
       appConfigId,
       sessionIdentity.composeNetwork,
@@ -368,10 +373,12 @@ export class AppSession {
         if (options.tauriDevConfig) {
           const configPath = Path.join(repoRoot, 'src-tauri', `tauri.desktop.local.${configuredNetworkName}.conf.json`);
           const config = JSON.parse(readFileSync(configPath, 'utf8')) as {
+            identifier?: string;
             app?: { security?: Record<string, unknown> };
             build?: Record<string, unknown>;
           };
           config.build = { ...config.build, devUrl: `http://localhost:${appPort}` };
+          config.identifier = appConfigId;
           if (options.tauriDevConfig.beforeDevCommand) {
             config.build.beforeDevCommand = options.tauriDevConfig.beforeDevCommand;
           }

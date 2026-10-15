@@ -9,13 +9,15 @@ import {
   type RuntimeSystemEventRecord,
 } from '@argonprotocol/apps-core';
 import { Metadata, TypeRegistry, type Option } from '@polkadot/types';
-import { getBundledMetadata, runtimeClient } from '@argonprotocol/runtime-client';
+import { getBundledMetadata, runtimeClient, toPlain } from '@argonprotocol/runtime-client';
 import { ArgonBonds } from '../lib/ArgonBonds.ts';
 import { ArgonBondsFinancials } from '../lib/financials/ArgonBonds.ts';
 import { VaultFinancials } from '../lib/financials/MyVault.ts';
 import { calculatePositionReturn } from '../lib/financials/index.ts';
 import { VaultHistory } from '../lib/recovery/MyVault.ts';
+import { didFailedReleaseRemoveHold } from '../lib/recovery/ArgonBonds.ts';
 import { createTestDb } from './helpers/db.ts';
+import { SyncStateKeys } from '../lib/db/SyncStateTable.ts';
 
 const registry = getOfflineRegistry();
 const owner = registry.createType('AccountId32', `0x${'22'.repeat(32)}`).toString();
@@ -113,6 +115,7 @@ describe('native bond earnings recovery', () => {
       ].map(({ height, frameId, lot, capital }) => {
         const source = lot.registry;
         const api = runtimeClient({
+          runtimeVersion: { specVersion: source.createType('u32', height <= 125 ? 159 : 160) },
           query: {
             treasury: {
               bondLotIdsByAccount: { keys: async () => [{ args: [owner, 7] }] },
@@ -340,8 +343,16 @@ describe('native bond earnings recovery', () => {
     'retains metrics and attribution for a deleted lot, with same-block payout = %s',
     async payout => {
       const db = await createTestDb();
-      const parent = runtimeClient({ query: { treasury: { bondLotById: async () => storedLot(1_000_000n) } } });
+      const parent = runtimeClient({
+        runtimeVersion: { specVersion: registry.createType('u32', 160) },
+        query: {
+          treasury: {
+            bondLotById: async () => storedLot(1_000_000n),
+          },
+        },
+      });
       const current = runtimeClient({
+        runtimeVersion: { specVersion: registry.createType('u32', 160) },
         query: {
           treasury: {
             bondLotById: async () =>
@@ -425,7 +436,10 @@ describe('native bond earnings recovery', () => {
 
   it('persists native earnings attribution when a release schedule is the first observed history', async () => {
     const db = await createTestDb();
-    const client = runtimeClient({ query: { treasury: { bondLotById: async () => storedLot(1_000_000n, 12) } } });
+    const client = runtimeClient({
+      runtimeVersion: { specVersion: registry.createType('u32', 160) },
+      query: { treasury: { bondLotById: async () => storedLot(1_000_000n, 12) } },
+    });
     const domain = new ArgonBonds(
       Promise.resolve(db),
       { isLoadedPromise: Promise.resolve(), upstreamOperator: undefined },
@@ -464,7 +478,6 @@ describe('native bond earnings recovery', () => {
 
 it('keeps frozen displacement, zero payouts and missing payouts distinct across finalized ingestion, recovery and restart', async () => {
   const db = await createTestDb();
-  const { SyncStateKeys } = await import('../lib/db/SyncStateTable.ts');
   const parent = { ...block, blockNumber: 149, blockHash: '0x149', frameId: 9 };
   const payoutEvent = {
     event: {
@@ -512,6 +525,7 @@ it('keeps frozen displacement, zero payouts and missing payouts distinct across 
   });
   const snapshot = (lots: Map<number, ReturnType<typeof storedLot>>, earningFrame: number) =>
     runtimeClient({
+      runtimeVersion: { specVersion: registry.createType('u32', 160) },
       query: {
         treasury: {
           bondLotIdsByAccount: { keys: async () => [...lots.keys()].map(id => ({ args: [owner, id] })) },
@@ -733,10 +747,11 @@ it('keeps frozen displacement, zero payouts and missing payouts distinct across 
   expect(restarted.data.bondHistory.find(x => x.bondLotId === 7)?.cumulativeEarningsMicrogons).toBe(9_000_000n);
 });
 
-it('recovers the actual deployed-runtime flexible payout, including dust and lots deleted before recovery', async () => {
+it.each([157, 159])('recovers flexible payouts from runtime %s', async specVersion => {
   const deployed = new TypeRegistry();
-  const metadata = Object.entries(getBundledMetadata()).find(([key]) => key.endsWith('-159'))![1];
+  const metadata = Object.entries(getBundledMetadata()).find(([key]) => key.endsWith(`-${specVersion}`))![1];
   deployed.setMetadata(new Metadata(deployed, metadata));
+  const flexibilityField = specVersion === 157 ? 'isBackfill' : 'isFlexible';
   const lots = new Map(
     [7, 8].map(id => [
       id,
@@ -749,25 +764,38 @@ it('recovers the actual deployed-runtime flexible payout, including dust and lot
         cumulativeEarnings: 0,
         lastFrameEarningsFrameId: null,
         lastFrameEarnings: null,
-        isFlexible: true,
+        [flexibilityField]: true,
         releaseReason: null,
         releaseFrameId: null,
       }),
     ]),
   );
+  let participation;
+  let bondState;
+  if (specVersion === 157) {
+    participation = {
+      bondLotAllocations: [],
+      backfillBondsEligible: 2,
+      backfillProrata: 500_000_000_000_000_000n,
+      eligibleBonds: 2,
+    };
+    bondState = { bondLots: [], backfillBonds: 3, backfillBondsReserved: 0 };
+  } else {
+    participation = {
+      regularBondAllocations: [],
+      flexibleBondsEligible: 2,
+      flexibleProrata: 500_000_000_000_000_000n,
+      eligibleBonds: 2,
+    };
+    bondState = { regularBondLots: [], flexibleBonds: 3, reservedBondSpace: 0 };
+  }
   const frameCapital = deployed.createType('Option<PalletTreasuryFrameVaultCapital>', {
     frameId: 9,
-    vaults: {
-      4: {
-        regularBondAllocations: [],
-        flexibleBondsEligible: 2,
-        flexibleProrata: 500_000_000_000_000_000n,
-        eligibleBonds: 2,
-      },
-    },
+    vaults: { 4: participation },
   });
   const api = (hasLots: boolean) =>
     runtimeClient({
+      runtimeVersion: { specVersion: deployed.createType('u32', specVersion) },
       query: {
         treasury: {
           bondLotIdsByAccount: {
@@ -779,12 +807,7 @@ it('recovers the actual deployed-runtime flexible payout, including dust and lot
           currentFrameVaultCapital: async () => frameCapital,
           currentFrameArgonotBondParticipants: async () =>
             deployed.createType('Option<PalletTreasuryFrameArgonotBondParticipants>', null),
-          bondLotsByVault: async () =>
-            deployed.createType('PalletTreasuryVaultBondState', {
-              regularBondLots: [],
-              flexibleBonds: 3,
-              reservedBondSpace: 0,
-            }),
+          bondLotsByVault: async () => deployed.createType('PalletTreasuryVaultBondState', bondState),
         },
         vaults: {
           revenuePerFrameByVault: async () =>
@@ -821,7 +844,7 @@ it('recovers the actual deployed-runtime flexible payout, including dust and lot
       frames: Array.from({ length: 8 }, (_, i) => ({
         frameId: i + 3,
         firstBlockNumber: 101 + i * 7,
-        firstBlockSpecVersion: 159,
+        firstBlockSpecVersion: specVersion,
       })),
       getFrameStart: async () => ({ api: start }),
       blockWatch: {
@@ -839,7 +862,12 @@ it('recovers the actual deployed-runtime flexible payout, including dust and lot
         event: {
           section: 'treasury',
           method: 'BondLotPurchased',
-          data: { programId: { type: 'Vault', value: { vaultId: 4 } }, accountId: owner, bondLotId: id, bonds: id - 6 },
+          data: {
+            programId: { type: 'Vault', value: { vaultId: 4 } },
+            accountId: owner,
+            bondLotId: id,
+            bonds: id - 6,
+          },
         },
         phase: { type: 'ApplyExtrinsic', value: 1 },
         topics: [],
@@ -928,7 +956,7 @@ it('recovers the actual deployed-runtime flexible payout, including dust and lot
         topics: [],
       },
     ],
-    159,
+    specVersion,
   );
   const burnEvents: RuntimeSystemEventRecord[] = [9, 10].map(frameId => ({
     event: { section: 'vaults', method: 'VaultRevenueUncollected', data: { vaultId: 4, frameId, amount: 5n } },
@@ -941,10 +969,10 @@ it('recovers the actual deployed-runtime flexible payout, including dust and lot
       { ...block, blockNumber: height },
       height === 160 ? burnEvents : [],
       4,
-      159,
+      specVersion,
     );
   }
-  await vaultHistory.importBlock(expired, burnEvents, 159);
+  await vaultHistory.importBlock(expired, burnEvents, specVersion);
   await vaultHistory.recordFinalizedRevenue(
     { ...block, blockNumber: 161, blockHash: '0x161' },
     [
@@ -955,7 +983,7 @@ it('recovers the actual deployed-runtime flexible payout, including dust and lot
       },
     ],
     4,
-    159,
+    specVersion,
   );
   const restartedHistory = new VaultHistory(Promise.resolve(db), owner);
   const recovered = await restartedHistory.loadPositionHistory();
@@ -984,4 +1012,145 @@ it('recovers the actual deployed-runtime flexible payout, including dust and lot
     performanceEndingCapital: 100_000_001n,
   });
   expect(calculatePositionReturn([...bondPositions, vaultPosition]).returnAmount).toBe(6n);
+});
+
+describe('failed bond release reconstruction', () => {
+  it.each([
+    {
+      description: 'recognizes a failed Vault release alongside an Argonot purchase',
+      releasedProgram: 'Vault' as const,
+      purchasedProgram: 'Argonot' as const,
+      holdPallet: 'balances' as const,
+      purchasedLotExists: true,
+      expected: true,
+    },
+    {
+      description: 'recognizes a failed Argonot release alongside a Vault purchase',
+      releasedProgram: 'Argonot' as const,
+      purchasedProgram: 'Vault' as const,
+      holdPallet: 'ownership' as const,
+      purchasedLotExists: true,
+      expected: true,
+    },
+    {
+      description: 'rejects a failed Vault release alongside a Vault purchase',
+      releasedProgram: 'Vault' as const,
+      purchasedProgram: 'Vault' as const,
+      holdPallet: 'balances' as const,
+      purchasedLotExists: true,
+      expected: false,
+    },
+    {
+      description: 'rejects reconciliation when the purchased lot is unavailable',
+      releasedProgram: 'Vault' as const,
+      purchasedProgram: 'Argonot' as const,
+      holdPallet: 'balances' as const,
+      purchasedLotExists: false,
+      expected: false,
+    },
+  ])('$description', async ({ releasedProgram, purchasedProgram, holdPallet, purchasedLotExists, expected }) => {
+    const releasedLotId = 10;
+    const purchasedLotId = 11;
+    const principal = 10_000_000n;
+    const releasedCodec = releaseLot({
+      owner,
+      bonds: 10,
+      programType: releasedProgram,
+      releaseReason: 'UserLiquidation',
+    });
+    const purchasedCodec = releaseLot({ owner, bonds: 5, programType: purchasedProgram });
+    const releasedLot = new BondLot(releasedLotId, toPlain(releasedCodec) as any, owner);
+    const parentApi = {
+      runtimeVersion: { specVersion: registry.createType('u32', 160) },
+      query: {
+        treasury: {
+          bondLotById: vi.fn(async (id: number) => (id === releasedLotId ? toPlain(releasedCodec) : null)),
+        },
+        [holdPallet]: {
+          holds: vi.fn(async () => [{ id: { type: 'Treasury' }, amount: principal }]),
+        },
+      },
+    };
+    const api = {
+      runtimeVersion: { specVersion: registry.createType('u32', 160) },
+      query: {
+        treasury: {
+          bondLotById: vi.fn(async (id: number) =>
+            purchasedLotExists && id === purchasedLotId ? toPlain(purchasedCodec) : null,
+          ),
+        },
+        [holdPallet]: { holds: vi.fn(async () => []) },
+      },
+    };
+    const events = [
+      {
+        event: {
+          section: 'treasury',
+          method: 'CouldNotReleaseBondLot',
+          data: {
+            frameId: 2,
+            programId: releasedProgram === 'Vault' ? { type: 'Vault', value: { vaultId: 1 } } : { type: 'Argonot' },
+            bondLotId: releasedLotId,
+            accountId: owner,
+            amount: principal,
+            dispatchError: { type: 'ConsumerRemaining' },
+          },
+        },
+        phase: { type: 'Initialization' },
+        topics: [],
+      },
+      {
+        event: {
+          section: 'treasury',
+          method: 'BondLotPurchased',
+          data: {
+            programId: purchasedProgram === 'Vault' ? { type: 'Vault', value: { vaultId: 1 } } : { type: 'Argonot' },
+            bondLotId: purchasedLotId,
+            accountId: owner,
+            bonds: 5,
+          },
+        },
+        phase: { type: 'ApplyExtrinsic', value: 1 },
+        topics: [],
+      },
+    ];
+
+    await expect(
+      didFailedReleaseRemoveHold({
+        accountId: owner,
+        lot: releasedLot,
+        events: events as any,
+        parentApi: parentApi as any,
+        api: api as any,
+      }),
+    ).resolves.toBe(expected);
+  });
+  function releaseLot({
+    owner,
+    bonds,
+    programType,
+    releaseReason,
+  }: {
+    owner: string;
+    bonds: number;
+    programType: 'Vault' | 'Argonot';
+    releaseReason?: 'UserLiquidation';
+  }) {
+    let program: object = { Argonot: null };
+    if (programType === 'Vault') program = { Vault: { vaultId: 1, sharingPercent: 0, bonusPercent: 0 } };
+    return registry.createType('PalletTreasuryBondLot', {
+      owner,
+      program,
+      bonds,
+      isFlexible: false,
+      createdFrameId: 1,
+      participatedFrames: 0,
+      lastFrameEarningsFrameId: null,
+      lastFrameEarnings: null,
+      cumulativeEarnings: 0,
+      releaseFrameId: releaseReason ? 2 : null,
+      releaseReason: releaseReason ?? null,
+      lockedFrameTerms: null,
+    });
+  }
 });

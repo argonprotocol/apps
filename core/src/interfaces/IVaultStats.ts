@@ -38,9 +38,7 @@ export interface IVaultStats {
   openedTick: number;
   baseline: {
     feeRevenue: bigint;
-    satoshis: bigint;
     bitcoinLocks: number;
-    microgonLiquidityRealized: bigint;
   };
   changesByFrame: IVaultFrameStats[];
 }
@@ -49,16 +47,13 @@ export interface IVaultFrameStats {
   frameId: number;
   bitcoinFeeRevenue: bigint;
   bitcoinFeeCouponValueUsed?: bigint;
-  satoshisAdded: bigint;
   bitcoinLocksCreated: number;
-  microgonLiquidityAdded: bigint;
   securitization: bigint;
   /** Held Argonots at frame end; recorded from the securitization runtime onward. */
   argonotSecuritizationMicronots?: bigint;
   /** Upstream participation frozen for this frame's vault rewards. */
   upstreamParticipation?: BigNumber;
   securitizationActivated: bigint;
-  securitizationRelockable?: bigint;
   treasuryPool: {
     externalCapital: bigint;
     vaultCapital: bigint;
@@ -67,5 +62,4 @@ export interface IVaultFrameStats {
     /** Flexible bond income included in older vault payouts; absent until its frame allocation is recovered. */
     flexibleBondEarnings?: bigint;
   };
-  uncollectedEarnings: bigint;
 }

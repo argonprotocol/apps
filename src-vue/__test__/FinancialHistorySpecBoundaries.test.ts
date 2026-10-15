@@ -4,14 +4,19 @@ import type { Codec } from '@polkadot/types-codec/types';
 import { describe, expect, it, vi } from 'vitest';
 import { ArgonBonds } from '../lib/ArgonBonds.ts';
 import { FinancialHistoryImporter } from '../lib/recovery/index.ts';
-import { getHistoricalBitcoinFundingUtxos, getHistoricalBitcoinLock } from '../lib/recovery/BitcoinLockHistory.ts';
+import {
+  getHistoricalBitcoinFundingUtxos,
+  getHistoricalBitcoinLock,
+  getHistoricalBitcoinPendingMints,
+} from '../lib/recovery/BitcoinLockHistory.ts';
 import { VaultHistory } from '../lib/recovery/MyVault.ts';
 import { createTestDb } from './helpers/db.ts';
 import { createHistoricalEventData } from '../../indexer/__test__/helpers/historicalEvents.ts';
 import { encodeAddress } from '@polkadot/util-crypto';
 import { numberCodec } from '../../core/__test__/helpers/codecs.ts';
-import { runtimeClient, toHistoricalEvent } from '@argonprotocol/runtime-client';
+import { getBundledMetadata, runtimeClient, toHistoricalEvent } from '@argonprotocol/runtime-client';
 import BigNumber from 'bignumber.js';
+import { Metadata, TypeRegistry } from '@polkadot/types';
 
 const registry = getOfflineRegistry();
 const accountId = encodeAddress(new Uint8Array(32).fill(0x33));
@@ -21,6 +26,60 @@ describe('financial history spec boundaries', () => {
   it('distinguishes unavailable Bitcoin lock storage from a removed lock', async () => {
     const client = runtimeClient({ query: { bitcoinLocks: {} } });
     await expect(getHistoricalBitcoinLock(client as never, 7)).rejects.toThrow('storage is unavailable');
+  });
+
+  it('does not treat unavailable historical mint storage as a fulfilled queue', async () => {
+    const client = runtimeClient({ query: { mint: {} } });
+    await expect(getHistoricalBitcoinPendingMints(client as never, 7)).rejects.toThrow('storage is unavailable');
+  });
+
+  it.each([151, 157, 159])('retains pending liquidity from spec %s mint storage', async specVersion => {
+    const historical = new TypeRegistry();
+    const metadataHex = Object.entries(getBundledMetadata()).find(([key]) => key.endsWith(`-${specVersion}`))![1];
+    const metadata = new Metadata(historical, metadataHex);
+    historical.setMetadata(metadata);
+    const storage = metadata.asLatest.pallets.find(pallet => pallet.name.eq('Mint'))!.storage.unwrap().items;
+    const native = (name: string, value: unknown) => {
+      const item = storage.find(item => item.name.eq(name))!;
+      const typeId = item.type.isMap ? item.type.asMap.value : item.type.asPlain;
+      return historical.createType(historical.createLookupType(typeId), value);
+    };
+    let mint;
+    if (specVersion === 151) {
+      mint = {
+        pendingMintUtxos: async () =>
+          native('PendingMintUtxos', [
+            [7, accountId, 41],
+            [8, accountId, 99],
+          ]),
+      };
+    } else if (specVersion === 157) {
+      mint = {
+        pendingMintUtxoIdLookup: async () => native('PendingMintUtxoIdLookup', [12]),
+        pendingMintUtxosByIndex: Object.assign(async () => null, {
+          multi: async () => [
+            native('PendingMintUtxosByIndex', { utxoId: 7, accountId, remainingAmount: 41, maxAmountPerFrame: 10 }),
+          ],
+        }),
+      };
+    } else {
+      mint = {
+        pendingMintIndicesByLockId: async () => native('PendingMintIndicesByLockId', [12]),
+        pendingBitcoinMintsByIndex: Object.assign(async () => null, {
+          multi: async () => [
+            native('PendingBitcoinMintsByIndex', {
+              fissionId: 2,
+              lockId: 7,
+              accountId,
+              remainingAmount: 41,
+              maxAmountPerFrame: 10,
+            }),
+          ],
+        }),
+      };
+    }
+    const client = runtimeClient({ query: { mint } });
+    await expect(getHistoricalBitcoinPendingMints(client as never, 7)).resolves.toEqual([41n]);
   });
 
   it.each([

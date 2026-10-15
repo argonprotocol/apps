@@ -1,4 +1,5 @@
 import { cpSync, existsSync, mkdirSync, realpathSync, statSync } from 'node:fs';
+import { createHash } from 'node:crypto';
 import Path from 'node:path';
 import { AppSession, type AppSessionOptions } from '../AppSession.ts';
 import type { AppLogsMode } from '../AppProcessOutput.ts';
@@ -27,6 +28,7 @@ export interface LocalMainnetAppOptions {
 export class LocalMainnet {
   public readonly archiveUrl: string;
   public readonly deployedBlock: ProducedBlock;
+  public readonly appConfigId: string;
   private activeApp: AppSession | undefined;
   private deployment: LocalMainnetDeployment | undefined;
   private closed = false;
@@ -40,6 +42,8 @@ export class LocalMainnet {
   ) {
     this.archiveUrl = fork.archiveUrl;
     this.deployedBlock = deployedBlock;
+    // Mainnet caches live above individual instances, so isolate the entire AppConfig namespace.
+    this.appConfigId = `com.argon.desktop.local.qualification-${createHash('sha256').update(runDirectory).digest('hex').slice(0, 16)}`;
   }
 
   public static async start(args: { manifest: LocalMainnetManifest; runDirectory: string }): Promise<LocalMainnet> {
@@ -112,6 +116,7 @@ export class LocalMainnet {
     const instanceDirectory = AppSession.resolveInstanceDirectory({
       networkName: this.manifest.network,
       instanceName,
+      appConfigId: this.appConfigId,
     });
     if (canonicalSourceInstancePackagePath) {
       mkdirSync(Path.dirname(instanceDirectory), { recursive: true });
@@ -125,7 +130,7 @@ export class LocalMainnet {
     try {
       const session = await startSession({
         repoRoot: canonicalAppsDirectory,
-        tauriDevConfig,
+        tauriDevConfig: { capabilities: ['default', 'dev'], ...tauriDevConfig, identifier: this.appConfigId },
         sessionName: instanceName,
         sessionMode: 'stateful',
         useTestNetwork: false,

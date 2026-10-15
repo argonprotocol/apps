@@ -47,8 +47,6 @@ export async function fetchVaultRevenue() {
     if (rebuildBaseline) {
       for (const vaultStats of Object.values(data.vaultsById)) {
         vaultStats.baseline.bitcoinLocks = 0;
-        vaultStats.baseline.satoshis = 0n;
-        vaultStats.baseline.microgonLiquidityRealized = 0n;
         vaultStats.baseline.feeRevenue = 0n;
       }
 
@@ -57,11 +55,9 @@ export async function fetchVaultRevenue() {
       for (const [, utxo] of utxos) {
         if (!utxo) continue;
 
-        const { vaultId, satoshis, liquidityPromised } = utxo;
+        const { vaultId, liquidityPromised } = utxo;
         const vaultStats = data.vaultsById[vaultId].baseline;
         vaultStats.bitcoinLocks += 1;
-        vaultStats.satoshis += satoshis;
-        vaultStats.microgonLiquidityRealized += liquidityPromised;
         vaultStats.feeRevenue += vaults.vaultsById[vaultId].calculateBitcoinFee(liquidityPromised);
       }
     }

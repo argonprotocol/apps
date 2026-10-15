@@ -32,7 +32,7 @@ import type {
 import type { IBondEarningsRecord } from './db/BondEarningsTable.ts';
 import { SyncStateKeys } from './db/SyncStateTable.ts';
 import { getMainchainClient } from '../stores/mainchain.ts';
-import { ArgonBondsRecovery } from './recovery/ArgonBonds.ts';
+import { ArgonBondsRecovery, readHistoricalBondLots } from './recovery/ArgonBonds.ts';
 import { getBondEarnings } from './BondEarnings.ts';
 
 const INITIAL_FINALIZED_HISTORY_BLOCKS = 90;
@@ -236,7 +236,8 @@ export class ArgonBonds {
 
       const blockWatch = this.miningFrames.blockWatch;
       await blockWatch.start();
-      this.data.currentFrameId = blockWatch.bestBlockHeader.frameId ?? this.miningFrames.currentFrameId;
+      const bestBlock = blockWatch.bestBlockHeader;
+      this.data.currentFrameId = bestBlock.frameId ?? this.miningFrames.getForTick(bestBlock.tick);
       this.data.vaultId = this.config.upstreamOperator?.vaultId ?? 0;
 
       const finalizedBlock = blockWatch.finalizedBlockHeader;
@@ -620,7 +621,25 @@ export class ArgonBonds {
         throw new Error(`Finalized bond history changed parent at block ${blockNumber}`);
       }
       const events = await this.miningFrames.blockWatch.getEvents(block);
-      const facts = await this.readFinalizedBlock(block, events);
+      const facts: IBondHistoryFact[] = [];
+      const earningsChanged = events.some(
+        ({ event }) =>
+          event.section === 'treasury' &&
+          (event.method === 'FrameEarningsDistributed' || event.method === 'EncumberedBondMicrogonsBurned'),
+      );
+      if (earningsChanged) {
+        const api = await this.miningFrames.blockWatch.getApi(block);
+        for (const lot of await readHistoricalBondLots(api, this.walletKeys.defaultArgonAddress)) {
+          facts.push({ kind: 'earnings-observation', lot, block });
+        }
+      }
+      for (const { event } of events) {
+        if (event.section === 'treasury' && event.method === 'FrameEarningsDistributed') {
+          facts.push(...(await this.historyRecovery.readFrameEarnings(block, event.data.frameId, events)));
+        }
+      }
+      facts.push(...(await this.historyRecovery.readBlock(block, events)));
+
       const nextCursor = { blockNumber, blockHash: block.blockHash };
       await db.transaction(async transaction => {
         await this.applyHistoryFacts(transaction, facts, true);
@@ -653,193 +672,6 @@ export class ArgonBonds {
     if (this.data.isLoaded && wasCoveragePending !== this.data.historyCoveragePending) {
       this.data.financialRevision += 1;
     }
-  }
-
-  private async readFinalizedBlock(
-    block: IBlockHeaderInfo,
-    events: readonly RuntimeSystemEventRecord[],
-  ): Promise<IBondHistoryFact[]> {
-    const bondEvents = [...events.entries()].filter(([, { event }]) => {
-      if (event.section !== 'treasury') return false;
-      return [
-        'BondLotPurchased',
-        'BondLotReleaseScheduled',
-        'BondLotReleased',
-        'CouldNotReleaseBondLot',
-        'BondLotFlexibilityChanged',
-        'BondLotBackfillChanged',
-        'BondLotEarningsBackfilled',
-        'FrameEarningsDistributed',
-        'EncumberedBondMicrogonsBurned',
-      ].includes(event.method);
-    });
-    if (!bondEvents.length) return [];
-
-    const accountId = this.walletKeys.defaultArgonAddress;
-    const api = runtimeClient(await this.miningFrames.blockWatch.getApi(block));
-    const facts: IBondHistoryFact[] = [];
-    const flexibilityByLot = new Map<number, boolean>();
-    const earningsBackfillsByLot = new Map<number, Pick<IBondLotEarningsBackfill, 'addedFrames' | 'addedEarnings'>>();
-    const distributesEarnings = bondEvents.some(([, { event }]) => event.method === 'FrameEarningsDistributed');
-    const hasBondBurn = bondEvents.some(([, { event }]) => event.method === 'EncumberedBondMicrogonsBurned');
-    if (distributesEarnings || hasBondBurn) {
-      for (const lot of await this.getOwnBondLots(api)) facts.push({ kind: 'earnings-observation', lot, block });
-    }
-    for (const [, { event }] of bondEvents) {
-      if (event.section !== 'treasury' || event.method !== 'FrameEarningsDistributed') continue;
-      const { frameId } = event.data;
-      const parent = await this.miningFrames.blockWatch.getHeader(block.blockNumber - 1);
-      const [beforePayout, frameStart] = await Promise.all([
-        this.miningFrames.blockWatch.getApi(parent),
-        this.miningFrames.getFrameStart(frameId),
-      ]);
-      const startClient = runtimeClient(frameStart.api);
-      const parentClient = runtimeClient(beforePayout);
-      const earnings = await TreasuryBonds.getFrameEarnings({
-        frameId,
-        accountId,
-        frameStart: startClient,
-        beforePayout: parentClient,
-        payout: api,
-        events,
-      });
-      for (const { lot, ...entry } of earnings) {
-        facts.push({
-          kind: 'daily-earnings',
-          record: {
-            ...entry,
-            accountId,
-            programType: lot.programType,
-            bondLotId: lot.id,
-            frameId,
-            payoutBlockNumber: block.blockNumber,
-            payoutBlockHash: block.blockHash,
-          },
-        });
-      }
-    }
-    for (const [index, { event, phase }] of bondEvents) {
-      if (event.section !== 'treasury') continue;
-      const extrinsicIndex = phase.type === 'ApplyExtrinsic' ? phase.value : undefined;
-      if (event.method === 'BondLotPurchased') {
-        if (event.data.accountId !== accountId) continue;
-        const lot = await BondLot.get(api, event.data.bondLotId, accountId);
-        if (!lot)
-          throw new Error(`Purchased bond lot ${event.data.bondLotId} is unavailable at block ${block.blockNumber}`);
-        const entryArgonotRateMicrogons =
-          lot.programType === 'Argonot'
-            ? (await this.currency.fetchMainchainRatesAtBlock({ api, block })).ARGNOT
-            : undefined;
-        facts.push({
-          kind: 'purchase',
-          lot,
-          block,
-          extrinsicIndex,
-          entryArgonotRateMicrogons,
-          isFlexibleAtPurchase: false,
-        });
-      } else if (event.method === 'BondLotEarningsBackfilled') {
-        const preceding = earningsBackfillsByLot.get(event.data.bondLotId);
-        const backfill = {
-          addedFrames: (preceding?.addedFrames ?? 0) + event.data.addedFrames,
-          addedEarnings: (preceding?.addedEarnings ?? 0n) + event.data.addedEarnings,
-        };
-        earningsBackfillsByLot.set(event.data.bondLotId, backfill);
-        let lot = await BondLot.get(api, event.data.bondLotId, accountId);
-        if (!lot) {
-          const parent = await this.miningFrames.blockWatch.getHeader(block.blockNumber - 1);
-          const parentApi = runtimeClient(await this.miningFrames.blockWatch.getApi(parent));
-          const previous = await BondLot.get(parentApi, event.data.bondLotId, accountId);
-          if (previous) {
-            lot = previous.withEarningsBackfill(backfill.addedFrames, backfill.addedEarnings);
-          }
-        }
-        if (!lot)
-          throw new Error(`Backfilled bond lot ${event.data.bondLotId} is unavailable at block ${block.blockNumber}`);
-        if (lot.owner !== accountId) continue;
-        facts.push({
-          kind: 'earnings-backfill',
-          lot,
-          backfill: {
-            blockNumber: block.blockNumber,
-            blockHash: block.blockHash,
-            eventIndex: index,
-            addedFrames: event.data.addedFrames,
-            addedEarnings: event.data.addedEarnings,
-          },
-        });
-      } else if (event.method === 'BondLotReleaseScheduled') {
-        if (event.data.accountId !== accountId) continue;
-        const lot = await BondLot.get(api, event.data.bondLotId, accountId);
-        if (!lot)
-          throw new Error(`Scheduled bond lot ${event.data.bondLotId} is unavailable at block ${block.blockNumber}`);
-        facts.push({
-          kind: 'release-scheduled',
-          lot,
-          block,
-          extrinsicIndex,
-        });
-      } else if (event.method === 'BondLotReleased' || event.method === 'CouldNotReleaseBondLot') {
-        if (event.data.accountId !== accountId) continue;
-        let parent: IBlockHeaderInfo;
-        try {
-          parent = await this.miningFrames.blockWatch.getParentHeader(block);
-        } catch (error) {
-          if (!block.isFinalized || block.blockNumber === 0) throw error;
-          parent = await this.miningFrames.blockWatch.getHeader(block.blockNumber - 1);
-        }
-        const parentApi = runtimeClient(await this.miningFrames.blockWatch.getApi(parent));
-        let lot = await BondLot.get(parentApi, event.data.bondLotId, accountId);
-        if (!lot)
-          throw new Error(`Released bond lot ${event.data.bondLotId} is unavailable before block ${block.blockNumber}`);
-        const backfill = earningsBackfillsByLot.get(lot.id);
-        if (backfill) {
-          lot = lot.withEarningsBackfill(backfill.addedFrames, backfill.addedEarnings);
-        }
-        if (
-          event.method === 'CouldNotReleaseBondLot' &&
-          !(await TreasuryBonds.didFailedReleaseRemoveHold({ accountId, lot, events, parentApi, api }))
-        ) {
-          continue;
-        }
-        const closingArgonotRateMicrogons =
-          lot.programType === 'Argonot'
-            ? (await this.currency.fetchMainchainRatesAtBlock({ api, block })).ARGNOT
-            : undefined;
-        facts.push({
-          kind: 'release',
-          lot,
-          block,
-          parent,
-          extrinsicIndex,
-          closingArgonotRateMicrogons,
-          wasFlexible: flexibilityByLot.get(lot.id) ?? lot.isFlexible,
-          earningsComplete: !distributesEarnings,
-        });
-      } else if (event.method === 'BondLotFlexibilityChanged' || event.method === 'BondLotBackfillChanged') {
-        const lot = await BondLot.get(api, event.data.bondLotId, accountId);
-        if (!lot)
-          throw new Error(`Flexible bond lot ${event.data.bondLotId} is unavailable at block ${block.blockNumber}`);
-        if (lot.owner !== accountId || lot.programType !== 'Vault') continue;
-        const isFlexible = event.method === 'BondLotFlexibilityChanged' ? event.data.isFlexible : event.data.isBackfill;
-        flexibilityByLot.set(lot.id, isFlexible);
-        facts.push({
-          kind: 'flexibility',
-          lot,
-          transition: {
-            isFlexible,
-            cumulativeEarningsMicrogons: lot.cumulativeEarnings,
-            source: 'flexibility-change',
-            blockNumber: block.blockNumber,
-            blockHash: block.blockHash,
-            blockTime: new Date(block.blockTime),
-            extrinsicIndex,
-            eventIndex: index,
-          },
-        });
-      }
-    }
-    return facts;
   }
 
   private async onNewBestBlocks(blocks: IBlockHeaderInfo[]): Promise<void> {
@@ -897,15 +729,11 @@ export class ArgonBonds {
             event.method === 'BondLotReleased' ||
             event.method === 'CouldNotReleaseBondLot' ||
             event.method === 'BondLotEarningsBackfilled' ||
-            event.method === 'BondLotFlexibilityChanged' ||
-            event.method === 'BondLotBackfillChanged')
+            event.method === 'BondLotFlexibilityChanged')
         ) {
           refreshBonds = true;
           refreshMarket = true;
-        } else if (
-          event.section === 'treasury' &&
-          (event.method === 'ReservedBondSpaceChanged' || event.method === 'BackfillBondsReservedChanged')
-        ) {
+        } else if (event.section === 'treasury' && event.method === 'ReservedBondSpaceChanged') {
           refreshMarket = true;
         }
       }

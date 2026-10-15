@@ -8,13 +8,12 @@ import { fileURLToPath } from 'node:url';
 import {
   ACCOUNT_ACTIVITY_DEFINITION_VERSION,
   AccountActivityKind,
-  BondLot,
-  TreasuryBonds,
   type IIndexerSpec,
   type ArgonApi,
 } from '@argonprotocol/apps-core';
+import { readHistoricalBondLot, didFailedReleaseRemoveHold } from 'src-vue/lib/recovery/ArgonBonds.ts';
 import { getClient } from '@argonprotocol/mainchain';
-import { runtimeClient } from '@argonprotocol/runtime-client';
+import { runtimeClient, type RuntimeQueries } from '@argonprotocol/runtime-client';
 import type { IFinancialAggregate } from 'src-vue/interfaces/IFinancialPosition.ts';
 import { FlowSession } from '../FlowSession.ts';
 import { AccountRecoverySnapshot, type AccountRecoverySnapshotResult } from './AccountRecoverySnapshot.ts';
@@ -259,7 +258,8 @@ export class LocalMainnetReview {
     await session.waitForReady(5 * 60_000);
     try {
       if (!this.historyThroughBlock) throw new Error('Candidate runtime block is not available');
-      await session.recoverAccountHistory(this.historyThroughBlock, 600_000);
+      // Startup version repair can run before the explicitly requested full replay.
+      await session.recoverAccountHistory(this.historyThroughBlock, 30 * 60_000);
       const [expectedReleasedBondLotIds, expectedBitcoinFissionIds] = await Promise.all([
         this.loadReleasedBondLotIds(account.defaultArgonAccountId),
         this.loadBitcoinHistoryIds(account.defaultArgonAccountId),
@@ -461,7 +461,7 @@ export class LocalMainnetReview {
       const released = new Set<number>();
       for (const block of activity.blocks) {
         const atBlock = await client.at(block.blockHash);
-        const atBlockQuery = runtimeClient(atBlock);
+        const atBlockQuery = runtimeClient<typeof atBlock, RuntimeQueries>(atBlock);
         const events = await atBlockQuery.query.system.events();
         for (const { event } of events) {
           if (
@@ -476,12 +476,12 @@ export class LocalMainnetReview {
             continue;
           }
           const parentHash = await client.rpc.chain.getBlockHash(block.blockNumber - 1);
-          const parent = runtimeClient(await client.at(parentHash.toHex()));
-          const failedStoredLot = await parent.query.treasury.bondLotById(event.data.bondLotId);
-          if (!failedStoredLot) continue;
-          const failedLot = BondLot.fromRuntime(event.data.bondLotId, failedStoredLot, address);
+          const parentRaw = await client.at(parentHash.toHex());
+          const parent = runtimeClient<typeof parentRaw, RuntimeQueries>(parentRaw);
+          const failedLot = await readHistoricalBondLot(parent, event.data.bondLotId, address);
+          if (!failedLot) continue;
           if (
-            await TreasuryBonds.didFailedReleaseRemoveHold({
+            await didFailedReleaseRemoveHold({
               accountId: address,
               lot: failedLot,
               events,
