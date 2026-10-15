@@ -77,7 +77,7 @@ class CommandError extends Error {
 const DEFAULT_TIMEOUT_MS = 5_000;
 const DEFAULT_INTERVAL_MS = 50;
 const DEFAULT_READY_TIMEOUT_MS = 45_000;
-const MAX_TIMEOUT_MS = 600_000;
+const MAX_TIMEOUT_MS = 30 * 60_000;
 const VISUAL_MOVE_MS = 140;
 const VISUAL_HIGHLIGHT_MS = 280;
 const VISUAL_STEP_DELAY_MS = 80;

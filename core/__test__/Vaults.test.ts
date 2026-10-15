@@ -969,9 +969,7 @@ function createVaultStats(frames: IVaultFrameStats[]): IVaultStats {
     openedTick: 0,
     baseline: {
       feeRevenue: 0n,
-      satoshis: 0n,
       bitcoinLocks: 0,
-      microgonLiquidityRealized: 0n,
     },
     changesByFrame: frames,
   };
@@ -991,9 +989,7 @@ function createFrame(
   return {
     frameId: 20,
     bitcoinFeeRevenue: 0n,
-    satoshisAdded: 0n,
     bitcoinLocksCreated: 0,
-    microgonLiquidityAdded: 0n,
     securitization: 0n,
     securitizationActivated: 0n,
     treasuryPool: {
@@ -1002,7 +998,6 @@ function createFrame(
       totalEarnings,
       vaultEarnings,
     },
-    uncollectedEarnings: 0n,
     ...frameOverrides,
   };
 }

@@ -87,6 +87,20 @@ export class Vaults {
       await this.miningFrames.load();
       this.stats ??= await this.loadStats();
 
+      // Older caches included mutable collection status and unused liquidity reconstruction.
+      for (const vault of Object.values(this.stats.vaultsById)) {
+        const baseline = vault.baseline as IVaultStats['baseline'] & Record<string, unknown>;
+        delete baseline.satoshis;
+        delete baseline.microgonLiquidityRealized;
+        for (const frame of vault.changesByFrame) {
+          const storedFrame = frame as IVaultFrameStats & Record<string, unknown>;
+          delete storedFrame.uncollectedEarnings;
+          delete storedFrame.satoshisAdded;
+          delete storedFrame.microgonLiquidityAdded;
+          delete storedFrame.securitizationRelockable;
+        }
+      }
+
       const completedFrameId = this.miningFrames.currentFrameId - 1;
       const needsBondAttribution = this.selectReturnFrames(this.stats).some(
         frame => frame.treasuryPool.vaultCapital > 0n && frame.treasuryPool.flexibleBondEarnings === undefined,
@@ -235,7 +249,7 @@ export class Vaults {
       });
     const vaultStats = stats.vaultsById[vaultId] ?? {
       openedTick: this.vaultsById[vaultId]?.openedTick ?? 0,
-      baseline: { bitcoinLocks: 0, feeRevenue: 0n, microgonLiquidityRealized: 0n, satoshis: 0n },
+      baseline: { bitcoinLocks: 0, feeRevenue: 0n },
       changesByFrame: [],
     };
     const frameChanges = new Map(vaultStats.changesByFrame.map(frame => [frame.frameId, frame]));
@@ -244,14 +258,6 @@ export class Vaults {
       frameChanges.set(revenue.frameId, {
         ...existing,
         frameId: revenue.frameId,
-        satoshisAdded:
-          (revenue.bitcoinLocksAddedSatoshis ?? revenue.bitcoinLocksTotalSatoshis ?? 0n) -
-          (revenue.bitcoinLocksReleasedSatoshis ?? revenue.satoshisReleased ?? 0n),
-        microgonLiquidityAdded:
-          (revenue.bitcoinLocksNewSecuritization ??
-            revenue.bitcoinLocksNewLiquidityPromised ??
-            revenue.bitcoinLocksMarketValue ??
-            0n) - (revenue.bitcoinLocksReleasedSecuritization ?? revenue.bitcoinLocksReleasedLiquidity ?? 0n),
         bitcoinFeeRevenue: revenue.bitcoinLockFeeRevenue,
         bitcoinFeeCouponValueUsed: revenue.bitcoinLockFeeCouponValueUsed,
         bitcoinLocksCreated: revenue.bitcoinLocksCreated,
@@ -264,8 +270,6 @@ export class Vaults {
         },
         securitization: revenue.securitization,
         securitizationActivated: revenue.securitizationActivated,
-        securitizationRelockable: revenue.securitizationRelockable ?? 0n,
-        uncollectedEarnings: revenue.uncollectedRevenue,
       });
     }
     stats.vaultsById[vaultId] = {
@@ -581,19 +585,6 @@ export class Vaults {
       .reduce((total, change) => total + change.bitcoinFeeRevenue, 0n);
   }
 
-  public async getTotalLiquidityRealized(refresh = true) {
-    if (refresh) {
-      await this.updateRevenue();
-    }
-    return Object.values(this.stats!.vaultsById).reduce((total, vault) => {
-      return (
-        total +
-        vault.baseline.microgonLiquidityRealized +
-        vault.changesByFrame.reduce((sum, change) => sum + change.microgonLiquidityAdded, 0n)
-      );
-    }, 0n);
-  }
-
   public getTotalFeeRevenue(vaultId: number): bigint {
     const vault = this.vaultsById[vaultId];
     if (!vault) return 0n;
@@ -863,8 +854,6 @@ export class Vaults {
         baseline: {
           bitcoinLocks: 0,
           feeRevenue: 0n,
-          microgonLiquidityRealized: 0n,
-          satoshis: 0n,
         },
         changesByFrame: [],
       };

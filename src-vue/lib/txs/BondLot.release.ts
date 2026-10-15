@@ -1,5 +1,4 @@
 import { BondLot, type ArgonClient, TreasuryBonds, type TxSigningAccount } from '@argonprotocol/apps-core';
-import { runtimeClient } from '@argonprotocol/runtime-client';
 import type { ArgonBonds } from '../ArgonBonds.ts';
 import type { TransactionInfo } from '../TransactionInfo.ts';
 import type { TransactionTracker } from '../TransactionTracker.ts';
@@ -84,7 +83,7 @@ export class BondLotRelease extends TransactionOperation<
       );
       if (!event) return;
       const block = await this.argonBonds.miningFrames.blockWatch.getHeader(blockNumber);
-      const api = runtimeClient(await this.argonBonds.miningFrames.blockWatch.getApi(block));
+      const api = await this.argonBonds.miningFrames.blockWatch.getApi(block);
       const lot = await BondLot.get(api, info.tx.metadataJson.bondLotId, info.tx.accountAddress);
       if (!lot) return;
       await this.argonBonds.recordBondReleaseRequest(lot, block);

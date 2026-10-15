@@ -25,11 +25,13 @@ Dependencies flow down this table. Recovery may publish through an explicit doma
 
 ## Core boundaries
 
-`core/` converts the currently supported runtime or service surface into stable protocol objects used by the application. It may accommodate the repository's declared live compatibility window at the boundary where versions actually differ.
+Core protocol models convert the currently supported runtime or service surface into stable protocol objects used by the application. They may accommodate the repository's declared live compatibility window at the boundary where versions actually differ.
 
 Historical runtime support does not belong in a current protocol object merely because recovery needs it. Recovery owns historical clients and version-aware event translation. For a cold runtime cutover, current core code targets the new runtime directly; historical recovery continues to support every runtime version from which the released app promises to recover.
 
 Core code must not read application tables, publish Vue state, choose recovery policy, or infer workflow state from application history.
+
+Shared history infrastructure has an explicit historical contract rather than a current-model contract. Examples are `BlockWatch` snapshot transport, `Currency.fetchMainchainRatesAtBlock` and `fetchPriceIndex` for detached historical prices, `Vaults.updateRevenue` for shared historical statistics, and `AccountMiners.onBlock` for historical mining facts. These APIs read generated historical shapes directly or consume normalized events; they must not feed historical results through current protocol query/decoder methods. Their presence in `core/` does not make their input current. Keep the historical translation together and document supported storage and absence semantics at those methods.
 
 ## Durable records and tables
 
@@ -84,7 +86,11 @@ No SQLite transaction may remain open across an extrinsic, RPC request, Bitcoin 
 
 The existing core protocol model is the boundary between the deployed and next runtime. Its public data follows the newly pinned model; it translates the deployed shape only where the app still needs that behavior. Application workflows retain signers, batching, transaction tracking, finalization, persistence, and publication. They do not repeat runtime capability checks or old transaction types.
 
-Choose the query surface when obtaining a client. Current-state reads and command-result snapshots use `ArgonCurrentQueryClient` and `LiveRuntimeQueries`; select that surface with `runtimeClient` on the snapshot. Historical reconstruction retains the historical surface in recovery. Do not assert that a historical result is a live record at every read.
+Choose the reader when obtaining a snapshot:
+
+- Use current core queries and decoders only for snapshots known to be within the live compatibility window. Select `ArgonCurrentQueryClient` and `LiveRuntimeQueries` at that boundary.
+- For older or unverified snapshots, retain historical types and normalize their results through historical translation. Do not use `runtimeClient(...)` to relabel an unverified snapshot as current.
+- Keep ingestion, transaction processing, and publication with their existing owners when changing a decoder. For example, a resumed transaction may need historical decoding of its saved inclusion block; the transaction operation still owns post-processing.
 
 Use the actual connected registry to encode changed structs when metadata describes the shape. For example, `Vault.encodeTerms` accepts current Bitcoin terms and encodes them for either runtime; the required deployed sharing default is internal to that boundary. A renamed callable is probed in the core model using the pinned and generated deployed transaction types. An unrelated query's presence must not select transaction arguments or UI wording.
 
@@ -119,6 +125,10 @@ Historical recovery runs only for:
 A gap in an already-loaded active workflow is not historical recovery merely because filling it requires an older event. When current authoritative state identifies the applicable event or a bounded search location, the owning domain retrieves the missing workflow fact through current reconciliation. Recovery is used only when the missing item is historical backfill: a past record or fact that is absent from the durable history the application promises to reconstruct.
 
 Recovery decodes every historical runtime or service version inside the application's supported recovery window. It constructs detached facts or records and keeps them unobservable until the smallest independently coherent publication unit is complete.
+
+Keep historical storage reads and conversion together in a clearly named translation section of the domain's existing recovery file. An existing dedicated reader such as `BitcoinLockHistory.ts` serves the same purpose; a directory hierarchy or generic adapter interface is not required. Public reconstruction methods come first and consume normalized repository records or facts, such as `IBondHistoryFact`. Put the historical readers and converters after that flow. Reading a finalized block is not itself recovery: ambient ingestion, transaction post-processing, and current reconciliation stay with their existing domain or transaction owner. They may reuse the historical translation functions when a saved snapshot can be old; do not move their orchestration into recovery. Probe old storage names, field aliases, and event variants there, once per boundary, rather than repeating them in reconstruction or financial calculations.
+
+Historical readers use `ArgonApi` and generated `HistoricalQueryRecord` or historical event types. They must not call current core `get`, `fromRuntime`, or transaction methods, or pass decoder callbacks into those methods. Shared transport, native codecs, pure calculations, and value objects constructed from already normalized fields remain reusable. Missing historical storage is unavailable evidence, not proof of an empty queue, zero earnings, or a completed workflow. Return absence only when the supported storage was actually queried and the record is absent.
 
 Recovery may add missing historical facts and reconstruct a record that no longer exists in current storage. It must not overwrite a newer live field, choose current actionability from replay progress, call ordinary live transition methods incrementally, or gate otherwise valid current state on a moving global history checkpoint.
 

@@ -1,8 +1,13 @@
 import { MICROGONS_PER_ARGON } from '@argonprotocol/mainchain';
-import type { CurrentRuntimeQueries, LiveQueryRecord, RuntimeQueryResult } from '@argonprotocol/runtime-client';
+import type {
+  CurrentRuntimeQueries,
+  LiveQueryRecord,
+  LiveRuntimeQueries,
+  RuntimeQueryResult,
+} from '@argonprotocol/runtime-client';
 
 import { MICRONOTS_PER_ARGONOT } from './Currency.js';
-import type { ArgonCurrentQueryClient } from './MainchainClients.js';
+import type { ArgonQueryClient } from './MainchainClients.js';
 
 type RuntimeBondLot = NonNullable<RuntimeQueryResult<CurrentRuntimeQueries['treasury']['bondLotById']>>;
 
@@ -53,8 +58,10 @@ export class BondLot implements RuntimeBondLot {
     return normalized;
   }
 
-  public static async get(client: ArgonCurrentQueryClient, id: number, ownAddress?: string): Promise<BondLot | null> {
-    const lot = await client.query.treasury.bondLotById(id);
+  /** The caller supplies a snapshot in the live runtime compatibility window. */
+  public static async get(client: ArgonQueryClient, id: number, ownAddress?: string): Promise<BondLot | null> {
+    const bondLotById = client.query.treasury.bondLotById as LiveRuntimeQueries['treasury']['bondLotById'];
+    const lot = await bondLotById(id);
     return lot ? BondLot.fromRuntime(id, lot, ownAddress) : null;
   }
 

@@ -245,7 +245,7 @@ describe('ArgonBonds', () => {
       releaseReason: 'UserLiquidation',
     });
     const lot = BondLot.fromRuntime(7, lotCodec, accountId);
-    const currentClient = {} as Parameters<typeof TreasuryBonds.getBondLotsByAccount>[0];
+    const currentClient = {} as Parameters<ArgonBonds['refreshBondLots']>[0];
     const purchasedLot = BondLot.fromRuntime(
       8,
       { ...lotCodec, bonds: 20, releaseFrameId: null, releaseReason: null },
@@ -270,7 +270,10 @@ describe('ArgonBonds', () => {
             await resumePublisher.promise;
             return {};
           }),
-          getApi: vi.fn(async () => ({ query: { treasury: { bondLotById: vi.fn(async () => lotCodec) } } })),
+          getApi: vi.fn(async () => ({
+            runtimeVersion: { specVersion: registry.createType('u32', 160) },
+            query: { treasury: { bondLotById: vi.fn(async () => lotCodec) } },
+          })),
         },
       } as any,
       { defaultArgonAddress: accountId } as any,
@@ -1027,6 +1030,7 @@ describe('ArgonBonds', () => {
       getHeader: vi.fn(async () => block),
       getParentHeader: vi.fn(async () => parent),
       getApi: vi.fn(async (header: typeof block) => ({
+        runtimeVersion: { specVersion: registry.createType('u32', 160) },
         query: {
           treasury: { bondLotById: vi.fn(async () => codec) },
           ownership: {
@@ -1116,6 +1120,7 @@ describe('ArgonBonds', () => {
     }));
     const blockWatch = {
       getApi: vi.fn(async (header: { blockNumber: number }) => ({
+        runtimeVersion: { specVersion: registry.createType('u32', 160) },
         query: {
           treasury: {
             bondLotById: vi.fn(async (id: number) => (id === 68 ? releasedCodec : retainedCodec)),
@@ -1259,6 +1264,7 @@ describe('ArgonBonds', () => {
     const blockWatch = {
       getParentHeader: vi.fn(async () => parent),
       getApi: vi.fn(async (header: typeof block) => ({
+        runtimeVersion: { specVersion: registry.createType('u32', 160) },
         query: {
           treasury: { bondLotById: vi.fn(async (id: number) => (id === 68 ? failedCodec : successfulCodec)) },
           ownership: {
@@ -1371,7 +1377,10 @@ describe('ArgonBonds', () => {
         blockTime: new Date('2026-07-02T12:00:00Z').getTime(),
         isFinalized: true,
       })),
-      getApi: vi.fn(async () => ({ query: { treasury: { bondLotById: vi.fn(async () => lotCodec) } } })),
+      getApi: vi.fn(async () => ({
+        runtimeVersion: { specVersion: registry.createType('u32', 160) },
+        query: { treasury: { bondLotById: vi.fn(async () => lotCodec) } },
+      })),
       getCurrentApi: vi.fn(async () => ({})),
       getEvents: vi.fn(async (block: { blockNumber: number }) => {
         if (block.blockNumber === 101) return eventsAt101.promise;
@@ -1487,7 +1496,10 @@ describe('ArgonBonds', () => {
       new Currency({ events: { on: vi.fn() } } as any),
       {
         blockWatch: {
-          getApi: vi.fn(async () => ({ query: { treasury: { bondLotById: vi.fn(async () => lotCodec) } } })),
+          getApi: vi.fn(async () => ({
+            runtimeVersion: { specVersion: registry.createType('u32', 160) },
+            query: { treasury: { bondLotById: vi.fn(async () => lotCodec) } },
+          })),
         },
       } as any,
       { defaultArgonAddress: accountId } as any,
@@ -1562,7 +1574,10 @@ describe('ArgonBonds', () => {
       new Currency({ events: { on: vi.fn() } } as any),
       {
         blockWatch: {
-          getApi: vi.fn(async () => ({ query: { treasury: { bondLotById: vi.fn(async () => lotCodec) } } })),
+          getApi: vi.fn(async () => ({
+            runtimeVersion: { specVersion: registry.createType('u32', 160) },
+            query: { treasury: { bondLotById: vi.fn(async () => lotCodec) } },
+          })),
         },
       } as any,
       { defaultArgonAddress: accountId } as any,
@@ -1603,7 +1618,7 @@ describe('ArgonBonds', () => {
     { specVersion: 159, changes: [true, false, true] },
     { specVersion: 160, changes: [true] },
   ])(
-    'keeps live and recovered purchase history equal for spec $specVersion with changes $changes',
+    'keeps cursor and recovered purchase history equal for spec $specVersion with changes $changes',
     async ({ specVersion, changes }) => {
       const liveDb = await createTestDb();
       const recoveredDb = await createTestDb();
@@ -1634,11 +1649,20 @@ describe('ArgonBonds', () => {
       // it changes the value, so the first post-purchase event must enable it.
       // Storage is the final state of the block, after all those events.
       const finalFlexibility = changes.at(-1) ?? false;
-      const storedLot = {
-        ...ordinaryLot,
-        ...(specVersion === 157 ? { isBackfill: finalFlexibility } : {}),
-        ...(specVersion >= 158 ? { isFlexible: finalFlexibility } : {}),
-      } satisfies NonNullable<HistoricalQueryRecord<'treasury', 'bondLotById'>>;
+      const source = new TypeRegistry();
+      source.setMetadata(
+        new Metadata(source, Object.entries(getBundledMetadata()).find(([key]) => key.endsWith(`-${specVersion}`))![1]),
+      );
+      const storedLot = toPlain(
+        source.createType('PalletTreasuryBondLot', {
+          ...ordinaryLot,
+          program: { Vault: { vaultId: 4, sharingPercent: 0, bonusPercent: 0 } },
+          isBackfill: finalFlexibility,
+          isFlexible: finalFlexibility,
+          lockedFrameTerms: null,
+        }),
+      ) as NonNullable<HistoricalQueryRecord<'treasury', 'bondLotById'>>;
+      const purchasedLot = { ...storedLot, isBackfill: false, isFlexible: false };
       const events: RuntimeSystemEventRecord[] = [
         {
           event: {
@@ -1668,18 +1692,16 @@ describe('ArgonBonds', () => {
           }),
         ),
       ];
-      let currentLot =
-        specVersion === 160
-          ? (toPlain(
-              registry.createType('PalletTreasuryBondLot', {
-                ...ordinaryLot,
-                program: { Vault: { vaultId: 4, sharingPercent: 0, bonusPercent: 0 } },
-                isFlexible: finalFlexibility,
-                lockedFrameTerms: null,
-              }),
-            ) as NonNullable<LiveQueryRecord<'treasury', 'bondLotById'>>)
-          : { ...ordinaryLot, isFlexible: finalFlexibility };
+      let currentLot = toPlain(
+        registry.createType('PalletTreasuryBondLot', {
+          ...ordinaryLot,
+          program: { Vault: { vaultId: 4, sharingPercent: 0, bonusPercent: 0 } },
+          isFlexible: finalFlexibility,
+          lockedFrameTerms: null,
+        }),
+      ) as NonNullable<LiveQueryRecord<'treasury', 'bondLotById'>>;
       const api = {
+        runtimeVersion: { specVersion: registry.createType('u32', 160) },
         query: {
           treasury: {
             bondLotIdsByAccount: { keys: async () => [{ args: [accountId, 7] }] },
@@ -1690,14 +1712,36 @@ describe('ArgonBonds', () => {
       const miningFrames = {
         load: async () => undefined,
         blockWatch: {
-          bestBlockHeader: block,
-          finalizedBlockHeader: block,
+          bestBlockHeader: { ...block, blockNumber: 102, blockHash: '0x102' },
+          finalizedBlockHeader: { ...block, blockNumber: 102, blockHash: '0x102' },
           start: async () => undefined,
           events: { on: () => () => undefined },
-          getHeader: async () => block,
-          getApi: async () => api,
+          getHeader: async (height: number) => ({
+            ...block,
+            blockNumber: height,
+            blockHash: `0x${height}`,
+            parentHash: `0x${height - 1}`,
+          }),
+          getApi: async (header: IBlockHeaderInfo) => {
+            if (header.blockNumber >= 102) return api;
+            const lot = header.blockNumber === 100 ? purchasedLot : storedLot;
+            return {
+              ...api,
+              runtimeVersion: { specVersion: source.createType('u32', specVersion) },
+              query: {
+                treasury: {
+                  ...api.query.treasury,
+                  bondLotById: Object.assign(async () => lot, { multi: async () => [lot] }),
+                },
+              },
+            };
+          },
           getCurrentApi: async () => api,
-          getEvents: async () => events,
+          getEvents: async (header: IBlockHeaderInfo) => {
+            if (header.blockNumber === 100) return events.slice(0, 1);
+            if (header.blockNumber === 101) return events.slice(1);
+            return [];
+          },
         },
       } as unknown as MiningFrames;
       const currency = new Currency({ events: { on: vi.fn() } } as any);
@@ -1717,16 +1761,17 @@ describe('ArgonBonds', () => {
       });
       const live = createBonds(liveDb);
       await live.load();
-      await live.recordFinalizedTransaction(block.blockNumber);
+      await live.recordFinalizedTransaction(102);
       await recoveredDb.syncStateTable.upsert(SyncStateKeys.BondHistory, {
         accountId,
-        blockNumber: 100,
-        blockHash: '0x100',
+        blockNumber: 102,
+        blockHash: '0x102',
       });
       const recovered = createBonds(recoveredDb);
       await recovered.load();
       const revisionBeforeRecovery = recovered.data.financialRevision;
-      await recovered.importHistoryBlock(block, events);
+      await recovered.importHistoryBlock(block, events.slice(0, 1));
+      await recovered.importHistoryBlock({ ...block, blockNumber: 101, blockHash: '0x101' }, events.slice(1));
       expect(await recoveredDb.bondLotHistoryTable.fetchAll(accountId)).toEqual(recovered.data.bondHistory);
       expect(recovered.data.bondHistory[0]?.purchaseBlockNumber).toBeUndefined();
       expect(recovered.data.bondLots).toEqual(live.data.bondLots);
@@ -1746,7 +1791,7 @@ describe('ArgonBonds', () => {
         flexibilityHistory: changes.map((isFlexible, index) => ({
           isFlexible,
           source: 'flexibility-change',
-          eventIndex: index + 1,
+          eventIndex: index,
         })),
       });
       expect(live.getEarningsHistory(7)).toMatchObject({ lifetimeEarnings: 0n, isComplete: true });
@@ -1786,7 +1831,7 @@ describe('ArgonBonds', () => {
 
       const restarted = createBonds(liveDb);
       await restarted.load();
-      await restarted.recordFinalizedTransaction(block.blockNumber);
+      await restarted.recordFinalizedTransaction(102);
       expect(restarted.data.bondHistory).toEqual([{ ...liveHistory, updatedAt: expect.any(Date) }]);
       expect(restarted.getEarningsHistory(7)).toMatchObject({ lifetimeEarnings: 0n, isComplete: true });
       currentLot = {
@@ -1806,7 +1851,8 @@ describe('ArgonBonds', () => {
         accountId,
       );
       const revisionBeforeBackfill = restarted.data.financialRevision;
-      await restarted.importHistoryBlock(block, events);
+      await restarted.importHistoryBlock(block, events.slice(0, 1));
+      await restarted.importHistoryBlock({ ...block, blockNumber: 101, blockHash: '0x101' }, events.slice(1));
       await restarted.publishRecoveredHistory();
       expect(restarted.data.bondHistory[0]?.flexibilityHistory).toEqual(liveHistory.flexibilityHistory);
       expect(restarted.data.bondLots).toEqual([newerLot]);
@@ -1845,7 +1891,10 @@ describe('ArgonBonds', () => {
         blockTime: new Date('2026-07-02T12:00:00Z').getTime(),
         isFinalized: true,
       })),
-      getApi: vi.fn(async () => ({ query: { treasury: { bondLotById: vi.fn(async () => lotCodec) } } })),
+      getApi: vi.fn(async () => ({
+        runtimeVersion: { specVersion: registry.createType('u32', 160) },
+        query: { treasury: { bondLotById: vi.fn(async () => lotCodec) } },
+      })),
       getCurrentApi: vi.fn(async () => ({})),
       getEvents: vi.fn(async ({ blockNumber }: { blockNumber: number }) => {
         if (blockNumber !== 99) return [];
@@ -1966,6 +2015,7 @@ describe('ArgonBonds', () => {
       {
         blockWatch: {
           getApi: vi.fn(async () => ({
+            runtimeVersion: { specVersion: registry.createType('u32', 160) },
             query: { treasury: { bondLotById: vi.fn(async () => releasingCodec) } },
           })),
         },

@@ -7,14 +7,12 @@ import { BondLot } from './BondLot.js';
 import { Currency, MICRONOTS_PER_ARGONOT } from './Currency.js';
 import { Vault } from './Vault.js';
 import type { ArgonClient, ArgonCurrentQueryClient, ArgonQueryClient } from './MainchainClients.js';
-import type { RuntimeSystemEventRecord } from './BlockWatch.js';
 import type {
   CurrentRuntimeQueries,
-  HistoricalQueryRecord,
   LiveQueryRecord,
+  LiveRuntimeQueries,
   RuntimeQueryResult,
 } from '@argonprotocol/runtime-client';
-import { runtimeClient } from '@argonprotocol/runtime-client';
 
 const U32_MAX = 4_294_967_295n;
 
@@ -26,110 +24,7 @@ export interface IFrameBondLot {
 
 export type VaultBondState = NonNullable<RuntimeQueryResult<CurrentRuntimeQueries['treasury']['bondLotsByVault']>>;
 
-export interface IBondFrameEarnings {
-  lot: BondLot;
-  bonds?: number;
-  isFlexible?: boolean;
-  displacedMicrogons?: bigint;
-  earningsMicrogons?: bigint;
-  earningsDestination: 'Owner' | 'Vault';
-}
-
 export class TreasuryBonds {
-  public static async getFrameEarnings({
-    frameId,
-    accountId,
-    frameStart,
-    beforePayout,
-    payout,
-    events,
-    readLots = (client, owner) => TreasuryBonds.getBondLotsByAccount(runtimeClient(client), owner),
-  }: {
-    frameId: number;
-    accountId: string;
-    frameStart: ArgonQueryClient;
-    beforePayout: ArgonQueryClient;
-    payout: ArgonQueryClient;
-    events: readonly RuntimeSystemEventRecord[];
-    readLots?: (client: ArgonQueryClient, accountId: string) => Promise<BondLot[]>;
-  }): Promise<IBondFrameEarnings[]> {
-    const paysOwners = events.some(
-      ({ event }) =>
-        event.section === 'treasury' &&
-        event.method === 'FrameEarningsDistributed' &&
-        'argonBondPoolDistributed' in event.data,
-    );
-    const snapshot = paysOwners ? beforePayout : frameStart;
-    const [lots, paidLots, capital] = await Promise.all([
-      readLots(snapshot, accountId),
-      readLots(payout, accountId),
-      snapshot.query.treasury.currentFrameVaultCapital(),
-    ]);
-    // A cutover may change participation during migration. Preserve observed earnings
-    // without claiming the preceding runtime's quantities were used by the new payout.
-    const crossesCutover = paysOwners && capital && 'vaults' in capital && capital.vaults !== undefined;
-    const entries = crossesCutover
-      ? []
-      : await TreasuryBonds.getEarningParticipation({ client: snapshot, frameId, lots, capital });
-    for (const paid of paidLots) {
-      if (paid.lastFrameEarningsFrameId !== frameId || paid.lastFrameEarnings === null) continue;
-      let entry = entries.find(x => x.lot.id === paid.id);
-      if (!entry) {
-        entry = { lot: paid, earningsDestination: 'Owner' };
-        entries.push(entry);
-      }
-      entry.earningsMicrogons = paid.lastFrameEarnings;
-    }
-    if (crossesCutover) {
-      for (const lot of lots) {
-        if (!entries.some(x => x.lot.id === lot.id)) entries.push({ lot, earningsDestination: 'Owner' });
-      }
-    }
-    if (!capital || !('vaults' in capital) || !capital.vaults || paysOwners) return entries;
-    for (const vaultId of new Set(entries.filter(x => x.earningsDestination === 'Vault').map(x => x.lot.vaultId!))) {
-      const position = capital.vaults[vaultId];
-      if (!position || !('flexibleProrata' in position)) continue;
-      const flexible = entries.filter(x => x.lot.vaultId === vaultId && x.earningsDestination === 'Vault');
-      const state = await snapshot.query.treasury.bondLotsByVault(vaultId);
-      const total = flexible.reduce((sum, x) => sum + x.lot.bonds, 0);
-      if (
-        !state ||
-        !('flexibleBonds' in state) ||
-        total !== state.flexibleBonds ||
-        position.flexibleBondsEligible > total
-      ) {
-        for (const entry of flexible) delete entry.displacedMicrogons;
-        continue;
-      }
-      if (
-        events.some(
-          ({ event }) =>
-            event.section === 'vaults' &&
-            event.method === 'TreasuryRecordingError' &&
-            event.data.vaultId === vaultId &&
-            event.data.frameId === frameId,
-        )
-      )
-        continue;
-      const revenue = (await payout.query.vaults.revenuePerFrameByVault(vaultId))?.find(x => x.frameId === frameId);
-      if (
-        !revenue ||
-        !('treasuryTotalEarnings' in revenue) ||
-        revenue.treasuryTotalEarnings === undefined ||
-        revenue.treasuryVaultEarnings === undefined
-      )
-        continue;
-      const earnings = bigNumberToBigInt(position.flexibleProrata.times(revenue.treasuryTotalEarnings));
-      if (earnings > revenue.treasuryVaultEarnings) continue;
-      const shares = TreasuryBonds.allocateFlexibleEarnings(
-        earnings,
-        flexible.map(x => x.lot),
-      );
-      for (const entry of flexible) entry.earningsMicrogons = shares.get(entry.lot.id);
-    }
-    return entries;
-  }
-
   /** Attribute an actual vault payout to its frozen flexible lots, including deterministic dust. */
   public static allocateFlexibleEarnings(
     earnings: bigint,
@@ -474,7 +369,7 @@ export class TreasuryBonds {
     return BondLot.bondsToMicrogons(availableBonds);
   }
 
-  public static async getBondLotsByAccount(client: ArgonCurrentQueryClient, accountId: string): Promise<BondLot[]> {
+  public static async getBondLotsByAccount(client: ArgonQueryClient, accountId: string): Promise<BondLot[]> {
     const accountKeys = await client.query.treasury.bondLotIdsByAccount.keys(accountId);
     const ids = [...new Set((accountKeys ?? []).map(key => key.args[1]))];
     const lotsById = await TreasuryBonds.getBondLotsById(client, ids, accountId);
@@ -483,62 +378,6 @@ export class TreasuryBonds {
       const lot = lotsById.get(id);
       return lot ? [lot] : [];
     });
-  }
-
-  // A failed release could historically remove a Treasury hold before provider
-  // bookkeeping failed. Only a complete same-currency release group whose
-  // principal exactly matches the hold delta proves that this lot left custody.
-  public static async didFailedReleaseRemoveHold(args: {
-    accountId: string;
-    lot: BondLot;
-    events: readonly RuntimeSystemEventRecord[];
-    parentApi: ArgonQueryClient;
-    api: ArgonQueryClient;
-    readBondLot?: (client: ArgonQueryClient, id: number) => Promise<BondLot | undefined>;
-  }): Promise<boolean> {
-    const { accountId, lot, events, parentApi, api } = args;
-    const readBondLot = args.readBondLot ?? ((client, id) => BondLot.get(runtimeClient(client), id, accountId));
-    const releases = events.flatMap(({ event }) =>
-      event.section === 'treasury' &&
-      (event.method === 'BondLotReleased' || event.method === 'CouldNotReleaseBondLot') &&
-      event.data.accountId === accountId
-        ? [event]
-        : [],
-    );
-    for (const { event } of events) {
-      if (event.section !== 'treasury' || event.method !== 'BondLotPurchased' || event.data.accountId !== accountId) {
-        continue;
-      }
-      const purchasedLot = await readBondLot(api, event.data.bondLotId);
-      if (!purchasedLot || purchasedLot.programType === lot.programType) return false;
-    }
-
-    let expectedPrincipal = 0n;
-    for (const release of releases) {
-      const releasedLot = await readBondLot(parentApi, release.data.bondLotId);
-      if (!releasedLot) return false;
-      if (releasedLot.programType !== lot.programType) continue;
-      const principal = releasedLot.principalMicrogons ?? releasedLot.principalMicronots ?? 0n;
-      if (
-        releasedLot.owner !== accountId ||
-        principal <= 0n ||
-        (release.method === 'CouldNotReleaseBondLot'
-          ? release.data.amount !== principal
-          : release.data.bonds !== releasedLot.bonds)
-      ) {
-        return false;
-      }
-      expectedPrincipal += principal;
-    }
-    if (expectedPrincipal <= 0n) return false;
-
-    const [priorHolds, currentHolds] =
-      lot.programType === 'Argonot'
-        ? await Promise.all([parentApi.query.ownership.holds(accountId), api.query.ownership.holds(accountId)])
-        : await Promise.all([parentApi.query.balances.holds(accountId), api.query.balances.holds(accountId)]);
-    const treasuryTotal = (holds: typeof priorHolds): bigint =>
-      holds.filter(hold => hold.id.type === 'Treasury').reduce((total, hold) => total + hold.amount, 0n);
-    return treasuryTotal(priorHolds) - treasuryTotal(currentHolds) === expectedPrincipal;
   }
 
   public static async getCurrentFrameBondLots(
@@ -695,95 +534,6 @@ export class TreasuryBonds {
     return minimumRate + fixedU128Multiply(participation, bigIntMax(0n, profitRate - minimumRate));
   }
 
-  /** Read the quantity frozen for a payout, before that payout clears the frame terms. */
-  private static async getEarningParticipation({
-    client,
-    frameId,
-    lots,
-    capital,
-  }: {
-    client: ArgonQueryClient;
-    frameId: number;
-    lots: BondLot[];
-    capital: HistoricalQueryRecord<'treasury', 'currentFrameVaultCapital'> | null | undefined;
-  }): Promise<IBondFrameEarnings[]> {
-    const stakes = await client.query.treasury.currentFrameArgonotBondParticipants();
-    const vaultStates = new Map<number, HistoricalQueryRecord<'treasury', 'bondLotsByVault'> | null>();
-    const flexibleFractionByVault = new Map<number, bigint>();
-    const entries: IBondFrameEarnings[] = [];
-    for (const lot of lots) {
-      if (lot.programType === 'Argonot') {
-        const participant = stakes?.frameId === frameId && stakes.bondLots.find(x => x.bondLotId === lot.id);
-        if (participant)
-          entries.push({
-            lot,
-            bonds: participant.bonds,
-            isFlexible: false,
-            displacedMicrogons: 0n,
-            earningsDestination: 'Owner',
-          });
-        continue;
-      }
-      if (capital?.frameId !== frameId) continue;
-      if ('vaults' in capital && capital.vaults) {
-        const position = capital.vaults[lot.vaultId!];
-        if (!position || !('regularBondAllocations' in position)) continue;
-        const regular = position.regularBondAllocations.some(x => x.bondLotId === lot.id);
-        if (regular)
-          entries.push({
-            lot,
-            bonds: lot.bonds,
-            isFlexible: false,
-            displacedMicrogons: 0n,
-            earningsDestination: 'Owner',
-          });
-        else if (lot.isFlexible && !lot.isReleasing) {
-          const vaultId = lot.vaultId!;
-          let fraction = flexibleFractionByVault.get(vaultId);
-          if (fraction === undefined) {
-            const flexibleLots = lots.filter(x => x.vaultId === vaultId && x.isFlexible && !x.isReleasing);
-            const total = flexibleLots.reduce((sum, x) => sum + x.bonds, 0);
-            fraction = fixedU128Rational(BigInt(position.flexibleBondsEligible), BigInt(total));
-            flexibleFractionByVault.set(vaultId, fraction);
-          }
-          const principal = lot.bondMicrogons;
-          entries.push({
-            lot,
-            bonds: lot.bonds,
-            isFlexible: true,
-            displacedMicrogons: principal - fixedU128Multiply(fraction, principal),
-            earningsDestination: 'Vault',
-          });
-        }
-        continue;
-      }
-      const terms = lot.lockedFrameTerms ?? (lot.isReleasing ? undefined : lot);
-      if (!terms?.bonds) continue;
-      let displacedMicrogons = 0n;
-      if (terms.isFlexible) {
-        const vaultId = lot.vaultId!;
-        if (!vaultStates.has(vaultId)) vaultStates.set(vaultId, await client.query.treasury.bondLotsByVault(vaultId));
-        const state = vaultStates.get(vaultId)!;
-        if (!('lockedFrameTerms' in state)) continue;
-        const frozen = state.lockedFrameTerms ?? state;
-        const principal = BondLot.bondsToMicrogons(terms.bonds);
-        const fraction = fixedU128Rational(
-          BigInt(Math.max(0, frozen.flexibleBonds - frozen.displacedFlexibleBonds)),
-          BigInt(frozen.flexibleBonds),
-        );
-        displacedMicrogons = principal - fixedU128Multiply(fraction, principal);
-      }
-      entries.push({
-        lot,
-        bonds: terms.bonds,
-        isFlexible: terms.isFlexible,
-        displacedMicrogons,
-        earningsDestination: 'Owner',
-      });
-    }
-    return entries;
-  }
-
   private static async getVaultBondSources(client: ArgonCurrentQueryClient, vaultId: number) {
     const vaultState = await client.query.treasury.bondLotsByVault(vaultId);
     if ('regularBonds' in vaultState) {
@@ -819,13 +569,14 @@ export class TreasuryBonds {
   }
 
   private static async getBondLotsById(
-    client: ArgonCurrentQueryClient,
+    client: ArgonQueryClient,
     ids: number[],
     ownAddress?: string,
   ): Promise<Map<number, BondLot>> {
     if (ids.length === 0) return new Map();
 
-    const lots = (await client.query.treasury.bondLotById.multi(ids)) ?? [];
+    const bondLotById = client.query.treasury.bondLotById as LiveRuntimeQueries['treasury']['bondLotById'];
+    const lots = (await bondLotById.multi(ids)) ?? [];
     const result = new Map<number, BondLot>();
 
     for (let i = 0; i < ids.length; i += 1) {

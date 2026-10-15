@@ -17,7 +17,6 @@ import { getBundledMetadata, runtimeClient, toPlain } from '@argonprotocol/runti
 import { Metadata, TypeRegistry } from '@polkadot/types';
 import type { PreviousRuntimeSpec as RuntimeSpec159 } from '../src/runtimeCompatibility.ts';
 
-import { BondLot } from '../src/BondLot.ts';
 import { MICRONOTS_PER_ARGONOT } from '../src/Currency.ts';
 import { TreasuryBonds } from '../src/TreasuryBonds.ts';
 import { Vault } from '../src/Vault.ts';
@@ -516,115 +515,6 @@ describe('TreasuryBonds', () => {
     );
     expect(replacement.minimumPurchaseBonds).toBe(2);
     expect(TreasuryBonds.availableBondSpace({ capacityMicrogons: 0n, bondState: replacement })).toBe(0n);
-  });
-
-  it.each([
-    {
-      description: 'recognizes a failed Vault release alongside an Argonot purchase',
-      releasedProgram: 'Vault' as const,
-      purchasedProgram: 'Argonot' as const,
-      holdPallet: 'balances' as const,
-      purchasedLotExists: true,
-      expected: true,
-    },
-    {
-      description: 'recognizes a failed Argonot release alongside a Vault purchase',
-      releasedProgram: 'Argonot' as const,
-      purchasedProgram: 'Vault' as const,
-      holdPallet: 'ownership' as const,
-      purchasedLotExists: true,
-      expected: true,
-    },
-    {
-      description: 'rejects a failed Vault release alongside a Vault purchase',
-      releasedProgram: 'Vault' as const,
-      purchasedProgram: 'Vault' as const,
-      holdPallet: 'balances' as const,
-      purchasedLotExists: true,
-      expected: false,
-    },
-    {
-      description: 'rejects reconciliation when the purchased lot is unavailable',
-      releasedProgram: 'Vault' as const,
-      purchasedProgram: 'Argonot' as const,
-      holdPallet: 'balances' as const,
-      purchasedLotExists: false,
-      expected: false,
-    },
-  ])('$description', async ({ releasedProgram, purchasedProgram, holdPallet, purchasedLotExists, expected }) => {
-    const releasedLotId = 10;
-    const purchasedLotId = 11;
-    const principal = 10_000_000n;
-    const releasedCodec = createBondLot({
-      owner: buyerAddress,
-      bonds: 10,
-      programType: releasedProgram,
-      releaseReason: 'UserLiquidation',
-    });
-    const purchasedCodec = createBondLot({ owner: buyerAddress, bonds: 5, programType: purchasedProgram });
-    const releasedLot = BondLot.fromRuntime(releasedLotId, toPlain(releasedCodec) as any, buyerAddress);
-    const parentApi = {
-      query: {
-        treasury: {
-          bondLotById: vi.fn(async (id: number) => (id === releasedLotId ? toPlain(releasedCodec) : null)),
-        },
-        [holdPallet]: {
-          holds: vi.fn(async () => [{ id: { type: 'Treasury' }, amount: principal }]),
-        },
-      },
-    };
-    const api = {
-      query: {
-        treasury: {
-          bondLotById: vi.fn(async (id: number) =>
-            purchasedLotExists && id === purchasedLotId ? toPlain(purchasedCodec) : null,
-          ),
-        },
-        [holdPallet]: { holds: vi.fn(async () => []) },
-      },
-    };
-    const events = [
-      {
-        event: {
-          section: 'treasury',
-          method: 'CouldNotReleaseBondLot',
-          data: {
-            frameId: 2,
-            programId: releasedProgram === 'Vault' ? { type: 'Vault', value: { vaultId: 1 } } : { type: 'Argonot' },
-            bondLotId: releasedLotId,
-            accountId: buyerAddress,
-            amount: principal,
-            dispatchError: { type: 'ConsumerRemaining' },
-          },
-        },
-        phase: { type: 'Initialization' },
-        topics: [],
-      },
-      {
-        event: {
-          section: 'treasury',
-          method: 'BondLotPurchased',
-          data: {
-            programId: purchasedProgram === 'Vault' ? { type: 'Vault', value: { vaultId: 1 } } : { type: 'Argonot' },
-            bondLotId: purchasedLotId,
-            accountId: buyerAddress,
-            bonds: 5,
-          },
-        },
-        phase: { type: 'ApplyExtrinsic', value: 1 },
-        topics: [],
-      },
-    ];
-
-    await expect(
-      TreasuryBonds.didFailedReleaseRemoveHold({
-        accountId: buyerAddress,
-        lot: releasedLot,
-        events: events as any,
-        parentApi: parentApi as any,
-        api: api as any,
-      }),
-    ).resolves.toBe(expected);
   });
 
   it('keeps deployed-runtime participation distinct from payout shares in an underfilled vault', async () => {

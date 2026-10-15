@@ -408,6 +408,90 @@ describe('Vaults cache upgrades', () => {
     cacheFiles.directory = '';
   });
 
+  it('retains historical revenue and website counts while dropping collection status and unused liquidity', async () => {
+    globalThis.window = {} as Window & typeof globalThis;
+    NetworkConfig.setNetwork('mainnet');
+    cacheFiles.directory = await mkdtemp(join(tmpdir(), 'vault-cache-upgrade-'));
+    await mkdir(join(cacheFiles.directory, 'mainnet'));
+    const statsFile = join(cacheFiles.directory, 'mainnet', 'vaultStats.json');
+    const frame = {
+      frameId: 30,
+      bitcoinFeeRevenue: 500_000n,
+      bitcoinFeeCouponValueUsed: 100_000n,
+      bitcoinLocksCreated: 2,
+      securitization: 1_000_000n,
+      securitizationActivated: 800_000n,
+      treasuryPool: { totalEarnings: 250_000n, vaultEarnings: 100_000n, vaultCapital: 0n, externalCapital: 0n },
+    };
+    await writeFile(
+      statsFile,
+      JsonExt.stringify({
+        formatVersion: 2,
+        synchedToFrame: 30,
+        argonotStakingByFrame: [],
+        vaultsById: {
+          1: {
+            openedTick: 1,
+            baseline: { bitcoinLocks: 7, feeRevenue: 100_000n, satoshis: 50n, microgonLiquidityRealized: 100n },
+            changesByFrame: [
+              {
+                ...frame,
+                uncollectedEarnings: 0n,
+                satoshisAdded: 5n,
+                microgonLiquidityAdded: 10n,
+                securitizationRelockable: 20n,
+              },
+            ],
+          },
+        },
+      }),
+    );
+    setMainchainClients({
+      get: async () => ({ query: { vaults: { vaultsById: { entries: async () => [] } } } }),
+    } as any);
+    const frames = {
+      load: async () => undefined,
+      currentFrameId: 31,
+      blockWatch: { events: createTypedEventEmitter<{ finalized: (headers: IBlockHeaderInfo[]) => void }>() },
+    };
+    const vaults = new Vaults('mainnet', currency as any, frames as any);
+    await vaults.load();
+    expect(vaults.stats?.synchedToFrame).toBe(30);
+    expect(vaults.stats?.vaultsById[1]).toEqual({
+      openedTick: 1,
+      baseline: { bitcoinLocks: 7, feeRevenue: 100_000n },
+      changesByFrame: [frame],
+    });
+    expect(vaults.calculateApr()).toBeCloseTo(18_250);
+
+    const registry = getOfflineRegistry();
+    const revenue = toPlain(
+      registry.createType('Vec<PalletVaultsVaultFrameRevenue>', [
+        {
+          frameId: 30,
+          bitcoinLockFeeRevenue: 500_000n,
+          bitcoinLockFeeCouponValueUsed: 100_000n,
+          bitcoinLocksCreated: 2,
+          securitization: 1_000_000n,
+          securitizationActivated: 800_000n,
+          treasuryTotalEarnings: 250_000n,
+          treasuryVaultEarnings: 100_000n,
+          uncollectedRevenue: 600_000n,
+        },
+      ]),
+    ) as Parameters<Vaults['updateVaultRevenue']>[1];
+    await vaults.updateVaultRevenue(1, revenue);
+    const beforeCollection = await readFile(statsFile, 'utf8');
+    await vaults.updateVaultRevenue(1, [{ ...revenue[0], uncollectedRevenue: 0n }]);
+    expect(await readFile(statsFile, 'utf8')).toBe(beforeCollection);
+
+    const restarted = new Vaults('mainnet', currency as any, frames as any);
+    await restarted.load();
+    expect(restarted.stats).toEqual(vaults.stats);
+    expect(restarted.stats?.vaultsById[1].changesByFrame).toEqual([frame]);
+    expect(restarted.calculateApr()).toBeCloseTo(18_250);
+  });
+
   it.each([
     { network: 'mainnet', checkpoint: 20, auctionPoolMicrogons: 1_000_000n },
     { network: 'testnet', checkpoint: 24, auctionPoolMicrogons: 2_000_000n },

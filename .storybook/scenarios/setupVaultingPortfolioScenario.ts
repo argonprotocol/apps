@@ -155,17 +155,13 @@ export function setupVaultingPortfolioScenario() {
     openedTick: createdVault.openedTick,
     baseline: {
       feeRevenue: 0n,
-      satoshis: 0n,
       bitcoinLocks: 0,
-      microgonLiquidityRealized: 0n,
     },
     changesByFrame: Array.from({ length: 14 }, (_, index) => 14 - index).map((framesAgo, index) => ({
       frameId: currentFrameId - framesAgo,
       bitcoinFeeRevenue: 1n * microgonsPerArgon,
       bitcoinFeeCouponValueUsed: 0n,
-      satoshisAdded: 0n,
       bitcoinLocksCreated: 0,
-      microgonLiquidityAdded: 0n,
       securitization: createdVault.securitization,
       securitizationActivated: createdVault.securitization,
       argonotSecuritizationMicronots: 750n * BigInt(MICRONOTS_PER_ARGONOT),
@@ -176,7 +172,6 @@ export function setupVaultingPortfolioScenario() {
         totalEarnings: BigInt(4 + (index % 3)) * microgonsPerArgon,
         vaultEarnings: BigInt(4 + (index % 3)) * microgonsPerArgon,
       },
-      uncollectedEarnings: 0n,
     })),
   };
   const myVaultData = Vue.shallowReactive({

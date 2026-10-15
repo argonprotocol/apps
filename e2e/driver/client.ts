@@ -273,11 +273,17 @@ export class DriverClient {
       args: args ?? {},
     };
 
+    let timeoutMs = this.commandTimeoutMs;
+    const requestedTimeoutMs = args?.timeoutMs;
+    if (typeof requestedTimeoutMs === 'number' && Number.isFinite(requestedTimeoutMs)) {
+      timeoutMs = Math.max(timeoutMs, requestedTimeoutMs + 15_000);
+    }
+
     const promise = new Promise<T>((resolve, reject) => {
       const timeout = setTimeout(() => {
         this.pending.delete(id);
-        reject(new Error(`Timed out waiting for '${command}' response after ${this.commandTimeoutMs}ms`));
-      }, this.commandTimeoutMs);
+        reject(new Error(`Timed out waiting for '${command}' response after ${timeoutMs}ms`));
+      }, timeoutMs);
       this.pending.set(id, {
         timeout,
         resolve: value => resolve(value as T),

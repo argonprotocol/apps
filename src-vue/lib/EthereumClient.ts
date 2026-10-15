@@ -249,8 +249,10 @@ export class EthereumClient {
     amountBaseUnits: bigint;
     destinationAddress: string;
     ethereumWallet: WalletForEthereum;
+    beforeBroadcast?: (sourceTxHash: Hash) => Promise<void>;
   }): Promise<IEthereumTransferToArgon> {
-    const sourceAddress = args.ethereumWallet.address.toLowerCase();
+    const { moveToken, amountBaseUnits, destinationAddress, ethereumWallet, beforeBroadcast } = args;
+    const sourceAddress = ethereumWallet.address.toLowerCase();
     let queue = this.#inboundSubmissionQueues.get(sourceAddress);
     if (!queue) {
       queue = new SingleFileQueue();
@@ -258,16 +260,17 @@ export class EthereumClient {
     }
 
     return await queue.add(async () => {
-      const { moveToken, amountBaseUnits, destinationAddress } = args;
       const { publicClient, transaction, unsignedTransaction } = await this.prepareTransferToArgon(args);
       const signature = await this.walletKeys.signEthereumTransaction(
         unsignedTransaction,
         this.walletKeys.ethereumHdPath,
-        args.ethereumWallet,
+        ethereumWallet,
       );
+      const serializedTransaction = serializeTransaction(transaction, signature);
+      await beforeBroadcast?.(keccak256(serializedTransaction));
       const sourceTxHash = await submitEthereumTransaction({
         publicClient,
-        serializedTransaction: serializeTransaction(transaction, signature),
+        serializedTransaction,
         fallbackErrorMessage: 'Unable to submit the Ethereum transaction right now.',
       });
 

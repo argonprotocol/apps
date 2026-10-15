@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { constants, copyFileSync, mkdirSync, readFileSync } from 'node:fs';
+import { constants, copyFileSync, createReadStream, mkdirSync } from 'node:fs';
 import Path from 'node:path';
 import {
   BuildBlockMode,
@@ -50,7 +50,11 @@ export class LocalMainnetFork {
     if (!Path.isAbsolute(runDirectory)) {
       throw new Error('Local mainnet runDirectory must be an absolute path');
     }
-    LocalMainnetFork.verifySha256(manifest.archive.chopsticksDatabasePath, manifest.archive.sha256);
+    const hash = createHash('sha256');
+    for await (const chunk of createReadStream(manifest.archive.chopsticksDatabasePath)) hash.update(chunk);
+    if (hash.digest('hex') !== manifest.archive.sha256) {
+      throw new Error(`Local mainnet artifact checksum mismatch at ${manifest.archive.chopsticksDatabasePath}`);
+    }
 
     mkdirSync(runDirectory, { recursive: true });
     const databasePath = Path.join(runDirectory, 'chopsticks.sqlite');
@@ -204,11 +208,6 @@ export class LocalMainnetFork {
     const version = await provider.send<RuntimeVersion>('state_getRuntimeVersion', [hash]);
     if (!version) throw new Error(`No runtime version at ${hash}`);
     return version;
-  }
-
-  private static verifySha256(path: string, expected: string): void {
-    const actual = createHash('sha256').update(readFileSync(path)).digest('hex');
-    if (actual !== expected) throw new Error(`Local mainnet artifact checksum mismatch at ${path}`);
   }
 }
 

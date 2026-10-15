@@ -313,7 +313,11 @@ export class StartingDatabaseCapture {
     const { client, scenario, label, index, upstreamScenario } = args;
     const { identity } = scenario;
     const instanceName = `mainnet-capture-${Date.now().toString(36)}-${index + 1}-${label}`.slice(0, 80);
-    const instanceDirectory = AppSession.resolveInstanceDirectory({ networkName: 'mainnet', instanceName });
+    const instanceDirectory = AppSession.resolveInstanceDirectory({
+      networkName: 'mainnet',
+      instanceName,
+      appConfigId: this.mainnet.appConfigId,
+    });
     if (existsSync(instanceDirectory)) throw new Error(`Capture instance already exists: ${instanceDirectory}`);
     writeReadonlyWallet(instanceDirectory, identity);
 

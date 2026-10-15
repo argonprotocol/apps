@@ -1,6 +1,8 @@
 import { createDeferred, MoveToken } from '@argonprotocol/apps-core';
 import { nanoid } from 'nanoid';
 import { computed, reactive } from 'vue';
+import { TypeRegistry } from '@polkadot/types';
+import { keccak256, TransactionNotFoundError, TransactionReceiptNotFoundError, type Hex } from 'viem';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { createTestDb } from './helpers/db.ts';
 import { createMockWalletKeys } from './helpers/wallet.ts';
@@ -14,7 +16,7 @@ import { EthereumInboundTransferTracker } from '../lib/EthereumInboundTransferTr
 import {
   EthereumTransactionRevertedError,
   EthereumTransactionUnavailableError,
-  type EthereumClient,
+  EthereumClient,
   type IEthereumTransactionProgress,
 } from '../lib/EthereumClient.ts';
 import {
@@ -31,12 +33,14 @@ import {
 
 type IWaitForTransactionFinalityArgs = Parameters<EthereumClient['waitForTransactionFinality']>[0];
 
-const { getEthereumGatewayPauseReasonMock } = vi.hoisted(() => ({
+const { getEthereumGatewayPauseReasonMock, getMainchainClientMock } = vi.hoisted(() => ({
   getEthereumGatewayPauseReasonMock: vi.fn(),
+  getMainchainClientMock: vi.fn(),
 }));
 
 vi.mock('../stores/mainchain.ts', () => ({
   getEthereumGatewayPauseReason: getEthereumGatewayPauseReasonMock,
+  getMainchainClient: getMainchainClientMock,
 }));
 
 describe('EthereumInboundTransferTracker integration', { tags: ['no-argon-network'] }, () => {
@@ -1450,15 +1454,17 @@ describe('EthereumInboundTransferTracker integration', { tags: ['no-argon-networ
     expect(await db.crosschainInboundTransfersTable.fetchAll()).toEqual([]);
     expect(spendableAmount.value).toBe(125_000_000n);
 
-    ethereumClient.startTransferToArgon = vi.fn(
-      async (args: Parameters<EthereumClient['startTransferToArgon']>[0]) => ({
+    ethereumClient.startTransferToArgon = vi.fn(async (args: Parameters<EthereumClient['startTransferToArgon']>[0]) => {
+      const sourceTxHash = `0x${'a1'.repeat(32)}` as const;
+      await args.beforeBroadcast?.(sourceTxHash);
+      return {
         moveToken: args.moveToken,
         amountBaseUnits: args.amountBaseUnits,
         destinationAddress: args.destinationAddress,
         executionRpcUrl: 'http://ethereum.test',
-        sourceTxHash: `0x${'a1'.repeat(32)}` as const,
-      }),
-    );
+        sourceTxHash,
+      };
+    });
     const retriedTransfer = await tracker.startMove({
       moveToken: MoveToken.ARGNOT,
       amountBaseUnits: 125_000_000_000_000_000_000n,
@@ -1472,6 +1478,142 @@ describe('EthereumInboundTransferTracker integration', { tags: ['no-argon-networ
     });
     expect(retriedTransfer?.transferState.isComplete).toBe(true);
     expect(spendableAmount.value).toBe(125_000_000n);
+    await db.close();
+  });
+
+  it('saves the signed inbound transaction before broadcasting and resumes an ambiguous send after restart', async () => {
+    const db = await createTestDb();
+    const walletKeys = createMockWalletKeys();
+    const registry = new TypeRegistry();
+    getMainchainClientMock.mockResolvedValue({ createType: registry.createType.bind(registry) });
+
+    const ethereumWallet = new WalletForEthereum(walletKeys.coreEthereumAddress, undefined, undefined, true);
+    ethereumWallet.data = reactive(ethereumWallet.data);
+    ethereumWallet.data.availableMicrogons = 5n;
+    const ethereumClient = new EthereumClient(walletKeys, 'https://ethereum.test');
+    const finality = createDeferred<Awaited<ReturnType<EthereumClient['waitForTransactionFinality']>>>();
+    const waitForFinality = vi.fn(() => finality.promise);
+    let loseBroadcastReply = false;
+    const sendRawTransaction = vi.fn(async ({ serializedTransaction }: { serializedTransaction: Hex }) => {
+      if (!loseBroadcastReply) return keccak256(serializedTransaction);
+      const rows = await db.crosschainInboundTransfersTable.fetchAll();
+      expect(rows).toHaveLength(1);
+      expect(rows[0].sourceTxHash).toBe(keccak256(serializedTransaction));
+      throw new Error('Ethereum RPC disconnected after accepting the transaction');
+    });
+    Object.assign(ethereumClient, {
+      loadChainConfig: async () => ({
+        chainId: 1,
+        gatewayAddress: `0x${'11'.repeat(20)}`,
+        argonTokenAddress: `0x${'22'.repeat(20)}`,
+        argonotTokenAddress: `0x${'33'.repeat(20)}`,
+      }),
+      createExecutionClient: async () => ({
+        chain: { id: 1 },
+        publicClient: {
+          getBlock: async () => ({ timestamp: 1_000n }),
+          readContract: async ({ functionName }: { functionName: string }) => {
+            if (functionName === 'nonces') return 0n;
+            if (functionName === 'name') return 'Argon';
+            throw new Error(`Unexpected Ethereum read: ${functionName}`);
+          },
+          getTransactionCount: async () => 0,
+          estimateGas: async () => 100_000n,
+          estimateFeesPerGas: async () => ({ gasPrice: 1n, maxFeePerGas: 1n, maxPriorityFeePerGas: 1n }),
+          getBalance: async () => 1_000_000n,
+          sendRawTransaction,
+          getTransaction: async ({ hash }: { hash: Hex }) => {
+            throw new TransactionNotFoundError({ hash });
+          },
+          getTransactionReceipt: async ({ hash }: { hash: Hex }) => {
+            throw new TransactionReceiptNotFoundError({ hash });
+          },
+        },
+      }),
+      waitForTransactionFinality: waitForFinality,
+    });
+    const tracker = new EthereumInboundTransferTracker(
+      Promise.resolve(db),
+      createTransactionTracker(),
+      createBlockWatch(createMainchainClient({ getProvenNonce: () => 7n })),
+      walletKeys,
+      ethereumClient,
+      undefined,
+      { resolveOperatorHost: async () => undefined, requestEthereumGatewayCatchUp: vi.fn() },
+    );
+    tracker.data = reactive(tracker.data);
+    const spendableAmount = computed(() => tracker.getAvailableAmount(ethereumWallet, MoveToken.ARGN));
+    await db.execute(`CREATE TRIGGER reject_inbound_insert BEFORE INSERT ON CrosschainInboundTransfers
+      BEGIN SELECT RAISE(ABORT, 'temporary inbound write failure'); END`);
+
+    const failedTransfer = await tracker.startMove({
+      moveToken: MoveToken.ARGN,
+      amountBaseUnits: 5_000_000_000_000n,
+      targetWalletType: WalletType.argon,
+      ethereumWallet,
+    });
+    await vi.waitFor(() => expect(failedTransfer?.transferState.needsAttention).toBe(true));
+    expect(failedTransfer?.transferState.error).toContain('temporary inbound write failure');
+    expect(sendRawTransaction).not.toHaveBeenCalled();
+    expect(await db.crosschainInboundTransfersTable.fetchAll()).toEqual([]);
+    expect(spendableAmount.value).toBe(5n);
+
+    await db.execute('DROP TRIGGER reject_inbound_insert');
+    loseBroadcastReply = true;
+    const submittedTransfer = await tracker.startMove({
+      moveToken: MoveToken.ARGN,
+      amountBaseUnits: 5_000_000_000_000n,
+      targetWalletType: WalletType.argon,
+      ethereumWallet,
+    });
+    await vi.waitFor(() => expect(waitForFinality).toHaveBeenCalledOnce(), {
+      timeout: 10_000,
+    });
+    const saved = await db.crosschainInboundTransfersTable.get(submittedTransfer!.id);
+    expect(saved?.status).toBe(CrosschainInboundTransferStatus.SourceSubmitted);
+    expect(saved?.failureReason).toBeUndefined();
+    expect(saved?.sourceTxHash).toBeTruthy();
+    expect(spendableAmount.value).toBe(0n);
+    expect(submittedTransfer?.transferState.needsAttention).toBe(false);
+
+    Object.assign(ethereumClient, {
+      waitForTransactionFinality: vi.fn(
+        async ({ txHash }: Parameters<EthereumClient['waitForTransactionFinality']>[0]) => {
+          expect(txHash).toBe(saved!.sourceTxHash);
+          return {
+            blockNumber: 42,
+            blockHash: `0x${'44'.repeat(32)}`,
+            confirmations: 2,
+            expectedConfirmations: 2,
+            progressPct: 100,
+            isFinalized: true,
+          };
+        },
+      ),
+      confirmTransferToArgon: vi.fn(async (transfer: Parameters<EthereumClient['confirmTransferToArgon']>[0]) => {
+        expect(transfer.sourceTxHash).toBe(saved!.sourceTxHash);
+        expect(transfer.destinationAddress).toBe(walletKeys.defaultArgonAddress);
+        return { ...transfer, sourceLogIndex: 1, gatewayActivityNonce: 7n };
+      }),
+    });
+    const restoredTracker = new EthereumInboundTransferTracker(
+      Promise.resolve(db),
+      createTransactionTracker(),
+      createBlockWatch(createMainchainClient({ getProvenNonce: () => 7n })),
+      walletKeys,
+      ethereumClient,
+      undefined,
+      { resolveOperatorHost: async () => undefined, requestEthereumGatewayCatchUp: vi.fn() },
+    );
+    await restoredTracker.load();
+    await vi.waitFor(async () => {
+      expect(await db.crosschainInboundTransfersTable.get(submittedTransfer!.id)).toMatchObject({
+        sourceTxHash: saved!.sourceTxHash,
+        status: CrosschainInboundTransferStatus.ArgonFinalized,
+      });
+    });
+    expect(restoredTracker.getTransfer(submittedTransfer!.id)?.transferState.isComplete).toBe(true);
+    expect(sendRawTransaction).toHaveBeenCalledOnce();
     await db.close();
   });
 
@@ -1573,13 +1715,16 @@ function createEthereumClient(args: {
   return {
     sourceAddress: args.sourceAddress,
     executionRpcUrl: 'http://ethereum.test',
-    startTransferToArgon: vi.fn(async () => ({
-      moveToken: MoveToken.ARGN as MoveToken.ARGN,
-      amountBaseUnits: 5_000_000_000_000n,
-      destinationAddress: args.destinationAddress,
-      executionRpcUrl: 'http://ethereum.test',
-      sourceTxHash: args.sourceTxHash,
-    })),
+    startTransferToArgon: vi.fn(async (request: Parameters<EthereumClient['startTransferToArgon']>[0]) => {
+      await request.beforeBroadcast?.(args.sourceTxHash);
+      return {
+        moveToken: MoveToken.ARGN as MoveToken.ARGN,
+        amountBaseUnits: 5_000_000_000_000n,
+        destinationAddress: args.destinationAddress,
+        executionRpcUrl: 'http://ethereum.test',
+        sourceTxHash: args.sourceTxHash,
+      };
+    }),
     estimateTransferToArgonFee: vi.fn(async () => args.feeEstimateWei ?? 1n),
     getNativeBalanceWei: vi.fn(async () => args.nativeBalanceWei ?? 10n),
     confirmTransferToArgon: vi.fn(async () => ({
