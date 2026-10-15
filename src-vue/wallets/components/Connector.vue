@@ -86,7 +86,7 @@
       >
         <span class="bg-argon-900/20 flex items-center gap-1 rounded-lg px-2 inset-shadow-xs inset-shadow-white">
           {{ currency.symbol
-          }}{{ microgonToMoneyNm(remainingBitcoinInsuranceMicrogons).formatIfElse('< 100', '0,0.00', '0,0') }}
+          }}{{ microgonToMoneyNm(remainingCoverageMicrogons).formatIfElse('< 100', '0,0.00', '0,0') }}
         </span>
       </div>
     </template>
@@ -191,10 +191,10 @@ const bitcoinWallet = Vue.computed(() => {
   return props.wallet?.type === WalletType.bitcoin ? props.wallet : undefined;
 });
 const securitizationHoldChannel = Vue.computed(() => bitcoinWallet.value?.getChannelWithActiveSecuritizationHold());
-const remainingBitcoinInsuranceMicrogons = Vue.computed(() => {
+const remainingCoverageMicrogons = Vue.computed(() => {
   const wallet = bitcoinWallet.value;
   const channel = securitizationHoldChannel.value;
-  return wallet && channel ? wallet.getRemainingChannelInsurance(channel) : 0n;
+  return wallet && channel ? wallet.getRemainingChannelCoverage(channel) : 0n;
 });
 const securitizationHoldChannelAddress = Vue.computed(() => {
   const channel = securitizationHoldChannel.value;

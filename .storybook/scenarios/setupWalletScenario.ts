@@ -731,7 +731,7 @@ export function setupWalletScenario(state: WalletScenario): WalletScenarioState 
           ? fn(() => new Promise(() => undefined))
           : state === 'bitcoinWalletGuaranteeError'
             ? fn(async () => {
-                throw new Error('Unable to update Bitcoin guarantee.');
+                throw new Error('Unable to update Bitcoin cosigner guarantee.');
               })
             : fn(async () => undefined),
     },

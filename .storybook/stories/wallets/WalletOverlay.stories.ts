@@ -370,7 +370,7 @@ export const UpdatingGuarantee: Story = {
     const amount = within(guaranteeOverlay).getByTestId('input-number');
     await userEvent.click(amount);
     await userEvent.keyboard('{Control>}a{/Control}600');
-    await userEvent.click(within(guaranteeOverlay).getByRole('button', { name: 'Update Guarantee' }));
+    await userEvent.click(within(guaranteeOverlay).getByRole('button', { name: 'Update Cosigner Guarantee' }));
     await new Promise(resolve => setTimeout(resolve, 350));
   },
 };
@@ -386,8 +386,8 @@ export const UpdateGuaranteeError: Story = {
     const amount = within(guaranteeOverlay).getByTestId('input-number');
     await userEvent.click(amount);
     await userEvent.keyboard('{Control>}a{/Control}600');
-    await userEvent.click(within(guaranteeOverlay).getByRole('button', { name: 'Update Guarantee' }));
-    await within(guaranteeOverlay).findByText('Unable to update Bitcoin guarantee.');
+    await userEvent.click(within(guaranteeOverlay).getByRole('button', { name: 'Update Cosigner Guarantee' }));
+    await within(guaranteeOverlay).findByText('Unable to update Bitcoin cosigner guarantee.');
   },
 };
 

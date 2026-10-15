@@ -934,7 +934,7 @@ export class BitcoinLockRecovery {
             changeSatoshis: releaseRequest.changeSatoshis,
             cosignDueFrame: releaseRequest.cosignDueFrame,
             expectedTransactionId: releaseRequest.expectedTransactionId,
-            insuredMicrogons: releaseRequest.securitizationAtRisk,
+            cosignerGuaranteeMicrogons: releaseRequest.securitizationAtRisk,
             argonTxFeeMicrogons: releaseArgonTxFeeMicrogons,
           },
           block,
@@ -1534,7 +1534,7 @@ export class BitcoinLockRecovery {
           | 'changeSatoshis'
           | 'cosignDueFrame'
           | 'expectedTransactionId'
-          | 'insuredMicrogons'
+          | 'cosignerGuaranteeMicrogons'
           | 'argonTxFeeMicrogons'
         >
       >,
@@ -1576,7 +1576,7 @@ export class BitcoinLockRecovery {
       changeSatoshis: request.changeSatoshis ?? 0n,
       cosignDueFrame: request.cosignDueFrame,
       expectedTransactionId: request.expectedTransactionId,
-      insuredMicrogons: request.insuredMicrogons,
+      cosignerGuaranteeMicrogons: request.cosignerGuaranteeMicrogons,
       argonTxFeeMicrogons: request.argonTxFeeMicrogons,
       vaultSignatures: [],
       createdAt: now,
@@ -1595,7 +1595,7 @@ export class BitcoinLockRecovery {
   private recordRecoveredReleaseRequest(
     release: IBitcoinReleaseRecord,
     facts: Pick<IBitcoinReleaseRecord, 'requestedReleaseAtTick'> &
-      Partial<Pick<IBitcoinReleaseRecord, 'insuredMicrogons' | 'argonTxFeeMicrogons'>>,
+      Partial<Pick<IBitcoinReleaseRecord, 'cosignerGuaranteeMicrogons' | 'argonTxFeeMicrogons'>>,
   ): void {
     if (release.status !== BitcoinReleaseStatus.SubmittingRequestOnArgon) return;
     Object.assign(release, facts, {

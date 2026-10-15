@@ -50,9 +50,9 @@ export class WalletForBitcoin extends WalletForChain<WalletType.bitcoin> {
       const holdIsOpen = this.hasActiveSecuritizationHold(lock);
       if (isOwnedVault) return holdIsOpen;
 
-      const hasUnusedInsurance = this.getRemainingChannelInsurance(lock) > 0n;
-      const isEmptyWithoutInsurance = (lock.securitizationCoverageMicrogons ?? 0n) === 0n && lock.fundedSatoshis === 0n;
-      return hasUnusedInsurance || holdIsOpen || isEmptyWithoutInsurance;
+      const hasUnusedCoverage = this.getRemainingChannelCoverage(lock) > 0n;
+      const isEmptyWithoutCoverage = (lock.securitizationCoverageMicrogons ?? 0n) === 0n && lock.fundedSatoshis === 0n;
+      return hasUnusedCoverage || holdIsOpen || isEmptyWithoutCoverage;
     });
   }
 
@@ -144,13 +144,13 @@ export class WalletForBitcoin extends WalletForChain<WalletType.bitcoin> {
       .sort((left, right) => right.id - left.id);
   }
 
-  public getRemainingChannelInsurance(lock: IBitcoinLockRecord): bigint {
+  public getRemainingChannelCoverage(lock: IBitcoinLockRecord): bigint {
     const bitcoinLocks = this.getBitcoinLocks();
-    const filledInsuranceMicrogons = bitcoinLocks.argonLiquidityForSatoshis(
+    const fundedCoverageMicrogons = bitcoinLocks.argonLiquidityForSatoshis(
       lock.fundedSatoshis,
       lock.microgonsAtTargetPerBtc,
     );
-    return bigIntMax((lock.securitizationCoverageMicrogons ?? 0n) - filledInsuranceMicrogons, 0n);
+    return bigIntMax((lock.securitizationCoverageMicrogons ?? 0n) - fundedCoverageMicrogons, 0n);
   }
 
   public getChannel(uuid: string): IBitcoinLockRecord | undefined {

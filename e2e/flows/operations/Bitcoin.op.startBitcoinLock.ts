@@ -79,8 +79,8 @@ export default new Operation<IBitcoinFlowContext, IStartBitcoinLockState>(import
       throw new Error(`${flowName}: Bitcoin wallet cannot create a channel from state ${channelState ?? 'unknown'}.`);
     }
 
-    const insuranceInput = await flow.isVisible('ConnectorChannel.insuranceAmount');
-    if (insuranceInput.visible) {
+    const coverageInput = await flow.isVisible('ConnectorChannel.cosignerGuaranteeAmount');
+    if (coverageInput.visible) {
       const calculatedMicrogons = input.minimumLockSatoshis
         ? await flow.queryApp(
             (refs, args: { satoshis: string }) =>
@@ -93,11 +93,11 @@ export default new Operation<IBitcoinFlowContext, IStartBitcoinLockState>(import
         : undefined;
       const expectedMicrogons = input.minimumLockMicrogons ?? (calculatedMicrogons ? BigInt(calculatedMicrogons) : 0n);
       if (expectedMicrogons <= 0n) {
-        throw new Error(`${flowName}: Bitcoin channel insurance amount could not be calculated.`);
+        throw new Error(`${flowName}: Bitcoin channel cosigner guarantee amount could not be calculated.`);
       }
 
       await flow.type(
-        { selector: '[data-testid="ConnectorChannel.insuranceAmount"] [data-testid="input-number"]' },
+        { selector: '[data-testid="ConnectorChannel.cosignerGuaranteeAmount"] [data-testid="input-number"]' },
         formatUnitsToDecimal(expectedMicrogons, BigInt(MICROGONS_PER_ARGON), `${flowName}.minimumLockMicrogons`),
         { clear: true, timeoutMs: 3_000 },
       );
@@ -105,11 +105,11 @@ export default new Operation<IBitcoinFlowContext, IStartBitcoinLockState>(import
         50,
         async () =>
           (await flow
-            .getAttribute('ConnectorChannel.insuranceAmount', 'data-microgons', { timeoutMs: 1_000 })
+            .getAttribute('ConnectorChannel.cosignerGuaranteeAmount', 'data-microgons', { timeoutMs: 1_000 })
             .catch(() => null)) === expectedMicrogons.toString(),
         {
           timeoutMs: 3_000,
-          timeoutMessage: `${flowName}: Bitcoin channel insurance did not synchronize to ${expectedMicrogons}.`,
+          timeoutMessage: `${flowName}: Bitcoin channel cosigner guarantee did not synchronize to ${expectedMicrogons}.`,
         },
       );
     }

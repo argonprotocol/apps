@@ -25,7 +25,7 @@ function createRelease(overrides: Partial<IBitcoinReleaseRecord> = {}) {
     changeSatoshis: overrides.changeSatoshis ?? 1_500n,
     cosignDueFrame: overrides.cosignDueFrame ?? 70,
     expectedTransactionId: overrides.expectedTransactionId ?? 'expected-tx',
-    insuredMicrogons: overrides.insuredMicrogons ?? 2_000n,
+    cosignerGuaranteeMicrogons: overrides.cosignerGuaranteeMicrogons ?? 2_000n,
     argonTxFeeMicrogons: overrides.argonTxFeeMicrogons ?? 9n,
     compensationMicrogons: overrides.compensationMicrogons,
     vaultSignatures: overrides.vaultSignatures ?? [],
@@ -50,13 +50,33 @@ describe('BitcoinReleasesTable', () => {
     const { db, migrateToLatest } = await createTestDbAtMigration(38);
     await db.execute(`INSERT INTO BitcoinReleases (
       id, kind, lockId, sendId, releaseNumber, status, inputUtxoIds,
-      toScriptPubkey, bitcoinNetworkFee, destinationSatoshis, changeSatoshis
+      toScriptPubkey, bitcoinNetworkFee, destinationSatoshis, changeSatoshis, insuredMicrogons
     ) VALUES
-      ('existing-lock', 'Lock', 8, 'existing-lock', 1, 'ConfirmingOnBitcoin', '[5]', '0x0014abcd', '500', '8000', '0'),
-      ('existing-orphan', 'Orphan', 8, 'existing-orphan', NULL, 'WaitingForVaultCosign', '[6]', '0x0014abcd', '500', '8000', '0')`);
-    const existing = await db.bitcoinReleasesTable.fetchAll();
+      ('existing-lock', 'Lock', 8, 'existing-lock', 1, 'ConfirmingOnBitcoin', '[5]', '0x0014abcd', '500', '8000', '0', '9007199254740995'),
+      ('existing-orphan', 'Orphan', 8, 'existing-orphan', NULL, 'WaitingForVaultCosign', '[6]', '0x0014abcd', '500', '8000', '0', NULL)`);
     await migrateToLatest();
-    expect(await db.bitcoinReleasesTable.fetchAll()).toEqual(existing);
+    const migrated = await db.bitcoinReleasesTable.fetchAll();
+    expect(migrated).toHaveLength(2);
+    expect(migrated).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: 'existing-lock',
+          kind: BitcoinReleaseKind.Lock,
+          lockId: 8,
+          releaseNumber: 1,
+          status: BitcoinReleaseStatus.ConfirmingOnBitcoin,
+          inputUtxoIds: [5],
+          cosignerGuaranteeMicrogons: 9_007_199_254_740_995n,
+        }),
+        expect.objectContaining({
+          id: 'existing-orphan',
+          kind: BitcoinReleaseKind.Orphan,
+          status: BitcoinReleaseStatus.WaitingForVaultCosign,
+          inputUtxoIds: [6],
+        }),
+      ]),
+    );
+    expect(migrated.find(release => release.id === 'existing-orphan')?.cosignerGuaranteeMicrogons).toBeUndefined();
     await expect(
       db.bitcoinReleasesTable.insert(createRelease({ id: 'duplicate-lock', lockId: 8, releaseNumber: 1 })),
     ).rejects.toThrow('UNIQUE constraint');
@@ -65,7 +85,7 @@ describe('BitcoinReleasesTable', () => {
         bitcoinNetworkFee: 9_007_199_254_740_993n,
         destinationSatoshis: 9_007_199_254_740_994n,
         changeSatoshis: 9_007_199_254_740_996n,
-        insuredMicrogons: 9_007_199_254_740_995n,
+        cosignerGuaranteeMicrogons: 9_007_199_254_740_995n,
         vaultSignatures: [new Uint8Array([1, 2]), new Uint8Array([3, 4])],
       }),
     );
@@ -89,7 +109,7 @@ describe('BitcoinReleasesTable', () => {
       changeSatoshis: 9_007_199_254_740_996n,
       cosignDueFrame: 70,
       expectedTransactionId: 'expected-tx',
-      insuredMicrogons: 9_007_199_254_740_995n,
+      cosignerGuaranteeMicrogons: 9_007_199_254_740_995n,
       bitcoinTxid: 'release-tx',
       bitcoinFirstSeenAt: new Date('2026-09-11T12:00:00Z'),
       bitcoinFirstSeenHeight: 200,

@@ -199,12 +199,12 @@
                 <ConnectorChannel
                   v-for="entry in group.entries"
                   :key="entry.lock.uuid"
-                  :open="openInsuranceChannelUuid === entry.lock.uuid"
+                  :open="openCosignerGuaranteeChannelUuid === entry.lock.uuid"
                   :wallet="wallets.bitcoinWallet"
                   :channelUuid="entry.lock.uuid"
                   direction="right"
-                  mode="insurance"
-                  @update:open="openInsuranceChannelUuid = $event ? entry.lock.uuid : undefined"
+                  mode="cosigner-guarantee"
+                  @update:open="openCosignerGuaranteeChannelUuid = $event ? entry.lock.uuid : undefined"
                 >
                   <button
                     type="button"
@@ -213,7 +213,7 @@
                     :aria-label="`${group.label} Channel`"
                     class="flex w-full cursor-pointer items-center gap-3 rounded px-2 py-1.5 text-left text-sm text-slate-600"
                     :class="
-                      openInsuranceChannelUuid === entry.lock.uuid
+                      openCosignerGuaranteeChannelUuid === entry.lock.uuid
                         ? 'bg-argon-100/40 ring-argon-300/30 ring-1 ring-inset'
                         : 'hover:bg-argon-100/30'
                     "
@@ -359,7 +359,7 @@ const vaults = getVaults();
 const wallets = useWallets();
 const { microgonToArgonNm, satToBtcNm } = createNumeralHelpers(currency);
 const bitcoinDetailsAreExpanded = ref(false);
-const openInsuranceChannelUuid = ref<string>();
+const openCosignerGuaranteeChannelUuid = ref<string>();
 const floatingZIndex = useFloatingZIndex(2);
 const progressNow = ref(Date.now());
 let progressRefreshInterval: ReturnType<typeof setInterval> | undefined;

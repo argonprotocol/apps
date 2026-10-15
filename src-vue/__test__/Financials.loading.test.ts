@@ -1507,7 +1507,7 @@ describe('financials store lifecycle', () => {
         position => position.kind === 'bitcoin-liquid',
       );
       expect(liquid).toMatchObject({
-        insuranceCost: 10n,
+        cosignerGuaranteeCost: 10n,
         transactionFees: 5n,
         totalFees: 15n,
       });

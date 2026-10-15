@@ -260,7 +260,7 @@ export default class BitcoinReleases {
     assignIfUnset(current, recovered, [
       'expectedTransactionId',
       'requestedReleaseAtTick',
-      'insuredMicrogons',
+      'cosignerGuaranteeMicrogons',
       'argonTxFeeMicrogons',
       'compensationMicrogons',
       'cosignBlockNumber',
@@ -611,7 +611,7 @@ export default class BitcoinReleases {
       Partial<
         Pick<
           IBitcoinReleaseRecord,
-          'insuredMicrogons' | 'argonTxFeeMicrogons' | 'cosignDueFrame' | 'expectedTransactionId'
+          'cosignerGuaranteeMicrogons' | 'argonTxFeeMicrogons' | 'cosignDueFrame' | 'expectedTransactionId'
         >
       >,
   ): Promise<void> {
@@ -715,7 +715,7 @@ export default class BitcoinReleases {
 
     await this.recordArgonRequest(release, {
       requestedReleaseAtTick: finalized.requestedReleaseAtTick,
-      insuredMicrogons: finalized.request.securitizationAtRisk,
+      cosignerGuaranteeMicrogons: finalized.request.securitizationAtRisk,
       cosignDueFrame: finalized.request.cosignDueFrame,
       expectedTransactionId: finalized.request.expectedTransactionId,
       argonTxFeeMicrogons: finalized.argonTxFeeMicrogons,
@@ -1719,7 +1719,7 @@ export default class BitcoinReleases {
     if (currentTick === null) return;
     await this.recordArgonRequest(release, {
       requestedReleaseAtTick: Number(currentTick),
-      insuredMicrogons: request.securitizationAtRisk,
+      cosignerGuaranteeMicrogons: request.securitizationAtRisk,
       cosignDueFrame: request.cosignDueFrame,
       expectedTransactionId: request.expectedTransactionId,
       argonTxFeeMicrogons: release.argonTxFeeMicrogons,

@@ -86,7 +86,7 @@ export default new OperationalFlow<IAccountReviewFlowContext, IAccountReviewFlow
       const incompleteBitcoinLiquids = financials.groupSummaries.bitcoin.positions.flatMap(position => {
         if (position.kind !== 'bitcoin-liquid') return [];
         const issues: string[] = [];
-        if (position.insuranceCost === undefined) issues.push('securitization fees');
+        if (position.cosignerGuaranteeCost === undefined) issues.push('securitization fees');
         if (position.transactionFees === undefined) issues.push('transaction fees');
         if (position.totalFees === undefined) issues.push('total fees');
         if (position.investedCost === undefined) issues.push('investment basis');

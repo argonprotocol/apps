@@ -347,7 +347,7 @@ function setupDetails(
       liquidId: 1,
       liquid: financialLiquid,
       locks: lockSummaries.map(summary => summary.record),
-      insuranceCost: 12_000_000n,
+      cosignerGuaranteeCost: 12_000_000n,
       transactionFees: 500_000n,
       totalFees: 12_500_000n,
       receivedLiquidity,

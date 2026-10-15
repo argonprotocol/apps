@@ -257,7 +257,7 @@ describe('Bitcoin lock release', () => {
       expect(restarted.release).toMatchObject({
         status: BitcoinReleaseStatus.WaitingForVaultCosign,
         requestedReleaseAtTick: 101,
-        insuredMicrogons: 900n,
+        cosignerGuaranteeMicrogons: 900n,
         cosignDueFrame: 120,
         expectedTransactionId: `0x${'a'.repeat(64)}`,
       });
@@ -305,7 +305,7 @@ describe('Bitcoin lock release', () => {
 
       await restarted.releases.recordArgonRequest(restarted.release, {
         requestedReleaseAtTick: 101,
-        insuredMicrogons: 900n,
+        cosignerGuaranteeMicrogons: 900n,
         argonTxFeeMicrogons: 3n,
       });
       restarted = await loadReleaseState(db);

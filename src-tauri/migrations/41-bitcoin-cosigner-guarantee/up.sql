@@ -1,0 +1,1 @@
+ALTER TABLE BitcoinReleases RENAME COLUMN insuredMicrogons TO cosignerGuaranteeMicrogons;

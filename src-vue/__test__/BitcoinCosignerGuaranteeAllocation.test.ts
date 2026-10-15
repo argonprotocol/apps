@@ -2,15 +2,15 @@ import { describe, expect, it, vi } from 'vitest';
 
 import type { IBitcoinFissionRecord } from '../interfaces/IBitcoinFissionRecord.ts';
 import type { IBitcoinSecuritizationTerm } from '../interfaces/IBitcoinSecuritizationTerm.ts';
-import { allocateBitcoinInsuranceCosts } from '../lib/financials/BitcoinInsurance.ts';
+import { allocateBitcoinCosignerGuaranteeCosts } from '../lib/financials/BitcoinCosignerGuarantee.ts';
 
-describe('Bitcoin Liquid insurance allocation', () => {
+describe('Bitcoin Liquid cosigner guarantee allocation', () => {
   it('keeps the full term cost on the first Liquid until a later Liquid event redistributes it', () => {
     const terms = [createTerm({ endTick: undefined })];
     const firstLiquid = createFission({ fissionId: 1, liquidId: 1, createdAtTick: 10 });
 
     expect(
-      allocateBitcoinInsuranceCosts({
+      allocateBitcoinCosignerGuaranteeCosts({
         terms,
         fissions: [firstLiquid],
       }).costByLiquidId,
@@ -24,13 +24,13 @@ describe('Bitcoin Liquid insurance allocation', () => {
       closedAtTick: 40,
     });
     expect(
-      allocateBitcoinInsuranceCosts({
+      allocateBitcoinCosignerGuaranteeCosts({
         terms,
         fissions: [closedFirstLiquid],
       }).costByLiquidId,
     ).toEqual(new Map([[1, 1_000n]]));
 
-    const allocation = allocateBitcoinInsuranceCosts({
+    const allocation = allocateBitcoinCosignerGuaranteeCosts({
       terms,
       fissions: [closedFirstLiquid, createFission({ fissionId: 2, liquidId: 2, createdAtTick: 60 })],
     });
@@ -45,8 +45,8 @@ describe('Bitcoin Liquid insurance allocation', () => {
     expect(allocation.incompleteLiquidIds).toEqual(new Set());
   });
 
-  it('partitions concurrent Liquids into exact insured satoshi slices', () => {
-    const allocation = allocateBitcoinInsuranceCosts({
+  it('partitions concurrent Liquids into exact guaranteed satoshi slices', () => {
+    const allocation = allocateBitcoinCosignerGuaranteeCosts({
       terms: [createTerm()],
       fissions: [
         createFission({ fissionId: 1, liquidId: 1, satoshis: 40n, createdAtTick: 0, closedAtTick: 100 }),
@@ -64,7 +64,7 @@ describe('Bitcoin Liquid insurance allocation', () => {
   });
 
   it('ends the old term and starts the resecuritized term at the same tick', () => {
-    const allocation = allocateBitcoinInsuranceCosts({
+    const allocation = allocateBitcoinCosignerGuaranteeCosts({
       terms: [
         createTerm({ termIndex: 0, startTick: 0, endTick: 50, addedNetSecurityFee: 500n }),
         createTerm({
@@ -90,8 +90,8 @@ describe('Bitcoin Liquid insurance allocation', () => {
     expect(allocation.unallocatedCost).toBe(0n);
   });
 
-  it('marks a Liquid incomplete when its tick history cannot place its insured slice', () => {
-    const allocation = allocateBitcoinInsuranceCosts({
+  it('marks a Liquid incomplete when its tick history cannot place its guaranteed slice', () => {
+    const allocation = allocateBitcoinCosignerGuaranteeCosts({
       terms: [createTerm()],
       fissions: [createFission({ fissionId: 1, liquidId: 7, createdAtTick: undefined })],
     });
@@ -100,8 +100,8 @@ describe('Bitcoin Liquid insurance allocation', () => {
     expect(allocation.incompleteLiquidIds).toEqual(new Set([7]));
   });
 
-  it('marks a Liquid incomplete instead of treating missing securitization history as free insurance', () => {
-    const allocation = allocateBitcoinInsuranceCosts({
+  it('marks a Liquid incomplete instead of treating missing securitization history as a free cosigner guarantee', () => {
+    const allocation = allocateBitcoinCosignerGuaranteeCosts({
       terms: [],
       fissions: [createFission({ fissionId: 1, liquidId: 7, createdAtTick: 10 })],
     });
@@ -115,7 +115,7 @@ describe('Bitcoin Liquid insurance allocation', () => {
       createFission({ fissionId: 1, liquidId: 1, createdAtTick: 10, closedAtArgonBlock: 40, closedAtTick: 40 }),
       createFission({ fissionId: 2, liquidId: 2, createdAtTick: 60 }),
     ];
-    const allocation = allocateBitcoinInsuranceCosts({
+    const allocation = allocateBitcoinCosignerGuaranteeCosts({
       terms: [createTerm({ startTick: 50, endTick: undefined })],
       fissions,
     });
@@ -130,9 +130,9 @@ describe('Bitcoin Liquid insurance allocation', () => {
     const terms = [createTerm({ endTick: undefined })];
     const first = createFission({ fissionId: 1, liquidId: 1, createdAtTick: 10 });
     vi.setSystemTime(new Date('2026-01-01T00:00:00Z'));
-    const initial = allocateBitcoinInsuranceCosts({ terms, fissions: [first] });
+    const initial = allocateBitcoinCosignerGuaranteeCosts({ terms, fissions: [first] });
     vi.setSystemTime(new Date('2027-01-01T00:00:00Z'));
-    const later = allocateBitcoinInsuranceCosts({ terms, fissions: [first] });
+    const later = allocateBitcoinCosignerGuaranteeCosts({ terms, fissions: [first] });
     vi.useRealTimers();
 
     expect(later.costByLiquidId).toEqual(initial.costByLiquidId);

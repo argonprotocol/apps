@@ -1,7 +1,7 @@
 import type { IBitcoinFission } from '@argonprotocol/apps-core';
 import type { IBitcoinSecuritizationTerm } from '../../interfaces/IBitcoinSecuritizationTerm.ts';
 
-export type IBitcoinInsuranceAllocation = {
+export type IBitcoinCosignerGuaranteeAllocation = {
   costByLiquidId: Map<number, bigint>;
   incompleteLiquidIds: Set<number>;
   unallocatedCost: bigint;
@@ -18,10 +18,10 @@ type ActiveSatoshis = {
   lots: AvailableSatoshis[];
 };
 
-export function allocateBitcoinInsuranceCosts(args: {
+export function allocateBitcoinCosignerGuaranteeCosts(args: {
   terms: readonly IBitcoinSecuritizationTerm[];
   fissions: readonly IBitcoinFission[];
-}): IBitcoinInsuranceAllocation {
+}): IBitcoinCosignerGuaranteeAllocation {
   const costByLiquidId = new Map<number, bigint>();
   const incompleteLiquidIds = new Set<number>();
   const incompleteLockIds = new Set<number>();
@@ -104,7 +104,7 @@ export function allocateBitcoinInsuranceCosts(args: {
 function allocateTerm(
   term: IBitcoinSecuritizationTerm,
   fissions: readonly IBitcoinFission[],
-): Pick<IBitcoinInsuranceAllocation, 'costByLiquidId' | 'unallocatedCost'> | undefined {
+): Pick<IBitcoinCosignerGuaranteeAllocation, 'costByLiquidId' | 'unallocatedCost'> | undefined {
   const eventTicks = fissions.flatMap(fission => [
     fission.createdAtTick,
     fission.closedAtTick,

@@ -435,7 +435,7 @@ export class BitcoinLiquidCreate extends TransactionOperation<
         throw new BitcoinLiquidCreateStateChangedError(`The vault for Bitcoin Lock #${lockId} is unavailable.`);
       }
       this.vaults.vaultsById[vault.vaultId] = vault;
-      // Native replacement unwinds the old insurance before purchasing its replacement.
+      // Native replacement unwinds the old cosigner guarantee before purchasing its replacement.
       // Keep the batch projection separate from the published Vault snapshot.
       const remainingCapacity = Object.assign(
         Object.create(Vault.prototype) as Vault,
@@ -493,7 +493,7 @@ export class BitcoinLiquidCreate extends TransactionOperation<
         });
         if (!compatibleRates.length) {
           throw new BitcoinLiquidCreateStateChangedError(
-            'Existing Liquids need a Bitcoin price that is no longer available. Reduce the amount to Bitcoin already guaranteed, or wait for an eligible price.',
+            'Existing Liquids need a Bitcoin price that is no longer available. Reduce the amount to Bitcoin already covered by a cosigner guarantee, or wait for an eligible price.',
           );
         }
 
