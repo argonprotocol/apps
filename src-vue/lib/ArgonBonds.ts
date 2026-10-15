@@ -12,6 +12,7 @@ import {
   type MiningFrames,
   type RuntimeSystemEventRecord,
   TreasuryBonds,
+  type Vaults,
   type Vault,
 } from '@argonprotocol/apps-core';
 import BigNumber from 'bignumber.js';
@@ -102,8 +103,6 @@ export class ArgonBonds {
     bondPoolPercent: 0,
     totalActiveBonds: 0,
     frameCapital: null as RuntimeQueryResult<CurrentRuntimeQueries['treasury']['currentFrameVaultCapital']>,
-    vaultRewardRate: BigNumber(0),
-    minimumVaultProfitRate: BigNumber(0),
     averageMicrogonsPerArgonot: undefined as bigint | undefined,
     upstreamBitcoinTarget: undefined as bigint | undefined,
     upstreamBondTarget: undefined as bigint | undefined,
@@ -161,16 +160,19 @@ export class ArgonBonds {
   public argonotRewardBacking({
     vault,
     argonotSecuritization,
+    vaultsState,
     securitizationMicrogons = vault.securitization,
   }: {
     vault: Vault;
     argonotSecuritization: NonNullable<Awaited<ReturnType<typeof Vault.getArgonotSecuritization>>>;
+    vaultsState: Vaults['currentState'];
     securitizationMicrogons?: bigint;
   }) {
     if (!this.data.frameCapital) return;
     const totalMicronots = TreasuryBonds.getVaultArgonotSecuritizationTarget({
       securitizationMicrogons: bigIntMax(securitizationMicrogons, vault.securitization),
       averageMicrogonsPerArgonot: this.data.averageMicrogonsPerArgonot,
+      argonotSecuritizationRewardRatio: vaultsState.argonotSecuritizationRewardRatio,
     });
     if (totalMicronots === undefined) return;
 
@@ -185,7 +187,15 @@ export class ArgonBonds {
     };
   }
 
-  public vaultRevenuePotential(vaultId: number, fullBidPool: bigint = this.data.fullBidPool) {
+  public vaultRevenuePotential(
+    vaultId: number,
+    vaultsState: Vaults['currentState'],
+    fullBidPool: bigint = this.data.fullBidPool,
+  ) {
+    const { vaultRewardRate, minimumVaultProfitRate, argonotSecuritizationRewardRatio } = vaultsState;
+    if (vaultRewardRate === undefined) return;
+    if (minimumVaultProfitRate === undefined) return;
+
     const frameCapital = this.data.frameCapital;
     const position = frameCapital?.vaultSecuritizationPositions[vaultId];
     if (!position || !frameCapital) return;
@@ -193,8 +203,9 @@ export class ArgonBonds {
       position,
       frameCapital,
       fullBidPool,
-      percentForVaultPool: this.data.vaultRewardRate,
-      minimumVaultProfitRate: this.data.minimumVaultProfitRate,
+      percentForVaultPool: vaultRewardRate,
+      minimumVaultProfitRate,
+      argonotSecuritizationRewardRatio,
     });
   }
 
@@ -483,8 +494,6 @@ export class ArgonBonds {
     if (refreshVersion >= this.lastTotalActiveBondsRefreshVersion) {
       this.data.totalActiveBonds = activeBonds.totalActiveBonds;
       this.data.frameCapital = activeBonds.frameCapital ?? null;
-      this.data.vaultRewardRate = activeBonds.vaultRewardRate ?? BigNumber(0);
-      this.data.minimumVaultProfitRate = activeBonds.minimumVaultProfitRate ?? BigNumber(0);
       this.data.averageMicrogonsPerArgonot = activeBonds.averageMicrogonsPerArgonot;
       this.data.upstreamBitcoinTarget = activeBonds.upstreamBitcoinTarget;
       this.data.upstreamBondTarget = activeBonds.upstreamBondTarget;

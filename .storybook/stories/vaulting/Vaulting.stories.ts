@@ -22,7 +22,7 @@ import VaultSettingsPanel from '../../../src-vue/panels/VaultSettingsPanel.vue';
 import { useFinancials } from '../../../src-vue/stores/financials.ts';
 import { useWallets } from '../../../src-vue/stores/wallets.ts';
 import { getConfig } from '../../../src-vue/stores/config.ts';
-import { getMyVault } from '../../../src-vue/stores/vaults.ts';
+import { getMyVault, getVaults } from '../../../src-vue/stores/vaults.ts';
 import { useMiningStats } from '../../../src-vue/stores/miningStats.ts';
 import { getArgonBonds } from '../../../src-vue/stores/argonBonds.ts';
 import { getCurrency } from '../../../src-vue/stores/currency.ts';
@@ -335,6 +335,7 @@ export const SmallUncollectedRevenue: Story = {
 export const ArgonotRewardShortfall: Story = {
   beforeEach: () => {
     setupVaultingPortfolioScenario();
+    getVaults().currentState.argonotSecuritizationRewardRatio = 2n;
     // Only ARGNOT needs attention.
     getCurrency().microgonsPer.BTC = 6_000_000_000n;
     getCurrency().priceIndex.btcUsdPrice = BigNumber(6_000);
@@ -372,6 +373,7 @@ export const BondCaptureDefinition: Story = {
 export const ArgonotCaptureDefinition: Story = {
   beforeEach: () => {
     setupVaultingPortfolioScenario();
+    getVaults().currentState.argonotSecuritizationRewardRatio = 2n;
     getCurrency().microgonsPer.BTC = 6_000_000_000n;
     getCurrency().priceIndex.btcUsdPrice = BigNumber(6_000);
     getArgonBonds().data.averageMicrogonsPerArgonot = 7_000_000n;
@@ -409,6 +411,7 @@ export const UpstreamParticipationDefinition: Story = {
 export const LargeArgonotRequirement: Story = {
   beforeEach: () => {
     setupVaultingPortfolioScenario();
+    getVaults().currentState.argonotSecuritizationRewardRatio = 2n;
     getCurrency().microgonsPer.BTC = 6_000_000_000n;
     getCurrency().priceIndex.btcUsdPrice = BigNumber(6_000);
     getArgonBonds().data.averageMicrogonsPerArgonot = 700n;
@@ -579,6 +582,7 @@ export const ArgonotPendingWithdrawal: Story = {
 export const ArgonotGuidanceUnavailable: Story = {
   beforeEach: () => {
     setupVaultingPortfolioScenario();
+    getVaults().currentState.argonotSecuritizationRewardRatio = 2n;
     getArgonBonds().data.averageMicrogonsPerArgonot = undefined;
   },
   play: ArgonotRewardShortfall.play,

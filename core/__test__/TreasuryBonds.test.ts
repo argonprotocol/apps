@@ -275,16 +275,80 @@ describe('TreasuryBonds', () => {
       TreasuryBonds.getVaultArgonotSecuritizationTarget({
         securitizationMicrogons: 2_400_000_000n,
         averageMicrogonsPerArgonot: 2_000_000n,
+        argonotSecuritizationRewardRatio: 2n,
       }),
     ).toBe(2_400_000_000n);
     expect(
       TreasuryBonds.getVaultArgonotSecuritizationTarget({
         securitizationMicrogons: 10_000_000n,
         averageMicrogonsPerArgonot: 3_000_000n,
+        argonotSecuritizationRewardRatio: 2n,
       }),
     ).toBe(6_666_667n);
-    expect(TreasuryBonds.getVaultArgonotSecuritizationTarget({ securitizationMicrogons: 10n })).toBeUndefined();
-    expect(TreasuryBonds.getVaultArgonotSecuritizationTarget({ securitizationMicrogons: 0n })).toBe(0n);
+    expect(
+      TreasuryBonds.getVaultArgonotSecuritizationTarget({
+        securitizationMicrogons: 10n,
+        argonotSecuritizationRewardRatio: 2n,
+      }),
+    ).toBeUndefined();
+    expect(
+      TreasuryBonds.getVaultArgonotSecuritizationTarget({
+        securitizationMicrogons: 0n,
+        argonotSecuritizationRewardRatio: 2n,
+      }),
+    ).toBe(0n);
+  });
+
+  it('requires no ARGNOT or protocol price and preserves maximum vault rewards when its reward ratio is zero', () => {
+    expect(
+      TreasuryBonds.getVaultArgonotSecuritizationTarget({
+        securitizationMicrogons: 1_000n,
+        argonotSecuritizationRewardRatio: 0n,
+      }),
+    ).toBe(0n);
+
+    const args = {
+      position: {
+        securitization: 1_000n,
+        activatedSecuritization: 1_000n,
+        bitcoinLockedMicrogons: 1_000n,
+        activeBondMicrogons: 1_000n,
+        argonotSecuritizationInMicrogons: 0n,
+        upstreamParticipation: new BigNumber(1),
+      },
+      frameCapital: { targetSecuritization: 1_000n, totalSecuritization: 1_000n },
+      fullBidPool: 100_000n,
+      percentForVaultPool: new BigNumber(0.51),
+      minimumVaultProfitRate: new BigNumber(0.01),
+      argonotSecuritizationRewardRatio: 0n,
+    };
+    const withoutArgonots = TreasuryBonds.vaultRevenuePotential(args);
+    expect(withoutArgonots.actualEarnings).toBe(51_000n);
+    expect(withoutArgonots.maximumEarnings).toBe(51_000n);
+    expect(withoutArgonots.capturedPercent).toBe(100);
+    expect(withoutArgonots.capturedWithMaximumArgonotsPercent).toBe(100);
+    expect(
+      TreasuryBonds.vaultRevenuePotential({
+        ...args,
+        position: { ...args.position, argonotSecuritizationInMicrogons: 2_000n },
+      }),
+    ).toEqual(withoutArgonots);
+    expect(
+      TreasuryBonds.vaultPoolEarnings({
+        ...args,
+        position: { ...args.position, activatedSecuritization: 0n },
+      }),
+    ).toBe(1_000n);
+    expect(
+      TreasuryBonds.vaultPoolEarnings({
+        ...args,
+        position: {
+          ...args.position,
+          activatedSecuritization: 500n,
+          upstreamParticipation: new BigNumber(0.5),
+        },
+      }),
+    ).toBe(13_500n);
   });
 
   it('keeps the frozen capital and network denominator fixed across capture scenarios', () => {
@@ -302,6 +366,7 @@ describe('TreasuryBonds', () => {
       fullBidPool: 1_000_000_000n,
       percentForVaultPool: new BigNumber(0.51),
       minimumVaultProfitRate: new BigNumber(0.01),
+      argonotSecuritizationRewardRatio: 2n,
     };
     const empty = TreasuryBonds.vaultRevenuePotential(args);
     const half = TreasuryBonds.vaultRevenuePotential({
@@ -708,6 +773,7 @@ describe('TreasuryBonds', () => {
       fullBidPool: 100_000n,
       percentForVaultPool: new BigNumber(0.57),
       minimumVaultProfitRate: new BigNumber(0.01),
+      argonotSecuritizationRewardRatio: 2n,
     };
     expect(TreasuryBonds.vaultPoolEarnings(args)).toBe(57_000n);
     const upstreamHalf = { ...args, position: { ...position, upstreamParticipation: new BigNumber(0.5) } };

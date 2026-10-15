@@ -141,7 +141,6 @@ export function setupVaultingPortfolioScenario() {
   mocked(useMiningStats, { partial: true }).mockReturnValue(
     Vue.reactive({ aggregatedBidCosts: fullBidPool * 10n, update: fn(async () => undefined) }),
   );
-  const vaultRewardRate = BigNumber(0.51);
   const baseMyVault = getMyVault();
   const metadata: IVaultRecord = {
     id: createdVault.vaultId,
@@ -263,8 +262,6 @@ export function setupVaultingPortfolioScenario() {
       distributableBidPool: 600n * microgonsPerArgon,
       fullBidPool,
       bondPoolPercent: 0.1,
-      vaultRewardRate,
-      minimumVaultProfitRate: BigNumber(0.01),
       averageMicrogonsPerArgonot: 2_000_000n,
       upstreamBitcoinTarget: 5_000n * microgonsPerArgon,
       upstreamBondTarget: 5_000n * microgonsPerArgon,

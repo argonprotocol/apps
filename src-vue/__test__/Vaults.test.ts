@@ -11,7 +11,7 @@ import { getOfflineRegistry, PriceIndex } from '@argonprotocol/mainchain';
 import { getBundledMetadata, runtimeClient, toPlain } from '@argonprotocol/runtime-client';
 import { Metadata, TypeRegistry } from '@polkadot/types';
 import { createPinia, setActivePinia } from 'pinia';
-import { computed, reactive } from 'vue';
+import { computed, shallowReactive } from 'vue';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { Vaults } from '../lib/Vaults.ts';
 import { setMainchainClients } from '../stores/mainchain.ts';
@@ -100,7 +100,7 @@ describe('Vaults stats storage', () => {
       globalThis.window = {} as Window & typeof globalThis;
       NetworkConfig.setNetwork('mainnet');
       setActivePinia(createPinia());
-      setMainchainClients({} as any);
+      setMainchainClients({ events: createTypedEventEmitter() } as any);
 
       const registry = getOfflineRegistry();
       const deployedRegistry = new TypeRegistry();
@@ -245,7 +245,7 @@ describe('Vaults stats storage', () => {
       expect(savedStats).not.toBeNull();
       await expect(vaults.restore()).resolves.toEqual(stats);
 
-      vaults.currentState = reactive({ ...vaults.currentState, isLoaded: true });
+      vaults.currentState = shallowReactive({ ...vaults.currentState, isLoaded: true });
       observedVaults = vaults;
       await vaults.updateVaultRevenue(1, revenue());
       const returns = useVaultingStats();
@@ -425,7 +425,11 @@ describe('Vaults cache upgrades', () => {
       );
 
       setMainchainClients({
-        get: async () => ({ query: { vaults: { vaultsById: { entries: async () => [] } } } }),
+        events: createTypedEventEmitter(),
+        get: async () => ({
+          consts: { treasury: {} },
+          query: { vaults: { vaultsById: { entries: async () => [] } } },
+        }),
       } as any);
       const frames = {
         load: async () => undefined,
@@ -482,7 +486,11 @@ describe('Vaults cache upgrades', () => {
     vi.spyOn(console, 'warn').mockImplementation(() => undefined);
 
     setMainchainClients({
-      get: async () => ({ query: { vaults: { vaultsById: { entries: async () => [] } } } }),
+      events: createTypedEventEmitter(),
+      get: async () => ({
+        consts: { treasury: {} },
+        query: { vaults: { vaultsById: { entries: async () => [] } } },
+      }),
     } as any);
     const frames = {
       load: async () => undefined,
@@ -544,7 +552,7 @@ describe('Vault operator names', () => {
         },
       },
     };
-    setMainchainClients({ get: vi.fn(async () => client) } as any);
+    setMainchainClients({ events: createTypedEventEmitter(), get: vi.fn(async () => client) } as any);
     const vaults = new Vaults('dev-docker', {} as any, {} as any);
 
     await vaults.refreshOperatorNames({ vaults: [{ vaultId: 1, operatorAccountId }] });
@@ -566,7 +574,7 @@ describe('Vault operator names', () => {
         },
       },
     };
-    setMainchainClients({ get: vi.fn(async () => client) } as any);
+    setMainchainClients({ events: createTypedEventEmitter(), get: vi.fn(async () => client) } as any);
     const vaults = new Vaults('dev-docker', {} as any, {} as any);
     vaults.vaultsById[1] = { operatorAccountId: `0x${'02'.repeat(32)}` } as never;
     const onUpdate = vi.fn();

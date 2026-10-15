@@ -49,7 +49,13 @@ export class MainchainClients {
     degraded: (error: Error | undefined, clientType: 'archive' | 'pruned') => void;
     working: (apiPath: string, clientType: 'archive' | 'pruned') => void;
     'on-pruned-client': (client: ArgonClient, url: string) => void;
+    // The selected client's metadata and constants are ready after connection, upgrade, or failover.
+    'runtime-ready': (client: ArgonClient) => void;
   }>();
+  public get currentClient(): ArgonClient | undefined {
+    return this.currentClientByType[this.prunedClientPromise ? 'pruned' : 'archive'];
+  }
+
   public get prunedClientOrArchivePromise(): Promise<ArgonClient> {
     return this.prunedClientPromise ?? this.archiveClientPromise;
   }
@@ -130,6 +136,7 @@ export class MainchainClients {
     previousCandidate?.ready.reject(new Error('Pruned client was replaced'));
 
     if (wasPreferred) {
+      this.emitRuntimeReady();
       this.events.emit('degraded', undefined, 'pruned');
     }
 
@@ -161,6 +168,7 @@ export class MainchainClients {
     this.stopPrunedStateProbe();
     this.setConnectionState('pruned', 'disconnected');
     if (shouldNotifyDegraded) {
+      this.emitRuntimeReady();
       this.events.emit('degraded', undefined, 'pruned');
     }
     void previousCandidate.connection.then(previousClient => previousClient.disconnect()).catch(() => undefined);
@@ -286,6 +294,9 @@ export class MainchainClients {
       }
       if (!apiError) this.events.emit('working', '', clientType);
     });
+    // Polkadot.js emits 'decorated' after refreshing runtime metadata and constants on an upgrade.
+    api.on('decorated', () => this.emitRuntimeReady(api));
+    this.emitRuntimeReady(api);
     return api;
   }
 
@@ -340,6 +351,7 @@ export class MainchainClients {
         if (hadConnectedClient !== hasConnectedClient) {
           this.events.emit('connection-state-changed', hasConnectedClient);
         }
+        this.emitRuntimeReady(client);
         this.events.emit('on-pruned-client', client, this.prunedUrl!);
       })
       .catch(error => {
@@ -388,8 +400,19 @@ export class MainchainClients {
     if (hadConnectedClient !== hasConnectedClient) {
       this.events.emit('connection-state-changed', hasConnectedClient);
     }
+    this.emitRuntimeReady();
     this.events.emit('degraded', error, 'pruned');
     return true;
+  }
+
+  private emitRuntimeReady(source?: ArgonClient): void {
+    if (this.isShuttingDown) return;
+
+    const client = this.currentClient;
+    if (!client) return;
+    if (source && source !== client) return;
+
+    this.events.emit('runtime-ready', client);
   }
 
   private setConnectionState(clientType: IClientType, connectionState: IClientConnectionState): void {

@@ -4,6 +4,7 @@ import {
   type ArgonQueryClient,
   type ArgonCurrentQueryClient,
   type ArgonApi,
+  type ArgonClient,
   bigNumberToBigInt,
   createDeferred,
   Currency,
@@ -49,7 +50,15 @@ export class Vaults {
   public vaultsById: { [id: number]: Vault } = {};
   public operatorNamesByVaultId: { [id: number]: string } = {};
   public stats?: IAllVaultStats;
-  public currentState = { isLoaded: false, isLoading: false, error: '', statsRevision: 0 };
+  public currentState = {
+    isLoaded: false,
+    isLoading: false,
+    error: '',
+    statsRevision: 0,
+    vaultRewardRate: undefined as BigNumber | undefined,
+    minimumVaultProfitRate: undefined as BigNumber | undefined,
+    argonotSecuritizationRewardRatio: 0n,
+  };
   private currentLoad?: Promise<void>;
 
   constructor(
@@ -57,7 +66,11 @@ export class Vaults {
     public currency: Currency,
     public miningFrames: MiningFrames,
     private mainchainClients: MainchainClients,
-  ) {}
+  ) {
+    this.mainchainClients.events.on('runtime-ready', client => this.updateRewardConfig(client));
+    const client = this.mainchainClients.currentClient;
+    if (client) this.updateRewardConfig(client);
+  }
 
   protected waitForLoad?: IDeferred;
   protected refreshingPromise?: Promise<IAllVaultStats>;
@@ -869,6 +882,17 @@ export class Vaults {
 
   protected async saveStats(): Promise<void> {
     return undefined;
+  }
+
+  private updateRewardConfig(client: ArgonClient): void {
+    const constants = client.consts.treasury;
+    Object.assign(this.currentState, {
+      vaultRewardRate: 'percentForVaultPool' in constants ? constants.percentForVaultPool : undefined,
+      minimumVaultProfitRate:
+        'minimumVaultProfitPercent' in constants ? constants.minimumVaultProfitPercent : undefined,
+      // Read from the runtime once its Argonot securitization reward constant is available.
+      argonotSecuritizationRewardRatio: 0n,
+    });
   }
 
   protected async loadStatsFromFile(): Promise<IAllVaultStats | void> {
