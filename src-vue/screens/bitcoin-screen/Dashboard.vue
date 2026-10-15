@@ -263,9 +263,10 @@
                     <span class="h-full w-px bg-slate-400/50" />
                   </div>
                   <span class="tabular-nums">
-                    <template v-if="liquid.position?.insuranceCost !== undefined">
+                    <template v-if="liquid.position?.cosignerGuaranteeCost !== undefined">
                       {{ currency.symbol
-                      }}{{ microgonToMoneyNm(liquid.position.insuranceCost).format('0,0.00') }} securitization fees
+                      }}{{ microgonToMoneyNm(liquid.position.cosignerGuaranteeCost).format('0,0.00') }} securitization
+                      fees
                     </template>
                     <template v-else>Securitization fees unavailable</template>
                   </span>

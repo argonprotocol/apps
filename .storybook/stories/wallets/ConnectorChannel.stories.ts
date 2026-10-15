@@ -231,7 +231,7 @@ export const FormWithCosignerGuarantee: Story = {
   beforeEach: () => useScenario(),
   play: async () => {
     const canvas = within(document.body);
-    const guarantee = await canvas.findByTestId('ConnectorChannel.insuranceAmount');
+    const guarantee = await canvas.findByTestId('ConnectorChannel.cosignerGuaranteeAmount');
     const amount = within(guarantee).getByTestId('input-number');
     await userEvent.clear(amount);
     await userEvent.type(amount, '100');

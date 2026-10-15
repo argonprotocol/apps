@@ -86,7 +86,7 @@ export default new OperationalFlow<IAccountReviewFlowContext, IAccountReviewFlow
       const incompleteBitcoinLiquids = financials.groupSummaries.bitcoin.positions.flatMap(position => {
         if (position.kind !== 'bitcoin-liquid') return [];
         const issues: string[] = [];
-        if (position.insuranceCost === undefined) issues.push('securitization fees');
+        if (position.cosignerGuaranteeCost === undefined) issues.push('securitization fees');
         if (position.transactionFees === undefined) issues.push('transaction fees');
         if (position.totalFees === undefined) issues.push('total fees');
         if (position.investedCost === undefined) issues.push('investment basis');
@@ -413,9 +413,6 @@ export default new OperationalFlow<IAccountReviewFlowContext, IAccountReviewFlow
         `Account loaded but did not match its expected state: ${ready.uiState.expectationFailures.join('; ')}`,
       );
     }
-    const bitcoinLiquidPositions = financialSnapshot.groupSummaries.bitcoin.positions.filter(
-      position => position.kind === 'bitcoin-liquid',
-    );
     const allBondPositions = financialSnapshot.groupSummaries.bonds.positions.filter(
       position => position.kind === 'bond',
     );
@@ -444,23 +441,54 @@ export default new OperationalFlow<IAccountReviewFlowContext, IAccountReviewFlow
       }
     }
 
+    // Mint payouts can update active and archived Liquids while navigating.
+    // Read the rendered values and their current financial position in one app command.
+    const readLiquidUi = async (liquidId: number, testIds: string[]) => {
+      const result = await flow.queryApp(
+        (refs, args) => {
+          const { liquidId, testIds } = args;
+          const financialPosition = refs
+            .getFinancials()
+            .financialPositionAggregate.groupSummaries.bitcoin.positions.filter(
+              position => position.kind === 'bitcoin-liquid',
+            )
+            .find(position => position.liquidId === liquidId);
+          if (!financialPosition) {
+            throw new Error(`Bitcoin Liquid ${liquidId} has no financial position liquidity`);
+          }
+
+          const texts = testIds.map(testId => {
+            const element = document.querySelector(`[data-testid="${testId}"]`);
+            if (!element) throw new Error(`Bitcoin Liquid ${liquidId} did not render ${testId}`);
+            return element.textContent?.trim() ?? '';
+          });
+          return {
+            financialPosition,
+            texts,
+          };
+        },
+        { args: { liquidId, testIds } },
+      );
+      if (!result) throw new Error(`Unable to inspect Bitcoin Liquid ${liquidId} and its rendered values`);
+      return result;
+    };
+    const parseRenderedCents = (text: string): bigint => {
+      const amount = text.replace(/[^\d.-]/g, '');
+      const [whole = '0', fraction = ''] = amount.split('.');
+      return BigInt(whole) * 100n + BigInt(fraction.padEnd(2, '0').slice(0, 2));
+    };
+
     for (const liquidId of ready.chainState.bitcoinLiquidIds) {
       const isArchived = ready.chainState.archivedBitcoinLiquidIds.includes(liquidId);
-      const financialPosition = bitcoinLiquidPositions.find(position => position.liquidId === liquidId);
-      if (!financialPosition) {
-        throw new Error(`Bitcoin Liquid ${liquidId} has no financial position liquidity`);
-      }
-      const expectedReceivedCents = (financialPosition.receivedLiquidity + 5_000n) / 10_000n;
-      const parseRenderedCents = (text: string): bigint => {
-        const amount = text.replace(/[^\d.-]/g, '');
-        const [whole = '0', fraction = ''] = amount.split('.');
-        return BigInt(whole) * 100n + BigInt(fraction.padEnd(2, '0').slice(0, 2));
-      };
       if (!isArchived) {
-        const dashboardLiquidityText = await flow.getText(`BitcoinLiquid.receivedLiquidity-${liquidId}`);
+        const {
+          financialPosition,
+          texts: [dashboardLiquidityText],
+        } = await readLiquidUi(liquidId, [`BitcoinLiquid.receivedLiquidity-${liquidId}`]);
+        const expectedReceivedCents = (financialPosition.receivedLiquidity + 5_000n) / 10_000n;
         if (parseRenderedCents(dashboardLiquidityText) !== expectedReceivedCents) {
           throw new Error(
-            `Bitcoin Liquid ${liquidId} rendered ${dashboardLiquidityText.trim()} received on the dashboard instead of its financial position value`,
+            `Bitcoin Liquid ${liquidId} rendered ${dashboardLiquidityText} received on the dashboard instead of its financial position value`,
           );
         }
       }
@@ -476,25 +504,29 @@ export default new OperationalFlow<IAccountReviewFlowContext, IAccountReviewFlow
           `Bitcoin Liquid ${liquidId} detail did not open (exists=${details.exists}, visible=${details.visible}, openDialogs=${openDialogs}): ${String(error)}`,
         );
       }
-      const [receivedLiquidityText, returnText, totalFeesText, detailsText] = await Promise.all([
-        flow.getText('BitcoinLiquid.details.receivedLiquidity'),
-        flow.getText('BitcoinLiquid.details.return'),
-        flow.getText('BitcoinLiquid.details.totalFees'),
-        flow.getText('BitcoinLiquidDetailOverlay'),
+      const {
+        financialPosition,
+        texts: [receivedLiquidityText, returnText, totalFeesText, detailsText],
+      } = await readLiquidUi(liquidId, [
+        'BitcoinLiquid.details.receivedLiquidity',
+        'BitcoinLiquid.details.return',
+        'BitcoinLiquid.details.totalFees',
+        'BitcoinLiquidDetailOverlay',
       ]);
+      const expectedReceivedCents = (financialPosition.receivedLiquidity + 5_000n) / 10_000n;
       if (parseRenderedCents(receivedLiquidityText) !== expectedReceivedCents) {
         throw new Error(
-          `Bitcoin Liquid ${liquidId} rendered ${receivedLiquidityText.trim()} received instead of its financial position value`,
+          `Bitcoin Liquid ${liquidId} rendered ${receivedLiquidityText} received instead of its financial position value`,
         );
       }
-      if (!/^-?[\d,.]+%$/.test(returnText.trim())) {
-        throw new Error(`Bitcoin Liquid ${liquidId} rendered an invalid return: ${returnText.trim()}`);
+      if (!/^-?[\d,.]+%$/.test(returnText)) {
+        throw new Error(`Bitcoin Liquid ${liquidId} rendered an invalid return: ${returnText}`);
       }
       const expectedReturn = financialPosition.totalReturn;
       const displayedReturn = Number(returnText.replaceAll(',', '').replaceAll('%', ''));
       if (expectedReturn === undefined || Math.abs(displayedReturn - expectedReturn) > 0.011) {
         throw new Error(
-          `Bitcoin Liquid ${liquidId} return ${returnText.trim()} does not match its capital and profit (${expectedReturn}%)`,
+          `Bitcoin Liquid ${liquidId} return ${returnText} does not match its capital and profit (${expectedReturn}%)`,
         );
       }
       const expectedFromHistory = expectedHistoryReturns?.[liquidId];
@@ -503,10 +535,10 @@ export default new OperationalFlow<IAccountReviewFlowContext, IAccountReviewFlow
       }
       if (expectedFromHistory !== undefined && Math.abs(displayedReturn - expectedFromHistory) > 0.011) {
         throw new Error(
-          `Bitcoin Liquid ${liquidId} return ${returnText.trim()} does not match the independent history expectation (${expectedFromHistory}%)`,
+          `Bitcoin Liquid ${liquidId} return ${returnText} does not match the independent history expectation (${expectedFromHistory}%)`,
         );
       }
-      if (totalFeesText.trim() === '—') {
+      if (totalFeesText === '—') {
         throw new Error(`Bitcoin Liquid ${liquidId} rendered unavailable total fees`);
       }
       if (isArchived && detailsText.toLowerCase().includes('unavailable')) {

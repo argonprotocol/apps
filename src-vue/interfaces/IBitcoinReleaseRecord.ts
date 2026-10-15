@@ -34,7 +34,7 @@ export interface IBitcoinReleaseRecord {
   cosignDueFrame?: number;
   expectedTransactionId?: string;
   cooperativeRequest?: IBitcoinCooperativeReleaseRequest;
-  insuredMicrogons?: bigint;
+  cosignerGuaranteeMicrogons?: bigint;
   argonTxFeeMicrogons?: bigint;
   compensationMicrogons?: bigint;
   vaultSignatures: Uint8Array[];

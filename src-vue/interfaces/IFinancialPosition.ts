@@ -173,7 +173,7 @@ export interface IBitcoinLiquidFinancialPosition extends IFinancialInvestmentPos
   liquidId: number;
   liquid: BitcoinLiquid;
   locks: readonly IBitcoinLockRecord[];
-  insuranceCost?: bigint;
+  cosignerGuaranteeCost?: bigint;
   transactionFees?: bigint;
   totalFees?: bigint;
   receivedLiquidity: bigint;

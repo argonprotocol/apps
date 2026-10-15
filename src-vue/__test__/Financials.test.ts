@@ -1290,7 +1290,7 @@ describe('financial position accounting', () => {
       endingCapital: 90n,
     });
     expect(snapshot.positions.find(position => position.kind === 'bitcoin-liquid')).toMatchObject({
-      insuranceCost: 10n,
+      cosignerGuaranteeCost: 10n,
     });
     expect(snapshot.positions.find(position => position.kind === 'bitcoin-liquid')?.totalReturn).toBeTypeOf('number');
     const currentRedemptionAmount = fission.calculateRedemptionAmount(bitcoinPriceIndex);
@@ -1387,7 +1387,7 @@ describe('financial position accounting', () => {
       settledPrincipalValue: 0n,
       performanceEndingCapital: 85n,
       totalReturn: -15,
-      insuranceCost: 10n,
+      cosignerGuaranteeCost: 10n,
       transactionFees: 5n,
     });
     expect(position.liquid.history[0]).toMatchObject({ securityFee: 10n, transactionFee: 5n, actionFees: 15n });
@@ -1444,7 +1444,7 @@ describe('financial position accounting', () => {
       percent: -15,
     });
 
-    const [positionUsingCurrentInsuranceFallback] = createBitcoinLiquidPositions({
+    const [positionUsingCurrentCoverageFallback] = createBitcoinLiquidPositions({
       summaries: [summary],
       fissions: [fission],
       terms: [],
@@ -1452,15 +1452,15 @@ describe('financial position accounting', () => {
       hasCurrentPrice: true,
       priceIndex: currentPrice,
     });
-    expect(positionUsingCurrentInsuranceFallback).toMatchObject({
-      insuranceCost: 10n,
+    expect(positionUsingCurrentCoverageFallback).toMatchObject({
+      cosignerGuaranteeCost: 10n,
       transactionFees: 5n,
       totalFees: 15n,
     });
-    expect(positionUsingCurrentInsuranceFallback.totalReturn).toBeTypeOf('number');
+    expect(positionUsingCurrentCoverageFallback.totalReturn).toBeTypeOf('number');
 
     const currentBitcoin = reduceFinancialPositions(
-      readySnapshots([...underlying, positionUsingCurrentInsuranceFallback]),
+      readySnapshots([...underlying, positionUsingCurrentCoverageFallback]),
     ).groupSummaries.bitcoin;
     expect(currentBitcoin.currentValue).toBe(70n);
     expect(currentBitcoin.returnSummary.availability).toBe('available');
@@ -1630,7 +1630,7 @@ describe('financial position accounting', () => {
       hasCurrentPrice: true,
       priceIndex: bitcoinPriceIndex,
     });
-    expect(activePosition).toMatchObject({ lifecycle: 'active', insuranceCost: 10n, totalFees: 15n });
+    expect(activePosition).toMatchObject({ lifecycle: 'active', cosignerGuaranteeCost: 10n, totalFees: 15n });
     expect(activePosition.totalReturn).toBeTypeOf('number');
 
     const close = {
@@ -1656,7 +1656,7 @@ describe('financial position accounting', () => {
 
     expect(position).toMatchObject({
       lifecycle: 'completed',
-      insuranceCost: 10n,
+      cosignerGuaranteeCost: 10n,
       transactionFees: 12n,
       totalFees: 22n,
       performanceEndingCapital: 88n,
@@ -1836,7 +1836,7 @@ describe('financial position accounting', () => {
         priceIndex: bitcoinPriceIndex,
       })[0];
 
-    expect(project(new Set([21]))).toMatchObject({ transactionFees: 5n, insuranceCost: 10n, totalFees: 15n });
+    expect(project(new Set([21]))).toMatchObject({ transactionFees: 5n, cosignerGuaranteeCost: 10n, totalFees: 15n });
 
     fission.pendingMints.push({
       queueIndex: 1n,
@@ -1865,7 +1865,7 @@ describe('financial position accounting', () => {
     fission.ratchetNumber = 1;
     fission.lastUpdatedArgonBlock = 160;
     fission.feeHistoryCompleteThroughBlock = 160;
-    expect(project(new Set([21]))).toMatchObject({ transactionFees: 12n, insuranceCost: 10n, totalFees: 22n });
+    expect(project(new Set([21]))).toMatchObject({ transactionFees: 12n, cosignerGuaranteeCost: 10n, totalFees: 22n });
 
     const close = {
       closedAtArgonBlock: 170,
@@ -1882,7 +1882,7 @@ describe('financial position accounting', () => {
     expect(project(new Set())).toMatchObject({ lifecycle: 'completed', transactionFees: 15n, totalFees: 25n });
   });
 
-  it('splits lock insurance when fission capacity is reused by a later Liquid', () => {
+  it('splits lock cosigner guarantee when fission capacity is reused by a later Liquid', () => {
     const lock = createBitcoinFinancialLock({
       fundedSatoshis: 100_000_000n,
       securitizedSatoshis: 100_000_000n,
@@ -1970,7 +1970,7 @@ describe('financial position accounting', () => {
     });
 
     expect(positions).toHaveLength(2);
-    expect(positions.map(position => position.insuranceCost)).toEqual([7n, 3n]);
+    expect(positions.map(position => position.cosignerGuaranteeCost)).toEqual([7n, 3n]);
     expect(positions.map(position => position.totalFees)).toEqual([15n, 8n]);
     expect(positions.every(position => typeof position.totalReturn === 'number')).toBe(true);
   });
@@ -1978,7 +1978,7 @@ describe('financial position accounting', () => {
   it.each([
     { label: 'member', gross: 3n, coupon: 0n, net: 3n },
     { label: 'operator', gross: 3n, coupon: 3n, net: 0n },
-  ])('assigns the $label lock insurance share to native Liquid creation', ({ gross, coupon, net }) => {
+  ])('assigns the $label lock cosigner guarantee share to native Liquid creation', ({ gross, coupon, net }) => {
     const lock = createBitcoinFinancialLock({
       fundedSatoshis: 100_000_000n,
       securitizedSatoshis: 100_000_000n,
@@ -2027,7 +2027,7 @@ describe('financial position accounting', () => {
       priceIndex: bitcoinPriceIndex,
     });
 
-    expect(position).toMatchObject({ insuranceCost: net, totalFees: net });
+    expect(position).toMatchObject({ cosignerGuaranteeCost: net, totalFees: net });
   });
 
   it('counts shared create and close fees once for a multi-Fission Liquid', () => {
@@ -2214,7 +2214,7 @@ describe('financial position accounting', () => {
       activeFissionIds: new Set(),
       hasCurrentPrice: false,
     });
-    expect(position).toMatchObject({ transactionFees: 68n, insuranceCost: 10n, totalFees: 78n });
+    expect(position).toMatchObject({ transactionFees: 68n, cosignerGuaranteeCost: 10n, totalFees: 78n });
   });
 
   it('keeps retained down-ratchet liquidity in the Bitcoin asset without treating the lock as an investment', () => {

@@ -13,7 +13,7 @@
         :alignOffset="-150"
         :sideOffset="props.channelUuid ? -8 : -20"
         :collisionPadding="30"
-        :prioritizePosition="isAddingInsurance"
+        :prioritizePosition="isAddingCosignerGuarantee"
         :style="floatingZIndex"
         class="w-108 rounded-lg shadow-2xl"
         @pointerDownOutside="keepOpenForRelatedConnector"
@@ -26,7 +26,7 @@
           >
             <button
               v-if="
-                !isAddingInsurance &&
+                !isAddingCosignerGuarantee &&
                 (displayedChannel ||
                   isShowingArchivedChannels ||
                   canReturnToCosignerChoices ||
@@ -40,8 +40,8 @@
               <BackIcon class="relative -top-0.25 w-4 opacity-50 group-hover:opacity-100" />
             </button>
             <span class="min-w-0 grow px-1 text-xl font-bold text-slate-800/70">
-              <template v-if="isAddingInsurance">
-                {{ insuranceActionLabel }}
+              <template v-if="isAddingCosignerGuarantee">
+                {{ cosignerGuaranteeActionLabel }}
                 <template v-if="displayedChannel">with {{ channelCosignerLabel(displayedChannel) }}</template>
               </template>
               <template v-else-if="displayedChannel">
@@ -63,7 +63,9 @@
                   controller.bitcoinGuideStep === 'pending' ||
                   (isBitcoinFundingGuideActive &&
                     (hasPendingInboundUtxos ||
-                      (!!channelFundingAddress && !isAddingInsurance && treasuryCertificationFundingSatoshis === 0n))))
+                      (!!channelFundingAddress &&
+                        !isAddingCosignerGuarantee &&
+                        treasuryCertificationFundingSatoshis === 0n))))
               "
               :guidance="
                 hasPendingInboundUtxos
@@ -266,45 +268,44 @@
               </div>
               <div
                 v-else-if="
-                  props.mode === 'insurance' &&
+                  props.mode === 'cosigner-guarantee' &&
                   displayedChannel.status === BitcoinLockStatus.LockFunded &&
                   !hasPendingInboundUtxos
                 "
                 class="py-1"
               >
-                <div v-if="isAddingInsuranceTransaction" class="space-y-4">
-                  <ProgressBar :progress="addInsuranceProgressPct" :showLabel="false" class="h-4" />
-                  <div class="text-sm text-slate-500">{{ addInsuranceProgressLabel }}</div>
+                <div v-if="isSubmittingCosignerGuarantee" class="space-y-4">
+                  <ProgressBar :progress="coverageProgressPct" :showLabel="false" class="h-4" />
+                  <div class="text-sm text-slate-500">{{ coverageProgressLabel }}</div>
                   <div class="text-xs text-slate-400">You can close this window without stopping the transaction.</div>
                   <button
                     disabled
                     class="bg-argon-600 w-full cursor-not-allowed rounded-md px-5 py-2 font-semibold text-white opacity-50"
                   >
-                    Updating Guarantee...
+                    Updating Cosigner Guarantee...
                   </button>
                 </div>
 
                 <div v-else class="space-y-4">
-                  <div v-if="isLoadingAddInsuranceTerms" class="py-5 text-center text-sm text-slate-500">
-                    Loading current guarantee terms...
+                  <div v-if="isLoadingCoverageTerms" class="py-5 text-center text-sm text-slate-500">
+                    Loading current cosigner guarantee terms...
                   </div>
                   <div v-else class="relative flex flex-col">
                     <label class="mb-1 font-bold text-gray-500/80">Cosigner guarantee</label>
                     <InputToken
-                      v-model="addInsuranceTargetCoverageMicrogons"
-                      data-testid="ConnectorChannel.addInsuranceAmount"
+                      v-model="requestedCoverageMicrogons"
+                      data-testid="ConnectorChannel.addCosignerGuaranteeAmount"
                       :prefix="argonSymbol"
-                      :min="currentInsuranceCoverageMicrogons"
-                      :max="maximumInsuranceCoverageMicrogons"
+                      :min="currentCoverageMicrogons"
+                      :max="maximumCoverageMicrogons"
                       :maxDecimals="2"
                     />
                     <div class="mt-1 text-sm text-slate-500">
                       Supports up to
-                      {{ satToBtcNm(addInsuranceSupportedSatoshis).format('0,0.[00000000]') }} BTC at the current market
-                      price.
+                      {{ satToBtcNm(coverageSatoshis).format('0,0.[00000000]') }} BTC at the current market price.
                     </div>
                     <SliderRoot
-                      v-model="addInsuranceSliderValue"
+                      v-model="coverageSliderValue"
                       class="relative mt-2 flex h-5 w-full touch-none items-center select-none"
                       :min="0"
                       :max="100"
@@ -318,63 +319,58 @@
                     </SliderRoot>
                     <div class="mt-1 flex justify-between text-xs text-stone-400">
                       <span>
-                        {{ argonSymbol }}{{ microgonToArgonNm(currentInsuranceCoverageMicrogons).format('0,0.00') }}
+                        {{ argonSymbol }}{{ microgonToArgonNm(currentCoverageMicrogons).format('0,0.00') }}
                         current
                       </span>
                       <span>
-                        {{ argonSymbol }}{{ microgonToArgonNm(maximumInsuranceCoverageMicrogons).format('0,0.00') }}
+                        {{ argonSymbol }}{{ microgonToArgonNm(maximumCoverageMicrogons).format('0,0.00') }}
                         maximum
                       </span>
                     </div>
                   </div>
 
                   <div
-                    v-if="
-                      !isLoadingAddInsuranceTerms &&
-                      maximumInsuranceCoverageMicrogons <= currentInsuranceCoverageMicrogons
-                    "
+                    v-if="!isLoadingCoverageTerms && maximumCoverageMicrogons <= currentCoverageMicrogons"
                     class="rounded-md bg-amber-50 px-3 py-3 text-sm text-amber-800"
                   >
                     {{ channelCosignerLabel(displayedChannel) }} does not currently have capacity for a larger
                     guarantee.
                   </div>
 
-                  <div v-if="!isLoadingAddInsuranceTerms" class="flex flex-col gap-x-3">
-                    <label class="mb-1 font-bold text-gray-500/80">Cost of Guarantee</label>
+                  <div v-if="!isLoadingCoverageTerms" class="flex flex-col gap-x-3">
+                    <label class="mb-1 font-bold text-gray-500/80">Cost of Cosigner Guarantee</label>
                     <div class="border-b border-gray-300 text-sm">
                       <div class="flex border-t border-gray-300 py-2">
                         <span class="grow">Guaranteed repayment</span>
                         <span>
-                          {{ argonSymbol }}{{ microgonToArgonNm(addInsuranceTargetCoverageMicrogons).format('0,0.00') }}
+                          {{ argonSymbol }}{{ microgonToArgonNm(requestedCoverageMicrogons).format('0,0.00') }}
                         </span>
                       </div>
                       <div class="flex border-t border-gray-300 py-2">
-                        <span class="grow">Guarantee fee</span>
-                        <span v-if="addInsuranceCouponCreditMicrogons">
+                        <span class="grow">Cosigner guarantee fee</span>
+                        <span v-if="coverageCouponCreditMicrogons">
                           <span class="mr-1 line-through">
                             {{ argonSymbol
                             }}{{
-                              microgonToArgonNm(addInsuranceFeeMicrogons + addInsuranceCouponCreditMicrogons).format(
-                                '0,0.00',
-                              )
+                              microgonToArgonNm(coverageFeeMicrogons + coverageCouponCreditMicrogons).format('0,0.00')
                             }}
                           </span>
-                          {{ argonSymbol }}{{ microgonToArgonNm(addInsuranceFeeMicrogons).format('0,0.00') }}
+                          {{ argonSymbol }}{{ microgonToArgonNm(coverageFeeMicrogons).format('0,0.00') }}
                         </span>
                         <span v-else>
-                          {{ argonSymbol }}{{ microgonToArgonNm(addInsuranceFeeMicrogons).format('0,0.00') }}
+                          {{ argonSymbol }}{{ microgonToArgonNm(coverageFeeMicrogons).format('0,0.00') }}
                         </span>
                       </div>
-                      <div v-if="addInsuranceCouponCreditMicrogons" class="pb-2 text-xs text-slate-500">
-                        {{ argonSymbol
-                        }}{{ microgonToArgonNm(addInsuranceCouponCreditMicrogons).format('0,0.00') }} gift from
+                      <div v-if="coverageCouponCreditMicrogons" class="pb-2 text-xs text-slate-500">
+                        {{ argonSymbol }}{{ microgonToArgonNm(coverageCouponCreditMicrogons).format('0,0.00') }} gift
+                        from
                         {{ upstreamOperatorName }}
                       </div>
                     </div>
                   </div>
 
-                  <div v-if="addInsuranceError" class="text-sm font-semibold text-red-700">
-                    {{ addInsuranceError }}
+                  <div v-if="coverageError" class="text-sm font-semibold text-red-700">
+                    {{ coverageError }}
                   </div>
 
                   <div class="flex gap-2">
@@ -385,14 +381,11 @@
                       Cancel
                     </button>
                     <button
-                      :disabled="
-                        isLoadingAddInsuranceTerms ||
-                        addInsuranceTargetCoverageMicrogons <= currentInsuranceCoverageMicrogons
-                      "
+                      :disabled="isLoadingCoverageTerms || requestedCoverageMicrogons <= currentCoverageMicrogons"
                       class="bg-argon-600 hover:bg-argon-700 grow cursor-pointer rounded-md px-5 py-2 font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50"
-                      @click="submitAddInsurance"
+                      @click="submitCosignerGuarantee"
                     >
-                      {{ insuranceActionLabel }}
+                      {{ cosignerGuaranteeActionLabel }}
                     </button>
                   </div>
                 </div>
@@ -642,14 +635,14 @@
                 </div>
                 <WalletGuideAnchor
                   autoOpenGuidance
-                  :open="isBitcoinFundingGuideActive && !!defaultVault && !hasReviewedInsurance"
+                  :open="isBitcoinFundingGuideActive && !!defaultVault && !hasReviewedCosignerGuarantee"
                   guidance="The cosigner guarantee is the amount your cosigner owes if they fail to unlock your Bitcoin when you request it. Adjust the amount as needed."
                   @close="emit('update:open', false)"
                 >
                   <InputToken
-                    v-model="insuranceAmount"
-                    data-testid="ConnectorChannel.insuranceAmount"
-                    :data-microgons="insuranceAmount.toString()"
+                    v-model="coverageMicrogons"
+                    data-testid="ConnectorChannel.cosignerGuaranteeAmount"
+                    :data-microgons="coverageMicrogons.toString()"
                     :prefix="argonSymbol"
                     :min="0n"
                     :max="maxValue"
@@ -659,7 +652,7 @@
                     <button
                       @click="
                         createChannelButton?.scrollIntoView({ block: 'nearest' });
-                        hasReviewedInsurance = true;
+                        hasReviewedCosignerGuarantee = true;
                       "
                       class="border-argon-600/60 text-argon-600 hover:bg-argon-600/5 grow cursor-pointer rounded border px-5 py-1"
                     >
@@ -693,7 +686,9 @@
                 <label class="mb-1 font-bold text-gray-500/80">Cost of Channel</label>
                 <div class="border-b border-gray-300 text-sm">
                   <div class="flex flex-row border-t border-gray-300 py-2">
-                    <div class="grow">{{ insuranceAmount === 0n ? 'Base Channel Cost' : 'Guarantee Fee' }}</div>
+                    <div class="grow">
+                      {{ coverageMicrogons === 0n ? 'Base Channel Cost' : 'Cosigner Guarantee Fee' }}
+                    </div>
                     <div class="relative">
                       <template v-if="isVaultOperator">Waived</template>
                       <template v-else-if="channelCouponCreditMicrogons">
@@ -742,7 +737,11 @@
                   Cancel
                 </button>
                 <WalletGuideAnchor
-                  :open="isBitcoinFundingGuideActive && !!defaultVault && (isOwnedDefaultVault || hasReviewedInsurance)"
+                  :open="
+                    isBitcoinFundingGuideActive &&
+                    !!defaultVault &&
+                    (isOwnedDefaultVault || hasReviewedCosignerGuarantee)
+                  "
                   guidance="Create your Bitcoin receive address."
                   @close="emit('update:open', false)"
                 >
@@ -846,7 +845,7 @@ const props = withDefaults(
     channelUuid?: string;
     connectorId?: string;
     direction: 'right' | 'left';
-    mode?: 'channel' | 'insurance';
+    mode?: 'channel' | 'cosigner-guarantee';
     open: boolean;
     vaultId?: number;
     wallet: WalletForBitcoin;
@@ -890,27 +889,27 @@ const treasuryCertificationFundingSatoshis = Vue.computed(() => {
 
 const isSliding = Vue.ref(false);
 const selectedVaultId = Vue.ref('');
-const insuranceAmount = Vue.ref(0n);
-const hasReviewedInsurance = Vue.ref(false);
+const coverageMicrogons = Vue.ref(0n);
+const hasReviewedCosignerGuarantee = Vue.ref(false);
 const createChannelButton = Vue.useTemplateRef<HTMLButtonElement>('createChannelButton');
 const channelCostPreview = Vue.ref<IBitcoinLockCreatePreview>();
 const channelCostError = Vue.ref('');
 const channelCostRetry = Vue.ref(0);
 const maxValue = Vue.ref(0n);
 const isCreatingChannelRequest = Vue.ref(false);
-const isAddingInsurance = Vue.ref(false);
-const isLoadingAddInsuranceTerms = Vue.ref(false);
-const isAddingInsuranceTransaction = Vue.ref(false);
-const maximumInsuranceCoverageMicrogons = Vue.ref(0n);
-const addInsuranceTargetCoverageMicrogons = Vue.ref(0n);
-const addInsuranceRateMicrogonsPerBtc = Vue.ref(0n);
+const isAddingCosignerGuarantee = Vue.ref(false);
+const isLoadingCoverageTerms = Vue.ref(false);
+const isSubmittingCosignerGuarantee = Vue.ref(false);
+const maximumCoverageMicrogons = Vue.ref(0n);
+const requestedCoverageMicrogons = Vue.ref(0n);
+const coverageRateMicrogonsPerBtc = Vue.ref(0n);
 const currentBitcoinPriceMicrogonsPerBtc = Vue.ref(0n);
-const addInsuranceSupportedSatoshis = Vue.ref(0n);
-const addInsuranceFeeMicrogons = Vue.ref(0n);
-const addInsuranceCouponCreditMicrogons = Vue.ref(0n);
-const addInsuranceProgressPct = Vue.ref(0);
-const addInsuranceProgressLabel = Vue.ref('');
-const addInsuranceError = Vue.ref('');
+const coverageSatoshis = Vue.ref(0n);
+const coverageFeeMicrogons = Vue.ref(0n);
+const coverageCouponCreditMicrogons = Vue.ref(0n);
+const coverageProgressPct = Vue.ref(0);
+const coverageProgressLabel = Vue.ref('');
+const coverageError = Vue.ref('');
 const isLoadingChannels = Vue.ref(false);
 const channelLoadError = Vue.ref('');
 const formError = Vue.ref('');
@@ -923,40 +922,45 @@ const mempool = new BitcoinMempool(ESPLORA_HOST);
 const progressNow = Vue.ref(Date.now());
 let channelSessionKey = 0;
 let progressRefreshInterval: ReturnType<typeof setInterval> | undefined;
-let addInsuranceProgressCleanupFns: (() => void)[] = [];
-let trackedAddInsuranceTransactionId: number | undefined;
-let unsubscribeInsuranceTicks: (() => void) | undefined;
-let insuranceQuoteTick: number | undefined;
+let coverageProgressCleanupFns: (() => void)[] = [];
+let trackedCoverageTransactionId: number | undefined;
+let unsubscribeCoverageTicks: (() => void) | undefined;
+let coverageQuoteTick: number | undefined;
 let supportedBitcoinRunId = 0;
 
 const sliderValue = Vue.computed<number[]>({
   get: () =>
     maxValue.value === 0n
       ? [0]
-      : [BigNumber(insuranceAmount.value.toString()).dividedBy(maxValue.value.toString()).multipliedBy(100).toNumber()],
+      : [
+          BigNumber(coverageMicrogons.value.toString())
+            .dividedBy(maxValue.value.toString())
+            .multipliedBy(100)
+            .toNumber(),
+        ],
   set: ([percentage]) => {
-    insuranceAmount.value = bigNumberToBigInt(
+    coverageMicrogons.value = bigNumberToBigInt(
       BigNumber(maxValue.value.toString())
         .multipliedBy(percentage ?? 0)
         .dividedBy(100),
     );
   },
 });
-const addInsuranceSliderValue = Vue.computed<number[]>({
+const coverageSliderValue = Vue.computed<number[]>({
   get: () => {
-    const availableRange = maximumInsuranceCoverageMicrogons.value - currentInsuranceCoverageMicrogons.value;
+    const availableRange = maximumCoverageMicrogons.value - currentCoverageMicrogons.value;
     if (availableRange <= 0n) return [0];
     return [
-      BigNumber(addInsuranceTargetCoverageMicrogons.value - currentInsuranceCoverageMicrogons.value)
+      BigNumber(requestedCoverageMicrogons.value - currentCoverageMicrogons.value)
         .dividedBy(availableRange.toString())
         .multipliedBy(100)
         .toNumber(),
     ];
   },
   set: ([percentage]) => {
-    const availableRange = maximumInsuranceCoverageMicrogons.value - currentInsuranceCoverageMicrogons.value;
-    addInsuranceTargetCoverageMicrogons.value =
-      currentInsuranceCoverageMicrogons.value +
+    const availableRange = maximumCoverageMicrogons.value - currentCoverageMicrogons.value;
+    requestedCoverageMicrogons.value =
+      currentCoverageMicrogons.value +
       bigNumberToBigInt(
         BigNumber(availableRange.toString())
           .multipliedBy(percentage ?? 0)
@@ -1045,8 +1049,8 @@ const displayedChannel = Vue.computed(() => {
   return props.wallet.getChannel(uuid) ?? (openedChannel.value?.uuid === uuid ? openedChannel.value : undefined);
 });
 
-const pendingAddInsuranceTxInfo = Vue.computed(() => {
-  if (!props.open || props.mode !== 'insurance') return;
+const pendingCoverageTxInfo = Vue.computed(() => {
+  if (!props.open || props.mode !== 'cosigner-guarantee') return;
   const lockId = displayedChannel.value?.lockId;
   return lockId == null ? undefined : bitcoinLockResecuritize.getPendingResecuritizationTxInfo(lockId);
 });
@@ -1057,11 +1061,9 @@ const showChannelOverview = Vue.computed(
   () => hasChannelOverviewContent.value && !displayedChannel.value && !isShowingChannelForm.value,
 );
 
-const currentInsuranceCoverageMicrogons = Vue.computed(
-  () => displayedChannel.value?.securitizationCoverageMicrogons ?? 0n,
-);
-const insuranceActionLabel = Vue.computed(() =>
-  currentInsuranceCoverageMicrogons.value > 0n ? 'Update Guarantee' : 'Add Guarantee',
+const currentCoverageMicrogons = Vue.computed(() => displayedChannel.value?.securitizationCoverageMicrogons ?? 0n);
+const cosignerGuaranteeActionLabel = Vue.computed(() =>
+  currentCoverageMicrogons.value > 0n ? 'Update Cosigner Guarantee' : 'Add Cosigner Guarantee',
 );
 
 const archivedRelease = Vue.computed(() => {
@@ -1207,7 +1209,7 @@ const operatorCoupon = Vue.computed(() => {
   };
 });
 const fullChannelFeeMicrogons = Vue.computed(() => {
-  return defaultVault.value?.calculateBitcoinFee(insuranceAmount.value) ?? 0n;
+  return defaultVault.value?.calculateBitcoinFee(coverageMicrogons.value) ?? 0n;
 });
 const channelCouponCreditMicrogons = Vue.computed(() => {
   const vault = defaultVault.value;
@@ -1241,16 +1243,16 @@ const channelE2eState = Vue.computed(() => {
   return 'ReadyForBitcoin';
 });
 
-Vue.watch(defaultVault, (vault, _, onCleanup) => void updateMaximumInsurance(vault, onCleanup), { immediate: true });
-Vue.watch([isBitcoinFundingGuideActive, () => defaultVault.value?.vaultId, insuranceAmount], () => {
-  hasReviewedInsurance.value = false;
+Vue.watch(defaultVault, (vault, _, onCleanup) => void updateMaximumCoverage(vault, onCleanup), { immediate: true });
+Vue.watch([isBitcoinFundingGuideActive, () => defaultVault.value?.vaultId, coverageMicrogons], () => {
+  hasReviewedCosignerGuarantee.value = false;
 });
 Vue.watch(
   [
     () => props.open,
     channelE2eState,
     defaultVault,
-    insuranceAmount,
+    coverageMicrogons,
     channelCouponCreditMicrogons,
     fullChannelFeeMicrogons,
     channelCostRetry,
@@ -1329,7 +1331,7 @@ Vue.watch(
       isShowingChannelForm.value = false;
       isShowingArchivedChannels.value = false;
       shouldReturnToArchivedChannels.value = false;
-      stopAddingInsurance();
+      stopAddingCosignerGuarantee();
       formError.value = '';
       return;
     }
@@ -1350,24 +1352,24 @@ Vue.watch(
   { immediate: true },
 );
 Vue.watch(
-  [addInsuranceTargetCoverageMicrogons, currentBitcoinPriceMicrogonsPerBtc],
+  [requestedCoverageMicrogons, currentBitcoinPriceMicrogonsPerBtc],
   async ([coverageMicrogons, currentBitcoinPrice]) => {
-    updateAddInsuranceFee();
+    updateCoverageFee();
     const runId = ++supportedBitcoinRunId;
     if (!coverageMicrogons || !currentBitcoinPrice) {
-      addInsuranceSupportedSatoshis.value = 0n;
+      coverageSatoshis.value = 0n;
       return;
     }
 
     const supportedSatoshis = await bitcoinLocks.satoshisForArgonLiquidity(coverageMicrogons, currentBitcoinPrice);
     if (runId !== supportedBitcoinRunId) return;
-    addInsuranceSupportedSatoshis.value = bigIntMin(displayedChannel.value?.fundedSatoshis ?? 0n, supportedSatoshis);
+    coverageSatoshis.value = bigIntMin(displayedChannel.value?.fundedSatoshis ?? 0n, supportedSatoshis);
   },
 );
 Vue.watch(
   defaultDisplayedChannel,
   (channel, previousChannel) => {
-    if (!props.open || props.mode === 'insurance') return;
+    if (!props.open || props.mode === 'cosigner-guarantee') return;
 
     const requestedChannel = displayedChannel.value;
     if (props.channelUuid && requestedChannel?.uuid === props.channelUuid) {
@@ -1388,9 +1390,9 @@ Vue.watch(
   { immediate: true },
 );
 Vue.watch(
-  pendingAddInsuranceTxInfo,
+  pendingCoverageTxInfo,
   txInfo => {
-    if (txInfo) trackAddInsuranceTransaction(txInfo);
+    if (txInfo) trackCoverageTransaction(txInfo);
   },
   { immediate: true },
 );
@@ -1398,7 +1400,7 @@ Vue.watch(
   () => [props.open, props.channelUuid, displayedChannel.value?.uuid, displayedChannel.value?.status] as const,
   ([open, requestedChannelUuid, displayedChannelUuid, status]) => {
     if (
-      props.mode !== 'insurance' ||
+      props.mode !== 'cosigner-guarantee' ||
       !open ||
       !requestedChannelUuid ||
       !displayedChannelUuid ||
@@ -1406,7 +1408,7 @@ Vue.watch(
     ) {
       return;
     }
-    if (!isAddingInsurance.value) void beginAddInsurance();
+    if (!isAddingCosignerGuarantee.value) void beginAddCosignerGuarantee();
   },
   { immediate: true },
 );
@@ -1447,7 +1449,7 @@ async function retryLoadChannels(): Promise<void> {
 }
 
 function shouldDisplayRequestedChannel(channel: IBitcoinLockRecord): boolean {
-  if (props.mode === 'insurance') return true;
+  if (props.mode === 'cosigner-guarantee') return true;
   if (channel.status === BitcoinLockStatus.LockFailed || channel.removalReason === 'expired') return true;
   if (props.wallet.hasActiveSecuritizationHold(channel)) return true;
   if (bitcoinLocks.utxoTracking.getUnacknowledgedFundingUtxos(channel).length > 0) return true;
@@ -1467,7 +1469,7 @@ async function acknowledgeFunding(): Promise<void> {
   }
 }
 
-async function updateMaximumInsurance(vault: Vault | undefined, onCleanup: (cleanup: () => void) => void) {
+async function updateMaximumCoverage(vault: Vault | undefined, onCleanup: (cleanup: () => void) => void) {
   maxValue.value = 0n;
   if (!vault) return;
 
@@ -1479,8 +1481,8 @@ async function updateMaximumInsurance(vault: Vault | undefined, onCleanup: (clea
     if (cancelled) return;
 
     maxValue.value = availableLiquidityMicrogons;
-    if (insuranceAmount.value > availableLiquidityMicrogons) {
-      insuranceAmount.value = availableLiquidityMicrogons;
+    if (coverageMicrogons.value > availableLiquidityMicrogons) {
+      coverageMicrogons.value = availableLiquidityMicrogons;
     }
   } catch (error) {
     if (!cancelled) console.warn('Unable to load the Bitcoin channel capacity:', error);
@@ -1489,7 +1491,7 @@ async function updateMaximumInsurance(vault: Vault | undefined, onCleanup: (clea
 
 async function createChannel() {
   const vault = defaultVault.value;
-  const liquidityMicrogons = isOwnedDefaultVault.value ? 0n : insuranceAmount.value;
+  const liquidityMicrogons = isOwnedDefaultVault.value ? 0n : coverageMicrogons.value;
   if (!vault || liquidityMicrogons < 0n || isCreatingChannel.value) return;
 
   const sessionKey = channelSessionKey;
@@ -1542,7 +1544,7 @@ function showChannel(channel: IBitcoinLockRecord, returnToArchivedChannels = fal
   isShowingChannelForm.value = false;
   isShowingArchivedChannels.value = false;
   shouldReturnToArchivedChannels.value = returnToArchivedChannels;
-  stopAddingInsurance();
+  stopAddingCosignerGuarantee();
 }
 
 function showArchivedChannels() {
@@ -1551,7 +1553,7 @@ function showArchivedChannels() {
   isShowingChannelForm.value = false;
   isShowingArchivedChannels.value = true;
   shouldReturnToArchivedChannels.value = false;
-  stopAddingInsurance();
+  stopAddingCosignerGuarantee();
 }
 
 function showChannels() {
@@ -1561,7 +1563,7 @@ function showChannels() {
   isShowingChannelForm.value = !props.vaultId && cosignerChoices.value.length > 1;
   isShowingArchivedChannels.value = false;
   shouldReturnToArchivedChannels.value = false;
-  stopAddingInsurance();
+  stopAddingCosignerGuarantee();
 }
 
 function navigateBack(): void {
@@ -1576,66 +1578,66 @@ function navigateBack(): void {
   }
 }
 
-function stopAddingInsurance(): void {
-  isAddingInsurance.value = false;
-  isLoadingAddInsuranceTerms.value = false;
-  unsubscribeInsuranceTicks?.();
-  unsubscribeInsuranceTicks = undefined;
+function stopAddingCosignerGuarantee(): void {
+  isAddingCosignerGuarantee.value = false;
+  isLoadingCoverageTerms.value = false;
+  unsubscribeCoverageTicks?.();
+  unsubscribeCoverageTicks = undefined;
 }
 
-async function beginAddInsurance(): Promise<void> {
+async function beginAddCosignerGuarantee(): Promise<void> {
   const channel = displayedChannel.value;
   if (!channel || channel.lockId == null) return;
 
   const pendingTxInfo = bitcoinLockResecuritize.getPendingResecuritizationTxInfo(channel.lockId);
   if (pendingTxInfo) {
-    trackAddInsuranceTransaction(pendingTxInfo);
+    trackCoverageTransaction(pendingTxInfo);
     return;
   }
 
-  isAddingInsurance.value = true;
-  isLoadingAddInsuranceTerms.value = true;
-  addInsuranceError.value = '';
-  addInsuranceTargetCoverageMicrogons.value = channel.securitizationCoverageMicrogons ?? 0n;
+  isAddingCosignerGuarantee.value = true;
+  isLoadingCoverageTerms.value = true;
+  coverageError.value = '';
+  requestedCoverageMicrogons.value = channel.securitizationCoverageMicrogons ?? 0n;
   void bitcoinLockCoupons
     .refresh()
     .then(() => {
-      if (isAddingInsurance.value) updateAddInsuranceFee();
+      if (isAddingCosignerGuarantee.value) updateCoverageFee();
     })
     .catch(error => {
-      console.warn('Unable to refresh the Bitcoin guarantee fee gift', error);
+      console.warn('Unable to refresh the Bitcoin cosigner guarantee fee gift', error);
     });
   try {
     await miningFrames.load();
-    await refreshAddInsuranceTerms();
-    updateAddInsuranceFee();
-    unsubscribeInsuranceTicks?.();
-    unsubscribeInsuranceTicks = miningFrames.onTick(() => {
+    await refreshCoverageTerms();
+    updateCoverageFee();
+    unsubscribeCoverageTicks?.();
+    unsubscribeCoverageTicks = miningFrames.onTick(() => {
       if (
-        !isAddingInsurance.value ||
-        isAddingInsuranceTransaction.value ||
-        (insuranceQuoteTick !== undefined && miningFrames.currentTick - insuranceQuoteTick < 10)
+        !isAddingCosignerGuarantee.value ||
+        isSubmittingCosignerGuarantee.value ||
+        (coverageQuoteTick !== undefined && miningFrames.currentTick - coverageQuoteTick < 10)
       ) {
         return;
       }
 
-      void refreshAddInsuranceTerms()
+      void refreshCoverageTerms()
         .then(() => {
-          updateAddInsuranceFee();
+          updateCoverageFee();
         })
         .catch(error => {
-          addInsuranceError.value =
-            error instanceof Error ? error.message : 'Unable to refresh current guarantee terms.';
+          coverageError.value =
+            error instanceof Error ? error.message : 'Unable to refresh current cosigner guarantee terms.';
         });
     }).unsubscribe;
   } catch (error) {
-    addInsuranceError.value = error instanceof Error ? error.message : 'Unable to load current guarantee terms.';
+    coverageError.value = error instanceof Error ? error.message : 'Unable to load current cosigner guarantee terms.';
   } finally {
-    isLoadingAddInsuranceTerms.value = false;
+    isLoadingCoverageTerms.value = false;
   }
 }
 
-async function refreshAddInsuranceTerms(): Promise<void> {
+async function refreshCoverageTerms(): Promise<void> {
   const channel = displayedChannel.value;
   if (!channel || channel.lockId == null) throw new Error('This Bitcoin channel is unavailable.');
 
@@ -1647,71 +1649,69 @@ async function refreshAddInsuranceTerms(): Promise<void> {
     BitcoinLock.get(client, channel.lockId),
   ]);
   const eligibleRate = rates?.at(-1);
-  if (!eligibleRate || !vault || !currentLock) throw new Error('Current guarantee terms are unavailable.');
+  if (!eligibleRate || !vault || !currentLock) throw new Error('Current cosigner guarantee terms are unavailable.');
   const [rateTick, rate] = eligibleRate;
 
   await (await bitcoinLocks.getTable()).updateFromCurrentLock(channel, currentLock);
 
-  addInsuranceRateMicrogonsPerBtc.value = bigIntMax(rate, channel.microgonsAtTargetPerBtc ?? 0n);
+  coverageRateMicrogonsPerBtc.value = bigIntMax(rate, channel.microgonsAtTargetPerBtc ?? 0n);
   currentBitcoinPriceMicrogonsPerBtc.value = rate;
-  insuranceQuoteTick = Number(rateTick);
+  coverageQuoteTick = Number(rateTick);
   const currentCoverage = channel.securitizationCoverageMicrogons ?? 0n;
   const availableCoverage = vault.availableBitcoinSpace(channel.ownerAccount);
   const maximumCoverageAtCurrentRate = BitcoinLock.calculateLiquidityPromised({
     priceIndex: currency.priceIndex,
     satoshis: channel.fundedSatoshis,
-    microgonsAtTargetPerBtc: addInsuranceRateMicrogonsPerBtc.value,
+    microgonsAtTargetPerBtc: coverageRateMicrogonsPerBtc.value,
   });
   const maximumCoverage =
     currentCoverage + availableCoverage < maximumCoverageAtCurrentRate
       ? currentCoverage + availableCoverage
       : maximumCoverageAtCurrentRate;
-  maximumInsuranceCoverageMicrogons.value = bigIntMax(maximumCoverage, currentCoverage);
+  maximumCoverageMicrogons.value = bigIntMax(maximumCoverage, currentCoverage);
 }
 
-function updateAddInsuranceFee(): void {
+function updateCoverageFee(): void {
   const channel = displayedChannel.value;
   const vault = channel ? vaults.vaultsById[channel.vaultId] : undefined;
-  if (!channel || !vault || !channel.scriptDetails || !addInsuranceRateMicrogonsPerBtc.value) {
-    addInsuranceFeeMicrogons.value = 0n;
-    addInsuranceCouponCreditMicrogons.value = 0n;
+  if (!channel || !vault || !channel.scriptDetails || !coverageRateMicrogonsPerBtc.value) {
+    coverageFeeMicrogons.value = 0n;
+    coverageCouponCreditMicrogons.value = 0n;
     return;
   }
 
   const totalFee = BitcoinLock.calculateResecuritizationFee({
     vault,
     currentCoverageMicrogons: channel.securitizationCoverageMicrogons ?? 0n,
-    replacementCoverageMicrogons: addInsuranceTargetCoverageMicrogons.value,
+    replacementCoverageMicrogons: requestedCoverageMicrogons.value,
     createdAtBitcoinHeight: channel.scriptDetails.createdAtHeight,
     vaultClaimBitcoinHeight: channel.scriptDetails.vaultClaimHeight,
     currentBitcoinHeight: bitcoinLocks.data.oracleBitcoinBlockHeight,
   });
-  const coupon = getAddInsuranceCoupon(channel);
+  const coupon = getCosignerGuaranteeCoupon(channel);
   const pendingCredit =
     coupon?.uses?.find(use => use.status === 'Prepared' && use.utxoId === channel.lockId && use.feeCoupon)
       ?.feeCreditMicrogons ?? 0n;
-  addInsuranceCouponCreditMicrogons.value = bigIntMin(
+  coverageCouponCreditMicrogons.value = bigIntMin(
     totalFee,
     (coupon?.remainingFeeCreditMicrogons ?? 0n) + pendingCredit,
   );
-  addInsuranceFeeMicrogons.value =
-    walletKeys.defaultArgonAddress === vault.operatorAccountId
-      ? 0n
-      : totalFee - addInsuranceCouponCreditMicrogons.value;
+  coverageFeeMicrogons.value =
+    walletKeys.defaultArgonAddress === vault.operatorAccountId ? 0n : totalFee - coverageCouponCreditMicrogons.value;
 }
 
-async function submitAddInsurance(): Promise<void> {
+async function submitCosignerGuarantee(): Promise<void> {
   const channel = displayedChannel.value;
-  if (!channel || isAddingInsuranceTransaction.value) return;
+  if (!channel || isSubmittingCosignerGuarantee.value) return;
 
-  isAddingInsuranceTransaction.value = true;
-  addInsuranceError.value = '';
-  cleanupAddInsuranceProgress();
+  isSubmittingCosignerGuarantee.value = true;
+  coverageError.value = '';
+  cleanupCoverageProgress();
   try {
-    await refreshAddInsuranceTerms();
-    if (addInsuranceTargetCoverageMicrogons.value > maximumInsuranceCoverageMicrogons.value) {
-      addInsuranceTargetCoverageMicrogons.value = maximumInsuranceCoverageMicrogons.value;
-      updateAddInsuranceFee();
+    await refreshCoverageTerms();
+    if (requestedCoverageMicrogons.value > maximumCoverageMicrogons.value) {
+      requestedCoverageMicrogons.value = maximumCoverageMicrogons.value;
+      updateCoverageFee();
       throw new Error(`${channelCosignerLabel(channel)} capacity changed. Review the updated maximum and try again.`);
     }
     const vault = vaults.vaultsById[channel.vaultId];
@@ -1721,54 +1721,51 @@ async function submitAddInsurance(): Promise<void> {
 
     const securitizedSatoshis = bigIntMin(
       channel.fundedSatoshis,
-      await bitcoinLocks.satoshisForArgonLiquidity(
-        addInsuranceTargetCoverageMicrogons.value,
-        addInsuranceRateMicrogonsPerBtc.value,
-      ),
+      await bitcoinLocks.satoshisForArgonLiquidity(requestedCoverageMicrogons.value, coverageRateMicrogonsPerBtc.value),
     );
     const txInfo = await bitcoinLockResecuritize.submit({
       lock: channel,
       vault,
       securitizedSatoshis,
-      microgonsAtTargetPerBtc: addInsuranceRateMicrogonsPerBtc.value,
+      microgonsAtTargetPerBtc: coverageRateMicrogonsPerBtc.value,
       txSigner: await walletKeys.getLiquidLockingKeypair(),
-      operatorCoupon: getAddInsuranceCoupon(channel),
+      operatorCoupon: getCosignerGuaranteeCoupon(channel),
     });
-    trackAddInsuranceTransaction(txInfo);
+    trackCoverageTransaction(txInfo);
   } catch (error) {
-    isAddingInsuranceTransaction.value = false;
-    addInsuranceError.value = error instanceof Error ? error.message : 'Unable to add a Bitcoin cosigner guarantee.';
+    isSubmittingCosignerGuarantee.value = false;
+    coverageError.value = error instanceof Error ? error.message : 'Unable to add a Bitcoin cosigner guarantee.';
   }
 }
 
-function trackAddInsuranceTransaction(txInfo: TransactionInfo<IBitcoinResecuritizationMetadata>): void {
-  isAddingInsurance.value = true;
-  if (trackedAddInsuranceTransactionId === txInfo.tx.id && isAddingInsuranceTransaction.value) return;
+function trackCoverageTransaction(txInfo: TransactionInfo<IBitcoinResecuritizationMetadata>): void {
+  isAddingCosignerGuarantee.value = true;
+  if (trackedCoverageTransactionId === txInfo.tx.id && isSubmittingCosignerGuarantee.value) return;
 
-  cleanupAddInsuranceProgress();
-  trackedAddInsuranceTransactionId = txInfo.tx.id;
-  addInsuranceProgressPct.value = txInfo.getStatus().progressPct;
+  cleanupCoverageProgress();
+  trackedCoverageTransactionId = txInfo.tx.id;
+  coverageProgressPct.value = txInfo.getStatus().progressPct;
   trackTransactionProgress({
     txInfos: [txInfo],
-    isSubmitting: isAddingInsuranceTransaction,
-    progressPct: addInsuranceProgressPct,
-    progressLabel: addInsuranceProgressLabel,
-    error: addInsuranceError,
+    isSubmitting: isSubmittingCosignerGuarantee,
+    progressPct: coverageProgressPct,
+    progressLabel: coverageProgressLabel,
+    error: coverageError,
     onComplete: () => {
-      cleanupAddInsuranceProgress();
+      cleanupCoverageProgress();
       emit('update:open', false);
     },
-    onCleanup: cleanup => addInsuranceProgressCleanupFns.push(cleanup),
+    onCleanup: cleanup => coverageProgressCleanupFns.push(cleanup),
   });
 }
 
-function cleanupAddInsuranceProgress(): void {
-  trackedAddInsuranceTransactionId = undefined;
-  addInsuranceProgressCleanupFns.forEach(cleanup => cleanup());
-  addInsuranceProgressCleanupFns = [];
+function cleanupCoverageProgress(): void {
+  trackedCoverageTransactionId = undefined;
+  coverageProgressCleanupFns.forEach(cleanup => cleanup());
+  coverageProgressCleanupFns = [];
 }
 
-function getAddInsuranceCoupon(channel: IBitcoinLockRecord) {
+function getCosignerGuaranteeCoupon(channel: IBitcoinLockRecord) {
   return [bitcoinLockCoupons.currentCoupon, bitcoinLockCoupons.resumableCoupon].find(
     coupon => coupon?.coupon.vaultId === channel.vaultId,
   );
@@ -1789,7 +1786,7 @@ function keepOpenForRelatedConnector(event: PointerDownOutsideEvent) {
 
 Vue.onUnmounted(() => {
   if (progressRefreshInterval) clearInterval(progressRefreshInterval);
-  unsubscribeInsuranceTicks?.();
-  cleanupAddInsuranceProgress();
+  unsubscribeCoverageTicks?.();
+  cleanupCoverageProgress();
 });
 </script>

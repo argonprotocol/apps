@@ -964,7 +964,7 @@ describe('Bitcoin Fission current state', () => {
           updatedAt: new Date('2026-01-01T00:00:00Z'),
         },
       } as IBitcoinLockSummary;
-      const insuranceTerms = [
+      const coverageTerms = [
         {
           lockId: 7,
           termIndex: 0,
@@ -1020,7 +1020,7 @@ describe('Bitcoin Fission current state', () => {
       const [createdPosition] = createBitcoinLiquidPositions({
         summaries: [financialSummary],
         fissions: fissions.getRecords(),
-        terms: insuranceTerms,
+        terms: coverageTerms,
         activeFissionIds: new Set([21]),
         hasCurrentPrice: false,
       });
@@ -1072,7 +1072,7 @@ describe('Bitcoin Fission current state', () => {
       const [ratchetedPosition] = createBitcoinLiquidPositions({
         summaries: [financialSummary],
         fissions: fissions.getRecords(),
-        terms: insuranceTerms,
+        terms: coverageTerms,
         activeFissionIds: new Set([21]),
         hasCurrentPrice: false,
       });
@@ -1127,7 +1127,7 @@ describe('Bitcoin Fission current state', () => {
       const [closedPosition] = createBitcoinLiquidPositions({
         summaries: [financialSummary],
         fissions: fissions.getRecords(),
-        terms: insuranceTerms,
+        terms: coverageTerms,
         activeFissionIds: new Set(),
         hasCurrentPrice: true,
       });
@@ -1171,13 +1171,13 @@ describe('Bitcoin Fission current state', () => {
           },
         ],
         fissions: restarted.getLiquids().flatMap(liquid => liquid.fissions),
-        terms: insuranceTerms,
+        terms: coverageTerms,
         activeFissionIds: new Set(),
         hasCurrentPrice: true,
       });
       expect(position).toMatchObject({
         lifecycle: 'completed',
-        insuranceCost: 10n,
+        cosignerGuaranteeCost: 10n,
         transactionFees: 27n,
         totalFees: 37n,
         pendingLiquidity: 0n,

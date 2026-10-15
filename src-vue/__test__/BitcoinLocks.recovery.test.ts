@@ -1171,7 +1171,7 @@ describe('BitcoinLocks history replay publication', () => {
         bitcoinConfirmedHeight: 600,
       }),
     ]);
-    expect(releases[0]).not.toHaveProperty('insuredMicrogons');
+    expect(releases[0]).not.toHaveProperty('cosignerGuaranteeMicrogons');
     expect((await db.bitcoinSecuritizationHistoryTable.getPublishedSnapshot(accountId))?.terms).toEqual([
       expect.objectContaining({ lockId: 70 }),
     ]);

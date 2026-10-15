@@ -126,7 +126,7 @@ it('publishes a failed restored transaction after post-processing is no longer p
   expect(wasPendingWhenPostProcessed).toBe(false);
 });
 
-it('finds the pending insurance transaction for a restored Bitcoin channel', () => {
+it('finds the pending guarantee transaction for a restored Bitcoin channel', () => {
   const otherChannel = createResecuritizationTxInfo(1, 100);
   const pendingChannel = createResecuritizationTxInfo(2, 101);
   const transactionTracker = {

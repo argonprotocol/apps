@@ -12,7 +12,7 @@ import { createBitcoinLiquids, type BitcoinFissions } from '../BitcoinFissions.t
 import type BitcoinLocks from '../BitcoinLocks.ts';
 import type { Db } from '../Db.ts';
 import type { IBitcoinSecuritizationTerm } from '../../interfaces/IBitcoinSecuritizationTerm.ts';
-import { allocateBitcoinInsuranceCosts } from './BitcoinInsurance.ts';
+import { allocateBitcoinCosignerGuaranteeCosts } from './BitcoinCosignerGuarantee.ts';
 import { BitcoinLiquid } from '../BitcoinLiquid.ts';
 import {
   type ArgonApi,
@@ -161,9 +161,9 @@ export function createBitcoinLiquidPositions(
   },
 ): IBitcoinLiquidFinancialPosition[] {
   const { summaries, fissions, terms, activeFissionIds } = args;
-  const currentInsuranceTerms = mergeCurrentInsuranceTerms({ summaries, fissions, terms });
-  const insurance = allocateBitcoinInsuranceCosts({
-    terms: currentInsuranceTerms,
+  const currentCoverageTerms = mergeCurrentCoverageTerms({ summaries, fissions, terms });
+  const costAllocation = allocateBitcoinCosignerGuaranteeCosts({
+    terms: currentCoverageTerms,
     fissions,
   });
   const summariesByLockId = new Map<number, IBitcoinLockSummary>();
@@ -174,8 +174,8 @@ export function createBitcoinLiquidPositions(
 
   for (const liquid of createBitcoinLiquids({
     fissions,
-    terms: currentInsuranceTerms,
-    securitizationCostsByLiquidId: insurance.costByLiquidId,
+    terms: currentCoverageTerms,
+    securitizationCostsByLiquidId: costAllocation.costByLiquidId,
   })) {
     const { liquidId, fissions: liquidFissions } = liquid;
     const locks = liquidFissions.flatMap(fission => {
@@ -184,9 +184,9 @@ export function createBitcoinLiquidPositions(
     });
     const uniqueLocks = [...new Map(locks.map(lock => [lock.uuid, lock])).values()];
     const isActive = liquidFissions.some(fission => activeFissionIds.has(fission.fissionId));
-    const hasCompleteInsurance = !insurance.incompleteLiquidIds.has(liquidId);
+    const hasCompleteCoverage = !costAllocation.incompleteLiquidIds.has(liquidId);
     let hasCompleteReturn =
-      hasCompleteInsurance && uniqueLocks.length === new Set(liquidFissions.map(fission => fission.lockId)).size;
+      hasCompleteCoverage && uniqueLocks.length === new Set(liquidFissions.map(fission => fission.lockId)).size;
     let hasCompleteTransactionFees = liquid.transactionFees !== undefined;
     let startingCapital = 0n;
     let performanceBitcoinValue = 0n;
@@ -274,12 +274,12 @@ export function createBitcoinLiquidPositions(
     }
 
     hasCompleteReturn &&= hasCompleteTransactionFees;
-    const insuranceCost = hasCompleteInsurance ? (insurance.costByLiquidId.get(liquidId) ?? 0n) : undefined;
+    const cosignerGuaranteeCost = hasCompleteCoverage ? (costAllocation.costByLiquidId.get(liquidId) ?? 0n) : undefined;
     const knownTransactionFees = hasCompleteTransactionFees ? transactionFees : undefined;
     const totalFees =
-      insuranceCost === undefined || knownTransactionFees === undefined
+      cosignerGuaranteeCost === undefined || knownTransactionFees === undefined
         ? undefined
-        : insuranceCost + knownTransactionFees;
+        : cosignerGuaranteeCost + knownTransactionFees;
     const endingCapital =
       performanceBitcoinValue +
       receivedLiquidity +
@@ -311,7 +311,7 @@ export function createBitcoinLiquidPositions(
           liquid: financialLiquid,
           locks: uniqueLocks,
           ...(knownTransactionFees === undefined ? {} : { transactionFees: knownTransactionFees }),
-          ...(insuranceCost === undefined ? {} : { insuranceCost, totalFees }),
+          ...(cosignerGuaranteeCost === undefined ? {} : { cosignerGuaranteeCost, totalFees }),
           receivedLiquidity,
           pendingLiquidity,
           repaymentAmount,
@@ -343,7 +343,7 @@ export function createBitcoinLiquidPositions(
   return positions.sort((left, right) => left.liquidId - right.liquidId);
 }
 
-function mergeCurrentInsuranceTerms(args: {
+function mergeCurrentCoverageTerms(args: {
   summaries: readonly IBitcoinLockSummary[];
   fissions: readonly BitcoinFission[];
   terms: readonly IBitcoinSecuritizationTerm[];

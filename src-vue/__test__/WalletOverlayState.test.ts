@@ -393,7 +393,7 @@ describe('wallet overlay state', () => {
     expect(wallet.getPendingInboundUtxos()).toEqual([]);
   });
 
-  it('selects the current channel by its securitization hold rather than its insurance', () => {
+  it('selects the current channel by its securitization hold rather than its guarantee', () => {
     const bitcoinLocks = createStore();
     const expired = createLock({
       uuid: 'expired-hold',
@@ -447,7 +447,7 @@ describe('wallet overlay state', () => {
       () => channel.ownerAccount!,
       {} as never,
     );
-    vi.spyOn(wallet, 'getRemainingChannelInsurance').mockImplementation(lock => {
+    vi.spyOn(wallet, 'getRemainingChannelCoverage').mockImplementation(lock => {
       return (lock.securitizationCoverageMicrogons ?? 0n) > 1_000_000n ? 1_000_000n : 0n;
     });
 
