@@ -86,10 +86,15 @@
                   <button type="button" class="inline-flex cursor-help" aria-label="Argonot securitization details">
                     <InformationCircleIcon class="size-3.5" />
                   </button>
-                  <template #content>Argonot securitization maximizes your vault’s share of network revenue.</template>
+                  <template #content>
+                    <template v-if="vaults.currentState.argonotSecuritizationRewardRatio === 0n">
+                      Argonot securitization currently has no impact on vault rewards.
+                    </template>
+                    <template v-else>Argonot securitization maximizes your vault’s share of network revenue.</template>
+                  </template>
                 </Tooltip>
               </div>
-              <div class="flex items-center gap-1">
+              <div v-if="vaults.currentState.argonotSecuritizationRewardRatio > 0n" class="flex items-center gap-1">
                 <button
                   type="button"
                   :disabled="isSaving || maximumReturnsMicronots === undefined"
@@ -123,7 +128,10 @@
               class="px-1 py-2 text-[17px]!"
             />
             <div class="mt-2 text-sm text-gray-600/70">
-              <template v-if="maximumReturnsMicronots !== undefined">
+              <template v-if="vaults.currentState.argonotSecuritizationRewardRatio === 0n">
+                ARGNOT Max Rewards not enabled on this network yet
+              </template>
+              <template v-else-if="maximumReturnsMicronots !== undefined">
                 {{ micronotToArgonotNm(maximumReturnsMicronots).format('0,0.[0]') }} ARGNOT for Max Returns
               </template>
               <template v-else>Max Returns guidance is unavailable.</template>
@@ -255,6 +263,7 @@ import type { IConfig } from '../interfaces/IConfig.ts';
 import numeral, { createNumeralHelpers } from '../lib/numeral.ts';
 import EditBoxOverlay from '../overlays/EditBoxOverlay.vue';
 import OverlayBase from '../overlays/OverlayBase.vue';
+import { getVaults } from '../stores/vaults.ts';
 import { getArgonBonds } from '../stores/argonBonds.ts';
 import { useCertificationController } from '../stores/certificationController.ts';
 import { getConfig } from '../stores/config.ts';
@@ -269,6 +278,7 @@ const currency = getCurrency();
 const wallets = useWallets();
 const controller = useCertificationController();
 const argonBonds = getArgonBonds();
+const vaults = getVaults();
 const vaultingStats = useVaultingStats();
 const { micronotToArgonotNm, microgonToMoneyNm } = createNumeralHelpers(currency);
 const vaultSetup = Vue.computed(() => config.vaultSetup);
@@ -287,6 +297,7 @@ const maximumReturnsMicronots = Vue.computed(() =>
   TreasuryBonds.getVaultArgonotSecuritizationTarget({
     securitizationMicrogons: vaultSetup.value.securitizationMicrogons,
     averageMicrogonsPerArgonot: argonBonds.data.averageMicrogonsPerArgonot,
+    argonotSecuritizationRewardRatio: vaults.currentState.argonotSecuritizationRewardRatio,
   }),
 );
 const projectedEarningsMicrogons = Vue.computed(() =>

@@ -8,7 +8,7 @@ import {
 } from '@argonprotocol/runtime-client';
 import { Metadata, TypeRegistry } from '@polkadot/types';
 import { decorateConstants } from '@polkadot/types/metadata/decorate';
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import BigNumber from 'bignumber.js';
 import { ArgonBonds } from '../lib/ArgonBonds.ts';
 import { BondBuy } from '../lib/txs/Bond.buy.ts';
@@ -24,6 +24,7 @@ import {
   type RuntimeSystemEventRecord,
   MICROGONS_PER_ARGON,
   TreasuryBonds,
+  type Vaults,
   Vault,
 } from '@argonprotocol/apps-core';
 import type { WalletForArgon } from '../lib/WalletForArgon.ts';
@@ -48,6 +49,22 @@ deployedRegistry.setMetadata(
 const accountId = encodeAddress(new Uint8Array(32).fill(0x22));
 
 describe('ArgonBonds', () => {
+  let vaultsState: Vaults['currentState'];
+  beforeEach(() => {
+    vaultsState = {
+      isLoaded: true,
+      isLoading: false,
+      error: '',
+      statsRevision: 0,
+      vaultRewardRate: BigNumber(0.51),
+      minimumVaultProfitRate: BigNumber(0.01),
+      argonotSecuritizationRewardRatio: 0n,
+    };
+    vi.spyOn(vaultStore, 'getVaults').mockReturnValue({ currentState: vaultsState } as ReturnType<
+      typeof vaultStore.getVaults
+    >);
+  });
+
   it('compares current Bitcoin backing at market prices and updates after funding', () => {
     setActivePinia(createPinia());
     const oneArgon = BigInt(MICROGONS_PER_ARGON);
@@ -472,7 +489,7 @@ describe('ArgonBonds', () => {
     await argonBonds.subscribeVault({ vaultId: 4, operatorAddress: accountId }, client as any);
     // The published trailing total is 10,000 ARGN over ten days. Its daily
     // baseline earns 10% of the 51% vault pool, regardless of the live balance.
-    expect(argonBonds.vaultRevenuePotential(4, 10_000_000_000n / 10n)?.maximumEarnings).toBe(51_000_000n);
+    expect(argonBonds.vaultRevenuePotential(4, vaultsState, 10_000_000_000n / 10n)?.maximumEarnings).toBe(51_000_000n);
     let argonotSecuritization = toPlain(
       registry.createType('ArgonPrimitivesVaultVaultArgonotSecuritization', {
         heldMicronots: 400_000_000n,
@@ -480,7 +497,16 @@ describe('ArgonBonds', () => {
         encumberedMicronots: 100_000_000n,
       }),
     ) as NonNullable<LiveQueryRecord<'vaults', 'argonotSecuritizationByVaultId'>>;
-    expect(argonBonds.argonotRewardBacking({ vault, argonotSecuritization })).toEqual({
+    expect(vaultsState.argonotSecuritizationRewardRatio).toBe(0n);
+    expect(argonBonds.argonotRewardBacking({ vault, vaultsState, argonotSecuritization })).toEqual({
+      totalMicronots: 0n,
+      additionalMicronots: 0n,
+      withdrawalCancellationMicronots: 0n,
+    });
+    expect(argonBonds.vaultRevenuePotential(4, vaultsState)?.capturedPercent).toBe(100);
+
+    vaultsState.argonotSecuritizationRewardRatio = 2n;
+    expect(argonBonds.argonotRewardBacking({ vault, vaultsState, argonotSecuritization })).toEqual({
       totalMicronots: 1_000_000_000n,
       additionalMicronots: 600_000_000n,
       withdrawalCancellationMicronots: 0n,
@@ -490,18 +516,28 @@ describe('ArgonBonds', () => {
       ...vault.securitizationReleaseSchedule.get(1000)!,
       argonotWithdrawals: 200_000_000n,
     });
-    expect(argonBonds.argonotRewardBacking({ vault, argonotSecuritization })).toEqual({
+    expect(argonBonds.argonotRewardBacking({ vault, vaultsState, argonotSecuritization })).toEqual({
       totalMicronots: 1_000_000_000n,
       additionalMicronots: 0n,
       withdrawalCancellationMicronots: 200_000_000n,
     });
-    expect(argonBonds.vaultRevenuePotential(4)?.capturedPercent).toBeCloseTo(25.84, 2);
+    expect(argonBonds.vaultRevenuePotential(4, vaultsState)?.capturedPercent).toBeCloseTo(25.84, 2);
     expect(
-      argonBonds.argonotRewardBacking({ vault, argonotSecuritization, securitizationMicrogons: 400_000_000n })
-        ?.totalMicronots,
+      argonBonds.argonotRewardBacking({
+        vault,
+        vaultsState,
+        argonotSecuritization,
+        securitizationMicrogons: 400_000_000n,
+      })?.totalMicronots,
     ).toBe(1_000_000_000n);
     argonBonds.data.averageMicrogonsPerArgonot = undefined;
-    expect(argonBonds.argonotRewardBacking({ vault, argonotSecuritization })).toBeUndefined();
+    expect(argonBonds.argonotRewardBacking({ vault, vaultsState, argonotSecuritization })).toBeUndefined();
+    vaultsState.argonotSecuritizationRewardRatio = 0n;
+    expect(argonBonds.argonotRewardBacking({ vault, vaultsState, argonotSecuritization })).toEqual({
+      totalMicronots: 0n,
+      additionalMicronots: 0n,
+      withdrawalCancellationMicronots: 0n,
+    });
     const staleCleanup = await argonBonds.subscribeVault({ vaultId: 4, operatorAddress: accountId }, client as any);
     const purchaseCleanup = await argonBonds.subscribeVault({ vaultId: 4, operatorAddress: accountId }, client as any);
     staleCleanup();
@@ -744,7 +780,7 @@ describe('ArgonBonds', () => {
       if (runtime === 'candidate') {
         expect(argonBonds.data.upstreamBitcoinTarget).toBe(5_000n * BigInt(MICROGONS_PER_ARGON));
         expect(argonBonds.data.upstreamBondTarget).toBe(5_000n * BigInt(MICROGONS_PER_ARGON));
-        expect(argonBonds.vaultRevenuePotential(4)).toMatchObject({
+        expect(argonBonds.vaultRevenuePotential(4, vaultsState)).toMatchObject({
           actualEarnings: 1_300_000n,
           maximumEarnings: 2_550_000n,
           upstreamParticipationPercent: 50,
@@ -752,7 +788,7 @@ describe('ArgonBonds', () => {
       } else {
         expect(argonBonds.data.upstreamBitcoinTarget).toBeUndefined();
         expect(argonBonds.data.upstreamBondTarget).toBeUndefined();
-        expect(argonBonds.vaultRevenuePotential(4)).toBeUndefined();
+        expect(argonBonds.vaultRevenuePotential(4, vaultsState)).toBeUndefined();
         expect(argonBonds.data.frameCapital).toBeNull();
       }
       for (const vaultId of [4, 7]) {

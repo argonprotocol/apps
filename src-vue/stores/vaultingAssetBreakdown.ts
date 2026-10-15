@@ -4,7 +4,7 @@ import BigNumber from 'bignumber.js';
 import { bigIntMax, bigIntMin, bigNumberToBigInt, BondLot, TreasuryBonds } from '@argonprotocol/apps-core';
 import type { PriceIndex } from '@argonprotocol/mainchain';
 import type { IBitcoinLockRecord } from '../interfaces/IBitcoinLockRecord.ts';
-import { getMyVault } from './vaults.ts';
+import { getMyVault, getVaults } from './vaults.ts';
 import { getArgonBonds } from './argonBonds.ts';
 import { getCurrency } from './currency.ts';
 import { getCappedPercent } from '../lib/Utils.ts';
@@ -12,6 +12,7 @@ import { getCappedPercent } from '../lib/Utils.ts';
 export const useVaultingAssetBreakdown = defineStore('vaultingAssetBreakdown', () => {
   const myVault = getMyVault();
   const argonBonds = getArgonBonds();
+  const vaults = getVaults();
   const currency = getCurrency();
 
   // Security
@@ -99,13 +100,17 @@ export const useVaultingAssetBreakdown = defineStore('vaultingAssetBreakdown', (
 
   const revenuePotential = Vue.computed(() => {
     const vault = myVault.createdVault;
-    return vault ? argonBonds.vaultRevenuePotential(vault.vaultId) : undefined;
+    return vault ? argonBonds.vaultRevenuePotential(vault.vaultId, vaults.currentState) : undefined;
   });
 
   const argonotRewardBacking = Vue.computed(() => {
     const vault = myVault.createdVault;
     if (!vault || !argonBonds.data.frameCapital?.vaultSecuritizationPositions[vault.vaultId]) return;
-    return argonBonds.argonotRewardBacking({ vault, argonotSecuritization: myVault.data.argonotCommitment });
+    return argonBonds.argonotRewardBacking({
+      vault,
+      argonotSecuritization: myVault.data.argonotCommitment,
+      vaultsState: vaults.currentState,
+    });
   });
 
   const revenueCapturedPct = Vue.computed(() => {

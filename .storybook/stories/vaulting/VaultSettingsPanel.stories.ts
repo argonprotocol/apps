@@ -8,7 +8,7 @@ import { getArgonBonds } from '../../../src-vue/stores/argonBonds.ts';
 import { getBitcoinLocks } from '../../../src-vue/stores/bitcoin.ts';
 import { getConfig } from '../../../src-vue/stores/config.ts';
 import { getCurrency } from '../../../src-vue/stores/currency.ts';
-import { getMyVault } from '../../../src-vue/stores/vaults.ts';
+import { getMyVault, getVaults } from '../../../src-vue/stores/vaults.ts';
 import { useWallets } from '../../../src-vue/stores/wallets.ts';
 import { MyVault, type IVaultIncreaseAllocationMetadata } from '../../../src-vue/lib/MyVault.ts';
 import { ExtrinsicType, TransactionStatus } from '../../../src-vue/lib/db/TransactionsTable.ts';
@@ -123,6 +123,9 @@ export const PositionEdit: Story = {
 };
 
 export const MaxReturnsGuidance: Story = {
+  beforeEach: () => {
+    getVaults().currentState.argonotSecuritizationRewardRatio = 2n;
+  },
   play: async () => {
     const canvas = within(document.body);
     await userEvent.hover(await canvas.findByText('+1,650 for Max Returns'));
@@ -150,6 +153,7 @@ export const AddArgons: Story = {
 };
 
 export const AddArgonotsForMaxReturns: Story = {
+  beforeEach: MaxReturnsGuidance.beforeEach,
   play: async () => {
     const canvas = within(document.body);
     await userEvent.click(await canvas.findByRole('button', { name: 'Edit Argonot securitization' }));
@@ -282,7 +286,7 @@ export const BitcoinFeeEditor: Story = {
   },
 };
 
-export const PendingWithdrawals: Story = {
+export const PendingWithdrawals = {
   beforeEach: () => {
     const vault = getMyVault().createdVault!;
     vault.securitizationTarget = 2_100_000_000n;
@@ -293,10 +297,13 @@ export const PendingWithdrawals: Story = {
       argonotWithdrawals: 100_000_000n,
     });
   },
-};
+} satisfies Story;
 
 export const MaxReturnsWithPendingWithdrawal: Story = {
-  beforeEach: PendingWithdrawals.beforeEach,
+  beforeEach: () => {
+    PendingWithdrawals.beforeEach();
+    getVaults().currentState.argonotSecuritizationRewardRatio = 2n;
+  },
   play: AddArgonotsForMaxReturns.play,
 };
 

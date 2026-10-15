@@ -25,7 +25,7 @@ let crosschainHistory: CrosschainHistory;
 export function getVaults(): Vaults {
   if (!vaults) {
     vaults = new Vaults(NETWORK_NAME, getCurrency(), getMiningFrames());
-    vaults.currentState = reactive(vaults.currentState);
+    vaults.currentState = shallowReactive(vaults.currentState);
     vaults.vaultsById = shallowReactive(vaults.vaultsById);
     vaults.operatorNamesByVaultId = reactive(vaults.operatorNamesByVaultId);
 

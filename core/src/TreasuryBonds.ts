@@ -160,8 +160,6 @@ export class TreasuryBonds {
   ): Promise<{
     totalActiveBonds: number;
     frameCapital?: NonNullable<RuntimeQueryResult<CurrentRuntimeQueries['treasury']['currentFrameVaultCapital']>>;
-    vaultRewardRate?: BigNumber;
-    minimumVaultProfitRate?: BigNumber;
     averageMicrogonsPerArgonot?: bigint;
     fullBidPool?: bigint;
     upstreamBitcoinTarget?: bigint;
@@ -185,9 +183,6 @@ export class TreasuryBonds {
       return {
         totalActiveBonds: Number(frameCapitalRaw.totalActiveBonds),
         frameCapital: frameCapitalRaw,
-        vaultRewardRate: 'percentForVaultPool' in constants ? constants.percentForVaultPool : undefined,
-        minimumVaultProfitRate:
-          'minimumVaultProfitPercent' in constants ? constants.minimumVaultProfitPercent : new BigNumber(0.01),
         averageMicrogonsPerArgonot: argonotPrices?.[Math.max(0, frameCapitalRaw.frameId - 1)],
         fullBidPool: account.data.free,
         upstreamBitcoinTarget: 'upstreamBitcoinTarget' in constants ? constants.upstreamBitcoinTarget : undefined,
@@ -280,13 +275,16 @@ export class TreasuryBonds {
   public static getVaultArgonotSecuritizationTarget({
     securitizationMicrogons,
     averageMicrogonsPerArgonot,
+    argonotSecuritizationRewardRatio,
   }: {
     securitizationMicrogons: bigint;
     averageMicrogonsPerArgonot?: bigint;
+    argonotSecuritizationRewardRatio: bigint;
   }): bigint | undefined {
+    if (argonotSecuritizationRewardRatio === 0n) return 0n;
     if (securitizationMicrogons <= 0n) return 0n;
     if (!averageMicrogonsPerArgonot || averageMicrogonsPerArgonot <= 0n) return;
-    const capacity = bigIntMin(U128_MAX, securitizationMicrogons * FIXED_U128_ONE * 2n);
+    const capacity = bigIntMin(U128_MAX, securitizationMicrogons * FIXED_U128_ONE * argonotSecuritizationRewardRatio);
     const price = fixedU128Rational(averageMicrogonsPerArgonot, 1_000_000n);
     const required = fixedU128Rational(capacity, price);
     return (required + FIXED_U128_ONE - 1n) / FIXED_U128_ONE;
@@ -320,6 +318,7 @@ export class TreasuryBonds {
     fullBidPool,
     percentForVaultPool,
     minimumVaultProfitRate,
+    argonotSecuritizationRewardRatio,
   }: {
     position: Omit<
       NonNullable<
@@ -334,22 +333,28 @@ export class TreasuryBonds {
     fullBidPool: bigint;
     percentForVaultPool: BigNumber;
     minimumVaultProfitRate: BigNumber;
+    argonotSecuritizationRewardRatio: bigint;
   }): bigint {
     const { securitization } = position;
     const denominator = bigIntMax(frameCapital.targetSecuritization, frameCapital.totalSecuritization);
     if (securitization <= 0n || denominator <= 0n || fullBidPool <= 0n) return 0n;
-    const rate = this.vaultPoolRewardRate({ position, percentForVaultPool, minimumVaultProfitRate });
+    const rate = this.vaultPoolRewardRate({
+      position,
+      percentForVaultPool,
+      minimumVaultProfitRate,
+      argonotSecuritizationRewardRatio,
+    });
     return fixedU128Multiply(fixedU128Multiply(fixedU128Rational(securitization, denominator), rate), fullBidPool);
   }
 
   public static vaultRevenuePotential(args: Parameters<typeof TreasuryBonds.vaultPoolEarnings>[0]) {
-    const { position, frameCapital } = args;
+    const { position, frameCapital, argonotSecuritizationRewardRatio } = args;
     const maximumPosition = {
       ...position,
       activatedSecuritization: position.securitization,
       bitcoinLockedMicrogons: position.securitization,
       activeBondMicrogons: position.securitization,
-      argonotSecuritizationInMicrogons: bigIntMin(U128_MAX, position.securitization * 2n),
+      argonotSecuritizationInMicrogons: bigIntMin(U128_MAX, position.securitization * argonotSecuritizationRewardRatio),
       upstreamParticipation: new BigNumber(1),
     };
     const maximumArgonotPosition = {
@@ -643,9 +648,10 @@ export class TreasuryBonds {
     position,
     percentForVaultPool,
     minimumVaultProfitRate,
+    argonotSecuritizationRewardRatio,
   }: Pick<
     Parameters<typeof TreasuryBonds.vaultPoolEarnings>[0],
-    'position' | 'percentForVaultPool' | 'minimumVaultProfitRate'
+    'position' | 'percentForVaultPool' | 'minimumVaultProfitRate' | 'argonotSecuritizationRewardRatio'
   >): bigint {
     const {
       securitization,
@@ -662,12 +668,16 @@ export class TreasuryBonds {
       securitization,
     );
     const bondUtilization = fixedU128Rational(bigIntMin(activeBondMicrogons, securitization), securitization);
-    const argonotCapacity = bigIntMin(U128_MAX, securitization * 2n);
+    const argonotCapacity = bigIntMin(U128_MAX, securitization * argonotSecuritizationRewardRatio);
     const argonotValue = bigIntMin(argonotSecuritizationInMicrogons, argonotCapacity);
-    const argonotUtilization = fixedU128Rational(argonotValue, argonotCapacity);
+    const argonotUtilization = argonotCapacity > 0n ? fixedU128Rational(argonotValue, argonotCapacity) : 0n;
     const maximumRate = bigNumberToBigInt(percentForVaultPool.times(FIXED_U128_ONE));
     const minimumRate = bigNumberToBigInt(minimumVaultProfitRate.times(FIXED_U128_ONE));
-    const maximumCoreRate = fixedU128Rational(maximumRate, fixedU128Rational(387n, 100n));
+    let maximumCoreRate = maximumRate;
+    if (argonotSecuritizationRewardRatio > 0n) {
+      const maximumArgonotMultiplier = fixedU128Rational((1n + argonotSecuritizationRewardRatio) * 129n, 100n);
+      maximumCoreRate = fixedU128Rational(maximumRate, maximumArgonotMultiplier);
+    }
     const coreUtilization = fixedU128Multiply(
       bitcoinUtilization,
       fixedU128Rational(9n, 10n) + fixedU128Multiply(fixedU128Rational(1n, 10n), bondUtilization),

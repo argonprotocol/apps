@@ -336,7 +336,7 @@
                                   {{ numeral(frameBondUsagePercent).formatPercent() }}
                                 </td>
                               </tr>
-                              <tr class="border-b border-slate-100">
+                              <tr v-if="vaults.currentState.argonotSecuritizationRewardRatio > 0n" class="border-b border-slate-100">
                                 <th scope="row" class="py-2 pl-4 text-left font-normal">
                                   <span class="inline-flex items-center gap-1">
                                     Argonot Securitization
@@ -345,7 +345,7 @@
                                         <InformationCircleIcon class="size-3.5" />
                                       </button>
                                       <template #content>
-                                        Maximize rewards by locking ARGNOT worth 2× your Argon securitization.
+                                        Maximize rewards by locking ARGNOT worth {{ vaults.currentState.argonotSecuritizationRewardRatio }}× your Argon securitization.
                                         <template v-if="vaultingBreakdown.argonotRewardBacking">
                                           Your vault needs {{ micronotToArgonotNm(vaultingBreakdown.argonotRewardBacking.totalMicronots).format('0,0') }} ARGNOT at current price.
                                         </template>
@@ -688,7 +688,10 @@ const frameBondUsagePercent = Vue.computed(() => {
 const argonotMaxReturnsPercent = Vue.computed(() => {
   const position = currentVaultFramePosition.value;
   if (!position) return;
-  return getCappedPercent(position.argonotSecuritizationInMicrogons, position.securitization * 2n);
+  return getCappedPercent(
+    position.argonotSecuritizationInMicrogons,
+    position.securitization * vaults.currentState.argonotSecuritizationRewardRatio,
+  );
 });
 const frameBitcoinUndersecuritized = Vue.computed(() => {
   const position = currentVaultFramePosition.value;
@@ -758,8 +761,11 @@ const potentialDailyRevenue = Vue.computed(() => {
   const capital = argonBonds.data.frameCapital;
   if (capital) {
     return (
-      argonBonds.vaultRevenuePotential(myVault.createdVault.vaultId, averageDailyNetworkRevenue.value)
-        ?.maximumEarnings ?? 0n
+      argonBonds.vaultRevenuePotential(
+        myVault.createdVault.vaultId,
+        vaults.currentState,
+        averageDailyNetworkRevenue.value,
+      )?.maximumEarnings ?? 0n
     );
   }
   const bondPool = bigNumberToBigInt(

@@ -452,7 +452,15 @@ export function setupAppScenario({
     load: fn(async () => undefined),
     operatorNamesByVaultId: Vue.reactive({}),
     vaultsById: {},
-    currentState: Vue.reactive({ isLoaded: true, isLoading: false, error: '', statsRevision: 0 }),
+    currentState: Vue.shallowReactive({
+      isLoaded: true,
+      isLoading: false,
+      error: '',
+      statsRevision: 0,
+      vaultRewardRate: BigNumber(0.51),
+      minimumVaultProfitRate: BigNumber(0.01),
+      argonotSecuritizationRewardRatio: 0n,
+    }),
     updateRevenue: fn(async () => ({
       synchedToFrame: 0,
       argonotStakingByFrame: [],

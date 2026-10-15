@@ -7,10 +7,12 @@ import {
   type VaultsVaultsByIdResultSpec159Variant15,
 } from '@argonprotocol/runtime-client';
 import { Metadata, TypeRegistry } from '@polkadot/types';
+import { decorateConstants } from '@polkadot/types/metadata/decorate';
 import type { RuntimeSystemEventRecord } from '../src/index.ts';
-import { nextTick, reactive, shallowReactive, watchEffect } from 'vue';
+import { nextTick, shallowReactive, watchEffect } from 'vue';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { createDeferred } from '../src/Deferred.ts';
+import { createTypedEventEmitter } from '../src/utils.ts';
 import { calculateRestabilizationLeverage } from '../src/GlobalVaultingStats.ts';
 import type { IAllVaultStats, IVaultFrameStats, IVaultStats } from '../src/interfaces/IVaultStats.ts';
 import { NetworkConfig } from '../src/NetworkConfig.ts';
@@ -47,9 +49,24 @@ const currentVault = {
 it('publishes current vaults before statistics and preserves them through failure and retry', async () => {
   const statsReady = createDeferred();
   const entries = vi.fn().mockRejectedValueOnce(new Error('offline'));
+  const registry = getOfflineRegistry();
+  const metadata = new Metadata(
+    registry,
+    Object.entries(getBundledMetadata()).find(([key]) => key.endsWith('-160'))![1],
+  );
+  const treasuryConstants = runtimeClient({
+    query: {},
+    consts: decorateConstants(registry, metadata.asLatest, metadata.version),
+  }).consts.treasury;
+  if (!('percentForVaultPool' in treasuryConstants)) throw new Error('Spec 160 vault pool constant is missing');
+  const events = createTypedEventEmitter();
   const client = {
     consts: {
       vaults: {},
+      treasury: {
+        percentForVaultPool: treasuryConstants.percentForVaultPool,
+        minimumVaultProfitPercent: treasuryConstants.minimumVaultProfitPercent,
+      },
       operationalAccounts: { operationalMinimumVaultSecuritization: 100_000_000n },
     },
     query: {
@@ -64,28 +81,39 @@ it('publishes current vaults before statistics and preserves them through failur
     'dev-docker',
     {} as any,
     { load: () => statsReady.promise } as any,
-    { get: async () => client } as any,
+    { events, currentClient: client, get: async () => client } as any,
   );
-  vaults.currentState = reactive(vaults.currentState);
+  vaults.currentState = shallowReactive(vaults.currentState);
   vaults.vaultsById = shallowReactive(vaults.vaultsById);
   let visible: string | bigint = 'loading';
+  let visibleRewardRate: number | undefined;
   const stop = watchEffect(() => {
     visible = vaults.currentState.isLoaded
       ? (vaults.vaultsById[7]?.availableBitcoinSpace() ?? 'empty')
       : vaults.currentState.error || 'loading';
+    visibleRewardRate = vaults.currentState.vaultRewardRate?.toNumber();
   });
   try {
     await expect(vaults.loadCurrentState()).rejects.toThrow('offline');
     await nextTick();
     expect(visible).toBe('offline');
+    expect(visibleRewardRate).toBe(0.51);
     entries.mockResolvedValue([[{ args: [7] }, currentVault]]);
     const loading = vaults.load();
     const failedStats = expect(loading).rejects.toThrow('statistics unavailable');
     await vi.waitFor(() => expect(visible).toBe(2_000_000_000n));
+    expect(visibleRewardRate).toBe(0.51);
+    expect(vaults.currentState.minimumVaultProfitRate?.toNumber()).toBe(0.01);
+    expect(vaults.currentState.argonotSecuritizationRewardRatio).toBe(0n);
+    client.consts.treasury.percentForVaultPool = BigNumber(0.25);
+    events.emit('runtime-ready', client);
+    await nextTick();
+    expect(visibleRewardRate).toBe(0.25);
     expect(vaults.stats).toBeUndefined();
     statsReady.reject(new Error('statistics unavailable'));
     await failedStats;
     expect(visible).toBe(2_000_000_000n);
+    expect(visibleRewardRate).toBe(0.25);
     entries.mockRejectedValueOnce(new Error('refresh unavailable'));
     await expect(vaults.loadCurrentState(true)).rejects.toThrow('refresh unavailable');
     expect(vaults.currentState.error).toBe('refresh unavailable');
@@ -99,6 +127,9 @@ it('publishes current vaults before statistics and preserves them through failur
     await vaults.loadCurrentState(true);
     await nextTick();
     expect(visible).toBe('empty');
+    Object.assign(client.consts, { treasury: { percentForVaultPool: treasuryConstants.percentForVaultPool } });
+    events.emit('runtime-ready', client);
+    expect(vaults.currentState.minimumVaultProfitRate).toBeUndefined();
   } finally {
     stop();
   }
@@ -113,7 +144,11 @@ it('times out current-state loading and ignores a late response after a successf
     {} as any,
     {} as any,
     {
-      get: async () => ({ query: { vaults: { vaultsById: { entries } } } }),
+      events: createTypedEventEmitter(),
+      get: async () => ({
+        consts: { treasury: {} },
+        query: { vaults: { vaultsById: { entries } } },
+      }),
     } as any,
   );
   try {
@@ -137,7 +172,7 @@ describe('Vaults load retry', () => {
       load: vi.fn().mockRejectedValueOnce(new Error('offline')).mockResolvedValueOnce(undefined),
     };
     const client = {
-      consts: { vaults: {} },
+      consts: { vaults: {}, treasury: {} },
       query: {
         vaults: {
           vaultsById: {
@@ -147,6 +182,7 @@ describe('Vaults load retry', () => {
       },
     };
     const mainchainClients = {
+      events: createTypedEventEmitter(),
       get: vi.fn().mockResolvedValue(client),
     };
     const vaults = new Vaults('dev-docker', {} as any, miningFrames as any, mainchainClients as any);
@@ -164,14 +200,14 @@ describe('Vaults load retry', () => {
       load: vi.fn().mockResolvedValue(undefined),
     };
     const client = {
-      consts: { vaults: {} },
+      consts: { vaults: {}, treasury: {} },
       query: {
         vaults: {
           vaultsById: { entries: vi.fn().mockResolvedValue([]) },
         },
       },
     };
-    const mainchainClients = { get: vi.fn().mockResolvedValue(client) };
+    const mainchainClients = { events: createTypedEventEmitter(), get: vi.fn().mockResolvedValue(client) };
     const cachedStats = createStats([createFrame({ frameId: 20 })]);
     cachedStats.formatVersion = 1;
     const vaults = new CachedVaults(cachedStats, miningFrames, mainchainClients);
@@ -191,7 +227,13 @@ describe('Vaults load retry', () => {
         load: async () => undefined,
         currentFrameId: mainnetVaultRevenueHistory.synchedToFrame + 1,
       };
-      const clients = { get: async () => ({ query: { vaults: { vaultsById: { entries: async () => [] } } } }) };
+      const clients = {
+        events: createTypedEventEmitter(),
+        get: async () => ({
+          consts: { treasury: {} },
+          query: { vaults: { vaultsById: { entries: async () => [] } } },
+        }),
+      };
       const vaults = new Vaults('mainnet', {} as any, frames as any, clients as any);
       await vaults.load();
 
@@ -210,6 +252,7 @@ describe('Vaults load retry', () => {
     const client = {
       consts: {
         vaults: {},
+        treasury: {},
         operationalAccounts: { operationalMinimumVaultSecuritization: 100_000_000n },
       },
       query: {
@@ -225,7 +268,7 @@ describe('Vaults load retry', () => {
       },
     };
     const miningFrames = { load: vi.fn().mockResolvedValue(undefined) };
-    const mainchainClients = { get: vi.fn().mockResolvedValue(client) };
+    const mainchainClients = { events: createTypedEventEmitter(), get: vi.fn().mockResolvedValue(client) };
     const vaults = new Vaults('mainnet', {} as any, miningFrames as any, mainchainClients as any);
     vaults.stats = createStats([]);
     client.query.vaults.vaultsById.entries.mockResolvedValue([[{ args: [1] }, { ...currentVault, operatorAccountId }]]);
@@ -293,7 +336,13 @@ describe('Vault revenue sync', () => {
       getHeader: async (blockNumber: number) => ({ blockNumber, blockHash: `0x${blockNumber}` }),
       getApi: async () => ({ query: { treasury: { currentFrameVaultCapital: async () => toPlain(capital) } } }),
     });
-    const clients = { get: async () => ({ query: { vaults: { vaultsById: { entries: async () => [] } } } }) };
+    const clients = {
+      events: createTypedEventEmitter(),
+      get: async () => ({
+        consts: { treasury: {} },
+        query: { vaults: { vaultsById: { entries: async () => [] } } },
+      }),
+    };
     const vaults = new Vaults('mainnet', {} as any, miningFrames as any, clients as any);
     vaults.stats = createStats([]);
     vaults.stats.revenueBackfill = { nextFrame: 22, throughFrame: 21 };
@@ -365,7 +414,13 @@ describe('Vault revenue sync', () => {
       getHeader: async (blockNumber: number) => ({ blockNumber, blockHash: `0x${blockNumber}` }),
       getApi: async () => parentApi,
     });
-    const clients = { get: async () => ({ query: { vaults: { vaultsById: { entries: async () => [] } } } }) };
+    const clients = {
+      events: createTypedEventEmitter(),
+      get: async () => ({
+        consts: { treasury: {} },
+        query: { vaults: { vaultsById: { entries: async () => [] } } },
+      }),
+    };
     const vaults = new Vaults(
       'mainnet',
       {
@@ -468,7 +523,9 @@ describe('Vault revenue sync', () => {
       blockWatch: { finalizedBlockHeader: { blockNumber: 100 } },
     };
     const mainchainClients = {
+      events: createTypedEventEmitter(),
       get: vi.fn().mockResolvedValue({
+        consts: { treasury: {} },
         query: {
           vaults: {
             vaultsById: { entries: vi.fn().mockResolvedValue([]) },
@@ -527,7 +584,9 @@ describe('Vault revenue sync', () => {
       },
     });
     const mainchainClients = {
+      events: createTypedEventEmitter(),
       get: vi.fn().mockResolvedValue({
+        consts: { treasury: {} },
         query: {
           vaults: {
             vaultsById: { entries: vi.fn().mockResolvedValue([]) },
@@ -867,7 +926,7 @@ class CachedVaults extends Vaults {
 }
 
 function createVaults(): Vaults {
-  return new Vaults('mainnet', {} as any, {} as any, {} as any);
+  return new Vaults('mainnet', {} as any, {} as any, { events: createTypedEventEmitter() } as any);
 }
 
 function createStats(frames: IVaultFrameStats[]): IAllVaultStats {

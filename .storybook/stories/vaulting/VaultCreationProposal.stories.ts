@@ -3,6 +3,7 @@ import { userEvent, within } from 'storybook/test';
 import AppScreen from '../../components/AppScreen.vue';
 import VaultCreatePanel from '../../../src-vue/panels/VaultCreatePanel.vue';
 import { getCurrency } from '../../../src-vue/stores/currency.ts';
+import { getVaults } from '../../../src-vue/stores/vaults.ts';
 import { getConfig } from '../../../src-vue/stores/config.ts';
 import { fn } from 'storybook/test';
 import { setupAppScenario } from '../../scenarios/setupAppScenario.ts';
@@ -75,6 +76,9 @@ export const BitcoinLockingFeeDetails: Story = {
 };
 
 export const ArgonotGuidance: Story = {
+  beforeEach: () => {
+    getVaults().currentState.argonotSecuritizationRewardRatio = 2n;
+  },
   play: async () => {
     const canvas = within(document.body);
     await userEvent.hover(await canvas.findByRole('button', { name: 'ARGNOT guidance' }));

@@ -105,7 +105,10 @@
                   <InformationCircleIcon class="size-3.5" />
                 </button>
                 <template #content>
-                  Argonot securitization maximizes your vault’s share of network revenue.
+                  <template v-if="vaults.currentState.argonotSecuritizationRewardRatio === 0n">
+                    Argonot securitization currently has no impact on vault rewards.
+                  </template>
+                  <template v-else>Argonot securitization maximizes your vault’s share of network revenue.</template>
                   <p class="mt-2">
                     {{ micronotToArgonotNm(myVault.data.argonotCommitment.committedMicronots).format('0,0.[0]') }}
                     ARGNOT committed to vault rewards.
@@ -144,7 +147,10 @@
               </span>
             </div>
             <div class="font-mono text-sm text-gray-500/60">
-              <Tooltip v-if="rewardBacking && rewardBacking.additionalMicronots > 0n" as-child side="top">
+              <template v-if="vaults.currentState.argonotSecuritizationRewardRatio === 0n">
+                ARGNOT Max Rewards not enabled on this network yet
+              </template>
+              <Tooltip v-else-if="rewardBacking && rewardBacking.additionalMicronots > 0n" as-child side="top">
                 <span class="relative z-20 inline-flex cursor-help items-center gap-1 text-yellow-800" tabindex="0">
                   <AlertIcon class="h-4 shrink-0" />
                   +{{ micronotToArgonotNm(rewardBacking.additionalMicronots).format('0,0.[0]') }} for Max Returns
@@ -389,7 +395,11 @@
                 Full Securitization
               </button>
               <button
-                v-if="fundingAsset === 'ARGNOT' && fundingAction === 'add'"
+                v-if="
+                  fundingAsset === 'ARGNOT' &&
+                  fundingAction === 'add' &&
+                  vaults.currentState.argonotSecuritizationRewardRatio > 0n
+                "
                 type="button"
                 :disabled="!rewardBacking || isSubmitting"
                 class="text-argon-600 cursor-pointer disabled:text-gray-400"
@@ -646,7 +656,7 @@ import OverlayBase from '../overlays/OverlayBase.vue';
 import { getArgonBonds } from '../stores/argonBonds.ts';
 import { getBitcoinLocks } from '../stores/bitcoin.ts';
 import { getCurrency } from '../stores/currency.ts';
-import { getMyVault } from '../stores/vaults.ts';
+import { getMyVault, getVaults } from '../stores/vaults.ts';
 import { useVaultingAssetBreakdown } from '../stores/vaultingAssetBreakdown.ts';
 import { useWallets } from '../stores/wallets.ts';
 
@@ -654,6 +664,7 @@ const myVault = getMyVault();
 const currency = getCurrency();
 const wallets = useWallets();
 const argonBonds = getArgonBonds();
+const vaults = getVaults();
 const vaultingBreakdown = useVaultingAssetBreakdown();
 const bitcoinLocks = getBitcoinLocks();
 const miningFrames = getMiningFrames();
@@ -676,6 +687,7 @@ const rewardBacking = Vue.computed(() =>
   vault.value
     ? argonBonds.argonotRewardBacking({
         vault: vault.value,
+        vaultsState: vaults.currentState,
         argonotSecuritization: myVault.data.argonotCommitment,
         securitizationMicrogons: vault.value.securitizationTarget,
       })
