@@ -11,7 +11,7 @@ import {
   MainchainClients,
   MiningFrames,
   NetworkConfig,
-  TreasuryBonds,
+  TreasuryRewards,
 } from '@argonprotocol/apps-core';
 
 /** One-time enrichment of an existing history file. Never imported by the app. */
@@ -92,7 +92,7 @@ export async function patchVaultHistory(stats: IAllVaultStats, miningFrames: Min
       }
     }
     if (needsPool) {
-      const pool = await parentApi.query.system.account(TreasuryBonds.getBidPoolAccountId(api));
+      const pool = await parentApi.query.system.account(TreasuryRewards.getBidPoolAccountId(api));
       const auctionPoolMicrogons = pool.data.free;
       const constants = api.consts.treasury;
       let includesBondPayments = true;

@@ -1,5 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { MainchainClients } from '../src/MainchainClients.ts';
+import { Vaults } from '../src/Vaults.ts';
+import { BlockWatch } from '../src/BlockWatch.ts';
+import { MiningFrames } from '../src/MiningFrames.ts';
+import { NetworkConfig } from '../src/NetworkConfig.ts';
+import { getOfflineRegistry } from '@argonprotocol/mainchain';
+import BigNumber from 'bignumber.js';
 
 const getMainchainClient = vi.hoisted(() => vi.fn());
 
@@ -7,12 +13,13 @@ vi.mock('../src/MainchainRpcProvider.ts', () => ({ getMainchainClient }));
 
 describe('MainchainClients', () => {
   let clients: MainchainClients;
+  let archiveClient: ReturnType<typeof createClient>;
   let prunedClient: ReturnType<typeof createClient>;
 
   beforeEach(() => {
     vi.spyOn(console, 'error').mockImplementation(() => undefined);
     vi.spyOn(console, 'info').mockImplementation(() => undefined);
-    const archiveClient = createClient('archive');
+    archiveClient = createClient('archive');
     prunedClient = createClient('pruned');
     getMainchainClient.mockImplementation(async (url: string) =>
       url === 'ws://archive' ? archiveClient : prunedClient,
@@ -91,6 +98,53 @@ describe('MainchainClients', () => {
     prunedClient.emit('connected');
     await vi.waitFor(() => expect(prunedClient.finalizedStateNumber).toHaveBeenCalledTimes(2));
     await expect(clients.get(false)).resolves.toMatchObject({ name: 'pruned', clientType: 'pruned' });
+  });
+
+  it('reloads current reward configuration when the selected archive reconnects', async () => {
+    NetworkConfig.setNetwork('dev-docker');
+    Object.assign(archiveClient.query, {
+      treasury: { upstreamParticipationFactor: async () => new BigNumber(0.25) },
+    });
+    const finalizedApi = {
+      consts: { treasury: {} },
+      query: {
+        system: { number: async () => 100 },
+        treasury: { upstreamParticipationFactor: async () => new BigNumber(0.05) },
+      },
+      tx: {},
+    };
+    const initialHeader = BlockWatch.readHeader(getOfflineRegistry().createType('Header', { number: 100 }), true);
+    const nextHeader = BlockWatch.readHeader(getOfflineRegistry().createType('Header', { number: 101 }), true);
+    const nextApi = {
+      tx: {},
+      consts: finalizedApi.consts,
+      query: {
+        system: { number: async () => 101 },
+        treasury: { upstreamParticipationFactor: async () => new BigNumber(0.25) },
+      },
+    };
+    archiveClient.at.mockImplementation(async hash => (hash === nextHeader.blockHash ? nextApi : finalizedApi));
+
+    await clients.get(false);
+    const blockWatch = new BlockWatch(clients);
+    const miningFrames = new MiningFrames(clients, blockWatch);
+    blockWatch.latestHeaders = [initialHeader];
+    blockWatch.isLoaded.resolve();
+    const vaults = new Vaults('dev-docker', {} as any, miningFrames, clients);
+    try {
+      await vi.waitFor(() => expect(vaults.currentState.upstreamParticipationFactor?.toNumber()).toBe(0.05));
+
+      archiveClient.emit('disconnected');
+      archiveClient.emit('connected');
+      await new Promise(resolve => setImmediate(resolve));
+      expect(vaults.currentState.upstreamParticipationFactor?.toNumber()).toBe(0.05);
+
+      blockWatch.latestHeaders = [nextHeader];
+      blockWatch.events.emit('finalized', [nextHeader]);
+      await vi.waitFor(() => expect(vaults.currentState.upstreamParticipationFactor?.toNumber()).toBe(0.25));
+    } finally {
+      blockWatch.destroy();
+    }
   });
 
   it('deduplicates state probes and retries one that stalls', async () => {

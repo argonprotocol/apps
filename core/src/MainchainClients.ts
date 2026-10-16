@@ -293,6 +293,7 @@ export class MainchainClients {
         this.schedulePrunedStateProbe(api);
       }
       if (!apiError) this.events.emit('working', '', clientType);
+      this.emitRuntimeReady(api);
     });
     // Polkadot.js emits 'decorated' after refreshing runtime metadata and constants on an upgrade.
     api.on('decorated', () => this.emitRuntimeReady(api));

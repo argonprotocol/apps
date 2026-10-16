@@ -2,7 +2,6 @@ import {
   type ArgonClient,
   type ArgonCurrentQueryClient,
   BondLot,
-  bigIntMax,
   bigIntMin,
   type Currency,
   createDeferred,
@@ -12,17 +11,11 @@ import {
   type MiningFrames,
   type RuntimeSystemEventRecord,
   TreasuryBonds,
-  type Vaults,
   type Vault,
 } from '@argonprotocol/apps-core';
 import BigNumber from 'bignumber.js';
 import type { Config } from './Config.ts';
-import {
-  runtimeClient,
-  type CurrentRuntimeQueries,
-  type LiveQueryRecord,
-  type RuntimeQueryResult,
-} from '@argonprotocol/runtime-client';
+import { runtimeClient, type LiveQueryRecord } from '@argonprotocol/runtime-client';
 import type { Db } from './Db.ts';
 import type { WalletKeys } from './WalletKeys.ts';
 import type {
@@ -99,13 +92,8 @@ export class ArgonBonds {
     vaultId: 0,
     currentFrameId: 0,
     distributableBidPool: 0n,
-    fullBidPool: 0n,
     bondPoolPercent: 0,
     totalActiveBonds: 0,
-    frameCapital: null as RuntimeQueryResult<CurrentRuntimeQueries['treasury']['currentFrameVaultCapital']>,
-    averageMicrogonsPerArgonot: undefined as bigint | undefined,
-    upstreamBitcoinTarget: undefined as bigint | undefined,
-    upstreamBondTarget: undefined as bigint | undefined,
     vaultsById: {} as Record<number, IVaultArgonBondState>,
   };
 
@@ -155,58 +143,6 @@ export class ArgonBonds {
 
   public getVaultBondCapacityMicrogons(vault: Vault): bigint {
     return vault.bondCapacityMicrogons(this.currency.priceIndex);
-  }
-
-  public argonotRewardBacking({
-    vault,
-    argonotSecuritization,
-    vaultsState,
-    securitizationMicrogons = vault.securitization,
-  }: {
-    vault: Vault;
-    argonotSecuritization: NonNullable<Awaited<ReturnType<typeof Vault.getArgonotSecuritization>>>;
-    vaultsState: Vaults['currentState'];
-    securitizationMicrogons?: bigint;
-  }) {
-    if (!this.data.frameCapital) return;
-    const totalMicronots = TreasuryBonds.getVaultArgonotSecuritizationTarget({
-      securitizationMicrogons: bigIntMax(securitizationMicrogons, vault.securitization),
-      averageMicrogonsPerArgonot: this.data.averageMicrogonsPerArgonot,
-      argonotSecuritizationRewardRatio: vaultsState.argonotSecuritizationRewardRatio,
-    });
-    if (totalMicronots === undefined) return;
-
-    let pendingWithdrawals = 0n;
-    for (const entry of vault.securitizationReleaseSchedule.values()) pendingWithdrawals += entry.argonotWithdrawals;
-    const { heldMicronots } = argonotSecuritization;
-    const requestedMicronots = heldMicronots - pendingWithdrawals;
-    return {
-      totalMicronots,
-      additionalMicronots: bigIntMax(totalMicronots - heldMicronots, 0n),
-      withdrawalCancellationMicronots: bigIntMax(bigIntMin(totalMicronots, heldMicronots) - requestedMicronots, 0n),
-    };
-  }
-
-  public vaultRevenuePotential(
-    vaultId: number,
-    vaultsState: Vaults['currentState'],
-    fullBidPool: bigint = this.data.fullBidPool,
-  ) {
-    const { vaultRewardRate, minimumVaultProfitRate, argonotSecuritizationRewardRatio } = vaultsState;
-    if (vaultRewardRate === undefined) return;
-    if (minimumVaultProfitRate === undefined) return;
-
-    const frameCapital = this.data.frameCapital;
-    const position = frameCapital?.vaultSecuritizationPositions[vaultId];
-    if (!position || !frameCapital) return;
-    return TreasuryBonds.vaultRevenuePotential({
-      position,
-      frameCapital,
-      fullBidPool,
-      percentForVaultPool: vaultRewardRate,
-      minimumVaultProfitRate,
-      argonotSecuritizationRewardRatio,
-    });
   }
 
   public getFlexibleBondDisplacementPercent(vaultId: number): number | undefined {
@@ -494,11 +430,6 @@ export class ArgonBonds {
     this.pendingVaultRefreshes.delete(args.vaultId);
     if (refreshVersion >= this.lastTotalActiveBondsRefreshVersion) {
       this.data.totalActiveBonds = activeBonds.totalActiveBonds;
-      this.data.frameCapital = activeBonds.frameCapital ?? null;
-      this.data.averageMicrogonsPerArgonot = activeBonds.averageMicrogonsPerArgonot;
-      this.data.upstreamBitcoinTarget = activeBonds.upstreamBitcoinTarget;
-      this.data.upstreamBondTarget = activeBonds.upstreamBondTarget;
-      this.data.fullBidPool = activeBonds.fullBidPool ?? 0n;
       this.lastTotalActiveBondsRefreshVersion = refreshVersion;
     }
     Object.assign(vault, bondState, { bondLots: this.excludeRecordedReleases(bondState.bondLots) });

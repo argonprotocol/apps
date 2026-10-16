@@ -1,11 +1,11 @@
 import type { SubmittableExtrinsic } from '@argonprotocol/mainchain';
-import { hexToU8a, stringToU8a, u8aConcat } from '@polkadot/util';
-import { bigIntMax, bigIntMin, bigNumberToBigInt } from './utils.js';
-import { FIXED_U128_ONE, U128_MAX, fixedU128Rational, fixedU128Multiply } from './FixedU128.js';
+import { bigIntMax, bigNumberToBigInt } from './utils.js';
+import { fixedU128Rational, fixedU128Multiply } from './FixedU128.js';
 import BigNumber from 'bignumber.js';
 import { BondLot } from './BondLot.js';
 import { Currency, MICRONOTS_PER_ARGONOT } from './Currency.js';
 import { Vault } from './Vault.js';
+import { TreasuryRewards } from './TreasuryRewards.js';
 import type { ArgonClient, ArgonCurrentQueryClient, ArgonQueryClient } from './MainchainClients.js';
 import type {
   CurrentRuntimeQueries,
@@ -52,45 +52,14 @@ export class TreasuryBonds {
   public static async getActiveBonds(
     client: ArgonCurrentQueryClient,
     frameCapital?: LiveQueryRecord<'treasury', 'currentFrameVaultCapital'>,
-  ): Promise<{
-    totalActiveBonds: number;
-    frameCapital?: NonNullable<RuntimeQueryResult<CurrentRuntimeQueries['treasury']['currentFrameVaultCapital']>>;
-    averageMicrogonsPerArgonot?: bigint;
-    fullBidPool?: bigint;
-    upstreamBitcoinTarget?: bigint;
-    upstreamBondTarget?: bigint;
-  }> {
-    const frameCapitalRaw =
-      frameCapital === undefined ? await client.query.treasury.currentFrameVaultCapital() : frameCapital;
-    if (!frameCapitalRaw) {
-      return {
-        totalActiveBonds: 0,
-      };
-    }
+  ): Promise<{ totalActiveBonds: number }> {
+    const capital = frameCapital === undefined ? await client.query.treasury.currentFrameVaultCapital() : frameCapital;
+    if (!capital) return { totalActiveBonds: 0 };
+    if ('totalActiveBonds' in capital) return { totalActiveBonds: Number(capital.totalActiveBonds) };
 
     let totalActiveBonds = 0;
-    if ('vaultSecuritizationPositions' in frameCapitalRaw) {
-      const constants = client.consts.treasury;
-      const [argonotPrices, account] = await Promise.all([
-        client.query.priceIndex.historicArgonotAverageByFrame(),
-        client.query.system.account(TreasuryBonds.getBidPoolAccountId(client)),
-      ]);
-      return {
-        totalActiveBonds: Number(frameCapitalRaw.totalActiveBonds),
-        frameCapital: frameCapitalRaw,
-        averageMicrogonsPerArgonot: argonotPrices?.[Math.max(0, frameCapitalRaw.frameId - 1)],
-        fullBidPool: account.data.free,
-        upstreamBitcoinTarget: 'upstreamBitcoinTarget' in constants ? constants.upstreamBitcoinTarget : undefined,
-        upstreamBondTarget: 'upstreamBondTarget' in constants ? constants.upstreamBondTarget : undefined,
-      };
-    }
-    for (const capital of Object.values(frameCapitalRaw.vaults)) {
-      totalActiveBonds += capital.eligibleBonds;
-    }
-
-    return {
-      totalActiveBonds,
-    };
+    for (const position of Object.values(capital.vaults)) totalActiveBonds += position.eligibleBonds;
+    return { totalActiveBonds };
   }
 
   public static getBidPoolPercentForVaults(client: ArgonQueryClient): number {
@@ -100,17 +69,11 @@ export class TreasuryBonds {
   }
 
   public static async getDistributableBidPool(client: ArgonQueryClient): Promise<bigint> {
-    const bidPoolAccountId = TreasuryBonds.getBidPoolAccountId(client);
+    const bidPoolAccountId = TreasuryRewards.getBidPoolAccountId(client);
     const accountInfo = await client.query.system.account(bidPoolAccountId);
     const revenue = accountInfo.data.free;
     const percentForVaults = TreasuryBonds.getBidPoolPercentForVaults(client);
     return bigNumberToBigInt(BigNumber(revenue).times(percentForVaults));
-  }
-
-  public static getBidPoolAccountId(client: ArgonQueryClient): Uint8Array {
-    const palletId = hexToU8a(client.consts.treasury.palletId);
-    const raw = u8aConcat(stringToU8a('modl'), palletId, new Uint8Array(32 - 4 - palletId.length));
-    return client.registry.createType('AccountId32', raw).toU8a();
   }
 
   public static getBondPurchaseCapacity(totalBondCapacityMicrogons: bigint): number {
@@ -167,24 +130,6 @@ export class TreasuryBonds {
     return maximumPurchaseBonds * unitsPerBond;
   }
 
-  public static getVaultArgonotSecuritizationTarget({
-    securitizationMicrogons,
-    averageMicrogonsPerArgonot,
-    argonotSecuritizationRewardRatio,
-  }: {
-    securitizationMicrogons: bigint;
-    averageMicrogonsPerArgonot?: bigint;
-    argonotSecuritizationRewardRatio: bigint;
-  }): bigint | undefined {
-    if (argonotSecuritizationRewardRatio === 0n) return 0n;
-    if (securitizationMicrogons <= 0n) return 0n;
-    if (!averageMicrogonsPerArgonot || averageMicrogonsPerArgonot <= 0n) return;
-    const capacity = bigIntMin(U128_MAX, securitizationMicrogons * FIXED_U128_ONE * argonotSecuritizationRewardRatio);
-    const price = fixedU128Rational(averageMicrogonsPerArgonot, 1_000_000n);
-    const required = fixedU128Rational(capacity, price);
-    return (required + FIXED_U128_ONE - 1n) / FIXED_U128_ONE;
-  }
-
   public static potentialDailyRevenue(args: {
     distributableBidPool: bigint;
     globalActiveBonds: number;
@@ -205,74 +150,6 @@ export class TreasuryBonds {
       ),
     );
     return bigNumberToBigInt(BigNumber(grossRevenue).multipliedBy(operatorKeepPct).dividedBy(100));
-  }
-
-  public static vaultPoolEarnings({
-    position,
-    frameCapital,
-    fullBidPool,
-    percentForVaultPool,
-    minimumVaultProfitRate,
-    argonotSecuritizationRewardRatio,
-  }: {
-    position: Omit<
-      NonNullable<
-        RuntimeQueryResult<CurrentRuntimeQueries['treasury']['currentFrameVaultCapital']>
-      >['vaultSecuritizationPositions'][string],
-      'operatorAccountId'
-    >;
-    frameCapital: Pick<
-      NonNullable<RuntimeQueryResult<CurrentRuntimeQueries['treasury']['currentFrameVaultCapital']>>,
-      'targetSecuritization' | 'totalSecuritization'
-    >;
-    fullBidPool: bigint;
-    percentForVaultPool: BigNumber;
-    minimumVaultProfitRate: BigNumber;
-    argonotSecuritizationRewardRatio: bigint;
-  }): bigint {
-    const { securitization } = position;
-    const denominator = bigIntMax(frameCapital.targetSecuritization, frameCapital.totalSecuritization);
-    if (securitization <= 0n || denominator <= 0n || fullBidPool <= 0n) return 0n;
-    const rate = this.vaultPoolRewardRate({
-      position,
-      percentForVaultPool,
-      minimumVaultProfitRate,
-      argonotSecuritizationRewardRatio,
-    });
-    return fixedU128Multiply(fixedU128Multiply(fixedU128Rational(securitization, denominator), rate), fullBidPool);
-  }
-
-  public static vaultRevenuePotential(args: Parameters<typeof TreasuryBonds.vaultPoolEarnings>[0]) {
-    const { position, frameCapital, argonotSecuritizationRewardRatio } = args;
-    const maximumPosition = {
-      ...position,
-      activatedSecuritization: position.securitization,
-      bitcoinLockedMicrogons: position.securitization,
-      activeBondMicrogons: position.securitization,
-      argonotSecuritizationInMicrogons: bigIntMin(U128_MAX, position.securitization * argonotSecuritizationRewardRatio),
-      upstreamParticipation: new BigNumber(1),
-    };
-    const maximumArgonotPosition = {
-      ...position,
-      argonotSecuritizationInMicrogons: maximumPosition.argonotSecuritizationInMicrogons,
-    };
-    const actualEarnings = this.vaultPoolEarnings(args);
-    const maximumEarnings = this.vaultPoolEarnings({
-      ...args,
-      position: maximumPosition,
-    });
-    const denominator = bigIntMax(frameCapital.targetSecuritization, frameCapital.totalSecuritization);
-    const maximumRate = denominator > 0n ? this.vaultPoolRewardRate({ ...args, position: maximumPosition }) : 0n;
-    const actualRate = this.vaultPoolRewardRate(args);
-    const maximumArgonotRate = this.vaultPoolRewardRate({ ...args, position: maximumArgonotPosition });
-    return {
-      actualEarnings,
-      maximumEarnings,
-      upstreamParticipationPercent: position.upstreamParticipation.times(100).toNumber(),
-      capturedPercent: maximumRate > 0n ? BigNumber(actualRate).div(maximumRate).times(100).toNumber() : undefined,
-      capturedWithMaximumArgonotsPercent:
-        maximumRate > 0n ? BigNumber(maximumArgonotRate).div(maximumRate).times(100).toNumber() : undefined,
-    };
   }
 
   public static argonBondPoolEarnings({
@@ -481,57 +358,6 @@ export class TreasuryBonds {
     bondLotId: number;
   }): Promise<SubmittableExtrinsic> {
     return args.client.tx.treasury.liquidateBondLot(args.bondLotId);
-  }
-
-  private static vaultPoolRewardRate({
-    position,
-    percentForVaultPool,
-    minimumVaultProfitRate,
-    argonotSecuritizationRewardRatio,
-  }: Pick<
-    Parameters<typeof TreasuryBonds.vaultPoolEarnings>[0],
-    'position' | 'percentForVaultPool' | 'minimumVaultProfitRate' | 'argonotSecuritizationRewardRatio'
-  >): bigint {
-    const {
-      securitization,
-      activatedSecuritization,
-      bitcoinLockedMicrogons,
-      activeBondMicrogons,
-      argonotSecuritizationInMicrogons,
-      upstreamParticipation,
-    } = position;
-    if (securitization <= 0n) return 0n;
-    const excessBitcoinValue = bigIntMax(0n, bitcoinLockedMicrogons - securitization);
-    const bitcoinUtilization = fixedU128Rational(
-      bigIntMax(0n, bigIntMin(activatedSecuritization, securitization) - excessBitcoinValue),
-      securitization,
-    );
-    const bondUtilization = fixedU128Rational(bigIntMin(activeBondMicrogons, securitization), securitization);
-    const argonotCapacity = bigIntMin(U128_MAX, securitization * argonotSecuritizationRewardRatio);
-    const argonotValue = bigIntMin(argonotSecuritizationInMicrogons, argonotCapacity);
-    const argonotUtilization = argonotCapacity > 0n ? fixedU128Rational(argonotValue, argonotCapacity) : 0n;
-    const maximumRate = bigNumberToBigInt(percentForVaultPool.times(FIXED_U128_ONE));
-    const minimumRate = bigNumberToBigInt(minimumVaultProfitRate.times(FIXED_U128_ONE));
-    let maximumCoreRate = maximumRate;
-    if (argonotSecuritizationRewardRatio > 0n) {
-      const maximumArgonotMultiplier = fixedU128Rational((1n + argonotSecuritizationRewardRatio) * 129n, 100n);
-      maximumCoreRate = fixedU128Rational(maximumRate, maximumArgonotMultiplier);
-    }
-    const coreUtilization = fixedU128Multiply(
-      bitcoinUtilization,
-      fixedU128Rational(9n, 10n) + fixedU128Multiply(fixedU128Rational(1n, 10n), bondUtilization),
-    );
-    const coreRate = minimumRate + fixedU128Multiply(coreUtilization, bigIntMax(0n, maximumCoreRate - minimumRate));
-    const capitalMultiplier = fixedU128Rational(bigIntMin(U128_MAX, securitization + argonotValue), securitization);
-    const argonotBonus =
-      FIXED_U128_ONE +
-      fixedU128Multiply(fixedU128Multiply(fixedU128Rational(29n, 100n), argonotUtilization), bitcoinUtilization);
-    const profitRate = bigIntMin(
-      maximumRate,
-      fixedU128Multiply(fixedU128Multiply(coreRate, capitalMultiplier), argonotBonus),
-    );
-    const participation = bigNumberToBigInt(upstreamParticipation.times(FIXED_U128_ONE));
-    return minimumRate + fixedU128Multiply(participation, bigIntMax(0n, profitRate - minimumRate));
   }
 
   private static async getVaultBondSources(client: ArgonCurrentQueryClient, vaultId: number) {

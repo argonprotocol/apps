@@ -339,6 +339,7 @@ export class Vault implements Omit<RuntimeVault, 'securitizationReleaseSchedule'
       ? vaultTx.setArgonotSecuritization(amount)
       : vaultTx.setCommittedArgonots(amount);
   }
+
   private previewWithdrawals(
     withdrawals: Map<number, bigint>,
     change: bigint,

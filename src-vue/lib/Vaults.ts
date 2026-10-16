@@ -1,15 +1,17 @@
 import {
   Currency as CurrencyBase,
   type IAllVaultStats,
+  type IBlockHeaderInfo,
   JsonExt,
   MiningFrames,
-  TreasuryBonds,
+  TreasuryRewards,
   bigNumberToBigInt,
   bundledVaultRevenueHistory,
   VAULT_STATS_FORMAT_VERSION,
   Vaults as VaultsBase,
 } from '@argonprotocol/apps-core';
 import BigNumber from 'bignumber.js';
+import { runtimeClient } from '@argonprotocol/runtime-client';
 import { u8aToString } from '@polkadot/util';
 import { BaseDirectory, mkdir, readTextFile, rename, writeTextFile } from '@tauri-apps/plugin-fs';
 import { getMainchainClient, getMainchainClients } from '../stores/mainchain.ts';
@@ -22,6 +24,8 @@ export interface IVaultStatsStorage {
 
 export class Vaults extends VaultsBase {
   private finalizedSubscription?: VoidFunction;
+  private rewardFrameId?: number;
+  private isRewardFrameLoading = false;
 
   constructor(
     network = NETWORK_NAME,
@@ -33,9 +37,11 @@ export class Vaults extends VaultsBase {
     super(network, currency, miningFrames, clients);
   }
 
-  public override async load(reload = false): Promise<void> {
+  public override async loadCurrentState(reload = false): Promise<void> {
     this.finalizedSubscription ??= this.miningFrames.blockWatch.events.on('finalized', headers => {
-      const frameId = headers.at(-1)?.frameId;
+      const header = headers.at(-1)!;
+      const frameId = header.frameId;
+      void this.refreshRewardFrame(header);
       if (frameId === undefined || !this.stats) return;
       if (!this.stats.revenueBackfill && this.stats.synchedToFrame >= frameId - 1) return;
 
@@ -43,7 +49,7 @@ export class Vaults extends VaultsBase {
         console.warn('[VaultHistory] Frame details will retry on the next finalized block', error);
       });
     });
-    await super.load(reload);
+    await super.loadCurrentState(reload);
   }
 
   public async subscribeToOperatorName(vaultId: number, onUpdate: (name?: string) => void): Promise<VoidFunction> {
@@ -95,7 +101,7 @@ export class Vaults extends VaultsBase {
       parentApi = await this.miningFrames.blockWatch.getApi(parent);
     }
     if (needsNetworkPool) {
-      const pool = await parentApi.query.system.account(TreasuryBonds.getBidPoolAccountId(api));
+      const pool = await parentApi.query.system.account(TreasuryRewards.getBidPoolAccountId(api));
       const auctionPoolMicrogons = pool.data.free;
       const vaultPoolMicrogons = bigNumberToBigInt(
         BigNumber(auctionPoolMicrogons).times(constants.percentForVaultPool),
@@ -131,6 +137,24 @@ export class Vaults extends VaultsBase {
           }),
         };
       }
+    }
+  }
+
+  private async refreshRewardFrame(header: IBlockHeaderInfo): Promise<void> {
+    const { frameId } = header;
+    if (frameId === undefined) return;
+    if (frameId === this.rewardFrameId) return;
+    if (this.isRewardFrameLoading) return;
+
+    this.isRewardFrameLoading = true;
+    try {
+      const api = runtimeClient(await this.miningFrames.blockWatch.getApi(header));
+      const updated = await this.updateRewardConfig(api);
+      if (updated) this.rewardFrameId = frameId;
+    } catch (error) {
+      console.warn('[Vaults] Reward frame will retry on the next finalized block', error);
+    } finally {
+      this.isRewardFrameLoading = false;
     }
   }
 

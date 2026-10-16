@@ -1,8 +1,10 @@
 import {
   createTypedEventEmitter,
+  BlockWatch,
   JsonExt,
   NetworkConfig,
   type ArgonClient,
+  type ArgonCurrentQueryClient,
   type IAllVaultStats,
   type IBlockHeaderInfo,
 } from '@argonprotocol/apps-core';
@@ -10,6 +12,7 @@ import BigNumber from 'bignumber.js';
 import { getOfflineRegistry, PriceIndex } from '@argonprotocol/mainchain';
 import { getBundledMetadata, runtimeClient, toPlain } from '@argonprotocol/runtime-client';
 import { Metadata, TypeRegistry } from '@polkadot/types';
+import { decorateConstants } from '@polkadot/types/metadata/decorate';
 import { createPinia, setActivePinia } from 'pinia';
 import { computed, shallowReactive } from 'vue';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -86,6 +89,91 @@ class TestVaults extends Vaults {
     return await this.loadStatsFromFile();
   }
 }
+
+it('preserves the visible reward estimate after a failed frame read and publishes the notified frame on retry', async () => {
+  const registry = getOfflineRegistry();
+  const metadata = new Metadata(
+    registry,
+    Object.entries(getBundledMetadata()).find(([key]) => key.endsWith('-160'))![1],
+  );
+  const constants = decorateConstants(registry, metadata.asLatest, metadata.version);
+  let frameUnavailable = true;
+  const apis = [10, 11].map(
+    frameId =>
+      runtimeClient({
+        registry,
+        consts: constants,
+        query: {
+          treasury: {
+            upstreamParticipationFactor: async () => registry.createType('Percent', 5),
+            currentFrameVaultCapital: async () => {
+              if (frameId === 11 && frameUnavailable) throw new Error('Frame temporarily unavailable');
+              return registry.createType('PalletTreasuryFrameVaultCapital', {
+                frameId,
+                targetSecuritization: 1_000n,
+                totalSecuritization: 1_000n,
+                vaultSecuritizationPositions: {
+                  4: {
+                    securitization: 1_000n,
+                    activatedSecuritization: 1_000n,
+                    bitcoinLockedMicrogons: 1_000n,
+                    activeBondMicrogons: 1_000n,
+                    upstreamParticipation: 950_000_000_000_000_000n,
+                  },
+                },
+              });
+            },
+          },
+          priceIndex: {
+            historicArgonotAverageByFrame: async () =>
+              registry.createType('BTreeMap<u32, u128>', { [frameId - 1]: BigInt(frameId) * 1_000_000n }),
+          },
+          system: {
+            number: async () => registry.createType('u32', frameId * 10),
+            account: async () => registry.createType('AccountInfo', { data: { free: BigInt(frameId) * 10_000n } }),
+          },
+          vaults: { vaultsById: { entries: async () => [] } },
+        },
+      }) as unknown as ArgonCurrentQueryClient,
+  );
+  const events = createTypedEventEmitter();
+  const header = BlockWatch.readHeader(registry.createType('Header', { number: 110 }), true);
+  header.frameId = 11;
+  const blockWatch = {
+    events,
+    getApi: async (block: IBlockHeaderInfo) => apis[block.frameId === 11 ? 1 : 0],
+    // The finalized notification arrives before BlockWatch advances this cached head.
+    getFinalizedApi: async () => apis[0],
+  };
+  setMainchainClients({ events: createTypedEventEmitter(), currentClient: apis[0], get: async () => apis[0] } as any);
+  const vaults = new Vaults('dev-docker', currency as any, { blockWatch } as any);
+  vaults.currentState = shallowReactive(vaults.currentState);
+  const visibleEarnings = computed(() => vaults.rewards?.vaultRevenuePotential(4)?.actualEarnings);
+  await vaults.loadCurrentState();
+  await vi.waitFor(() => expect(visibleEarnings.value).toBe(48_500n));
+
+  vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+  try {
+    events.emit('finalized', [header]);
+    await new Promise(resolve => setImmediate(resolve));
+    expect(vaults.rewards?.capital.frameId).toBe(10);
+    expect(visibleEarnings.value).toBe(48_500n);
+
+    frameUnavailable = false;
+    events.emit('finalized', [header]);
+    await vi.waitFor(() => expect(visibleEarnings.value).toBe(53_350n));
+    expect(vaults.rewards?.capital.frameId).toBe(11);
+    expect(vaults.rewards?.averageMicrogonsPerArgonot).toBe(11_000_000n);
+
+    const published = vaults.rewards;
+    events.emit('finalized', [header]);
+    await new Promise(resolve => setImmediate(resolve));
+    expect(vaults.rewards).toBe(published);
+    expect(visibleEarnings.value).toBe(53_350n);
+  } finally {
+    vi.useRealTimers();
+  }
+});
 
 describe('Vaults stats storage', () => {
   const originalWindow = globalThis.window;
@@ -448,6 +536,7 @@ describe('Vaults cache upgrades', () => {
     );
     setMainchainClients({
       get: async () => ({ query: { vaults: { vaultsById: { entries: async () => [] } } } }),
+      events: createTypedEventEmitter(),
     } as any);
     const frames = {
       load: async () => undefined,

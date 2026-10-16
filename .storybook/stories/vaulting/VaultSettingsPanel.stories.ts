@@ -4,7 +4,6 @@ import basicEmitter from '../../../src-vue/emitters/basicEmitter.ts';
 import BigNumber from 'bignumber.js';
 import { fn, userEvent, within } from 'storybook/test';
 import VaultSettingsPanel from '../../../src-vue/panels/VaultSettingsPanel.vue';
-import { getArgonBonds } from '../../../src-vue/stores/argonBonds.ts';
 import { getBitcoinLocks } from '../../../src-vue/stores/bitcoin.ts';
 import { getConfig } from '../../../src-vue/stores/config.ts';
 import { getCurrency } from '../../../src-vue/stores/currency.ts';
@@ -124,7 +123,7 @@ export const PositionEdit: Story = {
 
 export const MaxReturnsGuidance: Story = {
   beforeEach: () => {
-    getVaults().currentState.argonotSecuritizationRewardRatio = 2n;
+    getVaults().currentState.argonotSecuritizationRewardRatio = 2;
   },
   play: async () => {
     const canvas = within(document.body);
@@ -302,7 +301,7 @@ export const PendingWithdrawals = {
 export const MaxReturnsWithPendingWithdrawal: Story = {
   beforeEach: () => {
     PendingWithdrawals.beforeEach();
-    getVaults().currentState.argonotSecuritizationRewardRatio = 2n;
+    getVaults().currentState.argonotSecuritizationRewardRatio = 2;
   },
   play: AddArgonotsForMaxReturns.play,
 };
@@ -346,7 +345,8 @@ export const LoadingSettings: Story = {
 
 export const GuidanceUnavailable: Story = {
   beforeEach: () => {
-    getArgonBonds().data.averageMicrogonsPerArgonot = undefined;
+    getVaults().rewards!.averageMicrogonsPerArgonot = undefined;
+    getVaults().rewards!.constants = { ...getVaults().rewards!.constants, argonotSecuritizationMultiplier: 2 };
   },
 };
 

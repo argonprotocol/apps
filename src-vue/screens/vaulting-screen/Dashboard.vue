@@ -283,7 +283,7 @@
                         :style="floatingZIndex"
                         class="group text-md w-xs cursor-pointer rounded-md border border-gray-800/20 bg-white py-3 text-left leading-5.5 font-light text-slate-900/60 shadow-2xl"
                       >
-                        <template v-if="vaultingBreakdown.revenuePotential?.capturedPercent !== undefined && currentVaultFramePosition && argonBonds.data.frameCapital">
+                        <template v-if="vaultingBreakdown.revenuePotential?.capturedPercent !== undefined && currentVaultFramePosition">
                           <div class="flex items-center justify-between gap-2 border-b border-slate-300 px-4 pb-2">
                             <h3 class="text-base font-semibold text-slate-700">Maximizing Daily Revenue</h3>
                             <button type="button" aria-label="Edit vault settings" @click.stop="openVaultEditOverlay" class="inline-flex cursor-pointer text-slate-400 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 hover:text-slate-600">
@@ -336,7 +336,7 @@
                                   {{ numeral(frameBondUsagePercent).formatPercent() }}
                                 </td>
                               </tr>
-                              <tr v-if="vaults.currentState.argonotSecuritizationRewardRatio > 0n" class="border-b border-slate-100">
+                              <tr v-if="vaults.currentState.argonotSecuritizationRewardRatio > 0" class="border-b border-slate-100">
                                 <th scope="row" class="py-2 pl-4 text-left font-normal">
                                   <span class="inline-flex items-center gap-1">
                                     Argonot Securitization
@@ -368,12 +368,32 @@
                                         <InformationCircleIcon class="size-3.5" />
                                       </button>
                                       <template #content>
-                                        <template v-if="argonBonds.data.upstreamBitcoinTarget !== undefined && argonBonds.data.upstreamBondTarget !== undefined">
-                                          Maximize rewards with these amounts in your upstream vault:
-                                          <div>Bitcoin Locks: {{ currency.recordsByKey.ARGN.symbol }}{{ microgonToArgonNm(argonBonds.data.upstreamBitcoinTarget).format('0,0') }}</div>
-                                          <div>Argon Bonds: {{ numeral(BondLot.microgonsToWholeBonds(argonBonds.data.upstreamBondTarget)).format('0,0') }}</div>
-                                        </template>
-                                        <template v-else>Upstream contribution amounts are unavailable.</template>
+                                        <div class="space-y-3">
+                                          <div
+                                            v-if="vaults.currentState.upstreamBitcoinTarget !== undefined && vaults.currentState.upstreamBondTarget !== undefined"
+                                            class="space-y-1"
+                                          >
+                                            <p>Maximize rewards with these amounts in your upstream vault:</p>
+                                            <p>
+                                              Bitcoin Locks:
+                                              {{ currency.recordsByKey.ARGN.symbol }}{{ microgonToArgonNm(vaults.currentState.upstreamBitcoinTarget).format('0,0') }}
+                                            </p>
+                                            <p>
+                                              Argon Bonds:
+                                              {{ numeral(BondLot.microgonsToWholeBonds(vaults.currentState.upstreamBondTarget)).format('0,0') }}
+                                            </p>
+                                          </div>
+                                          <p v-else>Upstream contribution amounts are unavailable.</p>
+
+                                          <p
+                                            v-if="vaults.currentState.upstreamParticipationFactor"
+                                            class="border-t border-slate-200 pt-3 text-xs leading-relaxed text-slate-500"
+                                          >
+                                            Upstream participation affects
+                                            {{ numeral(vaults.currentState.upstreamParticipationFactor.times(100).toNumber()).formatPercent() }}
+                                            of earnings above the minimum.
+                                          </p>
+                                        </div>
                                       </template>
                                     </Tooltip>
                                   </span>
@@ -638,7 +658,7 @@ const miningStats = useMiningStats();
 const vaultingBreakdown = useVaultingAssetBreakdown();
 const currentVaultFramePosition = Vue.computed(() => {
   const vaultId = myVault.vaultId;
-  return vaultId == null ? undefined : argonBonds.data.frameCapital?.vaultSecuritizationPositions[vaultId];
+  return vaultId == null ? undefined : vaults.rewards?.capital.vaultSecuritizationPositions[vaultId];
 });
 const revenuePopoverOpen = Vue.ref(false);
 const revenueCaptureButton = Vue.ref<HTMLButtonElement>();
@@ -690,7 +710,7 @@ const argonotMaxReturnsPercent = Vue.computed(() => {
   if (!position) return;
   return getCappedPercent(
     position.argonotSecuritizationInMicrogons,
-    position.securitization * vaults.currentState.argonotSecuritizationRewardRatio,
+    position.securitization * BigInt(vaults.currentState.argonotSecuritizationRewardRatio),
   );
 });
 const frameBitcoinUndersecuritized = Vue.computed(() => {
@@ -758,15 +778,10 @@ const potentialDailyRevenue = Vue.computed(() => {
   if (!myVault.createdVault) return 0n;
 
   const bondFrame = currentTreasuryBondFrame.value;
-  const capital = argonBonds.data.frameCapital;
-  if (capital) {
-    return (
-      argonBonds.vaultRevenuePotential(
-        myVault.createdVault.vaultId,
-        vaults.currentState,
-        averageDailyNetworkRevenue.value,
-      )?.maximumEarnings ?? 0n
-    );
+  const rewards = vaults.rewards;
+  if (rewards) {
+    const potential = rewards.vaultRevenuePotential(myVault.createdVault.vaultId, averageDailyNetworkRevenue.value);
+    return potential?.maximumEarnings ?? 0n;
   }
   const bondPool = bigNumberToBigInt(
     BigNumber(averageDailyNetworkRevenue.value).times(argonBonds.data.bondPoolPercent),

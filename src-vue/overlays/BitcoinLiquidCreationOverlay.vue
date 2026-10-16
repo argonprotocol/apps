@@ -295,22 +295,6 @@
               </template>
             </ArrowCalloutButton>
           </div>
-          <div
-            v-if="maximumLiquidSatoshis < availableSatoshis"
-            role="alert"
-            class="relative mt-3 flex items-center rounded border border-yellow-400/70 bg-yellow-100 px-3 py-3 text-yellow-900"
-          >
-            <AlertIcon class="mr-2 h-4 shrink-0 text-yellow-700" />
-            <span>
-              You have {{ satToBtcNm(availableSatoshis).format('0,0.[00000000]') }} BTC available, but
-              {{ selectedVaults.capacitySubject }} can currently securitize only
-              {{ satToBtcNm(maximumLiquidSatoshis).format('0,0.[00000000]') }} BTC for this Liquid.
-            </span>
-          </div>
-          <WalletFundingCallout v-if="!availableSatoshis" :arrow-offset="64" @open-wallet="openBitcoinWallet">
-            <AlertIcon class="mr-2 h-4 shrink-0 text-yellow-700" />
-            You don't have Bitcoin available in your wallet. Add Bitcoin before creating a Liquid.
-          </WalletFundingCallout>
           <div class="mt-2 text-sm text-gray-600/70">
             One-time fee of
             <template v-if="couponCreditMicrogons">
@@ -332,11 +316,35 @@
           >
             Checking available securitization…
           </div>
-          <WalletFundingCallout v-if="availableSatoshis && walletShortfallMicrogons" @open-wallet="openArgonWallet">
+          <div
+            v-if="props.state.errorMessage"
+            role="alert"
+            class="mt-3 flex items-center rounded border border-yellow-400/70 bg-yellow-100 px-3 py-3 text-yellow-900"
+          >
+            <AlertIcon class="mr-2 h-4 shrink-0 text-yellow-700" />
+            {{ props.state.errorMessage }}
+          </div>
+          <WalletFundingCallout v-else-if="!availableSatoshis" :arrow-offset="64" @open-wallet="openBitcoinWallet">
+            <AlertIcon class="mr-2 h-4 shrink-0 text-yellow-700" />
+            You don't have Bitcoin available in your wallet. Add Bitcoin before creating a Liquid.
+          </WalletFundingCallout>
+          <WalletFundingCallout v-else-if="walletShortfallMicrogons" @open-wallet="openArgonWallet">
             <AlertIcon class="mr-2 h-4 shrink-0 text-yellow-700" />
             Your wallet needs another {{ argonSymbol
             }}{{ microgonToArgonNm(walletShortfallMicrogons).format('0,0.00') }} to cover the one-time fees.
           </WalletFundingCallout>
+          <div
+            v-else-if="maximumLiquidSatoshis < availableSatoshis"
+            role="alert"
+            class="relative mt-3 flex items-center rounded border border-yellow-400/70 bg-yellow-100 px-3 py-3 text-yellow-900"
+          >
+            <AlertIcon class="mr-2 h-4 shrink-0 text-yellow-700" />
+            <span>
+              You have {{ satToBtcNm(availableSatoshis).format('0,0.[00000000]') }} BTC available, but
+              {{ selectedVaults.capacitySubject }} can currently securitize only
+              {{ satToBtcNm(maximumLiquidSatoshis).format('0,0.[00000000]') }} BTC for this Liquid.
+            </span>
+          </div>
           <div
             v-else-if="treasuryCertificationShortfallSatoshis"
             class="relative mt-3 flex items-center rounded border border-yellow-400/70 bg-yellow-100 px-3 py-3 text-yellow-900"
@@ -392,13 +400,6 @@
       </div>
 
       <div class="mt-3 py-3">
-        <div
-          v-if="props.state.errorMessage"
-          class="mb-3 flex items-center rounded border border-yellow-400/70 bg-yellow-100 px-3 py-3 text-yellow-900"
-        >
-          <AlertIcon class="mr-2 h-4 shrink-0 text-yellow-700" />
-          {{ props.state.errorMessage }}
-        </div>
         <div class="flex flex-row items-center justify-end gap-x-3">
           <button
             class="cursor-pointer rounded-md border border-slate-300 px-10 py-2 text-slate-600 hover:bg-slate-50"

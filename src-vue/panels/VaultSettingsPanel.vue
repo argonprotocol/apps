@@ -105,7 +105,7 @@
                   <InformationCircleIcon class="size-3.5" />
                 </button>
                 <template #content>
-                  <template v-if="vaults.currentState.argonotSecuritizationRewardRatio === 0n">
+                  <template v-if="vaults.currentState.argonotSecuritizationRewardRatio === 0">
                     Argonot securitization currently has no impact on vault rewards.
                   </template>
                   <template v-else>Argonot securitization maximizes your vault’s share of network revenue.</template>
@@ -147,7 +147,7 @@
               </span>
             </div>
             <div class="font-mono text-sm text-gray-500/60">
-              <template v-if="vaults.currentState.argonotSecuritizationRewardRatio === 0n">
+              <template v-if="vaults.currentState.argonotSecuritizationRewardRatio === 0">
                 ARGNOT Max Rewards not enabled on this network yet
               </template>
               <Tooltip v-else-if="rewardBacking && rewardBacking.additionalMicronots > 0n" as-child side="top">
@@ -398,7 +398,7 @@
                 v-if="
                   fundingAsset === 'ARGNOT' &&
                   fundingAction === 'add' &&
-                  vaults.currentState.argonotSecuritizationRewardRatio > 0n
+                  vaults.currentState.argonotSecuritizationRewardRatio > 0
                 "
                 type="button"
                 :disabled="!rewardBacking || isSubmitting"
@@ -653,7 +653,6 @@ import { getTransactionFailureMessage } from '../lib/TransactionInfo.ts';
 import numeral, { createNumeralHelpers } from '../lib/numeral.ts';
 import EditBoxOverlay from '../overlays/EditBoxOverlay.vue';
 import OverlayBase from '../overlays/OverlayBase.vue';
-import { getArgonBonds } from '../stores/argonBonds.ts';
 import { getBitcoinLocks } from '../stores/bitcoin.ts';
 import { getCurrency } from '../stores/currency.ts';
 import { getMyVault, getVaults } from '../stores/vaults.ts';
@@ -663,7 +662,6 @@ import { useWallets } from '../stores/wallets.ts';
 const myVault = getMyVault();
 const currency = getCurrency();
 const wallets = useWallets();
-const argonBonds = getArgonBonds();
 const vaults = getVaults();
 const vaultingBreakdown = useVaultingAssetBreakdown();
 const bitcoinLocks = getBitcoinLocks();
@@ -683,16 +681,14 @@ const bitcoinCapacityMicrogons = Vue.computed(() =>
   bigNumberToBigInt(BigNumber(vault.value?.securitization ?? 0n).div(vault.value?.securitizationRatio ?? 1)),
 );
 
-const rewardBacking = Vue.computed(() =>
-  vault.value
-    ? argonBonds.argonotRewardBacking({
-        vault: vault.value,
-        vaultsState: vaults.currentState,
-        argonotSecuritization: myVault.data.argonotCommitment,
-        securitizationMicrogons: vault.value.securitizationTarget,
-      })
-    : undefined,
-);
+const rewardBacking = Vue.computed(() => {
+  if (!vault.value) return;
+  return vaults.rewards?.argonotRewardBacking({
+    vault: vault.value,
+    argonotSecuritization: myVault.data.argonotCommitment,
+    securitizationMicrogons: vault.value.securitizationTarget,
+  });
+});
 
 const pendingArgonWithdrawals = Vue.computed(
   () =>

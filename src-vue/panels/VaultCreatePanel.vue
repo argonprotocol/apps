@@ -87,14 +87,14 @@
                     <InformationCircleIcon class="size-3.5" />
                   </button>
                   <template #content>
-                    <template v-if="vaults.currentState.argonotSecuritizationRewardRatio === 0n">
+                    <template v-if="vaults.currentState.argonotSecuritizationRewardRatio === 0">
                       Argonot securitization currently has no impact on vault rewards.
                     </template>
                     <template v-else>Argonot securitization maximizes your vault’s share of network revenue.</template>
                   </template>
                 </Tooltip>
               </div>
-              <div v-if="vaults.currentState.argonotSecuritizationRewardRatio > 0n" class="flex items-center gap-1">
+              <div v-if="vaults.currentState.argonotSecuritizationRewardRatio > 0" class="flex items-center gap-1">
                 <button
                   type="button"
                   :disabled="isSaving || maximumReturnsMicronots === undefined"
@@ -128,7 +128,7 @@
               class="px-1 py-2 text-[17px]!"
             />
             <div class="mt-2 text-sm text-gray-600/70">
-              <template v-if="vaults.currentState.argonotSecuritizationRewardRatio === 0n">
+              <template v-if="vaults.currentState.argonotSecuritizationRewardRatio === 0">
                 ARGNOT Max Rewards not enabled on this network yet
               </template>
               <template v-else-if="maximumReturnsMicronots !== undefined">
@@ -255,7 +255,7 @@
 import * as Vue from 'vue';
 import BigNumber from 'bignumber.js';
 import { ArrowTopRightOnSquareIcon, InformationCircleIcon } from '@heroicons/vue/24/outline';
-import { bigIntMax, bigNumberToBigInt, JsonExt, TreasuryBonds, UnitOfMeasurement } from '@argonprotocol/apps-core';
+import { bigIntMax, bigNumberToBigInt, JsonExt, UnitOfMeasurement } from '@argonprotocol/apps-core';
 import EditIcon from '../assets/edit.svg?component';
 import InputToken from '../components/InputToken.vue';
 import Tooltip from '../components/Tooltip.vue';
@@ -264,7 +264,6 @@ import numeral, { createNumeralHelpers } from '../lib/numeral.ts';
 import EditBoxOverlay from '../overlays/EditBoxOverlay.vue';
 import OverlayBase from '../overlays/OverlayBase.vue';
 import { getVaults } from '../stores/vaults.ts';
-import { getArgonBonds } from '../stores/argonBonds.ts';
 import { useCertificationController } from '../stores/certificationController.ts';
 import { getConfig } from '../stores/config.ts';
 import { getCurrency } from '../stores/currency.ts';
@@ -277,7 +276,6 @@ const config = getConfig();
 const currency = getCurrency();
 const wallets = useWallets();
 const controller = useCertificationController();
-const argonBonds = getArgonBonds();
 const vaults = getVaults();
 const vaultingStats = useVaultingStats();
 const { micronotToArgonotNm, microgonToMoneyNm } = createNumeralHelpers(currency);
@@ -294,11 +292,7 @@ const bitcoinCapacityMicrogons = Vue.computed(() =>
   bigNumberToBigInt(BigNumber(vaultSetup.value.securitizationMicrogons).div(vaultSetup.value.securitizationRatio)),
 );
 const maximumReturnsMicronots = Vue.computed(() =>
-  TreasuryBonds.getVaultArgonotSecuritizationTarget({
-    securitizationMicrogons: vaultSetup.value.securitizationMicrogons,
-    averageMicrogonsPerArgonot: argonBonds.data.averageMicrogonsPerArgonot,
-    argonotSecuritizationRewardRatio: vaults.currentState.argonotSecuritizationRewardRatio,
-  }),
+  vaults.rewards?.argonotSecuritizationTarget(vaultSetup.value.securitizationMicrogons),
 );
 const projectedEarningsMicrogons = Vue.computed(() =>
   bigNumberToBigInt(BigNumber(vaultSetup.value.securitizationMicrogons).times(vaultingStats.averageAPR).div(100)),

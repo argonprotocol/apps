@@ -5,6 +5,7 @@ import {
   MICROGONS_PER_ARGON,
   MICRONOTS_PER_ARGONOT,
   NetworkConfig,
+  TreasuryRewards,
   type IFrameBondLot,
   type IVaultStats,
 } from '@argonprotocol/apps-core';
@@ -138,6 +139,12 @@ export function setupVaultingPortfolioScenario() {
     },
   } satisfies NonNullable<RuntimeQueryResult<CurrentRuntimeQueries['treasury']['currentFrameVaultCapital']>>;
   const fullBidPool = 6_000n * microgonsPerArgon;
+  getVaults().currentState.rewards = new TreasuryRewards({
+    capital: frameCapital,
+    constants: { ...getVaults().rewards!.constants, argonotSecuritizationMultiplier: 2 },
+    fullBidPool,
+    averageMicrogonsPerArgonot: 2_000_000n,
+  });
   mocked(useMiningStats, { partial: true }).mockReturnValue(
     Vue.reactive({ aggregatedBidCosts: fullBidPool * 10n, update: fn(async () => undefined) }),
   );
@@ -196,6 +203,12 @@ export function setupVaultingPortfolioScenario() {
   } as unknown as ReturnType<typeof getMyVault>);
 
   const baseVaults = getVaults();
+  Object.assign(baseVaults.currentState, {
+    argonotSecuritizationRewardRatio: 2,
+    upstreamBitcoinTarget: 5_000n * microgonsPerArgon,
+    upstreamBondTarget: 5_000n * microgonsPerArgon,
+    upstreamParticipationFactor: BigNumber(0.05),
+  });
   mocked(getVaults).mockReturnValue({
     ...baseVaults,
     stats: Vue.reactive({
@@ -253,13 +266,8 @@ export function setupVaultingPortfolioScenario() {
       isLoaded: true,
       vaultId: createdVault.vaultId,
       currentFrameId,
-      frameCapital,
       distributableBidPool: 600n * microgonsPerArgon,
-      fullBidPool,
       bondPoolPercent: 0.1,
-      averageMicrogonsPerArgonot: 2_000_000n,
-      upstreamBitcoinTarget: 5_000n * microgonsPerArgon,
-      upstreamBondTarget: 5_000n * microgonsPerArgon,
       totalActiveBonds: 8_400,
       vaultsById: { [createdVault.vaultId]: vaultBondState },
     }),
@@ -267,10 +275,7 @@ export function setupVaultingPortfolioScenario() {
     // These production methods intentionally use the mocked store's data as `this`.
     /* eslint-disable @typescript-eslint/unbound-method */
     getEarningsHistory: ArgonBonds.prototype.getEarningsHistory,
-    argonotRewardBacking: ArgonBonds.prototype.argonotRewardBacking,
-    vaultRevenuePotential: ArgonBonds.prototype.vaultRevenuePotential,
     /* eslint-enable @typescript-eslint/unbound-method */
-    getVaultBondCapacityMicrogons: fn(() => 2_400n * microgonsPerArgon),
     availableBondSpace: fn(() => 1_360n * microgonsPerArgon),
     subscribeGlobal: fn(async () => undefined),
     refreshVault: fn(async () => undefined),
@@ -431,6 +436,7 @@ function createMainchainClient(
         percentForArgonBondPool: BigNumber(0.1),
         percentForVaultPool: BigNumber(0.51),
         minimumVaultProfitPercent: BigNumber(0.01),
+        argonotSecuritizationMultiplier: 2,
         upstreamBitcoinTarget: 5_000n * microgonsPerArgon,
         upstreamBondTarget: 5_000n * microgonsPerArgon,
       },
