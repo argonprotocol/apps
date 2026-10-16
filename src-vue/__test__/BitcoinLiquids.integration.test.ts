@@ -143,6 +143,9 @@ describe.skipIf(SKIP_E2E).sequential('Bitcoin Liquids integration', { timeout: 3
       const coveredSatoshis = lock.securitizedSatoshis;
 
       if (hasExistingLiquid) {
+        // Publish a fresh occurrence of the original rate after the Bitcoin funding wait.
+        await submitBitcoinPrice(client, { btcUsdPrice: 120_001 });
+        await submitBitcoinPrice(client, { btcUsdPrice: 120_000 });
         const firstCreation = await createLiquid.submit({
           allocations: [{ lock, satoshis: coveredSatoshis / 2n }],
           txSigner,
@@ -177,6 +180,17 @@ describe.skipIf(SKIP_E2E).sequential('Bitcoin Liquids integration', { timeout: 3
       );
       const snapshot = runtimeClient(await client.raw.at(await client.rpc.chain.getFinalizedHead()));
       expect((await snapshot.query.bitcoinLocks.microgonPerBtcHistory())?.some(([, rate]) => rate === fundedLock.microgonsAtTargetPerBtc)).toBe(false);
+
+      const retainedSatoshis = coveredSatoshis - fundedLock.fissionedSatoshis;
+      const retainedPreview = await createLiquid.preview({
+        allocations: [{ lock, satoshis: retainedSatoshis }],
+        txSigner,
+        client,
+      });
+      expect(retainedPreview.maximumSatoshisByLockId[lock.lockId!]).toBe(
+        hasExistingLiquid ? retainedSatoshis : fundedLock.fundedSatoshis,
+      );
+      expect(retainedPreview.totalSecurityFeeMicrogons).toBe(0n);
 
       let satoshis = fundedLock.fundedSatoshis - fundedLock.fissionedSatoshis;
       if (hasExistingLiquid) {

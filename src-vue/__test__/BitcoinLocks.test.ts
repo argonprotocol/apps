@@ -1,6 +1,6 @@
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import BigNumber from 'bignumber.js';
-import { BitcoinLock, type Currency, type TxSigningAccount } from '@argonprotocol/apps-core';
+import { BitcoinLock, Currency, type MainchainClients, type TxSigningAccount, Vault } from '@argonprotocol/apps-core';
 import { type TransactionTracker, TxAttemptState } from '../lib/TransactionTracker.ts';
 import { BitcoinLockStatus } from '../lib/db/BitcoinLocksTable.ts';
 import { ExtrinsicType } from '../lib/db/TransactionsTable.ts';
@@ -8,7 +8,7 @@ import * as vaultStore from '../stores/vaults.ts';
 import { createBitcoinLockConfig, createLock, createStore } from './helpers/bitcoin.ts';
 import { createTestDb } from './helpers/db.ts';
 import { getMainchainClient } from '../stores/mainchain.ts';
-import { BitcoinLockWalletFundingError, type IBitcoinRequestLockMetadata } from '../lib/BitcoinLocks.ts';
+import BitcoinLocks, { BitcoinLockWalletFundingError, type IBitcoinRequestLockMetadata } from '../lib/BitcoinLocks.ts';
 import type { TransactionInfo } from '../lib/TransactionInfo.ts';
 import type { UpstreamOperatorClient } from '../lib/UpstreamOperatorClient.ts';
 import { createMockWalletKeys } from './helpers/wallet.ts';
@@ -314,52 +314,87 @@ it('keeps a funding expiration estimate stable until the oracle Bitcoin height c
 });
 
 describe('BitcoinLocks capacity owners', () => {
-  afterEach(() => vi.restoreAllMocks());
+  let store: BitcoinLocks;
 
-  it('keeps vault capacity while rounding the Bitcoin requirement up', async () => {
-    const store = createStore();
-    vi.spyOn(BitcoinLock, 'calculateRedemptionAmount').mockImplementation((_priceIndex, targetPrice) => targetPrice);
-
-    expect(await store.satoshisForArgonLiquidity(3n, 200_000_000n)).toBe(2n);
-
-    vi.spyOn(store, 'satoshisForArgonLiquidity').mockResolvedValue(301n);
-    const capacity = await store.getLockableBitcoinCapacity({
-      vault: { availableBitcoinSpace: () => 300n } as never,
-      microgonsAtTargetPerBtc: 200_000_000n,
-    });
-
-    expect(capacity.availableLiquidityMicrogons).toBe(300n);
-    expect(capacity.availableSatoshis).toBe(301n);
+  beforeEach(() => {
+    const currency = new Currency({ events: { on: vi.fn() } } as unknown as MainchainClients);
+    currency.isLoaded = true;
+    currency.priceIndex.btcUsdPrice = new BigNumber(200);
+    currency.priceIndex.argonUsdPrice = new BigNumber(1);
+    currency.priceIndex.argonUsdTargetPrice = new BigNumber(1);
+    vi.spyOn(currency, 'load').mockRejectedValue(new Error('Capacity calculation must use loaded prices.'));
+    store = createStore({ currency });
   });
 
+  afterEach(() => vi.restoreAllMocks());
+
+  it.each([undefined, 200_000_000n])(
+    'keeps Max within whole-satoshi capacity at price %s',
+    async microgonsAtTargetPerBtc => {
+      const vault = Object.assign(Object.create(Vault.prototype) as Vault, {
+        securitization: 3n,
+        securitizationLocked: 0n,
+        flexibleSecuritizationLocked: 0n,
+        reservedSecuritizationSpace: 0n,
+        securitizationRatio: new BigNumber(1),
+      });
+      const capacity = await store.getLockableBitcoinCapacity({
+        vault,
+        microgonsAtTargetPerBtc,
+      });
+
+      expect(await store.satoshisForArgonLiquidity(3n, 200_000_000n)).toBe(2n);
+      expect(capacity.vaultCapacityLiquidityMicrogons).toBe(3n);
+      expect(capacity.availableSatoshis).toBe(1n);
+      expect(capacity.availableLiquidityMicrogons).toBe(2n);
+      expect(store.argonLiquidityForSatoshis(capacity.availableSatoshis + 1n, microgonsAtTargetPerBtc)).toBeGreaterThan(
+        3n,
+      );
+
+      vault.securitization = 1n;
+      const subSatoshiCapacity = await store.getLockableBitcoinCapacity({ vault, microgonsAtTargetPerBtc });
+      expect(subSatoshiCapacity.availableSatoshis).toBe(0n);
+      expect(subSatoshiCapacity.availableLiquidityMicrogons).toBe(0n);
+
+      vault.securitization = 4n;
+      const exactCapacity = await store.getLockableBitcoinCapacity({ vault, microgonsAtTargetPerBtc });
+      expect(exactCapacity.availableSatoshis).toBe(2n);
+      expect(exactCapacity.availableLiquidityMicrogons).toBe(4n);
+
+      const limitedCapacity = await store.getLockableBitcoinCapacity({
+        vault,
+        microgonsAtTargetPerBtc,
+        maxSatoshis: 1n,
+      });
+      expect(limitedCapacity.availableSatoshis).toBe(1n);
+      expect(limitedCapacity.availableLiquidityMicrogons).toBe(2n);
+
+      vault.securitization = 0n;
+      const emptyCapacity = await store.getLockableBitcoinCapacity({ vault, microgonsAtTargetPerBtc });
+      expect(emptyCapacity.availableSatoshis).toBe(0n);
+      expect(emptyCapacity.availableLiquidityMicrogons).toBe(0n);
+    },
+  );
+
   it('uses the prospective owner for lockable capacity', async () => {
-    const store = createStore();
-    const availableBitcoinSpace = vi.fn(() => 300n);
-    vi.spyOn(BitcoinLock, 'satoshisRequiredForRedemptionAmount').mockReturnValue(300n);
-    vi.spyOn(BitcoinLock, 'calculateRedemptionAmountFromSatoshis').mockReturnValue(300n);
-
-    const capacity = await store.getLockableBitcoinCapacity({
-      vault: { availableBitcoinSpace } as never,
-      lockOwner: 'bitcoin-owner',
+    const vault = Object.assign(Object.create(Vault.prototype) as Vault, {
+      operatorAccountId: 'vault-operator',
+      securitization: 1_000n,
+      securitizationLocked: 800n,
+      flexibleSecuritizationLocked: 300n,
+      reservedSecuritizationSpace: 100n,
+      securitizationRatio: new BigNumber(1),
     });
+    const ownerCapacity = await store.getLockableBitcoinCapacity({ vault, lockOwner: 'vault-operator' });
+    const memberCapacity = await store.getLockableBitcoinCapacity({ vault, lockOwner: 'bitcoin-owner' });
 
-    expect(availableBitcoinSpace).toHaveBeenCalledWith('bitcoin-owner');
-    expect(capacity.vaultCapacityLiquidityMicrogons).toBe(300n);
+    expect(ownerCapacity.availableLiquidityMicrogons).toBe(200n);
+    expect(memberCapacity.availableLiquidityMicrogons).toBe(400n);
   });
 
   it('includes unused space when projecting flexible capacity changes', async () => {
-    const store = createStore();
-    const availableBitcoinSpace = vi.fn(() => 200n);
-    vi.spyOn(BitcoinLock, 'satoshisRequiredForRedemptionAmount').mockImplementation((_priceIndex, microgons) => {
-      return microgons;
-    });
-    vi.spyOn(BitcoinLock, 'calculateRedemptionAmountFromSatoshis').mockImplementation((_priceIndex, satoshis) => {
-      return satoshis;
-    });
-
     const capacity = await store.getLockableBitcoinCapacity({
       vault: {
-        availableBitcoinSpace,
         reservedSecuritizationSpace: 100n,
         securitization: 1_000n,
         securitizationLocked: 800n,
@@ -368,7 +403,8 @@ describe('BitcoinLocks capacity owners', () => {
       projectedFlexibleSecuritizationLocked: 300n,
     });
 
-    expect(availableBitcoinSpace).not.toHaveBeenCalled();
     expect(capacity.vaultCapacityLiquidityMicrogons).toBe(400n);
+    expect(capacity.availableSatoshis).toBe(200n);
+    expect(capacity.availableLiquidityMicrogons).toBe(400n);
   });
 });

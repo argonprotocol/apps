@@ -55,6 +55,7 @@ export function createStore(
     walletKeys?: WalletKeys;
     mempool?: BitcoinMempool;
     upstreamOperator?: UpstreamOperatorClient;
+    currency?: Currency;
   } = {},
 ): BitcoinLocks {
   const blockWatch =
@@ -100,7 +101,7 @@ export function createStore(
     Promise.resolve(db),
     options.walletKeys ?? ({ defaultArgonAddress: '5owner' } as WalletKeys),
     blockWatch,
-    currency,
+    options.currency ?? currency,
     transactionTracker,
     options.mempool,
     options.upstreamOperator,

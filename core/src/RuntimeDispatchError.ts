@@ -88,7 +88,12 @@ function findRuntimeErrorDocs({ registry }: Pick<ArgonClient, 'registry'>, error
     const variant = registry.lookup
       .getSiType(pallet.errors.unwrap().type)
       .def.asVariant.variants.find(variant => variant.name.eq(name));
-    return variant?.docs.join(' ') || undefined;
+    const description = variant?.docs.join(' ');
+    if (description) return description;
+
+    const sourceError = republishedRuntimeErrors.get(errorCode);
+    if (sourceError) return findRuntimeErrorDocs({ registry }, sourceError);
+    return;
   }
 
   let type = registry.lookup.types.find(type => type.type.path.join('::') === 'sp_runtime::DispatchError')?.type;
@@ -108,6 +113,21 @@ const restrictedFundsMessage = 'These funds are restricted and cannot be transfe
 const unsupportedTransactionMessage = 'The network does not support this asset or transaction.';
 const genericTransactionMessage =
   'The transaction could not be completed. Please try again or contact support if the problem continues.';
+
+// Bitcoin Locks re-publishes these VaultError variants; account-balance errors are renamed.
+const republishedRuntimeErrors = new Map<string, string>([
+  ['bitcoinLocks.InsufficientFunds', 'vaults.InsufficientFunds'],
+  ['bitcoinLocks.HoldUnexpectedlyModified', 'vaults.HoldUnexpectedlyModified'],
+  ['bitcoinLocks.UnrecoverableHold', 'vaults.UnrecoverableHold'],
+  ['bitcoinLocks.VaultNotFound', 'vaults.VaultNotFound'],
+  ['bitcoinLocks.InsufficientVaultFunds', 'vaults.InsufficientVaultFunds'],
+  ['bitcoinLocks.VaultClosed', 'vaults.VaultClosed'],
+  ['bitcoinLocks.AccountWouldGoBelowMinimumBalance', 'vaults.AccountBelowMinimumBalance'],
+  ['bitcoinLocks.InvalidBitcoinScript', 'vaults.InvalidBitcoinScript'],
+  ['bitcoinLocks.NoVaultBitcoinPubkeysAvailable', 'vaults.NoVaultBitcoinPubkeysAvailable'],
+  ['bitcoinLocks.UnableToGenerateVaultBitcoinPubkey', 'vaults.UnableToGenerateVaultBitcoinPubkey'],
+  ['bitcoinLocks.VaultNotYetActive', 'vaults.VaultNotYetActive'],
+]);
 
 // Plain-language overrides for common failures and built-in variants without metadata docs.
 const runtimeErrorMessages = new Map<string, string>([
