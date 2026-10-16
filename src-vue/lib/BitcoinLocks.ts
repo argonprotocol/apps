@@ -214,26 +214,6 @@ export default class BitcoinLocks {
         const queue = this.#txQueueByUuid[lock.uuid];
         if (queue) await queue.add(async () => undefined).promise;
       },
-      findConfirmedRecoveredRelease: async ({ lock, release, fundingUtxos }) => {
-        let txid = release?.bitcoinTxid;
-        if (!txid) {
-          for (const fundingUtxo of fundingUtxos) {
-            const outspend = await this.#mempool.getOutspendStatus(
-              fundingUtxo.txid,
-              fundingUtxo.vout,
-              this.oracleBitcoinBlockHeight,
-            );
-            if (outspend?.isConfirmed) return outspend;
-          }
-          if (!walletKeys.canSign || !release || release.status !== BitcoinReleaseStatus.ReadyForBitcoinBroadcast)
-            return;
-          txid = (await this.releases.buildLockBitcoinTransaction(lock, release)).txid;
-        }
-
-        const status = await this.#mempool.getTxStatus(txid, this.oracleBitcoinBlockHeight);
-        if (!status?.isConfirmed) return;
-        return { ...status, txid };
-      },
       onHistoryRecoveryComplete: (locks, didPublish) => this.resumeAfterHistoryRecovery(locks, didPublish),
       insertPending: this.insertPending.bind(this),
       dbPromise,

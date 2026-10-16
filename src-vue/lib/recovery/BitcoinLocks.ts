@@ -24,7 +24,6 @@ import {
   BitcoinReleaseStatus,
   type IBitcoinReleaseRecord,
 } from '../../interfaces/IBitcoinReleaseRecord.ts';
-import type { IMempoolTxStatus } from '../BitcoinMempool.ts';
 import type BitcoinReleases from '../BitcoinReleases.ts';
 import type BitcoinUtxoTracking from '../BitcoinUtxoTracking.ts';
 import type { deriveBitcoinLockHdKey, WalletKeys } from '../WalletKeys.ts';
@@ -70,11 +69,6 @@ export class BitcoinLockRecovery {
   private readonly getPendingLocks: () => IBitcoinLockRecord[];
   private readonly getUnloadedCurrentLockIds: () => ReadonlySet<number>;
   private readonly waitForLockIdle: (lock: IBitcoinLockRecord, alreadyOwnsQueue?: boolean) => Promise<void>;
-  private readonly findConfirmedRecoveredRelease: (args: {
-    lock: IBitcoinLockRecord;
-    release: IBitcoinReleaseRecord;
-    fundingUtxos: IBitcoinUtxoRecord[];
-  }) => Promise<(IMempoolTxStatus & { txid: string }) | undefined>;
   private readonly onHistoryRecoveryComplete: (locks: IBitcoinLockRecord[], didPublish: boolean) => void;
   private readonly utxoTracking: BitcoinUtxoTracking;
   private readonly releases: BitcoinReleases;
@@ -104,7 +98,6 @@ export class BitcoinLockRecovery {
     getPendingLocks: BitcoinLockRecovery['getPendingLocks'];
     getUnloadedCurrentLockIds: BitcoinLockRecovery['getUnloadedCurrentLockIds'];
     waitForLockIdle: BitcoinLockRecovery['waitForLockIdle'];
-    findConfirmedRecoveredRelease: BitcoinLockRecovery['findConfirmedRecoveredRelease'];
     onHistoryRecoveryComplete: BitcoinLockRecovery['onHistoryRecoveryComplete'];
     utxoTracking: BitcoinLockRecovery['utxoTracking'];
     releases: BitcoinLockRecovery['releases'];
@@ -122,7 +115,6 @@ export class BitcoinLockRecovery {
     this.getPendingLocks = args.getPendingLocks;
     this.getUnloadedCurrentLockIds = args.getUnloadedCurrentLockIds;
     this.waitForLockIdle = args.waitForLockIdle;
-    this.findConfirmedRecoveredRelease = args.findConfirmedRecoveredRelease;
     this.onHistoryRecoveryComplete = args.onHistoryRecoveryComplete;
     this.utxoTracking = args.utxoTracking;
     this.releases = args.releases;
@@ -304,12 +296,17 @@ export class BitcoinLockRecovery {
       if (release.changeSatoshis > 0n) continue;
 
       try {
-        const confirmed = await this.findConfirmedRecoveredRelease({
+        const observed = await this.releases.findBitcoinTransaction({
           lock: this.toDurableRecord(recovered, lockId),
           release,
           fundingUtxos,
         });
-        if (!confirmed) continue;
+        if (!observed) continue;
+        Object.assign(release, observed);
+        if (observed.bitcoinConfirmedHeight === undefined) {
+          release.status = BitcoinReleaseStatus.ConfirmingOnBitcoin;
+          continue;
+        }
 
         for (const fundingUtxo of fundingUtxos) {
           fundingUtxo.spendStatus = BitcoinUtxoSpendStatus.Spent;
@@ -318,11 +315,6 @@ export class BitcoinLockRecovery {
         }
         Object.assign(release, {
           status: BitcoinReleaseStatus.Complete,
-          bitcoinTxid: confirmed.txid,
-          bitcoinFirstSeenAt: release.bitcoinFirstSeenAt ?? new Date(confirmed.transactionBlockTime * 1_000),
-          bitcoinFirstSeenHeight: release.bitcoinFirstSeenHeight ?? confirmed.transactionBlockHeight,
-          bitcoinFirstSeenOracleHeight: release.bitcoinFirstSeenOracleHeight ?? confirmed.argonBitcoinHeight,
-          bitcoinConfirmedHeight: confirmed.transactionBlockHeight,
           statusError: undefined,
         });
         replay.releasesById[release.id] = release;

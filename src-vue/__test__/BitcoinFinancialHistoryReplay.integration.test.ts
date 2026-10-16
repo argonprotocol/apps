@@ -9,7 +9,7 @@ import {
   type MainchainClients,
 } from '@argonprotocol/apps-core';
 import { getClient, hexToU8a, u8aEq } from '@argonprotocol/mainchain';
-import { afterAll, describe, expect } from 'vitest';
+import { afterAll, describe, expect, vi } from 'vitest';
 import type { Db } from '../lib/Db.ts';
 import type { WalletKeys } from '../lib/WalletKeys.ts';
 import { BitcoinLockStatus } from '../lib/db/BitcoinLocksTable.ts';
@@ -22,6 +22,7 @@ import { createTestDb } from './helpers/db.ts';
 import { runRecoveryLifecycle } from './helpers/RecoveryLifecycleRunner.ts';
 import { CapturedHistoryReader } from './helpers/CapturedHistoryReader.ts';
 import { getHistoricalBitcoinLock } from '../lib/recovery/BitcoinLockHistory.ts';
+import BitcoinMempool from '../lib/BitcoinMempool.ts';
 
 const replayPath =
   process.env.FINANCIAL_HISTORY_REPLAY_PATH ??
@@ -236,7 +237,11 @@ async function replayBitcoinAccount(args: {
     name: `Bitcoin histories for ${accountId}`,
     timeoutMs: recordingClient ? 30_000 : undefined,
     recover: async () => {
-      const bitcoinLocks = createStore({ blockWatch, db, walletKeys });
+      // The corpus records Argon observations; Bitcoin transport is covered by the release recovery scenarios.
+      const mempool = new BitcoinMempool('https://example.invalid');
+      vi.spyOn(mempool, 'getOutspendStatus').mockResolvedValue(undefined);
+      vi.spyOn(mempool, 'getTxStatus').mockResolvedValue(undefined);
+      const bitcoinLocks = createStore({ blockWatch, db, walletKeys, mempool });
       const [persistedLocks, persistedUtxos] = await Promise.all([
         db.bitcoinLocksTable.fetchAll(),
         db.bitcoinUtxosTable.fetchAll(),
@@ -246,11 +251,7 @@ async function replayBitcoinAccount(args: {
       }
       bitcoinLocks.utxoTracking.load(persistedUtxos);
 
-      const releaseRecovery = {
-        findConfirmedRecoveredRelease: async () => undefined,
-      };
       const recovery = new BitcoinLockRecovery({
-        ...releaseRecovery,
         walletKeys,
         blockWatch,
         currency,
