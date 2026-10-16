@@ -25,6 +25,7 @@ export * from './Accountset.js';
 export * from './AccountMiners.js';
 export * from './AccountEventsFilter.js';
 export * from './TreasuryBonds.js';
+export * from './TreasuryRewards.js';
 export * from './CohortBidder.js';
 export * from './BidPlan.js';
 export * from './StorageFinder.js';

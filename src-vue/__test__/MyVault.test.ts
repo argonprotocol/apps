@@ -2307,6 +2307,8 @@ function createVault(args?: {
       subscribeToVault: vi.fn(async () => vi.fn()),
       subscribeToOperatorName: vi.fn(async () => vi.fn()),
       updateVaultRevenue: vi.fn(async () => undefined),
+      applyRewardEconomics: vi.fn(),
+      updateRewardConfig: vi.fn(async () => undefined),
     } as any,
     args?.walletKeys ?? createMockWalletKeys(),
     transactionTracker,

@@ -79,7 +79,7 @@ export const useVaultingAssetBreakdown = defineStore('vaultingAssetBreakdown', (
   const treasuryBondCapacityMicrogons = Vue.computed(() => {
     if (!myVault.createdVault) return 0n;
 
-    return argonBonds.getVaultBondCapacityMicrogons(myVault.createdVault);
+    return myVault.createdVault.bondCapacityMicrogons(currency.priceIndex);
   });
 
   const treasuryBondCapacityUsedMicrogons = Vue.computed(() => {
@@ -100,21 +100,21 @@ export const useVaultingAssetBreakdown = defineStore('vaultingAssetBreakdown', (
 
   const revenuePotential = Vue.computed(() => {
     const vault = myVault.createdVault;
-    return vault ? argonBonds.vaultRevenuePotential(vault.vaultId, vaults.currentState) : undefined;
+    return vault ? vaults.rewards?.vaultRevenuePotential(vault.vaultId) : undefined;
   });
 
   const argonotRewardBacking = Vue.computed(() => {
     const vault = myVault.createdVault;
-    if (!vault || !argonBonds.data.frameCapital?.vaultSecuritizationPositions[vault.vaultId]) return;
-    return argonBonds.argonotRewardBacking({
+    const rewards = vaults.rewards;
+    if (!vault || !rewards?.capital.vaultSecuritizationPositions[vault.vaultId]) return;
+    return rewards.argonotRewardBacking({
       vault,
       argonotSecuritization: myVault.data.argonotCommitment,
-      vaultsState: vaults.currentState,
     });
   });
 
   const revenueCapturedPct = Vue.computed(() => {
-    if (argonBonds.data.frameCapital) return revenuePotential.value?.capturedPercent;
+    if (vaults.rewards) return revenuePotential.value?.capturedPercent;
     const currentBonds = vaultBondState.value?.currentFrame.vaultBonds ?? 0;
     return getCappedPercent(currentBonds, treasuryBondPurchaseCapacityBonds.value);
   });

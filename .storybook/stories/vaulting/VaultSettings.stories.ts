@@ -6,7 +6,7 @@ import { TopTab } from '../../../src-vue/interfaces/IConfig.ts';
 import VaultCreatePanel from '../../../src-vue/panels/VaultCreatePanel.vue';
 import { getCurrency } from '../../../src-vue/stores/currency.ts';
 import { getConfig } from '../../../src-vue/stores/config.ts';
-import { getArgonBonds } from '../../../src-vue/stores/argonBonds.ts';
+import { getVaults } from '../../../src-vue/stores/vaults.ts';
 import { useVaultingStats } from '../../../src-vue/stores/vaultingStats.ts';
 import Vaulting from '../../../src-vue/screens/Vaulting.vue';
 
@@ -19,7 +19,10 @@ type Story = StoryObj<typeof meta>;
 
 export const Creation: Story = {
   beforeEach: () => {
-    setupAppScenario({ selectedTab: TopTab.Vaulting, config: { hasSavedVaultSetup: true } });
+    setupAppScenario({
+      selectedTab: TopTab.Vaulting,
+      config: { hasSavedVaultSetup: false },
+    });
     getCurrency().isLoaded = true;
     getCurrency().microgonsPer.BTC = 68_000_000_000n;
     getConfig().saveVaultSetup = fn(async () => undefined);
@@ -48,7 +51,9 @@ export const CreationWithoutGuidance: Story = {
   ...Creation,
   beforeEach: () => {
     setupAppScenario({ selectedTab: TopTab.Vaulting });
-    getArgonBonds().data.averageMicrogonsPerArgonot = undefined;
+    getVaults().rewards!.averageMicrogonsPerArgonot = undefined;
+    getVaults().currentState.argonotSecuritizationRewardRatio = 2;
+    getVaults().rewards!.constants = { ...getVaults().rewards!.constants, argonotSecuritizationMultiplier: 2 };
     getCurrency().isLoaded = true;
     getCurrency().microgonsPer.BTC = 68_000_000_000n;
     getConfig().saveVaultSetup = fn(async () => undefined);

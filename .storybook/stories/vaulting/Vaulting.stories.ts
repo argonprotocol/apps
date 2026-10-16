@@ -212,8 +212,8 @@ export const BitcoinLocksFillRemainingSpace: Story = {
       committedMicronots: 2_400_000_000n,
       encumberedMicronots: 0n,
     };
-    const capital = getArgonBonds().data.frameCapital!;
-    getArgonBonds().data.frameCapital = {
+    const capital = getVaults().currentState.rewards!.capital;
+    getVaults().currentState.rewards!.capital = {
       ...capital,
       vaultSecuritizationPositions: {
         ...capital.vaultSecuritizationPositions,
@@ -335,7 +335,7 @@ export const SmallUncollectedRevenue: Story = {
 export const ArgonotRewardShortfall: Story = {
   beforeEach: () => {
     setupVaultingPortfolioScenario();
-    getVaults().currentState.argonotSecuritizationRewardRatio = 2n;
+    getVaults().currentState.argonotSecuritizationRewardRatio = 2;
     // Only ARGNOT needs attention.
     getCurrency().microgonsPer.BTC = 6_000_000_000n;
     getCurrency().priceIndex.btcUsdPrice = BigNumber(6_000);
@@ -373,10 +373,10 @@ export const BondCaptureDefinition: Story = {
 export const ArgonotCaptureDefinition: Story = {
   beforeEach: () => {
     setupVaultingPortfolioScenario();
-    getVaults().currentState.argonotSecuritizationRewardRatio = 2n;
+    getVaults().currentState.argonotSecuritizationRewardRatio = 2;
     getCurrency().microgonsPer.BTC = 6_000_000_000n;
     getCurrency().priceIndex.btcUsdPrice = BigNumber(6_000);
-    getArgonBonds().data.averageMicrogonsPerArgonot = 7_000_000n;
+    getVaults().currentState.rewards!.averageMicrogonsPerArgonot = 7_000_000n;
   },
   play: async context => {
     await ArgonotRewardShortfall.play!(context);
@@ -390,12 +390,12 @@ export const UpstreamParticipationDefinition: Story = {
   beforeEach: () => {
     setupVaultingPortfolioScenario();
     const vaultId = getMyVault().vaultId!;
-    const capital = getArgonBonds().data.frameCapital!;
-    getArgonBonds().data.frameCapital = {
+    const capital = getVaults().currentState.rewards!.capital;
+    getVaults().currentState.rewards!.capital = {
       ...capital,
       vaultSecuritizationPositions: {
         ...capital.vaultSecuritizationPositions,
-        [vaultId]: { ...capital.vaultSecuritizationPositions[vaultId], upstreamParticipation: BigNumber(0.5) },
+        [vaultId]: { ...capital.vaultSecuritizationPositions[vaultId], upstreamParticipation: BigNumber(0.975) },
       },
     };
   },
@@ -411,10 +411,10 @@ export const UpstreamParticipationDefinition: Story = {
 export const LargeArgonotRequirement: Story = {
   beforeEach: () => {
     setupVaultingPortfolioScenario();
-    getVaults().currentState.argonotSecuritizationRewardRatio = 2n;
+    getVaults().currentState.argonotSecuritizationRewardRatio = 2;
     getCurrency().microgonsPer.BTC = 6_000_000_000n;
     getCurrency().priceIndex.btcUsdPrice = BigNumber(6_000);
-    getArgonBonds().data.averageMicrogonsPerArgonot = 700n;
+    getVaults().currentState.rewards!.averageMicrogonsPerArgonot = 700n;
   },
   play: ArgonotCaptureDefinition.play,
 };
@@ -432,8 +432,8 @@ export const ArgonotFundedAwaitingFrame: Story = {
 export const SmallNetworkSecuritizationShare: Story = {
   beforeEach: () => {
     setupVaultingPortfolioScenario();
-    const capital = getArgonBonds().data.frameCapital!;
-    getArgonBonds().data.frameCapital = { ...capital, targetSecuritization: 1_000_000_123_456_789n };
+    const capital = getVaults().currentState.rewards!.capital;
+    getVaults().currentState.rewards!.capital = { ...capital, targetSecuritization: 1_000_000_123_456_789n };
   },
   play: ArgonotRewardShortfall.play,
 };
@@ -464,10 +464,10 @@ export const WithinBitcoinSecuritizationTolerance: Story = {
     getCurrency().microgonsPer.BTC = 10_686_075_949n;
     getCurrency().priceIndex.btcUsdPrice = BigNumber(10_177.21519).times(1.05);
     getCurrency().priceIndex.argonUsdPrice = BigNumber(1.05);
-    const capital = getArgonBonds().data.frameCapital!;
+    const capital = getVaults().currentState.rewards!.capital;
     const vaultId = getMyVault().vaultId!;
     const position = capital.vaultSecuritizationPositions[vaultId];
-    getArgonBonds().data.frameCapital = {
+    getVaults().currentState.rewards!.capital = {
       ...capital,
       vaultSecuritizationPositions: {
         ...capital.vaultSecuritizationPositions,
@@ -503,8 +503,8 @@ export const ArgonotBackingWithPartialUtilization: Story = {
     setupVaultingPortfolioScenario();
     const vaultId = getMyVault().vaultId!;
     getMyVault().data.argonotCommitment = { ...getMyVault().data.argonotCommitment, heldMicronots: 2_400_000_000n };
-    const capital = getArgonBonds().data.frameCapital!;
-    getArgonBonds().data.frameCapital = {
+    const capital = getVaults().currentState.rewards!.capital;
+    getVaults().currentState.rewards!.capital = {
       ...capital,
       vaultSecuritizationPositions: {
         ...capital.vaultSecuritizationPositions,
@@ -530,8 +530,8 @@ export const RevenueCaptureWithoutBitcoin: Story = {
       committedMicronots: 2_400_000_000n,
       encumberedMicronots: 0n,
     };
-    const capital = getArgonBonds().data.frameCapital!;
-    getArgonBonds().data.frameCapital = {
+    const capital = getVaults().currentState.rewards!.capital;
+    getVaults().currentState.rewards!.capital = {
       ...capital,
       vaultSecuritizationPositions: {
         ...capital.vaultSecuritizationPositions,
@@ -555,8 +555,8 @@ export const RevenueCaptureWithoutBitcoin: Story = {
 export const RevenueCaptureUnavailable: Story = {
   beforeEach: () => {
     setupVaultingPortfolioScenario();
-    getArgonBonds().data.frameCapital = {
-      ...getArgonBonds().data.frameCapital!,
+    getVaults().currentState.rewards!.capital = {
+      ...getVaults().currentState.rewards!.capital,
       vaultSecuritizationPositions: {},
     };
   },
@@ -582,8 +582,8 @@ export const ArgonotPendingWithdrawal: Story = {
 export const ArgonotGuidanceUnavailable: Story = {
   beforeEach: () => {
     setupVaultingPortfolioScenario();
-    getVaults().currentState.argonotSecuritizationRewardRatio = 2n;
-    getArgonBonds().data.averageMicrogonsPerArgonot = undefined;
+    getVaults().currentState.argonotSecuritizationRewardRatio = 2;
+    getVaults().currentState.rewards!.averageMicrogonsPerArgonot = undefined;
   },
   play: ArgonotRewardShortfall.play,
 };
@@ -637,8 +637,8 @@ export const UnderSecuritized: Story = {
       committedMicronots: 2_400_000_000n,
       encumberedMicronots: 0n,
     };
-    const capital = getArgonBonds().data.frameCapital!;
-    getArgonBonds().data.frameCapital = {
+    const capital = getVaults().currentState.rewards!.capital;
+    getVaults().currentState.rewards!.capital = {
       ...capital,
       vaultSecuritizationPositions: {
         ...capital.vaultSecuritizationPositions,

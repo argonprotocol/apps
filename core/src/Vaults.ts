@@ -4,12 +4,13 @@ import {
   type ArgonQueryClient,
   type ArgonCurrentQueryClient,
   type ArgonApi,
-  type ArgonClient,
   bigNumberToBigInt,
   createDeferred,
   Currency,
   FrameIterator,
   type IAllVaultStats,
+  type IBlockHeaderInfo,
+  type RuntimeSystemEventRecord,
   type ICallbackFirstBlockMeta,
   type IDeferred,
   type IVaultFrameStats,
@@ -26,6 +27,7 @@ import testnetVaultRevenueHistory from './data/vaultRevenue.testnet.json' with {
 import { BondLot } from './BondLot.js';
 import { BitcoinLock } from './BitcoinLock.js';
 import { Vault } from './Vault.js';
+import { TreasuryRewards } from './TreasuryRewards.js';
 import {
   calculateAggregateReturn,
   calculateAnnualPercentageRate,
@@ -50,16 +52,26 @@ export class Vaults {
   public vaultsById: { [id: number]: Vault } = {};
   public operatorNamesByVaultId: { [id: number]: string } = {};
   public stats?: IAllVaultStats;
-  public currentState = {
+  public currentState: {
+    isLoaded: boolean;
+    isLoading: boolean;
+    error: string;
+    statsRevision: number;
+    argonotSecuritizationRewardRatio: number;
+    upstreamBitcoinTarget?: bigint;
+    upstreamBondTarget?: bigint;
+    upstreamParticipationFactor?: BigNumber;
+    rewards?: TreasuryRewards;
+  } = {
     isLoaded: false,
     isLoading: false,
     error: '',
     statsRevision: 0,
-    vaultRewardRate: undefined as BigNumber | undefined,
-    minimumVaultProfitRate: undefined as BigNumber | undefined,
-    argonotSecuritizationRewardRatio: 0n,
+    argonotSecuritizationRewardRatio: 0,
   };
   private currentLoad?: Promise<void>;
+  private rewardConfigBlockNumber = -1;
+  private rewardConfigRevision = 0;
 
   constructor(
     public network: string,
@@ -67,14 +79,18 @@ export class Vaults {
     public miningFrames: MiningFrames,
     private mainchainClients: MainchainClients,
   ) {
-    this.mainchainClients.events.on('runtime-ready', client => this.updateRewardConfig(client));
+    this.mainchainClients.events.on('runtime-ready', client => this.updateRewardConfigOnFinalization(client));
     const client = this.mainchainClients.currentClient;
-    if (client) this.updateRewardConfig(client);
+    if (client) void this.updateRewardConfig(client);
   }
 
   protected waitForLoad?: IDeferred;
   protected refreshingPromise?: Promise<IAllVaultStats>;
   protected isSavingStats: boolean = false;
+
+  public get rewards(): TreasuryRewards | undefined {
+    return this.currentState.rewards;
+  }
 
   public async load(reload = false): Promise<void> {
     if (this.waitForLoad?.isRunning) return this.waitForLoad.promise;
@@ -162,6 +178,59 @@ export class Vaults {
       }
     })();
     return this.currentLoad;
+  }
+
+  public async updateRewardConfig(client: ArgonCurrentQueryClient): Promise<boolean> {
+    const revision = ++this.rewardConfigRevision;
+    try {
+      let api = client;
+      if ('at' in client) {
+        await this.miningFrames.blockWatch.isLoaded.promise;
+        api = await this.miningFrames.blockWatch.getFinalizedApi();
+      }
+      if (revision !== this.rewardConfigRevision) return false;
+
+      if (
+        !('upstreamParticipationFactor' in api.query.treasury) &&
+        'upstreamParticipationFactor' in client.query.treasury
+      ) {
+        this.updateRewardConfigOnFinalization(client);
+        return false;
+      }
+      const [factor, blockNumber, rewards] = await Promise.all([
+        api.query.treasury.upstreamParticipationFactor?.(),
+        api.query.system.number(),
+        TreasuryRewards.read(api),
+      ]);
+      if (revision !== this.rewardConfigRevision) return false;
+      if (blockNumber < this.rewardConfigBlockNumber) return false;
+
+      const constants = api.consts.treasury;
+      const rewardConstants = 'percentForVaultPool' in constants ? constants : undefined;
+      Object.assign(this.currentState, {
+        argonotSecuritizationRewardRatio: rewardConstants?.argonotSecuritizationMultiplier ?? 0,
+        upstreamBitcoinTarget: rewardConstants?.upstreamBitcoinTarget,
+        upstreamBondTarget: rewardConstants?.upstreamBondTarget,
+        rewards,
+      });
+      this.setUpstreamParticipation(factor ?? undefined, blockNumber);
+      return true;
+    } catch (error) {
+      if (revision !== this.rewardConfigRevision) return false;
+      console.warn('[Vaults] Reward configuration will retry', error);
+      setTimeout(() => {
+        if (revision === this.rewardConfigRevision) void this.updateRewardConfig(client);
+      }, 5_000);
+      return false;
+    }
+  }
+
+  public applyRewardEconomics(block: Pick<IBlockHeaderInfo, 'blockNumber'>, events: RuntimeSystemEventRecord[]): void {
+    for (const { event } of events) {
+      if (event.section !== 'treasury' || event.method !== 'RewardEconomicsConfigured') continue;
+      if (!('upstreamParticipationFactor' in event.data)) continue;
+      this.setUpstreamParticipation(event.data.upstreamParticipationFactor, block.blockNumber);
+    }
   }
 
   public async refreshVault(vaultId: number): Promise<Vault | undefined> {
@@ -873,15 +942,18 @@ export class Vaults {
     return undefined;
   }
 
-  private updateRewardConfig(client: ArgonClient): void {
-    const constants = client.consts.treasury;
-    Object.assign(this.currentState, {
-      vaultRewardRate: 'percentForVaultPool' in constants ? constants.percentForVaultPool : undefined,
-      minimumVaultProfitRate:
-        'minimumVaultProfitPercent' in constants ? constants.minimumVaultProfitPercent : undefined,
-      // Read from the runtime once its Argonot securitization reward constant is available.
-      argonotSecuritizationRewardRatio: 0n,
+  private updateRewardConfigOnFinalization(client: ArgonCurrentQueryClient): void {
+    const revision = ++this.rewardConfigRevision;
+    const unsubscribe = this.miningFrames.blockWatch.events.on('finalized', () => {
+      unsubscribe();
+      if (revision === this.rewardConfigRevision) void this.updateRewardConfig(client);
     });
+  }
+
+  private setUpstreamParticipation(factor: BigNumber | undefined, blockNumber: number): void {
+    if (blockNumber < this.rewardConfigBlockNumber) return;
+    this.rewardConfigBlockNumber = blockNumber;
+    this.currentState.upstreamParticipationFactor = factor;
   }
 
   protected async loadStatsFromFile(): Promise<IAllVaultStats | void> {

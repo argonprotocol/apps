@@ -8,8 +8,9 @@ import {
 } from '@argonprotocol/runtime-client';
 import { Metadata, TypeRegistry } from '@polkadot/types';
 import { decorateConstants } from '@polkadot/types/metadata/decorate';
-import type { RuntimeSystemEventRecord } from '../src/index.ts';
-import { nextTick, shallowReactive, watchEffect } from 'vue';
+import type { Percent } from '@polkadot/types/interfaces';
+import type { ArgonCurrentQueryClient, RuntimeSystemEventRecord } from '../src/index.ts';
+import { computed, nextTick, shallowReactive, watchEffect } from 'vue';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { createDeferred } from '../src/Deferred.ts';
 import { createTypedEventEmitter } from '../src/utils.ts';
@@ -49,27 +50,16 @@ const currentVault = {
 it('publishes current vaults before statistics and preserves them through failure and retry', async () => {
   const statsReady = createDeferred();
   const entries = vi.fn().mockRejectedValueOnce(new Error('offline'));
-  const registry = getOfflineRegistry();
-  const metadata = new Metadata(
-    registry,
-    Object.entries(getBundledMetadata()).find(([key]) => key.endsWith('-160'))![1],
-  );
-  const treasuryConstants = runtimeClient({
-    query: {},
-    consts: decorateConstants(registry, metadata.asLatest, metadata.version),
-  }).consts.treasury;
-  if (!('percentForVaultPool' in treasuryConstants)) throw new Error('Spec 160 vault pool constant is missing');
   const events = createTypedEventEmitter();
   const client = {
     consts: {
       vaults: {},
-      treasury: {
-        percentForVaultPool: treasuryConstants.percentForVaultPool,
-        minimumVaultProfitPercent: treasuryConstants.minimumVaultProfitPercent,
-      },
+      treasury: {},
       operationalAccounts: { operationalMinimumVaultSecuritization: 100_000_000n },
     },
     query: {
+      treasury: { currentFrameVaultCapital: async () => null },
+      system: { number: async () => 100 },
       vaults: { vaultsById: { entries } },
       operationalAccounts: {
         operationalAccountBySubAccount: { entries: async () => [] },
@@ -86,34 +76,22 @@ it('publishes current vaults before statistics and preserves them through failur
   vaults.currentState = shallowReactive(vaults.currentState);
   vaults.vaultsById = shallowReactive(vaults.vaultsById);
   let visible: string | bigint = 'loading';
-  let visibleRewardRate: number | undefined;
   const stop = watchEffect(() => {
     visible = vaults.currentState.isLoaded
       ? (vaults.vaultsById[7]?.availableBitcoinSpace() ?? 'empty')
       : vaults.currentState.error || 'loading';
-    visibleRewardRate = vaults.currentState.vaultRewardRate?.toNumber();
   });
   try {
     await expect(vaults.loadCurrentState()).rejects.toThrow('offline');
     await nextTick();
     expect(visible).toBe('offline');
-    expect(visibleRewardRate).toBe(0.51);
     entries.mockResolvedValue([[{ args: [7] }, currentVault]]);
     const loading = vaults.load();
     const failedStats = expect(loading).rejects.toThrow('statistics unavailable');
     await vi.waitFor(() => expect(visible).toBe(2_000_000_000n));
-    expect(visibleRewardRate).toBe(0.51);
-    expect(vaults.currentState.minimumVaultProfitRate?.toNumber()).toBe(0.01);
-    expect(vaults.currentState.argonotSecuritizationRewardRatio).toBe(0n);
-    client.consts.treasury.percentForVaultPool = BigNumber(0.25);
-    events.emit('runtime-ready', client);
-    await nextTick();
-    expect(visibleRewardRate).toBe(0.25);
-    expect(vaults.stats).toBeUndefined();
     statsReady.reject(new Error('statistics unavailable'));
     await failedStats;
     expect(visible).toBe(2_000_000_000n);
-    expect(visibleRewardRate).toBe(0.25);
     entries.mockRejectedValueOnce(new Error('refresh unavailable'));
     await expect(vaults.loadCurrentState(true)).rejects.toThrow('refresh unavailable');
     expect(vaults.currentState.error).toBe('refresh unavailable');
@@ -127,11 +105,79 @@ it('publishes current vaults before statistics and preserves them through failur
     await vaults.loadCurrentState(true);
     await nextTick();
     expect(visible).toBe('empty');
-    Object.assign(client.consts, { treasury: { percentForVaultPool: treasuryConstants.percentForVaultPool } });
-    events.emit('runtime-ready', client);
-    expect(vaults.currentState.minimumVaultProfitRate).toBeUndefined();
   } finally {
     stop();
+  }
+});
+
+it('preserves newer reward settings through stale reads, failure and retry', async () => {
+  const registry = new TypeRegistry();
+  const metadata = new Metadata(
+    registry,
+    Object.entries(getBundledMetadata()).find(([key]) => key.endsWith('-160'))![1],
+  );
+  registry.setMetadata(metadata);
+  let factor = 5;
+  let blockNumber = 100;
+  let unavailable = false;
+  let pendingRead: Promise<Percent> | undefined;
+  const treasury = {
+    currentFrameVaultCapital: async () => null,
+    upstreamParticipationFactor: async () => {
+      if (unavailable) throw new Error('configuration temporarily unavailable');
+      return pendingRead ?? registry.createType('Percent', factor);
+    },
+  };
+  const client = runtimeClient({
+    registry,
+    consts: decorateConstants(registry, metadata.asLatest, metadata.version),
+    query: { treasury, system: { number: async () => blockNumber } },
+  }) as unknown as ArgonCurrentQueryClient;
+  const vaults = new Vaults('mainnet', {} as any, {} as any, { events: createTypedEventEmitter() } as any);
+  vaults.currentState = shallowReactive(vaults.currentState);
+  const visiblePercent = computed(() => vaults.currentState.upstreamParticipationFactor?.times(100).toNumber());
+
+  await vaults.updateRewardConfig(client);
+  expect(visiblePercent.value).toBe(5);
+
+  const delayed = createDeferred<Percent>();
+  pendingRead = delayed.promise;
+  const reading = vaults.updateRewardConfig(client);
+  const events: RuntimeSystemEventRecord[] = [
+    {
+      phase: { type: 'ApplyExtrinsic', value: 0 },
+      topics: [],
+      event: {
+        section: 'treasury',
+        method: 'RewardEconomicsConfigured',
+        data: { targetBitcoinPercent: new BigNumber(0.15), upstreamParticipationFactor: new BigNumber(0) },
+      },
+    },
+  ];
+  vaults.applyRewardEconomics({ blockNumber: 101 }, events);
+  expect(visiblePercent.value).toBe(0);
+  delayed.resolve(registry.createType('Percent', 5));
+  await reading;
+  expect(visiblePercent.value).toBe(0);
+
+  vi.useFakeTimers();
+  const warning = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+  try {
+    pendingRead = undefined;
+    unavailable = true;
+    await vaults.updateRewardConfig(client);
+    expect(visiblePercent.value).toBe(0);
+
+    unavailable = false;
+    factor = 25;
+    blockNumber = 102;
+    await vi.advanceTimersByTimeAsync(5_000);
+    expect(visiblePercent.value).toBe(25);
+    vaults.applyRewardEconomics({ blockNumber: 101 }, events);
+    expect(visiblePercent.value).toBe(25);
+  } finally {
+    warning.mockRestore();
+    vi.useRealTimers();
   }
 });
 

@@ -1,11 +1,10 @@
 import type { Meta, StoryObj } from '@storybook/vue3-vite';
-import { userEvent, within } from 'storybook/test';
+import { fn, userEvent, within } from 'storybook/test';
 import AppScreen from '../../components/AppScreen.vue';
 import VaultCreatePanel from '../../../src-vue/panels/VaultCreatePanel.vue';
 import { getCurrency } from '../../../src-vue/stores/currency.ts';
 import { getVaults } from '../../../src-vue/stores/vaults.ts';
 import { getConfig } from '../../../src-vue/stores/config.ts';
-import { fn } from 'storybook/test';
 import { setupAppScenario } from '../../scenarios/setupAppScenario.ts';
 import { TopTab } from '../../../src-vue/interfaces/IConfig.ts';
 import Vaulting from '../../../src-vue/screens/Vaulting.vue';
@@ -77,7 +76,8 @@ export const BitcoinLockingFeeDetails: Story = {
 
 export const ArgonotGuidance: Story = {
   beforeEach: () => {
-    getVaults().currentState.argonotSecuritizationRewardRatio = 2n;
+    getVaults().currentState.argonotSecuritizationRewardRatio = 2;
+    getVaults().rewards!.constants = { ...getVaults().rewards!.constants, argonotSecuritizationMultiplier: 2 };
   },
   play: async () => {
     const canvas = within(document.body);

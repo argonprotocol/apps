@@ -8,7 +8,7 @@ import {
 } from '@argonprotocol/runtime-client';
 import { Metadata, TypeRegistry } from '@polkadot/types';
 import { decorateConstants } from '@polkadot/types/metadata/decorate';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import BigNumber from 'bignumber.js';
 import { ArgonBonds } from '../lib/ArgonBonds.ts';
 import { BondBuy } from '../lib/txs/Bond.buy.ts';
@@ -24,7 +24,6 @@ import {
   type RuntimeSystemEventRecord,
   MICROGONS_PER_ARGON,
   TreasuryBonds,
-  type Vaults,
   Vault,
 } from '@argonprotocol/apps-core';
 import type { WalletForArgon } from '../lib/WalletForArgon.ts';
@@ -49,23 +48,10 @@ deployedRegistry.setMetadata(
 const accountId = encodeAddress(new Uint8Array(32).fill(0x22));
 
 describe('ArgonBonds', () => {
-  let vaultsState: Vaults['currentState'];
-  beforeEach(() => {
-    vaultsState = {
-      isLoaded: true,
-      isLoading: false,
-      error: '',
-      statsRevision: 0,
-      vaultRewardRate: BigNumber(0.51),
-      minimumVaultProfitRate: BigNumber(0.01),
-      argonotSecuritizationRewardRatio: 0n,
-    };
-    vi.spyOn(vaultStore, 'getVaults').mockReturnValue({ currentState: vaultsState } as ReturnType<
+  it('compares current Bitcoin backing at market prices and updates after funding', () => {
+    vi.spyOn(vaultStore, 'getVaults').mockReturnValue({ rewards: undefined } as ReturnType<
       typeof vaultStore.getVaults
     >);
-  });
-
-  it('compares current Bitcoin backing at market prices and updates after funding', () => {
     setActivePinia(createPinia());
     const oneArgon = BigInt(MICROGONS_PER_ARGON);
     const vault = reactive(
@@ -417,7 +403,6 @@ describe('ArgonBonds', () => {
       },
       query: {
         system: { account: async () => ({ data: { free: 9_000_000_000n } }) },
-        priceIndex: { historicArgonotAverageByFrame: async () => ({ 9: 2_000_000n }) },
         treasury: {
           bondLotsByVault: async (vaultId: number) => {
             if (vaultId === 7) {
@@ -490,57 +475,6 @@ describe('ArgonBonds', () => {
     );
     await argonBonds.subscribeGlobal(client as any);
     await argonBonds.subscribeVault({ vaultId: 4, operatorAddress: accountId }, client as any);
-    // The published trailing total is 10,000 ARGN over ten days. Its daily
-    // baseline earns 10% of the 51% vault pool, regardless of the live balance.
-    expect(argonBonds.vaultRevenuePotential(4, vaultsState, 10_000_000_000n / 10n)?.maximumEarnings).toBe(51_000_000n);
-    let argonotSecuritization = toPlain(
-      registry.createType('ArgonPrimitivesVaultVaultArgonotSecuritization', {
-        heldMicronots: 400_000_000n,
-        committedMicronots: 300_000_000n,
-        encumberedMicronots: 100_000_000n,
-      }),
-    ) as NonNullable<LiveQueryRecord<'vaults', 'argonotSecuritizationByVaultId'>>;
-    expect(vaultsState.argonotSecuritizationRewardRatio).toBe(0n);
-    expect(argonBonds.argonotRewardBacking({ vault, vaultsState, argonotSecuritization })).toEqual({
-      totalMicronots: 0n,
-      additionalMicronots: 0n,
-      withdrawalCancellationMicronots: 0n,
-    });
-    expect(argonBonds.vaultRevenuePotential(4, vaultsState)?.capturedPercent).toBe(100);
-
-    vaultsState.argonotSecuritizationRewardRatio = 2n;
-    expect(argonBonds.argonotRewardBacking({ vault, vaultsState, argonotSecuritization })).toEqual({
-      totalMicronots: 1_000_000_000n,
-      additionalMicronots: 600_000_000n,
-      withdrawalCancellationMicronots: 0n,
-    });
-    argonotSecuritization = { ...argonotSecuritization, heldMicronots: 1_000_000_000n };
-    vault.securitizationReleaseSchedule.set(1000, {
-      ...vault.securitizationReleaseSchedule.get(1000)!,
-      argonotWithdrawals: 200_000_000n,
-    });
-    expect(argonBonds.argonotRewardBacking({ vault, vaultsState, argonotSecuritization })).toEqual({
-      totalMicronots: 1_000_000_000n,
-      additionalMicronots: 0n,
-      withdrawalCancellationMicronots: 200_000_000n,
-    });
-    expect(argonBonds.vaultRevenuePotential(4, vaultsState)?.capturedPercent).toBeCloseTo(25.84, 2);
-    expect(
-      argonBonds.argonotRewardBacking({
-        vault,
-        vaultsState,
-        argonotSecuritization,
-        securitizationMicrogons: 400_000_000n,
-      })?.totalMicronots,
-    ).toBe(1_000_000_000n);
-    argonBonds.data.averageMicrogonsPerArgonot = undefined;
-    expect(argonBonds.argonotRewardBacking({ vault, vaultsState, argonotSecuritization })).toBeUndefined();
-    vaultsState.argonotSecuritizationRewardRatio = 0n;
-    expect(argonBonds.argonotRewardBacking({ vault, vaultsState, argonotSecuritization })).toEqual({
-      totalMicronots: 0n,
-      additionalMicronots: 0n,
-      withdrawalCancellationMicronots: 0n,
-    });
     const staleCleanup = await argonBonds.subscribeVault({ vaultId: 4, operatorAddress: accountId }, client as any);
     const purchaseCleanup = await argonBonds.subscribeVault({ vaultId: 4, operatorAddress: accountId }, client as any);
     staleCleanup();
@@ -679,7 +613,6 @@ describe('ArgonBonds', () => {
         consts,
         query: {
           system: { account: vi.fn(async () => ({ data: { free: BigInt(bonds) * 1_000_000n } })) },
-          priceIndex: { historicArgonotAverageByFrame: vi.fn(async () => ({ 9: 2_000_000n })) },
           treasury: {
             currentFrameVaultCapital: vi.fn(async () => {
               if (bonds === 20) await olderRead.promise;
@@ -769,31 +702,10 @@ describe('ArgonBonds', () => {
         await argonBonds.subscribeVault({ vaultId, operatorAddress: accountId }, currentClient as any);
       argonBonds.data.isLoaded = true;
       currentClient.query.treasury.currentFrameVaultCapital.mockClear();
-      currentClient.query.priceIndex.historicArgonotAverageByFrame.mockClear();
-      currentClient.query.system.account.mockClear();
       await argonBonds.refreshActiveState();
 
       expect(currentClient.query.treasury.currentFrameVaultCapital).toHaveBeenCalledTimes(1);
-      expect(currentClient.query.priceIndex.historicArgonotAverageByFrame).toHaveBeenCalledTimes(
-        runtime === 'candidate' ? 1 : 0,
-      );
-      // The market balance refresh is independent of the vault reward inputs.
-      expect(currentClient.query.system.account).toHaveBeenCalledTimes(runtime === 'candidate' ? 2 : 1);
       expect(argonBonds.data.totalActiveBonds).toBe(20);
-      if (runtime === 'candidate') {
-        expect(argonBonds.data.upstreamBitcoinTarget).toBe(5_000n * BigInt(MICROGONS_PER_ARGON));
-        expect(argonBonds.data.upstreamBondTarget).toBe(5_000n * BigInt(MICROGONS_PER_ARGON));
-        expect(argonBonds.vaultRevenuePotential(4, vaultsState)).toMatchObject({
-          actualEarnings: 1_300_000n,
-          maximumEarnings: 2_550_000n,
-          upstreamParticipationPercent: 50,
-        });
-      } else {
-        expect(argonBonds.data.upstreamBitcoinTarget).toBeUndefined();
-        expect(argonBonds.data.upstreamBondTarget).toBeUndefined();
-        expect(argonBonds.vaultRevenuePotential(4, vaultsState)).toBeUndefined();
-        expect(argonBonds.data.frameCapital).toBeNull();
-      }
       for (const vaultId of [4, 7]) {
         const vault = argonBonds.getVaultBonds(vaultId);
         expect(vault.currentFrame.vaultBonds).toBe(10);

@@ -1,6 +1,17 @@
 import * as Vue from 'vue';
-import { BondLot, defaultMicrogonsPer, MoveFrom, MoveTo, MoveToken, UnitOfMeasurement } from '@argonprotocol/apps-core';
-import { PriceIndex } from '@argonprotocol/mainchain';
+import {
+  BondLot,
+  TreasuryRewards,
+  defaultMicrogonsPer,
+  MoveFrom,
+  MoveTo,
+  MoveToken,
+  UnitOfMeasurement,
+} from '@argonprotocol/apps-core';
+import { PriceIndex, getOfflineRegistry } from '@argonprotocol/mainchain';
+import { getBundledMetadata, toPlain, type CurrentRuntimeConstants } from '@argonprotocol/runtime-client';
+import { Metadata } from '@polkadot/types';
+import { decorateConstants } from '@polkadot/types/metadata/decorate';
 import BigNumber from 'bignumber.js';
 import { BitcoinNetwork } from '@argonprotocol/bitcoin';
 import { BitcoinCooperativeReleases } from '../../src-vue/lib/BitcoinCooperativeReleases.ts';
@@ -21,13 +32,13 @@ import { calculatePositionReturn, reduceFinancialPositions } from '../../src-vue
 import { GlobalCouncil } from '../../src-vue/lib/GlobalCouncil.ts';
 import { MintingAuthorities } from '../../src-vue/lib/MintingAuthorities.ts';
 import { MoveCapital } from '../../src-vue/lib/MoveCapital.ts';
+import type { TransactionInfo } from '../../src-vue/lib/TransactionInfo.ts';
 import { getOperationalRewardConfig } from '../../src-vue/lib/OperationalAccount.ts';
 import { defaultWalletData, type IWalletData, WalletType } from '../../src-vue/lib/Wallet.ts';
 import { WalletForArgon } from '../../src-vue/lib/WalletForArgon.ts';
 import { WalletForBitcoin } from '../../src-vue/lib/WalletForBitcoin.ts';
 import { BitcoinLockCreate } from '../../src-vue/lib/txs/BitcoinLock.create.ts';
 import { getArgonBonds, getBondTransactionOperations } from '../../src-vue/stores/argonBonds.ts';
-import { ArgonBonds } from '../../src-vue/lib/ArgonBonds.ts';
 import { useBasics } from '../../src-vue/stores/basics.ts';
 import { getBitcoinFissions, getBitcoinLockCoupons, getBitcoinLocks } from '../../src-vue/stores/bitcoin.ts';
 import { getBot } from '../../src-vue/stores/bot.ts';
@@ -252,9 +263,6 @@ export function setupAppScenario({
   mocked(getBitcoinFissions).mockReturnValue(bitcoinFissions);
   mocked(getArgonBonds, { partial: true, deep: true }).mockReturnValue({
     bondTotals: BondLot.getTotals([]),
-    data: Vue.reactive({ frameCapital: null, averageMicrogonsPerArgonot: 2_000_000n }) as ArgonBonds['data'],
-    argonotRewardBacking: ArgonBonds.prototype.argonotRewardBacking,
-    vaultRevenuePotential: fn(() => undefined),
     load: fn(async () => undefined),
   });
   mocked(getBondTransactionOperations).mockReturnValue({
@@ -317,7 +325,7 @@ export function setupAppScenario({
         },
       },
       getStatus: fn(() => ({ progressPct: 35, isFinalized: false, error: undefined })),
-      subscribeToProgress: fn(callback => {
+      subscribeToProgress: fn<TransactionInfo['subscribeToProgress']>(callback => {
         void callback(
           {
             progressPct: 35,
@@ -448,24 +456,45 @@ export function setupAppScenario({
     isLoadedPromise: Promise.resolve(),
     update: fn(async () => undefined),
   });
+  const registry = getOfflineRegistry();
+  const metadata = new Metadata(
+    registry,
+    Object.entries(getBundledMetadata()).find(([key]) => key.endsWith('-160'))![1],
+  );
+  const rewardConstants = toPlain(
+    decorateConstants(registry, metadata.asLatest, metadata.version).treasury,
+  ) as CurrentRuntimeConstants['treasury'];
+  const vaultsState = Vue.shallowReactive({
+    isLoaded: true,
+    isLoading: false,
+    error: '',
+    statsRevision: 0,
+    argonotSecuritizationRewardRatio: 0,
+    upstreamBitcoinTarget: undefined,
+    upstreamBondTarget: undefined,
+    upstreamParticipationFactor: undefined,
+    rewards: new TreasuryRewards({
+      capital: {
+        frameId: 0,
+        totalActiveBonds: 0n,
+        totalSecuritization: 0n,
+        targetSecuritization: 0n,
+        vaultSecuritizationPositions: {},
+      },
+      constants: { ...rewardConstants },
+      fullBidPool: 0n,
+      averageMicrogonsPerArgonot: 2_000_000n,
+    }),
+  });
   mocked(getVaults, { partial: true }).mockReturnValue({
     load: fn(async () => undefined),
     operatorNamesByVaultId: Vue.reactive({}),
     vaultsById: {},
-    currentState: Vue.shallowReactive({
-      isLoaded: true,
-      isLoading: false,
-      error: '',
-      statsRevision: 0,
-      vaultRewardRate: BigNumber(0.51),
-      minimumVaultProfitRate: BigNumber(0.01),
-      argonotSecuritizationRewardRatio: 0n,
-    }),
-    updateRevenue: fn(async () => ({
-      synchedToFrame: 0,
-      argonotStakingByFrame: [],
-      vaultsById: {},
-    })),
+    currentState: vaultsState,
+    get rewards() {
+      return vaultsState.rewards;
+    },
+    updateRevenue: fn(async () => ({ synchedToFrame: 0, argonotStakingByFrame: [], vaultsById: {} })),
   });
   const mintingAuthorities = new MintingAuthorities(
     getDbPromise(),

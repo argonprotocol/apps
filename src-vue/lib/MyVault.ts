@@ -19,6 +19,7 @@ import { Db } from './Db.ts';
 import { getFinalizedClient, getMainchainClient, getMainchainClients } from '../stores/mainchain.ts';
 import {
   type ArgonClient,
+  type ArgonCurrentQueryClient,
   type ArgonApi,
   ArgonQueryClient,
   bigIntMax,
@@ -508,6 +509,7 @@ export class MyVault {
             const pending = [...pendingRevenueBlocks.values()].sort((a, b) => a.blockNumber - b.blockNumber);
             for (const header of pending) {
               const { api, events, specVersion } = await this.miningFrames.blockWatch.getEventsWithSpec(header);
+              this.vaults.applyRewardEconomics(header, events);
               await this.history.recordFinalizedRevenue(header, events, vaultId, specVersion);
               latestCapitalClient = api;
               if (header.isNewFrame) latestRevenueClient = api;
@@ -580,7 +582,11 @@ export class MyVault {
         }
       });
 
-      await Promise.all([this.globalCouncil.subscribe(), this.mintingAuthorities.subscribe()]);
+      await Promise.all([
+        this.globalCouncil.subscribe(),
+        this.mintingAuthorities.subscribe(),
+        this.vaults.updateRewardConfig(client),
+      ]);
 
       this.#subscriptions.push(sub, operatorNameSub, sub2, sub4, sub5, sub6);
     } finally {
@@ -588,9 +594,9 @@ export class MyVault {
     }
   }
 
-  public async refreshFinalizedState(args: { client: ArgonQueryClient; currentFrameId: number }): Promise<void> {
+  public async refreshFinalizedState(args: { client: ArgonCurrentQueryClient; currentFrameId: number }): Promise<void> {
     const vaultId = this.vaultId;
-    const refreshes: Promise<unknown>[] = [];
+    const refreshes: Promise<unknown>[] = [this.vaults.updateRewardConfig(args.client)];
 
     if (this.data.isLoaded && vaultId != null) {
       this.data.currentFrameId = args.currentFrameId;
