@@ -448,6 +448,7 @@ describe('Vaults cache upgrades', () => {
     );
     setMainchainClients({
       get: async () => ({ query: { vaults: { vaultsById: { entries: async () => [] } } } }),
+      events: createTypedEventEmitter(),
     } as any);
     const frames = {
       load: async () => undefined,
