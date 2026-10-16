@@ -390,15 +390,23 @@ export class BitcoinLiquidCreate extends TransactionOperation<
       });
     }
     const lockIds = allocations.map(({ lock }) => lock.lockId).filter((lockId): lockId is number => lockId != null);
-    const [runtimeLocks, releaseRequests, bitcoinTip, nextFissionId, eligibleRates] = await Promise.all([
+    const [runtimeLocks, releaseRequests, bitcoinTip, nextFissionId, rateHistory, currentTick] = await Promise.all([
       snapshotClient.query.bitcoinLocks.locksById.multi(lockIds),
       Promise.all(lockIds.map(lockId => BitcoinLock.getReleaseRequest(snapshotClient, lockId))),
       snapshotClient.query.bitcoinUtxos.confirmedBitcoinBlockTip(),
       BitcoinFission.nextId(snapshotClient, txSigner.address),
       snapshotClient.query.bitcoinLocks.microgonPerBtcHistory(),
+      snapshotClient.query.ticks.currentTick(),
     ]);
-    if (!eligibleRates?.length) {
+    if (!rateHistory?.length) {
       throw new BitcoinLiquidCreateStateChangedError('Network Bitcoin pricing is currently unavailable.');
+    }
+
+    // Leave ten ticks of the runtime's thirty-tick price window for submission.
+    const oldestRateTick = BigInt(currentTick) - 20n;
+    const eligibleRates = rateHistory.filter(([tick]) => tick >= oldestRateTick);
+    if (!eligibleRates.length) {
+      throw new BitcoinLiquidCreateStateChangedError('Wait for a fresh Bitcoin price and retry.');
     }
     const [microgonsAtTargetPerBtcTick, microgonsAtTargetPerBtc] = eligibleRates.at(-1)!;
     const currentLocks = runtimeLocks ?? [];
@@ -485,12 +493,12 @@ export class BitcoinLiquidCreate extends TransactionOperation<
         availableCollateral,
         allocationRate: microgonsAtTargetPerBtc,
       };
+      const compatibleRates = eligibleRates.filter(([tick, rate]) => {
+        if (tick < requiredTick) return false;
+        return rate >= requiredRate;
+      });
       let lockRate = lock.microgonsAtTargetPerBtc;
       if (needsResecuritization) {
-        const compatibleRates = eligibleRates.filter(([tick, rate]) => {
-          if (tick < requiredTick) return false;
-          return rate >= requiredRate;
-        });
         if (!compatibleRates.length) {
           throw new BitcoinLiquidCreateStateChangedError(
             'Existing Liquids need a Bitcoin price that is no longer available. Reduce the amount to Bitcoin already covered by a cosigner guarantee, or wait for an eligible price.',
@@ -528,20 +536,27 @@ export class BitcoinLiquidCreate extends TransactionOperation<
         lockRate = replacementRate[1];
       }
 
-      const eligibleReplacement = eligibleRates.some(([tick, rate]) => {
-        if (tick < requiredTick || rate < requiredRate) return false;
-        return rate === lockRate;
-      });
-      const maximumSatoshis = this.getMaximumAffordableSatoshis({
+      const eligibleReplacement = compatibleRates.some(([, rate]) => rate === lockRate);
+      const selectedMaximumSatoshis = this.getMaximumAffordableSatoshis({
         ...capacityInput,
         replacementRate: eligibleReplacement ? lockRate : undefined,
       });
+
+      // A retained guarantee need not limit the capacity available at eligible replacement prices.
+      let minimumCompatibleRate: bigint | undefined;
+      for (const [, rate] of compatibleRates) {
+        if (minimumCompatibleRate === undefined || rate < minimumCompatibleRate) minimumCompatibleRate = rate;
+      }
+      const maximumSatoshis = this.getMaximumAffordableSatoshis({
+        ...capacityInput,
+        replacementRate: minimumCompatibleRate,
+      });
       maximumSatoshisByLockId[lockId] = maximumSatoshis;
-      if (satoshis > maximumSatoshis) {
+      if (satoshis > selectedMaximumSatoshis) {
         capacityChanged = true;
       }
 
-      const acceptedSatoshis = bigIntMin(satoshis, maximumSatoshis);
+      const acceptedSatoshis = bigIntMin(satoshis, selectedMaximumSatoshis);
       const acceptedSecuritizedSatoshis = bigIntMax(
         lock.securitizedSatoshis,
         lock.fissionedSatoshis + acceptedSatoshis,

@@ -5,17 +5,11 @@ import type { AddressInfo } from 'node:net';
 import { it, beforeAll, afterAll, describe, expect, vi } from 'vitest';
 
 import { teardown } from '@argonprotocol/testing';
-import {
-  BitcoinFission,
-  BitcoinLock,
-  type Vault,
-  MainchainClients,
-  MoveTo,
-  NetworkConfig,
-} from '@argonprotocol/apps-core';
+import { BitcoinFission, BitcoinLock, Vault, MainchainClients, MoveTo, NetworkConfig } from '@argonprotocol/apps-core';
 import { type IntegrationNetwork } from '@argonprotocol/apps-core/__test__/integrationNetwork.ts';
 import { waitFor } from '@argonprotocol/apps-core/__test__/helpers/waitFor.ts';
 import { sudoFundWallet } from '@argonprotocol/apps-core/__test__/helpers/sudoFundWallet.ts';
+import { submitAndFinalize } from '@argonprotocol/apps-core/__test__/helpers/mainchain.ts';
 import {
   createBitcoinAddress,
   runBtcCli,
@@ -47,6 +41,7 @@ import { BitcoinLiquidClose } from '../lib/txs/BitcoinLiquid.close.ts';
 import { BitcoinLiquidRatchet } from '../lib/txs/BitcoinLiquid.ratchet.ts';
 import { BitcoinLockResecuritize } from '../lib/txs/BitcoinLock.resecuritize.ts';
 import { createMockWalletKeys } from './helpers/wallet.ts';
+import { WalletForBitcoin } from '../lib/WalletForBitcoin.ts';
 
 const skipE2E = Boolean(JSON.parse(process.env.SKIP_E2E ?? '0'));
 
@@ -88,6 +83,78 @@ describe.skipIf(skipE2E).sequential('BitcoinLocks integration', { timeout: 240e3
     );
     minerAddress = createBitcoinAddress();
   }, 240e3);
+
+  it(
+    'creates a Channel at Max when the remaining vault capacity ends between satoshis',
+    { tags: ['exclusive-argon-network'] },
+    async () => {
+      const operator = await createHarness({
+        archiveUrl: network.archiveUrl,
+        esploraHost: network.networkConfigOverride.esploraHost,
+        network: 'dev-docker',
+      });
+      const member = await createBitcoinLocksClientHarness({
+        archiveUrl: network.archiveUrl,
+        esploraHost: network.networkConfigOverride.esploraHost,
+        network: 'dev-docker',
+        walletKeys: createMockWalletKeys(),
+      });
+
+      try {
+        await sudoFundWallet({
+          address: member.walletKeys.defaultArgonAddress,
+          microgons: walletFundingMicrogons,
+          micronots: 0n,
+          archiveUrl: network.archiveUrl,
+        });
+        const client = await member.clients.get(false);
+        await member.currency.fetchMainchainRates(client, { ignoreCache: true });
+        const vault = operator.myVault.createdVault!;
+        const satoshis = await member.bitcoinLocks.satoshisForArgonLiquidity(vault.availableBitcoinSpace() / 2n);
+        const coverageMicrogons = member.bitcoinLocks.argonLiquidityForSatoshis(satoshis);
+        const capacityMicrogons = coverageMicrogons + 1n;
+        await submitAndFinalize(
+          client,
+          client.tx.vaults.setReservedSecuritizationSpace(vault.availableSecuritizationSpace() - capacityMicrogons),
+          await operator.walletKeys.getVaultingKeypair(),
+        );
+
+        const snapshot = createRuntimeClient(await client.raw.at(await client.rpc.chain.getFinalizedHead()));
+        const currentVault = await Vault.get(snapshot, vault.vaultId, NetworkConfig.tickMillis);
+        expect(currentVault.availableBitcoinSpace()).toBe(capacityMicrogons);
+        const wallet = new WalletForBitcoin(
+          () => member.bitcoinLocks,
+          () => member.walletKeys.liquidLockingAddress,
+          member.bitcoinLockCreate,
+        );
+        const maximum = await wallet.getMaximumChannelLiquidity(currentVault);
+        const channel = await wallet.createChannel({
+          vault: currentVault,
+          liquidityMicrogons: maximum,
+          txSigner: await member.walletKeys.getLiquidLockingKeypair(),
+        });
+        const txInfo = member.bitcoinLockCreate.getPendingLockTxInfo(channel.uuid)!;
+        await txInfo.waitForPostProcessing;
+
+        const finalizedChannel = member.bitcoinLocks.getLockByUuid(channel.uuid)!;
+        const finalized = createRuntimeClient(await client.raw.at(await client.rpc.chain.getFinalizedHead()));
+        const currentLock = await BitcoinLock.get(finalized, finalizedChannel.lockId!);
+        expect(maximum).toBe(coverageMicrogons);
+        expect(currentLock?.securitizedSatoshis).toBe(satoshis);
+        expect(currentLock?.securitizationCoverageMicrogons).toBe(coverageMicrogons);
+        expect(finalizedChannel.status).toBe(BitcoinLockStatus.LockPendingFunding);
+        expect((await member.db.bitcoinLocksTable.getByLockId(finalizedChannel.lockId!))?.status).toBe(
+          BitcoinLockStatus.LockPendingFunding,
+        );
+        expect(
+          (await Vault.get(finalized, vault.vaultId, NetworkConfig.tickMillis)).securitizationLocked,
+        ).toBeLessThanOrEqual(capacityMicrogons);
+      } finally {
+        await cleanupBitcoinLocksClientHarness(member);
+        await cleanupHarness(operator);
+      }
+    },
+  );
 
   it('imports successive confirmed funding UTXOs and restores the full amount after restart', async () => {
     const operator = await createHarness({

@@ -10,7 +10,9 @@ it.each([
     message: 'Your account needs to keep a minimum balance. Reduce the amount and try again.',
   },
   { name: 'BitcoinReleaseChangeBelowMinimum' },
-])('shows a readable $name error and preserves metadata for codec and historical errors', ({ name, message }) => {
+  { name: 'InsufficientVaultFunds', docsPallet: 'Vaults' },
+])('shows a readable $name error and preserves metadata for codec and historical errors', args => {
+  const { name, message, docsPallet } = args;
   const registry = getOfflineRegistry();
   const pallet = registry.metadata.pallets.find(pallet => pallet.name.eq('BitcoinLocks'))!;
   const variant = registry.lookup
@@ -23,11 +25,20 @@ it.each([
     type: 'Module' as const,
     value: { index: pallet.index.toNumber(), error: codec.asModule.error.toHex() },
   };
+  let runtimeDescription = variant.docs.join(' ');
+  if (docsPallet) {
+    const sourcePallet = registry.metadata.pallets.find(pallet => pallet.name.eq(docsPallet))!;
+    const sourceVariant = registry.lookup
+      .getSiType(sourcePallet.errors.unwrap().type)
+      .def.asVariant.variants.find(error => error.name.eq(name))!;
+    runtimeDescription = sourceVariant.docs.join(' ');
+  }
+  expect(runtimeDescription).not.toBe('');
 
   for (const error of [codec, historical]) {
     const decoded = runtimeDispatchErrorToExtrinsicError({ registry }, error, 2, 35_000n);
-    expect(decoded.message).toBe(message ?? variant.docs.join(' '));
-    expect(decoded.details).toBe(variant.docs.join(' '));
+    expect(decoded.message).toBe(message ?? runtimeDescription);
+    expect(decoded.details).toBe(runtimeDescription);
     expect(decoded).toMatchObject({
       errorCode: `bitcoinLocks.${name}`,
       batchInterruptedIndex: 2,

@@ -1086,16 +1086,23 @@ export default class BitcoinLocks {
     if (!this.#currency.isLoaded) {
       await this.#currency.load();
     }
-    const vaultCapacitySatoshis =
+
+    // Requested coverage rounds up; available capacity must fit within whole satoshis.
+    let vaultCapacitySatoshis =
       microgonsAtTargetPerBtc === undefined
         ? BitcoinLock.satoshisRequiredForRedemptionAmount(this.#currency.priceIndex, vaultCapacityLiquidityMicrogons)
         : await this.satoshisForArgonLiquidity(vaultCapacityLiquidityMicrogons, microgonsAtTargetPerBtc);
+    if (
+      this.argonLiquidityForSatoshis(vaultCapacitySatoshis, microgonsAtTargetPerBtc) > vaultCapacityLiquidityMicrogons
+    ) {
+      vaultCapacitySatoshis -= 1n;
+    }
+
     let availableSatoshis = vaultCapacitySatoshis;
-    let availableLiquidityMicrogons = vaultCapacityLiquidityMicrogons;
     if (maxSatoshis != null && maxSatoshis < vaultCapacitySatoshis) {
       availableSatoshis = maxSatoshis;
-      availableLiquidityMicrogons = this.argonLiquidityForSatoshis(availableSatoshis, microgonsAtTargetPerBtc);
     }
+    const availableLiquidityMicrogons = this.argonLiquidityForSatoshis(availableSatoshis, microgonsAtTargetPerBtc);
 
     return {
       availableSatoshis,

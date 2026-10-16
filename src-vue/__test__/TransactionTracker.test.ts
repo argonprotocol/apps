@@ -189,7 +189,7 @@ describe('TransactionTracker', () => {
 
     const txResult = tracker.data.txInfos[0].txResult;
     expect(txResult.extrinsicError?.message).toBe(
-      'The transaction could not be completed. Please try again or contact support if the problem continues. (Error code: bitcoinLocks.InsufficientVaultFunds)',
+      "There aren't enough funds in the vault to cover the requested bitcoin lock",
     );
     expect(txResult.isFinalized).toBe(false);
   });

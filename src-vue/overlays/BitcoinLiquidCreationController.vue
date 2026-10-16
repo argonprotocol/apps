@@ -243,7 +243,6 @@ async function refreshPreview(requestedSatoshis: bigint): Promise<boolean> {
   const runId = ++previewRunId;
   let allocations = allocate(requestedSatoshis);
   if (!allocations.length) return false;
-  errorMessage.value = '';
 
   try {
     let preview;
@@ -286,6 +285,7 @@ async function refreshPreview(requestedSatoshis: bigint): Promise<boolean> {
     }
     if (runId !== previewRunId) return false;
 
+    errorMessage.value = '';
     maximumSatoshisByLockId.value = {
       ...maximumSatoshisByLockId.value,
       ...preview.maximumSatoshisByLockId,
