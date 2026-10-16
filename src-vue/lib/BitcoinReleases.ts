@@ -766,10 +766,29 @@ export default class BitcoinReleases {
       release = this.getActiveForLock(lock) ?? release;
     }
 
-    if (release.status === BitcoinReleaseStatus.ReadyForBitcoinBroadcast && this.walletKeys.canSign) {
-      await this.submitLockToBitcoin(lock, release).catch(error => {
-        console.warn(`[BitcoinReleases] Error submitting release to Bitcoin for ${lock.uuid}`, error);
-      });
+    if (release.status === BitcoinReleaseStatus.ReadyForBitcoinBroadcast) {
+      const sinceLastCheck = Date.now() - (release.bitcoinLastConfirmationCheckAt?.getTime() ?? 0);
+      if (!hasNewOracleBitcoinBlockHeight && sinceLastCheck < 30_000) return;
+
+      try {
+        await this.recordBitcoinConfirmationCheck(release, this.bitcoinLocks.data.oracleBitcoinBlockHeight);
+        const observed = await this.findBitcoinTransaction({
+          lock,
+          release,
+          fundingUtxos: this.getInputUtxos(release),
+        });
+        if (observed) {
+          await this.recordBitcoinBroadcast(release, observed);
+          if (observed.bitcoinConfirmedHeight !== undefined) {
+            await this.recordBitcoinConfirmation(release, observed);
+          }
+        } else if (this.walletKeys.canSign) {
+          await this.submitLockToBitcoin(lock, release);
+        }
+      } catch (error) {
+        await this.recordRetryableError(release, error);
+        return;
+      }
       release = this.getActiveForLock(lock) ?? release;
     }
 
@@ -1211,6 +1230,80 @@ export default class BitcoinReleases {
     );
   }
 
+  public async findBitcoinTransaction({
+    lock,
+    release,
+    fundingUtxos,
+  }: {
+    lock: IBitcoinLockRecord;
+    release: IBitcoinReleaseRecord;
+    fundingUtxos: IBitcoinUtxoRecord[];
+  }): Promise<
+    | Pick<
+        IBitcoinReleaseRecord,
+        | 'bitcoinTxid'
+        | 'bitcoinFirstSeenAt'
+        | 'bitcoinFirstSeenHeight'
+        | 'bitcoinFirstSeenOracleHeight'
+        | 'bitcoinConfirmedHeight'
+      >
+    | undefined
+  > {
+    const oracleHeight = this.bitcoinLocks.data.oracleBitcoinBlockHeight;
+    const cached = this.getById(release.id);
+    let txid = release.bitcoinTxid ?? cached?.bitcoinTxid ?? release.expectedTransactionId;
+    let status;
+    if (txid) {
+      const expectedTxid =
+        release.expectedTransactionId ?? this.getLockBitcoinTransactionId(lock, release, fundingUtxos);
+      if (txid !== expectedTxid) {
+        throw new Error(`Bitcoin release ${release.id} has a transaction other than its request`);
+      }
+    }
+    if (txid && cached?.bitcoinTxid === txid && cached.bitcoinConfirmedHeight !== undefined) {
+      const {
+        bitcoinTxid,
+        bitcoinFirstSeenAt,
+        bitcoinFirstSeenHeight,
+        bitcoinFirstSeenOracleHeight,
+        bitcoinConfirmedHeight,
+      } = cached;
+      return {
+        bitcoinTxid,
+        bitcoinFirstSeenAt,
+        bitcoinFirstSeenHeight,
+        bitcoinFirstSeenOracleHeight,
+        bitcoinConfirmedHeight,
+      };
+    }
+
+    if (txid) {
+      status = await this.mempool.getTxStatus(txid, oracleHeight);
+    } else {
+      for (const fundingUtxo of fundingUtxos) {
+        const outspend = await this.mempool.getOutspendStatus(fundingUtxo.txid, fundingUtxo.vout, oracleHeight);
+        if (!outspend) continue;
+
+        const expectedTxid = this.getLockBitcoinTransactionId(lock, release, fundingUtxos);
+        if (outspend.txid !== expectedTxid) {
+          throw new Error(`Bitcoin release ${release.id} funding was spent by a different transaction`);
+        }
+        txid = outspend.txid;
+        status = outspend;
+        break;
+      }
+    }
+    if (!status || !txid) return;
+
+    return {
+      bitcoinTxid: txid,
+      bitcoinFirstSeenAt: release.bitcoinFirstSeenAt ?? new Date(status.transactionBlockTime * 1_000 || Date.now()),
+      bitcoinFirstSeenHeight: release.bitcoinFirstSeenHeight ?? status.transactionBlockHeight,
+      bitcoinFirstSeenOracleHeight: release.bitcoinFirstSeenOracleHeight ?? oracleHeight,
+      ...(status.isConfirmed ? { bitcoinConfirmedHeight: status.transactionBlockHeight } : {}),
+    };
+  }
+
   public async buildLockBitcoinTransaction(
     lock: IBitcoinLockRecord,
     release: IBitcoinReleaseRecord,
@@ -1234,12 +1327,7 @@ export default class BitcoinReleases {
 
     const cosign = this.bitcoinLocks.createCosignScript({ lock, fundedSatoshis: lock.fundedSatoshis });
     const tx = cosign.cosignAndGenerateTx({
-      releaseRequest: {
-        toScriptPubkey: release.toScriptPubkey,
-        bitcoinNetworkFee: release.bitcoinNetworkFee,
-        destinationSatoshis: release.destinationSatoshis,
-        changeSatoshis: release.changeSatoshis,
-      },
+      releaseRequest: release,
       vaultCosignatures: release.vaultSignatures,
       utxos: fundingUtxos.map(record => ({
         utxoRef: { txid: record.txid, vout: record.vout },
@@ -1311,6 +1399,7 @@ export default class BitcoinReleases {
     Object.assign(lock, lockDraft);
     utxoDrafts.forEach((utxo, index) => Object.assign(inputUtxos[index], utxo));
     this.data.releasesById[release.id] = release;
+    this.bitcoinLocks.publishFinancialRevision();
   }
 
   public async completeDepositRelease(
@@ -1397,55 +1486,49 @@ export default class BitcoinReleases {
       return;
     }
 
-    try {
-      const { bytes, txid } = await this.buildLockBitcoinTransaction(lock, release);
-      if (release.bitcoinTxid && release.bitcoinTxid !== txid) {
-        throw new Error(`Bitcoin release ${release.id} rebuilt a different transaction`);
-      }
-      if (!release.bitcoinTxid) await this.recordPreparedBitcoinTransaction(release, txid);
-
-      const oracleBitcoinBlockHeight = this.bitcoinLocks.data.oracleBitcoinBlockHeight;
-      const existingTxStatus = await this.mempool.getTxStatus(txid, oracleBitcoinBlockHeight);
-      if (existingTxStatus?.isConfirmed) {
-        await this.recordBitcoinBroadcast(release, {
-          bitcoinTxid: txid,
-          bitcoinFirstSeenAt: release.bitcoinFirstSeenAt ?? new Date(),
-          bitcoinFirstSeenHeight: existingTxStatus.transactionBlockHeight,
-          bitcoinFirstSeenOracleHeight: release.bitcoinFirstSeenOracleHeight ?? oracleBitcoinBlockHeight,
-        });
-        await this.recordBitcoinConfirmation(release, {
-          bitcoinConfirmedHeight: existingTxStatus.transactionBlockHeight,
-        });
-        return;
-      }
-
-      let releasedTxid: string;
-      try {
-        releasedTxid = await this.mempool.broadcastTx(u8aToHex(bytes, undefined, false));
-      } catch (error) {
-        const message = String(error ?? '').toLowerCase();
-        const wasAlreadyBroadcast =
-          message.includes('txn-already-in-mempool') ||
-          message.includes('txn-already-known') ||
-          message.includes('already in mempool') ||
-          message.includes('already known') ||
-          message.includes('already have transaction');
-        if (!wasAlreadyBroadcast) throw error;
-        releasedTxid = txid;
-      }
-      if (releasedTxid !== txid) throw new Error(`Bitcoin release ${release.id} broadcast returned a different txid`);
-      const tip = await this.mempool.getTipHeight();
-      await this.recordBitcoinBroadcast(release, {
-        bitcoinTxid: releasedTxid,
-        bitcoinFirstSeenAt: new Date(),
-        bitcoinFirstSeenHeight: tip,
-        bitcoinFirstSeenOracleHeight: oracleBitcoinBlockHeight,
-      });
-    } catch (error) {
-      if (isWalletSigningUnavailableError(error)) throw error;
-      await this.recordRetryableError(release, error);
-      throw error;
+    const { bytes, txid } = await this.buildLockBitcoinTransaction(lock, release);
+    if (release.bitcoinTxid && release.bitcoinTxid !== txid) {
+      throw new Error(`Bitcoin release ${release.id} rebuilt a different transaction`);
     }
+    if (!release.bitcoinTxid) await this.recordPreparedBitcoinTransaction(release, txid);
+
+    const oracleBitcoinBlockHeight = this.bitcoinLocks.data.oracleBitcoinBlockHeight;
+    const existingTxStatus = await this.mempool.getTxStatus(txid, oracleBitcoinBlockHeight);
+    if (existingTxStatus?.isConfirmed) {
+      await this.recordBitcoinBroadcast(release, {
+        bitcoinTxid: txid,
+        bitcoinFirstSeenAt: release.bitcoinFirstSeenAt ?? new Date(),
+        bitcoinFirstSeenHeight: existingTxStatus.transactionBlockHeight,
+        bitcoinFirstSeenOracleHeight: release.bitcoinFirstSeenOracleHeight ?? oracleBitcoinBlockHeight,
+      });
+      await this.recordBitcoinConfirmation(release, {
+        bitcoinConfirmedHeight: existingTxStatus.transactionBlockHeight,
+      });
+      return;
+    }
+
+    let releasedTxid: string;
+    try {
+      releasedTxid = await this.mempool.broadcastTx(u8aToHex(bytes, undefined, false));
+    } catch (error) {
+      const message = String(error ?? '').toLowerCase();
+      const wasAlreadyBroadcast =
+        message.includes('txn-already-in-mempool') ||
+        message.includes('txn-already-known') ||
+        message.includes('already in mempool') ||
+        message.includes('already known') ||
+        message.includes('already have transaction');
+      if (!wasAlreadyBroadcast) throw error;
+      releasedTxid = txid;
+    }
+    if (releasedTxid !== txid) throw new Error(`Bitcoin release ${release.id} broadcast returned a different txid`);
+    const tip = await this.mempool.getTipHeight();
+    await this.recordBitcoinBroadcast(release, {
+      bitcoinTxid: releasedTxid,
+      bitcoinFirstSeenAt: new Date(),
+      bitcoinFirstSeenHeight: tip,
+      bitcoinFirstSeenOracleHeight: oracleBitcoinBlockHeight,
+    });
   }
 
   private getOrphanTransactionInfo(release: Pick<IBitcoinReleaseRecord, 'id'>): TransactionInfo | undefined {
@@ -1742,6 +1825,11 @@ export default class BitcoinReleases {
 
   private async syncLockBitcoinConfirmation(release: IBitcoinReleaseRecord): Promise<void> {
     if (release.status !== BitcoinReleaseStatus.ConfirmingOnBitcoin || !release.bitcoinTxid) return;
+    if (release.bitcoinConfirmedHeight !== undefined) {
+      await this.recordBitcoinConfirmation(release, { bitcoinConfirmedHeight: release.bitcoinConfirmedHeight });
+      return;
+    }
+
     const status = await this.mempool.getTxStatus(release.bitcoinTxid, this.bitcoinLocks.data.oracleBitcoinBlockHeight);
     if (!status?.isConfirmed) return;
     await this.recordBitcoinConfirmation(release, {
@@ -1757,6 +1845,21 @@ export default class BitcoinReleases {
 
     if (release.changeSatoshis === 0n) {
       const block = await this.blockWatch.getHeaderByBlockNumber(release.cosignBlockNumber);
+      if (lock.removalBlockNumber === block.blockNumber && lock.removalBlockHash === block.blockHash) {
+        await this.completeLockRelease(
+          lock,
+          release,
+          {
+            argonCompletionBlockNumber: lock.removalBlockNumber,
+            argonCompletionBlockHash: lock.removalBlockHash,
+            argonCompletionBlockTime: lock.removalBlockTime,
+            argonCompletionExtrinsicIndex: lock.removalExtrinsicIndex,
+          },
+          { ...lock, removalReason: 'released' },
+          block,
+        );
+        return;
+      }
       const { api, events } = await this.blockWatch.getEventsWithSpec(block);
       const eventRecord = events.find(({ event }) => {
         const runtimeEvent = toRuntimeEvent(event);
@@ -1797,6 +1900,23 @@ export default class BitcoinReleases {
     }
 
     throw new Error(`Bitcoin release ${release.id} is missing its finalized settlement event`);
+  }
+
+  private getLockBitcoinTransactionId(
+    lock: IBitcoinLockRecord,
+    release: IBitcoinReleaseRecord,
+    fundingUtxos: IBitcoinUtxoRecord[],
+  ): string {
+    // SegWit transaction identity can be checked without either party's private key.
+    const cosign = this.bitcoinLocks.createCosignScript({ lock, fundedSatoshis: lock.fundedSatoshis });
+    const psbt = cosign.getCosignPsbt({
+      releaseRequest: release,
+      utxos: fundingUtxos.map(input => ({
+        utxoRef: { txid: input.txid, vout: input.vout },
+        satoshis: input.satoshis,
+      })),
+    });
+    return u8aToHex(sha256AsU8a(sha256AsU8a(psbt.unsignedTx)));
   }
 
   private reportMissingReleaseForLock(lock: IBitcoinLockRecord): void {

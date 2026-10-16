@@ -20,10 +20,10 @@ import { BitcoinLockStatus, type IBitcoinLockRecord } from '../lib/db/BitcoinLoc
 import { BitcoinUtxoSpendStatus, BitcoinUtxoStatus } from '../lib/db/BitcoinUtxosTable.ts';
 import { BitcoinReleaseKind, BitcoinReleaseStatus } from '../interfaces/IBitcoinReleaseRecord.ts';
 import { ExtrinsicType } from '../lib/db/TransactionsTable.ts';
-import { hexToU8a } from '@argonprotocol/mainchain';
+import { hexToU8a, u8aToHex } from '@argonprotocol/mainchain';
 import { historicalEventChanges } from '@argonprotocol/runtime-client/events.generated';
 import { bigintCodec, numberCodec, optionCodec } from '../../core/__test__/helpers/codecs.ts';
-import { encodeAddress } from '@polkadot/util-crypto';
+import { encodeAddress, sha256AsU8a } from '@polkadot/util-crypto';
 import { getBitcoinAlertNotices } from '../lib/Alerts.ts';
 import { BitcoinFinancials } from '../lib/financials/BitcoinLocks.ts';
 import { BitcoinFissionRecovery } from '../lib/recovery/BitcoinFissions.ts';
@@ -40,7 +40,8 @@ import {
   historyBlock,
   historyEvent,
 } from './helpers/bitcoin.ts';
-import { nextTick, reactive, watchEffect } from 'vue';
+import { nextTick, reactive, watch, watchEffect } from 'vue';
+import { BitcoinNetwork, CosignScript, HDKey } from '@argonprotocol/bitcoin';
 
 vi.mock('../lib/recovery/BitcoinLockHistory.ts', async importOriginal => ({
   ...(await importOriginal()),
@@ -1054,16 +1055,250 @@ describe('BitcoinLocks history replay publication', () => {
     expect(durable?.hdPath).toBe('');
   });
 
+  it('retries a recovered release lookup and retains the observed transaction through restart', async () => {
+    const db = await createTestDb();
+    const accountId = encodeAddress(new Uint8Array(32).fill(0x45));
+    const fundingTxid = `0x${'46'.repeat(32)}`;
+    const orphanTxid = `0x${'49'.repeat(32)}`;
+    const keys = [1, 2, 3].map(value => HDKey.fromMasterSeed(new Uint8Array(32).fill(value)));
+    const creationLock = {
+      ...createHistoricalLock({ accountId, liquidityPromised: 1_000n, lockedTargetPrice: 1_000n }),
+      ownerPubkey: u8aToHex(keys[0].publicKey),
+      vaultPubkey: u8aToHex(keys[1].publicKey),
+      vaultClaimPubkey: u8aToHex(keys[2].publicKey),
+    };
+    const fundedLock = { ...creationLock, fundedSatoshis: 10_000n };
+    const request = {
+      toScriptPubkey: `0x0014${'47'.repeat(20)}`,
+      bitcoinNetworkFee: 100n,
+      destinationSatoshis: 9_900n,
+      changeSatoshis: 0n,
+    };
+    const psbt = new CosignScript(fundedLock, BitcoinNetwork.Bitcoin).getCosignPsbt({
+      releaseRequest: request,
+      utxos: [{ utxoRef: { txid: fundingTxid, vout: 0 }, satoshis: 10_000n }],
+    });
+    const releaseTxid = u8aToHex(sha256AsU8a(sha256AsU8a(psbt.unsignedTx)));
+    const walletKeys = { canSign: false, defaultArgonAddress: accountId } as WalletKeys;
+    const api = {
+      query: {
+        ticks: { currentTick: async () => 700 },
+        bitcoinLocks: {
+          orphanedUtxosByAccount: {
+            entries: async () => [
+              [{ args: [accountId, { txid: orphanTxid, outputIndex: 1 }] }, { lockId: 7, satoshis: 2_000n }],
+            ],
+          },
+        },
+      },
+    };
+    const blockWatch = {
+      getApi: vi.fn(async () => api),
+      getFinalizedApi: vi.fn(async () => api),
+      getHeaderByBlockNumber: vi.fn(async () => historyBlock(155)),
+    } as unknown as BlockWatch;
+    const getOutspendStatus = vi
+      .spyOn(BitcoinMempool.prototype, 'getOutspendStatus')
+      .mockRejectedValueOnce(new Error('Bitcoin lookup unavailable'))
+      .mockResolvedValueOnce({
+        txid: `0x${'ff'.repeat(32)}`,
+        isConfirmed: true,
+        transactionBlockHeight: 600,
+        transactionBlockTime: 1_700_000_000,
+        argonBitcoinHeight: 610,
+      })
+      .mockResolvedValue({
+        txid: releaseTxid,
+        isConfirmed: true,
+        transactionBlockHeight: 600,
+        transactionBlockTime: 1_700_000_000,
+        argonBitcoinHeight: 610,
+      });
+    const getTxStatus = vi
+      .spyOn(BitcoinMempool.prototype, 'getTxStatus')
+      .mockRejectedValue(new Error('Bitcoin service offline after confirmation was observed'));
+    let store = createStore({ db, blockWatch, walletKeys });
+    vi.mocked(BitcoinHistory.getHistoricalBitcoinLock)
+      .mockResolvedValueOnce(creationLock)
+      .mockResolvedValueOnce(fundedLock);
+    vi.mocked(BitcoinHistory.getHistoricalBitcoinFundingUtxos).mockResolvedValue([
+      { utxoRef: { txid: fundingTxid, vout: 0 }, satoshis: 10_000n },
+    ]);
+    vi.mocked(BitcoinHistory.getHistoricalBitcoinReleaseRequest).mockResolvedValue({
+      ...request,
+      liquidRedemptionAmount: 900n,
+    });
+
+    try {
+      await store.recovery.beginHistoryReplay({ lockScope: 'all' });
+      await store.recovery.recoverBlock(historyBlock(151), [
+        historyEvent(158, 'bitcoinLocks', 'BitcoinLockCreated', {
+          utxoId: 7,
+          vaultId: 1,
+          liquidityPromised: 1_000n,
+          securitization: 1_000n,
+          lockedTargetPrice: 1_000n,
+          accountId,
+          securityFee: 20n,
+        }),
+      ]);
+      await store.recovery.recoverBlock(historyBlock(152), [
+        historyEvent(158, 'bitcoinUtxos', 'UtxoVerified', { utxoId: 7, satoshisReceived: 10_000n }),
+      ]);
+      await store.recovery.recoverBlock(historyBlock(155), [
+        historyEvent(158, 'bitcoinLocks', 'BitcoinUtxoCosignRequested', { utxoId: 7, vaultId: 1 }),
+        historyEvent(158, 'bitcoinLocks', 'BitcoinUtxoCosigned', { utxoId: 7, vaultId: 1, signature: '0x11' }),
+      ]);
+      await store.recovery.recoverBlock(historyBlock(156), [
+        historyEvent(158, 'bitcoinLocks', 'OrphanedUtxoReceived', {
+          utxoId: 7,
+          vaultId: 1,
+          utxoRef: { txid: orphanTxid, outputIndex: 1 },
+          satoshis: 2_000n,
+        }),
+      ]);
+      await publishRecoveredHistory(store);
+      const lock = store.getLockById(7)!;
+      expect(lock.activeReleaseId).toBe('lock:7:1');
+
+      await store.releases.reconcileLockRelease(lock, true);
+      expect(await db.bitcoinReleasesTable.getById('lock:7:1')).toMatchObject({
+        status: BitcoinReleaseStatus.ReadyForBitcoinBroadcast,
+        statusError: expect.stringContaining('funding was spent by a different transaction'),
+      });
+      expect((await db.bitcoinReleasesTable.getById('lock:7:1'))?.bitcoinTxid).toBeUndefined();
+      expect((await db.bitcoinUtxosTable.fetchAll())[0].spendStatus).toBe(BitcoinUtxoSpendStatus.Unspent);
+      await store.releases.reconcileLockRelease(lock, false);
+      expect(getOutspendStatus).toHaveBeenCalledTimes(2);
+
+      // Interrupt the next durable transition after saving the confirmed Bitcoin observation.
+      await db.execute(`CREATE TRIGGER interrupt_release_confirmation
+        BEFORE UPDATE OF status ON BitcoinReleases
+        WHEN NEW.status = '${BitcoinReleaseStatus.WaitingForArgonRecognition}'
+        BEGIN SELECT RAISE(ABORT, 'Interrupted after saving the Bitcoin observation'); END`);
+      await store.releases.reconcileLockRelease(lock, true);
+      expect(await db.bitcoinReleasesTable.getById('lock:7:1')).toMatchObject({
+        status: BitcoinReleaseStatus.ConfirmingOnBitcoin,
+        bitcoinTxid: releaseTxid,
+        bitcoinConfirmedHeight: 600,
+        statusError: expect.stringContaining('Interrupted after saving the Bitcoin observation'),
+      });
+      await db.execute('DROP TRIGGER interrupt_release_confirmation');
+      await store.shutdown();
+
+      store = createStore({ db, blockWatch, walletKeys });
+      store.data = reactive(store.data);
+      for (const saved of await db.bitcoinLocksTable.fetchAll()) store.data.locksByLockId[saved.lockId!] = saved;
+      store.utxoTracking.load(await db.bitcoinUtxosTable.fetchAll());
+      await store.releases.load();
+      store.data.readiness = 'ready';
+      const financials = new BitcoinFinancials(
+        store,
+        new BitcoinFissions(Promise.resolve(db), accountId),
+        Promise.resolve(db),
+      );
+      let positions: ReturnType<BitcoinFinancials['createFinancialPositions']> = [];
+      const stopWatchingFinancials = watch(
+        () => store.data.financialRevision,
+        () => {
+          positions = financials.createFinancialPositions({
+            summaries: store.getAllLocks().map(record => store.createLockSummary(record)),
+            hasCurrentPrice: true,
+          });
+        },
+        { immediate: true },
+      );
+      let hasPendingSend = false;
+      const stopWatching = watchEffect(() => {
+        hasPendingSend = store.getAllLocks().some(record => !!record.activeReleaseId);
+      });
+      expect(hasPendingSend).toBe(true);
+      expect(positions).toEqual(
+        expect.arrayContaining([expect.objectContaining({ kind: 'bitcoin-asset', lifecycle: 'releasing' })]),
+      );
+      await store.releases.reconcileLockRelease(store.getLockById(7)!, false);
+      await nextTick();
+      expect(hasPendingSend).toBe(false);
+      expect(positions).toEqual([expect.objectContaining({ lifecycle: 'completed', currentValue: 0n })]);
+      stopWatching();
+      stopWatchingFinancials();
+
+      expect(await db.bitcoinReleasesTable.getById('lock:7:1')).toMatchObject({
+        status: BitcoinReleaseStatus.Complete,
+        bitcoinTxid: releaseTxid,
+        bitcoinConfirmedHeight: 600,
+      });
+      expect(store.getActiveLocks()).toEqual([]);
+      expect(await db.bitcoinLocksTable.getByLockId(7)).toMatchObject({
+        status: BitcoinLockStatus.Released,
+        activeReleaseId: undefined,
+      });
+      expect(await db.bitcoinUtxosTable.getByLockOutpoint(7, fundingTxid, 0)).toMatchObject({
+        spendStatus: BitcoinUtxoSpendStatus.Spent,
+        activeReleaseId: undefined,
+      });
+      expect(await db.bitcoinUtxosTable.getByLockOutpoint(7, orphanTxid, 1)).toMatchObject({
+        status: BitcoinUtxoStatus.Orphaned,
+        spendStatus: BitcoinUtxoSpendStatus.Unspent,
+        activeReleaseId: undefined,
+      });
+      expect(getOutspendStatus).toHaveBeenCalledTimes(3);
+      expect(getTxStatus).not.toHaveBeenCalled();
+
+      await store.shutdown();
+      store = createStore({ db, blockWatch, walletKeys });
+      store.utxoTracking.load(await db.bitcoinUtxosTable.fetchAll());
+      await store.releases.load();
+      const completed = store.releases.getById('lock:7:1')!;
+      const { bitcoinTxid: _txid, bitcoinConfirmedHeight: _height, ...reconstructed } = completed;
+      const savedLock = (await db.bitcoinLocksTable.getByLockId(7))!;
+      const fundingUtxos = store.releases.getInputUtxos(completed);
+      getOutspendStatus.mockRejectedValue(new Error('Bitcoin service offline after restart'));
+      getTxStatus.mockRejectedValue(new Error('Bitcoin service offline after restart'));
+      expect(
+        await store.releases.findBitcoinTransaction({ lock: savedLock, release: reconstructed, fundingUtxos }),
+      ).toMatchObject({ bitcoinTxid: releaseTxid, bitcoinConfirmedHeight: 600 });
+      await expect(
+        store.releases.findBitcoinTransaction({
+          lock: savedLock,
+          release: { ...reconstructed, toScriptPubkey: `0x0014${'48'.repeat(20)}` },
+          fundingUtxos,
+        }),
+      ).rejects.toThrow('has a transaction other than its request');
+    } finally {
+      getOutspendStatus.mockRestore();
+      getTxStatus.mockRestore();
+      await store.shutdown();
+      await db.close();
+    }
+  });
+
   it('restores a readonly historical release under its current Lock ID', async () => {
     const db = await createTestDb();
     const accountId = encodeAddress(new Uint8Array(32).fill(0x44));
     const fundingTxid = `0x${'44'.repeat(32)}`;
-    const releaseTxid = `0x${'55'.repeat(32)}`;
-    const creationLock = createHistoricalLock({ accountId, liquidityPromised: 1_000n, lockedTargetPrice: 1_000n });
-    const fundedLock = {
+    const keys = [4, 5, 6].map(value => HDKey.fromMasterSeed(new Uint8Array(32).fill(value)));
+    const creationLock = {
       ...createHistoricalLock({ accountId, liquidityPromised: 1_000n, lockedTargetPrice: 1_000n }),
+      ownerPubkey: u8aToHex(keys[0].publicKey),
+      vaultPubkey: u8aToHex(keys[1].publicKey),
+      vaultClaimPubkey: u8aToHex(keys[2].publicKey),
+    };
+    const fundedLock = {
+      ...creationLock,
       fundedSatoshis: 10_000n,
     };
+    const request = {
+      toScriptPubkey: `0x0014${'55'.repeat(20)}`,
+      bitcoinNetworkFee: 8n,
+      destinationSatoshis: 9_992n,
+      changeSatoshis: 0n,
+    };
+    const psbt = new CosignScript(fundedLock, BitcoinNetwork.Bitcoin).getCosignPsbt({
+      releaseRequest: request,
+      utxos: [{ utxoRef: { txid: fundingTxid, vout: 1 }, satoshis: 10_000n }],
+    });
+    const releaseTxid = u8aToHex(sha256AsU8a(sha256AsU8a(psbt.unsignedTx)));
     const getBitcoinChildXpriv = vi.fn(async () => {
       throw new Error('Wallet encryption key is unavailable');
     });
@@ -1102,8 +1337,7 @@ describe('BitcoinLocks history replay publication', () => {
       { utxoRef: { txid: fundingTxid, vout: 1 }, satoshis: fundedLock.fundedSatoshis },
     ]);
     vi.mocked(BitcoinHistory.getHistoricalBitcoinReleaseRequest).mockResolvedValue({
-      toScriptPubkey: '0x0014',
-      bitcoinNetworkFee: 8n,
+      ...request,
       liquidRedemptionAmount: 900n,
     });
     const getOutspendStatus = vi.spyOn(BitcoinMempool.prototype, 'getOutspendStatus').mockResolvedValue({
