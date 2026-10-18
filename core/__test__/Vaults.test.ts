@@ -328,7 +328,7 @@ describe('Vaults load retry', () => {
 });
 
 describe('Vault revenue sync', () => {
-  it('excludes historical flexible bond income while retaining direct vault income after the upgrade', async () => {
+  it('retains the operator share of historical flexible income and direct vault rewards after the upgrade', async () => {
     const deployedRegistry = new TypeRegistry();
     const metadata = Object.entries(getBundledMetadata()).find(([key]) => key.endsWith('-159'))![1];
     deployedRegistry.setMetadata(new Metadata(deployedRegistry, metadata));
@@ -365,11 +365,26 @@ describe('Vault revenue sync', () => {
         },
       },
     });
+    const lots = [0, 400_000].map((sharingPercent, index) => [
+      { args: [index + 1] },
+      toPlain(
+        deployedRegistry.createType('PalletTreasuryBondLot', {
+          program: { Vault: { vaultId: 1, sharingPercent, bonusPercent: 50_000 } },
+          bonds: 25,
+          isFlexible: true,
+        }),
+      ),
+    ]);
     const miningFrames = createRevenueMiningFrames([22, 21], frameId => ({
       specVersion: frameId === 22 ? 160 : 159,
       api: {
         query: {
-          treasury: {},
+          treasury: {
+            currentFrameVaultCapital: async () => toPlain(capital),
+            bondLotById: { entries: async () => lots },
+            bondLotsByVault: async () =>
+              toPlain(deployedRegistry.createType('PalletTreasuryVaultBondState', { flexibleBonds: 50 })),
+          },
           vaults: {
             revenuePerFrameByVault: {
               entries: async () => [[{ args: [1] }, toPlain(frameId === 22 ? currentRevenue : historicalRevenue)]],
@@ -394,12 +409,15 @@ describe('Vault revenue sync', () => {
     vaults.stats.revenueBackfill = { nextFrame: 22, throughFrame: 21 };
     await vaults.updateRevenue();
 
-    // Each frame earned 70 ARGN on 1,000 ARGN securitization; the 33.666666 flexible income belongs to bonds.
-    expect(vaults.calculateApr()).toBeCloseTo(2_555);
-    expect(vaults.calculateVaultApr(1)).toBeCloseTo(2_555);
-    expect(vaults.calculateApy()).toBeCloseTo((1.07 ** 365 - 1) * 100);
+    // Apply each archived lot's 5%/45% share after splitting gross yield and rounding its income.
+    const historical = vaults.stats.vaultsById[1].changesByFrame.find(frame => frame.frameId === 20)!;
+    expect(historical.treasuryPool.flexibleBondEarnings).toBe(8_416_665n);
+    expect(historical.treasuryPool.vaultEarnings).toBe(43_666_666n);
+    expect(vaults.calculateApr()).toBeCloseTo(3_015.81251825);
+    expect(vaults.calculateVaultApr(1)).toBeCloseTo(3_015.81251825);
+    expect(vaults.calculateApy()).toBeCloseTo((1.0826250005 ** 365 - 1) * 100);
     await vaults.updateVaultRevenue(1, toPlain(historicalRevenue) as any);
-    expect(vaults.calculateApr()).toBeCloseTo(2_555);
+    expect(vaults.calculateApr()).toBeCloseTo(3_015.81251825);
   });
 
   it('uses completed-frame capital and opening prices, preserving returns when a payout snapshot needs retry', async () => {

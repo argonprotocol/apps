@@ -28,6 +28,7 @@ import { BondLot } from './BondLot.js';
 import { BitcoinLock } from './BitcoinLock.js';
 import { Vault } from './Vault.js';
 import { TreasuryRewards } from './TreasuryRewards.js';
+import { TreasuryBonds } from './TreasuryBonds.js';
 import {
   calculateAggregateReturn,
   calculateAnnualPercentageRate,
@@ -469,34 +470,14 @@ export class Vaults {
             }
           }
 
-          const flexibleFrames = Object.entries(stats.vaultsById).flatMap(([vaultId, vault]) => {
-            const frame = vault.changesByFrame.find(change => change.frameId === completedFrameId);
-            return frame?.treasuryPool.vaultCapital ? [{ vaultId: Number(vaultId), frame }] : [];
-          });
-          if (flexibleFrames.length) {
-            if (!parentApi) {
-              const parent = await this.miningFrames.blockWatch.getHeader(firstBlockMeta.blockNumber - 1);
-              parentApi = await this.miningFrames.blockWatch.getApi(parent);
-            }
-            const capital = await parentApi.query.treasury.currentFrameVaultCapital();
-            if (capital?.frameId === completedFrameId && 'vaults' in capital && capital.vaults) {
-              for (const { vaultId, frame } of flexibleFrames) {
-                const position = capital.vaults[vaultId];
-                if (!position || !('flexibleProrata' in position)) continue;
-                const flexibleBondEarnings = bigNumberToBigInt(
-                  position.flexibleProrata.times(frame.treasuryPool.totalEarnings),
-                );
-                const vault = stats.vaultsById[vaultId];
-                stats.vaultsById[vaultId] = {
-                  ...vault,
-                  changesByFrame: vault.changesByFrame.map(change =>
-                    change === frame
-                      ? { ...frame, treasuryPool: { ...frame.treasuryPool, flexibleBondEarnings } }
-                      : change,
-                  ),
-                };
-              }
-            }
+          const hasFlexibleCapital = Object.values(stats.vaultsById).some(vault =>
+            vault.changesByFrame.some(
+              frame => frame.frameId === completedFrameId && frame.treasuryPool.vaultCapital > 0n,
+            ),
+          );
+          if (hasFlexibleCapital) {
+            const { api: participationApi } = await this.miningFrames.getFrameStart(completedFrameId);
+            await Vaults.loadFlexibleBondEarnings(stats, completedFrameId, participationApi);
           }
           if (completedFrameId >= oldestCompletedFrameId) {
             await this.loadFrameHistory(stats, { frameId: completedFrameId, firstBlockMeta, api, parentApi });
@@ -575,6 +556,67 @@ export class Vaults {
       throw error;
     } finally {
       if (this.refreshingPromise === refresh) this.refreshingPromise = undefined;
+    }
+  }
+
+  /** Enrich detached shared history with bond-holder income from archived frame-start terms. */
+  public static async loadFlexibleBondEarnings(stats: IAllVaultStats, frameId: number, api: ArgonApi): Promise<void> {
+    const capital = await api.query.treasury.currentFrameVaultCapital();
+    if (capital?.frameId !== frameId || !('vaults' in capital) || !capital.vaults) return;
+
+    const storedLots = await api.query.treasury.bondLotById.entries();
+    if (!storedLots) return;
+    const lots = storedLots.flatMap(([key, lot]) => {
+      if (!lot || lot.releaseReason || !(lot.isFlexible ?? lot.isBackfill)) return [];
+
+      const program = lot.program ?? {
+        type: 'Vault' as const,
+        value: { vaultId: lot.vaultId!, sharingPercent: lot.sharingPercent!, bonusPercent: lot.bonusPercent! },
+      };
+      return [{ id: key.args[0], bonds: lot.bonds, program }];
+    });
+
+    for (const [id, vault] of Object.entries(stats.vaultsById)) {
+      const vaultId = Number(id);
+      const frame = vault.changesByFrame.find(change => change.frameId === frameId);
+      if (!frame?.treasuryPool.vaultCapital) continue;
+      const position = capital.vaults[vaultId];
+      if (!position) continue;
+
+      let prorata: BigNumber;
+      let eligibleBonds: number;
+      if ('flexibleProrata' in position) {
+        prorata = position.flexibleProrata;
+        eligibleBonds = position.flexibleBondsEligible;
+      } else if ('backfillProrata' in position) {
+        prorata = position.backfillProrata;
+        eligibleBonds = position.backfillBondsEligible;
+      } else {
+        continue;
+      }
+
+      const flexibleLots = lots.filter(lot => lot.program.type === 'Vault' && lot.program.value.vaultId === vaultId);
+      const state = await api.query.treasury.bondLotsByVault(vaultId);
+      if (!state) continue;
+      let flexibleBonds: number;
+      if ('flexibleBonds' in state) flexibleBonds = state.flexibleBonds;
+      else if ('backfillBonds' in state) flexibleBonds = state.backfillBonds;
+      else continue;
+
+      const totalBonds = flexibleLots.reduce((total, lot) => total + lot.bonds, 0);
+      if (totalBonds !== flexibleBonds || eligibleBonds > totalBonds) continue;
+      const gross = bigNumberToBigInt(prorata.times(frame.treasuryPool.totalEarnings));
+      if (gross > frame.treasuryPool.vaultEarnings) continue;
+      const income = TreasuryBonds.allocateFlexibleEarnings(gross, flexibleLots);
+      const flexibleBondEarnings = [...income.values()].reduce((total, amount) => total + amount, 0n);
+
+      stats.vaultsById[vaultId] = {
+        ...vault,
+        changesByFrame: vault.changesByFrame.map(change => {
+          if (change !== frame) return change;
+          return { ...frame, treasuryPool: { ...frame.treasuryPool, flexibleBondEarnings } };
+        }),
+      };
     }
   }
 

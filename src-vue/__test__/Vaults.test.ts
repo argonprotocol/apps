@@ -315,7 +315,31 @@ describe('Vaults stats storage', () => {
               },
               query: {
                 system: { events: async () => [] },
-                treasury: {},
+                treasury: {
+                  currentFrameVaultCapital: async () =>
+                    toPlain(
+                      deployedRegistry.createType('PalletTreasuryFrameVaultCapital', {
+                        frameId,
+                        vaults: { 1: { flexibleProrata: 333_333_333_333_333_333n, flexibleBondsEligible: 10 } },
+                      }),
+                    ),
+                  bondLotById: {
+                    entries: async () => [
+                      [
+                        { args: [1] },
+                        toPlain(
+                          deployedRegistry.createType('PalletTreasuryBondLot', {
+                            program: { Vault: { vaultId: 1, sharingPercent: 200_000, bonusPercent: 50_000 } },
+                            bonds: 10,
+                            isFlexible: true,
+                          }),
+                        ),
+                      ],
+                    ],
+                  },
+                  bondLotsByVault: async () =>
+                    toPlain(deployedRegistry.createType('PalletTreasuryVaultBondState', { flexibleBonds: 10 })),
+                },
                 vaults: {
                   ...(hasSecuritizationHistory
                     ? {
@@ -435,13 +459,15 @@ describe('Vaults stats storage', () => {
           vaultEarnings: 33_666_666n,
           vaultCapital: 50_000_000n,
           externalCapital: 50_000_000n,
+          flexibleBondEarnings: 33_666_666n,
         };
       } else if (poolModel === 'separate vault rewards') {
         patchInput.argonBondsByFrame = [{ frameId: 20, poolDistributed: 1_000_000n }];
       }
       await patchVaultHistory(patchInput, frames as any);
       if (poolModel === 'combined vault and bond rewards') {
-        expect(patchInput.vaultsById[1].changesByFrame[0].treasuryPool.flexibleBondEarnings).toBe(33_666_666n);
+        expect(patchInput.vaultsById[1].changesByFrame[0].treasuryPool.flexibleBondEarnings).toBe(8_416_666n);
+        expect(patchInput.vaultsById[1].changesByFrame[0].treasuryPool.vaultEarnings).toBe(33_666_666n);
       } else if (poolModel === 'separate vault rewards') {
         expect(patchInput.argonBondsByFrame?.[0].participatingBonds).toBe(100n);
       }
@@ -485,7 +511,8 @@ describe('Vaults stats storage', () => {
       historyError = false;
       fees = 75_000_000n;
       await returns.update(true);
-      expect(annualEarnings.value).toBeCloseTo(22_812.5);
+      const expectedAnnualEarnings = poolModel === 'combined vault and bond rewards' ? 27_420.625 : 22_812.5;
+      expect(annualEarnings.value).toBeCloseTo(expectedAnnualEarnings);
       const restored = await vaults.restore();
       expect(
         restored?.vaultsById[1].changesByFrame.find(frame => frame.frameId === 20)?.argonotSecuritizationMicronots,
@@ -514,7 +541,7 @@ describe('Vaults stats storage', () => {
       // Once caught up, an unavailable archive cannot replace the completed snapshot or its visible return.
       historyError = true;
       await returns.update(true);
-      expect(annualEarnings.value).toBeCloseTo(22_812.5);
+      expect(annualEarnings.value).toBeCloseTo(expectedAnnualEarnings);
       expect(await vaults.restore()).toEqual(restored);
 
       fees = 50_000_000n;

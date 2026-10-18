@@ -185,10 +185,17 @@
                 <template v-else>Unavailable</template>
               </td>
               <td class="py-2 text-right">
-                {{ argonSymbol
-                }}{{
-                  microgonToArgonNm(record.cumulativeEarningsMicrogons).formatIfElse('< 0.01', '0,0.00[0000]', '0,0.00')
-                }}
+                <template v-if="record.cumulativeEarningsMicrogons !== undefined">
+                  {{ argonSymbol
+                  }}{{
+                    microgonToArgonNm(record.cumulativeEarningsMicrogons).formatIfElse(
+                      '< 0.01',
+                      '0,0.00[0000]',
+                      '0,0.00',
+                    )
+                  }}
+                </template>
+                <template v-else>&mdash;</template>
               </td>
             </tr>
           </tbody>
@@ -338,10 +345,14 @@ const bondCount = Vue.computed(() => {
 const earningsHistory = Vue.computed(() => argonBonds.getEarningsHistory(lotId.value));
 const dailyEarnings = Vue.computed(() => {
   const rows = [];
-  let cumulativeEarningsMicrogons = 0n;
+  let cumulativeEarningsMicrogons: bigint | undefined = 0n;
 
   for (const record of earningsHistory.value.records) {
-    cumulativeEarningsMicrogons += record.earningsMicrogons ?? 0n;
+    if (record.earningsMicrogons == null) {
+      cumulativeEarningsMicrogons = undefined;
+    } else if (cumulativeEarningsMicrogons !== undefined) {
+      cumulativeEarningsMicrogons += record.earningsMicrogons;
+    }
     rows.push({ ...record, cumulativeEarningsMicrogons });
   }
 
