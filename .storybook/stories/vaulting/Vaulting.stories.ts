@@ -55,7 +55,12 @@ const meta = {
     components: { AppScreen, Vaulting },
     setup() {
       function preventCommands(event: Event) {
-        if (event.target instanceof Element && event.target.closest('[data-chart-history]')) return;
+        if (
+          event.target instanceof Element &&
+          event.target.closest('[data-chart-history], [data-treemap-key="lot:72"]')
+        ) {
+          return;
+        }
         event.preventDefault();
         event.stopPropagation();
       }
@@ -699,6 +704,10 @@ export const LoadingEarnings: Story = {
 export const IncompleteEarningsChart: Story = {
   beforeEach: () => {
     setupVaultingPortfolioScenario();
+    const myVault = getMyVault();
+    myVault.createdVault!.openedTick -= 30 * NetworkConfig.rewardTicksPerFrame;
+    myVault.data.stats!.openedTick = myVault.createdVault!.openedTick;
+
     const earnings = getArgonBonds().data.dailyEarnings[1];
     earnings.earningsDestination = 'Vault';
     earnings.earningsMicrogons = undefined;

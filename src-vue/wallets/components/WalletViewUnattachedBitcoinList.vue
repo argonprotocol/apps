@@ -27,19 +27,19 @@
     <!-- prettier-ignore -->
     <div class="min-h-0 max-h-[55vh] grow overflow-y-auto px-5 py-4 text-sm text-slate-700">
       <p v-if="searchError" role="alert" class="border-argon-error/30 bg-argon-error/5 text-argon-error mb-4 rounded-md border px-4 py-3 text-sm">{{ searchError }}</p>
-      <p v-if="isSearching" role="status" class="mb-4">Checking Bitcoin addresses for missing deposits...</p>
+      <p v-if="!deposits.length && isSearching" role="status" class="mb-4">Checking Bitcoin addresses for missing deposits...</p>
       <p v-else-if="!deposits.length && !searchError">There are no unattached deposits.</p>
       <template v-if="deposits.length">
         <p class="mb-4">Choose a deposit to view or request a return.</p>
         <div class="flex flex-col gap-3">
           <button
-            v-for="{ deposit, release } in deposits"
+            v-for="{ deposit, release, isArchived } in deposits"
             :key="deposit.id"
             type="button"
             :data-deposit-id="deposit.id"
             class="flex w-full cursor-pointer items-center gap-3 rounded-md border border-slate-200 px-3 py-3 text-left"
             :class="
-              release?.status === BitcoinReleaseStatus.Complete
+              isArchived
                 ? 'bg-slate-50 opacity-60 hover:opacity-80'
                 : 'hover:bg-slate-50'
             "
@@ -49,7 +49,11 @@
               <span class="flex items-center justify-between gap-3">
                 <strong class="shrink-0">{{ satToBtcNm(deposit.satoshis).format('0,0.[00000000]') }} BTC</strong>
                 <span
-                  v-if="release"
+                  v-if="deposit.spendStatus === BitcoinUtxoSpendStatus.Spent && release?.status !== BitcoinReleaseStatus.Complete"
+                  class="text-right text-xs font-semibold text-slate-600"
+                >Spent · Archived</span>
+                <span
+                  v-else-if="release"
                   :title="release.statusError"
                   class="text-right text-xs font-semibold"
                   :class="release.statusError ? 'text-argon-error' : 'text-slate-600'"
@@ -87,6 +91,7 @@
           </button>
         </div>
       </template>
+      <p v-if="deposits.length && isSearching" role="status" class="mt-4 border-t border-slate-200 pt-3 text-xs text-slate-500">Checking Bitcoin addresses for missing deposits...</p>
     </div>
   </div>
 </template>
@@ -97,6 +102,7 @@ import dayjs from 'dayjs';
 import { ChevronRightIcon } from '@heroicons/vue/20/solid';
 import { ArrowPathIcon } from '@heroicons/vue/24/outline';
 import { BitcoinReleaseStatus } from '../../interfaces/IBitcoinReleaseRecord.ts';
+import { BitcoinUtxoSpendStatus } from '../../interfaces/IBitcoinUtxoRecord.ts';
 import { createNumeralHelpers } from '../../lib/numeral.ts';
 import { abbreviateAddress } from '../../lib/Utils.ts';
 import { getCurrency } from '../../stores/currency.ts';
@@ -118,15 +124,14 @@ const { satToBtcNm } = createNumeralHelpers(getCurrency());
 const isSearching = ref(false);
 const searchError = ref('');
 const deposits = computed(() => {
-  const entries = wallets.bitcoinWallet.getUnattachedDeposits({ includeReturned: true }).map(deposit => ({
-    deposit,
-    release: bitcoinLocks.releases.getActiveForUtxo(deposit) ?? bitcoinLocks.releases.getLatestForUtxo(deposit),
-  }));
-  // Keep discovery order within each group while completed returns move to the archive.
-  return [
-    ...entries.filter(entry => entry.release?.status !== BitcoinReleaseStatus.Complete),
-    ...entries.filter(entry => entry.release?.status === BitcoinReleaseStatus.Complete),
-  ];
+  const entries = wallets.bitcoinWallet.getUnattachedDeposits({ includeReturned: true }).map(deposit => {
+    const release = bitcoinLocks.releases.getActiveForUtxo(deposit) ?? bitcoinLocks.releases.getLatestForUtxo(deposit);
+    const isArchived =
+      deposit.spendStatus === BitcoinUtxoSpendStatus.Spent || release?.status === BitcoinReleaseStatus.Complete;
+    return { deposit, release, isArchived };
+  });
+  // Keep discovery order within each group while spent deposits move to the archive.
+  return [...entries.filter(entry => !entry.isArchived), ...entries.filter(entry => entry.isArchived)];
 });
 
 async function findMissingDeposits() {

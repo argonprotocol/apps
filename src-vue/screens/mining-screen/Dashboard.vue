@@ -225,7 +225,8 @@
                         }}
                       </div>
                       <p class="mt-1 text-slate-500">
-                        <template v-if="chartFramesById[item.id].profitPct > 0 && chartFramesById[item.id].profitPct < 0.1">&lt;0.1%</template>
+                        <template v-if="chartFramesById[item.id].profitPct >= 9_999">9,999%+</template>
+                        <template v-else-if="chartFramesById[item.id].profitPct > 0 && chartFramesById[item.id].profitPct < 0.1">&lt;0.1%</template>
                         <template v-else>{{ numeral(chartFramesById[item.id].profitPct).format('0,0.[0]') }}%</template>
                         return
                       </p>
@@ -235,7 +236,10 @@
                       <div class="text-argon-600 pt-1 font-mono text-3xl font-bold">
                         {{ numeral(chartFramesById[item.id].seatCountActive).format('0,0') }}
                       </div>
-                      <p class="mt-1 text-slate-500">of {{ numeral(chartFramesById[item.id].allMinersCount).format('0,0') }} network</p>
+                      <p class="mt-1 text-slate-500">
+                        <template v-if="inspectedNetworkSeatCount !== undefined">of {{ numeral(inspectedNetworkSeatCount).format('0,0') }} network</template>
+                        <template v-else>&mdash;</template>
+                      </p>
                     </div>
                     <div class="px-4">
                       <header class="font-semibold text-slate-500">New Seats Won</header>
@@ -246,10 +250,9 @@
                         <template v-else>&mdash;</template>
                       </div>
                       <p class="mt-1 text-slate-500">
-                        <template v-if="failedInspectionFrameId === item.id || !bot.isReady || item.id < 1">Unavailable</template>
-                        <template v-else-if="!inspectedFrameDetail || !inspectedWinningBids">Loading…</template>
-                        <template v-else-if="item.id === myMiningSeats.latestFrameId && !inspectedFrameDetail.auctionCloseTick">Auction open</template>
-                        <template v-else>of {{ numeral(inspectedFrameDetail.winningBids.length).format('0,0') }} in auction</template>
+                        <template v-if="item.id === myMiningSeats.latestFrameId && inspectedFrameDetail && !inspectedFrameDetail.auctionCloseTick">Auction open</template>
+                        <template v-else-if="inspectedFrameDetail?.auctionSeatCount !== undefined">of {{ numeral(inspectedFrameDetail.auctionSeatCount).format('0,0') }} in auction</template>
+                        <template v-else>&mdash;</template>
                       </p>
                     </div>
                   </div>
@@ -281,20 +284,15 @@
                             </template>
                             <template v-else>None</template>
                           </template>
-                          <template v-else-if="failedInspectionFrameId === item.id || !bot.isReady || item.id < 1">Unavailable</template>
-                          <template v-else>Loading…</template>
+                          <template v-else>&mdash;</template>
                         </span>
                       </p>
                       <p class="flex justify-between gap-6">
                         <span class="text-slate-500">Your Bids Placed</span>
                         <span class="text-right">
-                          <template v-if="inspectedBidActivity && inspectedFrameDetail">
-                            {{ numeral(inspectedBidActivity.submittedCount).format('0,0') }}
-                            of {{ numeral(inspectedFrameDetail.totalBidCount).format('0,0') }} across network
-                          </template>
-                          <template v-else-if="failedBidHistoryFrameId === item.id || failedInspectionFrameId === item.id || !bot.isReady || item.id < 1">Unavailable</template>
-                          <template v-else-if="inspectedBidHistory?.frameId === item.id && !inspectedBidActivity">Unavailable</template>
-                          <template v-else>Loading…</template>
+                          <template v-if="inspectedBidActivity">{{ numeral(inspectedBidActivity.acceptedBidCount).format('0,0') }}</template>
+                          <template v-else>&mdash;</template>
+                          <template v-if="inspectedFrameDetail"> of {{ numeral(inspectedFrameDetail.totalBidCount).format('0,0') }} across network</template>
                         </span>
                       </p>
                       <p class="flex justify-between gap-6">
@@ -304,8 +302,7 @@
                             {{ currency.recordsByKey.ARGN.symbol }}{{ microgonToArgonNm(inspectedBidActivity.maximumMicrogons).format('0,0.00') }} / seat
                           </template>
                           <template v-else-if="inspectedBidActivity">None</template>
-                          <template v-else-if="failedBidHistoryFrameId === item.id || !bot.isReady || item.id < 1 || inspectedBidHistory?.frameId === item.id">Unavailable</template>
-                          <template v-else>Loading…</template>
+                          <template v-else>&mdash;</template>
                         </span>
                       </p>
                     </div>
@@ -322,7 +319,7 @@
 
 <script lang="ts">
 import * as Vue from 'vue';
-import { BotActivityType, type IHistoryFile, type IMiningFrameDetail } from '@argonprotocol/apps-core';
+import type { IHistoryFile, IMiningFrameDetail } from '@argonprotocol/apps-core';
 import type { IChartItem } from '../../interfaces/IChartItem.ts';
 import type { IDashboardGlobalStats } from '../../interfaces/IMiningSeatStats.ts';
 import type { IFinancialReturnSummary } from '../../interfaces/IFinancialPosition.ts';
@@ -609,13 +606,17 @@ function loadChartData() {
 
 const chartFramesById = Vue.computed(() => Object.fromEntries(myMiningSeats.frames.map(frame => [frame.id, frame])));
 const inspectedFrameId = Vue.ref<number>();
-const failedInspectionFrameId = Vue.ref<number>();
 const inspectedHistoricalDetail = Vue.shallowRef<IMiningFrameDetail>();
 const inspectedFrameDetail = Vue.computed(() => {
   if (inspectedFrameId.value === myMiningSeats.latestFrameId) return currentFrameDetail.value;
   const cached = historicalFrameDetailByFrameId.get(inspectedFrameId.value ?? -1);
   if (cached) return cached;
   if (inspectedHistoricalDetail.value?.frameId === inspectedFrameId.value) return inspectedHistoricalDetail.value;
+});
+const inspectedNetworkSeatCount = Vue.computed(() => {
+  const slots = inspectedFrameDetail.value?.slots;
+  if (slots?.length !== 10) return;
+  return slots.reduce((total, slot) => total + slot.seats.filter(seat => seat.miner).length, 0);
 });
 const ourBidAddresses = Vue.shallowRef<Set<string>>();
 const inspectedWinningBids = Vue.computed(() => {
@@ -634,47 +635,14 @@ Vue.watch(
   { immediate: true },
 );
 
-const bidHistoryByFrame = new Map<number, IHistoryFile>();
+const bidHistoryByFrame = new Map<number, Promise<IHistoryFile>>();
 const inspectedBidHistory = Vue.shallowRef<{ frameId: number; history: IHistoryFile }>();
-const failedBidHistoryFrameId = Vue.ref<number>();
+Vue.watch([() => bot.state?.isSyncing, () => bot.state?.historyError], () => bidHistoryByFrame.clear());
 const inspectedBidActivity = Vue.computed(() => {
   const record = inspectedBidHistory.value;
-  if (!record || record.frameId !== inspectedFrameId.value) return;
-  if (!record.history.activities.length) return;
-  let submittedCount = 0;
-  let maximumMicrogons: bigint | undefined;
-  for (const activity of record.history.activities) {
-    if (activity.type !== BotActivityType.BidsSubmitted && activity.type !== BotActivityType.BidsRejected) continue;
-    submittedCount += activity.data.submittedCount;
-    const amount = activity.data.microgonsPerSeat;
-    if (maximumMicrogons === undefined || amount > maximumMicrogons) maximumMicrogons = amount;
-  }
-  return { submittedCount, maximumMicrogons };
+  const history = record?.frameId === inspectedFrameId.value ? record?.history : undefined;
+  return Mining.summarizeBidHistory(history, inspectedFrameDetail.value?.totalBidCount);
 });
-
-watchDebounced(
-  [inspectedFrameId, () => bot.isReady, () => bot.state?.lastBid?.isFinalized],
-  async ([frameId]) => {
-    if (frameId === undefined || frameId < 1 || !bot.isReady) return;
-    failedBidHistoryFrameId.value = undefined;
-    try {
-      let history = bidHistoryByFrame.get(frameId);
-      if (!history) {
-        const client = await bot.getClient();
-        // Bid activity is stored with the cohort it enters, one frame after its auction.
-        history = await client.fetch('/history', frameId + 1);
-        if (history.activities.length && frameId < finalizedFrameId.value) bidHistoryByFrame.set(frameId, history);
-      }
-      if (inspectedFrameId.value !== frameId) return;
-      inspectedBidHistory.value = { frameId, history };
-    } catch (error) {
-      if (inspectedFrameId.value !== frameId) return;
-      failedBidHistoryFrameId.value = frameId;
-      console.warn('[Mining Dashboard] Bid activity is unavailable', error);
-    }
-  },
-  { debounce: 150 },
-);
 
 const inspectedWinningBidRange = Vue.computed(() => {
   const bids = inspectedFrameDetail.value?.winningBids;
@@ -691,24 +659,69 @@ const inspectedWinningBidRange = Vue.computed(() => {
   return { minimum, maximum };
 });
 watchDebounced(
-  [inspectedFrameId, () => bot.isReady, () => myMiningSeats.latestFrameId],
-  async ([frameId]) => {
+  [
+    inspectedFrameId,
+    () => bot.isReady,
+    () => myMiningSeats.latestFrameId,
+    () => bot.state?.lastBid?.isFinalized,
+    () => bot.state?.isSyncing,
+  ],
+  async ([frameId], _previous, onCleanup) => {
     if (frameId === undefined || frameId < 1 || !bot.isReady) return;
-    if (frameId === myMiningSeats.latestFrameId) return;
-    failedInspectionFrameId.value = undefined;
-    if (historicalFrameDetailByFrameId.has(frameId)) return;
-    try {
-      const detail = await loadFrameDetail(frameId);
-      if (inspectedFrameId.value !== frameId) return;
-      inspectedHistoricalDetail.value = detail;
-    } catch (error) {
-      if (inspectedFrameId.value !== frameId) return;
-      failedInspectionFrameId.value = frameId;
-      console.warn('[Mining Dashboard] Historical auction details are unavailable', error);
+    let cancelled = false;
+    onCleanup(() => {
+      cancelled = true;
+    });
+
+    let detailRequest: Promise<IMiningFrameDetail | null>;
+    if (frameId === myMiningSeats.latestFrameId) {
+      detailRequest = Promise.resolve(currentFrameDetail.value);
+    } else {
+      detailRequest = loadFrameDetail(frameId);
+    }
+
+    const [historyResult, detailResult] = await Promise.allSettled([loadBidHistory(frameId), detailRequest]);
+    if (cancelled || inspectedFrameId.value !== frameId) return;
+
+    if (historyResult.status === 'fulfilled') {
+      const history = historyResult.value;
+      inspectedBidHistory.value = { frameId, history };
+    } else {
+      console.warn('[Mining Dashboard] Bid activity is unavailable', historyResult.reason);
+    }
+
+    if (detailResult.status === 'fulfilled') {
+      inspectedHistoricalDetail.value = detailResult.value ?? undefined;
+    } else {
+      console.warn('[Mining Dashboard] Historical auction details are unavailable', detailResult.reason);
+    }
+
+    // Warm only the adjacent historical frames; shared requests also cover rapid arrow navigation.
+    for (const adjacentFrameId of [frameId - 1, frameId + 1]) {
+      if (!chartFramesById.value[adjacentFrameId] || adjacentFrameId >= myMiningSeats.latestFrameId) continue;
+      void Promise.allSettled([loadBidHistory(adjacentFrameId), loadFrameDetail(adjacentFrameId)]);
     }
   },
   { debounce: 150 },
 );
+
+async function loadBidHistory(frameId: number): Promise<IHistoryFile> {
+  const cached = bidHistoryByFrame.get(frameId);
+  if (cached) return cached;
+
+  const canCache = frameId < finalizedFrameId.value && !bot.state?.isSyncing && !bot.state?.historyError;
+  const request = bot.getClient().then(client => client.fetch('/history', frameId + 1));
+  bidHistoryByFrame.set(frameId, request);
+
+  try {
+    return await request;
+  } catch (error) {
+    if (bidHistoryByFrame.get(frameId) === request) bidHistoryByFrame.delete(frameId);
+    throw error;
+  } finally {
+    if (!canCache && bidHistoryByFrame.get(frameId) === request) bidHistoryByFrame.delete(frameId);
+  }
+}
 
 const frameSlots = Vue.computed(() => {
   return currentFrameDetail.value?.slots ?? [];
@@ -800,16 +813,18 @@ async function loadFrameDetail(frameId: number): Promise<IMiningFrameDetail> {
 
 async function loadLiveFrameDetailFromChain(frameId: number): Promise<IMiningFrameDetail> {
   const client = await getMainchainClient(false);
-  const [winningBids, slots, totalBidCount, expectedAuctionCloseTick] = await Promise.all([
+  const [winningBids, slots, totalBidCount, expectedAuctionCloseTick, auctionSeatCount] = await Promise.all([
     Mining.fetchWinningBids(client),
     mining.fetchCurrentMiningSeats(wallets.miningBotWallet.address),
     client.query.miningSlot.historicalBidsPerSlot().then(x => x[0]?.bidsCount ?? 0),
     mining.fetchTickAtStartOfAuctionClosing(client),
+    client.query.miningSlot.nextCohortSize(),
   ]);
 
   return {
     frameId,
     totalBidCount,
+    auctionSeatCount: auctionSeatCount ?? undefined,
     myLastBidMicrogons: bot.state?.lastBid?.microgonsPerSeat,
     winningBids,
     slots,

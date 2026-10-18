@@ -432,22 +432,23 @@ describe.skipIf(skipE2E).sequential('Your Vault tests', {}, () => {
       const releasing = await TreasuryBonds.getBondLots(releaseApi, vaultId, signer.address);
       expect(releasing.find(lot => lot.id === bonds[0].id)).toMatchObject({ isReleasing: true });
     }
+    const previousArgonots = await Vault.getArgonotSecuritization(client, vaultId);
+    expect(previousArgonots).toMatchObject({ committedMicronots: 0n, encumberedMicronots: 0n });
+
+    // Unused ARGNOT backing releases immediately, even when reward commitments require notice.
     const reduced = await myVault.setVaultSecuritization({ committedMicronots: 1_000_000n });
     await reduced.waitForPostProcessing;
     expect(myVault.argonotSecuritizationTarget).toBe(1_000_000n);
     const finalizedVault = await Vault.get(client, vaultId);
     const argonots = await Vault.getArgonotSecuritization(client, vaultId);
-    if (finalizedVault.securitizationExitNoticeBlocks !== undefined) {
-      expect(argonots!.heldMicronots).toBeGreaterThan(1_000_000n);
-      expect(
-        [...finalizedVault.securitizationReleaseSchedule.values()].reduce(
-          (sum, entry) => sum + entry.argonotWithdrawals,
-          0n,
-        ),
-      ).toBe(argonots!.heldMicronots - 1_000_000n);
-    } else {
-      expect(argonots!.heldMicronots).toBe(1_000_000n);
-    }
+    expect(argonots!.heldMicronots).toBe(1_000_000n);
+    expect(myVault.data.argonotCommitment.heldMicronots).toBe(1_000_000n);
+    expect(
+      [...finalizedVault.securitizationReleaseSchedule.values()].reduce(
+        (sum, entry) => sum + entry.argonotWithdrawals,
+        0n,
+      ),
+    ).toBe(0n);
   });
 
   async function cleanupTrackedResources(): Promise<void> {

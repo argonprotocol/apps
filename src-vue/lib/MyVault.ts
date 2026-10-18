@@ -503,15 +503,13 @@ export class MyVault {
         this.revenuePublication = this.revenuePublication
           .catch(() => undefined)
           .then(async () => {
-            let latestBitcoinClient: ArgonApi | undefined;
+            let shouldRefreshBitcoin = false;
             let latestRevenueClient: ArgonApi | undefined;
-            let latestCapitalClient: ArgonApi | undefined;
             const pending = [...pendingRevenueBlocks.values()].sort((a, b) => a.blockNumber - b.blockNumber);
             for (const header of pending) {
               const { api, events, specVersion } = await this.miningFrames.blockWatch.getEventsWithSpec(header);
               this.vaults.applyRewardEconomics(header, events);
               await this.history.recordFinalizedRevenue(header, events, vaultId, specVersion);
-              latestCapitalClient = api;
               if (header.isNewFrame) latestRevenueClient = api;
 
               for (const { event } of events) {
@@ -531,7 +529,7 @@ export class MyVault {
                     case 'BitcoinSpentAfterRelease':
                     case 'OrphanedUtxoReleaseRequested':
                     case 'OrphanedUtxoCosigned':
-                      if (event.data.vaultId === vaultId) latestBitcoinClient = api;
+                      if (event.data.vaultId === vaultId) shouldRefreshBitcoin = true;
                       continue;
                   }
                 }
@@ -548,13 +546,14 @@ export class MyVault {
             }
 
             const refreshes: Promise<void>[] = [];
-            if (latestCapitalClient) {
+            if (pending.length) {
               refreshes.push(this.refreshCurrentCapital(vaultId));
             }
-            if (latestBitcoinClient) {
+            if (shouldRefreshBitcoin) {
+              const finalizedClient = await this.miningFrames.blockWatch.getFinalizedApi();
               refreshes.push(
-                this.refreshFinalizedBitcoinCosignState(latestBitcoinClient, vaultId),
-                this.refreshExternalLocks(latestBitcoinClient),
+                this.refreshFinalizedBitcoinCosignState(finalizedClient, vaultId),
+                this.refreshExternalLocks(finalizedClient),
               );
             }
             if (latestRevenueClient) {

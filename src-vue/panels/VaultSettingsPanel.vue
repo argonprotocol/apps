@@ -148,7 +148,7 @@
             </div>
             <div class="font-mono text-sm text-gray-500/60">
               <template v-if="vaults.currentState.argonotSecuritizationRewardRatio === 0">
-                ARGNOT Max Rewards not enabled on this network yet
+                ARGNOT Max Rewards not enabled yet
               </template>
               <Tooltip v-else-if="rewardBacking && rewardBacking.additionalMicronots > 0n" as-child side="top">
                 <span class="relative z-20 inline-flex cursor-help items-center gap-1 text-yellow-800" tabindex="0">

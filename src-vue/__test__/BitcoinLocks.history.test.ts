@@ -6,6 +6,8 @@ import { encodeAddress } from '@polkadot/util-crypto';
 import BigNumber from 'bignumber.js';
 import type { WalletKeys } from '../lib/WalletKeys.ts';
 import { BitcoinLockStatus, type IBitcoinLockRecord } from '../lib/db/BitcoinLocksTable.ts';
+import BitcoinMempool from '../lib/BitcoinMempool.ts';
+import { BitcoinFissions } from '../lib/BitcoinFissions.ts';
 import { publishBitcoinHistoryReplay } from '../lib/recovery/index.ts';
 import { BitcoinUtxoSpendStatus, BitcoinUtxoStatus } from '../lib/db/BitcoinUtxosTable.ts';
 import { BitcoinReleaseKind, BitcoinReleaseStatus } from '../interfaces/IBitcoinReleaseRecord.ts';
@@ -30,6 +32,124 @@ async function publishRecoveredHistory(store: ReturnType<typeof createStore>) {
 }
 
 describe('BitcoinLocks historical event replay', () => {
+  it.each([
+    { specVersion: 146, repayment: 0n, quotedRepayment: 900n },
+    { specVersion: 148, repayment: 600n, quotedRepayment: 600n },
+  ])(
+    'recovers actual terminal repayment and the paid request fee ($specVersion, $repayment)',
+    async ({ specVersion, repayment, quotedRepayment }) => {
+      const accountId = encodeAddress(new Uint8Array(32).fill(0x33));
+      const db = await createTestDb();
+      const chainLock = createHistoricalLock({ accountId, liquidityPromised: 1_000n });
+      vi.mocked(BitcoinHistory.getHistoricalBitcoinLock).mockResolvedValue(chainLock);
+      vi.mocked(BitcoinHistory.getHistoricalBitcoinFundingUtxos).mockResolvedValue([
+        { utxoRef: { txid: 'funding-txid', vout: 0 }, satoshis: chainLock.fundedSatoshis },
+      ]);
+      vi.mocked(BitcoinHistory.getHistoricalBitcoinPendingMints).mockResolvedValue([]);
+      vi.mocked(BitcoinHistory.getHistoricalBitcoinReleaseRequest).mockResolvedValue({
+        toScriptPubkey: '0x0014',
+        bitcoinNetworkFee: 8n,
+        liquidRedemptionAmount: quotedRepayment,
+      });
+      const api = {
+        runtimeVersion: { specVersion: numberCodec(specVersion) },
+        query: {
+          ticks: { currentTick: async () => 700 },
+          vaults: { vaultsById: async () => undefined },
+          bitcoinUtxos: { confirmedBitcoinBlockTip: async () => ({ blockHeight: 600 }) },
+        },
+      };
+      const blockWatch = { getApi: async () => api } as unknown as BlockWatch;
+      const store = createStore({
+        db,
+        blockWatch,
+        walletKeys: { defaultArgonAddress: accountId } as WalletKeys,
+        mempool: {
+          getTxStatus: async () => undefined,
+          getOutspendStatus: async () => undefined,
+        } as unknown as BitcoinMempool,
+      });
+      const fissions = new BitcoinFissions(Promise.resolve(db), accountId, blockWatch);
+      try {
+        await store.recovery.beginHistoryReplay();
+        await fissions.recovery.beginHistoryReplay({ replace: true });
+        await store.recovery.recoverBlock(historyBlock(130), [
+          historyEvent(specVersion, 'bitcoinLocks', 'BitcoinLockCreated', {
+            utxoId: 7,
+            vaultId: 1,
+            liquidityPromised: 1_000n,
+            ...(specVersion === 148 ? { securitization: 1_000n } : {}),
+            lockedMarketRate: 1_000n,
+            accountId,
+            securityFee: 20n,
+          }),
+          historyEvent(specVersion, 'transactionPayment', 'TransactionFeePaid', {
+            who: accountId,
+            actualFee: 11n,
+            tip: 0n,
+          }),
+        ]);
+        await store.recovery.recoverBlock(historyBlock(140), [
+          historyEvent(specVersion, 'bitcoinUtxos', 'UtxoVerified', { utxoId: 7, satoshisReceived: 10_000n }),
+          historyEvent(specVersion, 'mint', 'BitcoinMint', { accountId, utxoId: 7, amount: 1_000n }),
+        ]);
+        await store.recovery.recoverBlock(historyBlock(150), [
+          historyEvent(specVersion, 'bitcoinLocks', 'BitcoinUtxoCosignRequested', { utxoId: 7, vaultId: 1 }),
+          historyEvent(specVersion, 'transactionPayment', 'TransactionFeePaid', {
+            who: accountId,
+            actualFee: 19n,
+            tip: 0n,
+          }),
+        ]);
+        const terminalEvents = [];
+        if (specVersion === 148) {
+          terminalEvents.push(
+            historyEvent(specVersion, 'balances', 'BurnedHeld', {
+              reason: { BitcoinLocks: 'ReleaseBitcoinLock' },
+              who: accountId,
+              amount: 700n,
+            }),
+          );
+        }
+        terminalEvents.push(
+          historyEvent(specVersion, 'bitcoinLocks', 'BitcoinLockBurned', { utxoId: 8, vaultId: 1, wasUtxoSpent: true }),
+        );
+        if (specVersion === 148) {
+          terminalEvents.push(
+            historyEvent(specVersion, 'balances', 'BurnedHeld', {
+              reason: { BitcoinLocks: 'ReleaseBitcoinLock' },
+              who: accountId,
+              amount: repayment,
+            }),
+            historyEvent(specVersion, 'balances', 'BurnedHeld', {
+              reason: { Vaults: 'EnterVault' },
+              who: accountId,
+              amount: 999n,
+            }),
+          );
+        }
+        terminalEvents.push(
+          historyEvent(specVersion, 'bitcoinLocks', 'BitcoinLockBurned', { utxoId: 7, vaultId: 1, wasUtxoSpent: true }),
+        );
+        await store.recovery.recoverBlock(historyBlock(170), terminalEvents);
+        await publishBitcoinHistoryReplay({ bitcoinLocks: store, bitcoinFissions: fissions, asOfBlock: 170 });
+
+        expect((await db.bitcoinFissionsTable.fetchAll(accountId))[0]).toMatchObject({
+          closeReason: 'lock-spent',
+          redemptionAmount: repayment,
+          closeTxFee: 19n,
+        });
+        expect(fissions.getLiquids()[0]).toMatchObject({
+          redemptionAmount: repayment,
+          totalCloseCost: repayment + 19n,
+        });
+        expect((await db.bitcoinLocksTable.getByLockId(7))?.removalReason).toBe('spent');
+      } finally {
+        await db.close();
+      }
+    },
+  );
+
   it('replays creation, ratchet, mint, and release with historical codec events', async () => {
     const accountId = encodeAddress(new Uint8Array(32).fill(0x33));
     const db = await createTestDb();

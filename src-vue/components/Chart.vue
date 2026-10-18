@@ -146,16 +146,23 @@ function reloadData(newItems: IChartItem[]) {
   fillerPoints.length = 0;
   const latest = items.at(-1);
   if (items[0]?.isFiller) fillerPoints.push({ x: startDate.valueOf(), y: 0 });
-  for (const [index, item] of items.entries()) {
+  for (const item of items) {
     let date = dayjs.utc(item.date);
     // Accelerated dev-chain frames occupy one chart day; tooltips retain their actual timestamps.
     if (isLocalChain && latest) date = dayjs.utc(latest.date).subtract(latest.id - item.id, 'day');
     const x = date.valueOf();
     chartPoints.push({ x, y: item.score });
     if (item.isFiller) fillerPoints.push({ x, y: 0 });
-    // Join the inactive baseline to the first known return without bridging missing history.
-    if (item.score !== null && items[index - 1]?.isFiller) chartPoints[index - 1].y = 0;
   }
+
+  // Extend the pale baseline to the first known return.
+  const firstReturnIndex = items.findIndex(item => !item.isFiller && item.score !== null);
+  const firstReturn = chartPoints[firstReturnIndex];
+  const baselineEnd = fillerPoints.at(-1);
+  if (baselineEnd && firstReturn && firstReturn.x > baselineEnd.x) {
+    fillerPoints.push({ x: firstReturn.x, y: 0 });
+  }
+
   if (chart) {
     chart.update();
     if (lastPointer) showTooltip(lastPointer);

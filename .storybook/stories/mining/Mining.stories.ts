@@ -281,7 +281,10 @@ export const ChartHistory: Story = {
     getBot().state!.finalizedFrameId = 117;
 
     const frame = getMyMiningSeats().frames.at(-2)!;
-    frame.allMinersCount = 1_440;
+    frame.allMinersCount = 0;
+    frame.seatCostTotalFramed = 0n;
+    frame.profitPct = 9_999;
+    frame.score = 200;
 
     const client = await getBot().getClient();
     const detail = structuredClone(await client.fetch('/mining-frame', frame.id));
@@ -298,7 +301,26 @@ export const ChartHistory: Story = {
         micronotsStakedPerSeat: 5_000_000n,
       });
     }
+    for (const [index, bid] of detail.winningBids.entries()) {
+      bid.address = `5SyntheticNetworkMiner${index}`;
+      delete bid.subAccountIndex;
+    }
     frameDetails.set(frame.id, detail);
+
+    const emptyAuctionFrame = getMyMiningSeats().frames.at(-3)!;
+    const emptyAuction = structuredClone(await client.fetch('/mining-frame', emptyAuctionFrame.id));
+    emptyAuction.totalBidCount = 0;
+    emptyAuction.auctionSeatCount = 10;
+    emptyAuction.winningBids = [];
+    frameDetails.set(emptyAuctionFrame.id, emptyAuction);
+
+    const mockedClient = mocked(client);
+    const fetch = mockedClient.fetch.getMockImplementation()!;
+    mockedClient.fetch.mockImplementation((async (method: string, frameId: number) => {
+      if (method === '/history') return { activities: [] };
+      return fetch('/mining-frame', frameId);
+    }) as typeof client.fetch);
+    mocked(getBot().getClient).mockResolvedValue(client);
   },
   play: async ({ canvasElement }) => {
     const canvas = await within(canvasElement).findByLabelText('Earnings history');

@@ -8,7 +8,7 @@ describe('ServerApiClient', () => {
     vi.unstubAllGlobals();
   });
 
-  it('requires a server upgrade before starting authenticated mailbox work on the current server protocol', async () => {
+  it('skips mailbox requests when the server does not support Bitcoin returns', async () => {
     // The current router root contract has no Bitcoin mailbox capability.
     const fetchMock = vi.fn(async () => new Response(JSON.stringify({ status: 'ok', authEnabled: true })));
     vi.stubGlobal('fetch', fetchMock);
@@ -18,7 +18,7 @@ describe('ServerApiClient', () => {
       { getAdminOperatorSessionId, invalidateAdminOperatorSessionId: vi.fn() },
       { canAccessServer: true },
     );
-    await expect(client.getPendingBitcoinCooperativeReleases()).rejects.toThrow('Upgrade the operator server');
+    await expect(client.getPendingBitcoinCooperativeReleases()).resolves.toBeUndefined();
     expect(getAdminOperatorSessionId).not.toHaveBeenCalled();
     expect(fetchMock.mock.calls).toHaveLength(1);
   });

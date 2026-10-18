@@ -1,45 +1,57 @@
+import type { Tx } from '@mempool/mempool.js/lib/interfaces/bitcoin/transactions';
+import type { AddressInfo } from 'node:net';
+import { createServer } from 'node:http';
 import { describe, expect, it, vi } from 'vitest';
 import BitcoinMempool from '../lib/BitcoinMempool.ts';
 
 describe('BitcoinMempool', () => {
-  it('queries tx status using mempool-order txids as-is', async () => {
-    const mempool = new BitcoinMempool('https://example.invalid');
-    const fetchJson = vi.fn().mockResolvedValue({
-      confirmed: true,
-      block_height: 123,
-      block_time: 456,
-    });
-    Object.defineProperty(mempool, 'fetchJson', { value: fetchJson, configurable: true });
-
+  it('distinguishes missing transactions from pending and confirmed transactions', async () => {
     const txid = createMempoolTxid();
-    const result = await mempool.getTxStatus(txid, 100);
-
-    expect(fetchJson).toHaveBeenCalledTimes(1);
-    expect(fetchJson).toHaveBeenCalledWith(`tx/${txid}/status`, 10_000);
-    expect(result).toEqual({
-      isConfirmed: true,
-      transactionBlockHeight: 123,
-      transactionBlockTime: 456,
-      argonBitcoinHeight: 100,
+    const transaction: Pick<Tx, 'status'> = {
+      status: { confirmed: false, block_height: 0, block_time: 0, block_hash: '' },
+    };
+    const server = createServer((request, response) => {
+      const path = new URL(request.url!, 'http://localhost').pathname;
+      response.setHeader('Content-Type', 'application/json');
+      if (path.endsWith('/status')) {
+        // Electrs returns this even when the transaction does not exist.
+        response.end(JSON.stringify({ confirmed: false }));
+      } else if (path === `/tx/${txid}`) {
+        response.end(JSON.stringify(transaction));
+      } else {
+        response.statusCode = 404;
+        response.end('Transaction not found');
+      }
     });
-  });
+    await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve));
+    try {
+      const mempool = new BitcoinMempool(`http://127.0.0.1:${(server.address() as AddressInfo).port}`);
+      expect(await mempool.getTxStatus(`0x${'ab'.repeat(32)}`, 100)).toBeUndefined();
+      expect(await mempool.getTxStatus(`0x${reverseHexTxid(txid)}`, 100)).toMatchObject({
+        isConfirmed: false,
+        argonBitcoinHeight: 100,
+      });
 
-  it('falls back to reversed txid for legacy argon-order hex without 0x', async () => {
-    const mempool = new BitcoinMempool('https://example.invalid');
-    const mempoolTxid = createMempoolTxid();
-    const argonOrderNoPrefix = reverseHexTxid(mempoolTxid);
-    const fetchJson = vi.fn().mockRejectedValueOnce(new Error('not found')).mockResolvedValueOnce({
-      confirmed: false,
-      block_height: 0,
-      block_time: 0,
-    });
-    Object.defineProperty(mempool, 'fetchJson', { value: fetchJson, configurable: true });
-
-    await mempool.getTxStatus(argonOrderNoPrefix, 100);
-
-    expect(fetchJson).toHaveBeenCalledTimes(2);
-    expect(fetchJson).toHaveBeenNthCalledWith(1, `tx/${argonOrderNoPrefix}/status`, 10_000);
-    expect(fetchJson).toHaveBeenNthCalledWith(2, `tx/${mempoolTxid}/status`, 10_000);
+      transaction.status = { confirmed: true, block_height: 123, block_time: 456, block_hash: '12'.repeat(32) };
+      expect(await mempool.getTxStatus(txid, 100)).toEqual({
+        isConfirmed: true,
+        transactionBlockHeight: 123,
+        transactionBlockTime: 456,
+        transactionBlockHash: `0x${'12'.repeat(32)}`,
+        argonBitcoinHeight: 100,
+      });
+      expect(await mempool.getTxStatus(reverseHexTxid(txid), 100)).toMatchObject({
+        isConfirmed: true,
+        transactionBlockHeight: 123,
+      });
+    } finally {
+      await new Promise<void>((resolve, reject) => {
+        server.close(error => {
+          if (error) reject(error);
+          else resolve();
+        });
+      });
+    }
   });
 
   it('converts mempool txids to canonical argon order for address utxos', async () => {

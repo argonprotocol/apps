@@ -117,14 +117,13 @@ export class WalletForBitcoin extends WalletForChain<WalletType.bitcoin> {
       .flatMap(lock =>
         bitcoinLocks.getUtxosForLock(lock).filter(record => {
           if (record.status === BitcoinUtxoStatus.FundingUtxo) return false;
+          if (record.spendStatus === BitcoinUtxoSpendStatus.Spent) return includeReturned;
 
           if (
             includeReturned &&
             bitcoinLocks.releases.getLatestForUtxo(record)?.status === BitcoinReleaseStatus.Complete
           )
             return true;
-
-          if (record.spendStatus === BitcoinUtxoSpendStatus.Spent) return false;
 
           const release = bitcoinLocks.releases.getActiveForUtxo(record);
           if (!release) {

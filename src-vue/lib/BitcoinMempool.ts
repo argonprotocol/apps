@@ -1,5 +1,5 @@
 import type { AddressTxsUtxo } from '@mempool/mempool.js/lib/interfaces/bitcoin/addresses';
-import type { TxOutspend, TxStatus } from '@mempool/mempool.js/lib/interfaces/bitcoin/transactions';
+import type { Tx, TxOutspend, TxStatus } from '@mempool/mempool.js/lib/interfaces/bitcoin/transactions';
 import { fetch } from '@argonprotocol/apps-core';
 
 export interface IMempoolTxStatus {
@@ -62,7 +62,9 @@ export default class BitcoinMempool {
     let lastError: unknown;
     for (const mempoolTxid of this.toMempoolTxidCandidates(txid)) {
       try {
-        status = await this.fetchJson<TxStatus>(`tx/${mempoolTxid}/status`, timeoutMs);
+        // Electrs reports an unconfirmed status even for transactions it has never seen.
+        const transaction = await this.fetchJson<Tx>(`tx/${mempoolTxid}`, timeoutMs);
+        status = transaction.status;
         break;
       } catch (error) {
         lastError = error;

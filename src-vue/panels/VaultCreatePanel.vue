@@ -129,7 +129,7 @@
             />
             <div class="mt-2 text-sm text-gray-600/70">
               <template v-if="vaults.currentState.argonotSecuritizationRewardRatio === 0">
-                ARGNOT Max Rewards not enabled on this network yet
+                ARGNOT Max Rewards not enabled yet
               </template>
               <template v-else-if="maximumReturnsMicronots !== undefined">
                 {{ micronotToArgonotNm(maximumReturnsMicronots).format('0,0.[0]') }} ARGNOT for Max Returns

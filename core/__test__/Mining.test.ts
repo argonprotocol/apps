@@ -2,11 +2,52 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import BigNumber from 'bignumber.js';
 import { GlobalMiningStats } from '../src/GlobalMiningStats.ts';
 import { Mining, normalizeMiningSeatSlots } from '../src/Mining.ts';
+import { BotActivityType, type IHistoryFile } from '../src/interfaces/IHistoryFile.ts';
 import { NetworkConfig } from '../src/NetworkConfig.ts';
 
 beforeEach(() => {
   NetworkConfig.setNetwork('mainnet');
   NetworkConfig.clearRuntimeOverride('mainnet');
+});
+
+describe('Mining auction bid activity', () => {
+  it('knows there were no personal bids in an empty network auction without saved activity', () => {
+    expect(Mining.summarizeBidHistory({ activities: [] }, 0)).toEqual({
+      acceptedBidCount: 0,
+      maximumMicrogons: undefined,
+    });
+    expect(Mining.summarizeBidHistory(undefined, 0)).toEqual({ acceptedBidCount: 0, maximumMicrogons: undefined });
+    expect(Mining.summarizeBidHistory({ activities: [] }, 10)).toBeUndefined();
+    expect(Mining.summarizeBidHistory({ activities: [] })).toBeUndefined();
+  });
+
+  it('counts accepted bids and ignores fully rejected prices when finding the maximum', () => {
+    const history: IHistoryFile = {
+      activities: [
+        {
+          id: 1,
+          tick: 1,
+          type: BotActivityType.BidsSubmitted,
+          data: { submittedCount: 2, microgonsPerSeat: 20n, txFeePlusTip: 1n },
+        },
+        {
+          id: 2,
+          tick: 2,
+          type: BotActivityType.BidsRejected,
+          data: { submittedCount: 3, rejectedCount: 2, microgonsPerSeat: 15n },
+        },
+        {
+          id: 3,
+          tick: 3,
+          type: BotActivityType.BidsRejected,
+          data: { submittedCount: 4, rejectedCount: 4, microgonsPerSeat: 50n },
+        },
+      ],
+    };
+    expect(Mining.summarizeBidHistory(history, 9)).toEqual({ acceptedBidCount: 3, maximumMicrogons: 20n });
+    // A stale network response must not replace recorded accepted bids with zero.
+    expect(Mining.summarizeBidHistory(history, 0)).toEqual({ acceptedBidCount: 3, maximumMicrogons: 20n });
+  });
 });
 
 describe('Mining seat slot construction', () => {

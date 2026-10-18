@@ -17,6 +17,7 @@ import type {
 } from '@argonprotocol/runtime-client';
 import type { IBondHistoryFact } from '../ArgonBonds.ts';
 import type { IBondLotHistoryRecord, IBondLotEarningsBackfill } from '../db/BondLotHistoryTable.ts';
+import BigNumber from 'bignumber.js';
 
 export interface IBondFrameEarnings {
   lot: BondLot;
@@ -217,36 +218,40 @@ export class ArgonBondsRecovery {
     lifetimes: readonly Pick<IBondLotHistoryRecord, 'createdFrame' | 'releaseFrame'>[],
     throughBlock: number,
     afterBlock: number,
+    onProgress?: (completedFrameCount: number, totalFrameCount: number) => void,
   ): Promise<IBondHistoryFact[]> {
     const facts: IBondHistoryFact[] = [];
-    for (const frame of this.miningFrames.frames) {
+    const frames = this.miningFrames.frames.filter(frame => {
       if (
         frame.firstBlockNumber === null ||
         frame.firstBlockNumber <= afterBlock ||
         frame.firstBlockNumber > throughBlock
       )
-        continue;
+        return false;
+      if ((frame.firstBlockSpecVersion ?? 0) < 151) return false;
+
       const earningFrame = frame.frameId - 1;
-      if (
-        !lifetimes.some(
-          lot =>
-            lot.createdFrame <= earningFrame && (lot.releaseFrame === undefined || lot.releaseFrame > earningFrame),
-        )
-      )
-        continue;
-      if ((frame.firstBlockSpecVersion ?? 0) < 151) continue;
-      const block = await this.miningFrames.blockWatch.getHeader(frame.firstBlockNumber);
+      return lifetimes.some(
+        lot => lot.createdFrame <= earningFrame && (lot.releaseFrame === undefined || lot.releaseFrame > earningFrame),
+      );
+    });
+
+    onProgress?.(0, frames.length);
+    for (const [index, frame] of frames.entries()) {
+      const earningFrame = frame.frameId - 1;
+      const block = await this.miningFrames.blockWatch.getHeader(frame.firstBlockNumber!);
       const events = await this.miningFrames.blockWatch.getEvents(block);
       if (
-        !events.some(
+        events.some(
           ({ event }) =>
             event.section === 'treasury' &&
             event.method === 'FrameEarningsDistributed' &&
             event.data.frameId === earningFrame,
         )
-      )
-        continue;
-      facts.push(...(await this.readFrameEarnings(block, earningFrame, events)));
+      ) {
+        facts.push(...(await this.readFrameEarnings(block, earningFrame, events)));
+      }
+      onProgress?.(index + 1, frames.length);
     }
     return facts;
   }
@@ -417,7 +422,14 @@ async function readBondFrameEarnings({
       earnings,
       flexible.map(x => x.lot),
     );
-    for (const entry of flexible) entry.earningsMicrogons = shares.get(entry.lot.id);
+    for (const entry of flexible) {
+      const gross = shares.get(entry.lot.id);
+      if (gross === undefined || entry.lot.program.type !== 'Vault') continue;
+
+      const { sharingPercent, bonusPercent } = entry.lot.program.value;
+      const bondShare = BigNumber.minimum(1, sharingPercent.plus(bonusPercent));
+      entry.earningsMicrogons = bigNumberToBigInt(bondShare.times(gross));
+    }
   }
   return entries;
 }

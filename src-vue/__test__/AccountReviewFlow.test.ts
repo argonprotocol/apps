@@ -26,8 +26,9 @@ it.each([
       liquid: BitcoinLiquid.create({ liquidId: 1, fissions: [] }),
       locks: [],
       currentValue: 0n,
-      receivedLiquidity: 30_000_000n,
-      pendingLiquidity: 70_000_000n,
+      // A down-ratchet retained 20 while recycling 100 through the mint queue.
+      receivedLiquidity: 20_000_000n,
+      pendingLiquidity: 100_000_000n,
       repaymentAmount: 100_000_000n,
       totalReturn: 10,
       totalFees: 1_000_000n,
@@ -51,8 +52,8 @@ it.each([
       blockers: [],
     };
     const texts: Record<string, string> = {
-      'BitcoinLiquid.receivedLiquidity-1': displayIsCurrent ? '₳60.00' : '₳30.00',
-      'BitcoinLiquid.details.receivedLiquidity': displayIsCurrent ? '₳60.00' : '₳30.00',
+      'BitcoinLiquid.grantedLiquidity-1': displayIsCurrent ? '₳120.00' : '₳20.00',
+      'BitcoinLiquid.details.receivedLiquidity': displayIsCurrent ? '₳60.00' : '₳20.00',
       'BitcoinLiquid.details.return': '10%',
       'BitcoinLiquid.details.totalFees': '₳1.00',
       BitcoinLiquidDetailOverlay: 'Bitcoin Liquid Details',
@@ -67,7 +68,7 @@ it.each([
       poll: async () => ready,
       isVisible: async () => {
         // A payout publishes after readiness, before navigation and detail inspection.
-        position = { ...position, receivedLiquidity: 60_000_000n, pendingLiquidity: 40_000_000n };
+        position = { ...position, receivedLiquidity: 60_000_000n, pendingLiquidity: 60_000_000n };
         return { visible: true };
       },
       click: async () => undefined,
@@ -85,7 +86,7 @@ it.each([
       await review;
       expect(data.get('App.flow.accountReview.uiValidated')).toBe(true);
     } else {
-      await expect(review).rejects.toThrow('instead of its financial position value');
+      await expect(review).rejects.toThrow(/instead of its (financial position value|granted amount)/);
       expect(data.has('App.flow.accountReview.uiValidated')).toBe(false);
     }
   },

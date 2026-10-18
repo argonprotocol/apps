@@ -110,6 +110,7 @@ export class ArgonBonds {
   private readonly publishedVaultRefreshVersions = new Map<number, number>();
   private readonly historyRecovery: ArgonBondsRecovery;
   private recoveredHistoryFacts: IBondHistoryFact[] = [];
+  private isHistoryReplaying = false;
   private finalizedHistoryQueue = Promise.resolve();
   private finalizedHistoryCursor?: { blockNumber: number; blockHash: string };
 
@@ -309,16 +310,37 @@ export class ArgonBonds {
     if (this.data.isLoaded) this.data.financialRevision += 1;
   }
 
-  public async publishRecoveredHistory(): Promise<void> {
+  public async publishRecoveredHistory(throughBlock?: number): Promise<void> {
     await this.enqueueHistoryWork(async () => {
       const facts = this.recoveredHistoryFacts;
       const db = await this.dbPromise;
+      let recoveredCursor: { blockNumber: number; blockHash: string } | undefined;
+      if (throughBlock !== undefined && throughBlock > (this.finalizedHistoryCursor?.blockNumber ?? -1)) {
+        const block = await this.miningFrames.blockWatch.getHeader(throughBlock);
+        recoveredCursor = { blockNumber: block.blockNumber, blockHash: block.blockHash };
+      }
+
       await db.transaction(async transaction => {
         await this.applyHistoryFacts(transaction, facts);
         await transaction.bondLotHistoryTable.confirmFlexibilityHistory(this.walletKeys.defaultArgonAddress);
+        if (recoveredCursor) {
+          await transaction.syncStateTable.upsert(SyncStateKeys.BondHistory, {
+            accountId: this.walletKeys.defaultArgonAddress,
+            ...recoveredCursor,
+          });
+        }
       });
-      await this.refreshHistory();
+      if (recoveredCursor) {
+        this.finalizedHistoryCursor = recoveredCursor;
+        this.data.historyCoveragePending =
+          recoveredCursor.blockNumber < this.miningFrames.blockWatch.finalizedBlockHeader.blockNumber;
+        this.data.historyError = undefined;
+        await this.publishBondState();
+      } else {
+        await this.refreshHistory();
+      }
       this.recoveredHistoryFacts = [];
+      this.isHistoryReplaying = false;
     });
     if (this.finalizedHistoryCursor) {
       void this.queueFinalizedHistory(this.miningFrames.blockWatch.finalizedBlockHeader.blockNumber).catch(
@@ -327,12 +349,21 @@ export class ArgonBonds {
     }
   }
 
-  public beginHistoryReplay(): void {
+  public async beginHistoryReplay(): Promise<void> {
+    this.isHistoryReplaying = true;
     this.recoveredHistoryFacts = [];
+    // Let the current block finish, then give the indexed reconstruction the history queue.
+    await this.finalizedHistoryQueue;
   }
 
   public discardRecoveredHistory(): void {
     this.recoveredHistoryFacts = [];
+    this.isHistoryReplaying = false;
+    if (this.finalizedHistoryCursor) {
+      void this.queueFinalizedHistory(this.miningFrames.blockWatch.finalizedBlockHeader.blockNumber).catch(
+        () => undefined,
+      );
+    }
   }
 
   public hasStagedPurchase(lot: BondLot): boolean {
@@ -474,7 +505,11 @@ export class ArgonBonds {
     this.recoveredHistoryFacts.push(...(await this.historyRecovery.readBlock(block, events)));
   }
 
-  public async recoverDailyEarnings(throughBlock: number, afterBlock: number): Promise<void> {
+  public async recoverDailyEarnings(
+    throughBlock: number,
+    afterBlock: number,
+    onProgress?: (completedFrameCount: number, totalFrameCount: number) => void,
+  ): Promise<void> {
     const db = await this.dbPromise;
     const lifetimes = new Map(
       (await db.bondLotHistoryTable.fetchAll(this.walletKeys.defaultArgonAddress)).map(record => [
@@ -488,7 +523,7 @@ export class ArgonBonds {
       lifetimes.set(lot.id, { createdFrame: lot.createdFrameId, releaseFrame: lot.releaseFrameId ?? undefined });
     }
     this.recoveredHistoryFacts.push(
-      ...(await this.historyRecovery.readDailyEarnings([...lifetimes.values()], throughBlock, afterBlock)),
+      ...(await this.historyRecovery.readDailyEarnings([...lifetimes.values()], throughBlock, afterBlock, onProgress)),
     );
     const coveredFrames = this.miningFrames.frames.filter(
       frame =>
@@ -527,6 +562,8 @@ export class ArgonBonds {
   }
 
   private queueFinalizedHistory(targetBlockNumber: number): Promise<void> {
+    if (this.isHistoryReplaying) return this.finalizedHistoryQueue;
+
     const cursor = this.finalizedHistoryCursor;
     if (!cursor || (targetBlockNumber <= cursor.blockNumber && !this.data.historyError)) {
       return this.finalizedHistoryQueue;
@@ -548,6 +585,8 @@ export class ArgonBonds {
   }
 
   private async reconcileFinalizedHistory(targetBlockNumber: number): Promise<void> {
+    if (this.isHistoryReplaying) return;
+
     const db = await this.dbPromise;
     let cursor = this.finalizedHistoryCursor;
     if (!cursor) throw new Error('Bond history cursor has not been loaded');
@@ -556,6 +595,8 @@ export class ArgonBonds {
     let hasChangedHistory = false;
 
     for (let blockNumber = cursor.blockNumber + 1; blockNumber <= targetBlockNumber; blockNumber += 1) {
+      if (this.isHistoryReplaying) break;
+
       const block = await this.miningFrames.blockWatch.getHeader(blockNumber);
       if (block.parentHash !== cursor.blockHash) {
         throw new Error(`Finalized bond history changed parent at block ${blockNumber}`);

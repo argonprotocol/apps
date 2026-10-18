@@ -4,18 +4,16 @@ import {
   type IBlockHeaderInfo,
   JsonExt,
   MiningFrames,
-  TreasuryRewards,
-  bigNumberToBigInt,
   bundledVaultRevenueHistory,
   VAULT_STATS_FORMAT_VERSION,
   Vaults as VaultsBase,
 } from '@argonprotocol/apps-core';
-import BigNumber from 'bignumber.js';
 import { runtimeClient } from '@argonprotocol/runtime-client';
 import { u8aToString } from '@polkadot/util';
 import { BaseDirectory, mkdir, readTextFile, rename, writeTextFile } from '@tauri-apps/plugin-fs';
 import { getMainchainClient, getMainchainClients } from '../stores/mainchain.ts';
 import { INSTANCE_NAME, NETWORK_NAME } from './Env.ts';
+import { readVaultNetworkPool } from './recovery/MyVault.ts';
 
 export interface IVaultStatsStorage {
   read(): Promise<string | null>;
@@ -84,7 +82,6 @@ export class Vaults extends VaultsBase {
     { frameId, firstBlockMeta, api, parentApi }: Parameters<VaultsBase['loadFrameHistory']>[1],
   ): Promise<void> {
     const constants = api.consts.treasury;
-    if (!('percentForVaultPool' in constants)) return;
 
     const missing = Object.entries(stats.vaultsById).flatMap(([vaultId, vault]) => {
       const frame = vault.changesByFrame.find(change => change.frameId === frameId);
@@ -92,8 +89,9 @@ export class Vaults extends VaultsBase {
       if (frame.argonotSecuritizationMicronots !== undefined && frame.upstreamParticipation !== undefined) return [];
       return [{ vaultId: Number(vaultId), frame }];
     });
+    const needsHoldings = 'percentForVaultPool' in constants && missing.length > 0;
     const needsNetworkPool = !stats.networkPoolsByFrame?.[frameId];
-    if (!missing.length && !needsNetworkPool) return;
+    if (!needsHoldings && !needsNetworkPool) return;
 
     // Frame-start extrinsics can change holdings after the completed frame's snapshot.
     if (!parentApi) {
@@ -101,18 +99,11 @@ export class Vaults extends VaultsBase {
       parentApi = await this.miningFrames.blockWatch.getApi(parent);
     }
     if (needsNetworkPool) {
-      const pool = await parentApi.query.system.account(TreasuryRewards.getBidPoolAccountId(api));
-      const auctionPoolMicrogons = pool.data.free;
-      const vaultPoolMicrogons = bigNumberToBigInt(
-        BigNumber(auctionPoolMicrogons).times(constants.percentForVaultPool),
-      );
-      stats.networkPoolsByFrame = {
-        ...stats.networkPoolsByFrame,
-        [frameId]: { auctionPoolMicrogons, vaultPoolMicrogons, includesBondPayments: false },
-      };
+      const pool = await readVaultNetworkPool({ frameId, api, parentApi });
+      stats.networkPoolsByFrame = { ...stats.networkPoolsByFrame, [frameId]: pool };
     }
 
-    if (missing.length) {
+    if (needsHoldings) {
       const [commitments, capital] = await Promise.all([
         parentApi.query.vaults.argonotSecuritizationByVaultId.entries(),
         parentApi.query.treasury.currentFrameVaultCapital(),
@@ -209,13 +200,32 @@ export class Vaults extends VaultsBase {
     }
 
     const cachedStats = state ? JsonExt.parse<IAllVaultStats>(state) : undefined;
-    if (cachedStats?.formatVersion === VAULT_STATS_FORMAT_VERSION) return cachedStats;
+    let stats = cachedStats;
+    if (cachedStats?.formatVersion !== VAULT_STATS_FORMAT_VERSION) {
+      const bundledHistory = bundledVaultRevenueHistory[this.network];
+      if (!bundledHistory) return cachedStats;
 
-    const bundledHistory = bundledVaultRevenueHistory[this.network];
-    if (!bundledHistory) return cachedStats;
+      stats = JsonExt.parse<IAllVaultStats>(JSON.stringify(bundledHistory));
+      await this.saveStats(stats);
+    }
+    if (!stats) return;
 
-    const stats = JsonExt.parse<IAllVaultStats>(JSON.stringify(bundledHistory));
-    await this.saveStats(stats);
+    const oldestChartFrame = Math.max(1, this.miningFrames.currentFrameId - 365);
+    for (const vault of Object.values(stats.vaultsById)) {
+      for (const { frameId } of vault.changesByFrame) {
+        if (frameId < oldestChartFrame) continue;
+        if (frameId > stats.synchedToFrame) continue;
+        if (stats.networkPoolsByFrame?.[frameId]) continue;
+
+        // The completed frame's pool is read at the next frame's start.
+        const poolSnapshotFrame = frameId + 1;
+        stats.revenueBackfill = {
+          nextFrame: Math.max(stats.revenueBackfill?.nextFrame ?? 0, poolSnapshotFrame),
+          throughFrame: Math.min(stats.revenueBackfill?.throughFrame ?? Infinity, poolSnapshotFrame),
+        };
+      }
+    }
+
     return stats;
   }
 }

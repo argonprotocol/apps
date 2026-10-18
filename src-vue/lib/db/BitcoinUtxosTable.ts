@@ -227,14 +227,14 @@ export class BitcoinUtxosTable extends BaseTable {
     );
   }
 
-  public async setSpent(record: IBitcoinUtxoRecord, releaseId: string): Promise<void> {
+  public async setSpent(record: IBitcoinUtxoRecord, releaseId?: string): Promise<void> {
+    await this.db.execute(
+      'UPDATE BitcoinUtxos SET spendStatus = ?, activeReleaseId = NULL, spentByReleaseId = COALESCE(?, spentByReleaseId) WHERE id = ?',
+      toSqlParams([BitcoinUtxoSpendStatus.Spent, releaseId, record.id]),
+    );
     record.spendStatus = BitcoinUtxoSpendStatus.Spent;
     record.activeReleaseId = undefined;
-    record.spentByReleaseId = releaseId;
-    await this.db.execute(
-      'UPDATE BitcoinUtxos SET spendStatus = ?, activeReleaseId = NULL, spentByReleaseId = ? WHERE id = ?',
-      toSqlParams([record.spendStatus, releaseId, record.id]),
-    );
+    if (releaseId) record.spentByReleaseId = releaseId;
   }
 
   public async updateLastConfirmationCheck(record: IBitcoinUtxoRecord): Promise<void> {

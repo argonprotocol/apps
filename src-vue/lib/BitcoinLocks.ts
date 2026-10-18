@@ -22,7 +22,7 @@ import BitcoinUtxoTracking from './BitcoinUtxoTracking.ts';
 import BitcoinReleases from './BitcoinReleases.ts';
 import { BitcoinCooperativeReleases } from './BitcoinCooperativeReleases.ts';
 import BitcoinMempool from './BitcoinMempool.ts';
-import { recordFinalizedSecuritization } from './BitcoinSecuritizationTerms.ts';
+import { mergeRecoveredSecuritizationTerms, recordFinalizedSecuritization } from './BitcoinSecuritizationTerms.ts';
 import { BlockProgress } from './BlockProgress.ts';
 import { BITCOIN_BLOCK_MILLIS, ESPLORA_HOST } from './Env.ts';
 import {
@@ -769,19 +769,15 @@ export default class BitcoinLocks {
         const publishedTerms = await transaction.bitcoinSecuritizationHistoryTable.getPublishedSnapshot(
           this.walletKeys.defaultArgonAddress,
         );
-        const termsByKey = new Map(
-          (publishedTerms?.terms ?? []).map(term => [`${term.lockId}:${term.termIndex}`, term]),
+        const terms = mergeRecoveredSecuritizationTerms(
+          publishedTerms?.terms ?? [],
+          unit.securitizationTerms,
+          asOfBlock,
         );
-        for (const term of unit.securitizationTerms) {
-          const key = `${term.lockId}:${term.termIndex}`;
-          if (!termsByKey.has(key)) termsByKey.set(key, term);
-        }
         const snapshot = await transaction.bitcoinSecuritizationHistoryTable.createSnapshot(
           this.walletKeys.defaultArgonAddress,
-          asOfBlock,
-          [...termsByKey.values()].sort(
-            (left, right) => left.lockId - right.lockId || left.termIndex - right.termIndex,
-          ),
+          Math.max(asOfBlock, publishedTerms?.asOfBlock ?? 0),
+          terms,
         );
         await transaction.bitcoinSecuritizationHistoryTable.publishSnapshot(snapshot);
       }

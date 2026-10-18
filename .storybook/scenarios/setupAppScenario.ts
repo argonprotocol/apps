@@ -46,6 +46,7 @@ import { useCertificationController } from '../../src-vue/stores/certificationCo
 import { getConfig } from '../../src-vue/stores/config.ts';
 import { getCurrency } from '../../src-vue/stores/currency.ts';
 import { useFinancials } from '../../src-vue/stores/financials.ts';
+import { useFinancialHistory, type IFinancialHistoryRecoveryState } from '../../src-vue/stores/financialHistory.ts';
 import { getDbPromise } from '../../src-vue/stores/helpers/dbPromise.ts';
 import {
   getBiddingCalculator,
@@ -384,6 +385,21 @@ export function setupAppScenario({
       load: fn(async () => undefined),
     }),
   );
+  const readyHistory: IFinancialHistoryRecoveryState = { state: 'ready', recoveredBlockCount: 0 };
+  const historyRecovery = Vue.ref({ ...readyHistory });
+  const financialHistory = Vue.reactive({
+    historyRecovery,
+    historyRecoveryByDomain: {
+      bitcoin: { ...readyHistory },
+      bonds: { ...readyHistory },
+      vaulting: { ...readyHistory },
+    },
+    isHistoryRecoveryInProgress: Vue.computed(() =>
+      ['checking', 'restoring', 'waiting'].includes(historyRecovery.value.state),
+    ),
+    restoreFinancialHistory: fn(async () => undefined),
+  });
+  mocked(useFinancialHistory, { partial: true }).mockReturnValue(financialHistory);
   mocked(useFinancials, { partial: true }).mockReturnValue(
     Vue.reactive({
       savingsIsLoaded: false,
@@ -392,13 +408,6 @@ export function setupAppScenario({
       bitcoinWalletTotalSatoshis: 0n,
       liquidTotalSatoshis: 0n,
       financialPositionAggregate: Vue.shallowRef(reduceFinancialPositions([])),
-      historyRecovery: Vue.ref({ state: 'ready' as const, recoveredBlockCount: 0 }),
-      historyRecoveryByDomain: Vue.reactive({
-        bitcoin: { state: 'ready' as const, recoveredBlockCount: 0 },
-        bonds: { state: 'ready' as const, recoveredBlockCount: 0 },
-        vaulting: { state: 'ready' as const, recoveredBlockCount: 0 },
-      }),
-      isHistoryRecoveryInProgress: Vue.ref(false),
       bondSummariesByAsset: Vue.shallowRef({
         ARGN: { currentValue: 0n, returnSummary: calculatePositionReturn([]) },
         ARGNOT: { currentValue: 0n, returnSummary: calculatePositionReturn([]) },
@@ -511,6 +520,9 @@ export function setupAppScenario({
   });
   mocked(getMyVault, { partial: true }).mockReturnValue({
     data: reactiveMyVaultData,
+    get vaults() {
+      return getVaults();
+    },
     argonotSecuritizationTarget: 0n,
     get createdVault() {
       return reactiveMyVaultData.createdVault;

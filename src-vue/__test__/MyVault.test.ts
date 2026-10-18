@@ -451,10 +451,30 @@ describe('MyVault cosign recovery', () => {
     await onFinalized([{ blockNumber: 12, blockHash: '0x12' }]);
     expect(refreshExternalLocks).toHaveBeenCalledWith(finalizedApi);
 
-    blockEvents.splice(0, 1, { event: vaultEvent });
+    // Queued events may predate an already-completed return. Current approvals use the newest finalized state.
+    orphanEntries.mockResolvedValue([]);
+    getBlockEventsWithSpec.mockResolvedValueOnce({
+      api: {
+        ...finalizedApi,
+        query: {
+          ...finalizedApi.query,
+          vaults: {
+            ...finalizedApi.query.vaults,
+            orphanedUtxoAccountsByVaultId: {
+              entries: async () => [[{ args: [7, 'SyntheticOrphanOwner'] }, 3]],
+            },
+          },
+        },
+      },
+      events: [{ event: requestEvent }, { event: vaultEvent }],
+      specVersion: 159,
+    });
     await onFinalized([{ blockNumber: 13, blockHash: '0x13' }]);
 
     expect(myVault.data.pendingCollectRevenue).toBe(84n);
+    expect(myVault.data.pendingOrphanCosignCount).toBe(0);
+    expect(myVault.collectBuilder.getBitcoinSigningRequests()).toEqual([]);
+    expect(myVault.collectBuilder.getNotice()?.signatureCount ?? 0).toBe(0);
     expect(getBlockEventsWithSpec).toHaveBeenCalledTimes(5);
 
     myVault.data.isLoaded = true;

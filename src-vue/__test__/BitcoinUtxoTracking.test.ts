@@ -133,6 +133,7 @@ describe('BitcoinUtxoTracking', () => {
       {} as never,
     );
     const visible = Vue.computed(() => wallet.getUnattachedDeposits());
+    const history = Vue.computed(() => wallet.getUnattachedDeposits({ includeReturned: true }));
     expect(visible.value).toEqual([]);
 
     const missingTxid = `0x${'c'.repeat(64)}`;
@@ -181,6 +182,40 @@ describe('BitcoinUtxoTracking', () => {
       await store.findMissingDeposits();
       expect(visible.value.map(deposit => deposit.txid)).toEqual([missingTxid]);
       expect(await db.bitcoinUtxosTable.fetchAll()).toHaveLength(3);
+
+      // An output discovered earlier can disappear because it was spent elsewhere.
+      lookup.mockResolvedValue([]);
+      const outspend = vi.spyOn(mempool, 'getOutspendStatus').mockResolvedValue({
+        txid: `0x${'d'.repeat(64)}`,
+        isConfirmed: false,
+        transactionBlockHeight: 0,
+        transactionBlockTime: 0,
+        argonBitcoinHeight: 125,
+      });
+      await store.findMissingDeposits();
+      expect(visible.value.map(deposit => deposit.txid)).toEqual([missingTxid]);
+      expect((await db.bitcoinUtxosTable.getByLockOutpoint(1, missingTxid, 2))?.spendStatus).toBe(
+        BitcoinUtxoSpendStatus.Unspent,
+      );
+
+      outspend.mockResolvedValue({
+        txid: `0x${'d'.repeat(64)}`,
+        isConfirmed: true,
+        transactionBlockHeight: 125,
+        transactionBlockTime: 1_700_000_000,
+        argonBitcoinHeight: 125,
+      });
+      await store.findMissingDeposits();
+      expect(visible.value).toEqual([]);
+      expect(history.value.map(record => record.txid)).toContain(missingTxid);
+      expect(await db.bitcoinUtxosTable.getByLockOutpoint(1, missingTxid, 2)).toMatchObject({
+        spendStatus: BitcoinUtxoSpendStatus.Spent,
+        spentByReleaseId: undefined,
+      });
+      store.utxoTracking.load(await db.bitcoinUtxosTable.fetchAll());
+      expect(visible.value).toEqual([]);
+      expect(wallet.getUnattachedDeposits({ includeReturned: true }).map(record => record.txid)).toContain(missingTxid);
+      outspend.mockRestore();
     } finally {
       await store.shutdown();
       await db.close();

@@ -1273,7 +1273,7 @@ describe('BitcoinLocks history replay publication', () => {
     }
   });
 
-  it('restores a readonly historical release under its current Lock ID', async () => {
+  it('restores a migrated readonly release under its current Lock ID', async () => {
     const db = await createTestDb();
     const accountId = encodeAddress(new Uint8Array(32).fill(0x44));
     const fundingTxid = `0x${'44'.repeat(32)}`;
@@ -1289,7 +1289,7 @@ describe('BitcoinLocks history replay publication', () => {
       fundedSatoshis: 10_000n,
     };
     const request = {
-      toScriptPubkey: `0x0014${'55'.repeat(20)}`,
+      toScriptPubkey: `0x0020${'55'.repeat(32)}`,
       bitcoinNetworkFee: 8n,
       destinationSatoshis: 9_992n,
       changeSatoshis: 0n,
@@ -1317,6 +1317,7 @@ describe('BitcoinLocks history replay publication', () => {
       blockWatch: { getApi: vi.fn(async () => api) } as unknown as BlockWatch,
       walletKeys,
     });
+    store.data.bitcoinNetwork = BitcoinNetwork.Testnet;
     const pending = await db.bitcoinLocksTable.insertPending({
       uuid: 'translated-historical-lock',
       status: BitcoinLockStatus.LockIsProcessingOnArgon,
@@ -1330,6 +1331,36 @@ describe('BitcoinLocks history replay publication', () => {
     const currentRecord = await db.bitcoinLocksTable.finalizePending({ uuid: pending.uuid, lock: currentLock });
     await db.bitcoinLocksTable.setStatus(currentRecord, BitcoinLockStatus.Releasing);
     store.data.locksByLockId[70] = currentRecord;
+
+    const funding = await db.bitcoinUtxosTable.insert({
+      lockId: 70,
+      txid: fundingTxid,
+      vout: 1,
+      satoshis: fundedLock.fundedSatoshis,
+      network: 'testnet',
+      status: BitcoinUtxoStatus.FundingUtxo,
+      spendStatus: BitcoinUtxoSpendStatus.Spent,
+      firstSeenAt: new Date(historyBlock(152).blockTime),
+      firstSeenBitcoinHeight: 500,
+    });
+    const destinationAddress = BitcoinLocks.formatP2wshAddress(request.toScriptPubkey, BitcoinNetwork.Testnet);
+    // Migration 33 copied the old destination address into the script field.
+    await db.bitcoinReleasesTable.insert({
+      ...request,
+      id: 'lock:70:1',
+      sendId: 'lock:70:1',
+      kind: BitcoinReleaseKind.Lock,
+      lockId: 70,
+      releaseNumber: 1,
+      status: BitcoinReleaseStatus.Complete,
+      inputUtxoIds: [funding.id],
+      toScriptPubkey: destinationAddress,
+      vaultSignatures: [hexToU8a('0x11')],
+      bitcoinTxid: releaseTxid,
+      bitcoinConfirmedHeight: 600,
+    });
+    await store.releases.load();
+
     vi.mocked(BitcoinHistory.getHistoricalBitcoinLock)
       .mockResolvedValueOnce(creationLock)
       .mockResolvedValueOnce(fundedLock);
@@ -1340,7 +1371,7 @@ describe('BitcoinLocks history replay publication', () => {
       ...request,
       liquidRedemptionAmount: 900n,
     });
-    const getOutspendStatus = vi.spyOn(BitcoinMempool.prototype, 'getOutspendStatus').mockResolvedValue({
+    vi.spyOn(BitcoinMempool.prototype, 'getOutspendStatus').mockResolvedValue({
       txid: releaseTxid,
       isConfirmed: true,
       transactionBlockHeight: 600,
@@ -1374,9 +1405,8 @@ describe('BitcoinLocks history replay publication', () => {
         signature: '0x11',
       }),
     ]);
-    await publishRecoveredHistory(store);
+    await publishRecoveredHistory(store, 155);
 
-    expect(getOutspendStatus).toHaveBeenCalledWith(fundingTxid, 1, 0);
     expect(getBitcoinChildXpriv).not.toHaveBeenCalled();
     expect(store.getActiveLocks()).toEqual([currentRecord]);
     expect(store.getLockById(7)).toBeUndefined();
@@ -1401,6 +1431,10 @@ describe('BitcoinLocks history replay publication', () => {
         kind: BitcoinReleaseKind.Lock,
         lockId: 70,
         status: BitcoinReleaseStatus.Complete,
+        toScriptPubkey: request.toScriptPubkey,
+        bitcoinNetworkFee: request.bitcoinNetworkFee,
+        destinationSatoshis: request.destinationSatoshis,
+        changeSatoshis: request.changeSatoshis,
         bitcoinTxid: releaseTxid,
         bitcoinConfirmedHeight: 600,
       }),
@@ -1409,6 +1443,16 @@ describe('BitcoinLocks history replay publication', () => {
     expect((await db.bitcoinSecuritizationHistoryTable.getPublishedSnapshot(accountId))?.terms).toEqual([
       expect.objectContaining({ lockId: 70 }),
     ]);
+
+    const restarted = createStore({ db, walletKeys });
+    restarted.data.bitcoinNetwork = BitcoinNetwork.Testnet;
+    await restarted.releases.load();
+    const release = restarted.releases.getById('lock:70:1')!;
+    expect(release).toMatchObject(releases[0]);
+    expect(restarted.formatAddressBytes(release.toScriptPubkey)).toBe(destinationAddress);
+    expect(() =>
+      restarted.releases.mergeRecovered(release, { ...release, toScriptPubkey: `0x0020${'66'.repeat(32)}` }),
+    ).toThrow('does not match its frozen request');
   });
 
   it('does not block live Lock work while financial history is replaying', async () => {
@@ -2891,9 +2935,9 @@ describe('BitcoinLocks history replay publication', () => {
     });
 
     expect(await db.bitcoinLocksTable.getByLockId(7)).toMatchObject({ securityFees: 10n, couponFeesPaid: 0n });
-    expect((await db.bitcoinSecuritizationHistoryTable.getPublishedSnapshot(operatorAccount))?.terms).toEqual([
-      expect.objectContaining({ cumulativeNetSecurityFee: 0n, addedNetSecurityFee: 0n }),
-    ]);
+    const terms = (await db.bitcoinSecuritizationHistoryTable.getPublishedSnapshot(operatorAccount))?.terms;
+    expect(terms).toEqual([expect.objectContaining({ cumulativeNetSecurityFee: 0n, addedNetSecurityFee: 0n })]);
+    expect(terms?.[0].securitizationCoverageMicrogons).toBeUndefined();
     expect(await db.bitcoinFissionsTable.fetchAll(operatorAccount)).toEqual([
       expect.objectContaining({
         ratchets: [

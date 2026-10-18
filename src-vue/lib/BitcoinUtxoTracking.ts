@@ -264,6 +264,14 @@ export default class BitcoinUtxoTracking {
     const txs = await this.deps.mempool.getAddressUtxos(
       BitcoinLocks.formatP2wshAddress(payToScriptAddress, this.deps.getBitcoinNetwork()),
     );
+    for (const record of this.getUtxosForLock(lock.lockId)) {
+      if (record.status === BitcoinUtxoStatus.FundingUtxo) continue;
+      if (record.spendStatus === BitcoinUtxoSpendStatus.Spent || record.activeReleaseId) continue;
+      if (txs.some(tx => tx.txid === record.txid && tx.vout === record.vout)) continue;
+
+      // The address endpoint omits spent outputs, but absence alone does not prove a spend.
+      await this.refreshDepositSpend(record);
+    }
     if (!txs.length) {
       return undefined;
     }
@@ -295,6 +303,21 @@ export default class BitcoinUtxoTracking {
     }
 
     return this.getObservedFundingUtxos(lock).at(-1)?.mempoolObservation;
+  }
+
+  public async refreshDepositSpend(record: IBitcoinUtxoRecord) {
+    const spend = await this.deps.mempool.getOutspendStatus(
+      record.txid,
+      record.vout,
+      this.deps.getOracleBitcoinBlockHeight(),
+    );
+    if (spend?.isConfirmed && !record.activeReleaseId) {
+      const updated = { ...record };
+      const table = await this.getTable();
+      await table.setSpent(updated);
+      this.publishUtxo(updated);
+    }
+    return spend;
   }
 
   public async syncPendingFundingSignals(

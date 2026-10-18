@@ -84,6 +84,13 @@ export type IFinancialHistoryRestoreResult = {
   targetBlock: number;
 };
 
+export interface IFinancialHistoryProgress {
+  domain: IFinancialHistoryDomain;
+  phase: 'blocks' | 'earnings' | 'publishing';
+  completedCount: number;
+  totalCount: number;
+}
+
 const domainActivityMasks: Record<IFinancialHistoryDomain, number> = {
   bonds: AccountActivityKind.BondPosition,
   bitcoin: AccountActivityKind.BitcoinLock | AccountActivityKind.BitcoinMint,
@@ -101,7 +108,7 @@ const earliestSupportedSpecVersions: Record<IFinancialHistoryDomain, number> = {
   vaulting: 116,
 };
 const historyRecoveryVersions: Partial<Record<IFinancialHistoryDomain, number>> = {
-  bitcoin: 11,
+  bitcoin: 12,
   bonds: 3,
   vaulting: 1,
 };
@@ -122,14 +129,7 @@ export async function restoreFinancialHistory(args: {
   minimumAsOfBlock?: number;
   onCheckStart?: () => void;
   onActiveBitcoinLocksFound?: (count: number) => void;
-  onProgress?: (
-    importedBlockCount: number,
-    domainProgress?: {
-      domain: IFinancialHistoryDomain;
-      recoveredBlockCount: number;
-      totalBlockCount: number;
-    },
-  ) => void;
+  onProgress?: (importedBlockCount: number, domainProgress?: IFinancialHistoryProgress) => void;
   onDomainComplete?: (result: { domain: IFinancialHistoryDomain; asOfBlock: number; error?: string }) => void;
 }): Promise<IFinancialHistoryRestoreResult> {
   const { db, blockWatch, accountId, argonBonds, bitcoinLocks, bitcoinFissions, vaultHistory } = args;
@@ -227,8 +227,9 @@ export async function restoreFinancialHistory(args: {
     let domainError: string | undefined;
     args.onProgress?.(importedBlockCount, {
       domain,
-      recoveredBlockCount: 0,
-      totalBlockCount: 0,
+      phase: 'blocks',
+      completedCount: 0,
+      totalCount: 0,
     });
 
     try {
@@ -253,8 +254,16 @@ export async function restoreFinancialHistory(args: {
           onProgress: (recoveredBlockCount, totalBlockCount) =>
             args.onProgress?.(importedBlockCount + recoveredBlockCount, {
               domain,
-              recoveredBlockCount,
-              totalBlockCount,
+              phase: 'blocks',
+              completedCount: recoveredBlockCount,
+              totalCount: totalBlockCount,
+            }),
+          onEarningsProgress: (completedCount, totalCount, recoveredBlockCount) =>
+            args.onProgress?.(importedBlockCount + recoveredBlockCount, {
+              domain,
+              phase: 'earnings',
+              completedCount,
+              totalCount,
             }),
           onCheckpoint: checkpoint =>
             isBitcoinReplay || isBondReplay ? Promise.resolve() : saveDomainCheckpoint(domain, checkpoint),
@@ -297,7 +306,15 @@ export async function restoreFinancialHistory(args: {
           domainAsOfBlock = waitingCheckpoint.asOfBlock;
           break;
         }
-        if (isBondReplay) await argonBonds.publishRecoveredHistory();
+        if (isBondReplay) {
+          args.onProgress?.(importedBlockCount + result.importedBlockCount, {
+            domain,
+            phase: 'publishing',
+            completedCount: 0,
+            totalCount: 0,
+          });
+          await argonBonds.publishRecoveredHistory(result.checkpoint.asOfBlock);
+        }
 
         await saveDomainCheckpoint(domain, result.checkpoint);
         domainAsOfBlock = result.checkpoint.asOfBlock;
@@ -646,6 +663,7 @@ async function restoreFinancialHistoryDomain(args: {
   targetBlock: number;
   onActiveBitcoinLocksFound?: (count: number) => void;
   onProgress?: (importedBlockCount: number, totalBlockCount: number) => void;
+  onEarningsProgress?: (completedCount: number, totalCount: number, importedBlockCount: number) => void;
   onCheckpoint?: (checkpoint: IFinancialHistoryCheckpoint) => Promise<void>;
 }): Promise<{
   checkpoint: IFinancialHistoryCheckpoint;
@@ -680,7 +698,7 @@ async function restoreFinancialHistoryDomain(args: {
       ? 0
       : checkpoint.asOfBlock;
 
-  if (domain === 'bonds') argonBonds.beginHistoryReplay();
+  if (domain === 'bonds') await argonBonds.beginHistoryReplay();
 
   if (domain === 'bitcoin' && bitcoinLockRecovery && afterBlock === 0) {
     if (args.onActiveBitcoinLocksFound) {
@@ -825,7 +843,9 @@ async function restoreFinancialHistoryDomain(args: {
   }
 
   if (domain === 'bonds' && recoveredThroughBlock >= args.targetBlock) {
-    await argonBonds.recoverDailyEarnings(recoveredThroughBlock, afterBlock);
+    await argonBonds.recoverDailyEarnings(recoveredThroughBlock, afterBlock, (completedCount, totalCount) => {
+      args.onEarningsProgress?.(completedCount, totalCount, importedBlockCount);
+    });
   }
 
   return {

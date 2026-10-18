@@ -245,7 +245,7 @@ describe('wallet overlay state', () => {
     const trackedNewer = bitcoinLocks.utxoTracking.getUtxoRecordById(newer.id)!;
     trackedNewer.spendStatus = BitcoinUtxoSpendStatus.Spent;
     expect(getUnattachedBitcoinView(wallet)).toEqual({ type: 'unattachedBitcoin', recordId: older.id });
-    expect(history.value.map(record => record.id)).toEqual([201]);
+    expect(history.value.map(record => record.id)).toEqual([202, 201]);
 
     const completedReturn: IBitcoinReleaseRecord = {
       id: 'completed-deposit-return',

@@ -104,6 +104,11 @@ export class BitcoinCooperativeReleases {
       try {
         finalizedClient ??= await this.blockWatch.getFinalizedApi();
         const requests = await server.getPendingBitcoinCooperativeReleases();
+        if (requests === undefined) {
+          if (revision === this.#publicationRevision) this.data.refreshError = '';
+          return;
+        }
+
         const verified: BitcoinCooperativeReleases['data']['requests'] = [];
         for (const record of requests) {
           const entry: (typeof verified)[number] = { ...record };

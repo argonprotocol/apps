@@ -8,7 +8,8 @@ import { setCertificationGuide } from '../../scenarios/setupCertificationScenari
 import { TopTab } from '../../../src-vue/interfaces/IConfig.ts';
 import { getArgonBonds } from '../../../src-vue/stores/argonBonds.ts';
 import { useFinancials } from '../../../src-vue/stores/financials.ts';
-import { OperationalStepId } from '../../../src-vue/stores/certificationController.ts';
+import { useFinancialHistory } from '../../../src-vue/stores/financialHistory.ts';
+import { OperationalStepId, useCertificationController } from '../../../src-vue/stores/certificationController.ts';
 import ArgonBonds from '../../../src-vue/screens/ArgonBonds.vue';
 
 const interactive = Vue.ref(false);
@@ -67,6 +68,40 @@ export const Portfolio: Story = {
   beforeEach: () => {
     setupBondPortfolioScenario('Vault');
   },
+};
+
+export const RestoringDailyEarnings: Story = {
+  beforeEach: () => {
+    setupBondPortfolioScenario('Vault');
+    useCertificationController().isLoaded = true;
+    const financialHistory = useFinancialHistory();
+    financialHistory.historyRecovery = {
+      state: 'restoring',
+      recoveredBlockCount: 5,
+      progress: { domain: 'bonds', phase: 'earnings', completedCount: 24, totalCount: 90 },
+    };
+  },
+  play: async ({ canvasElement }) => {
+    const trigger = canvasElement.querySelector('[aria-label="Financial history is syncing"]')!.closest('button')!;
+    const topBar = trigger.closest('[inert]')!;
+    topBar.removeAttribute('inert');
+    await userEvent.click(trigger);
+    topBar.setAttribute('inert', '');
+  },
+};
+
+export const SavingHistory: Story = {
+  beforeEach: () => {
+    setupBondPortfolioScenario('Vault');
+    useCertificationController().isLoaded = true;
+    const financialHistory = useFinancialHistory();
+    financialHistory.historyRecovery = {
+      state: 'restoring',
+      recoveredBlockCount: 5,
+      progress: { domain: 'bonds', phase: 'publishing', completedCount: 0, totalCount: 0 },
+    };
+  },
+  play: RestoringDailyEarnings.play,
 };
 
 export const SmallDistributedIncome: Story = {

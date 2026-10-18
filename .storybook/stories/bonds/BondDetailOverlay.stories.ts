@@ -6,6 +6,7 @@ import { BondLot } from '@argonprotocol/apps-core';
 import { setupBondPortfolioScenario, setupBondArchiveScenario } from '../../scenarios/setupBondPortfolioScenario.ts';
 import BondDetailOverlay from '../../../src-vue/overlays/BondDetailOverlay.vue';
 import { ArgonBondsFinancials } from '../../../src-vue/lib/financials/ArgonBonds.ts';
+import { useFinancialHistory } from '../../../src-vue/stores/financialHistory.ts';
 
 let bondLot: ReturnType<typeof setupBondPortfolioScenario>['lots'][number] | undefined;
 let position: ReturnType<typeof setupBondPortfolioScenario>['positions'][number];
@@ -83,8 +84,8 @@ export const DailyEarnings: Story = {
     bondLot = lots[0];
     position = positions[0];
     mocked(getMyVault, { partial: true }).mockReturnValue({ vaultId: 99 });
-    getArgonBonds().data.dailyEarnings[0].earningsMicrogons = 300_000n;
-    getArgonBonds().data.dailyEarnings[2].earningsMicrogons = 420_000n;
+    getArgonBonds().data.dailyEarnings[0].earningsMicrogons = 300_001n;
+    getArgonBonds().data.dailyEarnings[2].earningsMicrogons = 420_567n;
   },
 };
 
@@ -184,6 +185,16 @@ export const NoDailyEarnings: Story = {
     bondLot = lots[0];
     position = positions[0];
     getArgonBonds().data.dailyEarnings = [];
+  },
+};
+
+export const RestoringDailyEarnings: Story = {
+  beforeEach: () => {
+    const { lots, positions } = setupBondPortfolioScenario('Vault');
+    bondLot = lots[0];
+    position = positions[0];
+    getArgonBonds().data.dailyEarnings = [];
+    useFinancialHistory().historyRecoveryByDomain.bonds.state = 'restoring';
   },
 };
 

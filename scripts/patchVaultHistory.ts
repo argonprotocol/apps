@@ -2,17 +2,16 @@ import { readFile, rename, writeFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { parseArgs } from 'node:util';
-import BigNumber from 'bignumber.js';
 import {
-  bigIntMax,
   bigNumberToBigInt,
   type IAllVaultStats,
   JsonExt,
   MainchainClients,
   MiningFrames,
   NetworkConfig,
-  TreasuryRewards,
 } from '@argonprotocol/apps-core';
+
+import { readVaultNetworkPool } from '../src-vue/lib/recovery/MyVault.ts';
 
 /** One-time enrichment of an existing history file. Never imported by the app. */
 export async function patchVaultHistory(stats: IAllVaultStats, miningFrames: MiningFrames): Promise<void> {
@@ -92,42 +91,8 @@ export async function patchVaultHistory(stats: IAllVaultStats, miningFrames: Min
       }
     }
     if (needsPool) {
-      const pool = await parentApi.query.system.account(TreasuryRewards.getBidPoolAccountId(api));
-      const auctionPoolMicrogons = pool.data.free;
-      const constants = api.consts.treasury;
-      let includesBondPayments = true;
-      let vaultPoolMicrogons: bigint | undefined;
-      if ('percentForVaultPool' in constants) {
-        includesBondPayments = false;
-        vaultPoolMicrogons = bigNumberToBigInt(BigNumber(auctionPoolMicrogons).times(constants.percentForVaultPool));
-      } else if ('percentForTreasuryReserves' in constants) {
-        const reserves = bigNumberToBigInt(
-          BigNumber(auctionPoolMicrogons).times(constants.percentForTreasuryReserves),
-          true,
-        );
-        vaultPoolMicrogons = auctionPoolMicrogons - reserves;
-        const participants = await parentApi.query.treasury.currentFrameArgonotBondParticipants();
-        if (participants?.frameId === frameId && participants.totalBonds > 0) {
-          const stakePool = bigNumberToBigInt(
-            BigNumber(auctionPoolMicrogons).times(constants.percentForArgonotBondPool),
-          );
-          vaultPoolMicrogons = bigIntMax(0n, vaultPoolMicrogons - stakePool);
-        }
-
-        const events = await api.query.system.events();
-        const reserveTransferFailed = events.some(
-          ({ event }) =>
-            event.section === 'treasury' &&
-            (event.method === 'CouldNotTransferToTreasuryReserves' || event.method === 'CouldNotFundTreasury') &&
-            event.data.frameId === frameId,
-        );
-        // Earlier runtimes changed the available pool after a reserve-transfer failure.
-        if (reserveTransferFailed) vaultPoolMicrogons = undefined;
-      }
-      stats.networkPoolsByFrame = {
-        ...stats.networkPoolsByFrame,
-        [frameId]: { auctionPoolMicrogons, vaultPoolMicrogons, includesBondPayments },
-      };
+      const pool = await readVaultNetworkPool({ frameId, api, parentApi });
+      stats.networkPoolsByFrame = { ...stats.networkPoolsByFrame, [frameId]: pool };
     }
 
     if (needsHoldings) {

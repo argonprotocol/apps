@@ -21,6 +21,7 @@ export function createChartOptions(
         },
         {
           data: chartPoints,
+          spanGaps: true,
           borderColor: '#A600D4',
           borderWidth: 4,
           pointRadius: 0,

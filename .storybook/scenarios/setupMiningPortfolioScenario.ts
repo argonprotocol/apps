@@ -310,6 +310,7 @@ function createFrameDetail(
   return {
     frameId,
     totalBidCount: 47,
+    auctionSeatCount: 144,
     myLastBidMicrogons: 58_000_000n,
     winningBids,
     slots,

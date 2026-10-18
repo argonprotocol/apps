@@ -341,7 +341,8 @@ export class BitcoinFissionRecovery {
     const wasReleased = lock.removalReason === 'released';
     const wasLockTerminated = lock.removalReason === 'spent' || lock.removalReason === 'expired';
     const isClosed = wasReleased || wasLockTerminated;
-    const closeTxFee = wasLockTerminated ? 0n : close?.closeTxFee;
+    let closeTxFee = close?.closeTxFee;
+    if (!close && wasLockTerminated) closeTxFee = 0n;
     const lastUpdatedArgonBlock = isClosed ? (lock.removalBlockNumber ?? createdAtArgonBlock) : createdAtArgonBlock;
     const feeHistoryCompleteThroughBlock =
       ratchets.length &&

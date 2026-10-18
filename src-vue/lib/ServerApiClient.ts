@@ -96,10 +96,9 @@ export class ServerApiClient {
     return this.walletKeys.canAccessServer;
   }
 
-  public async getPendingBitcoinCooperativeReleases(): Promise<IBitcoinCooperativeReleaseMailboxRecord[]> {
+  public async getPendingBitcoinCooperativeReleases(): Promise<IBitcoinCooperativeReleaseMailboxRecord[] | undefined> {
     const status = await this.request<{ bitcoinCooperativeReleaseMailboxVersion?: number }>('/');
-    if (status.bitcoinCooperativeReleaseMailboxVersion !== 1)
-      throw new Error('Upgrade the operator server and enable authentication to receive Bitcoin return requests.');
+    if (status.bitcoinCooperativeReleaseMailboxVersion !== 1) return;
     const requests: IBitcoinCooperativeReleaseMailboxRecord[] = [];
     let cursor: string | undefined;
     do {

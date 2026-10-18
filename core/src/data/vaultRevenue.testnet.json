@@ -1120,7 +1120,7 @@
       "vaultPoolMicrogons": "8000000n"
     }
   },
-  "synchedToFrame": 626,
+  "synchedToFrame": 627,
   "vaultsById": {
     "5": {
       "baseline": {
@@ -1965,6 +1965,20 @@
         "feeRevenue": "0n"
       },
       "changesByFrame": [
+        {
+          "bitcoinFeeCouponValueUsed": "0n",
+          "bitcoinFeeRevenue": "0n",
+          "bitcoinLocksCreated": 0,
+          "frameId": 627,
+          "securitization": "999902074n",
+          "securitizationActivated": "998454945n",
+          "treasuryPool": {
+            "externalCapital": "653000000n",
+            "totalEarnings": "592491n",
+            "vaultCapital": "0n",
+            "vaultEarnings": "533242n"
+          }
+        },
         {
           "bitcoinFeeCouponValueUsed": "0n",
           "bitcoinFeeRevenue": "0n",
@@ -5488,6 +5502,20 @@
         "feeRevenue": "0n"
       },
       "changesByFrame": [
+        {
+          "bitcoinFeeCouponValueUsed": "0n",
+          "bitcoinFeeRevenue": "0n",
+          "bitcoinLocksCreated": 0,
+          "frameId": 627,
+          "securitization": "999933892n",
+          "securitizationActivated": "999731100n",
+          "treasuryPool": {
+            "externalCapital": "627000000n",
+            "totalEarnings": "568900n",
+            "vaultCapital": "0n",
+            "vaultEarnings": "512010n"
+          }
+        },
         {
           "bitcoinFeeCouponValueUsed": "0n",
           "bitcoinFeeRevenue": "0n",
@@ -9059,6 +9087,20 @@
         "feeRevenue": "0n"
       },
       "changesByFrame": [
+        {
+          "bitcoinFeeCouponValueUsed": "0n",
+          "bitcoinFeeRevenue": "0n",
+          "bitcoinLocksCreated": 0,
+          "frameId": 627,
+          "securitization": "19664836712n",
+          "securitizationActivated": "19664506980n",
+          "treasuryPool": {
+            "externalCapital": "7537000000n",
+            "totalEarnings": "6838607n",
+            "vaultCapital": "0n",
+            "vaultEarnings": "2339419n"
+          }
+        },
         {
           "bitcoinFeeCouponValueUsed": "0n",
           "bitcoinFeeRevenue": "0n",

@@ -19,14 +19,15 @@ export class ProfitAnalysis {
 
   public update() {
     const firstFrameId = Math.max(0, this.currentFrameId - 365);
-    const frames = (this.myVault.data.stats?.changesByFrame ?? []).filter(
+    const stats = this.myVault.vaults.stats?.vaultsById[this.myVault.vaultId!] ?? this.myVault.data.stats;
+    const frames = (stats?.changesByFrame ?? []).filter(
       frame => frame.frameId >= firstFrameId && frame.frameId < this.currentFrameId,
     );
     const earnings = VaultFinancials.getFrameEarnings(this.myVault.vaultId!, frames, this.argonBonds.data);
     const maxReturn = Math.max(0, ...[...earnings.values()].map(frame => Math.abs(frame.returnPercent)));
     const records: IVaultFrameRecord[] = [];
     const items: IChartItem[] = [];
-    const openedTick = this.myVault.createdVault?.openedTick ?? this.myVault.data.stats?.openedTick ?? 0;
+    const openedTick = this.myVault.createdVault?.openedTick ?? stats?.openedTick ?? 0;
 
     for (let frameId = firstFrameId; frameId <= this.currentFrameId; frameId++) {
       let firstTick: number;
