@@ -32,6 +32,7 @@ export interface AccountReviewResult {
   label: string;
   status: 'passed' | 'failed';
   error?: string;
+  stage?: string;
   durationMs: number;
   history?: StartingDatabaseRecoveryProgress &
     Pick<StartingDatabaseInspection, 'quickCheck' | 'bitcoinFissionIds'> & {
@@ -46,6 +47,7 @@ export class LocalMainnetReview {
   private readonly instancePrefix = Date.now().toString(36);
   private readonly validationFailures: string[] = [];
   private readonly batchResults: AccountReviewResult[] = [];
+  private reviewStage = 'opening database';
 
   private constructor(
     private readonly mainnet: LocalMainnet,
@@ -160,6 +162,7 @@ export class LocalMainnetReview {
           label: account.label,
           status: 'failed',
           error: message,
+          stage: this.reviewStage,
           durationMs: Date.now() - startedAt,
         });
         console.error(`${account.label} failed: ${message}`);
@@ -238,12 +241,14 @@ export class LocalMainnetReview {
     account: CapturedStartingDatabase,
     focusAppWindow = true,
   ): Promise<AccountReviewResult['history']> {
+    this.reviewStage = 'opening database';
     await this.mainnet.closeApp();
     await LocalMainnetReview.verifyStartingDatabase(account);
 
     const instanceName = `mainnet-review-${this.instancePrefix}-${this.nextInstanceId++}-${account.label}`
       .replace(/[^A-Za-z0-9._-]/g, '-')
       .slice(0, 80);
+    this.reviewStage = 'app launch';
     let session = await this.mainnet.launchApp(
       {
         appsDirectory: this.appsDirectory,
@@ -255,11 +260,14 @@ export class LocalMainnetReview {
       },
       FlowSession.start,
     );
+    this.reviewStage = 'app readiness';
     await session.waitForReady(5 * 60_000);
     try {
       if (!this.historyThroughBlock) throw new Error('Candidate runtime block is not available');
       // Startup version repair can run before the explicitly requested full replay.
+      this.reviewStage = 'history recovery';
       await session.recoverAccountHistory(this.historyThroughBlock, 30 * 60_000);
+      this.reviewStage = 'history inventory';
       const [expectedReleasedBondLotIds, expectedBitcoinFissionIds] = await Promise.all([
         this.loadReleasedBondLotIds(account.defaultArgonAccountId),
         this.loadBitcoinHistoryIds(account.defaultArgonAccountId),
@@ -283,9 +291,11 @@ export class LocalMainnetReview {
         expectsUpstream: account.expected.upstream,
         expectsVault: account.selection.features.includes('vault'),
       };
+      this.reviewStage = 'account validation';
       const recoveredFinancials = await this.runAccountReview(session, reviewInput);
       let recoveredSnapshot: AccountRecoverySnapshotResult | undefined;
       if (this.verifyRecoveryIdempotence) {
+        this.reviewStage = 'repeated recovery';
         recoveredSnapshot = await this.captureRecoverySnapshot(session, recoveredFinancials);
         await session.recoverAccountHistory(this.historyThroughBlock, 600_000);
         const repeatedFinancials = await this.runAccountReview(session, reviewInput);
@@ -293,6 +303,7 @@ export class LocalMainnetReview {
         AccountRecoverySnapshot.assertEquivalent(recoveredSnapshot, repeatedSnapshot, 'repeated forced recovery');
         recoveredSnapshot = repeatedSnapshot;
       }
+      this.reviewStage = 'app restart';
       await this.mainnet.closeApp();
       session = await this.mainnet.launchApp(
         {
@@ -305,6 +316,7 @@ export class LocalMainnetReview {
         FlowSession.start,
       );
       await session.waitForReady(5 * 60_000);
+      this.reviewStage = 'restart validation';
       const restartedFinancials = await this.runAccountReview(session, reviewInput);
       if (recoveredSnapshot) {
         const restartedSnapshot = await this.captureRecoverySnapshot(session, restartedFinancials);
@@ -313,6 +325,7 @@ export class LocalMainnetReview {
           `Recovery idempotence verified (financial ${restartedSnapshot.financialHash.slice(0, 12)}, database ${restartedSnapshot.databaseHash.slice(0, 12)}).`,
         );
       }
+      this.reviewStage = 'database validation';
       await session.checkpointDatabase();
       try {
         const inspection = inspectStartingDatabase(

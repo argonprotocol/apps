@@ -8,6 +8,7 @@ import {
   Currency,
   createDeferred,
   NetworkConfig,
+  SATS_PER_BTC,
   SingleFileQueue,
   type IBitcoinLockCouponStatus,
   type ArgonClient,
@@ -402,9 +403,15 @@ export class BitcoinLiquidCreate extends TransactionOperation<
       throw new BitcoinLiquidCreateStateChangedError('Network Bitcoin pricing is currently unavailable.');
     }
 
-    // Leave ten ticks of the runtime's thirty-tick price window for submission.
+    // A fresh index can confirm an unchanged rate without updating its history tick.
     const oldestRateTick = BigInt(currentTick) - 20n;
-    const eligibleRates = rateHistory.filter(([tick]) => tick >= oldestRateTick);
+    let currentRate: bigint | undefined;
+    if (priceIndex.lastUpdatedTick !== undefined && priceIndex.lastUpdatedTick >= oldestRateTick) {
+      currentRate = priceIndex.getSatoshiPriceInTargetMicrogons(SATS_PER_BTC);
+    }
+
+    // Leave ten ticks for submitting older rates that differ from the current price.
+    const eligibleRates = rateHistory.filter(([tick, rate]) => rate === currentRate || tick >= oldestRateTick);
     if (!eligibleRates.length) {
       throw new BitcoinLiquidCreateStateChangedError('Wait for a fresh Bitcoin price and retry.');
     }

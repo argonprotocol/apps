@@ -89,6 +89,24 @@ describe.skipIf(SKIP_E2E).sequential('Bitcoin Liquids integration', { timeout: 3
       const { createLiquid, fissions } = await createLiquidServices(harness);
       const txSigner = await harness.walletKeys.getLiquidLockingKeypair();
 
+      await waitFor(90_000, 'fresh unchanged Bitcoin price with an older history entry', async () => {
+        const snapshot = runtimeClient(await client.raw.at(await client.rpc.chain.getFinalizedHead()));
+        const [priceIndex, history, currentTick] = await Promise.all([
+          Currency.fetchPriceIndex(snapshot),
+          snapshot.query.bitcoinLocks.microgonPerBtcHistory(),
+          snapshot.query.ticks.currentTick(),
+        ]);
+        if (priceIndex.lastUpdatedTick === undefined || priceIndex.lastUpdatedTick < currentTick - 20) return;
+
+        const latestRate = history?.at(-1);
+        if (!latestRate) return;
+        const [rateTick, rate] = latestRate;
+        if (rate !== priceIndex.getSatoshiPriceInTargetMicrogons(SATS_PER_BTC)) return;
+
+        const rateAge = BigInt(currentTick) - rateTick;
+        return rateAge >= 21n && rateAge <= 22n;
+      });
+
       const preview = await createLiquid.preview({
         allocations: [{ lock, satoshis: lock.securitizedSatoshis }],
         txSigner,
@@ -664,6 +682,7 @@ describe.skipIf(SKIP_E2E).sequential('Bitcoin Liquids integration', { timeout: 3
           { lock: first, satoshis: firstSatoshis * 2n },
           { lock: second, satoshis: secondSatoshis * 2n },
         ];
+        await submitBitcoinPrice(client, { btcUsdPrice: 40_000 });
         const creation = await createLiquid.submit({ allocations, txSigner, client });
         await creation.waitForPostProcessing;
         const finalized = runtimeClient(await client.raw.at(await client.rpc.chain.getFinalizedHead()));
@@ -1034,18 +1053,7 @@ async function submitBitcoinPrice(
 ): Promise<bigint> {
   const { btcUsdPrice, argonUsdPrice = 1.06 } = args;
   const initialSnapshot = runtimeClient(await client.raw.at(await client.rpc.chain.getFinalizedHead()));
-  const [currentPrice, rateHistory] = await Promise.all([
-    initialSnapshot.query.priceIndex.current(),
-    initialSnapshot.query.bitcoinLocks.microgonPerBtcHistory(),
-  ]);
-  const latestHistory = rateHistory?.at(-1);
-  if (
-    currentPrice?.btcUsdPrice.isEqualTo(btcUsdPrice) &&
-    currentPrice.argonUsdPrice.isEqualTo(argonUsdPrice) &&
-    latestHistory
-  ) {
-    return latestHistory[1];
-  }
+  const currentPrice = await initialSnapshot.query.priceIndex.current();
   if (currentPrice && !currentPrice.argonUsdPrice.isEqualTo(argonUsdPrice)) {
     const rawPrice = await client.raw.query.priceIndex.current();
     const agedPrice = rawPrice.registry.createType(rawPrice.toRawType(), {

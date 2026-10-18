@@ -3,6 +3,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.5.0] - 2026-10-14
+- Support Mainchain 1.5.2, including updated Treasury rewards and vault certification requirements
+- Simplify vault funding and settings with Argon and Argonot securitization and clearer withdrawal previews
+- Add Vault earnings maximization overlay and alerts
+- Add bond distribution history to overlays
+- Introduce cooperative Bitcoin releases for when bitcoin deposits are orphaned (between vault and depositor)
+- Re-label Bitcoin "insurance" as cosigner guarantees
+- Fix failed Ethereum-to-Argon transfers so balances, status, and retries stay accurate after restart
+- Restore automatic app update prompts after stalled checks
+
 ## [2.4.2] - 2026-10-07
 - Preserve send amounts when transferring to Ethereum and charge fees separately
 - Fix Bitcoin Liquid creation with expired insurance and prevent rejected transactions from stalling

@@ -15,6 +15,7 @@ describe('Liquid Bitcoin rate freshness', () => {
   let operation: BitcoinLiquidCreate;
   let client: ArgonClient;
   let currentTick: number;
+  let priceIndexTick: number;
   let rateHistory: [bigint, bigint][];
   const guaranteeRate = 120_000_000_000n;
   const currentRate = 110_000_000_000n;
@@ -24,6 +25,7 @@ describe('Liquid Bitcoin rate freshness', () => {
 
   beforeEach(() => {
     currentTick = 100;
+    priceIndexTick = 100;
     rateHistory = [
       [80n, guaranteeRate],
       [90n, 180_000_000_000n],
@@ -62,7 +64,7 @@ describe('Liquid Bitcoin rate freshness', () => {
             btcUsdPrice: new BigNumber(110_000),
             argonUsdPrice: new BigNumber(1),
             argonUsdTargetPrice: new BigNumber(1),
-            tick: currentTick,
+            tick: priceIndexTick,
           }),
         },
         bitcoinLocks: {
@@ -139,20 +141,28 @@ describe('Liquid Bitcoin rate freshness', () => {
     });
   });
 
-  it('requires a fresh latest rate and lets the next preview proceed after a fresh publication', async () => {
+  it('uses a fresh current index without changing an unchanged rate’s historical tick', async () => {
     rateHistory = [[100n, currentRate]];
     currentTick = 120;
+    priceIndexTick = 120;
     const input = { allocations: [{ lock, satoshis: 100n }], txSigner, client };
     expect((await operation.preview(input)).liquidityMicrogons).toBe(110_000n);
 
     currentTick = 121;
+    priceIndexTick = 121;
+    expect(await operation.preview(input)).toMatchObject({
+      liquidityMicrogons: 110_000n,
+      microgonsAtTargetPerBtc: currentRate,
+      microgonsAtTargetPerBtcTick: 100,
+    });
+
+    // An old index cannot keep an old rate eligible merely because their values match.
+    priceIndexTick = 100;
     await expect(operation.preview(input)).rejects.toThrow(BitcoinLiquidCreateStateChangedError);
     await expect(operation.preview(input)).rejects.toThrow('Wait for a fresh Bitcoin price and retry.');
     await expect(operation.prepare(input)).rejects.toThrow('Wait for a fresh Bitcoin price and retry.');
 
-    // An unchanged rate is recorded again after its old entry leaves the thirty-tick runtime window.
-    currentTick = 131;
-    rateHistory = [[131n, currentRate]];
+    priceIndexTick = 121;
     expect((await operation.preview(input)).liquidityMicrogons).toBe(110_000n);
   });
 });

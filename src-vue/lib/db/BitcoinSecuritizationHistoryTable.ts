@@ -37,7 +37,9 @@ export class BitcoinSecuritizationHistoryTable extends BaseTable {
     );
     if (basePublication) {
       const publishedTerms = await this.getSnapshotTerms(ownerAccount, basePublication.snapshotId);
-      if (JsonExt.stringify(publishedTerms) === JsonExt.stringify(terms)) {
+      const publishedJson = JsonExt.stringify(publishedTerms, undefined, { sortKeys: true });
+      const termsJson = JsonExt.stringify(terms, undefined, { sortKeys: true });
+      if (publishedJson === termsJson) {
         return { ownerAccount, snapshotId: basePublication.snapshotId, asOfBlock, basePublication };
       }
     }

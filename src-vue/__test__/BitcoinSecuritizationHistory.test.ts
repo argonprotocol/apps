@@ -270,14 +270,19 @@ describe('Bitcoin securitization history', () => {
     ]);
   });
 
-  it('does not rewrite an identical published snapshot', async () => {
+  it('does not rewrite identical terms when their field order changes', async () => {
     const db = await createTestDb();
     const table = db.bitcoinSecuritizationHistoryTable;
     const terms = [createTerm({ cumulativeNetSecurityFee: 100n })];
     const initial = await table.createSnapshot(ownerAccount, 200, terms);
     await table.publishSnapshot(initial);
 
-    const repeated = await table.createSnapshot(ownerAccount, 200, terms);
+    // Native SQLite JSON rows use alphabetical field order.
+    const replayedTerms = terms.map(term => {
+      const fields = Object.entries(term).sort(([a], [b]) => a.localeCompare(b));
+      return Object.fromEntries(fields) as IBitcoinSecuritizationTerm;
+    });
+    const repeated = await table.createSnapshot(ownerAccount, 200, replayedTerms);
     await table.publishSnapshot(repeated);
 
     expect(repeated.snapshotId).toBe(initial.snapshotId);
