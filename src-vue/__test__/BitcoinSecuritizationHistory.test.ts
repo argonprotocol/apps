@@ -4,11 +4,96 @@ import type { IBitcoinSecuritizationTerm } from '../interfaces/IBitcoinSecuritiz
 import { recordFinalizedSecuritization } from '../lib/BitcoinSecuritizationTerms.ts';
 import { BitcoinSecuritizationHistoryTable } from '../lib/db/BitcoinSecuritizationHistoryTable.ts';
 import { createTestDb } from './helpers/db.ts';
-import { createCurrentLock, historyBlock } from './helpers/bitcoin.ts';
+import { createCurrentLock, createStore, historyBlock } from './helpers/bitcoin.ts';
+import type { WalletKeys } from '../lib/WalletKeys.ts';
+import { BitcoinLockStatus } from '../lib/db/BitcoinLocksTable.ts';
 
 const ownerAccount = '5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY';
 
 describe('Bitcoin securitization history', () => {
+  it('repairs a missing opening term without replacing newer live capital', async () => {
+    const db = await createTestDb();
+    try {
+      const table = db.bitcoinSecuritizationHistoryTable;
+      const store = createStore({ db, walletKeys: { defaultArgonAddress: ownerAccount } as WalletKeys });
+      const current = createCurrentLock({ securityFees: 30n, securitizationTick: 400 });
+      const pending = await db.bitcoinLocksTable.insertPending({
+        uuid: 'repaired-opening',
+        vaultId: current.vaultId,
+        status: BitcoinLockStatus.LockPendingFunding,
+        securitizedSatoshis: current.securitizedSatoshis,
+        hdPath: 'synthetic-owner',
+        cosignVersion: 'v1',
+        network: 'testnet',
+      });
+      const lock = await db.bitcoinLocksTable.finalizePending({ uuid: pending.uuid, lock: current });
+      await db.bitcoinLocksTable.updateFromCurrentLock(lock, current);
+      store.data.locksByLockId[current.lockId] = lock;
+
+      // The app first observed a resecuritization; recovery has the earlier creation too.
+      await recordFinalizedSecuritization(table, {
+        block: historyBlock(200),
+        extrinsicIndex: 2,
+        lock: createCurrentLock({ securityFees: 20n }),
+        origin: 'resecuritized',
+      });
+      const recoveredUnit = {
+        lockId: current.lockId,
+        lock: { ...lock, securitizationTick: 200 },
+        utxos: [],
+        releases: [],
+        fissions: [],
+        hdKeys: [],
+        securitizationTerms: [
+          createTerm({
+            startTick: 159,
+            securitizationCoverageMicrogons: current.securitizationCoverageMicrogons,
+            cumulativeNetSecurityFee: 10n,
+            addedNetSecurityFee: 10n,
+            endTick: 200,
+            endBlockNumber: 200,
+            endBlockHash: '0x200',
+            endExtrinsicIndex: 2,
+            endReason: 'resecuritized',
+          }),
+          createTerm({
+            termIndex: 1,
+            origin: 'resecuritized',
+            startTick: 200,
+            startBlockNumber: 200,
+            startBlockHash: '0x200',
+            securitizationCoverageMicrogons: current.securitizationCoverageMicrogons,
+            cumulativeNetSecurityFee: 20n,
+            addedNetSecurityFee: 10n,
+          }),
+        ],
+      };
+      await recordFinalizedSecuritization(table, {
+        block: historyBlock(400),
+        extrinsicIndex: 2,
+        lock: current,
+        origin: 'resecuritized',
+      });
+      await store.applyRecoveredHistory(recoveredUnit, 300);
+      const newer = (await table.getPublishedSnapshot(ownerAccount))!;
+      expect(newer.asOfBlock).toBe(400);
+      expect(newer.terms.map(term => [term.termIndex, term.startTick, term.endTick, term.addedNetSecurityFee])).toEqual(
+        [
+          [0, 159, 200, 10n],
+          [1, 200, 400, 10n],
+          [2, 400, undefined, 10n],
+        ],
+      );
+      expect((await db.bitcoinLocksTable.getByLockId(current.lockId))?.securitizationTick).toBe(400);
+
+      // An incremental replay can be seeded with published terms beyond its recovered block.
+      await store.applyRecoveredHistory({ ...recoveredUnit, securitizationTerms: newer.terms }, 300);
+      expect((await table.getPublishedSnapshot(ownerAccount))?.terms).toEqual(newer.terms);
+    } finally {
+      await db.close();
+    }
+  });
+
   it('records finalized Lock terms as they change', async () => {
     const db = await createTestDb();
     const table = db.bitcoinSecuritizationHistoryTable;

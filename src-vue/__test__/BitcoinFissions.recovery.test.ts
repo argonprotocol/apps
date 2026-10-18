@@ -1878,6 +1878,49 @@ describe('Bitcoin Fission recovery', () => {
     });
   });
 
+  it('invalidates historical terminal quotes before loading returns while preserving native closures', async () => {
+    const { db, migrateToLatest } = await createTestDbAtMigration(41);
+    const quote = createFissionRecord({ fissionId: 7, liquidityPromised: 1_000n });
+    quote.origin = 'lock-migration';
+    quote.ratchets[0].source = 'lock';
+    Object.assign(quote, {
+      closedAtArgonBlock: 170,
+      closeReason: 'lock-spent',
+      redemptionAmount: 900n,
+      closeTxFee: 0n,
+      feeHistoryCompleteThroughBlock: 170,
+    });
+    const released = { ...quote, fissionId: 8, closeReason: 'closed' as const, closeTxFee: 19n };
+    const native = createFissionRecord({ fissionId: 9, liquidityPromised: 1_000n });
+    Object.assign(native, {
+      closedAtArgonBlock: 170,
+      closeReason: 'lock-spent',
+      closeTxFee: 0n,
+      feeHistoryCompleteThroughBlock: 170,
+    });
+    try {
+      await db.bitcoinFissionsTable.replaceRecords([quote, released, native]);
+      await migrateToLatest();
+      const rows = await db.bitcoinFissionsTable.fetchAll(ownerAccount);
+      const invalidated = rows.find(row => row.fissionId === 7)!;
+      expect(invalidated.redemptionAmount).toBeUndefined();
+      expect(invalidated.closeTxFee).toBeUndefined();
+      expect(invalidated.feeHistoryCompleteThroughBlock).toBeUndefined();
+      expect(invalidated.ratchets).toEqual(quote.ratchets);
+      expect(rows.find(row => row.fissionId === 8)).toMatchObject({
+        redemptionAmount: 900n,
+        closeTxFee: 19n,
+        feeHistoryCompleteThroughBlock: 170,
+      });
+      expect(rows.find(row => row.fissionId === 9)).toMatchObject({
+        closeTxFee: 0n,
+        feeHistoryCompleteThroughBlock: 170,
+      });
+    } finally {
+      await db.close();
+    }
+  });
+
   it.each(['released', 'expired'] as const)(
     'reconstructs a completed pre-159 Liquid from its Lock history (%s)',
     async removalReason => {

@@ -21,22 +21,41 @@ afterEach(() => {
   for (const dir of dataDirs.splice(0)) fs.rmSync(dir, { recursive: true, force: true });
 });
 
-it('uses the historical registrations for seat stakes when frame detail has not been cached', async () => {
+it.each([false, true])('caches network auctions (empty: %s)', async emptyAuction => {
   const dataDir = fs.mkdtempSync(Path.join(os.tmpdir(), 'mining-frame-history-'));
   dataDirs.push(dataDir);
   const storage = new Storage(dataDir);
-  const argonotsPerMiningSeat = vi.fn(async () => 20n);
-  const api = {
+  const miners = [
+    { accountId: 'our-miner', externalFundingAccount: 'funding-account', bid: 100n, argonots: 10n },
+    { accountId: 'another-miner', externalFundingAccount: 'another-account', bid: 120n, argonots: 15n },
+  ];
+  const auctionApi = {
     query: {
       miningSlot: {
-        minersByCohort: async () => [
-          { accountId: 'our-miner', externalFundingAccount: 'funding-account', bid: 100n, argonots: 10n },
-        ],
-        historicalBidsPerSlot: async () => [{ bidsCount: 0 }, { bidsCount: 5 }],
-        argonotsPerMiningSeat,
+        minersByCohort: vi.fn().mockResolvedValue(emptyAuction ? [] : miners),
+        historicalBidsPerSlot: async () => [{ bidsCount: 0 }, { bidsCount: emptyAuction ? 0 : 5 }],
+        nextCohortSize: async () => 30,
       },
     },
   } as unknown as ArgonApi;
+  const frameApi = {
+    query: {
+      miningSlot: {
+        minersByCohort: { entries: async () => [[{ args: [2] }, miners]] },
+        bidsForNextSlotCohort: async () => [],
+        nextCohortSize: async () => 12,
+        nextFrameId: async () => 4,
+      },
+    },
+  } as unknown as ArgonApi;
+  const miningFrames = {
+    framesById: {
+      3: { firstBlockHash: '0x100', firstBlockNumber: 100, firstBlockTick: 100 },
+      4: { firstBlockHash: '0x123', firstBlockNumber: 120, firstBlockTick: 120 },
+    },
+    clientAt: async ({ blockNumber }: { blockNumber: number }) => (blockNumber === 100 ? frameApi : auctionApi),
+    getForTick: () => 5,
+  } as unknown as MiningFrames;
   const history = new MiningFrameHistory(
     storage,
     {
@@ -44,21 +63,36 @@ it('uses the historical registrations for seat stakes when frame detail has not 
       subAccountsByAddress: { 'our-miner': { index: 3 } },
     } as unknown as Accountset,
     {} as MainchainClients,
-    {
-      framesById: { 4: { firstBlockHash: '0x123', firstBlockNumber: 120, firstBlockTick: 120 } },
-      clientAt: async () => api,
-      getForTick: () => 4,
-    } as unknown as MiningFrames,
+    miningFrames,
     { finalizedBlockHeader: { tick: 120 } } as BlockWatch,
     () => 4,
   );
   try {
+    await storage.miningFrameFile(3).mutate(cache => {
+      cache.totalBidCount = 1;
+      cache.winningBids = [
+        {
+          address: 'our-miner',
+          subAccountIndex: 3,
+          bidPosition: 0,
+          microgonsPerSeat: 100n,
+          micronotsStakedPerSeat: 10n,
+        },
+      ];
+    });
+
     const detail = await history.getDetail(3);
-    expect(detail.winningBids).toEqual([
-      { address: 'our-miner', subAccountIndex: 3, bidPosition: 0, microgonsPerSeat: 100n, micronotsStakedPerSeat: 10n },
-    ]);
-    expect((await storage.miningFrameFile(3).get()).winningBids).toEqual(detail.winningBids);
-    expect(argonotsPerMiningSeat).not.toHaveBeenCalled();
+    expect(detail.winningBids.map(bid => bid.address)).toEqual(emptyAuction ? [] : ['our-miner', 'another-miner']);
+    if (!emptyAuction) expect(detail.winningBids[0].subAccountIndex).toBe(3);
+    expect(detail.totalBidCount).toBe(emptyAuction ? 0 : 5);
+    expect(detail.auctionSeatCount).toBe(12);
+    expect(detail.slots.flatMap(slot => slot.seats).filter(seat => seat.miner)).toHaveLength(2);
+
+    // Finalized history stays usable without the archive, even with no winners.
+    vi.mocked(auctionApi.query.miningSlot.minersByCohort).mockRejectedValue(new Error('archive offline'));
+    const cachedDetail = await history.getDetail(3);
+    expect(cachedDetail).toMatchObject({ auctionSeatCount: 12, winningBids: detail.winningBids });
+    expect((await storage.miningFrameFile(3).get()).auctionSeatCount).toBe(12);
   } finally {
     await storage.close();
   }

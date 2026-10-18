@@ -1693,6 +1693,21 @@ describe('financial position accounting', () => {
     });
 
     fission.closeReason = 'lock-spent';
+    for (const [redemptionAmount, totalReturn] of [
+      [80n, -2],
+      [0n, 78],
+    ] as const) {
+      fission.redemptionAmount = redemptionAmount;
+      const [terminatedPosition] = createBitcoinLiquidPositions({
+        summaries: [summary],
+        fissions: [fission],
+        terms: [],
+        activeFissionIds: new Set(),
+        hasCurrentPrice: false,
+      });
+      expect(terminatedPosition.totalReturn).toBe(totalReturn);
+    }
+
     fission.redemptionAmount = undefined;
     fission.closeTxFee = 0n;
     const [spentPosition] = createBitcoinLiquidPositions({
@@ -2779,7 +2794,7 @@ describe('financial position accounting', () => {
         bonds: 10,
         isFlexible: true,
         displacedMicrogons: 0n,
-        earningsMicrogons: 1_000_000n,
+        earningsMicrogons: 500_000n,
         earningsDestination: 'Vault' as const,
         payoutBlockNumber: 100,
         payoutBlockHash: '0x100',
@@ -2797,7 +2812,7 @@ describe('financial position accounting', () => {
         lifecycle: 'active',
         currentValue: 10_000_000n,
         investedCost: 10_000_000n,
-        paidIncome: 3_000_000n,
+        paidIncome: 2_500_000n,
         startedAt,
       }),
     ]);
@@ -2842,7 +2857,7 @@ describe('financial position accounting', () => {
       uncollectedRevenue: 3_000_000n,
       investedCost: 5_000_000n,
       paidIncome: 0n,
-      performanceEndingCapital: 7_000_000n,
+      performanceEndingCapital: 7_500_000n,
       capitalFlows: [{ amount: 5_000_000n, occurredAt: startedAt }],
     });
     expect(calculatePositionReturn([...bondPositions, pending]).returnAmount).toBe(5_000_000n);
@@ -2873,20 +2888,20 @@ describe('financial position accounting', () => {
     expect(collected).toMatchObject({
       currentValue: 5_000_000n,
       investedCost: 5_000_000n,
-      paidIncome: 2_000_000n,
-      performanceEndingCapital: 7_000_000n,
+      paidIncome: 2_500_000n,
+      performanceEndingCapital: 7_500_000n,
     });
     const aggregate = reduceFinancialPositions(readySnapshots([...bondPositions, collected]));
     expect(aggregate.netWorth).toBe(15_000_000n);
     expect(aggregate.groupSummaries.bonds.returnSummary).toMatchObject({
       investedCost: 10_000_000n,
-      paidIncome: 3_000_000n,
-      returnAmount: 3_000_000n,
+      paidIncome: 2_500_000n,
+      returnAmount: 2_500_000n,
     });
     expect(aggregate.groupSummaries.vaulting.returnSummary).toMatchObject({
       investedCost: 5_000_000n,
-      paidIncome: 2_000_000n,
-      returnAmount: 2_000_000n,
+      paidIncome: 2_500_000n,
+      returnAmount: 2_500_000n,
     });
     expect(calculatePositionReturn([...bondPositions, collected])).toMatchObject({
       investedCost: 15_000_000n,
@@ -2918,15 +2933,15 @@ describe('financial position accounting', () => {
       currentFrameId: 11,
     };
     const analysis = new ProfitAnalysis(
-      { vaultId: 1, data: { stats } } as any,
+      { vaultId: 1, vaults: {}, data: { stats } } as any,
       { currentFrameId: 11, getTickStart: (id: number) => id * 1_440 } as any,
       { data: chartBonds } as any,
     );
     analysis.update();
-    // 159: (3 vault + 1 fee − 1 coupon − 1 flexible) / 100 securitization.
+    // The flexible bond keeps its 0.5 share; the remaining margin stays with the vault.
     expect(analysis.records.find(record => record.id === 9)).toMatchObject({
-      frameProfitPercent: 2,
-      earningsMicrogons: 2_000_000n,
+      frameProfitPercent: 2.5,
+      earningsMicrogons: 2_500_000n,
     });
     // 160 owner-paid income is already outside vault revenue.
     expect(analysis.records.find(record => record.id === 10)).toMatchObject({
@@ -2948,11 +2963,11 @@ describe('financial position accounting', () => {
     chartBonds.dailyEarnings[0] = dailyEarnings[0];
     analysis.update();
     expect(analysis.records.find(record => record.id === 9)).toMatchObject({
-      frameProfitPercent: 2,
-      earningsMicrogons: 2_000_000n,
+      frameProfitPercent: 2.5,
+      earningsMicrogons: 2_500_000n,
     });
 
-    stats.changesByFrame = [{ ...frame, treasuryPool: { ...frame.treasuryPool, vaultEarnings: 1_000_000n } }];
+    stats.changesByFrame = [{ ...frame, treasuryPool: { ...frame.treasuryPool, vaultEarnings: 500_000n } }];
     analysis.update();
     expect(analysis.items.find(item => item.id === 9)?.score).toBe(0);
 
@@ -2962,7 +2977,7 @@ describe('financial position accounting', () => {
       { ...frame, frameId: 10 },
     ];
     const laterAnalysis = new ProfitAnalysis(
-      { vaultId: 1, data: { stats } } as any,
+      { vaultId: 1, vaults: {}, data: { stats } } as any,
       { getTickStart: (id: number) => id * 1_440 } as any,
       { data: chartBonds } as any,
       375,

@@ -489,7 +489,7 @@ describe('FinancialHistoryImporter', () => {
               asOfBlock: 100,
               domains: ['bitcoin'],
               domainCheckpoints: {
-                bitcoin: { asOfBlock: 100, definitionVersion: 1, recoveryVersion: 11 },
+                bitcoin: { asOfBlock: 100, definitionVersion: 1, recoveryVersion: 12 },
               },
             })),
             upsert: vi.fn(async () => undefined),
@@ -565,7 +565,7 @@ describe('FinancialHistoryImporter', () => {
                 bitcoin: {
                   asOfBlock: 100,
                   definitionVersion: ACCOUNT_ACTIVITY_DEFINITION_VERSION,
-                  recoveryVersion: 11,
+                  recoveryVersion: 12,
                 },
               },
             })),
@@ -612,7 +612,7 @@ describe('FinancialHistoryImporter', () => {
                 bitcoin: {
                   asOfBlock: 90,
                   definitionVersion: ACCOUNT_ACTIVITY_DEFINITION_VERSION,
-                  recoveryVersion: 11,
+                  recoveryVersion: 12,
                 },
               },
             })),
@@ -690,7 +690,7 @@ describe('FinancialHistoryImporter', () => {
           bitcoin: {
             asOfBlock: 100,
             definitionVersion: ACCOUNT_ACTIVITY_DEFINITION_VERSION,
-            recoveryVersion: 11,
+            recoveryVersion: 12,
           },
         },
       }),
@@ -897,7 +897,7 @@ describe('FinancialHistoryImporter', () => {
     expect(recoverBlock.mock.invocationCallOrder[0]).toBeLessThan(cancelHistoryReplay.mock.invocationCallOrder[0]);
   });
 
-  it('repairs completed Bitcoin histories saved before the migrated allocation fix', async () => {
+  it('repairs completed Bitcoin histories saved before the opening-term fix', async () => {
     const db = await createTestDb();
     const beginHistoryReplay = vi.fn();
     const recoverBlock = vi.fn(async () => undefined);
@@ -931,7 +931,7 @@ describe('FinancialHistoryImporter', () => {
         bitcoin: {
           asOfBlock: 100,
           definitionVersion: ACCOUNT_ACTIVITY_DEFINITION_VERSION,
-          recoveryVersion: 10,
+          recoveryVersion: 11,
         },
       },
     });
@@ -980,12 +980,12 @@ describe('FinancialHistoryImporter', () => {
     expect(result).toEqual({ importedBlockCount: 1, asOfBlock: 100, targetBlock: 100 });
     expect(await db.syncStateTable.get(SyncStateKeys.FinancialHistory)).toMatchObject({
       asOfBlock: 100,
-      recoveryVersions: { bitcoin: 11 },
+      recoveryVersions: { bitcoin: 12 },
       domainCheckpoints: {
         bitcoin: {
           asOfBlock: 100,
           definitionVersion: ACCOUNT_ACTIVITY_DEFINITION_VERSION,
-          recoveryVersion: 11,
+          recoveryVersion: 12,
         },
       },
     });
@@ -998,8 +998,9 @@ describe('FinancialHistoryImporter', () => {
     expect(onActiveBitcoinLocksFound).toHaveBeenCalledWith(1);
     expect(onProgress).toHaveBeenLastCalledWith(1, {
       domain: 'bitcoin',
-      recoveredBlockCount: 1,
-      totalBlockCount: 1,
+      phase: 'blocks',
+      completedCount: 1,
+      totalCount: 1,
     });
     expect(beginHistoryReplay.mock.invocationCallOrder[0]).toBeLessThan(recoverBlock.mock.invocationCallOrder[0]);
     expect(findActiveLockIds.mock.invocationCallOrder[0]).toBeLessThan(

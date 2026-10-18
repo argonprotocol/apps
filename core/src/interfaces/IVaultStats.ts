@@ -1,16 +1,15 @@
 import type BigNumber from 'bignumber.js';
 
+export interface IVaultFrameNetworkPool {
+  auctionPoolMicrogons: bigint;
+  vaultPoolMicrogons?: bigint;
+  includesBondPayments: boolean;
+}
+
 export interface IAllVaultStats {
   formatVersion?: number;
   synchedToFrame: number;
-  networkPoolsByFrame?: Record<
-    number,
-    {
-      auctionPoolMicrogons: bigint;
-      vaultPoolMicrogons?: bigint;
-      includesBondPayments: boolean;
-    }
-  >;
+  networkPoolsByFrame?: Record<number, IVaultFrameNetworkPool>;
   revenueBackfill?: {
     nextFrame: number;
     throughFrame: number;

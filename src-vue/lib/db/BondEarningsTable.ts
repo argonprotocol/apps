@@ -12,7 +12,7 @@ export interface IBondEarningsRecord {
   isFlexible?: boolean | null;
   /** ARGN microgons excluded from this frame's earnings, including fractional bonds. */
   displacedMicrogons?: bigint | null;
-  /** Actual credited earnings. Absence means missing evidence, not a zero payout. */
+  /** Bond-holder earnings after the operator share. Absence means missing evidence, not a zero payout. */
   earningsMicrogons?: bigint | null;
   earningsDestination: 'Owner' | 'Vault';
   payoutBlockNumber: number;

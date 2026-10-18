@@ -203,6 +203,12 @@
             <div class="font-semibold text-slate-800">Bitcoin returned</div>
             <p class="text-sm text-slate-600">The Bitcoin was returned to the requested destination.</p>
           </template>
+          <template v-else-if="record.spendStatus === BitcoinUtxoSpendStatus.Spent">
+            <div class="font-semibold text-slate-800">Bitcoin spent</div>
+            <p class="text-sm text-slate-600">
+              This deposit has been spent on Bitcoin and is no longer available to return.
+            </p>
+          </template>
           <template v-else-if="release?.status === BitcoinReleaseStatus.Failed">
             <div class="font-semibold text-slate-800">Return unavailable</div>
             <p class="text-sm text-slate-600">The vault could not approve this deposit for a cooperative return.</p>
@@ -236,7 +242,7 @@
           />
         </div>
 
-        <div class="space-y-3 rounded-lg border border-slate-200 px-4 py-4">
+        <div v-if="release" class="space-y-3 rounded-lg border border-slate-200 px-4 py-4">
           <div class="font-bold text-gray-500/80">Return request details</div>
           <dl class="space-y-3 text-sm">
             <div>
@@ -296,7 +302,7 @@ import BitcoinLocks from '../../lib/BitcoinLocks.ts';
 import BitcoinMempool from '../../lib/BitcoinMempool.ts';
 import type { IBitcoinLockRecord } from '../../lib/db/BitcoinLocksTable.ts';
 import { TransactionStatus } from '../../lib/db/TransactionsTable.ts';
-import { BitcoinUtxoStatus, type IBitcoinUtxoRecord } from '../../lib/db/BitcoinUtxosTable.ts';
+import { BitcoinUtxoStatus, BitcoinUtxoSpendStatus, type IBitcoinUtxoRecord } from '../../lib/db/BitcoinUtxosTable.ts';
 import { ESPLORA_HOST } from '../../lib/Env.ts';
 import numeral, { createNumeralHelpers } from '../../lib/numeral.ts';
 import { generateProgressLabel } from '../../lib/Utils.ts';
@@ -517,6 +523,10 @@ function checkDepositConfirmation(): Promise<void> {
   }
   depositCheckPromise = (async () => {
     try {
+      const spend = await bitcoinLocks.utxoTracking.refreshDepositSpend(record);
+      if (spend?.isConfirmed) throw new Error('This Bitcoin deposit is already spent.');
+      if (spend) throw new Error('Wait for the pending Bitcoin spend to resolve.');
+
       const wait = await bitcoinLocks.cooperativeReleases.getDepositConfirmationWait(record);
       if (isDisposed || record.id !== props.record.id) return;
       depositConfirmationWait.value = wait;

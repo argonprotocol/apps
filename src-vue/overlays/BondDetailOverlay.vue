@@ -66,8 +66,8 @@
           <div class="w-1/3 px-3">
             <header class="text-sm font-bold opacity-40">COST BASIS</header>
             <div data-testid="Bond.details.costBasis" class="py-1 text-2xl font-bold text-slate-600">
-              <template v-if="position?.investedCost !== undefined">
-                {{ argonSymbol }}{{ microgonToArgonNm(position.investedCost).format('0,0.00') }}
+              <template v-if="costBasis !== undefined">
+                {{ argonSymbol }}{{ microgonToArgonNm(costBasis).format('0,0.00') }}
               </template>
               <template v-else>&mdash;</template>
             </div>
@@ -83,7 +83,9 @@
               <template v-else>&mdash;</template>
             </div>
             <div class="text-sm text-slate-500">
-              <template v-if="position?.returnIsComplete !== true">Known earnings; history incomplete</template>
+              <template v-if="position && position.returnIsComplete !== true">
+                Known earnings; history incomplete
+              </template>
               <template v-else>Earnings to date</template>
             </div>
           </div>
@@ -95,7 +97,10 @@
               <template v-else>&mdash;</template>
             </div>
             <div class="text-sm text-slate-500">
-              <template v-if="position?.returnIsComplete === false">History incomplete; run Find Missing Data</template>
+              <template v-if="isBondHistoryRecovering && (displayedLot?.isOwn || history)">Restoring history</template>
+              <template v-else-if="position?.returnIsComplete === false">
+                History incomplete; run Find Missing Data
+              </template>
               <template v-else>Since purchase</template>
             </div>
           </div>
@@ -128,16 +133,20 @@
 
       <section v-if="displayedLot?.isOwn || history" class="mt-6 border-t border-slate-200 pt-4">
         <h2 class="font-bold text-slate-700">Daily Earnings</h2>
-        <p v-if="!earningsHistory.isComplete" class="mt-1 text-sm text-slate-500">
+        <p v-if="isBondHistoryRecovering" class="mt-1 text-sm text-slate-500">
+          Restoring daily earnings. Records will appear when recovery finishes.
+        </p>
+        <p v-else-if="!earningsHistory.isComplete" class="mt-1 text-sm text-slate-500">
           Daily history is incomplete. Run Find Missing Data to recover available records.
         </p>
-        <p v-if="!dailyEarnings.length" class="mt-3 text-sm text-slate-500">No daily earnings recorded yet.</p>
-        <table v-else class="mt-3 w-full text-sm tabular-nums">
+        <p v-if="!dailyEarnings.length && !isBondHistoryRecovering" class="mt-3 text-sm text-slate-500">
+          No daily earnings recorded yet.
+        </p>
+        <table v-if="dailyEarnings.length" class="mt-3 w-full text-sm tabular-nums">
           <thead class="border-b border-slate-200 text-slate-500">
             <tr>
               <th class="py-2 text-left font-medium">Date</th>
-              <th class="py-2 text-right font-medium">{{ programType === 'Argonot' ? 'Stakes' : 'Bonds' }}</th>
-              <th v-if="isVaultOperator" class="py-2 text-right font-medium">
+              <th v-if="showDisplacedBonds" class="py-2 text-right font-medium">
                 <span class="inline-flex items-center gap-1">
                   Displaced Bonds
                   <Tooltip
@@ -151,7 +160,8 @@
                   </Tooltip>
                 </span>
               </th>
-              <th class="py-2 text-right font-medium">Earnings</th>
+              <th class="py-2 text-right font-medium">Daily Earnings</th>
+              <th class="py-2 text-right font-medium">Aggregate Earnings</th>
             </tr>
           </thead>
           <tbody class="divide-y divide-slate-100 text-slate-600">
@@ -160,12 +170,8 @@
               :key="record.frameId"
               :data-testid="`Bond.earnings-${record.frameId}`"
             >
-              <td class="py-2">{{ dayjs(miningFrames.getFrameDate(record.frameId)).format('M/D/YYYY') }}</td>
-              <td class="py-2 text-right">
-                <template v-if="record.bonds != null">{{ numeral(record.bonds).format('0,0') }}</template>
-                <template v-else>&mdash;</template>
-              </td>
-              <td v-if="isVaultOperator" class="py-2 text-right">
+              <td class="py-2">{{ dayjs(miningFrames.getFrameDate(record.frameId + 1)).format('M/D/YYYY') }}</td>
+              <td v-if="showDisplacedBonds" class="py-2 text-right">
                 <template v-if="record.displacedMicrogons != null">
                   {{ microgonToArgonNm(record.displacedMicrogons).format('0,0.[0]') }}
                 </template>
@@ -173,9 +179,16 @@
               </td>
               <td class="py-2 text-right">
                 <template v-if="record.earningsMicrogons != null">
-                  {{ argonSymbol }}{{ microgonToArgonNm(record.earningsMicrogons).format('0,0.00[0000]') }}
+                  {{ argonSymbol
+                  }}{{ microgonToArgonNm(record.earningsMicrogons).formatIfElse('< 0.01', '0,0.00[0000]', '0,0.00') }}
                 </template>
                 <template v-else>Unavailable</template>
+              </td>
+              <td class="py-2 text-right">
+                {{ argonSymbol
+                }}{{
+                  microgonToArgonNm(record.cumulativeEarningsMicrogons).formatIfElse('< 0.01', '0,0.00[0000]', '0,0.00')
+                }}
               </td>
             </tr>
           </tbody>
@@ -238,7 +251,7 @@ import { getCurrency } from '../stores/currency.ts';
 import { UnitOfMeasurement } from '../lib/Currency.ts';
 import { getMiningFrames } from '../stores/mainchain.ts';
 import { getMyVault, getVaults } from '../stores/vaults.ts';
-import { BondLot, MICRONOTS_PER_ARGONOT } from '@argonprotocol/apps-core';
+import { BondLot, getPercent, MICRONOTS_PER_ARGONOT } from '@argonprotocol/apps-core';
 import { getWalletKeys } from '../stores/wallets.ts';
 import { type TransactionInfo } from '../lib/TransactionInfo.ts';
 import { generateProgressLabel } from '../lib/Utils.ts';
@@ -246,6 +259,7 @@ import { getArgonBonds, getBondTransactionOperations } from '../stores/argonBond
 import { calculatePositionReturn } from '../lib/financials/index.ts';
 import type { IBondFinancialPosition } from '../interfaces/IFinancialPosition.ts';
 import { useCertificationController } from '../stores/certificationController.ts';
+import { useFinancialHistory } from '../stores/financialHistory.ts';
 
 dayjs.extend(utc);
 
@@ -257,6 +271,7 @@ const walletKeys = getWalletKeys();
 const bondLotRelease = getBondTransactionOperations().bondLotRelease;
 const argonBonds = getArgonBonds();
 const controller = useCertificationController();
+const financialHistory = useFinancialHistory();
 
 const { microgonToArgonNm, microgonToMoneyNm, micronotToArgonotNm } = createNumeralHelpers(currency);
 const argonSymbol = currency.recordsByKey[UnitOfMeasurement.ARGN].symbol;
@@ -289,10 +304,28 @@ let unsubscribeLiquidationProgress: VoidFunction | undefined;
 
 const displayedLot = Vue.computed(() => props.bondLot ?? props.position?.bondLot);
 const history = Vue.computed(() => props.position?.history);
-const lifetimeEarnings = Vue.computed(() => props.position?.paidIncome ?? displayedLot.value?.cumulativeEarnings);
+
+const costBasis = Vue.computed(() => {
+  if (props.position) return props.position.investedCost;
+
+  return displayedLot.value?.principalMicrogons;
+});
+
+const lifetimeEarnings = Vue.computed(() => {
+  if (props.position) return props.position.paidIncome;
+
+  return displayedLot.value?.cumulativeEarnings;
+});
+
 const returnPercent = Vue.computed(() => {
   if (props.position) return calculatePositionReturn([props.position]).percent;
+
+  if (costBasis.value === undefined) return;
+  if (lifetimeEarnings.value === undefined) return;
+
+  return getPercent(lifetimeEarnings.value, costBasis.value);
 });
+
 const lotId = Vue.computed(() => displayedLot.value?.id ?? history.value!.bondLotId);
 const programType = Vue.computed(() => displayedLot.value?.programType ?? history.value!.programType);
 const vaultId = Vue.computed(() => displayedLot.value?.vaultId ?? history.value?.vaultId);
@@ -303,7 +336,25 @@ const bondCount = Vue.computed(() => {
   return BondLot.microgonsToWholeBonds(history.value!.nativePrincipal);
 });
 const earningsHistory = Vue.computed(() => argonBonds.getEarningsHistory(lotId.value));
-const dailyEarnings = Vue.computed(() => earningsHistory.value.records.toSorted((a, b) => b.frameId - a.frameId));
+const dailyEarnings = Vue.computed(() => {
+  const rows = [];
+  let cumulativeEarningsMicrogons = 0n;
+
+  for (const record of earningsHistory.value.records) {
+    cumulativeEarningsMicrogons += record.earningsMicrogons ?? 0n;
+    rows.push({ ...record, cumulativeEarningsMicrogons });
+  }
+
+  return rows.reverse();
+});
+const showDisplacedBonds = Vue.computed(() => {
+  if (displayedLot.value?.isFlexible) return true;
+
+  return earningsHistory.value.records.some(record => (record.displacedMicrogons ?? 0n) > 0n);
+});
+const isBondHistoryRecovering = Vue.computed(() =>
+  ['checking', 'restoring', 'waiting'].includes(financialHistory.historyRecoveryByDomain.bonds.state),
+);
 
 const purchasedAtLabel = Vue.computed(() => {
   const createdFrame = displayedLot.value?.createdFrameId ?? history.value?.createdFrame;

@@ -120,9 +120,10 @@
           >
             <div class="flex items-center justify-between gap-4">
               <span>{{ historyRecoveryLabel }}</span>
-              <span v-if="historyRecovery.currentDomainTotalBlockCount">
-                {{ historyRecovery.currentDomainRecoveredBlockCount }} /
-                {{ historyRecovery.currentDomainTotalBlockCount }} blocks
+              <span v-if="historyRecovery.progress?.totalCount">
+                {{ historyRecovery.progress.completedCount }} /
+                {{ historyRecovery.progress.totalCount }}
+                {{ historyRecovery.progress.phase === 'earnings' ? 'frames' : 'blocks' }}
               </span>
             </div>
             <ProgressBar
@@ -163,19 +164,22 @@ const { financialPositionAggregate: aggregate, bondSummariesByAsset } = storeToR
 const { historyRecovery, isHistoryRecoveryInProgress } = storeToRefs(financialHistory);
 
 const historyRecoveryLabel = Vue.computed(() => {
+  if (historyRecovery.value.state === 'waiting') return 'Waiting for indexed history';
   if (historyRecovery.value.state === 'checking') return 'Determining history to retrieve';
-  if (historyRecovery.value.currentDomain === 'bitcoin') return 'Restoring Bitcoin history';
-  if (historyRecovery.value.currentDomain === 'bonds') return 'Restoring bond history';
-  if (historyRecovery.value.currentDomain === 'vaulting') return 'Restoring vault history';
+  const progress = historyRecovery.value.progress;
+  if (progress?.phase === 'publishing') return 'Saving bond history';
+  if (progress?.phase === 'earnings') return 'Restoring daily bond earnings';
+  if (progress?.domain === 'bitcoin') return 'Restoring Bitcoin history';
+  if (progress?.domain === 'bonds') return 'Restoring bond history';
+  if (progress?.domain === 'vaulting') return 'Restoring vault history';
   return 'History catching up';
 });
 
 const historyRecoveryProgress = Vue.computed(() => {
-  const recovered = historyRecovery.value.currentDomainRecoveredBlockCount;
-  const total = historyRecovery.value.currentDomainTotalBlockCount;
-  if (recovered === undefined || !total) return;
+  const progress = historyRecovery.value.progress;
+  if (!progress?.totalCount) return;
 
-  return Math.min((recovered / total) * 100, 100);
+  return Math.min((progress.completedCount / progress.totalCount) * 100, 100);
 });
 
 const returnRows = Vue.computed(() => {

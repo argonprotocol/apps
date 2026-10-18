@@ -2,7 +2,7 @@ import BigNumber from 'bignumber.js';
 import * as Vue from 'vue';
 import { BondLot, MICROGONS_PER_ARGON, MICRONOTS_PER_ARGONOT } from '@argonprotocol/apps-core';
 import { fn, mocked } from 'storybook/test';
-import { calculatePositionReturn } from '../../src-vue/lib/financials/index.ts';
+import { calculatePositionReturn, reduceFinancialPositions } from '../../src-vue/lib/financials/index.ts';
 import type { IBondFinancialPosition } from '../../src-vue/interfaces/IFinancialPosition.ts';
 import { TopTab } from '../../src-vue/interfaces/IConfig.ts';
 import { getArgonBonds } from '../../src-vue/stores/argonBonds.ts';
@@ -158,35 +158,21 @@ export function setupBondPortfolioScenario(
   mocked(useFinancials).mockReturnValue(
     Vue.reactive({
       savingsTotalReadyToUse: 250n * microgonsPerArgon,
-      historyRecovery: { state: 'ready', recoveredBlockCount: 0 },
-      historyRecoveryByDomain: {
-        bitcoin: { state: 'ready', recoveredBlockCount: 0 },
-        bonds: { state: 'ready', recoveredBlockCount: 0 },
-        vaulting: { state: 'ready', recoveredBlockCount: 0 },
-      },
-      bondSummariesByAsset: {
+      bondSummariesByAsset: Vue.shallowRef({
         ARGN: {
           currentValue: programType === 'Vault' ? 153_400_000n : 0n,
-          returnSummary: {
-            paidIncome: 23_810_000n,
-            availability: historyComplete ? 'available' : 'unavailable',
-            percent: historyComplete ? 8.42 : undefined,
-          },
+          returnSummary: calculatePositionReturn(positions.filter(position => position.nativeAsset === 'ARGN')),
         },
         ARGNOT: {
           currentValue: programType === 'Argonot' ? 2_184_000_000n : 0n,
-          returnSummary: {
-            paidIncome: 23_810_000n,
-            availability: historyComplete ? 'available' : 'unavailable',
-            percent: historyComplete ? 11.76 : undefined,
-          },
+          returnSummary: calculatePositionReturn(positions.filter(position => position.nativeAsset === 'ARGNOT')),
         },
-      },
-      financialPositionAggregate: {
-        groupSummaries: {
-          bonds: { state: 'ready', positions },
-        },
-      },
+      }),
+      financialPositionAggregate: Vue.shallowRef(
+        reduceFinancialPositions([
+          { group: 'bonds', state: 'ready', positions, observation: { observedAt: new Date('2026-08-17T12:00:00Z') } },
+        ]),
+      ),
     }) as unknown as ReturnType<typeof useFinancials>,
   );
 

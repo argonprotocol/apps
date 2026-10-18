@@ -149,7 +149,7 @@ describe('Bitcoin lock release', () => {
           kind: BitcoinReleaseKind.Lock,
           status: BitcoinReleaseStatus.SubmittingRequestOnArgon,
           inputUtxoIds: [firstInput.id, secondInput.id],
-          toScriptPubkey: destinationAddress,
+          toScriptPubkey: destinationScript,
         });
         expect(persistedLock).toMatchObject({
           status: BitcoinLockStatus.Releasing,
@@ -175,7 +175,7 @@ describe('Bitcoin lock release', () => {
             lockId: 7,
             destinationSatoshis: 575n,
             bitcoinNetworkFee: 25n,
-            toScriptPubkey: 'unused-for-prepared-operation',
+            toScriptPubkey: destinationAddress,
             txSigner,
             client: {} as ArgonClient,
           },
@@ -190,12 +190,12 @@ describe('Bitcoin lock release', () => {
               releaseNumber: 1,
               lockId: 7,
               inputUtxoIds: [firstInput.id, secondInput.id],
-              toScriptPubkey: destinationAddress,
+              toScriptPubkey: destinationScript,
               bitcoinNetworkFee: 25n,
               destinationSatoshis: 575n,
               changeSatoshis: 400n,
             },
-            operationKey: 'owner-account:7:575:25:unused-for-prepared-operation',
+            operationKey: `owner-account:7:575:25:${destinationAddress}`,
             tx,
             txFeePlusTip: 1n,
             availableBalance: 1_000n,
@@ -205,7 +205,7 @@ describe('Bitcoin lock release', () => {
       ).rejects.toThrow('Argon submission unavailable');
 
       expect(submitAndWatch).toHaveBeenCalledWith(
-        expect.objectContaining({ metadata: expect.objectContaining({ toScriptPubkey: destinationAddress }) }),
+        expect.objectContaining({ metadata: expect.objectContaining({ toScriptPubkey: destinationScript }) }),
       );
       expect(releases.getById('lock:7:1')?.statusError).toBe('Error: Argon submission unavailable');
       await releases.acknowledgeFailedSend('lock:7:1');
@@ -220,7 +220,7 @@ describe('Bitcoin lock release', () => {
         releaseNumber: 1,
         status: BitcoinReleaseStatus.SubmittingRequestOnArgon,
         inputUtxoIds: [firstInput.id, secondInput.id],
-        toScriptPubkey: destinationAddress,
+        toScriptPubkey: destinationScript,
         bitcoinNetworkFee: 25n,
         destinationSatoshis: 575n,
         changeSatoshis: 400n,
@@ -241,7 +241,7 @@ describe('Bitcoin lock release', () => {
           lockId: 7,
           vaultId: 3,
           releaseNumber: 1,
-          toScriptPubkey: destinationAddress,
+          toScriptPubkey: destinationScript,
           bitcoinNetworkFee: 25n,
           destinationSatoshis: 575n,
           changeSatoshis: 400n,
@@ -820,7 +820,7 @@ describe('Bitcoin lock release', () => {
             lockId: 8,
             utxoRecordId: orphanUtxo.id,
             utxoRef: { txid: orphanUtxo.txid, vout: orphanUtxo.vout },
-            toScriptPubkey: destinationAddress,
+            toScriptPubkey: destinationScript,
             bitcoinNetworkFee: 25n,
           },
           operationKey: `owner-account:8:${orphanUtxo.txid}:${orphanUtxo.vout}`,

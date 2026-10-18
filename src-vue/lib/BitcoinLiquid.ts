@@ -104,7 +104,6 @@ export class BitcoinLiquid {
 
     let total = 0n;
     for (const fission of this.fissions) {
-      if (fission.closeReason === 'lock-spent') continue;
       if (fission.redemptionAmount === undefined) return;
       total += fission.redemptionAmount;
     }

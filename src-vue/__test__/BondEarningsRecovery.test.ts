@@ -66,7 +66,7 @@ describe('native bond earnings recovery', () => {
     deployed.setMetadata(new Metadata(deployed, metadata));
     const deployedLot = deployed.createType('Option<PalletTreasuryBondLot>', {
       owner,
-      program: { Vault: { vaultId: 4, sharingPercent: 0, bonusPercent: 0 } },
+      program: { Vault: { vaultId: 4, sharingPercent: 400_000, bonusPercent: 0 } },
       bonds: 10,
       createdFrameId: 6,
       participatedFrames: 0,
@@ -185,6 +185,7 @@ describe('native bond earnings recovery', () => {
     };
     const current = snapshots.get(200)!;
     const chainWatch = {
+      finalizedBlockHeader: { ...block, blockNumber: 200, blockHash: '0x200' },
       getHeader: async (height: number) => ({ ...block, blockNumber: height, blockHash: `0x${height}` }),
       getApi: async (header: IBlockHeaderInfo) => {
         const height = [...snapshots.keys()].filter(value => value <= header.blockNumber).at(-1)!;
@@ -247,6 +248,17 @@ describe('native bond earnings recovery', () => {
     });
     // The purchase frame was already scanned; missing daily history starts at frame 7.
     await db.bondLotHistoryTable.recordEarningsCoverage(owner, 6, 6);
+    const incorrectEarnings = {
+      accountId: owner,
+      programType: 'Vault' as const,
+      bondLotId: 7,
+      frameId: 7,
+      earningsMicrogons: 2_000_000n,
+      earningsDestination: 'Vault' as const,
+      payoutBlockNumber: 125,
+      payoutBlockHash: '0x125',
+    };
+    await db.bondEarningsTable.upsert(incorrectEarnings);
     const domain = createDomain();
     domain.data.bondLots = [newerLot];
     domain.data.isLoaded = true;
@@ -261,7 +273,7 @@ describe('native bond earnings recovery', () => {
     // Current Owner metrics do not prove that earlier vault-paid flexible income was recovered.
     expect(domain.data.bondHistory[0].earningsDestination).toBe('Owner');
     expect(domain.getEarningsHistory(7).isComplete).toBe(false);
-    expect(visiblePosition).toMatchObject({ paidIncome: 4_000_000n, returnIsComplete: false });
+    expect(visiblePosition.returnIsComplete).toBe(false);
     const stopObserver = watch(
       () => domain.data.financialRevision,
       () => {
@@ -279,7 +291,14 @@ describe('native bond earnings recovery', () => {
     const before = domain.data.bondHistory;
     const revision = domain.data.financialRevision;
     await domain.importHistoryBlock(backfillBlock, [earningsBackfill]);
-    await domain.recoverDailyEarnings(200, 0);
+    const earningsProgress: number[][] = [];
+    await domain.recoverDailyEarnings(200, 0, (completed, total) => earningsProgress.push([completed, total]));
+    expect(earningsProgress).toEqual([
+      [0, 3],
+      [1, 3],
+      [2, 3],
+      [3, 3],
+    ]);
     await db.execute(`
       CREATE TEMP TRIGGER FailBondBackfill
       BEFORE UPDATE OF earningsBackfills ON BondLotHistory
@@ -288,20 +307,22 @@ describe('native bond earnings recovery', () => {
         SELECT RAISE(ABORT, 'disk temporarily unavailable');
       END;
     `);
-    await expect(domain.publishRecoveredHistory()).rejects.toThrow('disk temporarily unavailable');
+    await expect(domain.publishRecoveredHistory(200)).rejects.toThrow('disk temporarily unavailable');
+    expect(await db.syncStateTable.get(SyncStateKeys.BondHistory)).toBeNull();
     expect(domain.data.bondHistory).toBe(before);
     expect(visiblePosition).toEqual(visibleBefore);
     expect(domain.data.bondLots).toEqual([newerLot]);
-    expect(domain.data.dailyEarnings).toEqual([]);
-    expect(await db.bondEarningsTable.fetchAll(owner)).toEqual([]);
+    expect(domain.data.dailyEarnings).toEqual([expect.objectContaining(incorrectEarnings)]);
+    expect(await db.bondEarningsTable.fetchAll(owner)).toEqual([expect.objectContaining(incorrectEarnings)]);
     expect(domain.data.bondHistory[0].earningsHistoryThroughFrame).toBe(6);
     expect((await db.bondLotHistoryTable.fetchAll(owner))[0].earningsBackfills).toEqual([]);
     await db.execute('DROP TRIGGER FailBondBackfill');
-    await domain.publishRecoveredHistory();
+    await domain.publishRecoveredHistory(200);
+    expect(await db.syncStateTable.get(SyncStateKeys.BondHistory)).toMatchObject({ blockNumber: 200 });
     expect(domain.data.financialRevision).toBeGreaterThan(revision);
     expect(visiblePosition).toMatchObject({
       currentValue: 10_000_000n,
-      paidIncome: 4_000_000n,
+      paidIncome: 2_800_000n,
       returnIsComplete: true,
     });
     stopObserver();
@@ -311,13 +332,13 @@ describe('native bond earnings recovery', () => {
       earningsBackfills: [{ addedEarnings: 2_000_000n }],
     });
     expect(domain.data.dailyEarnings).toEqual([
-      expect.objectContaining({ frameId: 7, earningsMicrogons: 2_000_000n, earningsDestination: 'Vault' }),
+      expect.objectContaining({ frameId: 7, earningsMicrogons: 800_000n, earningsDestination: 'Vault' }),
       expect.objectContaining({ frameId: 8, earningsMicrogons: 1_000_000n, earningsDestination: 'Owner' }),
       expect.objectContaining({ frameId: 9, earningsMicrogons: 1_000_000n, earningsDestination: 'Owner' }),
     ]);
     expect(domain.getEarningsHistory(7)).toMatchObject({
-      lifetimeEarnings: 4_000_000n,
-      vaultEarnings: 2_000_000n,
+      lifetimeEarnings: 2_800_000n,
+      vaultEarnings: 800_000n,
       isComplete: true,
     });
     const restarted = createDomain();
@@ -336,7 +357,7 @@ describe('native bond earnings recovery', () => {
     });
     expect(restarted.data.bondHistory[0].earningsBackfills).toHaveLength(1);
     expect(restarted.data.dailyEarnings).toEqual(domain.data.dailyEarnings);
-    expect(position).toMatchObject({ currentValue: 10_000_000n, paidIncome: 4_000_000n, returnIsComplete: true });
+    expect(position).toMatchObject({ currentValue: 10_000_000n, paidIncome: 2_800_000n, returnIsComplete: true });
   });
 
   it.each([false, true])(
@@ -430,7 +451,7 @@ describe('native bond earnings recovery', () => {
         historyRecords: domain.data.bondHistory,
         frameDates: new Map([[3, new Date(block.blockTime)]]),
       });
-      expect(position).toMatchObject({ lifecycle: 'completed', paidIncome: 3_500_000n, returnIsComplete: false });
+      expect(position).toMatchObject({ lifecycle: 'completed', paidIncome: 1_000_000n, returnIsComplete: false });
     },
   );
 
@@ -757,7 +778,13 @@ it.each([157, 159])('recovers flexible payouts from runtime %s', async specVersi
       id,
       deployed.createType('Option<PalletTreasuryBondLot>', {
         owner,
-        program: { Vault: { vaultId: 4, sharingPercent: 0, bonusPercent: 0 } },
+        program: {
+          Vault: {
+            vaultId: 4,
+            sharingPercent: id === 7 ? 400_000 : 500_000,
+            bonusPercent: id === 7 ? 100_000 : 200_000,
+          },
+        },
         bonds: id - 6,
         createdFrameId: 3,
         participatedFrames: 0,
@@ -879,14 +906,14 @@ it.each([157, 159])('recovers flexible payouts from runtime %s', async specVersi
   expect(domain.data.dailyEarnings).toEqual([
     expect.objectContaining({
       bondLotId: 7,
-      earningsMicrogons: 2n,
+      earningsMicrogons: 1n,
       earningsDestination: 'Vault',
       bonds: 1,
       displacedMicrogons: 333_334n,
     }),
     expect.objectContaining({
       bondLotId: 8,
-      earningsMicrogons: 3n,
+      earningsMicrogons: 2n,
       earningsDestination: 'Vault',
       bonds: 2,
       displacedMicrogons: 666_667n,
@@ -927,13 +954,13 @@ it.each([157, 159])('recovers flexible payouts from runtime %s', async specVersi
     expect.objectContaining({
       lifecycle: 'completed',
       currentValue: 0n,
-      paidIncome: 2n,
+      paidIncome: 1n,
       settledPrincipalValue: 1_000_000n,
     }),
     expect.objectContaining({
       lifecycle: 'completed',
       currentValue: 0n,
-      paidIncome: 3n,
+      paidIncome: 2n,
       settledPrincipalValue: 2_000_000n,
     }),
   ]);
@@ -1009,7 +1036,7 @@ it.each([157, 159])('recovers flexible payouts from runtime %s', async specVersi
     currentValue: 100_000_000n,
     investedCost: 100_000_000n,
     paidIncome: 6n,
-    performanceEndingCapital: 100_000_001n,
+    performanceEndingCapital: 100_000_003n,
   });
   expect(calculatePositionReturn([...bondPositions, vaultPosition]).returnAmount).toBe(6n);
 });

@@ -363,7 +363,7 @@ export class BitcoinLockRecovery {
     }
 
     for (const lock of preparedRecords) {
-      if (lock.removalReason !== 'released') continue;
+      if (!lock.removalReason) continue;
 
       const close = replay.historicalLiquidCloseByUtxoId.get(lock.utxoId);
       if (close?.closeTxFee !== undefined) continue;
@@ -772,7 +772,7 @@ export class BitcoinLockRecovery {
           securityFee: chainLock.securityFees,
           securityFeeCoupon: recovered.couponFeesPaid,
         });
-        this.updateCurrentSecuritizationTerm(recovered);
+        this.updateCurrentSecuritizationTerm({ ...chainLock, couponFeesPaid: recovered.couponFeesPaid });
 
         if (isBitcoinUtxoVerified || event.method === 'UtxoFundedFromCandidate') {
           recovered.fundedSatoshis = chainLock.fundedSatoshis;
@@ -1006,6 +1006,18 @@ export class BitcoinLockRecovery {
           throw new Error(
             `Bitcoin lock ${utxoId} release ${event.data.releaseNumber} settled without a recovered request`,
           );
+        }
+        if (event.method === 'BitcoinLockBurned') {
+          if (!record.ownerAccount) throw new Error('Bitcoin terminal repayment is missing the owner account');
+          const close = replay.historicalLiquidCloseByUtxoId.get(utxoId);
+          const request = release ?? this.releases.getLatestForLock(this.toDurableRecord(record, lockId));
+          let closeTxFee = close?.closeTxFee ?? request?.argonTxFeeMicrogons;
+          if (!close && !request) closeTxFee = 0n;
+
+          replay.historicalLiquidCloseByUtxoId.set(utxoId, {
+            redemptionAmount: this.readTerminalRedemption(eventRecords, eventIndex, record.ownerAccount),
+            closeTxFee,
+          });
         }
         const isPartialRelease = event.method === 'BitcoinSpentAfterRelease' && (release?.changeSatoshis ?? 0n) > 0n;
         let removalReason: NonNullable<IBitcoinLockRecord['removalReason']> = 'released';
@@ -1439,7 +1451,7 @@ export class BitcoinLockRecovery {
       recovered.securityFees = chainLock.securityFees;
       recovered.couponFeesPaid = previousCouponFeesPaid + securityFeeCoupon;
     }
-    this.updateCurrentSecuritizationTerm(recovered);
+    this.updateCurrentSecuritizationTerm({ ...chainLock, couponFeesPaid: recovered.couponFeesPaid });
     this.assertSafePendingMint(recovered);
     await this.saveRecoveredHistory(table, recovered);
     this.applyRecoveredRecord(recovered);
@@ -1996,7 +2008,7 @@ export class BitcoinLockRecovery {
     replay.securitizationTermsByLockId.set(lockId, terms);
   }
 
-  private updateCurrentSecuritizationTerm(lock: IHistoricalBitcoinLockRecord): void {
+  private updateCurrentSecuritizationTerm(lock: IHistoricalBitcoinLock): void {
     const terms = this.historyReplay?.securitizationTermsByLockId.get(this.getCanonicalLockId(lock.utxoId));
     const current = terms?.at(-1);
     if (!current) return;
@@ -2052,6 +2064,45 @@ export class BitcoinLockRecovery {
       endExtrinsicIndex: phase.type === 'ApplyExtrinsic' ? phase.value : undefined,
       endReason: 'released' as const,
     });
+  }
+
+  private readTerminalRedemption(
+    records: readonly NamedBitcoinRecoveryEventRecord[],
+    operationEventIndex: number,
+    ownerAccount: string,
+  ): bigint {
+    const phase = records[operationEventIndex].phase;
+    let redemptionAmount: bigint | undefined;
+    for (let index = operationEventIndex - 1; index >= 0; index--) {
+      const record = records[index];
+      if (record.phase.type !== phase.type) break;
+      if (
+        phase.type === 'ApplyExtrinsic' &&
+        record.phase.type === 'ApplyExtrinsic' &&
+        record.phase.value !== phase.value
+      ) {
+        break;
+      }
+
+      const { event } = record;
+      if (
+        event.section === 'bitcoinLocks' &&
+        (event.method === 'BitcoinLockBurned' ||
+          event.method === 'BitcoinUtxoCosigned' ||
+          event.method === 'BitcoinSpentAfterRelease' ||
+          event.method === 'BitcoinLockTerminated')
+      ) {
+        break;
+      }
+      if (event.section !== 'balances' || event.method !== 'BurnedHeld') continue;
+      const { who, reason, amount } = event.data;
+      if (who !== ownerAccount) continue;
+      if (reason.type !== 'BitcoinLocks' || reason.value.type !== 'ReleaseBitcoinLock') continue;
+      if (redemptionAmount !== undefined) throw new Error('Bitcoin terminal repayment has multiple owner burns');
+      redemptionAmount = amount;
+    }
+    // Older burn hooks debit only the vault; later hooks emit the owner's held burn before termination.
+    return redemptionAmount ?? 0n;
   }
 
   private readTransactionFee(

@@ -19,6 +19,7 @@ sb.mock(import('../src-vue/stores/bot.ts'), { spy: true });
 sb.mock(import('../src-vue/stores/config.ts'));
 sb.mock(import('../src-vue/stores/currency.ts'));
 sb.mock(import('../src-vue/stores/financials.ts'), { spy: true });
+sb.mock(import('../src-vue/stores/financialHistory.ts'), { spy: true });
 sb.mock(import('../src-vue/stores/helpers/dbPromise.ts'), { spy: true });
 sb.mock(import('../src-vue/stores/installer.ts'), { spy: true });
 sb.mock(import('../src-vue/stores/mainchain.ts'), { spy: true });

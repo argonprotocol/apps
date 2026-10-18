@@ -3,6 +3,76 @@ import { bigIntMax, type IBitcoinLock, type IBlockHeaderInfo } from '@argonproto
 import type { IBitcoinSecuritizationTerm } from '../interfaces/IBitcoinSecuritizationTerm.ts';
 import type { BitcoinSecuritizationHistoryTable } from './db/BitcoinSecuritizationHistoryTable.ts';
 
+export function mergeRecoveredSecuritizationTerms(
+  published: readonly IBitcoinSecuritizationTerm[],
+  recovered: readonly IBitcoinSecuritizationTerm[],
+  asOfBlock: number,
+): IBitcoinSecuritizationTerm[] {
+  const coveredTerms = recovered.filter(term => term.startBlockNumber <= asOfBlock);
+  const recoveredLockIds = new Set(coveredTerms.map(term => term.lockId));
+  const mergedTerms = published.filter(term => !recoveredLockIds.has(term.lockId));
+
+  for (const lockId of recoveredLockIds) {
+    const publishedLockTerms = published.filter(term => term.lockId === lockId);
+    const lockTerms = coveredTerms.filter(term => term.lockId === lockId).map(term => ({ ...term }));
+
+    // Recovery must retain closures observed after its coverage ended.
+    for (const term of lockTerms) {
+      if (term.endBlockNumber !== undefined) continue;
+
+      const publishedTerm = publishedLockTerms.find(
+        candidate =>
+          candidate.startBlockNumber === term.startBlockNumber &&
+          candidate.startExtrinsicIndex === term.startExtrinsicIndex &&
+          candidate.startBlockHash === term.startBlockHash,
+      );
+      if (!publishedTerm?.endBlockNumber) continue;
+      if (publishedTerm.endBlockNumber <= asOfBlock) continue;
+
+      Object.assign(term, {
+        endTick: publishedTerm.endTick,
+        endBlockNumber: publishedTerm.endBlockNumber,
+        endBlockHash: publishedTerm.endBlockHash,
+        endExtrinsicIndex: publishedTerm.endExtrinsicIndex,
+        endReason: publishedTerm.endReason,
+      });
+    }
+
+    for (const term of publishedLockTerms) {
+      if (term.startBlockNumber > asOfBlock) lockTerms.push({ ...term });
+    }
+    lockTerms.sort(
+      (a, b) => a.startBlockNumber - b.startBlockNumber || (a.startExtrinsicIndex ?? 0) - (b.startExtrinsicIndex ?? 0),
+    );
+
+    // Earlier recovered terms change the indexes and each term's incremental fee.
+    for (const [index, term] of lockTerms.entries()) {
+      term.termIndex = index;
+      if (term.origin === 'partial-release') {
+        term.addedNetSecurityFee = 0n;
+      } else {
+        const previousFee = lockTerms[index - 1]?.cumulativeNetSecurityFee ?? 0n;
+        term.addedNetSecurityFee = bigIntMax(term.cumulativeNetSecurityFee - previousFee, 0n);
+      }
+
+      if (term.endBlockNumber !== undefined) continue;
+      const next = lockTerms[index + 1];
+      if (!next) continue;
+
+      Object.assign(term, {
+        endTick: next.startTick,
+        endBlockNumber: next.startBlockNumber,
+        endBlockHash: next.startBlockHash,
+        endExtrinsicIndex: next.startExtrinsicIndex,
+        endReason: next.origin === 'partial-release' ? 'partial-release' : 'resecuritized',
+      });
+    }
+    mergedTerms.push(...lockTerms);
+  }
+
+  return mergedTerms.sort((a, b) => a.lockId - b.lockId || a.termIndex - b.termIndex);
+}
+
 export async function closeFinalizedSecuritization(
   table: BitcoinSecuritizationHistoryTable,
   args: {

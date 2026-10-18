@@ -62,6 +62,7 @@ it(
     const networkTotalsBefore = await treasuryPositions.networkTotals();
     actor = await AppVaultOperator.load({ clients, walletKeys });
     // Resume a vault created with the previous default, below the new certification bond minimum.
+    actor.config.vaultSetup = { ...actor.config.vaultSetup, securitizationMicrogons: 2_000_000_000n };
     const initialSecuritization = actor.config.vaultSetup.securitizationMicrogons;
     await sudoFundWallet({
       client,

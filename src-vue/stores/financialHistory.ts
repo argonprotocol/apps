@@ -11,6 +11,7 @@ import { useWallets } from './wallets.ts';
 import {
   getEnabledFinancialHistoryDomains,
   type IFinancialHistoryDomain,
+  type IFinancialHistoryProgress,
   needsFinancialHistoryRecovery,
   restoreFinancialHistory as restoreFinancialHistoryFromIndex,
 } from '../lib/recovery/index.ts';
@@ -19,9 +20,7 @@ import { FinalizedHistoryScheduler } from '../lib/recovery/Scheduler.ts';
 export type IFinancialHistoryRecoveryState = {
   state: 'checking' | 'restoring' | 'waiting' | 'ready' | 'error';
   recoveredBlockCount: number;
-  currentDomain?: IFinancialHistoryDomain;
-  currentDomainRecoveredBlockCount?: number;
-  currentDomainTotalBlockCount?: number;
+  progress?: IFinancialHistoryProgress;
   message?: string;
 };
 
@@ -149,15 +148,15 @@ export const useFinancialHistory = defineStore('financialHistory', () => {
             return;
           }
 
-          const state: IFinancialHistoryRecoveryState['state'] = domainProgress.totalBlockCount
-            ? 'restoring'
-            : 'checking';
+          let state: IFinancialHistoryRecoveryState['state'] = 'restoring';
+          if (domainProgress.phase === 'blocks' && !domainProgress.totalCount) state = 'checking';
+          let domainBlockCount = historyRecoveryByDomain[domainProgress.domain].recoveredBlockCount;
+          if (domainProgress.phase === 'blocks') domainBlockCount = domainProgress.completedCount;
+
           const domainState = {
             state,
-            recoveredBlockCount: domainProgress.recoveredBlockCount,
-            currentDomain: domainProgress.domain,
-            currentDomainRecoveredBlockCount: domainProgress.recoveredBlockCount,
-            currentDomainTotalBlockCount: domainProgress.totalBlockCount,
+            recoveredBlockCount: domainBlockCount,
+            progress: domainProgress,
           };
           historyRecoveryByDomain[domainProgress.domain] = domainState;
           historyRecovery.value = { ...domainState, recoveredBlockCount };

@@ -1,4 +1,8 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import type { MiningFrames } from '@argonprotocol/apps-core';
+import type { Currency } from '../lib/Currency.ts';
+import type { Config } from '../lib/Config.ts';
+import { createTestDb } from './helpers/db.ts';
 import { MyMiningSeats } from '../lib/MyMiningSeats.ts';
 import { botEmitter } from '../lib/Bot.ts';
 import type { IFrameBidRecord } from '../interfaces/db/IFrameBidRecord.ts';
@@ -8,6 +12,60 @@ describe('MyMiningSeats', () => {
   afterEach(() => {
     botEmitter.all.clear();
     vi.restoreAllMocks();
+  });
+
+  it('plots capped returns for earned rewards from free seats without turning empty frames into gains', async () => {
+    const db = await createTestDb();
+    const inputs = [
+      { id: 9, cost: 0n, earned: 1_000_000n },
+      { id: 10, cost: 1n, earned: 1_000_000n },
+      { id: 11, cost: 1_000_000n, earned: 1_100_000n },
+      { id: 12, cost: 0n, earned: 0n },
+    ];
+    try {
+      for (const { id, cost, earned } of inputs) {
+        await db.framesTable.insertOrUpdate({
+          id,
+          firstTick: 29_000_000 + id * 1_440,
+          firstBlockNumber: id * 100,
+          lastBlockNumber: id * 100 + 99,
+          rewardTicksRemaining: 0,
+          microgonToUsd: [],
+          microgonToBtc: [],
+          microgonToArgonot: [],
+          progress: 100,
+        });
+        await db.framesTable.update({
+          id,
+          allMinersCount: 100,
+          seatCountActive: 1,
+          seatCostTotalFramed: cost,
+          blocksMinedTotal: 1,
+          micronotsMinedTotal: 0n,
+          microgonsMinedTotal: earned,
+          microgonsMintedTotal: 0n,
+          microgonFeesCollectedTotal: 0n,
+          isProcessed: true,
+        });
+      }
+      const mining = new MyMiningSeats(
+        Promise.resolve(db),
+        { isLoadedPromise: Promise.resolve() } as Config,
+        { isLoadedPromise: Promise.resolve(), microgonsPer: { ARGNOT: 1_000_000n } } as Currency,
+        { currentFrameId: 12, framesById: {}, load: async () => undefined } as unknown as MiningFrames,
+      );
+      await mining.load();
+      await mining.subscribeToDashboard();
+      const frames = mining.frames.filter(frame => frame.id >= 9);
+
+      expect(frames.map(frame => frame.profitPct)).toEqual([9_999, 9_999, 10, 0]);
+      expect(frames[0].microgonValueOfRewards).toBe(1_000_000n);
+      expect(frames[0].score).toBeGreaterThan(0);
+      expect(frames[1].score).toBe(frames[0].score);
+      expect(frames[3].score).toBe(0);
+    } finally {
+      await db.close();
+    }
   });
 
   it('waits on the active load instead of resolving early', async () => {

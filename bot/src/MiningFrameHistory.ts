@@ -1,5 +1,6 @@
 import {
   BotActivityType,
+  type ArgonApi,
   type IHistoryFile,
   type IMiningFrameDetail,
   Mining,
@@ -48,17 +49,19 @@ export class MiningFrameHistory {
     const mining = new Mining(this.mainchainClients);
     const api = await this.mainchainClients.prunedClientOrArchivePromise;
 
-    const [rawWinningBids, slots, totalBidCount, expectedAuctionCloseTick] = await Promise.all([
+    const [rawWinningBids, slots, totalBidCount, expectedAuctionCloseTick, auctionSeatCount] = await Promise.all([
       Mining.fetchWinningBids(api),
       Mining.fetchMiningSeats(this.accountset.fundingAccountId, api),
       api.query.miningSlot.historicalBidsPerSlot().then(h => h[0]?.bidsCount ?? 0),
       mining.fetchTickAtStartOfAuctionClosing(api),
+      api.query.miningSlot.nextCohortSize(),
     ]);
     const winningBids = rawWinningBids.map(({ managedByAddress: _, ...bid }) => bid);
 
     return {
       frameId,
       totalBidCount,
+      auctionSeatCount: auctionSeatCount ?? undefined,
       myLastBidMicrogons: persisted?.myLastBidMicrogons,
       auctionCloseTick: persisted?.auctionCloseTick,
       expectedAuctionCloseTick,
@@ -69,12 +72,12 @@ export class MiningFrameHistory {
 
   private async getHistoricalDetail(frameId: number): Promise<IMiningFrameDetail> {
     const finalizedFrameId = this.getFinalizedFrameId();
-    const isFinalized = frameId < finalizedFrameId;
+    const isFinalized = frameId <= finalizedFrameId;
     const miningFrameFile = this.storage.miningFrameFile(frameId);
 
     if (isFinalized && (await miningFrameFile.exists())) {
       const cached = await miningFrameFile.get();
-      if (cached.winningBids.length && this.hasCompleteSlots(cached.slots)) {
+      if (cached.auctionSeatCount !== undefined && this.hasCompleteSlots(cached.slots)) {
         return cached;
       }
     }
@@ -94,59 +97,67 @@ export class MiningFrameHistory {
     const miningFrameFile = this.storage.miningFrameFile(frameId);
     const persisted = (await miningFrameFile.exists()) ? await miningFrameFile.get() : null;
 
-    const api = await this.getHistoricalApi(frameId);
+    const frame = this.miningFrames.framesById[frameId];
+    const needsSlots = !this.hasCompleteSlots(persisted?.slots);
+    const auctionApiRequest = this.getHistoricalApi(frameId);
+    let seatApiRequest: Promise<ArgonApi> | undefined;
+    if (frame?.firstBlockHash && frame.firstBlockNumber != null) {
+      seatApiRequest = this.miningFrames.clientAt({
+        blockHash: frame.firstBlockHash,
+        blockNumber: frame.firstBlockNumber,
+      });
+    }
 
-    let winningBids = persisted?.winningBids ?? [];
-    if (!winningBids.length && api) {
-      const cohortActivationFrameId = frameId + 1;
-      const minersQuery = api.query.miningSlot.minersByCohort(cohortActivationFrameId);
-      if (minersQuery) {
-        const miners = await minersQuery;
-        winningBids = miners.map((miner, i) => {
-          const address = miner.accountId;
-          const managedBy = miner.externalFundingAccount ?? undefined;
-          return {
-            address,
-            subAccountIndex:
-              managedBy === this.accountset.fundingAccountId
-                ? this.accountset.subAccountsByAddress[address]?.index
-                : undefined,
-            bidPosition: i,
-            microgonsPerSeat: miner.bid,
-            micronotsStakedPerSeat: miner.argonots,
-          };
-        });
+    let lastBidRequest = Promise.resolve(persisted?.myLastBidMicrogons);
+    if (persisted?.myLastBidMicrogons == null) {
+      lastBidRequest = this.storage
+        .historyFile(frameId + 1)
+        .get()
+        .then(history => this.extractMyLastBidMicrogons(history));
+    }
+
+    const [auctionApi, seatApi, myLastBidMicrogons] = await Promise.all([
+      auctionApiRequest,
+      seatApiRequest,
+      lastBidRequest,
+    ]);
+    if (!auctionApi) throw new Error(`Auction history is unavailable for frame ${frameId}.`);
+
+    const minersRequest = auctionApi.query.miningSlot.minersByCohort(frameId + 1);
+    const bidCountsRequest = auctionApi.query.miningSlot.historicalBidsPerSlot();
+    let seatsRequest: Promise<IMiningFrameDetail['slots']> | undefined;
+    if (seatApi && needsSlots) {
+      seatsRequest = Mining.fetchMiningSeats(this.accountset.fundingAccountId, seatApi);
+    }
+
+    const [miners, historicalBids, loadedSlots, auctionSeatCount] = await Promise.all([
+      minersRequest,
+      bidCountsRequest,
+      seatsRequest,
+      seatApi?.query.miningSlot.nextCohortSize(),
+    ]);
+    if (miners === null || !historicalBids?.[1]) {
+      throw new Error(`Auction history is unavailable for frame ${frameId}.`);
+    }
+
+    const winningBids = miners.map((miner, bidPosition) => {
+      let subAccountIndex: number | undefined;
+      if (miner.externalFundingAccount === this.accountset.fundingAccountId) {
+        subAccountIndex = this.accountset.subAccountsByAddress[miner.accountId]?.index;
       }
-    }
 
-    let totalBidCount = persisted?.totalBidCount ?? 0;
-    if (!totalBidCount && api) {
-      const historical = await api.query.miningSlot.historicalBidsPerSlot();
-      totalBidCount = historical[1]?.bidsCount ?? 0;
-    }
-
-    let auctionCloseTick = persisted?.auctionCloseTick;
-    if (!auctionCloseTick) {
-      auctionCloseTick = this.miningFrames.framesById[frameId + 1]?.firstBlockTick ?? undefined;
-    }
-
-    let myLastBidMicrogons = persisted?.myLastBidMicrogons;
-    if (myLastBidMicrogons === undefined) {
-      const historyFile = await this.storage.historyFile(frameId + 1).get();
-      myLastBidMicrogons = this.extractMyLastBidMicrogons(historyFile);
-    }
-
-    let slots = persisted?.slots ?? [];
-    if (!this.hasCompleteSlots(slots)) {
-      const frame = this.miningFrames.framesById[frameId];
-      if (frame?.firstBlockHash && frame.firstBlockNumber != null) {
-        const frameApi = await this.miningFrames.clientAt({
-          blockHash: frame.firstBlockHash,
-          blockNumber: frame.firstBlockNumber,
-        });
-        slots = await Mining.fetchMiningSeats(this.accountset.fundingAccountId, frameApi);
-      }
-    }
+      return {
+        address: miner.accountId,
+        subAccountIndex,
+        bidPosition,
+        microgonsPerSeat: miner.bid,
+        micronotsStakedPerSeat: miner.argonots,
+      };
+    });
+    const totalBidCount = historicalBids[1].bidsCount;
+    const auctionCloseTick =
+      persisted?.auctionCloseTick ?? this.miningFrames.framesById[frameId + 1]?.firstBlockTick ?? undefined;
+    let slots = loadedSlots ?? persisted?.slots ?? [];
 
     if (winningBids.length && slots.length) {
       slots = this.applyWinningBidsToAuctionSlot(frameId, slots, winningBids);
@@ -155,6 +166,7 @@ export class MiningFrameHistory {
     return {
       frameId,
       totalBidCount,
+      auctionSeatCount: auctionSeatCount ?? undefined,
       myLastBidMicrogons,
       auctionCloseTick,
       winningBids,

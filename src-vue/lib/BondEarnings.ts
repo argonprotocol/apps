@@ -1,4 +1,4 @@
-import { bigIntMax, type BondLot } from '@argonprotocol/apps-core';
+import type { BondLot } from '@argonprotocol/apps-core';
 import type { ArgonBonds } from './ArgonBonds.ts';
 import type { MyVault } from './MyVault.ts';
 import type { IBondEarningsRecord } from './db/BondEarningsTable.ts';
@@ -28,23 +28,24 @@ export function getBondEarnings(
     if (record.earningsDestination === 'Vault') observedVaultEarnings += record.earningsMicrogons;
   }
 
-  // Preserve the larger proven amount when daily recovery is incomplete. If the
-  // two sources disagree, this is a lower bound, not a complete lifetime return.
-  const vaultEarnings = bigIntMax(backfilledEarnings, observedVaultEarnings);
+  // Backfilled chain metrics include the gross flexible allocation. Replace
+  // that reporting-only amount with the recovered bond-holder share.
   let lifetimeEarnings = chainEarnings;
-  if (chainEarnings !== undefined) lifetimeEarnings = chainEarnings + vaultEarnings - backfilledEarnings;
+  if (chainEarnings !== undefined) lifetimeEarnings = chainEarnings - backfilledEarnings + observedVaultEarnings;
   const earningThroughFrame = history?.releaseFrame === undefined ? completedFrame : history.releaseFrame - 1;
   const createdFrame = lot?.createdFrameId ?? history?.createdFrame;
   const historyThroughFrame = history?.earningsHistoryThroughFrame ?? (createdFrame ?? 0) - 1;
   const hasDailyCoverage = earningThroughFrame !== undefined && historyThroughFrame >= earningThroughFrame;
   let attributionIsComplete = !hasMissingPayout;
   if (!hasDailyCoverage) {
-    if (lot?.isFlexible || history?.flexibilityHistory.some(transition => transition.isFlexible)) {
+    if (
+      lot?.isFlexible ||
+      backfilledEarnings > 0n ||
+      history?.flexibilityHistory.some(transition => transition.isFlexible)
+    ) {
       attributionIsComplete = false;
     }
   }
-  if (observedVaultEarnings !== vaultEarnings) attributionIsComplete = false;
-  if (backfilledEarnings > 0n && observedVaultEarnings !== backfilledEarnings) attributionIsComplete = false;
 
   let isComplete = attributionIsComplete;
   if (lifetimeEarnings === undefined || observedEarnings !== lifetimeEarnings) isComplete = false;
@@ -54,7 +55,7 @@ export function getBondEarnings(
   return {
     records,
     lifetimeEarnings,
-    vaultEarnings,
+    vaultEarnings: observedVaultEarnings,
     isComplete,
     attributionIsComplete,
   };

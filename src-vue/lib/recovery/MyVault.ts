@@ -1,4 +1,13 @@
-import { bigNumberToBigInt, type IBlockHeaderInfo, type RuntimeSystemEventRecord } from '@argonprotocol/apps-core';
+import {
+  bigIntMax,
+  bigNumberToBigInt,
+  TreasuryRewards,
+  type ArgonApi,
+  type IVaultFrameNetworkPool,
+  type IBlockHeaderInfo,
+  type RuntimeSystemEventRecord,
+} from '@argonprotocol/apps-core';
+import BigNumber from 'bignumber.js';
 import type { HistoricalEvent } from '@argonprotocol/runtime-client/events';
 import type { Db } from '../Db.ts';
 import type { IVaultCapitalHistoryRecord } from '../db/VaultCapitalHistoryTable.ts';
@@ -258,6 +267,93 @@ export class VaultHistory {
     this.revenueCache = undefined;
     return accountId;
   }
+}
+
+/** Reconstruct the pool immediately before Treasury distributes the completed frame. */
+export async function readVaultNetworkPool({
+  frameId,
+  api: payoutApi,
+  parentApi: beforePayoutApi,
+}: {
+  frameId: number;
+  api: ArgonApi;
+  parentApi: ArgonApi;
+}): Promise<IVaultFrameNetworkPool> {
+  const poolAccount = TreasuryRewards.getBidPoolAccountId(payoutApi);
+  const poolAccountId = payoutApi.registry.createType('AccountId32', poolAccount).toString();
+  const [pool, events] = await Promise.all([
+    beforePayoutApi.query.system.account(poolAccount),
+    payoutApi.query.system.events(),
+  ]);
+  let auctionPoolMicrogons = pool.data.free;
+
+  // Payout runs during finalization. Include earlier funding, including block
+  // rewards in runtimes that mint them before Treasury, but exclude payout debits.
+  for (const { event, phase } of events) {
+    const finalizing = phase.type === 'Finalization';
+    if (finalizing && event.section === 'treasury') {
+      if ('frameId' in event.data && event.data.frameId === frameId) break;
+    }
+    if (event.section !== 'balances') continue;
+
+    if (event.method === 'Transfer') {
+      const { from, to, amount } = event.data;
+      if (from === poolAccountId) {
+        if (finalizing) break;
+        auctionPoolMicrogons -= amount;
+      }
+      if (to === poolAccountId) auctionPoolMicrogons += amount;
+    } else if (event.method === 'TransferAndHold') {
+      if (event.data.source !== poolAccountId) continue;
+      if (finalizing) break;
+      auctionPoolMicrogons -= event.data.transferred;
+    } else if (event.method === 'Minted' || event.method === 'Deposit') {
+      if (event.data.who === poolAccountId) auctionPoolMicrogons += event.data.amount;
+    } else if (event.method === 'Burned' || event.method === 'Withdraw') {
+      if (event.data.who !== poolAccountId) continue;
+      if (finalizing) break;
+      auctionPoolMicrogons -= event.data.amount;
+    } else if (event.method === 'BalanceSet' && event.data.who === poolAccountId) {
+      auctionPoolMicrogons = event.data.free;
+    }
+  }
+
+  const constants = payoutApi.consts.treasury;
+  if ('percentForVaultPool' in constants) {
+    return {
+      auctionPoolMicrogons,
+      vaultPoolMicrogons: bigNumberToBigInt(BigNumber(auctionPoolMicrogons).times(constants.percentForVaultPool)),
+      includesBondPayments: false,
+    };
+  }
+
+  const result: IVaultFrameNetworkPool = { auctionPoolMicrogons, includesBondPayments: true };
+  if ('bidPoolBurnPercent' in constants) {
+    const burnPercent = constants.bidPoolBurnPercent as BigNumber;
+    const burned = bigNumberToBigInt(BigNumber(auctionPoolMicrogons).times(burnPercent), true);
+    result.vaultPoolMicrogons = bigIntMax(0n, auctionPoolMicrogons - burned);
+    return result;
+  }
+  if (!('percentForTreasuryReserves' in constants)) return result;
+
+  const reserves = bigNumberToBigInt(BigNumber(auctionPoolMicrogons).times(constants.percentForTreasuryReserves), true);
+  let vaultPoolMicrogons = auctionPoolMicrogons - reserves;
+  if ('percentForArgonotBondPool' in constants) {
+    const participants = await beforePayoutApi.query.treasury.currentFrameArgonotBondParticipants();
+    if (participants?.frameId === frameId && participants.totalBonds > 0) {
+      const stakePool = bigNumberToBigInt(BigNumber(auctionPoolMicrogons).times(constants.percentForArgonotBondPool));
+      vaultPoolMicrogons = bigIntMax(0n, vaultPoolMicrogons - stakePool);
+    }
+  }
+
+  const reserveTransferFailed = events.some(
+    ({ event }) =>
+      event.section === 'treasury' &&
+      (event.method === 'CouldNotTransferToTreasuryReserves' || event.method === 'CouldNotFundTreasury') &&
+      event.data.frameId === frameId,
+  );
+  if (!reserveTransferFailed) result.vaultPoolMicrogons = vaultPoolMicrogons;
+  return result;
 }
 
 function readVaultSecuritization(

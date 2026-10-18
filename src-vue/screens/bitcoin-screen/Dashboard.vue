@@ -161,13 +161,8 @@
                 class="flex flex-row items-stretch border-t border-slate-400/30 pt-3 pb-3 whitespace-nowrap text-slate-500"
               >
                 <span>
-                  <span :data-testid="`BitcoinLiquid.receivedLiquidity-${liquid.model.liquidId}`">
-                    {{ currency.symbol
-                    }}{{
-                      microgonToMoneyNm(liquid.position?.receivedLiquidity ?? liquid.model.receivedLiquidity).format(
-                        '0,0.00',
-                      )
-                    }}
+                  <span :data-testid="`BitcoinLiquid.grantedLiquidity-${liquid.model.liquidId}`">
+                    {{ currency.symbol }}{{ microgonToMoneyNm(liquid.grantedLiquidity).format('0,0.00') }}
                     liquidity
                   </span>
                   <span v-if="liquid.model.pendingLiquidity" class="ml-1 text-slate-400">
@@ -314,7 +309,7 @@ import * as Vue from 'vue';
 import { ChevronDownIcon } from '@heroicons/vue/24/outline';
 import dayjs from 'dayjs';
 import relativeTime from 'dayjs/plugin/relativeTime';
-import { NetworkConfig, SATOSHIS_PER_BITCOIN, UnitOfMeasurement } from '@argonprotocol/apps-core';
+import { bigIntMax, NetworkConfig, SATOSHIS_PER_BITCOIN, UnitOfMeasurement } from '@argonprotocol/apps-core';
 
 import BitcoinIcon from '../../assets/wallets/bitcoin.svg?component';
 import FormattedMoney from '../../components/FormattedMoney.vue';
@@ -339,6 +334,7 @@ import BitcoinLiquidDetailOverlay from '../../overlays/BitcoinLiquidDetailOverla
 type LiquidDisplay = {
   model: BitcoinLiquid;
   position?: IBitcoinLiquidFinancialPosition;
+  grantedLiquidity: bigint;
   repaymentAmount: bigint;
   ratchet: ReturnType<BitcoinLiquid['getRatchetStatus']>;
   lockSummaries: IBitcoinLockSummary[];
@@ -383,6 +379,11 @@ const liquidRows = Vue.computed<LiquidDisplay[]>(() =>
         (position): position is IBitcoinLiquidFinancialPosition =>
           position.kind === 'bitcoin-liquid' && position.liquidId === liquid.liquidId,
       );
+      const historicalLiquidity =
+        (financialPosition?.receivedLiquidity ?? 0n) + (financialPosition?.pendingLiquidity ?? 0n);
+      // Incomplete history cannot reduce the current grant retained on chain.
+      const grantedLiquidity = bigIntMax(historicalLiquidity, liquid.liquidityPromised);
+
       const lockSummaries: IBitcoinLockSummary[] = [];
       const includedLockIds = new Set<number>();
       const currentRate = currency.priceIndex.btcUsdPrice
@@ -418,6 +419,7 @@ const liquidRows = Vue.computed<LiquidDisplay[]>(() =>
       return {
         model: liquid,
         position: financialPosition,
+        grantedLiquidity,
         repaymentAmount: liquid.getRepaymentAmount(currency.priceIndex),
         ratchet:
           currentRate === undefined

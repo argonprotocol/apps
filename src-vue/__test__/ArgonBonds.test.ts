@@ -25,6 +25,8 @@ import {
   MICROGONS_PER_ARGON,
   TreasuryBonds,
   Vault,
+  ACCOUNT_ACTIVITY_DEFINITION_VERSION,
+  AccountActivityKind,
 } from '@argonprotocol/apps-core';
 import type { WalletForArgon } from '../lib/WalletForArgon.ts';
 import { encodeAddress } from '@polkadot/util-crypto';
@@ -39,6 +41,8 @@ import * as vaultStore from '../stores/vaults.ts';
 import * as bondStore from '../stores/argonBonds.ts';
 import * as currencyStore from '../stores/currency.ts';
 import { allocateBitcoinVaultSpace, useVaultingAssetBreakdown } from '../stores/vaultingAssetBreakdown.ts';
+import * as indexerClient from '../lib/IndexerClient.ts';
+import { restoreFinancialHistory } from '../lib/recovery/index.ts';
 
 const registry = getOfflineRegistry();
 const deployedRegistry = new TypeRegistry();
@@ -1270,6 +1274,8 @@ describe('ArgonBonds', () => {
 
     const eventsAt101 = createDeferred<FrameSystemEventRecord[]>(false);
     const eventsAt103 = createDeferred<FrameSystemEventRecord[]>(false);
+    const eventsAt106 = createDeferred<FrameSystemEventRecord[]>(false);
+    const eventsAt110 = createDeferred<FrameSystemEventRecord[]>(false);
     const refreshedLots = createDeferred<BondLot[]>(false);
     let onFinalized: ((blocks: { blockNumber: number }[]) => void) | undefined;
     const blockWatch = {
@@ -1282,13 +1288,16 @@ describe('ArgonBonds', () => {
           return () => undefined;
         }),
       },
-      getHeader: vi.fn(async (blockNumber: number) => ({
-        blockNumber,
-        blockHash: `0x${blockNumber}`,
-        parentHash: `0x${blockNumber - 1}`,
-        blockTime: new Date('2026-07-02T12:00:00Z').getTime(),
-        isFinalized: true,
-      })),
+      getHeader: vi.fn(async (input: number | Pick<IBlockHeaderInfo, 'blockNumber'>) => {
+        const blockNumber = typeof input === 'number' ? input : input.blockNumber;
+        return {
+          blockNumber,
+          blockHash: `0x${blockNumber}`,
+          parentHash: `0x${blockNumber - 1}`,
+          blockTime: new Date('2026-07-02T12:00:00Z').getTime(),
+          isFinalized: true,
+        };
+      }),
       getApi: vi.fn(async () => ({
         runtimeVersion: { specVersion: registry.createType('u32', 160) },
         query: { treasury: { bondLotById: vi.fn(async () => lotCodec) } },
@@ -1297,6 +1306,16 @@ describe('ArgonBonds', () => {
       getEvents: vi.fn(async (block: { blockNumber: number }) => {
         if (block.blockNumber === 101) return eventsAt101.promise;
         if (block.blockNumber === 103) return eventsAt103.promise;
+        if (block.blockNumber === 106) return eventsAt106.promise;
+        if (block.blockNumber === 110) return eventsAt110.promise;
+        if (block.blockNumber === 90) {
+          return [
+            {
+              event: { section: 'treasury', method: 'BondLotPurchased', data: { accountId, bondLotId: 7 } },
+              phase: { type: 'ApplyExtrinsic', value: 1 },
+            },
+          ];
+        }
         if (block.blockNumber === 104) {
           return [
             {
@@ -1311,6 +1330,13 @@ describe('ArgonBonds', () => {
         }
         return [];
       }),
+      getEventsWithSpec: async (
+        block: IBlockHeaderInfo,
+      ): Promise<{ events: RuntimeSystemEventRecord[]; specVersion: number }> => ({
+        events: (await blockWatch.getEvents(block)) as RuntimeSystemEventRecord[],
+        specVersion: 160,
+      }),
+      withBackgroundArchiveRead: async <T>(read: () => Promise<T>) => await read(),
     };
     const getBondLots = vi
       .spyOn(TreasuryBonds, 'getBondLotsByAccount')
@@ -1320,7 +1346,7 @@ describe('ArgonBonds', () => {
       Promise.resolve(db),
       { isLoadedPromise: Promise.resolve(), upstreamOperator: undefined },
       { isLoadedPromise: Promise.resolve(), fetchMainchainRatesAtBlock: vi.fn() } as any,
-      { load: vi.fn(async () => undefined), blockWatch } as any,
+      { load: vi.fn(async () => undefined), blockWatch, frames: [], earliestWithSpec: () => 0 } as any,
       { defaultArgonAddress: accountId } as any,
     );
 
@@ -1378,7 +1404,60 @@ describe('ArgonBonds', () => {
       expect(argonBonds.data.historyError).toBeUndefined();
       expect(argonBonds.data.bondHistory[0]?.flexibilityHistory).toHaveLength(2);
     });
-    getBondLots.mockRestore();
+    // Indexed recovery must publish without waiting for every block in an old cursor gap.
+    blockWatch.finalizedBlockHeader = { blockNumber: 200, blockHash: '0x200', frameId: 4 };
+    onFinalized?.([{ blockNumber: 200 }]);
+    await vi.waitFor(() =>
+      expect(blockWatch.getEvents).toHaveBeenCalledWith(expect.objectContaining({ blockNumber: 106 })),
+    );
+    const replayStarted = createDeferred<void>(false);
+    getBondLots.mockResolvedValue([lot]);
+    const findActivity = vi.spyOn(indexerClient, 'findAddressActivity').mockResolvedValue({
+      asOfBlock: 200,
+      definitionVersion: ACCOUNT_ACTIVITY_DEFINITION_VERSION,
+      coverage: { fromBlock: 0, toBlock: 200, gaps: [] },
+      blocks: [90, 101, 104].map(blockNumber => ({
+        blockNumber,
+        blockHash: `0x${blockNumber}`,
+        specVersion: 160,
+        activityMask: AccountActivityKind.BondPosition,
+      })),
+    });
+    const restore = restoreFinancialHistory({
+      db,
+      blockWatch: blockWatch as any,
+      accountId,
+      argonBonds,
+      vaultHistory: {} as any,
+      enabledDomains: ['bonds'],
+      recoverMissingCheckpointsFor: ['bonds'],
+      force: true,
+      onProgress: () => replayStarted.resolve(),
+    });
+    void restore.catch(() => undefined);
+    try {
+      await replayStarted.promise;
+      eventsAt106.resolve([]);
+      await vi.waitFor(async () => {
+        expect(await db.syncStateTable.get(SyncStateKeys.BondHistory)).toMatchObject({ blockNumber: 200 });
+        expect(argonBonds.data.bondHistory[0]).toMatchObject({
+          purchaseBlockNumber: 90,
+          flexibilityHistoryComplete: true,
+        });
+        expect(argonBonds.data.historyCoveragePending).toBe(false);
+      });
+      await restore;
+      expect(argonBonds.data.bondHistory[0].flexibilityHistory).toEqual([
+        expect.objectContaining({ source: 'purchase', blockNumber: 90, isFlexible: true }),
+        expect.objectContaining({ blockNumber: 101, isFlexible: true }),
+        expect.objectContaining({ blockNumber: 104, isFlexible: false }),
+      ]);
+    } finally {
+      eventsAt110.resolve([]);
+      await restore.catch(() => undefined);
+      findActivity.mockRestore();
+      getBondLots.mockRestore();
+    }
   });
 
   it('retains one bond investment through recovered pre-flexibility-name transitions', async () => {

@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import { createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
+import type { TxOutspend } from '@mempool/mempool.js/lib/interfaces/bitcoin/transactions';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { BitcoinNetwork, CosignScript, HDKey, Transaction } from '@argonprotocol/bitcoin';
 import { Keyring, hexToU8a, u8aToHex } from '@argonprotocol/mainchain';
@@ -26,7 +27,8 @@ import BigNumber from 'bignumber.js';
 import * as Vue from 'vue';
 import { BitcoinCooperativeReleases } from '../lib/BitcoinCooperativeReleases.ts';
 import BitcoinMempool from '../lib/BitcoinMempool.ts';
-import type { ServerApiClient } from '../lib/ServerApiClient.ts';
+import { ServerApiClient } from '../lib/ServerApiClient.ts';
+import { ServerType } from '../interfaces/IConfig.ts';
 import { Db } from '../../router/src/Db.ts';
 import { createTestDb } from './helpers/db.ts';
 import { createStore, historyBlock, historyEvent } from './helpers/bitcoin.ts';
@@ -54,6 +56,7 @@ afterEach(async () => {
   );
   for (const db of databases.splice(0)) db.close();
   vi.restoreAllMocks();
+  vi.unstubAllGlobals();
 });
 
 // Component scenarios use real application state, SQLite, and signing with simulated chain observations.
@@ -503,6 +506,38 @@ describe('cooperative release approval with simulated chain observations', () =>
         status: BitcoinReleaseStatus.Failed,
         cooperativeRequest: rejected.cooperativeRequest,
       });
+
+      // A newly discovered output can be spent before its owner starts the return.
+      const unavailableDeposit = await restarted.utxoTracking.upsertUtxoRecord(
+        lock,
+        { txid: fixture.request.utxoRef.txid, vout: 3, satoshis: fixture.request.satoshis },
+        { minimumSatoshis: 100_000n },
+      );
+      const externalSpend: TxOutspend = {
+        spent: true,
+        txid: '56'.repeat(32),
+        vin: 0,
+        status: { confirmed: false, block_height: 115, block_hash: '34'.repeat(32), block_time: 1_700_000_000 },
+      };
+      fixture.fundingSpend = externalSpend;
+      await expect(
+        restarted.releases.requestCooperativeRelease({ ...terms, record: unavailableDeposit }),
+      ).rejects.toThrow('Wait for the pending Bitcoin spend to resolve.');
+      expect(await appDb.bitcoinReleasesTable.fetchAll()).toHaveLength(2);
+      expect(await appDb.bitcoinUtxosTable.getByLockOutpoint(42, unavailableDeposit.txid, 3)).toMatchObject({
+        spendStatus: BitcoinUtxoSpendStatus.Unspent,
+        activeReleaseId: undefined,
+      });
+
+      externalSpend.status.confirmed = true;
+      await expect(
+        restarted.releases.requestCooperativeRelease({ ...terms, record: unavailableDeposit }),
+      ).rejects.toThrow('This Bitcoin deposit is already spent.');
+      expect(await appDb.bitcoinReleasesTable.fetchAll()).toHaveLength(2);
+      expect(await appDb.bitcoinUtxosTable.getByLockOutpoint(42, unavailableDeposit.txid, 3)).toMatchObject({
+        spendStatus: BitcoinUtxoSpendStatus.Spent,
+        activeReleaseId: undefined,
+      });
     },
   );
   it('signs the exact approved Bitcoin transaction when an unrelated runtime version changes while queued', async () => {
@@ -671,6 +706,24 @@ describe('cooperative release approval with simulated chain observations', () =>
     expect(cooperative.data.refreshError).toBe('Server unavailable.');
     expect(cooperative.data.isRefreshing).toBe(false);
     read.mockRestore();
+
+    const displayedRequests = cooperative.data.requests;
+    const olderServer = new ServerApiClient(
+      () => ({ type: ServerType.CustomServer, ipAddress: '203.0.113.10', gatewayPort: 443 }),
+      { getAdminOperatorSessionId: vi.fn(), invalidateAdminOperatorSessionId: vi.fn() },
+      { canAccessServer: true },
+    );
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => new Response(JSON.stringify({ status: 'ok', authEnabled: false }))),
+    );
+    await cooperative.refresh({ finalizedClient: client, server: olderServer, vaultId: 7 });
+    expect(cooperative.data.requests).toBe(displayedRequests);
+    expect(cooperative.data.refreshError).toBe('');
+    expect(cooperative.data.isRefreshing).toBe(false);
+    expect(db.bitcoinCooperativeReleasesTable.pending(7).requests).toHaveLength(1);
+    vi.unstubAllGlobals();
+
     fixture.cursor.blockHeight = 100;
     fixture.depositConfirmed = false;
     await expect(cooperative.getDepositConfirmationWait({ txid: request.utxoRef.txid })).resolves.toBe('Bitcoin');
@@ -881,6 +934,7 @@ async function createFixture(inputSatoshis = 50_000n, historicalSpecVersion = 15
     BitcoinNetwork.Regtest,
   );
   previous.addOutput({ amount: inputSatoshis, script: hexToU8a(outsideScript.calculateScriptPubkey()) });
+  previous.addOutput({ amount: inputSatoshis, script: hexToU8a(lock.p2wshScriptHashHex) });
   previous.updateInput(0, { finalScriptSig: new Uint8Array([0x51]) });
   const destination = `0x0014${'12'.repeat(20)}`;
   const fee = cosign.calculateFee(5n, 1, destination, false);
@@ -918,6 +972,7 @@ async function createFixture(inputSatoshis = 50_000n, historicalSpecVersion = 15
     failBitcoinBroadcast: false,
     returnConfirmed: false,
     depositConfirmed: true,
+    fundingSpend: undefined as TxOutspend | undefined,
     broadcasts: [] as string[],
     reorgedFundingTxid: '',
     currentRuntimeSpecVersion: 159,
@@ -1117,36 +1172,42 @@ async function createFixture(inputSatoshis = 50_000n, historicalSpecVersion = 15
         res.writeHead(200);
         res.write('00');
       } else res.end(Buffer.from(previous.toBytes(true)).toString('hex'));
-    } else if (path === `/tx/${Buffer.from(previous.hash, 'hex').reverse().toString('hex')}/status`)
+    } else if (path.endsWith('/status')) {
+      res.end(JSON.stringify({ confirmed: false }));
+    } else if (path === `/tx/${Buffer.from(previous.hash, 'hex').reverse().toString('hex')}`)
       res.end(
         JSON.stringify({
-          confirmed: fixture.depositConfirmed,
-          block_height: 100,
-          block_time: 1,
-          block_hash: '34'.repeat(32),
+          status: {
+            confirmed: fixture.depositConfirmed,
+            block_height: 100,
+            block_time: 1,
+            block_hash: '34'.repeat(32),
+          },
         }),
       );
     else if (
       fixture.reorgedFundingTxid &&
-      path === `/tx/${Buffer.from(fixture.reorgedFundingTxid.slice(2), 'hex').reverse().toString('hex')}/status`
+      path === `/tx/${Buffer.from(fixture.reorgedFundingTxid.slice(2), 'hex').reverse().toString('hex')}`
     ) {
-      res.end(JSON.stringify({ confirmed: false }));
-    } else if (path.endsWith('/status')) {
+      res.end(JSON.stringify({ status: { confirmed: false } }));
+    } else if (/^\/tx\/[0-9a-f]{64}$/.test(path)) {
       if (!fixture.broadcasts.length) {
         res.statusCode = 404;
         res.end();
       } else
         res.end(
           JSON.stringify({
-            confirmed: fixture.returnConfirmed,
-            block_height: 115,
-            block_time: 1,
-            block_hash: '34'.repeat(32),
+            status: {
+              confirmed: fixture.returnConfirmed,
+              block_height: 115,
+              block_time: 1,
+              block_hash: '34'.repeat(32),
+            },
           }),
         );
     } else if (path.includes('/outspend/')) {
       bitcoinOutspendRequested.resolve();
-      res.end(JSON.stringify({ spent: false }));
+      res.end(JSON.stringify(fixture.fundingSpend ?? { spent: false }));
     } else if (path === '/block-height/100') res.end('34'.repeat(32));
     else if (path === '/block-height/101') res.end('45'.repeat(32));
     else if (path === '/block-height/102') res.end('46'.repeat(32));
@@ -1210,6 +1271,12 @@ async function createFixture(inputSatoshis = 50_000n, historicalSpecVersion = 15
     },
     set depositConfirmed(value: boolean) {
       fixture.depositConfirmed = value;
+    },
+    get fundingSpend() {
+      return fixture.fundingSpend;
+    },
+    set fundingSpend(value: TxOutspend | undefined) {
+      fixture.fundingSpend = value;
     },
     cursor,
     set currentRuntimeSpecVersion(value: number) {

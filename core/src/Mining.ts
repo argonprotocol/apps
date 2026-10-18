@@ -1,6 +1,7 @@
 import type { ArgonClient, ArgonQueryClient, MainchainClients } from './MainchainClients.js';
 import { bigIntMax, bigIntMin, bigNumberToBigInt, numericToAlpha } from './utils.js';
 import type { IWinningBid } from './interfaces/index.js';
+import { BotActivityType, type IHistoryFile } from './interfaces/IHistoryFile.js';
 import type { IMiningIndex } from './Accountset.ts';
 import { NetworkConfig } from './NetworkConfig.js';
 
@@ -272,6 +273,25 @@ export class Mining {
 
     slots.sort((a, b) => Number(a.slotId) - Number(b.slotId));
     return normalizeMiningSeatSlots(slots, nextAuctionSlotId);
+  }
+
+  public static summarizeBidHistory(history: IHistoryFile | undefined, networkBidCount?: number) {
+    // An empty network auction proves zero accepted bids even without saved personal activity.
+    if (!history?.activities.length && networkBidCount !== 0) return;
+
+    let acceptedBidCount = 0;
+    let maximumMicrogons: bigint | undefined;
+    for (const activity of history?.activities ?? []) {
+      if (activity.type !== BotActivityType.BidsSubmitted && activity.type !== BotActivityType.BidsRejected) continue;
+      let acceptedCount = activity.data.submittedCount;
+      if (activity.type === BotActivityType.BidsRejected) acceptedCount -= activity.data.rejectedCount;
+      if (acceptedCount <= 0) continue;
+
+      acceptedBidCount += acceptedCount;
+      const amount = activity.data.microgonsPerSeat;
+      if (maximumMicrogons === undefined || amount > maximumMicrogons) maximumMicrogons = amount;
+    }
+    return { acceptedBidCount, maximumMicrogons };
   }
 
   public static async fetchWinningBids(

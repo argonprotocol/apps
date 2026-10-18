@@ -196,6 +196,7 @@ export class Storage {
         return {
           frameId,
           totalBidCount: 0,
+          auctionSeatCount: undefined,
           winningBids: [],
           slots: [],
         };

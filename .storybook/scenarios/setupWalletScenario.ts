@@ -397,6 +397,7 @@ export function setupWalletScenario(state: WalletScenario): WalletScenarioState 
     releases,
     utxoTracking: {
       load: fn((records: IBitcoinUtxoRecord[]) => bitcoinUtxos.splice(0, bitcoinUtxos.length, ...records)),
+      refreshDepositSpend: fn(async () => undefined),
       getAllOrphanLifecycleUtxos: fn(() => bitcoinUtxos.filter(utxo => utxo.status === BitcoinUtxoStatus.Orphaned)),
       getUnresolvedOrphanRecords: fn(() =>
         bitcoinUtxos.filter(

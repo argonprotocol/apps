@@ -3,10 +3,12 @@ import {
   BlockWatch,
   JsonExt,
   NetworkConfig,
+  type ArgonApi,
   type ArgonClient,
   type ArgonCurrentQueryClient,
   type IAllVaultStats,
   type IBlockHeaderInfo,
+  type RuntimeSystemEventRecord,
 } from '@argonprotocol/apps-core';
 import BigNumber from 'bignumber.js';
 import { getOfflineRegistry, PriceIndex } from '@argonprotocol/mainchain';
@@ -20,6 +22,10 @@ import { Vaults } from '../lib/Vaults.ts';
 import { setMainchainClients } from '../stores/mainchain.ts';
 import { useVaultingStats } from '../stores/vaultingStats.ts';
 import { patchVaultHistory } from '../../scripts/patchVaultHistory.ts';
+import { ProfitAnalysis } from '../lib/ProfitAnalysis.ts';
+import { readVaultNetworkPool } from '../lib/recovery/MyVault.ts';
+import type { MyVault } from '../lib/MyVault.ts';
+import type { ArgonBonds } from '../lib/ArgonBonds.ts';
 import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -182,8 +188,66 @@ describe('Vaults stats storage', () => {
     globalThis.window = originalWindow;
   });
 
-  it.each(['separate vault rewards', 'combined vault and bond rewards', 'earlier pool rules'])(
-    'patches %s once, then records only new frame history through Retry',
+  it.each([true, false])('reads the payout balance with mining rewards first: %s', async rewardsBeforePayout => {
+    const registry = getOfflineRegistry();
+    const poolAddress = registry.createType('AccountId32', `0x6d6f646c7472656173757279${'00'.repeat(20)}`).toString();
+    const sender = registry.createType('AccountId32', new Uint8Array(32).fill(1)).toString();
+    const events: RuntimeSystemEventRecord[] = [
+      {
+        phase: { type: 'ApplyExtrinsic', value: 0 },
+        event: { section: 'balances', method: 'Transfer', data: { from: sender, to: poolAddress, amount: 100n } },
+        topics: [],
+      },
+      {
+        phase: { type: 'ApplyExtrinsic', value: 1 },
+        event: { section: 'balances', method: 'Transfer', data: { from: poolAddress, to: sender, amount: 1n } },
+        topics: [],
+      },
+      {
+        phase: { type: 'Finalization' },
+        event: {
+          section: 'balances',
+          method: 'Transfer',
+          data: {
+            from: poolAddress,
+            to: sender,
+            amount: rewardsBeforePayout ? 100_000_020n : 100_000_010n,
+          },
+        },
+        topics: [],
+      },
+    ];
+    // Specs 147–150 mint block rewards before Treasury; other supported eras mint afterward.
+    events.splice(rewardsBeforePayout ? 2 : 3, 0, {
+      phase: { type: 'Finalization' },
+      event: { section: 'balances', method: 'Minted', data: { who: poolAddress, amount: 100n } },
+      topics: [],
+    });
+    const payoutApi = runtimeClient({
+      registry,
+      consts: { treasury: { palletId: '0x7472656173757279', percentForTreasuryReserves: BigNumber(0.1) } },
+      query: { system: { events: async () => events } },
+    }) as unknown as ArgonApi;
+    const beforePayoutApi = runtimeClient({
+      query: {
+        system: {
+          account: async () => registry.createType('FrameSystemAccountInfo', { data: { free: 1_000_000_001n } }),
+        },
+      },
+    }) as unknown as ArgonApi;
+
+    const pool = await readVaultNetworkPool({ frameId: 20, api: payoutApi, parentApi: beforePayoutApi });
+    expect(pool.auctionPoolMicrogons).toBe(rewardsBeforePayout ? 1_000_000_200n : 1_000_000_100n);
+    expect(pool.vaultPoolMicrogons).toBe(rewardsBeforePayout ? 900_000_180n : 900_000_090n);
+  });
+
+  it.each([
+    'separate vault rewards',
+    'combined vault and bond rewards',
+    'reserves without Argonot bonds',
+    'earlier pool rules',
+  ])(
+    'patches %s once, then publishes new frame history through Retry without replacing loaded returns',
     async poolModel => {
       globalThis.window = {} as Window & typeof globalThis;
       NetworkConfig.setNetwork('mainnet');
@@ -194,7 +258,8 @@ describe('Vaults stats storage', () => {
       const deployedRegistry = new TypeRegistry();
       const metadata = Object.entries(getBundledMetadata()).find(([key]) => key.endsWith('-159'))![1];
       deployedRegistry.setMetadata(new Metadata(deployedRegistry, metadata));
-      const hasSecuritizationHistory = poolModel !== 'earlier pool rules';
+      const hasSecuritizationHistory =
+        poolModel === 'separate vault rewards' || poolModel === 'combined vault and bond rewards';
       const commitment = (heldMicronots: bigint) =>
         toPlain(
           registry.createType('Option<ArgonPrimitivesVaultVaultArgonotSecuritization>', {
@@ -222,50 +287,54 @@ describe('Vaults stats storage', () => {
         currentFrameId: 21,
         frameIds: [21],
         framesById: { 21: { firstBlockHash: '0x21' } },
-        getFrameStart: async (frameId: number) => ({
-          frame: {
-            firstBlockSpecVersion: frameId > 21 || hasSecuritizationHistory ? 160 : 145,
-            firstBlockNumber: frameId,
-            firstBlockHash: `0x${frameId}`,
-            firstBlockTick: frameId * 10,
-          },
-          api: runtimeClient({
-            registry,
-            consts: {
-              treasury: {
-                palletId: '0x7472656173757279',
-                ...(hasSecuritizationHistory
-                  ? {
-                      percentForTreasuryReserves: BigNumber(0.1),
-                      percentForArgonotBondPool: BigNumber(0.2),
-                    }
-                  : { bidPoolBurnPercent: BigNumber(0.1) }),
-                ...(frameId > 21 || poolModel === 'separate vault rewards'
-                  ? { percentForVaultPool: BigNumber(0.3) }
-                  : {}),
-              },
+        getTickStart: (frameId: number) => frameId * 1_440,
+        getFrameStart: async (frameId: number) => {
+          const separatePool = poolModel === 'separate vault rewards' || (!hasSecuritizationHistory && frameId > 21);
+          let specVersion = 160;
+          if (poolModel === 'combined vault and bond rewards') specVersion = 159;
+          else if (poolModel === 'reserves without Argonot bonds' && frameId <= 21) specVersion = 155;
+          else if (poolModel === 'earlier pool rules' && frameId <= 21) specVersion = 145;
+          return {
+            frame: {
+              firstBlockSpecVersion: specVersion,
+              firstBlockNumber: frameId,
+              firstBlockHash: `0x${frameId}`,
+              firstBlockTick: frameId * 10,
             },
-            query: {
-              system: { events: async () => [] },
-              treasury: {},
-              vaults: {
-                ...(hasSecuritizationHistory
-                  ? {
-                      argonotSecuritizationByVaultId: {
-                        entries: async () => [[{ args: [1] }, commitment(888_000_000n)]],
-                      },
-                    }
-                  : {}),
-                revenuePerFrameByVault: {
-                  entries: async () => {
-                    if (historyError) throw new Error('History RPC unavailable');
-                    return [[{ args: [1] }, [...revenue(), { ...revenue()[0], frameId: latestRevenueFrame }]]];
+            api: runtimeClient({
+              registry,
+              consts: {
+                treasury: {
+                  palletId: '0x7472656173757279',
+                  ...(poolModel === 'earlier pool rules'
+                    ? { bidPoolBurnPercent: BigNumber(0.1) }
+                    : { percentForTreasuryReserves: BigNumber(0.1) }),
+                  ...(hasSecuritizationHistory ? { percentForArgonotBondPool: BigNumber(0.2) } : {}),
+                  ...(separatePool ? { percentForVaultPool: BigNumber(0.3) } : {}),
+                },
+              },
+              query: {
+                system: { events: async () => [] },
+                treasury: {},
+                vaults: {
+                  ...(hasSecuritizationHistory
+                    ? {
+                        argonotSecuritizationByVaultId: {
+                          entries: async () => [[{ args: [1] }, commitment(888_000_000n)]],
+                        },
+                      }
+                    : {}),
+                  revenuePerFrameByVault: {
+                    entries: async () => {
+                      if (historyError) throw new Error('History RPC unavailable');
+                      return [[{ args: [1] }, [...revenue(), { ...revenue()[0], frameId: latestRevenueFrame }]]];
+                    },
                   },
                 },
               },
-            },
-          }),
-        }),
+            }),
+          };
+        },
         blockWatch: {
           events,
           finalizedBlockHeader: { blockNumber: 100 },
@@ -282,7 +351,9 @@ describe('Vaults stats storage', () => {
                     ),
                 },
                 treasury: {
-                  currentFrameArgonotBondParticipants: async () => ({ frameId: 20, totalBonds: 10 }),
+                  ...(hasSecuritizationHistory
+                    ? { currentFrameArgonotBondParticipants: async () => ({ frameId: blockNumber, totalBonds: 10 }) }
+                    : {}),
                   currentFrameVaultCapital: async () => {
                     if (poolModel === 'combined vault and bond rewards' && blockNumber === 20) {
                       return toPlain(
@@ -340,10 +411,21 @@ describe('Vaults stats storage', () => {
       const annualEarnings = computed(() => (returns.averageAPR * 1_000) / 100);
       await returns.isLoadedPromise;
       expect(annualEarnings.value).toBeCloseTo(36_500);
+      const chartOwner = { vaultId: 1, vaults, data: { stats: vaults.stats!.vaultsById[1] } } as unknown as MyVault;
+      const chart = new ProfitAnalysis(
+        chartOwner,
+        frames as any,
+        { data: { bondLots: [], bondHistory: [], dailyEarnings: [], isLoaded: true } } as unknown as ArgonBonds,
+        21,
+      );
+      chart.update();
+      expect(chart.records.find(record => record.id === 20)?.earningsMicrogons).toBe(100_000_000n);
 
       fees = 50_000_000n;
       await vaults.updateVaultRevenue(1, revenue());
       await vi.waitFor(() => expect(annualEarnings.value).toBeCloseTo(18_250));
+      chart.update();
+      expect(chart.records.find(record => record.id === 20)?.earningsMicrogons).toBe(50_000_000n);
 
       // The maintenance script works on a detached file, preserving the loaded display until publication.
       const patchInput = (await vaults.restore())!;
@@ -410,7 +492,7 @@ describe('Vaults stats storage', () => {
       ).toBe(hasSecuritizationHistory ? 500_000_000n : undefined);
       expect(
         restored?.vaultsById[1].changesByFrame.find(frame => frame.frameId === 21)?.argonotSecuritizationMicronots,
-      ).toBe(600_000_000n);
+      ).toBe(poolModel === 'combined vault and bond rewards' ? undefined : 600_000_000n);
       expect(restored?.networkPoolsByFrame?.[20]).toMatchObject({
         auctionPoolMicrogons: 1_000_000_001n,
         includesBondPayments: poolModel !== 'separate vault rewards',
@@ -421,12 +503,12 @@ describe('Vaults stats storage', () => {
       } else if (poolModel === 'combined vault and bond rewards') {
         expect(restored?.networkPoolsByFrame?.[20].vaultPoolMicrogons).toBe(700_000_000n);
       } else {
-        expect(restored?.networkPoolsByFrame?.[20].vaultPoolMicrogons).toBeUndefined();
+        expect(restored?.networkPoolsByFrame?.[20].vaultPoolMicrogons).toBe(900_000_000n);
       }
       expect(restored?.networkPoolsByFrame?.[21]).toMatchObject({
         auctionPoolMicrogons: 1_000_000_001n,
-        vaultPoolMicrogons: 300_000_000n,
-        includesBondPayments: false,
+        vaultPoolMicrogons: poolModel === 'combined vault and bond rewards' ? 700_000_000n : 300_000_000n,
+        includesBondPayments: poolModel === 'combined vault and bond rewards',
       });
 
       // Once caught up, an unavailable archive cannot replace the completed snapshot or its visible return.
@@ -458,12 +540,14 @@ describe('Vaults stats storage', () => {
       await vi.waitFor(() => expect(vaults.stats?.synchedToFrame).toBe(22));
       expect(vaults.stats?.networkPoolsByFrame?.[22]).toMatchObject({
         auctionPoolMicrogons: 1_000_000_001n,
-        vaultPoolMicrogons: 300_000_000n,
+        vaultPoolMicrogons: poolModel === 'combined vault and bond rewards' ? 700_000_000n : 300_000_000n,
       });
-      expect(vaults.stats?.vaultsById[1].changesByFrame.find(frame => frame.frameId === 22)).toMatchObject({
-        argonotSecuritizationMicronots: 600_000_000n,
-        upstreamParticipation: new BigNumber(0.5),
-      });
+      if (poolModel !== 'combined vault and bond rewards') {
+        expect(vaults.stats?.vaultsById[1].changesByFrame.find(frame => frame.frameId === 22)).toMatchObject({
+          argonotSecuritizationMicronots: 600_000_000n,
+          upstreamParticipation: new BigNumber(0.5),
+        });
+      }
       expect(await vaults.restore()).toEqual(vaults.stats);
 
       // Explicit maintenance can repair development caches created before the
@@ -497,6 +581,7 @@ describe('Vaults cache upgrades', () => {
   });
 
   it('retains historical revenue and website counts while dropping collection status and unused liquidity', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
     globalThis.window = {} as Window & typeof globalThis;
     NetworkConfig.setNetwork('mainnet');
     cacheFiles.directory = await mkdtemp(join(tmpdir(), 'vault-cache-upgrade-'));
@@ -537,7 +622,6 @@ describe('Vaults cache upgrades', () => {
     setMainchainClients({
       events: createTypedEventEmitter(),
       get: async () => ({ query: { vaults: { vaultsById: { entries: async () => [] } } } }),
-      events: createTypedEventEmitter(),
     } as any);
     const frames = {
       load: async () => undefined,
@@ -547,6 +631,7 @@ describe('Vaults cache upgrades', () => {
     const vaults = new Vaults('mainnet', currency as any, frames as any);
     await vaults.load();
     expect(vaults.stats?.synchedToFrame).toBe(30);
+    expect(vaults.stats?.revenueBackfill).toEqual({ nextFrame: 31, throughFrame: 31 });
     expect(vaults.stats?.vaultsById[1]).toEqual({
       openedTick: 1,
       baseline: { bitcoinLocks: 7, feeRevenue: 100_000n },

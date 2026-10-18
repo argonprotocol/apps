@@ -228,19 +228,11 @@ export function createBitcoinLiquidPositions(
         if (args.hasCurrentPrice && args.priceIndex) {
           repaymentAmount += fission.calculateRedemptionAmount(args.priceIndex);
         }
+      } else if (fission.redemptionAmount != null) {
+        recordedPrincipal += fission.redemptionAmount;
+        repaymentAmount += fission.redemptionAmount;
       } else {
-        if (fission.closeReason === 'lock-spent') {
-          // The Bitcoin spend proceeds are not recorded here, so fees and the
-          // original lock value cannot establish a complete Liquid return.
-          hasCompleteReturn = false;
-        } else {
-          if (fission.redemptionAmount != null) {
-            recordedPrincipal += fission.redemptionAmount;
-            repaymentAmount += fission.redemptionAmount;
-          } else {
-            hasCompleteReturn = false;
-          }
-        }
+        hasCompleteReturn = false;
       }
     }
     performanceBitcoinValue += liquid.history.reduce(

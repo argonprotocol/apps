@@ -173,6 +173,14 @@ export default class BitcoinReleases {
   public async load(): Promise<void> {
     const db = await this.dbPromise;
     const releases = await db.bitcoinReleasesTable.fetchAll();
+    for (const release of releases) {
+      // Migration 33 preserved destination addresses in this script field.
+      const toScriptPubkey = addressBytesHex(release.toScriptPubkey, this.bitcoinLocks.bitcoinNetwork);
+      if (toScriptPubkey === release.toScriptPubkey) continue;
+
+      await db.bitcoinReleasesTable.update(release, { toScriptPubkey });
+    }
+
     this.data.releasesById = Object.fromEntries(releases.map(release => [release.id, release]));
   }
 
@@ -542,6 +550,10 @@ export default class BitcoinReleases {
           throw new Error('This deposit is not available for a cooperative return.');
         if (record.status === BitcoinUtxoStatus.Orphaned && record.isOnArgonChain !== false)
           throw new Error('This deposit must use the existing Argon orphan return.');
+
+        const spend = await this.bitcoinLocks.utxoTracking.refreshDepositSpend(record);
+        if (spend?.isConfirmed) throw new Error('This Bitcoin deposit is already spent.');
+        if (spend) throw new Error('Wait for the pending Bitcoin spend to resolve.');
 
         // Bind owner authorization to the exact transaction before reserving the deposit.
         const { cosign, releaseRequest } = this.prepareCooperativeRelease({

@@ -491,11 +491,12 @@ export default new OperationalFlow<IAccountReviewFlowContext, IAccountReviewFlow
         const {
           financialPosition,
           texts: [dashboardLiquidityText],
-        } = await readLiquidUi(liquidId, [`BitcoinLiquid.receivedLiquidity-${liquidId}`]);
-        const expectedReceivedCents = (financialPosition.receivedLiquidity + 5_000n) / 10_000n;
-        if (parseRenderedCents(dashboardLiquidityText) !== expectedReceivedCents) {
+        } = await readLiquidUi(liquidId, [`BitcoinLiquid.grantedLiquidity-${liquidId}`]);
+        const grantedLiquidity = financialPosition.receivedLiquidity + financialPosition.pendingLiquidity;
+        const expectedGrantedCents = (grantedLiquidity + 5_000n) / 10_000n;
+        if (parseRenderedCents(dashboardLiquidityText) !== expectedGrantedCents) {
           throw new Error(
-            `Bitcoin Liquid ${liquidId} rendered ${dashboardLiquidityText} received on the dashboard instead of its financial position value`,
+            `Bitcoin Liquid ${liquidId} rendered ${dashboardLiquidityText} liquidity on the dashboard instead of its granted amount`,
           );
         }
       }

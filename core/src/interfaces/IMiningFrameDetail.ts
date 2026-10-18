@@ -6,6 +6,7 @@ export interface IMiningFrameDetail {
   auctionCloseTick?: number;
   expectedAuctionCloseTick?: number;
   totalBidCount: number;
+  auctionSeatCount?: number;
   myLastBidMicrogons?: bigint;
   winningBids: (IWinningBid & { micronotsStakedPerSeat: bigint })[];
   slots: IMiningSlot[];

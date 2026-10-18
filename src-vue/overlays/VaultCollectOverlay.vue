@@ -16,7 +16,7 @@
 
       <section v-if="showCollectSection" class="flex flex-col gap-y-3">
         <p v-if="myVault.data.bitcoinCosignRefreshError" class="text-argon-error text-sm">{{ myVault.data.bitcoinCosignRefreshError }} Last displayed requests are preserved.</p>
-        <p v-if="cooperativeReleases.data.refreshError" class="text-argon-error text-sm">{{ cooperativeReleases.data.refreshError }} Last displayed returns are preserved.</p>
+        <p v-if="cooperativeReleases.data.refreshError" class="text-argon-error text-sm">{{ cooperativeReleases.data.refreshError }}</p>
         <div v-if="collectRevenue">
           <p>
             Your vault has

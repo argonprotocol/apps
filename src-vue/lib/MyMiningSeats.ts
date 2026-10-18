@@ -540,9 +540,10 @@ export class MyMiningSeats {
   }
 
   private async fetchFramesFromDb(): Promise<IDashboardFrameStats[]> {
-    const lastYear = await this.db.framesTable
-      .fetchLastYear(this.miningFrames, this.currency.microgonsPer.ARGNOT)
-      .then(x => x as IDashboardFrameStats[]);
+    const lastYear = (await this.db.framesTable.fetchLastYear(
+      this.miningFrames,
+      this.currency.microgonsPer.ARGNOT,
+    )) as IDashboardFrameStats[];
     const earliestFrameId = lastYear.at(-1)?.id ?? 0;
     const activeCohorts = this.miningCohorts.filter(
       cohort => cohort.id > earliestFrameId - NetworkConfig.framesPerCohort,
@@ -551,8 +552,6 @@ export class MyMiningSeats {
     for (const cohort of activeCohorts) {
       cohortsById[cohort.id] = cohort;
     }
-    const framesById = new Map<number, IDashboardFrameStats>();
-
     this.activeFrames = 0;
     let previousArgonotPrice = this.currency.microgonsPer.ARGNOT;
     for (const frame of lastYear) {
@@ -597,11 +596,13 @@ export class MyMiningSeats {
       }
 
       if (frameArgonotPrice > 0n) previousArgonotPrice = frameArgonotPrice;
-      framesById.set(frame.id, frame);
+
+      if (frame.seatCostTotalFramed === 0n && frame.profit > 0) frame.profitPct = 9_999;
+      frame.profitPct = Math.min(frame.profitPct, 9_999);
     }
 
     const maxProfitPct = Math.min(Math.max(...lastYear.map(x => x.profitPct)), 1_000);
-    return [...framesById.values()].map(x => {
+    return lastYear.map(x => {
       let score = Math.min(x.profitPct, 1_000);
       if (score > 0) {
         score = (200 * score) / maxProfitPct;

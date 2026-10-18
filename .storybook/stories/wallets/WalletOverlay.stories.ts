@@ -1074,7 +1074,8 @@ export const BitcoinUnattachedDeposit: Story = {
     };
     const failed = { ...orphan, id: 204, vout: 3, isOnArgonChain: false };
     const returned = { ...orphan, id: 205, vout: 4, spendStatus: BitcoinUtxoSpendStatus.Spent };
-    locks.utxoTracking.load([...records, waiting, failed, returned]);
+    const spent = { ...orphan, id: 206, vout: 5, spendStatus: BitcoinUtxoSpendStatus.Spent };
+    locks.utxoTracking.load([...records, waiting, failed, returned, spent]);
     const release = createBitcoinRelease({
       id: waiting.activeReleaseId,
       kind: BitcoinReleaseKind.Cooperative,
@@ -1204,6 +1205,19 @@ export const BitcoinUnattachedDepositReturned: Story = {
       bitcoinTxid: `0x${'57'.repeat(32)}`,
     });
     locks.releases.data.releasesById[release.id] = release;
+    request.view = { type: 'unattachedBitcoin', recordId: record.id };
+    isInteractive.value = false;
+  },
+  play: waitForWalletOverlay,
+};
+
+export const BitcoinUnattachedDepositSpent: Story = {
+  beforeEach: () => {
+    useBitcoinUnattachedDepositScenario();
+    const record = getBitcoinLocks()
+      .utxoTracking.getUtxosForLock(101)
+      .find(record => record.status === BitcoinUtxoStatus.Orphaned)!;
+    record.spendStatus = BitcoinUtxoSpendStatus.Spent;
     request.view = { type: 'unattachedBitcoin', recordId: record.id };
     isInteractive.value = false;
   },

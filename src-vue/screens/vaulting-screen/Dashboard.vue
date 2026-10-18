@@ -425,7 +425,7 @@
                             </a>.
                           </p>
                         </template>
-                        <template v-else>Daily revenue capture is unavailable for this frame.</template>
+                        <p v-else class="px-4">Daily revenue capture is unavailable for this frame.</p>
                         <PopoverPanelArrow class="-translate-y-px" />
                       </PopoverContent>
                       </PopoverPortal>
