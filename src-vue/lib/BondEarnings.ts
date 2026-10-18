@@ -1,4 +1,4 @@
-import type { BondLot } from '@argonprotocol/apps-core';
+import { bigIntMax, type BondLot } from '@argonprotocol/apps-core';
 import type { ArgonBonds } from './ArgonBonds.ts';
 import type { MyVault } from './MyVault.ts';
 import type { IBondEarningsRecord } from './db/BondEarningsTable.ts';
@@ -14,8 +14,6 @@ export function getBondEarnings(
 ) {
   const chainEarnings = lot?.cumulativeEarnings ?? history?.cumulativeEarningsMicrogons;
   const participatedFrames = lot?.participatedFrames ?? history?.participatedFrames;
-  let backfilledEarnings = 0n;
-  for (const backfill of history?.earningsBackfills ?? []) backfilledEarnings += backfill.addedEarnings;
   let observedEarnings = 0n;
   let observedVaultEarnings = 0n;
   let hasMissingPayout = false;
@@ -28,10 +26,10 @@ export function getBondEarnings(
     if (record.earningsDestination === 'Vault') observedVaultEarnings += record.earningsMicrogons;
   }
 
-  // Backfilled chain metrics include the gross flexible allocation. Replace
-  // that reporting-only amount with the recovered bond-holder share.
+  // Older counters omit vault-paid income; updated counters include it.
+  // Both totals describe the same earnings, even before the backfill event is finalized locally.
   let lifetimeEarnings = chainEarnings;
-  if (chainEarnings !== undefined) lifetimeEarnings = chainEarnings - backfilledEarnings + observedVaultEarnings;
+  if (chainEarnings !== undefined) lifetimeEarnings = bigIntMax(chainEarnings, observedEarnings);
   const earningThroughFrame = history?.releaseFrame === undefined ? completedFrame : history.releaseFrame - 1;
   const createdFrame = lot?.createdFrameId ?? history?.createdFrame;
   const historyThroughFrame = history?.earningsHistoryThroughFrame ?? (createdFrame ?? 0) - 1;
@@ -40,7 +38,7 @@ export function getBondEarnings(
   if (!hasDailyCoverage) {
     if (
       lot?.isFlexible ||
-      backfilledEarnings > 0n ||
+      history?.earningsBackfills.length ||
       history?.flexibilityHistory.some(transition => transition.isFlexible)
     ) {
       attributionIsComplete = false;

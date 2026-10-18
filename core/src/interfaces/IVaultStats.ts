@@ -58,7 +58,7 @@ export interface IVaultFrameStats {
     vaultCapital: bigint;
     totalEarnings: bigint;
     vaultEarnings: bigint;
-    /** Flexible bond income included in older vault payouts; absent until its frame allocation is recovered. */
+    /** Bond-holder income after archived sharing and bonus; excludes the operator's retained flexible revenue. */
     flexibleBondEarnings?: bigint;
   };
 }

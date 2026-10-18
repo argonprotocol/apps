@@ -93,7 +93,7 @@ describe('native bond earnings recovery', () => {
       totalSecuritization: 100_000_000n,
       vaultSecuritizationPositions: {},
     };
-    const candidateLots = [0n, 1_000_000n, 3_000_000n, 4_000_000n].map((earnings, index) =>
+    const candidateLots = [0n, 1_000_000n, 1_800_000n, 2_800_000n].map((earnings, index) =>
       registry.createType<Option<PalletTreasuryBondLot>>('Option<PalletTreasuryBondLot>', {
         ...Object.fromEntries(storedLot(earnings).unwrap()),
         createdFrameId: 6,
@@ -180,7 +180,7 @@ describe('native bond earnings recovery', () => {
       event: {
         section: 'treasury',
         method: 'BondLotEarningsBackfilled',
-        data: { bondLotId: 7, addedFrames: 1, addedEarnings: 2_000_000n },
+        data: { bondLotId: 7, addedFrames: 1, addedEarnings: 800_000n },
       },
     };
     const current = snapshots.get(200)!;
@@ -287,10 +287,6 @@ describe('native bond earnings recovery', () => {
       },
       { flush: 'sync' },
     );
-    const visibleBefore = visiblePosition;
-    const before = domain.data.bondHistory;
-    const revision = domain.data.financialRevision;
-    await domain.importHistoryBlock(backfillBlock, [earningsBackfill]);
     const earningsProgress: number[][] = [];
     await domain.recoverDailyEarnings(200, 0, (completed, total) => earningsProgress.push([completed, total]));
     expect(earningsProgress).toEqual([
@@ -299,6 +295,18 @@ describe('native bond earnings recovery', () => {
       [2, 3],
       [3, 3],
     ]);
+    await domain.publishRecoveredHistory();
+
+    // Live metrics can include the backfill before its finalized event reaches local history.
+    await domain.refreshBondLots(current as any);
+    expect(domain.data.bondHistory[0].earningsBackfills).toEqual([]);
+    expect(visiblePosition).toMatchObject({ paidIncome: 2_800_000n, returnIsComplete: true });
+
+    const visibleBefore = visiblePosition;
+    const before = domain.data.bondHistory;
+    const beforeEarnings = domain.data.dailyEarnings;
+    const revision = domain.data.financialRevision;
+    await domain.importHistoryBlock(backfillBlock, [earningsBackfill]);
     await db.execute(`
       CREATE TEMP TRIGGER FailBondBackfill
       BEFORE UPDATE OF earningsBackfills ON BondLotHistory
@@ -312,9 +320,9 @@ describe('native bond earnings recovery', () => {
     expect(domain.data.bondHistory).toBe(before);
     expect(visiblePosition).toEqual(visibleBefore);
     expect(domain.data.bondLots).toEqual([newerLot]);
-    expect(domain.data.dailyEarnings).toEqual([expect.objectContaining(incorrectEarnings)]);
-    expect(await db.bondEarningsTable.fetchAll(owner)).toEqual([expect.objectContaining(incorrectEarnings)]);
-    expect(domain.data.bondHistory[0].earningsHistoryThroughFrame).toBe(6);
+    expect(domain.data.dailyEarnings).toEqual(beforeEarnings);
+    expect(await db.bondEarningsTable.fetchAll(owner)).toEqual(beforeEarnings);
+    expect(domain.data.bondHistory[0].earningsHistoryThroughFrame).toBe(9);
     expect((await db.bondLotHistoryTable.fetchAll(owner))[0].earningsBackfills).toEqual([]);
     await db.execute('DROP TRIGGER FailBondBackfill');
     await domain.publishRecoveredHistory(200);
@@ -327,9 +335,9 @@ describe('native bond earnings recovery', () => {
     });
     stopObserver();
     expect(domain.data.bondHistory[0]).toMatchObject({
-      cumulativeEarningsMicrogons: 4_000_000n,
+      cumulativeEarningsMicrogons: 2_800_000n,
       lastObservedBlockNumber: 200,
-      earningsBackfills: [{ addedEarnings: 2_000_000n }],
+      earningsBackfills: [{ addedEarnings: 800_000n }],
     });
     expect(domain.data.dailyEarnings).toEqual([
       expect.objectContaining({ frameId: 7, earningsMicrogons: 800_000n, earningsDestination: 'Vault' }),
@@ -451,7 +459,7 @@ describe('native bond earnings recovery', () => {
         historyRecords: domain.data.bondHistory,
         frameDates: new Map([[3, new Date(block.blockTime)]]),
       });
-      expect(position).toMatchObject({ lifecycle: 'completed', paidIncome: 1_000_000n, returnIsComplete: false });
+      expect(position).toMatchObject({ lifecycle: 'completed', paidIncome: 3_500_000n, returnIsComplete: false });
     },
   );
 

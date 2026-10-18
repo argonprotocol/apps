@@ -17,7 +17,6 @@ import type {
 } from '@argonprotocol/runtime-client';
 import type { IBondHistoryFact } from '../ArgonBonds.ts';
 import type { IBondLotHistoryRecord, IBondLotEarningsBackfill } from '../db/BondLotHistoryTable.ts';
-import BigNumber from 'bignumber.js';
 
 export interface IBondFrameEarnings {
   lot: BondLot;
@@ -422,14 +421,7 @@ async function readBondFrameEarnings({
       earnings,
       flexible.map(x => x.lot),
     );
-    for (const entry of flexible) {
-      const gross = shares.get(entry.lot.id);
-      if (gross === undefined || entry.lot.program.type !== 'Vault') continue;
-
-      const { sharingPercent, bonusPercent } = entry.lot.program.value;
-      const bondShare = BigNumber.minimum(1, sharingPercent.plus(bonusPercent));
-      entry.earningsMicrogons = bigNumberToBigInt(bondShare.times(gross));
-    }
+    for (const entry of flexible) entry.earningsMicrogons = shares.get(entry.lot.id);
   }
   return entries;
 }

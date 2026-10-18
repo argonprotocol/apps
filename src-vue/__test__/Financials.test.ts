@@ -2785,20 +2785,34 @@ describe('financial position accounting', () => {
       earningsBackfills: [],
       earningsHistoryThroughFrame: 9,
     } as unknown as IBondLotHistoryRecord;
+    const flexibleEarnings = {
+      accountId: flexibleLot.owner,
+      programType: 'Vault' as const,
+      bondLotId: 3,
+      frameId: 9,
+      bonds: 10,
+      isFlexible: true,
+      displacedMicrogons: 0n,
+      earningsMicrogons: 500_000n,
+      earningsDestination: 'Vault' as const,
+      payoutBlockNumber: 100,
+      payoutBlockHash: '0x100',
+    };
     const dailyEarnings = [
       {
         accountId: flexibleLot.owner,
         programType: 'Vault' as const,
         bondLotId: 3,
-        frameId: 9,
+        frameId: 8,
         bonds: 10,
-        isFlexible: true,
+        isFlexible: false,
         displacedMicrogons: 0n,
-        earningsMicrogons: 500_000n,
-        earningsDestination: 'Vault' as const,
-        payoutBlockNumber: 100,
-        payoutBlockHash: '0x100',
+        earningsMicrogons: 2_000_000n,
+        earningsDestination: 'Owner' as const,
+        payoutBlockNumber: 90,
+        payoutBlockHash: '0x90',
       },
+      flexibleEarnings,
     ];
     const bondPositions = bondFinancials.createFinancialPositions({
       bondLots: [flexibleLot],
@@ -2928,7 +2942,7 @@ describe('financial position accounting', () => {
     const chartBonds = {
       bondLots: [], // Released lots still own their historical income.
       bondHistory: [{ ...history, releaseFrame: 11 }],
-      dailyEarnings: [dailyEarnings[0], { ...dailyEarnings[0], frameId: 10, earningsDestination: 'Owner' as const }],
+      dailyEarnings: [flexibleEarnings, { ...flexibleEarnings, frameId: 10, earningsDestination: 'Owner' as const }],
       isLoaded: true,
       currentFrameId: 11,
     };
@@ -2952,7 +2966,7 @@ describe('financial position accounting', () => {
     expect(analysis.items.find(item => item.id === 8)).toMatchObject({ score: null, isFiller: false });
     expect(analysis.items.at(-1)).toMatchObject({ id: 11, score: null });
 
-    chartBonds.dailyEarnings[0] = { ...dailyEarnings[0], earningsMicrogons: undefined } as any;
+    chartBonds.dailyEarnings[0] = { ...flexibleEarnings, earningsMicrogons: undefined } as any;
     analysis.update();
     expect(analysis.items.find(item => item.id === 9)).toMatchObject({ score: null, isFiller: false });
     expect(analysis.records.find(record => record.id === 9)?.earningsMicrogons).toBeUndefined();
@@ -2960,7 +2974,7 @@ describe('financial position accounting', () => {
       frameProfitPercent: 3,
       earningsMicrogons: 3_000_000n,
     });
-    chartBonds.dailyEarnings[0] = dailyEarnings[0];
+    chartBonds.dailyEarnings[0] = flexibleEarnings;
     analysis.update();
     expect(analysis.records.find(record => record.id === 9)).toMatchObject({
       frameProfitPercent: 2.5,

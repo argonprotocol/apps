@@ -25,28 +25,36 @@ export interface IFrameBondLot {
 export type VaultBondState = NonNullable<RuntimeQueryResult<CurrentRuntimeQueries['treasury']['bondLotsByVault']>>;
 
 export class TreasuryBonds {
-  /** Attribute an actual vault payout to its frozen flexible lots, including deterministic dust. */
+  /** Allocate gross flexible yield, then retain each lot's archived bond-holder share. */
   public static allocateFlexibleEarnings(
     earnings: bigint,
-    lots: readonly Pick<BondLot, 'id' | 'bonds'>[],
+    lots: readonly Pick<BondLot, 'id' | 'bonds' | 'program'>[],
   ): Map<number, bigint> {
     const total = lots.reduce((sum, lot) => sum + BigInt(lot.bonds), 0n);
     if (total === 0n) return new Map();
     const shares = lots.map(lot => {
       const weightedEarnings = earnings * BigInt(lot.bonds);
-      return { id: lot.id, earnings: weightedEarnings / total, remainder: weightedEarnings % total };
+      return { lot, earnings: weightedEarnings / total, remainder: weightedEarnings % total };
     });
     let dust = earnings - shares.reduce((sum, share) => sum + share.earnings, 0n);
     shares.sort((a, b) => {
       if (a.remainder !== b.remainder) return a.remainder > b.remainder ? -1 : 1;
-      return a.id - b.id;
+      return a.lot.id - b.lot.id;
     });
     for (const share of shares) {
       if (dust === 0n) break;
       share.earnings += 1n;
       dust -= 1n;
     }
-    return new Map(shares.map(share => [share.id, share.earnings]));
+    return new Map(
+      shares.map(({ lot, earnings: gross }) => {
+        if (lot.program.type !== 'Vault') throw new Error('Flexible earnings require a vault bond lot');
+
+        const { sharingPercent, bonusPercent } = lot.program.value;
+        const bondShare = BigNumber.minimum(1, sharingPercent.plus(bonusPercent));
+        return [lot.id, bigNumberToBigInt(bondShare.times(gross))];
+      }),
+    );
   }
 
   public static async getActiveBonds(
