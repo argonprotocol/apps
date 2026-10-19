@@ -1,0 +1,7 @@
+config-version: 9
+should-send-metrics: false
+kurtosis-clusters:
+  docker:
+    type: docker
+    # Keep service logs without the optional OpenTelemetry and ClickHouse containers.
+    backend-log-collector: vector

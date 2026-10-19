@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { fileURLToPath } from 'node:url';
 import { afterAll, beforeAll, describe, expect, inject, it, vi } from 'vitest';
 import {
   Currency,
@@ -136,7 +137,11 @@ describe.skipIf(skipE2E || !TestEthereum.isInstalled())('EthereumCrosschain inte
     NetworkConfig.setNetwork('dev-docker');
 
     const [councilSignerAddress] = await walletKeys.getEthereumAddresses([walletKeys.councilSignerEthereumHdPath]);
-    ethereum = new TestEthereum();
+    ethereum = new TestEthereum(
+      undefined,
+      undefined,
+      fileURLToPath(new URL('../../e2e/ethereum', import.meta.url)),
+    );
     endpoints = await ethereum.launch({
       preset: 'minimal',
       secondsPerSlot: 1,
