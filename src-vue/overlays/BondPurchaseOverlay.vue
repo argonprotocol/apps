@@ -87,7 +87,7 @@
       </div>
     </div>
     <div
-      v-else-if="vaultAvailableCapacity <= 0n"
+      v-else-if="vaultAvailableCapacity <= 0n || (isOwnedVault && vaultMaxPurchaseAmount < minPurchaseAllowed)"
       class="flex min-h-105 flex-col items-center justify-center px-10 py-5 text-center"
     >
       <AlertIcon class="h-18 text-yellow-700" />
@@ -99,14 +99,8 @@
         <template v-if="vaultBondState?.isAtBondLotLimit">
           Existing bond lots must finish returning before another purchase can be accepted.
         </template>
-        <template v-else-if="isOwnedVault && vault?.bondCapacitySource === 'Securitization'">
-          Add Argon securitization to create more Bond space.
-        </template>
-        <template v-else-if="ownedVaultHasFlexibleBonds">
-          Lock more Bitcoin to buy Bonds without displacing your flexible bonds.
-        </template>
         <template v-else-if="isOwnedVault">
-          Lock more Bitcoin to create more Bond space.
+          Add Argon securitization to create more Bond space without displacing your flexible bonds.
         </template>
         <template v-else>
           Contact {{ vaultOperatorName || 'the person who invited you' }} to create more Bond space.
@@ -172,6 +166,7 @@
           <InputNumber
             v-model="purchaseAmount"
             :min="minPurchaseAllowed"
+            :max="isOwnedVault ? vaultMaxPurchaseAmount : undefined"
             :dragBy="1"
             :dragByMin="1"
             :minDecimals="0"
@@ -203,14 +198,8 @@
                 {{ vaultLabel }} can only create {{ numeral(vaultMaxPurchaseAmount).format('0,0') }} Argon Bonds right
                 now.
               </template>
-              <template v-if="isOwnedVault && vault?.bondCapacitySource === 'Securitization'">
-                Add Argon securitization to create more Bond space.
-              </template>
-              <template v-else-if="ownedVaultHasFlexibleBonds">
-                Lock more Bitcoin to buy this amount without displacing your flexible bonds.
-              </template>
-              <template v-else-if="isOwnedVault">
-                Lock more Bitcoin to create more Bond space.
+              <template v-if="isOwnedVault">
+                Add Argon securitization to create more Bond space without displacing your flexible bonds.
               </template>
               <template v-else>
                 Contact {{ vaultOperatorName || 'the person who invited you' }} to create more Bond space.
@@ -383,14 +372,6 @@ const vaultAvailableCapacity = Vue.computed(() => {
 });
 
 const isOwnedVault = Vue.computed(() => vaultId.value !== undefined && vaultId.value === myVault.vaultId);
-const ownedVaultHasFlexibleBonds = Vue.computed(() => {
-  const selectedVaultId = vaultId.value;
-  return (
-    selectedVaultId !== undefined &&
-    selectedVaultId === myVault.vaultId &&
-    (argonBonds.data.vaultsById?.[selectedVaultId]?.flexibleBonds ?? 0) > 0
-  );
-});
 
 const eligibleVaultIds = Vue.computed(() => {
   return [...new Set([myVault.vaultId, config.upstreamOperator?.vaultId].filter((id): id is number => id != null))];
@@ -437,7 +418,13 @@ const certificationPurchaseAmount = Vue.computed(() => {
     certificationController.rewardConfig.treasuryMinimumBonds - argonBonds.bondTotals.activeBondMicrogons;
   if (remainingMicrogons <= 0n) return 0;
 
-  return Number((remainingMicrogons + MICROGONS_PER_ARGON_BIGINT - 1n) / MICROGONS_PER_ARGON_BIGINT);
+  const bondsNeeded = Number((remainingMicrogons + MICROGONS_PER_ARGON_BIGINT - 1n) / MICROGONS_PER_ARGON_BIGINT);
+  if (isOwnedVault.value && bondsNeeded > vaultMaxPurchaseAmount.value) return 0;
+  return bondsNeeded;
+});
+
+Vue.watch(vaultMaxPurchaseAmount, maximum => {
+  if (isOwnedVault.value && purchaseAmount.value > maximum) purchaseAmount.value = maximum;
 });
 
 const isOverVaultBondCapacity = Vue.computed(() => purchaseAmount.value > vaultMaxPurchaseAmount.value);
@@ -686,10 +673,15 @@ async function initializePurchase(session: number) {
     trackTxInfo(pendingBuyTxInfo);
   }
 
-  purchaseAmount.value = Math.max(
+  const suggestedPurchaseAmount = Math.max(
     minPurchaseAllowed.value,
     certificationPurchaseAmount.value || maxPurchaseAmount.value,
   );
+  if (isOwnedVault.value) {
+    purchaseAmount.value = Math.min(suggestedPurchaseAmount, vaultMaxPurchaseAmount.value);
+  } else {
+    purchaseAmount.value = suggestedPurchaseAmount;
+  }
 }
 
 async function refreshSelectedVaultBonds() {

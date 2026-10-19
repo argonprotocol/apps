@@ -2,7 +2,6 @@ import {
   type ArgonClient,
   type ArgonCurrentQueryClient,
   BondLot,
-  bigIntMin,
   type Currency,
   createDeferred,
   type IBlockHeaderInfo,
@@ -117,7 +116,7 @@ export class ArgonBonds {
   constructor(
     private readonly dbPromise: Promise<Db>,
     private readonly config: Pick<Config, 'isLoadedPromise' | 'upstreamOperator'>,
-    private readonly currency: Pick<Currency, 'isLoadedPromise' | 'fetchMainchainRatesAtBlock' | 'priceIndex'>,
+    private readonly currency: Pick<Currency, 'isLoadedPromise' | 'fetchMainchainRatesAtBlock'>,
     public readonly miningFrames: MiningFrames,
     private readonly walletKeys: WalletKeys,
   ) {
@@ -142,10 +141,6 @@ export class ArgonBonds {
     return earnings;
   }
 
-  public getVaultBondCapacityMicrogons(vault: Vault): bigint {
-    return vault.isClosed ? 0n : vault.securitization;
-  }
-
   public getFlexibleBondDisplacementPercent(vaultId: number): number | undefined {
     const vault = this.data.vaultsById[vaultId];
     if (!vault?.isLoaded || vault.flexibleBonds <= 0) return;
@@ -157,7 +152,7 @@ export class ArgonBonds {
     if (!bondState?.isLoaded) return 0n;
 
     return TreasuryBonds.availableBondSpace({
-      capacityMicrogons: this.getVaultBondCapacityMicrogons(vault),
+      capacityMicrogons: vault.bondCapacityMicrogons(),
       bondState,
       vault,
     });
@@ -167,10 +162,12 @@ export class ArgonBonds {
     const state = this.data.vaultsById[vault.vaultId];
     if (!state?.isLoaded) return 0n;
 
-    const capacity = TreasuryBonds.getBondPurchaseCapacity(this.getVaultBondCapacityMicrogons(vault));
-    const unoccupiedBonds = Math.max(0, capacity - state.regularBonds - state.flexibleBonds);
-    const roomWithoutDisplacement = BondLot.bondsToMicrogons(unoccupiedBonds + state.replacementBonds);
-    return bigIntMin(this.availableBondSpace(vault), roomWithoutDisplacement);
+    return TreasuryBonds.availableBondSpace({
+      capacityMicrogons: vault.bondCapacityMicrogons(),
+      bondState: state,
+      vault,
+      preserveFlexibleBonds: true,
+    });
   }
 
   public async load(): Promise<void> {
@@ -685,17 +682,8 @@ export class ArgonBonds {
             event.method === 'SecuritizationReturned')
         ) {
           refreshMarket = true;
-        } else if (
-          (event.section === 'priceIndex' && event.method === 'NewIndex') ||
-          (event.section === 'bitcoinUtxos' && (event.method === 'UtxoDetected' || event.method === 'UtxoSpent')) ||
-          (event.section === 'bitcoinLocks' &&
-            (event.method === 'BitcoinLockTerminated' ||
-              event.method === 'BitcoinLockFlexibleChanged' ||
-              event.method === 'BitcoinLockResecuritized' ||
-              event.method === 'BitcoinSpentAfterRelease'))
-        ) {
-          // Runtime 159 also derives current displacement from funded Bitcoin
-          // and market prices. Runtime 160 can burn vault capital on termination.
+        } else if (event.section === 'bitcoinLocks' && event.method === 'BitcoinLockTerminated') {
+          // A termination can burn vault capital and reduce bond capacity.
           refreshMarket = true;
         } else if (event.section === 'treasury' && event.method === 'FrameEarningsDistributed') {
           refreshBonds = true;

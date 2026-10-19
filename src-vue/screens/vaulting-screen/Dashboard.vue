@@ -1059,7 +1059,10 @@ const bitcoinMapRemainder = Vue.computed(() => {
 
 const bondMapTotal = Vue.computed(() => {
   const used = bondMapItems.value.reduce((sum, item) => sum + item.amount, 0n);
-  return bigIntMax(used, vaultingBreakdown.treasuryBondCapacityMicrogons);
+  const capacity = BondLot.bondsToMicrogons(
+    TreasuryBonds.getBondPurchaseCapacity(vaultingBreakdown.treasuryBondCapacityMicrogons),
+  );
+  return bigIntMax(used, capacity);
 });
 
 const internalTreasuryBondMicrogonsSecured = Vue.computed(() => {

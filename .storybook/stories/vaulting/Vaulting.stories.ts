@@ -754,7 +754,14 @@ export const FlexibleBondsInUse: Story = {
 };
 
 export const FlexibleBondsPartiallyDisplaced: Story = {
-  beforeEach: () => setupFlexibleBonds(1_900),
+  beforeEach: async () => {
+    await setupFlexibleBonds(1_900);
+    const breakdown = useVaultingAssetBreakdown();
+    mocked(useVaultingAssetBreakdown).mockReturnValue({
+      ...breakdown,
+      treasuryBondCapacityMicrogons: 2_400_750_000n,
+    });
+  },
 };
 
 export const FlexibleBondsFullyDisplaced: Story = {
@@ -875,11 +882,12 @@ export const ChecklistFunded: Story = {
 
 async function setupBitcoinHoverScenario() {
   setupVaultingPortfolioScenario();
+  const bitcoinLocks = getBitcoinLocks();
   const currency = getCurrency();
   const myVault = getMyVault();
   const vault = myVault.createdVault!;
 
-  const securedLock = getBitcoinLocks().getAllLocks()[0];
+  const securedLock = bitcoinLocks.getAllLocks()[0];
   securedLock.isFlexible = true;
   securedLock.fundedSatoshis = 5_000_000n;
   securedLock.securitizedSatoshis = securedLock.fundedSatoshis;
@@ -889,7 +897,7 @@ async function setupBitcoinHoverScenario() {
     securedLock.fundedSatoshis,
   );
   securedLock.securitizationRatio = 1;
-  mocked(getBitcoinLocks().getAllLocks).mockReturnValue([securedLock]);
+  mocked(bitcoinLocks, true).getAllLocks.mockReturnValue([securedLock]);
 
   const pendingLock = myVault.data.externalLocks[2_101];
   pendingLock.satoshis = 3_000_000n;

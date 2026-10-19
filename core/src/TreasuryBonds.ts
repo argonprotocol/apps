@@ -221,13 +221,15 @@ export class TreasuryBonds {
     capacityMicrogons,
     bondState,
     vault,
+    preserveFlexibleBonds = false,
   }: {
     capacityMicrogons: bigint;
     bondState?: Pick<
       Awaited<ReturnType<typeof TreasuryBonds.getVaultBondState>>,
-      'regularBonds' | 'reservedBondSpace' | 'replacementBonds' | 'isAtBondLotLimit'
+      'regularBonds' | 'flexibleBonds' | 'reservedBondSpace' | 'replacementBonds' | 'isAtBondLotLimit'
     >;
     vault?: Vault;
+    preserveFlexibleBonds?: boolean;
   }): bigint {
     if (vault?.isClosed || bondState?.isAtBondLotLimit) return 0n;
     const bondCapacity = TreasuryBonds.getBondPurchaseCapacity(capacityMicrogons);
@@ -236,6 +238,10 @@ export class TreasuryBonds {
     const reservedBonds = bondState?.reservedBondSpace ?? 0;
     const replacementBonds = bondState?.replacementBonds ?? 0;
     let availableBonds = Math.max(0, bondCapacity - regularBonds - reservedBonds) + replacementBonds;
+    if (preserveFlexibleBonds) {
+      const unoccupiedBonds = Math.max(0, bondCapacity - regularBonds - (bondState?.flexibleBonds ?? 0));
+      availableBonds = Math.min(availableBonds, unoccupiedBonds + replacementBonds);
+    }
     if (vault?.securitizationExitNoticeBlocks !== undefined) {
       let scheduledWithdrawals = 0n;
       for (const entry of vault.securitizationReleaseSchedule.values()) scheduledWithdrawals += entry.argonWithdrawals;

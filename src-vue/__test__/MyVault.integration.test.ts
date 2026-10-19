@@ -332,7 +332,7 @@ describe.skipIf(skipE2E).sequential('Your Vault tests', {}, () => {
     },
   );
 
-  it('finalizes settings, bond lots and ARGNOT securitization with either runtime', { timeout: 180e3 }, async () => {
+  it('finalizes settings, bond lots and ARGNOT securitization', { timeout: 180e3 }, async () => {
     const client = await clients.get(false);
     const signer = await walletKeys.getVaultingKeypair();
     await sudoFundWallet({ address: signer.address, microgons: 1_000_000_000n, micronots: 100_000_000n, client });
@@ -379,59 +379,49 @@ describe.skipIf(skipE2E).sequential('Your Vault tests', {}, () => {
     await additionalLock.waitForPostProcessing;
     const purchase = await TreasuryBonds.buildBuyBondTx({ client, vaultId, bondPurchaseMicrogons: minimumPurchase });
     const purchaseVault = await Vault.get(client, vaultId);
-    if (purchaseVault.bondCapacitySource === 'Bitcoin' && purchaseVault.ratioAdjustedSatoshis === 0n) {
-      // The deployed runtime requires verified Bitcoin. This network has unfunded
-      // locks, so the app must decode its terminal rejection rather than hang.
+    const bought = await submitAndFinalize(client, purchase, signer);
+    const purchaseApi = runtimeClient(await client.raw.at(await bought.waitForFinalizedBlock));
+    const bonds = await TreasuryBonds.getBondLots(purchaseApi, vaultId, signer.address);
+    expect(bonds).toHaveLength(1);
+    expect(bonds[0]).toMatchObject({
+      bonds: Number(minimumPurchase / 1_000_000n),
+      owner: signer.address,
+      isOwn: true,
+    });
+    if (purchaseVault.securitizationExitNoticeBlocks !== undefined) {
+      const reduction = await myVault.setVaultSecuritization({ securitizationMicrogons: minimumPurchase });
+      await reduction.waitForPostProcessing;
+      const reducedVault = await Vault.get(client, vaultId);
+      const reducedBonds = await TreasuryBonds.getVaultBondState(client, vaultId, signer.address);
+      expect(
+        TreasuryBonds.availableBondSpace({
+          vault: reducedVault,
+          capacityMicrogons: reducedVault.bondCapacityMicrogons(),
+          bondState: reducedBonds,
+        }),
+      ).toBe(0n);
       await expect(submitAndFinalize(client, purchase, signer)).rejects.toMatchObject({
-        errorCode: 'treasury.VaultNotAcceptingBondPurchases',
+        errorCode: 'treasury.InsufficientBondSpace',
       });
-      expect(await TreasuryBonds.getBondLots(client, vaultId, signer.address)).toEqual([]);
-    } else {
-      const bought = await submitAndFinalize(client, purchase, signer);
-      const purchaseApi = runtimeClient(await client.raw.at(await bought.waitForFinalizedBlock));
-      const bonds = await TreasuryBonds.getBondLots(purchaseApi, vaultId, signer.address);
-      expect(bonds).toHaveLength(1);
-      expect(bonds[0]).toMatchObject({
-        bonds: Number(minimumPurchase / 1_000_000n),
-        owner: signer.address,
-        isOwn: true,
-      });
-      if (purchaseVault.securitizationExitNoticeBlocks !== undefined) {
-        const reduction = await myVault.setVaultSecuritization({ securitizationMicrogons: minimumPurchase });
-        await reduction.waitForPostProcessing;
-        const reducedVault = await Vault.get(client, vaultId);
-        const reducedBonds = await TreasuryBonds.getVaultBondState(client, vaultId, signer.address);
-        const prices = await CurrencyBase.fetchPriceIndex(client);
-        expect(
-          TreasuryBonds.availableBondSpace({
-            vault: reducedVault,
-            capacityMicrogons: reducedVault.bondCapacityMicrogons(prices),
-            bondState: reducedBonds,
-          }),
-        ).toBe(0n);
-        await expect(submitAndFinalize(client, purchase, signer)).rejects.toMatchObject({
-          errorCode: 'treasury.InsufficientBondSpace',
-        });
-        const cancellation = await myVault.setVaultSecuritization({ securitizationMicrogons: minimumPurchase * 3n });
-        await cancellation.waitForPostProcessing;
-        const restoredVault = await Vault.get(client, vaultId);
-        expect(
-          TreasuryBonds.availableBondSpace({
-            vault: restoredVault,
-            capacityMicrogons: restoredVault.bondCapacityMicrogons(prices),
-            bondState: reducedBonds,
-          }),
-        ).toBe(minimumPurchase * 2n);
-      }
-      const released = await submitAndFinalize(
-        client,
-        await TreasuryBonds.buildReleaseBondLotTx({ client, bondLotId: bonds[0].id }),
-        signer,
-      );
-      const releaseApi = runtimeClient(await client.raw.at(await released.waitForFinalizedBlock));
-      const releasing = await TreasuryBonds.getBondLots(releaseApi, vaultId, signer.address);
-      expect(releasing.find(lot => lot.id === bonds[0].id)).toMatchObject({ isReleasing: true });
+      const cancellation = await myVault.setVaultSecuritization({ securitizationMicrogons: minimumPurchase * 3n });
+      await cancellation.waitForPostProcessing;
+      const restoredVault = await Vault.get(client, vaultId);
+      expect(
+        TreasuryBonds.availableBondSpace({
+          vault: restoredVault,
+          capacityMicrogons: restoredVault.bondCapacityMicrogons(),
+          bondState: reducedBonds,
+        }),
+      ).toBe(minimumPurchase * 2n);
     }
+    const released = await submitAndFinalize(
+      client,
+      await TreasuryBonds.buildReleaseBondLotTx({ client, bondLotId: bonds[0].id }),
+      signer,
+    );
+    const releaseApi = runtimeClient(await client.raw.at(await released.waitForFinalizedBlock));
+    const releasing = await TreasuryBonds.getBondLots(releaseApi, vaultId, signer.address);
+    expect(releasing.find(lot => lot.id === bonds[0].id)).toMatchObject({ isReleasing: true });
     const previousArgonots = await Vault.getArgonotSecuritization(client, vaultId);
     expect(previousArgonots).toMatchObject({ committedMicronots: 0n, encumberedMicronots: 0n });
 
