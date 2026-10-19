@@ -11,6 +11,8 @@ Use integration tests to exercise real state owners together: the runtime/client
 
 Without a persistent local network, setup starts one network for the shared project and removes it after the tests, including test failures. CI always uses that owned lifecycle. The dedicated test network is separate from `dev:docker`. Recreate the persistent network when changing the runtime pin or Docker service code. A different runtime pin or genesis produces an explicit setup error. RPC ports stay fixed across container restarts; setup also resolves current published ports when reusing the same network.
 
+Disposable integration and E2E networks use cache-only RandomX mining (`--compute-flags=light`) through `test-network.docker-compose.yml`. It produces the same proofs while avoiding the full mining dataset allocation. Ordinary development and deployed nodes retain their default mining mode.
+
 ## Writing a chain scenario
 
 Add a normal `*.integration.test.ts` file using ordinary Vitest `it` and hooks. Shared network setup is automatic:
