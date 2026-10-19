@@ -1,8 +1,4 @@
-import {
-  calculatePerformanceReturn,
-  type IPerformanceReturnInput,
-  type IPerformanceReturnOptions,
-} from '@argonprotocol/apps-core';
+import { calculatePerformanceReturn, type IPerformanceReturnInput } from '@argonprotocol/apps-core';
 import {
   financialGroups,
   type FinancialGroup,
@@ -11,9 +7,11 @@ import {
   type IFinancialGroupSummary,
   type IFinancialInvestmentPosition,
   type IFinancialObservation,
+  type IFinancialObservedGroupSnapshot,
   type IFinancialPosition,
   type IFinancialRefreshToken,
   type IFinancialReturnSummary,
+  type IFinancialReturnSnapshot,
   type IFinancialScope,
 } from '../../interfaces/IFinancialPosition.ts';
 
@@ -93,12 +91,34 @@ export class FinancialPositionBook {
 
     const nextSnapshots = new Map(this.groupSnapshots);
     for (const { refresh, positions, observation } of updates) {
-      nextSnapshots.set(refresh.group, {
+      const nextSnapshot: IFinancialObservedGroupSnapshot = {
         group: refresh.group,
         state: 'ready',
         positions: Object.freeze([...positions]),
         observation,
-      });
+      };
+      const previous = this.groupSnapshots.get(refresh.group);
+      if (previous?.state === 'ready' || previous?.state === 'stale') {
+        const previousReturns = new Map(
+          previous.positions
+            .filter(isReturnPosition)
+            .map(position => [position.id, { position, observation: previous.observation }]),
+        );
+        for (const retained of previous.retainedReturns ?? []) previousReturns.set(retained.position.id, retained);
+
+        const retainedReturns: IFinancialReturnSnapshot[] = [];
+        for (const position of positions.filter(isReturnPosition)) {
+          if (calculatePositionReturn([position], nextSnapshot).availability === 'available') continue;
+
+          const previousReturn = previousReturns.get(position.id);
+          if (previousReturn?.position.kind !== position.kind) continue;
+          if (calculatePositionReturn([previousReturn.position], previous).availability !== 'available') continue;
+
+          retainedReturns.push(previousReturn);
+        }
+        if (retainedReturns.length) nextSnapshot.retainedReturns = Object.freeze(retainedReturns);
+      }
+      nextSnapshots.set(refresh.group, nextSnapshot);
     }
     validatePositionOwnership(nextSnapshots.values());
 
@@ -166,7 +186,6 @@ export function reduceFinancialPositions(snapshots: readonly IFinancialGroupSnap
   let grossLiabilities = 0n;
   let usableGroupCount = 0;
   let hasUnavailableValue = false;
-  let accountObservedAt: Date | undefined;
 
   for (const group of financialGroups) {
     const snapshot = snapshotsByGroup.get(group) ?? { group, state: 'loading', positions: [] };
@@ -178,17 +197,7 @@ export function reduceFinancialPositions(snapshots: readonly IFinancialGroupSnap
 
     if (isUsable) {
       usableGroupCount += 1;
-      if (
-        groupPositions.length > 0 &&
-        snapshot.observation &&
-        (!accountObservedAt || snapshot.observation.observedAt > accountObservedAt)
-      ) {
-        accountObservedAt = snapshot.observation.observedAt;
-      }
-
       for (const position of groupPositions) {
-        accountPositions.push(position);
-
         if (position.currentValue === undefined) {
           hasUnavailableValue = true;
           continue;
@@ -213,9 +222,11 @@ export function reduceFinancialPositions(snapshots: readonly IFinancialGroupSnap
     // Mining RTD describes mining terms. Pending bids have not started, and
     // ARGNOT custody lots are tracked separately without repeatedly adding
     // internal collateral transitions to the term-return denominator.
+    const retainedReturns = snapshot.retainedReturns ?? [];
     let returnPositions = groupPositions;
-    if (group === 'mining') returnPositions = groupPositions.filter(position => position.kind === 'mining-cohort');
-    const returnSummary = calculatePositionReturn(returnPositions, { now: snapshot.observation?.observedAt });
+    if (group === 'mining') returnPositions = returnPositions.filter(position => position.kind === 'mining-cohort');
+    accountPositions.push(...selectReturnPositions(returnPositions, snapshot));
+    const returnSummary = calculatePositionReturn(returnPositions, snapshot);
     groups.push({
       group,
       state: snapshot.state,
@@ -225,8 +236,13 @@ export function reduceFinancialPositions(snapshots: readonly IFinancialGroupSnap
       grossAssets: groupAssets,
       grossLiabilities: groupLiabilities,
       observation: snapshot.observation,
-      message: snapshot.message,
+      message:
+        snapshot.message ??
+        (returnSummary.isStale
+          ? 'Updating returns; showing the last complete calculation for affected positions.'
+          : undefined),
       returnSummary,
+      retainedReturns,
     });
   }
 
@@ -243,9 +259,12 @@ export function reduceFinancialPositions(snapshots: readonly IFinancialGroupSnap
     readiness = hasUnavailableGroup || hasUnavailableValue ? 'partial' : 'ready';
   }
 
-  const accountReturn = calculatePositionReturn(accountPositions, { now: accountObservedAt });
+  const accountReturn = calculatePositionReturn(accountPositions);
+  const hasStaleReturn = groups.some(group => group.returnSummary.isStale);
   const accountReturnAvailability =
-    readiness === 'partial' && accountReturn.availability === 'available' ? 'partial' : accountReturn.availability;
+    (readiness === 'partial' || hasStaleReturn) && accountReturn.availability === 'available'
+      ? 'partial'
+      : accountReturn.availability;
   const groupSummaries = Object.fromEntries(groups.map(summary => [summary.group, summary])) as Record<
     FinancialGroup,
     IFinancialGroupSummary
@@ -284,17 +303,9 @@ function doesObservationCover(observation: IFinancialObservation, required: IFin
 
 export function calculatePositionReturn(
   positions: readonly IFinancialPosition[],
-  options: IPerformanceReturnOptions = {},
+  group?: IFinancialGroupSnapshot | IFinancialGroupSummary,
 ): IFinancialReturnSummary {
-  const investments = positions.filter((position): position is IFinancialInvestmentPosition => {
-    return (
-      position.kind === 'mining-cohort' ||
-      position.kind === 'vault' ||
-      position.kind === 'bond' ||
-      position.kind === 'bitcoin-liquid' ||
-      position.kind === 'stable-swap'
-    );
-  });
+  const investments = selectReturnPositions(positions, group);
   if (investments.length === 0) {
     return {
       availability: 'not-applicable',
@@ -310,6 +321,8 @@ export function calculatePositionReturn(
   let paidIncome = 0n;
   let hasUnknownIncome = false;
   let settledPrincipalValue = 0n;
+  const retainedIds = new Set(group?.retainedReturns?.map(retained => retained.position.id));
+  const isStale = investments.some(position => retainedIds.has(position.id));
 
   for (const position of investments) {
     const positionIncome = position.paidIncome;
@@ -369,11 +382,12 @@ export function calculatePositionReturn(
     };
   }
 
-  const performance = calculatePerformanceReturn(eligibleInvestments, options);
+  const performance = calculatePerformanceReturn(eligibleInvestments);
   const availability = eligibleInvestments.length === investments.length ? 'available' : 'partial';
 
   return {
     availability,
+    ...(isStale ? { isStale: true } : {}),
     investedCost: performance.eligibleCapitalInvested,
     paidIncome: hasUnknownIncome ? undefined : paidIncome,
     settledPrincipalValue,
@@ -383,4 +397,30 @@ export function calculatePositionReturn(
     eligiblePositionCount: eligibleInvestments.length,
     investmentPositionCount: investments.length,
   };
+}
+
+/** Select coherent return facts and freeze each active calculation at its own observation. */
+function selectReturnPositions(
+  positions: readonly IFinancialPosition[],
+  group?: IFinancialGroupSnapshot | IFinancialGroupSummary,
+): IFinancialInvestmentPosition[] {
+  const retainedById = new Map(group?.retainedReturns?.map(retained => [retained.position.id, retained]));
+  return positions.filter(isReturnPosition).map(position => {
+    const retained = retainedById.get(position.id);
+    const returnPosition = retained?.position ?? position;
+    const observedAt = retained?.observation.observedAt ?? group?.observation?.observedAt;
+    if (returnPosition.endedAt !== undefined || observedAt === undefined) return returnPosition;
+
+    return { ...returnPosition, endedAt: observedAt };
+  });
+}
+
+function isReturnPosition(position: IFinancialPosition): position is IFinancialInvestmentPosition {
+  return (
+    position.kind === 'mining-cohort' ||
+    position.kind === 'vault' ||
+    position.kind === 'bond' ||
+    position.kind === 'bitcoin-liquid' ||
+    position.kind === 'stable-swap'
+  );
 }

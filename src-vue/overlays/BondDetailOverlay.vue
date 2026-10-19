@@ -97,7 +97,10 @@
               <template v-else>&mdash;</template>
             </div>
             <div class="text-sm text-slate-500">
-              <template v-if="isBondHistoryRecovering && (displayedLot?.isOwn || history)">Restoring history</template>
+              <template v-if="positionReturn?.isStale">Last complete calculation; updating</template>
+              <template v-else-if="isBondHistoryRecovering && (displayedLot?.isOwn || history)">
+                Restoring history
+              </template>
               <template v-else-if="position?.returnIsComplete === false">
                 History incomplete; run Find Missing Data
               </template>
@@ -264,6 +267,7 @@ import { type TransactionInfo } from '../lib/TransactionInfo.ts';
 import { generateProgressLabel } from '../lib/Utils.ts';
 import { getArgonBonds, getBondTransactionOperations } from '../stores/argonBonds.ts';
 import { calculatePositionReturn } from '../lib/financials/index.ts';
+import { useFinancials } from '../stores/financials.ts';
 import type { IBondFinancialPosition } from '../interfaces/IFinancialPosition.ts';
 import { useCertificationController } from '../stores/certificationController.ts';
 import { useFinancialHistory } from '../stores/financialHistory.ts';
@@ -279,6 +283,7 @@ const bondLotRelease = getBondTransactionOperations().bondLotRelease;
 const argonBonds = getArgonBonds();
 const controller = useCertificationController();
 const financialHistory = useFinancialHistory();
+const financials = useFinancials();
 
 const { microgonToArgonNm, microgonToMoneyNm, micronotToArgonotNm } = createNumeralHelpers(currency);
 const argonSymbol = currency.recordsByKey[UnitOfMeasurement.ARGN].symbol;
@@ -324,8 +329,13 @@ const lifetimeEarnings = Vue.computed(() => {
   return displayedLot.value?.cumulativeEarnings;
 });
 
+const positionReturn = Vue.computed(() => {
+  if (!props.position) return;
+  return calculatePositionReturn([props.position], financials.financialPositionAggregate.groupSummaries.bonds);
+});
+
 const returnPercent = Vue.computed(() => {
-  if (props.position) return calculatePositionReturn([props.position]).percent;
+  if (props.position) return positionReturn.value?.percent;
 
   if (costBasis.value === undefined) return;
   if (lifetimeEarnings.value === undefined) return;

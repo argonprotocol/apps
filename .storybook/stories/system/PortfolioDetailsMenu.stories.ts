@@ -9,6 +9,7 @@ import { reduceFinancialPositions } from '../../../src-vue/lib/financials/index.
 import { getCurrency } from '../../../src-vue/stores/currency.ts';
 import { useFinancials } from '../../../src-vue/stores/financials.ts';
 import { useWallets } from '../../../src-vue/stores/wallets.ts';
+import type { IFinancialPosition } from '../../../src-vue/interfaces/IFinancialPosition.ts';
 
 const meta = {
   title: 'System/Portfolio details',
@@ -16,7 +17,7 @@ const meta = {
   render: () => ({
     components: { NavigationMenuList, NavigationMenuRoot, NavigationMenuViewport, PortfolioDetailsMenu },
     template: `
-      <div class="flex h-screen w-screen justify-end bg-white p-6">
+      <div class="flex h-screen w-screen items-start justify-end bg-white p-6">
         <NavigationMenuRoot class="relative">
           <NavigationMenuList>
             <PortfolioDetailsMenu />
@@ -33,9 +34,48 @@ const meta = {
 export default meta;
 type Story = StoryObj<typeof meta>;
 
-export const BitcoinWalletHolding: Story = {
+export const ExpandedAssetBreakdowns: Story = {
   beforeEach: () => {
     setupBitcoinPortfolioScenario();
+    const financials = useFinancials();
+    const positions = [
+      {
+        id: 'mining-balance',
+        kind: 'mining-balance',
+        group: 'mining',
+        label: 'Mining ARGN',
+        lifecycle: 'available',
+        accountId: '5SyntheticMiningAccount',
+        asset: 'ARGN',
+        amount: 300_000_000n,
+        currentValue: 300_000_000n,
+      },
+      {
+        id: 'vault:1',
+        kind: 'vault',
+        group: 'vaulting',
+        label: 'Vault 1',
+        lifecycle: 'active',
+        vaultId: 1,
+        securitization: 1_000_000_000n,
+        uncollectedRevenue: 0n,
+        capitalHistory: [],
+        revenueHistory: [],
+        currentValue: 1_000_000_000n,
+      },
+    ] satisfies IFinancialPosition[];
+    Object.assign(financials, {
+      financialPositionAggregate: reduceFinancialPositions(
+        financials.financialPositionAggregate.groups
+          .filter(group => group.state === 'ready' || group.group === 'mining' || group.group === 'vaulting')
+          .map(group => ({
+            ...group,
+            state: 'ready',
+            positions: [...group.positions, ...positions.filter(position => position.group === group.group)],
+            observation: { observedAt: new Date('2026-08-16T12:00:00Z') },
+          })),
+      ),
+    });
   },
   play: async ({ canvasElement }) => {
     const body = within(canvasElement.ownerDocument.body);
@@ -43,6 +83,8 @@ export const BitcoinWalletHolding: Story = {
     await userEvent.click(body.getByRole('button', { name: 'View portfolio details' }));
     await userEvent.click(await body.findByRole('button', { name: 'Toggle Internal App Wallet tokens' }));
     await userEvent.click(await body.findByRole('button', { name: 'Toggle Bitcoin details' }));
+    await userEvent.click(await body.findByRole('button', { name: 'Toggle Mining details' }));
+    await userEvent.click(await body.findByRole('button', { name: 'Toggle Vaulting details' }));
   },
 };
 

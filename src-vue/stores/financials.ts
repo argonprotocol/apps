@@ -527,7 +527,8 @@ export const useFinancials = defineStore('financials', () => {
   // Argon Bonds ///////////////////////////////////////////////////////////////////////////////////////////////////////
 
   const bondSummariesByAsset = Vue.computed(() => {
-    const positions = financialPositionAggregate.value.groupSummaries.bonds.positions.filter(position => {
+    const group = financialPositionAggregate.value.groupSummaries.bonds;
+    const positions = group.positions.filter(position => {
       return position.kind === 'bond';
     });
     const argonPositions = positions.filter(position => position.nativeAsset === 'ARGN');
@@ -536,11 +537,11 @@ export const useFinancials = defineStore('financials', () => {
     return {
       ARGN: {
         currentValue: argonPositions.reduce((total, position) => total + (position.currentValue ?? 0n), 0n),
-        returnSummary: calculatePositionReturn(argonPositions),
+        returnSummary: calculatePositionReturn(argonPositions, group),
       },
       ARGNOT: {
         currentValue: argonotPositions.reduce((total, position) => total + (position.currentValue ?? 0n), 0n),
-        returnSummary: calculatePositionReturn(argonotPositions),
+        returnSummary: calculatePositionReturn(argonotPositions, group),
       },
     };
   });
@@ -657,8 +658,6 @@ export const useFinancials = defineStore('financials', () => {
   });
 
   const liquidPerformanceReturn = Vue.computed(() => {
-    if (bitcoinLockDisplayRecords.value.some(lock => lock.record.isHistoryRecoveryPending)) return;
-
     const percent = financialPositionAggregate.value.groupSummaries.bitcoin.returnSummary.percent;
     if (bitcoinLockDisplayRecords.value.length && percent === undefined) return;
 
@@ -892,10 +891,7 @@ export const useFinancials = defineStore('financials', () => {
   });
 
   const stableSwapPerformanceReturn = Vue.computed(() => {
-    const positions = financialPositionAggregate.value.groupSummaries.ethereum.positions.filter(position => {
-      return position.kind === 'stable-swap';
-    });
-    return calculatePositionReturn(positions).percent;
+    return financialPositionAggregate.value.groupSummaries.ethereum.returnSummary.percent;
   });
 
   //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
