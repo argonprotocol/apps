@@ -388,18 +388,12 @@ export default new OperationalFlow<IAccountReviewFlowContext, IAccountReviewFlow
       .poll<IAccountReviewFlowState>(
         latest => {
           readinessBlockers = latest.blockers;
-          const bitcoinInventoryLoaded =
-            latest.uiState.expectedVaultBitcoinMapItemCount === undefined ||
-            latest.chainState.vaultBitcoinMapItemCount >= latest.uiState.expectedVaultBitcoinMapItemCount;
-          const bondInventoryLoaded =
-            latest.uiState.expectedVaultBondMapItemCount === undefined ||
-            latest.chainState.vaultBondMapItemCount >= latest.uiState.expectedVaultBondMapItemCount;
-          return latest.uiState.dataReady && bitcoinInventoryLoaded && bondInventoryLoaded;
+          return latest.uiState.dataReady && latest.uiState.expectationFailures.length === 0;
         },
         {
           pollMs: 1_000,
           timeoutMs: 60_000,
-          timeoutMessage: 'Account did not finish loading its readonly state.',
+          timeoutMessage: 'Account did not finish loading its expected readonly state.',
         },
       )
       .catch((error: unknown) => {
@@ -408,11 +402,6 @@ export default new OperationalFlow<IAccountReviewFlowContext, IAccountReviewFlow
       });
     const financialSnapshot = ready.chainState.financialSnapshot;
     if (!financialSnapshot) throw new Error('Account review did not produce financial state');
-    if (ready.uiState.expectationFailures.length) {
-      throw new Error(
-        `Account loaded but did not match its expected state: ${ready.uiState.expectationFailures.join('; ')}`,
-      );
-    }
     const allBondPositions = financialSnapshot.groupSummaries.bonds.positions.filter(
       position => position.kind === 'bond',
     );

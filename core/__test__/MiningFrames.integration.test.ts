@@ -2,9 +2,11 @@ import { integrationNetwork as sharedNetwork } from '@argonprotocol/apps-core/__
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import Path from 'node:path';
+import docker from 'docker-compose';
 import { teardown } from '@argonprotocol/testing';
 import { MainchainClients, MiningFrames, type IFrameHistory } from '@argonprotocol/apps-core';
 import { it, beforeAll, afterAll, describe, expect } from 'vitest';
+import { COMPOSE_CONFIG, COMPOSE_DIR } from './startArgonTestNetwork.ts';
 
 const skipE2E = Boolean(JSON.parse(process.env.SKIP_E2E ?? '0'));
 
@@ -27,11 +29,33 @@ describe.skipIf(skipE2E)('Mining Frames tests', () => {
     await teardown();
   });
 
-  it('preserves the standard node genesis for joining nodes', async () => {
+  it('starts joining nodes from the same low-difficulty genesis', async () => {
     const client = await clients.get(false);
     const genesis = await client.at(client.genesisHash.toHex());
 
-    expect(await genesis.query.blockSealSpec.currentComputeDifficulty()).toBe(800n);
+    expect(await genesis.query.blockSealSpec.currentComputeDifficulty()).toBe(25n);
+
+    const minerPort = await docker.port('miner-1', '9944', {
+      cwd: COMPOSE_DIR,
+      config: COMPOSE_CONFIG,
+      env: { ...process.env, COMPOSE_PROJECT_NAME: sharedNetwork.composeProjectName },
+    });
+    const minerClients = new MainchainClients(`ws://127.0.0.1:${minerPort.data.port}`);
+    try {
+      const miner = await minerClients.get(false);
+      expect(miner.genesisHash.toHex()).toBe(client.genesisHash.toHex());
+      await expect
+        .poll(
+          async () => {
+            const finalizedHash = await miner.rpc.chain.getFinalizedHead();
+            return (await miner.rpc.chain.getHeader(finalizedHash)).number.toNumber();
+          },
+          { timeout: 120_000 },
+        )
+        .toBeGreaterThan(0);
+    } finally {
+      await minerClients.disconnect();
+    }
   });
 
   it('syncs live frames and restores their durable history on a continuing chain', async () => {

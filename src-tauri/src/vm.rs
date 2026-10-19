@@ -39,9 +39,14 @@ pub fn find_available_port(starting_port: u16) -> Result<u16, String> {
 pub async fn create_local_vm(app: AppHandle, env_text: String) -> Result<u16, String> {
     let vm_path = get_vm_path(&app);
     let work_dir = get_vm_work_dir(&app);
-    let vm = tauri::async_runtime::spawn_blocking(move || Vm::create(vm_path, work_dir, env_text))
-        .await
-        .map_err(|e| format!("Local VM creation failed: {e}"))??;
+    let chain_spec_path = Utils::get_server_env_vars(&app.config().identifier)?
+        .get("ARGON_CHAIN_SPEC_PATH")
+        .map(PathBuf::from);
+    let vm = tauri::async_runtime::spawn_blocking(move || {
+        Vm::create(vm_path, work_dir, env_text, chain_spec_path)
+    })
+    .await
+    .map_err(|e| format!("Local VM creation failed: {e}"))??;
     Ok(vm.ssh_port)
 }
 
@@ -123,8 +128,36 @@ impl Vm {
         vm_path: PathBuf,
         work_dir: PathBuf,
         mut env_text: String,
+        chain_spec_path: Option<PathBuf>,
     ) -> anyhow::Result<Vm, String> {
         let _operation = VM_OPERATIONS.lock().map_err(|e| e.to_string())?;
+
+        if let Some(chain_spec_path) = chain_spec_path {
+            let chain_spec = fs::read(&chain_spec_path).map_err(|e| {
+                format!(
+                    "Error reading chain spec {}: {e}",
+                    chain_spec_path.display()
+                )
+            })?;
+            let data_dir = work_dir.join("data/argon");
+            let installed_spec_path = data_dir.join("chainspec.raw.json");
+            if installed_spec_path.exists() {
+                let installed_spec = fs::read(&installed_spec_path)
+                    .map_err(|e| format!("Error reading installed chain spec: {e}"))?;
+                if installed_spec != chain_spec {
+                    return Err("Local VM chain spec changed; recreate the local VM before joining a different chain.".to_string());
+                }
+            } else {
+                fs::create_dir_all(&data_dir).map_err(|e| {
+                    format!(
+                        "Error creating node data directory {}: {e}",
+                        data_dir.display()
+                    )
+                })?;
+                fs::write(&installed_spec_path, chain_spec)
+                    .map_err(|e| format!("Error installing local VM chain spec: {e}"))?;
+            }
+        }
 
         // Retrying creation must preserve app data and the directory already bind-mounted at /app.
         fs::create_dir_all(&vm_path)
@@ -444,9 +477,18 @@ mod tests {
         fs::create_dir_all(&certs_dir).unwrap();
         fs::write(certs_dir.join("test.pem"), "synthetic certificate").unwrap();
         let env_text = format!("COMPOSE_PROJECT_NAME={project}\nSSH_PUBKEY=synthetic-test-key\n");
+        let chain_spec_path = vm_path.with_extension("chainspec.json");
+        let chain_spec = r#"{"id":"synthetic-genesis"}"#;
+        fs::write(&chain_spec_path, chain_spec).unwrap();
 
         let result = std::panic::catch_unwind(|| {
-            Vm::create(vm_path.clone(), work_dir.clone(), env_text.clone()).unwrap();
+            Vm::create(
+                vm_path.clone(),
+                work_dir.clone(),
+                env_text.clone(),
+                Some(chain_spec_path.clone()),
+            )
+            .unwrap();
             fs::write(work_dir.join("account"), "synthetic account").unwrap();
             fs::create_dir_all(work_dir.join("data/argon")).unwrap();
             let bot_state_path = work_dir.join("data/argon/bot-state.json");
@@ -458,18 +500,51 @@ mod tests {
                 "synthetic account"
             );
 
-            Vm::create(vm_path.clone(), work_dir.clone(), env_text.clone()).unwrap();
+            Vm::create(
+                vm_path.clone(),
+                work_dir.clone(),
+                env_text.clone(),
+                Some(chain_spec_path.clone()),
+            )
+            .unwrap();
             assert_eq!(fs::read_to_string(&bot_state_path).unwrap(), bot_state);
 
             // A retry may arrive from a reloaded webview while the original VM is still running.
             std::thread::scope(|scope| {
-                let first =
-                    scope.spawn(|| Vm::create(vm_path.clone(), work_dir.clone(), env_text.clone()));
-                let second =
-                    scope.spawn(|| Vm::create(vm_path.clone(), work_dir.clone(), env_text.clone()));
+                let first = scope.spawn(|| {
+                    Vm::create(
+                        vm_path.clone(),
+                        work_dir.clone(),
+                        env_text.clone(),
+                        Some(chain_spec_path.clone()),
+                    )
+                });
+                let second = scope.spawn(|| {
+                    Vm::create(
+                        vm_path.clone(),
+                        work_dir.clone(),
+                        env_text.clone(),
+                        Some(chain_spec_path.clone()),
+                    )
+                });
                 first.join().unwrap().unwrap();
                 second.join().unwrap().unwrap();
             });
+
+            let existing_env = fs::read(vm_path.join(".env")).unwrap();
+            fs::write(&chain_spec_path, r#"{"id":"different-genesis"}"#).unwrap();
+            let changed_chain = Vm::create(
+                vm_path.clone(),
+                work_dir.clone(),
+                "changed config".into(),
+                Some(chain_spec_path.clone()),
+            );
+            assert!(changed_chain.err().unwrap().contains("chain spec changed"));
+            assert_eq!(fs::read(vm_path.join(".env")).unwrap(), existing_env);
+            assert_eq!(
+                fs::read_to_string(work_dir.join("data/argon/chainspec.raw.json")).unwrap(),
+                chain_spec
+            );
 
             assert_eq!(fs::read_to_string(&bot_state_path).unwrap(), bot_state);
             assert_eq!(
@@ -487,6 +562,7 @@ mod tests {
             &vm_path,
             &["down", "--remove-orphans", "--volumes", "--rmi", "local"],
         );
+        fs::remove_file(chain_spec_path).unwrap();
         fs::remove_dir_all(&vm_path).unwrap();
         cleanup.unwrap();
         if let Err(error) = result {

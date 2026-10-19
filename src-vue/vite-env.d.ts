@@ -24,6 +24,7 @@ declare let __LOG_DEBUG__: boolean;
 declare const __SERVER_ENV_VARS__: {
   ARGON_ARCHIVE_NODE?: string;
   ARGON_BOOTNODES?: string;
+  ARGON_CHAIN_SPEC_PATH?: string;
   BITCOIN_VERSION: string;
   BITCOIN_ADDNODE?: string;
   ARGON_VERSION: string;

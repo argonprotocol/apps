@@ -151,7 +151,7 @@ services:
       --network-backend=libp2p
       --validator
       --notebook-archive-hosts=${NOTEBOOK_ARCHIVE_HOSTS}
-      --chain=${ARGON_CHAIN}
+      --chain=${ARGON_NODE_CHAIN:-${ARGON_CHAIN}}
       --detailed-log-output
       --name=argon-miner
       --state-pruning=256

@@ -443,6 +443,9 @@ export class ServerAdmin {
 
           prepareEnvCommand += ` && echo "${key}=${value}" >> .env`;
         }
+        if (SERVER_ENV_VARS.ARGON_CHAIN_SPEC_PATH) {
+          prepareEnvCommand += ' && echo "ARGON_NODE_CHAIN=/data/chainspec.raw.json" >> .env';
+        }
       }
     } else {
       if (this.serverDetails.ipAddress) {

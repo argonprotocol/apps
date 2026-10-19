@@ -134,6 +134,9 @@ describe.skipIf(skipE2E).sequential('Bitcoin Operation Flows', () => {
             operationalAddress: string;
           };
         };
+        const expectedArchivedBitcoinLiquidIds = Object.keys(
+          readLiquidReturnFromHistory(Path.join(liquidInstanceDirectory, 'database.sqlite')),
+        ).map(Number);
         const generatedInstanceName = `${Path.basename(session.appInstanceDirectory)}-generated`;
         generatedInstanceDirectory = Path.join(Path.dirname(session.appInstanceDirectory), generatedInstanceName);
         let historyThroughBlock = 0;
@@ -160,6 +163,7 @@ describe.skipIf(skipE2E).sequential('Bitcoin Operation Flows', () => {
           expectsConfiguredServer: false,
           expectsUpstream: false,
           expectsBitcoinLiquid: true,
+          expectedArchivedBitcoinLiquidIds,
         });
         expect(historyRecovery.throughBlock).toBe(historyThroughBlock);
         expect(historyRecovery.walletHistory.asOfBlock).toBeGreaterThanOrEqual(historyThroughBlock);

@@ -13,7 +13,7 @@ Without a persistent local network, setup starts one network for the shared proj
 
 Disposable integration and E2E networks use cache-only RandomX mining (`--compute-flags=light`) through `test-network.docker-compose.yml`. It produces the same proofs while avoiding the full mining dataset allocation. Ordinary development and deployed nodes retain their default mining mode.
 
-After bootstrap, the network factory requests compute difficulty 100 and verifies that the configuration call succeeds in a finalized block before returning. This keeps the standard genesis difficulty of 800 compatible with nodes that join later, then lowers the expected work for subsequent compute proofs. The first bootstrap proof is unchanged, normal runtime difficulty adjustment still applies, and test worker counts are unchanged. Setup logs the requested and finalized difficulty, which can differ if the runtime retargets during the configuration block.
+The network factory generates a raw chain spec with genesis compute difficulty 25, so the first bootstrap proof uses the easier puzzle too. Each test network owns its spec under `e2e/artifacts/test-networks/`; every node, including later upstream miners, uses that same file. The local VM copies it into its persistent node data before installation and selects it for the miner, so creation retries and reconnects retain the same genesis. A creation retry with a different spec requires recreating the VM. Teardown removes the network spec after stopping the network. Ordinary custom development specs are unchanged. Runtime difficulty can adjust before voting authorities become active, then stays fixed while they remain active. Test worker counts and readiness timeouts are unchanged.
 
 ## Writing a chain scenario
 

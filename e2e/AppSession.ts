@@ -342,6 +342,8 @@ export class AppSession {
         tauriEnv.ARGON_NETWORK_CONFIG_OVERRIDE = JSON.stringify(testNetwork.networkConfigOverride);
         process.env.ARGON_NETWORK_CONFIG_OVERRIDE = tauriEnv.ARGON_NETWORK_CONFIG_OVERRIDE;
         const composeEnv = testNetwork.composeEnv;
+        tauriEnv.ARGON_CHAIN = composeEnv.ARGON_CHAIN;
+        tauriEnv.ARGON_CHAIN_SPEC_PATH = composeEnv.ARGON_CHAIN_SPEC_PATH;
         tauriEnv.JOIN_COMPOSE_NETWORK = composeEnv.COMPOSE_PROJECT_NAME;
         tauriEnv.RPC_PORT = composeEnv.RPC_PORT;
         tauriEnv.ARCHIVE_NODE_RPC_PORT = composeEnv.ARCHIVE_NODE_RPC_PORT;

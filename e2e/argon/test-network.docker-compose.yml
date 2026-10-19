@@ -7,3 +7,6 @@ services:
     entrypoint: ['argon-node', '--compute-flags=light']
   miner-2:
     entrypoint: ['argon-node', '--compute-flags=light']
+  indexer:
+    environment:
+      ARGON_CHAIN: dev-docker

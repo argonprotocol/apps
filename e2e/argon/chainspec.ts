@@ -12,6 +12,9 @@ interface IChainspecJson {
     runtimeGenesis?: {
       code?: string;
       patch?: {
+        blockSealSpec?: {
+          initialComputeDifficulty?: number;
+        };
         miningSlot?: {
           miningConfig?: {
             ticksBetweenSlots?: number;
@@ -52,11 +55,14 @@ const { positionals, values } = parseArgs({
   allowPositionals: true,
   options: {
     'ticks-between-slots': { type: 'string' },
+    'compute-difficulty': { type: 'string' },
   },
 });
 const runtimeWasmPath = positionals[0];
 const ticksBetweenSlotsArg = values['ticks-between-slots'];
 const ticksBetweenSlots = ticksBetweenSlotsArg === undefined ? undefined : Number(ticksBetweenSlotsArg);
+const computeDifficultyArg = values['compute-difficulty'];
+const computeDifficulty = computeDifficultyArg === undefined ? undefined : Number(computeDifficultyArg);
 
 if (positionals.length > 1) {
   throw new Error('Only one runtime WASM path may be provided.');
@@ -64,8 +70,13 @@ if (positionals.length > 1) {
 if (ticksBetweenSlots !== undefined && (!Number.isSafeInteger(ticksBetweenSlots) || ticksBetweenSlots <= 0)) {
   throw new Error('--ticks-between-slots must be a positive integer.');
 }
-if (!runtimeWasmPath && ticksBetweenSlots === undefined) {
-  throw new Error('Usage: tsx chainspec.ts [path-to-runtime-wasm] [--ticks-between-slots <count>]');
+if (computeDifficulty !== undefined && (!Number.isSafeInteger(computeDifficulty) || computeDifficulty <= 0)) {
+  throw new Error('--compute-difficulty must be a positive integer.');
+}
+if (!runtimeWasmPath && ticksBetweenSlots === undefined && computeDifficulty === undefined) {
+  throw new Error(
+    'Usage: tsx chainspec.ts [path-to-runtime-wasm] [--ticks-between-slots <count>] [--compute-difficulty <count>]',
+  );
 }
 const runtimeBytes = runtimeWasmPath
   ? await Fs.promises.readFile(Path.resolve(runtimeWasmPath)).catch(err => {
@@ -75,19 +86,22 @@ const runtimeBytes = runtimeWasmPath
 
 const config = Path.resolve(import.meta.dirname, 'docker-compose.yml');
 
-const outputDir = import.meta.dirname;
+const rawPath = Path.resolve(
+  process.env.ARGON_CHAIN_SPEC_PATH?.trim() || Path.join(import.meta.dirname, 'chainspec.raw.json'),
+);
+const outputDir = Path.dirname(rawPath);
 const humanPath = Path.resolve(outputDir, 'chainspec.json');
-const rawPath = Path.resolve(outputDir, 'chainspec.raw.json');
+await Fs.promises.mkdir(outputDir, { recursive: true });
 
-if (Fs.existsSync(rawPath)) {
-  // docker will put a directory here if there's no file, so remove it first
-  await Fs.promises.rm(rawPath, { recursive: true });
+if (Fs.existsSync(rawPath) && Fs.statSync(rawPath).isDirectory()) {
+  // Docker creates an empty directory for a missing mount source.
+  await Fs.promises.rmdir(rawPath);
 }
 
 // 1) Generate human spec from the current node image/config.
 const humanResult = await docker.run('archive-node', ['build-spec', '--chain', 'dev-docker'], {
   config,
-  log: true,
+  log: false,
   commandOptions: ['--rm', '--no-deps'],
 } as any);
 
@@ -129,12 +143,19 @@ if (ticksBetweenSlots !== undefined) {
   }
   miningConfig.ticksBetweenSlots = ticksBetweenSlots;
 }
+if (computeDifficulty !== undefined) {
+  const blockSealSpec = chainspecJson.genesis.runtimeGenesis.patch?.blockSealSpec;
+  if (!blockSealSpec) {
+    throw new Error('Invalid chainspec format: missing genesis block seal configuration');
+  }
+  blockSealSpec.initialComputeDifficulty = computeDifficulty;
+}
 
 await Fs.promises.writeFile(humanPath, `${JSON.stringify(chainspecJson, null, 2)}\n`, 'utf8');
 
 const rawResult = await docker.run('archive-node', ['build-spec', '--chain', '/chainspec.json', '--raw'], {
   config,
-  log: true,
+  log: false,
   commandOptions: ['--rm', '--no-deps', '-v', `${humanPath}:/chainspec.json:ro`],
   composeOptions: [],
 });
@@ -145,3 +166,4 @@ if (!rawSpecOutput.trim()) {
 }
 
 await Fs.promises.writeFile(rawPath, `${rawSpecOutput.trim()}\n`, 'utf8');
+console.info(`Generated raw chain spec at ${rawPath}`);
