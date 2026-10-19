@@ -3,12 +3,12 @@ import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { parseArgs } from 'node:util';
 import {
-  bigNumberToBigInt,
   type IAllVaultStats,
   JsonExt,
   MainchainClients,
   MiningFrames,
   NetworkConfig,
+  Vaults,
 } from '@argonprotocol/apps-core';
 
 import { readVaultNetworkPool } from '../src-vue/lib/recovery/MyVault.ts';
@@ -36,7 +36,7 @@ export async function patchVaultHistory(stats: IAllVaultStats, miningFrames: Min
     });
     const flexibleFrames = Object.entries(stats.vaultsById).flatMap(([vaultId, vault]) => {
       const frame = vault.changesByFrame.find(change => change.frameId === frameId);
-      if (!frame?.treasuryPool.vaultCapital || frame.treasuryPool.flexibleBondEarnings !== undefined) return [];
+      if (!frame?.treasuryPool.vaultCapital) return [];
       return [{ vaultId: Number(vaultId), frame }];
     });
     const bondPayout = stats.argonBondsByFrame?.find(payout => payout.frameId === frameId);
@@ -73,22 +73,10 @@ export async function patchVaultHistory(stats: IAllVaultStats, miningFrames: Min
           return { ...payout, participatingBonds: capital.totalActiveBonds };
         });
       }
-      if (capital?.frameId === frameId && 'vaults' in capital) {
-        for (const { vaultId, frame } of flexibleFrames) {
-          const position = capital.vaults?.[vaultId];
-          if (!position || !('flexibleProrata' in position)) continue;
-          const flexibleBondEarnings = bigNumberToBigInt(
-            position.flexibleProrata.times(frame.treasuryPool.totalEarnings),
-          );
-          const vault = stats.vaultsById[vaultId];
-          stats.vaultsById[vaultId] = {
-            ...vault,
-            changesByFrame: vault.changesByFrame.map(change =>
-              change === frame ? { ...frame, treasuryPool: { ...frame.treasuryPool, flexibleBondEarnings } } : change,
-            ),
-          };
-        }
-      }
+    }
+    if (flexibleFrames.length) {
+      const { api: participationApi } = await miningFrames.getFrameStart(frameId);
+      await Vaults.loadFlexibleBondEarnings(stats, frameId, participationApi);
     }
     if (needsPool) {
       const pool = await readVaultNetworkPool({ frameId, api, parentApi });

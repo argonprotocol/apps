@@ -55,6 +55,22 @@ const qualified =
   ['runtime-build', 'capture', 'review'].every(phase =>
     timings.some(timing => timing.phase === phase && timing.exitCode === 0),
   );
+
+const captureFailures = (registry?.failures ?? []).map((failure, index) => ({
+  phase: 'capture',
+  scenario: index + 1,
+  stage: 'source capture',
+  reason: describeFailure(failure.error),
+}));
+const reviewFailures = accounts
+  .filter(account => account.status === 'failed')
+  .map((account, index) => ({
+    phase: 'review',
+    scenario: index + 1,
+    stage: account.stage ?? 'candidate review',
+    reason: describeFailure(account.error),
+    durationMs: account.durationMs,
+  }));
 const report = {
   qualified,
   selection: registry?.selection,
@@ -66,9 +82,10 @@ const report = {
   failed: accounts.filter(account => account.status === 'failed').length,
   skipped,
   timings,
+  failures: [...captureFailures, ...reviewFailures],
 };
 writeFileSync(Path.join(directory, 'qualification-report.json'), `${JSON.stringify(report, null, 2)}\n`);
-const summary = [
+const summaryLines = [
   `## Release qualification: ${qualified ? 'passed' : 'not qualified'}`,
   '',
   `Selected: ${registry?.selection.selectedAccounts ?? 'unknown'}; captured: ${report.captured}; capture failures: ${report.captureFailures}; incomplete starting histories: ${report.incompleteStartingHistories}; reviewed: ${report.reviewed}; passed: ${report.passed}; failed: ${report.failed}; skipped after capture: ${report.skipped}.`,
@@ -77,7 +94,35 @@ const summary = [
   '| --- | ---: | ---: |',
   ...timings.map(timing => `| ${timing.phase} | ${timing.seconds} | ${timing.exitCode} |`),
   '',
-].join('\n');
+];
+if (report.failures.length) {
+  summaryLines.push(
+    '| Failed phase | Scenario | Stage | Reason |',
+    '| --- | ---: | --- | --- |',
+    ...report.failures.map(
+      failure => `| ${failure.phase} | ${failure.scenario} | ${failure.stage} | ${failure.reason} |`,
+    ),
+    '',
+  );
+}
+const summary = summaryLines.join('\n');
 console.log(summary);
 if (process.env.GITHUB_STEP_SUMMARY) appendFileSync(process.env.GITHUB_STEP_SUMMARY, summary);
 if (!qualified) process.exitCode = 1;
+
+function describeFailure(error = ''): string {
+  // Publish fixed descriptions, never exception text containing account data.
+  if (/Account recovery (changed semantic state|database fingerprint changed)/.test(error)) {
+    return 'Recovery changed previously published state.';
+  }
+  if (/checksum mismatch|integrity check|quick check/i.test(error)) {
+    return 'Database integrity verification failed.';
+  }
+  if (/incomplete history|missing Bitcoin history records|missing creation event/i.test(error)) {
+    return 'Required history is incomplete.';
+  }
+  if (/timed out|timeout|stalled/i.test(error)) {
+    return 'Operation timed out or stopped progressing.';
+  }
+  return 'Stage failed; raw details were retained only on the runner.';
+}

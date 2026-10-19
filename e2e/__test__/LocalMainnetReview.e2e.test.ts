@@ -89,7 +89,7 @@ describe('partial capture diagnostics', () => {
         completeHistoryAccounts: 2,
         complete: false,
       },
-      failures: [{ label: 'scenario-002', error: 'Old app recovery stalled' }],
+      failures: [{ label: 'scenario-002', error: 'Old app recovery stalled: private-diagnostic-canary' }],
       accounts: [
         {
           label: 'scenario-001',
@@ -474,6 +474,7 @@ describe('partial capture diagnostics', () => {
       label: 'scenario-001',
       status: 'failed',
       error: 'Account database checksum mismatch for scenario-001',
+      stage: 'opening database',
       durationMs: expect.any(Number),
     };
     expect(persistedAtLaunch[0]).toEqual([failedResult]);
@@ -539,8 +540,8 @@ describe('partial capture diagnostics', () => {
     retained.close();
     expect(activeApps.size).toBe(0);
     expect(runningResources.size).toBe(0);
-    copyFileSync(resultsPath, Path.join(directory, 'review/account-results.json'));
     resultsPath = Path.join(directory, 'review/account-results.json');
+    writeFileSync(resultsPath, JSON.stringify(failedResults));
     const timingsPath = Path.join(directory, 'phase-timings.tsv');
     writeFileSync(timingsPath, 'runtime-build\t2\t0\ncapture\t3\t1\nreview\t4\t1\n');
     const reportPath = fileURLToPath(new URL('../local-mainnet/qualificationReport.ts', import.meta.url));
@@ -559,12 +560,45 @@ describe('partial capture diagnostics', () => {
     expect(partialReport.skipped).toBe(0);
     expect(partialReport.reviewed).toBe(3);
     expect(partialReport.accounts).toBeUndefined();
+    expect(partialReport.failures).toEqual([
+      {
+        phase: 'capture',
+        scenario: 1,
+        stage: 'source capture',
+        reason: 'Operation timed out or stopped progressing.',
+      },
+      {
+        phase: 'review',
+        scenario: 1,
+        stage: 'opening database',
+        reason: 'Database integrity verification failed.',
+        durationMs: expect.any(Number),
+      },
+      {
+        phase: 'review',
+        scenario: 2,
+        stage: 'database validation',
+        reason: 'Required history is incomplete.',
+        durationMs: expect.any(Number),
+      },
+    ]);
+    for (const output of [
+      partialReportText,
+      partial.stdout,
+      readFileSync(Path.join(directory, 'summary.md'), 'utf8'),
+    ]) {
+      expect(output).toContain('Database integrity verification failed.');
+      expect(output).not.toContain('private-diagnostic-canary');
+      expect(output).not.toContain('scenario-001');
+      expect(output).not.toContain(registry.accounts[0].defaultArgonAccountId);
+    }
     expect(partial.stdout).toContain('not qualified');
 
     registry.failures = [];
     registry.selection.selectedAccounts = 3;
     registry.coverage.complete = true;
     writeFileSync(registryPath, JSON.stringify(registry));
+    writeFileSync(resultsPath, JSON.stringify(passedResults));
     writeFileSync(timingsPath, 'runtime-build\t2\t0\ncapture\t3\t0\nreview\t4\t0\n');
     const passed = spawnSync(process.execPath, ['--import', 'tsx', reportPath, '--directory', directory], {
       encoding: 'utf8',
