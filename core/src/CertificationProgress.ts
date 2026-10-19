@@ -1,12 +1,11 @@
 import type {
   CrosschainTransferTransferTotalsByAccountResultSpec156,
   LiveQueryRecord,
+  CurrentRuntimeConstants,
+  CurrentRuntimeQueries,
 } from '@argonprotocol/runtime-client';
 import { MICROGONS_PER_ARGON } from '@argonprotocol/mainchain';
-import { BondLot } from './BondLot.js';
-import { TreasuryBonds } from './TreasuryBonds.js';
 import { BitcoinLock } from './BitcoinLock.js';
-import { BitcoinFission } from './BitcoinFission.js';
 import type { ArgonCurrentQueryClient } from './MainchainClients.js';
 import { bigNumberToBigInt } from './utils.js';
 
@@ -80,7 +79,7 @@ export async function loadCertificationProgress(args: {
     const accountRaw = await (operationalAccountPromise ??
       client.query.operationalAccounts.operationalAccounts(operationalAccountId));
     if (accountRaw) {
-      const positions = positionsQuery ? await positionsQuery(accountRaw.vaultAccount) : undefined;
+      const positions = await positionsQuery(accountRaw.vaultAccount);
       const vaultId = await client.query.vaults.vaultIdByOperator(accountRaw.vaultAccount);
       const vault = vaultId == null ? null : await client.query.vaults.vaultsById(vaultId);
       return getCertificationProgressFromOperationalAccount(
@@ -92,20 +91,9 @@ export async function loadCertificationProgress(args: {
     }
   }
 
-  let treasuryBitcoinAmount: bigint;
-  let treasuryBondAmount: bigint;
-  if (positionsQuery) {
-    const positions = await positionsQuery(defaultAccountId);
-    treasuryBitcoinAmount = positions?.quantities.fissionLiquidity ?? 0n;
-    treasuryBondAmount = positions?.bondPrincipal ?? 0n;
-  } else {
-    const [bondLots, fissions] = await Promise.all([
-      TreasuryBonds.getBondLotsByAccount(client, defaultAccountId),
-      BitcoinFission.getAllByOwner(client, defaultAccountId),
-    ]);
-    treasuryBitcoinAmount = fissions.reduce((total, fission) => total + fission.liquidityPromised, 0n);
-    treasuryBondAmount = BondLot.getTotals(bondLots).activeBondMicrogons;
-  }
+  const positions = await positionsQuery(defaultAccountId);
+  const treasuryBitcoinAmount = positions?.quantities.fissionLiquidity ?? 0n;
+  const treasuryBondAmount = positions?.bondPrincipal ?? 0n;
   const transferTotals = await (transferTotalsPromise ??
     client.query.crosschainTransfer.transferTotalsByAccount(defaultAccountId));
   const treasuryUniswapTransferAmount = transferTotals.microgonsIn;
@@ -135,9 +123,8 @@ export async function loadCertificationProgress(args: {
 }
 
 export function getCertificationPositionsQuery(client: ArgonCurrentQueryClient) {
-  if ('positionsByAccount' in client.query.treasuryPositions) {
-    return client.query.treasuryPositions.positionsByAccount;
-  }
+  const positions = client.query.treasuryPositions as CurrentRuntimeQueries['treasuryPositions'];
+  return positions.positionsByAccount;
 }
 
 export function getCertificationProgressFromOperationalAccount(
@@ -222,19 +209,15 @@ export function meetsCertificationAmountMinimum(
 }
 
 export function getCertificationThresholds(client: ArgonCurrentQueryClient): ICertificationThresholds {
-  const operationalConsts = client.consts.operationalAccounts;
-  const hasBitcoinLiquidityTolerance = 'bitcoinLiquidityTolerance' in operationalConsts;
-  let treasuryBitcoinTolerance = BigInt(MICROGONS_PER_ARGON);
-  if (hasBitcoinLiquidityTolerance) {
-    treasuryBitcoinTolerance = bigNumberToBigInt(
-      operationalConsts.bitcoinLiquidityTolerance.times(operationalConsts.minimumBitcoin),
-    );
-  }
+  const operationalConsts = client.consts.operationalAccounts as CurrentRuntimeConstants['operationalAccounts'];
+  const treasuryBitcoinTolerance = bigNumberToBigInt(
+    operationalConsts.bitcoinLiquidityTolerance.times(operationalConsts.minimumBitcoin),
+  );
 
   return {
     treasuryMinimumBitcoin: operationalConsts.minimumBitcoin,
     treasuryBitcoinTolerance,
-    operationalVaultTolerance: hasBitcoinLiquidityTolerance ? 0n : BigInt(MICROGONS_PER_ARGON),
+    operationalVaultTolerance: 0n,
     treasuryMinimumBonds: operationalConsts.minimumBonds,
     treasuryMinimumUniswapTransfer: operationalConsts.minimumUniswapTransfer,
     operationalMinimumUniswapTransfer: operationalConsts.operationalMinimumUniswapTransfer,

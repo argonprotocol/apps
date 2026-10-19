@@ -1913,8 +1913,7 @@ export class MyVault {
     }
 
     const client = await getMainchainClient(false);
-    const sharing = vault.pendingBondProfitSharing ?? vault.bondProfitSharing;
-    const tx = client.tx.vaults.modifyTerms(vault.vaultId, Vault.encodeTerms(client.registry, terms, sharing));
+    const tx = client.tx.vaults.modifyTerms(vault.vaultId, Vault.encodeTerms(client.registry, terms));
     const txSigner = await this.walletKeys.getVaultingKeypair();
     const info = await this.#transactionTracker.submitAndWatch({
       tx,

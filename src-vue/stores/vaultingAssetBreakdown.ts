@@ -1,13 +1,12 @@
 import * as Vue from 'vue';
 import { defineStore } from 'pinia';
 import BigNumber from 'bignumber.js';
-import { bigIntMax, bigIntMin, bigNumberToBigInt, BondLot, TreasuryBonds } from '@argonprotocol/apps-core';
+import { bigIntMax, bigIntMin, bigNumberToBigInt, BondLot } from '@argonprotocol/apps-core';
 import type { PriceIndex } from '@argonprotocol/mainchain';
 import type { IBitcoinLockRecord } from '../interfaces/IBitcoinLockRecord.ts';
 import { getMyVault, getVaults } from './vaults.ts';
 import { getArgonBonds } from './argonBonds.ts';
 import { getCurrency } from './currency.ts';
-import { getCappedPercent } from '../lib/Utils.ts';
 
 export const useVaultingAssetBreakdown = defineStore('vaultingAssetBreakdown', () => {
   const myVault = getMyVault();
@@ -79,7 +78,7 @@ export const useVaultingAssetBreakdown = defineStore('vaultingAssetBreakdown', (
   const treasuryBondCapacityMicrogons = Vue.computed(() => {
     if (!myVault.createdVault) return 0n;
 
-    return myVault.createdVault.bondCapacityMicrogons(currency.priceIndex);
+    return myVault.createdVault.isClosed ? 0n : myVault.createdVault.securitization;
   });
 
   const treasuryBondCapacityUsedMicrogons = Vue.computed(() => {
@@ -92,10 +91,6 @@ export const useVaultingAssetBreakdown = defineStore('vaultingAssetBreakdown', (
       .div(BigNumber(treasuryBondCapacityMicrogons.value))
       .multipliedBy(100)
       .toNumber();
-  });
-
-  const treasuryBondPurchaseCapacityBonds = Vue.computed(() => {
-    return TreasuryBonds.getBondPurchaseCapacity(treasuryBondCapacityMicrogons.value);
   });
 
   const revenuePotential = Vue.computed(() => {
@@ -114,9 +109,7 @@ export const useVaultingAssetBreakdown = defineStore('vaultingAssetBreakdown', (
   });
 
   const revenueCapturedPct = Vue.computed(() => {
-    if (vaults.rewards) return revenuePotential.value?.capturedPercent;
-    const currentBonds = vaultBondState.value?.currentFrame.vaultBonds ?? 0;
-    return getCappedPercent(currentBonds, treasuryBondPurchaseCapacityBonds.value);
+    return revenuePotential.value?.capturedPercent;
   });
 
   return {
@@ -132,7 +125,6 @@ export const useVaultingAssetBreakdown = defineStore('vaultingAssetBreakdown', (
     treasuryBondCapacityMicrogons,
     treasuryBondCapacityUsedMicrogons,
     treasuryBondCapacityUsedPct,
-    treasuryBondPurchaseCapacityBonds,
 
     revenueCapturedPct,
     revenuePotential,

@@ -2,7 +2,6 @@ import BigNumber from 'bignumber.js';
 import { describe, expect, it, vi } from 'vitest';
 import {
   type Codec,
-  FIXED_U128_DECIMALS,
   getOfflineRegistry,
   MICROGONS_PER_ARGON,
   type PalletTreasuryFrameVaultCapital,
@@ -10,7 +9,6 @@ import {
   type PalletTreasuryVaultBondState,
   type ArgonPrimitivesVaultVaultTerms,
   PriceIndex,
-  toFixedNumber,
 } from '@argonprotocol/mainchain';
 import { encodeAddress } from '@polkadot/util-crypto';
 import { getBundledMetadata, runtimeClient, toPlain } from '@argonprotocol/runtime-client';
@@ -27,26 +25,20 @@ const deployedMetadata = Object.entries(getBundledMetadata()).find(([key]) => ke
 deployedRegistry.setMetadata(new Metadata(deployedRegistry, deployedMetadata));
 const operatorAddress = encodeAddress(new Uint8Array(32).fill(0x11));
 const buyerAddress = encodeAddress(new Uint8Array(32).fill(0x22));
-const displayLotsById = new Map([
-  [1, createBondLot({ owner: buyerAddress, bonds: 3 })],
-  [2, createBondLot({ owner: operatorAddress, bonds: 20, isFlexible: true })],
-  [3, createBondLot({ owner: operatorAddress, bonds: 5, releaseReason: 'UserLiquidation' })],
-]);
 
 describe('TreasuryBonds', () => {
-  it.each([159, 160])('encodes vault Bitcoin terms with runtime %s metadata', spec => {
-    const runtimeRegistry = spec === 159 ? deployedRegistry : registry;
-    const terms = Vault.encodeTerms(runtimeRegistry, {
+  it('encodes vault Bitcoin terms with current runtime metadata', () => {
+    const terms = Vault.encodeTerms(registry, {
       bitcoinAnnualPercentRate: new BigNumber(0.075),
       bitcoinBaseFee: 1_000_000n,
     });
-    const decoded = runtimeRegistry.createType<
-      ArgonPrimitivesVaultVaultTerms | RuntimeSpec159.ArgonPrimitivesVaultVaultTerms
-    >('ArgonPrimitivesVaultVaultTerms', terms.toU8a());
+    const decoded = registry.createType<ArgonPrimitivesVaultVaultTerms>(
+      'ArgonPrimitivesVaultVaultTerms',
+      terms.toU8a(),
+    );
     expect(decoded.bitcoinAnnualPercentRate.toBigInt()).toBe(75_000_000_000_000_000n);
     expect(decoded.bitcoinBaseFee.toBigInt()).toBe(1_000_000n);
-    expect('treasuryProfitSharing' in decoded).toBe(spec === 159);
-    if ('treasuryProfitSharing' in decoded) expect(decoded.treasuryProfitSharing.toNumber()).toBe(100_000);
+    expect('treasuryProfitSharing' in decoded).toBe(false);
   });
 
   it('previews ARGNOT notice, retains due withdrawals, and cancels newest notices first', () => {
@@ -173,7 +165,7 @@ describe('TreasuryBonds', () => {
     expect(vault.availableArgonWithdrawal(499)).toBe(150n);
   });
 
-  it.each([159, 160])('limits Argonot purchases using active network stakes on runtime %s', async spec => {
+  it.each([160])('limits Argonot purchases using active network stakes on runtime %s', async spec => {
     const oneArgonot = BigInt(MICRONOTS_PER_ARGONOT);
     const client = runtimeClient({
       query: {
@@ -279,137 +271,6 @@ describe('TreasuryBonds', () => {
     ).toBe(10_000n);
   });
 
-  it('uses flexible bond reservations without counting flexible bonds against available capacity', async () => {
-    const oneArgon = BigInt(MICROGONS_PER_ARGON);
-    let bitcoinCapacityMicrogons = 10n * oneArgon;
-
-    const runtimeState = deployedRegistry.createType<RuntimeSpec159.PalletTreasuryVaultBondState>(
-      'PalletTreasuryVaultBondState',
-      {
-        regularBondLots: [{ bondLotId: 1, bonds: 3 }],
-        flexibleBonds: 20,
-        reservedBondSpace: 2,
-      },
-    );
-    const client = createVaultBondClient(runtimeState, displayLotsById, [2, 3]);
-    const bondState = await TreasuryBonds.getVaultBondState(client as any, 1, operatorAddress);
-
-    expect(bondState.flexibleBonds).toBe(20);
-    expect(bondState.reservedBondSpace).toBe(2);
-    expect(bondState.regularBonds).toBe(3);
-    expect(bondState.bondLots.map(({ id, isOwn, isReleasing }) => ({ id, isOwn, isReleasing }))).toEqual([
-      { id: 1, isOwn: false, isReleasing: false },
-      { id: 2, isOwn: true, isReleasing: false },
-      { id: 3, isOwn: true, isReleasing: true },
-    ]);
-
-    expect(
-      TreasuryBonds.availableBondSpace({
-        capacityMicrogons: bitcoinCapacityMicrogons,
-        bondState: bondState,
-      }),
-    ).toBe(5n * oneArgon);
-
-    const moreFlexibleState = deployedRegistry.createType<RuntimeSpec159.PalletTreasuryVaultBondState>(
-      'PalletTreasuryVaultBondState',
-      {
-        regularBondLots: [{ bondLotId: 1, bonds: 3 }],
-        flexibleBonds: 200,
-        reservedBondSpace: 2,
-      },
-    );
-    const moreFlexibleClient = createVaultBondClient(moreFlexibleState, displayLotsById, [2, 3]);
-    const moreFlexibleBondState = await TreasuryBonds.getVaultBondState(moreFlexibleClient as any, 1, operatorAddress);
-
-    expect(
-      TreasuryBonds.availableBondSpace({
-        capacityMicrogons: bitcoinCapacityMicrogons,
-        bondState: moreFlexibleBondState,
-      }),
-    ).toBe(5n * oneArgon);
-
-    bitcoinCapacityMicrogons = 4n * oneArgon;
-
-    expect(
-      TreasuryBonds.availableBondSpace({
-        capacityMicrogons: bitcoinCapacityMicrogons,
-        bondState: bondState,
-      }),
-    ).toBe(0n);
-
-    const fullSet = deployedRegistry.createType<RuntimeSpec159.PalletTreasuryVaultBondState>(
-      'PalletTreasuryVaultBondState',
-      {
-        regularBondLots: [
-          { bondLotId: 1, bonds: 3 },
-          { bondLotId: 4, bonds: 1 },
-        ],
-        flexibleBonds: 20,
-        reservedBondSpace: 2,
-      },
-    );
-    const fullSetClient = createVaultBondClient(fullSet, displayLotsById, [2, 3]);
-    const replacement = await TreasuryBonds.getVaultBondState(fullSetClient as any, 1, operatorAddress);
-    expect(TreasuryBonds.availableBondSpace({ capacityMicrogons: 10n * oneArgon, bondState: replacement })).toBe(
-      5n * oneArgon,
-    );
-    expect(replacement.minimumPurchaseBonds).toBe(2);
-    expect(TreasuryBonds.availableBondSpace({ capacityMicrogons: 0n, bondState: replacement })).toBe(0n);
-  });
-
-  it('keeps deployed-runtime participation distinct from payout shares in an underfilled vault', async () => {
-    const frameCapital = deployedRegistry.createType<RuntimeSpec159.PalletTreasuryFrameVaultCapital>(
-      'PalletTreasuryFrameVaultCapital',
-      {
-        frameId: 10,
-        vaults: {
-          1: {
-            regularBondAllocations: [{ bondLotId: 1, prorata: toFixedNumber(0.03, FIXED_U128_DECIMALS) }],
-            flexibleBondsEligible: 7,
-            flexibleProrata: toFixedNumber(0.07, FIXED_U128_DECIMALS),
-            eligibleBonds: 10,
-          },
-        },
-      },
-    );
-    const client = createFrameBondClient(frameCapital, displayLotsById);
-
-    const result = await TreasuryBonds.getCurrentFrameBondLots(client as any, 1, operatorAddress);
-
-    expect(result.totalActiveBonds).toBe(10);
-    expect(result.flexibleBondsEligible).toBe(7);
-    expect(result.bondLots.map(({ lot, eligibleMicrogons }) => ({ id: lot.id, eligibleMicrogons }))).toEqual([
-      { id: 1, eligibleMicrogons: 3_000_000n },
-    ]);
-
-    // A price decline can leave regular principal above capacity. Keep the
-    // resulting fractional participation; whole-bond purchase rules do not apply.
-    const reducedCapital = deployedRegistry.createType<RuntimeSpec159.PalletTreasuryFrameVaultCapital>(
-      'PalletTreasuryFrameVaultCapital',
-      {
-        frameId: 11,
-        vaults: {
-          1: {
-            regularBondAllocations: [
-              { bondLotId: 1, prorata: toFixedNumber(new BigNumber(3).div(7), FIXED_U128_DECIMALS) },
-              { bondLotId: 4, prorata: toFixedNumber(new BigNumber(4).div(7), FIXED_U128_DECIMALS) },
-            ],
-            flexibleBondsEligible: 0,
-            eligibleBonds: 5,
-          },
-        },
-      },
-    );
-    const reducedLots = new Map(displayLotsById);
-    reducedLots.set(4, createBondLot({ owner: buyerAddress, bonds: 4 }));
-    const reduced = await TreasuryBonds.getCurrentFrameBondLots(
-      createFrameBondClient(reducedCapital, reducedLots) as any,
-      1,
-      operatorAddress,
-    );
-    expect(reduced.bondLots.map(lot => lot.eligibleMicrogons)).toEqual([2_142_857n, 2_857_142n]);
-  });
-
   it('uses the candidate bond index and frozen frame terms through purchases and releases', async () => {
     const vaultState = registry.createType<PalletTreasuryVaultBondState>('PalletTreasuryVaultBondState', {
       regularBonds: 3,
@@ -472,8 +333,29 @@ describe('TreasuryBonds', () => {
       ),
     });
     const state = await TreasuryBonds.getVaultBondState(client as any, 1, operatorAddress);
-    expect(state.bondLots.map(lot => lot.id)).toEqual([1, 2, 3, 4]);
+    expect(state.bondLots.map(({ id, isOwn, isReleasing }) => ({ id, isOwn, isReleasing }))).toEqual([
+      { id: 1, isOwn: false, isReleasing: false },
+      { id: 2, isOwn: true, isReleasing: false },
+      { id: 3, isOwn: true, isReleasing: true },
+      { id: 4, isOwn: false, isReleasing: false },
+    ]);
     expect(TreasuryBonds.availableBondSpace({ capacityMicrogons: 10_000_000n, bondState: state })).toBe(5_000_000n);
+    expect(TreasuryBonds.availableBondSpace({ capacityMicrogons: 4_000_000n, bondState: state })).toBe(0n);
+    expect(TreasuryBonds.availableBondSpace({ capacityMicrogons: 0n, bondState: state })).toBe(0n);
+
+    client.query.treasury.bondLotsByVault.mockResolvedValueOnce(
+      toPlain(
+        registry.createType<PalletTreasuryVaultBondState>('PalletTreasuryVaultBondState', {
+          ...Object.fromEntries(vaultState),
+          flexibleBonds: 200,
+        }),
+      ),
+    );
+    const moreFlexibleState = await TreasuryBonds.getVaultBondState(client as any, 1, operatorAddress);
+    expect(TreasuryBonds.availableBondSpace({ capacityMicrogons: 10_000_000n, bondState: moreFlexibleState })).toBe(
+      5_000_000n,
+    );
+
     const frame = await TreasuryBonds.getCurrentFrameBondLots(client as any, 1, operatorAddress);
     expect(frame.bondLots.map(({ lot, eligibleMicrogons }) => ({ id: lot.id, eligibleMicrogons }))).toEqual([
       { id: 1, eligibleMicrogons: 3_000_000n },
@@ -594,7 +476,7 @@ describe('TreasuryBonds', () => {
 function createVaultBondClient(vaultState: Codec, lotsById: Map<number, Codec>, ownerLotIds: number[]) {
   return {
     consts: {
-      treasury: { minimumArgonsPerContributor: 1_000_000n, maxTreasuryContributors: 2 },
+      treasury: { minimumArgonsPerContributor: 1_000_000n, maxArgonBondLots: 100 },
       operationalAccounts: { operationalMinimumVaultSecuritization: 100_000_000n },
     },
     query: {
@@ -615,6 +497,7 @@ function createVaultBondClient(vaultState: Codec, lotsById: Map<number, Codec>, 
       },
       treasury: {
         bondLotsByVault: vi.fn(async () => toPlain(vaultState)),
+        totalArgonBondLots: async () => lotsById.size,
         bondLotIdsByVault: {
           keys: vi.fn(async () => [...lotsById.keys()].map(id => ({ args: [1, id] }))),
         },
@@ -627,48 +510,6 @@ function createVaultBondClient(vaultState: Codec, lotsById: Map<number, Codec>, 
       },
     },
   };
-}
-
-function createFrameBondClient(frameCapital: Codec, lotsById: Map<number, Codec>) {
-  return {
-    query: {
-      treasury: {
-        currentFrameVaultCapital: vi.fn(async () => toPlain(frameCapital)),
-        bondLotById: {
-          multi: vi.fn(async (ids: number[]) => ids.map(id => toPlain(lotsById.get(id)) ?? null)),
-        },
-      },
-    },
-  };
-}
-
-function createBondLot({
-  owner,
-  bonds,
-  programType = 'Vault',
-  isFlexible,
-  releaseReason,
-}: {
-  owner: string;
-  bonds: number;
-  programType?: 'Vault' | 'Argonot';
-  isFlexible?: boolean;
-  releaseReason?: 'UserLiquidation';
-}) {
-  return registry.createType<PalletTreasuryBondLot>('PalletTreasuryBondLot', {
-    owner,
-    program:
-      programType === 'Vault' ? { Vault: { vaultId: 1, sharingPercent: 0, bonusPercent: 0 } } : { Argonot: null },
-    bonds,
-    isFlexible: isFlexible ?? false,
-    createdFrameId: 1,
-    participatedFrames: 0,
-    lastFrameEarningsFrameId: null,
-    lastFrameEarnings: null,
-    cumulativeEarnings: 0,
-    releaseFrameId: releaseReason ? 2 : null,
-    releaseReason: releaseReason ?? null,
-  });
 }
 
 function createCapacityVault(

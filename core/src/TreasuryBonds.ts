@@ -3,11 +3,12 @@ import { bigIntMax, bigNumberToBigInt } from './utils.js';
 import { fixedU128Rational, fixedU128Multiply } from './FixedU128.js';
 import BigNumber from 'bignumber.js';
 import { BondLot } from './BondLot.js';
-import { Currency, MICRONOTS_PER_ARGONOT } from './Currency.js';
+import { MICRONOTS_PER_ARGONOT } from './Currency.js';
 import { Vault } from './Vault.js';
 import { TreasuryRewards } from './TreasuryRewards.js';
 import type { ArgonClient, ArgonCurrentQueryClient, ArgonQueryClient } from './MainchainClients.js';
 import type {
+  CurrentRuntimeConstants,
   CurrentRuntimeQueries,
   LiveQueryRecord,
   LiveRuntimeQueries,
@@ -63,17 +64,15 @@ export class TreasuryBonds {
   ): Promise<{ totalActiveBonds: number }> {
     const capital = frameCapital === undefined ? await client.query.treasury.currentFrameVaultCapital() : frameCapital;
     if (!capital) return { totalActiveBonds: 0 };
-    if ('totalActiveBonds' in capital) return { totalActiveBonds: Number(capital.totalActiveBonds) };
-
-    let totalActiveBonds = 0;
-    for (const position of Object.values(capital.vaults)) totalActiveBonds += position.eligibleBonds;
-    return { totalActiveBonds };
+    const currentCapital = capital as NonNullable<
+      RuntimeQueryResult<CurrentRuntimeQueries['treasury']['currentFrameVaultCapital']>
+    >;
+    return { totalActiveBonds: Number(currentCapital.totalActiveBonds) };
   }
 
   public static getBidPoolPercentForVaults(client: ArgonQueryClient): number {
-    if ('percentForArgonBondPool' in client.consts.treasury)
-      return client.consts.treasury.percentForArgonBondPool.toNumber();
-    return new BigNumber(1).minus(client.consts.treasury.percentForTreasuryReserves).toNumber();
+    const constants = client.consts.treasury as CurrentRuntimeConstants['treasury'];
+    return constants.percentForArgonBondPool.toNumber();
   }
 
   public static async getDistributableBidPool(client: ArgonQueryClient): Promise<bigint> {
@@ -90,11 +89,8 @@ export class TreasuryBonds {
   }
 
   public static async getActiveArgonotBonds(client: ArgonCurrentQueryClient): Promise<bigint> {
-    if ('networkTotals' in client.query.treasuryPositions) {
-      const networkTotals = await client.query.treasuryPositions.networkTotals();
-      return networkTotals!.stakes;
-    }
-    return BigInt((await client.query.treasury.totalActiveArgonotBonds()) ?? 0);
+    const positions = client.query.treasuryPositions as CurrentRuntimeQueries['treasuryPositions'];
+    return (await positions.networkTotals()).stakes;
   }
 
   public static getArgonotBondPurchaseCapacity(args: {
@@ -211,14 +207,12 @@ export class TreasuryBonds {
       return lot.vaultId === vaultId ? [lot] : [];
     });
 
-    const constants = client.consts.treasury;
+    const constants = client.consts.treasury as CurrentRuntimeConstants['treasury'];
     const minimumPurchaseBonds = TreasuryBonds.getBondMinimumPurchase({
       configuredMinimumMicrounits: constants.minimumArgonsPerContributor,
       replacementBonds,
     });
-    const isAtBondLotLimit =
-      'maxArgonBondLots' in constants &&
-      ((await client.query.treasury.totalArgonBondLots()) ?? 0) >= constants.maxArgonBondLots;
+    const isAtBondLotLimit = ((await client.query.treasury.totalArgonBondLots()) ?? 0) >= constants.maxArgonBondLots;
 
     return { ...state, bondLots, replacementBonds, minimumPurchaseBonds, isAtBondLotLimit };
   }
@@ -284,71 +278,34 @@ export class TreasuryBonds {
       };
     }
 
-    if ('vaultSecuritizationPositions' in frameCapitalRaw) {
-      let state: VaultBondState;
-      let lots: BondLot[];
-      if (snapshot) {
-        state = snapshot.bondState;
-        lots = snapshot.bondState.bondLots;
-      } else {
-        const sources = await TreasuryBonds.getVaultBondSources(client, vaultId);
-        state = sources.state;
-        lots = [...(await TreasuryBonds.getBondLotsById(client, sources.bondLotIds, operatorAddress)).values()];
-      }
-      const { flexibleBonds, displacedFlexibleBonds: displacedBonds } = state.lockedFrameTerms ?? state;
-      const flexibleFraction =
-        flexibleBonds > 0
-          ? fixedU128Rational(BigInt(Math.max(0, flexibleBonds - displacedBonds)), BigInt(flexibleBonds))
-          : 0n;
-      let totalActiveBonds = 0;
-      let flexibleBondsEligible = 0;
-      for (const lot of lots) {
-        const terms = lot.lockedFrameTerms ?? (lot.releaseReason ? undefined : lot);
-        if (!terms?.bonds) continue;
-        const principal = BondLot.bondsToMicrogons(terms.bonds);
-        const eligibleMicrogons = terms.isFlexible ? fixedU128Multiply(flexibleFraction, principal) : principal;
-        const eligibleBonds = BigNumber(eligibleMicrogons).div(BondLot.bondsToMicrogons(1)).toNumber();
-        totalActiveBonds += eligibleBonds;
-        if (terms.isFlexible) flexibleBondsEligible += eligibleBonds;
-        bondLots.push({ lot, eligibleMicrogons });
-      }
-      return { bondLots, totalActiveBonds, flexibleBondsEligible };
+    let state: VaultBondState;
+    let lots: BondLot[];
+    if (snapshot) {
+      state = snapshot.bondState;
+      lots = snapshot.bondState.bondLots;
+    } else {
+      const sources = await TreasuryBonds.getVaultBondSources(client, vaultId);
+      state = sources.state;
+      lots = [...(await TreasuryBonds.getBondLotsById(client, sources.bondLotIds, operatorAddress)).values()];
     }
-    const vaultCapital = frameCapitalRaw.vaults[String(vaultId)];
-    if (!vaultCapital) {
-      return {
-        bondLots,
-        totalActiveBonds: 0,
-        flexibleBondsEligible: 0,
-      };
-    }
-
-    const totalActiveBonds = vaultCapital.eligibleBonds;
-    const flexibleBondsEligible = vaultCapital.flexibleBondsEligible;
-    const allocations = vaultCapital.regularBondAllocations;
-    const regularMicrogons = BondLot.bondsToMicrogons(totalActiveBonds - flexibleBondsEligible);
-    // Deployed payout shares divide by capacity, including unfilled space.
-    // Normalize those shares across regular participation, not the whole vault.
-    const regularShare = allocations.reduce((sum, allocation) => sum.plus(allocation.prorata), BigNumber(0));
-    const bondLotIds = allocations.map(allocation => allocation.bondLotId);
-    const bondLotsById = await TreasuryBonds.getBondLotsById(client, bondLotIds, operatorAddress);
-
-    for (const allocation of allocations) {
-      const bondLotId = allocation.bondLotId;
-      const lot = bondLotsById.get(bondLotId);
-      if (!lot) continue;
-
-      const eligibleMicrogons = regularShare.isZero()
-        ? 0n
-        : bigNumberToBigInt(BigNumber(regularMicrogons).times(allocation.prorata).div(regularShare));
+    const { flexibleBonds, displacedFlexibleBonds: displacedBonds } = state.lockedFrameTerms ?? state;
+    const flexibleFraction =
+      flexibleBonds > 0
+        ? fixedU128Rational(BigInt(Math.max(0, flexibleBonds - displacedBonds)), BigInt(flexibleBonds))
+        : 0n;
+    let totalActiveBonds = 0;
+    let flexibleBondsEligible = 0;
+    for (const lot of lots) {
+      const terms = lot.lockedFrameTerms ?? (lot.releaseReason ? undefined : lot);
+      if (!terms?.bonds) continue;
+      const principal = BondLot.bondsToMicrogons(terms.bonds);
+      const eligibleMicrogons = terms.isFlexible ? fixedU128Multiply(flexibleFraction, principal) : principal;
+      const eligibleBonds = BigNumber(eligibleMicrogons).div(BondLot.bondsToMicrogons(1)).toNumber();
+      totalActiveBonds += eligibleBonds;
+      if (terms.isFlexible) flexibleBondsEligible += eligibleBonds;
       bondLots.push({ lot, eligibleMicrogons });
     }
-
-    return {
-      bondLots,
-      totalActiveBonds,
-      flexibleBondsEligible,
-    };
+    return { bondLots, totalActiveBonds, flexibleBondsEligible };
   }
 
   public static async buildBuyBondTx(args: {
@@ -369,37 +326,10 @@ export class TreasuryBonds {
   }
 
   private static async getVaultBondSources(client: ArgonCurrentQueryClient, vaultId: number) {
-    const vaultState = await client.query.treasury.bondLotsByVault(vaultId);
-    if ('regularBonds' in vaultState) {
-      const keys = await client.query.treasury.bondLotIdsByVault.keys(vaultId);
-      return { bondLotIds: (keys ?? []).map(key => key.args[1]), state: vaultState, replacementBonds: 0 };
-    }
-
-    const summaries = vaultState.regularBondLots;
-    const regularBonds = summaries.reduce((total, summary) => total + summary.bonds, 0);
-    let displacedFlexibleBonds = 0;
-    if (vaultState.flexibleBonds > 0) {
-      const [vault, priceIndex] = await Promise.all([Vault.get(client, vaultId), Currency.fetchPriceIndex(client)]);
-      const capacity = TreasuryBonds.getBondPurchaseCapacity(vault.bondCapacityMicrogons(priceIndex));
-      displacedFlexibleBonds = Math.max(0, vaultState.flexibleBonds - Math.max(0, capacity - regularBonds));
-    }
-    let replacementBonds = 0;
-    const constants = client.consts.treasury;
-    if ('maxTreasuryContributors' in constants && summaries.length >= constants.maxTreasuryContributors) {
-      replacementBonds = summaries.at(-1)?.bonds ?? 0;
-    }
-
-    return {
-      bondLotIds: summaries.map(summary => summary.bondLotId),
-      state: {
-        regularBonds,
-        flexibleBonds: vaultState.flexibleBonds,
-        reservedBondSpace: vaultState.reservedBondSpace,
-        displacedFlexibleBonds,
-        lockedFrameTerms: null,
-      } satisfies VaultBondState,
-      replacementBonds,
-    };
+    const treasury = client.query.treasury as CurrentRuntimeQueries['treasury'];
+    const state = await treasury.bondLotsByVault(vaultId);
+    const keys = await treasury.bondLotIdsByVault.keys(vaultId);
+    return { bondLotIds: keys.map(key => key.args[1]), state, replacementBonds: 0 };
   }
 
   private static async getBondLotsById(

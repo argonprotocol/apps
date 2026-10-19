@@ -33,7 +33,7 @@ import { GlobalCouncil } from '../../src-vue/lib/GlobalCouncil.ts';
 import { MintingAuthorities } from '../../src-vue/lib/MintingAuthorities.ts';
 import { MoveCapital } from '../../src-vue/lib/MoveCapital.ts';
 import type { TransactionInfo } from '../../src-vue/lib/TransactionInfo.ts';
-import { getOperationalRewardConfig } from '../../src-vue/lib/OperationalAccount.ts';
+import { getOperationalRewardConfig, subscribeOperationalAccount } from '../../src-vue/lib/OperationalAccount.ts';
 import { defaultWalletData, type IWalletData, WalletType } from '../../src-vue/lib/Wallet.ts';
 import { WalletForArgon } from '../../src-vue/lib/WalletForArgon.ts';
 import { WalletForBitcoin } from '../../src-vue/lib/WalletForBitcoin.ts';
@@ -88,6 +88,7 @@ export function setupAppScenario({
   bitcoinLockCreate,
   myVaultId,
 }: ScenarioOptions) {
+  mocked(subscribeOperationalAccount).mockImplementation(() => new Promise(() => undefined));
   setActivePinia(createPinia());
   mocked(getDbPromise, { partial: true }).mockReturnValue(
     Promise.resolve({
@@ -276,6 +277,15 @@ export function setupAppScenario({
     },
   } as unknown as ReturnType<typeof getBondTransactionOperations>);
   mocked(getMyMiningSeats, { partial: true }).mockReturnValue({
+    serverState: {
+      argonLocalNodeBlockNumber: 0,
+      argonMainNodeBlockNumber: 0,
+      bitcoinLocalNodeBlockNumber: 0,
+      bitcoinMainNodeBlockNumber: 0,
+      botActivityLastUpdatedAt: new Date('2026-01-01T00:00:00Z'),
+      botActivityLastBlockNumber: 0,
+      latestFrameId: 0,
+    },
     activeSeats: {
       seatCount: 0,
       microgonsBidTotal: 0n,
