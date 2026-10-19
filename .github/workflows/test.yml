@@ -108,9 +108,9 @@ jobs:
         run: |
           echo "deb [trusted=yes] https://sdk.kurtosis.com/kurtosis-cli-release-artifacts/ /" | sudo tee /etc/apt/sources.list.d/kurtosis.list
           sudo apt update
-          sudo apt install -y kurtosis-cli
+          sudo apt install -y kurtosis-cli=1.22.1
           kurtosis version
-          kurtosis analytics disable || true
+          install -m 600 e2e/kurtosis-config.yml "$(kurtosis config path)"
 
       - name: Start Kurtosis engine
         if: matrix.suite != 'regular'

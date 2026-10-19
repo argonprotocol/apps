@@ -155,8 +155,10 @@ export async function startDevEthereum(
     );
   }
 
+  const ethereumPackage = fileURLToPath(new URL('./ethereum', import.meta.url));
+
   for (let attempt = 1; attempt <= DEV_ETHEREUM_LAUNCH_MAX_ATTEMPTS; attempt += 1) {
-    const ethereum = new TestEthereum();
+    const ethereum = new TestEthereum(undefined, undefined, ethereumPackage);
 
     try {
       const endpoints = await ethereum.launch({
