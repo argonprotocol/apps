@@ -9,9 +9,11 @@ Use integration tests to exercise real state owners together: the runtime/client
 - Add a file filter for focused work: `yarn vitest --run --project integration TransactionTracker.integration.test.ts`.
 - `yarn test:network:start` starts a dedicated local network for this checkout. Subsequent chain test commands reuse it. `yarn test:network:stop` removes its containers, volumes, and metadata.
 
-Without a persistent local network, setup starts one network for the shared project and removes it after the tests, including test failures. CI always uses that owned lifecycle. The dedicated test network is separate from `dev:docker`. Recreate the persistent network when changing the runtime pin or Docker service code. A different runtime pin or genesis produces an explicit setup error. RPC ports stay fixed across container restarts; setup also resolves current published ports when reusing the same network.
+Without a persistent local network, setup starts one network for the shared project and removes it after the tests, including test failures. CI always uses that owned lifecycle. The dedicated test network is separate from `dev:docker`. Recreate the persistent network when changing the runtime pin, Docker service code, or network setup. A different runtime pin or genesis produces an explicit setup error. RPC ports stay fixed across container restarts; setup also resolves current published ports when reusing the same network.
 
 Disposable integration and E2E networks use cache-only RandomX mining (`--compute-flags=light`) through `test-network.docker-compose.yml`. It produces the same proofs while avoiding the full mining dataset allocation. Ordinary development and deployed nodes retain their default mining mode.
+
+After bootstrap, the network factory requests compute difficulty 100 and verifies that the configuration call succeeds in a finalized block before returning. This keeps the standard genesis difficulty of 800 compatible with nodes that join later, then lowers the expected work for subsequent compute proofs. The first bootstrap proof is unchanged, normal runtime difficulty adjustment still applies, and test worker counts are unchanged. Setup logs the requested and finalized difficulty, which can differ if the runtime retargets during the configuration block.
 
 ## Writing a chain scenario
 

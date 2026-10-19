@@ -3,11 +3,12 @@ import { promises as Fs } from 'node:fs';
 import Path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import docker from 'docker-compose';
-import { runOnTeardown } from '@argonprotocol/testing';
+import { runOnTeardown, sudo } from '@argonprotocol/testing';
 import { NetworkConfig, NetworkConfigSettings } from '../src/NetworkConfig.ts';
-import { stripNetworkPrefix, toComposeProjectName } from '../src/utils.ts';
+import { raceWithTimeout, stripNetworkPrefix, toComposeProjectName } from '../src/utils.ts';
 import { type ArgonClient as PolkadotArgonClient, getClient } from '@argonprotocol/mainchain';
 import { createArgonClient, type ArgonClient } from '../src/MainchainClients.ts';
+import { TxSubmitter } from '../src/TxSubmitter.ts';
 import { acquireIntegrationLock } from './helpers/locks.ts';
 
 type StartProfile = 'miners' | 'bob' | 'dave' | 'all' | 'price-oracle';
@@ -251,6 +252,25 @@ export async function startArgonTestNetwork(
         pollMs: options.chainStartPollMs ?? DEFAULT_CHAIN_START_POLL_MS,
         label: `archive RPC ${archiveRpcUrl}`,
       });
+
+      // Preserve genesis so ordinary nodes can join, then ease proofs for the rest of the test run.
+      const difficulty = 100n;
+      const configureDifficulty = client.tx.blockSealSpec.configure(null, difficulty);
+      const result = await new TxSubmitter(client, client.tx.sudo.sudo(configureDifficulty), sudo()).submit({
+        useLatestNonce: true,
+      });
+      const finalizedHash = await raceWithTimeout(result.waitForFinalizedBlock, 120_000, () => {
+        throw new Error('Test compute difficulty did not finalize within 120 seconds');
+      });
+      const sudoEvent = result.events.find(event => event.section === 'sudo' && event.method === 'Sudid');
+      if (sudoEvent?.data.sudoResult.type !== 'Ok') {
+        throw new Error('Test compute difficulty configuration failed', { cause: sudoEvent?.data.sudoResult });
+      }
+
+      // The runtime may retarget difficulty again during this block's finalization.
+      const finalized = await client.at(finalizedHash);
+      const finalizedDifficulty = await finalized.query.blockSealSpec.currentComputeDifficulty();
+      console.log('Test compute difficulty requested=%s finalized=%s', difficulty, finalizedDifficulty);
 
       const miningConfig = await NetworkConfig.loadConfigs(client);
       console.log('Loaded mining config:', miningConfig);

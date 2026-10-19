@@ -27,6 +27,13 @@ describe.skipIf(skipE2E)('Mining Frames tests', () => {
     await teardown();
   });
 
+  it('preserves the standard node genesis for joining nodes', async () => {
+    const client = await clients.get(false);
+    const genesis = await client.at(client.genesisHash.toHex());
+
+    expect(await genesis.query.blockSealSpec.currentComputeDifficulty()).toBe(800n);
+  });
+
   it('syncs live frames and restores their durable history on a continuing chain', async () => {
     const historyPath = Path.join(directory, 'frames.json');
     const updatesWriter = {
