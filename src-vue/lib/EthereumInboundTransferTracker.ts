@@ -283,6 +283,11 @@ export class EthereumInboundTransferTracker {
 
     try {
       const destinationAddress = this.walletKeys.getWalletAddress(targetWalletType);
+      await this.waitForEarlierSourceTransfers(transfer);
+      transferState.progress = setInboundEthereumStepProgress(transferState.progress, {
+        progressPct: 0,
+        detail: 'Preparing Ethereum transfer...',
+      });
       await this.ensureSufficientEthereumFeeBalance({
         moveToken,
         amountBaseUnits,
@@ -327,6 +332,35 @@ export class EthereumInboundTransferTracker {
     }
 
     await this.reconcileTransfer(transfer, 'Unable to move funds from Ethereum.');
+  }
+
+  private async waitForEarlierSourceTransfers(transfer: IEthereumInboundActiveTransfer) {
+    const ethereumClient = this.requireEthereumClient();
+    const sourceAddress = transfer.sourceAddress?.toLowerCase();
+
+    // Wait for inclusion before signing the next permit for the same wallet.
+    for (const earlierTransfer of Object.values(this.data.transfersById)) {
+      if (earlierTransfer.id === transfer.id) return;
+      if (earlierTransfer.sourceAddress?.toLowerCase() !== sourceAddress) continue;
+
+      while (earlierTransfer.transferState.isSubmitting && !earlierTransfer.transferState.needsAttention) {
+        const record = earlierTransfer.persistedRecord;
+        if (record && record.status !== CrosschainInboundTransferStatus.SourceSubmitted) break;
+
+        if (record?.sourceTxHash) {
+          const progress = await ethereumClient
+            .getTransactionProgress({ txHash: record.sourceTxHash })
+            .catch(() => undefined);
+          if (progress?.blockNumber != null) break;
+        }
+
+        transfer.transferState.progress = setInboundEthereumStepProgress(transfer.transferState.progress, {
+          progressPct: 0,
+          detail: 'Waiting for an earlier transfer from this Ethereum wallet to be mined...',
+        });
+        await sleep(ethereumClient.getTransactionFinalityPollMs());
+      }
+    }
   }
 
   private async ensureSufficientEthereumFeeBalance(args: {
