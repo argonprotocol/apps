@@ -1,18 +1,14 @@
 import type { CurrentRuntimeQueries, LiveQueryRecord, RuntimeQueryResult } from '@argonprotocol/runtime-client';
 import type { ArgonClient, ArgonCurrentQueryClient, ArgonQueryClient } from './MainchainClients.js';
-import type { PreviousRuntimeSpec as RuntimeSpec159 } from './runtimeCompatibility.js';
 import BigNumber from 'bignumber.js';
 import {
   FIXED_U128_DECIMALS,
-  PERMILL_DECIMALS,
   toFixedNumber,
   type ArgonPrimitivesVaultVaultTerms,
   type PriceIndex,
 } from '@argonprotocol/mainchain';
 import { bigNumberToBigInt, bigIntMax, bigIntMin } from './utils.js';
 import { fixedU128Rational, fixedU128Multiply } from './FixedU128.js';
-
-const VAULT_CREATION_BOND_PROFIT_SHARING = BigNumber(0.1);
 
 type RuntimeVault = NonNullable<RuntimeQueryResult<CurrentRuntimeQueries['vaults']['vaultsById']>>;
 type SecuritizationScheduleEntry = RuntimeVault['securitizationReleaseSchedule'][string];
@@ -289,20 +285,11 @@ export class Vault implements Omit<RuntimeVault, 'securitizationReleaseSchedule'
   }
 
   /** Encode current Bitcoin terms against the connected runtime's actual terms schema. */
-  public static encodeTerms(
-    registry: ArgonClient['registry'],
-    terms: RuntimeVault['terms'],
-    bondProfitSharing: BigNumber = VAULT_CREATION_BOND_PROFIT_SHARING,
-  ) {
-    return registry.createType<ArgonPrimitivesVaultVaultTerms | RuntimeSpec159.ArgonPrimitivesVaultVaultTerms>(
-      'ArgonPrimitivesVaultVaultTerms',
-      {
-        bitcoinAnnualPercentRate: toFixedNumber(terms.bitcoinAnnualPercentRate, FIXED_U128_DECIMALS),
-        bitcoinBaseFee: terms.bitcoinBaseFee,
-        // The deployed terms schema still requires this field; the new schema omits it.
-        treasuryProfitSharing: toFixedNumber(bondProfitSharing, PERMILL_DECIMALS),
-      },
-    );
+  public static encodeTerms(registry: ArgonClient['registry'], terms: RuntimeVault['terms']) {
+    return registry.createType<ArgonPrimitivesVaultVaultTerms>('ArgonPrimitivesVaultVaultTerms', {
+      bitcoinAnnualPercentRate: toFixedNumber(terms.bitcoinAnnualPercentRate, FIXED_U128_DECIMALS),
+      bitcoinBaseFee: terms.bitcoinBaseFee,
+    });
   }
 
   public static async get(
@@ -334,10 +321,7 @@ export class Vault implements Omit<RuntimeVault, 'securitizationReleaseSchedule'
   }
 
   public static buildSetArgonotSecuritizationTx(client: ArgonClient, amount: bigint) {
-    const vaultTx = client.tx.vaults as typeof client.tx.vaults | RuntimeSpec159.Transactions<'promise'>['vaults'];
-    return 'setArgonotSecuritization' in vaultTx
-      ? vaultTx.setArgonotSecuritization(amount)
-      : vaultTx.setCommittedArgonots(amount);
+    return client.tx.vaults.setArgonotSecuritization(amount);
   }
 
   private previewWithdrawals(

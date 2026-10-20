@@ -14,45 +14,47 @@
 
     <!-- Treemap tiles -->
     <div ref="containerRef" class="relative grow overflow-hidden">
-      <div
-        v-for="rect in rectangles"
-        :key="rect.key"
-        :data-treemap-key="rect.key"
-        :data-treemap-kind="rect.kind"
-        class="treemap__tile absolute overflow-hidden border border-slate-500/20"
-        :class="[
-          rect.kind === 'remainder'
-            ? 'treemap__tile--remainder'
-            : rect.emphasis === 'strong'
-              ? 'treemap__tile--strong'
-              : 'treemap__tile--item',
-          rect.kind === 'item' ? 'cursor-pointer' : '',
-          rect.status === 'pending'
-            ? 'treemap__tile--pending'
-            : rect.status === 'unclaimed'
-              ? 'treemap__tile--unclaimed'
-              : '',
-          rect.isCompact ? 'treemap__tile--compact' : '',
-          rect.isTiny ? 'treemap__tile--tiny' : '',
-        ]"
-        :style="getRectStyle(rect)"
-        @click="handleTileClick(rect)"
-      >
+      <Tooltip v-for="rect in rectangles" :key="rect.key" as-child :disabled="rect.kind !== 'item' || !$slots.tooltip">
         <div
-          class="treemap__content relative z-10 flex h-full w-full flex-col items-center justify-center text-center text-[rgba(71,85,105,0.78)] hover:bg-slate-500/10"
+          :data-treemap-key="rect.key"
+          :data-treemap-kind="rect.kind"
+          class="treemap__tile absolute overflow-hidden border border-slate-500/20"
+          :class="{
+            'treemap__tile--remainder': rect.kind === 'remainder',
+            'treemap__tile--strong': rect.kind === 'item' && rect.emphasis === 'strong',
+            'treemap__tile--item': rect.kind === 'item' && rect.emphasis !== 'strong',
+            'cursor-pointer': rect.kind === 'item',
+            'treemap__tile--pending': rect.status === 'pending',
+            'treemap__tile--unclaimed': rect.status === 'unclaimed',
+            'treemap__tile--compact': rect.isCompact,
+            'treemap__tile--tiny': rect.isTiny,
+          }"
+          :style="getRectStyle(rect)"
+          :tabindex="rect.kind === 'item' && $slots.tooltip ? 0 : undefined"
+          @click="handleTileClick(rect)"
         >
-          <template v-if="!rect.isTiny">
-            <div v-if="rect.label" class="treemap__value text-[1.05rem] leading-[1.2] font-bold">
-              <slot name="label" :item="rect">{{ rect.label }}</slot>
-            </div>
-            <div v-if="rect.displayValue && !rect.isCompact" class="treemap__label mt-1 text-[0.82rem] leading-[1.25]">
-              <slot name="displayValue" :item="rect">
-                <span class="opacity-60">{{ rect.displayValue }}</span>
-              </slot>
-            </div>
-          </template>
+          <div
+            class="treemap__content relative z-10 flex h-full w-full flex-col items-center justify-center text-center text-[rgba(71,85,105,0.78)] hover:bg-slate-500/10"
+          >
+            <template v-if="!rect.isTiny">
+              <div v-if="rect.label" class="treemap__value text-[1.05rem] leading-[1.2] font-bold">
+                <slot name="label" :item="rect">{{ rect.label }}</slot>
+              </div>
+              <div
+                v-if="rect.displayValue && !rect.isCompact"
+                class="treemap__label mt-1 text-[0.82rem] leading-[1.25]"
+              >
+                <slot name="displayValue" :item="rect">
+                  <span class="opacity-60">{{ rect.displayValue }}</span>
+                </slot>
+              </div>
+            </template>
+          </div>
         </div>
-      </div>
+        <template #content>
+          <slot name="tooltip" :item="rect" />
+        </template>
+      </Tooltip>
     </div>
     <slot name="footer" :rectangles="rectangles" />
   </div>
@@ -62,6 +64,7 @@
 import * as Vue from 'vue';
 import { hierarchy, treemap, treemapSquarify } from 'd3-hierarchy';
 import type { HierarchyRectangularNode } from 'd3-hierarchy';
+import Tooltip from './Tooltip.vue';
 
 type AmountLike = bigint | number;
 

@@ -21,10 +21,12 @@ import {
 } from '../lib/db/TransactionStatusHistoryTable.ts';
 import { createMockWalletKeys } from './helpers/wallet.ts';
 import { bigintCodec, numberCodec, optionCodec } from '../../core/__test__/helpers/codecs.ts';
-import { getOfflineRegistry, type ArgonPrimitivesVault } from '@argonprotocol/mainchain';
-import { Metadata, TypeRegistry } from '@polkadot/types';
-import type { PreviousRuntimeSpec as RuntimeSpec159 } from '../../core/src/runtimeCompatibility.ts';
-import { runtimeClient, toPlain, getBundledMetadata } from '@argonprotocol/runtime-client';
+import {
+  getOfflineRegistry,
+  type ArgonPrimitivesVault,
+  type ArgonPrimitivesVaultVaultTerms,
+} from '@argonprotocol/mainchain';
+import { runtimeClient, toPlain } from '@argonprotocol/runtime-client';
 import BigNumber from 'bignumber.js';
 import { createCurrentLock, createStore } from './helpers/bitcoin.ts';
 import { BitcoinNetwork, CosignScript } from '@argonprotocol/bitcoin';
@@ -44,15 +46,12 @@ type IMyVaultTestTarget = {
   onIncreaseVaultSecuritization(txInfo: TransactionInfo<IVaultIncreaseAllocationMetadata>): Promise<void>;
 };
 
-it.each([false, true])('keeps runtime 159 sharing when editing Bitcoin fees (pending: %s)', async pending => {
-  const registry = new TypeRegistry();
-  const metadata = Object.entries(getBundledMetadata()).find(([key]) => key.endsWith('-159'))![1];
-  registry.setMetadata(new Metadata(registry, metadata));
-  const rawVault = registry.createType<RuntimeSpec159.ArgonPrimitivesVault>('ArgonPrimitivesVault', {
+it.each([false, true])('updates Bitcoin fees with current runtime terms (pending: %s)', async pending => {
+  const registry = getOfflineRegistry();
+  const rawVault = registry.createType<ArgonPrimitivesVault>('ArgonPrimitivesVault', {
     terms: {
       bitcoinBaseFee: 1_000_000n,
       bitcoinAnnualPercentRate: 20_000_000_000_000_000n,
-      treasuryProfitSharing: 370_000,
     },
     pendingTerms: pending
       ? [
@@ -60,7 +59,6 @@ it.each([false, true])('keeps runtime 159 sharing when editing Bitcoin fees (pen
           {
             bitcoinBaseFee: 2_000_000n,
             bitcoinAnnualPercentRate: 30_000_000_000_000_000n,
-            treasuryProfitSharing: 480_000,
           },
         ]
       : null,
@@ -71,18 +69,10 @@ it.each([false, true])('keeps runtime 159 sharing when editing Bitcoin fees (pen
   });
   const submitAndWatch = vi.fn(async (_args: Parameters<TransactionTracker['submitAndWatch']>[0]) => info);
   const { myVault } = createVault({ submitAndWatch });
-  myVault.data.createdVault = Vault.fromRuntime(
-    7,
-    toPlain(rawVault) as Parameters<typeof Vault.fromRuntime>[1],
-    1_000,
-    {
-      vaults: {},
-      operationalAccounts: { operationalMinimumVaultSecuritization: 100_000_000n },
-    } as Parameters<typeof Vault.fromRuntime>[3],
-  );
+  myVault.data.createdVault = new Vault(7, toPlain(rawVault) as ConstructorParameters<typeof Vault>[1], 1_000);
   const client = {
     registry,
-    tx: { vaults: { modifyTerms: (_id: number, terms: RuntimeSpec159.ArgonPrimitivesVaultVaultTerms) => terms } },
+    tx: { vaults: { modifyTerms: (_id: number, terms: ArgonPrimitivesVaultVaultTerms) => terms } },
   };
   const getMainchainClient = vi.spyOn(mainchainStore, 'getMainchainClient').mockResolvedValue(client as any);
   try {
@@ -98,13 +88,13 @@ it.each([false, true])('keeps runtime 159 sharing when editing Bitcoin fees (pen
       txProgressCallback: () => undefined,
     });
     const submitted = submitAndWatch.mock.calls[0][0];
-    const decoded = registry.createType<RuntimeSpec159.ArgonPrimitivesVaultVaultTerms>(
+    const decoded = registry.createType<ArgonPrimitivesVaultVaultTerms>(
       'ArgonPrimitivesVaultVaultTerms',
       submitted.tx.toU8a(),
     );
     expect(decoded.bitcoinBaseFee.toBigInt()).toBe(3_000_000n);
     expect(decoded.bitcoinAnnualPercentRate.toBigInt()).toBe(45_000_000_000_000_000n);
-    expect(decoded.treasuryProfitSharing.toNumber()).toBe(pending ? 480_000 : 370_000);
+    expect('treasuryProfitSharing' in decoded).toBe(false);
   } finally {
     getMainchainClient.mockRestore();
   }
@@ -891,7 +881,7 @@ describe('MyVault cosign recovery', () => {
       tx: {
         vaults: {
           modifyFunding: vi.fn(() => fundingTx),
-          setCommittedArgonots: vi.fn(() => commitmentTx),
+          setArgonotSecuritization: vi.fn(() => commitmentTx),
         },
         utility: {
           batchAll: vi.fn(() => batchTx),
@@ -908,7 +898,7 @@ describe('MyVault cosign recovery', () => {
     );
 
     expect(client.tx.vaults.modifyFunding).toHaveBeenCalledWith(7, 900n, 1_000_000_000_000_000_000n);
-    expect(client.tx.vaults.setCommittedArgonots).toHaveBeenCalledWith(80n);
+    expect(client.tx.vaults.setArgonotSecuritization).toHaveBeenCalledWith(80n);
     expect(client.tx.utility.batchAll).toHaveBeenCalledWith([fundingTx, commitmentTx]);
     expect(result).toBe(batchTx);
   });

@@ -5,6 +5,7 @@
       @update:open="handleOpen"
       :disableClosingTrigger="true"
       :disableHoverableContent="false"
+      :disabled="props.disabled"
     >
       <TooltipTrigger :asChild="props.asChild || undefined" tooltip>
         <slot />

@@ -88,7 +88,12 @@ export function setupVaultingPortfolioScenario() {
     2_101: createExternalLock(2_101, 3_700_000n, 400n * microgonsPerArgon, false, onboardingMemberAccount),
     2_102: createExternalLock(2_102, 1_900_000n, 200n * microgonsPerArgon, true),
   };
-  const operatorBond = createBondLot({ id: 71, accountId: createdVault.operatorAccountId, bonds: 560 });
+  const operatorBond = createBondLot({
+    id: 71,
+    accountId: createdVault.operatorAccountId,
+    bonds: 560,
+    createdFrame: currentFrameId - 5,
+  });
   const externalBond = createBondLot({
     id: 72,
     accountId: onboardingMemberAccount,
@@ -314,15 +319,16 @@ export function setupVaultingPortfolioScenario() {
   const getTickStart = (frameId: number) => {
     return frameStartTick - (currentFrameId - frameId) * ticksPerDay;
   };
+  const frameRewardTicksRemaining = Math.round(NetworkConfig.rewardTicksPerFrame * 0.57);
   mocked(getMiningFrames).mockReturnValue({
     currentFrameId,
-    currentTick: frameStartTick + 17,
+    currentTick: frameStartTick + NetworkConfig.rewardTicksPerFrame - frameRewardTicksRemaining,
     load: fn(async () => undefined),
     getFrameDate: fn((frameId: number) => new Date(Date.UTC(2026, 7, 15 - (currentFrameId - frameId), 12))),
     getTickStart: fn(getTickStart),
     getTickEnd: fn((frameId: number) => getTickStart(frameId) + ticksPerDay - 1),
     getCurrentFrameProgress: fn(() => 43),
-    getFrameRewardTicksRemaining: fn(() => Math.round(NetworkConfig.rewardTicksPerFrame * 0.57)),
+    getFrameRewardTicksRemaining: fn(() => frameRewardTicksRemaining),
     onFrameId: fn(() => ({ unsubscribe: fn() })),
     onTick: fn(() => ({ unsubscribe: fn() })),
   } as unknown as ReturnType<typeof getMiningFrames>);

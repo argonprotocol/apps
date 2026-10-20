@@ -75,8 +75,6 @@ const walletKeys = getWalletKeys();
 const config = getConfig();
 const argonBonds = getArgonBonds();
 
-const supportsArgnotBacking = Vue.ref(false);
-
 function openStakePurchaseOverlay() {
   basicEmitter.emit('openStakePurchaseOverlay');
 }
@@ -107,7 +105,6 @@ Vue.onMounted(async () => {
   await argonBonds.load();
 
   const client = await getMainchainClient(false);
-  supportsArgnotBacking.value = 'buyArgonotBonds' in client.tx.treasury;
 
   if (argonBonds.data.vaultId) {
     unsubVault = await vaults.subscribeToVault(argonBonds.data.vaultId, () => {

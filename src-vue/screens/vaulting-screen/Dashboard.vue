@@ -117,16 +117,51 @@
                     :remainder-display-value="formatMoney(bitcoinMapRemainder)"
                     @tile-click="handleBitcoinTileClick"
                   >
+                    <template #label="{ item }">
+                      <span v-if="bitcoinMapLocks[item.key]?.isFlexible" aria-label="Flexible Bitcoin" class="inline-flex items-center gap-1.5">
+                        <span
+                          v-if="item.width >= 80"
+                          class="shrink-0 rounded border border-current/40 px-1 py-0.5 text-xs leading-none font-semibold"
+                        >{{ item.isCompact || item.width < 100 ? 'F' : 'FLEX' }}</span>
+                        {{ item.label }}
+                      </span>
+                      <template v-else>{{ item.label }}</template>
+                    </template>
+                    <template v-if="currentFrameIsActive" #tooltip="{ item }">
+                      <div v-if="bitcoinMapLocks[item.key]">
+                        <div class="mb-2 flex items-center gap-2 border-b border-slate-400/30 pb-2 font-semibold text-slate-700">
+                          <span v-if="localLocksByUuid[item.key]">{{ controller.operatorName || 'You' }}</span>
+                          <span v-else>{{ controller.operationalInvites.find(invite => invite.defaultAccountId === bitcoinMapLocks[item.key].ownerAccount)?.name ?? 'External User' }}</span>
+                          <span aria-hidden="true">·</span>
+                          <span>{{ numeral(currency.convertSatToBtc(bitcoinMapLocks[item.key].fundedSatoshis || bitcoinMapLocks[item.key].securitizedSatoshis)).format('0,0.[00000000]') }} BTC</span>
+                          <template v-if="bitcoinMapLocks[item.key].isFlexible">
+                            <span aria-hidden="true" class="ml-auto">·</span>
+                            <span class="shrink-0 rounded border border-current/40 px-1 py-0.5 text-xs leading-none font-semibold">Flex</span>
+                          </template>
+                        </div>
+                        <dl>
+                          <div class="flex justify-between gap-4">
+                            <dt>Market Value:</dt>
+                            <dd class="text-right font-medium">{{ currency.symbol }}{{ satToMoneyNm(bitcoinMapLocks[item.key].fundedSatoshis || bitcoinMapLocks[item.key].securitizedSatoshis).format('0,0.[00]') }}</dd>
+                          </div>
+                          <div class="flex justify-between gap-4">
+                            <dt>Securitization Used:</dt>
+                            <dd class="text-right font-medium">
+                              <template v-if="bitcoinMapSecuritization[item.key] > 0n">₳{{ microgonToArgonNm(bitcoinMapSecuritization[item.key]).format('0,0.[00]') }}</template>
+                              <template v-else>Pending</template>
+                            </dd>
+                          </div>
+                        </dl>
+                        <p v-if="item.key === bitcoinMapOverflow.lock?.id" class="mt-2 max-w-xs text-yellow-800">
+                          Bitcoin exceeds your vault's capacity by {{ currency.symbol }}{{ microgonToMoneyNm(bitcoinMapOverflow.microgons).format('0,0', Math.ceil) }}. Add securitization to cover it.
+                        </p>
+                      </div>
+                    </template>
                     <template #displayValue="{ item }">
-                      <Tooltip v-if="item.key === bitcoinMapOverflow.lock?.id" as-child>
-                        <span tabindex="0" aria-label="Bitcoin exceeds vault capacity" class="inline-flex items-center gap-1 text-yellow-800">
-                          <AlertIcon class="size-4 shrink-0" />
-                          {{ item.displayValue }}
-                        </span>
-                        <template #content>
-                          Bitcoin exceeds your vault’s capacity by {{ currency.symbol }}{{ microgonToMoneyNm(bitcoinMapOverflow.microgons).format('0,0', Math.ceil) }}. Add securitization to cover it.
-                        </template>
-                      </Tooltip>
+                      <span v-if="item.key === bitcoinMapOverflow.lock?.id" aria-label="Bitcoin exceeds vault capacity" class="inline-flex items-center gap-1 text-yellow-800">
+                        <AlertIcon class="size-4 shrink-0" />
+                        {{ item.displayValue }}
+                      </span>
                       <span v-else class="opacity-60">{{ item.displayValue }}</span>
                     </template>
                     <template #footer="{ rectangles }">
@@ -151,41 +186,52 @@
                   />
                 </div>
                 <div BondMap class="min-h-0 w-1/2">
-                  <TooltipProvider :delayDuration="200">
-                    <TreemapChart
-                      v-if="bondMapTotal"
-                      :total="bondMapTotal"
-                      :items="bondMapItems"
-                      theme="argon"
-                      remainder-label="Available Bonds"
-                      :remainder-minimum="10000"
-                      :remainder-display-value="formatMoney(bondMapRemainder)"
-                      @tile-click="handleBondTileClick"
-                    >
-                      <template #label="{ item }">
-                        <TooltipRoot v-if="bondLotsByMapId[item.key]?.lot.isFlexible">
-                          <TooltipTrigger as="span" aria-label="Flexible bonds" class="inline-flex items-center gap-1.5">
-                            <span
-                              v-if="item.width >= 80"
-                              class="shrink-0 rounded border border-current/40 px-1 py-0.5 text-xs leading-none font-semibold"
-                            >{{ item.isCompact || item.width < 100 ? 'F' : 'FLEX' }}</span>
-                            {{ item.label }}
-                          </TooltipTrigger>
-                          <TooltipContent side="bottom" :sideOffset="4" :collisionPadding="9" class="text-md z-50 w-xs rounded-md border border-gray-800/20 bg-white px-4 py-3 text-left leading-5.5 font-light text-slate-900/60 shadow-2xl">
-                            <div class="mb-1 font-semibold">Flexible bonds</div>
-                            {{ currency.symbol }}{{ microgonToMoneyNm(bondLotsByMapId[item.key].lot.bondMicrogons).format('0,0.[0]') }} held ·
-                            {{ currency.symbol }}{{ microgonToMoneyNm(bondLotsByMapId[item.key].capacityMicrogons).format('0,0.[0]') }} in use ·
-                            {{ currency.symbol }}{{ microgonToMoneyNm(bondLotsByMapId[item.key].lot.bondMicrogons - bondLotsByMapId[item.key].capacityMicrogons).format('0,0.[0]') }} displaced
-                            <TooltipArrow :width="27" :height="15" class="-mt-px fill-white stroke-gray-800/20 stroke-[0.5px]" />
-                          </TooltipContent>
-                        </TooltipRoot>
-                        <template v-else>{{ item.label }}</template>
-                      </template>
-                    </TreemapChart>
-                    <div v-else class="w-full h-full border-2 border-dashed border-slate-400/50 text-slate-400/70 flex flex-col items-center justify-center">
-                      No Bonds Available
-                    </div>
-                  </TooltipProvider>
+                  <TreemapChart
+                    v-if="bondMapTotal"
+                    :total="bondMapTotal"
+                    :items="bondMapItems"
+                    theme="argon"
+                    remainder-label="Available Bonds"
+                    :remainder-minimum="10000"
+                    :remainder-display-value="formatMoney(bondMapRemainder)"
+                    @tile-click="handleBondTileClick"
+                  >
+                    <template #label="{ item }">
+                      <span v-if="bondLotsByMapId[item.key]?.lot.isFlexible" aria-label="Flexible bonds" class="inline-flex items-center gap-1.5">
+                        <span
+                          v-if="item.width >= 80"
+                          class="shrink-0 rounded border border-current/40 px-1 py-0.5 text-xs leading-none font-semibold"
+                        >{{ item.isCompact || item.width < 100 ? 'F' : 'FLEX' }}</span>
+                        {{ item.label }}
+                      </span>
+                      <template v-else>{{ item.label }}</template>
+                    </template>
+                    <template v-if="currentFrameIsActive" #tooltip="{ item }">
+                      <div v-if="bondLotsByMapId[item.key]">
+                        <div class="flex items-center gap-2 font-semibold text-slate-700">
+                          <span v-if="bondLotsByMapId[item.key].lot.owner === myVault.createdVault?.operatorAccountId">{{ controller.operatorName || 'You' }}</span>
+                          <span v-else>{{ controller.operationalInvites.find(invite => invite.defaultAccountId === bondLotsByMapId[item.key].lot.owner)?.name ?? 'External User' }}</span>
+                          <template v-if="bondLotsByMapId[item.key].lot.isFlexible">
+                            <span aria-hidden="true" class="ml-auto">·</span>
+                            <span class="shrink-0 rounded border border-current/40 px-1 py-0.5 text-xs leading-none font-semibold">Flex</span>
+                          </template>
+                        </div>
+                        <div v-if="bondLotsByMapId[item.key].status === 'pending'" class="mt-2 border-t border-slate-400/30 pt-2 font-medium">Activates {{ dayjs.utc((miningFrames.currentTick + miningFrames.getFrameRewardTicksRemaining()) * TICK_MILLIS).local().format('MMMM D, h:mmA') }}</div>
+                        <dl
+                          v-else-if="bondLotsByMapId[item.key].lot.isFlexible && bondLotsByMapId[item.key].capacityMicrogons < bondLotsByMapId[item.key].lot.bondMicrogons"
+                          class="mt-2 border-t border-slate-400/30 pt-2"
+                        >
+                          <div class="flex justify-between gap-4">
+                            <dt>Displaced:</dt>
+                            <dd class="text-right font-medium">{{ currency.symbol }}{{ microgonToMoneyNm(bondLotsByMapId[item.key].lot.bondMicrogons - bondLotsByMapId[item.key].capacityMicrogons).format('0,0.[00]') }}</dd>
+                          </div>
+                        </dl>
+                      </div>
+                    </template>
+                  </TreemapChart>
+                  <div v-else class="w-full h-full border-2 border-dashed border-slate-400/50 text-slate-400/70 flex flex-col items-center justify-center">
+                    No Bonds Available
+                  </div>
                 </div>
               </div>
               <TooltipProvider :disableHoverableContent="true">
@@ -195,7 +241,7 @@
                   </div>
                   <div class="grid grid-cols-3 items-start gap-x-4 gap-y-5 text-center text-base leading-none text-slate-700/80 pt-3">
                     <TooltipRoot :delayDuration="200">
-                      <TooltipTrigger as="div" class="cursor-help">{{currency.symbol}}{{ microgonToMoneyNm(bitcoinLockCapacity).format('0,0.00') }} In Potential BTC Locks</TooltipTrigger>
+                      <TooltipTrigger as="div" class="cursor-help">{{currency.symbol}}{{ microgonToMoneyNm(bitcoinLockCapacity).format('0,0.00') }} BTC Locking Space</TooltipTrigger>
                       <TooltipContent side="bottom" :sideOffset="4" :collisionPadding="9" class="text-md z-50 w-xs rounded-md border border-gray-800/20 bg-white px-4 py-3 text-left leading-5.5 font-light text-slate-900/60 shadow-2xl">
                         The total argon value of bitcoin that could be locked in your vault based on your securitization commitment.
                         <TooltipArrow :width="27" :height="15" class="-mt-px fill-white stroke-gray-800/20 stroke-[0.5px]" />
@@ -212,9 +258,10 @@
                       </TooltipContent>
                     </TooltipRoot>
                     <TooltipRoot :delayDuration="200">
-                      <TooltipTrigger as="div" class="cursor-help">{{currency.symbol}}{{ microgonToMoneyNm(vaultingBreakdown.treasuryBondCapacityMicrogons).format('0,0.00') }} In Potential Bond Buys</TooltipTrigger>
+                      <TooltipTrigger as="div" class="cursor-help">{{currency.symbol}}{{ microgonToMoneyNm(vaultingBreakdown.treasuryBondCapacityMicrogons).format('0,0.00') }} Bond Space</TooltipTrigger>
                       <TooltipContent side="bottom" :sideOffset="4" :collisionPadding="9" class="text-md z-50 w-xs rounded-md border border-gray-800/20 bg-white px-4 py-3 text-left leading-5.5 font-light text-slate-900/60 shadow-2xl">
-                        The total treasury bond capacity available for purchase, based on your active bitcoin locks.
+                        Total bond space supported by your vault's ARGN securitization, including bonds already purchased.
+                        Existing bonds and reservations determine the space available for additional purchases.
                         <TooltipArrow :width="27" :height="15" class="-mt-px fill-white stroke-gray-800/20 stroke-[0.5px]" />
                       </TooltipContent>
                     </TooltipRoot>
@@ -228,7 +275,7 @@
                         <span class="inline-flex items-center gap-1" :class="{ 'text-yellow-800': vaultingBreakdown.bitcoinUndersecuritized }">
                           <AlertIcon v-if="vaultingBreakdown.bitcoinUndersecuritized" class="size-4 shrink-0" />
                           <template v-if="vaultingBreakdown.bitcoinUndersecuritized">Only {{ numeral(getCappedPercent(vaultingBreakdown.securityMicrogons, vaultingBreakdown.bitcoinRequiredSecuritizationMicrogons!)).format('0,0.[0]') }}% of BTC Securitizable</template>
-                          <template v-else-if="bitcoinMapTotal > 0n">{{ numeral(getCappedPercent(bitcoinMapUsed, bitcoinMapTotal)).format('0,0.[0]') }}% of Bitcoin Is Securitized</template>
+                          <template v-else-if="bitcoinMapTotal > 0n">{{ numeral(getCappedPercent(bitcoinMapUsed, bitcoinMapTotal)).format('0,0.[0]') }}% of BTC Space Used</template>
                           <template v-else>No Bitcoin Capacity</template>
                         </span>
                         <span v-if="vaultingBreakdown.bitcoinUndersecuritized" class="text-xs text-yellow-800">
@@ -431,7 +478,7 @@
                       </PopoverPortal>
                     </PopoverRoot>
                     <TooltipRoot :delayDuration="200">
-                      <TooltipTrigger as="div" class="cursor-help">{{ numeral(vaultingBreakdown.treasuryBondCapacityUsedPct).format('0,0.0')}}% of Allowed Bonds Are Secured</TooltipTrigger>
+                      <TooltipTrigger as="div" class="cursor-help">{{ numeral(vaultingBreakdown.treasuryBondCapacityUsedPct).format('0,0.[0]')}}% of Bond Space Used</TooltipTrigger>
                       <TooltipContent side="bottom" :sideOffset="4" :collisionPadding="9" class="text-md z-50 w-xs rounded-md border border-gray-800/20 bg-white px-4 py-3 text-left leading-5.5 font-light text-slate-900/60 shadow-2xl">
                         The percentage of your vault's treasury bond capacity that has been purchased by all investors.
                         <TooltipArrow :width="27" :height="15" class="-mt-px fill-white stroke-gray-800/20 stroke-[0.5px]" />
@@ -606,6 +653,7 @@ import {
   TreasuryBonds,
   type IAllVaultStats,
   type IVaultFrameStats,
+  type IBitcoinLock,
 } from '@argonprotocol/apps-core';
 import {
   TooltipProvider,
@@ -735,7 +783,7 @@ const latestFrameId = Vue.computed(() => {
   return frameRecords.value.at(-1)?.id ?? 0;
 });
 
-const { microgonToMoneyNm, microgonToArgonNm, micronotToArgonotNm } = createNumeralHelpers(currency);
+const { microgonToMoneyNm, microgonToArgonNm, micronotToArgonotNm, satToMoneyNm } = createNumeralHelpers(currency);
 
 const chartReturnsByFrame = Vue.computed(() => Object.fromEntries(frameRecords.value.map(frame => [frame.id, frame])));
 const chartStatsByFrame = Vue.shallowRef<Record<number, IVaultFrameStats>>({});
@@ -777,22 +825,10 @@ const averageDailyNetworkRevenue = Vue.computed(() => {
 const potentialDailyRevenue = Vue.computed(() => {
   if (!myVault.createdVault) return 0n;
 
-  const bondFrame = currentTreasuryBondFrame.value;
-  const rewards = vaults.rewards;
-  if (rewards) {
-    const potential = rewards.vaultRevenuePotential(myVault.createdVault.vaultId, averageDailyNetworkRevenue.value);
-    return potential?.maximumEarnings ?? 0n;
-  }
-  const bondPool = bigNumberToBigInt(
-    BigNumber(averageDailyNetworkRevenue.value).times(argonBonds.data.bondPoolPercent),
+  return (
+    vaults.rewards?.vaultRevenuePotential(myVault.createdVault.vaultId, averageDailyNetworkRevenue.value)
+      ?.maximumEarnings ?? 0n
   );
-  return TreasuryBonds.potentialDailyRevenue({
-    distributableBidPool: bondPool,
-    globalActiveBonds: bondFrame.globalBonds,
-    myActiveBonds: bondFrame.vaultBonds,
-    fullTreasuryBondCapacity: vaultingBreakdown.treasuryBondPurchaseCapacityBonds,
-    operatorKeepPct: 100 - (myVault.createdVault.bondProfitSharing?.times(100).toNumber() ?? 0),
-  });
 });
 
 function formatMoney(value: bigint) {
@@ -848,6 +884,28 @@ const localLocksByUuid = Vue.computed(() => {
     map[lock.uuid] = lock;
   }
   return map;
+});
+
+const bitcoinMapLocks = Vue.computed(() => {
+  const locks: Record<string, IBitcoinLockRecord | IBitcoinLock> = { ...localLocksByUuid.value };
+  for (const lock of Object.values(myVault.data.externalLocks)) {
+    locks[`chain:${lock.lockId}`] = lock.lockDetails;
+  }
+  return locks;
+});
+
+const bitcoinMapSecuritization = Vue.computed(() => {
+  const collateral: Record<string, bigint> = {};
+  for (const [key, lock] of Object.entries(bitcoinMapLocks.value)) {
+    if (lock.fundedSatoshis === 0n || ('isHistoryRecoveryPending' in lock && lock.isHistoryRecoveryPending)) {
+      collateral[key] = 0n;
+      continue;
+    }
+    collateral[key] = bigNumberToBigInt(
+      BigNumber(lock.securitizationCoverageMicrogons ?? 0n).times(lock.securitizationRatio ?? 1),
+    );
+  }
+  return collateral;
 });
 
 function handleBondTileClick(key: string) {
@@ -934,7 +992,7 @@ const bitcoinMapItems = Vue.computed((): MapItem[] => {
     const allocation = allocations.get(lock)!;
     const isLiquid = (lock.fissionedSatoshis ?? 0n) > 0n;
     const needsSecuritization = allocation.allocatedMicrogons < allocation.requiredMicrogons;
-    const tileIsPending = !isLiquid || needsSecuritization || lock.isHistoryRecoveryPending;
+    const tileIsPending = bitcoinMapSecuritization.value[lock.uuid] === 0n || needsSecuritization;
 
     items.push({
       id: lock.uuid,
@@ -961,7 +1019,8 @@ const bitcoinMapItems = Vue.computed((): MapItem[] => {
       isLiquid,
       displayValue: formatMoney(allocation.requiredMicrogons),
       emphasis: 'strong',
-      status: !isLiquid || needsSecuritization || extLock.isPending ? 'pending' : 'active',
+      status:
+        bitcoinMapSecuritization.value[`chain:${extLock.lockId}`] === 0n || needsSecuritization ? 'pending' : 'active',
     });
   }
 
@@ -1020,7 +1079,6 @@ const currentBondMapLots = Vue.computed((): IBondMapLot[] => {
     const participatesInFrame = ordinaryFrameBondLots.some(entry => entry.lot.id === bondLot.id);
     let status: TileStatus = 'pending';
     if (participatesInFrame) status = 'active';
-    if (bondLot.isFlexible && bondLot.earningsDestination === 'VaultForFlexible') status = 'active';
 
     return {
       id: bondLot.id > 0 ? `lot:${bondLot.id}` : `account:${bondLot.owner}:${bondLot.id}`,

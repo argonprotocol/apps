@@ -11,7 +11,6 @@ import {
   type IOperationalAccessProof,
   MICROGONS_PER_ARGON,
   type Vault,
-  type PreviousRuntimeSpec as RuntimeSpec159,
 } from '@argonprotocol/apps-core';
 import type { HistoricalQueryRecord, LiveQueryRecord } from '@argonprotocol/runtime-client';
 import { stringToU8a, u8aToString } from '@polkadot/util';
@@ -31,7 +30,6 @@ const OPERATIONAL_ACCOUNT_PROOF_MESSAGE_KEY = 'operational_primary_account';
 const VAULT_ACCOUNT_PROOF_MESSAGE_KEY = 'operational_vault_account';
 const MINING_ACCOUNT_PROOF_MESSAGE_KEY = 'operational_mining_account';
 type RuntimeOperationalAccount = LiveQueryRecord<'operationalAccounts', 'operationalAccounts'>;
-const OPERATIONAL_REWARDS_UPGRADE_ERROR = 'Reward claims cannot be submitted until the next Argon upgrade is active.';
 
 export type IOperationalRewardConfig = ICertificationThresholds & {
   treasuryBitcoinTargetMicrogons: bigint;
@@ -118,7 +116,6 @@ export async function buildOperatorAccountRegistrationTx(
   const client = args.client ?? (await getMainchainClient(false));
   const existing = await loadOperationalAccount(walletKeys, client);
   if (existing) return;
-  if (!('minimumBitcoin' in client.consts.operationalAccounts)) return;
 
   const [operationalAccount, operationalEncryptionKey, vaultingAccount, miningBotAccount] = await Promise.all([
     walletKeys.getOperationalKeypair(),
@@ -386,14 +383,8 @@ export async function getOperationalRewardConfig(client?: ArgonClient): Promise<
   // server-backed pruned client during startup or after runtime upgrades.
   client ??= await getMainchainClient(true);
   const consts = client.consts.operationalAccounts;
-  const rewards = await client.query.operationalAccounts.rewards?.();
+  const rewards = await client.query.operationalAccounts.rewards();
   const certificationThresholds = getCertificationThresholds(client);
-  const vaultConstants = client.consts.vaults;
-
-  let treasuryBitcoinTargetMicrogons = certificationThresholds.treasuryMinimumBitcoin;
-  if (!('bitcoinLiquidityTolerance' in consts)) {
-    treasuryBitcoinTargetMicrogons += 100n * BigInt(MICROGONS_PER_ARGON);
-  }
 
   return {
     operationalActivationReward: rewards?.operationalCertificationReward ?? consts.operationalCertificationReward,
@@ -401,9 +392,8 @@ export async function getOperationalRewardConfig(client?: ArgonClient): Promise<
       rewards?.operationalCertificationBonusReward ?? consts.operationalCertificationBonusReward,
     operationalReferralsPerBonusReward: consts.operationalCertificationsPerBonusReward,
     ...certificationThresholds,
-    treasuryBitcoinTargetMicrogons,
-    operationalMinimumVaultLockTicks:
-      'operationalMinimumVaultLockTicks' in vaultConstants ? vaultConstants.operationalMinimumVaultLockTicks : 0n,
+    treasuryBitcoinTargetMicrogons: certificationThresholds.treasuryMinimumBitcoin,
+    operationalMinimumVaultLockTicks: 0n,
     bitcoinLockSizeForUpgradeCode: consts.bitcoinLockSizeForAccessCode,
     miningSeatsPerUpgradeCode: consts.miningSeatsPerAccessCode,
     maxAvailableUpgradeCodes: consts.maxAvailableAccessCodes,
@@ -415,10 +405,6 @@ export async function buildOperationalActivationRewardClaimTx(
   client?: ArgonClient,
 ): Promise<SubmittableExtrinsic> {
   client ??= await getMainchainClient(false);
-
-  if (!('claimRewards' in client.tx.operationalAccounts)) {
-    throw new Error(OPERATIONAL_REWARDS_UPGRADE_ERROR);
-  }
 
   return client.tx.utility.batchAll([
     client.tx.operationalAccounts.activate(),
@@ -435,16 +421,13 @@ export async function getOperationalRewardsClaimAvailability(
   const accountRaw = await loadOperationalAccount(walletKeys, client);
   const rawPendingRewards = accountRaw ? accountRaw.rewardsEarnedAmount - accountRaw.rewardsCollectedAmount : 0n;
   const pendingRewards = rawPendingRewards > 0n ? rawPendingRewards : 0n;
-  const canClaimRewards = 'claimRewards' in client.tx.operationalAccounts;
-  const treasuryReserves = canClaimRewards ? await getTreasuryReserveBalance(client) : undefined;
+  const treasuryReserves = await getTreasuryReserveBalance(client);
   const availableRewards =
-    canClaimRewards && (treasuryReserves === undefined || treasuryReserves > pendingRewards)
-      ? pendingRewards
-      : (treasuryReserves ?? 0n);
+    treasuryReserves === undefined || treasuryReserves > pendingRewards ? pendingRewards : treasuryReserves;
   const wholeArgon = BigInt(MICROGONS_PER_ARGON);
 
   return {
-    canClaimRewards,
+    canClaimRewards: true,
     pendingRewards,
     treasuryReserves,
     claimableNow: availableRewards - (availableRewards % wholeArgon),
@@ -457,10 +440,6 @@ export async function buildOperationalRewardsClaimTx(
   client?: ArgonClient,
 ): Promise<SubmittableExtrinsic> {
   client ??= await getMainchainClient(false);
-
-  if (!('claimRewards' in client.tx.operationalAccounts)) {
-    throw new Error(OPERATIONAL_REWARDS_UPGRADE_ERROR);
-  }
 
   return client.tx.operationalAccounts.claimRewards(amount);
 }
@@ -489,44 +468,32 @@ export async function subscribeOperationalAccount(
       const currentRewardConfig = await getOperationalRewardConfig(connectedClient);
       if (isStopped || version !== subscriptionVersion) return;
 
-      let nextUnsubscribe: () => void;
       const positionsQuery = getCertificationPositionsQuery(connectedClient);
-      if (positionsQuery) {
-        nextUnsubscribe = await connectedClient.queryMulti(
-          [
-            [connectedClient.query.operationalAccounts.operationalAccounts, walletKeys.operationalAddress],
-            [positionsQuery, vaultAccount],
-          ],
-          ([account, positions]) => {
-            if (isStopped || version !== subscriptionVersion) return;
-            if (account && account.vaultAccount !== vaultAccount) {
-              vaultAccount = account.vaultAccount;
-              void subscribe();
-              return;
-            }
-            const certificationProgress = getCertificationProgressFromOperationalAccount(
-              account,
-              currentRewardConfig,
-              undefined,
-              positions,
-            );
-            onUpdate(
-              getOperationalChainProgressFromAccount(account, currentRewardConfig, certificationProgress),
-              currentRewardConfig,
-            );
-            initialProgress.resolve();
-          },
-        );
-      } else {
-        nextUnsubscribe = await connectedClient.query.operationalAccounts.operationalAccounts(
-          walletKeys.operationalAddress,
-          account => {
-            if (isStopped || version !== subscriptionVersion) return;
-            onUpdate(getOperationalChainProgressFromAccount(account, currentRewardConfig), currentRewardConfig);
-            initialProgress.resolve();
-          },
-        );
-      }
+      const nextUnsubscribe = await connectedClient.queryMulti(
+        [
+          [connectedClient.query.operationalAccounts.operationalAccounts, walletKeys.operationalAddress],
+          [positionsQuery, vaultAccount],
+        ],
+        ([account, positions]) => {
+          if (isStopped || version !== subscriptionVersion) return;
+          if (account && account.vaultAccount !== vaultAccount) {
+            vaultAccount = account.vaultAccount;
+            void subscribe();
+            return;
+          }
+          const certificationProgress = getCertificationProgressFromOperationalAccount(
+            account,
+            currentRewardConfig,
+            undefined,
+            positions,
+          );
+          onUpdate(
+            getOperationalChainProgressFromAccount(account, currentRewardConfig, certificationProgress),
+            currentRewardConfig,
+          );
+          initialProgress.resolve();
+        },
+      );
 
       if (isStopped || version !== subscriptionVersion) nextUnsubscribe();
       else unsubscribe = nextUnsubscribe;

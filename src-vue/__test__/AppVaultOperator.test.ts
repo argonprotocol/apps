@@ -1,5 +1,6 @@
 import { Keyring } from '@argonprotocol/mainchain';
 import { describe, expect, it, vi } from 'vitest';
+import BigNumber from 'bignumber.js';
 import { AppVaultOperator } from '../../e2e/actors/AppVaultOperator.ts';
 
 describe('AppVaultOperator', () => {
@@ -96,6 +97,7 @@ describe('AppVaultOperator', () => {
       consts: {
         operationalAccounts: {
           minimumBitcoin: 10n,
+          bitcoinLiquidityTolerance: BigNumber(0),
           minimumBonds: 10n,
           minimumUniswapTransfer: 10n,
           operationalMinimumUniswapTransfer: 10n,
@@ -104,7 +106,9 @@ describe('AppVaultOperator', () => {
         },
       },
       query: {
-        treasuryPositions: {},
+        treasuryPositions: {
+          positionsByAccount: async () => ({ quantities: { fissionLiquidity: 10n }, bondPrincipal: 10n }),
+        },
         operationalAccounts: {
           operationalAccounts: async () => ({
             vaultAccount: downstreamOperationalAccountId,

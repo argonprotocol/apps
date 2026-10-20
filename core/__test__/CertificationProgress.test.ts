@@ -13,21 +13,13 @@ import {
 
 const vaultAccount = new Uint8Array(32).fill(0x11);
 const operationalAccount = new Uint8Array(32).fill(0x22);
-const registries = new Map(
-  [159, 160].map(spec => {
-    const registry = new TypeRegistry();
-    const metadata = new Metadata(
-      registry,
-      Object.entries(getBundledMetadata()).find(([key]) => key.endsWith(`-${spec}`))![1],
-    );
-    registry.setMetadata(metadata);
-    return [spec, { registry, consts: decorateConstants(registry, metadata.asLatest, metadata.version) }] as const;
-  }),
-);
+const registry = new TypeRegistry();
+const metadata = new Metadata(registry, Object.entries(getBundledMetadata()).find(([key]) => key.endsWith('-160'))![1]);
+registry.setMetadata(metadata);
+const consts = decorateConstants(registry, metadata.asLatest, metadata.version);
 
 describe('CertificationProgress', () => {
-  it.each([159, 160])('loads linked wallet certification and actual vault securitization on runtime %s', async spec => {
-    const { registry, consts } = registries.get(spec)!;
+  it('loads linked wallet certification and actual vault securitization', async () => {
     const vaultSecuritization = runtimeClient({ query: {}, consts }).consts.operationalAccounts
       .operationalMinimumVaultSecuritization;
     const account = registry.createType('Option<PalletOperationalAccountsOperationalAccount>', {
@@ -40,23 +32,20 @@ describe('CertificationProgress', () => {
       miningSeatAppliedTotal: 1,
       uniswapArgonTransfersInAmount: 3_000_000_000n,
       vaultBitcoinAccrual: 1_999_995_635n,
-      accountBitcoinAmount: spec === 159 ? 499_999_000n : 9_000_000_000n,
-      accountVaultBondAmount: spec === 159 ? 200_000_000n : 9_000_000_000n,
+      accountBitcoinAmount: 9_000_000_000n,
+      accountVaultBondAmount: 9_000_000_000n,
     });
-    let position = registries.get(160)!.registry.createType('Option<PalletTreasuryPositionsPosition>', null);
-    if (spec === 160) {
-      position = registry.createType('Option<PalletTreasuryPositionsPosition>', {
-        bondPrincipal: 2_500_000_000n,
-        quantities: { bonds: 9_000, fissionLiquidity: 2_475_000_000n },
-        upstream: { vaultId: 4, bitcoinSecuritization: 9_000_000_000n, bondPrincipal: 9_000_000_000n },
-      });
-    }
+    let position = registry.createType('Option<PalletTreasuryPositionsPosition>', {
+      bondPrincipal: 2_500_000_000n,
+      quantities: { bonds: 9_000, fissionLiquidity: 2_475_000_000n },
+      upstream: { vaultId: 4, bitcoinSecuritization: 9_000_000_000n, bondPrincipal: 9_000_000_000n },
+    });
     const positionsByAccount = vi.fn(async () => position);
     const raw = {
       consts,
       query: {
         operationalAccounts: { operationalAccounts: async () => account },
-        treasuryPositions: spec === 160 ? { positionsByAccount } : {},
+        treasuryPositions: { positionsByAccount },
         vaults: {
           vaultIdByOperator: async () => registry.createType('Option<u32>', 42),
           vaultsById: async () =>
@@ -72,8 +61,8 @@ describe('CertificationProgress', () => {
     });
 
     expect(progress.isTreasuryCertified).toBe(true);
-    expect(progress.treasuryBitcoinAmount).toBe(spec === 159 ? 499_999_000n : 2_475_000_000n);
-    expect(progress.treasuryBondAmount).toBe(spec === 159 ? 200_000_000n : 2_500_000_000n);
+    expect(progress.treasuryBitcoinAmount).toBe(2_475_000_000n);
+    expect(progress.treasuryBondAmount).toBe(2_500_000_000n);
     expect(progress.hasOperationalVault).toBe(true);
     expect(progress.operationalVaultSecuritization).toBe(vaultSecuritization);
     expect(progress.operationalMiningSeatCount).toBe(2);
@@ -81,67 +70,50 @@ describe('CertificationProgress', () => {
     expect(countCompletedOperationalCertificationRequirements(progress)).toBe(3);
 
     const thresholds = getCertificationThresholds(client);
-    expect(thresholds.treasuryMinimumBitcoin).toBe(spec === 159 ? 500_000_000n : 2_500_000_000n);
-    expect(thresholds.treasuryMinimumBonds).toBe(spec === 159 ? 200_000_000n : 2_500_000_000n);
-    expect(thresholds.operationalMinimumVaultSecuritization).toBe(spec === 159 ? 2_000_000_000n : 2_500_000_000n);
+    expect(thresholds.treasuryMinimumBitcoin).toBe(2_500_000_000n);
+    expect(thresholds.treasuryMinimumBonds).toBe(2_500_000_000n);
+    expect(thresholds.operationalMinimumVaultSecuritization).toBe(2_500_000_000n);
     const belowVaultMinimum = getCertificationProgressFromOperationalAccount(
       await client.query.operationalAccounts.operationalAccounts(operationalAccount),
       thresholds,
       vaultSecuritization - 1n,
     );
-    expect(belowVaultMinimum.hasOperationalVault).toBe(spec === 159);
+    expect(belowVaultMinimum.hasOperationalVault).toBe(false);
 
-    if (spec === 160) {
-      expect(positionsByAccount).toHaveBeenCalledWith(registry.createType('AccountId32', vaultAccount).toString());
-      position = registry.createType('Option<PalletTreasuryPositionsPosition>', {
-        bondPrincipal: 2_499_999_999n,
-        quantities: { bonds: 9_000, fissionLiquidity: 2_474_999_999n },
-      });
-      const belowMinimum = await loadCertificationProgress({
-        client,
-        defaultAccountId: 'unused',
-        operationalAccountId: 'operator',
-      });
-      expect(belowMinimum.hasTreasuryBitcoin).toBe(false);
-      expect(belowMinimum.hasTreasuryBonds).toBe(false);
-      expect(belowMinimum.isTreasuryCertified).toBe(false);
-      position = registry.createType('Option<PalletTreasuryPositionsPosition>', null);
-      const missingPosition = await loadCertificationProgress({
-        client,
-        defaultAccountId: 'unused',
-        operationalAccountId: 'operator',
-      });
-      expect(missingPosition.treasuryBitcoinAmount).toBe(0n);
-      expect(missingPosition.treasuryBondAmount).toBe(0n);
-      expect(missingPosition.isTreasuryCertified).toBe(false);
-    }
+    expect(positionsByAccount).toHaveBeenCalledWith(registry.createType('AccountId32', vaultAccount).toString());
+    position = registry.createType('Option<PalletTreasuryPositionsPosition>', {
+      bondPrincipal: 2_499_999_999n,
+      quantities: { bonds: 9_000, fissionLiquidity: 2_474_999_999n },
+    });
+    const belowMinimum = await loadCertificationProgress({
+      client,
+      defaultAccountId: 'unused',
+      operationalAccountId: 'operator',
+    });
+    expect(belowMinimum.hasTreasuryBitcoin).toBe(false);
+    expect(belowMinimum.hasTreasuryBonds).toBe(false);
+    expect(belowMinimum.isTreasuryCertified).toBe(false);
+    position = registry.createType('Option<PalletTreasuryPositionsPosition>', null);
+    const missingPosition = await loadCertificationProgress({
+      client,
+      defaultAccountId: 'unused',
+      operationalAccountId: 'operator',
+    });
+    expect(missingPosition.treasuryBitcoinAmount).toBe(0n);
+    expect(missingPosition.treasuryBondAmount).toBe(0n);
+    expect(missingPosition.isTreasuryCertified).toBe(false);
   });
 
-  it.each([159, 160])('loads treasury progress before registration on runtime %s', async spec => {
-    const { registry, consts } = registries.get(spec)!;
+  it('loads treasury progress before registration', async () => {
     const raw = {
       consts,
       query: {
-        treasuryPositions:
-          spec === 160
-            ? {
-                positionsByAccount: async () =>
-                  registry.createType('Option<PalletTreasuryPositionsPosition>', {
-                    bondPrincipal: 2_500_000_000n,
-                    quantities: { fissionLiquidity: 2_475_000_000n },
-                  }),
-              }
-            : {},
-        treasury: { bondLotIdsByAccount: { keys: async () => [] } },
-        bitcoinFissions: {
-          fissionByOwnerAndId: {
-            entries: async () => [
-              [
-                { args: [registry.createType('AccountId32', vaultAccount), registry.createType('u32', 1)] },
-                registry.createType('Option<PalletBitcoinFissionsFission>', { liquidityPromised: 499_999_000n }),
-              ],
-            ],
-          },
+        treasuryPositions: {
+          positionsByAccount: async () =>
+            registry.createType('Option<PalletTreasuryPositionsPosition>', {
+              bondPrincipal: 2_500_000_000n,
+              quantities: { fissionLiquidity: 2_475_000_000n },
+            }),
         },
         crosschainTransfer: {
           transferTotalsByAccount: async () =>
@@ -155,9 +127,9 @@ describe('CertificationProgress', () => {
     });
     expect(progress.hasOperationalAccount).toBe(false);
     expect(progress.hasTreasuryBitcoin).toBe(true);
-    expect(progress.hasTreasuryBonds).toBe(spec === 160);
-    expect(progress.treasuryBitcoinAmount).toBe(spec === 159 ? 499_999_000n : 2_475_000_000n);
-    expect(progress.treasuryBondAmount).toBe(spec === 159 ? 0n : 2_500_000_000n);
+    expect(progress.hasTreasuryBonds).toBe(true);
+    expect(progress.treasuryBitcoinAmount).toBe(2_475_000_000n);
+    expect(progress.treasuryBondAmount).toBe(2_500_000_000n);
     expect(progress.isOperationallyCertified).toBe(false);
   });
 });

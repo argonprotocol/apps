@@ -143,7 +143,7 @@ export class ArgonBonds {
   }
 
   public getVaultBondCapacityMicrogons(vault: Vault): bigint {
-    return vault.bondCapacityMicrogons(this.currency.priceIndex);
+    return vault.isClosed ? 0n : vault.securitization;
   }
 
   public getFlexibleBondDisplacementPercent(vaultId: number): number | undefined {

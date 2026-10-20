@@ -67,7 +67,7 @@ const meta = {
       return { preventCommands };
     },
     template:
-      '<AppScreen interactive scenarioLabel="Dashboard details preview"><div class="h-full" @click.capture="preventCommands"><Vaulting /></div></AppScreen>',
+      '<AppScreen interactive scenarioLabel="Synthetic dashboard preview"><div class="h-full" @click.capture="preventCommands"><Vaulting /></div></AppScreen>',
   }),
 } satisfies Meta<typeof Vaulting>;
 
@@ -232,6 +232,24 @@ export const BitcoinLocksFillRemainingSpace: Story = {
         },
       },
     };
+  },
+};
+
+export const BitcoinSecuritizationHover: Story = {
+  name: 'Bitcoin securitization details',
+  beforeEach: setupBitcoinHoverScenario,
+  play: async ({ canvasElement }) => {
+    await userEvent.hover(canvasElement.querySelector('[data-treemap-key="synthetic-vault-lock-1"]')!);
+    await within(canvasElement.ownerDocument.body).findByRole('tooltip');
+  },
+};
+
+export const BitcoinPendingSecuritizationHover: Story = {
+  name: 'Bitcoin awaiting securitization details',
+  beforeEach: setupBitcoinHoverScenario,
+  play: async ({ canvasElement }) => {
+    await userEvent.hover(canvasElement.querySelector('[data-treemap-key="chain:2101"]')!);
+    await within(canvasElement.ownerDocument.body).findByRole('tooltip');
   },
 };
 
@@ -759,10 +777,27 @@ export const FlexibleBondBreakdown: Story = {
   ...FlexibleBondsPartiallyDisplaced,
   play: async ({ canvasElement }) => {
     await userEvent.hover(await within(canvasElement).findByLabelText('Flexible bonds'));
+    await within(canvasElement.ownerDocument.body).findByRole('tooltip');
   },
 };
 
-function setupFlexibleBonds(regularBonds: number) {
+export const RegularBondBreakdown: Story = {
+  ...FlexibleBondsPartiallyDisplaced,
+  play: async ({ canvasElement }) => {
+    await userEvent.hover(canvasElement.querySelector('[data-treemap-key="lot:72"]')!);
+    await within(canvasElement.ownerDocument.body).findByRole('tooltip');
+  },
+};
+
+export const PendingBondBreakdown: Story = {
+  beforeEach: setupVaultingPortfolioScenario,
+  play: async ({ canvasElement }) => {
+    await userEvent.hover(canvasElement.querySelector('[data-treemap-key="lot:73"]')!);
+    await within(canvasElement.ownerDocument.body).findByRole('tooltip');
+  },
+};
+
+async function setupFlexibleBonds(regularBonds: number) {
   setupVaultingPortfolioScenario();
   const bonds = getArgonBonds();
   const state = bonds.data.vaultsById[getMyVault().vaultId!];
@@ -792,6 +827,11 @@ function setupFlexibleBonds(regularBonds: number) {
     treasuryBondCapacityUsedMicrogons: BondLot.bondsToMicrogons(state.currentFrame.vaultBonds),
     treasuryBondCapacityUsedPct: (state.currentFrame.vaultBonds / 2_400) * 100,
   });
+
+  await Vue.nextTick();
+  const controller = useCertificationController();
+  controller.operatorName = 'Atlas Operator';
+  controller.setOperationalInvites([onboardingMemberInvite]);
 }
 
 export const ChecklistNeedsArgonots: Story = {
@@ -832,3 +872,54 @@ export const ChecklistFunded: Story = {
     useWallets().defaultArgonWallet.availableMicronots = 50_000_000n;
   },
 };
+
+async function setupBitcoinHoverScenario() {
+  setupVaultingPortfolioScenario();
+  const currency = getCurrency();
+  const myVault = getMyVault();
+  const vault = myVault.createdVault!;
+
+  const securedLock = getBitcoinLocks().getAllLocks()[0];
+  securedLock.isFlexible = true;
+  securedLock.fundedSatoshis = 5_000_000n;
+  securedLock.securitizedSatoshis = securedLock.fundedSatoshis;
+  securedLock.fissionedSatoshis = securedLock.fundedSatoshis;
+  securedLock.microgonsAtTargetPerBtc = currency.priceIndex.getSatoshiPriceInTargetMicrogons(100_000_000n);
+  securedLock.securitizationCoverageMicrogons = currency.priceIndex.getSatoshiPriceInMarketMicrogons(
+    securedLock.fundedSatoshis,
+  );
+  securedLock.securitizationRatio = 1;
+  mocked(getBitcoinLocks().getAllLocks).mockReturnValue([securedLock]);
+
+  const pendingLock = myVault.data.externalLocks[2_101];
+  pendingLock.satoshis = 3_000_000n;
+  pendingLock.securitizationCoverageMicrogons = 0n;
+  pendingLock.lockDetails.fundedSatoshis = pendingLock.satoshis;
+  pendingLock.lockDetails.securitizedSatoshis = 0n;
+  pendingLock.lockDetails.securitizationCoverageMicrogons = 0n;
+  pendingLock.lockDetails.fissionedSatoshis = 0n;
+  myVault.data.externalLocks = { [pendingLock.lockId]: pendingLock };
+
+  vault.totalSatoshis = securedLock.fundedSatoshis + pendingLock.satoshis;
+  vault.securitizedSatoshis = securedLock.securitizedSatoshis;
+  vault.securitizationLocked = securedLock.securitizationCoverageMicrogons;
+  vault.flexibleSecuritizationLocked = vault.securitizationLocked;
+  vault.securitizationPendingActivation = 0n;
+  const rewards = getVaults().rewards!;
+  rewards.capital = {
+    ...rewards.capital,
+    vaultSecuritizationPositions: {
+      ...rewards.capital.vaultSecuritizationPositions,
+      [vault.vaultId]: {
+        ...rewards.capital.vaultSecuritizationPositions[vault.vaultId],
+        bitcoinLockedMicrogons: currency.priceIndex.getSatoshiPriceInMarketMicrogons(vault.totalSatoshis),
+        activatedSecuritization: vault.activatedSecuritization(),
+      },
+    },
+  };
+
+  await Vue.nextTick();
+  const controller = useCertificationController();
+  controller.operatorName = 'Atlas Operator';
+  controller.setOperationalInvites([onboardingMemberInvite]);
+}

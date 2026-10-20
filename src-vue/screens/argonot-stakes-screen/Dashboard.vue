@@ -46,7 +46,7 @@
             }}...
           </span>
           <div class="flex flex-row items-center gap-x-3">
-            <span v-if="supportsArgnotBacking" class="relative flex items-center">
+            <span class="relative flex items-center">
               <button
                 type="button"
                 class="text-argon-600 cursor-pointer whitespace-nowrap disabled:cursor-default disabled:opacity-40"
@@ -60,7 +60,7 @@
               <!--                  class="absolute top-1/2 right-0 z-50 translate-x-[calc(100%+0.75rem)] -translate-y-1/2"-->
               <!--                />-->
             </span>
-            <div v-if="supportsArgnotBacking" class="w-px self-stretch bg-slate-400/50" />
+            <div class="w-px self-stretch bg-slate-400/50" />
             <button
               v-if="argonBonds.data.historyError"
               type="button"
@@ -162,7 +162,6 @@ const argonBonds = getArgonBonds();
 const { micronotToArgonotNm } = createNumeralHelpers(currency);
 
 const isLoaded = Vue.computed(() => argonBonds.data.isLoaded);
-const supportsArgnotBacking = Vue.ref(false);
 const showBondsOverlay = Vue.ref(false);
 const showDetailOverlay = Vue.ref(false);
 const purchaseProgramType = Vue.ref<BondLot['programType']>('Vault');
@@ -269,7 +268,6 @@ Vue.onMounted(async () => {
   await argonBonds.load();
 
   const client = await getMainchainClient(false);
-  supportsArgnotBacking.value = 'buyArgonotBonds' in client.tx.treasury;
 
   if (argonBonds.data.vaultId) {
     unsubVault = await vaults.subscribeToVault(argonBonds.data.vaultId, () => {

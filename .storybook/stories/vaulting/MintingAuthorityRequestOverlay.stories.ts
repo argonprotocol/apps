@@ -101,10 +101,11 @@ function setupMintingAuthorityRequest(encumberedMicronots: bigint, hasPendingWit
   spyOn(myVault.globalCouncil, 'refresh').mockResolvedValue([]);
   const client = {
     raw: { query: { vaults: { argonotSecuritizationByVaultId: fn() } } },
-    consts: { treasury: { minimumArgonsPerContributor: 1_000_000n } },
+    consts: { treasury: { minimumArgonsPerContributor: 1_000_000n, maxArgonBondLots: 10_000 } },
     query: {
       vaults: { argonotSecuritizationByVaultId: fn(async () => commitment) },
       treasury: {
+        totalArgonBondLots: fn(async () => 0),
         bondLotsByVault: fn(async () => ({
           regularBonds: 0,
           flexibleBonds: 0,

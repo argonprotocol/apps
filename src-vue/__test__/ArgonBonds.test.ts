@@ -594,10 +594,7 @@ describe('ArgonBonds', () => {
     expect.soft(argonBonds.data.bondLots.map(lot => lot.id)).toEqual([1, 2]);
   });
 
-  it.each([
-    ['deployed', deployedRegistry],
-    ['candidate', registry],
-  ] as const)(
+  it.each([['candidate', registry]] as const)(
     'shares frame reads across vaults without losing newer state or retries on %s',
     async (runtime, codecs) => {
       const olderRead = createDeferred<void>(false);
