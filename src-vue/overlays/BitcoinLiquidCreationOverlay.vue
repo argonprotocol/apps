@@ -483,6 +483,7 @@ import { getConfig } from '../stores/config.ts';
 import { getCurrency } from '../stores/currency.ts';
 import { useWallets } from '../stores/wallets.ts';
 import { useVaultingStats } from '../stores/vaultingStats.ts';
+import { getMyVault } from '../stores/vaults.ts';
 import OverlayBase from './OverlayBase.vue';
 import type { BitcoinLiquidCreationState } from './BitcoinLiquidCreationState.ts';
 
@@ -504,19 +505,28 @@ const emit = defineEmits<{
 const currency = getCurrency();
 const config = getConfig();
 const certification = useCertificationController();
-const hasReviewedAmount = Vue.ref(false);
+const myVault = getMyVault();
 const wallets = useWallets();
 const vaultingStats = useVaultingStats();
+
 const { microgonToArgonNm, satToBtcNm } = createNumeralHelpers(currency);
 const argonSymbol = currency.recordsByKey[UnitOfMeasurement.ARGN].symbol;
-const minimumLiquidSatoshis = 100_000n;
+
 const selectedVaultIds = Vue.ref([...props.state.selectedVaultIds]);
-const vaultIds = Vue.computed(() => [
-  ...new Set(props.state.sources.filter(source => source.unallocatedSatoshis > 0n).map(source => source.vaultId)),
-]);
-const vaultNamesById = Vue.computed(() =>
-  Object.fromEntries(props.state.sources.map(source => [source.vaultId, source.vaultName])),
-);
+const vaultIds = Vue.computed(() => {
+  const ids = new Set(
+    props.state.sources.filter(source => source.unallocatedSatoshis > 0n).map(source => source.vaultId),
+  );
+  if (certification.isFullyOperational && myVault.createdVault) {
+    ids.add(myVault.createdVault.vaultId);
+  }
+  return [...ids];
+});
+const vaultNamesById = Vue.computed(() => {
+  const names = Object.fromEntries(props.state.sources.map(source => [source.vaultId, source.vaultName]));
+  if (myVault.createdVault) names[myVault.createdVault.vaultId] = 'Your Vault';
+  return names;
+});
 const eligibleSatoshisByVaultId = Vue.computed(() =>
   Object.fromEntries(
     vaultIds.value.map(vaultId => [
@@ -527,21 +537,37 @@ const eligibleSatoshisByVaultId = Vue.computed(() =>
     ]),
   ),
 );
+const selectedVaults = Vue.computed(() => {
+  const currentSelectedVaultIds =
+    props.state.stage === 'vaults' ? selectedVaultIds.value : props.state.selectedVaultIds;
+  const names = [
+    ...new Set(
+      currentSelectedVaultIds.flatMap(vaultId => {
+        const name = vaultNamesById.value[vaultId];
+        return name ? [name] : [];
+      }),
+    ),
+  ];
+
+  let label = 'Vaults';
+  if (props.state.stage === 'vaults') label = 'Choose Vaults';
+  else if (names.length === 1) label = 'Vault';
+
+  return {
+    label,
+    value: names.length === 1 ? names[0] : names.length + ' selected',
+    tooltip: names.length ? 'Selected vaults: ' + new Intl.ListFormat('en').format(names) + '.' : 'No vaults selected.',
+    capacitySubject: names.length === 1 ? names[0] : 'the selected vaults',
+  };
+});
+
+const minimumLiquidSatoshis = 100_000n;
+const hasReviewedAmount = Vue.ref(false);
+const selectedBitcoin = Vue.ref(
+  currency.convertSatToBtc(props.state.sources.reduce((total, source) => total + source.selectedSatoshis, 0n)),
+);
+const selectedSatoshis = Vue.computed(() => BigInt(Math.round(selectedBitcoin.value * 100_000_000)));
 const selectedSourceVaultIds = Vue.computed(() => new Set(props.state.selectedVaultIds));
-const feeMicrogons = Vue.computed(() => props.state.preview?.securityFeeMicrogons ?? 0n);
-const couponCreditMicrogons = Vue.computed(() => props.state.preview?.couponCreditMicrogons ?? 0n);
-const liquidityMicrogons = Vue.computed(() => props.state.preview?.liquidityMicrogons ?? 0n);
-const projectedEarningsMicrogons = Vue.computed(() =>
-  bigNumberToBigInt(
-    BigNumber(liquidityMicrogons.value.toString()).multipliedBy(vaultingStats.bitcoinAPR).dividedBy(100),
-  ),
-);
-const isTreasuryCertified = Vue.computed(() => certification.isCertificationStepComplete(OperationalStepId.LiquidLock));
-const isGuideActive = Vue.computed(
-  () =>
-    certification.activeGuideId === OperationalStepId.LiquidLock &&
-    (props.state.stage === 'complete' || !isTreasuryCertified.value),
-);
 const availableSatoshis = Vue.computed(() =>
   props.state.sources.reduce(
     (total, source) => total + (selectedSourceVaultIds.value.has(source.vaultId) ? source.unallocatedSatoshis : 0n),
@@ -554,38 +580,32 @@ const maximumLiquidSatoshis = Vue.computed(() =>
     0n,
   ),
 );
-const selectedBitcoin = Vue.ref(
-  currency.convertSatToBtc(props.state.sources.reduce((total, source) => total + source.selectedSatoshis, 0n)),
+
+const feeMicrogons = Vue.computed(() => props.state.preview?.securityFeeMicrogons ?? 0n);
+const couponCreditMicrogons = Vue.computed(() => props.state.preview?.couponCreditMicrogons ?? 0n);
+const liquidityMicrogons = Vue.computed(() => props.state.preview?.liquidityMicrogons ?? 0n);
+const projectedEarningsMicrogons = Vue.computed(() =>
+  bigNumberToBigInt(
+    BigNumber(liquidityMicrogons.value.toString()).multipliedBy(vaultingStats.bitcoinAPR).dividedBy(100),
+  ),
 );
-const selectedSatoshis = Vue.computed(() => BigInt(Math.round(selectedBitcoin.value * 100_000_000)));
-const selectedVaults = Vue.computed(() => {
-  const currentSelectedVaultIds =
-    props.state.stage === 'vaults' ? selectedVaultIds.value : props.state.selectedVaultIds;
-  const names = [
-    ...new Set(
-      currentSelectedVaultIds.flatMap(vaultId => {
-        const source = props.state.sources.find(candidate => candidate.vaultId === vaultId);
-        return source ? [source.vaultName] : [];
-      }),
-    ),
-  ];
-  return {
-    label: props.state.stage === 'vaults' ? 'Choose Vaults' : names.length === 1 ? 'Vault' : 'Vaults',
-    value: names.length === 1 ? names[0] : names.length + ' selected',
-    tooltip: names.length ? 'Selected vaults: ' + new Intl.ListFormat('en').format(names) + '.' : 'No vaults selected.',
-    capacitySubject: names.length === 1 ? names[0] : 'the selected vaults',
-  };
+const walletShortfallMicrogons = Vue.computed(() => {
+  return feeMicrogons.value > wallets.defaultArgonSpendableMicrogons
+    ? feeMicrogons.value - wallets.defaultArgonSpendableMicrogons
+    : 0n;
 });
+
+const isTreasuryCertified = Vue.computed(() => certification.isCertificationStepComplete(OperationalStepId.LiquidLock));
+const isGuideActive = Vue.computed(
+  () =>
+    certification.activeGuideId === OperationalStepId.LiquidLock &&
+    (props.state.stage === 'complete' || !isTreasuryCertified.value),
+);
 const certificationSelectionSatoshis = Vue.computed(() => {
   return bigIntMin(
     bigIntMax(props.state.treasuryCertificationRequiredSatoshis, minimumLiquidSatoshis),
     maximumLiquidSatoshis.value,
   );
-});
-const walletShortfallMicrogons = Vue.computed(() => {
-  return feeMicrogons.value > wallets.defaultArgonSpendableMicrogons
-    ? feeMicrogons.value - wallets.defaultArgonSpendableMicrogons
-    : 0n;
 });
 const treasuryCertificationShortfallSatoshis = Vue.computed(() => {
   if (isTreasuryCertified.value) return 0n;
@@ -605,11 +625,13 @@ const treasuryCertificationShortfallSatoshis = Vue.computed(() => {
     ? props.state.treasuryCertificationRequiredSatoshis - selectedSatoshis.value
     : 0n;
 });
+
 const estimatedMintCompletionDate = Vue.computed(() =>
   dayjs()
     .add(props.liquid?.estimatedMintFramesRemaining ?? 0, 'day')
     .format('MMM D'),
 );
+
 const stepItems = Vue.computed<IStepHeaderItem[]>(() => [
   {
     label: selectedVaults.value.label,

@@ -30,11 +30,18 @@
         v-for="vault in displayVaults"
         @click="selectVault(vault)"
         :key="vault.vaultId"
-        class="flex cursor-pointer items-center gap-x-3 px-2 py-3 transition-colors hover:bg-slate-50"
+        class="flex items-center gap-x-3 px-2 py-3 transition-colors"
+        :class="!isSelectable(vault.vaultId) ? 'cursor-not-allowed' : 'cursor-pointer hover:bg-slate-50'"
       >
-        <div class="pointer-events-none">
+        <div class="pointer-events-none" :class="{ 'opacity-40': !isSelectable(vault.vaultId) }">
           <template v-if="props.multiple">
-            <input type="checkbox" :value="vault.vaultId" :checked="isSelected(vault.vaultId)" class="sr-only" />
+            <input
+              type="checkbox"
+              :value="vault.vaultId"
+              :checked="isSelected(vault.vaultId)"
+              :disabled="!isSelectable(vault.vaultId)"
+              class="sr-only"
+            />
             <Checkbox :isChecked="isSelected(vault.vaultId)" :size="4" class="mt-0.5" />
           </template>
           <input
@@ -43,6 +50,7 @@
             name="vault-selection"
             :value="vault.vaultId"
             :checked="isSelected(vault.vaultId)"
+            :disabled="!isSelectable(vault.vaultId)"
             class="text-argon-600 focus:ring-argon-500 h-4 w-4 cursor-pointer border-slate-300 focus:ring-2 focus:ring-offset-2"
           />
         </div>
@@ -57,8 +65,12 @@
             </template>
             <template v-else>Vault</template>
           </div>
+          <div v-if="!isSelectable(vault.vaultId)" class="mt-0.5 flex items-center gap-1 text-xs text-yellow-900">
+            <AlertIcon class="h-3.5 w-3.5 text-yellow-700" />
+            No BTC available
+          </div>
           <div
-            v-if="props.unitType === 'BitcoinLock' && !props.eligibleSatoshisByVaultId"
+            v-else-if="props.unitType === 'BitcoinLock' && !props.eligibleSatoshisByVaultId"
             class="mt-0.5 text-xs text-slate-500"
           >
             Locking fee: {{ currency.symbol }}{{ microgonToMoneyNm(vault.terms.bitcoinBaseFee).format('0,0.00') }} +
@@ -123,6 +135,7 @@ import * as Vue from 'vue';
 import { getCurrency } from '../stores/currency.ts';
 import numeral, { createNumeralHelpers } from '../lib/numeral.ts';
 import Checkbox from './Checkbox.vue';
+import AlertIcon from '../assets/alert.svg?component';
 
 import { useFinancials } from '../stores/financials.ts';
 import { getArgonBonds } from '../stores/argonBonds.ts';
@@ -181,6 +194,8 @@ const displayVaults = Vue.computed(() => {
 const vaultBondSubscriptions: VoidFunction[] = [];
 
 async function selectVault(vault: Vault) {
+  if (!isSelectable(vault.vaultId)) return;
+
   if (props.multiple) {
     const selectedVaultIds = new Set(props.selectedVaultIds);
     if (selectedVaultIds.has(vault.vaultId)) selectedVaultIds.delete(vault.vaultId);
@@ -190,6 +205,10 @@ async function selectVault(vault: Vault) {
   }
   selectedVaultId.value = vault.vaultId;
   emit('select', vault);
+}
+
+function isSelectable(vaultId: number): boolean {
+  return props.eligibleSatoshisByVaultId?.[vaultId] !== 0n;
 }
 
 function isSelected(vaultId: number): boolean {
