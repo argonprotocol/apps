@@ -1,0 +1,250 @@
+diff --git a/bundle.d.ts b/bundle.d.ts
+index 0bc0d02969daab3632d144264876b8acb7f19f50..aca0afa7572c9f044081f0113c1eb7aac325292e 100644
+--- a/bundle.d.ts
++++ b/bundle.d.ts
+@@ -86,6 +86,5 @@ export declare class RpcCore {
+     private _formatStorageData;
+     private _formatStorageSet;
+     private _formatStorageSetEntry;
+-    private _setToCache;
+     private _newType;
+ }
+diff --git a/bundle.js b/bundle.js
+index a769fff5041cbe795d33e751aab975da8ddf538b..ac8ef75673717d9ab95cbdabbc2ec4047914f062 100644
+--- a/bundle.js
++++ b/bundle.js
+@@ -164,9 +164,9 @@ export class RpcCore {
+         memoized.meta = def;
+         return memoized;
+     }
+-    _formatResult(isScale, registry, blockHash, method, def, params, result) {
++    _formatResult(isScale, registry, blockHash, method, def, params, result, storageCache) {
+         return isScale
+-            ? this._formatOutput(registry, blockHash, method, def, params, result)
++            ? this._formatOutput(registry, blockHash, method, def, params, result, storageCache)
+             : result;
+     }
+     _createMethodSend(section, method, def) {
+@@ -242,6 +242,8 @@ export class RpcCore {
+         let memoized = null;
+         const creator = (isScale) => (...values) => {
+             return new Observable((observer) => {
++                // Live deltas retain their values for the lifetime of this subscription.
++                const storageCache = new Map();
+                 // Have at least an empty promise, as used in the unsubscribe
+                 let subscriptionPromise = Promise.resolve(null);
+                 const registry = this.#registryDefault;
+@@ -252,12 +254,15 @@ export class RpcCore {
+                 try {
+                     const params = this._formatParams(registry, null, def, values);
+                     const update = (error, result) => {
++                        if (observer.closed) {
++                            return;
++                        }
+                         if (error) {
+                             logErrorMessage(method, def, error);
+                             return;
+                         }
+                         try {
+-                            observer.next(this._formatResult(isScale, registry, null, method, def, params, result));
++                            observer.next(this._formatResult(isScale, registry, null, method, def, params, result, storageCache));
+                         }
+                         catch (error) {
+                             observer.error(error);
+@@ -270,6 +275,7 @@ export class RpcCore {
+                 }
+                 // Teardown logic
+                 return () => {
++                    storageCache.clear();
+                     // Delete from cache, so old results don't hang around
+                     if (isScale) {
+                         memoized?.unmemoize(...values);
+@@ -301,7 +307,7 @@ export class RpcCore {
+         }
+         return params;
+     }
+-    _formatOutput(registry, blockHash, method, rpc, params, result) {
++    _formatOutput(registry, blockHash, method, rpc, params, result, storageCache) {
+         if (rpc.type === 'StorageData') {
+             const key = params[0];
+             return this._formatStorageData(registry, blockHash, key, result);
+@@ -309,7 +315,7 @@ export class RpcCore {
+         else if (rpc.type === 'StorageChangeSet') {
+             const keys = params[0];
+             return keys
+-                ? this._formatStorageSet(registry, result.block, keys, result.changes)
++                ? this._formatStorageSet(registry, result.block, keys, result.changes, storageCache)
+                 : registry.createType('StorageChangeSet', result);
+         }
+         else if (rpc.type === 'Vec<StorageChangeSet>') {
+@@ -341,7 +347,7 @@ export class RpcCore {
+                 : u8aToU8a(value);
+         return this._newType(registry, blockHash, key, input, isEmpty);
+     }
+-    _formatStorageSet(registry, blockHash, keys, changes) {
++    _formatStorageSet(registry, blockHash, keys, changes, storageCache = this.#storageCache) {
+         // For StorageChangeSet, the changes has the [key, value] mappings
+         const count = keys.length;
+         const withCache = count !== 1;
+@@ -349,11 +355,11 @@ export class RpcCore {
+         // multiple return values (via state.storage subscription), decode the
+         // values one at a time, all based on the supplied query types
+         for (let i = 0; i < count; i++) {
+-            values[i] = this._formatStorageSetEntry(registry, blockHash, keys[i], changes, withCache, i);
++            values[i] = this._formatStorageSetEntry(registry, blockHash, keys[i], changes, withCache, i, storageCache);
+         }
+         return values;
+     }
+-    _formatStorageSetEntry(registry, blockHash, key, changes, withCache, entryIndex) {
++    _formatStorageSetEntry(registry, blockHash, key, changes, withCache, entryIndex, storageCache) {
+         const hexKey = key.toHex();
+         const found = changes.find(([key]) => key === hexKey);
+         const isNotFound = isUndefined(found);
+@@ -362,7 +368,7 @@ export class RpcCore {
+         //   - if a single result value, don't fill - it is not an update hole
+         //   - fallback to an empty option in all cases
+         if (isNotFound && withCache) {
+-            const cached = this.#storageCache.get(hexKey);
++            const cached = storageCache.get(hexKey);
+             if (cached) {
+                 this.#storageCacheHits++;
+                 return cached;
+@@ -376,12 +382,9 @@ export class RpcCore {
+             ? value
+             : u8aToU8a(value);
+         const codec = this._newType(registry, blockHash, key, input, isEmpty, entryIndex);
+-        this._setToCache(hexKey, codec);
++        storageCache.set(hexKey, codec);
+         return codec;
+     }
+-    _setToCache(key, value) {
+-        this.#storageCache.set(key, value);
+-    }
+     _newType(registry, blockHash, key, input, isEmpty, entryIndex = -1) {
+         // single return value (via state.getStorage), decode the value based on the
+         // outputType that we have specified. Fallback to Raw on nothing
+diff --git a/cjs/bundle.d.ts b/cjs/bundle.d.ts
+index 0bc0d02969daab3632d144264876b8acb7f19f50..aca0afa7572c9f044081f0113c1eb7aac325292e 100644
+--- a/cjs/bundle.d.ts
++++ b/cjs/bundle.d.ts
+@@ -86,6 +86,5 @@ export declare class RpcCore {
+     private _formatStorageData;
+     private _formatStorageSet;
+     private _formatStorageSetEntry;
+-    private _setToCache;
+     private _newType;
+ }
+diff --git a/cjs/bundle.js b/cjs/bundle.js
+index f1db04b743755a563b3e1a21f655fd88be51058a..ebb85766456541d41287a9cdb285598c8209dfbb 100644
+--- a/cjs/bundle.js
++++ b/cjs/bundle.js
+@@ -169,9 +169,9 @@ class RpcCore {
+         memoized.meta = def;
+         return memoized;
+     }
+-    _formatResult(isScale, registry, blockHash, method, def, params, result) {
++    _formatResult(isScale, registry, blockHash, method, def, params, result, storageCache) {
+         return isScale
+-            ? this._formatOutput(registry, blockHash, method, def, params, result)
++            ? this._formatOutput(registry, blockHash, method, def, params, result, storageCache)
+             : result;
+     }
+     _createMethodSend(section, method, def) {
+@@ -247,6 +247,8 @@ class RpcCore {
+         let memoized = null;
+         const creator = (isScale) => (...values) => {
+             return new rxjs_1.Observable((observer) => {
++                // Live deltas retain their values for the lifetime of this subscription.
++                const storageCache = new Map();
+                 // Have at least an empty promise, as used in the unsubscribe
+                 let subscriptionPromise = Promise.resolve(null);
+                 const registry = this.#registryDefault;
+@@ -257,12 +259,15 @@ class RpcCore {
+                 try {
+                     const params = this._formatParams(registry, null, def, values);
+                     const update = (error, result) => {
++                        if (observer.closed) {
++                            return;
++                        }
+                         if (error) {
+                             logErrorMessage(method, def, error);
+                             return;
+                         }
+                         try {
+-                            observer.next(this._formatResult(isScale, registry, null, method, def, params, result));
++                            observer.next(this._formatResult(isScale, registry, null, method, def, params, result, storageCache));
+                         }
+                         catch (error) {
+                             observer.error(error);
+@@ -275,6 +280,7 @@ class RpcCore {
+                 }
+                 // Teardown logic
+                 return () => {
++                    storageCache.clear();
+                     // Delete from cache, so old results don't hang around
+                     if (isScale) {
+                         memoized?.unmemoize(...values);
+@@ -306,7 +312,7 @@ class RpcCore {
+         }
+         return params;
+     }
+-    _formatOutput(registry, blockHash, method, rpc, params, result) {
++    _formatOutput(registry, blockHash, method, rpc, params, result, storageCache) {
+         if (rpc.type === 'StorageData') {
+             const key = params[0];
+             return this._formatStorageData(registry, blockHash, key, result);
+@@ -314,7 +320,7 @@ class RpcCore {
+         else if (rpc.type === 'StorageChangeSet') {
+             const keys = params[0];
+             return keys
+-                ? this._formatStorageSet(registry, result.block, keys, result.changes)
++                ? this._formatStorageSet(registry, result.block, keys, result.changes, storageCache)
+                 : registry.createType('StorageChangeSet', result);
+         }
+         else if (rpc.type === 'Vec<StorageChangeSet>') {
+@@ -346,7 +352,7 @@ class RpcCore {
+                 : (0, util_2.u8aToU8a)(value);
+         return this._newType(registry, blockHash, key, input, isEmpty);
+     }
+-    _formatStorageSet(registry, blockHash, keys, changes) {
++    _formatStorageSet(registry, blockHash, keys, changes, storageCache = this.#storageCache) {
+         // For StorageChangeSet, the changes has the [key, value] mappings
+         const count = keys.length;
+         const withCache = count !== 1;
+@@ -354,11 +360,11 @@ class RpcCore {
+         // multiple return values (via state.storage subscription), decode the
+         // values one at a time, all based on the supplied query types
+         for (let i = 0; i < count; i++) {
+-            values[i] = this._formatStorageSetEntry(registry, blockHash, keys[i], changes, withCache, i);
++            values[i] = this._formatStorageSetEntry(registry, blockHash, keys[i], changes, withCache, i, storageCache);
+         }
+         return values;
+     }
+-    _formatStorageSetEntry(registry, blockHash, key, changes, withCache, entryIndex) {
++    _formatStorageSetEntry(registry, blockHash, key, changes, withCache, entryIndex, storageCache) {
+         const hexKey = key.toHex();
+         const found = changes.find(([key]) => key === hexKey);
+         const isNotFound = (0, util_2.isUndefined)(found);
+@@ -367,7 +373,7 @@ class RpcCore {
+         //   - if a single result value, don't fill - it is not an update hole
+         //   - fallback to an empty option in all cases
+         if (isNotFound && withCache) {
+-            const cached = this.#storageCache.get(hexKey);
++            const cached = storageCache.get(hexKey);
+             if (cached) {
+                 this.#storageCacheHits++;
+                 return cached;
+@@ -381,12 +387,9 @@ class RpcCore {
+             ? value
+             : (0, util_2.u8aToU8a)(value);
+         const codec = this._newType(registry, blockHash, key, input, isEmpty, entryIndex);
+-        this._setToCache(hexKey, codec);
++        storageCache.set(hexKey, codec);
+         return codec;
+     }
+-    _setToCache(key, value) {
+-        this.#storageCache.set(key, value);
+-    }
+     _newType(registry, blockHash, key, input, isEmpty, entryIndex = -1) {
+         // single return value (via state.getStorage), decode the value based on the
+         // outputType that we have specified. Fallback to Raw on nothing
