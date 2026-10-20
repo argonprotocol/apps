@@ -22,8 +22,8 @@ export const useMiningStats = defineStore('miningStats', () => {
 
   const activeBidCosts = Vue.ref(0n);
   const activeBlockRewards = Vue.ref(0n);
-  const averageAPR = Vue.ref(0);
-  const averageAPY = Vue.ref(0);
+  const averageAPR = Vue.ref<number>();
+  const averageAPY = Vue.ref<number>();
 
   async function update() {
     if (updatePromise) return await updatePromise;

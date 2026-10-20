@@ -24,7 +24,7 @@
               <th class="pb-2">Seat</th>
               <th class="pb-2 text-right">Bid Amount</th>
               <th class="pb-2 text-right">Earnings</th>
-              <th class="pb-2 text-right">Return to Date</th>
+              <th class="pb-2 text-right">{{ config.returnMetric }}</th>
               <th class="pb-2 text-right">Time Remaining</th>
             </tr>
           </thead>
@@ -50,8 +50,7 @@
                     <template v-else>Pending history</template>
                   </td>
                   <td class="py-3 text-right font-mono">
-                    <template v-if="row.tooltipStats">{{ numeral(row.returnPercent).format('0,0.00') }}%</template>
-                    <template v-else>—</template>
+                    <Returns :returns="row.returns" :showLabel="false" />
                   </td>
                   <td class="py-3 text-right">
                     {{
@@ -111,12 +110,14 @@ interface IActiveMiningSeatRow {
   seat: IMiningSeat;
   earnedMicrogons: bigint;
   earnedMicronots: bigint;
-  returnPercent: number;
+  returns?: ReturnType<typeof calculatePositionReturn>;
   tooltipStats: IMiningSeatRewardTerms | null;
 }
 </script>
 <script setup lang="ts">
 import * as Vue from 'vue';
+import Returns from '../../components/Returns.vue';
+import { getConfig } from '../../stores/config.ts';
 import { NetworkConfig } from '@argonprotocol/apps-core';
 import OverlayBase from '../OverlayBase.vue';
 import { calculatePositionReturn } from '../../lib/financials/index.ts';
@@ -138,6 +139,7 @@ const emit = defineEmits<{
 }>();
 
 const currency = getCurrency();
+const config = getConfig();
 const mining = getMining();
 const miningFrames = getMiningFrames();
 const myMiningSeats = getMyMiningSeats();
@@ -165,7 +167,7 @@ async function refreshSeats() {
 
         const cohort = cohortsByFrameId.get(seat.miner.startingFrameId);
         if (!cohort) {
-          return [{ seat, earnedMicrogons: 0n, earnedMicronots: 0n, returnPercent: 0, tooltipStats: null }];
+          return [{ seat, earnedMicrogons: 0n, earnedMicronots: 0n, tooltipStats: null }];
         }
 
         const seatCount = BigInt(cohort.seatCountWon);
@@ -188,7 +190,7 @@ async function refreshSeats() {
               (cohort.microgonsMinedTotal + cohort.microgonsMintedTotal + cohort.microgonFeesCollectedTotal) /
               seatCount,
             earnedMicronots: cohort.micronotsMinedTotal / seatCount,
-            returnPercent: calculatePositionReturn([position]).percent ?? 0,
+            returns: calculatePositionReturn([position]),
             tooltipStats: cohort,
           },
         ];

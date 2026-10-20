@@ -324,6 +324,8 @@ export interface IFinancialReturnSummary {
   returnAmount?: bigint;
   basisPoints?: bigint;
   percent?: number;
+  apr?: number;
+  apy?: number;
   eligiblePositionCount: number;
   investmentPositionCount: number;
 }
@@ -344,7 +346,7 @@ export interface IFinancialGroupSummary {
 
 export type IFinancialAccountReturnSummary = Pick<
   IFinancialReturnSummary,
-  'availability' | 'basisPoints' | 'percent' | 'eligiblePositionCount' | 'investmentPositionCount'
+  'availability' | 'basisPoints' | 'percent' | 'apr' | 'apy' | 'eligiblePositionCount' | 'investmentPositionCount'
 >;
 
 export interface IFinancialAggregate {

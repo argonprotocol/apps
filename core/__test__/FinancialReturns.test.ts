@@ -52,7 +52,7 @@ describe('FinancialReturns', () => {
       { now },
     );
 
-    expect(result).toEqual({
+    expect(result).toMatchObject({
       basisPoints: 667n,
       percent: 6.67,
       eligibleCapitalInvested: 3_000n,
@@ -60,24 +60,26 @@ describe('FinancialReturns', () => {
     });
   });
 
-  it('gives newly invested capital only the weight of the time it has been deployed', () => {
+  it.each([86_400_000, 20_000])('weights mixed-age capital using a %i ms financial day', dayMillis => {
     const result = calculatePerformanceReturn(
       [
         {
-          startingDate: new Date('2026-01-01T00:00:00Z'),
+          startingDate: 0,
           startingCapital: 1_000n,
           endingCapital: 1_100n,
         },
         {
-          startingDate: new Date('2026-01-28T00:00:00Z'),
+          startingDate: 27 * dayMillis,
           startingCapital: 1_000n,
           endingCapital: 1_000n,
         },
       ],
-      { now: new Date('2026-01-31T00:00:00Z') },
+      { now: new Date(30 * dayMillis), dayMillis },
     );
 
     expect(result.percent).toBe(9.09);
+    expect(result.apr).toBeCloseTo(((100 * 365) / 33_000) * 100);
+    expect(result.apy).toBeCloseTo((1.1 ** (365 / 30) - 1) * 100 * (30 / 33));
   });
 
   it('time weights later capital additions within one investment', () => {
@@ -156,6 +158,13 @@ describe('FinancialReturns', () => {
 
   it('reports a total loss as negative one hundred percent APY', () => {
     expect(calculateAnnualPercentageYield({ startingValue: 1_000n, endingValue: 0n, periodDays: 10 })).toBe(-100);
+
+    const loss = calculatePerformanceReturn([
+      { startingCapital: 1_000n, endingCapital: 900n, startingDate: '2026-01-01', endingDate: '2026-01-11' },
+    ]);
+    expect(loss.percent).toBe(-10);
+    expect(loss.apr).toBeCloseTo(-365);
+    expect(loss.apy).toBeCloseTo((0.9 ** 36.5 - 1) * 100);
   });
 
   it('preserves the legacy display behavior when return inputs have no cost or rewards', () => {

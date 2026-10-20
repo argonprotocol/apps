@@ -86,7 +86,7 @@
                 with an
                 <BotReturns align="end" :alignOffset="alignOffsetForBotReturns">
                   <span @mouseenter="alignOffsetForBotReturns = calculateAlignOffset($event, botCreateOverlayReferenceElement, 'end')" class="inline-block underline decoration-dashed underline-offset-4 decoration-slate-600/80 cursor-pointer">
-                    average expected return of {{ numeral(averageAPY).formatIfElseCapped('>=100', '0,0', '0,0.00', 999_999) }}%
+                    average expected return of <Returns metric="APY" :returns="{ apy: averageAPY }" :showLabel="false" />
                   </span>
                 </BotReturns>
                 (APY).
@@ -204,6 +204,7 @@
 
 <script setup lang="ts">
 import * as Vue from 'vue';
+import Returns from '../../components/Returns.vue';
 import dayjs from 'dayjs';
 import utc from 'dayjs/plugin/utc';
 import basicEmitter from '../../emitters/basicEmitter.ts';

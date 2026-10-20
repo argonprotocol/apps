@@ -34,7 +34,7 @@
               <td class="text-left">{{ currency.symbol }}{{ microgonToMoneyNm(vault.bitcoinBaseFee).format('0,0.00') }} + {{numeral(vault.bitcoinAnnualPercentRate * 100).format('0,[0.0]')}}%</td>
               <td class="text-left">{{ currency.symbol }}{{ microgonToMoneyNm(vault.feeRevenue).format('0,0.00') }}</td>
               <td class="text-left">{{ currency.symbol }}{{ microgonToMoneyNm(vault.poolEarnings).format('0,0.00') }}</td>
-              <td class="text-right relative">{{ numeral(vault.apy).formatIfElseCapped('< 1_000', '0,0.00', '0,0', 9_999) }}%</td>
+              <td class="text-right relative"><Returns metric="APY" :returns="{ apy: vault.apy }" :showLabel="false" /></td>
             </tr>
           </tbody>
         </table>
@@ -45,6 +45,7 @@
 
 <script setup lang="ts">
 import * as Vue from 'vue';
+import Returns from '../components/Returns.vue';
 import dayjs from 'dayjs';
 import utc from 'dayjs/plugin/utc';
 import relativeTime from 'dayjs/plugin/relativeTime';

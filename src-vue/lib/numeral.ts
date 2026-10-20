@@ -80,12 +80,9 @@ numeralOriginal.fn.formatIfElse = function (condition, ifFormat, elseFormat) {
 
 numeralOriginal.fn.formatCapped = function (format, max) {
   if (this._value > max) {
-    this._value = max;
-    // if (!format.includes('%')) {
-    //   format += '+';
-    // } else {
-    //   format = format.replace('%', '+%');
-    // }
+    const formatted = numeralOriginal(max).format(format);
+    if (format.includes('%')) return formatted.replace('%', '+%');
+    return `${formatted}+`;
   }
 
   return this.format(format);
@@ -94,12 +91,7 @@ numeralOriginal.fn.formatCapped = function (format, max) {
 numeralOriginal.fn.formatIfElseCapped = function (condition, ifFormat, elseFormat, max) {
   const format = chooseIfElseFormat(condition, ifFormat, elseFormat, this._value);
 
-  if (this._value > max) {
-    this._value = max;
-    // format += '+';
-  }
-
-  return this.format(format);
+  return this.formatCapped(format, max);
 };
 
 export function createNumeralHelpers(currency: Currency | Vue.Reactive<Currency>) {

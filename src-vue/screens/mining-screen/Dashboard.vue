@@ -39,7 +39,7 @@
             <label>Invested Cost</label>
           </TooltipTrigger>
           <TooltipContent side="bottom" :sideOffset="-10" align="center" :collisionPadding="9" class="text-center bg-white border border-gray-800/20 rounded-md shadow-2xl z-50 p-4 w-xs text-slate-900/60">
-            The bid costs and transaction fees for the mining terms included in Mining RTD.
+            The bid costs and transaction fees for the mining terms included in Mining {{ config.returnMetric }}.
             <TooltipArrow :width="27" :height="15" class="fill-white stroke-[0.5px] stroke-gray-800/20 -mt-px" />
           </TooltipContent>
         </TooltipRoot>
@@ -53,20 +53,23 @@
             <label>Profit to Date</label>
           </TooltipTrigger>
           <TooltipContent side="bottom" :sideOffset="-10" align="end" :collisionPadding="9" class="text-right bg-white border border-gray-800/20 rounded-md shadow-2xl z-50 p-4 w-xs text-slate-900/60">
-            Value and income earned to date, less invested cost, for the mining terms included in Mining RTD.
+            Value and income earned to date, less invested cost, for the mining terms included in your returns.
             <TooltipArrow :width="27" :height="15" class="fill-white stroke-[0.5px] stroke-gray-800/20 -mt-px" />
           </TooltipContent>
         </TooltipRoot>
         <TooltipRoot>
           <TooltipTrigger as="div" box stat-box class="flex flex-col w-[20%] !py-4 group">
             <span v-if="visibleMiningMetrics?.returnSummary.percent !== undefined" :class="isHistoricalMetricsPending ? 'opacity-75' : ''">
-              {{ numeral(visibleMiningMetrics.returnSummary.percent).formatIfElseCapped('< 100', '0.[00]', '0,0', 9_999) }}%
+              <Returns :returns="visibleMiningMetrics.returnSummary" :showLabel="false" />
             </span>
             <span v-else :class="isHistoricalMetricsPending ? 'opacity-75' : ''">--</span>
-            <label>Mining RTD</label>
+            <label>Mining {{ config.returnMetric }}</label>
           </TooltipTrigger>
           <TooltipContent side="bottom" :sideOffset="-10" align="end" :collisionPadding="9" class="text-right bg-white border border-gray-800/20 rounded-md shadow-2xl z-50 p-4 w-xs text-slate-900/60">
-            Your return to date across mining terms and mining ARGNOT positions.
+            <template v-if="config.returnMetric === 'APR'">Your annualized return without compounding</template>
+            <template v-else-if="config.returnMetric === 'APY'">Your annualized return assuming reinvestment at the same rate</template>
+            <template v-else>Your return to date</template>
+            across mining terms and mining ARGNOT positions.
             <TooltipArrow :width="27" :height="15" class="fill-white stroke-[0.5px] stroke-gray-800/20 -mt-px" />
           </TooltipContent>
         </TooltipRoot>
@@ -319,6 +322,7 @@
 
 <script lang="ts">
 import * as Vue from 'vue';
+import Returns from '../../components/Returns.vue';
 import type { IHistoryFile, IMiningFrameDetail } from '@argonprotocol/apps-core';
 import type { IChartItem } from '../../interfaces/IChartItem.ts';
 import type { IDashboardGlobalStats } from '../../interfaces/IMiningSeatStats.ts';

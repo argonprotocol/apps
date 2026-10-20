@@ -35,7 +35,6 @@ import {
   calculateAnnualPercentageYield,
 } from './FinancialReturns.js';
 
-const MILLISECONDS_PER_DAY = 24 * 60 * 60 * 1_000;
 const VAULT_REVENUE_BACKFILL_BATCH_FRAMES = 20;
 const VAULT_REVENUE_BACKFILL_PAUSE_MS = 250;
 export const VAULT_REVENUE_COUPON_SPEC_VERSION = 145;
@@ -762,7 +761,7 @@ export class Vaults {
       return calculateAnnualPercentageRate({
         startingValue: participatingCapital,
         endingValue: participatingCapital + distributions,
-        periodDays: this.returnFrameDays,
+        periodDays: 1,
       });
     }
 
@@ -780,7 +779,7 @@ export class Vaults {
     return calculateAnnualPercentageRate({
       startingValue: result.eligibleCapitalInvested,
       endingValue: result.eligibleCapitalInvested + result.totalProfits,
-      periodDays: this.returnFrameDays,
+      periodDays: 1,
     });
   }
 
@@ -841,7 +840,7 @@ export class Vaults {
     return calculateAnnualPercentageRate({
       startingValue: result.eligibleCapitalInvested,
       endingValue: result.eligibleCapitalInvested + result.totalProfits,
-      periodDays: this.returnFrameDays,
+      periodDays: 1,
     });
   }
 
@@ -851,7 +850,7 @@ export class Vaults {
     return calculateAnnualPercentageRate({
       startingValue: result.eligibleCapitalInvested,
       endingValue: result.eligibleCapitalInvested + result.totalProfits,
-      periodDays: this.returnFrameDays,
+      periodDays: 1,
     });
   }
 
@@ -861,7 +860,7 @@ export class Vaults {
     return calculateAnnualPercentageYield({
       startingValue: result.eligibleCapitalInvested,
       endingValue: result.eligibleCapitalInvested + result.totalProfits,
-      periodDays: this.returnFrameDays,
+      periodDays: 1,
     });
   }
 
@@ -871,7 +870,7 @@ export class Vaults {
     return calculateAnnualPercentageRate({
       startingValue: result.eligibleCapitalInvested,
       endingValue: result.eligibleCapitalInvested + result.totalProfits,
-      periodDays: this.returnFrameDays,
+      periodDays: 1,
     });
   }
 
@@ -881,7 +880,7 @@ export class Vaults {
     return calculateAnnualPercentageYield({
       startingValue: result.eligibleCapitalInvested,
       endingValue: result.eligibleCapitalInvested + result.totalProfits,
-      periodDays: this.returnFrameDays,
+      periodDays: 1,
     });
   }
 
@@ -925,10 +924,6 @@ export class Vaults {
         frame => frame.frameId >= oldestFrameId && frame.frameId <= stats.synchedToFrame,
       );
     });
-  }
-
-  private get returnFrameDays(): number {
-    return (NetworkConfig.rewardTicksPerFrame * NetworkConfig.tickMillis) / MILLISECONDS_PER_DAY;
   }
 
   private async loadStats(): Promise<IAllVaultStats> {

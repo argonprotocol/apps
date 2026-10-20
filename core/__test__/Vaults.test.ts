@@ -759,40 +759,44 @@ describe('Vault revenue sync', () => {
 });
 
 describe('Vault and bond network returns', () => {
-  it('uses the inclusive return window for coupon-net vault income and recorded external bond earnings', () => {
-    const vaults = createVaults();
-    vaults.vaultsById[1] = {
-      securitization: 1_000n,
-      terms: { treasuryProfitSharing: 0.99 },
-    } as any;
-    const includedFrame = {
-      bitcoinFeeRevenue: 100n,
-      bitcoinFeeCouponValueUsed: 40n,
-      securitization: 1_000n,
-      externalCapital: 1_000n,
-      totalEarnings: 100n,
-      vaultEarnings: 40n,
-    };
-    const excludedFrame = {
-      bitcoinFeeRevenue: 10_000n,
-      bitcoinFeeCouponValueUsed: 0n,
-      securitization: 1n,
-      externalCapital: 1n,
-      totalEarnings: 10_000n,
-    };
-    vaults.stats = createStats([
-      createFrame({ frameId: 10, ...excludedFrame }),
-      createFrame({ frameId: 11, ...includedFrame }),
-      createFrame({ frameId: 20, ...includedFrame }),
-      createFrame({ frameId: 21, ...excludedFrame }),
-    ]);
+  it.each(['mainnet', 'dev-docker'] as const)(
+    'uses per-frame return days and the inclusive income window on %s',
+    network => {
+      NetworkConfig.setNetwork(network);
+      const vaults = createVaults();
+      vaults.vaultsById[1] = {
+        securitization: 1_000n,
+        terms: { treasuryProfitSharing: 0.99 },
+      } as any;
+      const includedFrame = {
+        bitcoinFeeRevenue: 100n,
+        bitcoinFeeCouponValueUsed: 40n,
+        securitization: 1_000n,
+        externalCapital: 1_000n,
+        totalEarnings: 100n,
+        vaultEarnings: 40n,
+      };
+      const excludedFrame = {
+        bitcoinFeeRevenue: 10_000n,
+        bitcoinFeeCouponValueUsed: 0n,
+        securitization: 1n,
+        externalCapital: 1n,
+        totalEarnings: 10_000n,
+      };
+      vaults.stats = createStats([
+        createFrame({ frameId: 10, ...excludedFrame }),
+        createFrame({ frameId: 11, ...includedFrame }),
+        createFrame({ frameId: 20, ...includedFrame }),
+        createFrame({ frameId: 21, ...excludedFrame }),
+      ]);
 
-    expect(vaults.calculateApr()).toBeCloseTo(3_650);
-    expect(vaults.calculateApy()).toBeCloseTo((1.1 ** 365 - 1) * 100);
-    expect(vaults.calculateVaultApr(1)).toBeCloseTo(3_650);
-    expect(vaults.calculateVaultApy(1)).toBeCloseTo((1.1 ** 365 - 1) * 100);
-    expect(vaults.calculateArgonBondsApr()).toBeCloseTo(2_190);
-  });
+      expect(vaults.calculateApr()).toBeCloseTo(3_650);
+      expect(vaults.calculateApy()).toBeCloseTo((1.1 ** 365 - 1) * 100);
+      expect(vaults.calculateVaultApr(1)).toBeCloseTo(3_650);
+      expect(vaults.calculateVaultApy(1)).toBeCloseTo((1.1 ** 365 - 1) * 100);
+      expect(vaults.calculateArgonBondsApr()).toBeCloseTo(2_190);
+    },
+  );
 
   it('weights global and single-vault returns by recorded frame capital', () => {
     const vaults = createVaults();
@@ -909,36 +913,40 @@ describe('Vault and bond network returns', () => {
     ).toBe(18_250n);
   });
 
-  it('calculates Argonot staking APR from historical frame rewards and price-valued capital', () => {
-    const vaults = createVaults();
-    vaults.stats = {
-      formatVersion: VAULT_STATS_FORMAT_VERSION,
-      synchedToFrame: 20,
-      argonotStakingByFrame: [
-        {
-          frameId: 20,
-          poolDistributed: 100n,
-          participatingBonds: 10,
-          microgonsPerArgonot: 100n,
-        },
-        {
-          frameId: 19,
-          poolDistributed: 900n,
-          participatingBonds: 10,
-          microgonsPerArgonot: 900n,
-        },
-        {
-          frameId: 10,
-          poolDistributed: 1_000_000n,
-          participatingBonds: 1,
-          microgonsPerArgonot: 1n,
-        },
-      ],
-      vaultsById: {},
-    };
+  it.each(['mainnet', 'dev-docker'] as const)(
+    'calculates Argonot staking APR per simulated frame day on %s',
+    network => {
+      NetworkConfig.setNetwork(network);
+      const vaults = createVaults();
+      vaults.stats = {
+        formatVersion: VAULT_STATS_FORMAT_VERSION,
+        synchedToFrame: 20,
+        argonotStakingByFrame: [
+          {
+            frameId: 20,
+            poolDistributed: 100n,
+            participatingBonds: 10,
+            microgonsPerArgonot: 100n,
+          },
+          {
+            frameId: 19,
+            poolDistributed: 900n,
+            participatingBonds: 10,
+            microgonsPerArgonot: 900n,
+          },
+          {
+            frameId: 10,
+            poolDistributed: 1_000_000n,
+            participatingBonds: 1,
+            microgonsPerArgonot: 1n,
+          },
+        ],
+        vaultsById: {},
+      };
 
-    expect(vaults.calculateArgonotStakingApr()).toBeCloseTo(3_650);
-  });
+      expect(vaults.calculateArgonotStakingApr()).toBeCloseTo(3_650);
+    },
+  );
 
   it('returns zero Argonot staking APR without price-valued participating capital', () => {
     const vaults = createVaults();

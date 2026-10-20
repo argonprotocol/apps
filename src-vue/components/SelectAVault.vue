@@ -77,10 +77,7 @@
             {{ numeral(vault.terms.bitcoinAnnualPercentRate.times(100)).format('0,[0.0]') }}%
           </div>
           <div v-else-if="props.unitType === 'ArgonBond'" class="mt-0.5 text-xs text-slate-500">
-            <template v-if="vaultStore.calculateArgonBondsApr(vault.vaultId) !== undefined">
-              {{ numeral(vaultStore.calculateArgonBondsApr(vault.vaultId)).format('0,0.[0]') }}% avg APR
-            </template>
-            <template v-else>APR unavailable</template>
+            <Returns metric="APR" :returns="{ apr: vaultStore.calculateArgonBondsApr(vault.vaultId) }" />
           </div>
         </div>
         <div class="shrink-0 text-right">
@@ -132,6 +129,7 @@
 <script setup lang="ts">
 import { MICROGONS_PER_ARGON, type Vault } from '@argonprotocol/apps-core';
 import * as Vue from 'vue';
+import Returns from './Returns.vue';
 import { getCurrency } from '../stores/currency.ts';
 import numeral, { createNumeralHelpers } from '../lib/numeral.ts';
 import Checkbox from './Checkbox.vue';

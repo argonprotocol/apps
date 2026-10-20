@@ -66,14 +66,14 @@
           </TooltipRoot>
           <TooltipRoot>
             <TooltipTrigger box stat-box class="flex flex-col w-[20%] !py-4 group">
-              <span v-if="vaultingReturnToDate !== undefined">
-                {{ numeral(vaultingReturnToDate).formatIfElseCapped('< 100', '0,0.[00]', '0,0', 9_999) }}%
-              </span>
-              <span v-else>--</span>
-              <label>Vaulting RTD</label>
+              <Returns :returns="financials.financialPositionAggregate.groupSummaries.vaulting.returnSummary" :showLabel="false" />
+              <label>Vaulting {{ config.returnMetric }}</label>
             </TooltipTrigger>
             <TooltipContent side="bottom" :sideOffset="-10" align="end" :collisionPadding="9" class="text-right text-md bg-white border border-gray-800/20 rounded-md shadow-2xl z-50 py-4 px-5 w-sm text-slate-900/60">
-              Your return to date across the vault's capital, collected earnings, and uncollected revenue.
+              <template v-if="config.returnMetric === 'APR'">Your annualized return without compounding</template>
+              <template v-else-if="config.returnMetric === 'APY'">Your annualized return assuming reinvestment at the same rate</template>
+              <template v-else>Your return to date</template>
+              across the vault's capital, collected earnings, and uncollected revenue.
               <TooltipArrow :width="27" :height="15" class="fill-white stroke-[0.5px] stroke-gray-800/20 -mt-px" />
             </TooltipContent>
           </TooltipRoot>
@@ -118,12 +118,12 @@
                     @tile-click="handleBitcoinTileClick"
                   >
                     <template #label="{ item }">
-                      <span v-if="bitcoinMapLocks[item.key]?.isFlexible" aria-label="Flexible Bitcoin" class="inline-flex items-center gap-1.5">
+                      <span v-if="bitcoinMapLocks[item.key]?.isFlexible" aria-label="Flexible Bitcoin" class="inline-flex flex-wrap items-center justify-center gap-x-1.5 gap-y-1">
                         <span
                           v-if="item.width >= 80"
                           class="shrink-0 rounded border border-current/40 px-1 py-0.5 text-xs leading-none font-semibold"
                         >{{ item.isCompact || item.width < 100 ? 'F' : 'FLEX' }}</span>
-                        {{ item.label }}
+                        <span>{{ item.label }}</span>
                       </span>
                       <template v-else>{{ item.label }}</template>
                     </template>
@@ -621,6 +621,7 @@
 import type { IChartItem } from '../../interfaces/IChartItem.ts';
 import type { IVaultFrameRecord } from '../../interfaces/IVaultFrameRecord.ts';
 import * as Vue from 'vue';
+import Returns from '../../components/Returns.vue';
 import dayjs from 'dayjs';
 import utc from 'dayjs/plugin/utc';
 import FrameSlider from '../../components/FrameSlider.vue';
@@ -808,10 +809,6 @@ const totalTreasuryBondMicrogons = Vue.computed(() => {
 
 const externalTreasuryBondMicrogons = Vue.computed(() => {
   return BondLot.bondsToMicrogons(TreasuryBonds.externalActiveBonds(vaultBondState.value?.bondLots ?? []));
-});
-
-const vaultingReturnToDate = Vue.computed(() => {
-  return financials.financialPositionAggregate.groupSummaries.vaulting.returnSummary.percent;
 });
 
 const revenueMicrogons = Vue.computed(() => {

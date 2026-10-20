@@ -12,6 +12,7 @@ import {
   calculatePerformanceReturn,
   type IBlockHeaderInfo,
   type IPerformanceReturnInput,
+  NetworkConfig,
   UnitOfMeasurement,
 } from '@argonprotocol/apps-core';
 import BigNumber from 'bignumber.js';
@@ -657,21 +658,18 @@ export const useFinancials = defineStore('financials', () => {
       .reduce((total, liquid) => total + liquid.satoshis, 0n);
   });
 
-  const liquidPerformanceReturn = Vue.computed(() => {
-    const percent = financialPositionAggregate.value.groupSummaries.bitcoin.returnSummary.percent;
-    if (bitcoinLockDisplayRecords.value.length && percent === undefined) return;
-
-    return percent ?? 0;
+  const liquidPerformanceReturns = Vue.computed(() => {
+    return financialPositionAggregate.value.groupSummaries.bitcoin.returnSummary;
   });
 
   const liquidHodlingInvestments = Vue.ref<IPerformanceReturnInput[]>([]);
-  const liquidHodlingReturn = Vue.computed(() => {
+  const liquidHodlingReturns = Vue.computed(() => {
     if (bitcoinLockDisplayRecords.value.some(lock => lock.record.isHistoryRecoveryPending)) return;
 
-    const percent = calculatePerformanceReturn(liquidHodlingInvestments.value).percent;
-    if (bitcoinLockDisplayRecords.value.length && percent === undefined) return;
-
-    return percent ?? 0;
+    return calculatePerformanceReturn(liquidHodlingInvestments.value, {
+      dayMillis: NetworkConfig.rewardTicksPerFrame * NetworkConfig.tickMillis,
+      now: financialPositionAggregate.value.groupSummaries.bitcoin.observation?.observedAt,
+    });
   });
 
   const liquidCurrentBitcoinDebt = Vue.ref(0n);
@@ -890,8 +888,8 @@ export const useFinancials = defineStore('financials', () => {
     // return wallets.ethereumWallet.availableMicrogons + micronotValue + otherTokenValue;
   });
 
-  const stableSwapPerformanceReturn = Vue.computed(() => {
-    return financialPositionAggregate.value.groupSummaries.ethereum.returnSummary.percent;
+  const stableSwapPerformanceReturns = Vue.computed(() => {
+    return financialPositionAggregate.value.groupSummaries.ethereum.returnSummary;
   });
 
   //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -984,11 +982,11 @@ export const useFinancials = defineStore('financials', () => {
     bitcoinWalletTotalSatoshis,
     liquidTotalSatoshis,
     liquidCurrentBitcoinDebt,
-    liquidPerformanceReturn,
-    liquidHodlingReturn,
+    liquidPerformanceReturns,
+    liquidHodlingReturns,
 
     swapsTotalValue,
-    stableSwapPerformanceReturn,
+    stableSwapPerformanceReturns,
 
     financialPositionAggregate,
   };

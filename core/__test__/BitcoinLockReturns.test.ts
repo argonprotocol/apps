@@ -20,6 +20,23 @@ describe('BitcoinLockReturns', () => {
     expect(result.percent).toBe(9.59);
   });
 
+  it('counts liability pocketed by a downward ratchet as Liquid income', () => {
+    const result = calculateBitcoinRatchetReturn({
+      prices: [
+        { date: '2025-01-01', price: 100 },
+        { date: '2026-01-01', price: 80 },
+      ],
+      flatFee: 0,
+      percentageFee: 0,
+      ratchetThreshold: 0.1,
+    });
+
+    expect(result.ratchetCount).toBe(1);
+    expect(result.finalLockPrice).toBe(80);
+    expect(result.totalProfits).toBe(20_000_000n);
+    expect(result.percent).toBe(20);
+  });
+
   it('nets vault-paid coupon reimbursement against fees', () => {
     const result = calculateBitcoinRatchetReturn({
       prices: [

@@ -40,6 +40,7 @@ export function setupBondPortfolioScenario(
     createBondLot({ id: 90, programType: otherProgramType, bonds: 3, vaultId: 7 }),
   ];
   const visibleLots = lots.filter(lot => lot.programType === programType);
+  const observation = { observedAt: new Date('2026-08-17T12:00:00Z') };
   const positions: IBondFinancialPosition[] = visibleLots.slice(0, 3).map((bondLot, index) => {
     const nativePrincipal =
       programType === 'Vault' ? BigInt(bondLot.bonds) * microgonsPerArgon : BigInt(bondLot.bonds) * micronotsPerArgonot;
@@ -155,24 +156,29 @@ export function setupBondPortfolioScenario(
     },
     subscribeToVault: fn(async () => fn()),
   } as unknown as ReturnType<typeof getVaults>);
+  const financialPositionAggregate = reduceFinancialPositions([
+    { group: 'bonds', state: 'ready', positions, observation },
+  ]);
   mocked(useFinancials).mockReturnValue(
     Vue.reactive({
       savingsTotalReadyToUse: 250n * microgonsPerArgon,
       bondSummariesByAsset: Vue.shallowRef({
         ARGN: {
           currentValue: programType === 'Vault' ? 153_400_000n : 0n,
-          returnSummary: calculatePositionReturn(positions.filter(position => position.nativeAsset === 'ARGN')),
+          returnSummary: calculatePositionReturn(
+            positions.filter(position => position.nativeAsset === 'ARGN'),
+            financialPositionAggregate.groupSummaries.bonds,
+          ),
         },
         ARGNOT: {
           currentValue: programType === 'Argonot' ? 2_184_000_000n : 0n,
-          returnSummary: calculatePositionReturn(positions.filter(position => position.nativeAsset === 'ARGNOT')),
+          returnSummary: calculatePositionReturn(
+            positions.filter(position => position.nativeAsset === 'ARGNOT'),
+            financialPositionAggregate.groupSummaries.bonds,
+          ),
         },
       }),
-      financialPositionAggregate: Vue.shallowRef(
-        reduceFinancialPositions([
-          { group: 'bonds', state: 'ready', positions, observation: { observedAt: new Date('2026-08-17T12:00:00Z') } },
-        ]),
-      ),
+      financialPositionAggregate: Vue.shallowRef(financialPositionAggregate),
     }) as unknown as ReturnType<typeof useFinancials>,
   );
 
@@ -183,7 +189,7 @@ export function setupBondArchiveScenario(programType: BondLot['programType'], ar
   const { positions } = setupBondPortfolioScenario(programType);
   const bonds = getArgonBonds();
   const index = positions.findIndex(position => position.kind === 'bond' && position.bondLot?.id === 42);
-  const { bondLot, ...position } = positions[index] as IBondFinancialPosition;
+  const { bondLot, ...position } = positions[index];
   const history = bonds.data.bondHistory.find(record => record.bondLotId === bondLot!.id)!;
   Object.assign(history, {
     releaseFrame: 10_005,
@@ -212,7 +218,10 @@ export function setupBondArchiveScenario(programType: BondLot['programType'], ar
   }
   const summary = useFinancials().bondSummariesByAsset[archivedPosition.nativeAsset];
   summary.currentValue = positions.reduce((total, entry) => total + (entry.currentValue ?? 0n), 0n);
-  summary.returnSummary = calculatePositionReturn(positions);
+  summary.returnSummary = calculatePositionReturn(
+    positions,
+    useFinancials().financialPositionAggregate.groupSummaries.bonds,
+  );
   return archivedPosition;
 }
 

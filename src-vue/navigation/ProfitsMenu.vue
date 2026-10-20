@@ -4,11 +4,10 @@
     <NavigationMenuItem class="pointer-events-auto">
       <NavigationMenuTrigger
         Trigger
-        class="flex h-[30px] cursor-pointer flex-row items-center justify-center rounded-md border border-slate-400/50 px-3.5 font-mono text-[17px] font-semibold text-argon-600/70 hover:border-slate-400/50 hover:bg-slate-400/10 focus:outline-none data-[state=open]:border-slate-400/60 data-[state=open]:bg-slate-400/10"
+        class="flex h-[30px] cursor-pointer flex-row items-center justify-center rounded-l-md border border-slate-400/50 px-3.5 font-mono text-[17px] font-semibold text-argon-600/70 hover:border-slate-400/50 hover:bg-slate-400/10 focus:outline-none data-[state=open]:border-slate-400/60 data-[state=open]:bg-slate-400/10"
       >
         <div class="relative top-px -mr-0.5 ml-[3px] whitespace-nowrap">
-          <template v-if="aggregate.accountReturn.percent === undefined">0.00% RTD</template>
-          <template v-else>{{ formatPercent(aggregate.accountReturn.percent) }} RTD</template>
+          <Returns :returns="aggregate.accountReturn" />
         </div>
         <span
           v-if="isHistoryRecoveryInProgress"
@@ -27,23 +26,21 @@
               <div class="text-xs font-normal text-slate-500">
                 <template v-if="aggregate.accountReturn.availability === 'not-applicable'">No positions yet</template>
                 <template v-else-if="aggregate.accountReturn.availability === 'unavailable'">Not available yet</template>
-                <span v-else-if="aggregate.accountReturn.availability === 'partial'" class="inline-flex items-center gap-1">
-                  Partial
-                  <Tooltip
-                    as-child
-                    content="This percentage includes only positions with known cost basis and history."
-                  >
-                    <span class="cursor-help text-slate-400 hover:text-slate-600">
-                      <InformationCircleIcon class="size-3.5" />
-                    </span>
-                  </Tooltip>
-                </span>
                 <span v-else class="inline-flex items-center gap-1">
-                  Return to date
-                  <Tooltip
-                    as-child
-                    content="A capital-weighted measure of returns on capital deployed to network assets. Undeployed wallet balances are excluded."
-                  >
+                  <template v-if="aggregate.accountReturn.availability === 'partial'">Partial</template>
+                  <template v-else>{{ config.returnMetric }}</template>
+                  <Tooltip as-child>
+                    <template #content>
+                      <template v-if="config.returnMetric === 'APR'">Annualized return without compounding.</template>
+                      <template v-else-if="config.returnMetric === 'APY'">
+                        Annualized return assuming reinvestment at the same rate.
+                      </template>
+                      <template v-else>Return to date.</template>
+                      Returns are weighted by capital invested and time deployed. Undeployed wallet balances are excluded.
+                      <template v-if="aggregate.accountReturn.availability === 'partial'">
+                        This percentage includes only positions with known cost basis and history.
+                      </template>
+                    </template>
                     <span class="cursor-help text-slate-400 hover:text-slate-600">
                       <InformationCircleIcon class="size-3.5" />
                     </span>
@@ -51,8 +48,8 @@
                 </span>
               </div>
             </div>
-            <div class="font-mono text-lg font-bold text-argon-700/80">
-              {{ formatPercent(aggregate.accountReturn.percent) }}
+            <div class="font-mono text-lg font-bold whitespace-nowrap text-argon-700/80">
+              <Returns :returns="aggregate.accountReturn" :showLabel="false" />
             </div>
           </li>
 
@@ -96,8 +93,8 @@
                   <template v-else>Return unavailable</template>
                 </div>
               </div>
-              <div class="font-mono font-semibold text-slate-700">
-                {{ formatPercent(group.returnSummary.percent) }}
+              <div class="font-mono font-semibold whitespace-nowrap text-slate-700">
+                <Returns :returns="group.returnSummary" :showLabel="false" />
               </div>
             </div>
           </li>
@@ -143,7 +140,7 @@ import * as Vue from 'vue';
 import { storeToRefs } from 'pinia';
 import { NavigationMenuContent, NavigationMenuItem, NavigationMenuTrigger } from 'reka-ui';
 import { InformationCircleIcon } from '@heroicons/vue/20/solid';
-import numeral from '../lib/numeral.ts';
+import Returns from '../components/Returns.vue';
 import ProgressBar from '../components/ProgressBar.vue';
 import Tooltip from '../components/Tooltip.vue';
 import { useFinancials } from '../stores/financials.ts';
@@ -206,9 +203,4 @@ const returnRows = Vue.computed(() => {
     return [{ ...group, key: group.group, label }];
   });
 });
-
-function formatPercent(percent?: number): string {
-  if (percent === undefined) return '--';
-  return `${numeral(percent).format('0,0.00')}%`;
-}
 </script>

@@ -72,8 +72,9 @@
             <PortfolioCurrencyMenu />
           </div>
         </div>
-        <div class="pointer-events-auto">
+        <div class="pointer-events-auto flex flex-row items-center">
           <ProfitsMenu ref="returnsMenuRef" />
+          <ReturnMetricMenu />
         </div>
         <div class="pointer-events-auto">
           <AccountMenu ref="accountMenuRef" />
@@ -112,6 +113,7 @@ import CertificationMenu from './CertificationMenu.vue';
 import { NavigationMenuIndicator, NavigationMenuList, NavigationMenuRoot, NavigationMenuViewport } from 'reka-ui';
 import { useFloatingZIndex } from '../overlays/helpers/OverlayZIndex.ts';
 import ProfitsMenu from './ProfitsMenu.vue';
+import ReturnMetricMenu from './ReturnMetricMenu.vue';
 import PortfolioDetailsMenu from './PortfolioDetailsMenu.vue';
 import PortfolioCurrencyMenu from './PortfolioCurrencyMenu.vue';
 import { getConfig } from '../stores/config.ts';

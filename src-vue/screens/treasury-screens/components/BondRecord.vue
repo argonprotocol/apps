@@ -68,11 +68,9 @@
             <span class="h-full w-px bg-slate-400/50"></span>
           </div>
           <span>
-            <template v-if="returnPercent !== undefined">
-              {{ numeral(returnPercent).format('0,0.00') }}% return
-            </template>
+            <Returns v-if="returns?.percent !== undefined" :returns="returns" />
             <template v-else-if="position?.returnIsComplete === false">History incomplete</template>
-            <template v-else>-- return</template>
+            <Returns v-else :returns="returns" />
           </span>
         </div>
       </div>
@@ -82,6 +80,8 @@
 
 <script setup lang="ts">
 import * as Vue from 'vue';
+import Returns from '../../../components/Returns.vue';
+import { calculatePositionReturn } from '../../../lib/financials';
 import dayjs from 'dayjs';
 import utc from 'dayjs/plugin/utc.js';
 import BondIcon from '../../../assets/bond.svg?component';
@@ -110,7 +110,7 @@ const props = withDefaults(
     isReleasing?: boolean;
     ownedVaultId?: number;
     position?: IBondFinancialPosition;
-    returnPercent?: number;
+    returns?: ReturnType<typeof calculatePositionReturn>;
   }>(),
   {
     isReleasing: false,

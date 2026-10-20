@@ -38,7 +38,7 @@ export function calculateBitcoinRatchetReturn({
   const startingDate = dayjs.utc(prices[0].date);
   const fullTermDays = Math.max(1, dayjs.utc(prices.at(-1)!.date).diff(startingDate, 'day'));
   let lockPrice = startingPrice;
-  let argonsReceived = startingPrice;
+  let ratchetProfits = 0;
   let grossFees = flatFee + startingPrice * (percentageFee / 100);
   let ratchetCount = 0;
 
@@ -56,9 +56,9 @@ export function calculateBitcoinRatchetReturn({
       // Mirrors BitcoinLock.calculateRatchetingCosts; scenario days stand in for Bitcoin blocks.
       const proratedFee = (percentageFeeAmount * BigInt(remainingDays)) / BigInt(fullTermDays);
       grossFees += Number(proratedFee) / SCENARIO_UNIT_SCALE;
-      argonsReceived += priceDifference;
     }
 
+    ratchetProfits += Math.abs(priceDifference);
     lockPrice = priceRow.price;
     ratchetCount += 1;
   }
@@ -69,7 +69,7 @@ export function calculateBitcoinRatchetReturn({
   const aggregateReturn = calculateAggregateReturn([
     {
       startingCapital: scaleScenarioValue(startingPrice) + netFees,
-      endingCapital: scaleScenarioValue(argonsReceived),
+      endingCapital: scaleScenarioValue(startingPrice + ratchetProfits),
     },
   ]);
 

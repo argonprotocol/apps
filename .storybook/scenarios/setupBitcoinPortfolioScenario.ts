@@ -670,8 +670,8 @@ export function setupBitcoinPortfolioScenario(
         summaries.filter(summary => summary.record.status === BitcoinLockStatus.LockFunded),
       ),
       bitcoinLiquidPendingMintMicrogons,
-      liquidPerformanceReturn: 15.82,
-      liquidHodlingReturn: ((currentBitcoinPriceUsd - 68_000) / 68_000) * 100,
+      liquidPerformanceReturns: { percent: 15.82 },
+      liquidHodlingReturns: { percent: ((currentBitcoinPriceUsd - 68_000) / 68_000) * 100 },
       financialPositionAggregate: Vue.shallowRef(
         reduceFinancialPositions([
           {

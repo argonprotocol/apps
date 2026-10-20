@@ -226,7 +226,7 @@
               <div class="w-1/3">
                 <header class="font-bold opacity-40">AVG BOND RETURNS</header>
                 <div class="text-3xl text-argon-600 font-bold py-1">
-                  <template v-if="vaultingStats.argonBondsAPR !== undefined">{{ numeral(vaultingStats.argonBondsAPR).formatIfElseCapped('< 100', '0.0', '0', 999) }}% APR</template>
+                  <template v-if="vaultingStats.argonBondsAPR !== undefined"><Returns metric="APR" :returns="{ apr: vaultingStats.argonBondsAPR }" /></template>
                   <template v-else>&mdash;</template>
                 </div>
                 <div class="font-light opacity-80">Based on Past Performance<sup>&dagger;</sup></div>
@@ -280,6 +280,7 @@
 
 <script setup lang="ts">
 import * as Vue from 'vue';
+import Returns from '../components/Returns.vue';
 import BigNumber from 'bignumber.js';
 import { InformationCircleIcon } from '@heroicons/vue/24/outline';
 import OverlayBase from './OverlayBase.vue';

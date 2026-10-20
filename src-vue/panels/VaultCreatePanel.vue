@@ -188,7 +188,7 @@
               <header class="text-sm font-bold opacity-40">AVG VAULT RETURNS</header>
               <div class="text-argon-600 py-1 text-3xl font-bold">
                 <template v-if="projectionsReady">
-                  {{ numeral(vaultingStats.averageAPR).format('0,0.0') }}% APR
+                  <Returns metric="APR" :returns="{ apr: vaultingStats.averageAPR }" />
                 </template>
                 <template v-else>&mdash;</template>
               </div>
@@ -253,6 +253,7 @@
 
 <script setup lang="ts">
 import * as Vue from 'vue';
+import Returns from '../components/Returns.vue';
 import BigNumber from 'bignumber.js';
 import { ArrowTopRightOnSquareIcon, InformationCircleIcon } from '@heroicons/vue/24/outline';
 import { bigIntMax, bigNumberToBigInt, JsonExt, UnitOfMeasurement } from '@argonprotocol/apps-core';

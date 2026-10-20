@@ -39,6 +39,9 @@ export type IPerformanceReturnOptions = {
    * Defaults to new Date().
    */
   now?: Date;
+
+  /** Duration of one financial day; defaults to a calendar day. */
+  dayMillis?: number;
 };
 
 export type IPerformanceReturnResult = {
@@ -61,6 +64,10 @@ export type IPerformanceReturnResult = {
 
   /** Profits included in the performance calculation. */
   totalProfits: bigint;
+
+  /** Annualized returns weighted by each position's capital-time exposure. */
+  apr?: number;
+  apy?: number;
 };
 
 export type IAnnualizedReturnInput = {
@@ -83,6 +90,8 @@ export function calculatePerformanceReturn(
   let totalProfits = 0n;
   let weightedCapitalMs = 0n;
   let weightedProfitMs = 0n;
+  let weightedApr = BigNumber(0);
+  let weightedApy = BigNumber(0);
 
   for (const investment of investments) {
     if (investment.startingCapital <= 0n) continue;
@@ -105,6 +114,11 @@ export function calculatePerformanceReturn(
     // Normalize each position over its own active duration, then combine positions by their capital-time exposure.
     weightedCapitalMs += capitalMs;
     weightedProfitMs += profit * durationMs;
+
+    const periodReturn = BigNumber(profit).times(durationMs).dividedBy(capitalMs).toNumber();
+    const periodDays = Number(durationMs) / (options.dayMillis ?? 86_400_000);
+    weightedApr = weightedApr.plus(BigNumber(capitalMs).times(annualizeSimpleReturn(periodReturn, periodDays)));
+    weightedApy = weightedApy.plus(BigNumber(capitalMs).times(annualizeCompoundedReturn(periodReturn, periodDays)));
   }
 
   const basisPoints = divideAndRound(weightedProfitMs * BASIS_POINTS_PER_100_PERCENT, weightedCapitalMs);
@@ -114,6 +128,8 @@ export function calculatePerformanceReturn(
     percent: Number(basisPoints) / 100,
     eligibleCapitalInvested,
     totalProfits,
+    apr: weightedCapitalMs > 0n ? weightedApr.dividedBy(weightedCapitalMs).toNumber() : undefined,
+    apy: weightedCapitalMs > 0n ? weightedApy.dividedBy(weightedCapitalMs).toNumber() : undefined,
   };
 }
 
@@ -194,7 +210,7 @@ export function calculateAnnualPercentageYield(input: IAnnualizedReturnInput): n
 export function annualizeSimpleReturn(periodReturn: number, periodDays: number): number {
   if (periodDays <= 0) return 0;
 
-  return Math.max(periodReturn * (DAYS_PER_YEAR / periodDays) * 100, -100);
+  return periodReturn * (DAYS_PER_YEAR / periodDays) * 100;
 }
 
 export function annualizeCompoundedReturn(periodReturn: number, periodDays: number): number {

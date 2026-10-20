@@ -7,6 +7,7 @@ import { setupBondPortfolioScenario, setupBondArchiveScenario } from '../../scen
 import { setCertificationGuide } from '../../scenarios/setupCertificationScenario.ts';
 import { TopTab } from '../../../src-vue/interfaces/IConfig.ts';
 import { getArgonBonds } from '../../../src-vue/stores/argonBonds.ts';
+import { getConfig } from '../../../src-vue/stores/config.ts';
 import { useFinancials } from '../../../src-vue/stores/financials.ts';
 import { useFinancialHistory } from '../../../src-vue/stores/financialHistory.ts';
 import { OperationalStepId, useCertificationController } from '../../../src-vue/stores/certificationController.ts';
@@ -67,6 +68,15 @@ export const Start: Story = {
 export const Portfolio: Story = {
   beforeEach: () => {
     setupBondPortfolioScenario('Vault');
+    getConfig().hasExtensionTreasury = true;
+    useCertificationController().isLoaded = true;
+  },
+  play: async ({ canvasElement }) => {
+    const trigger = within(canvasElement.ownerDocument.body).getByRole('button', { name: 'Return metric' });
+    const topBar = trigger.closest('[inert]')!;
+    topBar.removeAttribute('inert');
+    await userEvent.click(trigger);
+    topBar.setAttribute('inert', '');
   },
 };
 
