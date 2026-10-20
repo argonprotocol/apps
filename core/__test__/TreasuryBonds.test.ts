@@ -8,7 +8,6 @@ import {
   type PalletTreasuryBondLot,
   type PalletTreasuryVaultBondState,
   type ArgonPrimitivesVaultVaultTerms,
-  PriceIndex,
 } from '@argonprotocol/mainchain';
 import { encodeAddress } from '@polkadot/util-crypto';
 import { getBundledMetadata, runtimeClient, toPlain } from '@argonprotocol/runtime-client';
@@ -363,67 +362,11 @@ describe('TreasuryBonds', () => {
       { id: 3, eligibleMicrogons: 5_000_000n },
     ]);
     expect(frame.totalActiveBonds).toBe(9.714285);
-    const vault = createCapacityVault({ securitization: 10_000_000n }, true);
+    const vault = createCapacityVault({ securitization: 10_000_000n });
     vault.committedMicrogons = 10_000_000n;
-    expect(vault.bondCapacityMicrogons(new PriceIndex())).toBe(10_000_000n);
+    expect(vault.bondCapacityMicrogons()).toBe(10_000_000n);
     vault.isClosed = true;
-    expect(vault.bondCapacityMicrogons(new PriceIndex())).toBe(0n);
-  });
-
-  it('caps purchases at the market value of eligible Bitcoin security', () => {
-    const oneArgon = BigInt(MICROGONS_PER_ARGON);
-    const vault = createCapacityVault({
-      securitization: 2_000_000_000n,
-      securitizationLocked: 1_052_698_425n,
-      securitizedSatoshis: 1_408_910n,
-    });
-    const priceIndex = new PriceIndex();
-    priceIndex.btcUsdPrice = new BigNumber('77311.097');
-    priceIndex.argonUsdPrice = new BigNumber('1.061');
-    const capacityMicrogons = vault.bondCapacityMicrogons(priceIndex);
-
-    expect(capacityMicrogons).toBe(1_026_619_959n);
-    expect(
-      TreasuryBonds.availableBondSpace({
-        capacityMicrogons,
-        bondState: { regularBonds: 3, reservedBondSpace: 0, replacementBonds: 0, isAtBondLotLimit: false },
-      }),
-    ).toBe(1_023n * oneArgon);
-  });
-
-  it.each([
-    { btcUsdPrice: undefined, argonUsdPrice: new BigNumber(1) },
-    { btcUsdPrice: new BigNumber(1), argonUsdPrice: undefined },
-    { btcUsdPrice: new BigNumber(1), argonUsdPrice: new BigNumber(0) },
-  ])('reports no bond capacity when a market price is unavailable', ({ btcUsdPrice, argonUsdPrice }) => {
-    const priceIndex = new PriceIndex();
-    priceIndex.btcUsdPrice = btcUsdPrice;
-    priceIndex.argonUsdPrice = argonUsdPrice;
-
-    expect(
-      TreasuryBonds.availableBondSpace({
-        capacityMicrogons: createCapacityVault().bondCapacityMicrogons(priceIndex),
-      }),
-    ).toBe(0n);
-  });
-
-  it('excludes displaced flexible Bitcoin security from eligible capacity', () => {
-    const oneArgon = BigInt(MICROGONS_PER_ARGON);
-    const vault = createCapacityVault({
-      securitization: 10n * oneArgon,
-      securitizationLocked: 12n * oneArgon,
-      flexibleSecuritizationLocked: 5n * oneArgon,
-      securitizedSatoshis: 120n,
-      flexibleSecuritizedSatoshis: 50n,
-    });
-
-    expect(vault.bondEligibleSatoshis()).toBe(100n);
-
-    vault.securitizationPendingActivation = 4n * oneArgon;
-    expect(vault.bondEligibleSatoshis()).toBe(120n);
-
-    vault.securitizationPendingActivation = 8n * oneArgon;
-    expect(vault.bondEligibleSatoshis()).toBe(120n);
+    expect(vault.bondCapacityMicrogons()).toBe(0n);
   });
 
   it('reports the displaced share of flexible Bitcoin security', () => {
@@ -438,38 +381,6 @@ describe('TreasuryBonds', () => {
 
     vault.securitizationPendingActivation = 4n * oneArgon;
     expect(vault.flexibleSecuritizationDisplacementPercent()).toBe(0);
-  });
-
-  it('matches FixedU128 rounding for displaced flexible Bitcoin security', () => {
-    const oneArgon = BigInt(MICROGONS_PER_ARGON);
-    const vault = createCapacityVault({
-      securitization: 10n * oneArgon,
-      securitizationLocked: 12n * oneArgon,
-      flexibleSecuritizationLocked: 3n * oneArgon,
-      securitizedSatoshis: 3n,
-      flexibleSecuritizedSatoshis: 3n,
-    });
-
-    expect(vault.bondEligibleSatoshis()).toBe(0n);
-
-    vault.securitizedSatoshis = 999n;
-    vault.ratioAdjustedSatoshis = 2n;
-    expect(vault.bondEligibleSatoshis()).toBe(0n);
-  });
-
-  it('normalizes previous-runtime backfill security into the same eligible capacity', () => {
-    const oneArgon = BigInt(MICROGONS_PER_ARGON);
-    const values = {
-      securitization: 10n * oneArgon,
-      securitizationLocked: 12n * oneArgon,
-      flexibleSecuritizationLocked: 5n * oneArgon,
-      securitizedSatoshis: 120n,
-      flexibleSecuritizedSatoshis: 50n,
-    };
-
-    expect(createCapacityVault(values, true).bondEligibleSatoshis()).toBe(
-      createCapacityVault(values).bondEligibleSatoshis(),
-    );
   });
 });
 
@@ -520,9 +431,8 @@ function createCapacityVault(
     securitizedSatoshis: bigint;
     flexibleSecuritizedSatoshis: bigint;
   }> = {},
-  nativeRuntime = false,
 ) {
-  const vault = new Vault(
+  return new Vault(
     1,
     {
       operatorAccountId: operatorAddress,
@@ -547,6 +457,4 @@ function createCapacityVault(
     },
     60_000,
   );
-  vault.bondCapacitySource = nativeRuntime ? 'Securitization' : 'Bitcoin';
-  return vault;
 }

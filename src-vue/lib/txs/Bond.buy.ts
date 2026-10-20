@@ -1,4 +1,5 @@
-import { BondLot, type ArgonClient, TreasuryBonds, type TxSigningAccount } from '@argonprotocol/apps-core';
+import { BondLot, type ArgonClient, TreasuryBonds, type TxSigningAccount, Vault } from '@argonprotocol/apps-core';
+import { runtimeClient } from '@argonprotocol/runtime-client';
 import type { ArgonBonds } from '../ArgonBonds.ts';
 import type { TransactionInfo } from '../TransactionInfo.ts';
 import type { TransactionTracker } from '../TransactionTracker.ts';
@@ -54,6 +55,27 @@ export class BondBuy extends TransactionOperation<
       unavailableBalance: bondPurchaseMicrogons,
       metadata: { vaultId, bondPurchaseMicrogons },
     };
+  }
+
+  protected async beforeSubmit({ client, metadata, txSigner }: TransactionOperationBuild<IBuyBondMetadata>) {
+    const { vaultId, bondPurchaseMicrogons } = metadata;
+    const finalizedHead = await client.rpc.chain.getFinalizedHead();
+    const snapshot = runtimeClient(await client.raw.at(finalizedHead));
+    const vault = await Vault.get(snapshot, vaultId);
+    if (vault.operatorAccountId !== txSigner.address) return;
+
+    const bondState = await TreasuryBonds.getVaultBondState(snapshot, vaultId, txSigner.address);
+    const available = TreasuryBonds.availableBondSpace({
+      vault,
+      bondState,
+      capacityMicrogons: vault.bondCapacityMicrogons(),
+      preserveFlexibleBonds: true,
+    });
+    if (bondPurchaseMicrogons > available) {
+      throw new Error(
+        'This purchase exceeds your vault’s remaining bond capacity. Add Argon securitization or reduce the amount.',
+      );
+    }
   }
 
   protected getOperationKey({ vaultId, bondPurchaseMicrogons, txSigner }: BondBuyInput): string {

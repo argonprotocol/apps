@@ -12,6 +12,7 @@ import { describe, expect, it, vi } from 'vitest';
 import BigNumber from 'bignumber.js';
 import { ArgonBonds } from '../lib/ArgonBonds.ts';
 import { BondBuy } from '../lib/txs/Bond.buy.ts';
+import type { PreviousRuntimeSpec as RuntimeSpec159 } from '../../core/src/runtimeCompatibility.ts';
 import { ArgonBondsFinancials } from '../lib/financials/ArgonBonds.ts';
 import { calculatePositionReturn } from '../lib/financials/index.ts';
 import { createTestDb, createTestDbAtMigration } from './helpers/db.ts';
@@ -24,6 +25,7 @@ import {
   type RuntimeSystemEventRecord,
   MICROGONS_PER_ARGON,
   TreasuryBonds,
+  TxSubmitter,
   Vault,
   ACCOUNT_ACTIVITY_DEFINITION_VERSION,
   AccountActivityKind,
@@ -217,6 +219,99 @@ describe('ArgonBonds', () => {
     vault.securitizationReleaseSchedule.clear();
     state.reservedBondSpace = 0;
     expect(bonds.availableBondSpaceWithoutFlexibleDisplacement(vault)).toBe(2_100n * oneArgon);
+  });
+
+  it('keeps bond capacity and owner purchase limits tied to securitization when Bitcoin prices change', () => {
+    const currency = new Currency({ events: { on: vi.fn() } } as any);
+    currency.priceIndex.btcUsdPrice = BigNumber(10_000);
+    currency.priceIndex.argonUsdPrice = BigNumber(1);
+    const bonds = new ArgonBonds(
+      Promise.resolve({} as any),
+      { isLoadedPromise: Promise.resolve(), upstreamOperator: undefined },
+      currency,
+      {} as any,
+      { defaultArgonAddress: accountId } as any,
+    );
+    const rawVault = deployedRegistry.createType<RuntimeSpec159.ArgonPrimitivesVault>('ArgonPrimitivesVault', {
+      operatorAccountId: accountId,
+      securitization: 2_400_000_000n,
+      securitizedSatoshis: 10_000_000n,
+      ratioAdjustedSatoshis: 10_000_000n,
+    });
+    const vault = Vault.fromRuntime(
+      4,
+      toPlain(rawVault) as NonNullable<LiveQueryRecord<'vaults', 'vaultsById'>>,
+      60_000,
+      {
+        vaults: {},
+        operationalAccounts: { operationalMinimumVaultSecuritization: 0n },
+      } as any,
+    );
+    const state = bonds.getVaultBonds(4);
+    Object.assign(state, { isLoaded: true, regularBonds: 100, flexibleBonds: 1_900 });
+
+    expect(bonds.availableBondSpace(vault)).toBe(2_300_000_000n);
+    expect(bonds.availableBondSpaceWithoutFlexibleDisplacement(vault)).toBe(400_000_000n);
+
+    currency.priceIndex.btcUsdPrice = BigNumber(20_000);
+    expect(bonds.availableBondSpaceWithoutFlexibleDisplacement(vault)).toBe(400_000_000n);
+    currency.priceIndex.argonUsdPrice = BigNumber(2);
+    expect(bonds.availableBondSpace(vault)).toBe(2_300_000_000n);
+    expect(bonds.availableBondSpaceWithoutFlexibleDisplacement(vault)).toBe(400_000_000n);
+  });
+
+  it('rejects a prepared owner purchase that would displace flexible bonds and allows retry after more funding', async () => {
+    const vault = createScenarioVault({ vaultId: 4, operatorAccountId: accountId, securitization: 2_168_000_000n });
+    const bondState = {
+      regularBonds: 100,
+      flexibleBonds: 1_900,
+      reservedBondSpace: 0,
+      replacementBonds: 0,
+      isAtBondLotLimit: false,
+    };
+    const readVault = vi.spyOn(Vault, 'get').mockResolvedValue(vault);
+    const readBonds = vi.spyOn(TreasuryBonds, 'getVaultBondState').mockResolvedValue(bondState as any);
+    const affordability = vi.spyOn(TxSubmitter.prototype, 'canAfford').mockResolvedValue({
+      canAfford: true,
+      availableBalance: 10_000_000_000n,
+      txFee: 1n,
+    });
+    const client = {
+      tx: { treasury: { buyBonds: vi.fn(() => ({})) } },
+      rpc: { chain: { getFinalizedHead: vi.fn(async () => '0xfinalized') } },
+      raw: { at: vi.fn(async () => ({ query: {} })) },
+    };
+    const tracker = {
+      findLatestTxAttempt: vi.fn(async () => undefined),
+      submitAndWatch: vi.fn(async () => {
+        throw new Error('Reached external chain submission');
+      }),
+    };
+    const operation = new BondBuy({} as any, { defaultArgonAddress: accountId } as any, tracker as any);
+    const input = {
+      vaultId: 4,
+      bondPurchaseMicrogons: 169_000_000n,
+      txSigner: { address: accountId, signer: {} } as any,
+      client: client as any,
+    };
+
+    try {
+      const prepared = await operation.prepare(input);
+      await expect(operation.submit(input, prepared)).rejects.toThrow('remaining bond capacity');
+      expect(tracker.submitAndWatch).not.toHaveBeenCalled();
+
+      vault.securitization = 2_169_000_000n;
+      await expect(operation.submit(input, prepared)).rejects.toThrow('Reached external chain submission');
+
+      // A member buying in another operator's vault may replace flexible capacity.
+      vault.securitization = 2_168_000_000n;
+      vault.operatorAccountId = encodeAddress(new Uint8Array(32).fill(0x33));
+      await expect(operation.submit(input, prepared)).rejects.toThrow('Reached external chain submission');
+    } finally {
+      readVault.mockRestore();
+      readBonds.mockRestore();
+      affordability.mockRestore();
+    }
   });
 
   it('publishes recovered history after an in-flight finalized publication', async () => {

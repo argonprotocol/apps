@@ -3,7 +3,7 @@
     ref="wrapperRef"
     tabindex="0"
     role="group"
-    aria-label="Chart history. Hover to preview, click to hold. Use left and right arrow keys to inspect frames."
+    aria-label="Chart history. Hover to preview, click the chart to pin. Use left and right arrow keys to inspect frames."
     data-chart-history
     class="focus-visible:outline-argon-600 relative flex h-full w-full grow flex-col focus-visible:outline-2"
     @pointermove="showTooltip"
@@ -35,71 +35,70 @@
         />
       </PopoverAnchor>
       <PopoverPortal>
-        <PopoverContent
-          v-if="hoveredItem"
-          side="top"
-          :sideOffset="12"
-          :collisionPadding="12"
-          :style="floatingZIndex"
-          aria-label="Chart frame details"
-          class="w-max min-w-96 rounded-md border border-gray-800/20 bg-white px-4 py-3 text-sm text-slate-600 shadow-xl"
-          @openAutoFocus.prevent
-          @closeAutoFocus.prevent
-          @pointerenter="cancelTooltipClose"
-          @pointerleave="onPointerLeave"
-          @click.stop="holdTooltip"
-        >
-          <!-- prettier-ignore -->
-          <div class="mb-3 flex items-start justify-between gap-4 border-b border-slate-200 pb-3 font-semibold whitespace-nowrap text-slate-700">
-            <div class="flex items-start gap-3">
-              <div v-if="tooltipPinned" class="flex shrink-0 gap-1">
-                <button
-                  type="button"
-                  aria-label="Previous frame"
-                  :disabled="!hoveredItem.previous"
-                  class="text-argon-600/70 focus-visible:outline-argon-600 inline-flex size-5 cursor-pointer items-center justify-center rounded-sm opacity-50 hover:opacity-100 focus-visible:outline-2 disabled:cursor-default disabled:opacity-20"
-                  @click.stop="inspectAdjacentFrame(-1)"
-                >
-                  <ChevronLeftIcon class="size-5" />
-                </button>
-                <button
-                  type="button"
-                  aria-label="Next frame"
-                  :disabled="!hoveredItem.next"
-                  class="text-argon-600/70 focus-visible:outline-argon-600 inline-flex size-5 cursor-pointer items-center justify-center rounded-sm opacity-50 hover:opacity-100 focus-visible:outline-2 disabled:cursor-default disabled:opacity-20"
-                  @click.stop="inspectAdjacentFrame(1)"
-                >
-                  <ChevronRightIcon class="size-5" />
-                </button>
-              </div>
-              <div>
-                <slot name="tooltipHeader" :item="hoveredItem">
-                  {{ dayjs.utc(hoveredItem.date).format('MMM D, YYYY') }}
-                  <div v-if="isLocalChain" class="font-normal">
-                    {{ dayjs.utc(hoveredItem.date).format('HH:mm:ss') }} UTC
-                  </div>
-                </slot>
-              </div>
-            </div>
-            <button
-              v-if="tooltipPinned"
-              type="button"
-              aria-label="Close chart details"
-              class="hover:text-argon-600 focus-visible:outline-argon-600 inline-flex size-5 shrink-0 cursor-pointer items-center justify-center rounded-sm text-slate-400 focus-visible:outline-2"
-              @click.stop="clearTooltip"
-            >
-              <XMarkIcon class="size-5" />
-            </button>
-          </div>
-          <slot name="tooltip" :item="hoveredItem" />
-          <p
-            v-if="!tooltipPinned"
-            class="mt-3 border-t border-slate-200 pt-2 text-center text-xs font-light text-slate-400 italic"
+        <div class="pointer-events-none">
+          <PopoverContent
+            v-if="hoveredItem"
+            side="top"
+            :sideOffset="12"
+            :collisionPadding="12"
+            :style="[floatingZIndex, { pointerEvents: tooltipPinned ? 'auto' : 'none' }]"
+            aria-label="Chart frame details"
+            class="w-max min-w-96 rounded-md border border-gray-800/20 bg-white px-4 py-3 text-sm text-slate-600 shadow-xl"
+            @openAutoFocus.prevent
+            @closeAutoFocus.prevent
           >
-            Click to pin in place
-          </p>
-          <PopoverPanelArrow class="-translate-y-px" />
-        </PopoverContent>
+            <!-- prettier-ignore -->
+            <div class="mb-3 flex items-start justify-between gap-4 border-b border-slate-200 pb-3 font-semibold whitespace-nowrap text-slate-700">
+              <div class="flex items-start gap-3">
+                <div v-if="tooltipPinned" class="flex shrink-0 gap-1">
+                  <button
+                    type="button"
+                    aria-label="Previous frame"
+                    :disabled="!hoveredItem.previous"
+                    class="text-argon-600/70 focus-visible:outline-argon-600 inline-flex size-5 cursor-pointer items-center justify-center rounded-sm opacity-50 hover:opacity-100 focus-visible:outline-2 disabled:cursor-default disabled:opacity-20"
+                    @click.stop="inspectAdjacentFrame(-1)"
+                  >
+                    <ChevronLeftIcon class="size-5" />
+                  </button>
+                  <button
+                    type="button"
+                    aria-label="Next frame"
+                    :disabled="!hoveredItem.next"
+                    class="text-argon-600/70 focus-visible:outline-argon-600 inline-flex size-5 cursor-pointer items-center justify-center rounded-sm opacity-50 hover:opacity-100 focus-visible:outline-2 disabled:cursor-default disabled:opacity-20"
+                    @click.stop="inspectAdjacentFrame(1)"
+                  >
+                    <ChevronRightIcon class="size-5" />
+                  </button>
+                </div>
+                <div>
+                  <slot name="tooltipHeader" :item="hoveredItem">
+                    {{ dayjs.utc(hoveredItem.date).format('MMM D, YYYY') }}
+                    <div v-if="isLocalChain" class="font-normal">
+                      {{ dayjs.utc(hoveredItem.date).format('HH:mm:ss') }} UTC
+                    </div>
+                  </slot>
+                </div>
+              </div>
+              <button
+                v-if="tooltipPinned"
+                type="button"
+                aria-label="Close chart details"
+                class="hover:text-argon-600 focus-visible:outline-argon-600 inline-flex size-5 shrink-0 cursor-pointer items-center justify-center rounded-sm text-slate-400 focus-visible:outline-2"
+                @click.stop="clearTooltip"
+              >
+                <XMarkIcon class="size-5" />
+              </button>
+            </div>
+            <slot name="tooltip" :item="hoveredItem" />
+            <p
+              v-if="!tooltipPinned"
+              class="mt-3 border-t border-slate-200 pt-2 text-center text-xs font-light text-slate-400 italic"
+            >
+              Click the chart to pin in place
+            </p>
+            <PopoverPanelArrow class="-translate-y-px" />
+          </PopoverContent>
+        </div>
       </PopoverPortal>
     </PopoverRoot>
   </div>

@@ -78,7 +78,7 @@ export const useVaultingAssetBreakdown = defineStore('vaultingAssetBreakdown', (
   const treasuryBondCapacityMicrogons = Vue.computed(() => {
     if (!myVault.createdVault) return 0n;
 
-    return myVault.createdVault.isClosed ? 0n : myVault.createdVault.securitization;
+    return myVault.createdVault.bondCapacityMicrogons();
   });
 
   const treasuryBondCapacityUsedMicrogons = Vue.computed(() => {

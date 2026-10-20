@@ -1,14 +1,8 @@
 import type { CurrentRuntimeQueries, LiveQueryRecord, RuntimeQueryResult } from '@argonprotocol/runtime-client';
 import type { ArgonClient, ArgonCurrentQueryClient, ArgonQueryClient } from './MainchainClients.js';
 import BigNumber from 'bignumber.js';
-import {
-  FIXED_U128_DECIMALS,
-  toFixedNumber,
-  type ArgonPrimitivesVaultVaultTerms,
-  type PriceIndex,
-} from '@argonprotocol/mainchain';
+import { FIXED_U128_DECIMALS, toFixedNumber, type ArgonPrimitivesVaultVaultTerms } from '@argonprotocol/mainchain';
 import { bigNumberToBigInt, bigIntMax, bigIntMin } from './utils.js';
-import { fixedU128Rational, fixedU128Multiply } from './FixedU128.js';
 
 type RuntimeVault = NonNullable<RuntimeQueryResult<CurrentRuntimeQueries['vaults']['vaultsById']>>;
 type SecuritizationScheduleEntry = RuntimeVault['securitizationReleaseSchedule'][string];
@@ -40,7 +34,6 @@ export class Vault implements Omit<RuntimeVault, 'securitizationReleaseSchedule'
   public pendingBondProfitSharing?: BigNumber;
   public operationalMinimumReleaseTick?: number | null;
   public operationalMinimumMicrogons = 0n;
-  public bondCapacitySource: 'Securitization' | 'Bitcoin' = 'Securitization';
 
   constructor(
     public vaultId: number,
@@ -119,7 +112,6 @@ export class Vault implements Omit<RuntimeVault, 'securitizationReleaseSchedule'
     normalized.operationalMinimumMicrogons = constants.operationalAccounts.operationalMinimumVaultSecuritization;
     normalized.bondProfitSharing = treasuryProfitSharing;
     normalized.pendingBondProfitSharing = pendingBondProfitSharing;
-    normalized.bondCapacitySource = 'Bitcoin';
     return normalized;
   }
 
@@ -209,13 +201,9 @@ export class Vault implements Omit<RuntimeVault, 'securitizationReleaseSchedule'
     return this.pendingTerms ? Number(this.pendingTerms[0]) : undefined;
   }
 
-  public bondCapacityMicrogons(
-    priceIndex: Pick<PriceIndex, 'btcUsdPrice' | 'argonUsdPrice' | 'getSatoshiPriceInMarketMicrogons'>,
-  ): bigint {
+  public bondCapacityMicrogons(): bigint {
     if (this.isClosed) return 0n;
-    if (this.bondCapacitySource === 'Securitization') return this.securitization;
-    if (!priceIndex.btcUsdPrice?.gt(0) || !priceIndex.argonUsdPrice?.gt(0)) return 0n;
-    return priceIndex.getSatoshiPriceInMarketMicrogons(this.bondEligibleSatoshis());
+    return this.securitization;
   }
 
   public availableBitcoinSpace(lockOwner?: string): bigint {
@@ -260,23 +248,6 @@ export class Vault implements Omit<RuntimeVault, 'securitizationReleaseSchedule'
       .div(this.flexibleSecuritizationLocked.toString())
       .multipliedBy(100)
       .toNumber();
-  }
-
-  /**
-   * Returns the ratio-adjusted Bitcoin that can support Treasury bonds. Regular Bitcoin always
-   * counts; flexible Bitcoin counts only in proportion to its collateral that has not been
-   * displaced when activated securitization exceeds the vault's securitization.
-   */
-  public bondEligibleSatoshis(): bigint {
-    if (this.flexibleSecuritizationLocked === 0n) return this.ratioAdjustedSatoshis;
-
-    const displacedFlexibleCollateral = this.displacedFlexibleSecuritization();
-    const eligibleFlexibleCollateral = bigIntMax(0n, this.flexibleSecuritizationLocked - displacedFlexibleCollateral);
-    // Flexible Bitcoin counts only in proportion to its collateral that has not been displaced.
-    // FixedU128::from_rational rounds this fraction to 18 places, preferring down on a tie.
-    const eligibleFlexibleFraction = fixedU128Rational(eligibleFlexibleCollateral, this.flexibleSecuritizationLocked);
-    const eligibleFlexibleSatoshis = fixedU128Multiply(eligibleFlexibleFraction, this.flexibleRatioAdjustedSatoshis);
-    return bigIntMax(0n, this.ratioAdjustedSatoshis - this.flexibleRatioAdjustedSatoshis) + eligibleFlexibleSatoshis;
   }
 
   public calculateBitcoinFee(amount: bigint): bigint {

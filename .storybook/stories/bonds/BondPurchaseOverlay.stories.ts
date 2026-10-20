@@ -37,7 +37,7 @@ export const NoActiveVaults: Story = {
   beforeEach: () => setupBondPurchaseScenario('ready'),
 };
 
-export const MarketValuedCapacity: Story = {
+export const AvailableCapacity: Story = {
   beforeEach: () => setupBondPurchaseScenario('available'),
 };
 
@@ -77,8 +77,8 @@ export const OwnerWithPendingWithdrawal: Story = {
   beforeEach: () => setupBondPurchaseScenario('ownerFlexibleWithdrawal'),
 };
 
-export const OwnerOverUnfilledCapacity: Story = {
-  beforeEach: () => setupBondPurchaseScenario('ownerFlexibleOverCapacity'),
+export const OwnerCertificationExceedsCapacity: Story = {
+  beforeEach: () => setupBondPurchaseScenario('ownerFlexibleCertificationAboveCapacity'),
 };
 
 export const OwnerCertificationPending: Story = {

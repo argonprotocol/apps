@@ -11,7 +11,6 @@ import { getMainchainClient } from '../../src-vue/stores/mainchain.ts';
 import { getTransactionTracker } from '../../src-vue/stores/transactions.ts';
 import { useVaultingStats } from '../../src-vue/stores/vaultingStats.ts';
 import { getVaults } from '../../src-vue/stores/vaults.ts';
-import { getCurrency } from '../../src-vue/stores/currency.ts';
 import { ArgonBonds } from '../../src-vue/lib/ArgonBonds.ts';
 import { createScenarioVault } from './createScenarioVault.ts';
 import { setupAppScenario } from './setupAppScenario.ts';
@@ -25,7 +24,7 @@ type BondPurchaseState =
   | 'selection'
   | 'ownerFlexibleSelection'
   | 'ownerFlexible'
-  | 'ownerFlexibleOverCapacity'
+  | 'ownerFlexibleCertificationAboveCapacity'
   | 'ownerFlexibleCertificationPending'
   | 'ownerFlexibleCertificationComplete'
   | 'ownerFlexibleNoCapacity'
@@ -63,7 +62,7 @@ export function setupBondPurchaseScenario(state: BondPurchaseState) {
       (state === 'walletLimited' ? 260n : state === 'belowMinimum' ? 80n : 2_000n) * BigInt(MICROGONS_PER_ARGON);
   }
   if (
-    state === 'ownerFlexibleOverCapacity' ||
+    state === 'ownerFlexibleCertificationAboveCapacity' ||
     state === 'ownerFlexibleCertificationPending' ||
     state === 'ownerFlexibleCertificationComplete'
   ) {
@@ -90,9 +89,8 @@ export function setupBondPurchaseScenario(state: BondPurchaseState) {
   } else if (hasAvailableBondSpace) {
     vaults = [
       createScenarioVault({
-        securitizationLocked: 1_052_698_425n,
-        securitizedSatoshis: 1_408_910n,
-        ratioAdjustedSatoshis: 1_408_910n,
+        securitization: 1_026_619_959n,
+        securitizationTarget: 1_026_619_959n,
       }),
     ];
   }
@@ -161,10 +159,9 @@ export function setupBondPurchaseScenario(state: BondPurchaseState) {
       reservedBondSpace: 300,
       replacementBonds: 0,
     });
-    bonds.getVaultBondCapacityMicrogons = vault => vault.bondCapacityMicrogons(getCurrency().priceIndex);
-    bonds.availableBondSpace = ArgonBonds.prototype.availableBondSpace;
+    bonds.availableBondSpace = ArgonBonds.prototype.availableBondSpace.bind(bonds);
     bonds.availableBondSpaceWithoutFlexibleDisplacement =
-      ArgonBonds.prototype.availableBondSpaceWithoutFlexibleDisplacement;
+      ArgonBonds.prototype.availableBondSpaceWithoutFlexibleDisplacement.bind(bonds);
   }
   mocked(getBondTransactionOperations).mockReturnValue({
     bondBuy: {
