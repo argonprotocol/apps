@@ -224,7 +224,7 @@
     "@polkadot/api-base": "17.0.1",
     "@polkadot/api-derive": "17.0.1",
     "@polkadot/rpc-augment": "17.0.1",
-    "@polkadot/rpc-core": "17.0.1",
+    "@polkadot/rpc-core": "patch:@polkadot/rpc-core@npm%3A17.0.1#~/.yarn/patches/@polkadot-rpc-core-npm-17.0.1-daff7d17bc.patch",
     "@polkadot/rpc-provider": "17.0.1",
     "@polkadot/types": "17.0.1",
     "@polkadot/types-augment": "17.0.1",
