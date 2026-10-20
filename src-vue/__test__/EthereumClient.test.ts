@@ -291,7 +291,9 @@ describe('EthereumClient', () => {
           txHash,
           submittedAtMs: Date.now() - 1_001,
         }),
-      ).rejects.toThrow(`Ethereum transaction ${txHash} could not be found`);
+      ).rejects.toThrow(
+        "This transfer has stalled and can't complete. Check your Ethereum wallet before trying again.",
+      );
     },
   );
 
@@ -316,7 +318,13 @@ describe('EthereumClient', () => {
               status: 'success',
             };
           }),
-          getTransaction: vi.fn(async () => ({ hash: txHash })),
+          getTransaction: vi.fn(async () => ({
+            hash: txHash,
+            blockNumber: null,
+            from: '0x0000000000000000000000000000000000000001',
+            nonce: 3,
+          })),
+          getTransactionCount: vi.fn(async () => 3),
           getBlockNumber: vi.fn(async () => 100n),
         },
       }),
@@ -332,6 +340,36 @@ describe('EthereumClient', () => {
       }),
     ).resolves.toMatchObject({ blockNumber: 98, blockHash, isFinalized: true });
   });
+
+  it.each(['mined transaction', 'receipt', 'receipt indexing'])(
+    'preserves inclusion while checking %s',
+    async evidence => {
+      const txHash = `0x${'77'.repeat(32)}` as const;
+      const ethereumClient = new EthereumClient(createMockWalletKeys(), 'https://ethereum.test');
+      Object.assign(ethereumClient, {
+        createExecutionClient: async () => ({
+          publicClient: {
+            getTransaction: async () => ({
+              from: '0x0000000000000000000000000000000000000001',
+              nonce: 3,
+              blockNumber: evidence === 'mined transaction' ? 98n : null,
+            }),
+            getTransactionCount: async () => 4,
+            getTransactionReceipt: async () => {
+              if (evidence !== 'receipt') throw new Error('indexing is in progress');
+              return { blockNumber: 98n };
+            },
+          },
+        }),
+      });
+
+      if (evidence === 'receipt indexing') {
+        await expect(ethereumClient.isTransactionVisible(txHash)).rejects.toThrow('indexing is in progress');
+      } else {
+        await expect(ethereumClient.isTransactionVisible(txHash)).resolves.toBe(true);
+      }
+    },
+  );
 
   it('relays a council rotation and the next contiguous ready update', async () => {
     const fixture = createCouncilRotationRelayFixture();

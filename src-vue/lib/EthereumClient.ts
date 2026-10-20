@@ -106,10 +106,8 @@ export class EthereumTransactionRevertedError extends Error {
 }
 
 export class EthereumTransactionUnavailableError extends Error {
-  constructor(txHash: Hash) {
-    super(
-      `Ethereum transaction ${txHash} could not be found after the expected confirmation window. It may have been dropped or replaced. Check your Ethereum wallet activity before retrying.`,
-    );
+  constructor(public readonly txHash: Hash) {
+    super("This transfer has stalled and can't complete. Check your Ethereum wallet before trying again.");
     this.name = 'EthereumTransactionUnavailableError';
   }
 }
@@ -453,7 +451,28 @@ export class EthereumClient {
 
   public async isTransactionVisible(txHash: Hash): Promise<boolean> {
     const { publicClient } = await this.createExecutionClient();
-    return await isEthereumTransactionVisibleAtRpc(publicClient, txHash);
+    let transaction: Awaited<ReturnType<PublicClient['getTransaction']>> | undefined;
+    try {
+      transaction = await publicClient.getTransaction({ hash: txHash });
+    } catch (error) {
+      if (!(error instanceof TransactionNotFoundError)) throw error;
+    }
+
+    // A mined transaction can still be waiting for its receipt to be indexed.
+    if (transaction?.blockNumber != null) return true;
+    if (transaction) {
+      const minedNonce = await publicClient.getTransactionCount({ address: transaction.from, blockTag: 'latest' });
+      if (transaction.nonce >= minedNonce) return true;
+    }
+
+    // Some providers retain stale pending transactions after their nonce is
+    // consumed. A receipt still wins if this was the transaction that mined.
+    try {
+      return !!(await publicClient.getTransactionReceipt({ hash: txHash }));
+    } catch (error) {
+      if (error instanceof TransactionReceiptNotFoundError) return false;
+      throw error;
+    }
   }
 
   public async waitForTransactionFinality(args: {
@@ -1560,8 +1579,9 @@ async function buildEthereumUnsignedTransaction(args: {
   data: Hex;
 }): Promise<{ transaction: TransactionSerializableEIP1559; unsignedTransaction: Hex; feeEstimateWei: bigint }> {
   const { publicClient, from, chainId, to, data } = args;
-  const [nonce, gasEstimate, fees] = await Promise.all([
+  const [pendingNonce, minedNonce, gasEstimate, fees] = await Promise.all([
     publicClient.getTransactionCount({ address: from, blockTag: 'pending' }),
+    publicClient.getTransactionCount({ address: from, blockTag: 'latest' }),
     publicClient.estimateGas({
       account: from,
       to,
@@ -1579,7 +1599,7 @@ async function buildEthereumUnsignedTransaction(args: {
 
   const transaction: TransactionSerializableEIP1559 = {
     chainId,
-    nonce,
+    nonce: Math.max(pendingNonce, minedNonce),
     gas,
     maxFeePerGas,
     maxPriorityFeePerGas,

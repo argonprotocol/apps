@@ -949,8 +949,7 @@ function createInboundTransfer(state: WalletTransferScenario): IEthereumInboundA
       break;
     case 'inboundTransactionUnavailable':
       needsAttention = true;
-      error =
-        'Ethereum transaction 0x9595959595959595959595959595959595959595959595959595959595959595 could not be found after the expected confirmation window. It may have been dropped or replaced. Check your Ethereum wallet activity before retrying.';
+      error = "This transfer has stalled and can't complete. Check your Ethereum wallet before trying again.";
       progress = setInboundEthereumStepProgress(progress, {
         progressPct: 0,
         detail: 'Submitted to Ethereum. Waiting for confirmation...',
