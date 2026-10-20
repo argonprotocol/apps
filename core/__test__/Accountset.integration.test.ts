@@ -120,7 +120,9 @@ describe.skipIf(skipE2E)('Accountset tests', { tags: ['mining-auction'] }, () =>
       proxyAccountId: proxyAccount.address,
     });
 
-    const proxySetup = await new TxSubmitter(client, proxySetupPlan.tx, fundingAccount).submit();
+    const proxySetup = await new TxSubmitter(client, proxySetupPlan.tx, fundingAccount).submit({
+      useLatestNonce: true,
+    });
     await proxySetup.waitForInFirstBlock;
 
     const readyPlan = await accountset.planMiningBidProxySetup();

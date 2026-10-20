@@ -9,7 +9,11 @@ Use integration tests to exercise real state owners together: the runtime/client
 - Add a file filter for focused work: `yarn vitest --run --project integration TransactionTracker.integration.test.ts`.
 - `yarn test:network:start` starts a dedicated local network for this checkout. Subsequent chain test commands reuse it. `yarn test:network:stop` removes its containers, volumes, and metadata.
 
-Without a persistent local network, setup starts one network for the shared project and removes it after the tests, including test failures. CI always uses that owned lifecycle. The dedicated test network is separate from `dev:docker`. Recreate the persistent network when changing the runtime pin or Docker service code. A different runtime pin or genesis produces an explicit setup error. RPC ports stay fixed across container restarts; setup also resolves current published ports when reusing the same network.
+Without a persistent local network, setup starts one network for the shared project and removes it after the tests, including test failures. CI always uses that owned lifecycle. The dedicated test network is separate from `dev:docker`. Recreate the persistent network when changing the runtime pin, Docker service code, or network setup. A different runtime pin or genesis produces an explicit setup error. RPC ports stay fixed across container restarts; setup also resolves current published ports when reusing the same network.
+
+Disposable integration and E2E networks use cache-only RandomX mining (`--compute-flags=light`) through `test-network.docker-compose.yml`. It produces the same proofs while avoiding the full mining dataset allocation. Ordinary development and deployed nodes retain their default mining mode.
+
+The network factory generates a raw chain spec with genesis compute difficulty 25, so the first bootstrap proof uses the easier puzzle too. Each test network owns its spec under `e2e/artifacts/test-networks/`; every node, including later upstream miners, uses that same file. The local VM copies it into its persistent node data before installation and selects it for the miner, so creation retries and reconnects retain the same genesis. A creation retry with a different spec requires recreating the VM. Teardown removes the network spec after stopping the network. Ordinary custom development specs are unchanged. Runtime difficulty can adjust before voting authorities become active, then stays fixed while they remain active. Test worker counts and readiness timeouts are unchanged.
 
 ## Writing a chain scenario
 

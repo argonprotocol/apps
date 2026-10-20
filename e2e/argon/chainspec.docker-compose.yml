@@ -2,13 +2,13 @@
 services:
   archive-node:
     volumes:
-      - ./chainspec.raw.json:/chainspec.raw.json:ro
+      - ${ARGON_CHAIN_SPEC_PATH:-./chainspec.raw.json}:/chainspec.raw.json:ro
   miner-1:
     volumes:
-      - ./chainspec.raw.json:/chainspec.raw.json:ro
+      - ${ARGON_CHAIN_SPEC_PATH:-./chainspec.raw.json}:/chainspec.raw.json:ro
   miner-2:
     volumes:
-      - ./chainspec.raw.json:/chainspec.raw.json:ro
+      - ${ARGON_CHAIN_SPEC_PATH:-./chainspec.raw.json}:/chainspec.raw.json:ro
   upstream-miner:
     volumes:
-      - ./chainspec.raw.json:/chainspec.raw.json:ro
+      - ${ARGON_CHAIN_SPEC_PATH:-./chainspec.raw.json}:/chainspec.raw.json:ro

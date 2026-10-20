@@ -13,6 +13,7 @@ static ENV_TESTNET: &str = include_str!("../../server/.env.testnet");
 static DEV_DOCKER_SERVER_ENV_PASSTHROUGH: &[&str] = &[
     "ARGON_ARCHIVE_NODE",
     "ARGON_BOOTNODES",
+    "ARGON_CHAIN_SPEC_PATH",
     "BITCOIN_ADDNODE",
     "ETHEREUM_BEACON_API_URL",
     "ETHEREUM_FINALITY_MILLIS",

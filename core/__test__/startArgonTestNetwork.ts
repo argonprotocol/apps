@@ -13,11 +13,13 @@ import { acquireIntegrationLock } from './helpers/locks.ts';
 type StartProfile = 'miners' | 'bob' | 'dave' | 'all' | 'price-oracle';
 const __dirname = fileURLToPath(new URL('.', import.meta.url));
 const REPO_ROOT = Path.resolve(__dirname, '..', '..');
+const TEST_CHAIN_SPEC_ROOT = Path.join(REPO_ROOT, 'e2e/artifacts/test-networks');
 export const COMPOSE_DIR = Path.resolve(__dirname, '..', '..', 'e2e/argon');
 export const COMPOSE_CONFIG = [
   'docker-compose.yml',
   'upstream-server.docker-compose.yml',
   'indexer.docker-compose.yml',
+  'chainspec.docker-compose.yml',
   'test-network.docker-compose.yml',
 ];
 
@@ -158,18 +160,6 @@ export async function startArgonTestNetwork(
   uniqueTestName: string,
   options: StartArgonTestNetworkOptions = {},
 ): Promise<StartedArgonTestNetwork> {
-  const releaseAssets = await acquireIntegrationLock(
-    'network-assets',
-    Path.join(REPO_ROOT, 'e2e/artifacts/integration-locks'),
-  );
-  try {
-    await ensureIndexerBundle();
-    await ensureServerBundle();
-    ensureDockerComposeAssets();
-  } finally {
-    await releaseAssets();
-  }
-
   NetworkConfig.setNetwork('dev-docker');
 
   const composeOptions = options.profiles?.map(p => `--profile=${p}`) ?? [];
@@ -182,15 +172,33 @@ export async function startArgonTestNetwork(
       toComposeProjectName(uniqueTestName, process.env.ARGON_NETWORK_NAME ?? 'dev-docker'),
     PATH: `${process.env.PATH ?? ''}:/opt/homebrew/bin:/usr/local/bin`,
   };
+  composeEnv.ARGON_CHAIN = '/chainspec.raw.json';
+  composeEnv.ARGON_CHAIN_SPEC_PATH = Path.join(
+    TEST_CHAIN_SPEC_ROOT,
+    composeEnv.COMPOSE_PROJECT_NAME,
+    'chainspec.raw.json',
+  );
 
   const stop = () => stopArgonTestNetwork(composeEnv.COMPOSE_PROJECT_NAME, options);
 
   if (options.registerTeardown ?? true) {
     runOnTeardown(stop);
   }
-  await stop();
-
   try {
+    const releaseAssets = await acquireIntegrationLock(
+      'network-assets',
+      Path.join(REPO_ROOT, 'e2e/artifacts/integration-locks'),
+    );
+    try {
+      await ensureIndexerBundle();
+      await ensureServerBundle();
+      ensureDockerComposeAssets();
+      await stop();
+      runYarn(['docker:argon:chainspec', '--compute-difficulty', '25'], composeEnv);
+    } finally {
+      await releaseAssets();
+    }
+
     await docker.upAll({
       log: options.shouldLog ?? false,
       commandOptions: ['--force-recreate', '--remove-orphans', '--pull=missing'],
@@ -306,8 +314,14 @@ export async function stopArgonTestNetwork(
     composeOptions: options.profiles?.map(profile => `--profile=${profile}`) ?? [],
     config: COMPOSE_CONFIG,
     cwd: COMPOSE_DIR,
-    env: { ...process.env, COMPOSE_PROJECT_NAME: composeProjectName },
+    env: {
+      ...process.env,
+      COMPOSE_PROJECT_NAME: composeProjectName,
+      ARGON_CHAIN: '/chainspec.raw.json',
+      ARGON_CHAIN_SPEC_PATH: Path.join(TEST_CHAIN_SPEC_ROOT, composeProjectName, 'chainspec.raw.json'),
+    },
   });
+  await Fs.rm(Path.join(TEST_CHAIN_SPEC_ROOT, composeProjectName), { recursive: true, force: true });
 }
 
 export async function waitForQueryableClient(
@@ -445,11 +459,11 @@ async function fileExists(path: string): Promise<boolean> {
     .catch(() => false);
 }
 
-function runYarn(...args: string[]): void {
+function runYarn(args: string[], env = process.env): void {
   execFileSync('yarn', args, {
     cwd: REPO_ROOT,
-    env: process.env,
-    shell: true,
+    env,
+    shell: process.platform === 'win32',
     stdio: 'inherit',
   });
 }
@@ -461,7 +475,7 @@ async function ensureIndexerBundle(): Promise<void> {
   if (hasIndexerBundle) return;
 
   console.info('[E2E] Building indexer bundle (missing indexer/lib/index.js)');
-  runYarn('workspace', '@argonprotocol/apps-indexer', 'run', 'build');
+  runYarn(['workspace', '@argonprotocol/apps-indexer', 'run', 'build']);
 }
 
 async function ensureServerBundle(): Promise<void> {
@@ -471,12 +485,12 @@ async function ensureServerBundle(): Promise<void> {
     return;
   }
   console.info('[E2E] Building server bundle (detected local changes)');
-  runYarn('build:server');
+  runYarn(['build:server']);
 }
 
 function ensureDockerComposeAssets(): void {
   console.info('[E2E] Ensuring argon docker compose assets are current');
-  runYarn('docker:argon:download');
+  runYarn(['docker:argon:download']);
 }
 
 async function shouldRebuildServerBundle(): Promise<boolean> {
