@@ -65,10 +65,10 @@
                   {{ group.label }}
                 </div>
                 <div
-                  v-if="group.isStale || group.returnSummary.availability !== 'available'"
+                  v-if="group.isStale || group.returnSummary.isStale || group.returnSummary.availability !== 'available'"
                   class="text-xs font-normal text-slate-500"
                 >
-                  <span v-if="group.isStale" class="inline-flex items-center gap-1">
+                  <span v-if="group.isStale || group.returnSummary.isStale" class="inline-flex items-center gap-1">
                     Stale
                     <Tooltip
                       as-child

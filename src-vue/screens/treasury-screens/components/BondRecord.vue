@@ -68,9 +68,11 @@
             <span class="h-full w-px bg-slate-400/50"></span>
           </div>
           <span>
-            <template v-if="position?.returnIsComplete === false">History incomplete</template>
-            <template v-else-if="returnPercent === undefined">-- return</template>
-            <template v-else>{{ numeral(returnPercent).format('0,0.00') }}% return</template>
+            <template v-if="returnPercent !== undefined">
+              {{ numeral(returnPercent).format('0,0.00') }}% return
+            </template>
+            <template v-else-if="position?.returnIsComplete === false">History incomplete</template>
+            <template v-else>-- return</template>
           </span>
         </div>
       </div>

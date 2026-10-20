@@ -226,50 +226,82 @@
                 </div>
               </div>
             </template>
-            <div v-else class="flex items-start justify-between gap-6">
-              <div>
-              <div class="font-semibold text-slate-700">{{ financialMenuLabels[group.group] }}</div>
-              <div v-if="group.state !== 'ready' && group.state !== 'stale'" class="text-sm font-normal text-slate-500 capitalize">
-                {{ group.state }}
+            <template v-else>
+              <div class="flex items-start justify-between gap-6">
+                <div>
+                  <div class="flex items-center font-semibold text-slate-700">
+                    {{ financialMenuLabels[group.group] }}
+                    <button
+                      v-if="group.group === 'mining'"
+                      type="button"
+                      class="ml-1 flex cursor-pointer items-center text-slate-500 hover:text-slate-700"
+                      :aria-expanded="miningDetailsAreExpanded"
+                      aria-label="Toggle Mining details"
+                      @click.stop="miningDetailsAreExpanded = !miningDetailsAreExpanded"
+                    >
+                      (<MinusIcon v-if="miningDetailsAreExpanded" class="size-3" /><PlusIcon v-else class="size-3" />)
+                    </button>
+                    <button
+                      v-else-if="group.group === 'vaulting'"
+                      type="button"
+                      class="ml-1 flex cursor-pointer items-center text-slate-500 hover:text-slate-700"
+                      :aria-expanded="vaultingDetailsAreExpanded"
+                      aria-label="Toggle Vaulting details"
+                      @click.stop="vaultingDetailsAreExpanded = !vaultingDetailsAreExpanded"
+                    >
+                      (<MinusIcon v-if="vaultingDetailsAreExpanded" class="size-3" /><PlusIcon v-else class="size-3" />)
+                    </button>
+                  </div>
+                  <div v-if="group.state !== 'ready' && group.state !== 'stale'" class="text-sm font-normal text-slate-500 capitalize">
+                    {{ group.state }}
+                  </div>
+                  <div v-else-if="group.isStale" class="inline-flex items-center gap-1 text-sm font-normal text-slate-500">
+                    Stale
+                    <Tooltip
+                      as-child
+                      :content="group.message ?? 'This position is waiting for newer finalized account data.'"
+                    >
+                      <span class="cursor-help text-slate-400 hover:text-slate-600">
+                        <InformationCircleIcon class="size-3.5" />
+                      </span>
+                    </Tooltip>
+                  </div>
+                  <div v-else-if="group.grossLiabilities" class="text-sm font-normal text-slate-500">
+                    Assets {{ currency.symbol }}{{ formatValue(group.grossAssets) }} · Liabilities {{ currency.symbol
+                    }}{{ formatValue(group.grossLiabilities) }}
+                  </div>
+                </div>
+                <div class="font-mono font-semibold text-slate-700">
+                  {{ group.state === 'ready' || (group.state === 'stale' && group.positions.length) ? `${currency.symbol}${formatValue(group.currentValue)}` : '--' }}
+                </div>
               </div>
-              <div v-else-if="group.isStale" class="inline-flex items-center gap-1 text-sm font-normal text-slate-500">
-                Stale
-                <Tooltip
-                  as-child
-                  :content="group.message ?? 'This position is waiting for newer finalized account data.'"
+              <template v-if="group.state === 'ready' || (group.state === 'stale' && group.positions.length)">
+                <div
+                  v-if="group.group === 'mining' && miningDetailsAreExpanded"
+                  class="mt-1 ml-2 border-l border-slate-300/70 pl-2 text-sm font-normal text-slate-500"
                 >
-                  <span class="cursor-help text-slate-400 hover:text-slate-600">
-                    <InformationCircleIcon class="size-3.5" />
-                  </span>
-                </Tooltip>
-              </div>
-              <div v-else-if="group.group === 'mining'" class="text-sm font-normal text-slate-500">
-                <div>
-                  Seats {{ currency.symbol }}{{ formatValue(miningPositionBreakdown.seats) }} · Bids {{ currency.symbol
-                  }}{{ formatValue(miningPositionBreakdown.bids) }}
+                  <div>
+                    Seats {{ currency.symbol }}{{ formatValue(miningPositionBreakdown.seats) }} · Bids {{ currency.symbol
+                    }}{{ formatValue(miningPositionBreakdown.bids) }}
+                  </div>
+                  <div>
+                    {{ microgonToArgonNm(miningPositionBreakdown.microgons).format('0,0.[00]') }} ARGN ·
+                    {{ micronotToArgonotNm(miningPositionBreakdown.micronots).format('0,0.[00]') }} ARGNOT
+                  </div>
                 </div>
-                <div>
-                  {{ microgonToArgonNm(miningPositionBreakdown.microgons).format('0,0.[00]') }} ARGN ·
-                  {{ micronotToArgonotNm(miningPositionBreakdown.micronots).format('0,0.[00]') }} ARGNOT
+                <div
+                  v-else-if="group.group === 'vaulting' && vaultingDetailsAreExpanded"
+                  class="mt-1 ml-2 border-l border-slate-300/70 pl-2 text-sm font-normal text-slate-500"
+                >
+                  <div>
+                    {{ microgonToArgonNm(vaultPositionBreakdown.securitization).format('0,0.[00]') }} ARGN securitized
+                  </div>
+                  <div v-if="vaultPositionBreakdown.committedMicronots">
+                    {{ micronotToArgonotNm(vaultPositionBreakdown.committedMicronots).format('0,0.[00]') }} ARGNOT staked
+                  </div>
                 </div>
-              </div>
-              <div v-else-if="group.group === 'vaulting'" class="text-sm font-normal text-slate-500">
-                <div>
-                  {{ microgonToArgonNm(vaultPositionBreakdown.securitization).format('0,0.[00]') }} ARGN securitized
-                </div>
-                <div v-if="vaultPositionBreakdown.committedMicronots">
-                  {{ micronotToArgonotNm(vaultPositionBreakdown.committedMicronots).format('0,0.[00]') }} ARGNOT staked
-                </div>
-              </div>
-              <div v-else-if="group.grossLiabilities" class="text-sm font-normal text-slate-500">
-                Assets {{ currency.symbol }}{{ formatValue(group.grossAssets) }} · Liabilities {{ currency.symbol
-                }}{{ formatValue(group.grossLiabilities) }}
-              </div>
-              </div>
-              <div class="font-mono font-semibold text-slate-700">
-                {{ group.state === 'ready' || (group.state === 'stale' && group.positions.length) ? `${currency.symbol}${formatValue(group.currentValue)}` : '--' }}
-              </div>
-            </div>
+              </template>
+            </template>
           </li>
 
           <li
@@ -331,6 +363,8 @@ const internalWalletIsExpanded = Vue.ref(false);
 const argonBondsAreExpanded = Vue.ref(false);
 const argonotStakesAreExpanded = Vue.ref(false);
 const bitcoinLocksAreExpanded = Vue.ref(false);
+const miningDetailsAreExpanded = Vue.ref(false);
+const vaultingDetailsAreExpanded = Vue.ref(false);
 const { financialPositionAggregate: aggregate, bondSummariesByAsset } = storeToRefs(financials);
 const bondAssetRows = Vue.computed(() => {
   const bondPositions = aggregate.value.groupSummaries.bonds.positions.filter(position => position.kind === 'bond');

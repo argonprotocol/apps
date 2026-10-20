@@ -14,6 +14,7 @@ import type { IBitcoinFissionRecord } from '../interfaces/IBitcoinFissionRecord.
 import { BitcoinReleaseKind, BitcoinReleaseStatus } from '../interfaces/IBitcoinReleaseRecord.ts';
 import type { IBitcoinSecuritizationTerm } from '../interfaces/IBitcoinSecuritizationTerm.ts';
 import type {
+  IBondFinancialPosition,
   IFinancialGroupSnapshot,
   IFinancialObservedGroupSnapshot,
   IFinancialPosition,
@@ -3186,6 +3187,77 @@ describe('financial position accounting', () => {
 });
 
 describe('financial group snapshots', () => {
+  it('retains incomplete bond returns independently while other lots and values advance', () => {
+    const book = new FinancialPositionBook();
+    const observation = { observedAt: new Date('2026-07-14T12:00:00Z') };
+    const argon = {
+      id: 'bond-1',
+      kind: 'bond',
+      group: 'bonds',
+      label: 'Vault bond',
+      lifecycle: 'active',
+      nativeAsset: 'ARGN',
+      nativePrincipal: 100_000_000n,
+      investedCost: 100_000_000n,
+      currentValue: 100_000_000n,
+      paidIncome: 10_000_000n,
+      settledPrincipalValue: 0n,
+      returnIsComplete: true,
+      startedAt: new Date('2026-07-01T12:00:00Z'),
+      bondLot: createBondLot({ id: 1, bonds: 100, cumulativeEarnings: 10_000_000n }),
+    } satisfies IBondFinancialPosition;
+    const argonot = {
+      ...argon,
+      id: 'bond-2',
+      nativeAsset: 'ARGNOT',
+      paidIncome: 20_000_000n,
+      bondLot: createBondLot({ id: 2, bonds: 100, cumulativeEarnings: 20_000_000n, program: { Argonot: null } }),
+    } satisfies IBondFinancialPosition;
+    book.setScope({ ownedAccounts: ['5wallet'] });
+    book.publish(book.beginRefresh('bonds'), [argon, argonot], observation);
+    expect(reduceFinancialPositions(book.snapshots).groupSummaries.bonds.returnSummary.percent).toBe(15);
+
+    const incompleteArgon = { ...argon, returnIsComplete: false };
+    const updatedArgonot = { ...argonot, currentValue: 150_000_000n, paidIncome: 30_000_000n };
+    const newLot = {
+      ...argonot,
+      id: 'bond-3',
+      returnIsComplete: false,
+      paidIncome: 0n,
+      bondLot: createBondLot({ id: 3, bonds: 100, cumulativeEarnings: 0n, program: { Argonot: null } }),
+    };
+    book.publish(book.beginRefresh('bonds'), [incompleteArgon, updatedArgonot, newLot], observation);
+
+    const aggregate = reduceFinancialPositions(book.snapshots);
+    expect(aggregate.groupSummaries.bonds.currentValue).toBe(350_000_000n);
+    expect(aggregate.groupSummaries.bonds.returnSummary).toMatchObject({
+      availability: 'partial',
+      isStale: true,
+      percent: 20,
+      eligiblePositionCount: 2,
+      investmentPositionCount: 3,
+    });
+    expect(aggregate.accountReturn.percent).toBe(20);
+
+    book.publish(
+      book.beginRefresh('bonds'),
+      [incompleteArgon, { ...updatedArgonot, paidIncome: 40_000_000n }],
+      observation,
+    );
+    expect(reduceFinancialPositions(book.snapshots).groupSummaries.bonds.returnSummary.percent).toBe(25);
+
+    book.publish(book.beginRefresh('bonds'), [updatedArgonot], observation);
+    expect(reduceFinancialPositions(book.snapshots).groupSummaries.bonds.returnSummary).toMatchObject({
+      availability: 'available',
+      percent: 30,
+      eligiblePositionCount: 1,
+    });
+    book.publish(book.beginRefresh('bonds'), [incompleteArgon], observation);
+    expect(reduceFinancialPositions(book.snapshots).groupSummaries.bonds.returnSummary.availability).toBe(
+      'unavailable',
+    );
+  });
+
   it('calculates active returns at the financial observation rather than the render time', () => {
     const book = new FinancialPositionBook();
     const observation = { observedAt: new Date('2026-01-11T00:00:00Z') };
@@ -3222,6 +3294,23 @@ describe('financial group snapshots', () => {
     expect(second.groupSummaries.vaulting.returnSummary).toEqual(first.groupSummaries.vaulting.returnSummary);
     expect(second.accountReturn).toEqual(first.accountReturn);
     vi.useRealTimers();
+
+    book.publish(book.beginRefresh('vaulting'), [{ ...position, currentValue: 300n, investedCost: undefined }], {
+      observedAt: new Date('2026-01-21T00:00:00Z'),
+    });
+    expect(reduceFinancialPositions(book.snapshots).groupSummaries.vaulting.returnSummary.percent).toBe(13.33);
+    expect(reduceFinancialPositions(book.snapshots).accountReturn.percent).toBe(13.33);
+
+    book.setScope({ ownedAccounts: ['5other-wallet'] });
+    book.publish(
+      book.beginRefresh('vaulting'),
+      [{ ...position, currentValue: 300n, investedCost: undefined }],
+      observation,
+    );
+    expect(reduceFinancialPositions(book.snapshots).groupSummaries.vaulting.returnSummary).toMatchObject({
+      availability: 'unavailable',
+    });
+    expect(reduceFinancialPositions(book.snapshots).groupSummaries.vaulting.returnSummary.percent).toBeUndefined();
   });
 
   it('rejects duplicate position ids across financial groups', () => {

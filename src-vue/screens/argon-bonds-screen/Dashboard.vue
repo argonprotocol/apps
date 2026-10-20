@@ -24,17 +24,16 @@
       <div class="h-full w-px bg-slate-400/30" />
       <div class="w-1/3 border-b border-slate-400/30 py-5">
         <div class="text-argon-600 text-5xl font-bold">
-          <template
-            v-if="
-              bondsSummary?.returnSummary.availability === 'available' &&
-              bondsSummary.returnSummary.percent !== undefined
-            "
-          >
+          <template v-if="bondsSummary?.returnSummary.percent !== undefined">
             {{ numeral(bondsSummary.returnSummary.percent).format('0,0.[00]') }}%
           </template>
           <template v-else>--</template>
         </div>
-        <div>Return to Date</div>
+        <div>
+          Return to Date
+          <span v-if="bondsSummary?.returnSummary.isStale">· Updating</span>
+          <span v-else-if="bondsSummary?.returnSummary.availability === 'partial'">· Partial</span>
+        </div>
       </div>
     </section>
 
@@ -200,9 +199,10 @@ const selectedPosition = Vue.computed(() => {
 });
 const bondReturnsByLotId = Vue.computed(() => {
   const returns = new Map<number, number>();
+  const group = financials.financialPositionAggregate.groupSummaries.bonds;
 
   for (const [bondLotId, position] of bondPositionsByLotId.value) {
-    const percent = calculatePositionReturn([position]).percent;
+    const percent = calculatePositionReturn([position], group).percent;
     if (percent !== undefined) returns.set(bondLotId, percent);
   }
 

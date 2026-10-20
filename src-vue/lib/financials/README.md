@@ -10,6 +10,8 @@ Account RTD combines eligible mining, vaulting, bond, Bitcoin, and stable-swap p
 
 The app recomputes live RTD summaries in memory from positions observed at one coherent best block. Finalized or recovered history supplies cost basis and capital timing. While history catches up, affected returns are partial or unavailable; current balances remain visible independently.
 
+When an investment already has a complete return, a collateral or income-history refresh retains that position's calculation and observation until its replacement is complete. Other positions and current balances continue updating independently. Group, account, bond-asset, and individual bond returns consume the same retained calculations. A removed position or an account change clears its retained return; a newly observed position still needs its own complete history.
+
 Each financial projection source implements the same `IFinancialPositionSource` contract. Its primary method identifies the domain records, lifecycle, and native amounts; `createFinancialPosition` adds the shared position fields and takes calculated investment value separately. `FinancialPositionBook` rejects duplicate IDs and positions published into the wrong group.
 
 ## State authority and recovery

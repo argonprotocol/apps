@@ -293,6 +293,12 @@ interface IFinancialGroupSnapshotBase {
   group: FinancialGroup;
   positions: readonly IFinancialPosition[];
   message?: string;
+  retainedReturns?: readonly IFinancialReturnSnapshot[];
+}
+
+export interface IFinancialReturnSnapshot {
+  position: IFinancialInvestmentPosition;
+  observation: IFinancialObservation;
 }
 
 interface IFinancialUnavailableGroupSnapshot extends IFinancialGroupSnapshotBase {
@@ -311,6 +317,7 @@ type FinancialReturnAvailability = 'not-applicable' | 'available' | 'partial' | 
 
 export interface IFinancialReturnSummary {
   availability: FinancialReturnAvailability;
+  isStale?: boolean;
   investedCost: bigint;
   paidIncome?: bigint;
   settledPrincipalValue: bigint;
@@ -332,6 +339,7 @@ export interface IFinancialGroupSummary {
   observation?: IFinancialObservation;
   message?: string;
   returnSummary: IFinancialReturnSummary;
+  retainedReturns?: readonly IFinancialReturnSnapshot[];
 }
 
 export type IFinancialAccountReturnSummary = Pick<
