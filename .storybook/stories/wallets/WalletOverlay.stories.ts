@@ -1548,6 +1548,28 @@ export const SendBitcoinFeeError: Story = {
   },
 };
 
+export const SendBitcoinToOnlyChannel: Story = {
+  beforeEach: () => {
+    useBitcoinSendScenario();
+
+    const channels = getBitcoinLocks().getAllLocks();
+    channels.splice(1);
+    Object.assign(useWallets().defaultArgonWallet, { availableMicrogons: 0n, availableMicronots: 0n });
+  },
+  play: async () => {
+    const canvas = within(document.body);
+    await userEvent.click(canvas.getByTestId('WalletViewSend.token'));
+    await userEvent.click(canvas.getByTestId('BTC'));
+
+    const channel = getBitcoinLocks().getAllLocks()[0];
+    await userEvent.type(
+      canvas.getByTestId('WalletTransferForm.destinationAddress'),
+      getBitcoinLocks().formatP2wshAddress(channel.scriptDetails!.p2wshScriptHashHex),
+    );
+    isInteractive.value = false;
+  },
+};
+
 export const SendBitcoinReactsToLiquidAllocation: Story = {
   beforeEach: useBitcoinSendScenario,
   play: async () => {

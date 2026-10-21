@@ -102,11 +102,19 @@ export class WalletForBitcoin extends WalletForChain<WalletType.bitcoin> {
       .sort((left, right) => right.updatedAt.getTime() - left.updatedAt.getTime());
   }
 
-  public getSendableChannels(): IBitcoinLockRecord[] {
+  public getSendableChannels(toScriptPubkey?: string): IBitcoinLockRecord[] {
     const bitcoinLocks = this.getBitcoinLocks();
-    return bitcoinLocks
-      .getAllLocks()
-      .filter(lock => bitcoinLocks.isLockFunded(lock) && lock.fundedSatoshis > (lock.fissionedSatoshis ?? 0n));
+    const destinationScript = toScriptPubkey?.replace(/^0x/, '').toLowerCase();
+
+    return bitcoinLocks.getAllLocks().filter(lock => {
+      if (!bitcoinLocks.isLockFunded(lock)) return false;
+      if (lock.fundedSatoshis <= (lock.fissionedSatoshis ?? 0n)) return false;
+
+      if (!destinationScript) return true;
+
+      const sourceScript = lock.scriptDetails?.p2wshScriptHashHex.replace(/^0x/, '').toLowerCase();
+      return sourceScript !== destinationScript;
+    });
   }
 
   public getUnattachedDeposits({ includeReturned = false }: { includeReturned?: boolean } = {}): IBitcoinUtxoRecord[] {
