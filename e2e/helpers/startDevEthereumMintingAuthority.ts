@@ -345,6 +345,7 @@ async function activateDevEthereumMintingAuthority(args: {
     });
   }
 
+  await actor.relayApprovedGatewayUpdates({ allowUncompensatedRelay: true, onlyThroughOwnedUpdate: true });
   status = await refreshMintingAuthorityActivation({
     actor,
     client,

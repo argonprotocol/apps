@@ -37,7 +37,7 @@ import BitcoinLocks from '../../src-vue/lib/BitcoinLocks.ts';
 import { BitcoinFissions } from '../../src-vue/lib/BitcoinFissions.ts';
 import BitcoinMempool from '../../src-vue/lib/BitcoinMempool.ts';
 import { Config } from '../../src-vue/lib/Config.ts';
-import { loadEthereumChainConfig } from '../../src-vue/lib/EthereumClient.ts';
+import { loadEthereumChainConfig, type GatewayRelayOptions } from '../../src-vue/lib/EthereumClient.ts';
 import { GlobalCouncil } from '../../src-vue/lib/GlobalCouncil.ts';
 import { MintingAuthorities } from '../../src-vue/lib/MintingAuthorities.ts';
 import { DEFAULT_MASTER_XPUB_PATH, MyVault } from '../../src-vue/lib/MyVault.ts';
@@ -752,8 +752,8 @@ export class AppVaultOperator {
     return true;
   }
 
-  public async relayApprovedGatewayUpdates() {
-    return await this.globalCouncil.relayApprovedGatewayUpdates();
+  public async relayApprovedGatewayUpdates(options?: GatewayRelayOptions) {
+    return await this.globalCouncil.relayApprovedGatewayUpdates(options);
   }
 
   public async authorizeNextPendingTransfer(client: ArgonClient): Promise<boolean> {

@@ -65,7 +65,7 @@ export function recordEthereumContainers(options: DevProfile, environment: DevEn
   const enclaves = execFileSync('kurtosis', ['enclave', 'ls', '--full-uuids'], { encoding: 'utf8' })
     .split('\n')
     .map(line => line.trim().split(/\s+/));
-  const containers = new Set<string>();
+  const containers = new Set(environment.ethereumContainers ?? []);
   for (const state of states) {
     const enclaveId = enclaves.find(([, name]) => name === state.enclaveName)?.[0];
     if (!enclaveId) continue;
@@ -83,7 +83,7 @@ export function recordEthereumContainers(options: DevProfile, environment: DevEn
     if (labels['com.kurtosistech.enclave-id'] !== enclaveId) {
       throw new Error('The saved Ethereum RPC port belongs to another enclave. Refusing to change its containers.');
     }
-    const ids = execFileSync('docker', ['ps', '-aq', '--filter', `label=com.kurtosistech.enclave-id=${enclaveId}`], {
+    const ids = execFileSync('docker', ['ps', '-q', '--filter', `label=com.kurtosistech.enclave-id=${enclaveId}`], {
       encoding: 'utf8',
     })
       .trim()
