@@ -37,7 +37,13 @@ export async function stopDevEnvironment(profile: DevProfile, reset = false): Pr
     await stopDevUpstreamWorker(paths.upstreamDir);
     await output.run(
       'docker',
-      [...composeArgs, reset ? 'down' : 'stop', ...(reset ? ['--volumes', '--remove-orphans'] : [])],
+      [
+        ...composeArgs,
+        '--profile',
+        'upstream',
+        reset ? 'down' : 'stop',
+        ...(reset ? ['--volumes', '--remove-orphans'] : []),
+      ],
       { env: context.composeEnv, cwd: context.composeDir },
     );
     if (reset) {
@@ -56,10 +62,14 @@ export async function stopDevEnvironment(profile: DevProfile, reset = false): Pr
         if (['docker-compose.yml', 'docker-compose.yaml'].some(file => Fs.existsSync(Path.join(directory, file)))) {
           const env = { ...process.env };
           delete env.COMPOSE_PROJECT_NAME;
-          await output.run('docker', ['compose', reset ? 'down' : 'stop', ...(reset ? ['--volumes'] : [])], {
-            env,
-            cwd: directory,
-          });
+          await output.run(
+            'docker',
+            ['compose', '--profile', 'all', reset ? 'down' : 'stop', ...(reset ? ['--volumes'] : [])],
+            {
+              env,
+              cwd: directory,
+            },
+          );
         }
       }
       if (reset) Fs.rmSync(instanceDir, { recursive: true, force: true });
