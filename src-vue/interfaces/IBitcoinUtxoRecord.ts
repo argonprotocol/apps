@@ -5,12 +5,14 @@ export interface IMempoolFundingObservation {
   txid?: string;
   vout?: number;
   transactionBlockHeight: number;
+  transactionBlockHash?: string;
   transactionBlockTime: number;
   argonBitcoinHeight: number;
 }
 
 export enum BitcoinUtxoStatus {
   SeenOnMempool = 'SeenOnMempool', // Found on Bitcoin before the current runtime classifies it as funding or orphaned.
+  Unattached = 'Unattached',
   FundingUtxo = 'FundingUtxo', // Accepted funding UTXO backing this lock.
   Orphaned = 'Orphaned', // Non-accepted deposit that has moved into the return path.
 }

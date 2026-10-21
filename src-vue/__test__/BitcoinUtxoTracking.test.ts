@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, onTestFinished, vi } from 'vitest';
 import * as Vue from 'vue';
 import { BitcoinNetwork } from '@argonprotocol/bitcoin';
 import { u8aToHex } from '@polkadot/util';
@@ -83,6 +83,147 @@ function createLockDetails(): NonNullable<IBitcoinLockRecord['scriptDetails']> {
 }
 
 describe('BitcoinUtxoTracking', () => {
+  it('moves a confirmed deposit from pending to unattached only after finalized Argon processing excludes it', async () => {
+    onTestFinished(() => {
+      vi.restoreAllMocks();
+    });
+    const db = await createTestDb();
+    const txid = `0x${'e'.repeat(64)}`;
+    const observation = {
+      confirmed: false,
+      block_height: 100,
+      block_time: 1,
+      block_hash: `0x${'a'.repeat(64)}`,
+    };
+    const mempool = new BitcoinMempool('https://bitcoin-indexer.test');
+    const addressUtxos = vi
+      .spyOn(mempool, 'getAddressUtxos')
+      .mockImplementation(async () => [{ txid, vout: 0, value: 50_000, status: { ...observation } }]);
+    vi.spyOn(mempool, 'getTipHeight').mockResolvedValue(110);
+    let canonicalCheckpoint = `0x${'b'.repeat(64)}`;
+    vi.spyOn(mempool, 'getBlockHash').mockImplementation(async () => canonicalCheckpoint);
+    let scanHeight = 100;
+    let tracked = false;
+    let orphaned = false;
+    const currentLock = new BitcoinLock(createCurrentLock({ lockId: 1, fundedSatoshis: 0n, fundingUtxos: [] }));
+    vi.spyOn(BitcoinLock, 'get').mockImplementation(async () => currentLock);
+    const trackedUtxos = vi.fn(async () => (tracked ? [{ txid, outputIndex: 0 }] : []));
+    const client = {
+      query: {
+        bitcoinLocks: {
+          minimumSatoshis: async () => 10_000n,
+          orphanedUtxosByAccount: Object.assign(async () => null, {
+            entries: async () => {
+              if (!orphaned) return [];
+              return [[{ args: [currentLock.ownerAccount, { txid, outputIndex: 0 }] }, { lockId: 1 }]];
+            },
+          }),
+        },
+        bitcoinUtxos: {
+          synchedBitcoinBlock: async () => ({ blockHeight: scanHeight, blockHash: `0x${'b'.repeat(64)}` }),
+          utxoRefsByLockId: trackedUtxos,
+        },
+      },
+    } as unknown as ArgonClient;
+    const store = createStore({ db, mempool });
+    store.utxoTracking.data = Vue.reactive(store.utxoTracking.data);
+    const pendingLock = await db.bitcoinLocksTable.insertPending(createLock());
+    const lock = await db.bitcoinLocksTable.finalizePending({ uuid: pendingLock.uuid, lock: currentLock });
+    store.data.locksByLockId[1] = lock;
+    const wallet = new WalletForBitcoin(
+      () => store,
+      () => lock.ownerAccount!,
+      {} as never,
+    );
+    const pending = Vue.computed(() => wallet.getPendingInboundUtxos());
+    const unattached = Vue.computed(() => wallet.getUnattachedDeposits());
+
+    await store.utxoTracking.observeMempoolFunding(lock, client);
+    const deposit = store.utxoTracking.getUtxoRecord(1, txid, 0)!;
+    expect(pending.value.map(record => record.id)).toEqual([deposit.id]);
+    expect(unattached.value).toEqual([]);
+    expect(store.releases.canRequestDepositReturn(lock, deposit)).toBe(false);
+
+    observation.confirmed = true;
+    await store.utxoTracking.observeMempoolFunding(lock, client);
+    expect(deposit.status).toBe('SeenOnMempool');
+    scanHeight = 101;
+    tracked = true;
+    await store.utxoTracking.observeMempoolFunding(lock, client);
+    expect(unattached.value).toEqual([]);
+    tracked = false;
+    currentLock.fundingUtxos = [{ utxoRef: { txid, vout: 0 }, satoshis: 50_000n }];
+    await store.utxoTracking.observeMempoolFunding(lock, client);
+    expect(unattached.value).toEqual([]);
+    currentLock.fundingUtxos = [];
+    orphaned = true;
+    await store.utxoTracking.observeMempoolFunding(lock, client);
+    expect(unattached.value).toEqual([]);
+    orphaned = false;
+    canonicalCheckpoint = `0x${'c'.repeat(64)}`;
+    await store.utxoTracking.observeMempoolFunding(lock, client);
+    expect(unattached.value).toEqual([]);
+    canonicalCheckpoint = `0x${'b'.repeat(64)}`;
+    trackedUtxos.mockRejectedValueOnce(new Error('RPC unavailable'));
+    await store.utxoTracking.observeMempoolFunding(lock, client);
+    expect(pending.value.map(record => record.id)).toEqual([deposit.id]);
+
+    await db.execute(`CREATE TRIGGER FailUnattached BEFORE UPDATE OF status ON BitcoinUtxos
+      WHEN NEW.status = 'Unattached' BEGIN SELECT RAISE(ABORT, 'classification interrupted'); END`);
+    await store.utxoTracking.observeMempoolFunding(lock, client);
+    expect(pending.value.map(record => record.id)).toEqual([deposit.id]);
+    expect(unattached.value).toEqual([]);
+    expect((await db.bitcoinUtxosTable.getByLockOutpoint(1, txid, 0))?.status).toBe('SeenOnMempool');
+    await db.execute('DROP TRIGGER FailUnattached');
+
+    await store.utxoTracking.observeMempoolFunding(lock, client);
+    expect(deposit.status).toBe('Unattached');
+    expect(pending.value).toEqual([]);
+    expect(unattached.value.map(record => record.id)).toEqual([deposit.id]);
+    expect(store.releases.canRequestDepositReturn(lock, deposit)).toBe(true);
+    expect((await db.bitcoinUtxosTable.getByLockOutpoint(1, txid, 0))?.status).toBe('Unattached');
+
+    const restarted = createStore({ db, mempool });
+    restarted.data.locksByLockId[1] = lock;
+    restarted.utxoTracking.load(await db.bitcoinUtxosTable.fetchAll());
+    await restarted.applyRecoveredHistory(
+      {
+        lockId: 1,
+        utxos: [{ ...deposit, status: BitcoinUtxoStatus.SeenOnMempool }],
+        releases: [],
+        fissions: [],
+        hdKeys: [],
+        securitizationTerms: [],
+      },
+      1,
+    );
+    expect(restarted.utxoTracking.getUtxoRecordById(deposit.id)?.status).toBe('Unattached');
+    addressUtxos.mockRejectedValueOnce(new Error('RPC unavailable'));
+    await expect(restarted.utxoTracking.observeMempoolFunding(lock, client)).rejects.toThrow('RPC unavailable');
+    expect(restarted.utxoTracking.getUtxoRecordById(deposit.id)?.status).toBe('Unattached');
+
+    observation.confirmed = false;
+    await restarted.utxoTracking.observeMempoolFunding(lock, client);
+    expect(restarted.utxoTracking.getUtxoRecordById(deposit.id)?.status).toBe('SeenOnMempool');
+
+    observation.confirmed = true;
+    observation.block_height = scanHeight;
+    await restarted.utxoTracking.observeMempoolFunding(lock, client);
+    expect(restarted.utxoTracking.getUtxoRecordById(deposit.id)?.status).toBe('SeenOnMempool');
+    scanHeight += 1;
+    await restarted.utxoTracking.observeMempoolFunding(lock, client);
+    expect(restarted.utxoTracking.getUtxoRecordById(deposit.id)?.status).toBe('Unattached');
+
+    // The deposit can move to another branch without changing its inclusion height.
+    observation.block_hash = `0x${'d'.repeat(64)}`;
+    canonicalCheckpoint = `0x${'c'.repeat(64)}`;
+    await restarted.utxoTracking.observeMempoolFunding(lock, client);
+    expect(restarted.utxoTracking.getUtxoRecordById(deposit.id)?.status).toBe('SeenOnMempool');
+    canonicalCheckpoint = `0x${'b'.repeat(64)}`;
+    await restarted.utxoTracking.observeMempoolFunding(lock, client);
+    expect(restarted.utxoTracking.getUtxoRecordById(deposit.id)?.status).toBe('Unattached');
+  });
+
   it('finds deposits sent to closed addresses without reviving accepted or spent outputs, and permits retry', async () => {
     const db = await createTestDb();
     const mempool = new BitcoinMempool('https://bitcoin-indexer.test');
@@ -1113,10 +1254,15 @@ describe('BitcoinUtxoTracking', () => {
     const preferredClient = Object.assign(Object.create(null), {
       query: Object.assign(Object.create(null), {
         bitcoinLocks: Object.assign(Object.create(null), {
+          locksById: async () => null,
           orphanedUtxosByAccount: Object.assign(Object.create(null), {
             entries: vi.fn().mockRejectedValue(new Error('rpc timeout')),
           }),
         }),
+        bitcoinUtxos: {
+          utxoRefsByLockId: async () => [],
+          synchedBitcoinBlock: async () => ({ blockHeight: 126 }),
+        },
       }),
     }) as ArgonClient;
 

@@ -487,9 +487,8 @@ export default class BitcoinReleases {
       return false;
     if (this.getActiveForUtxo(utxo)) return false;
 
-    const previousReturn = this.getLatestForUtxo(utxo);
-    if (previousReturn?.kind === BitcoinReleaseKind.Cooperative) return false;
-    if (utxo.status === BitcoinUtxoStatus.Orphaned) return true;
+    if (this.getLatestForUtxo(utxo)?.kind === BitcoinReleaseKind.Cooperative) return false;
+    if (utxo.status === BitcoinUtxoStatus.Orphaned || utxo.status === BitcoinUtxoStatus.Unattached) return true;
     return utxo.fundingRejectionReason === 'BelowMinimum' || !!lock.removalBlockNumber;
   }
 

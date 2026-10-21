@@ -54,19 +54,20 @@ describe('BitcoinMempool', () => {
     }
   });
 
-  it('converts mempool txids to canonical argon order for address utxos', async () => {
+  it('converts mempool transaction and block hashes to canonical argon order for address utxos', async () => {
     const mempool = new BitcoinMempool('https://example.invalid');
     const mempoolTxid = createMempoolTxid();
+    const blockHash = '0123456789abcdef'.repeat(4);
     const fetchJson = vi.fn().mockResolvedValue([
       {
         txid: mempoolTxid,
         vout: 1,
         value: 1_000,
         status: {
-          confirmed: false,
-          block_height: 0,
+          confirmed: true,
+          block_height: 123,
           block_time: 0,
-          block_hash: '',
+          block_hash: blockHash,
         },
       },
     ]);
@@ -76,6 +77,7 @@ describe('BitcoinMempool', () => {
 
     expect(utxos).toHaveLength(1);
     expect(utxos[0].txid).toBe(`0x${reverseHexTxid(mempoolTxid)}`);
+    expect(utxos[0].status.block_hash).toBe(`0x${reverseHexTxid(blockHash)}`);
   });
 
   it('finds the confirmed transaction that spent a canonical funding outpoint', async () => {

@@ -2,6 +2,7 @@ import dayjs from 'dayjs';
 import utc from 'dayjs/plugin/utc.js';
 import { BitcoinNetwork } from '@argonprotocol/bitcoin';
 import {
+  BitcoinLock,
   type ArgonClient,
   type ArgonQueryClient,
   type IBitcoinLock,
@@ -292,6 +293,7 @@ export default class BitcoinUtxoTracking {
         txid: tx.txid,
         vout: tx.vout,
         transactionBlockHeight: status.block_height ?? 0,
+        transactionBlockHash: status.block_hash,
         transactionBlockTime: status.block_time ?? 0,
         argonBitcoinHeight: this.deps.getOracleBitcoinBlockHeight(),
       };
@@ -302,7 +304,72 @@ export default class BitcoinUtxoTracking {
       );
     }
 
+    try {
+      await this.syncUnattachedDeposits(lock, client);
+    } catch (error) {
+      console.warn('[BitcoinUtxoTracking] Unable to classify confirmed Bitcoin deposits', error);
+    }
     return this.getObservedFundingUtxos(lock).at(-1)?.mempoolObservation;
+  }
+
+  public async syncUnattachedDeposits(lock: IBitcoinLockRecord, client: ArgonQueryClient): Promise<void> {
+    if (!lock.lockId || !lock.ownerAccount) return;
+    const candidates = this.getUtxosForLock(lock.lockId).filter(record => {
+      return (
+        record.status === BitcoinUtxoStatus.SeenOnMempool &&
+        record.spendStatus === BitcoinUtxoSpendStatus.Unspent &&
+        !record.activeReleaseId &&
+        record.mempoolObservation?.isConfirmed === true
+      );
+    });
+    if (!candidates.length) return;
+
+    // All exclusions must describe the same finalized Argon snapshot.
+    const [currentLock, tracked, cursor, orphans] = await Promise.all([
+      BitcoinLock.get(client, lock.lockId),
+      client.query.bitcoinUtxos.utxoRefsByLockId(lock.lockId),
+      client.query.bitcoinUtxos.synchedBitcoinBlock(),
+      client.query.bitcoinLocks.orphanedUtxosByAccount.entries(lock.ownerAccount),
+    ]);
+    if (!cursor || !orphans) return;
+
+    const unattached = candidates.filter(record => {
+      const height = record.mempoolObservation!.transactionBlockHeight;
+      if (height <= 0 || height >= cursor.blockHeight) return false;
+      if (currentLock?.fundingUtxos.some(({ utxoRef }) => utxoRef.txid === record.txid && utxoRef.vout === record.vout))
+        return false;
+      if (tracked?.some(ref => ref.txid === record.txid && ref.outputIndex === record.vout)) return false;
+      return !orphans.some(([key, orphan]) => {
+        const ref = key.args[1];
+        return orphan?.lockId === lock.lockId && ref.txid === record.txid && ref.outputIndex === record.vout;
+      });
+    });
+    if (!unattached.length) return;
+    if ((await this.deps.mempool.getBlockHash(cursor.blockHeight)) !== cursor.blockHash) return;
+
+    const db = await this.deps.dbPromise;
+    const updated = await db.transaction(async transaction => {
+      const records: IBitcoinUtxoRecord[] = [];
+      for (const candidate of unattached) {
+        const record = await transaction.bitcoinUtxosTable.getByLockOutpoint(
+          lock.lockId!,
+          candidate.txid,
+          candidate.vout,
+        );
+        if (record?.status !== BitcoinUtxoStatus.SeenOnMempool) continue;
+        if (record.spendStatus !== BitcoinUtxoSpendStatus.Unspent || record.activeReleaseId) continue;
+        if (!record.mempoolObservation?.isConfirmed) continue;
+        if (record.mempoolObservation.transactionBlockHeight !== candidate.mempoolObservation?.transactionBlockHeight)
+          continue;
+        if (record.mempoolObservation.transactionBlockHeight >= cursor.blockHeight) continue;
+
+        record.status = BitcoinUtxoStatus.Unattached;
+        await transaction.bitcoinUtxosTable.updateObservedDeposit(record);
+        records.push(record);
+      }
+      return records;
+    });
+    for (const record of updated) this.publishUtxo(record);
   }
 
   public async refreshDepositSpend(record: IBitcoinUtxoRecord) {
@@ -570,6 +637,27 @@ export default class BitcoinUtxoTracking {
     }
 
     let needsUpdate = false;
+    if (
+      record.status === BitcoinUtxoStatus.Unattached &&
+      record.spendStatus === BitcoinUtxoSpendStatus.Unspent &&
+      !record.activeReleaseId &&
+      mempoolObservation
+    ) {
+      const previousObservation = record.mempoolObservation;
+      const blockHashChanged =
+        mempoolObservation.transactionBlockHash &&
+        previousObservation?.transactionBlockHash &&
+        mempoolObservation.transactionBlockHash !== previousObservation.transactionBlockHash;
+
+      if (
+        !mempoolObservation.isConfirmed ||
+        mempoolObservation.transactionBlockHeight !== previousObservation?.transactionBlockHeight ||
+        blockHashChanged
+      ) {
+        record.status = BitcoinUtxoStatus.SeenOnMempool;
+        needsUpdate = true;
+      }
+    }
     if (this.shouldUpdateObservedStatus(record, observedStatus)) {
       if (observedStatus === BitcoinUtxoStatus.FundingUtxo && !record.createdByReleaseId) {
         record.isDepositAcknowledged = false;
