@@ -4,11 +4,9 @@ import { Operation } from './index.ts';
 import type { IVaultingFlowContext } from '../contexts/vaultingContext.ts';
 import type { IE2EOperationInspectState } from '../types.ts';
 import { WalletType } from '../types/srcVue.ts';
-import { clickIfVisible, pollEvery } from '../helpers/utils.ts';
 
 const TRANSFER_OUT_MICROGONS = 10n * BigInt(MICROGONS_PER_ARGON);
 const ETHEREUM_TRANSFER_TIMEOUT_MS = 12 * 60_000;
-const UI_TRANSITION_TIMEOUT_MS = 30_000;
 type ITransferOutToEthereumChainState = {
   availableMicrogons: bigint;
   amount: bigint;
@@ -104,26 +102,7 @@ export default new Operation<IVaultingFlowContext, ITransferOutToEthereumState>(
         clear: true,
         timeoutMs: 15_000,
       });
-      await pollEvery(
-        1_000,
-        async () => {
-          const nextState = await flow.inspect(this);
-          if (
-            nextState.chainState.progressPct > 0 ||
-            nextState.chainState.isSubmitting ||
-            nextState.chainState.hasPersistedTransfer
-          ) {
-            return true;
-          }
-
-          await clickIfVisible(flow, 'WalletViewSend.initiateTransfer()', { timeoutMs: 1_500 });
-          return false;
-        },
-        {
-          timeoutMs: UI_TRANSITION_TIMEOUT_MS,
-          timeoutMessage: `${flowName}: Ethereum transfer submission did not start.`,
-        },
-      );
+      await flow.click('WalletViewSend.initiateTransfer()', { timeoutMs: ETHEREUM_TRANSFER_TIMEOUT_MS });
     }
 
     await flow.poll(
