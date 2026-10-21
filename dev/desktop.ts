@@ -271,7 +271,7 @@ async function getTauriPort(argonAppInstance: string): Promise<string> {
   const requestedPort = 1420;
   let port = requestedPort;
   while (true) {
-    const isAvailable = await isPortAvailable(port);
+    const isAvailable = (await isPortAvailable(port, 'localhost')) && (await isPortAvailable(port, '0.0.0.0'));
     if (isAvailable) break;
 
     port += 1;
