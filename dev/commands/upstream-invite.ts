@@ -12,7 +12,6 @@ import {
 } from '@argonprotocol/apps-core';
 import { waitFor } from '@argonprotocol/apps-core/__test__/helpers/waitFor.ts';
 
-import { BootstrapRecovery } from 'src-vue/lib/BootstrapRecovery.ts';
 import { loadOperationalAccountSetup } from 'src-vue/lib/OperationalAccount.ts';
 import { ServerAuthClient } from 'src-vue/lib/ServerAuthClient.ts';
 import {
