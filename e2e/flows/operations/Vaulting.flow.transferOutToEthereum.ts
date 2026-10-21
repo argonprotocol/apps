@@ -1,7 +1,7 @@
 import { createVaultingFlowContext, type IVaultingFlowContext } from '../contexts/vaultingContext.ts';
 import { waitFor } from '@argonprotocol/apps-core/__test__/helpers/waitFor.ts';
 import { readDevEthereumRuntimeState } from '../../devEthereum.ts';
-import { fundDevEthereumAccount } from '../../scripts/fundDevEthereumAccount.ts';
+import { fundDevEthereumAccount } from '../../../dev/funding/ethereum.ts';
 import vaultingOnboarding from './Vaulting.flow.onboarding.ts';
 import vaultingActivateTab from './Vaulting.op.activateTab.ts';
 import vaultingTransferOutToEthereum, { openVaultingWalletOverlay } from './Vaulting.op.transferOutToEthereum.ts';

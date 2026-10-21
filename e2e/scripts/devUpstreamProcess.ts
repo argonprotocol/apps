@@ -7,7 +7,7 @@ import { setTimeout as delay } from 'node:timers/promises';
 import { fileURLToPath } from 'node:url';
 import type { INetworkConfigOverride } from '@argonprotocol/apps-core';
 import type { IDevEthereumConfig, IStartDevEthereumResult } from '../devEthereum.ts';
-import { getDevGatewayRootCaPath } from '../../scripts/devGatewayCerts.ts';
+import { getDevGatewayRootCaPath } from '../../dev/gatewayCerts.ts';
 
 const WORKER_START_TIMEOUT_MS = 15 * 60_000;
 const WORKER_STOP_TIMEOUT_MS = 10_000;

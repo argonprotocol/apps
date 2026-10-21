@@ -130,6 +130,7 @@ export class AppVaultOperator {
   }): Promise<AppVaultOperator> {
     const { clients, walletKeys, networkConfigOverride, serverApiClient } = args;
 
+    NetworkConfig.setNetwork('dev-docker');
     setMainchainClients(clients);
     if (networkConfigOverride) {
       NetworkConfig.setRuntimeOverride('dev-docker', networkConfigOverride);
@@ -218,24 +219,7 @@ export class AppVaultOperator {
       updateRevenue: async () => ({}),
     });
 
-    await currency.fetchMainchainRates();
-    await config.load();
-
-    const chainConfig = await loadEthereumChainConfig();
-    if (chainConfig) {
-      await walletKeys.configureEthereumSignerPolicy({
-        chainId: chainConfig.chainId,
-        gatewayAddress: chainConfig.gatewayAddress,
-        tokenAddresses: [chainConfig.argonTokenAddress, chainConfig.argonotTokenAddress],
-      });
-    }
-
-    await myVault.load();
-    await bitcoinLocks.load();
-    await bitcoinFissions.load();
-    await Promise.all([bitcoinLockCreate.load(), bitcoinLockResecuritize.load(), bitcoinLiquidCreate.load()]);
-
-    return new AppVaultOperator({
+    const actor = new AppVaultOperator({
       db,
       walletKeys,
       miningFrames,
@@ -249,6 +233,28 @@ export class AppVaultOperator {
       bitcoinLockCreate,
       bitcoinLiquidCreate,
     });
+    try {
+      await currency.fetchMainchainRates();
+      await config.load();
+
+      const chainConfig = await loadEthereumChainConfig();
+      if (chainConfig) {
+        await walletKeys.configureEthereumSignerPolicy({
+          chainId: chainConfig.chainId,
+          gatewayAddress: chainConfig.gatewayAddress,
+          tokenAddresses: [chainConfig.argonTokenAddress, chainConfig.argonotTokenAddress],
+        });
+      }
+
+      await myVault.load();
+      await bitcoinLocks.load();
+      await bitcoinFissions.load();
+      await Promise.all([bitcoinLockCreate.load(), bitcoinLockResecuritize.load(), bitcoinLiquidCreate.load()]);
+      return actor;
+    } catch (error) {
+      await actor.dispose().catch(() => undefined);
+      throw error;
+    }
   }
 
   public async ensureCouncilSignerRegistered(args: { client: ArgonClient }): Promise<boolean> {
@@ -826,6 +832,8 @@ export class AppVaultOperator {
     this.globalCouncil.unsubscribe();
     this.mintingAuthorities.unsubscribe();
     await this.#bitcoinLocks.shutdown().catch(() => undefined);
+    await this.transactionTracker.shutdown().catch(() => undefined);
+    await this.#bitcoinFissions.shutdown();
     await this.#miningFrames.stop().catch(() => undefined);
     await this.#db.close();
   }

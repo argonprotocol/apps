@@ -7,6 +7,7 @@ import { fileURLToPath } from 'node:url';
 import { config as loadDotEnv } from 'dotenv';
 import { parseEnv, promisify } from 'node:util';
 import {
+  type ArgonClient,
   BidAmountFormulaType,
   createArgonClient,
   type IEthereumGatewayRelayStatus,
@@ -23,14 +24,18 @@ import { getClient } from '@argonprotocol/mainchain';
 import { sudoFundWallet, type ISudoFundWalletInput } from '@argonprotocol/apps-core/__test__/helpers/sudoFundWallet.ts';
 import type { IDevEthereumConfig, IStartDevEthereumResult } from '../devEthereum.ts';
 import { AppVaultOperator } from '../actors/AppVaultOperator.ts';
-import { ensureDevGatewayCerts } from '../../scripts/devGatewayCerts.ts';
+import { ensureDevGatewayCerts } from '../../dev/gatewayCerts.ts';
 import { type IConfig, ServerType } from 'src-vue/interfaces/IConfig.ts';
 import { BootstrapRecovery } from 'src-vue/lib/BootstrapRecovery.ts';
 import { Config } from 'src-vue/lib/Config.ts';
 import { MemoryWalletKeys } from 'src-vue/lib/MemoryWalletKeys.ts';
 import { ServerApiClient } from 'src-vue/lib/ServerApiClient.ts';
 import { ServerAuthClient } from 'src-vue/lib/ServerAuthClient.ts';
-import { resolveDevUpstreamDir } from './devUpstreamProcess.ts';
+import { resolveDevUpstreamDir, type IDevUpstreamWorkerStartOptions } from './devUpstreamProcess.ts';
+import { getComposeArgs, type DevDockerComposeContext } from './devUpstreamCompose.ts';
+
+export { DEV_DOCKER_COMPOSE_FILES } from './devUpstreamCompose.ts';
+export type { DevDockerComposeContext } from './devUpstreamCompose.ts';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -38,26 +43,12 @@ const execFileAsync = promisify(execFile);
 
 export const DEV_UPSTREAM_MASTER_MNEMONIC = 'test test test test test test test test test test test junk';
 
-export const DEV_DOCKER_COMPOSE_FILES = [
-  'docker-compose.yml',
-  'miners.docker-compose.yml',
-  'upstream-server.docker-compose.yml',
-  'indexer.docker-compose.yml',
-] as const;
-const CHAIN_SPEC_COMPOSE_FILE = 'chainspec.docker-compose.yml';
-
 const DEFAULT_COMPOSE_PROFILES = ['all'] as const;
 const UPSTREAM_COMPOSE_PROFILES = ['all', 'upstream'] as const;
 
-export interface DevDockerComposeContext {
-  composeDir: string;
-  composeEnv: NodeJS.ProcessEnv;
-  composeProjectName?: string;
-  profiles: readonly string[];
-}
-
 export interface IDevUpstreamServerRuntime {
   operator: AppVaultOperator;
+  client: ArgonClient;
   botPort: string;
   gatewayPort: string;
   routerPort: string;
@@ -124,7 +115,7 @@ export async function readDevUpstreamServerPorts(
     ]);
   } catch (error) {
     throw new Error(
-      `Upstream services are not running. Keep 'yarn dev:docker' open and wait for '[tauri-dev][upstream-ready]', or restart 'yarn dev:docker' to retry upstream startup. Root error: ${(error as Error).message}`,
+      `Upstream services are not running. Keep 'yarn dev --start-ethereum --run-upstream' open and wait for '[tauri-dev][upstream-ready]', or restart 'yarn dev --start-ethereum --run-upstream' to retry upstream startup. Root error: ${(error as Error).message}`,
     );
   }
 
@@ -141,100 +132,19 @@ export async function startDevUpstreamServer(args: {
   devEthereum?: Pick<IStartDevEthereumResult, 'serverBeaconApiUrl' | 'serverExecutionRpcUrl' | 'usdcTokenAddress'>;
   devEthereumConfig?: Pick<IDevEthereumConfig, 'finalityBlocks' | 'finalityMillis'>;
 }): Promise<IDevUpstreamServerRuntime> {
+  const { archiveUrl, networkConfigOverride, devEthereum, devEthereumConfig } = args;
   const devUpstreamDir = resolveDevUpstreamDir();
   const context = getDevUpstreamComposeContext();
   const walletKeys = await createDevUpstreamWalletKeys();
-  const configDir = path.join(devUpstreamDir, 'config');
-  const dataDir = path.join(devUpstreamDir, 'data');
-  const envStatePath = path.join(configDir, '.env.state');
-  const biddingRulesPath = path.join(configDir, 'biddingRules.json');
-  const miningBotWalletPath = path.join(configDir, 'walletMiningBot.json');
-  const vaultDelegateWalletPath = path.join(configDir, 'walletVaultDelegate.json');
-
-  await Fs.mkdir(configDir, { recursive: true });
-  await Fs.mkdir(dataDir, { recursive: true });
-
-  const [miningBotKeypair, vaultDelegateKeypair, sessionMiniSecret, restoreKey, bootstrapEndpointSecret] =
-    await Promise.all([
-      walletKeys.getMiningBotKeypair(),
-      walletKeys.getVaultDelegateKeypair(),
-      walletKeys.getMiningSessionMiniSecret(),
-      walletKeys.getRouterRestoreSealingKey(),
-      walletKeys.getOwnServerBootstrapEndpointSecret(),
-    ]);
-  const biddingRules = {
-    ...(Config.getDefault('biddingRules') as IConfig['biddingRules']),
-    seatGoalType: SeatGoalType.Max,
-    seatGoalCount: 4,
-    maximumBidFormulaType: BidAmountFormulaType.Custom,
-    maximumBidCustom: 280_000n,
-  };
-
-  await Promise.all([
-    Fs.writeFile(biddingRulesPath, JsonExt.stringify(biddingRules, 2) + '\n'),
-    Fs.writeFile(miningBotWalletPath, JSON.stringify(miningBotKeypair.toJson(''), null, 2) + '\n'),
-    Fs.writeFile(vaultDelegateWalletPath, JSON.stringify(vaultDelegateKeypair.toJson(''), null, 2) + '\n'),
-  ]);
-
-  let existingState: Record<string, string | undefined> = {};
+  const fundingClient = createArgonClient(await getClient(archiveUrl));
   try {
-    existingState = parseEnv(await Fs.readFile(envStatePath, 'utf8'));
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
-      throw error;
-    }
-  }
-
-  const argonNetworkConfigOverride = args.devEthereum
-    ? JSON.stringify({
-        ethereumNetwork: {
-          executionRpcUrls: [args.devEthereum.serverExecutionRpcUrl],
-          finalityBlocks: args.devEthereumConfig?.finalityBlocks,
-          usdcTokenAddress: args.devEthereum.usdcTokenAddress,
-        },
-      })
-    : undefined;
-  const envLines = [
-    '# Generated during upstream server startup.',
-    `MINING_FUNDING_ACCOUNT_ID=${miningBotKeypair.address}`,
-    `VAULT_OPERATOR_ADDRESS=${walletKeys.vaultingAddress}`,
-    `OPERATOR_ACCOUNT_ID=${walletKeys.operationalAddress}`,
-    `ROUTER_RESTORE_KEY=${restoreKey}`,
-    `ROUTER_BOOTSTRAP_ENDPOINT_SECRET=${bootstrapEndpointSecret}`,
-    `SESSION_MINI_SECRET=${sessionMiniSecret}`,
-    `ETHEREUM_BEACON_API_URL=${args.devEthereum?.serverBeaconApiUrl?.trim() || existingState.ETHEREUM_BEACON_API_URL || ''}`,
-    `ETHEREUM_EXECUTION_RPC_URL=${args.devEthereum?.serverExecutionRpcUrl?.trim() || existingState.ETHEREUM_EXECUTION_RPC_URL || ''}`,
-    `ETHEREUM_FINALITY_MILLIS=${args.devEthereumConfig?.finalityMillis?.toString() || existingState.ETHEREUM_FINALITY_MILLIS || ''}`,
-    `ARGON_NETWORK_CONFIG_OVERRIDE=${argonNetworkConfigOverride || existingState.ARGON_NETWORK_CONFIG_OVERRIDE || ''}`,
-  ];
-
-  await Fs.writeFile(envStatePath, envLines.join('\n') + '\n');
-  await ensureDevGatewayCerts();
-
-  const fundingClient = createArgonClient(await getClient(args.archiveUrl));
-  try {
-    const [miningBotArgons, miningBotArgonots, treasuryArgons, treasuryArgonots] = await Promise.all([
-      fundingClient.query.system.account(miningBotKeypair.address),
-      fundingClient.query.ownership.account(miningBotKeypair.address),
-      fundingClient.query.system.account(walletKeys.defaultArgonAddress),
-      fundingClient.query.ownership.account(walletKeys.defaultArgonAddress),
-    ]);
-    const funding = planDevUpstreamFunding({
-      miningBot: {
-        address: miningBotKeypair.address,
-        microgons: miningBotArgons.data.free,
-        micronots: miningBotArgonots.free,
-      },
-      treasury: {
-        address: walletKeys.defaultArgonAddress,
-        microgons: treasuryArgons.data.free,
-        micronots: treasuryArgonots.free,
-      },
+    await prepareDevUpstreamServer({
+      devUpstreamDir,
+      walletKeys,
+      client: fundingClient,
+      devEthereum,
+      devEthereumConfig,
     });
-
-    for (const account of funding) {
-      await sudoFundWallet({ client: fundingClient, ...account });
-    }
   } finally {
     await fundingClient.disconnect();
   }
@@ -271,8 +181,8 @@ export async function startDevUpstreamServer(args: {
   );
 
   NetworkConfig.setNetwork('dev-docker');
-  if (args.networkConfigOverride) {
-    NetworkConfig.setRuntimeOverride('dev-docker', args.networkConfigOverride);
+  if (networkConfigOverride) {
+    NetworkConfig.setRuntimeOverride('dev-docker', networkConfigOverride);
   }
 
   const { botPort, gatewayPort, routerPort } = await readDevUpstreamServerPorts(context);
@@ -283,7 +193,7 @@ export async function startDevUpstreamServer(args: {
     walletKeys,
   );
 
-  const clients = new MainchainClients(args.archiveUrl, () => false);
+  const clients = new MainchainClients(archiveUrl, () => false);
   let actor: AppVaultOperator;
   try {
     actor = await AppVaultOperator.load({
@@ -335,6 +245,7 @@ export async function startDevUpstreamServer(args: {
 
   try {
     const client = await clients.get(false);
+    const bootstrapEndpointSecret = await walletKeys.getOwnServerBootstrapEndpointSecret();
     await bootstrapRecovery.publishEndpoint({
       client,
       transactionTracker: actor.transactionTracker,
@@ -392,6 +303,7 @@ export async function startDevUpstreamServer(args: {
 
     return {
       operator: actor,
+      client,
       botPort,
       gatewayPort,
       routerPort,
@@ -400,6 +312,115 @@ export async function startDevUpstreamServer(args: {
   } catch (error) {
     await shutdown();
     throw error;
+  }
+}
+
+export async function prepareDevUpstreamServer({
+  devUpstreamDir,
+  walletKeys,
+  client,
+  devEthereum,
+  devEthereumConfig,
+}: Pick<IDevUpstreamWorkerStartOptions, 'devUpstreamDir' | 'devEthereum' | 'devEthereumConfig'> & {
+  walletKeys: MemoryWalletKeys;
+  client: ArgonClient;
+}): Promise<void> {
+  const configDir = path.join(devUpstreamDir, 'config');
+  const dataDir = path.join(devUpstreamDir, 'data');
+  const envStatePath = path.join(configDir, '.env.state');
+  const biddingRulesPath = path.join(configDir, 'biddingRules.json');
+  const miningBotWalletPath = path.join(configDir, 'walletMiningBot.json');
+  const vaultDelegateWalletPath = path.join(configDir, 'walletVaultDelegate.json');
+
+  await Fs.mkdir(configDir, { recursive: true });
+  await Fs.mkdir(dataDir, { recursive: true });
+
+  const [miningBotKeypair, vaultDelegateKeypair, sessionMiniSecret, restoreKey, bootstrapEndpointSecret] =
+    await Promise.all([
+      walletKeys.getMiningBotKeypair(),
+      walletKeys.getVaultDelegateKeypair(),
+      walletKeys.getMiningSessionMiniSecret(),
+      walletKeys.getRouterRestoreSealingKey(),
+      walletKeys.getOwnServerBootstrapEndpointSecret(),
+    ]);
+  const biddingRules = {
+    ...(Config.getDefault('biddingRules') as IConfig['biddingRules']),
+    seatGoalType: SeatGoalType.Max,
+    seatGoalCount: 4,
+    maximumBidFormulaType: BidAmountFormulaType.Custom,
+    maximumBidCustom: 280_000n,
+  };
+
+  await Promise.all([
+    Fs.writeFile(biddingRulesPath, JsonExt.stringify(biddingRules, 2) + '\n', { flag: 'wx' }).catch(error => {
+      if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;
+    }),
+    Fs.writeFile(miningBotWalletPath, JSON.stringify(miningBotKeypair.toJson(''), null, 2) + '\n'),
+    Fs.writeFile(vaultDelegateWalletPath, JSON.stringify(vaultDelegateKeypair.toJson(''), null, 2) + '\n'),
+  ]);
+
+  let existingState: Record<string, string | undefined> = {};
+  try {
+    existingState = parseEnv(await Fs.readFile(envStatePath, 'utf8'));
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
+      throw error;
+    }
+  }
+
+  const argonNetworkConfigOverride = devEthereum
+    ? JSON.stringify({
+        ethereumNetwork: {
+          executionRpcUrls: [devEthereum.serverExecutionRpcUrl],
+          finalityBlocks: devEthereumConfig?.finalityBlocks,
+          usdcTokenAddress: devEthereum.usdcTokenAddress,
+        },
+      })
+    : undefined;
+  const envState = {
+    ...existingState,
+    MINING_FUNDING_ACCOUNT_ID: miningBotKeypair.address,
+    VAULT_OPERATOR_ADDRESS: walletKeys.vaultingAddress,
+    OPERATOR_ACCOUNT_ID: walletKeys.operationalAddress,
+    ROUTER_RESTORE_KEY: restoreKey,
+    ROUTER_BOOTSTRAP_ENDPOINT_SECRET: bootstrapEndpointSecret,
+    SESSION_MINI_SECRET: sessionMiniSecret,
+    ETHEREUM_BEACON_API_URL: devEthereum?.serverBeaconApiUrl?.trim() || existingState.ETHEREUM_BEACON_API_URL || '',
+    ETHEREUM_EXECUTION_RPC_URL:
+      devEthereum?.serverExecutionRpcUrl?.trim() || existingState.ETHEREUM_EXECUTION_RPC_URL || '',
+    ETHEREUM_FINALITY_MILLIS:
+      devEthereumConfig?.finalityMillis?.toString() || existingState.ETHEREUM_FINALITY_MILLIS || '',
+    ARGON_NETWORK_CONFIG_OVERRIDE: argonNetworkConfigOverride || existingState.ARGON_NETWORK_CONFIG_OVERRIDE || '',
+  };
+  await Fs.writeFile(
+    envStatePath,
+    Object.entries(envState)
+      .map(([name, value]) => `${name}=${value ?? ''}`)
+      .join('\n') + '\n',
+  );
+  await ensureDevGatewayCerts();
+
+  const [miningBotArgons, miningBotArgonots, treasuryArgons, treasuryArgonots] = await Promise.all([
+    client.query.system.account(walletKeys.miningBotAddress),
+    client.query.ownership.account(walletKeys.miningBotAddress),
+    client.query.system.account(walletKeys.defaultArgonAddress),
+    client.query.ownership.account(walletKeys.defaultArgonAddress),
+  ]);
+  const funding = planDevUpstreamFunding({
+    miningBot: {
+      address: walletKeys.miningBotAddress,
+      microgons: miningBotArgons.data.free,
+      micronots: miningBotArgonots.free,
+    },
+    treasury: {
+      address: walletKeys.defaultArgonAddress,
+      microgons: treasuryArgons.data.free,
+      micronots: treasuryArgonots.free,
+    },
+  });
+
+  for (const account of funding) {
+    await sudoFundWallet({ client, ...account });
   }
 }
 
@@ -472,20 +493,6 @@ export function readComposeContainerId(args: { context?: DevDockerComposeContext
   }
 
   return containerId;
-}
-
-function getComposeArgs(context: DevDockerComposeContext): string[] {
-  const useChainspec =
-    context.composeEnv.E2E_USE_TEST_NETWORK?.trim() !== '1' ||
-    context.composeEnv.ARGON_CHAIN?.trim() === '/chainspec.raw.json';
-  const composeFiles = useChainspec ? [...DEV_DOCKER_COMPOSE_FILES, CHAIN_SPEC_COMPOSE_FILE] : DEV_DOCKER_COMPOSE_FILES;
-
-  return [
-    'compose',
-    ...context.profiles.flatMap(profile => ['--profile', profile]),
-    ...(context.composeProjectName ? ['--project-name', context.composeProjectName] : []),
-    ...composeFiles.flatMap(file => ['-f', file]),
-  ];
 }
 
 export async function createDevUpstreamWalletKeys(): Promise<MemoryWalletKeys> {

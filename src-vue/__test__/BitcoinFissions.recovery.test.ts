@@ -677,7 +677,7 @@ describe('Bitcoin Fission current state', () => {
     },
   );
 
-  it('restores an archived Fission pending mint after restart', async () => {
+  it('restores an archived Fission pending mint and drains its subscription on shutdown', async () => {
     const db = await createTestDb();
     const record = createFissionRecord({
       fissionId: 11,
@@ -737,8 +737,17 @@ describe('Bitcoin Fission current state', () => {
 
     remainingAmount = 75n;
     onPendingMintChanged({ remainingAmount, maxAmountPerFrame: 50n });
-    await vi.waitFor(() => expect(fissions.getArchived()[0].pendingMints[0]?.remainingAmount).toBe(75n));
+    await fissions.shutdown();
+
+    expect(callbacks.has(queueIndex)).toBe(false);
+    expect(fissions.getArchived()[0].pendingMints[0]?.remainingAmount).toBe(75n);
     expect(fissions.getArchived()[0].ratchets[0].mintPending).toBe(75n);
+    expect((await db.bitcoinFissionsTable.fetchAll(ownerAccount))[0].ratchets[0].mintPending).toBe(75n);
+
+    onPendingMintChanged({ remainingAmount: 25n, maxAmountPerFrame: 50n });
+    expect(fissions.getArchived()[0].pendingMints[0]?.remainingAmount).toBe(75n);
+    expect((await db.bitcoinFissionsTable.fetchAll(ownerAccount))[0].ratchets[0].mintPending).toBe(75n);
+    await db.close();
   });
 
   it('subscribes a pending mint when recovery publishes an archived Fission', async () => {

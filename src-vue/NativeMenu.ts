@@ -2,7 +2,6 @@ import * as Vue from 'vue';
 import { Menu, MenuItem, PredefinedMenuItem, Submenu } from '@tauri-apps/api/menu';
 import { exit as tauriExit } from '@tauri-apps/plugin-process';
 import { getCurrentWindow } from '@tauri-apps/api/window';
-import { message as tauriMessage } from '@tauri-apps/plugin-dialog';
 import basicEmitter from './emitters/basicEmitter.ts';
 import { open as tauriOpenUrl } from '@tauri-apps/plugin-shell';
 import { TopTab } from './interfaces/IConfig.ts';
@@ -12,18 +11,9 @@ import { getBot } from './stores/bot.ts';
 import { getConfig } from './stores/config.ts';
 import { useTour } from './stores/tour.ts';
 import { getWalletsForArgon } from './stores/wallets.ts';
-import { IS_LOCAL_BUILD, NETWORK_NAME } from './lib/Env.ts';
 
 function openAboutOverlay() {
   basicEmitter.emit('openAboutOverlay');
-}
-
-async function showForceUpdateGlobalIssuanceCouncilCommand() {
-  const command = 'yarn dev:ethereum:force-update-global-issuance-council';
-  await tauriMessage(`Run this from the repo root:\n\n${command}`, {
-    title: 'Force Update Global Issuance Council',
-    kind: 'info',
-  });
 }
 
 export async function createMenu() {
@@ -128,21 +118,6 @@ export async function createMenu() {
         text: 'Open Internal App Wallet',
         action: () => basicEmitter.emit('openWalletOverlay', { wallet: getWalletsForArgon().defaultArgonWallet }),
       },
-      ...(IS_LOCAL_BUILD && NETWORK_NAME === 'dev-docker'
-        ? [
-            await PredefinedMenuItem.new({ item: 'Separator' }),
-            await Submenu.new({
-              text: 'Crosschain Transfers',
-              items: [
-                {
-                  id: 'experimental-force-update-global-issuance-council',
-                  text: 'Reset Global Issuance Council',
-                  action: () => void showForceUpdateGlobalIssuanceCouncilCommand(),
-                },
-              ],
-            }),
-          ]
-        : []),
     ],
   });
 

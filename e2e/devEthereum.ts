@@ -450,9 +450,10 @@ async function readDevEthereumRuntimeStateCandidates(): Promise<IDevEthereumRunt
 export async function readDevEthereumRuntimeState(
   executionRpcUrl?: string,
   runtimeStateDir?: string,
+  env: NodeJS.ProcessEnv = process.env,
 ): Promise<IDevEthereumRuntimeState | undefined> {
   try {
-    const raw = await fs.readFile(getDevEthereumRuntimeStatePath(executionRpcUrl, runtimeStateDir), 'utf8');
+    const raw = await fs.readFile(getDevEthereumRuntimeStatePath(executionRpcUrl, runtimeStateDir, env), 'utf8');
     return JSON.parse(raw) as IDevEthereumRuntimeState;
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
@@ -687,8 +688,12 @@ async function writeFileAtomically(filePath: string, contents: string): Promise<
   }
 }
 
-function getDevEthereumRuntimeStatePath(executionRpcUrl?: string, runtimeStateDir?: string): string {
-  const configuredStateDir = runtimeStateDir?.trim() || process.env.ARGON_DEV_ETHEREUM_RUNTIME_STATE_DIR?.trim();
+function getDevEthereumRuntimeStatePath(
+  executionRpcUrl?: string,
+  runtimeStateDir?: string,
+  env: NodeJS.ProcessEnv = process.env,
+): string {
+  const configuredStateDir = runtimeStateDir?.trim() || env.ARGON_DEV_ETHEREUM_RUNTIME_STATE_DIR?.trim();
   if (configuredStateDir) {
     const stateDir = path.resolve(configuredStateDir);
     if (!executionRpcUrl) {

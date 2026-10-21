@@ -1,4 +1,4 @@
-import { execFileSync } from 'node:child_process';
+import { cleanDevDocker } from '../../dev/cleanDocker.ts';
 import Fs from 'node:fs';
 import Os from 'node:os';
 import Path from 'node:path';
@@ -13,11 +13,20 @@ describe('clean dev docker', () => {
 
   it.skipIf(process.platform === 'win32')(
     'removes only the Ethereum enclave recorded by this checkout',
-    () => {
+    async () => {
       testDir = Fs.mkdtempSync(Path.join(Os.tmpdir(), 'argon-clean-dev-docker-'));
       const binDir = Path.join(testDir, 'bin');
       const runtimeStateDir = Path.join(testDir, 'ethereum-state');
       const removalsPath = Path.join(testDir, 'removed-enclaves.txt');
+      const instanceName = `cleanup-test-${process.pid}`;
+      const configDir =
+        process.platform === 'darwin'
+          ? Path.join(testDir, 'Library', 'Application Support')
+          : Path.join(testDir, 'config');
+      const instanceDir = Path.join(configDir, 'com.argon.desktop.local', 'dev-docker', instanceName);
+      const vmDir = Path.join(instanceDir, 'virtual-machine');
+      Fs.mkdirSync(vmDir, { recursive: true });
+      Fs.writeFileSync(Path.join(vmDir, 'docker-compose.yml'), 'services: {}');
       Fs.mkdirSync(binDir, { recursive: true });
       Fs.mkdirSync(runtimeStateDir, { recursive: true });
       Fs.writeFileSync(
@@ -55,11 +64,14 @@ fi
       );
       writeExecutable(Path.join(binDir, 'ps'), '#!/bin/sh\n');
 
-      execFileSync(process.execPath, [Path.resolve('node_modules/tsx/dist/cli.mjs'), 'scripts/cleanDevDocker.ts'], {
-        cwd: Path.resolve('.'),
+      const parentInstance = process.env.ARGON_APP_INSTANCE;
+      const parentRuntimeStateDir = process.env.ARGON_DEV_ETHEREUM_RUNTIME_STATE_DIR;
+      await cleanDevDocker({
         env: {
           ...process.env,
-          ARGON_APP_INSTANCE: `cleanup-test-${process.pid}`,
+          HOME: testDir,
+          XDG_CONFIG_HOME: configDir,
+          ARGON_APP_INSTANCE: instanceName,
           ARGON_DEV_ETHEREUM_RUNTIME_STATE_DIR: runtimeStateDir,
           ARGON_DEV_UPSTREAM_DIR: Path.join(testDir, 'upstream'),
           ARGON_NETWORK_NAME: 'dev-docker',
@@ -67,10 +79,12 @@ fi
           KURTOSIS_REMOVALS: removalsPath,
           PATH: `${binDir}${Path.delimiter}${process.env.PATH}`,
         },
-        stdio: 'pipe',
       });
 
       expect(Fs.readFileSync(removalsPath, 'utf8').trim().split('\n')).toEqual(['argon-eth-owned']);
+      expect(Fs.existsSync(instanceDir)).toBe(false);
+      expect(process.env.ARGON_APP_INSTANCE).toBe(parentInstance);
+      expect(process.env.ARGON_DEV_ETHEREUM_RUNTIME_STATE_DIR).toBe(parentRuntimeStateDir);
     },
     15_000,
   );
