@@ -33,7 +33,7 @@ export function resolveDevProfile(
   }
   const profile: DevProfile = {
     network: 'dev-docker',
-    instance: values.profile ?? values.instance ?? (configuredInstance || 'default'),
+    instance: values.profile ?? values.instance ?? normalizeDevInstance(configuredInstance || 'default'),
   };
   const join = values.join ?? env.ARGON_DEV_JOIN ?? env.JOIN_COMPOSE_NETWORK?.replace(/^dev-docker-/, '');
   for (const [name, value] of Object.entries({ profile: profile.instance, join })) {
@@ -68,7 +68,8 @@ export function getDevPaths(options: Pick<DevProfile, 'network' | 'instance' | '
     : Path.join(configRoot, 'com.argon.desktop.local', options.network);
   const instanceDir =
     configuredDir && configuredInstance === options.instance ? configuredDir : Path.join(networkDir, options.instance);
-  const ownerDir = options.join ? Path.join(networkDir, options.join) : instanceDir;
+  const ownerDir =
+    options.join && options.join !== options.instance ? Path.join(networkDir, options.join) : instanceDir;
   return {
     instanceDir,
     ownerDir,
