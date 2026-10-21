@@ -157,7 +157,7 @@ export async function startDev(requested: DevStartOptions): Promise<void> {
   }
   const owner = options.join ?? options.instance;
   if (options.detachUpstreamApp) {
-    if (!options.join) options.instance = `${owner}-upstream`;
+    if (!options.join) options.instance = `${owner}-operator`;
     options.join = owner;
     options.port = undefined;
     existing = readDevSession(options);

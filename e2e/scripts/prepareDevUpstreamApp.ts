@@ -108,10 +108,10 @@ export async function prepareDevUpstreamApp(args: {
     parseEnv,
     () => ({}) as Record<string, string>,
   );
-  const sshPort = Number(vmEnv.SSH_PORT) || (await chooseAvailablePort(2222));
-  const gatewayPort = Number(serverEnv.GATEWAY_PORT) || (await chooseAvailablePort(44301));
-  const bitcoinPort = Number(serverEnv.BITCOIN_P2P_PORT) || (await chooseAvailablePort(18445));
-  const argonPort = Number(serverEnv.ARGON_P2P_PORT) || (await chooseAvailablePort(30337));
+  const sshPort = Number(vmEnv.SSH_PORT) || (await chooseAvailablePort(2222, '0.0.0.0'));
+  const gatewayPort = Number(serverEnv.GATEWAY_PORT) || (await chooseAvailablePort(44301, '0.0.0.0'));
+  const bitcoinPort = Number(serverEnv.BITCOIN_P2P_PORT) || (await chooseAvailablePort(18445, '0.0.0.0'));
+  const argonPort = Number(serverEnv.ARGON_P2P_PORT) || (await chooseAvailablePort(30337, '0.0.0.0'));
   const project = toComposeProjectName(instance, 'dev-docker');
   const publicKey = new Keyring({ type: 'ed25519' }).addFromUri(`${mnemonic}//ssh-ed25519//1`).publicKey;
   const sshPublicKey = `ssh-ed25519 ${Buffer.concat([Buffer.from('0000000b7373682d6564323535313900000020', 'hex'), publicKey]).toString('base64')}`;
@@ -139,8 +139,7 @@ export async function prepareDevUpstreamApp(args: {
   await Fs.writeFile(
     Path.join(serverDir, '.env'),
     [
-      deploymentEnv,
-      `ROOT=${JSON.stringify(appDir)}`,
+      deploymentEnv.replace(/^ROOT=.*$/m, `ROOT=${JSON.stringify(appDir)}`),
       `COMPOSE_PROJECT_NAME=${project}`,
       `GATEWAY_PORT=${gatewayPort}`,
       `BITCOIN_P2P_PORT=${bitcoinPort}`,
