@@ -1,4 +1,4 @@
-FROM node:24.12-slim AS build
+FROM node:24.22.1-slim AS build
 
 WORKDIR /usr/src/argon-apps
 
@@ -10,7 +10,7 @@ RUN corepack enable \
   && yarn workspace @argonprotocol/apps-discord-verifier build \
   && yarn workspaces focus @argonprotocol/apps-discord-verifier --production
 
-FROM node:24.12-slim
+FROM node:24.22.1-slim
 
 WORKDIR /usr/src/argon-apps
 
