@@ -63,8 +63,10 @@ export class BitcoinLockRelease extends TransactionOperation<
       tip,
       client: providedClient,
     } = args;
+
     const lock = this.bitcoinLocks.getLockById(lockId);
     if (!lock) throw new Error(`No Bitcoin lock found with ID ${lockId}`);
+
     const activeRelease = this.bitcoinLocks.releases.getActiveForLock(lock);
     if (
       !this.bitcoinLocks.isLockFunded(lock) &&
@@ -76,13 +78,16 @@ export class BitcoinLockRelease extends TransactionOperation<
     const client = providedClient ?? (await getMainchainClient(false));
     const bitcoinLock = await BitcoinLock.get(client, lockId);
     if (!bitcoinLock) throw new Error(`Lock with ID ${lockId} is unavailable from current chain state.`);
+
     const changeSatoshis = bitcoinLock.fundedSatoshis - destinationSatoshis - bitcoinNetworkFee;
     if (destinationSatoshis <= 0n || bitcoinNetworkFee < 0n || changeSatoshis < 0n) {
       throw new Error('The Bitcoin destination amount and fee exceed the funded Lock or are invalid.');
     }
+
     if (changeSatoshis === 0n && bitcoinLock.fissionedSatoshis > 0n) {
       throw new Error('Close its Liquid before releasing this Bitcoin lock.');
     }
+
     if (changeSatoshis > 0n) {
       const minimumSatoshis = await client.query.bitcoinLocks.minimumSatoshis();
       if (minimumSatoshis === null) throw new Error('The runtime minimum Bitcoin amount is unavailable.');
@@ -102,11 +107,15 @@ export class BitcoinLockRelease extends TransactionOperation<
     }
 
     const destinationScript = addressBytesHex(toScriptPubkey, this.bitcoinLocks.bitcoinNetwork);
+    if (destinationScript === bitcoinLock.p2wshScriptHashHex) {
+      throw new Error('Choose a Bitcoin destination outside this source channel.');
+    }
+
     const previousCosign = await client.query.bitcoinLocks.lockReleaseCosignHeightById(lockId);
     const previousReleaseNumber = previousCosign?.releaseNumber ?? 0;
     const releaseNumber = activeRelease?.releaseNumber ?? previousReleaseNumber + 1;
-
     const releaseId = `lock:${lockId}:${releaseNumber}`;
+
     return {
       client,
       lock,

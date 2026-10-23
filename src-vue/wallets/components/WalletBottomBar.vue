@@ -108,7 +108,8 @@
                 <button
                   v-if="
                     transfer.inboundTransfer?.transferState.needsAttention ||
-                    transfer.bitcoinUtxo?.fundingRejectionReason === 'BelowMinimum'
+                    transfer.bitcoinUtxo?.fundingRejectionReason === 'BelowMinimum' ||
+                    transfer.bitcoinRelease?.status === BitcoinReleaseStatus.Failed
                   "
                   type="button"
                   class="border-argon-600 text-argon-600 hover:bg-argon-50 mt-3 cursor-pointer rounded-lg border px-5 py-1 font-semibold"
@@ -166,6 +167,7 @@ import { getCurrency } from '../../stores/currency.ts';
 import { getBitcoinLocks, getBitcoinTransactionOperations } from '../../stores/bitcoin.ts';
 import { getBitcoinReleaseProgress } from '../../stores/bitcoinLockProgress.ts';
 import type { IBitcoinUtxoRecord } from '../../interfaces/IBitcoinUtxoRecord.ts';
+import { BitcoinReleaseStatus, type IBitcoinReleaseRecord } from '../../interfaces/IBitcoinReleaseRecord.ts';
 import { getMiningFrames } from '../../stores/mainchain.ts';
 import { getEthereumMoveTracker } from '../../stores/moveFromEthereum.ts';
 import type { IEthereumInboundActiveTransfer } from '../../lib/EthereumInboundTransferTracker.ts';
@@ -191,24 +193,31 @@ type PendingTransfer = {
   progress: ITransferProgressView;
   inboundTransfer?: IEthereumInboundActiveTransfer;
   bitcoinUtxo?: IBitcoinUtxoRecord;
+  bitcoinRelease?: IBitcoinReleaseRecord;
 };
 
 const props = defineProps<{ showTransferGuide?: boolean; showBitcoinGuide?: boolean }>();
+
 const wallets = useWallets();
 const bitcoinLocks = getBitcoinLocks();
 const { bitcoinLockRelease } = getBitcoinTransactionOperations();
+
 const config = getConfig();
 const miningFrames = getMiningFrames();
 const myVault = getMyVault();
 const vaults = getVaults();
+
 const inboundTracker = getEthereumMoveTracker();
 const outboundTracker = getEthereumOutboundTransferTracker();
+
 const { microgonToArgonNm, micronotToArgonotNm, satToBtcNm } = createNumeralHelpers(getCurrency());
+
 const floatingZIndex = useFloatingZIndex(2);
 const isOpen = Vue.ref(false);
-const minimumDepositSatoshis = Vue.ref<bigint>();
+
 const isLoadingTransfers = Vue.ref(true);
 const loadError = Vue.ref('');
+
 const progressNow = Vue.ref(Date.now());
 let progressRefreshInterval: ReturnType<typeof setInterval> | undefined;
 
@@ -231,6 +240,7 @@ const pendingTransfers = Vue.computed<PendingTransfer[]>(() => {
         inboundTransfer: transfer,
       };
     });
+
   const outboundTransfers = Object.values(outboundTracker.data.transfersById)
     .filter(transfer => isCrosschainTransferActive(transfer.transferState))
     .map<PendingTransfer>(transfer => {
@@ -287,13 +297,14 @@ const pendingTransfers = Vue.computed<PendingTransfer[]>(() => {
     const release = bitcoinLocks.releases.getActiveForLock(channel);
     return release ? [{ channel, release }] : [];
   });
+
   const failedBitcoinReleases = bitcoinLocks.releases.getUnacknowledgedFailedLockReleases().flatMap(release => {
     const channel = bitcoinLocks.getLockById(release.lockId);
     return channel ? [{ channel, release }] : [];
   });
+
   const bitcoinChannelReleases = [...activeBitcoinReleases, ...failedBitcoinReleases].map<PendingTransfer>(
     ({ channel, release }) => {
-      const releaseDestination = release.toScriptPubkey;
       const releaseState = bitcoinLocks.getLockUnlockReleaseState(channel);
       const bitcoinProgress = bitcoinLocks.getReleaseProcessingDetails(release);
       const releaseProgress = getBitcoinReleaseProgress({
@@ -304,12 +315,14 @@ const pendingTransfers = Vue.computed<PendingTransfer[]>(() => {
         bitcoinProgress,
         cosignerLabel: getBitcoinCosignerLabel(channel.vaultId),
       });
+
       let destinationLabel = 'Bitcoin Network';
       try {
-        destinationLabel = abbreviateAddress(bitcoinLocks.formatAddressBytes(releaseDestination), 8);
+        destinationLabel = abbreviateAddress(bitcoinLocks.formatAddressBytes(release.toScriptPubkey), 8);
       } catch {
-        destinationLabel = abbreviateAddress(releaseDestination, 8);
+        destinationLabel = abbreviateAddress(release.toScriptPubkey, 8);
       }
+
       return {
         id: release.id,
         direction: 'outbound',
@@ -319,6 +332,7 @@ const pendingTransfers = Vue.computed<PendingTransfer[]>(() => {
         toLabel: destinationLabel,
         startedAt: (release.bitcoinFirstSeenAt ?? release.createdAt).getTime(),
         updatedAt: (release.bitcoinLastConfirmationCheckAt ?? release.updatedAt).getTime(),
+        bitcoinRelease: release,
         progress: {
           progressPct: releaseProgress.progressPct,
           stepLabel: 'Sending Bitcoin',
@@ -333,10 +347,13 @@ const pendingTransfers = Vue.computed<PendingTransfer[]>(() => {
     (a, b) => b.updatedAt - a.updatedAt,
   );
 });
+
 const failedTransferCount = Vue.computed(
   () => pendingTransfers.value.filter(transfer => !!transfer.progress.error).length,
 );
 const activeTransferCount = Vue.computed(() => pendingTransfers.value.length - failedTransferCount.value);
+
+const minimumDepositSatoshis = Vue.ref<bigint>();
 
 Vue.watch(
   () =>
@@ -362,6 +379,8 @@ async function dismissTransfer(transfer: PendingTransfer): Promise<void> {
       await inboundTracker.dismissFailedTransfer(transfer.inboundTransfer.id);
     } else if (transfer.bitcoinUtxo) {
       await bitcoinLocks.utxoTracking.acknowledgeBelowMinimum(transfer.bitcoinUtxo);
+    } else if (transfer.bitcoinRelease?.status === BitcoinReleaseStatus.Failed) {
+      await bitcoinLocks.releases.acknowledgeFailedSend(transfer.bitcoinRelease.sendId);
     }
   } catch (error) {
     console.error('[WalletBottomBar] Unable to dismiss transfer', error);

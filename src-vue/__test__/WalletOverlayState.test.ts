@@ -428,6 +428,47 @@ describe('wallet overlay state', () => {
     expect(wallet.getChannelWithActiveSecuritizationHold()).toBe(current);
   });
 
+  it('excludes the destination channel from Bitcoin sources as the destination changes', () => {
+    const bitcoinLocks = createStore();
+
+    const upstream = createLock({
+      uuid: 'upstream-source',
+      utxoId: 7,
+      status: BitcoinLockStatus.LockFunded,
+      createdAt: '2026-09-13T00:00:00.000Z',
+    });
+    const own = createLock({
+      uuid: 'own-destination',
+      utxoId: 8,
+      status: BitcoinLockStatus.LockFunded,
+      createdAt: '2026-09-13T00:00:00.000Z',
+    });
+
+    own.scriptDetails!.p2wshScriptHashHex = `0x0020${'2'.repeat(64)}`;
+    bitcoinLocks.data.locksByLockId[7] = upstream;
+    bitcoinLocks.data.locksByLockId[8] = own;
+
+    const wallet = new WalletForBitcoin(
+      () => bitcoinLocks,
+      () => upstream.ownerAccount!,
+      {} as never,
+    );
+
+    const destinationScript = reactive({ value: own.scriptDetails!.p2wshScriptHashHex });
+    const sources = computed(() => wallet.getSendableChannels(destinationScript.value));
+    const available = computed(() => sources.value.reduce((total, channel) => total + channel.fundedSatoshis, 0n));
+
+    expect(sources.value).toEqual([upstream]);
+    expect(available.value).toBe(upstream.fundedSatoshis);
+
+    destinationScript.value = upstream.scriptDetails!.p2wshScriptHashHex;
+    expect(sources.value).toEqual([own]);
+    expect(available.value).toBe(own.fundedSatoshis);
+
+    destinationScript.value = '';
+    expect(sources.value).toEqual([upstream, own]);
+  });
+
   it('only offers a vault channel for reuse while its address can still accept the intended Bitcoin', () => {
     const bitcoinLocks = createStore();
     const channel = createLock({
