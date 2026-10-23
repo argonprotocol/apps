@@ -35,7 +35,7 @@ import { createStore, historyBlock, historyEvent } from './helpers/bitcoin.ts';
 import { publishBitcoinHistoryReplay } from '../lib/recovery/index.ts';
 import { BitcoinLockStatus } from '../interfaces/IBitcoinLockRecord.ts';
 import { BitcoinReleaseStatus } from '../interfaces/IBitcoinReleaseRecord.ts';
-import { BitcoinUtxoSpendStatus } from '../interfaces/IBitcoinUtxoRecord.ts';
+import { BitcoinUtxoSpendStatus, BitcoinUtxoStatus } from '../interfaces/IBitcoinUtxoRecord.ts';
 import { UpstreamOperatorClient } from '../lib/UpstreamOperatorClient.ts';
 import type { ServerAuthClient } from '../lib/ServerAuthClient.ts';
 import type { WalletKeys } from '../lib/WalletKeys.ts';
@@ -213,9 +213,10 @@ describe('cooperative release approval with simulated chain observations', () =>
   );
 
   it.each([false, true])(
-    'resumes an owner return after restart and retires a rejected request (own vault=%s)',
+    'returns unclassified deposits, resumes after restart, and retires rejected requests (own vault=%s)',
     async ownVault => {
       const fixture = await createFixture(50_000n, ownVault ? 159 : 130);
+      fixture.minimumSatoshis = 10_000n;
       vi.spyOn(mainchain, 'getMainchainClient').mockResolvedValue(
         fixture.client as Awaited<ReturnType<typeof mainchain.getMainchainClient>>,
       );
@@ -267,12 +268,23 @@ describe('cooperative release approval with simulated chain observations', () =>
         expect(lock.createdAtArgonBlock).toBe(123);
         expect((await appDb.bitcoinLocksTable.getByLockId(42))?.createdAtArgonBlock).toBe(123);
       }
-      const discovered = await store.utxoTracking.upsertUtxoRecord(
-        lock,
-        { txid: fixture.request.utxoRef.txid, vout: 0, satoshis: fixture.request.satoshis },
-        { minimumSatoshis: 100_000n },
-      );
+      const discovered = await store.utxoTracking.upsertUtxoRecord(lock, {
+        txid: fixture.request.utxoRef.txid,
+        vout: 0,
+        satoshis: fixture.request.satoshis,
+      });
       const input = store.utxoTracking.getUtxoRecordById(discovered.id)!;
+      expect(input.fundingRejectionReason).toBeUndefined();
+      if (ownVault) {
+        fixture.currentLock = {
+          ...fixture.storage,
+          fundedSatoshis: fixture.request.satoshis,
+          fundingUtxos: [[{ ...fixture.request.utxoRef, outputIndex: 1 }, fixture.request.satoshis]],
+        };
+        await store.utxoTracking.syncFundingUtxos(lock, BitcoinLock.fromRuntime(42, fixture.currentLock));
+        expect(lock.status).toBe(BitcoinLockStatus.LockFunded);
+      }
+
       // Quote before an address is supplied. A valid return needs both its fee and a non-dust payment.
       const preview = { lock, record: input, feeRatePerSatVb: 5n };
       const { releaseRequest: quote } = store.releases.prepareCooperativeRelease(preview);
@@ -304,6 +316,12 @@ describe('cooperative release approval with simulated chain observations', () =>
       );
       const pendingFunding = Vue.computed(() => wallet.getPendingInboundUtxos());
       expect(pendingFunding.value.map(record => record.id)).toEqual([input.id]);
+      expect(wallet.getUnattachedDeposits()).toEqual([]);
+      await store.utxoTracking.observeMempoolFunding(lock, fixture.client);
+      expect(input.status).toBe(BitcoinUtxoStatus.Unattached);
+      expect(input.fundingRejectionReason).toBeUndefined();
+      expect(pendingFunding.value).toEqual([]);
+      expect(wallet.getUnattachedDeposits().map(record => record.id)).toEqual([input.id]);
       if (ownVault) {
         const vault = new MyVault(
           Promise.resolve(appDb),
@@ -976,6 +994,7 @@ async function createFixture(inputSatoshis = 50_000n, historicalSpecVersion = 15
     broadcasts: [] as string[],
     reorgedFundingTxid: '',
     currentRuntimeSpecVersion: 159,
+    minimumSatoshis: 100_000n,
   };
   const query = {
     system: { number: async () => 200 },
@@ -988,10 +1007,10 @@ async function createFixture(inputSatoshis = 50_000n, historicalSpecVersion = 15
     bitcoinLocks: {
       locksById: Object.assign(async () => fixture.currentLock, { multi: async () => [] }),
       lockIdsByVaultId: { keys: async () => [] },
-      orphanedUtxosByAccount: async () => null,
+      orphanedUtxosByAccount: Object.assign(async () => null, { entries: async () => [] }),
       lockReleaseRequestsById: async () => null,
       pendingPartialReleaseByLockId: async () => null,
-      minimumSatoshis: async () => 100_000n,
+      minimumSatoshis: async () => fixture.minimumSatoshis,
     },
     bitcoinUtxos: {
       bitcoinNetwork: async () => ({ type: 'Regtest' }),
@@ -1167,7 +1186,18 @@ async function createFixture(inputSatoshis = 50_000n, historicalSpecVersion = 15
         );
       });
     } else if (path === '/blocks/tip/height') res.end('110');
-    else if (path.endsWith('/hex')) {
+    else if (path.endsWith('/utxo')) {
+      res.end(
+        JSON.stringify([
+          {
+            txid: Buffer.from(previous.hash, 'hex').reverse().toString('hex'),
+            vout: 0,
+            value: Number(inputSatoshis),
+            status: { confirmed: fixture.depositConfirmed, block_height: 100, block_time: 1 },
+          },
+        ]),
+      );
+    } else if (path.endsWith('/hex')) {
       if (fixture.stallRawTransaction) {
         res.writeHead(200);
         res.write('00');
@@ -1279,6 +1309,9 @@ async function createFixture(inputSatoshis = 50_000n, historicalSpecVersion = 15
       fixture.fundingSpend = value;
     },
     cursor,
+    set minimumSatoshis(value: bigint) {
+      fixture.minimumSatoshis = value;
+    },
     set currentRuntimeSpecVersion(value: number) {
       fixture.currentRuntimeSpecVersion = value;
     },

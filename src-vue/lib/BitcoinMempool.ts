@@ -32,7 +32,11 @@ export default class BitcoinMempool {
 
   public async getAddressUtxos(address: string): Promise<AddressTxsUtxo[]> {
     const utxos = await this.fetchJson<AddressTxsUtxo[]>(`address/${address}/utxo`);
-    return utxos.map(utxo => ({ ...utxo, txid: this.convertBoundaryTxid(utxo.txid, 'argon') }));
+    return utxos.map(utxo => {
+      const status = { ...utxo.status };
+      if (status.block_hash) status.block_hash = this.convertBoundaryTxid(status.block_hash, 'argon');
+      return { ...utxo, txid: this.convertBoundaryTxid(utxo.txid, 'argon'), status };
+    });
   }
 
   public async getTipHeight(): Promise<number> {

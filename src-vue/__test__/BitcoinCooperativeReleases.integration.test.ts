@@ -23,7 +23,7 @@ import {
   waitForBitcoinTransactionOutputSatoshis,
 } from '@argonprotocol/apps-core/__test__/helpers/bitcoinCli.ts';
 import { BitcoinLockStatus } from '../lib/db/BitcoinLocksTable.ts';
-import { BitcoinUtxoSpendStatus } from '../lib/db/BitcoinUtxosTable.ts';
+import { BitcoinUtxoSpendStatus, BitcoinUtxoStatus } from '../lib/db/BitcoinUtxosTable.ts';
 import { BitcoinReleaseStatus } from '../interfaces/IBitcoinReleaseRecord.ts';
 import {
   createBitcoinLocksHarness as createHarness,
@@ -145,7 +145,11 @@ describe.skipIf(skipE2E).sequential('Bitcoin cooperative releases on real chains
         ).toBeNull();
         return record;
       });
+      expect(deposit.status).toBe(BitcoinUtxoStatus.Unattached);
       expect(deposit.fundingRejectionReason).toBe('BelowMinimum');
+      expect((await harness.db.bitcoinUtxosTable.getByLockOutpoint(lockId, deposit.txid, deposit.vout))?.status).toBe(
+        BitcoinUtxoStatus.Unattached,
+      );
 
       // The production owner flow obtains the real vault signature, broadcasts, and records Bitcoin completion.
       const destination = createBitcoinAddress();
