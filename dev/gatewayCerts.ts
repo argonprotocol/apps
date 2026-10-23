@@ -6,7 +6,7 @@ import Fs from 'node:fs';
 import Os from 'node:os';
 import Path from 'node:path';
 import process from 'node:process';
-import { fileURLToPath, pathToFileURL } from 'node:url';
+import { fileURLToPath } from 'node:url';
 
 export interface DevGatewayCertOptions {
   appInstance?: string;
@@ -20,13 +20,6 @@ const rootCaCommonName = 'Argon Local Dev Gateway CA';
 const leafCommonName = 'localhost';
 const rootCaRenewSeconds = 90 * 24 * 60 * 60;
 const leafRenewSeconds = 30 * 24 * 60 * 60;
-
-if (isMainModule()) {
-  void ensureDevGatewayCerts().catch(error => {
-    console.error(`[dev-gateway-certs] ${(error as Error).message}`);
-    process.exit(1);
-  });
-}
 
 export async function ensureDevGatewayCerts(options: DevGatewayCertOptions = {}): Promise<void> {
   const env = options.env ?? process.env;
@@ -75,11 +68,6 @@ export async function ensureDevGatewayCerts(options: DevGatewayCertOptions = {})
 
 export function getDevGatewayRootCaPath(env: NodeJS.ProcessEnv = process.env): string {
   return Path.join(getCertHome(env), 'rootCA.pem');
-}
-
-function isMainModule(): boolean {
-  const executedPath = process.argv[1] ? Path.resolve(process.argv[1]) : '';
-  return import.meta.url === pathToFileURL(executedPath).href;
 }
 
 function getCertHome(env: NodeJS.ProcessEnv): string {

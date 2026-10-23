@@ -1,6 +1,6 @@
 import { createPublicClient, http, type Address } from 'viem';
 import { sendDevEthereumAdminTransaction } from '../../devEthereum.ts';
-import { fundDevEthereumTokens } from '../../scripts/fundDevEthereumTokens.ts';
+import { fundDevEthereumTokens } from '../../../dev/funding/tokens.ts';
 
 const MIN_DEV_ETHEREUM_GAS_WEI = 10n ** 17n;
 

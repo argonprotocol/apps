@@ -87,9 +87,9 @@ export default tseslint.config(
       },
     },
   },
-  // Looser in tests and scripts
+  // Looser in tests, scripts, and command entry points
   {
-    files: ['**/*.test.ts', '**/__test__/**', 'scripts/**'],
+    files: ['**/*.test.ts', '**/__test__/**', 'scripts/**', 'dev/**'],
     rules: {
       'argon/no-single-use-pass-through-helper': 'off',
       'argon/no-redundant-contextual-parameter-types': 'off',

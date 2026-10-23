@@ -36,27 +36,29 @@ Activities:
 - Liquid Lock BTC in your Vault
 
 #### Testing Vaults
+
 You can run the docker-compose file that's in the mainchain repository to access bitcoin liquidity to test with (locally). Running this yarn command will download the latest docker-compose from the argon mainchain repository and start it up:
 
 ```bash
-yarn docker:up
+yarn dev
 ```
+
 .. This will start bitcoin, a miner, a pricing oracle, and an "esplora" explorer that Argonot Operator uses to track your bitcoin transactions.
 
 You will need the following commands to run against the cli locally:
 
 ```bash
 # Send bitcoin to the cosign address (replace with your address/amount)
-yarn docker:btc sendtoaddress bcrt1qwyf38ct4yzdd4vqfwa0mtr2qw49n62y8me970737nfea3a7asmhqjcwjfc 0.00039045
+yarn dev bitcoin -- sendtoaddress bcrt1qwyf38ct4yzdd4vqfwa0mtr2qw49n62y8me970737nfea3a7asmhqjcwjfc 0.00039045
 
 # Get a destination address for released bitcoin
-yarn docker:btc getnewaddress
+yarn dev bitcoin -- getnewaddress
 
 # Broadcast the released bitcoin
-yarn docker:btc sendrawtransaction 020000000001016aa1e38d96312ee99386a13c443bcc38e2c8cb84d55ed779d62...
+yarn dev bitcoin -- sendrawtransaction 020000000001016aa1e38d96312ee99386a13c443bcc38e2c8cb84d55ed779d62...
 
 # Check the status of the bitcoin transaction
-yarn docker:btc gettransaction 020000000001016aa1e38d96312ee99386a13c443bcc38e2c8cb84d55ed779d62...
+yarn dev bitcoin -- gettransaction 020000000001016aa1e38d96312ee99386a13c443bcc38e2c8cb84d55ed779d62...
 
 ```
 
@@ -75,8 +77,8 @@ Downloads are available for each "release" on the [releases page](./releases/lat
 1. Download the latest windows installer (exe or msi) from the [releases page](./releases/latest).
 2. Run the installer
 3. You will likely see a screen that says "Windows protected your PC"
-    - Click `More info`
-      <br/><img src="docs/images/windows-smartscreen.png" alt="Windows SmartScreen" width="60%"/>
+   - Click `More info`
+     <br/><img src="docs/images/windows-smartscreen.png" alt="Windows SmartScreen" width="60%"/>
 4. Click "Run Anyway"
 5. Complete the installation
 
@@ -103,21 +105,50 @@ Flows are the primary automation path and are documented in [`e2e/README.md`](./
 Common commands:
 
 ```bash
-# Full dev stack
-yarn dev:docker
+# Desktop with a reusable local Argon/Bitcoin network.
+yarn dev
 
-# Run e2e Vitest specs (flows-based, from root Vitest project)
-yarn vitest --run --project e2e
+# Desktop on testnet or mainnet; --profile defaults to default.
+yarn testnet --profile=me
+yarn mainnet --profile=me
 
-# Run selected flow(s) directly
+# Optional services and account preparation.
+yarn dev --start-ethereum --run-upstream
+yarn dev --fund-account --operationally-certified
+yarn dev --detach-upstream-app
+
+# Standard setup: Ethereum, upstream, certification, and funds on both chains.
+yarn dev --full
+
+# Fund the selected account without opening another app.
+yarn dev fund --argons 100 --argonots 25
+yarn dev fund-ethereum --eth 1 --argons 100 --argonots 25 --usdc 100
+
+# Create an invite to paste into another local app.
+yarn dev upstream-invite
+
+# Separate app account sharing the default network.
+yarn dev --instance second --join default
+
+# Startup progress appears in the terminal; logs are kept in files.
+yarn dev logs
+yarn dev status
+yarn dev stop
+yarn dev reset
+
+# Existing E2E flows retain their own network lifecycle.
 yarn e2e:docker
-E2E_FLOWS=miningOnboarding yarn e2e:docker
-E2E_FLOWS=vaultingOnboarding yarn e2e:docker
-
-# Keep UI visible while running e2e flows
 ARGON_E2E_HEADLESS=0 yarn e2e:docker
-
-# Cleanup/reset e2e docker state
-yarn clean:dev:docker
-yarn docker:down
 ```
+
+Run `yarn dev --help` for startup options and the command list. Each command owns its arguments and help: use `yarn dev fund --help` or `yarn dev help fund` for native funding options, `yarn dev fund-ethereum --help` for Ethereum funding, and `yarn testnet --help` or `yarn mainnet --help` for public-network launch options. Public-network commands call the desktop launcher directly.
+
+Development tooling lives in `dev/`: `dev/cli.ts` dispatches human commands, `dev/commands/` holds their arguments and help, and the remaining modules provide shared operations and internal setup tools. Startup prepares certificates and downloads pinned Docker assets automatically; CI uses yarn e2e:prepare; E2E and local startup call the shared setup functions. Custom runtime generation is documented separately in `e2e/README.md`.
+
+Funding amounts use whole-token decimal units; explicitly named assets replace the default funding selection of 1,000 ARGN and 1,000 ARGNOT on Argon. Each funding invocation adds the requested amounts. User certification grants operational access using the local-chain shortcut for a fresh profile; existing registered accounts retain their progress and must meet normal activation requirements. The upstream uses a separate account for its vault, delegate, and server setup.
+
+`--full` adds 1,000 ARGN and 1,000 ARGNOT on both Argon and Ethereum, plus 1 ETH for gas. User funding runs after access is granted and does not create a user vault or Bitcoin/bond positions. It uses the selected profile's existing mnemonic for both accounts. Amount flags override each preset amount, including `0` to skip an asset; `--to` and `--eth-to` override recipients.
+
+`fund` adds native Argon assets. `fund-ethereum` requires at least one amount and funds only Ethereum assets; use `--to ADDRESS` to fund an additional wallet imported into the dev user.
+
+Instance names normalize to lowercase with hyphens, matching Docker Compose ownership. Startup reuses local chain and wallet data. `stop` preserves it; `reset` erases the selected owning environment and its attached instances. Development funding and certification are available only for the local dev-docker network.

@@ -14,7 +14,7 @@ const state = vi.hoisted(() => {
     sendDevEthereumAdminTransaction,
     publicClient: {
       getChainId: vi.fn(async () => 3_151_908),
-      readContract: vi.fn(async () => 10_000n * 10n ** 18n),
+      readContract: vi.fn(async (_request: { address: string }) => 10_000n * 10n ** 18n),
       waitForTransactionReceipt: vi.fn(async () => ({ status: 'success' })),
     },
     argonClient: {
@@ -58,11 +58,13 @@ vi.mock('../devEthereum.ts', () => ({
   sendDevEthereumAdminTransaction: state.sendDevEthereumAdminTransaction,
 }));
 
-import { fundDevEthereumTokens } from '../scripts/fundDevEthereumTokens.ts';
+import { fundDevEthereumTokens } from '../../dev/funding/tokens.ts';
+import { fundDevAccount } from '../../dev/funding.ts';
 
 describe('dev Ethereum token funding', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    state.publicClient.readContract.mockResolvedValue(10_000n * 10n ** 18n);
     state.sendDevEthereumAdminTransaction
       .mockResolvedValueOnce({
         hash: `0x${'44'.repeat(32)}`,
@@ -76,10 +78,12 @@ describe('dev Ethereum token funding', () => {
 
   it('transfers requested ARGN and ARGNOT from the root reserve', async () => {
     const recipient = getAddress(`0x${'66'.repeat(20)}`);
-    await fundDevEthereumTokens({
-      to: recipient,
-      argnRuntimeAmount: 25_000_000n,
-      argnotRuntimeAmount: 5_000_000n,
+    await fundDevAccount({
+      options: { network: 'dev-docker', ethArgons: '25', ethArgonots: '5' },
+      walletKeys: { defaultArgonAddress: '//Alice', coreEthereumAddress: recipient },
+      archiveUrl: 'ws://127.0.0.1:9944',
+      executionRpcUrl: 'http://127.0.0.1:32003',
+      progress: () => undefined,
     });
 
     expect(state.sendDevEthereumAdminTransaction).toHaveBeenCalledTimes(2);
@@ -121,5 +125,24 @@ describe('dev Ethereum token funding', () => {
 
     expect(state.argonClient.query.crosschainTransfer.chainConfigBySourceChain).toHaveBeenCalledTimes(2);
     expect(state.sendDevEthereumAdminTransaction).toHaveBeenCalledTimes(1);
+  });
+
+  it('checks both token reserves before funding either asset', async () => {
+    const recipient = getAddress(`0x${'66'.repeat(20)}`);
+    state.publicClient.readContract.mockImplementation(async ({ address }) => {
+      if (address === getAddress(state.argonotTokenAddress)) return 0n;
+      return 10_000n * 10n ** 18n;
+    });
+
+    await expect(
+      fundDevAccount({
+        options: { network: 'dev-docker', ethArgons: '25', ethArgonots: '5' },
+        walletKeys: { defaultArgonAddress: '//Alice', coreEthereumAddress: recipient },
+        archiveUrl: 'ws://127.0.0.1:9944',
+        executionRpcUrl: 'http://127.0.0.1:32003',
+        progress: () => undefined,
+      }),
+    ).rejects.toThrow('ARGNOT reserve is insufficient');
+    expect(state.sendDevEthereumAdminTransaction).not.toHaveBeenCalled();
   });
 });

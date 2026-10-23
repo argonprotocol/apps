@@ -38,6 +38,7 @@ export class BitcoinFissions {
   private readonly currentStateQueue = new SingleFileQueue();
   private pendingRefreshClient?: ArgonQueryClient;
   private coalescedRefreshPromise?: Promise<void>;
+  private isClosed = false;
 
   constructor(
     private readonly dbPromise: Promise<Db>,
@@ -82,6 +83,13 @@ export class BitcoinFissions {
   public get currentLoadPromise(): Promise<void> {
     if (!this.waitForLoad) throw new Error('Bitcoin Fission loading has not started.');
     return this.waitForLoad.promise;
+  }
+
+  public async shutdown(): Promise<void> {
+    this.isClosed = true;
+    for (const unsubscribe of this.pendingMintSubscriptions.values()) unsubscribe();
+    this.pendingMintSubscriptions.clear();
+    await this.currentStateQueue.stop(true);
   }
 
   public async refreshCurrent(client?: ArgonQueryClient): Promise<BitcoinFission[]> {
@@ -500,6 +508,8 @@ export class BitcoinFissions {
   }
 
   private async syncPendingMintSubscriptions(client: ArgonClient): Promise<void> {
+    if (this.isClosed) return;
+
     const pendingByQueueIndex = new Map(
       this.getRecords().flatMap(fission => fission.pendingMints.map(mint => [mint.queueIndex, mint] as const)),
     );
@@ -522,6 +532,8 @@ export class BitcoinFissions {
   }
 
   private async subscribeToPendingMint(client: ArgonClient, mint: IBitcoinPendingMint): Promise<void> {
+    if (this.isClosed) return;
+
     const { queueIndex, fissionId } = mint;
     let unsubscribe: VoidFunction | undefined;
     const stop = () => unsubscribe?.();
@@ -529,6 +541,8 @@ export class BitcoinFissions {
 
     try {
       unsubscribe = await client.query.mint.pendingBitcoinMintsByIndex(queueIndex, pendingMint => {
+        if (this.isClosed) return;
+
         void this.currentStateQueue
           .add(async () => {
             const fission = this.data.fissionsById[fissionId];

@@ -1,63 +1,15 @@
-#!/usr/bin/env tsx
-
-import path from 'node:path';
 import process from 'node:process';
-import { fileURLToPath } from 'node:url';
-import { parseArgs } from 'node:util';
 import { type ArgonApi, createArgonClient, NetworkConfigSettings, TxSubmitter } from '@argonprotocol/apps-core';
 import { EvmContracts, getClient, Keyring } from '@argonprotocol/mainchain';
 import { createPublicClient, encodeFunctionData, getAddress, http } from 'viem';
-import { resolveDevEthereumRpcUrl, sendDevEthereumAdminTransaction } from '../devEthereum.ts';
-import { syncEthereumGatewayActiveCouncilToArgon } from '../devEthereumRuntimeSetup.ts';
+import { resolveDevEthereumRpcUrl, sendDevEthereumAdminTransaction } from '../e2e/devEthereum.ts';
+import { syncEthereumGatewayActiveCouncilToArgon } from '../e2e/devEthereumRuntimeSetup.ts';
 
 type ForceUpdateGlobalIssuanceCouncilArgs = {
   archiveUrl?: string;
   executionRpcUrl?: string;
   vaultAddresses?: string[];
 };
-
-const currentFilePath = fileURLToPath(import.meta.url);
-const isDirectExecution = !!process.argv[1] && path.resolve(process.argv[1]) === currentFilePath;
-
-if (isDirectExecution) {
-  void main().catch(error => {
-    console.error(`[force-update-global-issuance-council] ${(error as Error).message}`);
-    process.exit(1);
-  });
-}
-
-async function main(): Promise<void> {
-  const { values } = parseArgs({
-    args: process.argv.slice(2),
-    options: {
-      archive: { type: 'string' },
-      rpc: { type: 'string' },
-      help: { type: 'boolean', short: 'h' },
-    },
-    allowPositionals: false,
-  });
-
-  if (values.help) {
-    printUsage();
-    return;
-  }
-
-  const result = await forceUpdateGlobalIssuanceCouncil({
-    archiveUrl: values.archive,
-    executionRpcUrl: values.rpc,
-  });
-
-  console.info(`[force-update-global-issuance-council] Vaults: ${result.vaultAddresses.join(', ')}`);
-  console.info(`[force-update-global-issuance-council] Archive: ${result.archiveUrl}`);
-  console.info(`[force-update-global-issuance-council] Ethereum RPC: ${result.executionRpcUrl}`);
-  console.info(`[force-update-global-issuance-council] Argon approvals nonce: ${result.afterNonce}`);
-  console.info(`[force-update-global-issuance-council] Argon force-set tx: ${result.argonTxHash}`);
-  if (result.gatewayTxHash) {
-    console.info(`[force-update-global-issuance-council] Ethereum gateway sync tx: ${result.gatewayTxHash}`);
-  } else {
-    console.info('[force-update-global-issuance-council] Ethereum gateway already matched the Argon council.');
-  }
-}
 
 export async function forceUpdateGlobalIssuanceCouncil(args: ForceUpdateGlobalIssuanceCouncilArgs) {
   const archiveUrl = resolveArchiveUrl(args.archiveUrl);
@@ -183,23 +135,6 @@ function readRuntimeArchiveUrl(): string | null {
   } catch {
     return null;
   }
-}
-
-function printUsage(): void {
-  console.info(`Usage:
-  yarn dev:ethereum:force-update-global-issuance-council
-  yarn dev:ethereum:force-update-global-issuance-council --archive ws://127.0.0.1:9944
-  yarn dev:ethereum:force-update-global-issuance-council --rpc http://127.0.0.1:32003
-
-Direct:
-  yarn exec tsx e2e/scripts/forceUpdateGlobalIssuanceCouncil.ts
-
-Notes:
-  - Dev-docker only. Uses //Alice sudo on Argon and the built-in local Ethereum admin account.
-  - Reads the currently registered effective Ethereum council signers from runtime state and force-sets that list as the council.
-  - Defaults to ws://127.0.0.1:9944 when --archive, ARGON_ARCHIVE_URL, and ARGON_NETWORK_CONFIG_OVERRIDE are all omitted.
-  - Uses ETH_RPC or ETHEREUM_EXECUTION_RPC_URL when --rpc is omitted, otherwise probes local dev Ethereum RPC ports.
-`);
 }
 
 export async function collectVaultOperatorsByEffectiveCouncilSigner(finalizedClient: ArgonApi) {

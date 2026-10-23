@@ -6,7 +6,7 @@ import Os from 'node:os';
 import Path from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import { afterEach, describe, expect, it, onTestFinished } from 'vitest';
-import { ensureDevGatewayCerts } from '../devGatewayCerts.ts';
+import { ensureDevGatewayCerts } from '../../dev/gatewayCerts.ts';
 import {
   getDevUpstreamWorkerPaths,
   restartDevUpstreamWorker,

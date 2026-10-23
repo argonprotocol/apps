@@ -1,4 +1,4 @@
-import { execFile, execFileSync } from 'node:child_process';
+import { execFile } from 'node:child_process';
 import { copyFileSync, mkdirSync, readFileSync } from 'node:fs';
 import os from 'node:os';
 import Path from 'node:path';
@@ -25,7 +25,8 @@ import {
   restartDevUpstreamWorker,
   stopDevUpstreamWorker,
 } from './scripts/devUpstreamProcess.ts';
-import { ensureDevGatewayCerts } from '../scripts/devGatewayCerts.ts';
+import { cleanDevDocker } from '../dev/cleanDocker.ts';
+import { ensureDevGatewayCerts } from '../dev/gatewayCerts.ts';
 
 const DEFAULT_APP_CONNECT_TIMEOUT_MS = 18 * 60_000;
 const CLEANUP_PORT_WAIT_TIMEOUT_MS = 30_000;
@@ -173,7 +174,7 @@ export class AppSession {
         await this.testNetwork.stop();
       }
       if (this.shouldRunCleanup) {
-        AppSession.cleanDevDocker(this.repoRoot, this.cleanupEnv, 'session-close');
+        await AppSession.cleanDevDocker(this.repoRoot, this.cleanupEnv, 'session-close');
         await AppSession.waitForPortsReleased(REQUIRED_LOCAL_DOCKER_PORTS, 'session-close').catch(error => {
           console.warn(`[E2E] ${error instanceof Error ? error.message : String(error)}`);
         });
@@ -323,7 +324,7 @@ export class AppSession {
       if (useTestNetwork) {
         if (shouldRunCleanup) {
           // Reset prior local VM/docker state for this session before bringing up the test network.
-          AppSession.cleanDevDocker(repoRoot, cleanupEnv, 'startup');
+          await AppSession.cleanDevDocker(repoRoot, cleanupEnv, 'startup');
           await AppSession.waitForPortsReleased(REQUIRED_LOCAL_DOCKER_PORTS, 'startup');
         }
 
@@ -365,13 +366,13 @@ export class AppSession {
         appProcess = AppProcess.start({
           repoRoot,
           env: tauriEnv,
-          command: ['yarn', 'tauri:dev:docker'],
+          command: ['yarn', 'dev', 'desktop'],
           logsMode: appLogsMode,
           sessionName: sessionIdentity.sessionName,
         });
       } else if (externalNetworkConfigOverride && externalArchiveUrl) {
         sessionData.sessionArchiveUrl = externalArchiveUrl;
-        let command = ['yarn', 'tauri:dev'];
+        let command = ['yarn', 'dev', 'desktop'];
         if (options.tauriDevConfig) {
           const configPath = Path.join(repoRoot, 'src-tauri', `tauri.desktop.local.${configuredNetworkName}.conf.json`);
           const config = JSON.parse(readFileSync(configPath, 'utf8')) as {
@@ -379,11 +380,12 @@ export class AppSession {
             app?: { security?: Record<string, unknown> };
             build?: Record<string, unknown>;
           };
-          config.build = { ...config.build, devUrl: `http://localhost:${appPort}` };
+          config.build = {
+            ...config.build,
+            devUrl: `http://localhost:${appPort}`,
+            beforeDevCommand: options.tauriDevConfig.beforeDevCommand ?? 'yarn exec vite',
+          };
           config.identifier = appConfigId;
-          if (options.tauriDevConfig.beforeDevCommand) {
-            config.build.beforeDevCommand = options.tauriDevConfig.beforeDevCommand;
-          }
           config.app = {
             ...config.app,
             security: { ...config.app?.security, capabilities: options.tauriDevConfig.capabilities },
@@ -410,11 +412,11 @@ export class AppSession {
         delete tauriEnv.ARGON_NETWORK_CONFIG_OVERRIDE;
         sessionData.sessionArchiveUrl = 'ws://127.0.0.1:9944';
 
-        const appCommand = sessionMode === 'stateful' ? 'tauri:dev:docker' : 'dev:docker';
+        const command = sessionMode === 'stateful' ? ['yarn', 'dev', 'desktop'] : ['yarn', 'dev'];
         appProcess = AppProcess.start({
           repoRoot,
           env: tauriEnv,
-          command: ['yarn', appCommand],
+          command,
           logsMode: appLogsMode,
           sessionName: sessionIdentity.sessionName,
         });
@@ -430,7 +432,7 @@ export class AppSession {
         await testNetwork.stop();
       }
       if (shouldRunCleanup) {
-        AppSession.cleanDevDocker(repoRoot, cleanupEnv, 'startup-error');
+        await AppSession.cleanDevDocker(repoRoot, cleanupEnv, 'startup-error');
       }
       AppSession.restoreProcessEnv('COMPOSE_PROJECT_NAME', previousComposeProjectName);
       AppSession.restoreProcessEnv('ARGON_NETWORK_CONFIG_OVERRIDE', previousNetworkConfigOverride);
@@ -498,7 +500,7 @@ export class AppSession {
         await testNetwork.stop();
       }
       if (shouldRunCleanup) {
-        AppSession.cleanDevDocker(repoRoot, cleanupEnv, 'connect-error');
+        await AppSession.cleanDevDocker(repoRoot, cleanupEnv, 'connect-error');
       }
       await driverServer.close();
       AppSession.restoreProcessEnv('COMPOSE_PROJECT_NAME', previousComposeProjectName);
@@ -528,7 +530,7 @@ export class AppSession {
   }
 
   private static async createDevUpstreamInvite(repoRoot: string, env: NodeJS.ProcessEnv): Promise<string> {
-    const { stdout } = await execFileAsync('tsx', ['e2e/scripts/devUpstreamInvite.ts'], {
+    const { stdout } = await execFileAsync('yarn', ['dev', 'upstream-invite'], {
       cwd: repoRoot,
       env,
       encoding: 'utf8',
@@ -548,14 +550,9 @@ export class AppSession {
     process.env[name] = previousValue;
   }
 
-  private static cleanDevDocker(repoRoot: string, env: NodeJS.ProcessEnv, reason: string): void {
+  private static async cleanDevDocker(repoRoot: string, env: NodeJS.ProcessEnv, reason: string): Promise<void> {
     try {
-      execFileSync('yarn', ['clean:dev:docker:instance'], {
-        cwd: repoRoot,
-        env,
-        shell: true,
-        stdio: 'inherit',
-      });
+      await cleanDevDocker({ repoRoot, env });
     } catch (error) {
       console.warn(`[E2E] clean:dev:docker failed (${reason}): ${(error as Error).message}`);
     }

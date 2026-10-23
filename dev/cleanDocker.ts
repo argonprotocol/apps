@@ -1,75 +1,67 @@
-#!/usr/bin/env tsx
-
 import { execFileSync } from 'node:child_process';
 import { existsSync, rmSync } from 'node:fs';
 import os from 'node:os';
 import Path from 'node:path';
 import process from 'node:process';
-import { fileURLToPath } from 'node:url';
 import { stripNetworkPrefix, toComposeProjectName } from '../core/src/utils.ts';
 import { readDevEthereumRuntimeState } from '../e2e/devEthereum.ts';
 import { resolveDevUpstreamDir, stopDevUpstreamWorkerSync } from '../e2e/scripts/devUpstreamProcess.ts';
 
-const scriptDir = Path.dirname(fileURLToPath(import.meta.url));
-const repoRoot = Path.resolve(scriptDir, '..');
 const appIds = ['com.argon.desktop.local'] as const;
 
-const networkName = readNonEmptyEnv('ARGON_NETWORK_NAME') ?? 'dev-docker';
-const rawInstance = readNonEmptyEnv('ARGON_APP_INSTANCE') ?? 'e2e';
-const rawInstanceName = rawInstance.split(':')[0] || 'e2e';
-const instanceName = stripNetworkPrefix(rawInstanceName, networkName) || 'e2e';
-const composeProjectName = readNonEmptyEnv('COMPOSE_PROJECT_NAME') ?? toComposeProjectName(instanceName, networkName);
-const appInstanceDir = Path.join(getAppConfigBaseDir(), appIds[0], networkName, instanceName);
-const devUpstreamDir = resolveDevUpstreamDir({ ...process.env, ARGON_APP_INSTANCE_DIR: appInstanceDir });
+export async function cleanDevDocker({
+  env = process.env,
+  repoRoot = Path.resolve(import.meta.dirname, '..'),
+}: { env?: NodeJS.ProcessEnv; repoRoot?: string } = {}): Promise<void> {
+  const networkName = readNonEmptyEnv('ARGON_NETWORK_NAME', env) ?? 'dev-docker';
+  const rawInstance = readNonEmptyEnv('ARGON_APP_INSTANCE', env) ?? 'e2e';
+  const rawInstanceName = rawInstance.split(':')[0] || 'e2e';
+  const instanceName = stripNetworkPrefix(rawInstanceName, networkName) || 'e2e';
+  const composeProjectName =
+    readNonEmptyEnv('COMPOSE_PROJECT_NAME', env) ?? toComposeProjectName(instanceName, networkName);
+  const appInstanceDir = Path.join(getAppConfigBaseDir(env), appIds[0], networkName, instanceName);
+  const devUpstreamDir = resolveDevUpstreamDir({ ...env, ARGON_APP_INSTANCE_DIR: appInstanceDir });
 
-console.info(
-  `[clean:dev:docker] Resetting project="${composeProjectName}" network="${networkName}" instance="${instanceName}"`,
-);
+  console.info(
+    `[clean:dev:docker] Resetting project="${composeProjectName}" network="${networkName}" instance="${instanceName}"`,
+  );
+  stopDevUpstreamWorkerSync(devUpstreamDir);
+  bringDownArgonComposeProject(repoRoot, composeProjectName, env);
+  removeConflictingComposeNetwork(composeProjectName, env);
+  bringDownLocalMachineComposeProjects(networkName, instanceName, env);
+  removeDevEthereumRelayers(repoRoot, env);
+  await removeDevEthereumEnclave(repoRoot, env);
+  console.info('[clean:dev:docker] Completed');
+}
 
-stopDevUpstreamWorkerSync(devUpstreamDir);
-bringDownArgonComposeProject();
-removeConflictingComposeNetwork(composeProjectName);
-bringDownLocalMachineComposeProjects();
-removeDevEthereumRelayers();
-await removeDevEthereumEnclave();
-
-console.info('[clean:dev:docker] Completed');
-
-function readNonEmptyEnv(name: string): string | undefined {
-  const value = process.env[name]?.trim();
+function readNonEmptyEnv(name: string, env: NodeJS.ProcessEnv): string | undefined {
+  const value = env[name]?.trim();
   return value ? value : undefined;
 }
 
-function getAppConfigBaseDir(): string {
+function getAppConfigBaseDir(env: NodeJS.ProcessEnv): string {
   if (process.platform === 'darwin') {
-    return Path.join(os.homedir(), 'Library', 'Application Support');
+    return Path.join(env.HOME || os.homedir(), 'Library', 'Application Support');
   }
   if (process.platform === 'win32') {
-    return process.env.APPDATA || Path.join(os.homedir(), 'AppData', 'Roaming');
+    return env.APPDATA || Path.join(env.USERPROFILE || os.homedir(), 'AppData', 'Roaming');
   }
-  return process.env.XDG_CONFIG_HOME || Path.join(os.homedir(), '.config');
+  return env.XDG_CONFIG_HOME || Path.join(env.HOME || os.homedir(), '.config');
 }
 
-function runDockerComposeDown(
-  cwd: string,
-  extraArgs: string[] = [],
-  options: { clearComposeProjectName?: boolean } = {},
-): void {
+function runDockerComposeDown(cwd: string, env: NodeJS.ProcessEnv): void {
   if (!existsSync(cwd)) return;
 
   const composeYaml = Path.join(cwd, 'docker-compose.yml');
   const composeAltYaml = Path.join(cwd, 'docker-compose.yaml');
   if (!existsSync(composeYaml) && !existsSync(composeAltYaml)) return;
 
-  const commandEnv: NodeJS.ProcessEnv = { ...process.env };
-  if (options.clearComposeProjectName) {
-    // Local VM/server compose projects keep their own COMPOSE_PROJECT_NAME in their .env files.
-    // Do not override them with the outer test-network project name.
-    delete commandEnv.COMPOSE_PROJECT_NAME;
-  }
+  const commandEnv = { ...env };
+  // VM/server projects use their own .env project names.
+  delete commandEnv.COMPOSE_PROJECT_NAME;
 
   try {
-    execFileSync('docker', ['compose', 'down', '--volumes', '--remove-orphans', '--timeout=0', ...extraArgs], {
+    execFileSync('docker', ['compose', 'down', '--volumes', '--remove-orphans', '--timeout=0'], {
       cwd,
       env: commandEnv,
       encoding: 'utf8',
@@ -82,7 +74,7 @@ function runDockerComposeDown(
   }
 }
 
-function bringDownArgonComposeProject(): void {
+function bringDownArgonComposeProject(repoRoot: string, composeProjectName: string, env: NodeJS.ProcessEnv): void {
   const composeArgs = [
     'compose',
     '--project-name',
@@ -107,7 +99,7 @@ function bringDownArgonComposeProject(): void {
   try {
     execFileSync('docker', composeArgs, {
       cwd: Path.join(repoRoot, 'e2e', 'argon'),
-      env: process.env,
+      env,
       encoding: 'utf8',
     });
   } catch (error) {
@@ -118,12 +110,12 @@ function bringDownArgonComposeProject(): void {
   }
 }
 
-function removeConflictingComposeNetwork(composeProjectName: string): void {
+function removeConflictingComposeNetwork(composeProjectName: string, env: NodeJS.ProcessEnv): void {
   const networkName = `${composeProjectName}-net`;
   let networkInfoJson: string;
 
   try {
-    networkInfoJson = execFileSync('docker', ['network', 'inspect', networkName], { encoding: 'utf8' });
+    networkInfoJson = execFileSync('docker', ['network', 'inspect', networkName], { env, encoding: 'utf8' });
   } catch (_error) {
     return;
   }
@@ -152,6 +144,7 @@ function removeConflictingComposeNetwork(composeProjectName: string): void {
       `[clean:dev:docker] Removing stale network "${networkName}" with unexpected compose label "${composeNetworkLabel}"`,
     );
     execFileSync('docker', ['network', 'rm', networkName], {
+      env,
       stdio: 'inherit',
     });
   } catch (_error) {
@@ -159,16 +152,16 @@ function removeConflictingComposeNetwork(composeProjectName: string): void {
   }
 }
 
-function bringDownLocalMachineComposeProjects(): void {
-  const appConfigBaseDir = getAppConfigBaseDir();
+function bringDownLocalMachineComposeProjects(networkName: string, instanceName: string, env: NodeJS.ProcessEnv): void {
+  const appConfigBaseDir = getAppConfigBaseDir(env);
 
   for (const appId of appIds) {
     const instanceDir = Path.join(appConfigBaseDir, appId, networkName, instanceName);
     const vmDir = Path.join(instanceDir, 'virtual-machine');
-    runDockerComposeDown(vmDir, [], { clearComposeProjectName: true });
+    runDockerComposeDown(vmDir, env);
 
     const vmServerDir = Path.join(vmDir, 'app', 'server');
-    runDockerComposeDown(vmServerDir, [], { clearComposeProjectName: true });
+    runDockerComposeDown(vmServerDir, env);
 
     try {
       if (existsSync(instanceDir)) {
@@ -181,15 +174,15 @@ function bringDownLocalMachineComposeProjects(): void {
   }
 }
 
-async function removeDevEthereumEnclave(): Promise<void> {
-  const runtimeState = await readDevEthereumRuntimeState();
+async function removeDevEthereumEnclave(repoRoot: string, env: NodeJS.ProcessEnv): Promise<void> {
+  const runtimeState = await readDevEthereumRuntimeState(undefined, undefined, env);
   if (!runtimeState?.enclaveName) return;
 
   let output: string;
   try {
     output = execFileSync('kurtosis', ['enclave', 'ls'], {
       cwd: repoRoot,
-      env: process.env,
+      env,
       encoding: 'utf8',
     });
   } catch (error) {
@@ -203,7 +196,7 @@ async function removeDevEthereumEnclave(): Promise<void> {
     console.info(`[clean:dev:docker] Removing Kurtosis enclave ${runtimeState.enclaveName}`);
     execFileSync('kurtosis', ['enclave', 'rm', '-f', runtimeState.enclaveName], {
       cwd: repoRoot,
-      env: process.env,
+      env,
       encoding: 'utf8',
     });
   } catch (error) {
@@ -213,13 +206,13 @@ async function removeDevEthereumEnclave(): Promise<void> {
   }
 }
 
-function removeDevEthereumRelayers(): void {
-  const processes = listProcesses();
+function removeDevEthereumRelayers(repoRoot: string, env: NodeJS.ProcessEnv): void {
+  const processes = listProcesses(env);
   if (!processes.length) return;
 
   const matchingPids = new Set<number>();
   for (const entry of processes) {
-    if (isDevEthereumRelayerProcess(entry.command)) {
+    if (isDevEthereumRelayerProcess(entry.command, repoRoot)) {
       matchingPids.add(entry.pid);
       collectDescendantPids(entry.pid, processes, matchingPids);
     }
@@ -233,12 +226,13 @@ function removeDevEthereumRelayers(): void {
   signalProcesses(matchingPids, 'SIGKILL');
 }
 
-function listProcesses(): Array<{ pid: number; ppid: number; command: string }> {
+function listProcesses(env: NodeJS.ProcessEnv): Array<{ pid: number; ppid: number; command: string }> {
   if (process.platform === 'win32') return [];
 
   let output: string;
   try {
     output = execFileSync('ps', ['-axo', 'pid=,ppid=,command='], {
+      env,
       encoding: 'utf8',
     });
   } catch (error) {
@@ -260,7 +254,7 @@ function listProcesses(): Array<{ pid: number; ppid: number; command: string }> 
     .filter((entry): entry is { pid: number; ppid: number; command: string } => Boolean(entry));
 }
 
-function isDevEthereumRelayerProcess(command: string): boolean {
+function isDevEthereumRelayerProcess(command: string, repoRoot: string): boolean {
   const normalizedRepoRoot = repoRoot.split('\\').join('/');
   const normalizedCommand = command.split('\\').join('/');
 

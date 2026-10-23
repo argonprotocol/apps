@@ -4,12 +4,7 @@ import Path from 'node:path';
 import process from 'node:process';
 import type { INetworkConfigOverride } from '@argonprotocol/apps-core';
 import { startDevEthereumMintingAuthority } from '../helpers/startDevEthereumMintingAuthority.ts';
-import {
-  readDevEthereumRuntimeState,
-  updateDevEthereumRuntimeState,
-  type IDevEthereumConfig,
-  type IStartDevEthereumResult,
-} from '../devEthereum.ts';
+import type { IDevEthereumConfig, IStartDevEthereumResult } from '../devEthereum.ts';
 import { resolveDevUpstreamDir, setDevUpstreamWorkerReady, watchAppInstanceDirectory } from './devUpstreamProcess.ts';
 import { startDevUpstreamServer } from './devUpstreamServer.ts';
 
@@ -63,6 +58,7 @@ async function start(): Promise<void> {
     try {
       mintingAuthorityRuntime = await startDevEthereumMintingAuthority({
         archiveUrl,
+        client: upstreamRuntime.client,
         executionRpcUrl,
         logPrefix: 'dev-upstream-worker',
         operator: upstreamRuntime.operator,
@@ -81,18 +77,6 @@ async function start(): Promise<void> {
       );
     } catch (error) {
       if (shutdownPromise) return;
-      const message = error instanceof Error ? error.message : String(error);
-      try {
-        const state = await readDevEthereumRuntimeState(executionRpcUrl);
-        if (state) {
-          await updateDevEthereumRuntimeState(state.executionRpcUrl, {
-            mintingAuthorityStatus: 'error',
-            mintingAuthorityError: message,
-          });
-        }
-      } catch (stateError) {
-        console.warn('[dev-upstream-worker] Unable to record Ethereum setup failure', stateError);
-      }
       throw error;
     }
   }

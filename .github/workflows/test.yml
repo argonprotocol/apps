@@ -89,14 +89,15 @@ jobs:
       - name: Install dependencies
         run: yarn install
 
-      - name: Trust local gateway CA
+      - name: Prepare E2E and trust local gateway CA
         if: matrix.suite == 'e2e'
         run: |
-          yarn dev:gateway-certs
+          yarn e2e:prepare
           sudo cp "$HOME/.argon/dev-gateway-ca/rootCA.pem" /usr/local/share/ca-certificates/argon-dev-gateway-ca.crt
           sudo update-ca-certificates
 
       - name: Build
+        if: matrix.suite != 'e2e'
         run: yarn build:indexer
 
       - name: Make docker.sock world-writable

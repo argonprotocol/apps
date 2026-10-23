@@ -1,9 +1,4 @@
-import {
-  type ArgonClient,
-  MainchainClients,
-  minimumVaultDelegateBalance,
-  NetworkConfig,
-} from '@argonprotocol/apps-core';
+import { type ArgonClient, minimumVaultDelegateBalance, NetworkConfig } from '@argonprotocol/apps-core';
 import { waitFor } from '@argonprotocol/apps-core/__test__/helpers/waitFor.ts';
 import { MICROGONS_PER_ARGON } from '@argonprotocol/mainchain';
 import { createPublicClient, getAddress, http } from 'viem';
@@ -13,9 +8,9 @@ import { resolveDevEthereumRpcUrl, updateDevEthereumRuntimeState } from '../devE
 import {
   collectVaultOperatorsByEffectiveCouncilSigner,
   forceUpdateGlobalIssuanceCouncil,
-} from '../scripts/forceUpdateGlobalIssuanceCouncil.ts';
-import { fundArgonAccount } from '../scripts/fundArgonAccount.ts';
-import { fundDevEthereumAccount } from '../scripts/fundDevEthereumAccount.ts';
+} from '../../dev/syncCouncil.ts';
+import { fundArgonAccount } from '../../dev/funding/argon.ts';
+import { fundDevEthereumAccount } from '../../dev/funding/ethereum.ts';
 import { getEthereumUserErrorMessage } from 'src-vue/lib/EthereumClient.ts';
 
 export type IDevEthereumMintingAuthorityRuntime = {
@@ -25,6 +20,7 @@ export type IDevEthereumMintingAuthorityRuntime = {
 
 export async function startDevEthereumMintingAuthority(args: {
   archiveUrl: string;
+  client: ArgonClient;
   logPrefix?: string;
   executionRpcUrl?: string;
   operator: AppVaultOperator;
@@ -34,11 +30,18 @@ export async function startDevEthereumMintingAuthority(args: {
     serverEnvVars?: NodeJS.ProcessEnv;
   };
 }): Promise<IDevEthereumMintingAuthorityRuntime> {
+  const {
+    archiveUrl,
+    client,
+    operator: actor,
+    virtualEnv,
+    executionRpcUrl: requestedRpcUrl,
+    logPrefix = 'dev-ethereum-minting-authority',
+  } = args;
   const executionRpcUrl = await resolveDevEthereumRpcUrl({
-    rpcUrl: args.executionRpcUrl,
-    logPrefix: args.logPrefix,
+    rpcUrl: requestedRpcUrl,
+    logPrefix,
   });
-  const logPrefix = args.logPrefix ?? 'dev-ethereum-minting-authority';
   NetworkConfig.setNetwork('dev-docker');
   NetworkConfig.setRuntimeOverride('dev-docker', {
     ethereumNetwork: {
@@ -47,13 +50,10 @@ export async function startDevEthereumMintingAuthority(args: {
     },
   });
   seedVirtualFrontendGlobals({
-    ...args.virtualEnv,
-    network: args.virtualEnv?.network ?? 'dev-docker',
+    ...virtualEnv,
+    network: virtualEnv?.network ?? 'dev-docker',
   });
   await updateMintingAuthorityRuntimeState(executionRpcUrl, 'starting');
-  const clients = new MainchainClients(args.archiveUrl, () => false);
-  const actor = args.operator;
-  const getClient = async () => await clients.get(false);
 
   let isShutdown = false;
   let shouldStopAuthorizing = false;
@@ -67,14 +67,13 @@ export async function startDevEthereumMintingAuthority(args: {
     isShutdown = true;
     shouldStopAuthorizing = true;
     await authorizeTransfersPromise?.catch(() => undefined);
-    await clients.disconnect();
   };
 
   try {
     let activationStatus = await activateDevEthereumMintingAuthority({
       actor,
-      archiveUrl: args.archiveUrl,
-      client: await getClient(),
+      archiveUrl,
+      client,
       executionRpcUrl,
       logPrefix,
     });
@@ -83,7 +82,6 @@ export async function startDevEthereumMintingAuthority(args: {
     authorizeTransfersPromise = (async () => {
       while (!shouldStopAuthorizing) {
         try {
-          const client = await getClient();
           if (!activationStatus.authorityActive) {
             activationStatus = await refreshMintingAuthorityActivation({
               actor,
@@ -127,12 +125,18 @@ export async function startDevEthereumMintingAuthority(args: {
       }
     })();
 
+    await waitFor(120_000, 'Ethereum minting authority activation', () => runtimeStateReady);
+
     return {
       actor,
       shutdown,
     };
   } catch (error) {
     await shutdown();
+    await updateDevEthereumRuntimeState(executionRpcUrl, {
+      mintingAuthorityStatus: 'error',
+      mintingAuthorityError: error instanceof Error ? error.message : String(error),
+    }).catch(stateError => console.warn(`[${logPrefix}] Unable to record Ethereum setup failure`, stateError));
     throw error;
   }
 }
@@ -341,6 +345,7 @@ async function activateDevEthereumMintingAuthority(args: {
     });
   }
 
+  await actor.relayApprovedGatewayUpdates({ allowUncompensatedRelay: true, onlyThroughOwnedUpdate: true });
   status = await refreshMintingAuthorityActivation({
     actor,
     client,

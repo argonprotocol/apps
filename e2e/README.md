@@ -15,7 +15,7 @@ yarn mainchain:pin v1.3.27
 # 2) Install after pinning
 yarn install
 
-# 3) Run flows directly (includes clean:dev:docker reset)
+# 3) Run flows directly (includes the local Docker reset)
 yarn e2e:docker
 
 # 4) Run e2e Vitest suite (also flow-driven, from root)
@@ -31,8 +31,8 @@ E2E_SCREENSHOT_MODE=1 ARGON_E2E_HEADLESS=0 yarn e2e:docker
 Cleanup:
 
 ```bash
-yarn clean:dev:docker
-yarn docker:down
+yarn dev reset --instance e2e
+yarn dev stop
 ```
 
 ## Runtime Pinning
@@ -155,7 +155,7 @@ yarn workspace @argonprotocol/apps-e2e run flows:console
 
 Notes:
 
-- `E2E_SESSION_MODE=stateful` runs `tauri:dev:docker` only and skips cleanup/reset on close.
+- `E2E_SESSION_MODE=stateful` runs the desktop launcher directly only and skips cleanup/reset on close.
 - Stateful mode requires `E2E_USE_TEST_NETWORK=0`.
 - `E2E_OPERATIONS` is a comma-separated list and must match operation names under `e2e/flows/operations`.
 - `E2E_OPERATION_TIMEOUT_MS` overrides per-command driver timeout for that operation run.
@@ -219,7 +219,7 @@ Frontend driver mode is activated when `ARGON_DRIVER_WS` is set to a websocket U
 Example:
 
 ```bash
-ARGON_DRIVER_WS="ws://127.0.0.1:45123/control?session=my-session" yarn dev:docker
+ARGON_DRIVER_WS="ws://127.0.0.1:45123/control?session=my-session" yarn dev --start-ethereum --run-upstream
 ```
 
 Frontend command payload shape:
@@ -252,20 +252,20 @@ Supported commands:
 ## Custom Runtime (Chainspec)
 
 ```bash
-yarn docker:argon:chainspec /path/to/your/custom/wasm/file.wasm
+yarn dev chainspec /path/to/your/custom/wasm/file.wasm
 ```
 
 This writes a custom chainspec that can be used with:
 
 ```bash
-yarn dev:docker:custom
+yarn dev --chain-spec ./e2e/argon/chainspec.raw.json
 ```
 
 To use the pinned runtime with a longer frame for user testing, generate the chainspec without a custom WASM:
 
 ```bash
-yarn docker:argon:chainspec --ticks-between-slots 100
-yarn dev:docker:custom
+yarn dev chainspec --ticks-between-slots 100
+yarn dev --chain-spec ./e2e/argon/chainspec.raw.json
 ```
 
 The frame override can also be combined with a custom runtime WASM by passing both arguments.

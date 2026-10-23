@@ -4,7 +4,7 @@
   "version": "2.5.0",
   "identifier": "com.argon.desktop",
   "build": {
-    "beforeDevCommand": "yarn run dev",
+    "beforeDevCommand": "yarn generate:runtime-client && yarn exec vite",
     "beforeBuildCommand": "yarn run build",
     "devUrl": "http://localhost:1420",
     "frontendDist": "../dist"

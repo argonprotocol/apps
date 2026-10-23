@@ -203,7 +203,7 @@ async function main(): Promise<void> {
   console.log(`Opening ${identity.operatorName || identity.defaultAccountId} in readonly mode.`);
   console.log(`Wallet: ${walletPath}`);
 
-  const app = spawn('yarn', ['tauri:dev'], {
+  const app = spawn('yarn', ['dev', 'desktop'], {
     cwd: Path.resolve(import.meta.dirname, '..'),
     env: { ...Process.env, ARGON_APP_INSTANCE: appInstance, ARGON_NETWORK_NAME: networkName },
     stdio: 'inherit',

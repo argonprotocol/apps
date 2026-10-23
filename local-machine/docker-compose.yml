@@ -7,7 +7,7 @@ services:
       args:
         SSH_PUBKEY: ${SSH_PUBKEY}
     ports:
-      - "0:22"
+      - "${SSH_PORT:-0}:22"
     cgroup: host   # required for systemd on real Linux hosts, ignored on Docker Desktop (Mac/Windows)
     cap_add:
       - SYS_ADMIN   # lets systemd manage cgroups

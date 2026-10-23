@@ -1,8 +1,11 @@
-import { execFileSync, spawnSync } from 'node:child_process';
+import { spawnSync } from 'node:child_process';
 import { promises as Fs } from 'node:fs';
 import Path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import docker from 'docker-compose';
+import { runYarn } from './helpers/runYarn.ts';
+import { ensureDockerComposeAssets } from './helpers/ensureDockerComposeAssets.ts';
+import { generateChainSpec } from './helpers/generateChainSpec.ts';
 import { runOnTeardown } from '@argonprotocol/testing';
 import { NetworkConfig, NetworkConfigSettings } from '../src/NetworkConfig.ts';
 import { stripNetworkPrefix, toComposeProjectName } from '../src/utils.ts';
@@ -192,9 +195,9 @@ export async function startArgonTestNetwork(
     try {
       await ensureIndexerBundle();
       await ensureServerBundle();
-      ensureDockerComposeAssets();
+      await ensureDockerComposeAssets();
       await stop();
-      runYarn(['docker:argon:chainspec', '--compute-difficulty', '25'], composeEnv);
+      await generateChainSpec({ computeDifficulty: 25, env: composeEnv });
     } finally {
       await releaseAssets();
     }
@@ -459,15 +462,6 @@ async function fileExists(path: string): Promise<boolean> {
     .catch(() => false);
 }
 
-function runYarn(args: string[], env = process.env): void {
-  execFileSync('yarn', args, {
-    cwd: REPO_ROOT,
-    env,
-    shell: process.platform === 'win32',
-    stdio: 'inherit',
-  });
-}
-
 async function ensureIndexerBundle(): Promise<void> {
   const indexerEntry = Path.resolve(REPO_ROOT, 'indexer/lib/index.js');
   const hasIndexerBundle = await fileExists(indexerEntry);
@@ -488,11 +482,6 @@ async function ensureServerBundle(): Promise<void> {
   runYarn(['build:server']);
 }
 
-function ensureDockerComposeAssets(): void {
-  console.info('[E2E] Ensuring argon docker compose assets are current');
-  runYarn(['docker:argon:download']);
-}
-
 async function shouldRebuildServerBundle(): Promise<boolean> {
   const packageVersion = await getRepoPackageVersion();
   const serverTarPath = Path.resolve(REPO_ROOT, `resources/server-${packageVersion}.tar.gz`);
@@ -507,8 +496,8 @@ async function shouldRebuildServerBundle(): Promise<boolean> {
   }
 
   const latestInputMtimeMs = await getLatestMtimeMs(SERVER_BUNDLE_INPUTS, SERVER_OUTPUT_EXCLUSIONS);
-  const oldestOutputMtimeMs = await getOldestMtimeMs(expectedOutputs);
-  return latestInputMtimeMs > oldestOutputMtimeMs;
+  const bundleMtimeMs = (await Fs.stat(serverTarPath)).mtimeMs;
+  return latestInputMtimeMs > bundleMtimeMs;
 }
 
 async function getRepoPackageVersion(): Promise<string> {
@@ -546,13 +535,4 @@ async function getPathLatestMtimeMs(path: string, excludedPrefixes: string[]): P
 
 function isExcludedPath(path: string, excludedPrefixes: string[]): boolean {
   return excludedPrefixes.some(prefix => path === prefix || path.startsWith(`${prefix}${Path.sep}`));
-}
-
-async function getOldestMtimeMs(paths: string[]): Promise<number> {
-  let oldest = Number.POSITIVE_INFINITY;
-  for (const path of paths) {
-    const stat = await Fs.stat(path);
-    oldest = Math.min(oldest, stat.mtimeMs);
-  }
-  return oldest === Number.POSITIVE_INFINITY ? 0 : oldest;
 }

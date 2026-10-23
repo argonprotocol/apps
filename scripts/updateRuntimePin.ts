@@ -161,7 +161,7 @@ async function main(): Promise<void> {
   console.info(`- runtime spec: ${runtimeSpecVersion}`);
   if (Fs.existsSync(WORKSPACE_MAINCHAIN_PATH)) {
     console.info(
-      '- note: workspace docker mode (`yarn docker:up:workspace`) uses ../mainchain directly and does not read these pinned npm versions.',
+      '- note: workspace docker mode (`yarn dev compose -- -f miners.workspace.docker-compose.yml up -d --wait`) uses ../mainchain directly and does not read these pinned npm versions.',
     );
   }
 

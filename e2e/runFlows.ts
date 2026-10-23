@@ -1,16 +1,12 @@
 #!/usr/bin/env tsx
 
-import { execFileSync } from 'node:child_process';
-import Path from 'node:path';
 import process from 'node:process';
-import { fileURLToPath } from 'node:url';
 import { resolveTestSessionCommandEnv } from '@argonprotocol/apps-core/__test__/startArgonTestNetwork.ts';
+import { cleanDevDocker } from '../dev/cleanDocker.ts';
 import { AppSession } from './AppSession.ts';
 import { FlowSession } from './FlowSession.ts';
 import { getFlow, listFlows } from './flows/index.ts';
 
-const __dirname = fileURLToPath(new URL('.', import.meta.url));
-const REPO_ROOT = Path.resolve(__dirname, '..');
 const DISCOVERED_FLOW_NAMES = listFlows().map(flow => flow.name);
 const DEFAULT_FLOWS = DISCOVERED_FLOW_NAMES.filter(name => name !== 'App.flow.runManual');
 const DEFAULT_APP_PORT = 1420;
@@ -58,16 +54,10 @@ async function main(): Promise<void> {
     return closeSessionPromise;
   };
 
-  const cleanupTestNetworkArtifacts = (): void => {
+  const cleanupTestNetworkArtifacts = async (): Promise<void> => {
     if (!useTestNetwork || sessionMode === 'stateful') return;
-    const cleanupEnv: NodeJS.ProcessEnv = { ...appEnv };
     try {
-      execFileSync('yarn', ['clean:dev:docker:instance'], {
-        cwd: REPO_ROOT,
-        env: cleanupEnv,
-        shell: true,
-        stdio: 'inherit',
-      });
+      await cleanDevDocker({ env: appEnv });
     } catch (error) {
       console.error(`[E2E] Failed to clean test network project "${composeProjectName}" on shutdown`, error);
     }
@@ -77,9 +67,9 @@ async function main(): Promise<void> {
     shutdownRequested = true;
     shutdownExitCode = exitCode;
     console.warn(`[E2E] Received ${signal}. Shutting down flow session...`);
-    void closeSession().finally(() => {
+    void closeSession().finally(async () => {
       if (!session) {
-        cleanupTestNetworkArtifacts();
+        await cleanupTestNetworkArtifacts();
       }
       process.exit(exitCode);
     });

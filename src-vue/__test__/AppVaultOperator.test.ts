@@ -2,8 +2,61 @@ import { Keyring } from '@argonprotocol/mainchain';
 import { describe, expect, it, vi } from 'vitest';
 import BigNumber from 'bignumber.js';
 import { AppVaultOperator } from '../../e2e/actors/AppVaultOperator.ts';
+import { MainchainClients, NetworkConfig } from '@argonprotocol/apps-core';
+import * as mainchainRpc from '@argonprotocol/apps-core/src/MainchainRpcProvider.ts';
+import { EventEmitter } from 'node:events';
+import * as testDb from './helpers/db.ts';
+import { MemoryWalletKeys } from '../lib/MemoryWalletKeys.ts';
+import type { Db } from '../lib/Db.ts';
 
 describe('AppVaultOperator', () => {
+  it('selects the local network and closes its database when initial RPC loading fails', async () => {
+    const failure = new Error('Development RPC unavailable');
+    const transport = Object.assign(new EventEmitter(), {
+      query: {
+        priceIndex: {
+          current: async () => {
+            throw failure;
+          },
+        },
+      },
+      disconnect: async () => {
+        transport.removeAllListeners();
+      },
+    });
+    const rpc = vi.spyOn(mainchainRpc, 'getMainchainClient').mockResolvedValue(transport as never);
+    const databases = vi.spyOn(testDb, 'createTestDb');
+    const clients = new MainchainClients('ws://synthetic-archive', () => false);
+    const walletKeys = new MemoryWalletKeys({
+      substrateSuri: '//Alice',
+      masterMnemonic: 'test test test test test test test test test test test junk',
+    });
+    const esploraHost = 'http://127.0.0.1:32567';
+    NetworkConfig.setNetwork('mainnet');
+
+    try {
+      await expect(
+        AppVaultOperator.load({
+          clients,
+          walletKeys,
+          networkConfigOverride: { esploraHost },
+        }),
+      ).rejects.toThrow('Development RPC unavailable');
+      expect.soft(NetworkConfig.networkName).toBe('dev-docker');
+      expect.soft(NetworkConfig.get().esploraHost).toBe(esploraHost);
+      const db = (await databases.mock.results[0].value) as Db;
+      await expect(db.walletsTable.count()).rejects.toThrow(/not open/);
+    } finally {
+      const db = (await databases.mock.results[0]?.value) as Db | undefined;
+      await db?.close().catch(() => undefined);
+      await clients.disconnect();
+      rpc.mockRestore();
+      databases.mockRestore();
+      NetworkConfig.clearRuntimeOverride('dev-docker');
+      NetworkConfig.setNetwork('dev-docker');
+    }
+  });
+
   it('keeps a sufficient Argonot commitment unchanged on worker restart', async () => {
     const setCommittedArgonots = vi.fn();
     const actor = Object.assign(Object.create(AppVaultOperator.prototype), {
