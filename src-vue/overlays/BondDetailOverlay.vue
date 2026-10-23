@@ -91,10 +91,9 @@
           </div>
           <div class="min-h-full min-w-px bg-slate-600/20" />
           <div class="w-1/3 px-3">
-            <header class="text-sm font-bold opacity-40">RETURN TO DATE</header>
+            <header class="text-sm font-bold opacity-40">{{ config.returnMetric }}</header>
             <div data-testid="Bond.details.return" class="py-1 text-2xl font-bold text-slate-600">
-              <template v-if="returnPercent !== undefined">{{ numeral(returnPercent).format('0,0.00') }}%</template>
-              <template v-else>&mdash;</template>
+              <Returns :returns="bondReturns" :showLabel="false" />
             </div>
             <div class="text-sm text-slate-500">
               <template v-if="positionReturn?.isStale">Last complete calculation; updating</template>
@@ -262,6 +261,8 @@ import { UnitOfMeasurement } from '../lib/Currency.ts';
 import { getMiningFrames } from '../stores/mainchain.ts';
 import { getMyVault, getVaults } from '../stores/vaults.ts';
 import { BondLot, getPercent, MICRONOTS_PER_ARGONOT } from '@argonprotocol/apps-core';
+import Returns from '../components/Returns.vue';
+import { getConfig } from '../stores/config.ts';
 import { getWalletKeys } from '../stores/wallets.ts';
 import { type TransactionInfo } from '../lib/TransactionInfo.ts';
 import { generateProgressLabel } from '../lib/Utils.ts';
@@ -275,6 +276,7 @@ import { useFinancialHistory } from '../stores/financialHistory.ts';
 dayjs.extend(utc);
 
 const currency = getCurrency();
+const config = getConfig();
 const miningFrames = getMiningFrames();
 const myVault = getMyVault();
 const vaults = getVaults();
@@ -334,13 +336,13 @@ const positionReturn = Vue.computed(() => {
   return calculatePositionReturn([props.position], financials.financialPositionAggregate.groupSummaries.bonds);
 });
 
-const returnPercent = Vue.computed(() => {
-  if (props.position) return positionReturn.value?.percent;
+const bondReturns = Vue.computed(() => {
+  if (props.position) return positionReturn.value;
 
   if (costBasis.value === undefined) return;
   if (lifetimeEarnings.value === undefined) return;
 
-  return getPercent(lifetimeEarnings.value, costBasis.value);
+  return { percent: getPercent(lifetimeEarnings.value, costBasis.value) };
 });
 
 const lotId = Vue.computed(() => displayedLot.value?.id ?? history.value!.bondLotId);

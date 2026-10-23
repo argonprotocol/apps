@@ -7,8 +7,6 @@ import { Currency, UnitOfMeasurement } from './Currency.js';
 import type { Mining } from './Mining.js';
 import { NetworkConfig } from './NetworkConfig.js';
 
-const MILLISECONDS_PER_DAY = 24 * 60 * 60 * 1_000;
-
 export class GlobalMiningStats {
   private mining: Mining;
   private currency: Currency;
@@ -41,7 +39,6 @@ export class GlobalMiningStats {
   }
 
   public async update() {
-    const miningTermDays = (NetworkConfig.ticksPerCohort * NetworkConfig.tickMillis) / MILLISECONDS_PER_DAY;
     const client = await this.mining.prunedClientOrArchivePromise;
     const api = await client.at(await client.rpc.chain.getFinalizedHead());
     const [activeSeatCount, aggregateBlockRewards, aggregateBidCosts, aggregateMicronotsStaked] = await Promise.all([
@@ -65,7 +62,7 @@ export class GlobalMiningStats {
     const annualizedInput = {
       startingValue: aggregateReturn.eligibleCapitalInvested,
       endingValue: aggregateReturn.eligibleCapitalInvested + aggregateReturn.totalProfits,
-      periodDays: miningTermDays,
+      periodDays: NetworkConfig.framesPerCohort,
     };
 
     this.activeSeatCount = activeSeatCount;

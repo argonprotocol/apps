@@ -24,13 +24,10 @@
       <div class="h-full w-px bg-slate-400/30" />
       <div class="w-1/3 border-b border-slate-400/30 py-5">
         <div class="text-argon-600 text-5xl font-bold">
-          <template v-if="stakesSummary?.returnSummary.percent !== undefined">
-            {{ numeral(stakesSummary.returnSummary.percent).format('0,0.[00]') }}%
-          </template>
-          <template v-else>--</template>
+          <Returns :returns="stakesSummary?.returnSummary" :showLabel="false" />
         </div>
         <div>
-          Return to Date
+          {{ config.returnMetric }}
           <span v-if="stakesSummary?.returnSummary.isStale">· Updating</span>
           <span v-else-if="stakesSummary?.returnSummary.availability === 'partial'">· Partial</span>
         </div>
@@ -89,7 +86,7 @@
             :bondLot="bondLot"
             :isReleasing="bondLot.isReleasing"
             :position="stakePositionsByLotId.get(bondLot.id)"
-            :returnPercent="stakeReturnsByLotId.get(bondLot.id)"
+            :returns="stakeReturnsByLotId.get(bondLot.id)"
             @click="openDetail(bondLot.id)"
           />
           <details v-if="archivedPositions.length" class="group mt-5">
@@ -104,7 +101,7 @@
                 :key="position.history!.bondLotId"
                 :data-testid="`Bond.stake-${position.history!.bondLotId}`"
                 :position="position"
-                :returnPercent="stakeReturnsByLotId.get(position.history!.bondLotId)"
+                :returns="stakeReturnsByLotId.get(position.history!.bondLotId)"
                 @click="openDetail(position.history!.bondLotId)"
               />
             </div>
@@ -129,8 +126,9 @@
 
 <script setup lang="ts">
 import * as Vue from 'vue';
+import Returns from '../../components/Returns.vue';
 import { ChevronDownIcon } from '@heroicons/vue/24/outline';
-import numeral, { createNumeralHelpers } from '../../lib/numeral.ts';
+import { createNumeralHelpers } from '../../lib/numeral.ts';
 import { getCurrency } from '../../stores/currency.ts';
 import { getVaults } from '../../stores/vaults.ts';
 import { getWalletKeys, useWallets } from '../../stores/wallets.ts';
@@ -196,12 +194,11 @@ const selectedPosition = Vue.computed(() => {
   return stakePositionsByLotId.value.get(selectedBondLotId.value);
 });
 const stakeReturnsByLotId = Vue.computed(() => {
-  const returns = new Map<number, number>();
+  const returns = new Map<number, ReturnType<typeof calculatePositionReturn>>();
   const group = financials.financialPositionAggregate.groupSummaries.bonds;
 
   for (const [stakeLotId, position] of stakePositionsByLotId.value) {
-    const percent = calculatePositionReturn([position], group).percent;
-    if (percent !== undefined) returns.set(stakeLotId, percent);
+    returns.set(stakeLotId, calculatePositionReturn([position], group));
   }
 
   return returns;

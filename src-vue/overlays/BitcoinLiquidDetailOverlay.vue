@@ -123,16 +123,9 @@
             </div>
             <div class="min-h-full min-w-px bg-slate-600/20" />
             <div class="w-1/3 px-3">
-              <header class="text-sm font-bold opacity-40">RETURN TO DATE</header>
-              <div
-                v-if="financialPosition?.totalReturn !== undefined"
-                data-testid="BitcoinLiquid.details.return"
-                class="py-1 text-2xl font-bold text-slate-600"
-              >
-                {{ numeral(financialPosition.totalReturn).format('0,0.[00]') }}%
-              </div>
-              <div v-else data-testid="BitcoinLiquid.details.return" class="py-1 text-2xl font-bold text-slate-400">
-                &mdash;
+              <header class="text-sm font-bold opacity-40">{{ config.returnMetric }}</header>
+              <div data-testid="BitcoinLiquid.details.return" class="py-1 text-2xl font-bold text-slate-600">
+                <Returns :returns="liquidReturns" :showLabel="false" />
               </div>
               <div class="text-sm text-slate-500">Since this Liquid opened</div>
             </div>
@@ -610,6 +603,8 @@ import { createNumeralHelpers } from '../lib/numeral.ts';
 import numeral from '../lib/numeral.ts';
 import { getCurrency } from '../stores/currency.ts';
 import { useFinancials } from '../stores/financials.ts';
+import Returns from '../components/Returns.vue';
+import { calculatePositionReturn } from '../lib/financials/index.ts';
 import { getBitcoinFissions, getBitcoinLocks, getBitcoinTransactionOperations } from '../stores/bitcoin.ts';
 import { getConfig } from '../stores/config.ts';
 import { getMainchainClient } from '../stores/mainchain.ts';
@@ -670,6 +665,12 @@ const financialPosition = Vue.computed(() =>
   financials.financialPositionAggregate.groupSummaries.bitcoin.positions.find(
     (position): position is IBitcoinLiquidFinancialPosition =>
       position.kind === 'bitcoin-liquid' && position.liquidId === liquid.value.liquidId,
+  ),
+);
+const liquidReturns = Vue.computed(() =>
+  calculatePositionReturn(
+    financialPosition.value ? [financialPosition.value] : [],
+    financials.financialPositionAggregate.groupSummaries.bitcoin,
   ),
 );
 const closeHistoryEntry = Vue.computed(

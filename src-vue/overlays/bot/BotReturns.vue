@@ -59,13 +59,13 @@
                   Maximum Bid ({{ currency.symbol }}{{ microgonToMoneyNm(maximumBidAmount).format('0,0.00') }})
                 </td>
                 <td class="border-t border-dashed border-slate-300 text-right">
-                  {{ numeral(maximumBidAtSlowGrowthAPY).formatIfElseCapped('>=100', '0,0', '0,0.00', 999_999) }}%
+                  <Returns metric="APY" :returns="{ apy: maximumBidAtSlowGrowthAPY }" :showLabel="false" />
                 </td>
                 <td class="border-t border-dashed border-slate-300 text-right">
-                  {{ numeral(maximumBidAtMediumGrowthAPY).formatIfElseCapped('>=100', '0,0', '0,0.00', 999_999) }}%
+                  <Returns metric="APY" :returns="{ apy: maximumBidAtMediumGrowthAPY }" :showLabel="false" />
                 </td>
                 <td class="border-t border-dashed border-slate-300 text-right">
-                  {{ numeral(maximumBidAtFastGrowthAPY).formatIfElseCapped('>=100', '0,0', '0,0.00', 999_999) }}%
+                  <Returns metric="APY" :returns="{ apy: maximumBidAtFastGrowthAPY }" :showLabel="false" />
                 </td>
               </tr>
               <tr class="text-argon-600 h-1/3 font-mono font-bold">
@@ -75,13 +75,13 @@
                   Starting Bid ({{ currency.symbol }}{{ microgonToMoneyNm(startingBidAmount).format('0,0.00') }})
                 </td>
                 <td class="border-t border-dashed border-slate-300 text-right">
-                  {{ numeral(startingBidAtSlowGrowthAPY).formatIfElseCapped('>=100', '0,0', '0,0.00', 999_999) }}%
+                  <Returns metric="APY" :returns="{ apy: startingBidAtSlowGrowthAPY }" :showLabel="false" />
                 </td>
                 <td class="border-t border-dashed border-slate-300 text-right">
-                  {{ numeral(startingBidAtMediumGrowthAPY).formatIfElseCapped('>=100', '0,0', '0,0.00', 999_999) }}%
+                  <Returns metric="APY" :returns="{ apy: startingBidAtMediumGrowthAPY }" :showLabel="false" />
                 </td>
                 <td class="border-t border-dashed border-slate-300 text-right">
-                  {{ numeral(startingBidAtFastGrowthAPY).formatIfElseCapped('>=100', '0,0', '0,0.00', 999_999) }}%
+                  <Returns metric="APY" :returns="{ apy: startingBidAtFastGrowthAPY }" :showLabel="false" />
                 </td>
               </tr>
             </tbody>
@@ -96,6 +96,7 @@
 
 <script setup lang="ts">
 import * as Vue from 'vue';
+import Returns from '../../components/Returns.vue';
 import { getConfig } from '../../stores/config.ts';
 import { getCurrency } from '../../stores/currency.ts';
 import numeral, { createNumeralHelpers } from '../../lib/numeral.ts';

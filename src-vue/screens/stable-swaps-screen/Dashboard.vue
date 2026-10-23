@@ -37,10 +37,9 @@
       <div class="h-full w-px bg-slate-400/30" />
       <div class="w-1/3 border-b border-slate-400/30 pb-5">
         <div class="text-argon-600 text-5xl font-bold">
-          <template v-if="totalSwapReturn !== undefined">{{ numeral(totalSwapReturn).format('0,0.[00]') }}%</template>
-          <template v-else>--</template>
+          <Returns :returns="financials.stableSwapPerformanceReturns" :showLabel="false" />
         </div>
-        <div>Return to Date</div>
+        <div>{{ config.returnMetric }}</div>
       </div>
     </section>
 
@@ -164,6 +163,8 @@
 
 <script setup lang="ts">
 import * as Vue from 'vue';
+import Returns from '../../components/Returns.vue';
+import { getConfig } from '../../stores/config.ts';
 import dayjs from 'dayjs';
 import numeral, { createNumeralHelpers } from '../../lib/numeral.ts';
 import { formatUnits } from 'viem';
@@ -184,6 +185,7 @@ import { useFinancials } from '../../stores/financials.ts';
 import SwapRecord from '../treasury-screens/components/SwapRecord.vue';
 
 const currency = getCurrency();
+const config = getConfig();
 const financials = useFinancials();
 const stableSwaps = useStableSwaps();
 
@@ -195,10 +197,6 @@ const currencyKey = Vue.ref<ICurrencyKey>(UnitOfMeasurement.USD);
 const currencySymbol = Vue.computed(() => currency.recordsByKey[currencyKey.value].symbol);
 const oneArgonInMicrogons = 1000000n;
 const zeroMicrogons = 0n;
-
-const totalSwapReturn = Vue.computed(() => {
-  return financials.stableSwapPerformanceReturn;
-});
 
 async function openPurchaseTx(txHash: string) {
   const explorerUrl = getEthereumTransactionExplorerUrl(txHash);

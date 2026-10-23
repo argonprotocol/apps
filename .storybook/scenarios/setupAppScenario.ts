@@ -109,6 +109,7 @@ export function setupAppScenario({
     isLoaded: true,
     isLoadedPromise: Promise.resolve(),
     selectedTab,
+    returnMetric: 'RTD' as IConfig['returnMetric'],
     hasExtensionOperations: true,
     hasExtensionTreasury: false,
     miningSetupStatus: MiningSetupStatus.None,

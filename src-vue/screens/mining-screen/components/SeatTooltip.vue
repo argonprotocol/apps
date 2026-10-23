@@ -24,31 +24,69 @@
           </td>
           <td label>ROI Absolute</td>
           <td colon>:</td>
-          <td>{{ numeral(roiAbsolute).formatIfElseCapped('< 100', '0,0.[00]', '0,0', 9999) }}%</td>
+          <td>
+            <template v-if="roiAbsolute !== undefined">
+              {{
+                numeral(roiAbsolute).formatIfElseCapped(
+                  Math.abs(roiAbsolute) < 100,
+                  Math.abs(roiAbsolute) < 10 ? '0,0.[00]' : '0,0.[0]',
+                  '0,0',
+                  9999,
+                )
+              }}%
+            </template>
+            <template v-else>--</template>
+          </td>
         </tr>
         <tr>
           <td label>Value Received TD</td>
           <td colon>:</td>
           <td>
-            {{ currency.symbol
-            }}{{ revenueGenerated === null ? '--.--' : microgonToMoneyNm(revenueGenerated).format('0,0.00') }}
+            <template v-if="rewardsToDate">
+              {{ currency.symbol }}{{ microgonToMoneyNm(rewardsToDate.microgonValue).format('0,0.00') }}
+            </template>
+            <template v-else>--.--</template>
           </td>
           <td label>ROI Relative</td>
           <td colon>:</td>
-          <td>{{ numeral(roiRelative).formatIfElseCapped('< 100', '0,0.[00]', '0,0', 9999) }}%</td>
+          <td>
+            <template v-if="roiRelative !== undefined">
+              {{
+                numeral(roiRelative).formatIfElseCapped(
+                  Math.abs(roiRelative) < 100,
+                  Math.abs(roiRelative) < 10 ? '0,0.[00]' : '0,0.[0]',
+                  '0,0',
+                  9999,
+                )
+              }}%
+            </template>
+            <template v-else>--</template>
+          </td>
         </tr>
         <tr>
           <td label>ARGN Collected</td>
           <td colon>:</td>
-          <td>{{ microgonsEarned === null ? '--.--' : micronotToArgonotNm(microgonsEarned).format('0,0.[00]') }}</td>
-          <td label>APY Relative</td>
+          <td>
+            <template v-if="rewardsToDate">
+              {{ microgonToArgonNm(rewardsToDate.microgonsMined + rewardsToDate.microgonsMinted).format('0,0.[00]') }}
+            </template>
+            <template v-else>--.--</template>
+          </td>
+          <td label>{{ config.returnMetric }}</td>
           <td colon>:</td>
-          <td>{{ numeral(apyRelative).formatIfElseCapped('< 100', '0,0.[00]', '0,0', 9999) }}%</td>
+          <td>
+            <Returns :returns="seatReturns" :showLabel="false" />
+          </td>
         </tr>
         <tr>
           <td label>ARGNOT Collected</td>
           <td colon>:</td>
-          <td>{{ micronotsEarned === null ? '--.--' : micronotToArgonotNm(micronotsEarned).format('0,0.[00]') }}</td>
+          <td>
+            <template v-if="rewardsToDate">
+              {{ micronotToArgonotNm(rewardsToDate.micronotsMined).format('0,0.[00]') }}
+            </template>
+            <template v-else>--.--</template>
+          </td>
         </tr>
       </tbody>
     </table>
@@ -85,28 +123,32 @@ import * as Vue from 'vue';
 import dayjs from 'dayjs';
 import utc from 'dayjs/plugin/utc';
 import {
-  bigNumberToBigInt,
-  calculateAPY,
+  calculateAnnualPercentageRate,
+  calculateAnnualPercentageYield,
   calculateMiningRewardProjection,
   calculateProfitPct,
   IMiningSeat,
+  NetworkConfig,
+  percentOf,
 } from '@argonprotocol/apps-core';
 import { getMyMiningSeats } from '../../../stores/myMiningSeats.ts';
 import { getCurrency } from '../../../stores/currency.ts';
 import numeral, { createNumeralHelpers } from '../../../lib/numeral.ts';
 import { getMiningFrames } from '../../../stores/mainchain.ts';
 import { TICK_MILLIS } from '../../../lib/Env.ts';
-import { BigNumber } from 'bignumber.js';
 import { getMiningSeatProgressAtFrame } from '../miningSeatProgress.ts';
 import type { IMiningSeatRewardTerms } from '../../../interfaces/db/ICohortRecord.ts';
+import Returns from '../../../components/Returns.vue';
+import { getConfig } from '../../../stores/config.ts';
 
 dayjs.extend(utc);
 
 const myMiningSeats = getMyMiningSeats();
 const currency = getCurrency();
+const config = getConfig();
 const miningFrames = getMiningFrames();
 
-const { microgonToMoneyNm, micronotToArgonotNm } = createNumeralHelpers(currency);
+const { microgonToMoneyNm, microgonToArgonNm, micronotToArgonotNm } = createNumeralHelpers(currency);
 
 type IMiningDisplaySeat = IMiningSeat & {
   startingFrameId?: number | null;
@@ -186,61 +228,57 @@ const newEndDate = Vue.computed(() => {
     .add(1, 'minute');
 });
 
-const rewardsToDate = Vue.computed<{
-  microgonsEarned: bigint;
-  micronotsEarned: bigint;
-  revenueGenerated: bigint;
-} | null>(() => {
-  if (!props.tooltipStats) {
-    return null;
-  }
+const rewardsToDate = Vue.computed(() => {
+  if (!props.tooltipStats || !props.seat.miner) return;
 
-  const projection = calculateMiningRewardProjection({
-    bidPrincipal: props.seat.miner?.bidAmount ?? 0n,
+  let argonotPrice = currency.microgonsPer.ARGNOT;
+  if (!props.isLiveFrame) {
+    const frame = myMiningSeats.frames.find(frame => frame.id === props.frameId);
+    argonotPrice = frame?.microgonToArgonot.at(-1) ?? 0n;
+  }
+  if (argonotPrice <= 0n) return;
+
+  return calculateMiningRewardProjection({
+    bidPrincipal: props.seat.miner.bidAmount,
     microgonsPerTerm: props.tooltipStats.microgonsToBeMinedPerSeat,
     micronotsPerTerm: props.tooltipStats.micronotsToBeMinedPerSeat,
-    argonotPrice: currency.microgonsPer.ARGNOT || props.tooltipStats.argonotPriceAtBid,
+    argonotPrice,
     percentOfTerm: seatProgressPct.value,
   });
-  return {
-    microgonsEarned: projection.microgonsMined + projection.microgonsMinted,
-    micronotsEarned: projection.micronotsMined,
-    revenueGenerated: projection.microgonValue,
-  };
-});
-
-const revenueGenerated = Vue.computed<bigint | null>(() => {
-  return rewardsToDate.value?.revenueGenerated ?? null;
-});
-
-const microgonsEarned = Vue.computed<bigint | null>(() => {
-  return rewardsToDate.value?.microgonsEarned ?? null;
-});
-
-const micronotsEarned = Vue.computed<bigint | null>(() => {
-  return rewardsToDate.value?.micronotsEarned ?? null;
 });
 
 const roiRelative = Vue.computed(() => {
-  if (micronotsEarned.value === null || microgonsEarned.value === null) {
-    return 0;
-  }
-  if (!revenueGenerated.value || !props.seat.miner || seatStartingFrameId.value === null) return 0;
-  const factorBn = BigNumber(seatProgressPct.value).dividedBy(100);
-  const costBn = BigNumber(props.seat.miner.bidAmount).multipliedBy(factorBn);
-  return calculateProfitPct(bigNumberToBigInt(costBn), revenueGenerated.value!) * 100;
+  if (!rewardsToDate.value || !props.seat.miner) return;
+
+  const accruedBidCost = percentOf(props.seat.miner.bidAmount, seatProgressPct.value);
+  if (accruedBidCost <= 0n) return;
+
+  return calculateProfitPct(accruedBidCost, rewardsToDate.value.microgonValue) * 100;
 });
 
-const apyRelative = Vue.computed(() => {
-  if (!revenueGenerated.value || !props.seat.miner || seatStartingFrameId.value === null) return 0;
-  const factorBn = BigNumber(seatProgressPct.value).dividedBy(100);
-  const costBn = BigNumber(props.seat.miner.bidAmount).multipliedBy(factorBn);
-  return calculateAPY(bigNumberToBigInt(costBn), revenueGenerated.value!, 10);
+const seatReturns = Vue.computed(() => {
+  if (!rewardsToDate.value || !props.seat.miner) return;
+
+  const accruedBidCost = percentOf(props.seat.miner.bidAmount, seatProgressPct.value);
+  if (accruedBidCost <= 0n) return;
+
+  const annualizedInput = {
+    startingValue: accruedBidCost,
+    endingValue: rewardsToDate.value.microgonValue,
+    periodDays: NetworkConfig.framesPerCohort,
+  };
+  return {
+    percent: calculateProfitPct(props.seat.miner.bidAmount, rewardsToDate.value.microgonValue) * 100,
+    apr: calculateAnnualPercentageRate(annualizedInput),
+    apy: calculateAnnualPercentageYield(annualizedInput),
+  };
 });
 
 const roiAbsolute = Vue.computed(() => {
-  if (!revenueGenerated.value || !props.seat.miner) return 0;
-  return calculateProfitPct(props.seat.miner.bidAmount, revenueGenerated.value!) * 100;
+  if (!rewardsToDate.value || !props.seat.miner) return;
+  if (props.seat.miner.bidAmount <= 0n) return;
+
+  return calculateProfitPct(props.seat.miner.bidAmount, rewardsToDate.value.microgonValue) * 100;
 });
 
 Vue.watch(

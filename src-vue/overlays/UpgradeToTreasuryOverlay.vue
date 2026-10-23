@@ -8,7 +8,7 @@
       <div class="mb-5 space-y-3 text-[17px]/7 leading-normal font-light">
         <p>
           Treasury is the next level of Argon Desktop. It’s where the network's yield-generating instruments live, where
-          your assets help grow and stabilize the currency. Here’s a snapshot into the network’s current APYs:
+          your assets help grow and stabilize the currency. Here’s a snapshot into the network’s current APRs:
         </p>
 
         <ul class="mt-6 grid grid-cols-2 gap-3">
@@ -19,7 +19,7 @@
             </div>
             <div class="bg-argon-100/50 rounded px-3 py-2 text-2xl leading-none font-bold">
               <template v-if="vaultingStats.argonBondsAPR !== undefined">
-                {{ numeral(vaultingStats.argonBondsAPR).formatIfElseCapped('< 100', '0.0', '0', 999) }}%
+                <Returns metric="APR" :returns="{ apr: vaultingStats.argonBondsAPR }" :showLabel="false" />
               </template>
               <template v-else>&mdash;</template>
             </div>
@@ -31,7 +31,7 @@
             </div>
             <div class="bg-argon-100/50 rounded px-3 py-2 text-2xl leading-none font-bold">
               <template v-if="isArgonotStakingAprReady">
-                {{ numeral(vaultingStats.argonotStakingAPR).formatIfElseCapped('< 100', '0.0', '0', 999) }}%
+                <Returns metric="APR" :returns="{ apr: vaultingStats.argonotStakingAPR }" :showLabel="false" />
               </template>
               <template v-else>---%</template>
             </div>
@@ -42,7 +42,7 @@
               <span class="text-base opacity-80">Stabilize the Currency</span>
             </div>
             <div class="rounded bg-orange-100/90 px-3 py-2 text-2xl leading-none font-bold">
-              {{ numeral(vaultingStats.bitcoinAPR).formatIfElseCapped('< 100', '0.0', '0', 999) }}%
+              <Returns metric="APR" :returns="{ apr: vaultingStats.bitcoinAPR }" :showLabel="false" />
             </div>
           </li>
           <li class="flex items-center justify-between rounded border border-blue-300/30 bg-blue-100/30 px-3 py-2">
@@ -50,7 +50,9 @@
               <header class="font-bold">Stable Swaps</header>
               <span class="text-base opacity-80">Arbitrage the Swings</span>
             </div>
-            <div class="rounded bg-blue-100/80 px-3 py-2 text-2xl leading-none font-bold">13.9%</div>
+            <div class="rounded bg-blue-100/80 px-3 py-2 text-2xl leading-none font-bold">
+              <Returns metric="APR" :showLabel="false" />
+            </div>
           </li>
         </ul>
 
@@ -150,7 +152,7 @@ import AlertIcon from '../assets/alert.svg?component';
 import { BootstrapType, TopTab } from '../interfaces/IConfig.ts';
 import { UpstreamOperatorClient } from '../lib/UpstreamOperatorClient.ts';
 import { RequestStatusError } from '../lib/ServerAuthClient.ts';
-import numeral from '../lib/numeral.ts';
+import Returns from '../components/Returns.vue';
 import OverlayBase from './OverlayBase.vue';
 import basicEmitter from '../emitters/basicEmitter.ts';
 import { useVaultingStats } from '../stores/vaultingStats.ts';

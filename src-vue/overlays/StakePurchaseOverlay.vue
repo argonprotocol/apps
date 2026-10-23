@@ -147,7 +147,7 @@
               <div class="w-1/3">
                 <header class="font-bold opacity-40">AVG STAKE RETURNS</header>
                 <div class="text-3xl text-argon-600 font-bold py-1">
-                  {{ numeral(vaultingStats.argonotStakingAPR).formatIfElseCapped('< 100', '0.0', '0', 999) }}% APR
+                  <Returns metric="APR" :returns="{ apr: vaultingStats.argonotStakingAPR }" />
                 </div>
                 <div class="font-light opacity-80">Based on Past Performance<sup>&dagger;</sup></div>
               </div>
@@ -205,6 +205,7 @@
 
 <script setup lang="ts">
 import * as Vue from 'vue';
+import Returns from '../components/Returns.vue';
 import OverlayBase from './OverlayBase.vue';
 
 import {

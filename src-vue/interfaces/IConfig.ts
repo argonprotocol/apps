@@ -241,6 +241,7 @@ export const ConfigSchema = z.object({
   }),
 
   defaultCurrencyKey: CurrencyKeySchema,
+  returnMetric: z.enum(['RTD', 'APR', 'APY']),
   userJurisdiction: z.object({
     ipAddress: z.string(),
     city: z.string(),
@@ -317,6 +318,7 @@ export interface IConfigDefaults {
   biddingRules: () => IConfig['biddingRules'];
   vaultSetup: () => IConfig['vaultSetup'];
   defaultCurrencyKey: () => IConfig['defaultCurrencyKey'];
+  returnMetric: () => IConfig['returnMetric'];
   userJurisdiction: () => Promise<IConfig['userJurisdiction']>;
   certificationDetails: () => IConfig['certificationDetails'];
 

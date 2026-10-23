@@ -11,14 +11,12 @@
       <div class="mt-2 grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 w-full grow gap-2 divide-x divide-slate-500/30">
 
         <div StatWrapper class="col-span-1 xl:col-span-2 flex flex-col h-full border-b border-slate-400/50">
-          <span>{{ data.miningAPR ? numeral(data.miningAPR).formatCapped('0,0.[0]', 9_999) : '---' }}%</span>
+          <Returns metric="APR" :returns="{ apr: data.miningAPR }" :showLabel="false" />
           <label>Current Mining APR</label>
         </div>
 
         <div StatWrapper class="col-span-1 xl:col-span-2 flex flex-col h-full border-b border-slate-400/50">
-            <span>
-              {{ data.vaultingAPR ? numeral(data.vaultingAPR).formatIfElseCapped('< 1_000', '0,0.[0]', '0,0', 9_999) : '0' }}%
-            </span>
+          <Returns metric="APR" :returns="{ apr: data.vaultingAPR }" :showLabel="false" />
           <label>Current Vaulting APR</label>
         </div>
 
@@ -35,23 +33,17 @@
         </div>
 
         <div StatWrapper class="flex flex-col h-full border-b border-slate-400/50">
-            <span>
-              {{ data.bitcoinAPR ? numeral(data.bitcoinAPR).formatIfElseCapped('< 1_000', '0,0.[0]', '0,0', 9_999) : '---' }}%
-            </span>
+          <Returns metric="APR" :returns="{ apr: data.bitcoinAPR }" :showLabel="false" />
           <label>Current Locked Bitcoin APR</label>
         </div>
 
         <div StatWrapper class="flex flex-col h-full border-b border-slate-400/50">
-            <span>
-              {{ data.argonBondsAPR !== undefined ? numeral(data.argonBondsAPR).formatIfElseCapped('< 1_000', '0,0.[0]', '0,0', 9_999) : '---' }}%
-            </span>
+          <Returns metric="APR" :returns="{ apr: data.argonBondsAPR }" :showLabel="false" />
           <label>Current Argon Bond APR</label>
         </div>
 
         <div StatWrapper class="flex flex-col h-full border-b border-slate-400/50">
-            <span>
-              {{ data.argonotStakingAPR ? numeral(data.argonotStakingAPR).formatIfElseCapped('< 1_000', '0,0.[0]', '0,0', 9_999) : '---' }}%
-            </span>
+          <Returns metric="APR" :returns="{ apr: data.argonotStakingAPR }" :showLabel="false" />
           <label>Current Argonot Staking APR</label>
         </div>
 
@@ -127,6 +119,7 @@
 
 <script setup lang="ts">
 import * as Vue from 'vue';
+import Returns from '../components/Returns.vue';
 import dayjs from 'dayjs';
 import utc from 'dayjs/plugin/utc.js';
 import { calculateRestabilizationLeverage } from '@argonprotocol/apps-core';
@@ -161,10 +154,10 @@ const data = Vue.computed(() => {
   return {
     totalMarketValueUsd: currency.isLoaded ? currency.convertMicrogonTo(totalEconomicValue, UnitOfMeasurement.USD) : 0,
     miningAPR: miningStats.averageAPR,
-    vaultingAPR: vaultingStats.averageAPR,
+    vaultingAPR: vaultingStats.isLoaded ? vaultingStats.averageAPR : undefined,
     bitcoinAPR: vaultingStats.bitcoinAPR,
     argonBondsAPR: vaultingStats.argonBondsAPR,
-    argonotStakingAPR: vaultingStats.argonotStakingAPR,
+    argonotStakingAPR: vaultingStats.isLoaded ? vaultingStats.argonotStakingAPR : undefined,
     usdTargetForArgon: currency.priceIndex.argonUsdTargetPrice?.toNumber() ?? 0,
     usdForArgonot: currency.priceIndex.argonotUsdPrice?.toNumber() ?? 0,
     usdForBtc: currency.priceIndex.btcUsdPrice?.toNumber() ?? 0,

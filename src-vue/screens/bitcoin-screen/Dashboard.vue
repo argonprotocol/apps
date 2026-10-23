@@ -17,12 +17,9 @@
       </div>
       <div class="w-1/3 border-b border-slate-400/30 py-5">
         <div class="text-argon-600 text-5xl font-bold">
-          <template v-if="financials.liquidPerformanceReturn !== undefined">
-            {{ numeral(financials.liquidPerformanceReturn).format('0,0.[00]') }}%
-          </template>
-          <template v-else>&mdash;</template>
+          <Returns :returns="financials.liquidPerformanceReturns" :showLabel="false" />
         </div>
-        <div class="font-light text-slate-900/70">Liquid Returns</div>
+        <div class="font-light text-slate-900/70">Liquid {{ config.returnMetric }}</div>
       </div>
       <div class="relative h-full w-px bg-slate-400/30">
         <div
@@ -33,12 +30,9 @@
       </div>
       <div class="w-1/3 border-b border-slate-400/30 py-5">
         <div class="text-argon-600 text-5xl font-bold">
-          <template v-if="financials.liquidHodlingReturn !== undefined">
-            {{ numeral(financials.liquidHodlingReturn).format('0,0.[00]') }}%
-          </template>
-          <template v-else>&mdash;</template>
+          <Returns :returns="financials.liquidHodlingReturns" :showLabel="false" />
         </div>
-        <div class="font-light text-slate-900/70">Hodling Returns</div>
+        <div class="font-light text-slate-900/70">Hodling {{ config.returnMetric }}</div>
       </div>
     </section>
 
@@ -183,10 +177,7 @@
                   <span class="h-full w-px bg-slate-400/50" />
                 </div>
                 <span class="pr-1">
-                  <template v-if="liquid.position?.totalReturn !== undefined">
-                    {{ numeral(liquid.position.totalReturn).format('0,0.[00]') }}% return
-                  </template>
-                  <template v-else>&mdash; return</template>
+                  <Returns :returns="liquid.returns" />
                 </span>
               </div>
             </div>
@@ -278,10 +269,9 @@
                   <div class="flex grow flex-row items-stretch justify-center">
                     <span class="h-full w-px bg-slate-400/50" />
                   </div>
-                  <span v-if="liquid.position?.totalReturn !== undefined" class="pr-1 tabular-nums">
-                    {{ numeral(liquid.position.totalReturn).format('0,0.[00]') }}% return
+                  <span class="pr-1 tabular-nums">
+                    <Returns :returns="liquid.returns" />
                   </span>
-                  <span v-else class="pr-1">Return unavailable</span>
                 </div>
               </div>
             </article>
@@ -306,6 +296,8 @@
 
 <script setup lang="ts">
 import * as Vue from 'vue';
+import Returns from '../../components/Returns.vue';
+import { calculatePositionReturn } from '../../lib/financials/index.ts';
 import { ChevronDownIcon } from '@heroicons/vue/24/outline';
 import dayjs from 'dayjs';
 import relativeTime from 'dayjs/plugin/relativeTime';
@@ -334,6 +326,7 @@ import BitcoinLiquidDetailOverlay from '../../overlays/BitcoinLiquidDetailOverla
 type LiquidDisplay = {
   model: BitcoinLiquid;
   position?: IBitcoinLiquidFinancialPosition;
+  returns?: ReturnType<typeof calculatePositionReturn>;
   grantedLiquidity: bigint;
   repaymentAmount: bigint;
   ratchet: ReturnType<BitcoinLiquid['getRatchetStatus']>;
@@ -419,6 +412,10 @@ const liquidRows = Vue.computed<LiquidDisplay[]>(() =>
       return {
         model: liquid,
         position: financialPosition,
+        returns: calculatePositionReturn(
+          financialPosition ? [financialPosition] : [],
+          financials.financialPositionAggregate.groupSummaries.bitcoin,
+        ),
         grantedLiquidity,
         repaymentAmount: liquid.getRepaymentAmount(currency.priceIndex),
         ratchet:

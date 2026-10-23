@@ -39,6 +39,24 @@ it('can load config defaults', async () => {
   expect(config.biddingRules).toBeTruthy();
   expect(config.postWelcomeLaunchCount).toBe(0);
   expect(config.hasConnectedDiscord).toBe(false);
+  expect(config.returnMetric).toBe('RTD');
+});
+
+it('restores the selected return metric after restart', async () => {
+  const db = await createTestDb();
+  const { walletKeys } = createTestWallet('//Alice');
+  instanceChecks.delete(Config.prototype.constructor);
+  const config = new Config(Promise.resolve(db), walletKeys);
+  await config.load();
+
+  config.returnMetric = 'APY';
+  await config.save();
+
+  instanceChecks.delete(Config.prototype.constructor);
+  const restarted = new Config(Promise.resolve(db), walletKeys);
+  await restarted.load();
+  expect(restarted.returnMetric).toBe('APY');
+  await db.close();
 });
 
 it.each([

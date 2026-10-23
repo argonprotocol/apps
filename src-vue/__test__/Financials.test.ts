@@ -1,5 +1,5 @@
 import { Metadata, TypeRegistry } from '@polkadot/types';
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, onTestFinished, vi } from 'vitest';
 import {
   type FrameSupportTokensMiscIdAmountRuntimeHoldReason,
   getOfflineRegistry,
@@ -8,7 +8,14 @@ import {
 } from '@argonprotocol/mainchain';
 import BigNumber from 'bignumber.js';
 import { getBundledMetadata, toPlain } from '@argonprotocol/runtime-client';
-import { BitcoinFission, BondLot, type Vault, type IVaultFrameStats } from '@argonprotocol/apps-core';
+import {
+  BitcoinFission,
+  BondLot,
+  NetworkConfig,
+  calculatePerformanceReturn,
+  type Vault,
+  type IVaultFrameStats,
+} from '@argonprotocol/apps-core';
 import type { IBitcoinLockRecord } from '../interfaces/IBitcoinLockRecord.ts';
 import type { IBitcoinFissionRecord } from '../interfaces/IBitcoinFissionRecord.ts';
 import { BitcoinReleaseKind, BitcoinReleaseStatus } from '../interfaces/IBitcoinReleaseRecord.ts';
@@ -292,55 +299,65 @@ describe('financial position accounting', () => {
     });
   });
 
-  it('weights the account return by cost across investment groups', () => {
-    const positions: IFinancialPosition[] = [
-      {
-        id: 'vault-1',
-        kind: 'vault',
-        group: 'vaulting',
-        label: 'Vault 1',
-        vaultId: 1,
-        lifecycle: 'active',
+  it.each(['mainnet', 'dev-docker'] as const)(
+    'weights vault and stable-swap returns over simulated days on %s',
+    network => {
+      const previousNetwork = NetworkConfig.networkName!;
+      onTestFinished(() => NetworkConfig.setNetwork(previousNetwork));
+      NetworkConfig.setNetwork(network);
+      const now = new Date('2026-07-14T12:00:00Z');
+      const startedAt = new Date(now.getTime() - 10 * NetworkConfig.rewardTicksPerFrame * NetworkConfig.tickMillis);
+      const positions: IFinancialPosition[] = [
+        {
+          id: 'vault-1',
+          kind: 'vault',
+          group: 'vaulting',
+          label: 'Vault 1',
+          vaultId: 1,
+          lifecycle: 'active',
 
-        currentValue: 120n,
-        investedCost: 100n,
-        paidIncome: 0n,
-        settledPrincipalValue: 0n,
-        startedAt: new Date('2026-01-01T00:00:00Z'),
-        vault: {} as Vault,
-        securitization: 120n,
-        uncollectedRevenue: 0n,
-        capitalHistory: [],
-        revenueHistory: [],
-      },
-      {
-        id: 'swap-1',
-        kind: 'stable-swap',
-        group: 'ethereum',
-        label: 'Stable swap holdings',
-        lifecycle: 'active',
+          currentValue: 120n,
+          investedCost: 100n,
+          paidIncome: 0n,
+          settledPrincipalValue: 0n,
+          startedAt,
+          vault: {} as Vault,
+          securitization: 120n,
+          uncollectedRevenue: 0n,
+          capitalHistory: [],
+          revenueHistory: [],
+        },
+        {
+          id: 'swap-1',
+          kind: 'stable-swap',
+          group: 'ethereum',
+          label: 'Stable swap holdings',
+          lifecycle: 'active',
 
-        currentValue: 330n,
-        investedCost: 300n,
-        paidIncome: 0n,
-        settledPrincipalValue: 0n,
-        startedAt: new Date('2026-01-01T00:00:00Z'),
-        wallet,
-        purchases: [],
-        nativeAmount: 330n,
-        isQuantityReconciled: true,
-      },
-    ];
+          currentValue: 330n,
+          investedCost: 300n,
+          paidIncome: 0n,
+          settledPrincipalValue: 0n,
+          startedAt,
+          wallet,
+          purchases: [],
+          nativeAmount: 330n,
+          isQuantityReconciled: true,
+        },
+      ];
 
-    const accountReturn = reduceFinancialPositions(readySnapshots(positions)).accountReturn;
+      const accountReturn = reduceFinancialPositions(readySnapshots(positions)).accountReturn;
 
-    expect(accountReturn).toMatchObject({
-      availability: 'available',
-      eligiblePositionCount: 2,
-      investmentPositionCount: 2,
-      percent: 12.5,
-    });
-  });
+      expect(accountReturn).toMatchObject({
+        availability: 'available',
+        eligiblePositionCount: 2,
+        investmentPositionCount: 2,
+        percent: 12.5,
+      });
+      expect(accountReturn.apr).toBeCloseTo(456.25);
+      expect(accountReturn.apy).toBeCloseTo(((1.2 ** 36.5 - 1) / 4 + ((1.1 ** 36.5 - 1) * 3) / 4) * 100);
+    },
+  );
 
   it('keeps an unavailable investment return unavailable instead of reporting zero percent', () => {
     const positions: IFinancialPosition[] = [
@@ -1290,6 +1307,11 @@ describe('financial position accounting', () => {
       startingCapital: 100n,
       endingCapital: 90n,
     });
+    const dayMillis = NetworkConfig.rewardTicksPerFrame * NetworkConfig.tickMillis;
+    const observedAt = new Date(lock.createdAt.getTime() + 10 * dayMillis);
+    expect(calculatePerformanceReturn(snapshot.hodlingInvestments, { now: observedAt, dayMillis }).apr).toBeCloseTo(
+      -365,
+    );
     expect(snapshot.positions.find(position => position.kind === 'bitcoin-liquid')).toMatchObject({
       cosignerGuaranteeCost: 10n,
     });
@@ -3298,8 +3320,18 @@ describe('financial group snapshots', () => {
     book.publish(book.beginRefresh('vaulting'), [{ ...position, currentValue: 300n, investedCost: undefined }], {
       observedAt: new Date('2026-01-21T00:00:00Z'),
     });
-    expect(reduceFinancialPositions(book.snapshots).groupSummaries.vaulting.returnSummary.percent).toBe(13.33);
-    expect(reduceFinancialPositions(book.snapshots).accountReturn.percent).toBe(13.33);
+    const retained = reduceFinancialPositions(book.snapshots);
+    expect(retained.groupSummaries.vaulting.returnSummary).toMatchObject({
+      percent: 13.33,
+      apr: first.groupSummaries.vaulting.returnSummary.apr,
+      apy: first.groupSummaries.vaulting.returnSummary.apy,
+      isStale: true,
+    });
+    expect(retained.accountReturn).toMatchObject({
+      percent: 13.33,
+      apr: first.accountReturn.apr,
+      apy: first.accountReturn.apy,
+    });
 
     book.setScope({ ownedAccounts: ['5other-wallet'] });
     book.publish(

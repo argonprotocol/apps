@@ -115,7 +115,7 @@
                         at an <tooltip content="Annual Percent Yield">APY</tooltip> of
                       </div>
                       <div class="flex flex-row items-center justify-center grow relative h-26 text-6xl font-bold font-mono text-argon-600">
-                        <span>~{{ numeral(averageAPY).formatIfElseCapped('>=100', '0,0', '0,0.00', 999_999) }}%</span>
+                        <span>~<Returns metric="APY" :returns="{ apy: averageAPY }" :showLabel="false" /></span>
                         <ReturnsOverlay align="start">
                           <PiechartIcon PiechartIcon class="ml-4 w-10 h-10 text-gray-300 hover:!text-argon-600" />
                         </ReturnsOverlay>
@@ -178,6 +178,7 @@
 
 <script setup lang="ts">
 import * as Vue from 'vue';
+import Returns from '../components/Returns.vue';
 import BigNumber from 'bignumber.js';
 import {
   DialogContent,

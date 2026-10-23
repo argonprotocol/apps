@@ -119,6 +119,7 @@ export class Config implements IConfig {
       biddingRules: Config.getDefault(dbFields.biddingRules) as IConfig['biddingRules'],
       vaultSetup: Config.getDefault(dbFields.vaultSetup) as IConfig['vaultSetup'],
       defaultCurrencyKey: Config.getDefault(dbFields.defaultCurrencyKey) as ICurrencyKey,
+      returnMetric: Config.getDefault(dbFields.returnMetric) as IConfig['returnMetric'],
       userJurisdiction: {
         ipAddress: '',
         city: '',
@@ -159,6 +160,7 @@ export class Config implements IConfig {
           'walletAccountsHadPreviousLife',
           'walletPreviousLifeRecovered',
           'defaultCurrencyKey',
+          'returnMetric',
           'requiresPassword',
           'certificationDetails',
         ];
@@ -644,6 +646,14 @@ export class Config implements IConfig {
     this.setField('defaultCurrencyKey', value);
   }
 
+  public get returnMetric(): IConfig['returnMetric'] {
+    return this.getField('returnMetric');
+  }
+
+  public set returnMetric(value: IConfig['returnMetric']) {
+    this.setField('returnMetric', value);
+  }
+
   public get userJurisdiction(): IConfig['userJurisdiction'] {
     return this.getField('userJurisdiction');
   }
@@ -865,6 +875,7 @@ const dbFields = {
   biddingRules: 'biddingRules',
   vaultSetup: 'vaultSetup',
   defaultCurrencyKey: 'defaultCurrencyKey',
+  returnMetric: 'returnMetric',
   userJurisdiction: 'userJurisdiction',
   certificationDetails: 'certificationDetails',
 
@@ -975,6 +986,7 @@ const defaults: IConfigDefaults = {
     btcPctFee: 3.4,
   }),
   defaultCurrencyKey: () => UnitOfMeasurement.ARGN,
+  returnMetric: () => 'RTD',
   userJurisdiction: async () => {
     try {
       return await getUserJurisdiction();

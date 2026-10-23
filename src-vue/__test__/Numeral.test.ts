@@ -2,6 +2,13 @@ import { describe, expect, it } from 'vitest';
 import numeral from '../lib/numeral.ts';
 
 describe('numeral', () => {
+  it('marks capped return displays as exceeding the limit', () => {
+    expect(numeral(16_323.7).formatIfElseCapped('< 100', '0.00', '0,0', 9_999)).toBe('9,999+');
+    expect(numeral(9_999).formatCapped('0,0', 9_999)).toBe('9,999');
+    expect(numeral(1_132.3).formatCapped('0,0.0', 9_999)).toBe('1,132.3');
+    expect(numeral(2).formatCapped('0%', 1)).toBe('100+%');
+  });
+
   it('formats finite values represented with scientific notation', () => {
     expect(numeral(1e-7).format('0,0.[00]')).toBe('0');
     expect(numeral(-1e-7).format('0,0.[00]')).toBe('0');

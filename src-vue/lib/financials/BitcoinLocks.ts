@@ -118,7 +118,6 @@ export class BitcoinFinancials {
           hodlingInvestments.push({
             startingDate: lock.createdAt,
             startingCapital,
-            endingDate: new Date(),
             // Compare the same Bitcoin quantity at opening and now, excluding unused lock funds.
             endingCapital: (summary.valueOfBtc * hodlingSatoshis) / summary.satoshis,
           });

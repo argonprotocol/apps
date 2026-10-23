@@ -1,4 +1,4 @@
-import { calculatePerformanceReturn, type IPerformanceReturnInput } from '@argonprotocol/apps-core';
+import { calculatePerformanceReturn, NetworkConfig, type IPerformanceReturnInput } from '@argonprotocol/apps-core';
 import {
   financialGroups,
   type FinancialGroup,
@@ -280,6 +280,8 @@ export function reduceFinancialPositions(snapshots: readonly IFinancialGroupSnap
       availability: accountReturnAvailability,
       basisPoints: accountReturn.basisPoints,
       percent: accountReturn.percent,
+      apr: accountReturn.apr,
+      apy: accountReturn.apy,
       eligiblePositionCount: accountReturn.eligiblePositionCount,
       investmentPositionCount: accountReturn.investmentPositionCount,
     },
@@ -382,7 +384,9 @@ export function calculatePositionReturn(
     };
   }
 
-  const performance = calculatePerformanceReturn(eligibleInvestments);
+  const performance = calculatePerformanceReturn(eligibleInvestments, {
+    dayMillis: NetworkConfig.rewardTicksPerFrame * NetworkConfig.tickMillis,
+  });
   const availability = eligibleInvestments.length === investments.length ? 'available' : 'partial';
 
   return {
@@ -394,6 +398,8 @@ export function calculatePositionReturn(
     returnAmount: performance.totalProfits,
     basisPoints: performance.basisPoints,
     percent: performance.percent,
+    apr: performance.apr,
+    apy: performance.apy,
     eligiblePositionCount: eligibleInvestments.length,
     investmentPositionCount: investments.length,
   };

@@ -16,7 +16,7 @@
         <p>
           Operations manages the network and its yield-generating assets. They mine blocks, process transactions,
           and operate stabilization vaults. It's more complicated than Treasury, but it also has more revenue
-          opportunities. Here’s the network's current APR for Operations:
+          opportunities. Here’s the network's current APY for Operations:
         </p>
 
         <ul class="mt-6 grid grid-cols-2 gap-3">
@@ -27,7 +27,7 @@
             </div>
             <div class="bg-argon-100/50 rounded px-3 py-2 text-2xl leading-none font-bold">
               <template v-if="areOperationReturnsReady">
-                {{ numeral(miningStats.averageAPY).formatIfElseCapped('< 100', '0.0', '0', 999) }}%
+                <Returns metric="APY" :returns="{ apy: miningStats.averageAPY }" :showLabel="false" />
               </template>
               <template v-else>---%</template>
             </div>
@@ -39,7 +39,7 @@
             </div>
             <div class="bg-argon-100/50 rounded px-3 py-2 text-2xl leading-none font-bold">
               <template v-if="areOperationReturnsReady">
-                {{ numeral(vaultingStats.averageAPY).formatIfElseCapped('< 100', '0.0', '0', 999) }}%
+                <Returns metric="APY" :returns="{ apy: vaultingStats.averageAPY }" :showLabel="false" />
               </template>
               <template v-else>---%</template>
             </div>
@@ -98,7 +98,7 @@ import { useVaultingStats } from '../stores/vaultingStats.ts';
 import OverlayBase from './OverlayBase.vue';
 import AlertIcon from '../assets/alert.svg';
 import basicEmitter from '../emitters/basicEmitter.ts';
-import numeral from '../lib/numeral.ts';
+import Returns from '../components/Returns.vue';
 import { hasOperationsUpgradeRequest } from '../lib/UpstreamOperatorClient.ts';
 
 const config = getConfig();

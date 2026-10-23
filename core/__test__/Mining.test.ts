@@ -170,42 +170,47 @@ describe('Mining network returns', () => {
     });
   });
 
-  it('values retained ARGNOT as capital while preserving bid and reward display totals', async () => {
-    const api = {};
-    const mining = {
-      prunedClientOrArchivePromise: Promise.resolve({
-        rpc: { chain: { getFinalizedHead: vi.fn().mockResolvedValue('0xfinalized') } },
-        at: vi.fn().mockResolvedValue(api),
-      }),
-      fetchActiveMinersCount: vi.fn().mockResolvedValue(4),
-      fetchAggregateBlockRewards: vi.fn().mockResolvedValue({ microgons: 875n, micronots: 500n }),
-      fetchAggregateBidCosts: vi.fn().mockResolvedValue(1_000n),
-      fetchAggregateMicronotsStaked: vi.fn().mockResolvedValue(200n),
-    };
-    const currency = {
-      load: vi.fn().mockResolvedValue(undefined),
-      convertMicronotTo: vi.fn((value: bigint) => value * 2n),
-    };
-    const stats = new GlobalMiningStats(mining as any, currency as any);
+  it.each(['mainnet', 'dev-docker'] as const)(
+    'values retained ARGNOT and treats ten frames as ten return days on %s',
+    async network => {
+      NetworkConfig.setNetwork(network);
+      const api = {};
+      const mining = {
+        prunedClientOrArchivePromise: Promise.resolve({
+          rpc: { chain: { getFinalizedHead: vi.fn().mockResolvedValue('0xfinalized') } },
+          at: vi.fn().mockResolvedValue(api),
+        }),
+        fetchActiveMinersCount: vi.fn().mockResolvedValue(4),
+        fetchAggregateBlockRewards: vi.fn().mockResolvedValue({ microgons: 875n, micronots: 500n }),
+        fetchAggregateBidCosts: vi.fn().mockResolvedValue(1_000n),
+        fetchAggregateMicronotsStaked: vi.fn().mockResolvedValue(200n),
+      };
+      const currency = {
+        load: vi.fn().mockResolvedValue(undefined),
+        convertMicronotTo: vi.fn((value: bigint) => value * 2n),
+      };
+      const stats = new GlobalMiningStats(mining as any, currency as any);
 
-    await stats.load();
+      await stats.load();
 
-    expect(stats.activeSeatCount).toBe(4);
-    expect(stats.aggregatedBidCosts).toBe(1_000n);
-    expect(stats.aggregatedBlockRewards).toBe(1_875n);
-    expect(stats.investedCapital).toBe(1_400n);
-    expect(stats.projectedProfit).toBe(875n);
-    expect(stats.activeBidCosts).toBe(stats.aggregatedBidCosts);
-    expect(stats.activeBlockRewards).toBe(stats.aggregatedBlockRewards);
-    expect(stats.activeTDR).toBe(62.5);
-    expect(stats.averageAPR).toBeCloseTo(2_281.25);
-    expect(stats.activeAPR).toBe(stats.averageAPR);
-    expect(stats.activeAPY).toBe(stats.averageAPY);
-    expect(mining.fetchActiveMinersCount).toHaveBeenCalledWith(api);
-    expect(mining.fetchAggregateBlockRewards).toHaveBeenCalledWith(api);
-    expect(mining.fetchAggregateBidCosts).toHaveBeenCalledWith(api);
-    expect(mining.fetchAggregateMicronotsStaked).toHaveBeenCalledWith(api);
-  });
+      expect(stats.activeSeatCount).toBe(4);
+      expect(stats.aggregatedBidCosts).toBe(1_000n);
+      expect(stats.aggregatedBlockRewards).toBe(1_875n);
+      expect(stats.investedCapital).toBe(1_400n);
+      expect(stats.projectedProfit).toBe(875n);
+      expect(stats.activeBidCosts).toBe(stats.aggregatedBidCosts);
+      expect(stats.activeBlockRewards).toBe(stats.aggregatedBlockRewards);
+      expect(stats.activeTDR).toBe(62.5);
+      expect(stats.averageAPR).toBeCloseTo(2_281.25);
+      expect(stats.averageAPY).toBeCloseTo((1.625 ** 36.5 - 1) * 100);
+      expect(stats.activeAPR).toBe(stats.averageAPR);
+      expect(stats.activeAPY).toBe(stats.averageAPY);
+      expect(mining.fetchActiveMinersCount).toHaveBeenCalledWith(api);
+      expect(mining.fetchAggregateBlockRewards).toHaveBeenCalledWith(api);
+      expect(mining.fetchAggregateBidCosts).toHaveBeenCalledWith(api);
+      expect(mining.fetchAggregateMicronotsStaked).toHaveBeenCalledWith(api);
+    },
+  );
 
   it('exposes base rewards as per-block values', async () => {
     NetworkConfig.setRuntimeOverride('mainnet', {
