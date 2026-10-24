@@ -53,6 +53,10 @@ export class CohortBidder {
   };
   public pendingBidTxResult: TxResult | undefined;
   public isBiddingOpen = true;
+
+  public get isBidInProgress(): boolean {
+    return !!this.pendingRequest;
+  }
   public get isStopping(): boolean {
     return this.stopDeferred.isRunning || this.stopDeferred.isSettled;
   }
@@ -330,7 +334,10 @@ export class CohortBidder {
     }
 
     if (this.nextBid && this.nextBid.bidAtTick <= header.tick) {
-      this.pendingRequest ??= this.submitNextBid();
+      if (!this.pendingRequest) {
+        this.pendingRequest = this.submitNextBid();
+        this.broadcastUpdates();
+      }
     }
   }
 
@@ -629,6 +636,7 @@ export class CohortBidder {
         this.lastBidsHash = undefined;
         this.error('Error planning the next bid after a submission attempt:', error);
       }
+      this.broadcastUpdates();
     }
   }
 

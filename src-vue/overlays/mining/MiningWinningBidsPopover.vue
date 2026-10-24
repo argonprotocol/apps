@@ -17,7 +17,11 @@
     <div class="text-argon-700/80 relative my-1.5 w-full border-y border-dashed border-slate-500/30 font-mono font-bold">
       <div class="py-2 whitespace-nowrap">
         {{ winningBids.length }} Bid{{ winningBids.length === 1 ? '' : 's' }}
-        <template v-if="bot.state?.lastBid">
+        <template v-if="bot.state?.isBidInProgress">
+          <span class="mx-1 text-slate-400">·</span>
+          Bid pending
+        </template>
+        <template v-else-if="bot.state?.lastBid">
           <span class="mx-1 text-slate-400">·</span>
           Last Bid {{ currency.symbol
           }}{{ microgonToMoneyNm(bot.state.lastBid.microgonsPerSeat).format('0.[0]a') }}/Seat
@@ -31,6 +35,7 @@
     <span class="text-md text-gray-500/60">
       <template v-if="!bot.isReady">Bot offline</template>
       <template v-else-if="bot.isSyncing">Syncing mining data</template>
+      <template v-else-if="bot.state?.isBidInProgress">Submitting bid</template>
       <template v-else-if="bot.state?.lastBid && !bot.state.lastBid.isFinalized">Awaiting bid finalization</template>
       <template v-else-if="bot.state?.nextBid">
         Bid planned
@@ -44,7 +49,10 @@
     <template #content>
       <div class="px-4 py-3">
         <p class="font-bold">Bot's Next Action</p>
-        <p v-if="bot.state?.nextBid" class="mt-1">
+        <p v-if="bot.state?.isBidInProgress" class="mt-1">
+          A bid is in progress. The bot will evaluate the auction when this attempt resolves.
+        </p>
+        <p v-else-if="bot.state?.nextBid" class="mt-1">
           Bidding {{ currency.symbol }}{{ microgonToMoneyNm(bot.state.nextBid.microgonsPerSeat).format('0,0.00') }}/seat
           for {{ bot.state.nextBid.seats }} seat{{ bot.state.nextBid.seats === 1 ? '' : 's' }} in
           {{ nextBidDelay.value }} {{ nextBidDelay.unit }}{{ nextBidDelay.value === 1 ? '' : 's' }}.
