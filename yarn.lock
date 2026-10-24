@@ -3419,18 +3419,18 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@storybook/addon-vitest@npm:10.5.7":
-  version: 10.5.7
-  resolution: "@storybook/addon-vitest@npm:10.5.7"
+"@storybook/addon-vitest@npm:10.6.2":
+  version: 10.6.2
+  resolution: "@storybook/addon-vitest@npm:10.6.2"
   dependencies:
     "@storybook/global": "npm:^5.0.0"
     "@storybook/icons": "npm:^2.0.2"
   peerDependencies:
-    "@vitest/browser": ^3.0.0 || ^4.0.0
-    "@vitest/browser-playwright": ^4.0.0
-    "@vitest/runner": ^3.0.0 || ^4.0.0
-    storybook: ^10.5.7
-    vitest: ^3.0.0 || ^4.0.0
+    "@vitest/browser": ^3.0.0 || ^4.0.0 || ^5.0.0
+    "@vitest/browser-playwright": ^4.0.0 || ^5.0.0
+    "@vitest/runner": ^3.0.0 || ^4.0.0 || ^5.0.0
+    storybook: ^10.6.2
+    vitest: ^3.0.0 || ^4.0.0 || ^5.0.0
   peerDependenciesMeta:
     "@vitest/browser":
       optional: true
@@ -3440,7 +3440,7 @@ __metadata:
       optional: true
     vitest:
       optional: true
-  checksum: 10c0/8baf13c6b1c081919202d0342b6dd070913251e21ac858079d00b4f26f8fdf29c4808e150b1a2a255c62bdd2ab2ede45a6fe358dfbba3cbf778ecf09b7c8fc39
+  checksum: 10c0/422bb77645eabd7f8ac3d5fbe145221e9ba69249610d5293a5d91c0c6844f27ef4045b8790eed4aad13f0cc4250e6f69f7fdb50361819d04e053468dd693b3d3
   languageName: node
   linkType: hard
 
@@ -5884,7 +5884,7 @@ __metadata:
     "@polkadot/util": "npm:^14.0.3"
     "@polkadot/util-crypto": "npm:^14.0.3"
     "@scure/bip39": "npm:^1.6.0"
-    "@storybook/addon-vitest": "npm:10.5.7"
+    "@storybook/addon-vitest": "npm:10.6.2"
     "@storybook/vue3-vite": "npm:^10.5.7"
     "@tailwindcss/vite": "npm:^4.3.3"
     "@tauri-apps/api": "npm:~2.11.0"

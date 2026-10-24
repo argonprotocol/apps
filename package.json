@@ -130,7 +130,7 @@
   "devDependencies": {
     "@argonprotocol/testing": "1.5.2-dev.75aac80b",
     "@scure/bip39": "^1.6.0",
-    "@storybook/addon-vitest": "10.5.7",
+    "@storybook/addon-vitest": "10.6.2",
     "@storybook/vue3-vite": "^10.5.7",
     "@tauri-apps/cli": "^2.11.0",
     "@types/bun": "^1.2.22",
