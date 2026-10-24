@@ -824,11 +824,15 @@ describe('CohortBidder unit tests', () => {
     expect(cohortBidder.nextBid?.subaccounts).toHaveLength(1);
   });
 
-  it('claims a planned bid before asynchronous transaction creation begins', async () => {
+  it('reports a bid in progress until an unsuccessful submission resolves', async () => {
     const header = createBlockHeader(100, `0x${'01'.repeat(32)}`);
+    const bidsHash = `0x${'02'.repeat(32)}`;
     const blockWatch = {
       bestBlockHeader: header,
-      subscriptionClient: {},
+      subscriptionClient: {
+        rpc: { state: { getStorageHash: vi.fn().mockResolvedValue({ toHex: () => bidsHash }) } },
+      },
+      getEvents: vi.fn().mockResolvedValue([]),
     };
     const cohortBidder = new CohortBidder(
       accountset,
@@ -861,15 +865,24 @@ describe('CohortBidder unit tests', () => {
     );
     vi.spyOn(cohortBidder, 'planNextBid' as any).mockResolvedValue(undefined);
     vi.spyOn(cohortBidder, 'error' as any).mockImplementation(() => undefined);
+    // @ts-expect-error setting the private auction snapshot for an unchanged bid list
+    cohortBidder.lastBidsHash = bidsHash;
+    // @ts-expect-error setting the private storage key used by the header flow
+    cohortBidder.bidsForNextSlotCohortKey = 'bids-key';
+    const publishedStates: boolean[] = [];
+    cohortBidder.onUpdatedFn = () => publishedStates.push(cohortBidder.isBidInProgress);
 
-    // @ts-expect-error exercising the private submission flow
-    const pendingRequest = cohortBidder.submitNextBid();
+    // @ts-expect-error exercising the private best-block flow
+    await cohortBidder.onHeader(header, false);
     await new Promise(setImmediate);
 
     expect(cohortBidder.nextBid).toBeUndefined();
+    expect(cohortBidder.isBidInProgress).toBe(true);
+    expect(publishedStates).toContain(true);
 
     rejectCreation(new Error('test cleanup'));
-    await pendingRequest;
+    await vi.waitFor(() => expect(cohortBidder.isBidInProgress).toBe(false));
+    expect(publishedStates.at(-1)).toBe(false);
   });
 
   it('retries snapshot planning when immediate replanning fails after a submission attempt', async () => {

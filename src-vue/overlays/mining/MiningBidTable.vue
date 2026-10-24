@@ -81,7 +81,7 @@ const props = defineProps<{
   title: string;
   bids: IWinningBid[];
   currentTick: number;
-  closesAtTick?: number;
+  closesAtTick?: number | null;
   emptyText: string;
 }>();
 
@@ -121,6 +121,7 @@ const visibleBids = Vue.computed(() => (isExpanded.value ? sortedBids.value : co
 
 const auctionStatus = Vue.computed(() => {
   if (props.closesAtTick === undefined) return 'Closed yesterday';
+  if (props.closesAtTick === null) return 'Auction close time unavailable';
 
   const remainingTicks = Math.max(props.closesAtTick - props.currentTick, 0);
   if (remainingTicks === 0) return 'Auction closed';

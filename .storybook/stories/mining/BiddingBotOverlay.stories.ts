@@ -100,6 +100,7 @@ type BiddingStoryBotState = Pick<
   | 'isReady'
   | 'isSyncing'
   | 'isBiddingOpen'
+  | 'isBidInProgress'
   | 'currentTick'
   | 'maxSeatsInPlay'
   | 'maxSeatsReductionReason'
@@ -126,6 +127,7 @@ const botState: BiddingStoryBotState = {
   isReady: true,
   isSyncing: false,
   isBiddingOpen: true,
+  isBidInProgress: false,
   currentTick: 2_000_100,
   maxSeatsInPlay: 100,
   maximumBidMicrogonsPerSeat: 600_000_000n,
@@ -591,6 +593,21 @@ export const OutbidDetails: Story = {
 export const BidAwaitingFinalization: Story = {
   name: 'Bid Awaiting Finalization',
   beforeEach: usePendingBidScenario,
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement.ownerDocument.body);
+
+    await userEvent.hover(await canvas.findByTestId('BiddingBotOverlay.winningBidsStat'));
+  },
+};
+
+export const BidInProgress: Story = {
+  name: 'Bid In Progress',
+  beforeEach: () => {
+    setBiddingStoryState({
+      state: { ...botState, isBidInProgress: true, lastBid: undefined },
+      winningBids: [],
+    });
+  },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement.ownerDocument.body);
 

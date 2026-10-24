@@ -116,13 +116,14 @@ const previousBids = Vue.ref<IWinningBid[]>([]);
 const currentBids = Vue.ref<IWinningBid[]>(
   (bot.isReady ? bot.state?.winningBids : undefined) ?? myMiningSeats.allWinningBids,
 );
-const currentAuctionClosesAtTick = Vue.ref(0);
+const currentAuctionClosesAtTick = Vue.ref<number | null>(null);
 const capitalTransfer = Vue.ref<IMiningCapitalTransferProgress>();
 const capitalChangeError = Vue.ref<string | undefined>(moveCapital.data.allocationError);
 let stopCapitalProgress: VoidFunction | undefined;
 let biddingRefreshRequestId = 0;
 let previousBidsBotRequestId = 0;
 let biddingRefreshFrameId: number | undefined;
+let auctionCloseFrameId: number | undefined;
 
 type StatId = 'capital' | 'bids' | 'seats';
 const activeStat = Vue.ref<StatId>();
@@ -164,6 +165,10 @@ function openBotSettings() {
 
 async function refreshBiddingData() {
   const currentFrameId = miningFrames.currentFrameId;
+  if (auctionCloseFrameId !== currentFrameId) {
+    auctionCloseFrameId = currentFrameId;
+    currentAuctionClosesAtTick.value = null;
+  }
   // Live updates must not invalidate a slower request for the same completed auction.
   if (biddingRefreshFrameId === currentFrameId) return;
   biddingRefreshFrameId = currentFrameId;
