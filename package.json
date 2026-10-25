@@ -27,7 +27,7 @@
     "build:server": "yarn workspace @argonprotocol/apps-bot run build && yarn workspace @argonprotocol/apps-router run build && tsx scripts/buildServer.ts",
     "build:version": "tsx scripts/syncVersions.ts",
     "build:config": "tsx scripts/updateNetworkConfigs.ts",
-    "dev": "tsx dev/cli.ts",
+    "dev": "node --disable-warning=ExperimentalWarning --import tsx dev/cli.ts",
     "testnet": "tsx dev/commands/testnet.ts",
     "mainnet": "tsx dev/commands/mainnet.ts",
     "e2e:prepare": "tsx e2e/prepare.ts",

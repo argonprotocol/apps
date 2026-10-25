@@ -15,6 +15,7 @@ type RuntimeEventInput = GenericEvent | HistoricalEvent;
 export type RuntimeEvent = HistoricalEvent;
 
 export type ITxProgressCallback = (progressToInBlock: number, result?: TxResult) => void;
+export type ITxStatusCallback = (status: ISubmittableResult['status']) => void;
 
 type IBlockInclusion = {
   blockHash: Uint8Array;
@@ -60,6 +61,7 @@ export class TxResult {
   public extrinsicIndex: number | undefined;
 
   public txProgressCallback?: ITxProgressCallback;
+  public txStatusCallback?: ITxStatusCallback;
   /**
    * The index of the batch that was interrupted, if any.
    */
@@ -174,6 +176,7 @@ export class TxResult {
 
   public onSubscriptionResult(client: ArgonClient, result: ISubmittableResult) {
     const { events, status, isFinalized, txIndex } = result;
+    this.txStatusCallback?.(status);
     const extrinsicEvents = events.map(x => x.event);
 
     if (status.isBroadcast) {

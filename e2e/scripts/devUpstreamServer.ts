@@ -67,6 +67,9 @@ export function getDevDockerComposeContext(
   const composeProjectName =
     process.env.JOIN_COMPOSE_NETWORK?.trim() || dotenvEnv.COMPOSE_PROJECT_NAME?.trim() || undefined;
   const composeEnv: NodeJS.ProcessEnv = { ...dotenvEnv, ...process.env, ...args.envOverrides };
+  // Compose reads these optional price-oracle values even when its profile is disabled.
+  composeEnv.BLS_API_KEY ??= '';
+  composeEnv.ETHEREUM_RPC_URLS ??= '';
 
   delete composeEnv.COMPOSE_PROJECT_NAME;
   if (composeProjectName) {

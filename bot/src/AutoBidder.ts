@@ -315,6 +315,7 @@ export class AutoBidder {
               frameId: cohortActivationFrameId,
             });
           },
+          onFinalizedBidActivityError: error => this.history.handleError(error, cohortActivationFrameId),
         },
       );
       if (this.isStopped) return;
