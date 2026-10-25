@@ -103,12 +103,13 @@ export class History {
     });
   }
 
-  public handleError(error: Error) {
+  public handleError(error: Error, frameId = this.cohortStartingFrameId) {
     console.log('ERROR', error);
     this.appendActivities({
       tick: MiningFrames.calculateCurrentTickFromSystemTime(),
       type: BotActivityType.Error,
       data: { name: error.name, message: error.message },
+      frameId,
     });
   }
 

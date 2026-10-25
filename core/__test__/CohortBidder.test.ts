@@ -9,10 +9,12 @@ import {
   TransactionEvents,
   type ArgonClient,
   TxResult,
+  TxSubmitter,
 } from '../src/index.ts';
 import { sudo } from '@argonprotocol/testing';
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
-import { mnemonicGenerate } from '@argonprotocol/mainchain';
+import { getOfflineRegistry, mnemonicGenerate } from '@argonprotocol/mainchain';
+import { GenericExtrinsicEra } from '@polkadot/types/extrinsic';
 import { createTypedEventEmitter } from '../src/utils.ts';
 
 afterEach(() => {
@@ -529,6 +531,61 @@ describe('CohortBidder unit tests', () => {
     expect(bidsForNextSlotCohort).toHaveBeenCalledOnce();
   });
 
+  it('does not publish an older auction snapshot after a newer header finishes first', async () => {
+    const olderHeader = createBlockHeader(100, `0x${'61'.repeat(32)}`);
+    const newerHeader = createBlockHeader(101, `0x${'62'.repeat(32)}`);
+    let resolveOlder!: (bids: { accountId: string; bid: bigint; argonots: bigint; bidAtTick: number }[]) => void;
+    const olderBids = new Promise<
+      {
+        accountId: string;
+        bid: bigint;
+        argonots: bigint;
+        bidAtTick: number;
+      }[]
+    >(resolve => {
+      resolveOlder = resolve;
+    });
+    const client = {
+      rpc: { state: { getStorageHash: async (_key: string, hash: string) => ({ toHex: () => hash }) } },
+      at: async (hash: string) => ({
+        query: {
+          miningSlot: {
+            bidsForNextSlotCohort: async () =>
+              hash === olderHeader.blockHash
+                ? olderBids
+                : [{ accountId: 'synthetic-newer', bid: 700_000n, argonots: 10_000n, bidAtTick: 101 }],
+          },
+        },
+      }),
+    };
+    const blockWatch = { bestBlockHeader: newerHeader, subscriptionClient: client };
+    const cohortBidder = new CohortBidder(
+      accountset,
+      { blockWatch } as unknown as MiningFrames,
+      10,
+      accountset.getAccountsInRange([0]).map(account => ({
+        address: account.address,
+        isRebid: false,
+        index: account.index,
+      })),
+      { minBid: 500_000n, maxBid: 1_000_000n, bidIncrement: 10_000n, bidDelay: 1 },
+    );
+    // @ts-expect-error setting the storage key for the private header flow
+    cohortBidder.bidsForNextSlotCohortKey = '0xbids';
+    vi.spyOn(cohortBidder, 'planNextBid' as any).mockResolvedValue(undefined);
+
+    // @ts-expect-error exercising overlapping production header handlers
+    const olderUpdate = cohortBidder.onHeader(olderHeader, false);
+    await new Promise(setImmediate);
+    // @ts-expect-error exercising overlapping production header handlers
+    await cohortBidder.onHeader(newerHeader, false);
+    resolveOlder([{ accountId: 'synthetic-older', bid: 500_000n, argonots: 10_000n, bidAtTick: 100 }]);
+    await olderUpdate;
+
+    expect(cohortBidder.currentBids.atBlockNumber).toBe(101);
+    expect(cohortBidder.currentBids.bids[0].bidMicrogons).toBe(700_000n);
+  });
+
   it('publishes other bidders changes while our maximum bid keeps us out of the auction', async () => {
     const { cohortBidder } = await createBidderWithMocks(accountset, [0, 0], {
       minBid: 100_000n,
@@ -571,88 +628,86 @@ describe('CohortBidder unit tests', () => {
     expect(cohortBidder.bidsAttempted).toBe(0);
   });
 
-  it('does not wait for storage freshness after a bid transaction has no successful calls', async () => {
+  it('rebids a newly outbid seat without repeating the configured delay', async () => {
     const { cohortBidder } = await createBidderWithMocks(accountset, [0, 0], {
       minBid: 500_000n,
       maxBid: 1_000_000n,
-      accountBalance: 1_000_000n,
+      accountBalance: 10_000_000n,
+      bidDelay: 100,
     });
-    cohortBidder.currentBids.atTick = 100;
     cohortBidder.lastBid = {
       submittedAtTick: 100,
       expectedFinalizationTick: 105,
       isFinalized: true,
       microgonsPerSeat: 500_000n,
       seats: 1,
-      seatsWon: 0,
-    };
-
-    // @ts-expect-error exercising the private planning flow
-    await cohortBidder.planNextBid();
-
-    expect(cohortBidder.nextBid?.subaccounts).toHaveLength(1);
-  });
-
-  it('counts a failed bid finalization as zero successful bids', async () => {
-    const currentTick = 100;
-    const bidError = new Error('proxy rejected the batch');
-    const client = {
-      at: vi.fn(),
-      query: {
-        ticks: {
-          currentTick: vi.fn().mockResolvedValue(currentTick),
-        },
-      },
-    };
-    client.at.mockResolvedValue(client);
-    const blockWatch = {
-      bestBlockHeader: createBlockHeader(100, `0x${'01'.repeat(32)}`),
-      subscriptionClient: client,
-    };
-    const onBidsRejected = vi.fn();
-    const cohortBidder = new CohortBidder(
-      accountset,
-      { blockWatch } as unknown as MiningFrames,
-      10,
-      accountset.getAccountsInRange([0]).map(account => ({
-        address: account.address,
-        isRebid: false,
-        index: account.index,
-      })),
-      {
-        minBid: 500_000n,
-        maxBid: 1_000_000n,
-        bidIncrement: 10_000n,
-        bidDelay: 1,
-      },
-      { onBidsRejected },
-    );
-    cohortBidder.lastBid = {
-      submittedAtTick: currentTick,
-      expectedFinalizationTick: currentTick + 5,
-      isFinalized: false,
-      microgonsPerSeat: 500_000n,
-      seats: 1,
       seatsWon: 1,
     };
-    const txResult = {
-      blockHash: new Uint8Array([1]),
-      blockNumber: 100,
-      submissionError: bidError,
-      finalFee: 0n,
-      waitForFinalizedBlock: Promise.reject(bidError),
-    } as TxResult;
+    cohortBidder.currentBids.bids = createBids(10, 600_000n, 101);
+    cohortBidder.currentBids.mostRecentBidTick = 101;
+    cohortBidder.currentBids.atTick = 101;
+    cohortBidder.currentBids.atBlockNumber = 101;
 
-    // @ts-expect-error exercising the private finalization flow
-    await cohortBidder.awaitFinalization(txResult, 500_000n, 1);
+    // @ts-expect-error exercising the production auction planner
+    await cohortBidder.planNextBid(40);
 
-    expect(cohortBidder.lastBid.seatsWon).toBe(0);
+    expect(cohortBidder.nextBid).toMatchObject({ microgonsPerSeat: 610_000n, bidAtTick: 101 });
+  });
+
+  it('records an included interrupted batch as rejected and keeps its final fee', async () => {
+    const { cohortBidder, blockWatch, client, results, setPoolNonce } = await createBidLifecycleHarness(accountset);
+    const onBidsRejected = vi.fn();
+    cohortBidder.callbacks = { onBidsRejected };
+    cohortBidder.currentBids.atTick = 100;
+    cohortBidder.currentBids.atBlockNumber = 100;
+    Object.assign(cohortBidder, { lastBidsHash: '0xunchanged', bidsForNextSlotCohortKey: 'bids-key' });
+    Object.assign(client.query.miningSlot, { bidsForNextSlotCohort: async () => [] });
+
+    // @ts-expect-error exercising the production auction planner
+    await cohortBidder.planNextBid(40);
+    // @ts-expect-error exercising the production submission flow
+    await cohortBidder.submitNextBid();
+
+    const includedHash = `0x${'53'.repeat(32)}`;
+    client.canonicalHashes.set(101, includedHash);
+    Object.assign(blockWatch, { bestBlockHeader: createBlockHeader(101, includedHash) });
+    await results[0].setSeenInBlock(client.api, {
+      blockHash: Buffer.from(includedHash.slice(2), 'hex'),
+      blockNumber: 101,
+      extrinsicIndex: 0,
+      events: [
+        {
+          section: 'utility',
+          method: 'BatchInterrupted',
+          data: { index: 0, error: { type: 'Token', value: { type: 'FundsUnavailable' } } },
+        },
+        {
+          section: 'transactionPayment',
+          method: 'TransactionFeePaid',
+          data: { who: 'synthetic-payer', actualFee: 35_000n, tip: 0n },
+        },
+      ],
+    });
+    await new Promise(setImmediate);
+    expect(cohortBidder.lastBid?.seatsWon).toBe(0);
+
+    // Retry the unchanged auction before the rejected transaction is finalized.
+    setPoolNonce(1);
+    const nextHeader = createBlockHeader(102, `0x${'54'.repeat(32)}`);
+    Object.assign(blockWatch, { bestBlockHeader: nextHeader });
+    // @ts-expect-error exercising the production header and planning flow
+    await cohortBidder.onHeader(nextHeader, false);
+    await vi.waitFor(() => expect(results).toHaveLength(2));
+    expect(results[1].extrinsic.nonce).toBe(1);
+
+    await results[0].setFinalized(client.api);
+    await expect.poll(() => onBidsRejected.mock.calls.length).toBe(1);
     expect(onBidsRejected).toHaveBeenCalledWith(
-      expect.objectContaining({
-        submittedCount: 1,
-        rejectedCount: 1,
-      }),
+      expect.objectContaining({ tick: 101, blockNumber: 101, rejectedCount: 1, submittedCount: 1 }),
     );
+    expect(cohortBidder.lastBid).toMatchObject({ isFinalized: true, seatsWon: 0 });
+    expect(cohortBidder.txFees).toBe(35_000n);
+    results[1].submissionError = new Error('test cleanup');
   });
 
   it('does not let an older finalization overwrite a newer bid record', async () => {
@@ -668,6 +723,7 @@ describe('CohortBidder unit tests', () => {
     client.at.mockResolvedValue(client);
     const blockWatch = {
       bestBlockHeader: createBlockHeader(100, `0x${'01'.repeat(32)}`),
+      getHeader: async () => createBlockHeader(100, `0x${'01'.repeat(32)}`),
       subscriptionClient: client,
     };
     const cohortBidder = new CohortBidder(
@@ -686,15 +742,22 @@ describe('CohortBidder unit tests', () => {
         bidDelay: 1,
       },
     );
-    let finalizeOlderBid!: (blockHash: Uint8Array) => void;
-    const txResult = {
-      blockHash: new Uint8Array([1]),
+    const blockHash = new Uint8Array([1]);
+    const txResult = new TxResult({
+      signedHash: '0x01',
+      method: {},
+      submittedTime: new Date(),
+      submittedAtBlockNumber: 100,
+      accountAddress: accountset.txSubmitterPair.address,
+      nonce: 0,
+    });
+    await txResult.setSeenInBlock(client as unknown as ArgonClient, {
+      blockHash,
       blockNumber: 100,
-      finalFee: 0n,
-      waitForFinalizedBlock: new Promise(resolve => {
-        finalizeOlderBid = resolve;
-      }),
-    } as TxResult;
+      events: [],
+      extrinsicIndex: 0,
+    });
+    txResult.finalFee = 0n;
     const olderBid = {
       submittedAtTick: currentTick,
       expectedFinalizationTick: currentTick + 5,
@@ -704,12 +767,21 @@ describe('CohortBidder unit tests', () => {
       seatsWon: 1,
     };
     cohortBidder.lastBid = olderBid;
+    const olderAttempt = {
+      txResult,
+      tip: 0n,
+      deathBlock: 108,
+      microgonsPerSeat: 500_000n,
+      subaccounts: [cohortBidder.subaccounts[0].address],
+      inclusion: { blockHash: '0x01', blockNumber: 100 },
+    };
+    Object.assign(cohortBidder, { activeBidAttempt: olderAttempt, lastBidAttempt: olderAttempt });
 
     // @ts-expect-error exercising the private finalization flow
-    const olderFinalization = cohortBidder.awaitFinalization(txResult, 500_000n, 1);
+    const olderFinalization = cohortBidder.awaitFinalization(olderAttempt);
     await new Promise(setImmediate);
 
-    cohortBidder.lastBid = {
+    const newerBid = {
       submittedAtTick: currentTick + 1,
       expectedFinalizationTick: currentTick + 6,
       isFinalized: false,
@@ -717,10 +789,16 @@ describe('CohortBidder unit tests', () => {
       seats: 1,
       seatsWon: 1,
     };
-    finalizeOlderBid(new Uint8Array([1]));
+    cohortBidder.lastBid = newerBid;
+    const newerAttempt = {
+      ...olderAttempt,
+      inclusion: { blockHash: '0x02', blockNumber: 101 },
+    };
+    Object.assign(cohortBidder, { activeBidAttempt: newerAttempt, lastBidAttempt: newerAttempt });
+    await txResult.setFinalized(client as unknown as ArgonClient);
     await olderFinalization;
 
-    expect(olderBid.isFinalized).toBe(true);
+    expect(olderBid.isFinalized).toBe(false);
     expect(cohortBidder.lastBid.isFinalized).toBe(false);
     expect(cohortBidder.lastBid.microgonsPerSeat).toBe(600_000n);
   });
@@ -927,98 +1005,241 @@ describe('CohortBidder unit tests', () => {
   });
 
   it.each([
-    { frameRewardTicksRemaining: 10, expectedEra: 8 },
-    { frameRewardTicksRemaining: 8, expectedEra: 4 },
-    { frameRewardTicksRemaining: 7, expectedEra: 4 },
-    { frameRewardTicksRemaining: 5, expectedEra: 4 },
-    { frameRewardTicksRemaining: 4, expectedEra: 4 },
-    { frameRewardTicksRemaining: 1, expectedEra: 4 },
-  ])(
-    'selects safe bid mortality when $frameRewardTicksRemaining frame ticks remain',
-    async ({ frameRewardTicksRemaining, expectedEra }) => {
-      const currentTick = 100;
-      const bestBlockHash = `0x${'01'.repeat(32)}`;
-      const death = vi.fn().mockReturnValue(100 + expectedEra);
-      const mortalEra = { asMortalEra: { death } };
-      const client = {
-        at: vi.fn(),
-        registry: {
-          createType: vi.fn().mockReturnValue(mortalEra),
-        },
-        query: {
-          ticks: {
-            currentTick: vi.fn().mockResolvedValue(currentTick),
-          },
-        },
-      };
-      client.at.mockResolvedValue(client);
-      const blockWatch = {
-        bestBlockHeader: { blockNumber: 100, blockHash: bestBlockHash, frameRewardTicksRemaining },
-        finalizedBlockHeader: { blockNumber: 99, blockHash: '0xfinalized' },
-        latestHeaders: [],
-        events: createTypedEventEmitter(),
-        subscriptionClient: client,
-      };
-      const cohortBidder = new CohortBidder(
-        accountset,
-        { blockWatch } as unknown as MiningFrames,
-        10,
-        accountset.getAccountsInRange([0]).map(account => ({
-          address: account.address,
-          isRebid: false,
-          index: account.index,
-        })),
-        {
-          minBid: 500_000n,
-          maxBid: 1_000_000n,
-          bidIncrement: 10_000n,
-          bidDelay: 1,
-        },
-      );
-      cohortBidder.nextBid = {
-        microgonsPerSeat: 500_000n,
-        subaccounts: [cohortBidder.subaccounts[0].address],
-        alreadyWinningSeats: 0,
-        bidAtTick: currentTick,
-        tip: 0n,
-      };
-
-      const txResult = {
-        extrinsic: { submittedAtBlockNumber: 100 },
-        waitForInFirstBlock: Promise.resolve(new Uint8Array([1])),
-        waitForFinalizedBlock: Promise.resolve(new Uint8Array([1])),
+    { finalizedHeight: 99, remaining: 10, period: 16, birth: 92, death: 108 },
+    { finalizedHeight: 96, remaining: 8, period: 8, birth: 96, death: 104 },
+    { finalizedHeight: 92, remaining: 7, period: 16, birth: 88, death: 104 },
+    { finalizedHeight: 99, remaining: 1, period: 8, birth: 96, death: 104 },
+  ])('anchors the signed bid to a finalized ancestor ($finalizedHeight, $remaining)', async scenario => {
+    const { cohortBidder, blockWatch, client, sign, results } = await createBidLifecycleHarness(accountset);
+    const finalizedHash = `0x${'02'.repeat(32)}`;
+    const ancestorHash = `0x${'03'.repeat(32)}`;
+    Object.assign(blockWatch, {
+      bestBlockHeader: { ...blockWatch.bestBlockHeader, frameRewardTicksRemaining: scenario.remaining },
+      finalizedBlockHeader: {
+        ...createBlockHeader(scenario.finalizedHeight, finalizedHash),
         isFinalized: true,
-        blockHash: new Uint8Array([1]),
-        blockNumber: 100,
-      } as TxResult;
-      const signedTx = { era: mortalEra };
-      const sign = vi.fn().mockResolvedValue(signedTx);
-      const submitSigned = vi.fn().mockResolvedValue(txResult);
-      vi.spyOn(accountset, 'createMiningBidTx').mockResolvedValue({
-        client,
-        sign,
-        submitSigned,
-      } as never);
-      vi.spyOn(cohortBidder, 'planNextBid' as any).mockResolvedValue(undefined);
+      },
+    });
+    cohortBidder.currentBids.atTick = 100;
+    cohortBidder.currentBids.atBlockNumber = 100;
+    // @ts-expect-error exercising the production auction planner
+    await cohortBidder.planNextBid(scenario.remaining);
+    // @ts-expect-error exercising the private submission flow
+    await cohortBidder.submitNextBid();
 
-      // @ts-expect-error exercising the private submission flow
-      await cohortBidder.submitNextBid();
+    const signing = sign.mock.calls[0][1];
+    if (!signing.era || typeof signing.era === 'number') throw new Error('Expected a signed mortal era');
+    const signedEra = new GenericExtrinsicEra(client.registry, signing.era);
+    expect(signing.blockHash).toBe(scenario.birth === scenario.finalizedHeight ? finalizedHash : ancestorHash);
+    expect(signedEra.asMortalEra.period.toNumber()).toBe(scenario.period);
+    expect(signedEra.asMortalEra.birth(100)).toBe(scenario.birth);
+    expect(signedEra.asMortalEra.death(100)).toBe(scenario.death);
+    expect(results).toHaveLength(1);
+  });
 
-      expect(client.registry.createType).toHaveBeenCalledWith('ExtrinsicEra', {
-        current: 100,
-        period: expectedEra,
-      });
-      expect(sign).toHaveBeenCalledWith({
-        blockHash: bestBlockHash,
-        era: mortalEra,
-        tip: 0n,
-        useLatestNonce: true,
-      });
-      expect(submitSigned).toHaveBeenCalledWith(signedTx);
-      expect(death).toHaveBeenCalledWith(100);
-      expect(cohortBidder.lastBid?.submittedAtTick).toBe(currentTick);
-    },
-  );
+  it('reprices an outbid pending batch at the same nonce and retires the usurped callback', async () => {
+    const { cohortBidder, blockWatch, submitSigned, sign, results, setPoolNonce, client } =
+      await createBidLifecycleHarness(accountset);
+    cohortBidder.currentBids.atTick = 100;
+    cohortBidder.currentBids.atBlockNumber = 100;
+    // @ts-expect-error exercising the production auction planner
+    await cohortBidder.planNextBid(20);
+    // @ts-expect-error exercising the production submission flow
+    await cohortBidder.submitNextBid();
+    expect(results).toHaveLength(1);
+    expect(cohortBidder.isBidInProgress).toBe(true);
+
+    cohortBidder.currentBids.bids = createBids(10, 600_000n, 101);
+    cohortBidder.currentBids.atTick = 101;
+    cohortBidder.currentBids.atBlockNumber = 101;
+    // @ts-expect-error exercising the production auction planner while inclusion is pending
+    await cohortBidder.planNextBid(19);
+    expect(cohortBidder.nextBid).toMatchObject({ microgonsPerSeat: 610_000n, bidAtTick: 101, tip: 100_000n });
+    // @ts-expect-error exercising the production submission flow
+    await cohortBidder.submitNextBid();
+
+    expect(submitSigned).toHaveBeenCalledTimes(2);
+    expect(sign.mock.calls[0][1].nonce).toBe(0);
+    expect(sign.mock.calls[1][1].nonce).toBe(0);
+    expect(sign.mock.calls[1][1].tip).toBe(100_000n);
+    expect(cohortBidder.pendingBidTxResult).toBe(results[1]);
+
+    results[0].submissionError = new Error('usurped');
+    await new Promise(setImmediate);
+    expect(cohortBidder.pendingBidTxResult).toBe(results[1]);
+    expect(cohortBidder.isBidInProgress).toBe(true);
+
+    const includedHash = `0x${'12'.repeat(32)}`;
+    client.canonicalHashes.set(102, includedHash);
+    setPoolNonce(1);
+    Object.assign(blockWatch, { bestBlockHeader: createBlockHeader(102, includedHash) });
+    await results[1].setSeenInBlock(client.api, {
+      blockHash: Buffer.from(includedHash.slice(2), 'hex'),
+      blockNumber: 102,
+      events: [],
+      extrinsicIndex: 0,
+    });
+    await new Promise(setImmediate);
+    expect(cohortBidder.lastBid).toMatchObject({ microgonsPerSeat: 610_000n, seatsWon: 1 });
+
+    Object.assign(blockWatch, { bestBlockHeader: createBlockHeader(103, `0x${'13'.repeat(32)}`) });
+    cohortBidder.currentBids.bids = createBids(10, 700_000n, 103);
+    cohortBidder.currentBids.atTick = 103;
+    cohortBidder.currentBids.atBlockNumber = 103;
+    // @ts-expect-error exercising canonical next-nonce bidding after inclusion
+    await cohortBidder.planNextBid(17);
+    expect(cohortBidder.nextBid).toMatchObject({ microgonsPerSeat: 710_000n, bidAtTick: 103, tip: 0n });
+    // @ts-expect-error exercising the production submission flow
+    await cohortBidder.submitNextBid();
+    expect(sign.mock.calls[2][1]).toMatchObject({ nonce: 1, tip: 0n });
+    expect(results[2].extrinsic.nonce).toBe(1);
+
+    await results[1].setFinalized(client.api);
+    await new Promise(setImmediate);
+    expect(cohortBidder.lastBid?.isFinalized).toBe(true);
+    expect(cohortBidder.pendingBidTxResult).toBe(results[2]);
+  });
+
+  it('replaces an orphaned bid without Retracted and credits its canonical re-inclusion', async () => {
+    const { cohortBidder, blockWatch, client, results, sign } = await createBidLifecycleHarness(accountset);
+    cohortBidder.currentBids.atTick = 100;
+    cohortBidder.currentBids.atBlockNumber = 100;
+    // @ts-expect-error exercising the production auction planner
+    await cohortBidder.planNextBid(20);
+    // @ts-expect-error exercising the production submission flow
+    await cohortBidder.submitNextBid();
+
+    const orphanHash = `0x${'11'.repeat(32)}`;
+    client.canonicalHashes.set(101, orphanHash);
+    Object.assign(blockWatch, { bestBlockHeader: createBlockHeader(101, orphanHash) });
+    await results[0].setSeenInBlock(client.api, {
+      blockHash: Buffer.from(orphanHash.slice(2), 'hex'),
+      blockNumber: 101,
+      events: [],
+      extrinsicIndex: 0,
+    });
+    await new Promise(setImmediate);
+    expect(cohortBidder.lastBid?.seatsWon).toBe(1);
+
+    const canonicalHash = `0x${'22'.repeat(32)}`;
+    client.canonicalHashes.set(101, canonicalHash);
+    const reorgHeader = { ...createBlockHeader(102, `0x${'23'.repeat(32)}`), tick: 102 };
+    Object.assign(blockWatch, { bestBlockHeader: reorgHeader });
+    cohortBidder.currentBids.bids = createBids(10, 600_000n, 102);
+    cohortBidder.currentBids.atTick = 102;
+    cohortBidder.currentBids.atBlockNumber = 102;
+    // @ts-expect-error preserving an unchanged storage snapshot across the reorg
+    cohortBidder.lastBidsHash = '0xunchanged';
+    // @ts-expect-error exercising the production best-header flow with no Retracted status
+    await cohortBidder.onHeader(reorgHeader, false);
+    await expect.poll(() => results.length).toBe(2);
+    expect(cohortBidder.lastBid).toBeUndefined();
+    expect(sign.mock.calls[1][1].nonce).toBe(0);
+    expect(results[1].extrinsic.nonce).toBe(0);
+    expect(cohortBidder.pendingBidTxResult).toBe(results[1]);
+
+    const reIncludedHash = `0x${'24'.repeat(32)}`;
+    client.canonicalHashes.set(103, reIncludedHash);
+    Object.assign(blockWatch, { bestBlockHeader: createBlockHeader(104, `0x${'25'.repeat(32)}`) });
+    await results[0].setSeenInBlock(client.api, {
+      blockHash: Buffer.from(reIncludedHash.slice(2), 'hex'),
+      blockNumber: 103,
+      events: [],
+      extrinsicIndex: 0,
+    });
+    await results[0].setFinalized(client.api);
+    results[1].submissionError = new Error('stale nonce');
+    await new Promise(setImmediate);
+
+    expect(cohortBidder.lastBid).toMatchObject({
+      submittedAtTick: 103,
+      microgonsPerSeat: 500_000n,
+      seatsWon: 1,
+      isFinalized: true,
+    });
+    expect(cohortBidder.pendingBidTxResult).toBeUndefined();
+  });
+
+  it('records a finalized bid after a transient inclusion-header read failure', async () => {
+    const { cohortBidder, blockWatch, client, results } = await createBidLifecycleHarness(accountset);
+    const onBidsSubmitted = vi.fn();
+    cohortBidder.callbacks = { onBidsSubmitted };
+    vi.spyOn(cohortBidder, 'error' as any).mockImplementation(() => undefined);
+    cohortBidder.currentBids.atTick = 100;
+    cohortBidder.currentBids.atBlockNumber = 100;
+    // @ts-expect-error exercising the production auction planner
+    await cohortBidder.planNextBid(40);
+    // @ts-expect-error exercising the production submission flow
+    await cohortBidder.submitNextBid();
+
+    const includedHash = `0x${'51'.repeat(32)}`;
+    client.canonicalHashes.set(101, includedHash);
+    Object.assign(blockWatch, { bestBlockHeader: createBlockHeader(101, includedHash) });
+    vi.spyOn(blockWatch, 'getHeader')
+      .mockRejectedValueOnce(new Error('temporary archive failure'))
+      .mockRejectedValueOnce(new Error('temporary archive failure'))
+      .mockResolvedValue(createBlockHeader(101, includedHash));
+    await results[0].setSeenInBlock(client.api, {
+      blockHash: Buffer.from(includedHash.slice(2), 'hex'),
+      blockNumber: 101,
+      events: [],
+      extrinsicIndex: 0,
+    });
+    await new Promise(setImmediate);
+    await results[0].setFinalized(client.api);
+    await expect.poll(() => onBidsSubmitted.mock.calls.length).toBe(1);
+
+    expect(onBidsSubmitted).toHaveBeenCalledWith(
+      expect.objectContaining({ tick: 101, blockNumber: 101, microgonsPerSeat: 500_000n }),
+    );
+    expect(cohortBidder.lastBid).toMatchObject({ isFinalized: true, seatsWon: 1 });
+    expect(cohortBidder.pendingBidTxResult).toBeUndefined();
+  });
+
+  it('does not submit signed bytes after the intended auction closes', async () => {
+    const { cohortBidder, sign, setBiddingOpen, submitSigned, results } = await createBidLifecycleHarness(accountset);
+    cohortBidder.currentBids.atTick = 100;
+    cohortBidder.currentBids.atBlockNumber = 100;
+    // @ts-expect-error exercising the production auction planner
+    await cohortBidder.planNextBid(20);
+
+    sign.mockImplementationOnce(async (_signer, options) => {
+      setBiddingOpen(false);
+      return { era: options.era, nonce: { toNumber: () => 0 } };
+    });
+    vi.spyOn(cohortBidder, 'error' as any).mockImplementation(() => undefined);
+    // @ts-expect-error exercising the signing/submission boundary
+    await cohortBidder.submitNextBid();
+
+    expect(submitSigned).not.toHaveBeenCalled();
+    expect(results).toHaveLength(0);
+    expect(cohortBidder.pendingBidTxResult).toBeUndefined();
+  });
+
+  it.each([
+    { finalizedHeight: 0, blockHashCount: 4096 },
+    { finalizedHeight: 96, blockHashCount: 8 },
+  ])('does not sign when exact mortality has no retained finalized birth ($finalizedHeight)', async scenario => {
+    const { cohortBidder, blockWatch, client, sign, submitSigned } = await createBidLifecycleHarness(accountset);
+    Object.assign(blockWatch, {
+      finalizedBlockHeader: {
+        ...createBlockHeader(scenario.finalizedHeight, `0x${'02'.repeat(32)}`),
+        isFinalized: true,
+      },
+    });
+    client.consts.system.blockHashCount = scenario.blockHashCount;
+    cohortBidder.currentBids.atTick = 100;
+    cohortBidder.currentBids.atBlockNumber = 100;
+    // @ts-expect-error exercising the production auction planner
+    await cohortBidder.planNextBid(40);
+    vi.spyOn(cohortBidder, 'error' as any).mockImplementation(() => undefined);
+    // @ts-expect-error exercising the finalized-birth signing boundary
+    await cohortBidder.submitNextBid();
+
+    expect(sign).not.toHaveBeenCalled();
+    expect(submitSigned).not.toHaveBeenCalled();
+    expect(cohortBidder.pendingBidTxResult).toBeUndefined();
+  });
 
   it('does not search when transaction tracking reports finalization normally', async () => {
     const deathBlock = 108;
@@ -1146,22 +1367,29 @@ describe('CohortBidder unit tests', () => {
     );
   });
 
-  it('rejects a silent transaction when its mortality lookup fails', async () => {
+  it('reports an actionable error when mortality lookup remains unavailable', async () => {
     const deathBlock = 108;
     const { blockWatch, cohortBidder, txResult } = createBidRecoveryHarness(accountset);
-    const lookupError = new Error('temporary rpc failure');
-    const findTransaction = vi.spyOn(TransactionEvents, 'findByExtrinsicHash').mockRejectedValue(lookupError);
+    const findTransaction = vi
+      .spyOn(TransactionEvents, 'findByExtrinsicHash')
+      .mockRejectedValue(new Error('temporary rpc failure'));
     vi.spyOn(cohortBidder, 'error' as any).mockImplementation(() => undefined);
 
     // @ts-expect-error exercising private mortality fallback behavior
     cohortBidder.startBidMortalityFallback(txResult, deathBlock);
     const deathHeader = createBlockHeader(deathBlock, `0x${'08'.repeat(32)}`);
     Object.assign(blockWatch, { bestBlockHeader: deathHeader });
-    blockWatch.events.emit('best-blocks', [deathHeader]);
+    vi.useFakeTimers();
+    try {
+      blockWatch.events.emit('best-blocks', [deathHeader]);
+      await vi.runAllTimersAsync();
+    } finally {
+      vi.useRealTimers();
+    }
 
-    await expect(txResult.waitForInFirstBlock).rejects.toThrow(lookupError.message);
-    await expect(txResult.waitForFinalizedBlock).rejects.toThrow(lookupError.message);
-    expect(findTransaction).toHaveBeenCalledTimes(1);
+    await expect(txResult.waitForInFirstBlock).rejects.toThrow('Bid inclusion could not be verified');
+    await expect(txResult.waitForFinalizedBlock).rejects.toThrow('Bid inclusion could not be verified');
+    expect(findTransaction).toHaveBeenCalledTimes(5);
   });
 
   it('waits for an in-flight bid submission during shutdown', async () => {
@@ -1196,15 +1424,20 @@ describe('CohortBidder unit tests', () => {
     const events = createTypedEventEmitter();
     const stopApi = {
       query: {
-        miningSlot: { minersByCohort: vi.fn().mockResolvedValue([]) },
+        miningSlot: {
+          minersByCohort: vi.fn().mockResolvedValue([]),
+          isNextSlotBiddingOpen: vi.fn().mockResolvedValue(true),
+          nextFrameId: vi.fn().mockResolvedValue(10),
+        },
         system: { number: vi.fn().mockResolvedValue(finalizedHeader.blockNumber) },
         ticks: { currentTick: vi.fn().mockResolvedValue(finalizedHeader.tick) },
       },
     };
-    const mortalEra = { asMortalEra: { death: () => 108 } };
+    const mortalEra = { asMortalEra: { birth: () => 92, death: () => 108 } };
     const client = {
       at: vi.fn().mockResolvedValue(stopApi),
       query: stopApi.query,
+      consts: { system: { blockHashCount: 4096 } },
       registry: { createType: vi.fn().mockReturnValue(mortalEra) },
       rpc: {
         chain: { getFinalizedHead: vi.fn().mockResolvedValue(finalizedHeader.blockHash) },
@@ -1212,8 +1445,8 @@ describe('CohortBidder unit tests', () => {
       },
     };
     const blockWatch = {
-      bestBlockHeader: finalizedHeader,
-      finalizedBlockHeader: finalizedHeader,
+      bestBlockHeader: { ...createBlockHeader(100, `0x${'00'.repeat(32)}`), frameRewardTicksRemaining: 10 },
+      finalizedBlockHeader: { ...createBlockHeader(99, `0x${'00'.repeat(32)}`), isFinalized: true },
       latestHeaders: [finalizedHeader],
       events,
       subscriptionClient: client,
@@ -1253,14 +1486,15 @@ describe('CohortBidder unit tests', () => {
     });
     const signedTx = {
       era: mortalEra,
+      nonce: { toNumber: () => 0 },
     };
-    const sign = vi.fn().mockResolvedValue(signedTx);
-    const submitSigned = vi.fn().mockResolvedValue(txResult);
-    vi.spyOn(accountset, 'createMiningBidTx').mockResolvedValue({
-      client,
-      sign,
-      submitSigned,
-    } as never);
+    const submitter = new TxSubmitter(
+      client as unknown as ArgonClient,
+      { signAsync: vi.fn().mockResolvedValue(signedTx) } as never,
+      accountset.txSubmitterPair,
+    );
+    vi.spyOn(submitter, 'submitSigned').mockResolvedValue(txResult);
+    vi.spyOn(accountset, 'createMiningBidTx').mockResolvedValue(submitter);
     vi.spyOn(cohortBidder, 'planNextBid' as any).mockResolvedValue(undefined);
     vi.spyOn(TransactionEvents, 'findByExtrinsicHash').mockResolvedValue(undefined);
 
@@ -1274,6 +1508,7 @@ describe('CohortBidder unit tests', () => {
     const deathHeader = createBlockHeader(108, `0x${'08'.repeat(32)}`);
     Object.assign(blockWatch, { bestBlockHeader: deathHeader });
     blockWatch.events.emit('best-blocks', [deathHeader]);
+    blockWatch.events.emit('finalized', [{ ...deathHeader, frameId: 10, isFinalized: true }]);
     const outcome = await Promise.race([
       stopPromise.then(() => 'stopped'),
       new Promise<'timed-out'>(resolve => setTimeout(() => resolve('timed-out'), 100)),
@@ -1339,6 +1574,83 @@ async function createBidderWithMocks(
   // @ts-expect-error - private var
   cohortBidder.submitBids = submitBids;
   return { cohortBidder, submitBids };
+}
+
+async function createBidLifecycleHarness(accountset: Accountset) {
+  const { cohortBidder } = await createBidderWithMocks(accountset, [0, 0], {
+    minBid: 500_000n,
+    maxBid: 1_000_000n,
+    bidDelay: 100,
+    accountBalance: 10_000_000n,
+  });
+  const registry = getOfflineRegistry();
+  const canonicalHashes = new Map<number, string>();
+  let poolNonce = 0;
+  let biddingOpen = true;
+  const client = {
+    registry,
+    canonicalHashes,
+    consts: { system: { blockHashCount: 4096 } },
+    rpc: {
+      chain: { getBlockHash: async (height: number) => ({ toHex: () => canonicalHashes.get(height) }) },
+      state: { getStorageHash: async () => ({ toHex: () => '0xunchanged' }) },
+      system: { accountNextIndex: async () => poolNonce },
+    },
+    query: {
+      system: { account: async () => ({ nonce: 0 }) },
+      miningSlot: { isNextSlotBiddingOpen: async () => biddingOpen, nextFrameId: async () => 10 },
+      ticks: { currentTick: async () => 102 },
+    },
+    at: async () => client,
+    api: undefined as unknown as ArgonClient,
+  };
+  client.api = client as unknown as ArgonClient;
+  const blockWatch = {
+    bestBlockHeader: createBlockHeader(100, `0x${'01'.repeat(32)}`),
+    finalizedBlockHeader: { ...createBlockHeader(96, `0x${'02'.repeat(32)}`), isFinalized: true },
+    getFinalizedHash: async () => `0x${'03'.repeat(32)}`,
+    getHeader: async ({ blockNumber, blockHash }: { blockNumber: number; blockHash: string }) =>
+      createBlockHeader(blockNumber, blockHash),
+    getEvents: async () => [],
+    latestHeaders: [],
+    events: createTypedEventEmitter(),
+    subscriptionClient: client.api,
+  } as unknown as BlockWatch;
+  cohortBidder.miningFrames = { blockWatch } as MiningFrames;
+
+  const results: TxResult[] = [];
+  const sign = vi.fn(async (_signer: unknown, options: NonNullable<Parameters<TxSubmitter['sign']>[0]>) => {
+    return {
+      era: options.era,
+      nonce: { toNumber: () => (typeof options.nonce === 'number' ? options.nonce : poolNonce) },
+    };
+  });
+  const submitSigned = vi.fn(async (signedTx: Awaited<ReturnType<typeof sign>>) => {
+    const result = new TxResult({
+      signedHash: `0x${(results.length + 1).toString(16).padStart(64, '0')}`,
+      method: {},
+      submittedTime: new Date(),
+      submittedAtBlockNumber: blockWatch.bestBlockHeader.blockNumber,
+      accountAddress: accountset.txSubmitterPair.address,
+      nonce: signedTx.nonce.toNumber(),
+    });
+    results.push(result);
+    return result;
+  });
+  const submitter = new TxSubmitter(client.api, { signAsync: sign } as never, accountset.txSubmitterPair);
+  vi.spyOn(submitter, 'submitSigned').mockImplementation(submitSigned as never);
+  vi.spyOn(accountset, 'createMiningBidTx').mockResolvedValue(submitter);
+
+  return {
+    cohortBidder,
+    blockWatch,
+    client,
+    results,
+    sign,
+    submitSigned,
+    setPoolNonce: (nonce: number) => (poolNonce = nonce),
+    setBiddingOpen: (open: boolean) => (biddingOpen = open),
+  };
 }
 
 function createBidRecoveryHarness(accountset: Accountset, args: { latestBlockNumber?: number } = {}) {

@@ -2,12 +2,15 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   Accountset,
   BlockWatch,
+  BotActivityType,
   CohortBidder,
   createTypedEventEmitter,
   getRange,
   MainchainClients,
   MiningFrames,
   NetworkConfig,
+  TxResult,
+  type ArgonClient,
 } from '@argonprotocol/apps-core';
 import { Keyring, mnemonicGenerate } from '@argonprotocol/mainchain';
 import { mkdtemp, rm } from 'node:fs/promises';
@@ -293,6 +296,75 @@ describe('AutoBidder', () => {
       { index: 3, isRebid: false, address: '5Available' },
     ]);
     expect(accountset.miningSeatsAndBids).toHaveBeenCalledOnce();
+  });
+
+  it('keeps an unrecorded finalized bid error in its original cohort history', async () => {
+    NetworkConfig.setNetwork('dev-docker');
+    const directory = await mkdtemp(Path.join(tmpdir(), 'autobidder-history-'));
+    const storage = new Storage(directory);
+    const history = new History(storage, 12);
+    const accountset = {
+      isProxy: false,
+      txSubmitterPair: { address: 'synthetic-funding' },
+      subAccountsByAddress: { 'synthetic-seat': { index: 0 } },
+      miningSeatsAndBids: vi.fn().mockResolvedValue([]),
+      getAvailableMinerAccounts: vi.fn().mockResolvedValue([{ index: 0, isRebid: false, address: 'synthetic-seat' }]),
+    };
+    const autoBidder = new AutoBidder(accountset as any, {} as any, history, {} as any, {} as any);
+    vi.spyOn(CohortBidder.prototype, 'start').mockResolvedValue(undefined);
+    Object.assign(autoBidder, {
+      biddingCalculator: {},
+      createBidderParams: vi.fn().mockResolvedValue({ maxSeats: 1 }),
+    });
+
+    try {
+      await onBiddingStart.call(autoBidder, 12);
+      history.initCohort(13, new Set());
+      const bidder = autoBidder.currentBidder!;
+      bidder.miningFrames = {
+        blockWatch: { getHeader: vi.fn().mockRejectedValue(new Error('archive unavailable')) },
+      } as unknown as MiningFrames;
+      const txResult = new TxResult({
+        signedHash: `0x${'01'.repeat(32)}`,
+        method: {},
+        submittedTime: new Date(),
+        submittedAtBlockNumber: 100,
+        accountAddress: 'synthetic-payer',
+        nonce: 0,
+      });
+      await txResult.setSeenInBlock({} as ArgonClient, {
+        blockHash: Buffer.from('02'.repeat(32), 'hex'),
+        blockNumber: 101,
+        events: [],
+        extrinsicIndex: 0,
+      });
+
+      // @ts-expect-error exercising production finalization through the AutoBidder history callback
+      const finalization = bidder.awaitFinalization({
+        txResult,
+        tip: 0n,
+        deathBlock: 108,
+        microgonsPerSeat: 500_000n,
+        subaccounts: ['synthetic-seat'],
+      });
+      await txResult.setFinalized({} as ArgonClient);
+      await finalization;
+      await history.handleShutdown();
+
+      const original = await storage.historyFile(12).get();
+      expect(original.activities).toContainEqual(
+        expect.objectContaining({
+          frameId: 12,
+          type: BotActivityType.Error,
+          data: expect.objectContaining({ message: expect.stringContaining('Finalized bid at block 101') }),
+        }),
+      );
+      const current = await storage.historyFile(13).get();
+      expect(current.activities).not.toContainEqual(expect.objectContaining({ type: BotActivityType.Error }));
+    } finally {
+      await storage.close();
+      await rm(directory, { recursive: true, force: true });
+    }
   });
 
   it('clears the completed auction capacity when bidding ends', async () => {

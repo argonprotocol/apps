@@ -87,8 +87,8 @@ describe.skipIf(SKIP_E2E)('Cohort Integration Bidder tests', { tags: ['mining-au
     let aliceBidder: CohortBidder;
     let bobWinningBidsAtStop: { address: string }[] = [];
     let aliceWinningBidsAtStop: { address: string }[] = [];
-    const bobBidEvents: { type: 'submitted' | 'rejected'; microgonsPerSeat: bigint }[] = [];
-    const aliceBidEvents: { type: 'submitted' | 'rejected'; microgonsPerSeat: bigint }[] = [];
+    const bobBidEvents: { type: 'submitted' | 'rejected'; microgonsPerSeat: bigint; blockNumber: number }[] = [];
+    const aliceBidEvents: { type: 'submitted' | 'rejected'; microgonsPerSeat: bigint; blockNumber: number }[] = [];
     let hasStoppedBidders = false;
     // Wait for the next auction so both bidders have the full bidding window.
     const startingCohort = await aliceClient.query.miningSlot.nextFrameId();
@@ -117,11 +117,11 @@ describe.skipIf(SKIP_E2E)('Cohort Integration Bidder tests', { tags: ['mining-au
             bidDelay: 0,
           },
           {
-            onBidsSubmitted: ({ microgonsPerSeat }) => {
-              bobBidEvents.push({ type: 'submitted', microgonsPerSeat });
+            onBidsSubmitted: ({ microgonsPerSeat, blockNumber }) => {
+              bobBidEvents.push({ type: 'submitted', microgonsPerSeat, blockNumber });
             },
-            onBidsRejected: ({ microgonsPerSeat }) => {
-              bobBidEvents.push({ type: 'rejected', microgonsPerSeat });
+            onBidsRejected: ({ microgonsPerSeat, blockNumber }) => {
+              bobBidEvents.push({ type: 'rejected', microgonsPerSeat, blockNumber });
             },
           },
           `Bob #${cohortStartingFrameId}`,
@@ -139,11 +139,11 @@ describe.skipIf(SKIP_E2E)('Cohort Integration Bidder tests', { tags: ['mining-au
             bidDelay: 0,
           },
           {
-            onBidsSubmitted: ({ microgonsPerSeat }) => {
-              aliceBidEvents.push({ type: 'submitted', microgonsPerSeat });
+            onBidsSubmitted: ({ microgonsPerSeat, blockNumber }) => {
+              aliceBidEvents.push({ type: 'submitted', microgonsPerSeat, blockNumber });
             },
-            onBidsRejected: ({ microgonsPerSeat }) => {
-              aliceBidEvents.push({ type: 'rejected', microgonsPerSeat });
+            onBidsRejected: ({ microgonsPerSeat, blockNumber }) => {
+              aliceBidEvents.push({ type: 'rejected', microgonsPerSeat, blockNumber });
             },
           },
           `Alice #${cohortStartingFrameId}`,
@@ -201,10 +201,15 @@ describe.skipIf(SKIP_E2E)('Cohort Integration Bidder tests', { tags: ['mining-au
     const aliceSeatsWonOnChain = cohortSeats.filter(x => {
       return x.externalFundingAccount === alice.fundingAccountId;
     }).length;
-    const bidLevels = new Set(
-      [...bobBidEvents, ...aliceBidEvents].map(({ microgonsPerSeat }) => microgonsPerSeat.toString()),
-    );
-    const hasRejectedBid = [...bobBidEvents, ...aliceBidEvents].some(({ type }) => type === 'rejected');
+    const hasBidUp = [bobBidEvents, aliceBidEvents].some(events => {
+      return events.some(
+        event =>
+          event.type === 'submitted' &&
+          events.some(
+            lowerBid => lowerBid.blockNumber < event.blockNumber && lowerBid.microgonsPerSeat < event.microgonsPerSeat,
+          ),
+      );
+    });
 
     console.log({
       cohortStartingFrameId,
@@ -226,7 +231,7 @@ describe.skipIf(SKIP_E2E)('Cohort Integration Bidder tests', { tags: ['mining-au
 
     expect(aliceSeatsWonOnChain).toBe(aliceStats.seatsWon);
     expect(aliceBidEvents.length).toBeGreaterThan(0);
-    expect(hasRejectedBid || bidLevels.size > 1).toBe(true);
+    expect(hasBidUp).toBe(true);
   }, 180e3);
 });
 
