@@ -912,6 +912,12 @@ describe('cooperative release approval with simulated chain observations', () =>
     expect(cooperative.data.refreshError).toBe('');
     expect(cooperative.data.isRefreshing).toBe(false);
     expect(db.bitcoinCooperativeReleasesTable.pending(7).requests).toHaveLength(1);
+
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('Server unavailable.')));
+    await cooperative.refresh({ finalizedClient: client, server: olderServer, vaultId: 7 });
+    expect(cooperative.data.requests).toBe(displayedRequests);
+    expect(cooperative.data.refreshError).toBe('');
+    expect(cooperative.data.isRefreshing).toBe(false);
     vi.unstubAllGlobals();
 
     fixture.cursor.blockHeight = 100;
