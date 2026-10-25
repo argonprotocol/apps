@@ -41,7 +41,7 @@ const backfill: RuntimeSystemEventRecord = {
   topics: [],
 };
 
-function storedLot(earnings: bigint, releaseFrameId: number | null = null) {
+function storedLot(earnings: bigint, releaseFrameId: number | null = null, isFlexible = true) {
   return registry.createType<Option<PalletTreasuryBondLot>>('Option<PalletTreasuryBondLot>', {
     owner,
     program: { Vault: { vaultId: 4, sharingPercent: 0, bonusPercent: 0 } },
@@ -53,7 +53,7 @@ function storedLot(earnings: bigint, releaseFrameId: number | null = null) {
     lastFrameEarnings: 1_000_000n,
     releaseFrameId,
     releaseReason: releaseFrameId === null ? null : 'UserLiquidation',
-    isFlexible: true,
+    isFlexible,
     lockedFrameTerms: null,
   });
 }
@@ -368,15 +368,21 @@ describe('native bond earnings recovery', () => {
     expect(position).toMatchObject({ currentValue: 10_000_000n, paidIncome: 2_800_000n, returnIsComplete: true });
   });
 
-  it.each([false, true])(
-    'retains metrics and attribution for a deleted lot, with same-block payout = %s',
-    async payout => {
+  it.each([
+    { payout: false, scheduledExit: false },
+    { payout: true, scheduledExit: false },
+    { payout: true, scheduledExit: true },
+  ])(
+    'retains deleted-lot earnings with payout=$payout and prior scheduled exit=$scheduledExit',
+    async ({ payout, scheduledExit }) => {
       const db = await createTestDb();
+      const releaseBlock = { ...block, frameId: 20 };
       const parent = runtimeClient({
         runtimeVersion: { specVersion: registry.createType('u32', 160) },
+        consts: { treasury: { treasuryExitDelayFrames: 10n } },
         query: {
           treasury: {
-            bondLotById: async () => storedLot(1_000_000n),
+            bondLotById: async () => storedLot(1_000_000n, scheduledExit ? 20 : null, !scheduledExit),
           },
         },
       });
@@ -395,29 +401,20 @@ describe('native bond earnings recovery', () => {
         { fetchMainchainRatesAtBlock: vi.fn() } as any,
         {
           blockWatch: {
-            getHeader: async () => ({ ...block, blockNumber: 149, blockHash: '0x149' }),
-            getParentHeader: async () => ({ ...block, blockNumber: 149, blockHash: '0x149' }),
+            getHeader: async () => ({ ...releaseBlock, blockNumber: 149, blockHash: '0x149', frameId: 19 }),
+            getParentHeader: async () => ({ ...releaseBlock, blockNumber: 149, blockHash: '0x149', frameId: 19 }),
             getApi: async (header: IBlockHeaderInfo) => (header.blockNumber === 149 ? parent : current),
           },
         } as unknown as MiningFrames,
         { defaultArgonAddress: owner } as any,
       );
       const events: RuntimeSystemEventRecord[] = [
-        backfill,
-        {
-          ...backfill,
-          event: {
-            section: 'treasury',
-            method: 'BondLotEarningsBackfilled',
-            data: { bondLotId: 7, addedFrames: 1, addedEarnings: 500_000n },
-          },
-        },
         {
           event: {
             section: 'treasury',
             method: 'BondLotReleased',
             data: {
-              frameId: 10,
+              frameId: 20,
               programId: { type: 'Vault', value: { vaultId: 4 } },
               accountId: owner,
               bondLotId: 7,
@@ -428,13 +425,23 @@ describe('native bond earnings recovery', () => {
           topics: [],
         },
       ];
+      if (!scheduledExit) {
+        events.unshift(backfill, {
+          ...backfill,
+          event: {
+            section: 'treasury',
+            method: 'BondLotEarningsBackfilled',
+            data: { bondLotId: 7, addedFrames: 1, addedEarnings: 500_000n },
+          },
+        });
+      }
       if (payout)
         events.unshift({
           event: {
             section: 'treasury',
             method: 'FrameEarningsDistributed',
             data: {
-              frameId: 9,
+              frameId: 19,
               bidPoolDistributed: 0n,
               stakePoolDistributed: 0n,
               argonBondPoolDistributed: 0n,
@@ -447,19 +454,45 @@ describe('native bond earnings recovery', () => {
           phase: { type: 'Initialization' },
           topics: [],
         });
-      await domain.importHistoryBlock(block, events);
+      if (scheduledExit) {
+        await db.bondLotHistoryTable.recordRelease({
+          lot: (await BondLot.get(parent as any, 7, owner))!,
+          parentBlockNumber: 149,
+          parentBlockHash: '0x149',
+          release: {
+            frameId: 20,
+            blockNumber: 150,
+            blockHash: releaseBlock.blockHash,
+            blockTime: new Date(releaseBlock.blockTime),
+            extrinsicIndex: 2,
+            earningsComplete: false,
+          },
+        });
+        expect((await db.bondLotHistoryTable.fetchAll(owner))[0].earningsComplete).toBe(false);
+      }
+      await domain.importHistoryBlock(releaseBlock, events);
       await domain.publishRecoveredHistory();
+      const expectedEarnings = scheduledExit ? 1_000_000n : 3_500_000n;
+      let expectedBackfills: Array<{ addedEarnings: bigint }> = [];
+      if (!scheduledExit) {
+        expectedBackfills = [{ addedEarnings: 2_000_000n }, { addedEarnings: 500_000n }];
+      }
       expect(domain.data.bondHistory[0]).toMatchObject({
         releaseBlockNumber: 150,
-        cumulativeEarningsMicrogons: 3_500_000n,
-        earningsComplete: !payout,
-        earningsBackfills: [{ addedEarnings: 2_000_000n }, { addedEarnings: 500_000n }],
+        cumulativeEarningsMicrogons: expectedEarnings,
+        earningsComplete: !payout || scheduledExit,
+        earningsBackfills: expectedBackfills,
       });
+      expect((await db.bondLotHistoryTable.fetchAll(owner))[0].earningsComplete).toBe(!payout || scheduledExit);
       const [position] = new ArgonBondsFinancials(domain).createFinancialPositions({
         historyRecords: domain.data.bondHistory,
         frameDates: new Map([[3, new Date(block.blockTime)]]),
       });
-      expect(position).toMatchObject({ lifecycle: 'completed', paidIncome: 3_500_000n, returnIsComplete: false });
+      expect(position).toMatchObject({
+        lifecycle: 'completed',
+        paidIncome: expectedEarnings,
+        returnIsComplete: scheduledExit,
+      });
     },
   );
 
@@ -1027,7 +1060,10 @@ it.each([157, 159])('recovers flexible payouts from runtime %s', async specVersi
     { source: 'vaultBurn', frameId: 10, amount: 5n },
     { source: 'vaultCollect', frameId: undefined, amount: 6n },
   ]);
-  const vaultSource = new VaultFinancials({ vaults: { operatorNamesByVaultId: {} } } as any, domain.data);
+  const vaultSource = new VaultFinancials({ vaults: { operatorNamesByVaultId: {} } } as any, {
+    data: domain.data,
+    lastFinalizedCompletedFrameId: 9,
+  });
   const [vaultPosition] = vaultSource.createFinancialPositions({
     liveVault: { vaultId: 4, securitization: 100_000_000n, isClosed: false } as any,
     account: {

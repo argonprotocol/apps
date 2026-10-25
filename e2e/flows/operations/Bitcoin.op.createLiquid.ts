@@ -144,6 +144,11 @@ export default new Operation<IBitcoinFlowContext, ILiquidCreateState>(import.met
           { timeoutMs: 20_000 },
         );
       }
+
+      if ((await flow.isVisible('BitcoinLiquidCreationOverlay.useSelectedVaults')).visible) {
+        await flow.click('BitcoinLiquidCreationOverlay.useSelectedVaults', { timeoutMs: 20_000 });
+      }
+
       await flow.type(
         {
           selector: '[role="dialog"][data-testid="BitcoinLiquidCreationOverlay"] [data-testid="input-number"]',

@@ -39,7 +39,9 @@ const zeroSeatScenarios = new Set<MiningAuctionScenario>([
 export function setupMiningAuctionScenario(state: MiningAuctionScenario): VoidFunction {
   mocked(dayjs.utc).mockRestore?.();
   const utcNow = dayjs.utc;
-  const clock = spyOn(dayjs, 'utc').mockImplementation((...args) => (args.length ? utcNow(...args) : auctionScenarioNow));
+  const clock = spyOn(dayjs, 'utc').mockImplementation((...args) =>
+    args.length ? utcNow(...args) : auctionScenarioNow,
+  );
   const { config, wallets } = setupAppScenario({
     selectedTab: TopTab.Mining,
     config: {
@@ -51,6 +53,7 @@ export function setupMiningAuctionScenario(state: MiningAuctionScenario): VoidFu
   });
 
   config.isLoadedPromise = Promise.resolve();
+  config.serverDetails.ipAddress = '192.0.2.1';
   wallets.totalMiningMicrogons = microgonRequirement;
   wallets.miningBotWallet.availableMicrogons = 0n;
   Object.assign(wallets, { totalMiningMicronots: micronotRequirement });

@@ -3,6 +3,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.5.1] - 2026-10-25
+- Allow investment returns to be shown throughout app as RTD, APR, or APY
+- Keep vaulting and bond investment returns visible during updates
+- Improve Bitcoin deposit, send, and return handling
+- Fix stalled Ethereum transfers and clarify their status
+
 ## [2.5.0] - 2026-10-14
 - Support Mainchain 1.5.2, including updated Treasury rewards and vault certification requirements
 - Simplify vault funding and settings with Argon and Argonot securitization and clearer withdrawal previews

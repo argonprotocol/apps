@@ -54,6 +54,7 @@ import { Vaults } from './Vaults.ts';
 import BitcoinLocks from './BitcoinLocks.ts';
 import { MyVaultRecovery } from './recovery/MyVaultRecovery.ts';
 import { type IBitcoinLockRecord } from './db/BitcoinLocksTable.ts';
+import { BitcoinReleaseStatus } from '../interfaces/IBitcoinReleaseRecord.ts';
 import { TransactionTracker, TxAttemptState } from './TransactionTracker.ts';
 import { TransactionInfo } from './TransactionInfo.ts';
 import { ExtrinsicType } from './db/TransactionsTable.ts';
@@ -203,6 +204,17 @@ export class MyVault {
 
   public get metadata(): IVaultRecord | null {
     return this.data.metadata;
+  }
+
+  public loadPublishedFinancialHistory() {
+    const publication = this.revenuePublication;
+    const historyRead = publication.then(() => this.history.loadPositionHistory());
+    const readFinished = historyRead.then(() => undefined).catch(() => undefined);
+
+    // A failed history read can retry; a failed publication still needs its domain retry.
+    this.revenuePublication = publication.then(() => readFinished);
+    void this.revenuePublication.catch(() => undefined);
+    return historyRead;
   }
 
   #bitcoinNetwork?: BitcoinNetwork;
@@ -467,7 +479,9 @@ export class MyVault {
       const client = await clients.get(false);
       const finalizedClient = await this.miningFrames.blockWatch.getFinalizedApi();
       await Promise.all([
-        this.refreshCurrentCapital(vaultId),
+        this.refreshCurrentCapital(vaultId).catch(error => {
+          console.warn('[MyVault] Unable to refresh current vault capital; retrying at finalization', error);
+        }),
         this.refreshFinalizedRevenueState(finalizedClient, vaultId),
         this.refreshFinalizedBitcoinCosignState(finalizedClient, vaultId),
       ]);
@@ -1070,6 +1084,37 @@ export class MyVault {
       return vaultSignature;
     });
     return vaultSignatures.map(signature => u8aToHex(signature));
+  }
+
+  public async cosignOwnLockRelease(lock: IBitcoinLockRecord): Promise<void> {
+    const lockId = lock.lockId;
+    if (lockId == null) return;
+
+    const release = this.bitcoinLocks.releases.getActiveForLock(lock);
+    if (release?.status !== BitcoinReleaseStatus.WaitingForVaultCosign) return;
+    if (release.releaseNumber === undefined) return;
+
+    const releaseNumber = release.releaseNumber;
+    await this.#cosignQueue.add(async () => {
+      const existing = await this.bitcoinLockCosign.findLatestAttempt(lockId, releaseNumber);
+      if (
+        existing?.txAttemptState === TxAttemptState.Pending ||
+        existing?.txAttemptState === TxAttemptState.Finalized
+      ) {
+        return;
+      }
+
+      const vaultSignatureHexes = await this.createVaultSignatureHexesForRelease({ lockId, releaseNumber });
+      if (!vaultSignatureHexes) return;
+
+      await this.bitcoinLockCosign.submit({
+        client: await getMainchainClient(false),
+        txSigner: await this.walletKeys.getVaultingKeypair(),
+        lockId,
+        releaseNumber,
+        vaultSignatureHexes,
+      });
+    }).promise;
   }
 
   private async onOrphanCosignResult(

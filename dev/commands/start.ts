@@ -5,7 +5,6 @@ import {
   readDevEnvironment,
   selectDevEnvironment,
   saveDevEnvironment,
-  readOwnedEthereumStates,
   recordEthereumContainers,
   resumeOwnedEthereum,
   configureDevEnvironment,
@@ -13,6 +12,7 @@ import {
 import { ensureDockerComposeAssets } from '../../core/__test__/helpers/ensureDockerComposeAssets.ts';
 import { DevOutput } from '../output.ts';
 import { acquireDevLock } from '../lock.ts';
+import { stopDevEnvironment } from '../stopEnvironment.ts';
 import { parseArgs } from 'node:util';
 import { getDevFundingAmounts, type FundingOptions } from '../funding.ts';
 import type { AppVaultOperator } from '../../e2e/actors/AppVaultOperator.ts';
@@ -27,6 +27,8 @@ import {
 
 export interface DevStartOptions extends DevProfile, FundingOptions {
   chainSpec?: string;
+  serviceOptionsExplicit?: boolean;
+  resetData: boolean;
   startEthereum: boolean;
   runUpstream: boolean;
   fundAccount: boolean;
@@ -42,12 +44,12 @@ export async function run(args = process.argv.slice(2)): Promise<void> {
       profile: { type: 'string' },
       instance: { type: 'string' },
       join: { type: 'string' },
-      full: { type: 'boolean' },
+      funded: { type: 'boolean' },
+      operational: { type: 'boolean' },
+      'reset-data': { type: 'boolean' },
       'chain-spec': { type: 'string' },
       'start-ethereum': { type: 'boolean' },
       'run-upstream': { type: 'boolean' },
-      'fund-account': { type: 'boolean' },
-      'operationally-certified': { type: 'boolean' },
       'detach-upstream-app': { type: 'boolean' },
       argons: { type: 'string' },
       argonots: { type: 'string' },
@@ -61,21 +63,21 @@ export async function run(args = process.argv.slice(2)): Promise<void> {
     },
   });
   if (values.help) {
-    console.info(`Usage: yarn dev [start] [options]
+    console.info(`Usage: yarn dev start [options]
 
-Start desktop with reusable local Argon, Bitcoin, and indexer services.
-Ethereum, upstream, account funding, and certification are off by default.
-Enable them with the flags below or their ARGON_DEV_* environment variables.
+Start desktop with a clean local Argon, Bitcoin, Ethereum, indexer, and upstream environment.
+The user account starts without funds or operational access.
 
 Startup options:
   --profile NAME   Desktop account (default: default; alias: --instance)
   --join NAME      Share another profile's local environment
-  --full           Start Ethereum and upstream, fund both chains, and certify this account
+  --reset-data     Erase the owning environment before startup (default for owners)
+  --no-reset-data  Reuse the existing chain, wallets, and server data
+  --funded         Add 1,000 ARGN and 1,000 ARGNOT on each chain, plus 1 ETH
+  --operational    Grant this account operational access without creating a vault
   --chain-spec FILE
-  --start-ethereum Start the local Ethereum bridge and upstream operator
-  --run-upstream   Start the upstream operator
-  --fund-account   Add development funds to this account
-  --operationally-certified  Grant this user operational access without creating a vault
+  --start-ethereum Start the local Ethereum bridge (default for owners)
+  --run-upstream   Start the upstream operator (default for owners)
   --detach-upstream-app      Attach the upstream account to a replacement server
   --argons AMOUNT --argonots AMOUNT             On Argon
   --eth-argons AMOUNT --eth-argonots AMOUNT      On Ethereum
@@ -83,33 +85,45 @@ Startup options:
   --to ADDRESS --eth-to ADDRESS                Funding recipient overrides
   -h, --help       Show this help
 
-Funding amounts use whole-token decimal units. With no amounts, --fund-account
-adds 1,000 ARGN and 1,000 ARGNOT on Argon. Use --no-<flag> to disable inherited flags.
+Funding amounts use whole-token decimal units. Amount flags fund only the named
+assets; --funded supplies defaults that amount flags may override.
+Use --no-<flag> to disable inherited service flags.
 
---full adds 1,000 ARGN and 1,000 ARGNOT on each chain, plus 1 ETH for gas.
-Both recipients derive from the profile's mnemonic. Amount flags override each
-full-setup default; --to and --eth-to override recipients.
+Funding recipients derive from the profile's mnemonic; --to and --eth-to override them.
+Joined profiles and upstream app handoffs reuse their shared environment.
+Start the owner profile to reset it. Desktop-only runs started against a
+separately prepared environment remain under that caller's cleanup.
 
 Examples:
-  yarn dev --full
-  yarn dev --start-ethereum --run-upstream
-  yarn dev --fund-account --operationally-certified
-  yarn dev --profile second --join default
+  yarn dev start
+  yarn dev start --operational --funded
+  yarn dev start --no-reset-data
+  yarn dev start --profile second --join default
 
 Use yarn dev help <command> for command-specific options.`);
     return;
   }
   const profile = resolveDevProfile(values);
-  const readBoolean = (value: string | undefined) =>
-    ['1', 'true', 'yes', 'on'].includes(value?.trim().toLowerCase() ?? '');
+  const readBoolean = (value: string | undefined, defaultValue = false) =>
+    value === undefined ? defaultValue : ['1', 'true', 'yes', 'on'].includes(value.trim().toLowerCase());
+  const detachUpstreamApp = values['detach-upstream-app'] ?? readBoolean(process.env.ARGON_DEV_DETACH_UPSTREAM_APP);
+  const ownsEnvironment = !profile.join || profile.join === profile.instance;
+  const startsOwnEnvironment = ownsEnvironment && !detachUpstreamApp;
+  const resetData = values['reset-data'] ?? startsOwnEnvironment;
+  const funded = values.funded ?? false;
   const options: DevStartOptions = {
     ...profile,
-    startEthereum: values['start-ethereum'] ?? readBoolean(process.env.ARGON_DEV_ETHEREUM),
-    runUpstream: values['run-upstream'] ?? readBoolean(process.env.ARGON_DEV_UPSTREAM),
-    fundAccount: values['fund-account'] ?? readBoolean(process.env.ARGON_DEV_FUND_ACCOUNT),
-    operationallyCertified:
-      values['operationally-certified'] ?? readBoolean(process.env.ARGON_DEV_OPERATIONALLY_CERTIFIED),
-    detachUpstreamApp: values['detach-upstream-app'] ?? readBoolean(process.env.ARGON_DEV_DETACH_UPSTREAM_APP),
+    resetData,
+    serviceOptionsExplicit:
+      values['start-ethereum'] !== undefined ||
+      values['run-upstream'] !== undefined ||
+      process.env.ARGON_DEV_ETHEREUM !== undefined ||
+      process.env.ARGON_DEV_UPSTREAM !== undefined,
+    startEthereum: values['start-ethereum'] ?? readBoolean(process.env.ARGON_DEV_ETHEREUM, startsOwnEnvironment),
+    runUpstream: values['run-upstream'] ?? readBoolean(process.env.ARGON_DEV_UPSTREAM, startsOwnEnvironment),
+    fundAccount: funded,
+    operationallyCertified: values.operational ?? false,
+    detachUpstreamApp,
     argons: values.argons,
     argonots: values.argonots,
     ethArgons: values['eth-argons'],
@@ -119,9 +133,7 @@ Use yarn dev help <command> for command-specific options.`);
     to: values.to,
     ethTo: values['eth-to'],
   };
-  if (values.full) {
-    options.startEthereum = true;
-    options.operationallyCertified = true;
+  if (funded) {
     options.argons ??= '1000';
     options.argonots ??= '1000';
     options.ethArgons ??= '1000';
@@ -133,11 +145,33 @@ Use yarn dev help <command> for command-specific options.`);
     if (!chainSpec.trim() || /[\0\r\n]/.test(chainSpec)) throw new Error('--chain-spec must name a valid file path.');
     options.chainSpec = Path.resolve(chainSpec);
   }
-  getDevFundingAmounts(options);
-  if ([options.ethArgons, options.ethArgonots, options.eth, options.usdc].some(amount => amount !== undefined))
-    options.startEthereum = true;
-  if (options.operationallyCertified) options.fundAccount = true;
-  if (options.startEthereum || options.detachUpstreamApp) options.runUpstream = true;
+  const fundingAmounts = getDevFundingAmounts(options);
+  const requestedAmount = [
+    options.argons,
+    options.argonots,
+    options.ethArgons,
+    options.ethArgonots,
+    options.eth,
+    options.usdc,
+  ].some(amount => amount !== undefined);
+  if (requestedAmount) {
+    options.fundAccount = true;
+  }
+  if (
+    ownsEnvironment &&
+    !options.startEthereum &&
+    [fundingAmounts.ethArgons, fundingAmounts.ethArgonots, fundingAmounts.eth, fundingAmounts.usdc].some(
+      amount => amount > 0n,
+    )
+  ) {
+    throw new Error('Ethereum funding requires Ethereum startup. Remove --no-start-ethereum or omit Ethereum amounts.');
+  }
+  if (!options.fundAccount && (options.to || options.ethTo)) {
+    throw new Error('Recipient overrides require --funded or an amount flag.');
+  }
+  if (options.startEthereum && !options.runUpstream && !options.detachUpstreamApp) {
+    throw new Error('Ethereum requires the upstream operator. Remove --no-run-upstream or add --no-start-ethereum.');
+  }
   await startDev(options);
 }
 
@@ -146,6 +180,20 @@ export async function startDev(requested: DevStartOptions): Promise<void> {
     throw new Error('The upstream app handoff requires SIGUSR2 and is not supported on Windows.');
   }
   const options = { ...requested };
+  if (options.resetData && options.detachUpstreamApp) {
+    throw new Error('The upstream app handoff needs existing account data. Use --no-reset-data.');
+  }
+  if (options.resetData && options.join && options.join !== options.instance) {
+    throw new Error(`Start the owning profile ${options.join} to reset its shared environment.`);
+  }
+  if (options.resetData) {
+    if (options.network === 'dev-docker') await ensureDockerComposeAssets();
+    await stopDevEnvironment(options, true);
+    if (!options.chainSpec) {
+      delete process.env.ARGON_CHAIN_SPEC_PATH;
+      delete process.env.ARGON_CHAIN;
+    }
+  }
   let existing = readDevSession(options);
   if (existing) {
     if (options.join && options.join !== existing.owner) {
@@ -174,7 +222,12 @@ export async function startDev(requested: DevStartOptions): Promise<void> {
           `Instance ${options.instance} already uses environment ${running.owner}. Stop it before selecting ${owner}.`,
         );
       if (options.chainSpec) selectDevEnvironment(options);
-      if (options.fundAccount || options.startEthereum || options.runUpstream || options.operationallyCertified) {
+      if (
+        options.fundAccount ||
+        options.operationallyCertified ||
+        options.detachUpstreamApp ||
+        options.serviceOptionsExplicit
+      ) {
         throw new Error(
           `Instance ${options.instance} is running. Use yarn dev fund, or stop it before changing startup options.`,
         );
@@ -185,6 +238,8 @@ export async function startDev(requested: DevStartOptions): Promise<void> {
       return;
     }
   }
+  if (!options.resetData && options.network === 'dev-docker') await ensureDockerComposeAssets();
+
   const releaseEnvironment = acquireDevLock(
     Path.join(paths.networkDir, `.${owner}.dev-environment.lock`),
     'Environment startup',
@@ -206,7 +261,7 @@ export async function startDev(requested: DevStartOptions): Promise<void> {
       if (!options.detachUpstreamApp && options.runUpstream) {
         if (!visibleUpstreamReady)
           throw new Error(
-            `The upstream is owned by app ${upstreamApp}. Start it with yarn dev --instance ${owner} --detach-upstream-app before starting a downstream app.`,
+            `The upstream is owned by app ${upstreamApp}. Start it with yarn dev start --instance ${owner} --detach-upstream-app before starting a downstream app.`,
           );
         if (options.startEthereum && !visibleEthereumReady)
           throw new Error(`Restart the upstream app with --start-ethereum before using the Ethereum bridge.`);
@@ -237,7 +292,7 @@ export async function startDev(requested: DevStartOptions): Promise<void> {
             'CLI local startup selects its RPCs from the owning Docker environment. Unset ARGON_NETWORK_CONFIG_OVERRIDE before starting it.',
           );
         }
-        if (environment.ethereumNetwork && !options.startEthereum) {
+        if (environment.ethereumNetwork && !options.startEthereum && owner !== options.instance) {
           process.env.ARGON_NETWORK_CONFIG_OVERRIDE = JSON.stringify({ ethereumNetwork: environment.ethereumNetwork });
         }
       }
@@ -246,7 +301,6 @@ export async function startDev(requested: DevStartOptions): Promise<void> {
         output.progress('Building local services');
         await output.run('yarn', ['workspace', '@argonprotocol/apps-indexer', 'run', 'build']);
         await output.run('yarn', ['build:server']);
-        await ensureDockerComposeAssets();
         output.progress('Starting or reusing Argon, Bitcoin, and indexer');
         await output.run('docker', [...composeArgs, 'up', '-d', '--wait', '--wait-timeout', '180'], {
           env: context.composeEnv,
@@ -254,7 +308,7 @@ export async function startDev(requested: DevStartOptions): Promise<void> {
         });
       }
 
-      if (options.network === 'dev-docker' && (options.startEthereum || readOwnedEthereumStates(options).length)) {
+      if (options.network === 'dev-docker' && options.startEthereum) {
         await resumeOwnedEthereum(environment, output);
       }
       const { startDesktop } = await import('../desktop.ts');

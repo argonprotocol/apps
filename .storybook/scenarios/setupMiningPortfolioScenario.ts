@@ -29,7 +29,7 @@ import { getWalletKeys, useWallets } from '../../src-vue/stores/wallets.ts';
 import { setupAppScenario } from './setupAppScenario.ts';
 
 export function setupMiningPortfolioScenario(selectedFrameId = 120) {
-  setupAppScenario({
+  const { config } = setupAppScenario({
     selectedTab: TopTab.Mining,
     config: {
       miningSetupStatus: MiningSetupStatus.Finished,
@@ -37,6 +37,7 @@ export function setupMiningPortfolioScenario(selectedFrameId = 120) {
       isServerInstalled: true,
     },
   });
+  config.serverDetails.ipAddress = '192.0.2.1';
 
   const frames = Array.from({ length: 12 }, (_, index) => createFrame(109 + index));
   const liveSlots = createMiningSlots(120);

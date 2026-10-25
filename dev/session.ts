@@ -85,7 +85,15 @@ export function readDevSession(
 ): DevSessionState | undefined {
   const { statePath } = getDevPaths(options);
   if (!Fs.existsSync(statePath)) return;
-  return JSON.parse(Fs.readFileSync(statePath, 'utf8')) as DevSessionState;
+  try {
+    return JSON.parse(Fs.readFileSync(statePath, 'utf8')) as DevSessionState;
+  } catch (error) {
+    if (!(error instanceof SyntaxError)) throw error;
+    throw new Error(
+      `Development session ${statePath} is unreadable. Stop any running launcher, move the file aside, then reset its owning profile. Use --join OWNER when restarting an attached profile.`,
+      { cause: error },
+    );
+  }
 }
 
 export async function requestDevSession(state: DevSessionState, action: 'status' | 'stop') {
@@ -137,7 +145,9 @@ export async function startDevControl(options: DevProfile) {
   }
 
   function save() {
-    Fs.writeFileSync(paths.statePath, JSON.stringify(state), { mode: 0o600 });
+    const temporaryPath = `${paths.statePath}.${process.pid}.tmp`;
+    Fs.writeFileSync(temporaryPath, JSON.stringify(state), { mode: 0o600 });
+    Fs.renameSync(temporaryPath, paths.statePath);
   }
 
   let closed = false;

@@ -2857,12 +2857,22 @@ describe('financial position accounting', () => {
       vaults: { operatorNamesByVaultId: {} },
       pendingRevenueFrames: [{ frameId: 9, uncollectedEarnings: 3_000_000n }],
     };
+    const { id: _id, ownAddress: _ownAddress, earningsDestination: _destination, ...lotState } = flexibleLot;
+    const newLot = new BondLot(
+      4,
+      {
+        ...lotState,
+        createdFrameId: 9,
+        participatedFrames: 0,
+        cumulativeEarnings: 0n,
+        lastFrameEarningsFrameId: null,
+        lastFrameEarnings: null,
+      },
+      flexibleLot.ownAddress,
+    );
     const source = new VaultFinancials(vault as any, {
-      bondLots: [flexibleLot],
-      bondHistory: [history],
-      dailyEarnings,
-      isLoaded: true,
-      currentFrameId: 10,
+      lastFinalizedCompletedFrameId: 9,
+      data: { bondLots: [flexibleLot, newLot], bondHistory: [history], dailyEarnings, isLoaded: true },
     });
     const capitalHistory = [
       {
@@ -2894,6 +2904,7 @@ describe('financial position accounting', () => {
       uncollectedRevenue: 3_000_000n,
       investedCost: 5_000_000n,
       paidIncome: 0n,
+      returnIsComplete: true,
       performanceEndingCapital: 7_500_000n,
       capitalFlows: [{ amount: 5_000_000n, occurredAt: startedAt }],
     });
@@ -2963,7 +2974,7 @@ describe('financial position accounting', () => {
     };
     const stats = { openedTick: 7 * 1_440, changesByFrame: [frame, { ...frame, frameId: 10 }] };
     const chartBonds = {
-      bondLots: [], // Released lots still own their historical income.
+      bondLots: [] as BondLot[], // Released lots still own their historical income.
       bondHistory: [{ ...history, releaseFrame: 11 }],
       dailyEarnings: [flexibleEarnings, { ...flexibleEarnings, frameId: 10, earningsDestination: 'Owner' as const }],
       isLoaded: true,
@@ -2985,6 +2996,13 @@ describe('financial position accounting', () => {
       frameProfitPercent: 3,
       earningsMicrogons: 3_000_000n,
     });
+
+    chartBonds.bondLots.push(newLot);
+    analysis.update();
+    expect(analysis.records.find(record => record.id === 9)?.earningsMicrogons).toBe(2_500_000n);
+    chartBonds.bondLots.pop();
+    analysis.update();
+
     expect(analysis.items.find(item => item.id === 6)).toMatchObject({ score: null, isFiller: true });
     expect(analysis.items.find(item => item.id === 8)).toMatchObject({ score: null, isFiller: false });
     expect(analysis.items.at(-1)).toMatchObject({ id: 11, score: null });
@@ -3178,11 +3196,9 @@ describe('financial position accounting', () => {
           pendingCollectRevenue: 100n,
           argonotCommitment: { heldMicronots: 500n, committedMicronots: 500n },
         },
-        history: {
-          loadPositionHistory: vi.fn(async () => ({ capital: [], revenue: [] })),
-        },
+        loadPublishedFinancialHistory: vi.fn(async () => ({ capital: [], revenue: [] })),
       } as any,
-      { bondLots: [], bondHistory: [], dailyEarnings: [], isLoaded: true, currentFrameId: 0 },
+      { lastFinalizedCompletedFrameId: -1, data: { bondLots: [], bondHistory: [], dailyEarnings: [], isLoaded: true } },
     );
     const positions = await source.loadPositions({
       account,

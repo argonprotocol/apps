@@ -1903,10 +1903,18 @@ describe('ArgonBonds', () => {
 
       expect(positions).toHaveLength(1);
       if (changes.includes(true)) {
-        const [missingPayout] = new ArgonBondsFinancials(live).createFinancialPositions({
+        const [purchaseFrame] = new ArgonBondsFinancials(live).createFinancialPositions({
           bondLots: live.data.bondLots,
           historyRecords: live.data.bondHistory,
           completedFrame: block.frameId!,
+          frameDates: new Map([[3, new Date(block.blockTime)]]),
+        });
+        expect(purchaseFrame.returnIsComplete).toBe(true);
+
+        const [missingPayout] = new ArgonBondsFinancials(live).createFinancialPositions({
+          bondLots: live.data.bondLots,
+          historyRecords: live.data.bondHistory,
+          completedFrame: block.frameId! + 1,
           frameDates: new Map([[3, new Date(block.blockTime)]]),
         });
         expect(missingPayout.returnIsComplete).toBe(false);

@@ -62,12 +62,18 @@ export class ArgonBondsFinancials
     const frameDates = new Map(
       [...frameIds].map(frameId => [frameId, this.bonds.miningFrames.getFrameDate(frameId)] as const),
     );
+
+    const hasVaultBond =
+      bondLots.some(lot => lot.programType === 'Vault') ||
+      this.bonds.data.bondHistory.some(record => record.programType === 'Vault');
+    const completedFrame = hasVaultBond ? this.bonds.lastFinalizedCompletedFrameId : undefined;
+
     return this.createFinancialPositions({
       ...args,
       bondLots,
       historyRecords: this.bonds.data.bondHistory,
       dailyEarnings: this.bonds.data.dailyEarnings,
-      completedFrame: this.bonds.data.currentFrameId - 1,
+      completedFrame,
       frameDates,
     });
   }
@@ -182,19 +188,31 @@ export class ArgonBondsFinancials
     const bondLot = value instanceof BondLot ? value : undefined;
     const lotId = bondLot?.id ?? history!.bondLotId;
     const nativePrincipal = bondLot?.principalMicrogons ?? history!.nativePrincipal;
+
     let lifecycle: IBondFinancialPosition['lifecycle'] = 'completed';
     if (bondLot) lifecycle = bondLot.isReleasing ? 'releasing' : 'active';
+
     const earnings = getBondEarnings(
       bondLot,
       history,
       dailyEarnings.filter(record => record.bondLotId === lotId),
       completedFrame,
     );
+
+    const historyIsComplete = history?.flexibilityHistoryComplete === true && history.earningsComplete !== false;
+    let returnIsComplete = historyIsComplete && earnings.attributionIsComplete;
+
+    if (earnings.isNewUnparticipatedBond) returnIsComplete = true;
+
+    if (history && history.nativePrincipal !== nativePrincipal) {
+      returnIsComplete = false;
+    }
+
+    if (!bondLot && history?.releaseBlockNumber === undefined) {
+      returnIsComplete = false;
+    }
+
     const source = value instanceof BondLot ? { bondLot: value } : { history: value };
-    let returnIsComplete = history?.flexibilityHistoryComplete === true && history.earningsComplete !== false;
-    if (history?.nativePrincipal !== nativePrincipal) returnIsComplete = false;
-    if (!bondLot && history?.releaseBlockNumber === undefined) returnIsComplete = false;
-    if (!earnings.attributionIsComplete) returnIsComplete = false;
     return createFinancialPosition(
       'bond',
       {

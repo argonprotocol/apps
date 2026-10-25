@@ -25,15 +25,12 @@ type VaultFinancialPositionArgs = {
 };
 
 type VaultPosition = IVaultFinancialPosition | IVaultBalanceFinancialPosition;
-type VaultBondState = Pick<
-  ArgonBonds['data'],
-  'bondLots' | 'bondHistory' | 'dailyEarnings' | 'isLoaded' | 'currentFrameId'
->;
+type VaultBondState = Pick<ArgonBonds['data'], 'bondLots' | 'bondHistory' | 'dailyEarnings' | 'isLoaded'>;
 
 export class VaultFinancials implements IFinancialPositionSource<VaultFinancialPositionArgs, VaultPosition> {
   constructor(
     private readonly vault: MyVault,
-    private readonly bonds: VaultBondState,
+    private readonly bonds: Pick<ArgonBonds, 'lastFinalizedCompletedFrameId'> & { data: VaultBondState },
   ) {}
 
   /** Completed-frame income belongs to the vault only after excluding vault-paid bond income. */
@@ -71,7 +68,7 @@ export class VaultFinancials implements IFinancialPositionSource<VaultFinancialP
           else vaultEarnings.set(frame.frameId, remaining - amount);
           continue;
         }
-        if (frame.frameId < createdFrame) continue;
+        if (frame.frameId <= createdFrame) continue;
         if (releaseFrame != null && frame.frameId >= releaseFrame) continue;
         if ((record?.earningsHistoryThroughFrame ?? -1) >= frame.frameId) continue;
         if (record?.flexibilityHistoryComplete && !wasFlexible) continue;
@@ -91,17 +88,10 @@ export class VaultFinancials implements IFinancialPositionSource<VaultFinancialP
   }
 
   public async loadPositions(args: VaultFinancialPositionArgs): Promise<VaultPosition[]> {
-    const publication = this.vault.revenuePublication;
-    await publication;
-    const history = await this.vault.history.loadPositionHistory();
-    if (publication !== this.vault.revenuePublication) {
-      throw new Error('Vault revenue changed during the financial snapshot; retry after publication');
-    }
-    const liveVault = this.vault.createdVault ?? undefined;
-
+    const history = await this.vault.loadPublishedFinancialHistory();
     return this.createFinancialPositions({
       ...args,
-      liveVault,
+      liveVault: this.vault.createdVault ?? undefined,
       capitalHistory: history.capital,
       revenueHistory: history.revenue,
       revenueCoverage: history.revenueCoverage,
@@ -157,8 +147,9 @@ export class VaultFinancials implements IFinancialPositionSource<VaultFinancialP
       collectedRevenue: revenueHistory.filter(record => record.source === 'vaultCollect'),
     });
     const bondEarnings = getVaultBondEarnings(
-      this.bonds,
+      this.bonds.data,
       vaultId,
+      this.bonds.lastFinalizedCompletedFrameId,
       revenueHistory,
       args.revenueCoverage,
       this.vault.pendingRevenueFrames,

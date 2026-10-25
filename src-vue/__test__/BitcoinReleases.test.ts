@@ -494,6 +494,117 @@ describe('Bitcoin lock release', () => {
     },
   );
 
+  it('releases a partial send reservation when the finalized cosign request has closed', async () => {
+    const db = await createTestDb();
+    const pending = await db.bitcoinLocksTable.insertPending({
+      uuid: 'overdue-partial-release',
+      status: BitcoinLockStatus.LockPendingFunding,
+      securitizedSatoshis: 1_000n,
+      cosignVersion: 'v1',
+      network: 'regtest',
+      hdPath: "m/84'/1'/0'/0/1",
+      vaultId: 3,
+    });
+    await db.execute(
+      'UPDATE BitcoinLocks SET lockId = ?, status = ?, fundedSatoshis = ?, ownerAccount = ? WHERE uuid = ?',
+      [7, BitcoinLockStatus.LockFunded, 1_000n, 'owner-account', pending.uuid],
+    );
+    const input = await db.bitcoinUtxosTable.insert({
+      lockId: 7,
+      txid: `0x${'1'.repeat(64)}`,
+      vout: 0,
+      satoshis: 1_000n,
+      network: 'regtest',
+      status: BitcoinUtxoStatus.FundingUtxo,
+      spendStatus: BitcoinUtxoSpendStatus.Unspent,
+      firstSeenAt: new Date('2026-01-01T00:00:00Z'),
+      firstSeenBitcoinHeight: 100,
+    });
+    await db.execute('UPDATE BitcoinLocks SET fundingUtxoIds = ? WHERE uuid = ?', [[input.id], pending.uuid]);
+
+    const finalizedHeader = { frameId: 100 };
+    let pendingPartial: object | null = null;
+    let cosignHeight: { releaseNumber: number } | null = null;
+    const finalizedClient = {
+      query: {
+        bitcoinLocks: {
+          pendingPartialReleaseByLockId: vi.fn(async () => pendingPartial),
+          lockReleaseCosignHeightById: vi.fn(async () => cosignHeight),
+        },
+      },
+    };
+    const blockWatch = {
+      finalizedBlockHeader: finalizedHeader,
+      getFinalizedApi: vi.fn(async () => finalizedClient),
+    } as unknown as BlockWatch;
+    const bitcoinLocks = await loadBitcoinLocksState(db, undefined, { blockWatch });
+    const lock = bitcoinLocks.getLockById(7)!;
+    const release = await bitcoinLocks.releases.createLockRelease(lock, {
+      id: 'lock:7:1',
+      kind: BitcoinReleaseKind.Lock,
+      lockId: 7,
+      sendId: 'overdue-send',
+      releaseNumber: 1,
+      status: BitcoinReleaseStatus.SubmittingRequestOnArgon,
+      inputUtxoIds: [input.id],
+      toScriptPubkey: `0x0020${'ab'.repeat(32)}`,
+      bitcoinNetworkFee: 100n,
+      destinationSatoshis: 400n,
+      changeSatoshis: 500n,
+      vaultSignatures: [],
+    });
+    await bitcoinLocks.releases.recordArgonRequest(release, { requestedReleaseAtTick: 100, cosignDueFrame: 101 });
+
+    const findCosignatures = vi.spyOn(BitcoinLock, 'findVaultCosignatures').mockResolvedValue(undefined);
+    const getReleaseRequest = vi.spyOn(BitcoinLock, 'getReleaseRequest').mockResolvedValue(undefined);
+    let currentFunding = [{ utxoRef: { txid: input.txid, vout: input.vout }, satoshis: input.satoshis }];
+    const getCurrentLock = vi
+      .spyOn(BitcoinLock, 'get')
+      .mockImplementation(async () => new BitcoinLock(createCurrentLock({ lockId: 7, fundingUtxos: currentFunding })));
+    try {
+      expect(bitcoinLocks.getLockUnlockReleaseState(lock).isWaitingForVaultCosign).toBe(true);
+      await bitcoinLocks.releases.syncLockVaultCosign(lock);
+      expect(release.status).toBe(BitcoinReleaseStatus.WaitingForVaultCosign);
+
+      finalizedHeader.frameId = 101;
+      pendingPartial = { releaseNumber: 1 };
+      await bitcoinLocks.releases.syncLockVaultCosign(lock);
+      expect(release.status).toBe(BitcoinReleaseStatus.WaitingForVaultCosign);
+
+      pendingPartial = null;
+      cosignHeight = { releaseNumber: 1 };
+      await bitcoinLocks.releases.syncLockVaultCosign(lock);
+      expect(release.status).toBe(BitcoinReleaseStatus.WaitingForVaultCosign);
+
+      cosignHeight = null;
+      currentFunding = [{ utxoRef: { txid: `0x${'2'.repeat(64)}`, vout: 1 }, satoshis: 500n }];
+      await bitcoinLocks.releases.syncLockVaultCosign(lock);
+      expect(release.status).toBe(BitcoinReleaseStatus.WaitingForVaultCosign);
+
+      currentFunding = [{ utxoRef: { txid: input.txid, vout: input.vout }, satoshis: input.satoshis }];
+      await bitcoinLocks.releases.syncLockVaultCosign(lock);
+    } finally {
+      findCosignatures.mockRestore();
+      getReleaseRequest.mockRestore();
+      getCurrentLock.mockRestore();
+    }
+
+    const restarted = await loadBitcoinLocksState(db);
+    expect(restarted.releases.getById(release.id)).toMatchObject({
+      status: BitcoinReleaseStatus.Failed,
+      statusError: expect.stringContaining('release request closed'),
+    });
+    expect(restarted.getLockById(7)).toMatchObject({
+      status: BitcoinLockStatus.LockFunded,
+      activeReleaseId: undefined,
+    });
+    expect(restarted.utxoTracking.getUtxoRecordById(input.id)).toMatchObject({
+      spendStatus: BitcoinUtxoSpendStatus.Unspent,
+      activeReleaseId: undefined,
+    });
+    expect(restarted.getLockUnlockReleaseState(restarted.getLockById(7)).isWaitingForVaultCosign).toBe(false);
+  });
+
   it('keeps concurrent child releases grouped through a submission failure and restart', async () => {
     const db = await createTestDb();
     const lockIds = [7, 8];

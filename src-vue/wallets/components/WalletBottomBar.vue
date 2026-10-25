@@ -298,12 +298,15 @@ const pendingTransfers = Vue.computed<PendingTransfer[]>(() => {
     return release ? [{ channel, release }] : [];
   });
 
-  const failedBitcoinReleases = bitcoinLocks.releases.getUnacknowledgedFailedLockReleases().flatMap(release => {
+  const depositAndFailedBitcoinReleases = [
+    ...bitcoinLocks.releases.getUnacknowledgedFailedLockReleases(),
+    ...bitcoinLocks.releases.getActiveDepositReleases(),
+  ].flatMap(release => {
     const channel = bitcoinLocks.getLockById(release.lockId);
     return channel ? [{ channel, release }] : [];
   });
 
-  const bitcoinChannelReleases = [...activeBitcoinReleases, ...failedBitcoinReleases].map<PendingTransfer>(
+  const bitcoinChannelReleases = [...activeBitcoinReleases, ...depositAndFailedBitcoinReleases].map<PendingTransfer>(
     ({ channel, release }) => {
       const releaseState = bitcoinLocks.getLockUnlockReleaseState(channel);
       const bitcoinProgress = bitcoinLocks.getReleaseProcessingDetails(release);

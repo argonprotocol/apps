@@ -41,6 +41,7 @@ const __dirname = fileURLToPath(new URL('../src-tauri/', import.meta.url));
 export async function startDesktop(
   options: {
     logFd?: number;
+    requireDevDockerServices?: boolean;
     deferEthereumRelay?: boolean;
     visibleEthereumReady?: boolean;
     beforeLaunch?: (env: NodeJS.ProcessEnv, devEthereum?: IStartDevEthereumResult) => Promise<void>;
@@ -48,7 +49,7 @@ export async function startDesktop(
     onStarted?: () => void;
   } = {},
 ): Promise<void> {
-  const network = process.env.ARGON_NETWORK_NAME || 'testnet';
+  const network = process.env.ARGON_NETWORK_NAME || 'dev-docker';
   const argonAppInstance = process.env.ARGON_APP_INSTANCE || '';
   console.log(`[tauri-dev] Starting Tauri dev for network="${network}" with instance="${argonAppInstance}"`);
 
@@ -62,6 +63,7 @@ export async function startDesktop(
   const configJson = JSON.stringify(baseConfig);
 
   const tauriEnv: NodeJS.ProcessEnv = { ...process.env };
+  tauriEnv.ARGON_NETWORK_NAME = network;
   tauriEnv.ARGON_APP_INSTANCE = `${argonAppInstance.split(':')[0] || 'default'}:${tauriPort}`;
   const devEthereumConfig = readDevEthereumConfigFromEnv();
   let devEthereumSetup: IDevEthereumSetup | undefined;
@@ -81,6 +83,9 @@ export async function startDesktop(
 
     console.log('[tauri-dev] Resolving dev-docker compose ports');
     const composePorts = await resolveDevDockerComposePorts();
+    if (!composePorts && options.requireDevDockerServices) {
+      throw new Error('The prepared local services are unavailable. Run yarn dev start --no-reset-data first.');
+    }
     if (!composePorts && devEthereumConfig) {
       throw new Error('Local Ethereum requires the dev-docker services and their host ports to be available.');
     }

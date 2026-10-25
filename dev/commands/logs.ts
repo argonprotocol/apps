@@ -26,6 +26,6 @@ Show available log-file links:
   const profile = resolveDevProfile(values);
   const { logPath, upstreamDir } = getDevPaths(profile);
   const available = [logPath, Path.join(upstreamDir, 'operator-worker.log')].filter(file => Fs.existsSync(file));
-  if (!available.length) console.info(`No logs yet for ${profile.instance}. Start it with yarn dev.`);
+  if (!available.length) console.info(`No logs yet for ${profile.instance}. Start it with yarn dev start.`);
   for (const file of available) console.info(pathToFileURL(file).href);
 }

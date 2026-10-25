@@ -59,8 +59,8 @@ export class ArgonBondsRecovery {
     if (!bondEvents.length) return facts;
 
     const api = await this.miningFrames.blockWatch.getApi(block);
-    const distributesEarnings = events.some(
-      ({ event }) => event.section === 'treasury' && event.method === 'FrameEarningsDistributed',
+    const distributedFrames = events.flatMap(({ event }) =>
+      event.section === 'treasury' && event.method === 'FrameEarningsDistributed' ? [event.data.frameId] : [],
     );
     for (const [index, { event, phase }] of bondEvents) {
       if (event.section !== 'treasury') continue;
@@ -169,6 +169,14 @@ export class ArgonBondsRecovery {
             lot.programType === 'Argonot'
               ? (await this.currency.fetchMainchainRatesAtBlock({ api, block })).ARGNOT
               : undefined;
+          // The parent-block lot omits payouts in this block. Without one, its earnings are final;
+          // a prior release schedule also rules out payouts for frames after that schedule.
+          let earningsComplete = distributedFrames.length === 0;
+          if (distributedFrames.length > 0 && lot.isReleasing && lot.releaseFrameId != null) {
+            const exitDelay = parentApi.consts.treasury.treasuryExitDelayFrames;
+            const scheduledFrame = lot.releaseFrameId - Number(exitDelay);
+            earningsComplete = exitDelay > 0n && distributedFrames.every(frame => frame > scheduledFrame);
+          }
           facts.push({
             kind: 'release',
             lot,
@@ -177,7 +185,7 @@ export class ArgonBondsRecovery {
             extrinsicIndex,
             closingArgonotRateMicrogons,
             wasFlexible,
-            earningsComplete: !distributesEarnings,
+            earningsComplete,
           });
           break;
         }

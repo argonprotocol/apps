@@ -28,13 +28,13 @@ Show launcher and local Docker service status:
   const running = state && (await requestDevSession(state, 'status').catch(() => undefined));
   let status = 'closed';
   if (running) status = running.ready ? 'ready' : 'starting';
-  console.info(`${profile.instance}: ${status}`);
+  console.info(`${profile.instance} desktop: ${status}`);
 
   const { paths, context, composeArgs } = await configureDevEnvironment(profile);
   Fs.mkdirSync(paths.instanceDir, { recursive: true });
   const output = new DevOutput(paths.logPath);
   try {
-    await output.run('docker', [...composeArgs, 'ps'], {
+    await output.run('docker', [...composeArgs, 'ps', '--all'], {
       env: context.composeEnv,
       cwd: context.composeDir,
       stream: true,

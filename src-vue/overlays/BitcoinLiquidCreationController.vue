@@ -38,10 +38,12 @@ import { OperationalStepId, useCertificationController } from '../stores/certifi
 import { getMiningFrames } from '../stores/mainchain.ts';
 import { getMyVault, getVaults } from '../stores/vaults.ts';
 import { getWalletKeys } from '../stores/wallets.ts';
+import { getConfig } from '../stores/config.ts';
 import BitcoinLiquidCreationOverlay from './BitcoinLiquidCreationOverlay.vue';
 import type { BitcoinLiquidCreationState } from './BitcoinLiquidCreationState.ts';
 
 const controller = useCertificationController();
+const config = getConfig();
 const vaults = getVaults();
 const walletKeys = getWalletKeys();
 const bitcoinLocks = getBitcoinLocks();
@@ -154,7 +156,15 @@ function open(options?: { liquidId: number }): void {
       .map(lock => lock.vaultId),
   );
   state.selectedVaultIds = [...selectedVaultIds.value];
-  state.stage = selectedVaultIds.value.size > 1 ? 'vaults' : 'form';
+  const ownedVaultId = myVault.createdVault?.vaultId;
+  const upstreamVaultId = config.upstreamOperator?.vaultId;
+  const hasOwnedAndUpstreamVaults =
+    ownedVaultId !== undefined && upstreamVaultId !== undefined && ownedVaultId !== upstreamVaultId;
+  if (selectedVaultIds.value.size > 1 || hasOwnedAndUpstreamVaults) {
+    state.stage = 'vaults';
+  } else {
+    state.stage = 'form';
+  }
   selectedSatoshis.value = totalUnallocatedSatoshis.value;
   state.sources = createSourcesForAllocations(allocate(totalUnallocatedSatoshis.value));
   isOpen.value = true;

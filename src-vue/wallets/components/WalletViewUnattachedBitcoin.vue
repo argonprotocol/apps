@@ -219,9 +219,14 @@
               release?.status === BitcoinReleaseStatus.WaitingForArgonRecognition
             "
           >
-            <div class="font-semibold text-slate-800">Returning on Bitcoin</div>
-            <p class="text-sm text-slate-600">
+            <div class="font-semibold text-slate-800">
+              {{ release.bitcoinFirstSeenAt ? 'Returning on Bitcoin' : 'Checking Bitcoin return' }}
+            </div>
+            <p v-if="release.bitcoinFirstSeenAt" class="text-sm text-slate-600">
               The return transaction was broadcast and is waiting for Bitcoin confirmations.
+            </p>
+            <p v-else class="text-sm text-slate-600">
+              Checking whether the return transaction was sent. This deposit remains reserved.
             </p>
           </template>
           <template v-else-if="release?.vaultSignatures.length">
@@ -235,7 +240,7 @@
             </p>
           </template>
           <ProgressBar
-            v-if="release?.status === BitcoinReleaseStatus.ConfirmingOnBitcoin"
+            v-if="release?.status === BitcoinReleaseStatus.ConfirmingOnBitcoin && release.bitcoinFirstSeenAt"
             :progress="releaseProgress.progressPct"
             :showLabel="false"
             class="h-4"
@@ -264,7 +269,7 @@
             </div>
           </dl>
           <a
-            v-if="release?.bitcoinTxid"
+            v-if="release?.bitcoinTxid && release.bitcoinFirstSeenAt"
             :href="mempool.txUrl(release.bitcoinTxid)"
             target="_blank"
             rel="noopener noreferrer"

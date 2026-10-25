@@ -115,7 +115,7 @@ export async function readDevUpstreamServerPorts(
     ]);
   } catch (error) {
     throw new Error(
-      `Upstream services are not running. Keep 'yarn dev --start-ethereum --run-upstream' open and wait for '[tauri-dev][upstream-ready]', or restart 'yarn dev --start-ethereum --run-upstream' to retry upstream startup. Root error: ${(error as Error).message}`,
+      `Upstream services are not running. Keep 'yarn dev start' open and wait for '[tauri-dev][upstream-ready]', or restart 'yarn dev start' to retry upstream startup. Root error: ${(error as Error).message}`,
     );
   }
 

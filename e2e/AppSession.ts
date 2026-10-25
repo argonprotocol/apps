@@ -412,7 +412,12 @@ export class AppSession {
         delete tauriEnv.ARGON_NETWORK_CONFIG_OVERRIDE;
         sessionData.sessionArchiveUrl = 'ws://127.0.0.1:9944';
 
-        const command = sessionMode === 'stateful' ? ['yarn', 'dev', 'desktop'] : ['yarn', 'dev'];
+        let command: string[];
+        if (sessionMode === 'stateful') {
+          command = ['yarn', 'dev', 'desktop'];
+        } else {
+          command = ['yarn', 'dev', 'start', '--no-start-ethereum', '--no-run-upstream'];
+        }
         appProcess = AppProcess.start({
           repoRoot,
           env: tauriEnv,

@@ -33,6 +33,7 @@ import type { IWallet } from '../lib/Wallet.ts';
 import { BitcoinLiquid } from '../lib/BitcoinLiquid.ts';
 import { createBitcoinLiquids } from '../lib/BitcoinFissions.ts';
 import { MiningFinancials } from '../lib/financials/MyMiningSeats.ts';
+import { MyVault } from '../lib/MyVault.ts';
 
 type FinancialHistoryRestoreArgs = Parameters<typeof import('../lib/recovery/index.ts').restoreFinancialHistory>[0];
 
@@ -51,6 +52,7 @@ const mocks = vi.hoisted(() => {
 
   return {
     argonBonds: {
+      lastFinalizedCompletedFrameId: 0,
       get needsHistoryRepair() {
         return this.data.bondHistory.some(record => !record.flexibilityHistoryComplete);
       },
@@ -158,6 +160,7 @@ const mocks = vi.hoisted(() => {
     },
     myVault: {
       createdVault: undefined as Vault | undefined,
+      revenuePublication: Promise.resolve(),
       vaults: { operatorNamesByVaultId: {} },
       data: {
         isLoaded: false,
@@ -174,6 +177,7 @@ const mocks = vi.hoisted(() => {
           () => Promise<{ capital: IVaultCapitalHistoryRecord[]; revenue: IVaultRevenueEventsRecord[] }>
         >(async () => ({ capital: [], revenue: [] })),
       },
+      loadPublishedFinancialHistory: vi.fn(),
       load: vi.fn<() => Promise<void>>(),
       publishRecoveredHistory: vi.fn(function (this: { data: { financialRevision: number } }) {
         this.data.financialRevision += 1;
@@ -347,6 +351,7 @@ describe('financials store lifecycle', () => {
     mocks.argonBonds.data.bondHistory = [];
     mocks.argonBonds.data.dailyEarnings = [];
     mocks.argonBonds.data.currentFrameId = 1;
+    mocks.argonBonds.lastFinalizedCompletedFrameId = 0;
     mocks.argonBonds.data.isLoaded = true;
     mocks.argonBonds.data.financialRevision = 0;
     mocks.argonBonds.getOwnBondLots.mockImplementation(async () => mocks.argonBonds.data.bondLots);
@@ -392,6 +397,10 @@ describe('financials store lifecycle', () => {
     mocks.vaultingStats.microgonValueInVaults = 0n;
     mocks.myVault.load.mockResolvedValue();
     mocks.myVault.publishRecoveredHistory.mockClear();
+    mocks.myVault.revenuePublication = Promise.resolve();
+    mocks.myVault.loadPublishedFinancialHistory.mockImplementation(() =>
+      MyVault.prototype.loadPublishedFinancialHistory.call(mocks.myVault as unknown as MyVault),
+    );
     mocks.myVault.createdVault = undefined;
     mocks.myVault.data.isLoaded = true;
     mocks.myVault.data.financialRevision = 1;
@@ -1740,6 +1749,7 @@ describe('financials store lifecycle', () => {
       query: { ticks: { currentTick: async () => 2 }, miningSlot: { nextFrameId: async () => 3 } },
     }));
     mocks.argonBonds.data = shallowReactive({ ...mocks.argonBonds.data, currentFrameId: 2 });
+    mocks.argonBonds.lastFinalizedCompletedFrameId = 1;
 
     const snapshot = createAccountSnapshot(mocks.blockWatch.bestBlockHeader);
     snapshot.accounts[0].reservedMicrogons = 18_000_000n;

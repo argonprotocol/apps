@@ -530,7 +530,11 @@ async function loadPurchase() {
     await Promise.all([financials.refreshVaults(eligibleVaultIds.value), argonBonds.refreshBondLots()]);
     if (session !== purchaseSession || !isOpen.value) return;
 
-    if (!vaultId.value && eligibleVaults.value.length > 1) {
+    const ownedVaultId = myVault.createdVault?.vaultId;
+    const upstreamVaultId = config.upstreamOperator?.vaultId;
+    const hasOwnedAndUpstreamVaults =
+      ownedVaultId !== undefined && upstreamVaultId !== undefined && ownedVaultId !== upstreamVaultId;
+    if (!vaultId.value && (eligibleVaults.value.length > 1 || hasOwnedAndUpstreamVaults)) {
       isSelectingVault.value = true;
       return;
     }

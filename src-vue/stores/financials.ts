@@ -61,7 +61,7 @@ export const useFinancials = defineStore('financials', () => {
   const walletFinancials = new WalletFinancials(walletsForArgon);
   const bondFinancials = new ArgonBondsFinancials(argonBonds);
   const bitcoinFinancials = new BitcoinFinancials(bitcoinLocks, bitcoinFissions, getDbPromise());
-  const vaultFinancials = new VaultFinancials(myVault, argonBonds.data);
+  const vaultFinancials = new VaultFinancials(myVault, argonBonds);
   const stableSwapFinancials = new StableSwapFinancials(stableSwaps);
   let myMiningSeats: ReturnType<typeof getMyMiningSeats> | undefined;
   let miningFinancials: MiningFinancials | undefined;
