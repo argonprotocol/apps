@@ -1,5 +1,5 @@
 <template>
-  <NavigationMenuItem class="pointer-events-auto">
+  <NavigationMenuItem value="return-metric" class="pointer-events-auto">
     <NavigationMenuTrigger
       aria-label="Return metric"
       class="text-argon-600/70 flex h-[30px] cursor-pointer items-center rounded-r-md border border-l-0 border-slate-400/50 px-1.5 hover:bg-slate-400/10 focus:outline-none data-[state=open]:bg-slate-400/10"

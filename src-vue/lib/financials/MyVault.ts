@@ -2,6 +2,7 @@ import {
   calculateVaultPositionValue,
   Currency,
   getPercent,
+  type IAggregateReturnInput,
   type ICapitalFlow,
   type IVaultFrameStats,
   type Vault,
@@ -183,6 +184,7 @@ export class VaultFinancials implements IFinancialPositionSource<VaultFinancialP
     }
     capitalFlows.sort((left, right) => new Date(left.occurredAt).getTime() - new Date(right.occurredAt).getTime());
     const hasCompleteCapitalHistory = value.hasCompleteCapitalHistory;
+    const dailyHistory = this.getVaultDailyReturns(vaultId, args.liveVault, vaultCapitalHistory);
     const positions: VaultPosition[] = [
       createFinancialPosition(
         'vault',
@@ -196,6 +198,8 @@ export class VaultFinancials implements IFinancialPositionSource<VaultFinancialP
             hasCompleteCapitalHistory && hasCompleteCapitalTiming && hasCompleteLifecycleTiming
               ? capitalFlows
               : undefined,
+          dailyReturns: dailyHistory?.returns ?? null,
+          dailyReturnPeriodDays: dailyHistory?.periodDays,
           vaultId,
           vault: args.liveVault,
           securitization: securitization ?? value.remainingPrincipal,
@@ -229,5 +233,51 @@ export class VaultFinancials implements IFinancialPositionSource<VaultFinancialP
     }
 
     return positions;
+  }
+
+  private getVaultDailyReturns(
+    vaultId: number,
+    liveVault: Vault | undefined,
+    capitalHistory: readonly IVaultCapitalHistoryRecord[],
+  ): { returns: IAggregateReturnInput[]; periodDays?: number } | null {
+    if (capitalHistory.some(record => record.eventType === 'capitalLost')) return null;
+
+    const stats = this.vault.vaults.stats;
+    if (!stats) return null;
+    const vaultStats = stats.vaultsById[vaultId] ?? this.vault.data.stats;
+    if (!vaultStats) return null;
+
+    const openedFrame = this.vault.vaults.miningFrames.getForTick(liveVault?.openedTick ?? vaultStats.openedTick);
+    if (openedFrame === undefined) return null;
+
+    let throughFrame = Math.min(stats.synchedToFrame, this.bonds.lastFinalizedCompletedFrameId);
+    if (!liveVault || liveVault.isClosed) {
+      throughFrame = Math.min(throughFrame, vaultStats.changesByFrame[0]?.frameId ?? openedFrame);
+    }
+    const backfill = stats.revenueBackfill;
+    if (backfill) {
+      const firstUnscannedFrame = backfill.throughFrame - 1;
+      const lastUnscannedFrame = backfill.nextFrame - 1;
+      if (firstUnscannedFrame <= throughFrame && lastUnscannedFrame > openedFrame) {
+        throughFrame = firstUnscannedFrame - 1;
+        if (throughFrame <= openedFrame) return null;
+      }
+    }
+    if (throughFrame <= openedFrame) return { returns: [], periodDays: 0 };
+
+    const frames = vaultStats.changesByFrame.filter(
+      frame => frame.frameId > openedFrame && frame.frameId <= throughFrame,
+    );
+    const earnings = VaultFinancials.getFrameEarnings(vaultId, frames, this.bonds.data);
+    const returns: IAggregateReturnInput[] = [];
+    for (const frame of frames) {
+      const income = earnings.get(frame.frameId)?.income;
+      if (income === undefined || frame.securitization <= 0n) return null;
+      returns.push({ startingCapital: frame.securitization, endingCapital: frame.securitization + income });
+    }
+    return {
+      returns,
+      periodDays: throughFrame - openedFrame,
+    };
   }
 }

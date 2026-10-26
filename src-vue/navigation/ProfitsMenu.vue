@@ -1,13 +1,14 @@
 <!-- prettier-ignore -->
 <template>
   <div ref="rootRef">
-    <NavigationMenuItem class="pointer-events-auto">
+    <NavigationMenuItem value="returns" class="pointer-events-auto">
       <NavigationMenuTrigger
         Trigger
         class="flex h-[30px] cursor-pointer flex-row items-center justify-center rounded-l-md border border-slate-400/50 px-3.5 font-mono text-[17px] font-semibold text-argon-600/70 hover:border-slate-400/50 hover:bg-slate-400/10 focus:outline-none data-[state=open]:border-slate-400/60 data-[state=open]:bg-slate-400/10"
       >
         <div class="relative top-px -mr-0.5 ml-[3px] whitespace-nowrap">
-          <Returns :returns="aggregate.accountReturn" />
+          <template v-if="aggregate.readiness === 'ready' && aggregate.accountReturn.availability === 'not-applicable'">0% {{ config.returnMetric }}</template>
+          <Returns v-else :returns="aggregate.accountReturn" />
         </div>
         <span
           v-if="isHistoryRecoveryInProgress"

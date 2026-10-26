@@ -1,7 +1,7 @@
 <!-- prettier-ignore -->
 <template>
   <div ref="rootRef" class="flex flex-row items-center">
-    <NavigationMenuItem class="pointer-events-auto">
+    <NavigationMenuItem value="portfolio" class="pointer-events-auto">
       <NavigationMenuTrigger
         Trigger
         aria-label="View portfolio details"

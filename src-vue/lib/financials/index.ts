@@ -108,11 +108,26 @@ export class FinancialPositionBook {
 
         const retainedReturns: IFinancialReturnSnapshot[] = [];
         for (const position of positions.filter(isReturnPosition)) {
-          if (calculatePositionReturn([position], nextSnapshot).availability === 'available') continue;
-
           const previousReturn = previousReturns.get(position.id);
           if (previousReturn?.position.kind !== position.kind) continue;
-          if (calculatePositionReturn([previousReturn.position], previous).availability !== 'available') continue;
+
+          const current = calculatePositionReturn([position], nextSnapshot);
+          const prior = calculatePositionReturn([previousReturn.position], previous);
+          if (prior.availability !== 'available') continue;
+          if (current.availability === 'available') {
+            if (position.kind !== 'bond' || position.lifecycle === 'completed') continue;
+            if (current.apy !== undefined || !previousReturn.position.dailyReturns) continue;
+
+            retainedReturns.push({
+              position: {
+                ...position,
+                dailyReturns: previousReturn.position.dailyReturns,
+                dailyReturnPeriodDays: previousReturn.position.dailyReturnPeriodDays,
+              },
+              observation,
+            });
+            continue;
+          }
 
           retainedReturns.push(previousReturn);
         }
@@ -346,6 +361,8 @@ export function calculatePositionReturn(
         endingDate: position.endedAt,
         endingCapital: investedCost + positionIncome,
         capitalFlows: position.capitalFlows,
+        dailyReturns: position.dailyReturns,
+        dailyReturnPeriodDays: position.dailyReturnPeriodDays,
       });
       continue;
     }
@@ -370,6 +387,8 @@ export function calculatePositionReturn(
       endingDate: position.endedAt,
       endingCapital,
       capitalFlows: position.capitalFlows,
+      dailyReturns: position.dailyReturns,
+      dailyReturnPeriodDays: position.dailyReturnPeriodDays,
     });
   }
 

@@ -28,7 +28,7 @@ import { getMyMiningSeats } from '../../src-vue/stores/myMiningSeats.ts';
 import { getWalletKeys, useWallets } from '../../src-vue/stores/wallets.ts';
 import { setupAppScenario } from './setupAppScenario.ts';
 
-export function setupMiningPortfolioScenario(selectedFrameId = 120) {
+export function setupMiningPortfolioScenario() {
   const { config } = setupAppScenario({
     selectedTab: TopTab.Mining,
     config: {
@@ -51,7 +51,7 @@ export function setupMiningPortfolioScenario(selectedFrameId = 120) {
     isLoaded: true,
     isLoadedPromise: Promise.resolve(),
     latestFrameId: 120,
-    selectedFrameId,
+    selectedFrameId: 120,
     frames,
     global: {
       seatsTotal: 23,
@@ -68,9 +68,9 @@ export function setupMiningPortfolioScenario(selectedFrameId = 120) {
     allWinningBids: winningBids,
     currentFrameBids: [],
     pendingBids: {
-      bidCount: 7,
-      microgonsBidTotal: 57_300_000_000n,
-      micronotsStakedTotal: 39_074_000_000n,
+      bidCount: 2,
+      microgonsBidTotal: 120_000_000n,
+      micronotsStakedTotal: 15_500_000n,
     },
     miningCohorts: [],
     currency: getCurrency(),
@@ -115,6 +115,8 @@ export function setupMiningPortfolioScenario(selectedFrameId = 120) {
       syncProgress: 100,
       historicalDbProgress: 100,
       state: {
+        currentFrameId: 120,
+        bidsInCurrentFrame: 240,
         isBiddingOpen: true,
         currentTick: 2_000_100,
         maxSeatsInPlay: 100,

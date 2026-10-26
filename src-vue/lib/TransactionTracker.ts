@@ -105,9 +105,7 @@ export class TransactionTracker {
     try {
       const table = await this.getTable();
       const txs = await table.fetchAll();
-      this.#latestHistoryByTxId = await this.getHistoryTable().then(x =>
-        x.fetchLatestByTransactionIds(txs.map(y => y.id)),
-      );
+      this.#latestHistoryByTxId = await this.getHistoryTable().then(x => x.fetchLatestForTransactions());
       const client = await getMainchainClient(false);
       await this.blockWatch.start();
 

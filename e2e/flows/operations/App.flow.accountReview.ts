@@ -182,6 +182,21 @@ export default new OperationalFlow<IAccountReviewFlowContext, IAccountReviewFlow
         invalidFinancialReturns,
       };
     });
+    if (flow.input.expectsHistoricalApy && appState?.financialSnapshot) {
+      const financials = appState.financialSnapshot;
+      for (const name of ['bonds', 'vaulting', 'mining'] as const) {
+        const summary = financials.groupSummaries[name].returnSummary;
+        if (summary.investmentPositionCount === 0) continue;
+        if (summary.availability !== 'available') {
+          appState.invalidFinancialReturns.push(`${name} return ${summary.availability}`);
+        } else if (![summary.percent, summary.apr, summary.apy].every(Number.isFinite)) {
+          appState.invalidFinancialReturns.push(`${name} RTD/APR/APY unavailable`);
+        }
+      }
+      if (financials.accountReturn.investmentPositionCount && !Number.isFinite(financials.accountReturn.apy)) {
+        appState.invalidFinancialReturns.push('account APY unavailable');
+      }
+    }
     const financialSnapshot = appState?.financialSnapshot;
     const bitcoinLiquidPositions =
       financialSnapshot?.groupSummaries.bitcoin.positions.filter(position => position.kind === 'bitcoin-liquid') ?? [];

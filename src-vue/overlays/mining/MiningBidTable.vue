@@ -62,7 +62,7 @@
     <footer class="mt-3 flex justify-between border-t border-slate-300 pt-3 text-slate-500">
       <span>{{ auctionStatus }}</span>
       <span>
-        {{ numeral(sortedBids.length).format('0,0') }} network bids, {{ numeral(ownedBidCount).format('0,0') }} by you
+        {{ numeral(sortedBids.length).format('0,0') }} winning bids, {{ numeral(ownedBidCount).format('0,0') }} by you
       </span>
     </footer>
   </section>

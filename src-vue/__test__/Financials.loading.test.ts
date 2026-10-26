@@ -6,6 +6,8 @@ import {
   type ArgonQueryClient,
   BondLot,
   type IBlockHeaderInfo,
+  type IAllVaultStats,
+  type IVaultFrameStats,
   type MainchainClients,
   Mining,
   type Vault,
@@ -153,6 +155,8 @@ const mocks = vi.hoisted(() => {
       isLoaded: false,
       isLoadedPromise: Promise.resolve(),
       financialRevision: 0,
+      financialCohortFrames: [],
+      financialProcessedFrames: {},
       serverState: { argonLocalNodeBlockNumber: 0 },
     },
     miningFinancials: {
@@ -161,7 +165,11 @@ const mocks = vi.hoisted(() => {
     myVault: {
       createdVault: undefined as Vault | undefined,
       revenuePublication: Promise.resolve(),
-      vaults: { operatorNamesByVaultId: {} },
+      vaults: {
+        operatorNamesByVaultId: {},
+        miningFrames: { getForTick: () => 0 },
+        stats: undefined as IAllVaultStats | undefined,
+      },
       data: {
         isLoaded: false,
         financialRevision: 0,
@@ -189,7 +197,7 @@ const mocks = vi.hoisted(() => {
       load: vi.fn<() => Promise<void>>(),
       refreshWalletSnapshot: vi.fn<() => Promise<void>>(),
     },
-    vaults: { vaultsById: {}, load: vi.fn<() => Promise<void>>() },
+    vaults: { vaultsById: {}, currentState: { statsRevision: 0 }, load: vi.fn<() => Promise<void>>() },
     vaultingStats: {
       isLoadedPromise: Promise.resolve(),
       microgonValueInVaults: 0n,
@@ -393,6 +401,7 @@ describe('financials store lifecycle', () => {
     mocks.bitcoinLocks.isReleaseStatus.mockReturnValue(false);
     mocks.bitcoinLocks.isInactiveForVaultDisplay.mockReturnValue(false);
     mocks.vaults.load.mockResolvedValue();
+    mocks.vaults.currentState = reactive({ statsRevision: 0 });
     mocks.vaultingStats.argonBurnCapacity = 0;
     mocks.vaultingStats.microgonValueInVaults = 0n;
     mocks.myVault.load.mockResolvedValue();
@@ -402,6 +411,7 @@ describe('financials store lifecycle', () => {
       MyVault.prototype.loadPublishedFinancialHistory.call(mocks.myVault as unknown as MyVault),
     );
     mocks.myVault.createdVault = undefined;
+    mocks.myVault.vaults.stats = undefined;
     mocks.myVault.data.isLoaded = true;
     mocks.myVault.data.financialRevision = 1;
     mocks.myMiningSeats.isLoaded = true;
@@ -677,6 +687,92 @@ describe('financials store lifecycle', () => {
         'not-applicable',
       );
     });
+  });
+
+  it('advances mounted vault APY after daily revenue backfill publishes', async () => {
+    mocks.config.hasExtensionOperations = true;
+    mocks.myVault.createdVault = { vaultId: 10, openedTick: 0, securitization: 100n, isClosed: false } as Vault;
+    mocks.argonBonds.lastFinalizedCompletedFrameId = 3;
+
+    const frame: IVaultFrameStats = {
+      frameId: 1,
+      securitization: 100n,
+      securitizationActivated: 100n,
+      bitcoinFeeRevenue: 0n,
+      bitcoinFeeCouponValueUsed: 0n,
+      bitcoinLocksCreated: 0,
+      treasuryPool: { vaultEarnings: 10n, totalEarnings: 10n, externalCapital: 0n, vaultCapital: 100n },
+    };
+    const stats: IAllVaultStats = {
+      synchedToFrame: 1,
+      argonotStakingByFrame: [],
+      vaultsById: {
+        10: {
+          openedTick: 0,
+          baseline: { feeRevenue: 0n, bitcoinLocks: 0 },
+          changesByFrame: [frame],
+        },
+      },
+    };
+    mocks.myVault.vaults.stats = stats;
+
+    const createdAt = new Date('2026-07-01T00:00:00Z');
+    mocks.myVault.history.loadPositionHistory.mockResolvedValue({
+      capital: [
+        {
+          id: 1,
+          walletAddress: '5default',
+          vaultId: 10,
+          eventType: 'created',
+          securitization: 100n,
+          blockNumber: 1,
+          blockHash: '0x1',
+          blockTime: createdAt,
+          createdAt,
+        },
+      ],
+      revenue: [
+        {
+          id: 1,
+          source: 'vaultCollect',
+          amount: 30n,
+          blockNumber: 1,
+          blockHash: '0x1',
+          blockTime: createdAt,
+          createdAt,
+          updatedAt: createdAt,
+        },
+      ],
+    });
+    const snapshot = createAccountSnapshot(mocks.blockWatch.bestBlockHeader, 100n);
+    snapshot.accounts[0].reservedMicrogons = 100n;
+    snapshot.accounts[0].microgonHolds = [{ id: { type: 'Vaults', value: { type: 'EnterVault' } }, amount: 100n }];
+    mocks.walletsForArgon.readAccountSnapshot.mockResolvedValue(snapshot);
+
+    const financials = useFinancials();
+    await vi.waitFor(() =>
+      expect(financials.financialPositionAggregate.groupSummaries.vaulting.returnSummary.apy).toBeDefined(),
+    );
+    const initialApy = financials.financialPositionAggregate.groupSummaries.vaulting.returnSummary.apy;
+
+    stats.synchedToFrame = 3;
+    stats.revenueBackfill = { nextFrame: 3, throughFrame: 3 };
+    stats.vaultsById[10].changesByFrame.unshift({
+      ...frame,
+      frameId: 3,
+      treasuryPool: { ...frame.treasuryPool, vaultEarnings: 20n },
+    });
+    mocks.vaults.currentState.statsRevision += 1;
+    await vi.waitFor(() => expect(mocks.myVault.history.loadPositionHistory).toHaveBeenCalledTimes(2));
+    expect(financials.financialPositionAggregate.groupSummaries.vaulting.returnSummary.apy).toBe(initialApy);
+
+    delete stats.revenueBackfill;
+    mocks.vaults.currentState.statsRevision += 1;
+    await vi.waitFor(() => {
+      const apy = financials.financialPositionAggregate.groupSummaries.vaulting.returnSummary.apy;
+      expect(Math.log1p(apy! / 100)).toBeCloseTo(Math.log(1.1 * 1.2) * (365 / 3));
+    });
+    expect(mocks.myVault.data.financialRevision).toBe(1);
   });
 
   it('publishes a locally created Bitcoin lock without rebuilding the account snapshot', async () => {
@@ -1294,7 +1390,12 @@ describe('financials store lifecycle', () => {
       Object.assign(mocks.myMiningSeats, {
         latestFrameId: 21,
         miningCohorts: [cohort],
+        financialCohortFrames: [],
+        financialProcessedFrames: {},
         currentFrameBids: [],
+        db: {
+          walletTransfersTable: { fetchArgonotCustodyBoundaries: async () => [] },
+        },
         currency: mocks.currency,
         miningFrames: { getFrameDate: (frameId: number) => new Date(Date.UTC(2026, 6, frameId)) },
       });

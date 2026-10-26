@@ -47,23 +47,17 @@ export class TransactionStatusHistoryTable extends BaseTable {
     return convertFromSqliteFields<ITransactionStatusHistoryRecord[]>(records, this.fieldTypes);
   }
 
-  public async fetchLatestByTransactionIds(
-    transactionIds: number[],
-  ): Promise<Map<number, ITransactionStatusHistoryRecord>> {
-    if (!transactionIds.length) return new Map();
-
-    const placeholders = transactionIds.map(() => '?').join(', ');
+  public async fetchLatestForTransactions(): Promise<Map<number, ITransactionStatusHistoryRecord>> {
     const records = await this.db.select<ITransactionStatusHistoryRecord[]>(
       `SELECT h.id, h.transactionId, h.status, h.source, h.blockHeight, h.blockHash, h.replacementTxHash, h.createdAt
        FROM TransactionStatusHistory h
        INNER JOIN (
          SELECT transactionId, MAX(id) AS id
          FROM TransactionStatusHistory
-         WHERE transactionId IN (${placeholders})
+         WHERE transactionId IN (SELECT id FROM Transactions)
          GROUP BY transactionId
        ) latest ON latest.id = h.id
       ORDER BY h.transactionId ASC`,
-      toSqlParams(transactionIds),
     );
     const convertedRecords = convertFromSqliteFields<ITransactionStatusHistoryRecord[]>(records, this.fieldTypes);
 

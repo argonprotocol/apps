@@ -319,6 +319,8 @@ export class AutoBidder {
         },
       );
       if (this.isStopped) return;
+      cohortBidder.bidsAttempted = await this.history.getSubmittedBidCount(cohortActivationFrameId);
+      if (this.isStopped) return;
       cohortBidder.onUpdatedFn = this.onUpdatedFn;
       this.nextCohortActivationFrameId = cohortActivationFrameId;
       this.cohortBiddersByActivationFrameId.set(cohortActivationFrameId, cohortBidder);

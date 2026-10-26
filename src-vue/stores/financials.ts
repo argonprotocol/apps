@@ -818,7 +818,10 @@ export const useFinancials = defineStore('financials', () => {
   );
 
   Vue.watch(
-    () => (config.isLoaded && config.hasExtensionOperations ? myVault.data.financialRevision : 0),
+    () => {
+      if (!config.isLoaded || !config.hasExtensionOperations) return [];
+      return [myVault.data.financialRevision, vaultStore.currentState.statsRevision];
+    },
     () => {
       if (!accountSourcesAreLoaded || !config.hasExtensionOperations || !myVault.data.isLoaded) return;
       void queueAccountRefresh({ force: true });

@@ -8,7 +8,7 @@ describe('CohortFramesTable', () => {
       frameId: 12,
       blocksMinedTotal: 0,
       micronotsMinedTotal: 0n,
-      microgonsMinedTotal: 0n,
+      microgonsMinedTotal: 123n,
       microgonsMintedTotal: 0n,
       microgonFeesCollectedTotal: 0n,
     };
@@ -36,7 +36,7 @@ describe('CohortFramesTable', () => {
             transactionFeesTotal: 0n,
             micronotsStakedPerSeat: 0n,
             microgonsBidPerSeat: 0n,
-            seatCountWon: 0,
+            seatCountWon: id === 12 ? 1 : 0,
             microgonsToBeMinedPerSeat: 0n,
             micronotsToBeMinedPerSeat: 0n,
             argonotPriceAtBid: 0n,
@@ -53,6 +53,9 @@ describe('CohortFramesTable', () => {
       ).resolves.toEqual([
         { frameId: 12, cohortId: 11 },
         { frameId: 12, cohortId: 12 },
+      ]);
+      await expect(db.cohortFramesTable.fetchFinancialHistory()).resolves.toEqual([
+        expect.objectContaining({ cohortId: 12, frameId: 12, microgonsMinedTotal: 123n }),
       ]);
     } finally {
       await db.close();

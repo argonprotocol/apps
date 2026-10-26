@@ -6,6 +6,10 @@ export type IPerformanceReturnInput = {
   endingDate?: Date | number | string | null;
   endingCapital: bigint;
   capitalFlows?: readonly ICapitalFlow[];
+  /** Complete daily payout history; null means its daily attribution is unavailable. */
+  dailyReturns?: readonly IAggregateReturnInput[] | null;
+  /** Completed financial days represented by dailyReturns, when newer live state has advanced. */
+  dailyReturnPeriodDays?: number;
 };
 
 export type IAggregateReturnInput = Pick<IPerformanceReturnInput, 'startingCapital' | 'endingCapital'>;
@@ -92,6 +96,7 @@ export function calculatePerformanceReturn(
   let weightedProfitMs = 0n;
   let weightedApr = BigNumber(0);
   let weightedApy = BigNumber(0);
+  let hasUnknownApy = false;
 
   for (const investment of investments) {
     if (investment.startingCapital <= 0n) continue;
@@ -118,7 +123,28 @@ export function calculatePerformanceReturn(
     const periodReturn = BigNumber(profit).times(durationMs).dividedBy(capitalMs).toNumber();
     const periodDays = Number(durationMs) / (options.dayMillis ?? 86_400_000);
     weightedApr = weightedApr.plus(BigNumber(capitalMs).times(annualizeSimpleReturn(periodReturn, periodDays)));
-    weightedApy = weightedApy.plus(BigNumber(capitalMs).times(annualizeCompoundedReturn(periodReturn, periodDays)));
+    if (investment.dailyReturns === null) {
+      hasUnknownApy = true;
+      continue;
+    }
+
+    let compoundedReturn = periodReturn;
+    if (investment.dailyReturns) {
+      let compoundedCapital = 1;
+      for (const day of investment.dailyReturns) {
+        if (day.startingCapital <= 0n) continue;
+        const dailyReturn = BigNumber(day.endingCapital - day.startingCapital)
+          .dividedBy(day.startingCapital)
+          .toNumber();
+        compoundedCapital *= 1 + dailyReturn;
+      }
+      compoundedReturn = compoundedCapital - 1;
+    }
+    weightedApy = weightedApy.plus(
+      BigNumber(capitalMs).times(
+        annualizeCompoundedReturn(compoundedReturn, investment.dailyReturnPeriodDays ?? periodDays),
+      ),
+    );
   }
 
   const basisPoints = divideAndRound(weightedProfitMs * BASIS_POINTS_PER_100_PERCENT, weightedCapitalMs);
@@ -129,7 +155,7 @@ export function calculatePerformanceReturn(
     eligibleCapitalInvested,
     totalProfits,
     apr: weightedCapitalMs > 0n ? weightedApr.dividedBy(weightedCapitalMs).toNumber() : undefined,
-    apy: weightedCapitalMs > 0n ? weightedApy.dividedBy(weightedCapitalMs).toNumber() : undefined,
+    apy: weightedCapitalMs > 0n && !hasUnknownApy ? weightedApy.dividedBy(weightedCapitalMs).toNumber() : undefined,
   };
 }
 

@@ -1,7 +1,7 @@
 <!-- prettier-ignore -->
 <template>
   <div ref="rootRef" class="flex flex-row items-center">
-    <NavigationMenuItem class="pointer-events-auto">
+    <NavigationMenuItem value="account" class="pointer-events-auto">
       <NavigationMenuTrigger
         class="h-[30px] group relative cursor-pointer rounded-md border border-slate-400/50 text-sm/6 font-semibold text-argon-600/60 hover:border-slate-400/50 hover:bg-slate-400/10 focus:outline-none data-[state=open]:border-slate-400/60 data-[state=open]:bg-slate-400/10"
       >

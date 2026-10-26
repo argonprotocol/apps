@@ -13,6 +13,7 @@ import {
   BondLot,
   NetworkConfig,
   calculatePerformanceReturn,
+  type IAllVaultStats,
   type Vault,
   type IVaultFrameStats,
 } from '@argonprotocol/apps-core';
@@ -669,6 +670,8 @@ describe('financial position accounting', () => {
       ],
       currency: { microgonsPer: { ARGNOT: 0n } },
       miningFrames: { getFrameDate: vi.fn() },
+      financialCohortFrames: [],
+      financialProcessedFrames: {},
     } as any);
 
     const positions = await financials.loadPositions({
@@ -799,6 +802,177 @@ describe('financial position accounting', () => {
     });
 
     expect(positions.filter(position => position.kind === 'mining-argonot')).toEqual([]);
+  });
+
+  it('compounds finalized vault revenue across a frame with no payout', () => {
+    const previousNetwork = NetworkConfig.networkName!;
+    onTestFinished(() => {
+      NetworkConfig.setNetwork(previousNetwork);
+      vi.useRealTimers();
+    });
+    NetworkConfig.setNetwork('mainnet');
+    vi.useFakeTimers();
+    vi.setSystemTime('2026-01-04T00:00:00Z');
+
+    const frame: IVaultFrameStats = {
+      frameId: 1,
+      securitization: 1_000n,
+      securitizationActivated: 1_000n,
+      bitcoinFeeRevenue: 0n,
+      bitcoinFeeCouponValueUsed: 0n,
+      bitcoinLocksCreated: 0,
+      treasuryPool: { vaultEarnings: 100n, totalEarnings: 100n, externalCapital: 0n, vaultCapital: 1_000n },
+    };
+    const stats: IAllVaultStats = {
+      synchedToFrame: 1,
+      argonotStakingByFrame: [],
+      vaultsById: {
+        1: {
+          openedTick: 0,
+          baseline: { feeRevenue: 0n, bitcoinLocks: 0 },
+          changesByFrame: [
+            { ...frame, frameId: 3, treasuryPool: { ...frame.treasuryPool, vaultEarnings: 200n } },
+            frame,
+          ],
+        },
+      },
+    };
+    const vault = {
+      vaults: {
+        operatorNamesByVaultId: {},
+        miningFrames: { getForTick: () => 0 },
+        stats,
+      },
+      pendingRevenueFrames: [],
+    };
+    const source = new VaultFinancials(vault as any, {
+      lastFinalizedCompletedFrameId: 3,
+      data: { bondLots: [], bondHistory: [], dailyEarnings: [], isLoaded: true },
+    });
+    const startedAt = new Date('2026-01-01T00:00:00Z');
+    const positionArgs: Parameters<VaultFinancials['createFinancialPositions']>[0] = {
+      liveVault: { vaultId: 1, openedTick: 0, securitization: 1_000n, isClosed: false } as Vault,
+      account: createArgonAccount({ microgonVaultHold: 1_000n }),
+      capitalHistory: [
+        {
+          id: 1,
+          walletAddress: '5test',
+          vaultId: 1,
+          eventType: 'created',
+          securitization: 1_000n,
+          blockNumber: 1,
+          blockHash: '0x1',
+          blockTime: startedAt,
+          createdAt: startedAt,
+        },
+      ],
+      revenueHistory: [
+        {
+          id: 1,
+          amount: 300n,
+          source: 'vaultCollect',
+          blockNumber: 2,
+          blockHash: '0x2',
+          blockTime: startedAt,
+          createdAt: startedAt,
+          updatedAt: startedAt,
+        },
+      ],
+    };
+    const [initial] = source.createFinancialPositions(positionArgs);
+    const initialApy = calculatePositionReturn([initial]).apy;
+    expect(Math.log1p(initialApy! / 100)).toBeCloseTo(Math.log(1.1) * 365);
+
+    stats.synchedToFrame = 3;
+    stats.revenueBackfill = { nextFrame: 3, throughFrame: 3 };
+    const [backfilling] = source.createFinancialPositions(positionArgs);
+    expect(calculatePositionReturn([backfilling]).apy).toBe(initialApy);
+
+    delete stats.revenueBackfill;
+    const [position] = source.createFinancialPositions(positionArgs);
+    const returns = calculatePositionReturn([position]);
+    expect(returns.percent).toBe(30);
+    expect(Math.log1p(returns.apy! / 100)).toBeCloseTo(Math.log(1.1 * 1.2) * (365 / 3));
+
+    const [closed] = source.createFinancialPositions({
+      ...positionArgs,
+      liveVault: undefined,
+      capitalHistory: [
+        ...positionArgs.capitalHistory!,
+        {
+          ...positionArgs.capitalHistory![0],
+          id: 2,
+          eventType: 'closed',
+          securitizationRemaining: 0n,
+          securitizationReleased: 1_000n,
+          blockNumber: 4,
+          blockTime: new Date('2026-02-01T00:00:00Z'),
+        },
+      ],
+    });
+    expect(closed).toMatchObject({ kind: 'vault', dailyReturnPeriodDays: 3 });
+    expect(Math.log1p(calculatePositionReturn([closed]).apy! / 100)).toBeCloseTo(Math.log(1.1 * 1.2) * (365 / 3));
+
+    const [lost] = source.createFinancialPositions({
+      ...positionArgs,
+      liveVault: { ...positionArgs.liveVault!, securitization: 500n } as Vault,
+      account: createArgonAccount({ microgonVaultHold: 500n }),
+      capitalHistory: [
+        ...positionArgs.capitalHistory!,
+        {
+          ...positionArgs.capitalHistory![0],
+          id: 2,
+          eventType: 'capitalLost',
+          amount: 500n,
+          blockNumber: 4,
+          blockTime: new Date('2026-01-04T00:00:00Z'),
+        },
+      ],
+    });
+    const book = new FinancialPositionBook();
+    book.setScope({ ownedAccounts: ['5test'] });
+    const observation = { observedAt: new Date('2026-01-04T00:00:00Z') };
+    book.publish(book.beginRefresh('vaulting'), [position], observation);
+    book.publish(book.beginRefresh('vaulting'), [lost], observation);
+    expect(reduceFinancialPositions(book.snapshots).groupSummaries.vaulting.returnSummary).toMatchObject({
+      availability: 'available',
+      percent: -20,
+      apy: undefined,
+    });
+  });
+
+  it('compounds each completed mining frame after its share of the seat cost', () => {
+    const cohort = createMiningCohort({ progress: 20, microgonsMinedTotal: 7_000_000n });
+    const cohortFrames = [
+      { frameId: 12, microgonsMinedTotal: 4_000_000n },
+      { frameId: 13, microgonsMinedTotal: 3_000_000n },
+    ].map(frame => ({
+      cohortId: cohort.id,
+      blocksMinedTotal: 1,
+      micronotsMinedTotal: 0n,
+      microgonsMintedTotal: 0n,
+      microgonFeesCollectedTotal: 0n,
+      createdAt: '2026-01-01T00:00:00Z',
+      updatedAt: '2026-01-01T00:00:00Z',
+      ...frame,
+    }));
+    const positions = miningFinancials.createFinancialPositions({
+      cohorts: [cohort],
+      cohortFrames,
+      processedFrames: { 12: true, 13: true },
+      latestFrameId: 14,
+      pendingBids: [],
+      heldMicronots: 10_000_000n,
+      liveArgonotRateMicrogons: 3_000_000n,
+      miningBotAddress: '5miner',
+      miningBotMicronots: 10_000_000n,
+      frameDates: new Map([[12, new Date('2026-01-01T00:00:00Z')]]),
+    });
+    const cohortPosition = positions.find(position => position.kind === 'mining-cohort')!;
+    const returns = calculatePositionReturn([cohortPosition]);
+
+    expect(returns.percent).toBe(15);
+    expect(Math.log1p(returns.apy! / 100)).toBeCloseTo(Math.log(1.1 * 1.05) * (365 / 2));
   });
 
   it('preserves active collateral when available mining custody left without a recovered boundary', () => {
@@ -2670,20 +2844,31 @@ describe('financial position accounting', () => {
       claimedHolds: { treasury: true, miningSlot: false, vaults: false },
       liveArgonotRateMicrogons: 3_000_000n,
     });
+    const argonotHistory = {
+      ...vaultHistoryRecord,
+      id: 2,
+      bondLotId: argonotLot.id,
+      programType: argonotLot.programType,
+      nativeAsset: argonotLot.nativeAsset,
+      nativePrincipal: argonotLot.principalMicronots!,
+      entryArgonotRateMicrogons: 2_000_000n,
+      participatedFrames: 2,
+      cumulativeEarningsMicrogons: 4_000_000n,
+    } satisfies IBondLotHistoryRecord;
+    const argonotDailyEarnings = [8, 9].map(frameId => ({
+      accountId: argonotLot.owner,
+      programType: 'Argonot' as const,
+      bondLotId: argonotLot.id,
+      frameId,
+      earningsMicrogons: 2_000_000n,
+      earningsDestination: 'Owner' as const,
+      payoutBlockNumber: frameId + 100,
+      payoutBlockHash: `0x${frameId}`,
+    }));
     const bonds = bondFinancials.createFinancialPositions({
       bondLots: [vaultLot, argonotLot],
-      historyRecords: [
-        vaultHistoryRecord,
-        {
-          ...vaultHistoryRecord,
-          id: 2,
-          bondLotId: argonotLot.id,
-          programType: argonotLot.programType,
-          nativeAsset: argonotLot.nativeAsset,
-          nativePrincipal: argonotLot.principalMicronots!,
-          entryArgonotRateMicrogons: 2_000_000n,
-        },
-      ],
+      historyRecords: [vaultHistoryRecord, argonotHistory],
+      dailyEarnings: argonotDailyEarnings,
       liveArgonotRateMicrogons: 3_000_000n,
       frameDates: new Map([[argonotLot.createdFrameId, new Date('2026-01-01T00:00:00Z')]]),
     });
@@ -2737,6 +2922,56 @@ describe('financial position accounting', () => {
       returnAmount: 4_000_000n,
       percent: 20,
     });
+    const previousNetwork = NetworkConfig.networkName!;
+    onTestFinished(() => NetworkConfig.setNetwork(previousNetwork));
+    NetworkConfig.setNetwork('mainnet');
+    const argonotReturn = calculatePositionReturn([{ ...argonotPosition!, endedAt: new Date('2026-01-03T00:00:00Z') }]);
+    expect(Math.log1p(argonotReturn.apy! / 100)).toBeCloseTo(Math.log(1.1 ** 2) * (365 / 2));
+    const [releasedArgonot] = bondFinancials.createFinancialPositions({
+      historyRecords: [
+        {
+          ...argonotHistory,
+          releaseFrame: 10,
+          releaseBlockNumber: 120,
+          releaseBlockHash: '0x78',
+          releaseBlockTime: new Date('2026-02-01T00:00:00Z'),
+          closingArgonotRateMicrogons: 2_000_000n,
+          earningsHistoryThroughFrame: 20,
+        },
+      ],
+      dailyEarnings: argonotDailyEarnings,
+      frameDates: new Map([[argonotLot.createdFrameId, new Date('2026-01-01T00:00:00Z')]]),
+    });
+    expect(releasedArgonot.dailyReturnPeriodDays).toBe(2);
+    expect(calculatePositionReturn([releasedArgonot]).apy).toBeCloseTo(argonotReturn.apy!);
+
+    const advancedArgonotLot = new BondLot(
+      argonotLot.id,
+      { ...argonotLot, participatedFrames: 3, cumulativeEarnings: 6_000_000n },
+      argonotLot.ownAddress,
+    );
+    const [incompleteArgonot] = bondFinancials.createFinancialPositions({
+      bondLots: [advancedArgonotLot],
+      historyRecords: [argonotHistory],
+      dailyEarnings: [{ ...argonotDailyEarnings[0], earningsMicrogons: undefined }],
+      liveArgonotRateMicrogons: 3_000_000n,
+      frameDates: new Map([[argonotLot.createdFrameId, new Date('2026-01-01T00:00:00Z')]]),
+    });
+    expect(incompleteArgonot.dailyReturns).toBeNull();
+
+    const book = new FinancialPositionBook();
+    book.setScope({ ownedAccounts: [argonotLot.owner] });
+    const observedAt = new Date('2026-01-03T00:00:00Z');
+    book.publish(book.beginRefresh('bonds'), [argonotPosition!], { observedAt });
+    const priorApy = reduceFinancialPositions(book.snapshots).groupSummaries.bonds.returnSummary.apy;
+    book.publish(book.beginRefresh('bonds'), [incompleteArgonot], { observedAt });
+    expect(reduceFinancialPositions(book.snapshots).groupSummaries.bonds.returnSummary).toMatchObject({
+      paidIncome: 6_000_000n,
+      percent: 30,
+      apy: priorApy,
+      isStale: true,
+    });
+
     const vaultBondGroup = reduceFinancialPositions(readySnapshots([vaultPosition!])).groupSummaries.bonds;
     expect(vaultBondGroup?.returnSummary).toMatchObject({
       investedCost: 10_000_000n,
@@ -2807,6 +3042,8 @@ describe('financial position accounting', () => {
       flexibilityHistoryComplete: true,
       earningsBackfills: [],
       earningsHistoryThroughFrame: 9,
+      participatedFrames: 2,
+      cumulativeEarningsMicrogons: 2_000_000n,
     } as unknown as IBondLotHistoryRecord;
     const flexibleEarnings = {
       accountId: flexibleLot.owner,
@@ -2853,6 +3090,41 @@ describe('financial position accounting', () => {
         startedAt,
       }),
     ]);
+    const previousNetwork = NetworkConfig.networkName!;
+    onTestFinished(() => {
+      NetworkConfig.setNetwork(previousNetwork);
+      vi.useRealTimers();
+    });
+    NetworkConfig.setNetwork('mainnet');
+    vi.useFakeTimers();
+    vi.setSystemTime('2026-01-03T00:00:00Z');
+    const bondReturn = calculatePositionReturn(bondPositions);
+    expect(bondReturn.percent).toBe(25);
+    expect(Math.log1p(bondReturn.apy! / 100)).toBeCloseTo(Math.log(1.2 * 1.05) * (365 / 2));
+
+    const advancedLot = new BondLot(
+      flexibleLot.id,
+      {
+        ...flexibleLot,
+        participatedFrames: 3,
+        cumulativeEarnings: 3_000_000n,
+        lastFrameEarningsFrameId: 10,
+        lastFrameEarnings: 500_000n,
+      },
+      flexibleLot.ownAddress,
+    );
+    const [advancedPosition] = bondFinancials.createFinancialPositions({
+      bondLots: [advancedLot],
+      historyRecords: [history],
+      dailyEarnings,
+      completedFrame: 9,
+      frameDates: new Map([[advancedLot.createdFrameId, startedAt]]),
+    });
+    vi.setSystemTime('2026-01-04T00:00:00Z');
+    const advancedReturn = calculatePositionReturn([advancedPosition]);
+    expect(advancedReturn.percent).toBe(30);
+    expect(advancedReturn.apy).toBeCloseTo(bondReturn.apy!);
+
     const vault = {
       vaults: { operatorNamesByVaultId: {} },
       pendingRevenueFrames: [{ frameId: 9, uncollectedEarnings: 3_000_000n }],

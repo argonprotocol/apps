@@ -161,6 +161,7 @@ describe('AutoBidder', () => {
       },
     };
     const history = new History({} as any, 11);
+    vi.spyOn(history, 'getSubmittedBidCount').mockResolvedValue(0);
     const autoBidder = new AutoBidder(
       {
         isProxy: false,
@@ -268,7 +269,33 @@ describe('AutoBidder', () => {
     }
   }, 1_000);
 
-  it('restores winning bids from current chain state before historical bid files exist', async () => {
+  it('restores winning positions and all submitted bids after restarting without historical bid files', async () => {
+    NetworkConfig.setNetwork('dev-docker');
+    const directory = await mkdtemp(Path.join(tmpdir(), 'autobidder-submissions-'));
+    const storage = new Storage(directory);
+    const history = new History(storage, 12);
+    history.handleBidsSubmitted({
+      tick: 1,
+      blockNumber: 1,
+      frameId: 12,
+      microgonsPerSeat: 42n,
+      submittedCount: 2,
+      txFeePlusTip: 0n,
+    });
+    history.handleBidsRejected({
+      tick: 2,
+      blockNumber: 2,
+      frameId: 12,
+      microgonsPerSeat: 41n,
+      submittedCount: 3,
+      rejectedCount: 3,
+    });
+    expect(await history.getSubmittedBidCount(12)).toBe(5);
+
+    await history.handleShutdown();
+    await storage.close();
+    const restoredStorage = new Storage(directory);
+    const restoredHistory = new History(restoredStorage, 12);
     const accountset = {
       isProxy: false,
       txSubmitterPair: { address: '5FundingAccount' },
@@ -282,20 +309,27 @@ describe('AutoBidder', () => {
       ]),
       getAvailableMinerAccounts: vi.fn().mockResolvedValue([{ index: 3, isRebid: false, address: '5Available' }]),
     };
-    const autoBidder = new AutoBidder(accountset as any, {} as any, new History({} as any, 11), {} as any, {} as any);
+    const autoBidder = new AutoBidder(accountset as any, {} as any, restoredHistory, {} as any, {} as any);
     vi.spyOn(CohortBidder.prototype, 'start').mockResolvedValue(undefined);
     Object.assign(autoBidder, {
       biddingCalculator: {},
       createBidderParams: vi.fn().mockResolvedValue({ maxSeats: 2 }),
     });
 
-    await onBiddingStart.call(autoBidder, 12);
+    try {
+      await onBiddingStart.call(autoBidder, 12);
 
-    expect(autoBidder.currentBidder?.subaccounts).toEqual([
-      { index: 2, isRebid: true, address: '5AlreadyWinning' },
-      { index: 3, isRebid: false, address: '5Available' },
-    ]);
-    expect(accountset.miningSeatsAndBids).toHaveBeenCalledOnce();
+      expect(autoBidder.currentBidder?.subaccounts).toEqual([
+        { index: 2, isRebid: true, address: '5AlreadyWinning' },
+        { index: 3, isRebid: false, address: '5Available' },
+      ]);
+      expect(accountset.miningSeatsAndBids).toHaveBeenCalledOnce();
+      expect(autoBidder.currentBidder?.bidsAttempted).toBe(5);
+      expect(await restoredHistory.getSubmittedBidCount(11)).toBe(0);
+    } finally {
+      await restoredStorage.close();
+      await rm(directory, { recursive: true, force: true });
+    }
   });
 
   it('keeps an unrecorded finalized bid error in its original cohort history', async () => {

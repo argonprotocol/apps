@@ -12,7 +12,7 @@ import { IDashboardFrameStats, IDashboardGlobalStats } from '../interfaces/IMini
 import { Db } from './Db';
 import { Config } from './Config';
 import { ICohortRecord } from '../interfaces/db/ICohortRecord';
-import type { IMiningCohortFinancialRecord } from '../interfaces/db/ICohortFrameRecord.ts';
+import type { ICohortFrameRecord, IMiningCohortFinancialRecord } from '../interfaces/db/ICohortFrameRecord.ts';
 import type { IFrameBidRecord } from '../interfaces/db/IFrameBidRecord.ts';
 import { botEmitter } from './Bot';
 import { ensureOnlyOneInstance, getPercent, logStartupTiming, percentOf } from './Utils';
@@ -51,6 +51,8 @@ export class MyMiningSeats {
   public allWinningBids: (IWinningBid & { micronotsStakedPerSeat: bigint })[];
   public currentFrameBids: IFrameBidRecord[];
   public miningCohorts: IMiningCohortFinancialRecord[];
+  public financialCohortFrames: readonly ICohortFrameRecord[];
+  public financialProcessedFrames: Readonly<Record<number, boolean>>;
   public financialRevision: number;
 
   public global: IDashboardGlobalStats;
@@ -67,6 +69,7 @@ export class MyMiningSeats {
   private pendingMiningStateFrameId?: number;
   private pendingSeatRefresh = false;
   private miningStateRefreshPromise?: Promise<void>;
+  private miningHistoryRetryCount = 0;
   private miningCohortsById = new Map<number, IMiningCohortFinancialRecord>();
   private pendingHistoryRefresh = false;
 
@@ -92,6 +95,8 @@ export class MyMiningSeats {
     this.allWinningBids = [];
     this.currentFrameBids = [];
     this.miningCohorts = [];
+    this.financialCohortFrames = [];
+    this.financialProcessedFrames = {};
     this.financialRevision = 0;
 
     this.miningFrames = miningFrames;
@@ -347,8 +352,8 @@ export class MyMiningSeats {
       this.pendingHistoryRefresh = false;
       this.pendingSeatRefresh = false;
       const fromFrameId = refreshHistory ? 0 : Math.max(0, frameId - NetworkConfig.framesPerCohort);
-      const [miningCohorts, frameBids] = await Promise.all([
-        refreshSeats ? this.db.cohortsTable.fetchFinancialPositions(fromFrameId) : undefined,
+      const [miningHistory, frameBids] = await Promise.all([
+        refreshSeats ? this.readMiningFinancialHistory(fromFrameId) : undefined,
         this.db.frameBidsTable.fetchForFrameId(frameId),
       ]);
       if ((this.pendingMiningStateFrameId ?? frameId) > frameId || frameId < this.latestFrameId) {
@@ -357,13 +362,19 @@ export class MyMiningSeats {
         continue;
       }
 
+      if (miningHistory) {
+        const { cohorts, cohortFrames, processedFrames } = miningHistory;
+        if (!this.publishMiningSeats(fromFrameId, cohorts, cohortFrames, processedFrames, frameId)) {
+          await this.updateMiningSeats(0, frameId);
+        }
+      }
+
       if (frameId > this.latestFrameId) {
         const isOnLatestFrame = this.selectedFrameId === this.latestFrameId;
         this.latestFrameId = frameId;
         if (isOnLatestFrame) this.selectFrameId(frameId, { skipDashboardUpdate: true });
       }
 
-      if (miningCohorts) this.publishMiningSeats(fromFrameId, miningCohorts);
       this.publishMiningBids(frameBids);
       this.financialRevision += 1;
       if (!refreshSeats) continue;
@@ -394,21 +405,80 @@ export class MyMiningSeats {
     this.frames = frames;
   }
 
-  private async updateMiningSeats(fromFrameId = 0): Promise<void> {
-    const cohorts = await this.db.cohortsTable.fetchFinancialPositions(fromFrameId);
-    this.publishMiningSeats(fromFrameId, cohorts);
+  private async readMiningFinancialHistory(fromFrameId: number) {
+    const processedFrames = { ...this.db.framesTable.state.processedFrames };
+    const [cohorts, cohortFrames] = await Promise.all([
+      this.db.cohortsTable.fetchFinancialPositions(fromFrameId),
+      this.db.cohortFramesTable.fetchFinancialHistory(),
+    ]);
+    return { cohorts, cohortFrames, processedFrames };
   }
 
-  private publishMiningSeats(fromFrameId: number, cohorts: IMiningCohortFinancialRecord[]): void {
-    for (const cohortId of this.miningCohortsById.keys()) {
-      if (cohortId >= fromFrameId) this.miningCohortsById.delete(cohortId);
+  private async updateMiningSeats(fromFrameId = 0, latestFrameId = this.latestFrameId): Promise<void> {
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      const readFromFrameId = attempt === 0 ? fromFrameId : 0;
+      const { cohorts, cohortFrames, processedFrames } = await this.readMiningFinancialHistory(readFromFrameId);
+      if (this.publishMiningSeats(readFromFrameId, cohorts, cohortFrames, processedFrames, latestFrameId)) return;
     }
-    for (const cohort of cohorts) this.miningCohortsById.set(cohort.id, cohort);
+    if (this.isLoaded && this.miningHistoryRetryCount < 2) {
+      this.miningHistoryRetryCount += 1;
+      this.queueMiningStateRefresh(latestFrameId);
+    }
+    throw new Error('Mining frame history changed during cohort publication');
+  }
 
-    this.miningCohorts = [...this.miningCohortsById.values()]
-      .filter(cohort => cohort.id <= this.latestFrameId)
+  private publishMiningSeats(
+    fromFrameId: number,
+    cohorts: IMiningCohortFinancialRecord[],
+    cohortFrames: ICohortFrameRecord[],
+    processedFrames: Readonly<Record<number, boolean>>,
+    latestFrameId: number,
+  ): boolean {
+    const nextCohortsById = new Map(this.miningCohortsById);
+    for (const cohortId of nextCohortsById.keys()) {
+      if (cohortId >= fromFrameId) nextCohortsById.delete(cohortId);
+    }
+    for (const cohort of cohorts) nextCohortsById.set(cohort.id, cohort);
+
+    const frameTotals = new Map<
+      number,
+      Pick<
+        ICohortFrameRecord,
+        'microgonsMinedTotal' | 'microgonsMintedTotal' | 'micronotsMinedTotal' | 'microgonFeesCollectedTotal'
+      >
+    >();
+    const rewardFields = [
+      'microgonsMinedTotal',
+      'microgonsMintedTotal',
+      'micronotsMinedTotal',
+      'microgonFeesCollectedTotal',
+    ] as const;
+    for (const frame of cohortFrames) {
+      const totals = frameTotals.get(frame.cohortId) ?? {
+        microgonsMinedTotal: 0n,
+        microgonsMintedTotal: 0n,
+        micronotsMinedTotal: 0n,
+        microgonFeesCollectedTotal: 0n,
+      };
+      for (const field of rewardFields) totals[field] += frame[field];
+      frameTotals.set(frame.cohortId, totals);
+    }
+    for (const cohort of nextCohortsById.values()) {
+      const totals = frameTotals.get(cohort.id);
+      if (rewardFields.some(field => (totals?.[field] ?? 0n) !== cohort[field])) {
+        return false;
+      }
+    }
+
+    this.miningCohortsById = nextCohortsById;
+    this.miningCohorts = [...nextCohortsById.values()]
+      .filter(cohort => cohort.id <= latestFrameId)
       .sort((a, b) => a.id - b.id);
-    this.activeSeats = this.calculateActiveMiningSeats(this.miningCohorts);
+    this.financialCohortFrames = cohortFrames;
+    this.financialProcessedFrames = processedFrames;
+    this.activeSeats = this.calculateActiveMiningSeats(this.miningCohorts, latestFrameId);
+    this.miningHistoryRetryCount = 0;
+    return true;
   }
 
   private async updateServerState(): Promise<void> {
@@ -452,7 +522,10 @@ export class MyMiningSeats {
     );
   }
 
-  private calculateActiveMiningSeats(cohorts: readonly IMiningCohortFinancialRecord[]): IMyMiningSeats {
+  private calculateActiveMiningSeats(
+    cohorts: readonly IMiningCohortFinancialRecord[],
+    latestFrameId: number,
+  ): IMyMiningSeats {
     let seatCount = 0;
     let microgonsBidTotal = 0n;
     let micronotsStakedTotal = 0n;
@@ -465,11 +538,11 @@ export class MyMiningSeats {
     let microgonValueRemaining = 0n;
 
     for (const cohort of cohorts) {
-      if (cohort.id <= this.latestFrameId - NetworkConfig.framesPerCohort) continue;
+      if (cohort.id <= latestFrameId - NetworkConfig.framesPerCohort) continue;
 
       const position = createMiningCohortFinancialPosition({
         cohort,
-        latestFrameId: this.latestFrameId,
+        latestFrameId,
         liveArgonotRateMicrogons: this.currency.microgonsPer.ARGNOT,
         frameDates: new Map([
           [cohort.id, this.miningFrames.getFrameDate(cohort.id)],
