@@ -115,6 +115,34 @@ describe('WalletTransfersTable', () => {
     }
   });
 
+  it('keeps custody transfers in chain order across wallet address batches', async () => {
+    const db = await createTestDb();
+    const transfer = {
+      walletName: 'argon',
+      currency: 'argonot' as const,
+      transferType: 'transfer' as const,
+      otherParty: '5outside',
+      amount: 1n,
+      isInternal: false,
+      extrinsicIndex: 0,
+      microgonsForArgonot: 2n,
+      microgonsForUsd: 2n,
+      blockHash: '0xblock',
+      blockTime: new Date('2026-07-15T00:00:00Z'),
+    };
+
+    try {
+      await db.walletTransfersTable.insert({ ...transfer, walletAddress: '5a00000', blockNumber: 2 });
+      await db.walletTransfersTable.insert({ ...transfer, walletAddress: '5a32766', blockNumber: 1 });
+
+      const addresses = Array.from({ length: 32_767 }, (_, index) => `5a${String(index).padStart(5, '0')}`);
+      const records = await db.walletTransfersTable.fetchArgonotCustody(addresses);
+      expect(records.map(record => record.blockNumber)).toEqual([1, 2]);
+    } finally {
+      await db.close();
+    }
+  });
+
   it('loads only external flows inside the owned-wallet boundary', async () => {
     const db = await createTestDb();
     const baseTransfer = {

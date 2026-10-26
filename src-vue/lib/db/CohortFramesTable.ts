@@ -1,6 +1,6 @@
 import { ICohortFrameRecord } from '../../interfaces/db/ICohortFrameRecord';
 import { BaseTable } from './BaseTable';
-import { toSqliteBigInt } from '../Utils';
+import { convertSqliteBigInts, toSqliteBigInt } from '../Utils';
 import { LRU } from 'tiny-lru';
 
 export interface ICohortFramesTableState {
@@ -11,6 +11,21 @@ export class CohortFramesTable extends BaseTable {
   public readonly state = this.getState<ICohortFramesTableState>(() => ({
     cache: new LRU<Partial<ICohortFrameRecord>>(25),
   }));
+
+  public async fetchFinancialHistory(): Promise<ICohortFrameRecord[]> {
+    const records = await this.db.select<ICohortFrameRecord[]>(
+      `SELECT cf.* FROM CohortFrames cf
+       JOIN Cohorts c ON c.id = cf.cohortId
+       WHERE c.seatCountWon > 0
+       ORDER BY cf.cohortId, cf.frameId`,
+    );
+    return convertSqliteBigInts(records, [
+      'micronotsMinedTotal',
+      'microgonsMinedTotal',
+      'microgonsMintedTotal',
+      'microgonFeesCollectedTotal',
+    ]);
+  }
 
   public async insertOrUpdate(args: {
     frameId: number;
