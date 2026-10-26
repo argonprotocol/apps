@@ -290,6 +290,7 @@ export class LocalMainnetReview {
         expectsTreasury: account.expected.treasury,
         expectsUpstream: account.expected.upstream,
         expectsVault: account.selection.features.includes('vault'),
+        expectsHistoricalApy: true,
       };
       this.reviewStage = 'account validation';
       const recoveredFinancials = await this.runAccountReview(session, reviewInput);

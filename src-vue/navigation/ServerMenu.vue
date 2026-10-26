@@ -1,7 +1,7 @@
 <!-- prettier-ignore -->
 <template>
   <div v-if="serverApiClient.canAccessServer || config.isServerAdded" ref="rootRef">
-    <NavigationMenuItem class="pointer-events-auto">
+    <NavigationMenuItem value="server" class="pointer-events-auto">
       <NavigationMenuTrigger
         Trigger
         class="flex h-[30px] cursor-pointer flex-row items-center justify-center overflow-hidden rounded-md border border-slate-400/50 font-mono text-[16.4px] font-semibold text-argon-600/70 hover:border-slate-400/50 hover:bg-slate-400/10 focus:outline-none data-[state=open]:border-slate-400/60 data-[state=open]:bg-slate-400/10"

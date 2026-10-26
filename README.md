@@ -40,7 +40,7 @@ Activities:
 You can run the docker-compose file that's in the mainchain repository to access bitcoin liquidity to test with (locally). Running this yarn command will download the latest docker-compose from the argon mainchain repository and start it up:
 
 ```bash
-yarn dev
+yarn dev start
 ```
 
 .. This will start bitcoin, a miner, a pricing oracle, and an "esplora" explorer that Argonot Operator uses to track your bitcoin transactions.
@@ -105,20 +105,22 @@ Flows are the primary automation path and are documented in [`e2e/README.md`](./
 Common commands:
 
 ```bash
-# Desktop with a reusable local Argon/Bitcoin network.
-yarn dev
+# Clean local Argon, Bitcoin, Ethereum, and upstream services with a fresh user account.
+yarn dev start
+
+# Give the user operational access and development funds on both chains.
+yarn dev start --operational --funded
+
+# Resume the existing local chain and profile.
+yarn dev start --no-reset-data
 
 # Desktop on testnet or mainnet; --profile defaults to default.
 yarn testnet --profile=me
 yarn mainnet --profile=me
 
-# Optional services and account preparation.
-yarn dev --start-ethereum --run-upstream
-yarn dev --fund-account --operationally-certified
-yarn dev --detach-upstream-app
-
-# Standard setup: Ethereum, upstream, certification, and funds on both chains.
-yarn dev --full
+# Start without Ethereum, or attach the upstream app to its replacement server.
+yarn dev start --no-start-ethereum
+yarn dev start --detach-upstream-app
 
 # Fund the selected account without opening another app.
 yarn dev fund --argons 100 --argonots 25
@@ -128,7 +130,7 @@ yarn dev fund-ethereum --eth 1 --argons 100 --argonots 25 --usdc 100
 yarn dev upstream-invite
 
 # Separate app account sharing the default network.
-yarn dev --instance second --join default
+yarn dev start --instance second --join default
 
 # Startup progress appears in the terminal; logs are kept in files.
 yarn dev logs
@@ -141,14 +143,14 @@ yarn e2e:docker
 ARGON_E2E_HEADLESS=0 yarn e2e:docker
 ```
 
-Run `yarn dev --help` for startup options and the command list. Each command owns its arguments and help: use `yarn dev fund --help` or `yarn dev help fund` for native funding options, `yarn dev fund-ethereum --help` for Ethereum funding, and `yarn testnet --help` or `yarn mainnet --help` for public-network launch options. Public-network commands call the desktop launcher directly.
+Run `yarn dev` for the command list and `yarn dev start --help` for startup options. Each command owns its arguments and help: use `yarn dev fund --help` or `yarn dev help fund` for native funding options, `yarn dev fund-ethereum --help` for Ethereum funding, and `yarn testnet --help` or `yarn mainnet --help` for public-network launch options. Public-network commands call the desktop launcher directly.
 
 Development tooling lives in `dev/`: `dev/cli.ts` dispatches human commands, `dev/commands/` holds their arguments and help, and the remaining modules provide shared operations and internal setup tools. Startup prepares certificates and downloads pinned Docker assets automatically; CI uses yarn e2e:prepare; E2E and local startup call the shared setup functions. Custom runtime generation is documented separately in `e2e/README.md`.
 
-Funding amounts use whole-token decimal units; explicitly named assets replace the default funding selection of 1,000 ARGN and 1,000 ARGNOT on Argon. Each funding invocation adds the requested amounts. User certification grants operational access using the local-chain shortcut for a fresh profile; existing registered accounts retain their progress and must meet normal activation requirements. The upstream uses a separate account for its vault, delegate, and server setup.
+Funding amounts use whole-token decimal units. A fresh user account starts without funds or operational access. `--funded` adds 1,000 ARGN and 1,000 ARGNOT on each chain, plus 1 ETH for gas; explicit amount flags override individual preset amounts, including `0` to skip an asset. `--operational` grants operational access using the local-chain shortcut for a fresh profile; existing registered accounts retain their progress and must meet normal activation requirements. It does not create a vault or server for the user. The upstream uses a separate account for its vault, delegate, and server setup.
 
-`--full` adds 1,000 ARGN and 1,000 ARGNOT on both Argon and Ethereum, plus 1 ETH for gas. User funding runs after access is granted and does not create a user vault or Bitcoin/bond positions. It uses the selected profile's existing mnemonic for both accounts. Amount flags override each preset amount, including `0` to skip an asset; `--to` and `--eth-to` override recipients.
+Funding runs after operational access when both flags are selected and does not create user Bitcoin or bond positions. It uses the selected profile's existing mnemonic for both accounts; `--to` and `--eth-to` override recipients.
 
 `fund` adds native Argon assets. `fund-ethereum` requires at least one amount and funds only Ethereum assets; use `--to ADDRESS` to fund an additional wallet imported into the dev user.
 
-Instance names normalize to lowercase with hyphens, matching Docker Compose ownership. Startup reuses local chain and wallet data. `stop` preserves it; `reset` erases the selected owning environment and its attached instances. Development funding and certification are available only for the local dev-docker network.
+Instance names normalize to lowercase with hyphens, matching Docker Compose ownership. `yarn dev start` resets the owning local chain, wallets, and server data by default; `--no-reset-data` reuses them. Joined profiles and upstream app handoffs preserve their shared environment. Start the owner profile to reset it. `stop` preserves data; `reset` erases the selected owning environment and profiles attached through `yarn dev`. Desktop-only runs against a separately prepared environment remain under their caller's cleanup. Development funding and certification are available only for the local dev-docker network.

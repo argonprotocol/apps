@@ -34,7 +34,7 @@ import { createTestDb } from './helpers/db.ts';
 import { createStore, historyBlock, historyEvent } from './helpers/bitcoin.ts';
 import { publishBitcoinHistoryReplay } from '../lib/recovery/index.ts';
 import { BitcoinLockStatus } from '../interfaces/IBitcoinLockRecord.ts';
-import { BitcoinReleaseStatus } from '../interfaces/IBitcoinReleaseRecord.ts';
+import { BitcoinReleaseKind, BitcoinReleaseStatus } from '../interfaces/IBitcoinReleaseRecord.ts';
 import { BitcoinUtxoSpendStatus, BitcoinUtxoStatus } from '../interfaces/IBitcoinUtxoRecord.ts';
 import { UpstreamOperatorClient } from '../lib/UpstreamOperatorClient.ts';
 import type { ServerAuthClient } from '../lib/ServerAuthClient.ts';
@@ -505,6 +505,14 @@ describe('cooperative release approval with simulated chain observations', () =>
         cooperativeRequest: rejected.cooperativeRequest,
       });
       expect(afterRejection.releases.canRequestDepositReturn(lock, reloadedInput)).toBe(false);
+      // If Argon instead registers the input as an orphan, the failed cooperative request cannot block that route.
+      expect(
+        afterRejection.releases.canRequestDepositReturn(lock, {
+          ...reloadedInput,
+          status: BitcoinUtxoStatus.Orphaned,
+          isOnArgonChain: true,
+        }),
+      ).toBe(true);
       const reloadedWallet = new WalletForBitcoin(
         () => afterRejection,
         () => fixture.account.address,
@@ -556,6 +564,170 @@ describe('cooperative release approval with simulated chain observations', () =>
         spendStatus: BitcoinUtxoSpendStatus.Spent,
         activeReleaseId: undefined,
       });
+    },
+  );
+
+  it.each([false, true])(
+    'does not broadcast a signed return after finalized funding accepts its input (prior broadcast attempt=%s)',
+    async priorBroadcastAttempt => {
+      const fixture = await createFixture();
+      const appDb = await createTestDb();
+      const walletKeys = {
+        canSign: true,
+        getBitcoinChildXpriv: async () => fixture.ownerKey,
+      } as unknown as WalletKeys;
+      const store = createStore({
+        db: appDb,
+        blockWatch: fixture.blockWatch,
+        mempool: fixture.mempool,
+        walletKeys,
+      });
+      store.data.bitcoinNetwork = BitcoinNetwork.Regtest;
+
+      const pending = await appDb.bitcoinLocksTable.insertPending({
+        uuid: 'return-funding-race',
+        vaultId: 7,
+        securitizedSatoshis: fixture.request.satoshis,
+        hdPath: 'owner',
+        cosignVersion: 'v1',
+        network: 'regtest',
+        status: BitcoinLockStatus.LockPendingFunding,
+      });
+      const lock = await appDb.bitcoinLocksTable.finalizePending({
+        uuid: pending.uuid,
+        lock: BitcoinLock.fromRuntime(42, fixture.storage),
+      });
+      store.data.locksByLockId[42] = lock;
+      const input = await store.utxoTracking.upsertUtxoRecord(lock, {
+        txid: fixture.request.utxoRef.txid,
+        vout: 0,
+        satoshis: fixture.request.satoshis,
+      });
+      await store.utxoTracking.observeMempoolFunding(lock, fixture.client);
+      expect(input.status).toBe(BitcoinUtxoStatus.Unattached);
+
+      const request = fixture.request;
+      const release = await store.releases.createDepositRelease(input, {
+        id: request.releaseId,
+        sendId: request.releaseId,
+        kind: BitcoinReleaseKind.Cooperative,
+        lockId: 42,
+        status: BitcoinReleaseStatus.WaitingForVaultCosign,
+        inputUtxoIds: [input.id],
+        toScriptPubkey: request.toScriptPubkey,
+        bitcoinNetworkFee: request.bitcoinNetworkFee,
+        destinationSatoshis: request.destinationSatoshis,
+        changeSatoshis: 0n,
+        expectedTransactionId: request.expectedTransactionId,
+        cooperativeRequest: request,
+        vaultSignatures: [],
+      });
+      const psbt = fixture.cosign.getCosignPsbt({
+        releaseRequest: request,
+        utxos: [{ utxoRef: { txid: request.utxoRef.txid, vout: 0 }, satoshis: request.satoshis }],
+      });
+      const signature = fixture.cosign.vaultCosignPsbt(psbt, fixture.lock, fixture.vaultKey).getInput(0)
+        .partialSig![0][1];
+      await store.releases.recordVaultCosign(release, { vaultSignatures: [signature] });
+      if (priorBroadcastAttempt) {
+        await store.releases.recordPreparedBitcoinTransaction(release, request.expectedTransactionId);
+      }
+
+      const acceptedFunding: NonNullable<BitcoinLocksLocksByIdResultSpec159> = {
+        ...fixture.storage,
+        fundedSatoshis: input.satoshis,
+        fundingUtxos: [[request.utxoRef, input.satoshis]],
+      };
+      fixture.currentLock = acceptedFunding;
+      await store.releases.reconcileDepositReleases(lock);
+
+      expect(fixture.broadcasts).toEqual([]);
+      expect(await appDb.bitcoinReleasesTable.getById(release.id)).toMatchObject({
+        status: priorBroadcastAttempt ? BitcoinReleaseStatus.ConfirmingOnBitcoin : BitcoinReleaseStatus.Failed,
+      });
+      expect((await appDb.bitcoinUtxosTable.getByLockOutpoint(42, input.txid, 0))?.activeReleaseId).toBe(
+        priorBroadcastAttempt ? release.id : undefined,
+      );
+
+      await store.utxoTracking.syncFundingUtxos(lock, BitcoinLock.fromRuntime(42, acceptedFunding));
+      const restarted = createStore({
+        db: appDb,
+        blockWatch: fixture.blockWatch,
+        mempool: fixture.mempool,
+        walletKeys,
+      });
+      restarted.data.bitcoinNetwork = BitcoinNetwork.Regtest;
+      restarted.data.locksByLockId[42] = (await appDb.bitcoinLocksTable.getByLockId(42))!;
+      restarted.utxoTracking.load(await appDb.bitcoinUtxosTable.fetchAll());
+      await restarted.releases.load();
+      await restarted.releases.reconcileDepositReleases(restarted.data.locksByLockId[42]);
+      expect(fixture.broadcasts).toEqual([]);
+
+      const normalReleaseRequest = {
+        id: 'normal-lock-release',
+        sendId: 'normal-lock-release',
+        kind: BitcoinReleaseKind.Lock,
+        lockId: 42,
+        releaseNumber: 1,
+        status: BitcoinReleaseStatus.SubmittingRequestOnArgon,
+        inputUtxoIds: [input.id],
+        toScriptPubkey: request.toScriptPubkey,
+        bitcoinNetworkFee: request.bitcoinNetworkFee,
+        destinationSatoshis: request.destinationSatoshis,
+        changeSatoshis: 0n,
+        vaultSignatures: [],
+      };
+      if (priorBroadcastAttempt) {
+        expect(restarted.releases.getActiveDepositReleases().map(active => active.id)).toContain(release.id);
+        expect(restarted.releases.getById(release.id)).toMatchObject({
+          status: BitcoinReleaseStatus.ConfirmingOnBitcoin,
+          bitcoinTxid: request.expectedTransactionId,
+          statusError: expect.stringContaining('may already have been sent'),
+        });
+        expect(restarted.releases.getById(release.id)?.bitcoinFirstSeenAt).toBeUndefined();
+        await expect(
+          restarted.releases.createLockRelease(restarted.data.locksByLockId[42], normalReleaseRequest),
+        ).rejects.toThrow('already belongs to release');
+
+        const bitcoinReturn = fixture.cosign.cosignAndGenerateTx({
+          releaseRequest: request,
+          vaultCosignatures: [signature],
+          utxos: [{ utxoRef: { txid: request.utxoRef.txid, vout: 0 }, satoshis: request.satoshis }],
+          ownerXpriv: fixture.ownerKey,
+        });
+        expect(`0x${bitcoinReturn.hash}`).toBe(request.expectedTransactionId);
+        fixture.broadcasts.push(u8aToHex(bitcoinReturn.toBytes(true, true), undefined, false));
+        await restarted.releases.syncDepositBitcoinProcessing(120);
+        expect(await appDb.bitcoinReleasesTable.getById(release.id)).toMatchObject({
+          status: BitcoinReleaseStatus.ConfirmingOnBitcoin,
+          bitcoinFirstSeenAt: expect.any(Date),
+        });
+        expect((await appDb.bitcoinReleasesTable.getById(release.id))?.statusError).toBeUndefined();
+        expect((await appDb.bitcoinUtxosTable.getByLockOutpoint(42, input.txid, 0))?.activeReleaseId).toBe(release.id);
+        expect(restarted.releases.getActiveDepositReleases().map(active => active.id)).toContain(release.id);
+
+        fixture.returnConfirmed = true;
+        await restarted.releases.syncDepositBitcoinProcessing(120);
+        expect(await appDb.bitcoinReleasesTable.getById(release.id)).toMatchObject({
+          status: BitcoinReleaseStatus.Complete,
+          bitcoinConfirmedHeight: 115,
+        });
+        expect((await appDb.bitcoinReleasesTable.getById(release.id))?.statusError).toBeUndefined();
+        expect(await appDb.bitcoinUtxosTable.getByLockOutpoint(42, input.txid, 0)).toMatchObject({
+          spendStatus: BitcoinUtxoSpendStatus.Spent,
+          spentByReleaseId: release.id,
+          activeReleaseId: undefined,
+        });
+      } else {
+        const normalRelease = await restarted.releases.createLockRelease(
+          restarted.data.locksByLockId[42],
+          normalReleaseRequest,
+        );
+        expect((await appDb.bitcoinLocksTable.getByLockId(42))?.activeReleaseId).toBe(normalRelease.id);
+        expect((await appDb.bitcoinUtxosTable.getByLockOutpoint(42, input.txid, 0))?.activeReleaseId).toBe(
+          normalRelease.id,
+        );
+      }
     },
   );
   it('signs the exact approved Bitcoin transaction when an unrelated runtime version changes while queued', async () => {
@@ -740,6 +912,12 @@ describe('cooperative release approval with simulated chain observations', () =>
     expect(cooperative.data.refreshError).toBe('');
     expect(cooperative.data.isRefreshing).toBe(false);
     expect(db.bitcoinCooperativeReleasesTable.pending(7).requests).toHaveLength(1);
+
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('Server unavailable.')));
+    await cooperative.refresh({ finalizedClient: client, server: olderServer, vaultId: 7 });
+    expect(cooperative.data.requests).toBe(displayedRequests);
+    expect(cooperative.data.refreshError).toBe('');
+    expect(cooperative.data.isRefreshing).toBe(false);
     vi.unstubAllGlobals();
 
     fixture.cursor.blockHeight = 100;

@@ -55,6 +55,18 @@ const meta = {
 export default meta;
 type Story = StoryObj<typeof meta>;
 
+async function inspectMiningDay(canvasElement: HTMLElement, index = -1) {
+  const canvas = await within(canvasElement).findByLabelText('Earnings history');
+  const chart = Chart.getChart(canvas as HTMLCanvasElement)!;
+  const point = chart.getDatasetMeta(1).data.at(index)!;
+  const bounds = canvas.getBoundingClientRect();
+  await userEvent.pointer({
+    target: canvas,
+    coords: { clientX: bounds.left + point.x, clientY: bounds.top + chart.scales.y.getPixelForValue(0) },
+    keys: '[MouseLeft]',
+  });
+}
+
 function setupMiningSetupErrorScenario(retrySucceeds = false) {
   setupMiningPortfolioScenario();
   Object.assign(getConfig(), {
@@ -322,18 +334,7 @@ export const ChartHistory: Story = {
     }) as typeof client.fetch);
     mocked(getBot().getClient).mockResolvedValue(client);
   },
-  play: async ({ canvasElement }) => {
-    const canvas = await within(canvasElement).findByLabelText('Earnings history');
-    const bounds = canvas.getBoundingClientRect();
-    const point = Chart.getChart(canvas as HTMLCanvasElement)!
-      .getDatasetMeta(1)
-      .data.at(-2)!;
-    await userEvent.pointer({
-      target: canvas,
-      coords: { clientX: bounds.left + point.x, clientY: bounds.top + point.y },
-      keys: '[MouseLeft]',
-    });
-  },
+  play: ({ canvasElement }) => inspectMiningDay(canvasElement, -2),
 };
 
 export const OwnedSeatPortfolio: Story = {
@@ -350,9 +351,39 @@ export const OwnedSeatPortfolio: Story = {
 export const LiveBiddingBeforeEarningsImport: Story = {
   beforeEach: () => {
     setupMiningPortfolioScenario();
+    Object.assign(getBot().state!, { isBidInProgress: true, nextBid: undefined });
     const seats = getMyMiningSeats();
     seats.frames = seats.frames.filter(frame => frame.id < seats.latestFrameId);
   },
+};
+
+export const CurrentDayInProgress: Story = {
+  parameters: { hoverInfo: true },
+  beforeEach: () => {
+    setupMiningPortfolioScenario();
+    Object.assign(getMyMiningSeats().frames.at(-1)!, { progress: 50, profitPct: 1.4, score: 20 });
+  },
+  play: ({ canvasElement }) => inspectMiningDay(canvasElement),
+};
+
+export const FirstMiningDay: Story = {
+  parameters: { hoverInfo: true },
+  beforeEach: () => {
+    setupMiningPortfolioScenario();
+    const seats = getMyMiningSeats();
+    seats.frames = seats.frames.filter(frame => frame.id === seats.latestFrameId);
+    Object.assign(seats.frames[0], {
+      progress: 1,
+      profitPct: -100,
+      score: -100,
+      blocksMinedTotal: 0,
+      microgonsMinedTotal: 0n,
+      microgonsMintedTotal: 0n,
+      micronotsMinedTotal: 0n,
+      microgonValueOfRewards: 0n,
+    });
+  },
+  play: ({ canvasElement }) => inspectMiningDay(canvasElement),
 };
 
 export const RestoringHistoricalEarnings: Story = {
@@ -426,13 +457,6 @@ export const HistoricalMiningDataNeedsAttention: Story = {
   beforeEach: () => {
     setupMiningPortfolioScenario();
     Object.assign(getBot(), { historicalDbProgress: 58, historicalDbError: 'Unable to fetch an old frame' });
-  },
-};
-
-export const HistoricalSeatPortfolio: Story = {
-  parameters: { hoverInfo: true },
-  beforeEach: () => {
-    setupMiningPortfolioScenario(118);
   },
 };
 

@@ -34,8 +34,10 @@ export function getBondEarnings(
   const createdFrame = lot?.createdFrameId ?? history?.createdFrame;
   const historyThroughFrame = history?.earningsHistoryThroughFrame ?? (createdFrame ?? 0) - 1;
   const hasDailyCoverage = earningThroughFrame !== undefined && historyThroughFrame >= earningThroughFrame;
+  const isNewUnparticipated = isNewUnparticipatedBond(lot, history, records, completedFrame);
+
   let attributionIsComplete = !hasMissingPayout;
-  if (!hasDailyCoverage) {
+  if (!hasDailyCoverage && !isNewUnparticipated) {
     if (
       lot?.isFlexible ||
       history?.earningsBackfills.length ||
@@ -56,7 +58,23 @@ export function getBondEarnings(
     vaultEarnings: observedVaultEarnings,
     isComplete,
     attributionIsComplete,
+    isNewUnparticipatedBond: isNewUnparticipated,
   };
+}
+
+export function isNewUnparticipatedBond(
+  lot: BondLot | undefined,
+  history: IBondLotHistoryRecord | undefined,
+  records: readonly IBondEarningsRecord[],
+  completedFrame?: number,
+): boolean {
+  if (!lot || completedFrame === undefined) return false;
+  if (lot.createdFrameId < completedFrame) return false;
+  if (lot.participatedFrames !== 0 || lot.cumulativeEarnings !== 0n) return false;
+  if ((history?.participatedFrames ?? 0) !== 0) return false;
+  if ((history?.cumulativeEarningsMicrogons ?? 0n) !== 0n) return false;
+
+  return records.length === 0;
 }
 
 /** Reconcile bond income against the vault's actual collection and expiry history. */
@@ -66,9 +84,9 @@ export function getVaultBondEarnings(
     bondHistory,
     dailyEarnings,
     isLoaded,
-    currentFrameId,
-  }: Pick<ArgonBonds['data'], 'bondLots' | 'bondHistory' | 'dailyEarnings' | 'isLoaded' | 'currentFrameId'>,
+  }: Pick<ArgonBonds['data'], 'bondLots' | 'bondHistory' | 'dailyEarnings' | 'isLoaded'>,
   vaultId: number,
+  completedFrame: number,
   revenueHistory: readonly IVaultRevenueEventsRecord[],
   revenueCoverage?: { fromBlock: number; throughBlock: number },
   pendingRevenueFrames: MyVault['pendingRevenueFrames'] = [],
@@ -90,9 +108,10 @@ export function getVaultBondEarnings(
     const lot = lotsById.get(id);
     const history = historyById.get(id);
     const records = dailyEarnings.filter(record => record.bondLotId === id);
-    const earnings = getBondEarnings(lot, history, records, currentFrameId - 1);
+    const earnings = getBondEarnings(lot, history, records, completedFrame);
     totalEarnings += earnings.vaultEarnings;
-    if (!history?.flexibilityHistoryComplete) isComplete = false;
+
+    if (!history?.flexibilityHistoryComplete && !earnings.isNewUnparticipatedBond) isComplete = false;
     if (!earnings.attributionIsComplete) hasCompleteAllocation = false;
     for (const record of records) {
       if (record.earningsDestination !== 'Vault' || record.earningsMicrogons == null) continue;

@@ -6,6 +6,7 @@ import {
   type IBotActivityBidReceived,
   type IHistoryFile,
   JsonExt,
+  Mining,
   MiningFrames,
 } from '@argonprotocol/apps-core';
 import type { Storage } from './Storage.ts';
@@ -49,6 +50,12 @@ export class History {
         reject(error);
       }
     });
+  }
+
+  public async getSubmittedBidCount(cohortActivationFrameId: number): Promise<number> {
+    await this.queue.onIdle();
+    const history = await this.storage.historyFile(cohortActivationFrameId).get();
+    return Mining.summarizeBidHistory(history)?.submittedBidCount ?? 0;
   }
 
   public initCohort(cohortStartingFrameId: number, myAddresses: Set<string>) {
@@ -103,12 +110,13 @@ export class History {
     });
   }
 
-  public handleError(error: Error) {
+  public handleError(error: Error, frameId = this.cohortStartingFrameId) {
     console.log('ERROR', error);
     this.appendActivities({
       tick: MiningFrames.calculateCurrentTickFromSystemTime(),
       type: BotActivityType.Error,
       data: { name: error.name, message: error.message },
+      frameId,
     });
   }
 

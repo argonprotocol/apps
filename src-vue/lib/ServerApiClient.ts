@@ -97,8 +97,9 @@ export class ServerApiClient {
   }
 
   public async getPendingBitcoinCooperativeReleases(): Promise<IBitcoinCooperativeReleaseMailboxRecord[] | undefined> {
-    const status = await this.request<{ bitcoinCooperativeReleaseMailboxVersion?: number }>('/');
-    if (status.bitcoinCooperativeReleaseMailboxVersion !== 1) return;
+    // The mailbox is optional; an unavailable server cannot prevent vault collection.
+    const status = await this.request<{ bitcoinCooperativeReleaseMailboxVersion?: number }>('/').catch(() => undefined);
+    if (status?.bitcoinCooperativeReleaseMailboxVersion !== 1) return;
     const requests: IBitcoinCooperativeReleaseMailboxRecord[] = [];
     let cursor: string | undefined;
     do {

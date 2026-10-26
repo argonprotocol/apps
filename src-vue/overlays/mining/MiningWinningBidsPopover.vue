@@ -28,7 +28,7 @@
         </template>
         <template v-else-if="winningBids.length === 0">
           <span class="mx-1 text-slate-400">·</span>
-          No Bid Submitted
+          No Winning Bids
         </template>
       </div>
     </div>
@@ -70,12 +70,23 @@
             {{ bot.state.lastBid.seats }} seats at {{ currency.symbol
             }}{{ microgonToMoneyNm(bot.state.lastBid.microgonsPerSeat).format('0,0.00') }}/seat
             <template v-if="bot.state.lastBid.isFinalized">
-              · {{ bot.state.lastBid.seatsWon }} won · {{ formatTickDistance(bot.state.lastBid.submittedAtTick) }}
+              · {{ formatTickDistance(bot.state.lastBid.submittedAtTick) }}
             </template>
             <template v-else>· awaiting finalization</template>
           </p>
-          <p v-else-if="winningBids.length" class="mt-1">Last bid details are unavailable.</p>
+          <p v-else-if="winningBids.length || bot.state?.bidsInCurrentFrame !== 0" class="mt-1">
+            Last bid details are unavailable.
+          </p>
           <p v-else class="mt-1">No bid in this auction.</p>
+        </div>
+
+        <div class="mt-3 border-t border-slate-200 pt-3">
+          <p>
+            Total Bids Attempted:
+            {{
+              bot.state?.bidsInCurrentFrame === undefined ? '—' : numeral(bot.state.bidsInCurrentFrame).format('0,0')
+            }}
+          </p>
         </div>
       </div>
     </template>
@@ -86,7 +97,7 @@
 import * as Vue from 'vue';
 import type { IWinningBid } from '@argonprotocol/apps-core';
 import MiningStatPopover from './MiningStatPopover.vue';
-import { createNumeralHelpers } from '../../lib/numeral.ts';
+import numeral, { createNumeralHelpers } from '../../lib/numeral.ts';
 import { getBot } from '../../stores/bot.ts';
 import { getCurrency } from '../../stores/currency.ts';
 import { TICK_MILLIS } from '../../lib/Env.ts';

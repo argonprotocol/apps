@@ -1,4 +1,5 @@
-import { afterEach, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, expect, it, vi } from 'vitest';
+import { NetworkConfig } from '@argonprotocol/apps-core';
 import accountReview from '../../e2e/flows/operations/App.flow.accountReview.ts';
 import { BitcoinLiquid } from '../lib/BitcoinLiquid.ts';
 import { reduceFinancialPositions } from '../lib/financials/index.ts';
@@ -6,7 +7,17 @@ import type { IAppQueryFn } from '../interfaces/IAppQueryRefs.ts';
 import type { IBitcoinLiquidFinancialPosition } from '../interfaces/IFinancialPosition.ts';
 import type { IE2EQueryAppOptions } from '../../e2e/flows/types.ts';
 
-afterEach(() => vi.unstubAllGlobals());
+let previousNetwork = NetworkConfig.networkName;
+
+beforeEach(() => {
+  previousNetwork = NetworkConfig.networkName;
+  NetworkConfig.setNetwork('dev-docker');
+});
+
+afterEach(() => {
+  NetworkConfig.networkName = previousNetwork;
+  vi.unstubAllGlobals();
+});
 
 it.each([
   { isArchived: false, displayIsCurrent: true },
@@ -25,12 +36,17 @@ it.each([
       liquidId: 1,
       liquid: BitcoinLiquid.create({ liquidId: 1, fissions: [] }),
       locks: [],
-      currentValue: 0n,
+      startedAt: new Date('2026-10-23T00:00:00Z'),
+      investedCost: 100_000_000n,
+      paidIncome: 0n,
+      settledPrincipalValue: 0n,
+      currentValue: 110_000_000n,
       // A down-ratchet retained 20 while recycling 100 through the mint queue.
       receivedLiquidity: 20_000_000n,
       pendingLiquidity: 100_000_000n,
       repaymentAmount: 100_000_000n,
-      totalReturn: 10,
+      // This cached value can lag the position's capital and profit facts.
+      totalReturn: 25,
       totalFees: 1_000_000n,
     };
     const snapshot = () =>

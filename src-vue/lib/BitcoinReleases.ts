@@ -487,6 +487,7 @@ export default class BitcoinReleases {
       return false;
     if (this.getActiveForUtxo(utxo)) return false;
 
+    if (utxo.status === BitcoinUtxoStatus.Orphaned && utxo.isOnArgonChain !== false) return true;
     if (this.getLatestForUtxo(utxo)?.kind === BitcoinReleaseKind.Cooperative) return false;
     if (utxo.status === BitcoinUtxoStatus.Orphaned || utxo.status === BitcoinUtxoStatus.Unattached) return true;
     return utxo.fundingRejectionReason === 'BelowMinimum' || !!lock.removalBlockNumber;
@@ -909,6 +910,14 @@ export default class BitcoinReleases {
         const status = await this.mempool
           .getTxStatus(release.bitcoinTxid, oracleBitcoinBlockHeight)
           .catch(() => undefined);
+        if (status && !release.bitcoinFirstSeenAt) {
+          await this.recordBitcoinBroadcast(release, {
+            bitcoinTxid: release.bitcoinTxid,
+            bitcoinFirstSeenAt: new Date(),
+            bitcoinFirstSeenHeight: status.transactionBlockHeight,
+            bitcoinFirstSeenOracleHeight: oracleBitcoinBlockHeight,
+          });
+        }
         if (status?.isConfirmed) {
           await this.completeDepositRelease(utxo, release, status.transactionBlockHeight);
         }
@@ -1454,7 +1463,21 @@ export default class BitcoinReleases {
       const isAwaitingCooperativeCosign =
         releaseDraft.kind === BitcoinReleaseKind.Cooperative &&
         releaseDraft.status === BitcoinReleaseStatus.WaitingForVaultCosign;
-      if (!isSubmittingArgonRequest && !isAwaitingCooperativeCosign) return;
+      const isUnbroadcastCooperativeReturn =
+        releaseDraft.kind === BitcoinReleaseKind.Cooperative &&
+        releaseDraft.status === BitcoinReleaseStatus.ReadyForBitcoinBroadcast &&
+        !releaseDraft.bitcoinTxid;
+      const isAwaitingPartialLockCosign =
+        releaseDraft.kind === BitcoinReleaseKind.Lock &&
+        releaseDraft.status === BitcoinReleaseStatus.WaitingForVaultCosign &&
+        releaseDraft.changeSatoshis > 0n;
+      if (
+        !isSubmittingArgonRequest &&
+        !isAwaitingCooperativeCosign &&
+        !isUnbroadcastCooperativeReturn &&
+        !isAwaitingPartialLockCosign
+      )
+        return;
 
       const inputIds = new Set(releaseDraft.inputUtxoIds);
       const utxoDrafts = (await transaction.bitcoinUtxosTable.fetchByLockId(releaseDraft.lockId)).filter(utxo =>
@@ -1739,20 +1762,46 @@ export default class BitcoinReleases {
       if (release.bitcoinTxid && release.bitcoinTxid !== txid) {
         throw new Error(`Bitcoin release ${release.id} rebuilt a different transaction`);
       }
-      if (!release.bitcoinTxid) await this.recordPreparedBitcoinTransaction(release, txid);
-
       const oracleBitcoinBlockHeight = this.bitcoinLocks.data.oracleBitcoinBlockHeight;
       const existingTxStatus = await this.mempool.getTxStatus(txid, oracleBitcoinBlockHeight);
-      if (existingTxStatus?.isConfirmed) {
+      if (existingTxStatus) {
         await this.recordBitcoinBroadcast(release, {
           bitcoinTxid: txid,
           bitcoinFirstSeenAt: release.bitcoinFirstSeenAt ?? new Date(),
           bitcoinFirstSeenHeight: existingTxStatus.transactionBlockHeight,
           bitcoinFirstSeenOracleHeight: release.bitcoinFirstSeenOracleHeight ?? oracleBitcoinBlockHeight,
         });
-        await this.completeDepositRelease(utxo, release, existingTxStatus.transactionBlockHeight);
+        if (existingTxStatus.isConfirmed) {
+          await this.completeDepositRelease(utxo, release, existingTxStatus.transactionBlockHeight);
+        }
         return;
       }
+
+      if (release.kind === BitcoinReleaseKind.Cooperative) {
+        if (!release.cooperativeRequest) throw new Error('The signed cooperative release request is missing.');
+
+        const finalizedClient = await this.blockWatch.getFinalizedApi();
+        try {
+          await this.bitcoinLocks.cooperativeReleases.verifyRequest(release.cooperativeRequest, finalizedClient);
+        } catch (error) {
+          if (error instanceof CooperativeReleaseRejected) {
+            if (!release.bitcoinTxid) {
+              await this.failRelease(release, error.message);
+            } else {
+              await this.update(release, {
+                status: BitcoinReleaseStatus.ConfirmingOnBitcoin,
+                statusError:
+                  `${error.message} The Bitcoin return may already have been sent. ` +
+                  'Its funds are reserved until the transaction is resolved; contact support before another send.',
+              });
+            }
+            return;
+          }
+          throw error;
+        }
+      }
+
+      if (!release.bitcoinTxid) await this.recordPreparedBitcoinTransaction(release, txid);
 
       let bitcoinTxid: string;
       try {
@@ -1826,7 +1875,52 @@ export default class BitcoinReleases {
 
     if (release.releaseNumber === undefined) return;
     const cosign = await BitcoinLock.findVaultCosignatures(this.blockWatch, lock.lockId!, release.releaseNumber);
-    if (!cosign) return;
+    if (!cosign) {
+      const finalizedFrame = this.blockWatch.finalizedBlockHeader.frameId;
+      const deadlineHasPassed =
+        release.cosignDueFrame !== undefined &&
+        finalizedFrame !== undefined &&
+        finalizedFrame >= release.cosignDueFrame;
+      if (release.changeSatoshis > 0n && deadlineHasPassed) {
+        const finalizedClient = await this.blockWatch.getFinalizedApi();
+        const request = await BitcoinLock.getReleaseRequest(finalizedClient, lock.lockId!);
+        if (!request) {
+          const [currentLock, pendingPartial, cosignHeight] = await Promise.all([
+            BitcoinLock.get(finalizedClient, lock.lockId!),
+            finalizedClient.query.bitcoinLocks.pendingPartialReleaseByLockId(lock.lockId!),
+            finalizedClient.query.bitcoinLocks.lockReleaseCosignHeightById(lock.lockId!),
+          ]);
+          if (!currentLock || pendingPartial || (cosignHeight && cosignHeight.releaseNumber >= release.releaseNumber)) {
+            return;
+          }
+
+          const frozenInputs = this.getInputUtxos(release);
+          if (currentLock.fundingUtxos.length !== frozenInputs.length) return;
+          for (const input of frozenInputs) {
+            const isStillFunding = currentLock.fundingUtxos.some(({ utxoRef }) => {
+              return utxoRef.txid === input.txid && utxoRef.vout === input.vout;
+            });
+            if (!isStillFunding) return;
+          }
+
+          await this.failRelease(
+            release,
+            'The vault did not sign before the release request closed. Retry the Bitcoin send.',
+          );
+          return;
+        }
+
+        if (request.releaseNumber !== release.releaseNumber) return;
+      }
+
+      if (!this.walletKeys.canSign || lock.ownerAccount !== this.walletKeys.liquidLockingAddress) return;
+
+      const myVault = this.bitcoinLocks.myVault;
+      if (!myVault || myVault.vaultId !== lock.vaultId) return;
+
+      await myVault.cosignOwnLockRelease(lock);
+      return;
+    }
 
     await this.recordVaultCosign(release, {
       vaultSignatures: cosign.signatures,

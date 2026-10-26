@@ -14,6 +14,14 @@ function matchesIds(actual: readonly number[], expected: readonly number[]): boo
   return actual.length === expected.length && includesIds(actual, expected);
 }
 
+function matchesRenderedReturn(displayed: number, expected: number): boolean {
+  const absolute = Math.abs(expected);
+  let rounding = 0.5;
+  if (absolute < 10) rounding = 0.005;
+  else if (absolute < 100) rounding = 0.05;
+  return Math.abs(displayed - expected) <= rounding + Number.EPSILON * Math.max(1, absolute);
+}
+
 type IAccountReviewFlowState = IE2EOperationInspectState<
   {
     archivedBitcoinLiquidIds: number[];
@@ -174,6 +182,21 @@ export default new OperationalFlow<IAccountReviewFlowContext, IAccountReviewFlow
         invalidFinancialReturns,
       };
     });
+    if (flow.input.expectsHistoricalApy && appState?.financialSnapshot) {
+      const financials = appState.financialSnapshot;
+      for (const name of ['bonds', 'vaulting', 'mining'] as const) {
+        const summary = financials.groupSummaries[name].returnSummary;
+        if (summary.investmentPositionCount === 0) continue;
+        if (summary.availability !== 'available') {
+          appState.invalidFinancialReturns.push(`${name} return ${summary.availability}`);
+        } else if (![summary.percent, summary.apr, summary.apy].every(Number.isFinite)) {
+          appState.invalidFinancialReturns.push(`${name} RTD/APR/APY unavailable`);
+        }
+      }
+      if (financials.accountReturn.investmentPositionCount && !Number.isFinite(financials.accountReturn.apy)) {
+        appState.invalidFinancialReturns.push('account APY unavailable');
+      }
+    }
     const financialSnapshot = appState?.financialSnapshot;
     const bitcoinLiquidPositions =
       financialSnapshot?.groupSummaries.bitcoin.positions.filter(position => position.kind === 'bitcoin-liquid') ?? [];
@@ -443,11 +466,9 @@ export default new OperationalFlow<IAccountReviewFlowContext, IAccountReviewFlow
       const result = await flow.queryApp(
         (refs, args) => {
           const { liquidId, testIds } = args;
-          const financialPosition = refs
-            .getFinancials()
-            .financialPositionAggregate.groupSummaries.bitcoin.positions.filter(
-              position => position.kind === 'bitcoin-liquid',
-            )
+          const bitcoinGroup = refs.getFinancials().financialPositionAggregate.groupSummaries.bitcoin;
+          const financialPosition = bitcoinGroup.positions
+            .filter(position => position.kind === 'bitcoin-liquid')
             .find(position => position.liquidId === liquidId);
           if (!financialPosition) {
             throw new Error(`Bitcoin Liquid ${liquidId} has no financial position liquidity`);
@@ -460,6 +481,7 @@ export default new OperationalFlow<IAccountReviewFlowContext, IAccountReviewFlow
           });
           return {
             financialPosition,
+            bitcoinGroup,
             texts,
           };
         },
@@ -503,6 +525,7 @@ export default new OperationalFlow<IAccountReviewFlowContext, IAccountReviewFlow
       }
       const {
         financialPosition,
+        bitcoinGroup,
         texts: [receivedLiquidityText, returnText, totalFeesText, detailsText],
       } = await readLiquidUi(liquidId, [
         'BitcoinLiquid.details.receivedLiquidity',
@@ -519,18 +542,18 @@ export default new OperationalFlow<IAccountReviewFlowContext, IAccountReviewFlow
       if (!/^-?[\d,.]+%$/.test(returnText)) {
         throw new Error(`Bitcoin Liquid ${liquidId} rendered an invalid return: ${returnText}`);
       }
-      const expectedReturn = financialPosition.totalReturn;
+      const expectedReturn = calculatePositionReturn([financialPosition], bitcoinGroup).percent;
       const displayedReturn = Number(returnText.replaceAll(',', '').replaceAll('%', ''));
-      if (expectedReturn === undefined || Math.abs(displayedReturn - expectedReturn) > 0.011) {
+      if (expectedReturn === undefined || !matchesRenderedReturn(displayedReturn, expectedReturn)) {
         throw new Error(
-          `Bitcoin Liquid ${liquidId} return ${returnText} does not match its capital and profit (${expectedReturn}%)`,
+          `Bitcoin Liquid ${liquidId} return ${returnText} does not match its financial position return (${expectedReturn}%)`,
         );
       }
       const expectedFromHistory = expectedHistoryReturns?.[liquidId];
       if (expectedHistoryReturns && isArchived && expectedFromHistory === undefined) {
         throw new Error(`Archived Bitcoin Liquid ${liquidId} has no independent return expectation`);
       }
-      if (expectedFromHistory !== undefined && Math.abs(displayedReturn - expectedFromHistory) > 0.011) {
+      if (expectedFromHistory !== undefined && !matchesRenderedReturn(displayedReturn, expectedFromHistory)) {
         throw new Error(
           `Bitcoin Liquid ${liquidId} return ${returnText} does not match the independent history expectation (${expectedFromHistory}%)`,
         );
@@ -621,7 +644,7 @@ export default new OperationalFlow<IAccountReviewFlowContext, IAccountReviewFlow
             );
             const expectedReturn = financialPosition ? calculatePositionReturn([financialPosition]).percent : undefined;
             const displayedReturn = Number(returnText.replaceAll(',', '').replaceAll('%', ''));
-            if (expectedReturn === undefined || Math.abs(displayedReturn - expectedReturn) > 0.011) {
+            if (expectedReturn === undefined || !matchesRenderedReturn(displayedReturn, expectedReturn)) {
               throw new Error(
                 `${section.rowKind} lot ${bondLotId} return ${returnText.trim()} does not match distributed income and cost basis (${expectedReturn}%)`,
               );

@@ -297,7 +297,7 @@ export class BondLotHistoryTable extends BaseTable {
     const nativePrincipal = lot.principalMicrogons ?? lot.principalMicronots;
     if (nativePrincipal === undefined) return;
 
-    const records = await this.db.select<IBondLotHistoryRecord[]>(
+    let records = await this.db.select<IBondLotHistoryRecord[]>(
       `INSERT INTO BondLotHistory (
          accountId,
          programType,
@@ -355,6 +355,15 @@ export class BondLotHistoryTable extends BaseTable {
         release.earningsComplete ?? true,
       ]),
     );
+    if (!records.length && release.earningsComplete !== false) {
+      records = await this.db.select<IBondLotHistoryRecord[]>(
+        `UPDATE BondLotHistory SET earningsComplete = 1, updatedAt = CURRENT_TIMESTAMP
+         WHERE accountId = ? AND programType = ? AND bondLotId = ?
+           AND releaseBlockHash = ? AND earningsComplete = 0
+         RETURNING *`,
+        [lot.owner, lot.programType, lot.id, release.blockHash],
+      );
+    }
     return convertFromSqliteFields<IBondLotHistoryRecord[]>(records, this.fields)[0];
   }
 }

@@ -2,6 +2,7 @@ import {
   calculateVaultPositionValue,
   Currency,
   getPercent,
+  type IAggregateReturnInput,
   type ICapitalFlow,
   type IVaultFrameStats,
   type Vault,
@@ -25,15 +26,12 @@ type VaultFinancialPositionArgs = {
 };
 
 type VaultPosition = IVaultFinancialPosition | IVaultBalanceFinancialPosition;
-type VaultBondState = Pick<
-  ArgonBonds['data'],
-  'bondLots' | 'bondHistory' | 'dailyEarnings' | 'isLoaded' | 'currentFrameId'
->;
+type VaultBondState = Pick<ArgonBonds['data'], 'bondLots' | 'bondHistory' | 'dailyEarnings' | 'isLoaded'>;
 
 export class VaultFinancials implements IFinancialPositionSource<VaultFinancialPositionArgs, VaultPosition> {
   constructor(
     private readonly vault: MyVault,
-    private readonly bonds: VaultBondState,
+    private readonly bonds: Pick<ArgonBonds, 'lastFinalizedCompletedFrameId'> & { data: VaultBondState },
   ) {}
 
   /** Completed-frame income belongs to the vault only after excluding vault-paid bond income. */
@@ -71,7 +69,7 @@ export class VaultFinancials implements IFinancialPositionSource<VaultFinancialP
           else vaultEarnings.set(frame.frameId, remaining - amount);
           continue;
         }
-        if (frame.frameId < createdFrame) continue;
+        if (frame.frameId <= createdFrame) continue;
         if (releaseFrame != null && frame.frameId >= releaseFrame) continue;
         if ((record?.earningsHistoryThroughFrame ?? -1) >= frame.frameId) continue;
         if (record?.flexibilityHistoryComplete && !wasFlexible) continue;
@@ -91,17 +89,10 @@ export class VaultFinancials implements IFinancialPositionSource<VaultFinancialP
   }
 
   public async loadPositions(args: VaultFinancialPositionArgs): Promise<VaultPosition[]> {
-    const publication = this.vault.revenuePublication;
-    await publication;
-    const history = await this.vault.history.loadPositionHistory();
-    if (publication !== this.vault.revenuePublication) {
-      throw new Error('Vault revenue changed during the financial snapshot; retry after publication');
-    }
-    const liveVault = this.vault.createdVault ?? undefined;
-
+    const history = await this.vault.loadPublishedFinancialHistory();
     return this.createFinancialPositions({
       ...args,
-      liveVault,
+      liveVault: this.vault.createdVault ?? undefined,
       capitalHistory: history.capital,
       revenueHistory: history.revenue,
       revenueCoverage: history.revenueCoverage,
@@ -157,8 +148,9 @@ export class VaultFinancials implements IFinancialPositionSource<VaultFinancialP
       collectedRevenue: revenueHistory.filter(record => record.source === 'vaultCollect'),
     });
     const bondEarnings = getVaultBondEarnings(
-      this.bonds,
+      this.bonds.data,
       vaultId,
+      this.bonds.lastFinalizedCompletedFrameId,
       revenueHistory,
       args.revenueCoverage,
       this.vault.pendingRevenueFrames,
@@ -192,6 +184,7 @@ export class VaultFinancials implements IFinancialPositionSource<VaultFinancialP
     }
     capitalFlows.sort((left, right) => new Date(left.occurredAt).getTime() - new Date(right.occurredAt).getTime());
     const hasCompleteCapitalHistory = value.hasCompleteCapitalHistory;
+    const dailyHistory = this.getVaultDailyReturns(vaultId, args.liveVault, vaultCapitalHistory);
     const positions: VaultPosition[] = [
       createFinancialPosition(
         'vault',
@@ -205,6 +198,8 @@ export class VaultFinancials implements IFinancialPositionSource<VaultFinancialP
             hasCompleteCapitalHistory && hasCompleteCapitalTiming && hasCompleteLifecycleTiming
               ? capitalFlows
               : undefined,
+          dailyReturns: dailyHistory?.returns ?? null,
+          dailyReturnPeriodDays: dailyHistory?.periodDays,
           vaultId,
           vault: args.liveVault,
           securitization: securitization ?? value.remainingPrincipal,
@@ -238,5 +233,51 @@ export class VaultFinancials implements IFinancialPositionSource<VaultFinancialP
     }
 
     return positions;
+  }
+
+  private getVaultDailyReturns(
+    vaultId: number,
+    liveVault: Vault | undefined,
+    capitalHistory: readonly IVaultCapitalHistoryRecord[],
+  ): { returns: IAggregateReturnInput[]; periodDays?: number } | null {
+    if (capitalHistory.some(record => record.eventType === 'capitalLost')) return null;
+
+    const stats = this.vault.vaults.stats;
+    if (!stats) return null;
+    const vaultStats = stats.vaultsById[vaultId] ?? this.vault.data.stats;
+    if (!vaultStats) return null;
+
+    const openedFrame = this.vault.vaults.miningFrames.getForTick(liveVault?.openedTick ?? vaultStats.openedTick);
+    if (openedFrame === undefined) return null;
+
+    let throughFrame = Math.min(stats.synchedToFrame, this.bonds.lastFinalizedCompletedFrameId);
+    if (!liveVault || liveVault.isClosed) {
+      throughFrame = Math.min(throughFrame, vaultStats.changesByFrame[0]?.frameId ?? openedFrame);
+    }
+    const backfill = stats.revenueBackfill;
+    if (backfill) {
+      const firstUnscannedFrame = backfill.throughFrame - 1;
+      const lastUnscannedFrame = backfill.nextFrame - 1;
+      if (firstUnscannedFrame <= throughFrame && lastUnscannedFrame > openedFrame) {
+        throughFrame = firstUnscannedFrame - 1;
+        if (throughFrame <= openedFrame) return null;
+      }
+    }
+    if (throughFrame <= openedFrame) return { returns: [], periodDays: 0 };
+
+    const frames = vaultStats.changesByFrame.filter(
+      frame => frame.frameId > openedFrame && frame.frameId <= throughFrame,
+    );
+    const earnings = VaultFinancials.getFrameEarnings(vaultId, frames, this.bonds.data);
+    const returns: IAggregateReturnInput[] = [];
+    for (const frame of frames) {
+      const income = earnings.get(frame.frameId)?.income;
+      if (income === undefined || frame.securitization <= 0n) return null;
+      returns.push({ startingCapital: frame.securitization, endingCapital: frame.securitization + income });
+    }
+    return {
+      returns,
+      periodDays: throughFrame - openedFrame,
+    };
   }
 }

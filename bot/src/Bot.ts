@@ -165,13 +165,17 @@ export default class Bot {
       } as IBotState;
     }
 
-    const [argonBlockNumbers, bitcoinBlockNumbers, botStateData] = await Promise.all([
-      DockerStatus.getArgonBlockNumbers(),
-      DockerStatus.getBitcoinBlockNumbers(),
-      this.blockSync.botStateFile.get(),
-    ]);
+    const currentFrameId = this.miningFrames.currentFrameId;
     const currentBidder = this.autobidder.currentBidder;
     const previousBidder = this.autobidder.previousBidder;
+    const [argonBlockNumbers, bitcoinBlockNumbers, botStateData, bidsInCurrentFrame, bidsInPreviousFrame] =
+      await Promise.all([
+        DockerStatus.getArgonBlockNumbers(),
+        DockerStatus.getBitcoinBlockNumbers(),
+        this.blockSync.botStateFile.get(),
+        currentBidder?.bidsAttempted ?? this.history.getSubmittedBidCount(currentFrameId + 1),
+        previousBidder?.bidsAttempted ?? this.history.getSubmittedBidCount(currentFrameId),
+      ]);
     const finalizedFrameId = this.getFinalizedFrameId();
     const nextBid = currentBidder?.nextBid
       ? {
@@ -193,7 +197,7 @@ export default class Bot {
     return {
       ...botStateData,
       currentTick: this.miningFrames.currentTick,
-      currentFrameId: this.miningFrames.currentFrameId,
+      currentFrameId,
       finalizedFrameId,
       botLastActiveDate: currentBidder?.latestUpdateDate ?? MiningFrames.getTickDate(this.history.lastActivityTick),
       botLastActiveBlockNumber: currentBidder?.latestBlockNumber ?? this.history.lastProcessedBlockNumber,
@@ -211,8 +215,8 @@ export default class Bot {
       currentAuctionMicronotsPerSeat: currentBidder?.currentAuctionMicronotsPerSeat,
       seatGoalCount: currentBidder?.seatGoalCount,
       botCapital: currentBidder?.botCapital,
-      bidsInCurrentFrame: currentBidder?.bidsAttempted ?? 0,
-      bidsInPreviousFrame: previousBidder?.bidsAttempted ?? 0,
+      bidsInCurrentFrame,
+      bidsInPreviousFrame,
       isBiddingOpen: currentBidder?.isBiddingOpen ?? false,
       isBidInProgress: currentBidder?.isBidInProgress ?? false,
       nextBid,

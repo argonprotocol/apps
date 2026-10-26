@@ -2,8 +2,8 @@
 <template>
   <div data-testid="MiningScreen" class="relative isolate h-full w-full">
     <BlankSlate v-if="config.miningSetupStatus === MiningSetupStatus.None && !config.miningBotAccountPreviousHistory" />
-    <SetupChecklist v-else-if="config.miningSetupStatus === MiningSetupStatus.Checklist" />
     <SetupInstalling v-else-if="config.miningSetupStatus === MiningSetupStatus.Installing" />
+    <SetupChecklist v-else-if="config.miningSetupStatus === MiningSetupStatus.Checklist || (config.miningSetupStatus === MiningSetupStatus.Finished && !config.serverDetails.ipAddress)" />
     <template v-else-if="config.miningSetupStatus === MiningSetupStatus.Finished">
       <Dashboard v-if="config.hasMiningSeats && (bot.isReady || config.isServerInstalling)" />
       <StartingBot v-else-if="!bot.isReady" />

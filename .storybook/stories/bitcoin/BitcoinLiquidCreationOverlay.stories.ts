@@ -10,7 +10,7 @@ import type { IBitcoinLiquidCreatePreview } from '../../../src-vue/lib/txs/Bitco
 import type { BitcoinLiquidCreationState } from '../../../src-vue/overlays/BitcoinLiquidCreationState.ts';
 import { useWallets } from '../../../src-vue/stores/wallets.ts';
 import { useFinancials } from '../../../src-vue/stores/financials.ts';
-import { getVaults, retryVaults } from '../../../src-vue/stores/vaults.ts';
+import { getMyVault, getVaults, retryVaults } from '../../../src-vue/stores/vaults.ts';
 import { setupAppScenario } from '../../scenarios/setupAppScenario.ts';
 import { createScenarioVault } from '../../scenarios/createScenarioVault.ts';
 import { OperationalStepId, useCertificationController } from '../../../src-vue/stores/certificationController.ts';
@@ -336,6 +336,20 @@ export const VaultSelectionRefreshFailed: Story = {
 
 export const VaultSelectionEmpty: Story = {
   args: { state: { ...state, stage: 'vaults', sources: [], selectedVaultIds: [] } },
+};
+
+export const VaultSelectionOwnedWithoutBitcoin: Story = {
+  args: {
+    state: {
+      ...state,
+      stage: 'vaults',
+      sources: [guaranteedSources[0]!],
+      selectedVaultIds: [7],
+    },
+  },
+  beforeEach: () => {
+    getMyVault().data.createdVault = selectableVaults[1]!;
+  },
 };
 
 export const VaultExplanation: Story = {

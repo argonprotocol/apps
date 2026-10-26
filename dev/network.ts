@@ -105,13 +105,29 @@ export function getDevDockerServerEnvVars(
   ports: DevDockerComposePorts,
   isSharedComposeNetwork: boolean,
 ): NodeJS.ProcessEnv {
+  const archivePeerId = '12D3KooWMdmKGEuFPVvwSd92jCQJgX9aFCp45E8vV2X284HQjwnn';
+  let archiveNode = `ws://host.docker.internal:${ports.archiveRpcPort}`;
+  let bootnodes = `--bootnodes=/dns/host.docker.internal/tcp/${ports.archiveP2pPort}/p2p/${archivePeerId}`;
+  let bitcoinAddnode = `host.docker.internal:${ports.bitcoinP2pPort}`;
+  let notebookArchiveHost = ports.notaryArchiveHost;
+
+  if (isSharedComposeNetwork) {
+    archiveNode = 'ws://archive-rpc:9944';
+    bootnodes = `--bootnodes=/dns/archive-node/tcp/30334/p2p/${archivePeerId}`;
+    bitcoinAddnode = 'bitcoin:18444';
+
+    if (notebookArchiveHost) {
+      const url = new URL(notebookArchiveHost);
+      url.host = 'minio:9000';
+      notebookArchiveHost = url.toString();
+    }
+  }
+
   return {
-    ARGON_ARCHIVE_NODE: `ws://host.docker.internal:${ports.archiveRpcPort}`,
-    ARGON_BOOTNODES: isSharedComposeNetwork
-      ? '--bootnodes=/dns/archive-node/tcp/30334/p2p/12D3KooWMdmKGEuFPVvwSd92jCQJgX9aFCp45E8vV2X284HQjwnn'
-      : `--bootnodes=/dns/host.docker.internal/tcp/${ports.archiveP2pPort}/p2p/12D3KooWMdmKGEuFPVvwSd92jCQJgX9aFCp45E8vV2X284HQjwnn`,
-    BITCOIN_ADDNODE: `host.docker.internal:${ports.bitcoinP2pPort}`,
-    NOTEBOOK_ARCHIVE_HOSTS: ports.notaryArchiveHost,
+    ARGON_ARCHIVE_NODE: archiveNode,
+    ARGON_BOOTNODES: bootnodes,
+    BITCOIN_ADDNODE: bitcoinAddnode,
+    NOTEBOOK_ARCHIVE_HOSTS: notebookArchiveHost,
     NOTARY_ALIAS_CONTAINER_ID: ports.notaryAliasContainerId,
   };
 }

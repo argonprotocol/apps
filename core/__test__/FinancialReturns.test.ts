@@ -82,6 +82,17 @@ describe('FinancialReturns', () => {
     expect(result.apy).toBeCloseTo((1.1 ** (365 / 30) - 1) * 100 * (30 / 33));
   });
 
+  it('keeps earned returns and APR when daily payout history cannot support APY', () => {
+    const result = calculatePerformanceReturn(
+      [{ startingDate: 0, startingCapital: 1_000n, endingCapital: 1_100n, dailyReturns: null }],
+      { now: new Date(10 * 86_400_000) },
+    );
+
+    expect(result.percent).toBe(10);
+    expect(result.apr).toBeCloseTo(365);
+    expect(result.apy).toBeUndefined();
+  });
+
   it('time weights later capital additions within one investment', () => {
     const result = calculatePerformanceReturn(
       [

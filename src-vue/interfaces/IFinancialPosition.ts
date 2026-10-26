@@ -1,4 +1,10 @@
-import type { BondLot, ICapitalFlow, IInvestmentPositionValue, Vault } from '@argonprotocol/apps-core';
+import type {
+  BondLot,
+  IAggregateReturnInput,
+  ICapitalFlow,
+  IInvestmentPositionValue,
+  Vault,
+} from '@argonprotocol/apps-core';
 
 import type { IWallet } from '../lib/Wallet.ts';
 import type { BitcoinLiquid } from '../lib/BitcoinLiquid.ts';
@@ -49,6 +55,8 @@ interface IFinancialInvestmentPositionBase
   startedAt?: Date | number | string;
   endedAt?: Date | number | string;
   capitalFlows?: readonly ICapitalFlow[];
+  dailyReturns?: readonly IAggregateReturnInput[] | null;
+  dailyReturnPeriodDays?: number;
 }
 
 export interface IWalletBalanceFinancialPosition extends IFinancialPositionBase {

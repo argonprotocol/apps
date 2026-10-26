@@ -148,6 +148,13 @@ it('preserves committed metrics through partial recovery, rollback, restart and 
     await vi.waitFor(() => expect(seats.global.microgonsMinedTotal).toBe(250n));
     expect(aggregateReads).toHaveBeenCalledOnce();
     expect(seats.global.microgonsMintedTotal).toBe(30n);
+    expect(seats.financialProcessedFrames[13]).toBe(true);
+    const cohort12 = seats.miningCohorts.find(cohort => cohort.id === 12);
+    const publishedMined = seats.financialCohortFrames
+      .filter(frame => frame.cohortId === 12)
+      .reduce((sum, frame) => sum + frame.microgonsMinedTotal, 0n);
+    expect(publishedMined).toBe(cohort12?.microgonsMinedTotal);
+    expect(seats.financialCohortFrames.some(frame => frame.cohortId === 12 && frame.frameId === 13)).toBe(true);
     expect(await db.select('SELECT blocksMinedTotal FROM Frames WHERE id = 13')).toEqual([{ blocksMinedTotal: 1 }]);
     const mintRollups = await db.select<{ cohortId: number; microgonsMintedTotal: number }[]>(
       'SELECT cohortId, microgonsMintedTotal FROM CohortFrames WHERE frameId = 13 ORDER BY cohortId',

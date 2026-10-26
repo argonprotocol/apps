@@ -127,6 +127,7 @@
           @close="emit('close')"
         >
           <button
+            data-testid="BitcoinLiquidCreationOverlay.useSelectedVaults"
             :disabled="!selectedVaultIds.length"
             class="bg-argon-button enabled:hover:bg-argon-button-hover cursor-pointer rounded-md px-10 py-2 font-semibold text-white disabled:cursor-default disabled:opacity-40"
             @click="emit('vaultsSelected', { vaultIds: selectedVaultIds })"
@@ -517,7 +518,7 @@ const vaultIds = Vue.computed(() => {
   const ids = new Set(
     props.state.sources.filter(source => source.unallocatedSatoshis > 0n).map(source => source.vaultId),
   );
-  if (certification.isFullyOperational && myVault.createdVault) {
+  if (myVault.createdVault) {
     ids.add(myVault.createdVault.vaultId);
   }
   return [...ids];

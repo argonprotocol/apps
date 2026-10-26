@@ -88,14 +88,21 @@ export class WalletTransfersTable extends BaseTable {
 
     const scope = [...new Set(addresses)].sort();
     return this.loadArgonotCustody(`wallets:${scope.join(',')}`, async () => {
-      const placeholders = scope.map(() => '?').join(', ');
-      const records = await this.db.select<any[]>(
-        `SELECT * FROM WalletTransfers
-         WHERE currency = 'argonot' AND walletAddress IN (${placeholders})
-         ORDER BY blockNumber ASC, extrinsicIndex ASC, id ASC`,
-        toSqlParams(scope),
+      const records: IWalletTransferRecord[] = [];
+      for (let index = 0; index < scope.length; index += 500) {
+        const batch = scope.slice(index, index + 500);
+        const placeholders = batch.map(() => '?').join(', ');
+        const rows = await this.db.select<any[]>(
+          `SELECT * FROM WalletTransfers
+           WHERE currency = 'argonot' AND walletAddress IN (${placeholders})`,
+          toSqlParams(batch),
+        );
+        records.push(...convertFromSqliteFields<IWalletTransferRecord[]>(rows, this.fields));
+      }
+      return records.sort(
+        (left, right) =>
+          left.blockNumber - right.blockNumber || left.extrinsicIndex - right.extrinsicIndex || left.id - right.id,
       );
-      return convertFromSqliteFields(records, this.fields);
     });
   }
 

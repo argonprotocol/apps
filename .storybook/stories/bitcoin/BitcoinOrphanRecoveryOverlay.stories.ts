@@ -259,6 +259,19 @@ export const BitcoinConfirmations: Story = {
   },
 };
 
+export const CheckingBitcoinReturn: Story = {
+  beforeEach: () => {
+    isInteractive.value = false;
+    scenario = setupBitcoinOverlayScenario();
+    orphanRecord = createReleaseRecord(416, BitcoinReleaseStatus.ConfirmingOnBitcoin, {
+      kind: BitcoinReleaseKind.Cooperative,
+      bitcoinTxid: 'synthetic-prepared-return',
+      statusError: 'The Bitcoin return may already have been sent. Check its status before another send.',
+    });
+    orphanRecord.isOnArgonChain = false;
+  },
+};
+
 export const Returned: Story = {
   beforeEach: () => {
     isInteractive.value = false;

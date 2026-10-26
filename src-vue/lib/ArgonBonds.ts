@@ -26,7 +26,7 @@ import type { IBondEarningsRecord } from './db/BondEarningsTable.ts';
 import { SyncStateKeys } from './db/SyncStateTable.ts';
 import { getMainchainClient } from '../stores/mainchain.ts';
 import { ArgonBondsRecovery, readHistoricalBondLots } from './recovery/ArgonBonds.ts';
-import { getBondEarnings } from './BondEarnings.ts';
+import { getBondEarnings, isNewUnparticipatedBond } from './BondEarnings.ts';
 
 const INITIAL_FINALIZED_HISTORY_BLOCKS = 90;
 
@@ -131,13 +131,37 @@ export class ArgonBonds {
     return this.data.bondHistory.some(record => !record.flexibilityHistoryComplete);
   }
 
+  public get lastFinalizedCompletedFrameId(): number {
+    const finalizedBlock = this.miningFrames.blockWatch.finalizedBlockHeader;
+    const finalizedFrameId = finalizedBlock.frameId ?? this.miningFrames.getForTick(finalizedBlock.tick);
+    return finalizedFrameId - 1;
+  }
+
   public getEarningsHistory(bondLotId: number) {
     const records = this.data.dailyEarnings.filter(record => record.bondLotId === bondLotId);
     const history = this.data.bondHistory.find(record => record.bondLotId === bondLotId);
+    const lot = this.data.bondLots.find(record => record.id === bondLotId);
+    const completedFrame = this.lastFinalizedCompletedFrameId;
+
+    const isNewUnparticipatedVaultBond =
+      lot?.programType === 'Vault' && isNewUnparticipatedBond(lot, history, records, completedFrame);
+
     // Daily rows and their counters are published together from finalized history.
-    const completedFrame = history?.earningsHistoryThroughFrame ?? (history ? history.createdFrame - 1 : undefined);
-    const earnings = getBondEarnings(undefined, history, records, completedFrame);
-    if (history?.programType === 'Vault' && !history.flexibilityHistoryComplete) earnings.isComplete = false;
+    let earningsThroughFrame = history?.earningsHistoryThroughFrame ?? (history ? history.createdFrame - 1 : undefined);
+    if (isNewUnparticipatedVaultBond) earningsThroughFrame = completedFrame;
+
+    const earnings = getBondEarnings(
+      isNewUnparticipatedVaultBond ? lot : undefined,
+      history,
+      records,
+      earningsThroughFrame,
+    );
+
+    if (isNewUnparticipatedVaultBond) {
+      earnings.isComplete = true;
+    } else if (history?.programType === 'Vault' && !history.flexibilityHistoryComplete) {
+      earnings.isComplete = false;
+    }
     return earnings;
   }
 

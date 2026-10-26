@@ -1,4 +1,4 @@
-import { BondLot, calculatePrincipalPositionValue } from '@argonprotocol/apps-core';
+import { BondLot, calculatePrincipalPositionValue, type IAggregateReturnInput } from '@argonprotocol/apps-core';
 import {
   createFinancialPosition,
   type IBondFinancialPosition,
@@ -62,12 +62,18 @@ export class ArgonBondsFinancials
     const frameDates = new Map(
       [...frameIds].map(frameId => [frameId, this.bonds.miningFrames.getFrameDate(frameId)] as const),
     );
+
+    const hasVaultBond =
+      bondLots.some(lot => lot.programType === 'Vault') ||
+      this.bonds.data.bondHistory.some(record => record.programType === 'Vault');
+    const completedFrame = hasVaultBond ? this.bonds.lastFinalizedCompletedFrameId : undefined;
+
     return this.createFinancialPositions({
       ...args,
       bondLots,
       historyRecords: this.bonds.data.bondHistory,
       dailyEarnings: this.bonds.data.dailyEarnings,
-      completedFrame: this.bonds.data.currentFrameId - 1,
+      completedFrame,
       frameDates,
     });
   }
@@ -110,6 +116,13 @@ export class ArgonBondsFinancials
         entryArgonotPrice: entryArgonotRateMicrogons,
         currentArgonotPrice: canValueArgonot ? currentArgonotRateMicrogons : undefined,
       });
+      const { dailyReturns, dailyReturnPeriodDays } = this.getBondReturnHistory({
+        bond: bondLot,
+        history,
+        dailyEarnings,
+        investedCost: value.investedCost,
+        completedFrame,
+      });
       positions.push(
         createFinancialPosition(
           'bond',
@@ -123,6 +136,8 @@ export class ArgonBondsFinancials
             nativePrincipal,
             returnIsComplete:
               history?.earningsComplete !== false && (!history || history.nativePrincipal === nativePrincipal),
+            dailyReturns,
+            dailyReturnPeriodDays,
             entryArgonotRateMicrogons,
             currentArgonotRateMicrogons: canValueArgonot ? currentArgonotRateMicrogons : undefined,
           },
@@ -148,6 +163,13 @@ export class ArgonBondsFinancials
         entryArgonotPrice: record.entryArgonotRateMicrogons,
         closingArgonotPrice: record.closingArgonotRateMicrogons,
       });
+      const { dailyReturns, dailyReturnPeriodDays } = this.getBondReturnHistory({
+        bond: record,
+        history: record,
+        dailyEarnings,
+        investedCost: value.investedCost,
+        completedFrame,
+      });
       positions.push(
         createFinancialPosition(
           'bond',
@@ -161,6 +183,8 @@ export class ArgonBondsFinancials
             nativeAsset: record.nativeAsset,
             nativePrincipal: record.nativePrincipal,
             returnIsComplete: record.earningsComplete !== false,
+            dailyReturns,
+            dailyReturnPeriodDays,
             entryArgonotRateMicrogons: record.entryArgonotRateMicrogons,
             closingArgonotRateMicrogons: record.closingArgonotRateMicrogons,
           },
@@ -182,19 +206,32 @@ export class ArgonBondsFinancials
     const bondLot = value instanceof BondLot ? value : undefined;
     const lotId = bondLot?.id ?? history!.bondLotId;
     const nativePrincipal = bondLot?.principalMicrogons ?? history!.nativePrincipal;
+
     let lifecycle: IBondFinancialPosition['lifecycle'] = 'completed';
     if (bondLot) lifecycle = bondLot.isReleasing ? 'releasing' : 'active';
-    const earnings = getBondEarnings(
-      bondLot,
+
+    const { earnings, dailyReturns, dailyReturnPeriodDays } = this.getBondReturnHistory({
+      bond: value,
       history,
-      dailyEarnings.filter(record => record.bondLotId === lotId),
+      dailyEarnings,
+      investedCost: nativePrincipal,
       completedFrame,
-    );
+    });
+
+    const historyIsComplete = history?.flexibilityHistoryComplete === true && history.earningsComplete !== false;
+    let returnIsComplete = historyIsComplete && earnings.attributionIsComplete;
+
+    if (earnings.isNewUnparticipatedBond) returnIsComplete = true;
+
+    if (history && history.nativePrincipal !== nativePrincipal) {
+      returnIsComplete = false;
+    }
+
+    if (!bondLot && history?.releaseBlockNumber === undefined) {
+      returnIsComplete = false;
+    }
+
     const source = value instanceof BondLot ? { bondLot: value } : { history: value };
-    let returnIsComplete = history?.flexibilityHistoryComplete === true && history.earningsComplete !== false;
-    if (history?.nativePrincipal !== nativePrincipal) returnIsComplete = false;
-    if (!bondLot && history?.releaseBlockNumber === undefined) returnIsComplete = false;
-    if (!earnings.attributionIsComplete) returnIsComplete = false;
     return createFinancialPosition(
       'bond',
       {
@@ -205,6 +242,8 @@ export class ArgonBondsFinancials
         endedAt: bondLot ? undefined : history?.releaseBlockTime,
         ...source,
         returnIsComplete,
+        dailyReturns,
+        dailyReturnPeriodDays,
         nativeAsset: 'ARGN',
         nativePrincipal,
       },
@@ -215,6 +254,55 @@ export class ArgonBondsFinancials
         lifecycle,
       }),
     );
+  }
+
+  private getBondReturnHistory({
+    bond,
+    history,
+    dailyEarnings,
+    investedCost,
+    completedFrame,
+  }: {
+    bond: BondLot | IBondLotHistoryRecord;
+    history?: IBondLotHistoryRecord;
+    dailyEarnings: readonly IBondEarningsRecord[];
+    investedCost?: bigint;
+    completedFrame?: number;
+  }) {
+    const accountId = bond instanceof BondLot ? bond.owner : bond.accountId;
+    const bondLotId = bond instanceof BondLot ? bond.id : bond.bondLotId;
+    const lotKey = this.bondKey(accountId, bond.programType, bondLotId);
+    const records = dailyEarnings.filter(
+      record => this.bondKey(record.accountId, record.programType, record.bondLotId) === lotKey,
+    );
+    const earnings = getBondEarnings(bond instanceof BondLot ? bond : undefined, history, records, completedFrame);
+
+    let dailyReturns: IAggregateReturnInput[] | null = null;
+    // Current lot earnings can advance before their finalized daily history is published.
+    let finalizedRecords = records;
+    let verifiedThroughFrame = history?.earningsHistoryThroughFrame;
+    if (history?.releaseFrame !== undefined && verifiedThroughFrame !== undefined) {
+      verifiedThroughFrame = Math.min(verifiedThroughFrame, history.releaseFrame - 1);
+    }
+    if (verifiedThroughFrame !== undefined) {
+      finalizedRecords = records.filter(record => record.frameId <= verifiedThroughFrame);
+    }
+    const finalizedEarnings = history
+      ? getBondEarnings(undefined, history, finalizedRecords, verifiedThroughFrame)
+      : undefined;
+    const isBeforeFirstFinalizedPayout =
+      bond instanceof BondLot && completedFrame !== undefined && bond.createdFrameId >= completedFrame;
+    if (investedCost !== undefined && (finalizedEarnings?.isComplete || isBeforeFirstFinalizedPayout)) {
+      dailyReturns = finalizedRecords.map(record => ({
+        startingCapital: investedCost,
+        endingCapital: investedCost + record.earningsMicrogons!,
+      }));
+    }
+    let dailyReturnPeriodDays: number | undefined;
+    if (history && verifiedThroughFrame !== undefined) {
+      dailyReturnPeriodDays = Math.max(0, verifiedThroughFrame - history.createdFrame);
+    }
+    return { earnings, dailyReturns, dailyReturnPeriodDays };
   }
 
   private bondPositionId(value: BondLot | IBondLotHistoryRecord): string {

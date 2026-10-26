@@ -31,7 +31,7 @@ Add assets on the selected local Ethereum network:
   -h, --help       Show this help
 
 Provide at least one amount in whole-token decimal units.
-Start Ethereum first with yarn dev --start-ethereum.`);
+Start Ethereum first with yarn dev start.`);
     return;
   }
   if ([values.eth, values.argons, values.argonots, values.usdc].every(amount => amount === undefined)) {

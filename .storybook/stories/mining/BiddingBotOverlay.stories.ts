@@ -27,7 +27,7 @@ import {
   getMiningFrames,
 } from '../../../src-vue/stores/mainchain.ts';
 import { getMyMiningSeats } from '../../../src-vue/stores/myMiningSeats.ts';
-import { getMoveCapital, useWallets } from '../../../src-vue/stores/wallets.ts';
+import { getMoveCapital, getWalletKeys, useWallets } from '../../../src-vue/stores/wallets.ts';
 
 function createCurrentBids(ownedBidCount: number): IWinningBid[] {
   const firstOwnedBidPosition = 1_400 - ownedBidCount;
@@ -97,6 +97,9 @@ function createCapitalChangeInProgress(): TransactionInfo<ITransactionMoveMetada
 
 type BiddingStoryBotState = Pick<
   IBotState,
+  | 'currentFrameId'
+  | 'bidsInCurrentFrame'
+  | 'bidsInPreviousFrame'
   | 'isReady'
   | 'isSyncing'
   | 'isBiddingOpen'
@@ -124,6 +127,9 @@ const lastBid: NonNullable<IBotState['lastBid']> = {
 };
 
 const botState: BiddingStoryBotState = {
+  currentFrameId: 120,
+  bidsInCurrentFrame: 240,
+  bidsInPreviousFrame: 190,
   isReady: true,
   isSyncing: false,
   isBiddingOpen: true,
@@ -159,6 +165,9 @@ function setBiddingStoryState({
   const currentState = { ...state, winningBids };
   Object.assign(getBot(), { isReady: state.isReady, isSyncing: state.isSyncing, state: currentState });
   const myWinningBids = winningBids.filter(bid => typeof bid.subAccountIndex === 'number');
+  mocked(getWalletKeys().getMiningBotSubaccounts).mockResolvedValue(
+    Object.fromEntries(myWinningBids.map(bid => [bid.address, { index: bid.subAccountIndex! }])),
+  );
   Object.assign(getMyMiningSeats(), {
     allWinningBids: winningBids,
     pendingBids: {
@@ -550,6 +559,7 @@ export const NoSeatCapacity: Story = {
         ...botState,
         maxSeatsInPlay: 0,
         maxSeatsReductionReason: 'insufficient-argonot-balance',
+        bidsInCurrentFrame: 0,
         lastBid: undefined,
       },
       winningBids: [],

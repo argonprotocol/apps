@@ -67,6 +67,9 @@ export function getDevDockerComposeContext(
   const composeProjectName =
     process.env.JOIN_COMPOSE_NETWORK?.trim() || dotenvEnv.COMPOSE_PROJECT_NAME?.trim() || undefined;
   const composeEnv: NodeJS.ProcessEnv = { ...dotenvEnv, ...process.env, ...args.envOverrides };
+  // Compose reads these optional price-oracle values even when its profile is disabled.
+  composeEnv.BLS_API_KEY ??= '';
+  composeEnv.ETHEREUM_RPC_URLS ??= '';
 
   delete composeEnv.COMPOSE_PROJECT_NAME;
   if (composeProjectName) {
@@ -115,7 +118,7 @@ export async function readDevUpstreamServerPorts(
     ]);
   } catch (error) {
     throw new Error(
-      `Upstream services are not running. Keep 'yarn dev --start-ethereum --run-upstream' open and wait for '[tauri-dev][upstream-ready]', or restart 'yarn dev --start-ethereum --run-upstream' to retry upstream startup. Root error: ${(error as Error).message}`,
+      `Upstream services are not running. Keep 'yarn dev start' open and wait for '[tauri-dev][upstream-ready]', or restart 'yarn dev start' to retry upstream startup. Root error: ${(error as Error).message}`,
     );
   }
 

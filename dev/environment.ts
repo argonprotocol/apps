@@ -90,15 +90,31 @@ export function recordEthereumContainers(options: DevProfile, environment: DevEn
       .split(/\s+/);
     for (const id of ids) if (id) containers.add(id);
   }
-  environment.ethereumContainers = [...containers];
+  environment.ethereumContainers = withoutKurtosisArtifactExpanders(containers);
   saveDevEnvironment(options, environment);
 }
 
 export async function resumeOwnedEthereum(environment: DevEnvironment, output: DevOutput): Promise<void> {
   if (environment.ethereumContainers?.length) {
+    const containers = withoutKurtosisArtifactExpanders(environment.ethereumContainers);
+    if (!containers.length) return;
     output.progress('Resuming the owning Ethereum services');
-    await output.run('docker', ['start', ...environment.ethereumContainers]);
+    await output.run('docker', ['start', ...containers]);
   }
+}
+
+function withoutKurtosisArtifactExpanders(containers: Iterable<string>): string[] {
+  const ids = [...containers];
+  if (!ids.length) return ids;
+
+  const types = execFileSync(
+    'docker',
+    ['inspect', '--format', '{{index .Config.Labels "com.kurtosistech.container-type"}}', ...ids],
+    { encoding: 'utf8' },
+  )
+    .trim()
+    .split('\n');
+  return ids.filter((_, index) => types[index] !== 'files-artifacts-expander');
 }
 
 export async function configureDevEnvironment(profile: DevProfile, chainSpec?: string) {

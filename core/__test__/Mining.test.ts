@@ -11,17 +11,18 @@ beforeEach(() => {
 });
 
 describe('Mining auction bid activity', () => {
-  it('knows there were no personal bids in an empty network auction without saved activity', () => {
+  it('knows accepted bids are zero in an empty auction without inferring missing attempts', () => {
     expect(Mining.summarizeBidHistory({ activities: [] }, 0)).toEqual({
       acceptedBidCount: 0,
-      maximumMicrogons: undefined,
     });
-    expect(Mining.summarizeBidHistory(undefined, 0)).toEqual({ acceptedBidCount: 0, maximumMicrogons: undefined });
+    expect(Mining.summarizeBidHistory(undefined, 0)).toEqual({
+      acceptedBidCount: 0,
+    });
     expect(Mining.summarizeBidHistory({ activities: [] }, 10)).toBeUndefined();
     expect(Mining.summarizeBidHistory({ activities: [] })).toBeUndefined();
   });
 
-  it('counts accepted bids and ignores fully rejected prices when finding the maximum', () => {
+  it('counts every submitted bid, including rejected bids, while preserving the accepted maximum', () => {
     const history: IHistoryFile = {
       activities: [
         {
@@ -44,9 +45,22 @@ describe('Mining auction bid activity', () => {
         },
       ],
     };
-    expect(Mining.summarizeBidHistory(history, 9)).toEqual({ acceptedBidCount: 3, maximumMicrogons: 20n });
+    expect(Mining.summarizeBidHistory(history, 9)).toEqual({
+      submittedBidCount: 9,
+      acceptedBidCount: 3,
+      maximumMicrogons: 20n,
+    });
+    expect(Mining.summarizeBidHistory({ activities: history.activities.slice(2) }, 0)).toEqual({
+      submittedBidCount: 4,
+      acceptedBidCount: 0,
+      maximumMicrogons: undefined,
+    });
     // A stale network response must not replace recorded accepted bids with zero.
-    expect(Mining.summarizeBidHistory(history, 0)).toEqual({ acceptedBidCount: 3, maximumMicrogons: 20n });
+    expect(Mining.summarizeBidHistory(history, 0)).toEqual({
+      submittedBidCount: 9,
+      acceptedBidCount: 3,
+      maximumMicrogons: 20n,
+    });
   });
 });
 

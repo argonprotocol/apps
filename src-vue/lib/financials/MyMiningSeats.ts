@@ -7,8 +7,9 @@ import {
   calculatePrincipalPositionValue,
   Currency,
   NetworkConfig,
+  type IAggregateReturnInput,
 } from '@argonprotocol/apps-core';
-import type { IMiningCohortFinancialRecord } from '../../interfaces/db/ICohortFrameRecord.ts';
+import type { ICohortFrameRecord, IMiningCohortFinancialRecord } from '../../interfaces/db/ICohortFrameRecord.ts';
 import type { IFrameBidRecord } from '../../interfaces/db/IFrameBidRecord.ts';
 import {
   createFinancialPosition,
@@ -35,6 +36,8 @@ type MiningFinancialPositionArgs = {
 
 type MiningPositionData = {
   cohorts: readonly IMiningCohortFinancialRecord[];
+  cohortFrames?: readonly ICohortFrameRecord[];
+  processedFrames?: Readonly<Record<number, boolean>>;
   latestFrameId: number;
   pendingBids: readonly IFrameBidRecord[];
   heldMicronots: bigint;
@@ -86,14 +89,19 @@ export class MiningFinancials
 
   public async loadPositions(args: MiningFinancialPositionArgs): Promise<MiningFinancialPosition[]> {
     const { accounts, frameId, miningBotAddress, hasConfirmedHistoryCoverage } = args;
-    const frameIds = new Set<number>();
-    for (const cohort of this.seats.miningCohorts) {
-      frameIds.add(cohort.id);
-      frameIds.add(cohort.id + NetworkConfig.framesPerCohort);
-    }
     const custodyTransfers = hasConfirmedHistoryCoverage
       ? await this.seats.db.walletTransfersTable.fetchArgonotCustodyBoundaries(miningBotAddress)
       : [];
+
+    const cohorts = this.seats.miningCohorts;
+    const cohortFrames = this.seats.financialCohortFrames;
+    const processedFrames = this.seats.financialProcessedFrames;
+    const frameIds = new Set<number>();
+    for (const cohort of cohorts) {
+      frameIds.add(cohort.id);
+      frameIds.add(cohort.id + NetworkConfig.framesPerCohort);
+    }
+
     const heldMicronots = accounts.reduce((total, account) => total + getMiningHolds(account.micronotHolds), 0n);
     const miningBotAccount = accounts.find(account => account.address === miningBotAddress);
     if (!miningBotAccount) throw new Error('Mining account is missing from the Argon wallet snapshot');
@@ -105,7 +113,9 @@ export class MiningFinancials
 
     return this.createFinancialPositions({
       ...args,
-      cohorts: this.seats.miningCohorts,
+      cohorts,
+      cohortFrames,
+      processedFrames,
       latestFrameId: frameId,
       pendingBids: this.seats.currentFrameBids.filter(bid => typeof bid.subAccountIndex === 'number'),
       heldMicronots,
@@ -121,6 +131,8 @@ export class MiningFinancials
 
   public createFinancialPositions({
     cohorts,
+    cohortFrames = [],
+    processedFrames = {},
     latestFrameId,
     pendingBids,
     heldMicronots,
@@ -132,12 +144,28 @@ export class MiningFinancials
     miningBotMicronots,
     hasConfirmedHistoryCoverage = true,
   }: MiningPositionData): MiningFinancialPosition[] {
+    const framesByCohort = new Map<number, ICohortFrameRecord[]>();
+    for (const frame of cohortFrames) {
+      const frames = framesByCohort.get(frame.cohortId) ?? [];
+      frames.push(frame);
+      framesByCohort.set(frame.cohortId, frames);
+    }
+
     const positions: MiningFinancialPosition[] = cohorts.map(cohort => {
+      const dailyHistory = this.getCohortDailyReturns({
+        cohort,
+        frames: framesByCohort.get(cohort.id) ?? [],
+        processedFrames,
+        latestFrameId,
+        liveArgonotRateMicrogons,
+      });
       return createMiningCohortFinancialPosition({
         cohort,
         latestFrameId,
         liveArgonotRateMicrogons,
         frameDates,
+        dailyReturns: dailyHistory?.returns ?? null,
+        dailyReturnPeriodDays: dailyHistory?.periodDays,
       });
     });
     if (miningBotMicrogons > 0n) {
@@ -241,6 +269,52 @@ export class MiningFinancials
 
     return positions;
   }
+
+  private getCohortDailyReturns({
+    cohort,
+    frames,
+    processedFrames,
+    latestFrameId,
+    liveArgonotRateMicrogons,
+  }: {
+    cohort: IMiningCohortFinancialRecord;
+    frames: readonly ICohortFrameRecord[];
+    processedFrames: Readonly<Record<number, boolean>>;
+    latestFrameId: number;
+    liveArgonotRateMicrogons?: bigint;
+  }): { returns: IAggregateReturnInput[]; periodDays: number } | null {
+    const termDays = NetworkConfig.framesPerCohort;
+    const bidPrincipal = cohort.microgonsBidPerSeat * BigInt(cohort.seatCountWon);
+    const investedCost = bidPrincipal + cohort.transactionFeesTotal;
+    if (investedCost <= 0n) return null;
+
+    let periodDays = 0;
+    while (periodDays < termDays && cohort.id + periodDays < latestFrameId && processedFrames[cohort.id + periodDays]) {
+      periodDays += 1;
+    }
+    if (periodDays === 0) return { returns: [], periodDays: 0 };
+
+    const isCompleted = cohort.id + termDays <= latestFrameId;
+    const argonotRate = isCompleted ? cohort.closingArgonotPrice : liveArgonotRateMicrogons;
+    if (!argonotRate && frames.some(frame => frame.micronotsMinedTotal > 0n)) return null;
+
+    const byFrame = new Map(frames.map(frame => [frame.frameId, frame]));
+    const returns: IAggregateReturnInput[] = [];
+    for (let day = 0; day < periodDays; day += 1) {
+      const frame = byFrame.get(cohort.id + day);
+      const income =
+        (frame?.microgonsMinedTotal ?? 0n) +
+        (frame?.microgonsMintedTotal ?? 0n) +
+        (frame?.microgonFeesCollectedTotal ?? 0n) +
+        Currency.convertMicronotToMicrogonAtPrice(frame?.micronotsMinedTotal ?? 0n, argonotRate ?? 0n);
+      const cost =
+        (bidPrincipal * BigInt(day + 1)) / BigInt(termDays) -
+        (bidPrincipal * BigInt(day)) / BigInt(termDays) +
+        (day === 0 ? cohort.transactionFeesTotal : 0n);
+      returns.push({ startingCapital: investedCost, endingCapital: investedCost + income - cost });
+    }
+    return { returns, periodDays };
+  }
 }
 
 export function createMiningCohortFinancialPosition({
@@ -248,11 +322,15 @@ export function createMiningCohortFinancialPosition({
   latestFrameId,
   liveArgonotRateMicrogons,
   frameDates,
+  dailyReturns,
+  dailyReturnPeriodDays,
 }: {
   cohort: IMiningCohortFinancialRecord;
   latestFrameId: number;
   liveArgonotRateMicrogons?: bigint;
   frameDates: ReadonlyMap<number, Date>;
+  dailyReturns?: readonly IAggregateReturnInput[] | null;
+  dailyReturnPeriodDays?: number;
 }): IMiningCohortFinancialPosition {
   const isActive = cohort.id > latestFrameId - NetworkConfig.framesPerCohort;
   const seatCount = BigInt(cohort.seatCountWon);
@@ -284,6 +362,8 @@ export function createMiningCohortFinancialPosition({
       recoveredValue: value.recoveredValue,
       remainingSeatValue: value.remainingSeatValue,
       performanceEndingCapital: value.performanceEndingCapital,
+      dailyReturns,
+      dailyReturnPeriodDays,
       currentArgonotRateMicrogons,
       closingArgonotRateMicrogons,
     },

@@ -3,7 +3,7 @@
   <div ref="rootRef" class="flex flex-row items-center">
 
     <div>
-      <NavigationMenuItem class="pointer-events-auto">
+      <NavigationMenuItem value="currency" class="pointer-events-auto">
         <NavigationMenuTrigger
           Trigger
           class="flex h-[30px] cursor-pointer flex-row items-center justify-center rounded-r-md border border-l-0 border-slate-400/50 px-1.5 font-mono text-[17px] font-semibold text-argon-600/70 hover:border-slate-400/50 hover:bg-slate-400/10 focus:outline-none data-[state=open]:border-slate-400/60 data-[state=open]:bg-slate-400/10"

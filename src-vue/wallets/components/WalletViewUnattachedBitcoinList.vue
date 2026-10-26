@@ -73,7 +73,7 @@
                       release.status === BitcoinReleaseStatus.WaitingForArgonRecognition
                     "
                   >
-                    Returning on Bitcoin
+                    {{ release.bitcoinFirstSeenAt ? 'Returning on Bitcoin' : 'Checking Bitcoin return' }}
                   </template>
                   <template v-else-if="release.status === BitcoinReleaseStatus.Complete">Returned · Archived</template>
                   <template v-else-if="release.status === BitcoinReleaseStatus.Cancelled">Request cancelled</template>

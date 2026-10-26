@@ -1,5 +1,5 @@
 <template>
-  <span>
+  <span :title="uncappedPercentTitle">
     <template v-if="percent !== undefined">
       {{
         numeral(percent).formatIfElseCapped(
@@ -37,5 +37,14 @@ const percent = Vue.computed(() => {
   if (selectedMetric.value === 'APR') return props.returns?.apr;
   if (selectedMetric.value === 'APY') return props.returns?.apy;
   return props.returns?.percent;
+});
+
+const uncappedPercentTitle = Vue.computed(() => {
+  const value = percent.value;
+  if (value === undefined || !Number.isFinite(value)) return undefined;
+  if (value <= 9_999) return undefined;
+
+  if (value >= 1e21) return `${value}%`;
+  return `${value.toLocaleString('en-US', { maximumFractionDigits: 0 })}%`;
 });
 </script>

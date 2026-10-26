@@ -181,7 +181,7 @@ describe('FinancialHistoryImporter', () => {
         bonds: {
           asOfBlock: 99,
           definitionVersion: ACCOUNT_ACTIVITY_DEFINITION_VERSION,
-          recoveryVersion: 3,
+          recoveryVersion: 4,
           partialRecovery: true,
         },
       },
@@ -210,6 +210,28 @@ describe('FinancialHistoryImporter', () => {
           asOfBlock: 99,
           definitionVersion: ACCOUNT_ACTIVITY_DEFINITION_VERSION,
           recoveryVersion: 3,
+          partialRecovery: false,
+        },
+      },
+    });
+    await expect(
+      needsFinancialHistoryRecovery({
+        db,
+        accountId: '5owner',
+        enabledDomains: ['bonds'],
+        recoverMissingCheckpointsFor: [],
+      }),
+    ).resolves.toBe(true);
+
+    get.mockResolvedValue({
+      accountId: '5owner',
+      asOfBlock: 99,
+      domains: ['bonds'],
+      domainCheckpoints: {
+        bonds: {
+          asOfBlock: 99,
+          definitionVersion: ACCOUNT_ACTIVITY_DEFINITION_VERSION,
+          recoveryVersion: 4,
           partialRecovery: false,
         },
       },
@@ -288,7 +310,7 @@ describe('FinancialHistoryImporter', () => {
               bonds: {
                 asOfBlock: 100,
                 definitionVersion: ACCOUNT_ACTIVITY_DEFINITION_VERSION,
-                recoveryVersion: 3,
+                recoveryVersion: 4,
               },
             },
           })),
@@ -342,7 +364,7 @@ describe('FinancialHistoryImporter', () => {
               bonds: {
                 asOfBlock: 100,
                 definitionVersion: ACCOUNT_ACTIVITY_DEFINITION_VERSION,
-                recoveryVersion: 3,
+                recoveryVersion: 4,
                 partialRecovery: true,
               },
             },
@@ -522,7 +544,7 @@ describe('FinancialHistoryImporter', () => {
       accountId: '5owner',
       asOfBlock: 100,
       definitionVersion: ACCOUNT_ACTIVITY_DEFINITION_VERSION,
-      recoveryVersions: { bonds: 3 },
+      recoveryVersions: { bonds: 4 },
       domains: ['bonds'] as const,
     }));
     const onCheckStart = vi.fn();
@@ -560,7 +582,7 @@ describe('FinancialHistoryImporter', () => {
                 bonds: {
                   asOfBlock: 100,
                   definitionVersion: ACCOUNT_ACTIVITY_DEFINITION_VERSION,
-                  recoveryVersion: 3,
+                  recoveryVersion: 4,
                 },
                 bitcoin: {
                   asOfBlock: 100,
@@ -710,7 +732,7 @@ describe('FinancialHistoryImporter', () => {
                 bonds: {
                   asOfBlock: 110,
                   definitionVersion: ACCOUNT_ACTIVITY_DEFINITION_VERSION,
-                  recoveryVersion: 3,
+                  recoveryVersion: 4,
                 },
                 vaulting: {
                   asOfBlock: 100,
@@ -750,7 +772,7 @@ describe('FinancialHistoryImporter', () => {
             accountId: '5owner',
             asOfBlock: 100,
             definitionVersion: ACCOUNT_ACTIVITY_DEFINITION_VERSION,
-            recoveryVersions: { bonds: 3 },
+            recoveryVersions: { bonds: 4 },
             domains: ['bonds'],
           })),
           upsert,
@@ -784,7 +806,7 @@ describe('FinancialHistoryImporter', () => {
           bonds: {
             asOfBlock: 100,
             definitionVersion: ACCOUNT_ACTIVITY_DEFINITION_VERSION,
-            recoveryVersion: 3,
+            recoveryVersion: 4,
           },
           vaulting: { asOfBlock: 100, definitionVersion: ACCOUNT_ACTIVITY_DEFINITION_VERSION - 1, recoveryVersion: 1 },
         },
@@ -884,7 +906,7 @@ describe('FinancialHistoryImporter', () => {
           bonds: {
             asOfBlock: 10,
             definitionVersion: ACCOUNT_ACTIVITY_DEFINITION_VERSION,
-            recoveryVersion: 3,
+            recoveryVersion: 4,
           },
         },
       }),

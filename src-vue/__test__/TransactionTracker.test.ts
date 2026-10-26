@@ -114,6 +114,39 @@ describe('TransactionTracker', () => {
     }
   });
 
+  it('reads latest transaction history beyond the SQLite parameter limit', async () => {
+    const db = await createTestDb();
+
+    try {
+      await db.execute(`WITH RECURSIVE ids(id) AS (
+        SELECT 1 UNION ALL SELECT id + 1 FROM ids WHERE id < 32767
+      )
+      INSERT INTO Transactions (
+        id, extrinsicHash, extrinsicMethodJson, extrinsicType, metadataJson,
+        accountAddress, submittedAtTime, submittedAtBlockHeight
+      )
+      SELECT id, '0x01', '{}', 'Transfer', '{}', '5test', '2026-01-01', 1 FROM ids`);
+      await db.transactionStatusHistoryTable.record({
+        transactionId: 1,
+        status: TransactionHistoryStatus.Submitted,
+        source: TransactionHistorySource.Local,
+      });
+      await db.transactionStatusHistoryTable.record({
+        transactionId: 32_767,
+        status: TransactionHistoryStatus.Finalized,
+        source: TransactionHistorySource.Block,
+      });
+
+      const history = await db.transactionStatusHistoryTable.fetchLatestForTransactions();
+      expect([...history].map(([id, record]) => [id, record.status])).toEqual([
+        [1, TransactionHistoryStatus.Submitted],
+        [32_767, TransactionHistoryStatus.Finalized],
+      ]);
+    } finally {
+      await db.close();
+    }
+  });
+
   it('waits for the initial load before finding the latest transaction attempt', async () => {
     let resolveLoad!: (value: ITransactionRecord[]) => void;
     const loadRows = new Promise<ITransactionRecord[]>(resolve => {
@@ -1624,7 +1657,7 @@ async function createTracker(args: {
     ),
   };
   const historyTable = {
-    fetchLatestByTransactionIds: vi.fn().mockResolvedValue(args.latestHistoryByTxId ?? new Map()),
+    fetchLatestForTransactions: vi.fn().mockResolvedValue(args.latestHistoryByTxId ?? new Map()),
     record: vi.fn(async (entry: Record<string, unknown>) => ({
       id: 1,
       createdAt: new Date('2026-03-20T20:05:00Z'),
@@ -1677,7 +1710,7 @@ function createLoadTracker(args: {
     fetchAll: vi.fn().mockImplementation(async () => await txLoads.shift()),
   };
   const historyTable = {
-    fetchLatestByTransactionIds: vi.fn().mockResolvedValue(new Map()),
+    fetchLatestForTransactions: vi.fn().mockResolvedValue(new Map()),
   };
   const blockWatch = {
     start: vi.fn().mockResolvedValue(undefined),

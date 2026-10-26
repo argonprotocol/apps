@@ -436,7 +436,9 @@ export class ServerAdmin {
         for (const key of DEV_DOCKER_SERVER_ENV_KEYS) {
           const value = SERVER_ENV_VARS[key];
           if (!value) {
-            throw new Error(`Missing ${key}. Start dev-docker through yarn dev so upstream ports can be resolved.`);
+            throw new Error(
+              `Missing ${key}. Start dev-docker through yarn dev start so upstream ports can be resolved.`,
+            );
           }
 
           prepareEnvCommand += ` && echo "${key}=${value}" >> .env`;

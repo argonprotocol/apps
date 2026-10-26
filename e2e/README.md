@@ -219,7 +219,7 @@ Frontend driver mode is activated when `ARGON_DRIVER_WS` is set to a websocket U
 Example:
 
 ```bash
-ARGON_DRIVER_WS="ws://127.0.0.1:45123/control?session=my-session" yarn dev --start-ethereum --run-upstream
+ARGON_DRIVER_WS="ws://127.0.0.1:45123/control?session=my-session" yarn dev start
 ```
 
 Frontend command payload shape:
@@ -258,14 +258,14 @@ yarn dev chainspec /path/to/your/custom/wasm/file.wasm
 This writes a custom chainspec that can be used with:
 
 ```bash
-yarn dev --chain-spec ./e2e/argon/chainspec.raw.json
+yarn dev start --chain-spec ./e2e/argon/chainspec.raw.json
 ```
 
 To use the pinned runtime with a longer frame for user testing, generate the chainspec without a custom WASM:
 
 ```bash
 yarn dev chainspec --ticks-between-slots 100
-yarn dev --chain-spec ./e2e/argon/chainspec.raw.json
+yarn dev start --chain-spec ./e2e/argon/chainspec.raw.json
 ```
 
 The frame override can also be combined with a custom runtime WASM by passing both arguments.

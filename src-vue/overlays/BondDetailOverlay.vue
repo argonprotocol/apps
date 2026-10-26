@@ -82,12 +82,7 @@
               </template>
               <template v-else>&mdash;</template>
             </div>
-            <div class="text-sm text-slate-500">
-              <template v-if="position && position.returnIsComplete !== true">
-                Known earnings; history incomplete
-              </template>
-              <template v-else>Earnings to date</template>
-            </div>
+            <div class="text-sm text-slate-500">Recorded earnings</div>
           </div>
           <div class="min-h-full min-w-px bg-slate-600/20" />
           <div class="w-1/3 px-3">

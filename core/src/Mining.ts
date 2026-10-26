@@ -276,13 +276,18 @@ export class Mining {
   }
 
   public static summarizeBidHistory(history: IHistoryFile | undefined, networkBidCount?: number) {
-    // An empty network auction proves zero accepted bids even without saved personal activity.
-    if (!history?.activities.length && networkBidCount !== 0) return;
+    if (!history?.activities.length) {
+      // An empty network auction proves zero accepted bids, but not zero rejected attempts.
+      if (networkBidCount === 0) return { acceptedBidCount: 0 };
+      return;
+    }
 
+    let submittedBidCount = 0;
     let acceptedBidCount = 0;
     let maximumMicrogons: bigint | undefined;
-    for (const activity of history?.activities ?? []) {
+    for (const activity of history.activities) {
       if (activity.type !== BotActivityType.BidsSubmitted && activity.type !== BotActivityType.BidsRejected) continue;
+      submittedBidCount += activity.data.submittedCount;
       let acceptedCount = activity.data.submittedCount;
       if (activity.type === BotActivityType.BidsRejected) acceptedCount -= activity.data.rejectedCount;
       if (acceptedCount <= 0) continue;
@@ -291,7 +296,7 @@ export class Mining {
       const amount = activity.data.microgonsPerSeat;
       if (maximumMicrogons === undefined || amount > maximumMicrogons) maximumMicrogons = amount;
     }
-    return { acceptedBidCount, maximumMicrogons };
+    return { submittedBidCount, acceptedBidCount, maximumMicrogons };
   }
 
   public static async fetchWinningBids(

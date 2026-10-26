@@ -1,5 +1,57 @@
 {
+  "argonBondsByFrame": [
+    {
+      "frameId": 601,
+      "participatingBonds": "457248n",
+      "poolDistributed": "1563008462n"
+    },
+    {
+      "frameId": 600,
+      "participatingBonds": "451217n",
+      "poolDistributed": "2331890868n"
+    },
+    {
+      "frameId": 599,
+      "participatingBonds": "447147n",
+      "poolDistributed": "3892144360n"
+    },
+    {
+      "frameId": 598,
+      "participatingBonds": "414328n",
+      "poolDistributed": "675622300n"
+    }
+  ],
   "argonotStakingByFrame": [
+    {
+      "frameId": 601,
+      "microgonsPerArgonot": "4860640n",
+      "participatingBonds": 507691,
+      "poolDistributed": "7263149874n"
+    },
+    {
+      "frameId": 600,
+      "microgonsPerArgonot": "4896421n",
+      "participatingBonds": 507691,
+      "poolDistributed": "8785814846n"
+    },
+    {
+      "frameId": 599,
+      "microgonsPerArgonot": "5286252n",
+      "participatingBonds": 492691,
+      "poolDistributed": "11676433247n"
+    },
+    {
+      "frameId": 598,
+      "microgonsPerArgonot": "5291902n",
+      "participatingBonds": 492691,
+      "poolDistributed": "2067923940n"
+    },
+    {
+      "frameId": 597,
+      "microgonsPerArgonot": "5334274n",
+      "participatingBonds": 492691,
+      "poolDistributed": "1414903000n"
+    },
     {
       "frameId": 596,
       "microgonsPerArgonot": "5748350n",
@@ -1239,16 +1291,118 @@
       "auctionPoolMicrogons": "14207420000n",
       "includesBondPayments": true,
       "vaultPoolMicrogons": "9945194000n"
+    },
+    "597": {
+      "auctionPoolMicrogons": "14149030000n",
+      "includesBondPayments": true,
+      "vaultPoolMicrogons": "9904321000n"
+    },
+    "598": {
+      "auctionPoolMicrogons": "13786160000n",
+      "includesBondPayments": false,
+      "vaultPoolMicrogons": "7030941600n"
+    },
+    "599": {
+      "auctionPoolMicrogons": "77842890000n",
+      "includesBondPayments": false,
+      "vaultPoolMicrogons": "39699873900n"
+    },
+    "600": {
+      "auctionPoolMicrogons": "58572100000n",
+      "includesBondPayments": false,
+      "vaultPoolMicrogons": "29871771000n"
+    },
+    "601": {
+      "auctionPoolMicrogons": "48421000000n",
+      "includesBondPayments": false,
+      "vaultPoolMicrogons": "24694710000n"
     }
   },
-  "synchedToFrame": 596,
+  "synchedToFrame": 601,
   "vaultsById": {
     "1": {
       "baseline": {
         "bitcoinLocks": 1,
         "feeRevenue": "500000n"
       },
-      "changesByFrame": [],
+      "changesByFrame": [
+        {
+          "argonotSecuritizationMicronots": "0n",
+          "bitcoinFeeCouponValueUsed": "0n",
+          "bitcoinFeeRevenue": "0n",
+          "bitcoinLocksCreated": 0,
+          "frameId": 601,
+          "securitization": "311094n",
+          "securitizationActivated": "0n",
+          "treasuryPool": {
+            "externalCapital": "0n",
+            "totalEarnings": "212n",
+            "vaultCapital": "0n",
+            "vaultEarnings": "212n"
+          },
+          "upstreamParticipation": {
+            "type": "BigNumber",
+            "value": "1"
+          }
+        },
+        {
+          "argonotSecuritizationMicronots": "0n",
+          "bitcoinFeeCouponValueUsed": "0n",
+          "bitcoinFeeRevenue": "0n",
+          "bitcoinLocksCreated": 0,
+          "frameId": 600,
+          "securitization": "311094n",
+          "securitizationActivated": "0n",
+          "treasuryPool": {
+            "externalCapital": "0n",
+            "totalEarnings": "321n",
+            "vaultCapital": "0n",
+            "vaultEarnings": "321n"
+          },
+          "upstreamParticipation": {
+            "type": "BigNumber",
+            "value": "1"
+          }
+        },
+        {
+          "argonotSecuritizationMicronots": "0n",
+          "bitcoinFeeCouponValueUsed": "0n",
+          "bitcoinFeeRevenue": "0n",
+          "bitcoinLocksCreated": 0,
+          "frameId": 599,
+          "securitization": "311094n",
+          "securitizationActivated": "0n",
+          "treasuryPool": {
+            "externalCapital": "0n",
+            "totalEarnings": "489n",
+            "vaultCapital": "0n",
+            "vaultEarnings": "489n"
+          },
+          "upstreamParticipation": {
+            "type": "BigNumber",
+            "value": "1"
+          }
+        },
+        {
+          "argonotSecuritizationMicronots": "0n",
+          "bitcoinFeeCouponValueUsed": "0n",
+          "bitcoinFeeRevenue": "0n",
+          "bitcoinLocksCreated": 0,
+          "frameId": 598,
+          "securitization": "311094n",
+          "securitizationActivated": "0n",
+          "treasuryPool": {
+            "externalCapital": "0n",
+            "totalEarnings": "88n",
+            "vaultCapital": "0n",
+            "vaultEarnings": "88n"
+          },
+          "upstreamParticipation": {
+            "type": "BigNumber",
+            "value": "1"
+          }
+        }
+      ],
       "openedTick": 28997414
     },
     "2": {
@@ -1264,7 +1418,84 @@
         "bitcoinLocks": 2,
         "feeRevenue": "200289991n"
       },
-      "changesByFrame": [],
+      "changesByFrame": [
+        {
+          "argonotSecuritizationMicronots": "0n",
+          "bitcoinFeeCouponValueUsed": "0n",
+          "bitcoinFeeRevenue": "0n",
+          "bitcoinLocksCreated": 0,
+          "frameId": 601,
+          "securitization": "897229081n",
+          "securitizationActivated": "0n",
+          "treasuryPool": {
+            "externalCapital": "0n",
+            "totalEarnings": "613398n",
+            "vaultCapital": "0n",
+            "vaultEarnings": "613398n"
+          },
+          "upstreamParticipation": {
+            "type": "BigNumber",
+            "value": "1"
+          }
+        },
+        {
+          "argonotSecuritizationMicronots": "0n",
+          "bitcoinFeeCouponValueUsed": "0n",
+          "bitcoinFeeRevenue": "0n",
+          "bitcoinLocksCreated": 0,
+          "frameId": 600,
+          "securitization": "897229081n",
+          "securitizationActivated": "0n",
+          "treasuryPool": {
+            "externalCapital": "0n",
+            "totalEarnings": "927376n",
+            "vaultCapital": "0n",
+            "vaultEarnings": "927376n"
+          },
+          "upstreamParticipation": {
+            "type": "BigNumber",
+            "value": "1"
+          }
+        },
+        {
+          "argonotSecuritizationMicronots": "0n",
+          "bitcoinFeeCouponValueUsed": "0n",
+          "bitcoinFeeRevenue": "0n",
+          "bitcoinLocksCreated": 0,
+          "frameId": 599,
+          "securitization": "897229081n",
+          "securitizationActivated": "0n",
+          "treasuryPool": {
+            "externalCapital": "0n",
+            "totalEarnings": "1410622n",
+            "vaultCapital": "0n",
+            "vaultEarnings": "1410622n"
+          },
+          "upstreamParticipation": {
+            "type": "BigNumber",
+            "value": "1"
+          }
+        },
+        {
+          "argonotSecuritizationMicronots": "0n",
+          "bitcoinFeeCouponValueUsed": "0n",
+          "bitcoinFeeRevenue": "0n",
+          "bitcoinLocksCreated": 0,
+          "frameId": 598,
+          "securitization": "897229081n",
+          "securitizationActivated": "0n",
+          "treasuryPool": {
+            "externalCapital": "0n",
+            "totalEarnings": "254129n",
+            "vaultCapital": "0n",
+            "vaultEarnings": "254129n"
+          },
+          "upstreamParticipation": {
+            "type": "BigNumber",
+            "value": "1"
+          }
+        }
+      ],
       "openedTick": 28997414
     },
     "4": {
@@ -1272,7 +1503,84 @@
         "bitcoinLocks": 0,
         "feeRevenue": "0n"
       },
-      "changesByFrame": [],
+      "changesByFrame": [
+        {
+          "argonotSecuritizationMicronots": "0n",
+          "bitcoinFeeCouponValueUsed": "0n",
+          "bitcoinFeeRevenue": "0n",
+          "bitcoinLocksCreated": 0,
+          "frameId": 601,
+          "securitization": "1n",
+          "securitizationActivated": "0n",
+          "treasuryPool": {
+            "externalCapital": "0n",
+            "totalEarnings": "0n",
+            "vaultCapital": "0n",
+            "vaultEarnings": "0n"
+          },
+          "upstreamParticipation": {
+            "type": "BigNumber",
+            "value": "1"
+          }
+        },
+        {
+          "argonotSecuritizationMicronots": "0n",
+          "bitcoinFeeCouponValueUsed": "0n",
+          "bitcoinFeeRevenue": "0n",
+          "bitcoinLocksCreated": 0,
+          "frameId": 600,
+          "securitization": "1n",
+          "securitizationActivated": "0n",
+          "treasuryPool": {
+            "externalCapital": "0n",
+            "totalEarnings": "0n",
+            "vaultCapital": "0n",
+            "vaultEarnings": "0n"
+          },
+          "upstreamParticipation": {
+            "type": "BigNumber",
+            "value": "1"
+          }
+        },
+        {
+          "argonotSecuritizationMicronots": "0n",
+          "bitcoinFeeCouponValueUsed": "0n",
+          "bitcoinFeeRevenue": "0n",
+          "bitcoinLocksCreated": 0,
+          "frameId": 599,
+          "securitization": "1n",
+          "securitizationActivated": "0n",
+          "treasuryPool": {
+            "externalCapital": "0n",
+            "totalEarnings": "0n",
+            "vaultCapital": "0n",
+            "vaultEarnings": "0n"
+          },
+          "upstreamParticipation": {
+            "type": "BigNumber",
+            "value": "1"
+          }
+        },
+        {
+          "argonotSecuritizationMicronots": "0n",
+          "bitcoinFeeCouponValueUsed": "0n",
+          "bitcoinFeeRevenue": "0n",
+          "bitcoinLocksCreated": 0,
+          "frameId": 598,
+          "securitization": "1n",
+          "securitizationActivated": "0n",
+          "treasuryPool": {
+            "externalCapital": "0n",
+            "totalEarnings": "0n",
+            "vaultCapital": "0n",
+            "vaultEarnings": "0n"
+          },
+          "upstreamParticipation": {
+            "type": "BigNumber",
+            "value": "1"
+          }
+        }
+      ],
       "openedTick": 28999947
     },
     "5": {
@@ -1321,6 +1629,97 @@
         "feeRevenue": "0n"
       },
       "changesByFrame": [
+        {
+          "argonotSecuritizationMicronots": "200000000000n",
+          "bitcoinFeeCouponValueUsed": "0n",
+          "bitcoinFeeRevenue": "0n",
+          "bitcoinLocksCreated": 0,
+          "frameId": 601,
+          "securitization": "49350319899n",
+          "securitizationActivated": "42590217699n",
+          "treasuryPool": {
+            "externalCapital": "43978000000n",
+            "totalEarnings": "1473749477n",
+            "vaultCapital": "0n",
+            "vaultEarnings": "1473749477n"
+          },
+          "upstreamParticipation": {
+            "type": "BigNumber",
+            "value": "1"
+          }
+        },
+        {
+          "argonotSecuritizationMicronots": "200000000000n",
+          "bitcoinFeeCouponValueUsed": "0n",
+          "bitcoinFeeRevenue": "0n",
+          "bitcoinLocksCreated": 0,
+          "frameId": 600,
+          "securitization": "49350319899n",
+          "securitizationActivated": "42590217699n",
+          "treasuryPool": {
+            "externalCapital": "43978000000n",
+            "totalEarnings": "2228111451n",
+            "vaultCapital": "0n",
+            "vaultEarnings": "2228111451n"
+          },
+          "upstreamParticipation": {
+            "type": "BigNumber",
+            "value": "1"
+          }
+        },
+        {
+          "argonotSecuritizationMicronots": "200000000000n",
+          "bitcoinFeeCouponValueUsed": "0n",
+          "bitcoinFeeRevenue": "0n",
+          "bitcoinLocksCreated": 0,
+          "frameId": 599,
+          "securitization": "49350319899n",
+          "securitizationActivated": "42590217699n",
+          "treasuryPool": {
+            "externalCapital": "43978000000n",
+            "totalEarnings": "3238254297n",
+            "vaultCapital": "0n",
+            "vaultEarnings": "3238254297n"
+          },
+          "upstreamParticipation": {
+            "type": "BigNumber",
+            "value": "1"
+          }
+        },
+        {
+          "argonotSecuritizationMicronots": "200000000000n",
+          "bitcoinFeeCouponValueUsed": "0n",
+          "bitcoinFeeRevenue": "0n",
+          "bitcoinLocksCreated": 0,
+          "frameId": 598,
+          "securitization": "44350319899n",
+          "securitizationActivated": "42590217699n",
+          "treasuryPool": {
+            "externalCapital": "43978000000n",
+            "totalEarnings": "615214193n",
+            "vaultCapital": "0n",
+            "vaultEarnings": "615214193n"
+          },
+          "upstreamParticipation": {
+            "type": "BigNumber",
+            "value": "1"
+          }
+        },
+        {
+          "bitcoinFeeCouponValueUsed": "0n",
+          "bitcoinFeeRevenue": "0n",
+          "bitcoinLocksCreated": 0,
+          "frameId": 597,
+          "securitization": "44040000000n",
+          "securitizationActivated": "42590217699n",
+          "treasuryPool": {
+            "externalCapital": "41658000000n",
+            "flexibleBondEarnings": "5760940n",
+            "totalEarnings": "1126586731n",
+            "vaultCapital": "2320000000n",
+            "vaultEarnings": "988602266n"
+          }
+        },
         {
           "bitcoinFeeCouponValueUsed": "1989981283n",
           "bitcoinFeeRevenue": "1989981283n",
@@ -4877,6 +5276,96 @@
       },
       "changesByFrame": [
         {
+          "argonotSecuritizationMicronots": "0n",
+          "bitcoinFeeCouponValueUsed": "0n",
+          "bitcoinFeeRevenue": "0n",
+          "bitcoinLocksCreated": 0,
+          "frameId": 601,
+          "securitization": "17608214631n",
+          "securitizationActivated": "14597528936n",
+          "treasuryPool": {
+            "externalCapital": "17608000000n",
+            "totalEarnings": "511024014n",
+            "vaultCapital": "0n",
+            "vaultEarnings": "511024014n"
+          },
+          "upstreamParticipation": {
+            "type": "BigNumber",
+            "value": "1"
+          }
+        },
+        {
+          "argonotSecuritizationMicronots": "0n",
+          "bitcoinFeeCouponValueUsed": "0n",
+          "bitcoinFeeRevenue": "0n",
+          "bitcoinLocksCreated": 0,
+          "frameId": 600,
+          "securitization": "17608214631n",
+          "securitizationActivated": "14597528936n",
+          "treasuryPool": {
+            "externalCapital": "17608000000n",
+            "totalEarnings": "772599737n",
+            "vaultCapital": "0n",
+            "vaultEarnings": "772599737n"
+          },
+          "upstreamParticipation": {
+            "type": "BigNumber",
+            "value": "1"
+          }
+        },
+        {
+          "argonotSecuritizationMicronots": "0n",
+          "bitcoinFeeCouponValueUsed": "0n",
+          "bitcoinFeeRevenue": "0n",
+          "bitcoinLocksCreated": 0,
+          "frameId": 599,
+          "securitization": "17608214631n",
+          "securitizationActivated": "14597528936n",
+          "treasuryPool": {
+            "externalCapital": "17608000000n",
+            "totalEarnings": "1175193345n",
+            "vaultCapital": "0n",
+            "vaultEarnings": "1175193345n"
+          },
+          "upstreamParticipation": {
+            "type": "BigNumber",
+            "value": "1"
+          }
+        },
+        {
+          "argonotSecuritizationMicronots": "0n",
+          "bitcoinFeeCouponValueUsed": "0n",
+          "bitcoinFeeRevenue": "0n",
+          "bitcoinLocksCreated": 0,
+          "frameId": 598,
+          "securitization": "17608214631n",
+          "securitizationActivated": "14597528936n",
+          "treasuryPool": {
+            "externalCapital": "10806000000n",
+            "totalEarnings": "211692787n",
+            "vaultCapital": "0n",
+            "vaultEarnings": "211692787n"
+          },
+          "upstreamParticipation": {
+            "type": "BigNumber",
+            "value": "1"
+          }
+        },
+        {
+          "bitcoinFeeCouponValueUsed": "0n",
+          "bitcoinFeeRevenue": "0n",
+          "bitcoinLocksCreated": 0,
+          "frameId": 597,
+          "securitization": "17608214631n",
+          "securitizationActivated": "15182384181n",
+          "treasuryPool": {
+            "externalCapital": "10806000000n",
+            "totalEarnings": "276817868n",
+            "vaultCapital": "0n",
+            "vaultEarnings": "172962705n"
+          }
+        },
+        {
           "bitcoinFeeCouponValueUsed": "0n",
           "bitcoinFeeRevenue": "0n",
           "bitcoinLocksCreated": 0,
@@ -8371,6 +8860,96 @@
         "feeRevenue": "0n"
       },
       "changesByFrame": [
+        {
+          "argonotSecuritizationMicronots": "0n",
+          "bitcoinFeeCouponValueUsed": "0n",
+          "bitcoinFeeRevenue": "0n",
+          "bitcoinLocksCreated": 0,
+          "frameId": 601,
+          "securitization": "71715745715n",
+          "securitizationActivated": "61834599235n",
+          "treasuryPool": {
+            "externalCapital": "71715000000n",
+            "totalEarnings": "2162715959n",
+            "vaultCapital": "0n",
+            "vaultEarnings": "2162715959n"
+          },
+          "upstreamParticipation": {
+            "type": "BigNumber",
+            "value": "1"
+          }
+        },
+        {
+          "argonotSecuritizationMicronots": "0n",
+          "bitcoinFeeCouponValueUsed": "0n",
+          "bitcoinFeeRevenue": "0n",
+          "bitcoinLocksCreated": 0,
+          "frameId": 600,
+          "securitization": "71715745715n",
+          "securitizationActivated": "61834599235n",
+          "treasuryPool": {
+            "externalCapital": "71715000000n",
+            "totalEarnings": "3269736321n",
+            "vaultCapital": "0n",
+            "vaultEarnings": "3269736321n"
+          },
+          "upstreamParticipation": {
+            "type": "BigNumber",
+            "value": "1"
+          }
+        },
+        {
+          "argonotSecuritizationMicronots": "0n",
+          "bitcoinFeeCouponValueUsed": "0n",
+          "bitcoinFeeRevenue": "0n",
+          "bitcoinLocksCreated": 0,
+          "frameId": 599,
+          "securitization": "71715745715n",
+          "securitizationActivated": "61834599235n",
+          "treasuryPool": {
+            "externalCapital": "71715000000n",
+            "totalEarnings": "4973561575n",
+            "vaultCapital": "0n",
+            "vaultEarnings": "4973561575n"
+          },
+          "upstreamParticipation": {
+            "type": "BigNumber",
+            "value": "1"
+          }
+        },
+        {
+          "argonotSecuritizationMicronots": "0n",
+          "bitcoinFeeCouponValueUsed": "0n",
+          "bitcoinFeeRevenue": "0n",
+          "bitcoinLocksCreated": 0,
+          "frameId": 598,
+          "securitization": "71715745715n",
+          "securitizationActivated": "61834599235n",
+          "treasuryPool": {
+            "externalCapital": "64583000000n",
+            "totalEarnings": "893823287n",
+            "vaultCapital": "0n",
+            "vaultEarnings": "893823287n"
+          },
+          "upstreamParticipation": {
+            "type": "BigNumber",
+            "value": "1"
+          }
+        },
+        {
+          "bitcoinFeeCouponValueUsed": "0n",
+          "bitcoinFeeRevenue": "0n",
+          "bitcoinLocksCreated": 0,
+          "frameId": 597,
+          "securitization": "64000000000n",
+          "securitizationActivated": "61834599235n",
+          "treasuryPool": {
+            "externalCapital": "62620000000n",
+            "totalEarnings": "1604139821n",
+            "vaultCapital": "0n",
+            "vaultEarnings": "1443725838n"
+          }
+        },
         {
           "bitcoinFeeCouponValueUsed": "0n",
           "bitcoinFeeRevenue": "0n",
@@ -11907,6 +12486,96 @@
       },
       "changesByFrame": [
         {
+          "argonotSecuritizationMicronots": "0n",
+          "bitcoinFeeCouponValueUsed": "0n",
+          "bitcoinFeeRevenue": "0n",
+          "bitcoinLocksCreated": 0,
+          "frameId": 601,
+          "securitization": "16000000000n",
+          "securitizationActivated": "14974304058n",
+          "treasuryPool": {
+            "externalCapital": "16000000000n",
+            "totalEarnings": "522804437n",
+            "vaultCapital": "0n",
+            "vaultEarnings": "522804437n"
+          },
+          "upstreamParticipation": {
+            "type": "BigNumber",
+            "value": "1"
+          }
+        },
+        {
+          "argonotSecuritizationMicronots": "0n",
+          "bitcoinFeeCouponValueUsed": "0n",
+          "bitcoinFeeRevenue": "0n",
+          "bitcoinLocksCreated": 0,
+          "frameId": 600,
+          "securitization": "16000000000n",
+          "securitizationActivated": "14974304058n",
+          "treasuryPool": {
+            "externalCapital": "16000000000n",
+            "totalEarnings": "765848252n",
+            "vaultCapital": "0n",
+            "vaultEarnings": "765848252n"
+          },
+          "upstreamParticipation": {
+            "type": "BigNumber",
+            "value": "1"
+          }
+        },
+        {
+          "argonotSecuritizationMicronots": "0n",
+          "bitcoinFeeCouponValueUsed": "0n",
+          "bitcoinFeeRevenue": "0n",
+          "bitcoinLocksCreated": 0,
+          "frameId": 599,
+          "securitization": "16000000000n",
+          "securitizationActivated": "14974304058n",
+          "treasuryPool": {
+            "externalCapital": "16000000000n",
+            "totalEarnings": "1202284586n",
+            "vaultCapital": "0n",
+            "vaultEarnings": "1202284586n"
+          },
+          "upstreamParticipation": {
+            "type": "BigNumber",
+            "value": "1"
+          }
+        },
+        {
+          "argonotSecuritizationMicronots": "0n",
+          "bitcoinFeeCouponValueUsed": "0n",
+          "bitcoinFeeRevenue": "0n",
+          "bitcoinLocksCreated": 0,
+          "frameId": 598,
+          "securitization": "16000000000n",
+          "securitizationActivated": "14974304058n",
+          "treasuryPool": {
+            "externalCapital": "13102000000n",
+            "totalEarnings": "225763733n",
+            "vaultCapital": "0n",
+            "vaultEarnings": "225763733n"
+          },
+          "upstreamParticipation": {
+            "type": "BigNumber",
+            "value": "1"
+          }
+        },
+        {
+          "bitcoinFeeCouponValueUsed": "0n",
+          "bitcoinFeeRevenue": "0n",
+          "bitcoinLocksCreated": 0,
+          "frameId": 597,
+          "securitization": "16000000000n",
+          "securitizationActivated": "15909781866n",
+          "treasuryPool": {
+            "externalCapital": "13102000000n",
+            "totalEarnings": "335634619n",
+            "vaultCapital": "0n",
+            "vaultEarnings": "254582291n"
+          }
+        },
+        {
           "bitcoinFeeCouponValueUsed": "0n",
           "bitcoinFeeRevenue": "0n",
           "bitcoinLocksCreated": 0,
@@ -15402,6 +16071,82 @@
       },
       "changesByFrame": [
         {
+          "argonotSecuritizationMicronots": "0n",
+          "bitcoinFeeCouponValueUsed": "0n",
+          "bitcoinFeeRevenue": "0n",
+          "bitcoinLocksCreated": 0,
+          "frameId": 601,
+          "securitization": "17898399192n",
+          "securitizationActivated": "0n",
+          "treasuryPool": {
+            "externalCapital": "17898000000n",
+            "totalEarnings": "12236401n",
+            "vaultCapital": "0n",
+            "vaultEarnings": "12236401n"
+          },
+          "upstreamParticipation": {
+            "type": "BigNumber",
+            "value": "1"
+          }
+        },
+        {
+          "argonotSecuritizationMicronots": "0n",
+          "bitcoinFeeCouponValueUsed": "0n",
+          "bitcoinFeeRevenue": "0n",
+          "bitcoinLocksCreated": 0,
+          "frameId": 600,
+          "securitization": "17898399192n",
+          "securitizationActivated": "0n",
+          "treasuryPool": {
+            "externalCapital": "17898000000n",
+            "totalEarnings": "18499797n",
+            "vaultCapital": "0n",
+            "vaultEarnings": "18499797n"
+          },
+          "upstreamParticipation": {
+            "type": "BigNumber",
+            "value": "1"
+          }
+        },
+        {
+          "argonotSecuritizationMicronots": "0n",
+          "bitcoinFeeCouponValueUsed": "0n",
+          "bitcoinFeeRevenue": "0n",
+          "bitcoinLocksCreated": 0,
+          "frameId": 599,
+          "securitization": "17898399192n",
+          "securitizationActivated": "0n",
+          "treasuryPool": {
+            "externalCapital": "17898000000n",
+            "totalEarnings": "28139847n",
+            "vaultCapital": "0n",
+            "vaultEarnings": "28139847n"
+          },
+          "upstreamParticipation": {
+            "type": "BigNumber",
+            "value": "1"
+          }
+        },
+        {
+          "argonotSecuritizationMicronots": "0n",
+          "bitcoinFeeCouponValueUsed": "0n",
+          "bitcoinFeeRevenue": "0n",
+          "bitcoinLocksCreated": 0,
+          "frameId": 598,
+          "securitization": "17898399192n",
+          "securitizationActivated": "0n",
+          "treasuryPool": {
+            "externalCapital": "10005000000n",
+            "totalEarnings": "5069510n",
+            "vaultCapital": "0n",
+            "vaultEarnings": "5069510n"
+          },
+          "upstreamParticipation": {
+            "type": "BigNumber",
+            "value": "1"
+          }
+        },
+        {
           "bitcoinFeeCouponValueUsed": "0n",
           "bitcoinFeeRevenue": "0n",
           "bitcoinLocksCreated": 0,
@@ -18546,6 +19291,97 @@
         "feeRevenue": "0n"
       },
       "changesByFrame": [
+        {
+          "argonotSecuritizationMicronots": "0n",
+          "bitcoinFeeCouponValueUsed": "0n",
+          "bitcoinFeeRevenue": "0n",
+          "bitcoinLocksCreated": 0,
+          "frameId": 601,
+          "securitization": "7415645233n",
+          "securitizationActivated": "3139312192n",
+          "treasuryPool": {
+            "externalCapital": "4858000000n",
+            "totalEarnings": "108679586n",
+            "vaultCapital": "0n",
+            "vaultEarnings": "108679586n"
+          },
+          "upstreamParticipation": {
+            "type": "BigNumber",
+            "value": "1"
+          }
+        },
+        {
+          "argonotSecuritizationMicronots": "0n",
+          "bitcoinFeeCouponValueUsed": "0n",
+          "bitcoinFeeRevenue": "0n",
+          "bitcoinLocksCreated": 0,
+          "frameId": 600,
+          "securitization": "7415645233n",
+          "securitizationActivated": "3139312192n",
+          "treasuryPool": {
+            "externalCapital": "4858000000n",
+            "totalEarnings": "164308951n",
+            "vaultCapital": "0n",
+            "vaultEarnings": "164308951n"
+          },
+          "upstreamParticipation": {
+            "type": "BigNumber",
+            "value": "1"
+          }
+        },
+        {
+          "argonotSecuritizationMicronots": "0n",
+          "bitcoinFeeCouponValueUsed": "0n",
+          "bitcoinFeeRevenue": "0n",
+          "bitcoinLocksCreated": 0,
+          "frameId": 599,
+          "securitization": "7415645233n",
+          "securitizationActivated": "3139312192n",
+          "treasuryPool": {
+            "externalCapital": "4858000000n",
+            "totalEarnings": "249928620n",
+            "vaultCapital": "0n",
+            "vaultEarnings": "249928620n"
+          },
+          "upstreamParticipation": {
+            "type": "BigNumber",
+            "value": "1"
+          }
+        },
+        {
+          "argonotSecuritizationMicronots": "0n",
+          "bitcoinFeeCouponValueUsed": "0n",
+          "bitcoinFeeRevenue": "0n",
+          "bitcoinLocksCreated": 0,
+          "frameId": 598,
+          "securitization": "7415645233n",
+          "securitizationActivated": "3139312192n",
+          "treasuryPool": {
+            "externalCapital": "4217000000n",
+            "totalEarnings": "44641383n",
+            "vaultCapital": "0n",
+            "vaultEarnings": "44641383n"
+          },
+          "upstreamParticipation": {
+            "type": "BigNumber",
+            "value": "1"
+          }
+        },
+        {
+          "bitcoinFeeCouponValueUsed": "0n",
+          "bitcoinFeeRevenue": "0n",
+          "bitcoinLocksCreated": 0,
+          "frameId": 597,
+          "securitization": "7415645233n",
+          "securitizationActivated": "3139312192n",
+          "treasuryPool": {
+            "externalCapital": "2358000000n",
+            "flexibleBondEarnings": "1993005n",
+            "totalEarnings": "80335066n",
+            "vaultCapital": "778000000n",
+            "vaultEarnings": "74294566n"
+          }
+        },
         {
           "bitcoinFeeCouponValueUsed": "0n",
           "bitcoinFeeRevenue": "0n",
@@ -22102,6 +22938,96 @@
       },
       "changesByFrame": [
         {
+          "argonotSecuritizationMicronots": "0n",
+          "bitcoinFeeCouponValueUsed": "0n",
+          "bitcoinFeeRevenue": "0n",
+          "bitcoinLocksCreated": 0,
+          "frameId": 601,
+          "securitization": "44523517741n",
+          "securitizationActivated": "43133917007n",
+          "treasuryPool": {
+            "externalCapital": "44208000000n",
+            "totalEarnings": "1494812602n",
+            "vaultCapital": "0n",
+            "vaultEarnings": "1494812602n"
+          },
+          "upstreamParticipation": {
+            "type": "BigNumber",
+            "value": "1"
+          }
+        },
+        {
+          "argonotSecuritizationMicronots": "0n",
+          "bitcoinFeeCouponValueUsed": "0n",
+          "bitcoinFeeRevenue": "0n",
+          "bitcoinLocksCreated": 0,
+          "frameId": 600,
+          "securitization": "44523517741n",
+          "securitizationActivated": "43133917007n",
+          "treasuryPool": {
+            "externalCapital": "44208000000n",
+            "totalEarnings": "2077457718n",
+            "vaultCapital": "0n",
+            "vaultEarnings": "2077457718n"
+          },
+          "upstreamParticipation": {
+            "type": "BigNumber",
+            "value": "1"
+          }
+        },
+        {
+          "argonotSecuritizationMicronots": "0n",
+          "bitcoinFeeCouponValueUsed": "0n",
+          "bitcoinFeeRevenue": "0n",
+          "bitcoinLocksCreated": 0,
+          "frameId": 599,
+          "securitization": "44523517741n",
+          "securitizationActivated": "43133917007n",
+          "treasuryPool": {
+            "externalCapital": "44208000000n",
+            "totalEarnings": "3276866071n",
+            "vaultCapital": "0n",
+            "vaultEarnings": "3276866071n"
+          },
+          "upstreamParticipation": {
+            "type": "BigNumber",
+            "value": "1"
+          }
+        },
+        {
+          "argonotSecuritizationMicronots": "0n",
+          "bitcoinFeeCouponValueUsed": "0n",
+          "bitcoinFeeRevenue": "0n",
+          "bitcoinLocksCreated": 0,
+          "frameId": 598,
+          "securitization": "44523517741n",
+          "securitizationActivated": "43133917007n",
+          "treasuryPool": {
+            "externalCapital": "44208000000n",
+            "totalEarnings": "622334362n",
+            "vaultCapital": "0n",
+            "vaultEarnings": "622334362n"
+          },
+          "upstreamParticipation": {
+            "type": "BigNumber",
+            "value": "1"
+          }
+        },
+        {
+          "bitcoinFeeCouponValueUsed": "0n",
+          "bitcoinFeeRevenue": "0n",
+          "bitcoinLocksCreated": 0,
+          "frameId": 597,
+          "securitization": "44523517741n",
+          "securitizationActivated": "43133917007n",
+          "treasuryPool": {
+            "externalCapital": "44208000000n",
+            "totalEarnings": "1132478653n",
+            "vaultCapital": "0n",
+            "vaultEarnings": "988182438n"
+          }
+        },
+        {
           "bitcoinFeeCouponValueUsed": "1990818896n",
           "bitcoinFeeRevenue": "1990818896n",
           "bitcoinLocksCreated": 1,
@@ -25596,6 +26522,97 @@
         "feeRevenue": "0n"
       },
       "changesByFrame": [
+        {
+          "argonotSecuritizationMicronots": "20000000000n",
+          "bitcoinFeeCouponValueUsed": "0n",
+          "bitcoinFeeRevenue": "0n",
+          "bitcoinLocksCreated": 0,
+          "frameId": 601,
+          "securitization": "32946371865n",
+          "securitizationActivated": "23857974760n",
+          "treasuryPool": {
+            "externalCapital": "32743000000n",
+            "totalEarnings": "837556637n",
+            "vaultCapital": "0n",
+            "vaultEarnings": "837556637n"
+          },
+          "upstreamParticipation": {
+            "type": "BigNumber",
+            "value": "1"
+          }
+        },
+        {
+          "argonotSecuritizationMicronots": "20000000000n",
+          "bitcoinFeeCouponValueUsed": "0n",
+          "bitcoinFeeRevenue": "0n",
+          "bitcoinLocksCreated": 0,
+          "frameId": 600,
+          "securitization": "32946371865n",
+          "securitizationActivated": "23857974760n",
+          "treasuryPool": {
+            "externalCapital": "32743000000n",
+            "totalEarnings": "1266273246n",
+            "vaultCapital": "0n",
+            "vaultEarnings": "1266273246n"
+          },
+          "upstreamParticipation": {
+            "type": "BigNumber",
+            "value": "1"
+          }
+        },
+        {
+          "argonotSecuritizationMicronots": "20000000000n",
+          "bitcoinFeeCouponValueUsed": "0n",
+          "bitcoinFeeRevenue": "0n",
+          "bitcoinLocksCreated": 0,
+          "frameId": 599,
+          "securitization": "32946371865n",
+          "securitizationActivated": "23857974760n",
+          "treasuryPool": {
+            "externalCapital": "32523000000n",
+            "totalEarnings": "1926467228n",
+            "vaultCapital": "0n",
+            "vaultEarnings": "1926467228n"
+          },
+          "upstreamParticipation": {
+            "type": "BigNumber",
+            "value": "1"
+          }
+        },
+        {
+          "argonotSecuritizationMicronots": "20000000000n",
+          "bitcoinFeeCouponValueUsed": "77798258n",
+          "bitcoinFeeRevenue": "156926335n",
+          "bitcoinLocksCreated": 1,
+          "frameId": 598,
+          "securitization": "32556371865n",
+          "securitizationActivated": "23857974760n",
+          "treasuryPool": {
+            "externalCapital": "30000000000n",
+            "totalEarnings": "303446146n",
+            "vaultCapital": "0n",
+            "vaultEarnings": "303446146n"
+          },
+          "upstreamParticipation": {
+            "type": "BigNumber",
+            "value": "1"
+          }
+        },
+        {
+          "bitcoinFeeCouponValueUsed": "0n",
+          "bitcoinFeeRevenue": "0n",
+          "bitcoinLocksCreated": 0,
+          "frameId": 597,
+          "securitization": "30000000000n",
+          "securitizationActivated": "20826922088n",
+          "treasuryPool": {
+            "externalCapital": "12248000000n",
+            "flexibleBondEarnings": "36651665n",
+            "totalEarnings": "537830015n",
+            "vaultCapital": "8747000000n",
+            "vaultEarnings": "475078485n"
+          }
+        },
         {
           "bitcoinFeeCouponValueUsed": "0n",
           "bitcoinFeeRevenue": "0n",
@@ -29152,6 +30169,96 @@
       },
       "changesByFrame": [
         {
+          "argonotSecuritizationMicronots": "0n",
+          "bitcoinFeeCouponValueUsed": "0n",
+          "bitcoinFeeRevenue": "0n",
+          "bitcoinLocksCreated": 0,
+          "frameId": 601,
+          "securitization": "31281000000n",
+          "securitizationActivated": "24386737564n",
+          "treasuryPool": {
+            "externalCapital": "31281000000n",
+            "totalEarnings": "854996179n",
+            "vaultCapital": "0n",
+            "vaultEarnings": "854996179n"
+          },
+          "upstreamParticipation": {
+            "type": "BigNumber",
+            "value": "1"
+          }
+        },
+        {
+          "argonotSecuritizationMicronots": "0n",
+          "bitcoinFeeCouponValueUsed": "0n",
+          "bitcoinFeeRevenue": "0n",
+          "bitcoinLocksCreated": 0,
+          "frameId": 600,
+          "securitization": "31281000000n",
+          "securitizationActivated": "24386737564n",
+          "treasuryPool": {
+            "externalCapital": "29148000000n",
+            "totalEarnings": "1290434822n",
+            "vaultCapital": "0n",
+            "vaultEarnings": "1290434822n"
+          },
+          "upstreamParticipation": {
+            "type": "BigNumber",
+            "value": "1"
+          }
+        },
+        {
+          "argonotSecuritizationMicronots": "0n",
+          "bitcoinFeeCouponValueUsed": "0n",
+          "bitcoinFeeRevenue": "0n",
+          "bitcoinLocksCreated": 0,
+          "frameId": 599,
+          "securitization": "29148000000n",
+          "securitizationActivated": "24386737564n",
+          "treasuryPool": {
+            "externalCapital": "26000000000n",
+            "totalEarnings": "1957917572n",
+            "vaultCapital": "0n",
+            "vaultEarnings": "1957917572n"
+          },
+          "upstreamParticipation": {
+            "type": "BigNumber",
+            "value": "1"
+          }
+        },
+        {
+          "argonotSecuritizationMicronots": "0n",
+          "bitcoinFeeCouponValueUsed": "0n",
+          "bitcoinFeeRevenue": "0n",
+          "bitcoinLocksCreated": 0,
+          "frameId": 598,
+          "securitization": "26000000000n",
+          "securitizationActivated": "24386737564n",
+          "treasuryPool": {
+            "externalCapital": "26000000000n",
+            "totalEarnings": "364490752n",
+            "vaultCapital": "0n",
+            "vaultEarnings": "364490752n"
+          },
+          "upstreamParticipation": {
+            "type": "BigNumber",
+            "value": "1"
+          }
+        },
+        {
+          "bitcoinFeeCouponValueUsed": "0n",
+          "bitcoinFeeRevenue": "0n",
+          "bitcoinLocksCreated": 0,
+          "frameId": 597,
+          "securitization": "26000000000n",
+          "securitizationActivated": "25217400325n",
+          "treasuryPool": {
+            "externalCapital": "25249000000n",
+            "totalEarnings": "646804951n",
+            "vaultCapital": "0n",
+            "vaultEarnings": "582124458n"
+          }
+        },
+        {
           "bitcoinFeeCouponValueUsed": "0n",
           "bitcoinFeeRevenue": "0n",
           "bitcoinLocksCreated": 0,
@@ -32679,6 +33786,97 @@
         "feeRevenue": "0n"
       },
       "changesByFrame": [
+        {
+          "argonotSecuritizationMicronots": "0n",
+          "bitcoinFeeCouponValueUsed": "0n",
+          "bitcoinFeeRevenue": "0n",
+          "bitcoinLocksCreated": 0,
+          "frameId": 601,
+          "securitization": "7350713892n",
+          "securitizationActivated": "1979248559n",
+          "treasuryPool": {
+            "externalCapital": "1979000000n",
+            "totalEarnings": "67737769n",
+            "vaultCapital": "0n",
+            "vaultEarnings": "67737769n"
+          },
+          "upstreamParticipation": {
+            "type": "BigNumber",
+            "value": "1"
+          }
+        },
+        {
+          "argonotSecuritizationMicronots": "0n",
+          "bitcoinFeeCouponValueUsed": "0n",
+          "bitcoinFeeRevenue": "0n",
+          "bitcoinLocksCreated": 0,
+          "frameId": 600,
+          "securitization": "7350713892n",
+          "securitizationActivated": "1979248559n",
+          "treasuryPool": {
+            "externalCapital": "1979000000n",
+            "totalEarnings": "102410417n",
+            "vaultCapital": "0n",
+            "vaultEarnings": "102410417n"
+          },
+          "upstreamParticipation": {
+            "type": "BigNumber",
+            "value": "1"
+          }
+        },
+        {
+          "argonotSecuritizationMicronots": "0n",
+          "bitcoinFeeCouponValueUsed": "0n",
+          "bitcoinFeeRevenue": "0n",
+          "bitcoinLocksCreated": 0,
+          "frameId": 599,
+          "securitization": "7350713892n",
+          "securitizationActivated": "1979248559n",
+          "treasuryPool": {
+            "externalCapital": "1979000000n",
+            "totalEarnings": "155775409n",
+            "vaultCapital": "0n",
+            "vaultEarnings": "155775409n"
+          },
+          "upstreamParticipation": {
+            "type": "BigNumber",
+            "value": "1"
+          }
+        },
+        {
+          "argonotSecuritizationMicronots": "0n",
+          "bitcoinFeeCouponValueUsed": "0n",
+          "bitcoinFeeRevenue": "0n",
+          "bitcoinLocksCreated": 0,
+          "frameId": 598,
+          "securitization": "7350713892n",
+          "securitizationActivated": "1979248559n",
+          "treasuryPool": {
+            "externalCapital": "1979000000n",
+            "totalEarnings": "28063586n",
+            "vaultCapital": "0n",
+            "vaultEarnings": "28063586n"
+          },
+          "upstreamParticipation": {
+            "type": "BigNumber",
+            "value": "1"
+          }
+        },
+        {
+          "bitcoinFeeCouponValueUsed": "0n",
+          "bitcoinFeeRevenue": "0n",
+          "bitcoinLocksCreated": 0,
+          "frameId": 597,
+          "securitization": "7350713892n",
+          "securitizationActivated": "1979248559n",
+          "treasuryPool": {
+            "externalCapital": "370000000n",
+            "flexibleBondEarnings": "3776392n",
+            "totalEarnings": "50696138n",
+            "vaultCapital": "1609000000n",
+            "vaultEarnings": "45579582n"
+          }
+        },
         {
           "bitcoinFeeCouponValueUsed": "0n",
           "bitcoinFeeRevenue": "0n",
@@ -36235,6 +37433,96 @@
       },
       "changesByFrame": [
         {
+          "argonotSecuritizationMicronots": "0n",
+          "bitcoinFeeCouponValueUsed": "0n",
+          "bitcoinFeeRevenue": "0n",
+          "bitcoinLocksCreated": 0,
+          "frameId": 601,
+          "securitization": "3670133892n",
+          "securitizationActivated": "3494938803n",
+          "treasuryPool": {
+            "externalCapital": "1132000000n",
+            "totalEarnings": "105664104n",
+            "vaultCapital": "0n",
+            "vaultEarnings": "105664104n"
+          },
+          "upstreamParticipation": {
+            "type": "BigNumber",
+            "value": "1"
+          }
+        },
+        {
+          "argonotSecuritizationMicronots": "0n",
+          "bitcoinFeeCouponValueUsed": "0n",
+          "bitcoinFeeRevenue": "0n",
+          "bitcoinLocksCreated": 0,
+          "frameId": 600,
+          "securitization": "3670133892n",
+          "securitizationActivated": "3494938803n",
+          "treasuryPool": {
+            "externalCapital": "1132000000n",
+            "totalEarnings": "144859146n",
+            "vaultCapital": "0n",
+            "vaultEarnings": "144859146n"
+          },
+          "upstreamParticipation": {
+            "type": "BigNumber",
+            "value": "1"
+          }
+        },
+        {
+          "argonotSecuritizationMicronots": "0n",
+          "bitcoinFeeCouponValueUsed": "0n",
+          "bitcoinFeeRevenue": "0n",
+          "bitcoinLocksCreated": 0,
+          "frameId": 599,
+          "securitization": "3670133892n",
+          "securitizationActivated": "3494938803n",
+          "treasuryPool": {
+            "externalCapital": "1132000000n",
+            "totalEarnings": "229879388n",
+            "vaultCapital": "0n",
+            "vaultEarnings": "229879388n"
+          },
+          "upstreamParticipation": {
+            "type": "BigNumber",
+            "value": "1"
+          }
+        },
+        {
+          "argonotSecuritizationMicronots": "0n",
+          "bitcoinFeeCouponValueUsed": "0n",
+          "bitcoinFeeRevenue": "0n",
+          "bitcoinLocksCreated": 0,
+          "frameId": 598,
+          "securitization": "3670133892n",
+          "securitizationActivated": "3494938803n",
+          "treasuryPool": {
+            "externalCapital": "1132000000n",
+            "totalEarnings": "44024195n",
+            "vaultCapital": "0n",
+            "vaultEarnings": "44024195n"
+          },
+          "upstreamParticipation": {
+            "type": "BigNumber",
+            "value": "1"
+          }
+        },
+        {
+          "bitcoinFeeCouponValueUsed": "0n",
+          "bitcoinFeeRevenue": "0n",
+          "bitcoinLocksCreated": 0,
+          "frameId": 597,
+          "securitization": "3670133892n",
+          "securitizationActivated": "3494938803n",
+          "treasuryPool": {
+            "externalCapital": "1132000000n",
+            "totalEarnings": "28998494n",
+            "vaultCapital": "0n",
+            "vaultEarnings": "7397012n"
+          }
+        },
+        {
           "bitcoinFeeCouponValueUsed": "0n",
           "bitcoinFeeRevenue": "0n",
           "bitcoinLocksCreated": 0,
@@ -39730,6 +41018,96 @@
       },
       "changesByFrame": [
         {
+          "argonotSecuritizationMicronots": "0n",
+          "bitcoinFeeCouponValueUsed": "0n",
+          "bitcoinFeeRevenue": "0n",
+          "bitcoinLocksCreated": 0,
+          "frameId": 601,
+          "securitization": "16628203892n",
+          "securitizationActivated": "13544802177n",
+          "treasuryPool": {
+            "externalCapital": "13084000000n",
+            "totalEarnings": "464500722n",
+            "vaultCapital": "0n",
+            "vaultEarnings": "464500722n"
+          },
+          "upstreamParticipation": {
+            "type": "BigNumber",
+            "value": "1"
+          }
+        },
+        {
+          "argonotSecuritizationMicronots": "0n",
+          "bitcoinFeeCouponValueUsed": "0n",
+          "bitcoinFeeRevenue": "0n",
+          "bitcoinLocksCreated": 0,
+          "frameId": 600,
+          "securitization": "16628203892n",
+          "securitizationActivated": "13544802177n",
+          "treasuryPool": {
+            "externalCapital": "13084000000n",
+            "totalEarnings": "702262762n",
+            "vaultCapital": "0n",
+            "vaultEarnings": "702262762n"
+          },
+          "upstreamParticipation": {
+            "type": "BigNumber",
+            "value": "1"
+          }
+        },
+        {
+          "argonotSecuritizationMicronots": "0n",
+          "bitcoinFeeCouponValueUsed": "0n",
+          "bitcoinFeeRevenue": "0n",
+          "bitcoinLocksCreated": 0,
+          "frameId": 599,
+          "securitization": "16628203892n",
+          "securitizationActivated": "13544802177n",
+          "treasuryPool": {
+            "externalCapital": "13084000000n",
+            "totalEarnings": "1068204511n",
+            "vaultCapital": "0n",
+            "vaultEarnings": "1068204511n"
+          },
+          "upstreamParticipation": {
+            "type": "BigNumber",
+            "value": "1"
+          }
+        },
+        {
+          "argonotSecuritizationMicronots": "0n",
+          "bitcoinFeeCouponValueUsed": "0n",
+          "bitcoinFeeRevenue": "0n",
+          "bitcoinLocksCreated": 0,
+          "frameId": 598,
+          "securitization": "16628203892n",
+          "securitizationActivated": "13544802177n",
+          "treasuryPool": {
+            "externalCapital": "13084000000n",
+            "totalEarnings": "192441478n",
+            "vaultCapital": "0n",
+            "vaultEarnings": "192441478n"
+          },
+          "upstreamParticipation": {
+            "type": "BigNumber",
+            "value": "1"
+          }
+        },
+        {
+          "bitcoinFeeCouponValueUsed": "0n",
+          "bitcoinFeeRevenue": "0n",
+          "bitcoinLocksCreated": 0,
+          "frameId": 597,
+          "securitization": "16628203892n",
+          "securitizationActivated": "13544802177n",
+          "treasuryPool": {
+            "externalCapital": "13084000000n",
+            "totalEarnings": "335173513n",
+            "vaultCapital": "0n",
+            "vaultEarnings": "265121865n"
+          }
+        },
+        {
           "bitcoinFeeCouponValueUsed": "0n",
           "bitcoinFeeRevenue": "0n",
           "bitcoinLocksCreated": 0,
@@ -43224,6 +44602,97 @@
         "feeRevenue": "0n"
       },
       "changesByFrame": [
+        {
+          "argonotSecuritizationMicronots": "0n",
+          "bitcoinFeeCouponValueUsed": "0n",
+          "bitcoinFeeRevenue": "0n",
+          "bitcoinLocksCreated": 0,
+          "frameId": 601,
+          "securitization": "4178050000n",
+          "securitizationActivated": "1366588773n",
+          "treasuryPool": {
+            "externalCapital": "628000000n",
+            "totalEarnings": "45601149n",
+            "vaultCapital": "0n",
+            "vaultEarnings": "45601149n"
+          },
+          "upstreamParticipation": {
+            "type": "BigNumber",
+            "value": "1"
+          }
+        },
+        {
+          "argonotSecuritizationMicronots": "0n",
+          "bitcoinFeeCouponValueUsed": "0n",
+          "bitcoinFeeRevenue": "0n",
+          "bitcoinLocksCreated": 0,
+          "frameId": 600,
+          "securitization": "4178050000n",
+          "securitizationActivated": "1366588773n",
+          "treasuryPool": {
+            "externalCapital": "628000000n",
+            "totalEarnings": "68942819n",
+            "vaultCapital": "0n",
+            "vaultEarnings": "68942819n"
+          },
+          "upstreamParticipation": {
+            "type": "BigNumber",
+            "value": "1"
+          }
+        },
+        {
+          "argonotSecuritizationMicronots": "0n",
+          "bitcoinFeeCouponValueUsed": "0n",
+          "bitcoinFeeRevenue": "0n",
+          "bitcoinLocksCreated": 0,
+          "frameId": 599,
+          "securitization": "4178050000n",
+          "securitizationActivated": "1366588773n",
+          "treasuryPool": {
+            "externalCapital": "628000000n",
+            "totalEarnings": "104868198n",
+            "vaultCapital": "0n",
+            "vaultEarnings": "104868198n"
+          },
+          "upstreamParticipation": {
+            "type": "BigNumber",
+            "value": "1"
+          }
+        },
+        {
+          "argonotSecuritizationMicronots": "0n",
+          "bitcoinFeeCouponValueUsed": "0n",
+          "bitcoinFeeRevenue": "0n",
+          "bitcoinLocksCreated": 0,
+          "frameId": 598,
+          "securitization": "4178050000n",
+          "securitizationActivated": "1366588773n",
+          "treasuryPool": {
+            "externalCapital": "628000000n",
+            "totalEarnings": "18892441n",
+            "vaultCapital": "0n",
+            "vaultEarnings": "18892441n"
+          },
+          "upstreamParticipation": {
+            "type": "BigNumber",
+            "value": "1"
+          }
+        },
+        {
+          "bitcoinFeeCouponValueUsed": "0n",
+          "bitcoinFeeRevenue": "0n",
+          "bitcoinLocksCreated": 0,
+          "frameId": 597,
+          "securitization": "4178050000n",
+          "securitizationActivated": "1366588773n",
+          "treasuryPool": {
+            "externalCapital": "0n",
+            "flexibleBondEarnings": "627512n",
+            "totalEarnings": "16087499n",
+            "vaultCapital": "628000000n",
+            "vaultEarnings": "6275123n"
+          }
+        },
         {
           "bitcoinFeeCouponValueUsed": "0n",
           "bitcoinFeeRevenue": "0n",
@@ -46752,6 +48221,96 @@
       },
       "changesByFrame": [
         {
+          "argonotSecuritizationMicronots": "5636018818n",
+          "bitcoinFeeCouponValueUsed": "0n",
+          "bitcoinFeeRevenue": "0n",
+          "bitcoinLocksCreated": 0,
+          "frameId": 601,
+          "securitization": "5530000000n",
+          "securitizationActivated": "5208350379n",
+          "treasuryPool": {
+            "externalCapital": "5141000000n",
+            "totalEarnings": "180565042n",
+            "vaultCapital": "0n",
+            "vaultEarnings": "180565042n"
+          },
+          "upstreamParticipation": {
+            "type": "BigNumber",
+            "value": "1"
+          }
+        },
+        {
+          "argonotSecuritizationMicronots": "5636018818n",
+          "bitcoinFeeCouponValueUsed": "0n",
+          "bitcoinFeeRevenue": "0n",
+          "bitcoinLocksCreated": 0,
+          "frameId": 600,
+          "securitization": "5530000000n",
+          "securitizationActivated": "5208350379n",
+          "treasuryPool": {
+            "externalCapital": "5141000000n",
+            "totalEarnings": "270409842n",
+            "vaultCapital": "0n",
+            "vaultEarnings": "270409842n"
+          },
+          "upstreamParticipation": {
+            "type": "BigNumber",
+            "value": "1"
+          }
+        },
+        {
+          "argonotSecuritizationMicronots": "5636018818n",
+          "bitcoinFeeCouponValueUsed": "0n",
+          "bitcoinFeeRevenue": "0n",
+          "bitcoinLocksCreated": 0,
+          "frameId": 599,
+          "securitization": "5530000000n",
+          "securitizationActivated": "5208350379n",
+          "treasuryPool": {
+            "externalCapital": "5141000000n",
+            "totalEarnings": "415242396n",
+            "vaultCapital": "0n",
+            "vaultEarnings": "415242396n"
+          },
+          "upstreamParticipation": {
+            "type": "BigNumber",
+            "value": "1"
+          }
+        },
+        {
+          "argonotSecuritizationMicronots": "2894758142n",
+          "bitcoinFeeCouponValueUsed": "0n",
+          "bitcoinFeeRevenue": "0n",
+          "bitcoinLocksCreated": 0,
+          "frameId": 598,
+          "securitization": "5530000000n",
+          "securitizationActivated": "5208350379n",
+          "treasuryPool": {
+            "externalCapital": "5141000000n",
+            "totalEarnings": "74807642n",
+            "vaultCapital": "0n",
+            "vaultEarnings": "74807642n"
+          },
+          "upstreamParticipation": {
+            "type": "BigNumber",
+            "value": "1"
+          }
+        },
+        {
+          "bitcoinFeeCouponValueUsed": "0n",
+          "bitcoinFeeRevenue": "0n",
+          "bitcoinLocksCreated": 0,
+          "frameId": 597,
+          "securitization": "5530000000n",
+          "securitizationActivated": "5208350379n",
+          "treasuryPool": {
+            "externalCapital": "5141000000n",
+            "totalEarnings": "131697261n",
+            "vaultCapital": "0n",
+            "vaultEarnings": "115736003n"
+          }
+        },
+        {
           "bitcoinFeeCouponValueUsed": "0n",
           "bitcoinFeeRevenue": "0n",
           "bitcoinLocksCreated": 0,
@@ -50107,6 +51666,97 @@
       },
       "changesByFrame": [
         {
+          "argonotSecuritizationMicronots": "0n",
+          "bitcoinFeeCouponValueUsed": "0n",
+          "bitcoinFeeRevenue": "0n",
+          "bitcoinLocksCreated": 0,
+          "frameId": 601,
+          "securitization": "2384109206n",
+          "securitizationActivated": "1653879859n",
+          "treasuryPool": {
+            "externalCapital": "2384000000n",
+            "totalEarnings": "58164152n",
+            "vaultCapital": "0n",
+            "vaultEarnings": "58164152n"
+          },
+          "upstreamParticipation": {
+            "type": "BigNumber",
+            "value": "1"
+          }
+        },
+        {
+          "argonotSecuritizationMicronots": "0n",
+          "bitcoinFeeCouponValueUsed": "0n",
+          "bitcoinFeeRevenue": "0n",
+          "bitcoinLocksCreated": 0,
+          "frameId": 600,
+          "securitization": "2384109206n",
+          "securitizationActivated": "1653879859n",
+          "treasuryPool": {
+            "externalCapital": "2384000000n",
+            "totalEarnings": "87936392n",
+            "vaultCapital": "0n",
+            "vaultEarnings": "87936392n"
+          },
+          "upstreamParticipation": {
+            "type": "BigNumber",
+            "value": "1"
+          }
+        },
+        {
+          "argonotSecuritizationMicronots": "0n",
+          "bitcoinFeeCouponValueUsed": "0n",
+          "bitcoinFeeRevenue": "0n",
+          "bitcoinLocksCreated": 0,
+          "frameId": 599,
+          "securitization": "2384109206n",
+          "securitizationActivated": "1653879859n",
+          "treasuryPool": {
+            "externalCapital": "2384000000n",
+            "totalEarnings": "133759123n",
+            "vaultCapital": "0n",
+            "vaultEarnings": "133759123n"
+          },
+          "upstreamParticipation": {
+            "type": "BigNumber",
+            "value": "1"
+          }
+        },
+        {
+          "argonotSecuritizationMicronots": "0n",
+          "bitcoinFeeCouponValueUsed": "0n",
+          "bitcoinFeeRevenue": "0n",
+          "bitcoinLocksCreated": 0,
+          "frameId": 598,
+          "securitization": "2384109206n",
+          "securitizationActivated": "1653879859n",
+          "treasuryPool": {
+            "externalCapital": "2384000000n",
+            "totalEarnings": "24097261n",
+            "vaultCapital": "0n",
+            "vaultEarnings": "24097261n"
+          },
+          "upstreamParticipation": {
+            "type": "BigNumber",
+            "value": "1"
+          }
+        },
+        {
+          "bitcoinFeeCouponValueUsed": "0n",
+          "bitcoinFeeRevenue": "0n",
+          "bitcoinLocksCreated": 0,
+          "frameId": 597,
+          "securitization": "2384109206n",
+          "securitizationActivated": "1653879859n",
+          "treasuryPool": {
+            "externalCapital": "350000000n",
+            "flexibleBondEarnings": "3332777n",
+            "totalEarnings": "42293748n",
+            "vaultCapital": "1301000000n",
+            "vaultEarnings": "41397151n"
+          }
+        },
+        {
           "bitcoinFeeCouponValueUsed": "0n",
           "bitcoinFeeRevenue": "0n",
           "bitcoinLocksCreated": 0,
@@ -52864,6 +54514,96 @@
       },
       "changesByFrame": [
         {
+          "argonotSecuritizationMicronots": "0n",
+          "bitcoinFeeCouponValueUsed": "0n",
+          "bitcoinFeeRevenue": "0n",
+          "bitcoinLocksCreated": 0,
+          "frameId": 601,
+          "securitization": "14000000000n",
+          "securitizationActivated": "13221107202n",
+          "treasuryPool": {
+            "externalCapital": "14000000000n",
+            "totalEarnings": "461507678n",
+            "vaultCapital": "0n",
+            "vaultEarnings": "461507678n"
+          },
+          "upstreamParticipation": {
+            "type": "BigNumber",
+            "value": "1"
+          }
+        },
+        {
+          "argonotSecuritizationMicronots": "0n",
+          "bitcoinFeeCouponValueUsed": "0n",
+          "bitcoinFeeRevenue": "0n",
+          "bitcoinLocksCreated": 0,
+          "frameId": 600,
+          "securitization": "14000000000n",
+          "securitizationActivated": "13221107202n",
+          "treasuryPool": {
+            "externalCapital": "14000000000n",
+            "totalEarnings": "683378189n",
+            "vaultCapital": "0n",
+            "vaultEarnings": "683378189n"
+          },
+          "upstreamParticipation": {
+            "type": "BigNumber",
+            "value": "1"
+          }
+        },
+        {
+          "argonotSecuritizationMicronots": "0n",
+          "bitcoinFeeCouponValueUsed": "0n",
+          "bitcoinFeeRevenue": "21329520n",
+          "bitcoinLocksCreated": 1,
+          "frameId": 599,
+          "securitization": "14000000000n",
+          "securitizationActivated": "13221107202n",
+          "treasuryPool": {
+            "externalCapital": "13554000000n",
+            "totalEarnings": "998443620n",
+            "vaultCapital": "0n",
+            "vaultEarnings": "998443620n"
+          },
+          "upstreamParticipation": {
+            "type": "BigNumber",
+            "value": "0.975"
+          }
+        },
+        {
+          "argonotSecuritizationMicronots": "0n",
+          "bitcoinFeeCouponValueUsed": "0n",
+          "bitcoinFeeRevenue": "0n",
+          "bitcoinLocksCreated": 0,
+          "frameId": 598,
+          "securitization": "14000000000n",
+          "securitizationActivated": "12780444116n",
+          "treasuryPool": {
+            "externalCapital": "13554000000n",
+            "totalEarnings": "184384236n",
+            "vaultCapital": "0n",
+            "vaultEarnings": "184384236n"
+          },
+          "upstreamParticipation": {
+            "type": "BigNumber",
+            "value": "1"
+          }
+        },
+        {
+          "bitcoinFeeCouponValueUsed": "0n",
+          "bitcoinFeeRevenue": "0n",
+          "bitcoinLocksCreated": 0,
+          "frameId": 597,
+          "securitization": "14000000000n",
+          "securitizationActivated": "12780444116n",
+          "treasuryPool": {
+            "externalCapital": "13140000000n",
+            "totalEarnings": "336608065n",
+            "vaultCapital": "0n",
+            "vaultEarnings": "302947259n"
+          }
+        },
+        {
           "bitcoinFeeCouponValueUsed": "0n",
           "bitcoinFeeRevenue": "0n",
           "bitcoinLocksCreated": 0,
@@ -53964,6 +55704,97 @@
         "feeRevenue": "0n"
       },
       "changesByFrame": [
+        {
+          "argonotSecuritizationMicronots": "0n",
+          "bitcoinFeeCouponValueUsed": "0n",
+          "bitcoinFeeRevenue": "0n",
+          "bitcoinLocksCreated": 0,
+          "frameId": 601,
+          "securitization": "7059000000n",
+          "securitizationActivated": "7058999520n",
+          "treasuryPool": {
+            "externalCapital": "7059000000n",
+            "totalEarnings": "246101980n",
+            "vaultCapital": "0n",
+            "vaultEarnings": "246101980n"
+          },
+          "upstreamParticipation": {
+            "type": "BigNumber",
+            "value": "0.999911316288298158"
+          }
+        },
+        {
+          "argonotSecuritizationMicronots": "0n",
+          "bitcoinFeeCouponValueUsed": "0n",
+          "bitcoinFeeRevenue": "0n",
+          "bitcoinLocksCreated": 0,
+          "frameId": 600,
+          "securitization": "7059000000n",
+          "securitizationActivated": "7058999520n",
+          "treasuryPool": {
+            "externalCapital": "7059000000n",
+            "totalEarnings": "348600495n",
+            "vaultCapital": "0n",
+            "vaultEarnings": "348600495n"
+          },
+          "upstreamParticipation": {
+            "type": "BigNumber",
+            "value": "0.999946789772978894"
+          }
+        },
+        {
+          "argonotSecuritizationMicronots": "0n",
+          "bitcoinFeeCouponValueUsed": "4710621n",
+          "bitcoinFeeRevenue": "4710621n",
+          "bitcoinLocksCreated": 1,
+          "frameId": 599,
+          "securitization": "7059000000n",
+          "securitizationActivated": "7058999520n",
+          "treasuryPool": {
+            "externalCapital": "7046000000n",
+            "totalEarnings": "524839660n",
+            "vaultCapital": "0n",
+            "vaultEarnings": "524839660n"
+          },
+          "upstreamParticipation": {
+            "type": "BigNumber",
+            "value": "0.957739938080495356"
+          }
+        },
+        {
+          "argonotSecuritizationMicronots": "0n",
+          "bitcoinFeeCouponValueUsed": "0n",
+          "bitcoinFeeRevenue": "0n",
+          "bitcoinLocksCreated": 0,
+          "frameId": 598,
+          "securitization": "7046000000n",
+          "securitizationActivated": "7038084974n",
+          "treasuryPool": {
+            "externalCapital": "7046000000n",
+            "totalEarnings": "97456248n",
+            "vaultCapital": "0n",
+            "vaultEarnings": "97456248n"
+          },
+          "upstreamParticipation": {
+            "type": "BigNumber",
+            "value": "0.957739938080495356"
+          }
+        },
+        {
+          "bitcoinFeeCouponValueUsed": "0n",
+          "bitcoinFeeRevenue": "0n",
+          "bitcoinLocksCreated": 0,
+          "frameId": 597,
+          "securitization": "7046000000n",
+          "securitizationActivated": "7038084974n",
+          "treasuryPool": {
+            "externalCapital": "5049000000n",
+            "flexibleBondEarnings": "5142470n",
+            "totalEarnings": "180830765n",
+            "vaultCapital": "2010000000n",
+            "vaultEarnings": "167682925n"
+          }
+        },
         {
           "bitcoinFeeCouponValueUsed": "0n",
           "bitcoinFeeRevenue": "0n",
@@ -55090,6 +56921,97 @@
       },
       "changesByFrame": [
         {
+          "argonotSecuritizationMicronots": "5000000n",
+          "bitcoinFeeCouponValueUsed": "0n",
+          "bitcoinFeeRevenue": "0n",
+          "bitcoinLocksCreated": 0,
+          "frameId": 601,
+          "securitization": "23500000000n",
+          "securitizationActivated": "19699885601n",
+          "treasuryPool": {
+            "externalCapital": "23500000000n",
+            "totalEarnings": "531792942n",
+            "vaultCapital": "0n",
+            "vaultEarnings": "531792942n"
+          },
+          "upstreamParticipation": {
+            "type": "BigNumber",
+            "value": "0.765855052475"
+          }
+        },
+        {
+          "argonotSecuritizationMicronots": "5000000n",
+          "bitcoinFeeCouponValueUsed": "0n",
+          "bitcoinFeeRevenue": "0n",
+          "bitcoinLocksCreated": 0,
+          "frameId": 600,
+          "securitization": "23500000000n",
+          "securitizationActivated": "19699885601n",
+          "treasuryPool": {
+            "externalCapital": "23500000000n",
+            "totalEarnings": "899351892n",
+            "vaultCapital": "0n",
+            "vaultEarnings": "899351892n"
+          },
+          "upstreamParticipation": {
+            "type": "BigNumber",
+            "value": "0.859513031485"
+          }
+        },
+        {
+          "argonotSecuritizationMicronots": "5000000n",
+          "bitcoinFeeCouponValueUsed": "0n",
+          "bitcoinFeeRevenue": "0n",
+          "bitcoinLocksCreated": 0,
+          "frameId": 599,
+          "securitization": "23500000000n",
+          "securitizationActivated": "19699885601n",
+          "treasuryPool": {
+            "externalCapital": "23500000000n",
+            "totalEarnings": "1513034134n",
+            "vaultCapital": "0n",
+            "vaultEarnings": "1513034134n"
+          },
+          "upstreamParticipation": {
+            "type": "BigNumber",
+            "value": "0.953171010495"
+          }
+        },
+        {
+          "argonotSecuritizationMicronots": "5000000n",
+          "bitcoinFeeCouponValueUsed": "0n",
+          "bitcoinFeeRevenue": "0n",
+          "bitcoinLocksCreated": 0,
+          "frameId": 598,
+          "securitization": "23500000000n",
+          "securitizationActivated": "19699885601n",
+          "treasuryPool": {
+            "externalCapital": "23490000000n",
+            "totalEarnings": "272568066n",
+            "vaultCapital": "0n",
+            "vaultEarnings": "272568066n"
+          },
+          "upstreamParticipation": {
+            "type": "BigNumber",
+            "value": "0.953171010495"
+          }
+        },
+        {
+          "bitcoinFeeCouponValueUsed": "0n",
+          "bitcoinFeeRevenue": "0n",
+          "bitcoinLocksCreated": 0,
+          "frameId": 597,
+          "securitization": "23500000000n",
+          "securitizationActivated": "19699885601n",
+          "treasuryPool": {
+            "externalCapital": "11669000000n",
+            "flexibleBondEarnings": "22732570n",
+            "totalEarnings": "526251101n",
+            "vaultCapital": "8874000000n",
+            "vaultEarnings": "496358564n"
+          }
+        },
+        {
           "bitcoinFeeCouponValueUsed": "0n",
           "bitcoinFeeRevenue": "0n",
           "bitcoinLocksCreated": 0,
@@ -56179,6 +58101,97 @@
       },
       "changesByFrame": [
         {
+          "argonotSecuritizationMicronots": "0n",
+          "bitcoinFeeCouponValueUsed": "0n",
+          "bitcoinFeeRevenue": "0n",
+          "bitcoinLocksCreated": 0,
+          "frameId": 601,
+          "securitization": "45030000000n",
+          "securitizationActivated": "36966840491n",
+          "treasuryPool": {
+            "externalCapital": "45030000000n",
+            "totalEarnings": "978511922n",
+            "vaultCapital": "0n",
+            "vaultEarnings": "978511922n"
+          },
+          "upstreamParticipation": {
+            "type": "BigNumber",
+            "value": "0.75"
+          }
+        },
+        {
+          "argonotSecuritizationMicronots": "0n",
+          "bitcoinFeeCouponValueUsed": "0n",
+          "bitcoinFeeRevenue": "0n",
+          "bitcoinLocksCreated": 0,
+          "frameId": 600,
+          "securitization": "45030000000n",
+          "securitizationActivated": "36966840491n",
+          "treasuryPool": {
+            "externalCapital": "41623000000n",
+            "totalEarnings": "1658277738n",
+            "vaultCapital": "0n",
+            "vaultEarnings": "1658277738n"
+          },
+          "upstreamParticipation": {
+            "type": "BigNumber",
+            "value": "0.85"
+          }
+        },
+        {
+          "argonotSecuritizationMicronots": "0n",
+          "bitcoinFeeCouponValueUsed": "0n",
+          "bitcoinFeeRevenue": "0n",
+          "bitcoinLocksCreated": 0,
+          "frameId": 599,
+          "securitization": "45030000000n",
+          "securitizationActivated": "36970066634n",
+          "treasuryPool": {
+            "externalCapital": "41623000000n",
+            "totalEarnings": "2810811524n",
+            "vaultCapital": "0n",
+            "vaultEarnings": "2810811524n"
+          },
+          "upstreamParticipation": {
+            "type": "BigNumber",
+            "value": "0.95"
+          }
+        },
+        {
+          "argonotSecuritizationMicronots": "0n",
+          "bitcoinFeeCouponValueUsed": "0n",
+          "bitcoinFeeRevenue": "0n",
+          "bitcoinLocksCreated": 0,
+          "frameId": 598,
+          "securitization": "45030000000n",
+          "securitizationActivated": "36970066634n",
+          "treasuryPool": {
+            "externalCapital": "36703000000n",
+            "totalEarnings": "500944877n",
+            "vaultCapital": "0n",
+            "vaultEarnings": "500944877n"
+          },
+          "upstreamParticipation": {
+            "type": "BigNumber",
+            "value": "0.95"
+          }
+        },
+        {
+          "bitcoinFeeCouponValueUsed": "0n",
+          "bitcoinFeeRevenue": "0n",
+          "bitcoinLocksCreated": 0,
+          "frameId": 597,
+          "securitization": "45030000000n",
+          "securitizationActivated": "36970066634n",
+          "treasuryPool": {
+            "externalCapital": "20915000000n",
+            "flexibleBondEarnings": "79949562n",
+            "totalEarnings": "940222669n",
+            "vaultCapital": "15788000000n",
+            "vaultEarnings": "823397456n"
+          }
+        },
+        {
           "bitcoinFeeCouponValueUsed": "0n",
           "bitcoinFeeRevenue": "0n",
           "bitcoinLocksCreated": 0,
@@ -57133,6 +59146,96 @@
         "feeRevenue": "0n"
       },
       "changesByFrame": [
+        {
+          "argonotSecuritizationMicronots": "0n",
+          "bitcoinFeeCouponValueUsed": "0n",
+          "bitcoinFeeRevenue": "0n",
+          "bitcoinLocksCreated": 0,
+          "frameId": 601,
+          "securitization": "7000000000n",
+          "securitizationActivated": "6570012014n",
+          "treasuryPool": {
+            "externalCapital": "7000000000n",
+            "totalEarnings": "173222409n",
+            "vaultCapital": "0n",
+            "vaultEarnings": "173222409n"
+          },
+          "upstreamParticipation": {
+            "type": "BigNumber",
+            "value": "0.75"
+          }
+        },
+        {
+          "argonotSecuritizationMicronots": "0n",
+          "bitcoinFeeCouponValueUsed": "0n",
+          "bitcoinFeeRevenue": "0n",
+          "bitcoinLocksCreated": 0,
+          "frameId": 600,
+          "securitization": "7000000000n",
+          "securitizationActivated": "6570012014n",
+          "treasuryPool": {
+            "externalCapital": "6509000000n",
+            "totalEarnings": "293818506n",
+            "vaultCapital": "0n",
+            "vaultEarnings": "293818506n"
+          },
+          "upstreamParticipation": {
+            "type": "BigNumber",
+            "value": "0.85"
+          }
+        },
+        {
+          "argonotSecuritizationMicronots": "0n",
+          "bitcoinFeeCouponValueUsed": "0n",
+          "bitcoinFeeRevenue": "0n",
+          "bitcoinLocksCreated": 0,
+          "frameId": 599,
+          "securitization": "7000000000n",
+          "securitizationActivated": "6570012014n",
+          "treasuryPool": {
+            "externalCapital": "6509000000n",
+            "totalEarnings": "498208814n",
+            "vaultCapital": "0n",
+            "vaultEarnings": "498208814n"
+          },
+          "upstreamParticipation": {
+            "type": "BigNumber",
+            "value": "0.95"
+          }
+        },
+        {
+          "argonotSecuritizationMicronots": "0n",
+          "bitcoinFeeCouponValueUsed": "0n",
+          "bitcoinFeeRevenue": "0n",
+          "bitcoinLocksCreated": 0,
+          "frameId": 598,
+          "securitization": "7000000000n",
+          "securitizationActivated": "6570012014n",
+          "treasuryPool": {
+            "externalCapital": "6509000000n",
+            "totalEarnings": "89754386n",
+            "vaultCapital": "0n",
+            "vaultEarnings": "89754386n"
+          },
+          "upstreamParticipation": {
+            "type": "BigNumber",
+            "value": "0.95"
+          }
+        },
+        {
+          "bitcoinFeeCouponValueUsed": "0n",
+          "bitcoinFeeRevenue": "0n",
+          "bitcoinLocksCreated": 0,
+          "frameId": 597,
+          "securitization": "7000000000n",
+          "securitizationActivated": "6570012014n",
+          "treasuryPool": {
+            "externalCapital": "6509000000n",
+            "totalEarnings": "166741393n",
+            "vaultCapital": "0n",
+            "vaultEarnings": "148945984n"
+          }
+        },
         {
           "bitcoinFeeCouponValueUsed": "0n",
           "bitcoinFeeRevenue": "0n",
@@ -58151,6 +60254,96 @@
       },
       "changesByFrame": [
         {
+          "argonotSecuritizationMicronots": "0n",
+          "bitcoinFeeCouponValueUsed": "0n",
+          "bitcoinFeeRevenue": "0n",
+          "bitcoinLocksCreated": 0,
+          "frameId": 601,
+          "securitization": "5300000000n",
+          "securitizationActivated": "5298161677n",
+          "treasuryPool": {
+            "externalCapital": "5381000000n",
+            "totalEarnings": "184725824n",
+            "vaultCapital": "0n",
+            "vaultEarnings": "184725824n"
+          },
+          "upstreamParticipation": {
+            "type": "BigNumber",
+            "value": "0.999975891732039182"
+          }
+        },
+        {
+          "argonotSecuritizationMicronots": "0n",
+          "bitcoinFeeCouponValueUsed": "0n",
+          "bitcoinFeeRevenue": "0n",
+          "bitcoinLocksCreated": 0,
+          "frameId": 600,
+          "securitization": "5300000000n",
+          "securitizationActivated": "5298161677n",
+          "treasuryPool": {
+            "externalCapital": "5381000000n",
+            "totalEarnings": "258333872n",
+            "vaultCapital": "0n",
+            "vaultEarnings": "258333872n"
+          },
+          "upstreamParticipation": {
+            "type": "BigNumber",
+            "value": "0.999985535039223509"
+          }
+        },
+        {
+          "argonotSecuritizationMicronots": "0n",
+          "bitcoinFeeCouponValueUsed": "0n",
+          "bitcoinFeeRevenue": "0n",
+          "bitcoinLocksCreated": 0,
+          "frameId": 599,
+          "securitization": "5300000000n",
+          "securitizationActivated": "5298161677n",
+          "treasuryPool": {
+            "externalCapital": "5381000000n",
+            "totalEarnings": "395633378n",
+            "vaultCapital": "0n",
+            "vaultEarnings": "395633378n"
+          },
+          "upstreamParticipation": {
+            "type": "BigNumber",
+            "value": "0.97206661868065189"
+          }
+        },
+        {
+          "argonotSecuritizationMicronots": "0n",
+          "bitcoinFeeCouponValueUsed": "0n",
+          "bitcoinFeeRevenue": "0n",
+          "bitcoinLocksCreated": 0,
+          "frameId": 598,
+          "securitization": "5300000000n",
+          "securitizationActivated": "5298161677n",
+          "treasuryPool": {
+            "externalCapital": "5381000000n",
+            "totalEarnings": "74437352n",
+            "vaultCapital": "0n",
+            "vaultEarnings": "74437352n"
+          },
+          "upstreamParticipation": {
+            "type": "BigNumber",
+            "value": "0.97206661868065189"
+          }
+        },
+        {
+          "bitcoinFeeCouponValueUsed": "0n",
+          "bitcoinFeeRevenue": "0n",
+          "bitcoinLocksCreated": 0,
+          "frameId": 597,
+          "securitization": "5300000000n",
+          "securitizationActivated": "5298161677n",
+          "treasuryPool": {
+            "externalCapital": "5381000000n",
+            "totalEarnings": "137845358n",
+            "vaultCapital": "0n",
+            "vaultEarnings": "124014728n"
+          }
+        },
+        {
           "bitcoinFeeCouponValueUsed": "0n",
           "bitcoinFeeRevenue": "0n",
           "bitcoinLocksCreated": 0,
@@ -59166,7 +61359,27 @@
         "bitcoinLocks": 0,
         "feeRevenue": "0n"
       },
-      "changesByFrame": [],
+      "changesByFrame": [
+        {
+          "argonotSecuritizationMicronots": "0n",
+          "bitcoinFeeCouponValueUsed": "0n",
+          "bitcoinFeeRevenue": "0n",
+          "bitcoinLocksCreated": 0,
+          "frameId": 598,
+          "securitization": "0n",
+          "securitizationActivated": "0n",
+          "treasuryPool": {
+            "externalCapital": "0n",
+            "totalEarnings": "566476n",
+            "vaultCapital": "0n",
+            "vaultEarnings": "566476n"
+          },
+          "upstreamParticipation": {
+            "type": "BigNumber",
+            "value": "0.953515425324014791"
+          }
+        }
+      ],
       "openedTick": 29770839
     },
     "32": {
@@ -59175,6 +61388,97 @@
         "feeRevenue": "0n"
       },
       "changesByFrame": [
+        {
+          "argonotSecuritizationMicronots": "200000000n",
+          "bitcoinFeeCouponValueUsed": "0n",
+          "bitcoinFeeRevenue": "0n",
+          "bitcoinLocksCreated": 0,
+          "frameId": 601,
+          "securitization": "2000000000n",
+          "securitizationActivated": "1999139737n",
+          "treasuryPool": {
+            "externalCapital": "1999000000n",
+            "totalEarnings": "49225817n",
+            "vaultCapital": "0n",
+            "vaultEarnings": "49225817n"
+          },
+          "upstreamParticipation": {
+            "type": "BigNumber",
+            "value": "0.75"
+          }
+        },
+        {
+          "argonotSecuritizationMicronots": "200000000n",
+          "bitcoinFeeCouponValueUsed": "0n",
+          "bitcoinFeeRevenue": "0n",
+          "bitcoinLocksCreated": 0,
+          "frameId": 600,
+          "securitization": "2000000000n",
+          "securitizationActivated": "1999139737n",
+          "treasuryPool": {
+            "externalCapital": "1999000000n",
+            "totalEarnings": "76680145n",
+            "vaultCapital": "0n",
+            "vaultEarnings": "76680145n"
+          },
+          "upstreamParticipation": {
+            "type": "BigNumber",
+            "value": "0.85"
+          }
+        },
+        {
+          "argonotSecuritizationMicronots": "200000000n",
+          "bitcoinFeeCouponValueUsed": "0n",
+          "bitcoinFeeRevenue": "0n",
+          "bitcoinLocksCreated": 0,
+          "frameId": 599,
+          "securitization": "2000000000n",
+          "securitizationActivated": "1999139737n",
+          "treasuryPool": {
+            "externalCapital": "1999000000n",
+            "totalEarnings": "135278652n",
+            "vaultCapital": "0n",
+            "vaultEarnings": "135278652n"
+          },
+          "upstreamParticipation": {
+            "type": "BigNumber",
+            "value": "0.95"
+          }
+        },
+        {
+          "argonotSecuritizationMicronots": "200000000n",
+          "bitcoinFeeCouponValueUsed": "0n",
+          "bitcoinFeeRevenue": "0n",
+          "bitcoinLocksCreated": 0,
+          "frameId": 598,
+          "securitization": "2000000000n",
+          "securitizationActivated": "1999139737n",
+          "treasuryPool": {
+            "externalCapital": "1999000000n",
+            "totalEarnings": "25818968n",
+            "vaultCapital": "0n",
+            "vaultEarnings": "25818968n"
+          },
+          "upstreamParticipation": {
+            "type": "BigNumber",
+            "value": "0.95"
+          }
+        },
+        {
+          "bitcoinFeeCouponValueUsed": "0n",
+          "bitcoinFeeRevenue": "0n",
+          "bitcoinLocksCreated": 0,
+          "frameId": 597,
+          "securitization": "2000000000n",
+          "securitizationActivated": "1999139737n",
+          "treasuryPool": {
+            "externalCapital": "0n",
+            "flexibleBondEarnings": "4717315n",
+            "totalEarnings": "51208479n",
+            "vaultCapital": "1999000000n",
+            "vaultEarnings": "47173156n"
+          }
+        },
         {
           "bitcoinFeeCouponValueUsed": "0n",
           "bitcoinFeeRevenue": "0n",
@@ -59979,6 +62283,96 @@
       },
       "changesByFrame": [
         {
+          "argonotSecuritizationMicronots": "0n",
+          "bitcoinFeeCouponValueUsed": "0n",
+          "bitcoinFeeRevenue": "0n",
+          "bitcoinLocksCreated": 0,
+          "frameId": 601,
+          "securitization": "2000000000n",
+          "securitizationActivated": "1052698425n",
+          "treasuryPool": {
+            "externalCapital": "1000000000n",
+            "totalEarnings": "27633507n",
+            "vaultCapital": "0n",
+            "vaultEarnings": "27633507n"
+          },
+          "upstreamParticipation": {
+            "type": "BigNumber",
+            "value": "0.768351510067114094"
+          }
+        },
+        {
+          "argonotSecuritizationMicronots": "0n",
+          "bitcoinFeeCouponValueUsed": "0n",
+          "bitcoinFeeRevenue": "0n",
+          "bitcoinLocksCreated": 0,
+          "frameId": 600,
+          "securitization": "2000000000n",
+          "securitizationActivated": "1052698425n",
+          "treasuryPool": {
+            "externalCapital": "1000000000n",
+            "totalEarnings": "46567100n",
+            "vaultCapital": "0n",
+            "vaultEarnings": "46567100n"
+          },
+          "upstreamParticipation": {
+            "type": "BigNumber",
+            "value": "0.861010906040268456"
+          }
+        },
+        {
+          "argonotSecuritizationMicronots": "0n",
+          "bitcoinFeeCouponValueUsed": "0n",
+          "bitcoinFeeRevenue": "0n",
+          "bitcoinLocksCreated": 0,
+          "frameId": 599,
+          "securitization": "2000000000n",
+          "securitizationActivated": "1052698425n",
+          "treasuryPool": {
+            "externalCapital": "1000000000n",
+            "totalEarnings": "78117140n",
+            "vaultCapital": "0n",
+            "vaultEarnings": "78117140n"
+          },
+          "upstreamParticipation": {
+            "type": "BigNumber",
+            "value": "0.953670302013422818"
+          }
+        },
+        {
+          "argonotSecuritizationMicronots": "0n",
+          "bitcoinFeeCouponValueUsed": "0n",
+          "bitcoinFeeRevenue": "0n",
+          "bitcoinLocksCreated": 0,
+          "frameId": 598,
+          "securitization": "2000000000n",
+          "securitizationActivated": "1052698425n",
+          "treasuryPool": {
+            "externalCapital": "1000000000n",
+            "totalEarnings": "14073127n",
+            "vaultCapital": "0n",
+            "vaultEarnings": "14073127n"
+          },
+          "upstreamParticipation": {
+            "type": "BigNumber",
+            "value": "0.953670302013422818"
+          }
+        },
+        {
+          "bitcoinFeeCouponValueUsed": "0n",
+          "bitcoinFeeRevenue": "0n",
+          "bitcoinLocksCreated": 0,
+          "frameId": 597,
+          "securitization": "2000000000n",
+          "securitizationActivated": "1052698425n",
+          "treasuryPool": {
+            "externalCapital": "1000000000n",
+            "totalEarnings": "25617050n",
+            "vaultCapital": "0n",
+            "vaultEarnings": "20511873n"
+          }
+        },
+        {
           "bitcoinFeeCouponValueUsed": "0n",
           "bitcoinFeeRevenue": "0n",
           "bitcoinLocksCreated": 0,
@@ -60533,6 +62927,96 @@
         "feeRevenue": "0n"
       },
       "changesByFrame": [
+        {
+          "argonotSecuritizationMicronots": "0n",
+          "bitcoinFeeCouponValueUsed": "0n",
+          "bitcoinFeeRevenue": "0n",
+          "bitcoinLocksCreated": 0,
+          "frameId": 601,
+          "securitization": "11979843725n",
+          "securitizationActivated": "10733780652n",
+          "treasuryPool": {
+            "externalCapital": "10695000000n",
+            "totalEarnings": "284052755n",
+            "vaultCapital": "0n",
+            "vaultEarnings": "284052755n"
+          },
+          "upstreamParticipation": {
+            "type": "BigNumber",
+            "value": "0.76"
+          }
+        },
+        {
+          "argonotSecuritizationMicronots": "0n",
+          "bitcoinFeeCouponValueUsed": "0n",
+          "bitcoinFeeRevenue": "0n",
+          "bitcoinLocksCreated": 0,
+          "frameId": 600,
+          "securitization": "11979843725n",
+          "securitizationActivated": "10733780652n",
+          "treasuryPool": {
+            "externalCapital": "10695000000n",
+            "totalEarnings": "473670281n",
+            "vaultCapital": "0n",
+            "vaultEarnings": "473670281n"
+          },
+          "upstreamParticipation": {
+            "type": "BigNumber",
+            "value": "0.856"
+          }
+        },
+        {
+          "argonotSecuritizationMicronots": "0n",
+          "bitcoinFeeCouponValueUsed": "0n",
+          "bitcoinFeeRevenue": "0n",
+          "bitcoinLocksCreated": 0,
+          "frameId": 599,
+          "securitization": "11479843725n",
+          "securitizationActivated": "10733780652n",
+          "treasuryPool": {
+            "externalCapital": "10695000000n",
+            "totalEarnings": "805001407n",
+            "vaultCapital": "0n",
+            "vaultEarnings": "805001407n"
+          },
+          "upstreamParticipation": {
+            "type": "BigNumber",
+            "value": "0.95"
+          }
+        },
+        {
+          "argonotSecuritizationMicronots": "0n",
+          "bitcoinFeeCouponValueUsed": "0n",
+          "bitcoinFeeRevenue": "0n",
+          "bitcoinLocksCreated": 0,
+          "frameId": 598,
+          "securitization": "11200000000n",
+          "securitizationActivated": "10733780652n",
+          "treasuryPool": {
+            "externalCapital": "10695000000n",
+            "totalEarnings": "146931428n",
+            "vaultCapital": "0n",
+            "vaultEarnings": "146931428n"
+          },
+          "upstreamParticipation": {
+            "type": "BigNumber",
+            "value": "0.95"
+          }
+        },
+        {
+          "bitcoinFeeCouponValueUsed": "0n",
+          "bitcoinFeeRevenue": "0n",
+          "bitcoinLocksCreated": 0,
+          "frameId": 597,
+          "securitization": "11200000000n",
+          "securitizationActivated": "10733780652n",
+          "treasuryPool": {
+            "externalCapital": "10695000000n",
+            "totalEarnings": "273974367n",
+            "vaultCapital": "0n",
+            "vaultEarnings": "204928650n"
+          }
+        },
         {
           "bitcoinFeeCouponValueUsed": "0n",
           "bitcoinFeeRevenue": "0n",
@@ -61313,6 +63797,97 @@
       },
       "changesByFrame": [
         {
+          "argonotSecuritizationMicronots": "0n",
+          "bitcoinFeeCouponValueUsed": "0n",
+          "bitcoinFeeRevenue": "0n",
+          "bitcoinLocksCreated": 0,
+          "frameId": 601,
+          "securitization": "2000000000n",
+          "securitizationActivated": "1313307977n",
+          "treasuryPool": {
+            "externalCapital": "618000000n",
+            "totalEarnings": "32710307n",
+            "vaultCapital": "0n",
+            "vaultEarnings": "32710307n"
+          },
+          "upstreamParticipation": {
+            "type": "BigNumber",
+            "value": "0.75"
+          }
+        },
+        {
+          "argonotSecuritizationMicronots": "0n",
+          "bitcoinFeeCouponValueUsed": "0n",
+          "bitcoinFeeRevenue": "0n",
+          "bitcoinLocksCreated": 0,
+          "frameId": 600,
+          "securitization": "2000000000n",
+          "securitizationActivated": "1313307977n",
+          "treasuryPool": {
+            "externalCapital": "618000000n",
+            "totalEarnings": "55771782n",
+            "vaultCapital": "0n",
+            "vaultEarnings": "55771782n"
+          },
+          "upstreamParticipation": {
+            "type": "BigNumber",
+            "value": "0.85"
+          }
+        },
+        {
+          "argonotSecuritizationMicronots": "0n",
+          "bitcoinFeeCouponValueUsed": "0n",
+          "bitcoinFeeRevenue": "0n",
+          "bitcoinLocksCreated": 0,
+          "frameId": 599,
+          "securitization": "2000000000n",
+          "securitizationActivated": "1313307977n",
+          "treasuryPool": {
+            "externalCapital": "618000000n",
+            "totalEarnings": "94444398n",
+            "vaultCapital": "0n",
+            "vaultEarnings": "94444398n"
+          },
+          "upstreamParticipation": {
+            "type": "BigNumber",
+            "value": "0.95"
+          }
+        },
+        {
+          "argonotSecuritizationMicronots": "0n",
+          "bitcoinFeeCouponValueUsed": "0n",
+          "bitcoinFeeRevenue": "0n",
+          "bitcoinLocksCreated": 0,
+          "frameId": 598,
+          "securitization": "2000000000n",
+          "securitizationActivated": "1313307977n",
+          "treasuryPool": {
+            "externalCapital": "618000000n",
+            "totalEarnings": "17014550n",
+            "vaultCapital": "0n",
+            "vaultEarnings": "17014550n"
+          },
+          "upstreamParticipation": {
+            "type": "BigNumber",
+            "value": "0.95"
+          }
+        },
+        {
+          "bitcoinFeeCouponValueUsed": "0n",
+          "bitcoinFeeRevenue": "0n",
+          "bitcoinLocksCreated": 0,
+          "frameId": 597,
+          "securitization": "2000000000n",
+          "securitizationActivated": "1313307977n",
+          "treasuryPool": {
+            "externalCapital": "0n",
+            "flexibleBondEarnings": "734516n",
+            "totalEarnings": "15831334n",
+            "vaultCapital": "618000000n",
+            "vaultEarnings": "7345168n"
+          }
+        },
+        {
           "bitcoinFeeCouponValueUsed": "0n",
           "bitcoinFeeRevenue": "0n",
           "bitcoinLocksCreated": 0,
@@ -61888,6 +64463,97 @@
         "feeRevenue": "0n"
       },
       "changesByFrame": [
+        {
+          "argonotSecuritizationMicronots": "0n",
+          "bitcoinFeeCouponValueUsed": "0n",
+          "bitcoinFeeRevenue": "0n",
+          "bitcoinLocksCreated": 0,
+          "frameId": 601,
+          "securitization": "2065164705n",
+          "securitizationActivated": "1988338023n",
+          "treasuryPool": {
+            "externalCapital": "1955000000n",
+            "totalEarnings": "52115388n",
+            "vaultCapital": "0n",
+            "vaultEarnings": "52115388n"
+          },
+          "upstreamParticipation": {
+            "type": "BigNumber",
+            "value": "0.75"
+          }
+        },
+        {
+          "argonotSecuritizationMicronots": "0n",
+          "bitcoinFeeCouponValueUsed": "0n",
+          "bitcoinFeeRevenue": "0n",
+          "bitcoinLocksCreated": 0,
+          "frameId": 600,
+          "securitization": "2065164705n",
+          "securitizationActivated": "1988338023n",
+          "treasuryPool": {
+            "externalCapital": "1955000000n",
+            "totalEarnings": "85415158n",
+            "vaultCapital": "0n",
+            "vaultEarnings": "85415158n"
+          },
+          "upstreamParticipation": {
+            "type": "BigNumber",
+            "value": "0.85"
+          }
+        },
+        {
+          "argonotSecuritizationMicronots": "0n",
+          "bitcoinFeeCouponValueUsed": "0n",
+          "bitcoinFeeRevenue": "0n",
+          "bitcoinLocksCreated": 0,
+          "frameId": 599,
+          "securitization": "2065164705n",
+          "securitizationActivated": "1988338023n",
+          "treasuryPool": {
+            "externalCapital": "1955000000n",
+            "totalEarnings": "149738544n",
+            "vaultCapital": "0n",
+            "vaultEarnings": "149738544n"
+          },
+          "upstreamParticipation": {
+            "type": "BigNumber",
+            "value": "0.95"
+          }
+        },
+        {
+          "argonotSecuritizationMicronots": "0n",
+          "bitcoinFeeCouponValueUsed": "0n",
+          "bitcoinFeeRevenue": "0n",
+          "bitcoinLocksCreated": 0,
+          "frameId": 598,
+          "securitization": "2065164705n",
+          "securitizationActivated": "1988338023n",
+          "treasuryPool": {
+            "externalCapital": "1955000000n",
+            "totalEarnings": "27246841n",
+            "vaultCapital": "0n",
+            "vaultEarnings": "27246841n"
+          },
+          "upstreamParticipation": {
+            "type": "BigNumber",
+            "value": "0.95"
+          }
+        },
+        {
+          "bitcoinFeeCouponValueUsed": "0n",
+          "bitcoinFeeRevenue": "0n",
+          "bitcoinLocksCreated": 0,
+          "frameId": 597,
+          "securitization": "2010000000n",
+          "securitizationActivated": "1988338023n",
+          "treasuryPool": {
+            "externalCapital": "1755000000n",
+            "flexibleBondEarnings": "494386n",
+            "totalEarnings": "50081327n",
+            "vaultCapital": "200000000n",
+            "vaultEarnings": "47302875n"
+          }
+        },
         {
           "bitcoinFeeCouponValueUsed": "0n",
           "bitcoinFeeRevenue": "0n",
@@ -62537,6 +65203,82 @@
       },
       "changesByFrame": [
         {
+          "argonotSecuritizationMicronots": "0n",
+          "bitcoinFeeCouponValueUsed": "0n",
+          "bitcoinFeeRevenue": "0n",
+          "bitcoinLocksCreated": 0,
+          "frameId": 601,
+          "securitization": "5252926035n",
+          "securitizationActivated": "0n",
+          "treasuryPool": {
+            "externalCapital": "0n",
+            "totalEarnings": "3591210n",
+            "vaultCapital": "0n",
+            "vaultEarnings": "3591210n"
+          },
+          "upstreamParticipation": {
+            "type": "BigNumber",
+            "value": "0.7650000107"
+          }
+        },
+        {
+          "argonotSecuritizationMicronots": "0n",
+          "bitcoinFeeCouponValueUsed": "0n",
+          "bitcoinFeeRevenue": "0n",
+          "bitcoinLocksCreated": 0,
+          "frameId": 600,
+          "securitization": "5252926035n",
+          "securitizationActivated": "0n",
+          "treasuryPool": {
+            "externalCapital": "0n",
+            "totalEarnings": "5429427n",
+            "vaultCapital": "0n",
+            "vaultEarnings": "5429427n"
+          },
+          "upstreamParticipation": {
+            "type": "BigNumber",
+            "value": "0.85900000642"
+          }
+        },
+        {
+          "argonotSecuritizationMicronots": "0n",
+          "bitcoinFeeCouponValueUsed": "0n",
+          "bitcoinFeeRevenue": "0n",
+          "bitcoinLocksCreated": 0,
+          "frameId": 599,
+          "securitization": "5252926035n",
+          "securitizationActivated": "0n",
+          "treasuryPool": {
+            "externalCapital": "0n",
+            "totalEarnings": "8258645n",
+            "vaultCapital": "0n",
+            "vaultEarnings": "8258645n"
+          },
+          "upstreamParticipation": {
+            "type": "BigNumber",
+            "value": "0.95300000214"
+          }
+        },
+        {
+          "argonotSecuritizationMicronots": "0n",
+          "bitcoinFeeCouponValueUsed": "0n",
+          "bitcoinFeeRevenue": "0n",
+          "bitcoinLocksCreated": 0,
+          "frameId": 598,
+          "securitization": "5252926035n",
+          "securitizationActivated": "0n",
+          "treasuryPool": {
+            "externalCapital": "0n",
+            "totalEarnings": "1487829n",
+            "vaultCapital": "0n",
+            "vaultEarnings": "1487829n"
+          },
+          "upstreamParticipation": {
+            "type": "BigNumber",
+            "value": "0.95300000214"
+          }
+        },
+        {
           "bitcoinFeeCouponValueUsed": "2000000n",
           "bitcoinFeeRevenue": "2000000n",
           "bitcoinLocksCreated": 1,
@@ -62629,6 +65371,96 @@
         "feeRevenue": "0n"
       },
       "changesByFrame": [
+        {
+          "argonotSecuritizationMicronots": "0n",
+          "bitcoinFeeCouponValueUsed": "0n",
+          "bitcoinFeeRevenue": "0n",
+          "bitcoinLocksCreated": 0,
+          "frameId": 601,
+          "securitization": "2200000000n",
+          "securitizationActivated": "2173876665n",
+          "treasuryPool": {
+            "externalCapital": "2120000000n",
+            "totalEarnings": "75517553n",
+            "vaultCapital": "0n",
+            "vaultEarnings": "75517553n"
+          },
+          "upstreamParticipation": {
+            "type": "BigNumber",
+            "value": "0.999651562450468202"
+          }
+        },
+        {
+          "argonotSecuritizationMicronots": "0n",
+          "bitcoinFeeCouponValueUsed": "0n",
+          "bitcoinFeeRevenue": "0n",
+          "bitcoinLocksCreated": 0,
+          "frameId": 600,
+          "securitization": "2200000000n",
+          "securitizationActivated": "2173876665n",
+          "treasuryPool": {
+            "externalCapital": "2120000000n",
+            "totalEarnings": "110162473n",
+            "vaultCapital": "0n",
+            "vaultEarnings": "110162473n"
+          },
+          "upstreamParticipation": {
+            "type": "BigNumber",
+            "value": "0.999790937470280921"
+          }
+        },
+        {
+          "argonotSecuritizationMicronots": "0n",
+          "bitcoinFeeCouponValueUsed": "0n",
+          "bitcoinFeeRevenue": "0n",
+          "bitcoinLocksCreated": 0,
+          "frameId": 599,
+          "securitization": "2200000000n",
+          "securitizationActivated": "2173876665n",
+          "treasuryPool": {
+            "externalCapital": "2120000000n",
+            "totalEarnings": "173083204n",
+            "vaultCapital": "0n",
+            "vaultEarnings": "173083204n"
+          },
+          "upstreamParticipation": {
+            "type": "BigNumber",
+            "value": "0.99993031249009364"
+          }
+        },
+        {
+          "argonotSecuritizationMicronots": "0n",
+          "bitcoinFeeCouponValueUsed": "0n",
+          "bitcoinFeeRevenue": "0n",
+          "bitcoinLocksCreated": 0,
+          "frameId": 598,
+          "securitization": "2200000000n",
+          "securitizationActivated": "2173876665n",
+          "treasuryPool": {
+            "externalCapital": "2120000000n",
+            "totalEarnings": "31295282n",
+            "vaultCapital": "0n",
+            "vaultEarnings": "31295282n"
+          },
+          "upstreamParticipation": {
+            "type": "BigNumber",
+            "value": "0.99993031249009364"
+          }
+        },
+        {
+          "bitcoinFeeCouponValueUsed": "0n",
+          "bitcoinFeeRevenue": "0n",
+          "bitcoinLocksCreated": 0,
+          "frameId": 597,
+          "securitization": "2200000000n",
+          "securitizationActivated": "2173876665n",
+          "treasuryPool": {
+            "externalCapital": "2120000000n",
+            "totalEarnings": "54308145n",
+            "vaultCapital": "0n",
+            "vaultEarnings": "48217748n"
+          }
+        },
         {
           "bitcoinFeeCouponValueUsed": "0n",
           "bitcoinFeeRevenue": "0n",
@@ -63184,6 +66016,96 @@
         "feeRevenue": "0n"
       },
       "changesByFrame": [
+        {
+          "argonotSecuritizationMicronots": "0n",
+          "bitcoinFeeCouponValueUsed": "0n",
+          "bitcoinFeeRevenue": "0n",
+          "bitcoinLocksCreated": 0,
+          "frameId": 601,
+          "securitization": "4000000000n",
+          "securitizationActivated": "3981448599n",
+          "treasuryPool": {
+            "externalCapital": "3940000000n",
+            "totalEarnings": "138628149n",
+            "vaultCapital": "0n",
+            "vaultEarnings": "138628149n"
+          },
+          "upstreamParticipation": {
+            "type": "BigNumber",
+            "value": "1"
+          }
+        },
+        {
+          "argonotSecuritizationMicronots": "0n",
+          "bitcoinFeeCouponValueUsed": "0n",
+          "bitcoinFeeRevenue": "0n",
+          "bitcoinLocksCreated": 0,
+          "frameId": 600,
+          "securitization": "4000000000n",
+          "securitizationActivated": "3981448599n",
+          "treasuryPool": {
+            "externalCapital": "3940000000n",
+            "totalEarnings": "181378642n",
+            "vaultCapital": "0n",
+            "vaultEarnings": "181378642n"
+          },
+          "upstreamParticipation": {
+            "type": "BigNumber",
+            "value": "0.925"
+          }
+        },
+        {
+          "argonotSecuritizationMicronots": "0n",
+          "bitcoinFeeCouponValueUsed": "0n",
+          "bitcoinFeeRevenue": "0n",
+          "bitcoinLocksCreated": 0,
+          "frameId": 599,
+          "securitization": "4000000000n",
+          "securitizationActivated": "3981448599n",
+          "treasuryPool": {
+            "externalCapital": "3940000000n",
+            "totalEarnings": "292978491n",
+            "vaultCapital": "0n",
+            "vaultEarnings": "292978491n"
+          },
+          "upstreamParticipation": {
+            "type": "BigNumber",
+            "value": "0.95"
+          }
+        },
+        {
+          "argonotSecuritizationMicronots": "0n",
+          "bitcoinFeeCouponValueUsed": "0n",
+          "bitcoinFeeRevenue": "0n",
+          "bitcoinLocksCreated": 0,
+          "frameId": 598,
+          "securitization": "4000000000n",
+          "securitizationActivated": "3981448599n",
+          "treasuryPool": {
+            "externalCapital": "3940000000n",
+            "totalEarnings": "54618275n",
+            "vaultCapital": "0n",
+            "vaultEarnings": "54618275n"
+          },
+          "upstreamParticipation": {
+            "type": "BigNumber",
+            "value": "0.95"
+          }
+        },
+        {
+          "bitcoinFeeCouponValueUsed": "0n",
+          "bitcoinFeeRevenue": "0n",
+          "bitcoinLocksCreated": 0,
+          "frameId": 597,
+          "securitization": "4000000000n",
+          "securitizationActivated": "3981448599n",
+          "treasuryPool": {
+            "externalCapital": "3940000000n",
+            "totalEarnings": "100931181n",
+            "vaultCapital": "0n",
+            "vaultEarnings": "90379398n"
+          }
+        },
         {
           "bitcoinFeeCouponValueUsed": "0n",
           "bitcoinFeeRevenue": "0n",
@@ -63747,6 +66669,97 @@
       },
       "changesByFrame": [
         {
+          "argonotSecuritizationMicronots": "0n",
+          "bitcoinFeeCouponValueUsed": "0n",
+          "bitcoinFeeRevenue": "0n",
+          "bitcoinLocksCreated": 0,
+          "frameId": 601,
+          "securitization": "2088993087n",
+          "securitizationActivated": "1944201703n",
+          "treasuryPool": {
+            "externalCapital": "2088000000n",
+            "totalEarnings": "51269702n",
+            "vaultCapital": "0n",
+            "vaultEarnings": "51269702n"
+          },
+          "upstreamParticipation": {
+            "type": "BigNumber",
+            "value": "0.75"
+          }
+        },
+        {
+          "argonotSecuritizationMicronots": "0n",
+          "bitcoinFeeCouponValueUsed": "0n",
+          "bitcoinFeeRevenue": "0n",
+          "bitcoinLocksCreated": 0,
+          "frameId": 600,
+          "securitization": "2088993087n",
+          "securitizationActivated": "1944201703n",
+          "treasuryPool": {
+            "externalCapital": "2088000000n",
+            "totalEarnings": "83599630n",
+            "vaultCapital": "0n",
+            "vaultEarnings": "83599630n"
+          },
+          "upstreamParticipation": {
+            "type": "BigNumber",
+            "value": "0.85"
+          }
+        },
+        {
+          "argonotSecuritizationMicronots": "0n",
+          "bitcoinFeeCouponValueUsed": "0n",
+          "bitcoinFeeRevenue": "0n",
+          "bitcoinLocksCreated": 0,
+          "frameId": 599,
+          "securitization": "2088993087n",
+          "securitizationActivated": "1944201703n",
+          "treasuryPool": {
+            "externalCapital": "2000000000n",
+            "totalEarnings": "139967514n",
+            "vaultCapital": "0n",
+            "vaultEarnings": "139967514n"
+          },
+          "upstreamParticipation": {
+            "type": "BigNumber",
+            "value": "0.95"
+          }
+        },
+        {
+          "argonotSecuritizationMicronots": "0n",
+          "bitcoinFeeCouponValueUsed": "0n",
+          "bitcoinFeeRevenue": "0n",
+          "bitcoinLocksCreated": 0,
+          "frameId": 598,
+          "securitization": "2000000000n",
+          "securitizationActivated": "1944201703n",
+          "treasuryPool": {
+            "externalCapital": "2000000000n",
+            "totalEarnings": "26587362n",
+            "vaultCapital": "0n",
+            "vaultEarnings": "26587362n"
+          },
+          "upstreamParticipation": {
+            "type": "BigNumber",
+            "value": "0.95"
+          }
+        },
+        {
+          "bitcoinFeeCouponValueUsed": "28956667n",
+          "bitcoinFeeRevenue": "28956667n",
+          "bitcoinLocksCreated": 0,
+          "frameId": 597,
+          "securitization": "2000000000n",
+          "securitizationActivated": "1944201703n",
+          "treasuryPool": {
+            "externalCapital": "1135000000n",
+            "flexibleBondEarnings": "135769n",
+            "totalEarnings": "30433056n",
+            "vaultCapital": "53000000n",
+            "vaultEarnings": "27525520n"
+          }
+        },
+        {
           "bitcoinFeeCouponValueUsed": "0n",
           "bitcoinFeeRevenue": "0n",
           "bitcoinLocksCreated": 0,
@@ -64309,6 +67322,96 @@
       },
       "changesByFrame": [
         {
+          "argonotSecuritizationMicronots": "0n",
+          "bitcoinFeeCouponValueUsed": "25500215n",
+          "bitcoinFeeRevenue": "25500215n",
+          "bitcoinLocksCreated": 1,
+          "frameId": 601,
+          "securitization": "5636897590n",
+          "securitizationActivated": "5602506732n",
+          "treasuryPool": {
+            "externalCapital": "4830000000n",
+            "totalEarnings": "162817958n",
+            "vaultCapital": "0n",
+            "vaultEarnings": "162817958n"
+          },
+          "upstreamParticipation": {
+            "type": "BigNumber",
+            "value": "0.949278963093375154"
+          }
+        },
+        {
+          "argonotSecuritizationMicronots": "0n",
+          "bitcoinFeeCouponValueUsed": "0n",
+          "bitcoinFeeRevenue": "0n",
+          "bitcoinLocksCreated": 0,
+          "frameId": 600,
+          "securitization": "5636897590n",
+          "securitizationActivated": "4970015080n",
+          "treasuryPool": {
+            "externalCapital": "4830000000n",
+            "totalEarnings": "223801468n",
+            "vaultCapital": "0n",
+            "vaultEarnings": "223801468n"
+          },
+          "upstreamParticipation": {
+            "type": "BigNumber",
+            "value": "0.916275047899440432"
+          }
+        },
+        {
+          "argonotSecuritizationMicronots": "0n",
+          "bitcoinFeeCouponValueUsed": "2000000n",
+          "bitcoinFeeRevenue": "2000000n",
+          "bitcoinLocksCreated": 1,
+          "frameId": 599,
+          "securitization": "5000000000n",
+          "securitizationActivated": "4970015080n",
+          "treasuryPool": {
+            "externalCapital": "4830000000n",
+            "totalEarnings": "373194713n",
+            "vaultCapital": "0n",
+            "vaultEarnings": "373194713n"
+          },
+          "upstreamParticipation": {
+            "type": "BigNumber",
+            "value": "0.97209168263314681"
+          }
+        },
+        {
+          "argonotSecuritizationMicronots": "0n",
+          "bitcoinFeeCouponValueUsed": "0n",
+          "bitcoinFeeRevenue": "0n",
+          "bitcoinLocksCreated": 0,
+          "frameId": 598,
+          "securitization": "5000000000n",
+          "securitizationActivated": "4970015080n",
+          "treasuryPool": {
+            "externalCapital": "4830000000n",
+            "totalEarnings": "69604144n",
+            "vaultCapital": "0n",
+            "vaultEarnings": "69604144n"
+          },
+          "upstreamParticipation": {
+            "type": "BigNumber",
+            "value": "0.97209168263314681"
+          }
+        },
+        {
+          "bitcoinFeeCouponValueUsed": "0n",
+          "bitcoinFeeRevenue": "0n",
+          "bitcoinLocksCreated": 0,
+          "frameId": 597,
+          "securitization": "5000000000n",
+          "securitizationActivated": "4970015080n",
+          "treasuryPool": {
+            "externalCapital": "4830000000n",
+            "totalEarnings": "123730354n",
+            "vaultCapital": "0n",
+            "vaultEarnings": "106802194n"
+          }
+        },
+        {
           "bitcoinFeeCouponValueUsed": "0n",
           "bitcoinFeeRevenue": "0n",
           "bitcoinLocksCreated": 0,
@@ -64836,6 +67939,96 @@
       },
       "changesByFrame": [
         {
+          "argonotSecuritizationMicronots": "0n",
+          "bitcoinFeeCouponValueUsed": "0n",
+          "bitcoinFeeRevenue": "0n",
+          "bitcoinLocksCreated": 0,
+          "frameId": 601,
+          "securitization": "7950000000n",
+          "securitizationActivated": "7853060062n",
+          "treasuryPool": {
+            "externalCapital": "7783000000n",
+            "totalEarnings": "273311957n",
+            "vaultCapital": "0n",
+            "vaultEarnings": "273311957n"
+          },
+          "upstreamParticipation": {
+            "type": "BigNumber",
+            "value": "1"
+          }
+        },
+        {
+          "argonotSecuritizationMicronots": "0n",
+          "bitcoinFeeCouponValueUsed": "0n",
+          "bitcoinFeeRevenue": "0n",
+          "bitcoinLocksCreated": 0,
+          "frameId": 600,
+          "securitization": "7950000000n",
+          "securitizationActivated": "7853060062n",
+          "treasuryPool": {
+            "externalCapital": "7783000000n",
+            "totalEarnings": "360237562n",
+            "vaultCapital": "0n",
+            "vaultEarnings": "360237562n"
+          },
+          "upstreamParticipation": {
+            "type": "BigNumber",
+            "value": "0.925"
+          }
+        },
+        {
+          "argonotSecuritizationMicronots": "0n",
+          "bitcoinFeeCouponValueUsed": "0n",
+          "bitcoinFeeRevenue": "0n",
+          "bitcoinLocksCreated": 0,
+          "frameId": 599,
+          "securitization": "7950000000n",
+          "securitizationActivated": "7853060062n",
+          "treasuryPool": {
+            "externalCapital": "7783000000n",
+            "totalEarnings": "581752726n",
+            "vaultCapital": "0n",
+            "vaultEarnings": "581752726n"
+          },
+          "upstreamParticipation": {
+            "type": "BigNumber",
+            "value": "0.95"
+          }
+        },
+        {
+          "argonotSecuritizationMicronots": "0n",
+          "bitcoinFeeCouponValueUsed": "0n",
+          "bitcoinFeeRevenue": "0n",
+          "bitcoinLocksCreated": 0,
+          "frameId": 598,
+          "securitization": "7950000000n",
+          "securitizationActivated": "7853060062n",
+          "treasuryPool": {
+            "externalCapital": "7783000000n",
+            "totalEarnings": "107683419n",
+            "vaultCapital": "0n",
+            "vaultEarnings": "107683419n"
+          },
+          "upstreamParticipation": {
+            "type": "BigNumber",
+            "value": "0.95"
+          }
+        },
+        {
+          "bitcoinFeeCouponValueUsed": "0n",
+          "bitcoinFeeRevenue": "0n",
+          "bitcoinLocksCreated": 0,
+          "frameId": 597,
+          "securitization": "7950000000n",
+          "securitizationActivated": "7853060062n",
+          "treasuryPool": {
+            "externalCapital": "7783000000n",
+            "totalEarnings": "199377517n",
+            "vaultCapital": "0n",
+            "vaultEarnings": "175714605n"
+          }
+        },
+        {
           "bitcoinFeeCouponValueUsed": "0n",
           "bitcoinFeeRevenue": "0n",
           "bitcoinLocksCreated": 0,
@@ -65357,6 +68550,96 @@
       },
       "changesByFrame": [
         {
+          "argonotSecuritizationMicronots": "0n",
+          "bitcoinFeeCouponValueUsed": "0n",
+          "bitcoinFeeRevenue": "0n",
+          "bitcoinLocksCreated": 0,
+          "frameId": 601,
+          "securitization": "12100000000n",
+          "securitizationActivated": "11099754372n",
+          "treasuryPool": {
+            "externalCapital": "8700000000n",
+            "totalEarnings": "306607498n",
+            "vaultCapital": "0n",
+            "vaultEarnings": "306607498n"
+          },
+          "upstreamParticipation": {
+            "type": "BigNumber",
+            "value": "0.80902076341444808"
+          }
+        },
+        {
+          "argonotSecuritizationMicronots": "0n",
+          "bitcoinFeeCouponValueUsed": "0n",
+          "bitcoinFeeRevenue": "0n",
+          "bitcoinLocksCreated": 0,
+          "frameId": 600,
+          "securitization": "12100000000n",
+          "securitizationActivated": "11099754372n",
+          "treasuryPool": {
+            "externalCapital": "8700000000n",
+            "totalEarnings": "497142837n",
+            "vaultCapital": "0n",
+            "vaultEarnings": "497142837n"
+          },
+          "upstreamParticipation": {
+            "type": "BigNumber",
+            "value": "0.899713222960839536"
+          }
+        },
+        {
+          "argonotSecuritizationMicronots": "0n",
+          "bitcoinFeeCouponValueUsed": "0n",
+          "bitcoinFeeRevenue": "0n",
+          "bitcoinLocksCreated": 0,
+          "frameId": 599,
+          "securitization": "11350000000n",
+          "securitizationActivated": "11099754372n",
+          "treasuryPool": {
+            "externalCapital": "8700000000n",
+            "totalEarnings": "842120240n",
+            "vaultCapital": "0n",
+            "vaultEarnings": "842120240n"
+          },
+          "upstreamParticipation": {
+            "type": "BigNumber",
+            "value": "0.971503127184459162"
+          }
+        },
+        {
+          "argonotSecuritizationMicronots": "0n",
+          "bitcoinFeeCouponValueUsed": "0n",
+          "bitcoinFeeRevenue": "0n",
+          "bitcoinLocksCreated": 0,
+          "frameId": 598,
+          "securitization": "11350000000n",
+          "securitizationActivated": "11099754372n",
+          "treasuryPool": {
+            "externalCapital": "8700000000n",
+            "totalEarnings": "152363375n",
+            "vaultCapital": "0n",
+            "vaultEarnings": "152363375n"
+          },
+          "upstreamParticipation": {
+            "type": "BigNumber",
+            "value": "0.971503127184459162"
+          }
+        },
+        {
+          "bitcoinFeeCouponValueUsed": "0n",
+          "bitcoinFeeRevenue": "0n",
+          "bitcoinLocksCreated": 0,
+          "frameId": 597,
+          "securitization": "11350000000n",
+          "securitizationActivated": "11099754372n",
+          "treasuryPool": {
+            "externalCapital": "8700000000n",
+            "totalEarnings": "222868348n",
+            "vaultCapital": "0n",
+            "vaultEarnings": "149020739n"
+          }
+        },
+        {
           "bitcoinFeeCouponValueUsed": "0n",
           "bitcoinFeeRevenue": "0n",
           "bitcoinLocksCreated": 0,
@@ -65770,7 +69053,84 @@
         "bitcoinLocks": 0,
         "feeRevenue": "0n"
       },
-      "changesByFrame": [],
+      "changesByFrame": [
+        {
+          "argonotSecuritizationMicronots": "0n",
+          "bitcoinFeeCouponValueUsed": "0n",
+          "bitcoinFeeRevenue": "0n",
+          "bitcoinLocksCreated": 0,
+          "frameId": 601,
+          "securitization": "2500000000n",
+          "securitizationActivated": "0n",
+          "treasuryPool": {
+            "externalCapital": "0n",
+            "totalEarnings": "1709147n",
+            "vaultCapital": "0n",
+            "vaultEarnings": "1709147n"
+          },
+          "upstreamParticipation": {
+            "type": "BigNumber",
+            "value": "0.7904817361875"
+          }
+        },
+        {
+          "argonotSecuritizationMicronots": "0n",
+          "bitcoinFeeCouponValueUsed": "0n",
+          "bitcoinFeeRevenue": "0n",
+          "bitcoinLocksCreated": 0,
+          "frameId": 600,
+          "securitization": "2500000000n",
+          "securitizationActivated": "0n",
+          "treasuryPool": {
+            "externalCapital": "0n",
+            "totalEarnings": "2584001n",
+            "vaultCapital": "0n",
+            "vaultEarnings": "2584001n"
+          },
+          "upstreamParticipation": {
+            "type": "BigNumber",
+            "value": "0.8742890417125"
+          }
+        },
+        {
+          "argonotSecuritizationMicronots": "0n",
+          "bitcoinFeeCouponValueUsed": "0n",
+          "bitcoinFeeRevenue": "0n",
+          "bitcoinLocksCreated": 0,
+          "frameId": 599,
+          "securitization": "2500000000n",
+          "securitizationActivated": "0n",
+          "treasuryPool": {
+            "externalCapital": "0n",
+            "totalEarnings": "3930497n",
+            "vaultCapital": "0n",
+            "vaultEarnings": "3930497n"
+          },
+          "upstreamParticipation": {
+            "type": "BigNumber",
+            "value": "0.9580963472375"
+          }
+        },
+        {
+          "argonotSecuritizationMicronots": "0n",
+          "bitcoinFeeCouponValueUsed": "0n",
+          "bitcoinFeeRevenue": "0n",
+          "bitcoinLocksCreated": 0,
+          "frameId": 598,
+          "securitization": "2500000000n",
+          "securitizationActivated": "0n",
+          "treasuryPool": {
+            "externalCapital": "0n",
+            "totalEarnings": "708095n",
+            "vaultCapital": "0n",
+            "vaultEarnings": "708095n"
+          },
+          "upstreamParticipation": {
+            "type": "BigNumber",
+            "value": "0.9580963472375"
+          }
+        }
+      ],
       "openedTick": 29836463
     },
     "46": {
@@ -65778,7 +69138,84 @@
         "bitcoinLocks": 0,
         "feeRevenue": "0n"
       },
-      "changesByFrame": [],
+      "changesByFrame": [
+        {
+          "argonotSecuritizationMicronots": "0n",
+          "bitcoinFeeCouponValueUsed": "0n",
+          "bitcoinFeeRevenue": "0n",
+          "bitcoinLocksCreated": 0,
+          "frameId": 601,
+          "securitization": "2000000000n",
+          "securitizationActivated": "0n",
+          "treasuryPool": {
+            "externalCapital": "0n",
+            "totalEarnings": "1367318n",
+            "vaultCapital": "0n",
+            "vaultEarnings": "1367318n"
+          },
+          "upstreamParticipation": {
+            "type": "BigNumber",
+            "value": "0.780875014825"
+          }
+        },
+        {
+          "argonotSecuritizationMicronots": "0n",
+          "bitcoinFeeCouponValueUsed": "0n",
+          "bitcoinFeeRevenue": "0n",
+          "bitcoinLocksCreated": 0,
+          "frameId": 600,
+          "securitization": "2000000000n",
+          "securitizationActivated": "0n",
+          "treasuryPool": {
+            "externalCapital": "0n",
+            "totalEarnings": "2067201n",
+            "vaultCapital": "0n",
+            "vaultEarnings": "2067201n"
+          },
+          "upstreamParticipation": {
+            "type": "BigNumber",
+            "value": "0.868525008895"
+          }
+        },
+        {
+          "argonotSecuritizationMicronots": "0n",
+          "bitcoinFeeCouponValueUsed": "0n",
+          "bitcoinFeeRevenue": "0n",
+          "bitcoinLocksCreated": 0,
+          "frameId": 599,
+          "securitization": "2000000000n",
+          "securitizationActivated": "0n",
+          "treasuryPool": {
+            "externalCapital": "0n",
+            "totalEarnings": "3144398n",
+            "vaultCapital": "0n",
+            "vaultEarnings": "3144398n"
+          },
+          "upstreamParticipation": {
+            "type": "BigNumber",
+            "value": "0.956175002965"
+          }
+        },
+        {
+          "argonotSecuritizationMicronots": "0n",
+          "bitcoinFeeCouponValueUsed": "0n",
+          "bitcoinFeeRevenue": "0n",
+          "bitcoinLocksCreated": 0,
+          "frameId": 598,
+          "securitization": "2000000000n",
+          "securitizationActivated": "0n",
+          "treasuryPool": {
+            "externalCapital": "0n",
+            "totalEarnings": "566476n",
+            "vaultCapital": "0n",
+            "vaultEarnings": "566476n"
+          },
+          "upstreamParticipation": {
+            "type": "BigNumber",
+            "value": "0.956175002965"
+          }
+        }
+      ],
       "openedTick": 29848119
     },
     "47": {
@@ -65786,7 +69223,84 @@
         "bitcoinLocks": 0,
         "feeRevenue": "0n"
       },
-      "changesByFrame": [],
+      "changesByFrame": [
+        {
+          "argonotSecuritizationMicronots": "0n",
+          "bitcoinFeeCouponValueUsed": "0n",
+          "bitcoinFeeRevenue": "0n",
+          "bitcoinLocksCreated": 0,
+          "frameId": 601,
+          "securitization": "2000000000n",
+          "securitizationActivated": "0n",
+          "treasuryPool": {
+            "externalCapital": "0n",
+            "totalEarnings": "1367318n",
+            "vaultCapital": "0n",
+            "vaultEarnings": "1367318n"
+          },
+          "upstreamParticipation": {
+            "type": "BigNumber",
+            "value": "0.7713470309"
+          }
+        },
+        {
+          "argonotSecuritizationMicronots": "0n",
+          "bitcoinFeeCouponValueUsed": "0n",
+          "bitcoinFeeRevenue": "0n",
+          "bitcoinLocksCreated": 0,
+          "frameId": 600,
+          "securitization": "2000000000n",
+          "securitizationActivated": "0n",
+          "treasuryPool": {
+            "externalCapital": "0n",
+            "totalEarnings": "2067201n",
+            "vaultCapital": "0n",
+            "vaultEarnings": "2067201n"
+          },
+          "upstreamParticipation": {
+            "type": "BigNumber",
+            "value": "0.86280821854"
+          }
+        },
+        {
+          "argonotSecuritizationMicronots": "0n",
+          "bitcoinFeeCouponValueUsed": "0n",
+          "bitcoinFeeRevenue": "0n",
+          "bitcoinLocksCreated": 0,
+          "frameId": 599,
+          "securitization": "2000000000n",
+          "securitizationActivated": "0n",
+          "treasuryPool": {
+            "externalCapital": "0n",
+            "totalEarnings": "3144398n",
+            "vaultCapital": "0n",
+            "vaultEarnings": "3144398n"
+          },
+          "upstreamParticipation": {
+            "type": "BigNumber",
+            "value": "0.95426940618"
+          }
+        },
+        {
+          "argonotSecuritizationMicronots": "0n",
+          "bitcoinFeeCouponValueUsed": "0n",
+          "bitcoinFeeRevenue": "0n",
+          "bitcoinLocksCreated": 0,
+          "frameId": 598,
+          "securitization": "2000000000n",
+          "securitizationActivated": "0n",
+          "treasuryPool": {
+            "externalCapital": "0n",
+            "totalEarnings": "566476n",
+            "vaultCapital": "0n",
+            "vaultEarnings": "566476n"
+          },
+          "upstreamParticipation": {
+            "type": "BigNumber",
+            "value": "0.95426940618"
+          }
+        }
+      ],
       "openedTick": 29855486
     },
     "48": {
@@ -65795,6 +69309,96 @@
         "feeRevenue": "0n"
       },
       "changesByFrame": [
+        {
+          "argonotSecuritizationMicronots": "0n",
+          "bitcoinFeeCouponValueUsed": "0n",
+          "bitcoinFeeRevenue": "0n",
+          "bitcoinLocksCreated": 0,
+          "frameId": 601,
+          "securitization": "2764992381n",
+          "securitizationActivated": "2345398294n",
+          "treasuryPool": {
+            "externalCapital": "999000000n",
+            "totalEarnings": "62062265n",
+            "vaultCapital": "0n",
+            "vaultEarnings": "62062265n"
+          },
+          "upstreamParticipation": {
+            "type": "BigNumber",
+            "value": "0.80173650065"
+          }
+        },
+        {
+          "argonotSecuritizationMicronots": "0n",
+          "bitcoinFeeCouponValueUsed": "0n",
+          "bitcoinFeeRevenue": "0n",
+          "bitcoinLocksCreated": 0,
+          "frameId": 600,
+          "securitization": "2764992381n",
+          "securitizationActivated": "2345398294n",
+          "treasuryPool": {
+            "externalCapital": "999000000n",
+            "totalEarnings": "100732575n",
+            "vaultCapital": "0n",
+            "vaultEarnings": "100732575n"
+          },
+          "upstreamParticipation": {
+            "type": "BigNumber",
+            "value": "0.88104190039"
+          }
+        },
+        {
+          "argonotSecuritizationMicronots": "0n",
+          "bitcoinFeeCouponValueUsed": "0n",
+          "bitcoinFeeRevenue": "0n",
+          "bitcoinLocksCreated": 0,
+          "frameId": 599,
+          "securitization": "2480000000n",
+          "securitizationActivated": "2345398294n",
+          "treasuryPool": {
+            "externalCapital": "999000000n",
+            "totalEarnings": "168019798n",
+            "vaultCapital": "0n",
+            "vaultEarnings": "168019798n"
+          },
+          "upstreamParticipation": {
+            "type": "BigNumber",
+            "value": "0.96034730013"
+          }
+        },
+        {
+          "argonotSecuritizationMicronots": "0n",
+          "bitcoinFeeCouponValueUsed": "0n",
+          "bitcoinFeeRevenue": "0n",
+          "bitcoinLocksCreated": 0,
+          "frameId": 598,
+          "securitization": "2420000000n",
+          "securitizationActivated": "2345398294n",
+          "treasuryPool": {
+            "externalCapital": "999000000n",
+            "totalEarnings": "30710646n",
+            "vaultCapital": "0n",
+            "vaultEarnings": "30710646n"
+          },
+          "upstreamParticipation": {
+            "type": "BigNumber",
+            "value": "0.96034730013"
+          }
+        },
+        {
+          "bitcoinFeeCouponValueUsed": "0n",
+          "bitcoinFeeRevenue": "0n",
+          "bitcoinLocksCreated": 0,
+          "frameId": 597,
+          "securitization": "2420000000n",
+          "securitizationActivated": "2345398294n",
+          "treasuryPool": {
+            "externalCapital": "999000000n",
+            "totalEarnings": "25591428n",
+            "vaultCapital": "0n",
+            "vaultEarnings": "9631332n"
+          }
+        },
         {
           "bitcoinFeeCouponValueUsed": "0n",
           "bitcoinFeeRevenue": "0n",
@@ -65860,6 +69464,96 @@
         "feeRevenue": "0n"
       },
       "changesByFrame": [
+        {
+          "argonotSecuritizationMicronots": "0n",
+          "bitcoinFeeCouponValueUsed": "0n",
+          "bitcoinFeeRevenue": "0n",
+          "bitcoinLocksCreated": 0,
+          "frameId": 601,
+          "securitization": "2503247796n",
+          "securitizationActivated": "1999999744n",
+          "treasuryPool": {
+            "externalCapital": "2148000000n",
+            "totalEarnings": "62492888n",
+            "vaultCapital": "0n",
+            "vaultEarnings": "62492888n"
+          },
+          "upstreamParticipation": {
+            "type": "BigNumber",
+            "value": "0.901860794476746011"
+          }
+        },
+        {
+          "argonotSecuritizationMicronots": "0n",
+          "bitcoinFeeCouponValueUsed": "0n",
+          "bitcoinFeeRevenue": "0n",
+          "bitcoinLocksCreated": 0,
+          "frameId": 600,
+          "securitization": "2503247796n",
+          "securitizationActivated": "1999999744n",
+          "treasuryPool": {
+            "externalCapital": "2148000000n",
+            "totalEarnings": "98480750n",
+            "vaultCapital": "0n",
+            "vaultEarnings": "98480750n"
+          },
+          "upstreamParticipation": {
+            "type": "BigNumber",
+            "value": "0.941116476686047607"
+          }
+        },
+        {
+          "argonotSecuritizationMicronots": "0n",
+          "bitcoinFeeCouponValueUsed": "0n",
+          "bitcoinFeeRevenue": "0n",
+          "bitcoinLocksCreated": 0,
+          "frameId": 599,
+          "securitization": "2503247796n",
+          "securitizationActivated": "1999999744n",
+          "treasuryPool": {
+            "externalCapital": "1993000000n",
+            "totalEarnings": "155272158n",
+            "vaultCapital": "0n",
+            "vaultEarnings": "155272158n"
+          },
+          "upstreamParticipation": {
+            "type": "BigNumber",
+            "value": "0.980372158895349202"
+          }
+        },
+        {
+          "argonotSecuritizationMicronots": "0n",
+          "bitcoinFeeCouponValueUsed": "0n",
+          "bitcoinFeeRevenue": "0n",
+          "bitcoinLocksCreated": 0,
+          "frameId": 598,
+          "securitization": "2100000000n",
+          "securitizationActivated": "1999999744n",
+          "treasuryPool": {
+            "externalCapital": "1993000000n",
+            "totalEarnings": "28281712n",
+            "vaultCapital": "0n",
+            "vaultEarnings": "28281712n"
+          },
+          "upstreamParticipation": {
+            "type": "BigNumber",
+            "value": "0.980372158895349202"
+          }
+        },
+        {
+          "bitcoinFeeCouponValueUsed": "0n",
+          "bitcoinFeeRevenue": "0n",
+          "bitcoinLocksCreated": 0,
+          "frameId": 597,
+          "securitization": "2040000000n",
+          "securitizationActivated": "1999999744n",
+          "treasuryPool": {
+            "externalCapital": "1993000000n",
+            "totalEarnings": "51054783n",
+            "vaultCapital": "0n",
+            "vaultEarnings": "44978863n"
+          }
+        },
         {
           "bitcoinFeeCouponValueUsed": "0n",
           "bitcoinFeeRevenue": "0n",
@@ -65966,7 +69660,84 @@
         "bitcoinLocks": 0,
         "feeRevenue": "0n"
       },
-      "changesByFrame": [],
+      "changesByFrame": [
+        {
+          "argonotSecuritizationMicronots": "0n",
+          "bitcoinFeeCouponValueUsed": "0n",
+          "bitcoinFeeRevenue": "0n",
+          "bitcoinLocksCreated": 0,
+          "frameId": 601,
+          "securitization": "2000000000n",
+          "securitizationActivated": "0n",
+          "treasuryPool": {
+            "externalCapital": "0n",
+            "totalEarnings": "1367318n",
+            "vaultCapital": "0n",
+            "vaultEarnings": "1367318n"
+          },
+          "upstreamParticipation": {
+            "type": "BigNumber",
+            "value": "0.807923305775"
+          }
+        },
+        {
+          "argonotSecuritizationMicronots": "0n",
+          "bitcoinFeeCouponValueUsed": "0n",
+          "bitcoinFeeRevenue": "0n",
+          "bitcoinLocksCreated": 0,
+          "frameId": 600,
+          "securitization": "2000000000n",
+          "securitizationActivated": "0n",
+          "treasuryPool": {
+            "externalCapital": "0n",
+            "totalEarnings": "2067201n",
+            "vaultCapital": "0n",
+            "vaultEarnings": "2067201n"
+          },
+          "upstreamParticipation": {
+            "type": "BigNumber",
+            "value": "0.884753983465"
+          }
+        },
+        {
+          "argonotSecuritizationMicronots": "0n",
+          "bitcoinFeeCouponValueUsed": "0n",
+          "bitcoinFeeRevenue": "0n",
+          "bitcoinLocksCreated": 0,
+          "frameId": 599,
+          "securitization": "2000000000n",
+          "securitizationActivated": "0n",
+          "treasuryPool": {
+            "externalCapital": "0n",
+            "totalEarnings": "3144398n",
+            "vaultCapital": "0n",
+            "vaultEarnings": "3144398n"
+          },
+          "upstreamParticipation": {
+            "type": "BigNumber",
+            "value": "0.961584661155"
+          }
+        },
+        {
+          "argonotSecuritizationMicronots": "0n",
+          "bitcoinFeeCouponValueUsed": "0n",
+          "bitcoinFeeRevenue": "0n",
+          "bitcoinLocksCreated": 0,
+          "frameId": 598,
+          "securitization": "2000000000n",
+          "securitizationActivated": "0n",
+          "treasuryPool": {
+            "externalCapital": "0n",
+            "totalEarnings": "566476n",
+            "vaultCapital": "0n",
+            "vaultEarnings": "566476n"
+          },
+          "upstreamParticipation": {
+            "type": "BigNumber",
+            "value": "0.961584661155"
+          }
+        }
+      ],
       "openedTick": 29862493
     },
     "51": {
@@ -65974,7 +69745,84 @@
         "bitcoinLocks": 0,
         "feeRevenue": "0n"
       },
-      "changesByFrame": [],
+      "changesByFrame": [
+        {
+          "argonotSecuritizationMicronots": "0n",
+          "bitcoinFeeCouponValueUsed": "0n",
+          "bitcoinFeeRevenue": "0n",
+          "bitcoinLocksCreated": 0,
+          "frameId": 601,
+          "securitization": "2500654144n",
+          "securitizationActivated": "2411615742n",
+          "treasuryPool": {
+            "externalCapital": "0n",
+            "totalEarnings": "58838536n",
+            "vaultCapital": "0n",
+            "vaultEarnings": "58838536n"
+          },
+          "upstreamParticipation": {
+            "type": "BigNumber",
+            "value": "0.770009381475"
+          }
+        },
+        {
+          "argonotSecuritizationMicronots": "0n",
+          "bitcoinFeeCouponValueUsed": "83762491n",
+          "bitcoinFeeRevenue": "83762491n",
+          "bitcoinLocksCreated": 0,
+          "frameId": 600,
+          "securitization": "2500654144n",
+          "securitizationActivated": "2411615742n",
+          "treasuryPool": {
+            "externalCapital": "0n",
+            "totalEarnings": "2067201n",
+            "vaultCapital": "0n",
+            "vaultEarnings": "2067201n"
+          },
+          "upstreamParticipation": {
+            "type": "BigNumber",
+            "value": "0.86205402103"
+          }
+        },
+        {
+          "argonotSecuritizationMicronots": "0n",
+          "bitcoinFeeCouponValueUsed": "2000000n",
+          "bitcoinFeeRevenue": "2000000n",
+          "bitcoinLocksCreated": 1,
+          "frameId": 599,
+          "securitization": "2000000000n",
+          "securitizationActivated": "0n",
+          "treasuryPool": {
+            "externalCapital": "0n",
+            "totalEarnings": "3144398n",
+            "vaultCapital": "0n",
+            "vaultEarnings": "3144398n"
+          },
+          "upstreamParticipation": {
+            "type": "BigNumber",
+            "value": "0.95401800701"
+          }
+        },
+        {
+          "argonotSecuritizationMicronots": "0n",
+          "bitcoinFeeCouponValueUsed": "0n",
+          "bitcoinFeeRevenue": "0n",
+          "bitcoinLocksCreated": 0,
+          "frameId": 598,
+          "securitization": "2000000000n",
+          "securitizationActivated": "0n",
+          "treasuryPool": {
+            "externalCapital": "0n",
+            "totalEarnings": "566476n",
+            "vaultCapital": "0n",
+            "vaultEarnings": "566476n"
+          },
+          "upstreamParticipation": {
+            "type": "BigNumber",
+            "value": "0.95401800701"
+          }
+        }
+      ],
       "openedTick": 29865657
     },
     "52": {
@@ -65983,6 +69831,96 @@
         "feeRevenue": "0n"
       },
       "changesByFrame": [
+        {
+          "argonotSecuritizationMicronots": "0n",
+          "bitcoinFeeCouponValueUsed": "0n",
+          "bitcoinFeeRevenue": "0n",
+          "bitcoinLocksCreated": 0,
+          "frameId": 601,
+          "securitization": "2500000000n",
+          "securitizationActivated": "1898126704n",
+          "treasuryPool": {
+            "externalCapital": "1766000000n",
+            "totalEarnings": "51517161n",
+            "vaultCapital": "0n",
+            "vaultEarnings": "51517161n"
+          },
+          "upstreamParticipation": {
+            "type": "BigNumber",
+            "value": "0.790872175141242937"
+          }
+        },
+        {
+          "argonotSecuritizationMicronots": "0n",
+          "bitcoinFeeCouponValueUsed": "0n",
+          "bitcoinFeeRevenue": "0n",
+          "bitcoinLocksCreated": 0,
+          "frameId": 600,
+          "securitization": "2500000000n",
+          "securitizationActivated": "1898126704n",
+          "treasuryPool": {
+            "externalCapital": "1766000000n",
+            "totalEarnings": "85851892n",
+            "vaultCapital": "0n",
+            "vaultEarnings": "85851892n"
+          },
+          "upstreamParticipation": {
+            "type": "BigNumber",
+            "value": "0.874523305084745762"
+          }
+        },
+        {
+          "argonotSecuritizationMicronots": "0n",
+          "bitcoinFeeCouponValueUsed": "0n",
+          "bitcoinFeeRevenue": "0n",
+          "bitcoinLocksCreated": 0,
+          "frameId": 599,
+          "securitization": "2500000000n",
+          "securitizationActivated": "1898126704n",
+          "treasuryPool": {
+            "externalCapital": "1766000000n",
+            "totalEarnings": "142782124n",
+            "vaultCapital": "0n",
+            "vaultEarnings": "142782124n"
+          },
+          "upstreamParticipation": {
+            "type": "BigNumber",
+            "value": "0.958716114457831325"
+          }
+        },
+        {
+          "argonotSecuritizationMicronots": "0n",
+          "bitcoinFeeCouponValueUsed": "0n",
+          "bitcoinFeeRevenue": "0n",
+          "bitcoinLocksCreated": 0,
+          "frameId": 598,
+          "securitization": "2500000000n",
+          "securitizationActivated": "1898126704n",
+          "treasuryPool": {
+            "externalCapital": "1766000000n",
+            "totalEarnings": "25722792n",
+            "vaultCapital": "0n",
+            "vaultEarnings": "25722792n"
+          },
+          "upstreamParticipation": {
+            "type": "BigNumber",
+            "value": "0.958716114457831325"
+          }
+        },
+        {
+          "bitcoinFeeCouponValueUsed": "0n",
+          "bitcoinFeeRevenue": "0n",
+          "bitcoinLocksCreated": 0,
+          "frameId": 597,
+          "securitization": "2500000000n",
+          "securitizationActivated": "1898126704n",
+          "treasuryPool": {
+            "externalCapital": "1766000000n",
+            "totalEarnings": "45239709n",
+            "vaultCapital": "0n",
+            "vaultEarnings": "36518028n"
+          }
+        },
         {
           "bitcoinFeeCouponValueUsed": "0n",
           "bitcoinFeeRevenue": "0n",

@@ -10,7 +10,7 @@ import { useFinancials } from '../../src-vue/stores/financials.ts';
 import { getMainchainClient } from '../../src-vue/stores/mainchain.ts';
 import { getTransactionTracker } from '../../src-vue/stores/transactions.ts';
 import { useVaultingStats } from '../../src-vue/stores/vaultingStats.ts';
-import { getVaults } from '../../src-vue/stores/vaults.ts';
+import { getMyVault, getVaults } from '../../src-vue/stores/vaults.ts';
 import { ArgonBonds } from '../../src-vue/lib/ArgonBonds.ts';
 import { createScenarioVault } from './createScenarioVault.ts';
 import { setupAppScenario } from './setupAppScenario.ts';
@@ -93,6 +93,9 @@ export function setupBondPurchaseScenario(state: BondPurchaseState) {
         securitizationTarget: 1_026_619_959n,
       }),
     ];
+  }
+  if (myVaultId !== undefined) {
+    getMyVault().data.createdVault = vaults.find(vault => vault.vaultId === myVaultId) ?? null;
   }
   if (state === 'selection') vaults[0].bondProfitSharing = new BigNumber(0.25);
   let refresh = fn(async () => undefined);

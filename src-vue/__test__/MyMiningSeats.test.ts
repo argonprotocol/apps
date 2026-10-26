@@ -118,6 +118,8 @@ describe('MyMiningSeats', () => {
     const fetchFinancialPositions = vi.fn().mockResolvedValue([]);
     myMiningSeats.db = {
       cohortsTable: { fetchFinancialPositions },
+      cohortFramesTable: { fetchFinancialHistory: vi.fn().mockResolvedValue([]) },
+      framesTable: { state: { processedFrames: {} } },
       frameBidsTable: { fetchForFrameId: vi.fn().mockResolvedValue([]) },
     } as any;
 
@@ -148,6 +150,8 @@ describe('MyMiningSeats', () => {
     );
     myMiningSeats.db = {
       cohortsTable: { fetchFinancialPositions },
+      cohortFramesTable: { fetchFinancialHistory: vi.fn().mockResolvedValue([]) },
+      framesTable: { state: { processedFrames: {} } },
       frameBidsTable: { fetchForFrameId },
     } as any;
 
@@ -176,8 +180,11 @@ describe('MyMiningSeats', () => {
     updateMiningSeats.mockRestore();
     const cohorts = Array.from({ length: 11 }, (_, index) => createMiningCohort(index + 3));
     const fetchFinancialPositions = vi.fn().mockResolvedValue(cohorts);
+    const fetchFinancialHistory = vi.fn().mockResolvedValue([]);
     myMiningSeats.db = {
       cohortsTable: { fetchFinancialPositions },
+      cohortFramesTable: { fetchFinancialHistory },
+      framesTable: { state: { processedFrames: {} } },
       frameBidsTable: { fetchForFrameId: vi.fn().mockResolvedValue([]) },
     } as any;
 
@@ -189,10 +196,31 @@ describe('MyMiningSeats', () => {
     );
     expect(myMiningSeats.activeSeats.seatCount).toBe(10);
 
+    const matchingCohorts = cohorts.map(cohort => (cohort.id === 12 ? { ...cohort, microgonsMinedTotal: 5n } : cohort));
+    fetchFinancialPositions.mockResolvedValue(matchingCohorts);
+    fetchFinancialPositions.mockResolvedValueOnce(
+      cohorts.map(cohort => (cohort.id === 12 ? { ...cohort, microgonsMinedTotal: 10n } : cohort)),
+    );
+    fetchFinancialHistory.mockResolvedValue([
+      {
+        cohortId: 12,
+        frameId: 12,
+        blocksMinedTotal: 1,
+        microgonsMinedTotal: 5n,
+        microgonsMintedTotal: 0n,
+        micronotsMinedTotal: 0n,
+        microgonFeesCollectedTotal: 0n,
+      },
+    ]);
+    const revision = myMiningSeats.financialRevision;
     botEmitter.emit('updated-mining-state', 13);
 
-    await vi.waitFor(() => expect(myMiningSeats.latestFrameId).toBe(13));
+    await vi.waitFor(() => expect(myMiningSeats.financialRevision).toBe(revision + 1));
+    expect(fetchFinancialPositions).toHaveBeenCalledWith(0);
+    expect(myMiningSeats.latestFrameId).toBe(13);
     expect(myMiningSeats.miningCohorts.at(-1)?.id).toBe(13);
+    expect(myMiningSeats.miningCohorts.find(cohort => cohort.id === 12)?.microgonsMinedTotal).toBe(5n);
+    expect(myMiningSeats.financialCohortFrames[0].microgonsMinedTotal).toBe(5n);
     expect(myMiningSeats.activeSeats.seatCount).toBe(10);
   });
 

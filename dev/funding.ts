@@ -26,7 +26,7 @@ export async function fundExistingDevAccount(options: FundingOptions & DevProfil
   try {
     const state = readDevSession(options);
     const archiveUrl = state?.networkConfigOverride?.archiveUrl;
-    if (!archiveUrl) throw new Error('Start this profile with yarn dev before funding it.');
+    if (!archiveUrl) throw new Error('Start this profile with yarn dev start before funding it.');
     const { readComposePortWithRetry } = await import('../e2e/scripts/devUpstreamServer.ts');
     const port = await readComposePortWithRetry({ context, service: 'archive-rpc', port: 9944, timeoutMs: 2_000 });
     if (archiveUrl !== `ws://127.0.0.1:${port}`) {
@@ -73,7 +73,7 @@ export async function fundDevAccount(args: {
   let usdcTokenAddress: string | undefined;
   if (hasEthereumFunding) {
     if (!executionRpcUrl) {
-      throw new Error('Ethereum is unavailable for this environment. Start it with yarn dev --start-ethereum.');
+      throw new Error('Ethereum is unavailable for this environment. Start it with yarn dev start.');
     }
     if (amounts.usdc > 0n) {
       const { readDevEthereumRuntimeState } = await import('../e2e/devEthereum.ts');

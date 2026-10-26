@@ -3,12 +3,9 @@ import { VaultHistory } from '../lib/recovery/MyVault.ts';
 import { VaultFinancials } from '../lib/financials/MyVault.ts';
 import { calculatePositionReturn } from '../lib/financials/index.ts';
 
-const vaultFinancials = new VaultFinancials({} as any, {
-  bondLots: [],
-  bondHistory: [],
-  dailyEarnings: [],
-  currentFrameId: 0,
-  isLoaded: true,
+const vaultFinancials = new VaultFinancials({ vaults: { stats: undefined } } as any, {
+  lastFinalizedCompletedFrameId: 0,
+  data: { bondLots: [], bondHistory: [], dailyEarnings: [], isLoaded: true },
 });
 
 describe('VaultHistory financial positions', () => {
