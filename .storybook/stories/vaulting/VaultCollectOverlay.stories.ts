@@ -68,6 +68,16 @@ export const Requests: Story = {
   },
 };
 
+export const BlockedReturns: Story = {
+  beforeEach: () => {
+    showReturns();
+    for (const record of getMyVault().bitcoinLocks.cooperativeReleases.data.requests) {
+      record.verificationError =
+        'The history needed to return this Bitcoin is incomplete. In the wallet that received this Bitcoin, run the Missing Data Scanner under Troubleshooting, then try the return again.';
+    }
+  },
+};
+
 export const ServerUnavailable: Story = {
   beforeEach: () => {
     showReturns();

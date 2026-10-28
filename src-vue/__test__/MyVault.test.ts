@@ -265,7 +265,7 @@ describe('MyVault cosign recovery', () => {
     }
   });
 
-  it('shows only ready mailbox requests in the cosigning list and includes a waiting request after verification succeeds', () => {
+  it('shows blocked mailbox requests without counting them as ready to sign', () => {
     const { myVault } = createVault();
     const request: AppsCore.IBitcoinCooperativeReleaseRequest = {
       version: 1,
@@ -294,7 +294,11 @@ describe('MyVault cosign recovery', () => {
 
     expect(myVault.collectBuilder.getBitcoinSigningRequests().map(entry => entry.mailbox?.request.releaseId)).toEqual([
       'ready-return',
+      'waiting-return',
     ]);
+    expect(myVault.collectBuilder.getBitcoinSigningRequests()[1].mailbox?.verificationError).toBe(
+      'Argon is still checking this deposit.',
+    );
     expect(myVault.collectBuilder.getNotice()?.signatureCount).toBe(1);
     expect(cooperative.data.requests).toHaveLength(2);
 

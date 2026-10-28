@@ -872,13 +872,26 @@ export class BitcoinLockRecovery {
         await this.importRatchet(record, block, eventRecords, eventIndex, event, api, table);
       } else if (event.section === 'mint' && event.method === 'BitcoinMint') {
         await this.applyScopedMint(record, event.data.amount, api, table);
-      } else if (
-        isBitcoinUtxoUnwatched &&
-        record.status === BitcoinLockStatus.LockPendingFunding &&
-        record.fundedSatoshis === 0n
-      ) {
+      } else if (isBitcoinUtxoUnwatched && record.fundedSatoshis === 0n) {
+        if (
+          record.status !== BitcoinLockStatus.LockPendingFunding &&
+          record.status !== BitcoinLockStatus.LockFailedAcknowledged
+        )
+          continue;
+        if (await getHistoricalBitcoinLock(api, utxoId)) continue;
+
         const recovered = this.createDetachedRecord(record);
         recovered.status = BitcoinLockStatus.LockFailedAcknowledged;
+        assignIfUnset(
+          recovered,
+          {
+            removalBlockNumber: block.blockNumber,
+            removalBlockHash: block.blockHash,
+            removalBlockTime: new Date(block.blockTime),
+            removalReason: 'expired',
+          },
+          ['removalBlockNumber', 'removalBlockHash', 'removalBlockTime', 'removalReason'],
+        );
         await this.saveRecoveredHistory(table, recovered);
         this.applyRecoveredRecord(recovered);
       } else if (event.section === 'bitcoinLocks' && event.method === 'BitcoinUtxoCosignRequested') {

@@ -1,7 +1,14 @@
-import { BitcoinLock, type ArgonClient, type BlockWatch, type TxSigningAccount } from '@argonprotocol/apps-core';
+import {
+  BitcoinLock,
+  type ArgonClient,
+  type BlockWatch,
+  type TxSigningAccount,
+  type TxResult,
+} from '@argonprotocol/apps-core';
 import { BitcoinNetwork } from '@argonprotocol/bitcoin';
 import type { SubmittableExtrinsic } from '@argonprotocol/mainchain';
 import { describe, expect, it, vi } from 'vitest';
+import { computed, reactive } from 'vue';
 
 import { BitcoinLockStatus, type IBitcoinLockRecord } from '../interfaces/IBitcoinLockRecord.ts';
 import { BitcoinReleaseKind, BitcoinReleaseStatus } from '../interfaces/IBitcoinReleaseRecord.ts';
@@ -15,8 +22,9 @@ import type BitcoinMempool from '../lib/BitcoinMempool.ts';
 import BitcoinReleases from '../lib/BitcoinReleases.ts';
 import * as securitizationTerms from '../lib/BitcoinSecuritizationTerms.ts';
 import BitcoinUtxoTracking from '../lib/BitcoinUtxoTracking.ts';
-import type { TransactionInfo } from '../lib/TransactionInfo.ts';
 import type { TransactionTracker } from '../lib/TransactionTracker.ts';
+import { TransactionInfo } from '../lib/TransactionInfo.ts';
+import { TransactionStatus, type ITransactionRecord } from '../lib/db/TransactionsTable.ts';
 import type { WalletKeys } from '../lib/WalletKeys.ts';
 import { BitcoinLockRelease } from '../lib/txs/BitcoinLock.release.ts';
 import { BitcoinOrphanRelease } from '../lib/txs/BitcoinOrphan.release.ts';
@@ -942,6 +950,35 @@ describe('Bitcoin lock release', () => {
         },
       ),
     ).rejects.toThrow('Argon submission unavailable');
+
+    const findLatestTxInfo = vi.fn<TransactionTracker['findLatestTxInfo']>(() => undefined);
+    const interrupted = await loadBitcoinLocksState(db, { findLatestTxInfo } as unknown as TransactionTracker);
+    interrupted.releases.data = reactive(interrupted.releases.data);
+    const interruptedOrphan = interrupted.utxoTracking.getUtxoRecordById(orphanUtxo.id)!;
+    const interruptedRelease = interrupted.releases.getById('orphan-release-1')!;
+    await interrupted.releases.recordRetryableError(
+      interruptedRelease,
+      'The return request was not submitted. Retry the return.',
+    );
+    const canRetry = computed(() => interrupted.releases.canRetryDepositReturn(interruptedOrphan));
+    expect(interrupted.releases.canRequestDepositReturn(lock, interruptedOrphan)).toBe(false);
+    expect(canRetry.value).toBe(true);
+    expect(interruptedRelease).toMatchObject({ toScriptPubkey: destinationScript, bitcoinNetworkFee: 25n });
+    const pending = new TransactionInfo({
+      tx: {
+        status: TransactionStatus.Submitted,
+        isFinalized: false,
+        createdAt: new Date('2026-09-11T00:02:00Z'),
+      } as ITransactionRecord,
+      txResult: {} as TxResult,
+    });
+    findLatestTxInfo.mockReturnValue(pending);
+    expect(interrupted.releases.canRetryDepositReturn(interruptedOrphan)).toBe(false);
+    pending.tx.status = TransactionStatus.Error;
+    expect(interrupted.releases.canRetryDepositReturn(interruptedOrphan)).toBe(true);
+    findLatestTxInfo.mockReturnValue(undefined);
+    await interrupted.releases.recordArgonRequest(interruptedRelease, { requestedReleaseAtTick: 101 });
+    expect(canRetry.value).toBe(false);
 
     let restarted = await loadOrphanReleaseState(db, orphanUtxo.id);
     await restarted.releases.recordArgonRequest(restarted.release, { requestedReleaseAtTick: 101 });

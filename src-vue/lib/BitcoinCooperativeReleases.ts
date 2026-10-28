@@ -185,9 +185,10 @@ export class BitcoinCooperativeReleases {
         }
       }
       if (failedCount) {
-        this.data.deliveryMessage = 'Remaining requests will retry on the next check.';
+        this.data.deliveryMessage =
+          'Some Bitcoin returns could not be signed. Review the blocked requests and retry when they are ready.';
       } else {
-        this.data.deliveryMessage = 'Cooperative release requests processed.';
+        this.data.deliveryMessage = 'Bitcoin return requests processed.';
       }
     } finally {
       this.data.isSigning = false;
@@ -242,7 +243,9 @@ export class BitcoinCooperativeReleases {
 
     if (original.createdAtArgonBlock) {
       if (original.createdAtArgonBlock !== request.createdAtArgonBlock)
-        throw new CooperativeReleaseRejected('The supplied block did not create this lock.');
+        throw new CooperativeReleaseRejected(
+          "The saved history for this Bitcoin does not match Argon's records. Report this issue through the app's Discord or GitHub links.",
+        );
     } else {
       // Early locks did not store their Argon creation block; use the event in that exact block.
       const { events } = await this.blockWatch.getEventsWithSpec({
@@ -250,7 +253,9 @@ export class BitcoinCooperativeReleases {
         blockHash: hash.toHex(),
       });
       if (!summarizeBitcoinLockBlockEvents(events, request.lockId).lockWasCreated)
-        throw new CooperativeReleaseRejected('The supplied block did not create this lock.');
+        throw new CooperativeReleaseRejected(
+          "The saved history for this Bitcoin does not match Argon's records. Report this issue through the app's Discord or GitHub links.",
+        );
     }
 
     const lock = toBitcoinLockDetails(original);
@@ -279,9 +284,13 @@ export class BitcoinCooperativeReleases {
     if (status.transactionBlockHeight >= cursor.blockHeight)
       throw new Error('Argon is still checking this deposit. Please try returning it again later.');
     if ((await mempool.getBlockHash(cursor.blockHeight)) !== cursor.blockHash)
-      throw new Error('The Argon Bitcoin checkpoint is not canonical.');
+      throw new Error(
+        "Bitcoin's recent block history changed. Wait for confirmations to settle, then try the return again.",
+      );
     if ((await mempool.getBlockHash(status.transactionBlockHeight)) !== status.transactionBlockHash)
-      throw new Error('The deposit confirmation is not canonical.');
+      throw new Error(
+        "This deposit's Bitcoin confirmation changed. Wait for confirmations to settle, then try the return again.",
+      );
     const spend = await mempool.getOutspendStatus(utxoRef.txid, utxoRef.outputIndex, cursor.blockHeight);
     if (spend?.isConfirmed) throw new CooperativeReleaseRejected('This Bitcoin deposit is already spent.');
     if (spend) throw new Error('Wait for the pending Bitcoin spend to resolve.');
@@ -330,7 +339,9 @@ export class BitcoinCooperativeReleases {
     if (!current) {
       const { removalBlockNumber, lockId, createdAtArgonBlock } = request;
       if (!removalBlockNumber)
-        throw new Error('Waiting for the owner to supply the known removal block for this lock.');
+        throw new Error(
+          'The history needed to return this Bitcoin is incomplete. In the wallet that received this Bitcoin, run the Missing Data Scanner under Troubleshooting, then try the return again.',
+        );
       if (removalBlockNumber <= createdAtArgonBlock)
         throw new CooperativeReleaseRejected('The removal block must follow the original lock creation.');
       if (removalBlockNumber > (await finalizedClient.query.system.number()))
@@ -348,13 +359,19 @@ export class BitcoinCooperativeReleases {
       ]);
       for (const { event } of [...parent.events, ...removed.events]) {
         if (event.section === 'system' && event.method === 'CodeUpdated')
-          throw new CooperativeReleaseRejected('Cooperative returns cannot verify removal during a runtime upgrade.');
+          throw new CooperativeReleaseRejected(
+            "The history needed to verify this return overlaps an Argon software upgrade. The app cannot safely verify this return. Report this issue through the app's Discord or GitHub links.",
+          );
       }
       if (await getHistoricalBitcoinLock(removed.api, lockId))
-        throw new CooperativeReleaseRejected('The supplied block did not remove this lock.');
+        throw new CooperativeReleaseRejected(
+          "The saved history for this Bitcoin does not match Argon's records. Report this issue through the app's Discord or GitHub links.",
+        );
       const beforeRemoval = await getHistoricalBitcoinLock(parent.api, lockId);
       if (!beforeRemoval)
-        throw new CooperativeReleaseRejected('The lock was not present immediately before the supplied removal block.');
+        throw new CooperativeReleaseRejected(
+          "Historical records needed to verify this Bitcoin return are missing. Report this issue through the app's Discord or GitHub links.",
+        );
       if (beforeRemoval.createdAtArgonBlock && beforeRemoval.createdAtArgonBlock !== createdAtArgonBlock)
         throw new CooperativeReleaseRejected('The lock before removal does not match the original creation block.');
       current = {
@@ -365,17 +382,19 @@ export class BitcoinCooperativeReleases {
       const parentRelease = await parent.api.query.bitcoinLocks.lockReleaseRequestsById(lockId);
       if (pendingPartial || (parentRelease?.changeSatoshis ?? 0n) > 0n)
         throw new CooperativeReleaseRejected(
-          'Cooperative returns cannot verify a lock removed during a partial release.',
+          "The app cannot safely verify this return from the history of an earlier Bitcoin release. Report this issue through the app's Discord or GitHub links.",
         );
 
       const removalSummary = summarizeBitcoinLockBlockEvents(removed.events, lockId);
       if (removalSummary.fundingWasAccepted)
-        throw new CooperativeReleaseRejected('Cooperative returns cannot verify funding changes in the removal block.');
+        throw new CooperativeReleaseRejected(
+          "The available history cannot distinguish this deposit from Bitcoin already used by Argon. The app cannot safely verify this return. Report this issue through the app's Discord or GitHub links.",
+        );
 
       // Early mismatch returns could compensate Bitcoin without retaining its funding reference.
       if (removalSummary.compensationWasPaid && beforeRemoval.fundedSatoshis === 0n)
         throw new CooperativeReleaseRejected(
-          'This lock paid Bitcoin compensation without a funding reference to exclude.',
+          "The history of an earlier Bitcoin compensation payment is incomplete. The app cannot safely approve another return. Report this issue through the app's Discord or GitHub links.",
         );
     }
     if (
@@ -398,7 +417,10 @@ export class BitcoinCooperativeReleases {
       )
     )
       throw new CooperativeReleaseRejected('This deposit is funding the lock or was funding it when removed.');
-    if (orphan) throw new CooperativeReleaseRejected('This deposit must use the existing Argon orphan return.');
+    if (orphan)
+      throw new CooperativeReleaseRejected(
+        'This deposit needs a different return process. Go back to Unattached Bitcoin, select Find missing deposits, then reopen this return.',
+      );
     if (tracked?.some(ref => ref.txid === utxoRef.txid && ref.outputIndex === utxoRef.outputIndex))
       throw new Error('This deposit is still tracked by Argon.');
     if (release || partial)

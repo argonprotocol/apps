@@ -92,7 +92,9 @@ describe('cooperative release approval with simulated chain observations', () =>
       await expect(fixture.cooperative.verifyRequest(request, fixture.client)).resolves.toMatchObject({ lockId: 42 });
       if (specVersion < 145) {
         const creation = fixture.creationEvents.splice(0);
-        await expect(fixture.cooperative.verifyRequest(request, fixture.client)).rejects.toThrow('did not create');
+        await expect(fixture.cooperative.verifyRequest(request, fixture.client)).rejects.toThrow(
+          "does not match Argon's records",
+        );
         fixture.creationEvents.push(...creation);
       }
       fixture.parentLock = { ...fixture.parentLock, fundingUtxos: [[request.utxoRef, 2_000n]] };
@@ -132,7 +134,8 @@ describe('cooperative release approval with simulated chain observations', () =>
     });
     expect(reachedSigningKey).toBe(false);
     expect(fixture.db.bitcoinCooperativeReleasesTable.fetch(approved.request.releaseId)).toMatchObject({
-      operatorError: 'This lock paid Bitcoin compensation without a funding reference to exclude.',
+      operatorError:
+        "The history of an earlier Bitcoin compensation payment is incomplete. The app cannot safely approve another return. Report this issue through the app's Discord or GitHub links.",
     });
     expect(fixture.db.bitcoinCooperativeReleasesTable.pending(7).requests).toEqual([]);
   });
@@ -205,17 +208,23 @@ describe('cooperative release approval with simulated chain observations', () =>
         const verified = { utxoId: 42, ...(specVersion >= 145 ? { satoshisReceived: request.satoshis } : {}) };
         fixture.removalEvents.push(historyEvent(specVersion, 'bitcoinUtxos', 'UtxoVerified', verified));
       }
-      await expect(fixture.cooperative.verifyRequest(request, fixture.client)).rejects.toThrow('funding changes');
+      await expect(fixture.cooperative.verifyRequest(request, fixture.client)).rejects.toThrow(
+        'cannot distinguish this deposit',
+      );
       fixture.removalEvents.splice(0);
       fixture.removalEvents.push(historyEvent(159, 'system', 'CodeUpdated', {}));
-      await expect(fixture.cooperative.verifyRequest(request, fixture.client)).rejects.toThrow('runtime upgrade');
+      await expect(fixture.cooperative.verifyRequest(request, fixture.client)).rejects.toThrow('software upgrade');
     },
   );
 
-  it.each([false, true])(
-    'returns unclassified deposits, resumes after restart, and retires rejected requests (own vault=%s)',
-    async ownVault => {
-      const fixture = await createFixture(50_000n, ownVault ? 159 : 130);
+  it.each([
+    { ownVault: false, expired: false, specVersion: 130 },
+    { ownVault: true, expired: false, specVersion: 159 },
+    { ownVault: true, expired: true, specVersion: 151 },
+  ])(
+    'returns unclassified deposits, resumes after restart, and retires rejected requests (own vault=$ownVault, expired=$expired)',
+    async ({ ownVault, expired, specVersion }) => {
+      const fixture = await createFixture(50_000n, specVersion);
       fixture.minimumSatoshis = 10_000n;
       vi.spyOn(mainchain, 'getMainchainClient').mockResolvedValue(
         fixture.client as Awaited<ReturnType<typeof mainchain.getMainchainClient>>,
@@ -268,6 +277,11 @@ describe('cooperative release approval with simulated chain observations', () =>
         expect(lock.createdAtArgonBlock).toBe(123);
         expect((await appDb.bitcoinLocksTable.getByLockId(42))?.createdAtArgonBlock).toBe(123);
       }
+      if (expired) {
+        fixture.currentLock = null;
+        lock.removalReason = 'expired';
+        await appDb.bitcoinLocksTable.saveRecoveredHistory(lock);
+      }
       const discovered = await store.utxoTracking.upsertUtxoRecord(lock, {
         txid: fixture.request.utxoRef.txid,
         vout: 0,
@@ -275,7 +289,7 @@ describe('cooperative release approval with simulated chain observations', () =>
       });
       const input = store.utxoTracking.getUtxoRecordById(discovered.id)!;
       expect(input.fundingRejectionReason).toBeUndefined();
-      if (ownVault) {
+      if (ownVault && !expired) {
         fixture.currentLock = {
           ...fixture.storage,
           fundedSatoshis: fixture.request.satoshis,
@@ -315,13 +329,28 @@ describe('cooperative release approval with simulated chain observations', () =>
         {} as never,
       );
       const pendingFunding = Vue.computed(() => wallet.getPendingInboundUtxos());
-      expect(pendingFunding.value.map(record => record.id)).toEqual([input.id]);
+      if (expired) expect(pendingFunding.value).toEqual([]);
+      else expect(pendingFunding.value.map(record => record.id)).toEqual([input.id]);
       expect(wallet.getUnattachedDeposits()).toEqual([]);
       await store.utxoTracking.observeMempoolFunding(lock, fixture.client);
       expect(input.status).toBe(BitcoinUtxoStatus.Unattached);
       expect(input.fundingRejectionReason).toBeUndefined();
       expect(pendingFunding.value).toEqual([]);
       expect(wallet.getUnattachedDeposits().map(record => record.id)).toEqual([input.id]);
+      if (expired) {
+        vi.spyOn(fixture.blockWatch, 'getApi').mockImplementation(
+          async block => (await fixture.blockWatch.getEventsWithSpec(block)).api,
+        );
+        await store.recovery.beginHistoryReplay({ lockScope: 'all', purpose: 'financial-backfill' });
+        await store.recovery.recoverBlock(historyBlock(123), fixture.creationEvents);
+        const removal = historyBlock(180);
+        await store.recovery.recoverBlock(removal, [
+          historyEvent(specVersion, 'bitcoinUtxos', 'UtxoUnwatched', { utxoId: 42 }),
+        ]);
+        expect(lock.removalBlockNumber).toBeUndefined();
+        expect(wallet.getUnattachedDeposits().map(record => record.id)).toEqual([input.id]);
+        await publishBitcoinHistoryReplay({ bitcoinLocks: store, asOfBlock: removal.blockNumber });
+      }
       if (ownVault) {
         const vault = new MyVault(
           Promise.resolve(appDb),
@@ -347,6 +376,10 @@ describe('cooperative release approval with simulated chain observations', () =>
       if (ownVault)
         await expect(store.releases.requestCooperativeRelease(terms)).rejects.toThrow('broadcast interrupted');
       else await store.releases.requestCooperativeRelease(terms);
+      if (expired) {
+        expect(lock.removalBlockNumber).toBe(180);
+        expect((await appDb.bitcoinLocksTable.getByLockId(42))?.removalBlockNumber).toBe(180);
+      }
       const persisted = (await appDb.bitcoinReleasesTable.fetchAll())[0];
       expect(persisted.cooperativeRequest?.requestSignature).toBeTruthy();
       expect((await appDb.bitcoinUtxosTable.fetchAll())[0].activeReleaseId).toBe(persisted.id);
@@ -359,7 +392,7 @@ describe('cooperative release approval with simulated chain observations', () =>
         fixture.currentLock = null;
         await fixture.cooperative.refresh({ server: fixture.server, vaultId: 7 });
         expect(fixture.db.bitcoinCooperativeReleasesTable.fetch(persisted.id)?.operatorError).toBeUndefined();
-        expect(fixture.cooperative.data.requests[0].verificationError).toContain('known removal block');
+        expect(fixture.cooperative.data.requests[0].verificationError).toContain('wallet that received this Bitcoin');
         lock.removalBlockNumber = 180;
         await store.releases.reconcileDepositReleases(lock);
         const amended = fixture.db.bitcoinCooperativeReleasesTable.fetch(persisted.id)!;
@@ -932,7 +965,9 @@ describe('cooperative release approval with simulated chain observations', () =>
     fixture.cursor.blockHeight = 101;
     await expect(cooperative.getDepositConfirmationWait({ txid: request.utxoRef.txid })).resolves.toBeUndefined();
     fixture.currentLock = null;
-    await expect(cooperative.verifyRequest(request, client)).rejects.toThrow('known removal block');
+    await expect(cooperative.verifyRequest(request, client)).rejects.toThrow(
+      'run the Missing Data Scanner under Troubleshooting',
+    );
     fixture.currentLock = fixture.storage;
     await expect(
       cooperative.verifyRequest({ ...request, destinationSatoshis: request.destinationSatoshis - 1n }, client),
@@ -990,7 +1025,7 @@ describe('cooperative release approval with simulated chain observations', () =>
     });
     const delivered = db.bitcoinCooperativeReleasesTable.fetch(request.releaseId)!;
     expect(cooperative.data.requests[0].verificationError).toContain('Connection lost');
-    expect(cooperative.data.deliveryMessage).toContain('next check');
+    expect(cooperative.data.deliveryMessage).toContain('Review the blocked requests');
     expect(cooperative.data.isSigning).toBe(false);
     const transaction = cosign.cosignAndGenerateTx({
       releaseRequest: request,
