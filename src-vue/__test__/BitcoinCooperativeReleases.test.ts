@@ -22,7 +22,7 @@ import {
 } from '@argonprotocol/apps-core';
 import { Metadata, TypeRegistry } from '@polkadot/types';
 import { getBundledMetadata, getHistoricalEventFields, runtimeClient } from '@argonprotocol/runtime-client';
-import type { BitcoinLocksLocksByIdResultSpec159 } from '@argonprotocol/runtime-client';
+import type { BitcoinLocksLocksByIdResultSpec159Variant1 } from '@argonprotocol/runtime-client';
 import BigNumber from 'bignumber.js';
 import * as Vue from 'vue';
 import { BitcoinCooperativeReleases } from '../lib/BitcoinCooperativeReleases.ts';
@@ -46,7 +46,6 @@ import type { GlobalCouncil } from '../lib/GlobalCouncil.ts';
 import type { MintingAuthorities } from '../lib/MintingAuthorities.ts';
 import type { TransactionTracker } from '../lib/TransactionTracker.ts';
 import * as mainchain from '../stores/mainchain.ts';
-import runtime159 from '../../runtime-client/__test__/fixtures/runtime-159.json' with { type: 'json' };
 
 const bitcoinServers: Server[] = [];
 const databases: Db[] = [];
@@ -168,7 +167,7 @@ describe('cooperative release approval with simulated chain observations', () =>
         ...fixture.storage,
         fundedSatoshis: partial.changeSatoshis,
         fundingUtxos: [[{ txid: `0x${change.hash}`, outputIndex: 1 }, partial.changeSatoshis]],
-      } as NonNullable<BitcoinLocksLocksByIdResultSpec159>;
+      } as NonNullable<BitcoinLocksLocksByIdResultSpec159Variant1>;
       fixture.currentLock = removed ? null : snapshot;
       fixture.parentLock = snapshot;
       fixture.reorgedFundingTxid = `0x${change.hash}`;
@@ -506,12 +505,12 @@ describe('cooperative release approval with simulated chain observations', () =>
       );
       const rejected = await restarted.releases.requestCooperativeRelease({ ...terms, record: secondInput });
       // Argon accepts the second output while the owner waits, so the vault must refuse it.
-      const acceptedFunding: NonNullable<BitcoinLocksLocksByIdResultSpec159> = {
+      const acceptedFunding: NonNullable<BitcoinLocksLocksByIdResultSpec159Variant1> = {
         ...fixture.storage,
         fundedSatoshis: secondInput.satoshis,
         fundingUtxos: [
           [{ txid: secondInput.txid, outputIndex: 1 }, secondInput.satoshis],
-        ] as NonNullable<BitcoinLocksLocksByIdResultSpec159>['fundingUtxos'],
+        ] as NonNullable<BitcoinLocksLocksByIdResultSpec159Variant1>['fundingUtxos'],
       };
       fixture.currentLock = acceptedFunding;
       await fixture.cooperative.refresh({ finalizedClient: fixture.client, server: fixture.server, vaultId: 7 });
@@ -666,7 +665,7 @@ describe('cooperative release approval with simulated chain observations', () =>
         await store.releases.recordPreparedBitcoinTransaction(release, request.expectedTransactionId);
       }
 
-      const acceptedFunding: NonNullable<BitcoinLocksLocksByIdResultSpec159> = {
+      const acceptedFunding: NonNullable<BitcoinLocksLocksByIdResultSpec159Variant1> = {
         ...fixture.storage,
         fundedSatoshis: input.satoshis,
         fundingUtxos: [[request.utxoRef, input.satoshis]],
@@ -1130,7 +1129,7 @@ async function createFixture(inputSatoshis = 50_000n, historicalSpecVersion = 15
   };
   const cosign = new CosignScript(lock, BitcoinNetwork.Regtest);
   lock.p2wshScriptHashHex = cosign.calculateScriptPubkey();
-  const storage: NonNullable<BitcoinLocksLocksByIdResultSpec159> = {
+  const storage: NonNullable<BitcoinLocksLocksByIdResultSpec159Variant1> = {
     vaultId: 7,
     ownerAccount: account.address,
     securitizationBasis: { satoshis: requestedSatoshis, microgonsAtTargetPerBtc: 1_000n },
@@ -1194,7 +1193,7 @@ async function createFixture(inputSatoshis = 50_000n, historicalSpecVersion = 15
   request.requestSignature = signBitcoinCooperativeReleaseRequest(account, request);
   const cursor = { blockHeight: 101, blockHash: `0x${'45'.repeat(32)}` };
   const fixture = {
-    currentLock: storage as BitcoinLocksLocksByIdResultSpec159,
+    currentLock: storage as BitcoinLocksLocksByIdResultSpec159Variant1,
     parentLock: { ...storage },
     parentRejectedNeedsRelease: false,
     removalEvents: [] as RuntimeSystemEventRecord[],
@@ -1206,7 +1205,7 @@ async function createFixture(inputSatoshis = 50_000n, historicalSpecVersion = 15
     fundingSpend: undefined as TxOutspend | undefined,
     broadcasts: [] as string[],
     reorgedFundingTxid: '',
-    currentRuntimeSpecVersion: 159,
+    currentRuntimeSpecVersion: 160,
     minimumSatoshis: 100_000n,
   };
   const query = {
@@ -1240,12 +1239,10 @@ async function createFixture(inputSatoshis = 50_000n, historicalSpecVersion = 15
   historicalRegistry.setMetadata(new Metadata(historicalRegistry, historicalMetadata), undefined, undefined, true);
 
   const liveRegistry = new TypeRegistry();
-  const liveMetadata = Object.entries(metadataByRuntime).find(([key]) =>
-    key.endsWith(`-${runtime159.specVersion}`),
-  )![1];
+  const liveMetadata = Object.entries(metadataByRuntime).find(([key]) => key.endsWith('-160'))![1];
   liveRegistry.setMetadata(new Metadata(liveRegistry, liveMetadata), undefined, undefined, true);
 
-  const lockCodec = (codecRegistry: TypeRegistry, snapshot: BitcoinLocksLocksByIdResultSpec159) => {
+  const lockCodec = (codecRegistry: TypeRegistry, snapshot: BitcoinLocksLocksByIdResultSpec159Variant1) => {
     const pallet = codecRegistry.metadata.pallets.find(pallet => pallet.name.eq('BitcoinLocks'))!;
     const item = pallet.storage
       .unwrap()
@@ -1285,7 +1282,6 @@ async function createFixture(inputSatoshis = 50_000n, historicalSpecVersion = 15
     },
     get runtimeVersion() {
       return liveRegistry.createType('RuntimeVersion', {
-        ...runtime159,
         specVersion: fixture.currentRuntimeSpecVersion,
       });
     },
@@ -1494,7 +1490,7 @@ async function createFixture(inputSatoshis = 50_000n, historicalSpecVersion = 15
     removalEvents: fixture.removalEvents,
     creationEvents,
     broadcasts: fixture.broadcasts,
-    set parentLock(value: NonNullable<BitcoinLocksLocksByIdResultSpec159>) {
+    set parentLock(value: NonNullable<BitcoinLocksLocksByIdResultSpec159Variant1>) {
       fixture.parentLock = value;
     },
     set parentRejectedNeedsRelease(value: boolean) {
@@ -1537,7 +1533,7 @@ async function createFixture(inputSatoshis = 50_000n, historicalSpecVersion = 15
     get currentLock() {
       return fixture.currentLock;
     },
-    set currentLock(value: BitcoinLocksLocksByIdResultSpec159) {
+    set currentLock(value: BitcoinLocksLocksByIdResultSpec159Variant1) {
       fixture.currentLock = value;
     },
   };

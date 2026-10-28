@@ -1,5 +1,8 @@
+import { Metadata, TypeRegistry } from '@polkadot/types';
+import { getBundledMetadata, runtimeClient } from '@argonprotocol/runtime-client';
 import {
   BitcoinLock,
+  type ArgonApi,
   type ArgonClient,
   type BlockWatch,
   type TxSigningAccount,
@@ -65,9 +68,23 @@ describe('Bitcoin lock release', () => {
     }
   });
 
-  it.each([false, true])(
-    'persists, broadcasts, and atomically settles a partial multi-input Lock release (expires=%s)',
-    async expires => {
+  it.each([
+    [159, false],
+    [160, false],
+    [161, false],
+    [159, true],
+  ] as const)(
+    'persists, broadcasts, and atomically settles a partial multi-input Lock release (runtime=%s, expires=%s)',
+    async (specVersion, expires) => {
+      const registry = new TypeRegistry();
+      registry.setMetadata(
+        new Metadata(
+          registry,
+          Object.entries(getBundledMetadata()).find(([key]) => key.endsWith(`-${specVersion}`))![1],
+        ),
+      );
+      const ownerAccount = registry.createType('AccountId32', new Uint8Array(32).fill(17)).toString();
+      const expectedSecuritizedSatoshis = specVersion === 161 ? 100n : 400n;
       const db = await createTestDb();
       const pendingLock = await db.bitcoinLocksTable.insertPending({
         uuid: 'release-lock',
@@ -80,7 +97,7 @@ describe('Bitcoin lock release', () => {
       });
       await db.execute(
         'UPDATE BitcoinLocks SET lockId = ?, status = ?, fundedSatoshis = ?, ownerAccount = ? WHERE uuid = ?',
-        [7, BitcoinLockStatus.LockFunded, 1_000n, 'owner-account', pendingLock.uuid],
+        [7, BitcoinLockStatus.LockFunded, 1_000n, ownerAccount, pendingLock.uuid],
       );
 
       const firstInput = await db.bitcoinUtxosTable.insert({
@@ -113,7 +130,7 @@ describe('Bitcoin lock release', () => {
         createCurrentLock({
           lockId: 7,
           vaultId: 3,
-          ownerAccount: 'owner-account',
+          ownerAccount: ownerAccount,
           fundedSatoshis: 1_000n,
           securitizedSatoshis: 1_000n,
           securitizationCoverageMicrogons: 1_000n,
@@ -128,7 +145,7 @@ describe('Bitcoin lock release', () => {
         origin: 'created',
       });
       await db.bitcoinFissionsTable.replaceRecord({
-        ownerAccount: 'owner-account',
+        ownerAccount: ownerAccount,
         origin: 'created',
         fissionId: 1,
         liquidId: 1,
@@ -174,7 +191,7 @@ describe('Bitcoin lock release', () => {
       const lock = bitcoinLocks.getLockById(7)!;
       const releases = bitcoinLocks.releases;
       const operation = new BitcoinLockRelease(bitcoinLocks, transactionTracker);
-      const txSigner = { address: 'owner-account' } as TxSigningAccount;
+      const txSigner = { address: ownerAccount } as TxSigningAccount;
       const tx = {} as SubmittableExtrinsic;
 
       await expect(
@@ -203,7 +220,7 @@ describe('Bitcoin lock release', () => {
               destinationSatoshis: 575n,
               changeSatoshis: 400n,
             },
-            operationKey: `owner-account:7:575:25:${destinationAddress}`,
+            operationKey: `${ownerAccount}:7:575:25:${destinationAddress}`,
             tx,
             txFeePlusTip: 1n,
             availableBalance: 1_000n,
@@ -284,7 +301,7 @@ describe('Bitcoin lock release', () => {
       };
       const walletKeys = {
         canSign: true,
-        defaultArgonAddress: 'owner-account',
+        defaultArgonAddress: ownerAccount,
         getBitcoinChildXpriv: vi.fn().mockResolvedValue({}),
       } as unknown as WalletKeys;
       const mempool = {
@@ -327,21 +344,30 @@ describe('Bitcoin lock release', () => {
         activeReleaseId: 'lock:7:1',
       });
 
-      const currentLock = new BitcoinLock(
-        createCurrentLock({
-          lockId: 7,
-          vaultId: 3,
-          ownerAccount: 'owner-account',
-          fundedSatoshis: 400n,
-          securitizedSatoshis: 400n,
-          securitizationCoverageMicrogons: 400n,
-          securityFees: 50n,
-          couponFeesPaid: 5n,
-          fissionedSatoshis: 300n,
-          fundingUtxos: [{ utxoRef: { txid: `0x${'a'.repeat(64)}`, vout: 1 }, satoshis: 400n }],
-        }),
+      const basis = { satoshis: expectedSecuritizedSatoshis, microgonsAtTargetPerBtc: 1_000n, tick: 130 };
+      const retainedLock = registry.createType(
+        'Option<PalletBitcoinLocksLockedBitcoin>',
+        expires
+          ? null
+          : {
+              vaultId: 3,
+              ownerAccount,
+              fundedSatoshis: 400n,
+              fissionedSatoshis: 300n,
+              securitizationBasis: basis,
+              securitizationTick: 130,
+              securitizationCoverageMicrogons: 400n,
+              securitizationRatio: 1_000_000_000_000_000_000n,
+              cosignerGuarantee: { basis, guaranteedMicrogons: expectedSecuritizedSatoshis, fundHoldExtensions: {} },
+              securityFees: 50n,
+              couponPaidFees: 5n,
+              fundingUtxos: new Map([[{ txid: `0x${'a'.repeat(64)}`, outputIndex: 1 }, 400n]]),
+            },
       );
-      const getCurrentLock = vi.spyOn(BitcoinLock, 'get').mockResolvedValue(expires ? undefined : currentLock);
+      const settlementApi = runtimeClient({
+        registry,
+        query: { bitcoinLocks: { locksById: async () => retainedLock } },
+      }) as unknown as ArgonApi;
       const settlementBlock = historyBlock(130);
       const settlementEvent = historyEvent(159, 'bitcoinLocks', 'BitcoinSpentAfterRelease', {
         lockId: 7,
@@ -369,7 +395,7 @@ describe('Bitcoin lock release', () => {
             restarted.lock,
             restarted.release,
             settlementBlock,
-            {} as ArgonClient,
+            settlementApi,
             settlementEvent,
             [settlementEvent, wrongPhaseExpiry],
           ),
@@ -383,7 +409,7 @@ describe('Bitcoin lock release', () => {
           restarted.lock,
           restarted.release,
           settlementBlock,
-          {} as ArgonClient,
+          settlementApi,
           settlementEvent,
           settlementEvents,
         ),
@@ -416,7 +442,7 @@ describe('Bitcoin lock release', () => {
         getApi: vi.fn(async () => finalizedApi),
         getHeaderByBlockNumber,
         getEventsWithSpec: vi.fn(async (block: ReturnType<typeof historyBlock>) => ({
-          api: {} as ArgonClient,
+          api: settlementApi,
           specVersion: 159,
           events:
             block.blockNumber === settlementBlock.blockNumber
@@ -439,7 +465,6 @@ describe('Bitcoin lock release', () => {
       expect(getHeaderByBlockNumber).not.toHaveBeenCalled();
 
       await restarted.releases.reconcileLockRelease(restarted.lock, false);
-      getCurrentLock.mockRestore();
       expect(restarted.release.status).toBe(BitcoinReleaseStatus.Complete);
       expect(restarted.lock).toMatchObject({
         status: expires ? BitcoinLockStatus.Releasing : BitcoinLockStatus.LockFunded,
@@ -459,7 +484,7 @@ describe('Bitcoin lock release', () => {
         status: expires ? BitcoinLockStatus.Releasing : BitcoinLockStatus.LockFunded,
         activeReleaseId: undefined,
         fundedSatoshis: 400n,
-        securitizedSatoshis: 400n,
+        securitizedSatoshis: expectedSecuritizedSatoshis,
       });
       expect(restarted.tracking.getUtxosForLock(7)).toEqual(
         expect.arrayContaining([
@@ -476,10 +501,10 @@ describe('Bitcoin lock release', () => {
         ]),
       );
       expect(restarted.lock.removalReason).toBe(expires ? 'expired' : undefined);
-      const retainedFission = await db.bitcoinFissionsTable.getByFissionId('owner-account', 1);
+      const retainedFission = await db.bitcoinFissionsTable.getByFissionId(ownerAccount, 1);
       expect(retainedFission).toMatchObject({ liquidityPromised: 300n });
       expect(retainedFission).not.toHaveProperty('closeReason');
-      await expect(db.bitcoinSecuritizationHistoryTable.getPublishedSnapshot('owner-account')).resolves.toMatchObject({
+      await expect(db.bitcoinSecuritizationHistoryTable.getPublishedSnapshot(ownerAccount)).resolves.toMatchObject({
         terms: [
           expect.objectContaining({
             origin: 'created',
@@ -492,7 +517,7 @@ describe('Bitcoin lock release', () => {
             : [
                 expect.objectContaining({
                   origin: 'partial-release',
-                  securitizedSatoshis: 400n,
+                  securitizedSatoshis: expectedSecuritizedSatoshis,
                   cumulativeNetSecurityFee: 45n,
                   addedNetSecurityFee: 0n,
                 }),

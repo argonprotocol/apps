@@ -2,14 +2,13 @@ import { toRuntimeEvent, type HistoricalQueryRecord } from '@argonprotocol/runti
 import { hexToU8a, u8aToHex } from '@polkadot/util';
 import {
   bigIntMin,
-  bigNumberToBigInt,
+  BitcoinLock,
   type ArgonApi,
   type IBitcoinLock,
   type IBitcoinLockDetails,
   type IBitcoinLockFundingUtxo,
   type RuntimeSystemEventRecord,
 } from '@argonprotocol/apps-core';
-import BigNumber from 'bignumber.js';
 
 type HistoricalBitcoinLock = NonNullable<HistoricalQueryRecord<'bitcoinLocks', 'locksByUtxoId'>>;
 
@@ -60,49 +59,9 @@ export async function getHistoricalBitcoinLock(
   }
 
   if ('locksById' in storage) {
-    const lock = await client.query.bitcoinLocks.locksById(utxoId);
+    const lock = await getHistoricalBitcoinLockDetails(client, utxoId);
     if (!lock) return;
-
-    const basisSatoshis = lock.securitizationBasis.satoshis;
-    let securitizedSatoshis = basisSatoshis;
-    if (lock.fundedSatoshis > 0n) securitizedSatoshis = bigIntMin(lock.fundedSatoshis, basisSatoshis);
-    let securitizationShare = new BigNumber(0);
-    if (basisSatoshis > 0n) {
-      securitizationShare = new BigNumber(securitizedSatoshis)
-        .div(basisSatoshis)
-        .decimalPlaces(18, BigNumber.ROUND_DOWN);
-    }
-    const [fingerprint, cosignHdIndex, claimHdIndex] = lock.vaultXpubSources;
-
-    return {
-      utxoId,
-      lockedTargetPrice: lock.securitizationBasis.microgonsAtTargetPerBtc,
-      liquidityPromised: 0n,
-      p2wshScriptHashHex: `0x0020${lock.utxoScriptPubkey.value.wscriptHash.replace('0x', '')}`,
-      vaultId: lock.vaultId,
-      ownerAccount: lock.ownerAccount,
-      securitizedSatoshis,
-      fundedSatoshis: lock.fundedSatoshis,
-      microgonsAtTargetPerBtc: lock.securitizationBasis.microgonsAtTargetPerBtc,
-      securitizationCoverageMicrogons: bigNumberToBigInt(
-        securitizationShare.times(lock.securitizationCoverageMicrogons),
-      ),
-      securitizationTick: lock.securitizationTick,
-      securitizationRatio: lock.securitizationRatio.toNumber(),
-      securityFees: lock.securityFees,
-      couponFeesPaid: lock.couponPaidFees,
-      vaultPubkey: lock.vaultPubkey,
-      vaultClaimPubkey: lock.vaultClaimPubkey,
-      ownerPubkey: lock.ownerPubkey,
-      vaultXpubSources: { parentFingerprint: hexToU8a(fingerprint), cosignHdIndex, claimHdIndex },
-      vaultClaimHeight: lock.vaultClaimHeight,
-      openClaimHeight: lock.openClaimHeight,
-      createdAtHeight: lock.createdAtHeight,
-      createdAtArgonBlock: lock.createdAtArgonBlock,
-      securitizationHoldExpirationBitcoinHeight: lock.securitizationHoldExpirationBitcoinHeight,
-      isFlexible: lock.isFlexible,
-      fundHoldExtensionsByBitcoinExpirationHeight: lock.fundHoldExtensions,
-    };
+    return { ...lock, utxoId, lockedTargetPrice: lock.microgonsAtTargetPerBtc, liquidityPromised: 0n };
   }
 
   const lock: HistoricalBitcoinLock | null = await client.query.bitcoinLocks.locksByUtxoId(utxoId);
@@ -150,6 +109,65 @@ export async function getHistoricalBitcoinLock(
       Object.entries(lock.fundHoldExtensions ?? {}).map(([height, amount]) => [Number(height), amount]),
     ),
     createdAtArgonBlock: lock.createdAtArgonBlock ?? 0,
+  };
+}
+
+/** Normalize the native Lock storage used since runtime 159, including saved transaction inclusion blocks. */
+export async function getHistoricalBitcoinLockDetails(
+  client: ArgonApi,
+  lockId: number,
+): Promise<IBitcoinLock | undefined> {
+  const lock = await client.query.bitcoinLocks.locksById(lockId);
+  if (!lock) return;
+
+  const guarantee = lock.cosignerGuarantee;
+  const basis = guarantee?.basis ?? lock.securitizationBasis!;
+  const availableSatoshis = guarantee ? lock.fundedSatoshis - lock.fissionedSatoshis : lock.fundedSatoshis;
+  const securitizedSatoshis =
+    lock.fundedSatoshis === 0n ? basis.satoshis : bigIntMin(availableSatoshis, basis.satoshis);
+  let coverageMicrogons = 0n;
+  if (basis.satoshis > 0n) {
+    if (guarantee) {
+      coverageMicrogons = (guarantee.guaranteedMicrogons * securitizedSatoshis) / basis.satoshis;
+    } else {
+      coverageMicrogons = BitcoinLock.calculateSharedGuaranteeCoverage({
+        fundedSatoshis: securitizedSatoshis,
+        basisSatoshis: basis.satoshis,
+        coverageMicrogons: lock.securitizationCoverageMicrogons!,
+      });
+    }
+  }
+  const [fingerprint, cosignHdIndex, claimHdIndex] = lock.vaultXpubSources;
+  return {
+    lockId,
+    p2wshScriptHashHex: `0x0020${lock.utxoScriptPubkey.value.wscriptHash.replace('0x', '')}`,
+    vaultId: lock.vaultId,
+    ownerAccount: lock.ownerAccount,
+    securitizedSatoshis,
+    fundedSatoshis: lock.fundedSatoshis,
+    fissionedSatoshis: lock.fissionedSatoshis,
+    fundingUtxos: lock.fundingUtxos.map(([ref, satoshis]) => ({
+      utxoRef: { txid: ref.txid, vout: ref.outputIndex },
+      satoshis,
+    })),
+    microgonsAtTargetPerBtc: basis.microgonsAtTargetPerBtc,
+    securitizationCoverageMicrogons: coverageMicrogons,
+    securitizationTick: guarantee?.basis.tick ?? lock.securitizationTick!,
+    cosignerGuarantee: guarantee,
+    securitizationRatio: lock.securitizationRatio?.toNumber(),
+    securityFees: lock.securityFees,
+    couponFeesPaid: lock.couponPaidFees,
+    vaultPubkey: lock.vaultPubkey,
+    vaultClaimPubkey: lock.vaultClaimPubkey,
+    ownerPubkey: lock.ownerPubkey,
+    vaultXpubSources: { parentFingerprint: hexToU8a(fingerprint), cosignHdIndex, claimHdIndex },
+    vaultClaimHeight: lock.vaultClaimHeight,
+    openClaimHeight: lock.openClaimHeight,
+    createdAtHeight: lock.createdAtHeight,
+    createdAtArgonBlock: lock.createdAtArgonBlock,
+    securitizationHoldExpirationBitcoinHeight: lock.securitizationHoldExpirationBitcoinHeight,
+    isFlexible: lock.isFlexible,
+    fundHoldExtensionsByBitcoinExpirationHeight: guarantee?.fundHoldExtensions ?? lock.fundHoldExtensions!,
   };
 }
 

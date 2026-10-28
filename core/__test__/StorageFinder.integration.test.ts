@@ -1,11 +1,6 @@
 import { integrationNetwork as sharedNetwork } from '@argonprotocol/apps-core/__test__/integration.setup.ts';
-import {
-  FIXED_U128_DECIMALS,
-  Keyring,
-  mnemonicGenerate,
-  PERMILL_DECIMALS,
-  toFixedNumber,
-} from '@argonprotocol/mainchain';
+import { Keyring, mnemonicGenerate } from '@argonprotocol/mainchain';
+import BigNumber from 'bignumber.js';
 import { teardown } from '@argonprotocol/testing';
 import {
   type ArgonClient,
@@ -13,6 +8,7 @@ import {
   StorageFinder,
   TransactionEvents,
   TxSubmitter,
+  Vault,
 } from '@argonprotocol/apps-core';
 import { it, beforeAll, afterAll, describe, expect, inject } from 'vitest';
 import { integrationAccountUri } from './integrationNetwork.ts';
@@ -46,14 +42,11 @@ describe.skipIf(skipE2E)('Storage/Fees Finder tests', () => {
     );
     // get the xpub from the xpriv
     const vaultMasterXpub = getXpubFromXpriv(vaultXpriv);
-    const createVaultTx = client.tx.vaults.create({
-      terms: {
-        bitcoinAnnualPercentRate: toFixedNumber(0.05, FIXED_U128_DECIMALS),
+    const createVaultTx = Vault.buildCreateTx(client, {
+      terms: Vault.encodeTerms(client.registry, {
+        bitcoinAnnualPercentRate: new BigNumber(0.05),
         bitcoinBaseFee: 500_000n,
-        treasuryProfitSharing: toFixedNumber(0.5, PERMILL_DECIMALS),
-        treasuryBonusProfitSharing: toFixedNumber(0, PERMILL_DECIMALS),
-      },
-      securitizationRatio: toFixedNumber(1, FIXED_U128_DECIMALS),
+      }),
       securitization: 10_000_000n,
       bitcoinXpubkey: bs58check.decode(vaultMasterXpub),
       delegateAccountId: null,

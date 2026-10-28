@@ -194,6 +194,12 @@ export function setupVaultingPortfolioScenario() {
     stats: vaultStats,
     currentFrameId,
     externalLocks,
+    bitcoinCollateralByLockId: Object.fromEntries(
+      [...localLocks, ...Object.values(externalLocks).map(lock => lock.lockDetails)].map(lock => [
+        lock.lockId,
+        lock.securitizationCoverageMicrogons,
+      ]),
+    ),
   });
 
   mocked(getMyVault).mockReturnValue({

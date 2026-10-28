@@ -2,6 +2,7 @@ import {
   BitcoinFission,
   BitcoinLock,
   type Currency,
+  type BlockWatch,
   type ArgonClient,
   type TxSigningAccount,
 } from '@argonprotocol/apps-core';
@@ -43,6 +44,7 @@ export class BitcoinLiquidClose extends TransactionOperation<
     private readonly fissions: BitcoinFissions,
     transactionTracker: TransactionTracker,
     private readonly currency: Currency,
+    private readonly blockWatch: BlockWatch,
   ) {
     super(transactionTracker);
   }
@@ -54,8 +56,7 @@ export class BitcoinLiquidClose extends TransactionOperation<
     }
 
     const client = providedClient ?? (await getMainchainClient(false));
-    const finalizedHead = await client.rpc.chain.getFinalizedHead();
-    const snapshotClient = await client.at(finalizedHead);
+    const { api: snapshotClient } = await this.blockWatch.getLatestFinalizedSnapshot();
     const liquidFissions = (await this.fissions.loadActive(snapshotClient)).filter(
       fission => fission.liquidId === liquidId,
     );

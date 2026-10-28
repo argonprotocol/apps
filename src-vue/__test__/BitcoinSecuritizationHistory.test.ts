@@ -1,16 +1,230 @@
+import { Metadata, TypeRegistry } from '@polkadot/types';
+import { getBundledMetadata, runtimeClient } from '@argonprotocol/runtime-client';
+import { BitcoinLock, type BlockWatch, type ArgonApi } from '@argonprotocol/apps-core';
 import { describe, expect, it } from 'vitest';
 
 import type { IBitcoinSecuritizationTerm } from '../interfaces/IBitcoinSecuritizationTerm.ts';
 import { recordFinalizedSecuritization } from '../lib/BitcoinSecuritizationTerms.ts';
 import { BitcoinSecuritizationHistoryTable } from '../lib/db/BitcoinSecuritizationHistoryTable.ts';
 import { createTestDb } from './helpers/db.ts';
-import { createCurrentLock, createStore, historyBlock } from './helpers/bitcoin.ts';
+import { createCurrentLock, createStore, historyBlock, historyEvent } from './helpers/bitcoin.ts';
+import type { TransactionInfo } from '../lib/TransactionInfo.ts';
 import type { WalletKeys } from '../lib/WalletKeys.ts';
 import { BitcoinLockStatus } from '../lib/db/BitcoinLocksTable.ts';
 
 const ownerAccount = '5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY';
 
 describe('Bitcoin securitization history', () => {
+  it('records only Lock-directed fees when a batch also buys a Fission guarantee', async () => {
+    const db = await createTestDb();
+    const lock = createCurrentLock({ ownerAccount, securityFees: 99n, securitizedSatoshis: 50n });
+    const table = db.bitcoinSecuritizationHistoryTable;
+    await recordFinalizedSecuritization(table, {
+      block: historyBlock(100),
+      extrinsicIndex: 1,
+      lock: { ...lock, securityFees: 10n },
+      origin: 'created',
+    });
+    const events = [
+      historyEvent(161, 'balances', 'TransferAndHold', {
+        source: ownerAccount,
+        dest: `0x${'22'.repeat(32)}`,
+        transferred: 5n,
+        reason: { Vaults: 'PendingCollect' },
+      }),
+      historyEvent(161, 'bitcoinLocks', 'BitcoinLockGuaranteeSet', {
+        accountId: ownerAccount,
+        lockId: lock.lockId,
+        vaultId: lock.vaultId,
+        securitizationBasis: { satoshis: 150n, microgonsAtTargetPerBtc: 1_000n, tick: 200 },
+      }),
+      historyEvent(161, 'balances', 'TransferAndHold', {
+        source: ownerAccount,
+        dest: `0x${'22'.repeat(32)}`,
+        transferred: 17n,
+        reason: { Vaults: 'PendingCollect' },
+      }),
+      historyEvent(161, 'bitcoinFissions', 'FissionCreated', {
+        accountId: ownerAccount,
+        fissionId: 21,
+        liquidId: 12,
+        lockId: lock.lockId,
+        satoshis: 100n,
+        microgonsAtTargetPerBtc: 1_000n,
+        liquidityPromised: 1_000n,
+      }),
+      historyEvent(161, 'balances', 'TransferAndHold', {
+        source: ownerAccount,
+        dest: `0x${'22'.repeat(32)}`,
+        transferred: 3n,
+        reason: { Vaults: 'PendingCollect' },
+      }),
+      historyEvent(161, 'bitcoinLocks', 'BitcoinLockGuaranteeSet', {
+        accountId: ownerAccount,
+        lockId: lock.lockId,
+        vaultId: lock.vaultId,
+        securitizationBasis: { satoshis: 200n, microgonsAtTargetPerBtc: 1_000n, tick: 200 },
+      }),
+    ].map(record => record.event);
+    for (let delivery = 0; delivery < 2; delivery += 1) {
+      await recordFinalizedSecuritization(table, {
+        block: historyBlock(200),
+        extrinsicIndex: 2,
+        lock,
+        origin: 'resecuritized',
+        ...BitcoinLock.readLockGuaranteePayment(events, lock.lockId, lock.ownerAccount),
+      });
+    }
+    const snapshot = await table.getPublishedSnapshot(ownerAccount);
+    expect(snapshot?.terms).toHaveLength(2);
+    expect(snapshot?.terms[1]).toMatchObject({
+      cumulativeNetSecurityFee: 18n,
+      addedNetSecurityFee: 8n,
+      securitizedSatoshis: 200n,
+    });
+    const registry = new TypeRegistry();
+    registry.setMetadata(
+      new Metadata(registry, Object.entries(getBundledMetadata()).find(([key]) => key.endsWith('-161'))![1]),
+    );
+    const storedLock = registry.createType('Option<PalletBitcoinLocksLockedBitcoin>', {
+      vaultId: lock.vaultId,
+      ownerAccount,
+      fundedSatoshis: 150n,
+      fissionedSatoshis: 100n,
+      cosignerGuarantee: {
+        basis: { satoshis: 200n, microgonsAtTargetPerBtc: 1_000n, tick: 200 },
+        guaranteedMicrogons: 100n,
+        fundHoldExtensions: {},
+      },
+      securityFees: 99n,
+      couponPaidFees: 0n,
+    });
+    const api = runtimeClient({
+      registry,
+      query: { bitcoinLocks: { locksById: async () => storedLock } },
+    }) as unknown as ArgonApi;
+    const store = createStore({
+      db,
+      walletKeys: { defaultArgonAddress: ownerAccount } as WalletKeys,
+      blockWatch: {
+        getApi: async () => api,
+        getHeader: async (height: number) => historyBlock(height),
+        getLatestFinalizedSnapshot: async () => ({ api, block: historyBlock(200) }),
+      } as unknown as BlockWatch,
+    });
+    const pending = await db.bitcoinLocksTable.insertPending({
+      uuid: 'guarantee-replay',
+      vaultId: lock.vaultId,
+      status: BitcoinLockStatus.LockFunded,
+      securitizedSatoshis: lock.securitizedSatoshis,
+      hdPath: 'synthetic-owner',
+      cosignVersion: 'v1',
+      network: 'testnet',
+    });
+    store.data.locksByLockId[lock.lockId] = await db.bitcoinLocksTable.finalizePending({ uuid: pending.uuid, lock });
+    await table.publishSnapshot(await table.createSnapshot(ownerAccount, 200, [snapshot!.terms[0]]));
+    await store.recovery.beginHistoryReplay({ purpose: 'financial-backfill' });
+    await store.recovery.recoverBlock(
+      historyBlock(200),
+      events.map(event => ({ event, phase: { type: 'ApplyExtrinsic', value: 2 }, topics: [] })),
+    );
+    const unit = store.recovery.prepareHistoryReplayUnit(lock.lockId)!;
+    expect(unit.securitizationTerms).toHaveLength(2);
+    expect(unit.securitizationTerms[1]).toMatchObject({
+      cumulativeNetSecurityFee: 18n,
+      addedNetSecurityFee: 8n,
+      securitizedSatoshis: 200n,
+    });
+    await store.applyRecoveredHistory(unit, 200);
+    expect((await table.getPublishedSnapshot(ownerAccount))?.terms[1].cumulativeNetSecurityFee).toBe(18n);
+    await store.recovery.finishHistoryReplay(new Set());
+
+    const recoveredTerms = [
+      snapshot!.terms[0],
+      {
+        ...snapshot!.terms[1],
+        startTick: 150,
+        startBlockNumber: 150,
+        startBlockHash: '0x150',
+        netSecurityFee: 2n,
+        addedNetSecurityFee: 2n,
+        cumulativeNetSecurityFee: 12n,
+        endTick: 200,
+        endBlockNumber: 200,
+        endBlockHash: historyBlock(200).blockHash,
+      },
+    ];
+    await store.applyRecoveredHistory(
+      {
+        lock: unit.lock,
+        lockId: lock.lockId,
+        utxos: [],
+        releases: [],
+        fissions: [],
+        hdKeys: [],
+        securitizationTerms: recoveredTerms,
+      },
+      150,
+    );
+    let ordered = (await table.getPublishedSnapshot(ownerAccount))!.terms;
+    expect(
+      ordered.map(term => [term.startBlockNumber, term.addedNetSecurityFee, term.cumulativeNetSecurityFee]),
+    ).toEqual([
+      [100, 10n, 10n],
+      [150, 2n, 12n],
+      [200, 8n, 20n],
+    ]);
+    expect(ordered.map(term => term.endBlockNumber)).toEqual([150, 200, undefined]);
+
+    const earlierEvents = [
+      historyEvent(161, 'balances', 'TransferAndHold', {
+        source: ownerAccount,
+        dest: `0x${'22'.repeat(32)}`,
+        transferred: 3n,
+        reason: { Vaults: 'PendingCollect' },
+      }),
+      historyEvent(161, 'bitcoinLocks', 'BitcoinLockGuaranteeSet', {
+        accountId: ownerAccount,
+        lockId: lock.lockId,
+        vaultId: lock.vaultId,
+        securitizationBasis: { satoshis: 50n, microgonsAtTargetPerBtc: 1_000n, tick: 125 },
+      }),
+    ].map(record => record.event);
+    for (let delivery = 0; delivery < 2; delivery += 1) {
+      await recordFinalizedSecuritization(table, {
+        block: historyBlock(125),
+        extrinsicIndex: 2,
+        lock,
+        origin: 'resecuritized',
+        ...BitcoinLock.readLockGuaranteePayment(earlierEvents, lock.lockId, lock.ownerAccount),
+      });
+    }
+    ordered = (await table.getPublishedSnapshot(ownerAccount))!.terms;
+    expect(
+      ordered.map(term => [term.startBlockNumber, term.addedNetSecurityFee, term.cumulativeNetSecurityFee]),
+    ).toEqual([
+      [100, 10n, 10n],
+      [125, 3n, 13n],
+      [150, 2n, 15n],
+      [200, 8n, 23n],
+    ]);
+    expect(ordered.map(term => term.endBlockNumber)).toEqual([125, 150, 200, undefined]);
+    const mountedLock = store.data.locksByLockId[lock.lockId];
+    await store.updateCurrentLock(
+      mountedLock,
+      { ...lock, securityFees: 13n },
+      {
+        tx: { id: 1, blockHeight: 125, blockHash: historyBlock(125).blockHash, blockExtrinsicIndex: 2 },
+      } as TransactionInfo,
+      BitcoinLock.readLockGuaranteePayment(earlierEvents, lock.lockId, lock.ownerAccount),
+    );
+    expect(store.data.locksByLockId[lock.lockId]).toBe(mountedLock);
+    expect(mountedLock.securityFees).toBe(99n);
+    expect((await db.bitcoinLocksTable.getByLockId(lock.lockId))?.securityFees).toBe(99n);
+    expect((await table.getPublishedSnapshot(ownerAccount))?.terms.at(-1)?.cumulativeNetSecurityFee).toBe(23n);
+    await db.close();
+  });
+
   it('repairs a missing opening term without replacing newer live capital', async () => {
     const db = await createTestDb();
     try {

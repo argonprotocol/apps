@@ -47,6 +47,7 @@ export const Requests: Story = {
       fundedSatoshis: 1_000_000n,
       securitizedSatoshis: 1_000_000n,
       securitizationCoverageMicrogons: 1_000_000_000n,
+      securitizationCollateralMicrogons: 1_000_000_000n,
       securitizationRatio: 1,
       fundingUtxos: [{ utxoRef: { txid: `0x${'43'.repeat(32)}`, vout: 0 }, satoshis: 1_000_000n }],
     };

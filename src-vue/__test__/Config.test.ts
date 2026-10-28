@@ -96,14 +96,15 @@ it.each([
   instanceChecks.delete(Config.prototype.constructor);
   const config = new Config(Promise.resolve(db), walletKeys);
   await config.load();
-  expect(config.vaultSetup).toEqual(expected);
+  const { securitizationRatio: _obsoleteRatio, ...currentChoices } = expected;
+  expect(config.vaultSetup).toEqual(currentChoices);
   expect(config.vaultingSetupStatus).toBe(status);
   expect(config.hasSavedVaultSetup).toBe(true);
 
   instanceChecks.delete(Config.prototype.constructor);
   const restarted = new Config(Promise.resolve(db), walletKeys);
   await restarted.load();
-  expect(restarted.vaultSetup).toEqual(expected);
+  expect(restarted.vaultSetup).toEqual(currentChoices);
   expect(restarted.vaultingSetupStatus).toBe(status);
   await db.close();
 });

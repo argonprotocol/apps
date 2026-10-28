@@ -1,7 +1,14 @@
 import { integrationNetwork as sharedNetwork } from '@argonprotocol/apps-core/__test__/integration.setup.ts';
 import { Keyring, mnemonicGenerate } from '@argonprotocol/mainchain';
 import { teardown } from '@argonprotocol/testing';
-import { BlockWatch, JsonExt, MainchainClients, TransactionEvents, TxSubmitter } from '@argonprotocol/apps-core';
+import {
+  BitcoinLock,
+  BlockWatch,
+  JsonExt,
+  MainchainClients,
+  TransactionEvents,
+  TxSubmitter,
+} from '@argonprotocol/apps-core';
 import { it, beforeAll, afterAll, afterEach, describe, expect, inject, vi } from 'vitest';
 import { reactive, ref } from 'vue';
 import { waitFor } from '@argonprotocol/apps-core/__test__/helpers/waitFor.ts';
@@ -84,7 +91,12 @@ describe.skipIf(skipE2E).sequential('Transaction tracker tests', { timeout: 60e3
       await tracker.load();
       const submitted = await new TxSubmitter(
         client,
-        client.tx.bitcoinLocks.resecuritize(4_294_967_295, 1_000_000n, null),
+        BitcoinLock.createResecuritizeTx({
+          client,
+          lockId: 4_294_967_295,
+          securitizedSatoshis: 1_000_000n,
+          microgonsAtTargetPerBtc: 1_000_000n,
+        }),
         alice,
       ).submit({ useLatestNonce: true, disableAutomaticTxTracking: true });
       await tracker.trackTxResult({ txResult: submitted, extrinsicType: ExtrinsicType.BitcoinResecuritize });

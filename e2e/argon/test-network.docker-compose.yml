@@ -1,12 +1,12 @@
 services:
   archive-node:
-    entrypoint: ['argon-node', '--compute-flags=light']
+    entrypoint: ['argon-node', '--compute-flags=${ARGON_TEST_COMPUTE_FLAGS:-light}']
     healthcheck:
       start_period: 120s
   miner-1:
-    entrypoint: ['argon-node', '--compute-flags=light']
+    entrypoint: ['argon-node', '--compute-flags=${ARGON_TEST_COMPUTE_FLAGS:-light}']
   miner-2:
-    entrypoint: ['argon-node', '--compute-flags=light']
+    entrypoint: ['argon-node', '--compute-flags=${ARGON_TEST_COMPUTE_FLAGS:-light}']
   indexer:
     environment:
       ARGON_CHAIN: dev-docker

@@ -2094,6 +2094,82 @@ describe('financial position accounting', () => {
     expect(project(new Set())).toMatchObject({ lifecycle: 'completed', transactionFees: 15n, totalFees: 25n });
   });
 
+  it.each([10n, 27n])('preserves direct Fission fees when a removed Lock counter records %s', nativeNetFees => {
+    const lock = createBitcoinFinancialLock({
+      status: BitcoinLockStatus.Released,
+      securityFees: nativeNetFees,
+      fundedSatoshis: 200_000_000n,
+    });
+    const fission = createBitcoinFissionFixture({
+      origin: 'created',
+      fissionId: 21,
+      liquidId: 12,
+      lockId: lock.lockId!,
+      satoshis: 200_000_000n,
+      createdAtTick: 0,
+      closedAtArgonBlock: 170,
+      closedAtTick: 20,
+      closedBlockTime: new Date('2026-01-02T00:00:00Z'),
+      closeTxFee: 0n,
+      closeReason: 'closed',
+      redemptionAmount: 90n,
+      ratchets: [
+        {
+          source: 'fission',
+          sourceRatchetIndex: 0,
+          microgonsAtTargetPerBtc: 50n,
+          liquidityPromised: 100n,
+          amountMinted: 100n,
+          amountBurned: 0n,
+          mintPending: 0n,
+          netSecurityFee: 17n,
+          txFee: 3n,
+          blockNumber: 160,
+          tick: 0,
+        },
+      ],
+    });
+    const summary = {
+      lockId: lock.lockId,
+      record: lock,
+      securityFees: nativeNetFees,
+      valueOfBtc: 150n,
+      satoshis: lock.fundedSatoshis,
+    } as IBitcoinLockSummary;
+    const terms: IBitcoinSecuritizationTerm[] = [
+      {
+        lockId: lock.lockId!,
+        termIndex: 0,
+        origin: 'created',
+        startTick: 0,
+        startBlockNumber: 150,
+        securitizedSatoshis: 100_000_000n,
+        cumulativeNetSecurityFee: 10n,
+        addedNetSecurityFee: 10n,
+      },
+    ];
+    const projected = applyBitcoinFissionValuation({
+      summary,
+      fissions: [fission],
+      activeFissionIds: new Set(),
+      currentRedemptionAmount: undefined,
+      terms,
+    });
+    expect(projected).toMatchObject({ securityFees: 27n, totalFees: 30n, endingCapital: 130n });
+    expect(lock.securityFees).toBe(nativeNetFees);
+    const [position] = createBitcoinLiquidPositions({
+      summaries: [summary],
+      fissions: [fission],
+      terms,
+      activeFissionIds: new Set(),
+      hasCurrentPrice: true,
+      priceIndex: bitcoinPriceIndex,
+    });
+    expect(position).toMatchObject({ cosignerGuaranteeCost: 27n, transactionFees: 3n, totalFees: 30n });
+    expect(position.liquid.history[0]).toMatchObject({ securityFee: 27n, actionFees: 30n });
+    expect(position.totalReturn).toBe(-20);
+  });
+
   it('splits lock cosigner guarantee when fission capacity is reused by a later Liquid', () => {
     const lock = createBitcoinFinancialLock({
       fundedSatoshis: 100_000_000n,

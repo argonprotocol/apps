@@ -1,7 +1,7 @@
 import * as Vue from 'vue';
 import { defineStore } from 'pinia';
 import BigNumber from 'bignumber.js';
-import { bigIntMax, bigIntMin, bigNumberToBigInt, BondLot } from '@argonprotocol/apps-core';
+import { bigIntMax, bigIntMin, BondLot } from '@argonprotocol/apps-core';
 import type { PriceIndex } from '@argonprotocol/mainchain';
 import type { IBitcoinLockRecord } from '../interfaces/IBitcoinLockRecord.ts';
 import { getMyVault, getVaults } from './vaults.ts';
@@ -134,20 +134,16 @@ export const useVaultingAssetBreakdown = defineStore('vaultingAssetBreakdown', (
 
 /** Keep liquid collateral, then fill the remaining chart space with the largest Bitcoin locks. */
 export function allocateBitcoinVaultSpace(
-  locks: readonly Pick<
-    IBitcoinLockRecord,
-    'lockId' | 'fundedSatoshis' | 'fissionedSatoshis' | 'securitizationCoverageMicrogons' | 'securitizationRatio'
-  >[],
+  locks: readonly Pick<IBitcoinLockRecord, 'lockId' | 'fundedSatoshis' | 'fissionedSatoshis'>[],
   securitization: bigint,
   price: PriceIndex,
+  collateralByLockId: Readonly<Record<number, bigint>>,
 ) {
   const allocations = new Map<(typeof locks)[number], { allocatedMicrogons: bigint; requiredMicrogons: bigint }>();
   let liquidTotal = 0n;
 
   for (const lock of locks) {
-    const collateral = bigNumberToBigInt(
-      BigNumber(lock.securitizationCoverageMicrogons ?? 0n).times(lock.securitizationRatio ?? 1),
-    );
+    const collateral = lock.lockId === undefined ? 0n : (collateralByLockId[lock.lockId] ?? 0n);
     // Liquids and unfunded locks use their reserved collateral; ordinary funded locks use Bitcoin value.
     let amount = collateral;
     const isLiquid = (lock.fissionedSatoshis ?? 0n) > 0n;

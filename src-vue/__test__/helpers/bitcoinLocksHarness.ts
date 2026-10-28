@@ -30,7 +30,6 @@ export const walletFundingMicrogons = 100_000_000n;
 
 export const defaultVaultSetup: IConfig['vaultSetup'] = {
   ...(Config.getDefault('vaultSetup') as IConfig['vaultSetup']),
-  securitizationRatio: 1,
   securitizationMicrogons: 10_000_000n,
   committedMicronots: 0n,
   btcFlatFee: 1_000_000n,

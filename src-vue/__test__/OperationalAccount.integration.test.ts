@@ -1,3 +1,4 @@
+import { runtimeClient as currentRuntimeClient } from '@argonprotocol/runtime-client';
 import { integrationNetwork as sharedNetwork } from '@argonprotocol/apps-core/__test__/integration.setup.ts';
 import { it, beforeAll, afterAll, describe, expect } from 'vitest';
 import { sudo, teardown } from '@argonprotocol/testing';
@@ -95,7 +96,7 @@ describe.skipIf(skipE2E).sequential('OperationalAccount integration tests', { ti
       });
 
       const blockHash = txInfo.tx.blockHash ?? (await txInfo.txResult.waitForInFirstBlock);
-      const apiAt = await runtimeClient.at(blockHash);
+      const apiAt = currentRuntimeClient(await runtimeClient.at(blockHash));
       const { lock } = await BitcoinLock.getBitcoinLockFromTxResult(apiAt, txInfo.txResult);
       const fundingAddress = BitcoinLocks.formatP2wshAddress(lock.p2wshScriptHashHex, bitcoinLocks.bitcoinNetwork);
       const minerAddress = createBitcoinAddress();

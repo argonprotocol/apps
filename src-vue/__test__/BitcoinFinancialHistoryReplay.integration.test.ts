@@ -22,6 +22,7 @@ import { createTestDb } from './helpers/db.ts';
 import { runRecoveryLifecycle } from './helpers/RecoveryLifecycleRunner.ts';
 import { CapturedHistoryReader } from './helpers/CapturedHistoryReader.ts';
 import { getHistoricalBitcoinLock } from '../lib/recovery/BitcoinLockHistory.ts';
+import { getHistoricalBitcoinFissions } from '../lib/recovery/BitcoinFissions.ts';
 import BitcoinMempool from '../lib/BitcoinMempool.ts';
 
 const replayPath =
@@ -51,7 +52,7 @@ runWithReplay('Bitcoin financial history replay corpus', { tags: ['no-argon-netw
         const latestApi = await corpusReader.getApi(latestBlock);
 
         for (const accountId of accountIds) {
-          const currentFissions = await BitcoinFission.getAllByOwner(latestApi, accountId);
+          const currentFissions = await getHistoricalBitcoinFissions(latestApi, accountId);
           activeFissionCount += currentFissions.length;
           const blocks = corpusReader
             .findActivityBlocks(accountId, {
@@ -93,6 +94,7 @@ runWithReplay('Bitcoin financial history replay corpus', { tags: ['no-argon-netw
               blockWatch: corpusReader as unknown as BlockWatch,
               blocks,
               currentLocks,
+              currentFissions,
               latestApi,
               db,
               derivedLocks,
@@ -217,6 +219,7 @@ async function replayBitcoinAccount(args: {
   blockWatch: BlockWatch;
   blocks: ReturnType<CapturedHistoryReader['findActivityBlocks']>;
   currentLocks: NonNullable<Awaited<ReturnType<typeof getHistoricalBitcoinLock>>>[];
+  currentFissions: readonly BitcoinFission[];
   latestApi: Awaited<ReturnType<CapturedHistoryReader['getApi']>>;
   db: Db;
   derivedLocks: {
@@ -224,7 +227,7 @@ async function replayBitcoinAccount(args: {
     lock: NonNullable<Awaited<ReturnType<typeof getHistoricalBitcoinLock>>>;
   }[];
 }) {
-  const { accountId, blockWatch, blocks, currentLocks, latestApi, db, derivedLocks } = args;
+  const { accountId, blockWatch, blocks, currentLocks, currentFissions, db, derivedLocks } = args;
 
   const walletKeys = {
     defaultArgonAddress: accountId,
@@ -299,7 +302,10 @@ async function replayBitcoinAccount(args: {
       }
       await recovery.beginHistoryReplay({ lockScope: 'all' });
       const bitcoinFissions = new BitcoinFissions(Promise.resolve(db), accountId);
-      await bitcoinFissions.refreshCurrent(latestApi);
+      bitcoinFissions.data.fissionsById = Object.fromEntries(
+        currentFissions.map(fission => [fission.fissionId, fission]),
+      );
+      bitcoinFissions.data.activeFissionIds = new Set(currentFissions.map(fission => fission.fissionId));
       await bitcoinFissions.recovery.beginHistoryReplay({ replace: true });
 
       const importer = new FinancialHistoryImporter({

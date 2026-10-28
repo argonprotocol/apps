@@ -12,16 +12,12 @@ import {
 import { encodeAddress } from '@polkadot/util-crypto';
 import { getBundledMetadata, runtimeClient, toPlain } from '@argonprotocol/runtime-client';
 import { Metadata, TypeRegistry } from '@polkadot/types';
-import type { PreviousRuntimeSpec as RuntimeSpec159 } from '../src/runtimeCompatibility.ts';
 
 import { MICRONOTS_PER_ARGONOT } from '../src/Currency.ts';
 import { TreasuryBonds } from '../src/TreasuryBonds.ts';
 import { Vault } from '../src/Vault.ts';
 
 const registry = getOfflineRegistry();
-const deployedRegistry = new TypeRegistry();
-const deployedMetadata = Object.entries(getBundledMetadata()).find(([key]) => key.endsWith('-159'))![1];
-deployedRegistry.setMetadata(new Metadata(deployedRegistry, deployedMetadata));
 const operatorAddress = encodeAddress(new Uint8Array(32).fill(0x11));
 const buyerAddress = encodeAddress(new Uint8Array(32).fill(0x22));
 
@@ -121,68 +117,21 @@ describe('TreasuryBonds', () => {
     expect(vault.getRelockCapacity()).toBe(10n);
   });
 
-  it('only shows deployed collateral releases as withdrawals above the saved funding amount', () => {
-    const storedVault = deployedRegistry.createType<RuntimeSpec159.ArgonPrimitivesVault>('ArgonPrimitivesVault', {
-      operatorAccountId: operatorAddress,
-      securitization: 100n,
-      securitizationTarget: 100n,
-      securitizationReleaseSchedule: { 100: 50n, 200: 30n },
-    });
-    const vault = Vault.fromRuntime(1, toPlain(storedVault) as Parameters<typeof Vault.fromRuntime>[1], 60_000, {
-      vaults: {},
-      operationalAccounts: { operationalMinimumVaultSecuritization: 100n },
-    } as Parameters<typeof Vault.fromRuntime>[3]);
-    expect([...vault.previewArgonWithdrawals(100n, 300, 500)]).toEqual([]);
-
-    vault.securitizationTarget = 40n;
-    expect([...vault.previewArgonWithdrawals(40n, 300, 500)]).toEqual([
-      [100, 50n],
-      [200, 10n],
-    ]);
-    expect(vault.getRelockCapacity()).toBe(80n);
-  });
-
-  it('keeps the deployed certification minimum held until its release tick', () => {
-    const storedVault = deployedRegistry.createType<RuntimeSpec159.ArgonPrimitivesVault>('ArgonPrimitivesVault', {
-      operatorAccountId: operatorAddress,
-      securitization: 100n,
-      securitizationTarget: 100n,
-      operationalMinimumReleaseTick: 500,
-    });
-    const vault = Vault.fromRuntime(1, toPlain(storedVault) as Parameters<typeof Vault.fromRuntime>[1], 60_000, {
-      vaults: {},
-      operationalAccounts: { operationalMinimumVaultSecuritization: 100n },
-    } as Parameters<typeof Vault.fromRuntime>[3]);
-
-    expect(vault.availableArgonWithdrawal(499)).toBe(0n);
-
-    vault.securitization = 150n;
-    expect(vault.availableArgonWithdrawal(499)).toBe(50n);
-    expect(vault.availableArgonWithdrawal(500)).toBe(150n);
-
-    vault.operationalMinimumReleaseTick = null;
-    expect(vault.availableArgonWithdrawal(499)).toBe(150n);
-  });
-
-  it.each([160])('limits Argonot purchases using active network stakes on runtime %s', async spec => {
+  it.each([160, 161])('limits Argonot purchases using active network stakes on runtime %s', async spec => {
     const oneArgonot = BigInt(MICRONOTS_PER_ARGONOT);
-    const client = runtimeClient({
-      query: {
-        treasuryPositions:
-          spec === 160
-            ? {
-                networkTotals: async () =>
-                  registry.createType('ArgonPrimitivesTreasuryPositionQuantities', { stakes: 325, bonds: 800 }),
-              }
-            : {},
-        treasury:
-          spec === 159
-            ? {
-                totalActiveArgonotBonds: async () => deployedRegistry.createType('u32', 325),
-              }
-            : {},
-      },
-    });
+    const runtimeRegistry = new TypeRegistry();
+    const metadata = Object.entries(getBundledMetadata()).find(([key]) => key.endsWith(`-${spec}`))![1];
+    runtimeRegistry.setMetadata(new Metadata(runtimeRegistry, metadata));
+    let totals: Codec;
+    if (spec === 160) {
+      totals = runtimeRegistry.createType('ArgonPrimitivesTreasuryPositionQuantities', { stakes: 325, bonds: 800 });
+    } else {
+      totals = runtimeRegistry.createType('ArgonPrimitivesTreasuryNetworkPositionQuantities', {
+        accountQuantities: { stakes: 325, bonds: 800 },
+        vaultSecuritizedSatoshis: 100_000,
+      });
+    }
+    const client = runtimeClient({ query: { treasuryPositions: { networkTotals: async () => totals } } });
     const totalActiveBonds = await TreasuryBonds.getActiveArgonotBonds(client as any);
 
     expect(
@@ -395,10 +344,9 @@ function createVaultBondClient(vaultState: Codec, lotsById: Map<number, Codec>, 
       vaults: {
         vaultsById: async () =>
           toPlain(
-            deployedRegistry.createType('ArgonPrimitivesVault', {
+            registry.createType('ArgonPrimitivesVault', {
               operatorAccountId: operatorAddress,
               securitization: 10_000_000n,
-              ratioAdjustedSatoshis: 10,
               securitizedSatoshis: 10,
             }),
           ),
@@ -429,7 +377,6 @@ function createCapacityVault(
     securitizationLocked: bigint;
     flexibleSecuritizationLocked: bigint;
     securitizedSatoshis: bigint;
-    flexibleSecuritizedSatoshis: bigint;
   }> = {},
 ) {
   return new Vault(
@@ -442,14 +389,11 @@ function createCapacityVault(
       securitizationLocked: overrides.securitizationLocked ?? 10n,
       flexibleSecuritizationLocked: overrides.flexibleSecuritizationLocked ?? 0n,
       reservedSecuritizationSpace: 0n,
-      flexibleRatioAdjustedSatoshis: overrides.flexibleSecuritizedSatoshis ?? 0n,
       securitizationPendingActivation: 0n,
       committedMicrogons: 0n,
       securitizedSatoshis: overrides.securitizedSatoshis ?? 1n,
       totalSatoshis: overrides.securitizedSatoshis ?? 1n,
-      ratioAdjustedSatoshis: overrides.securitizedSatoshis ?? 1n,
       securitizationReleaseSchedule: {},
-      securitizationRatio: new BigNumber(1),
       isClosed: false,
       terms: { bitcoinAnnualPercentRate: new BigNumber(0), bitcoinBaseFee: 0n },
       pendingTerms: null,

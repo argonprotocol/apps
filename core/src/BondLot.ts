@@ -52,10 +52,7 @@ export class BondLot implements RuntimeBondLot {
     lot: NonNullable<LiveQueryRecord<'treasury', 'bondLotById'>>,
     ownAddress?: string,
   ): BondLot {
-    if ('lockedFrameTerms' in lot) return new BondLot(id, lot, ownAddress);
-    const normalized = new BondLot(id, { ...lot, lockedFrameTerms: null }, ownAddress);
-    normalized.earningsDestination = 'VaultForFlexible';
-    return normalized;
+    return new BondLot(id, lot, ownAddress);
   }
 
   /** The caller supplies a snapshot in the live runtime compatibility window. */

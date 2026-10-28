@@ -466,6 +466,19 @@ export class BlockWatch {
     return runtimeClient(api);
   }
 
+  public async getLatestFinalizedSnapshot(): Promise<{ block: IBlockHeaderInfo; api: ArgonCurrentQueryClient }> {
+    const header = await this.readWithArchiveRetry(
+      this.finalizedBlockHeader.blockNumber,
+      'getLatestFinalizedSnapshot',
+      async client => {
+        const hash = await client.rpc.chain.getFinalizedHead();
+        return await client.rpc.chain.getHeader(hash);
+      },
+    );
+    const block = BlockWatch.readHeader(header, true);
+    return { block, api: runtimeClient(await this.getApi(block)) };
+  }
+
   public async getCurrentApi(): Promise<ArgonCurrentQueryClient> {
     const initialBestHeader = this.bestBlockHeader;
     try {

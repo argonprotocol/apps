@@ -27,7 +27,7 @@ jobs:
             suite: regular
           - platform: 'windows-latest'
             suite: regular
-          - platform: 'ubuntu-latest'
+          - platform: 'ubuntu-24.04'
             suite: e2e
     runs-on: ${{ matrix.platform }}
     steps:

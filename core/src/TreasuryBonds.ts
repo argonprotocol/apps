@@ -89,8 +89,9 @@ export class TreasuryBonds {
   }
 
   public static async getActiveArgonotBonds(client: ArgonCurrentQueryClient): Promise<bigint> {
-    const positions = client.query.treasuryPositions as CurrentRuntimeQueries['treasuryPositions'];
-    return (await positions.networkTotals()).stakes;
+    const totals = await client.query.treasuryPositions.networkTotals();
+    if ('accountQuantities' in totals) return totals.accountQuantities.stakes;
+    return totals.stakes;
   }
 
   public static getArgonotBondPurchaseCapacity(args: {

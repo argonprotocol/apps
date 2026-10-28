@@ -7,7 +7,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { runtimeClient } from '../src/client.ts';
 
 describe('runtimeClient', () => {
-  it.each([159, 160])('reads native constants and bond IDs from runtime %s metadata', async spec => {
+  it.each([160, 161])('reads native constants and bond IDs from runtime %s metadata', async spec => {
     const registry = new TypeRegistry();
     const metadata = new Metadata(
       registry,
@@ -19,19 +19,15 @@ describe('runtimeClient', () => {
     const accountKey = registry.createType('StorageKey', [storage.treasury.bondLotIdsByAccount, [accountId, 7]]);
     const treasury = {
       bondLotIdsByAccount: Object.assign(vi.fn(), { keys: async () => [accountKey] }),
-      ...(spec === 160
-        ? {
-            bondLotIdsByVault: Object.assign(vi.fn(), {
-              keys: async () => [registry.createType('StorageKey', [storage.treasury.bondLotIdsByVault, [4, 7]])],
-            }),
-          }
-        : {}),
+      bondLotIdsByVault: Object.assign(vi.fn(), {
+        keys: async () => [registry.createType('StorageKey', [storage.treasury.bondLotIdsByVault, [4, 7]])],
+      }),
     };
     const raw = { query: { treasury }, consts: decorateConstants(registry, metadata.asLatest, metadata.version) };
     const client = runtimeClient(raw);
-    expect('treasuryPositions' in storage).toBe(spec === 160);
-    expect('totalActiveArgonotBonds' in storage.treasury).toBe(spec === 159);
-    expect('bitcoinLiquidityTolerance' in client.consts.operationalAccounts).toBe(spec === 160);
+    expect('treasuryPositions' in storage).toBe(true);
+    expect('totalActiveArgonotBonds' in storage.treasury).toBe(false);
+    expect('bitcoinLiquidityTolerance' in client.consts.operationalAccounts).toBe(true);
     expect(client.consts.balances.existentialDeposit).toBe(BigInt(raw.consts.balances.existentialDeposit.toString()));
     expect(typeof client.consts.bitcoinLocks.maxBtcPriceTickAge).toBe('number');
     expect(client.consts.bitcoinLocks.lockReleaseCosignDeadlineFrames).toBe(10);
@@ -39,19 +35,13 @@ describe('runtimeClient', () => {
     expect(client.consts.vaults.revenueCollectionExpirationFrames).toBe(10);
     expect(client.consts.blockRewards.minerPayoutPercent).toEqual(new BigNumber(0.75));
     expect(typeof client.consts.treasury.palletId).toBe('string');
-    expect('securitizationExitNoticeBlocks' in client.consts.vaults).toBe(spec === 160);
-    if ('percentForVaultPool' in client.consts.treasury) {
-      expect(client.consts.treasury.percentForVaultPool).toEqual(new BigNumber(0.51));
-      expect(client.consts.vaults).toHaveProperty('securitizationExitNoticeBlocks');
-    } else {
-      expect(client.consts.treasury.percentForTreasuryReserves).toBeInstanceOf(BigNumber);
-    }
+    expect(client.consts.treasury.percentForVaultPool).toEqual(new BigNumber(0.51));
+    expect(client.consts.treasury.percentForTreasuryReserves).toBeInstanceOf(BigNumber);
+    expect(client.consts.vaults).toHaveProperty('securitizationExitNoticeBlocks');
     const accountKeys = await client.query.treasury.bondLotIdsByAccount.keys(accountId);
     expect(accountKeys[0].args).toEqual([accountId.toString(), 7]);
-    if (spec === 160) {
-      const vaultKeys = await client.query.treasury.bondLotIdsByVault.keys(4);
-      expect(vaultKeys?.[0].args).toEqual([4, 7]);
-    }
+    const vaultKeys = await client.query.treasury.bondLotIdsByVault.keys(4);
+    expect(vaultKeys?.[0].args).toEqual([4, 7]);
   });
 
   it('reflects installed query presence through nested sections', () => {

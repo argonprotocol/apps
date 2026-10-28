@@ -96,52 +96,67 @@ class TestVaults extends Vaults {
   }
 }
 
-it('preserves the visible reward estimate after a failed frame read and publishes the notified frame on retry', async () => {
+it.each([160, 161])('preserves visible rewards across a failed frame read and retry on runtime %s', async spec => {
   const registry = getOfflineRegistry();
   const metadata = new Metadata(
     registry,
-    Object.entries(getBundledMetadata()).find(([key]) => key.endsWith('-160'))![1],
+    Object.entries(getBundledMetadata()).find(([key]) => key.endsWith(`-${spec}`))![1],
   );
+  registry.setMetadata(metadata);
   const constants = decorateConstants(registry, metadata.asLatest, metadata.version);
   let frameUnavailable = true;
-  const apis = [10, 11].map(
-    frameId =>
-      runtimeClient({
-        registry,
-        consts: constants,
-        query: {
-          treasury: {
-            upstreamParticipationFactor: async () => registry.createType('Percent', 5),
-            currentFrameVaultCapital: async () => {
-              if (frameId === 11 && frameUnavailable) throw new Error('Frame temporarily unavailable');
-              return registry.createType('PalletTreasuryFrameVaultCapital', {
-                frameId,
-                targetSecuritization: 1_000n,
-                totalSecuritization: 1_000n,
-                vaultSecuritizationPositions: {
-                  4: {
-                    securitization: 1_000n,
-                    activatedSecuritization: 1_000n,
-                    bitcoinLockedMicrogons: 1_000n,
-                    activeBondMicrogons: 1_000n,
-                    upstreamParticipation: 950_000_000_000_000_000n,
-                  },
-                },
-              });
+  const apis = [10, 11].map(frameId => {
+    const treasury = {
+      upstreamParticipationFactor: async () => registry.createType('Percent', 5),
+      currentFrameVaultCapital: async () => {
+        if (spec === 160 && frameId === 11 && frameUnavailable) throw new Error('Frame temporarily unavailable');
+        return registry.createType('PalletTreasuryFrameVaultCapital', {
+          frameId,
+          targetSecuritization: 1_000n,
+          totalSecuritization: 1_000n,
+          vaultSecuritizationPositions: {
+            4: {
+              securitization: 1_000n,
+              activatedSecuritization: 1_000n,
+              bitcoinLockedMicrogons: 2_000n,
+              activeBondMicrogons: 0n,
+              upstreamParticipation: 950_000_000_000_000_000n,
             },
           },
-          priceIndex: {
-            historicArgonotAverageByFrame: async () =>
-              registry.createType('BTreeMap<u32, u128>', { [frameId - 1]: BigInt(frameId) * 1_000_000n }),
-          },
-          system: {
-            number: async () => registry.createType('u32', frameId * 10),
-            account: async () => registry.createType('AccountInfo', { data: { free: BigInt(frameId) * 10_000n } }),
-          },
-          vaults: { vaultsById: { entries: async () => [] } },
+        });
+      },
+    };
+    if (spec === 161) {
+      Object.assign(treasury, {
+        currentFrameVaultBitcoin: async () => {
+          if (frameId === 11 && frameUnavailable) throw new Error('Bitcoin snapshot temporarily unavailable');
+          if (frameId === 10) return registry.createType('Option<PalletTreasuryFrameVaultBitcoin>');
+          return registry.createType('Option<PalletTreasuryFrameVaultBitcoin>', {
+            frameId,
+            totalNetworkSecuritizedSatoshis: 1_000n,
+            targetSecuritizedSatoshis: 1_000n,
+            vaultSecuritizedSatoshis: { 4: 1_000n },
+          });
         },
-      }) as unknown as ArgonCurrentQueryClient,
-  );
+      });
+    }
+    return runtimeClient({
+      registry,
+      consts: constants,
+      query: {
+        treasury,
+        priceIndex: {
+          historicArgonotAverageByFrame: async () =>
+            registry.createType('BTreeMap<u32, u128>', { [frameId - 1]: BigInt(frameId) * 1_000_000n }),
+        },
+        system: {
+          number: async () => registry.createType('u32', frameId * 10),
+          account: async () => registry.createType('AccountInfo', { data: { free: BigInt(frameId) * 10_000n } }),
+        },
+        vaults: { vaultsById: { entries: async () => [] } },
+      },
+    }) as unknown as ArgonCurrentQueryClient;
+  });
   const events = createTypedEventEmitter();
   const header = BlockWatch.readHeader(registry.createType('Header', { number: 110 }), true);
   header.frameId = 11;
@@ -155,19 +170,21 @@ it('preserves the visible reward estimate after a failed frame read and publishe
   const vaults = new Vaults('dev-docker', currency as any, { blockWatch } as any);
   vaults.currentState = shallowReactive(vaults.currentState);
   const visibleEarnings = computed(() => vaults.rewards?.vaultRevenuePotential(4)?.actualEarnings);
+  const firstEarnings = 1_000n;
+  const nextEarnings = spec === 160 ? 1_100n : 38_720n;
   await vaults.loadCurrentState();
-  await vi.waitFor(() => expect(visibleEarnings.value).toBe(48_500n));
+  await vi.waitFor(() => expect(visibleEarnings.value).toBe(firstEarnings));
 
   vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
   try {
     events.emit('finalized', [header]);
     await new Promise(resolve => setImmediate(resolve));
     expect(vaults.rewards?.capital.frameId).toBe(10);
-    expect(visibleEarnings.value).toBe(48_500n);
+    expect(visibleEarnings.value).toBe(firstEarnings);
 
     frameUnavailable = false;
     events.emit('finalized', [header]);
-    await vi.waitFor(() => expect(visibleEarnings.value).toBe(53_350n));
+    await vi.waitFor(() => expect(visibleEarnings.value).toBe(nextEarnings));
     expect(vaults.rewards?.capital.frameId).toBe(11);
     expect(vaults.rewards?.averageMicrogonsPerArgonot).toBe(11_000_000n);
 
@@ -175,7 +192,7 @@ it('preserves the visible reward estimate after a failed frame read and publishe
     events.emit('finalized', [header]);
     await new Promise(resolve => setImmediate(resolve));
     expect(vaults.rewards).toBe(published);
-    expect(visibleEarnings.value).toBe(53_350n);
+    expect(visibleEarnings.value).toBe(nextEarnings);
   } finally {
     vi.useRealTimers();
   }
@@ -188,58 +205,78 @@ describe('Vaults stats storage', () => {
     globalThis.window = originalWindow;
   });
 
-  it.each([true, false])('reads the payout balance with mining rewards first: %s', async rewardsBeforePayout => {
-    const registry = getOfflineRegistry();
-    const poolAddress = registry.createType('AccountId32', `0x6d6f646c7472656173757279${'00'.repeat(20)}`).toString();
-    const sender = registry.createType('AccountId32', new Uint8Array(32).fill(1)).toString();
-    const events: RuntimeSystemEventRecord[] = [
-      {
-        phase: { type: 'ApplyExtrinsic', value: 0 },
-        event: { section: 'balances', method: 'Transfer', data: { from: sender, to: poolAddress, amount: 100n } },
-        topics: [],
-      },
-      {
-        phase: { type: 'ApplyExtrinsic', value: 1 },
-        event: { section: 'balances', method: 'Transfer', data: { from: poolAddress, to: sender, amount: 1n } },
-        topics: [],
-      },
-      {
+  it.each([
+    { spec: 145, rewardsBeforePayout: false, expectedPool: 800_000_082n },
+    { spec: 147, rewardsBeforePayout: true, expectedPool: 800_000_162n },
+    { spec: 159, rewardsBeforePayout: false, expectedPool: 700_000_072n },
+    { spec: 160, rewardsBeforePayout: false, expectedPool: 510_000_052n },
+    { spec: 161, rewardsBeforePayout: false, expectedPool: 510_000_052n },
+  ])(
+    'reconstructs the pre-payout pool from runtime $spec metadata',
+    async ({ spec, rewardsBeforePayout, expectedPool }) => {
+      const registry = new TypeRegistry();
+      const metadata = new Metadata(
+        registry,
+        Object.entries(getBundledMetadata()).find(([key]) => key.endsWith(`-${spec}`))![1],
+      );
+      registry.setMetadata(metadata);
+      const constants = decorateConstants(registry, metadata.asLatest, metadata.version);
+      const poolAddress = registry.createType('AccountId32', `0x6d6f646c6c7164506f6f6c73${'00'.repeat(20)}`).toString();
+      const sender = registry.createType('AccountId32', new Uint8Array(32).fill(1)).toString();
+      const events: RuntimeSystemEventRecord[] = [
+        {
+          phase: { type: 'ApplyExtrinsic', value: 0 },
+          event: { section: 'balances', method: 'Transfer', data: { from: sender, to: poolAddress, amount: 103n } },
+          topics: [],
+        },
+        {
+          phase: { type: 'ApplyExtrinsic', value: 1 },
+          event: { section: 'balances', method: 'Transfer', data: { from: poolAddress, to: sender, amount: 1n } },
+          topics: [],
+        },
+        {
+          phase: { type: 'Finalization' },
+          event: {
+            section: 'balances',
+            method: 'Transfer',
+            data: {
+              from: poolAddress,
+              to: sender,
+              amount: rewardsBeforePayout ? 100_000_020n : 100_000_010n,
+            },
+          },
+          topics: [],
+        },
+      ];
+      // Specs 147–150 mint block rewards before Treasury; other supported eras mint afterward.
+      events.splice(rewardsBeforePayout ? 2 : 3, 0, {
         phase: { type: 'Finalization' },
-        event: {
-          section: 'balances',
-          method: 'Transfer',
-          data: {
-            from: poolAddress,
-            to: sender,
-            amount: rewardsBeforePayout ? 100_000_020n : 100_000_010n,
+        event: { section: 'balances', method: 'Minted', data: { who: poolAddress, amount: 100n } },
+        topics: [],
+      });
+      const payoutApi = runtimeClient({
+        registry,
+        consts: constants,
+        query: { system: { events: async () => events } },
+      }) as unknown as ArgonApi;
+      const beforePayoutApi = runtimeClient({
+        query: {
+          system: {
+            account: async () => registry.createType('FrameSystemAccountInfo', { data: { free: 1_000_000_001n } }),
+          },
+          treasury: {
+            currentFrameArgonotBondParticipants: async () =>
+              registry.createType('Option<PalletTreasuryFrameArgonotBondParticipants>', { frameId: 20, totalBonds: 1 }),
           },
         },
-        topics: [],
-      },
-    ];
-    // Specs 147–150 mint block rewards before Treasury; other supported eras mint afterward.
-    events.splice(rewardsBeforePayout ? 2 : 3, 0, {
-      phase: { type: 'Finalization' },
-      event: { section: 'balances', method: 'Minted', data: { who: poolAddress, amount: 100n } },
-      topics: [],
-    });
-    const payoutApi = runtimeClient({
-      registry,
-      consts: { treasury: { palletId: '0x7472656173757279', percentForTreasuryReserves: BigNumber(0.1) } },
-      query: { system: { events: async () => events } },
-    }) as unknown as ArgonApi;
-    const beforePayoutApi = runtimeClient({
-      query: {
-        system: {
-          account: async () => registry.createType('FrameSystemAccountInfo', { data: { free: 1_000_000_001n } }),
-        },
-      },
-    }) as unknown as ArgonApi;
+      }) as unknown as ArgonApi;
 
-    const pool = await readVaultNetworkPool({ frameId: 20, api: payoutApi, parentApi: beforePayoutApi });
-    expect(pool.auctionPoolMicrogons).toBe(rewardsBeforePayout ? 1_000_000_200n : 1_000_000_100n);
-    expect(pool.vaultPoolMicrogons).toBe(rewardsBeforePayout ? 900_000_180n : 900_000_090n);
-  });
+      const pool = await readVaultNetworkPool({ frameId: 20, api: payoutApi, parentApi: beforePayoutApi });
+      expect(pool.auctionPoolMicrogons).toBe(rewardsBeforePayout ? 1_000_000_203n : 1_000_000_103n);
+      expect(pool.vaultPoolMicrogons).toBe(expectedPool);
+      expect(pool.includesBondPayments).toBe(spec < 160);
+    },
+  );
 
   it.each([
     'separate vault rewards',
@@ -305,7 +342,7 @@ describe('Vaults stats storage', () => {
               registry,
               consts: {
                 treasury: {
-                  palletId: '0x7472656173757279',
+                  palletId: registry.createType('PalletId', '0x7472656173757279'),
                   ...(poolModel === 'earlier pool rules'
                     ? { bidPoolBurnPercent: BigNumber(0.1) }
                     : { percentForTreasuryReserves: BigNumber(0.1) }),

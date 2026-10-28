@@ -1,12 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { BitcoinLock, createRuntimeExtrinsicError } from '@argonprotocol/apps-core';
 import { getOfflineRegistry } from '@argonprotocol/mainchain';
-import {
-  type ArgonClient,
-  type ArgonQueryClient,
-  BlockWatch,
-  Currency as CurrencyBase,
-} from '@argonprotocol/apps-core';
+import { type ArgonClient, BlockWatch, Currency as CurrencyBase } from '@argonprotocol/apps-core';
 import BitcoinLocks from '../lib/BitcoinLocks.ts';
 import type { Db } from '../lib/Db.ts';
 import type { TransactionTracker } from '../lib/TransactionTracker.ts';
@@ -39,56 +34,6 @@ type IBitcoinLocksTestTarget = {
 
 describe('BitcoinLocks Argon cosign gating', () => {
   afterEach(() => vi.restoreAllMocks());
-
-  it.each([
-    'FissionCreated',
-    'FissionRatcheted',
-    'FissionClosed',
-    'FissionClosedByLock',
-    'BitcoinLockTerminated',
-    'BitcoinSpentAfterRelease',
-  ])('publishes one Fission-state change signal after a %s event batch', async method => {
-    const section = method.startsWith('Fission') ? 'bitcoinFissions' : 'bitcoinLocks';
-    const blockApi = {
-      query: {
-        bitcoinLocks: {
-          orphanedUtxosByAccount: { entries: vi.fn().mockResolvedValue([]) },
-        },
-        bitcoinUtxos: {
-          confirmedBitcoinBlockTip: vi.fn().mockResolvedValue(null),
-        },
-      },
-    };
-    const blockWatch = {
-      getFinalizedApi: vi.fn(async () => blockApi),
-      getHeaderByBlockNumber: vi.fn(async (blockNumber: number) => ({
-        blockNumber,
-        blockHash: `0x${blockNumber}`,
-      })),
-      getEventsWithSpec: vi.fn(async () => ({
-        api: blockApi,
-        events: [{ event: { section, method, data: {} } }, { event: { section, method, data: {} } }],
-        specVersion: 159,
-      })),
-    } as unknown as BlockWatch;
-    const store = new BitcoinLocks(
-      Promise.resolve({} as Db),
-      Object.create(null) as WalletKeys,
-      blockWatch,
-      Object.create(null) as CurrencyBase,
-      Object.create(null) as TransactionTracker,
-    );
-    vi.spyOn(store.releases, 'recoverPendingOrphanCosignEvents').mockResolvedValue(undefined);
-    const refreshes: ArgonQueryClient[] = [];
-    store.events.on('fissions:changed', change => refreshes.push(change.client));
-
-    await (store as unknown as IBitcoinLocksTestTarget).checkIncomingArgonBlock({
-      blockNumber: 102,
-      blockHash: '0x102',
-    });
-
-    expect(refreshes).toEqual([blockApi]);
-  });
 
   it('updates a mounted wallet when Fissions allocate and release its current Lock', async () => {
     const db = await createTestDb();

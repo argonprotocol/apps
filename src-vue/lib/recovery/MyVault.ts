@@ -8,6 +8,8 @@ import {
   type RuntimeSystemEventRecord,
 } from '@argonprotocol/apps-core';
 import BigNumber from 'bignumber.js';
+import { toPlain } from '@argonprotocol/runtime-client';
+import type { QueryableModuleConsts } from '@polkadot/api-base/types';
 import type { HistoricalEvent } from '@argonprotocol/runtime-client/events';
 import type { Db } from '../Db.ts';
 import type { IVaultCapitalHistoryRecord } from '../db/VaultCapitalHistoryTable.ts';
@@ -318,30 +320,34 @@ export async function readVaultNetworkPool({
     }
   }
 
-  const constants = payoutApi.consts.treasury;
-  if ('percentForVaultPool' in constants) {
+  // Historical metadata can expose pool rules older than the live constants type.
+  const constants: QueryableModuleConsts = payoutApi.raw.consts.treasury;
+  const vaultPercent = toPlain(constants.percentForVaultPool) as BigNumber | undefined;
+  if (vaultPercent !== undefined) {
     return {
       auctionPoolMicrogons,
-      vaultPoolMicrogons: bigNumberToBigInt(BigNumber(auctionPoolMicrogons).times(constants.percentForVaultPool)),
+      vaultPoolMicrogons: bigNumberToBigInt(BigNumber(auctionPoolMicrogons).times(vaultPercent)),
       includesBondPayments: false,
     };
   }
 
   const result: IVaultFrameNetworkPool = { auctionPoolMicrogons, includesBondPayments: true };
-  if ('bidPoolBurnPercent' in constants) {
-    const burnPercent = constants.bidPoolBurnPercent as BigNumber;
+  const burnPercent = toPlain(constants.bidPoolBurnPercent) as BigNumber | undefined;
+  if (burnPercent !== undefined) {
     const burned = bigNumberToBigInt(BigNumber(auctionPoolMicrogons).times(burnPercent), true);
     result.vaultPoolMicrogons = bigIntMax(0n, auctionPoolMicrogons - burned);
     return result;
   }
-  if (!('percentForTreasuryReserves' in constants)) return result;
+  const reservePercent = toPlain(constants.percentForTreasuryReserves) as BigNumber | undefined;
+  if (reservePercent === undefined) return result;
 
-  const reserves = bigNumberToBigInt(BigNumber(auctionPoolMicrogons).times(constants.percentForTreasuryReserves), true);
+  const reserves = bigNumberToBigInt(BigNumber(auctionPoolMicrogons).times(reservePercent), true);
   let vaultPoolMicrogons = auctionPoolMicrogons - reserves;
-  if ('percentForArgonotBondPool' in constants) {
+  const argonotPercent = toPlain(constants.percentForArgonotBondPool) as BigNumber | undefined;
+  if (argonotPercent !== undefined) {
     const participants = await beforePayoutApi.query.treasury.currentFrameArgonotBondParticipants();
     if (participants?.frameId === frameId && participants.totalBonds > 0) {
-      const stakePool = bigNumberToBigInt(BigNumber(auctionPoolMicrogons).times(constants.percentForArgonotBondPool));
+      const stakePool = bigNumberToBigInt(BigNumber(auctionPoolMicrogons).times(argonotPercent));
       vaultPoolMicrogons = bigIntMax(0n, vaultPoolMicrogons - stakePool);
     }
   }

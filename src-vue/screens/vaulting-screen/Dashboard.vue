@@ -17,20 +17,6 @@
               <TooltipArrow :width="27" :height="15" class="fill-white stroke-[0.5px] stroke-gray-800/20 -mt-px" />
             </TooltipContent>
           </TooltipRoot>
-<!--          <TooltipRoot>-->
-<!--            <TooltipTrigger box stat-box class="flex flex-col w-2/12 !py-4 group">-->
-<!--              <span class="flex flex-row items-center justify-center space-x-3">-->
-<!--                <span>{{ numeral(rules.securitizationRatio).format('0.[00]') }}</span>-->
-<!--                <span class="!font-light">to</span>-->
-<!--                <span>1</span>-->
-<!--              </span>-->
-<!--              <label>Securitization Ratio</label>-->
-<!--            </TooltipTrigger>-->
-<!--            <TooltipContent side="bottom" :sideOffset="-10" align="start" :collisionPadding="9" class="text-md bg-white border border-gray-800/20 rounded-md shadow-2xl z-50 py-4 px-5 w-sm text-slate-900/60">-->
-<!--              The ratio of argon-to-bitcoin that you have committed as securitization collateral.-->
-<!--              <TooltipArrow :width="27" :height="15" class="fill-white stroke-[0.5px] stroke-gray-800/20 -mt-px" />-->
-<!--            </TooltipContent>-->
-<!--          </TooltipRoot>-->
           <TooltipRoot>
             <TooltipTrigger box stat-box class="flex flex-col w-[20%] !py-4 group">
               <span>{{ currency.symbol}}{{ microgonToMoneyNm(externalTreasuryBondMicrogons).format('0,0') }}</span>
@@ -647,7 +633,6 @@ import BondDetailOverlay from '../../overlays/BondDetailOverlay.vue';
 import {
   bigIntMax,
   bigIntMin,
-  bigNumberToBigInt,
   BondLot,
   getPercent,
   NetworkConfig,
@@ -687,7 +672,6 @@ import { useFloatingZIndex } from '../../overlays/helpers/OverlayZIndex.ts';
 import { ArrowTopRightOnSquareIcon, InformationCircleIcon } from '@heroicons/vue/24/outline';
 import Tooltip from '../../components/Tooltip.vue';
 import { getCappedPercent } from '../../lib/Utils.ts';
-import BigNumber from 'bignumber.js';
 import { useWallets } from '../../stores/wallets.ts';
 import { useMiningStats } from '../../stores/miningStats.ts';
 
@@ -894,13 +878,15 @@ const bitcoinMapLocks = Vue.computed(() => {
 const bitcoinMapSecuritization = Vue.computed(() => {
   const collateral: Record<string, bigint> = {};
   for (const [key, lock] of Object.entries(bitcoinMapLocks.value)) {
-    if (lock.fundedSatoshis === 0n || ('isHistoryRecoveryPending' in lock && lock.isHistoryRecoveryPending)) {
+    if (
+      lock.lockId === undefined ||
+      lock.fundedSatoshis === 0n ||
+      ('isHistoryRecoveryPending' in lock && lock.isHistoryRecoveryPending)
+    ) {
       collateral[key] = 0n;
       continue;
     }
-    collateral[key] = bigNumberToBigInt(
-      BigNumber(lock.securitizationCoverageMicrogons ?? 0n).times(lock.securitizationRatio ?? 1),
-    );
+    collateral[key] = myVault.data.bitcoinCollateralByLockId[lock.lockId] ?? 0n;
   }
   return collateral;
 });
@@ -940,7 +926,7 @@ function handleBitcoinTileClick(key: string) {
 const bitcoinLockCapacity = Vue.computed(() => {
   const vault = myVault.createdVault;
   if (!vault) return 0n;
-  return bigNumberToBigInt(new BigNumber(vault.securitization).div(vault.securitizationRatio));
+  return vault.bitcoinCapacityMicrogons();
 });
 
 const bitcoinMapTotal = Vue.computed(() => {
@@ -983,6 +969,7 @@ const bitcoinMapItems = Vue.computed((): MapItem[] => {
     [...localVaultLocks.value, ...Object.values(myVault.data.externalLocks).map(lock => lock.lockDetails)],
     bitcoinMapTotal.value,
     currency.priceIndex,
+    myVault.data.bitcoinCollateralByLockId,
   );
 
   for (const lock of localVaultLocks.value) {

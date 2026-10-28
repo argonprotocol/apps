@@ -120,16 +120,16 @@ describe('ArgonBonds', () => {
     currency.priceIndex.argonUsdPrice = BigNumber(1);
     const oneArgon = BigInt(MICROGONS_PER_ARGON);
     const liquid = {
+      lockId: 2,
       fundedSatoshis: 25_000_000n,
       fissionedSatoshis: 25_000_000n,
-      securitizationCoverageMicrogons: 50n * oneArgon,
-      securitizationRatio: 2,
     };
+    const collateralByLockId = { 2: 100n * oneArgon, 4: 40n * oneArgon };
     const lock = { lockId: 5, fundedSatoshis: 100_000_000n, fissionedSatoshis: 0n };
     const otherLock = { lockId: 3, fundedSatoshis: 50_000_000n, fissionedSatoshis: 0n };
     const locks = [otherLock, liquid, lock];
 
-    const allocations = allocateBitcoinVaultSpace(locks, 875n * oneArgon, currency.priceIndex);
+    const allocations = allocateBitcoinVaultSpace(locks, 875n * oneArgon, currency.priceIndex, collateralByLockId);
     expect(allocations.get(liquid)).toEqual({
       allocatedMicrogons: 100n * oneArgon,
       requiredMicrogons: 100n * oneArgon,
@@ -147,19 +147,24 @@ describe('ArgonBonds', () => {
     );
 
     // With more funding, locks stop at their Bitcoin value and leave genuinely unused space.
-    const funded = allocateBitcoinVaultSpace(locks, 2_000n * oneArgon, currency.priceIndex);
+    const funded = allocateBitcoinVaultSpace(locks, 2_000n * oneArgon, currency.priceIndex, collateralByLockId);
     expect(funded.get(liquid)?.allocatedMicrogons).toBe(100n * oneArgon);
     expect(funded.get(lock)?.allocatedMicrogons).toBe(1_000n * oneArgon);
     expect(funded.get(otherLock)?.allocatedMicrogons).toBe(500n * oneArgon);
 
     // Once the largest lock fits, the next one gets only the space still available.
-    const partlyFull = allocateBitcoinVaultSpace(locks, 1_200n * oneArgon, currency.priceIndex);
+    const partlyFull = allocateBitcoinVaultSpace(locks, 1_200n * oneArgon, currency.priceIndex, collateralByLockId);
     expect(partlyFull.get(lock)?.allocatedMicrogons).toBe(1_000n * oneArgon);
     expect(partlyFull.get(otherLock)?.allocatedMicrogons).toBe(100n * oneArgon);
 
     // Keep all liquids visible even when their combined collateral exceeds held funding.
-    const anotherLiquid = { ...liquid, securitizationCoverageMicrogons: 20n * oneArgon };
-    const full = allocateBitcoinVaultSpace([...locks, anotherLiquid], 70n * oneArgon, currency.priceIndex);
+    const anotherLiquid = { ...liquid, lockId: 4 };
+    const full = allocateBitcoinVaultSpace(
+      [...locks, anotherLiquid],
+      70n * oneArgon,
+      currency.priceIndex,
+      collateralByLockId,
+    );
     expect(full.get(liquid)).toEqual({ allocatedMicrogons: 50n * oneArgon, requiredMicrogons: 100n * oneArgon });
     expect(full.get(anotherLiquid)).toEqual({ allocatedMicrogons: 20n * oneArgon, requiredMicrogons: 40n * oneArgon });
     expect(full.get(lock)?.allocatedMicrogons).toBe(0n);
@@ -167,8 +172,18 @@ describe('ArgonBonds', () => {
 
     // Equal-sized locks retain their selection when refreshed records arrive in another order.
     const equalLock = { ...otherLock, lockId: 7 };
-    const tied = allocateBitcoinVaultSpace([equalLock, otherLock], 300n * oneArgon, currency.priceIndex);
-    const reordered = allocateBitcoinVaultSpace([otherLock, equalLock], 300n * oneArgon, currency.priceIndex);
+    const tied = allocateBitcoinVaultSpace(
+      [equalLock, otherLock],
+      300n * oneArgon,
+      currency.priceIndex,
+      collateralByLockId,
+    );
+    const reordered = allocateBitcoinVaultSpace(
+      [otherLock, equalLock],
+      300n * oneArgon,
+      currency.priceIndex,
+      collateralByLockId,
+    );
     expect(tied.get(otherLock)?.allocatedMicrogons).toBe(300n * oneArgon);
     expect(tied.get(equalLock)?.allocatedMicrogons).toBe(0n);
     expect(reordered.get(otherLock)).toEqual(tied.get(otherLock));
@@ -696,9 +711,7 @@ describe('ArgonBonds', () => {
       let failFrameRead = false;
       const metadata = new Metadata(
         codecs,
-        Object.entries(getBundledMetadata()).find(([key]) =>
-          key.endsWith(runtime === 'candidate' ? '-160' : '-159'),
-        )![1],
+        Object.entries(getBundledMetadata()).find(([key]) => key.endsWith('-161'))![1],
       );
       const consts = runtimeClient({
         query: {},

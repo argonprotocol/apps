@@ -44,6 +44,8 @@ describe('native runtime query types', () => {
       result: expect.stringContaining('readonly liquidId: number'),
     });
     expect(queries.bitcoinFissions?.fissionByOwnerAndId?.result).toContain('readonly lastRatchetTick: number');
+    expect(queries.bitcoinFissions?.fissionByOwnerAndId?.result).toContain('readonly cosignerGuarantee: {');
+    expect(queries.bitcoinFissions?.fissionByOwnerAndId?.result).toContain('readonly guaranteedMicrogons: bigint');
     expect(queries.bitcoinFissions?.fissionIdsByLockId).toEqual({
       args: ['number'],
       result: 'readonly number[]',
@@ -51,14 +53,17 @@ describe('native runtime query types', () => {
     expect(queries.bitcoinFissions?.nextFissionIdByOwner?.result).toBe('number');
   });
 
-  it('exposes the current Bitcoin lock as structured funding entries and native numeric heights', () => {
+  it('exposes Bitcoin funding entries, guarantee ticks, and optional hold heights as native values', () => {
     const queries = readRuntimeQueries(querySource, lookupSource, definitionSource, typeOverrides);
     const bitcoinLock = queries.bitcoinLocks?.locksById?.result;
 
     expect(bitcoinLock).toContain(
       'readonly fundingUtxos: readonly (readonly [{ readonly txid: string; readonly outputIndex: number }, bigint])[]',
     );
-    expect(bitcoinLock).toContain('readonly securitizationTick: number');
-    expect(bitcoinLock).toContain('readonly securitizationHoldExpirationBitcoinHeight: number');
+    expect(bitcoinLock).toContain(
+      'readonly basis: { readonly satoshis: bigint; readonly microgonsAtTargetPerBtc: bigint; readonly tick: number }',
+    );
+    expect(bitcoinLock).toContain('readonly guaranteedMicrogons: bigint');
+    expect(bitcoinLock).toContain('readonly securitizationHoldExpirationBitcoinHeight: number | null');
   });
 });

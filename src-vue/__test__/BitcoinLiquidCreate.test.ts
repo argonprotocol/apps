@@ -1,6 +1,7 @@
 import { runtimeClient, type BitcoinLocksLocksByIdResult } from '@argonprotocol/runtime-client';
-import { Vault, type ArgonClient, type TxSigningAccount, type Vaults } from '@argonprotocol/apps-core';
+import { Vault, type BlockWatch, type ArgonClient, type TxSigningAccount, type Vaults } from '@argonprotocol/apps-core';
 import BigNumber from 'bignumber.js';
+import { getOfflineRegistry } from '@argonprotocol/mainchain';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type BitcoinLocks from '../lib/BitcoinLocks.ts';
@@ -56,7 +57,9 @@ describe('Liquid Bitcoin rate freshness', () => {
       fundHoldExtensions: {},
       createdAtArgonBlock: 1,
     } satisfies NonNullable<BitcoinLocksLocksByIdResult>;
+    const registry = getOfflineRegistry();
     const snapshot = {
+      registry,
       query: {
         ticks: { currentTick: async () => currentTick },
         priceIndex: {
@@ -115,13 +118,20 @@ describe('Liquid Bitcoin rate freshness', () => {
         terms: { bitcoinBaseFee: 0n, bitcoinAnnualPercentRate: new BigNumber(0.01) },
       }),
     );
+    const blockWatch = {
+      getLatestFinalizedSnapshot: async () => ({
+        block: { blockHash: `0x${'01'.repeat(32)}` },
+        api: runtimeClient(snapshot),
+      }),
+    } as unknown as BlockWatch;
     operation = new BitcoinLiquidCreate(
       { ownerAccount } as BitcoinFissions,
       {} as TransactionTracker,
       {} as BitcoinLocks,
-      { vaultsById: {} } as Vaults,
+      { vaultsById: {}, operatorNamesByVaultId: { 1: 'Synthetic Vault' } } as unknown as Vaults,
       {} as BitcoinLockResecuritize,
       {} as UpstreamOperatorClient,
+      blockWatch,
     );
   });
 
@@ -139,6 +149,12 @@ describe('Liquid Bitcoin rate freshness', () => {
     await expect(operation.preview(growth)).rejects.toMatchObject({
       maximumSatoshisByLockId: { 7: 433n },
     });
+
+    currentTick = priceIndexTick = 111;
+    rateHistory = [[111n, currentRate]];
+    await expect(operation.preview(growth)).rejects.toThrow(
+      'Synthetic Vault: Existing Liquids need a Bitcoin price that is no longer available.',
+    );
   });
 
   it('uses a fresh current index without changing an unchanged rate’s historical tick', async () => {

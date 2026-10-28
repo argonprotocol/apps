@@ -1,6 +1,7 @@
+import { getHistoricalBitcoinLockDetails } from '../recovery/BitcoinLockHistory.ts';
 import { BitcoinLock, type ArgonClient, type TxSigningAccount } from '@argonprotocol/apps-core';
 import { addressBytesHex, type IBitcoinReleaseRequest } from '@argonprotocol/bitcoin';
-import { formatArgons } from '@argonprotocol/mainchain';
+import { formatArgons, u8aToHex } from '@argonprotocol/mainchain';
 
 import BitcoinLocks from '../BitcoinLocks.ts';
 import { BitcoinReleaseKind, BitcoinReleaseStatus } from '../../interfaces/IBitcoinReleaseRecord.ts';
@@ -214,8 +215,8 @@ export class BitcoinLockRelease extends TransactionOperation<
     const client = await getMainchainClient(true);
     const api = await client.at(blockHash);
     const [request, currentLock, currentTick] = await Promise.all([
-      BitcoinLock.getReleaseRequest(api, metadata.lockId),
-      BitcoinLock.get(api, metadata.lockId),
+      api.query.bitcoinLocks.lockReleaseRequestsById(metadata.lockId),
+      getHistoricalBitcoinLockDetails(api, metadata.lockId),
       api.query.ticks.currentTick(),
     ]);
     if (!request || !currentLock || currentTick === null) {
@@ -239,7 +240,7 @@ export class BitcoinLockRelease extends TransactionOperation<
       async () => {
         await this.bitcoinLocks.releases.finalizeLockRequest(lock, {
           releaseId: metadata.releaseId,
-          request,
+          request: { ...request, toScriptPubkey: u8aToHex(request.toScriptPubkey) },
           inputUtxoIds,
           requestedReleaseAtTick: Number(currentTick),
           argonTxFeeMicrogons: txInfo.txResult.finalFee ?? txInfo.tx.txFeePlusTip ?? 0n,

@@ -212,6 +212,7 @@ export function setupAppScenario({
     currentFrameId: 0,
     pendingCollectTxInfo: null,
     externalLocks: {},
+    bitcoinCollateralByLockId: {},
     pendingAllocateTxInfo: null,
   };
   const reactiveMyVaultData = Vue.shallowReactive(myVaultData);
@@ -479,7 +480,7 @@ export function setupAppScenario({
   const registry = getOfflineRegistry();
   const metadata = new Metadata(
     registry,
-    Object.entries(getBundledMetadata()).find(([key]) => key.endsWith('-160'))![1],
+    Object.entries(getBundledMetadata()).find(([key]) => key.endsWith('-161'))![1],
   );
   const rewardConstants = toPlain(
     decorateConstants(registry, metadata.asLatest, metadata.version).treasury,

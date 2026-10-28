@@ -106,7 +106,7 @@ export function getBitcoinTransactionOperations(): TransactionOperations {
     );
 
     transactionOperations = {
-      bitcoinLiquidClose: new BitcoinLiquidClose(bitcoinFissions, transactionTracker, currency),
+      bitcoinLiquidClose: new BitcoinLiquidClose(bitcoinFissions, transactionTracker, currency, getBlockWatch()),
       bitcoinLiquidCreate: new BitcoinLiquidCreate(
         bitcoinFissions,
         transactionTracker,
@@ -114,6 +114,7 @@ export function getBitcoinTransactionOperations(): TransactionOperations {
         getVaults(),
         bitcoinLockResecuritize,
         upstreamOperatorClient,
+        getBlockWatch(),
       ),
       bitcoinLiquidRatchet: new BitcoinLiquidRatchet(
         bitcoinFissions,
@@ -123,6 +124,7 @@ export function getBitcoinTransactionOperations(): TransactionOperations {
         getVaults(),
         bitcoinLockResecuritize,
         upstreamOperatorClient,
+        getBlockWatch(),
       ),
       bitcoinOrphanRelease: new BitcoinOrphanRelease(bitcoinLocks, transactionTracker),
       bitcoinLockCreate: new BitcoinLockCreate(bitcoinLocks, transactionTracker, currency, upstreamOperatorClient),

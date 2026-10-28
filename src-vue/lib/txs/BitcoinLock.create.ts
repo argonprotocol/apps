@@ -1,3 +1,4 @@
+import { getHistoricalBitcoinLockDetails } from '../recovery/BitcoinLockHistory.ts';
 import {
   bigIntMax,
   bigIntMin,
@@ -286,8 +287,16 @@ export class BitcoinLockCreate extends TransactionOperation<
     const blockHash = await txInfo.txResult.waitForFinalizedBlock;
     const archiveClient = await getMainchainClient(true);
     await this.transactionTracker.ensureStoredEvents(txInfo);
-    const { lock } = await BitcoinLock.getBitcoinLockFromTxResult(await archiveClient.at(blockHash), txInfo.txResult);
-    await this.bitcoinLocks.finalizeCreatedLock(txInfo.tx.metadataJson.bitcoin.uuid, lock, txInfo);
+    const created = txInfo.txResult.events.find(
+      event => event.section === 'bitcoinLocks' && event.method === 'BitcoinLockCreated',
+    );
+    const lockId = created?.data.lockId;
+    if (!lockId) throw new Error('Bitcoin lock creation finalized without its creation event.');
+    const lock = await getHistoricalBitcoinLockDetails(await archiveClient.at(blockHash), lockId);
+    if (!lock) throw new Error(`Bitcoin Lock #${lockId} was not found after creation.`);
+    const payment = BitcoinLock.readLockGuaranteePayment(txInfo.txResult.events, lockId, lock.ownerAccount);
+    if (!payment) throw new Error(`Bitcoin Lock #${lockId} finalized without its guarantee event.`);
+    await this.bitcoinLocks.finalizeCreatedLock(txInfo.tx.metadataJson.bitcoin.uuid, lock, txInfo, payment);
     const feeCouponRequestId = txInfo.tx.metadataJson.bitcoin.feeCouponRequestId;
     if (feeCouponRequestId) {
       await this.upstreamOperatorClient.recordBitcoinLockFeeCouponUse(feeCouponRequestId, 'Finalized');

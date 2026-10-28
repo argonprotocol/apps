@@ -1,4 +1,4 @@
-import { runtimeClient, type LiveQueryRecord } from '@argonprotocol/runtime-client';
+import { runtimeClient } from '@argonprotocol/runtime-client';
 import BigNumber from 'bignumber.js';
 import { integrationNetwork as sharedNetwork } from '@argonprotocol/apps-core/__test__/integration.setup.ts';
 import { mnemonicGenerate } from '@argonprotocol/mainchain';
@@ -50,7 +50,6 @@ describe.skipIf(skipE2E).sequential('Your Vault tests', {}, () => {
   const trackedMiningFrames: MiningFrames[] = [];
   const vaultSetup: IConfig['vaultSetup'] = {
     ...(Config.getDefault('vaultSetup') as IConfig['vaultSetup']),
-    securitizationRatio: 1,
     securitizationMicrogons: 10_000_000n,
     committedMicronots: 10_000_000n,
     btcFlatFee: 1_000_000n,
@@ -232,12 +231,11 @@ describe.skipIf(skipE2E).sequential('Your Vault tests', {}, () => {
       const commitment = await Vault.getArgonotSecuritization(await clients.get(false), createdVault.vaultId);
       expect(commitment?.heldMicronots).toBe(vaultSetup.committedMicronots);
       expect(createdVault.operatorAccountId).toBe(walletKeys.vaultingAddress);
-      const createdState = (await client.query.vaults.vaultsById(createdVault.vaultId)) as NonNullable<
-        LiveQueryRecord<'vaults', 'vaultsById'>
-      >;
-      if ('treasuryProfitSharing' in createdState.terms) {
-        expect(createdState.terms.treasuryProfitSharing.toNumber()).toBe(0.1);
-      }
+      const spec = client.runtimeVersion.specVersion.toNumber();
+      expect(spec).toBe(Number(process.env.ARGON_TEST_RUNTIME_SPEC ?? 161));
+      expect(createdVault.bitcoinCapacityMicrogons()).toBe(vaultSetup.securitizationMicrogons);
+      if (spec === 160) expect(createdVault.securitizationRatio?.toNumber()).toBe(1);
+      else expect(createdVault.securitizationRatio).toBeUndefined();
       const delegateAddress = await walletKeys.getVaultDelegateKeypair().then(x => x.address);
       const delegateBalance = await client.query.system.account(delegateAddress).then(x => x.data.free);
       expect(createdVault.delegateAccountId).toBe(delegateAddress);
@@ -352,23 +350,33 @@ describe.skipIf(skipE2E).sequential('Your Vault tests', {}, () => {
     const publishedTerms = myVault.createdVault!.pendingTerms?.[1] ?? myVault.createdVault!.terms;
     expect(publishedTerms.bitcoinBaseFee).toBe(updatedTerms.bitcoinBaseFee);
     expect(publishedTerms.bitcoinAnnualPercentRate.toNumber()).toBe(0.015);
-    const updatedState = (await client.query.vaults.vaultsById(vaultId)) as NonNullable<
-      LiveQueryRecord<'vaults', 'vaultsById'>
-    >;
-    if (!('committedMicrogons' in updatedState)) {
-      const updatedTerms = updatedState.pendingTerms?.[1] ?? updatedState.terms;
-      expect(updatedTerms.treasuryProfitSharing.toNumber()).toBe(0.1);
-    }
-
     const commitment = await myVault.setVaultSecuritization({ committedMicronots: 20_000_000n });
     await commitment.waitForPostProcessing;
     expect(myVault.data.argonotCommitment.heldMicronots).toBe(20_000_000n);
     expect(myVault.argonotSecuritizationTarget).toBe(20_000_000n);
 
+    const spec = client.runtimeVersion.specVersion.toNumber();
+    if (spec === 160) {
+      const existing = await Vault.get(client, vaultId);
+      existing.securitizationRatio = BigNumber(1.5);
+      await submitAndFinalize(
+        client,
+        existing.buildModifyFundingTx(client, existing.securitizationTarget),
+        await walletKeys.getVaultingKeypair(),
+      );
+      myVault.data.createdVault = await Vault.get(client, vaultId);
+    }
     const minimumPurchase = client.consts.treasury.minimumArgonsPerContributor;
     const increased = await myVault.setVaultSecuritization({ securitizationMicrogons: minimumPurchase * 3n });
     await increased.waitForPostProcessing;
     expect(myVault.createdVault?.securitizationTarget).toBe(minimumPurchase * 3n);
+    const fundedVault = await Vault.get(client, vaultId);
+    expect(fundedVault.securitizationTarget).toBe(minimumPurchase * 3n);
+    expect(myVault.createdVault?.bitcoinCapacityMicrogons(fundedVault.securitizationTarget)).toBe(
+      spec === 160 ? minimumPurchase * 2n : minimumPurchase * 3n,
+    );
+    if (spec === 160) expect(fundedVault.securitizationRatio?.toNumber()).toBe(1.5);
+    else expect(fundedVault.securitizationRatio).toBeUndefined();
     const additionalLock = await bitcoinLockCreate.submit({
       satoshis: await myVault.bitcoinLocks.satoshisForArgonLiquidity(
         (myVault.createdVault!.availableBitcoinSpace() * 4n) / 5n,

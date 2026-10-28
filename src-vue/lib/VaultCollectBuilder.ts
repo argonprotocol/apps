@@ -1,14 +1,12 @@
 import {
   BitcoinLock,
-  bigNumberToBigInt,
   bigIntMin,
   type ArgonClient,
-  type ArgonQueryClient,
+  type ArgonCurrentQueryClient,
   type MoveTo,
   type IReleaseRequest,
   type IBitcoinLockFundingUtxo,
 } from '@argonprotocol/apps-core';
-import BigNumber from 'bignumber.js';
 import { u8aToHex, type SubmittableExtrinsic } from '@argonprotocol/mainchain';
 import type { IMintingAuthorityAuthorizeMetadata } from './MintingAuthorities.ts';
 import type { MyVault } from './MyVault.ts';
@@ -92,9 +90,7 @@ export class VaultCollectBuilder {
         };
         // A full release frees the lock's collateral once Bitcoin confirms the spend.
         if (releaseRequest.changeSatoshis === 0n) {
-          request.securitizationReleased =
-            lock.securitizationCollateralMicrogons ??
-            bigNumberToBigInt(BigNumber(lock.securitizationCoverageMicrogons).times(lock.securitizationRatio));
+          request.securitizationReleased = lock.securitizationCollateralMicrogons;
         }
         return [request];
       },
@@ -217,7 +213,7 @@ export class VaultCollectBuilder {
 
   public async buildPendingSubmission(args: {
     client: ArgonClient;
-    finalizedClient: ArgonQueryClient;
+    finalizedClient: ArgonCurrentQueryClient;
     moveTo: MoveTo;
   }): Promise<IVaultCollectSubmission | undefined> {
     const { myVault } = this;
@@ -316,7 +312,7 @@ function getStoredCosignCount(
 async function buildCollectBitcoinTxs(args: {
   myVault: MyVault;
   client: ArgonClient;
-  finalizedClient: ArgonQueryClient;
+  finalizedClient: ArgonCurrentQueryClient;
   vaultId: number;
 }) {
   const { myVault, client, finalizedClient, vaultId } = args;

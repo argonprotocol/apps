@@ -156,6 +156,7 @@ export const bitcoinRecoveryEventPolicies: Readonly<Record<string, 'replay' | 'p
   BitcoinLockCreated: 'replay',
   BitcoinLockRatcheted: 'replay',
   BitcoinLockResecuritized: 'replay',
+  BitcoinLockGuaranteeSet: 'replay',
   BitcoinLockTerminated: 'replay',
   BitcoinSpentAfterRelease: 'replay',
   BitcoinUtxoCosignRequested: 'replay',

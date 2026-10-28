@@ -26,9 +26,11 @@ import {
   type ArgonPrimitivesVault,
   type ArgonPrimitivesVaultVaultTerms,
 } from '@argonprotocol/mainchain';
-import { runtimeClient, toPlain } from '@argonprotocol/runtime-client';
+import { getBundledMetadata, runtimeClient, toPlain } from '@argonprotocol/runtime-client';
+import { Metadata, TypeRegistry } from '@polkadot/types';
+import { decorateExtrinsics } from '@polkadot/types/metadata/decorate';
 import BigNumber from 'bignumber.js';
-import { createCurrentLock, createStore } from './helpers/bitcoin.ts';
+import { createCurrentLock, createStore, historyEvent } from './helpers/bitcoin.ts';
 import { BitcoinNetwork, CosignScript } from '@argonprotocol/bitcoin';
 import type { IBitcoinLockCosignMetadata } from '../lib/txs/BitcoinLock.cosign.ts';
 import { BitcoinReleaseKind, BitcoinReleaseStatus } from '../interfaces/IBitcoinReleaseRecord.ts';
@@ -310,64 +312,77 @@ describe('MyVault cosign recovery', () => {
     expect(myVault.collectBuilder.getNotice()?.signatureCount).toBe(2);
   });
 
-  it('shows collateral released by a full Bitcoin return without treating partial or unattached returns as full releases', () => {
-    const { myVault } = createVault();
-    const original = createCurrentLock({ securitizationCoverageMicrogons: 2_001n, fundedSatoshis: 5_000n });
-    const lock = AppsCore.BitcoinLock.fromRuntime(original.lockId, {
-      ...original,
-      securitizationBasis: { satoshis: 10_000n, microgonsAtTargetPerBtc: original.microgonsAtTargetPerBtc },
-      securitizationRatio: new BigNumber(1.5),
-      utxoScriptPubkey: { type: 'P2WSH', value: { wscriptHash: `0x${'44'.repeat(32)}` } },
-      fundingUtxos: [[{ txid: `0x${'33'.repeat(32)}`, outputIndex: 0 }, 5_000n]],
-      couponPaidFees: original.couponFeesPaid,
-      vaultXpubSources: ['0x00000000', 0, 0],
-      fundHoldExtensions: {},
-    });
-    const releaseRequest: AppsCore.IReleaseRequestDetails = {
-      lockId: lock.lockId,
-      vaultId: lock.vaultId,
-      releaseNumber: 1,
-      cosignDueFrame: 100,
-      expectedTransactionId: `0x${'24'.repeat(32)}`,
-      toScriptPubkey: `0x0014${'12'.repeat(20)}`,
-      bitcoinNetworkFee: 100n,
-      destinationSatoshis: 4_900n,
-      changeSatoshis: 0n,
-      securitizationAtRisk: 2_001n,
-    };
-    myVault.data.pendingCosignLocksById.set(lock.lockId, {
-      lock,
-      releaseNumber: 1,
-      releaseRequest,
-      targetValue: lock.securitizationCoverageMicrogons,
-    });
-    myVault.data.pendingOrphanCosignRequests = [
-      {
-        ownerAccount: lock.ownerAccount,
-        utxoRef: { txid: `0x${'35'.repeat(32)}`, outputIndex: 0 },
-        orphan: {
-          vaultId: lock.vaultId,
-          lockId: lock.lockId,
-          satoshis: 1_000n,
-          recordedArgonBlockNumber: 120,
-          cosignRequest: {
-            bitcoinNetworkFee: 100n,
-            toScriptPubkey: new Uint8Array([0, 20, ...new Array(20).fill(2)]),
-            createdAtArgonBlockNumber: 121,
+  it.each([160, 161])(
+    'shows full collateral released on runtime %s without freeing collateral for partial or unattached returns',
+    async spec => {
+      const { myVault } = createVault();
+      const registry = new TypeRegistry();
+      registry.setMetadata(
+        new Metadata(registry, Object.entries(getBundledMetadata()).find(([key]) => key.endsWith(`-${spec}`))![1]),
+      );
+      const basis = { satoshis: 10_000n, microgonsAtTargetPerBtc: 1_000_000n, tick: 12 };
+      const record = registry.createType('Option<PalletBitcoinLocksLockedBitcoin>', {
+        vaultId: 7,
+        ownerAccount: new Uint8Array(32).fill(17),
+        fundedSatoshis: 5_000n,
+        securitizationBasis: basis,
+        securitizationTick: 12,
+        securitizationCoverageMicrogons: 2_001n,
+        securitizationRatio: 1_500_000_000_000_000_000n,
+        cosignerGuarantee: { basis, guaranteedMicrogons: 2_001n, fundHoldExtensions: {} },
+        fundingUtxos: new Map([[{ txid: `0x${'33'.repeat(32)}`, outputIndex: 0 }, 5_000n]]),
+      });
+      const client = runtimeClient({
+        registry,
+        query: { bitcoinLocks: { locksById: async () => record } },
+      }) as unknown as AppsCore.ArgonCurrentQueryClient;
+      const lock = (await AppsCore.BitcoinLock.get(client, 11))!;
+      const releaseRequest: AppsCore.IReleaseRequestDetails = {
+        lockId: lock.lockId,
+        vaultId: lock.vaultId,
+        releaseNumber: 1,
+        cosignDueFrame: 100,
+        expectedTransactionId: `0x${'24'.repeat(32)}`,
+        toScriptPubkey: `0x0014${'12'.repeat(20)}`,
+        bitcoinNetworkFee: 100n,
+        destinationSatoshis: 4_900n,
+        changeSatoshis: 0n,
+        securitizationAtRisk: 2_001n,
+      };
+      myVault.data.pendingCosignLocksById.set(lock.lockId, {
+        lock,
+        releaseNumber: 1,
+        releaseRequest,
+        targetValue: lock.securitizationCoverageMicrogons,
+      });
+      myVault.data.pendingOrphanCosignRequests = [
+        {
+          ownerAccount: lock.ownerAccount,
+          utxoRef: { txid: `0x${'35'.repeat(32)}`, outputIndex: 0 },
+          orphan: {
+            vaultId: lock.vaultId,
+            lockId: lock.lockId,
+            satoshis: 1_000n,
+            recordedArgonBlockNumber: 120,
+            cosignRequest: {
+              bitcoinNetworkFee: 100n,
+              toScriptPubkey: new Uint8Array([0, 20, ...new Array(20).fill(2)]),
+              createdAtArgonBlockNumber: 121,
+            },
           },
         },
-      },
-    ];
+      ];
 
-    const [fullReturn, unattachedReturn] = myVault.collectBuilder.getBitcoinSigningRequests();
-    expect(lock.securitizationCoverageMicrogons).toBe(1_000n);
-    expect(fullReturn.securitizationReleased).toBe(3_001n);
-    expect(unattachedReturn.securitizationReleased).toBeUndefined();
+      const [fullReturn, unattachedReturn] = myVault.collectBuilder.getBitcoinSigningRequests();
+      expect(lock.securitizationCoverageMicrogons).toBe(1_000n);
+      expect(fullReturn.securitizationReleased).toBe(spec === 160 ? 3_001n : 2_001n);
+      expect(unattachedReturn.securitizationReleased).toBeUndefined();
 
-    releaseRequest.destinationSatoshis = 2_400n;
-    releaseRequest.changeSatoshis = 2_500n;
-    expect(myVault.collectBuilder.getBitcoinSigningRequests()[0].securitizationReleased).toBeUndefined();
-  });
+      releaseRequest.destinationSatoshis = 2_400n;
+      releaseRequest.changeSatoshis = 2_500n;
+      expect(myVault.collectBuilder.getBitcoinSigningRequests()[0].securitizationReleased).toBeUndefined();
+    },
+  );
 
   it('creates one ordered vault signature for every funding output in a lock release', async () => {
     const { myVault } = createVault();
@@ -788,40 +803,167 @@ describe('MyVault cosign recovery', () => {
     ]);
     expect((await db.syncStateTable.get(SyncStateKeys.VaultRevenue))?.throughBlock).toBe(17);
 
+    refreshExternalLocks.mockRestore();
+    const registry = getOfflineRegistry();
+    const basis = { satoshis: 10_000n, microgonsAtTargetPerBtc: 1_000_000n, tick: 12 };
+    const borrower = registry.createType('AccountId32', new Uint8Array(32).fill(17)).toString();
+    let guaranteedMicrogons = 40n;
+    let collateralUnavailable = true;
+    const collateralClient = runtimeClient({
+      registry,
+      consts: finalizedApi.consts,
+      query: {
+        ...finalizedApi.query,
+        bitcoinLocks: {
+          ...finalizedApi.query.bitcoinLocks,
+          lockIdsByVaultId: { keys: async () => [{ args: [7, 11] }] },
+          locksById: {
+            multi: async () => [
+              registry.createType('Option<PalletBitcoinLocksLockedBitcoin>', {
+                vaultId: 7,
+                ownerAccount: new Uint8Array(32).fill(17),
+                fundedSatoshis: 10_000n,
+                fissionedSatoshis: 10_000n,
+              }),
+            ],
+          },
+        },
+        bitcoinFissions: {
+          fissionIdsByLockId: async () => {
+            if (collateralUnavailable) throw new Error('collateral snapshot unavailable');
+            return registry.createType('Vec<u32>', [1]);
+          },
+          fissionByOwnerAndId: async (owner: string, id: number) => {
+            if (owner !== borrower || id !== 1)
+              return registry.createType('Option<PalletBitcoinFissionsFission>', null);
+            return registry.createType('Option<PalletBitcoinFissionsFission>', {
+              liquidId: 2,
+              lockId: 11,
+              satoshis: 10_000n,
+              cosignerGuarantee: { basis, guaranteedMicrogons, fundHoldExtensions: {} },
+            });
+          },
+        },
+      },
+    }) as unknown as AppsCore.ArgonCurrentQueryClient;
+    blockWatch.getLatestFinalizedSnapshot.mockResolvedValue({ api: collateralClient });
+    await expect(myVault.refreshExternalLocks(collateralClient)).rejects.toThrow('collateral snapshot unavailable');
+    expect(myVault.data.bitcoinCollateralByLockId).toEqual({});
+    collateralUnavailable = false;
+    getBlockEventsWithSpec.mockResolvedValueOnce({ api: collateralClient, events: [], specVersion: 161 });
+    await onFinalized([{ blockNumber: 18, blockHash: '0x18' }]);
+    expect(myVault.data.bitcoinCollateralByLockId[11]).toBe(40n);
+
+    guaranteedMicrogons = 60n;
+    blockEvents.splice(
+      0,
+      blockEvents.length,
+      historyEvent(161, 'bitcoinFissions', 'FissionRatcheted', {
+        accountId: registry.createType('AccountId32', new Uint8Array(32).fill(17)).toString(),
+        fissionId: 1,
+        ratchetNumber: 1,
+        microgonsAtTargetPerBtc: 1_500_000n,
+        liquidityPromised: 60n,
+        amountMinted: 20n,
+        amountBurned: 0n,
+      }),
+    );
+    getBlockEventsWithSpec.mockResolvedValueOnce({ api: collateralClient, events: blockEvents, specVersion: 161 });
+    await onFinalized([{ blockNumber: 19, blockHash: '0x19' }]);
+    expect(myVault.data.bitcoinCollateralByLockId[11]).toBe(60n);
     myVault.unsubscribe();
     getMainchainClient.mockRestore();
     getMainchainClients.mockRestore();
   });
 
-  it('refetches a retained external lock after its partial release changes funding', async () => {
-    const { myVault } = createVault();
-    myVault.data.metadata = { id: 7 } as any;
-    (myVault.bitcoinLocks as any).data = { locksByLockId: {} };
-    const client = {
-      query: {
-        bitcoinLocks: {
-          lockIdsByVaultId: { keys: vi.fn(async () => [{ args: [7, 11] }]) },
+  it.each([160, 161])(
+    'keeps Vault collateral attributed through Fission close and failed refresh on runtime %s',
+    async spec => {
+      const { myVault } = createVault();
+      myVault.data.metadata = { id: 7 } as any;
+      (myVault.bitcoinLocks as any).data = { locksByLockId: {} };
+      const registry = new TypeRegistry();
+      registry.setMetadata(
+        new Metadata(registry, Object.entries(getBundledMetadata()).find(([key]) => key.endsWith(`-${spec}`))![1]),
+      );
+      const borrower = registry.createType('AccountId32', new Uint8Array(32).fill(17)).toString();
+      let closed = false;
+      let failed = false;
+      let unavailable = false;
+      const secondLiquidity = spec === 160 ? 60n : 80n;
+      const basis = { satoshis: 10_000n, microgonsAtTargetPerBtc: 1_000_000n, tick: 12 };
+      const locksById = {
+        multi: async () => [
+          registry.createType('Option<PalletBitcoinLocksLockedBitcoin>', {
+            vaultId: 7,
+            ownerAccount: new Uint8Array(32).fill(17),
+            fundedSatoshis: 10_000n,
+            fissionedSatoshis: closed ? 4_000n : 10_000n,
+            securitizationBasis: basis,
+            securitizationTick: 12,
+            securitizationCoverageMicrogons: 100n,
+            securitizationRatio: 1_500_000_000_000_000_000n,
+            cosignerGuarantee: {
+              basis: { ...basis, satoshis: closed ? 6_000n : 0n },
+              guaranteedMicrogons: closed ? 80n : 0n,
+              fundHoldExtensions: {},
+            },
+          }),
+        ],
+      };
+      const client = runtimeClient({
+        registry,
+        query: {
+          bitcoinLocks: { lockIdsByVaultId: { keys: async () => [{ args: [7, 11] }] }, locksById },
+          bitcoinFissions: {
+            fissionIdsByLockId: async () => {
+              if (failed) throw new Error('snapshot unavailable');
+              return registry.createType('Vec<u32>', closed ? [1] : [1, 2]);
+            },
+            fissionByOwnerAndId: async (owner: string, id: number) => {
+              if (unavailable || owner !== borrower || ![1, 2].includes(id)) {
+                return registry.createType('Option<PalletBitcoinFissionsFission>', null);
+              }
+              return registry.createType('Option<PalletBitcoinFissionsFission>', {
+                liquidId: 2,
+                lockId: 11,
+                satoshis: id === 1 ? 4_000n : 6_000n,
+                liquidityPromised: id === 1 ? 40n : secondLiquidity,
+                cosignerGuarantee: {
+                  basis: { ...basis, satoshis: id === 1 ? 4_000n : 6_000n },
+                  guaranteedMicrogons: id === 1 ? 40n : 80n,
+                  fundHoldExtensions: {},
+                },
+              });
+            },
+          },
         },
-      },
-    };
-    const getLocks = vi
-      .spyOn(AppsCore.BitcoinLock, 'getMany')
-      .mockResolvedValueOnce([
-        createCurrentLock({ lockId: 11, vaultId: 7, fundedSatoshis: 10_000n }) as AppsCore.BitcoinLock,
-      ])
-      .mockResolvedValueOnce([
-        createCurrentLock({ lockId: 11, vaultId: 7, fundedSatoshis: 6_000n }) as AppsCore.BitcoinLock,
-      ]);
+      }) as unknown as AppsCore.ArgonCurrentQueryClient;
 
-    await myVault.refreshExternalLocks(client as any);
-    expect(myVault.data.externalLocks[11].satoshis).toBe(10_000n);
+      await myVault.refreshExternalLocks(client);
+      const collateral = spec === 160 ? 150n : 120n;
+      expect(myVault.data.bitcoinCollateralByLockId[11]).toBe(collateral);
+      expect(myVault.data.externalLocks[11].satoshis).toBe(10_000n);
+      const lastLocks = myVault.data.externalLocks;
+      const lastCollateral = myVault.data.bitcoinCollateralByLockId;
+      failed = true;
+      await expect(myVault.refreshExternalLocks(client)).rejects.toThrow('snapshot unavailable');
+      expect(myVault.data.externalLocks).toBe(lastLocks);
+      expect(myVault.data.bitcoinCollateralByLockId).toBe(lastCollateral);
 
-    await myVault.refreshExternalLocks(client as any);
-    expect(myVault.data.externalLocks[11].satoshis).toBe(6_000n);
-    expect(getLocks).toHaveBeenCalledTimes(2);
+      failed = false;
+      unavailable = true;
+      await expect(myVault.refreshExternalLocks(client)).rejects.toThrow('Fission collateral');
+      expect(myVault.data.externalLocks).toBe(lastLocks);
+      expect(myVault.data.bitcoinCollateralByLockId).toBe(lastCollateral);
 
-    getLocks.mockRestore();
-  });
+      unavailable = false;
+      closed = true;
+      await myVault.refreshExternalLocks(client);
+      expect(myVault.data.bitcoinCollateralByLockId[11]).toBe(collateral);
+      expect(myVault.data.externalLocks[11].lockDetails.fissionedSatoshis).toBe(4_000n);
+    },
+  );
 
   it('does not add the informational tip to the actual transaction fee twice', () => {
     const { myVault } = createVault();
@@ -991,7 +1133,6 @@ describe('MyVault cosign recovery', () => {
       vaultId: 7,
       securitization: 1_000n,
       securitizationTarget: 900n,
-      securitizationRatio: 1,
     } as any;
     myVault.data.argonotCommitment = {
       ...myVault.data.argonotCommitment,
@@ -1099,16 +1240,24 @@ describe('MyVault cosign recovery', () => {
 
   it('uses the selected final ARGN and ARGNOT securitization amounts', async () => {
     const { myVault } = createVault();
+    const registry = getOfflineRegistry();
+    const metadata = new Metadata(
+      registry,
+      Object.entries(getBundledMetadata()).find(([key]) => key.endsWith('-161'))![1],
+    );
+    const nativeFunding = decorateExtrinsics(registry, metadata.asLatest, metadata.version).vaults.modifyFunding;
     const fundingTx = { id: 'funding' };
     const commitmentTx = { id: 'commitment' };
     const batchTx = { id: 'batch' };
-    myVault.data.createdVault = {
-      vaultId: 7,
-      securitization: 1_000n,
-      securitizationTarget: 1_000n,
-      securitizationReleaseSchedule: new Map(),
-      securitizationRatio: 1,
-    } as any;
+    myVault.data.createdVault = Object.assign(
+      createTestVault({ vaultId: 7, operatorAccountId: myVault.walletKeys.vaultingAddress, delegateAccountId: null }),
+      {
+        vaultId: 7,
+        securitization: 1_000n,
+        securitizationTarget: 1_000n,
+        securitizationReleaseSchedule: new Map(),
+      },
+    );
     myVault.data.argonotCommitment = {
       ...myVault.data.argonotCommitment,
       heldMicronots: 100n,
@@ -1117,7 +1266,10 @@ describe('MyVault cosign recovery', () => {
     const client = {
       tx: {
         vaults: {
-          modifyFunding: vi.fn(() => fundingTx),
+          modifyFunding: Object.assign(
+            vi.fn(() => fundingTx),
+            { meta: nativeFunding.meta },
+          ),
           setArgonotSecuritization: vi.fn(() => commitmentTx),
         },
         utility: {
@@ -1134,36 +1286,10 @@ describe('MyVault cosign recovery', () => {
       client as any,
     );
 
-    expect(client.tx.vaults.modifyFunding).toHaveBeenCalledWith(7, 900n, 1_000_000_000_000_000_000n);
+    expect(client.tx.vaults.modifyFunding).toHaveBeenCalledWith(7, 900n);
     expect(client.tx.vaults.setArgonotSecuritization).toHaveBeenCalledWith(80n);
     expect(client.tx.utility.batchAll).toHaveBeenCalledWith([fundingTx, commitmentTx]);
     expect(result).toBe(batchTx);
-  });
-
-  it('submits the selected final ARGN amount when it restores a scheduled release target', async () => {
-    const { myVault } = createVault();
-    const fundingTx = { id: 'funding' };
-    myVault.data.createdVault = {
-      vaultId: 7,
-      securitization: 1_000n,
-      securitizationTarget: 700n,
-      securitizationRatio: 1,
-    } as any;
-    const client = {
-      tx: {
-        vaults: {
-          modifyFunding: vi.fn(() => fundingTx),
-        },
-        utility: {
-          batchAll: vi.fn(),
-        },
-      },
-    };
-
-    const result = await myVault.buildSecuritizationTx({ securitizationMicrogons: 1_000n }, client as any);
-
-    expect(client.tx.vaults.modifyFunding).toHaveBeenCalledWith(7, 1_000n, 1_000_000_000_000_000_000n);
-    expect(result).toBe(fundingTx);
   });
 
   it('reuses the pending collect tx instead of resubmitting collect work', async () => {
@@ -2052,8 +2178,9 @@ describe('MyVault cosign recovery', () => {
         ticks: { genesisTicker: async () => ({ tickDurationMillis: 1_000 }) },
         vaults: {
           vaultsById: async () => getOfflineRegistry().createType<ArgonPrimitivesVault>('ArgonPrimitivesVault'),
-          argonotCommitmentByVaultId: vi.fn(async () => ({
-            committedMicronots: 25n,
+          argonotSecuritizationByVaultId: vi.fn(async () => ({
+            heldMicronots: 25n,
+            committedMicronots: 0n,
             encumberedMicronots: 10n,
           })),
         },
@@ -2365,6 +2492,7 @@ function createVault(args?: {
     getEvents: getBlockEvents,
     getEventsWithSpec: getBlockEventsWithSpec,
     getFinalizedApi: vi.fn(async () => args?.finalizedApi ?? {}),
+    getLatestFinalizedSnapshot: vi.fn(async () => ({ api: args?.finalizedApi ?? {} })),
     getApi: vi.fn(async () => args?.finalizedApi ?? {}),
     getHeader: vi.fn(async (blockHeight: number) => {
       return {

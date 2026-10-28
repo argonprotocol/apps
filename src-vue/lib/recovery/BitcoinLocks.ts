@@ -549,6 +549,7 @@ export class BitcoinLockRecovery {
         event.section === 'bitcoinLocks' &&
         (event.method === 'BitcoinLockCreated' ||
           event.method === 'BitcoinLockResecuritized' ||
+          event.method === 'BitcoinLockGuaranteeSet' ||
           event.method === 'BitcoinLockRatcheted' ||
           event.method === 'SecuritizationIncreased' ||
           event.method === 'UtxoFundedFromCandidate')
@@ -587,7 +588,13 @@ export class BitcoinLockRecovery {
           couponFeesPaid: securityFeeCoupon,
           createdAtArgonBlock: chainLock.createdAtArgonBlock || block.blockNumber,
         };
-        this.recordSecuritizationTerm(block, eventRecords[eventIndex], recoveredChainLock, 'created');
+        let netSecurityFee: bigint | undefined;
+        if (event.data.lockId !== undefined) {
+          const extrinsicEvents = this.getExtrinsicEvents(eventRecords, eventIndex);
+          netSecurityFee =
+            BitcoinLock.readLockGuaranteePayment(extrinsicEvents, utxoId, chainLock.ownerAccount)?.netSecurityFee ?? 0n;
+        }
+        this.recordSecuritizationTerm(block, eventRecords[eventIndex], recoveredChainLock, 'created', netSecurityFee);
         const creationLiquidity = event.data.liquidityPromised ?? 0n;
         const creationTargetPrice =
           event.data.lockedTargetPrice ??
@@ -727,10 +734,22 @@ export class BitcoinLockRecovery {
         event.method === 'SecuritizationIncreased' ||
         event.method === 'UtxoFundedFromCandidate' ||
         (isUnknownBitcoinLockEvent && record.status === BitcoinLockStatus.LockPendingFunding);
-      if (event.section === 'bitcoinLocks' && event.method === 'BitcoinLockResecuritized') {
+      if (
+        event.section === 'bitcoinLocks' &&
+        (event.method === 'BitcoinLockResecuritized' || event.method === 'BitcoinLockGuaranteeSet')
+      ) {
         const chainLock = await getHistoricalBitcoinLock(api, utxoId);
         if (!chainLock) throw new Error(`Bitcoin lock ${utxoId} is unavailable after resecuritization`);
-        this.recordSecuritizationTerm(block, eventRecords[eventIndex], chainLock, 'resecuritized');
+        const extrinsicEvents = this.getExtrinsicEvents(eventRecords, eventIndex);
+        const netSecurityFee =
+          BitcoinLock.readLockGuaranteePayment(extrinsicEvents, utxoId, chainLock.ownerAccount)?.netSecurityFee ?? 0n;
+        const guaranteeLock = { ...chainLock };
+        if (event.method === 'BitcoinLockGuaranteeSet') {
+          guaranteeLock.securitizedSatoshis = event.data.securitizationBasis.satoshis;
+          guaranteeLock.microgonsAtTargetPerBtc = event.data.securitizationBasis.microgonsAtTargetPerBtc;
+          guaranteeLock.securitizationTick = event.data.securitizationBasis.tick;
+        }
+        this.recordSecuritizationTerm(block, eventRecords[eventIndex], guaranteeLock, 'resecuritized', netSecurityFee);
 
         const recovered = this.createDetachedRecord(record);
         this.applyHistoricalLockSnapshot(recovered, chainLock);
@@ -772,7 +791,10 @@ export class BitcoinLockRecovery {
           securityFee: chainLock.securityFees,
           securityFeeCoupon: recovered.couponFeesPaid,
         });
-        this.updateCurrentSecuritizationTerm({ ...chainLock, couponFeesPaid: recovered.couponFeesPaid });
+        this.updateCurrentSecuritizationTerm(
+          { ...chainLock, couponFeesPaid: recovered.couponFeesPaid },
+          event.method === 'SecuritizationIncreased',
+        );
 
         if (isBitcoinUtxoVerified || event.method === 'UtxoFundedFromCandidate') {
           recovered.fundedSatoshis = chainLock.fundedSatoshis;
@@ -1928,6 +1950,7 @@ export class BitcoinLockRecovery {
         case 'BitcoinLockFlexibleChanged':
           value = event.data.lockId ?? event.data.utxoId;
           break;
+        case 'BitcoinLockGuaranteeSet':
         case 'BitcoinLockResecuritized':
           value = event.data.lockId;
           break;
@@ -1975,11 +1998,25 @@ export class BitcoinLockRecovery {
     throw new Error(`Historical ${event.section}.${event.method} has an invalid Bitcoin lock id`);
   }
 
+  private getExtrinsicEvents(
+    records: readonly NamedBitcoinRecoveryEventRecord[],
+    eventIndex: number,
+  ): HistoricalEvent[] {
+    const phase = records[eventIndex].phase;
+    return records
+      .filter(record => {
+        if (phase.type !== 'ApplyExtrinsic') return record.phase.type === phase.type;
+        return record.phase.type === 'ApplyExtrinsic' && record.phase.value === phase.value;
+      })
+      .map(record => record.event);
+  }
+
   private recordSecuritizationTerm(
     block: IBlockHeaderInfo,
     record: NamedBitcoinRecoveryEventRecord,
     lock: IHistoricalBitcoinLock,
     origin: IBitcoinSecuritizationTerm['origin'],
+    netSecurityFee?: bigint,
   ): void {
     const replay = this.historyReplay;
     const coverage = lock.securitizationCoverageMicrogons;
@@ -1987,12 +2024,18 @@ export class BitcoinLockRecovery {
 
     const lockId = this.getCanonicalLockId(lock.utxoId);
     const terms = origin === 'created' ? [] : (replay.securitizationTermsByLockId.get(lockId) ?? []);
-    const previous = terms.at(-1);
-    const observedNetSecurityFee = bigIntMax(lock.securityFees - lock.couponFeesPaid, 0n);
-    const cumulativeNetSecurityFee =
-      origin === 'partial-release' && previous ? previous.cumulativeNetSecurityFee : observedNetSecurityFee;
     const phase = record.phase;
     const extrinsicIndex = phase.type === 'ApplyExtrinsic' ? phase.value : undefined;
+    const existing = terms.find(
+      term => term.startBlockHash === block.blockHash && term.startExtrinsicIndex === extrinsicIndex,
+    );
+    const previous = existing ? terms[terms.indexOf(existing) - 1] : terms.at(-1);
+    const observedNetSecurityFee = bigIntMax(lock.securityFees - lock.couponFeesPaid, 0n);
+    let cumulativeNetSecurityFee =
+      origin === 'partial-release' && previous ? previous.cumulativeNetSecurityFee : observedNetSecurityFee;
+    if (netSecurityFee !== undefined) {
+      cumulativeNetSecurityFee = (previous?.cumulativeNetSecurityFee ?? 0n) + netSecurityFee;
+    }
     if (previous) {
       Object.assign(previous, {
         endTick: block.tick,
@@ -2002,26 +2045,29 @@ export class BitcoinLockRecovery {
         endReason: origin === 'partial-release' ? ('partial-release' as const) : ('resecuritized' as const),
       });
     }
-    terms.push({
+    const term: IBitcoinSecuritizationTerm = {
       lockId,
-      termIndex: terms.length,
-      origin,
+      termIndex: existing?.termIndex ?? terms.length,
+      origin: existing?.origin ?? origin,
       startTick: block.tick,
       startBlockNumber: block.blockNumber,
       startBlockHash: block.blockHash,
       startExtrinsicIndex: extrinsicIndex,
       securitizedSatoshis: lock.securitizedSatoshis,
       securitizationCoverageMicrogons: coverage,
+      netSecurityFee,
       cumulativeNetSecurityFee,
       addedNetSecurityFee:
         origin === 'partial-release'
           ? 0n
           : bigIntMax(cumulativeNetSecurityFee - (previous?.cumulativeNetSecurityFee ?? 0n), 0n),
-    });
+    };
+    if (existing) terms[terms.indexOf(existing)] = term;
+    else terms.push(term);
     replay.securitizationTermsByLockId.set(lockId, terms);
   }
 
-  private updateCurrentSecuritizationTerm(lock: IHistoricalBitcoinLock): void {
+  private updateCurrentSecuritizationTerm(lock: IHistoricalBitcoinLock, updateFees = true): void {
     const terms = this.historyReplay?.securitizationTermsByLockId.get(this.getCanonicalLockId(lock.utxoId));
     const current = terms?.at(-1);
     if (!current) return;
@@ -2029,6 +2075,7 @@ export class BitcoinLockRecovery {
     const previousCumulativeFee = terms?.at(-2)?.cumulativeNetSecurityFee ?? 0n;
     current.securitizedSatoshis = lock.securitizedSatoshis;
     current.securitizationCoverageMicrogons = lock.securitizationCoverageMicrogons;
+    if (!updateFees) return;
     current.cumulativeNetSecurityFee = bigIntMax(lock.securityFees - lock.couponFeesPaid, 0n);
     current.addedNetSecurityFee = bigIntMax(current.cumulativeNetSecurityFee - previousCumulativeFee, 0n);
   }
