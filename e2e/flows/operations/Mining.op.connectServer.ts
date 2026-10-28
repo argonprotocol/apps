@@ -75,7 +75,9 @@ export default new Operation<IMiningFlowContext, IConnectServerState>(import.met
       return;
     }
 
-    await flow.click('SetupChecklist.openServerConnectPanel()', { timeoutMs: 20_000 });
+    if (!state.connectOverlayVisible) {
+      await flow.click('SetupChecklist.openServerConnectPanel()', { timeoutMs: 20_000 });
+    }
     await flow.click(`ServerConnectPanel.selectedTab='${input.serverTab}'`);
     flowState.connectedServerTab = input.serverTab;
 
