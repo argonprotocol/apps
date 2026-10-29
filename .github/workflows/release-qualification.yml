@@ -29,17 +29,17 @@ jobs:
     # Hosted-runner ceiling, not an expected duration. Phase timings are retained below.
     timeout-minutes: 360
     steps:
-      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd
+      - uses: actions/checkout@v5.0.1
         with:
           fetch-depth: 0
 
-      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444
+      - uses: actions/setup-node@v5.0.0
         with:
           node-version: '24'
           cache: yarn
 
       - name: Restore runtime client cache
-        uses: ./.github/actions/runtime-client-cache
+        uses: $/.github/actions/runtime-client-cache
 
       - name: Install dependencies and generate the runtime client
         run: |
@@ -54,7 +54,7 @@ jobs:
 
       - name: Restore immutable baseline
         id: baseline
-        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
+        uses: actions/cache/restore@v6.1.0
         with:
           path: |
             ${{ env.BASELINE_CACHE_DIRECTORY }}/manifest.json
@@ -64,7 +64,7 @@ jobs:
 
       - name: Authenticate to the indexer registry
         if: steps.baseline.outputs.cache-hit != 'true'
-        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9
+        uses: docker/login-action@v3.7.0
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -111,7 +111,7 @@ jobs:
 
       - name: Save verified baseline before qualification
         if: steps.baseline.outputs.cache-hit != 'true'
-        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
+        uses: actions/cache/save@v6.1.0
         with:
           path: |
             ${{ env.BASELINE_CACHE_DIRECTORY }}/manifest.json
@@ -120,14 +120,14 @@ jobs:
           key: ${{ steps.baseline.outputs.cache-primary-key }}
 
       - name: Check out the published desktop app
-        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd
+        uses: actions/checkout@v5.0.1
         with:
           ref: refs/tags/${{ env.PREVIOUS_APPS_REF }}
           path: .qualification-build/previous-apps
           persist-credentials: false
 
       - name: Check out the pinned Mainchain
-        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd
+        uses: actions/checkout@v5.0.1
         with:
           repository: argonprotocol/mainchain
           ref: refs/tags/${{ env.MAINCHAIN_REF }}
@@ -147,13 +147,13 @@ jobs:
             libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev patchelf \
             libpipewire-0.3-dev libspa-0.2-dev libgbm-dev dbus-x11 gnome-keyring webkit2gtk-driver xvfb
 
-      - uses: dtolnay/rust-toolchain@67ef31d5b988238dd797d409d6f9574278e20537
+      - uses: dtolnay/rust-toolchain@v1
         with:
           toolchain: stable
           targets: wasm32-unknown-unknown
 
       - name: Restore and save Rust build caches
-        uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32
+        uses: Swatinem/rust-cache@v2.9.1
         with:
           shared-key: release-qualification
           cache-on-failure: true
@@ -209,7 +209,7 @@ jobs:
 
       - name: Upload qualification evidence
         if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        uses: actions/upload-artifact@v4.6.2
         with:
           name: release-qualification-${{ github.run_id }}-${{ github.run_attempt }}
           path: |
