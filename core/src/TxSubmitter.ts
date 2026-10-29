@@ -3,12 +3,15 @@ import { waitForLoad } from '@argonprotocol/mainchain';
 import type { SignerOptions } from '@polkadot/api-base/types';
 import type { SubmittableExtrinsic } from '@polkadot/api/promise/types';
 import type { KeyringPair } from '@polkadot/keyring/types';
-import type { BlockWatch } from './BlockWatch.js';
+import type { SignerPayloadJSON } from '@polkadot/types/types';
+import { numberToHex } from '@polkadot/util';
+import { BlockWatch } from './BlockWatch.js';
 import { type ITxProgressCallback, type ITxStatusCallback, TxResult } from './TxResult.js';
 import type { ArgonClient } from './MainchainClients.js';
 
 const MINIMUM_MORTAL_PERIOD = 4;
 const MAXIMUM_MORTAL_PERIOD = 65_536;
+const MAXIMUM_AUTOMATIC_MORTAL_PERIOD = 4096;
 
 export type TxSigningAccount = KeyringPair | { address: string; signer: NonNullable<SignerOptions['signer']> };
 
@@ -28,6 +31,7 @@ export class TxSubmitter {
     public readonly client: ArgonClient,
     public tx: SubmittableExtrinsic,
     public readonly account: TxSigningAccount,
+    private readonly blockWatch?: BlockWatch,
   ) {
     this.address = account.address;
   }
@@ -71,8 +75,48 @@ export class TxSubmitter {
       apiOptions.nonce = await this.client.rpc.system.accountNextIndex(this.address);
     }
 
+    let signingBlockNumber: SignerPayloadJSON['blockNumber'] | undefined;
+    if (apiOptions.era === undefined || (typeof apiOptions.era === 'number' && apiOptions.era > 0)) {
+      if (this.blockWatch) await this.blockWatch.start();
+      const { finalizedBlockHeader: finalized, bestBlockHeader: best } =
+        this.blockWatch ?? (await BlockWatch.readCurrentHeaders(this.client));
+      // Era 0 skips header lookup; a supplied nonce also avoids a nonce RPC.
+      const info = await this.client.derive.tx.signingInfo(this.address, apiOptions.nonce, 0);
+      const finalizedNumber = finalized.blockNumber;
+      const bestNumber = best.blockNumber;
+      const lag = Math.max(0, bestNumber - finalizedNumber);
+      const requestedPeriod = typeof apiOptions.era === 'number' ? apiOptions.era : info.mortalLength;
+      const era = this.client.registry.createType('ExtrinsicEra', {
+        current: finalizedNumber,
+        period: Math.min(lag + requestedPeriod, MAXIMUM_AUTOMATIC_MORTAL_PERIOD),
+      });
+      const validationHeight = Math.max(bestNumber, finalizedNumber) + 1;
+      if (validationHeight >= era.asMortalEra.death(finalizedNumber)) {
+        throw new Error('Finality is too far behind for transaction mortality. Wait for finality and retry.');
+      }
+      if (finalizedNumber > 0 && validationHeight - finalizedNumber > this.client.consts.system.blockHashCount) {
+        throw new Error('Finalized checkpoint is outside the retained block history. Wait for finality and retry.');
+      }
+
+      apiOptions.era = era;
+      apiOptions.blockHash = finalized.blockHash;
+      apiOptions.nonce = info.nonce;
+      signingBlockNumber = numberToHex(finalizedNumber, 32);
+    }
+
     if ('signer' in this.account) {
-      return await this.tx.signAsync(this.address, { ...apiOptions, signer: this.account.signer });
+      const externalSigner = this.account.signer;
+      const { signPayload, update } = externalSigner;
+      const blockNumber = signingBlockNumber;
+      let signer = externalSigner;
+      if (blockNumber && signPayload) {
+        // Native signing omits this metadata when given an explicit era and checkpoint.
+        signer = {
+          signPayload: payload => signPayload.call(externalSigner, { ...payload, blockNumber }),
+        };
+        if (update) signer.update = update.bind(externalSigner);
+      }
+      return await this.tx.signAsync(this.address, { ...apiOptions, signer });
     }
 
     return await this.tx.signAsync(this.account, apiOptions);
@@ -161,6 +205,7 @@ export class TxSubmitter {
       submittedTime: new Date(),
       submittedAtBlockNumber: blockHeight,
       nonce: signedTx.nonce.toNumber(),
+      mortalityPeriod: signedTx.era.isMortalEra ? signedTx.era.asMortalEra.period.toNumber() : 0,
     });
     result.txProgressCallback = options.txProgressCallback;
     result.txStatusCallback = options.txStatusCallback;

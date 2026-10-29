@@ -60,6 +60,7 @@ export interface ITransactionRecord<MetadataType = any> {
   submittedAtBlockHeight: number;
   submissionErrorJson: any;
   txNonce?: number;
+  mortalityPeriod?: number; // Encoded block period: 0 is immortal; absent is unknown.
   txTip: bigint | undefined;
   txFeePlusTip: bigint | undefined;
   blockHeight: number | undefined;

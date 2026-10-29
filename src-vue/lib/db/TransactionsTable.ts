@@ -62,6 +62,7 @@ export class TransactionsTable extends BaseTable {
          submittedAtBlockHeight,
          submissionErrorJson,
          txNonce,
+         mortalityPeriod,
          txTip,
          txFeePlusTip,
          blockHeight,
@@ -96,6 +97,7 @@ export class TransactionsTable extends BaseTable {
          submittedAtBlockHeight,
          submissionErrorJson,
          txNonce,
+         mortalityPeriod,
          txTip,
          txFeePlusTip,
          blockHeight,
@@ -262,6 +264,7 @@ export class TransactionsTable extends BaseTable {
       | 'submittedAtBlockHeight'
       | 'submittedAtTime'
       | 'txNonce'
+      | 'mortalityPeriod'
     >,
   ): Promise<ITransactionRecord> {
     const {
@@ -273,12 +276,13 @@ export class TransactionsTable extends BaseTable {
       submittedAtBlockHeight,
       submittedAtTime,
       txNonce,
+      mortalityPeriod,
     } = args;
     const records = await this.db.select<ITransactionRecord[]>(
       `INSERT INTO Transactions (
-          extrinsicHash, extrinsicMethodJson, metadataJson, extrinsicType, accountAddress, submittedAtBlockHeight, submittedAtTime, txNonce, status
+          extrinsicHash, extrinsicMethodJson, metadataJson, extrinsicType, accountAddress, submittedAtBlockHeight, submittedAtTime, txNonce, mortalityPeriod, status
         ) VALUES (
-          ?, ?, ?, ?, ?, ?, ?, ?, ?
+          ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
         ) RETURNING
           id,
           status,
@@ -292,6 +296,7 @@ export class TransactionsTable extends BaseTable {
           submittedAtBlockHeight,
           submissionErrorJson,
           txNonce,
+          mortalityPeriod,
           txTip,
           txFeePlusTip,
           blockHeight,
@@ -314,6 +319,7 @@ export class TransactionsTable extends BaseTable {
         submittedAtBlockHeight,
         submittedAtTime,
         txNonce,
+        mortalityPeriod,
         TransactionStatus.Submitted,
       ]),
     );

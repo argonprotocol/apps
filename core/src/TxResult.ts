@@ -93,6 +93,7 @@ export class TxResult {
       submittedAtBlockNumber: number;
       accountAddress: string;
       nonce: number;
+      mortalityPeriod?: number;
     },
   ) {
     this.waitForFinalizedBlock = new Promise((resolve, reject) => {
