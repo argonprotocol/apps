@@ -1,0 +1,39 @@
+name: Verify Actions lockfile
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/**'
+      - '**/action.yml'
+      - '**/action.yaml'
+  push:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/**'
+      - '**/action.yml'
+      - '**/action.yaml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref_name }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install lockfile generator
+        run: gh extension install github/gh-actions-lock --pin v0.4.0
+
+      - name: Verify workflow dependencies
+        run: gh actions-lock --verify

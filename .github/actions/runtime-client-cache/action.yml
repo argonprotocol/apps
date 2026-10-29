@@ -9,7 +9,7 @@ runs:
       run: echo "ARGON_RUNTIME_CLIENT_CACHE=$GITHUB_WORKSPACE/../.argon-runtime-client-cache" >> "$GITHUB_ENV"
 
     - name: Restore runtime client cache
-      uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      uses: actions/cache@v6.1.0
       with:
         path: ../.argon-runtime-client-cache
         key: runtime-client-v2-${{ hashFiles('runtime-client/src/history/RuntimeSources.json') }}

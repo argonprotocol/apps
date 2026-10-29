@@ -38,7 +38,7 @@ jobs:
 
     runs-on: ${{ matrix.platform }}
     steps:
-      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd
+      - uses: actions/checkout@v5.0.1
 
       - name: Free disk space (Ubuntu runner)
         if: matrix.platform == 'ubuntu-22.04'
@@ -54,16 +54,16 @@ jobs:
           df -h
 
       - name: setup node
-        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444
+        uses: actions/setup-node@v5.0.0
         with:
           node-version: 24
           cache: yarn
 
       - name: Restore runtime client cache
-        uses: ./.github/actions/runtime-client-cache
+        uses: $/.github/actions/runtime-client-cache
 
       - name: install Rust stable (macOS)
-        uses: dtolnay/rust-toolchain@67ef31d5b988238dd797d409d6f9574278e20537
+        uses: dtolnay/rust-toolchain@v1
         with:
           toolchain: stable
 
@@ -92,7 +92,7 @@ jobs:
         run: echo "AWS_LC_SYS_PREBUILT_NASM=1" >> "$GITHUB_ENV"
 
       - name: Rust cache
-        uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32
+        uses: Swatinem/rust-cache@v2.9.1
         with:
           workspaces: './src-tauri -> target'
 
@@ -145,7 +145,7 @@ jobs:
 
       - name: Build and Publish Desktop Stable
         if: ${{ env.BUILDS == 'all' }}
-        uses: tauri-apps/tauri-action@84b9d35b5fc46c1e45415bdb6144030364f7ebc5
+        uses: tauri-apps/tauri-action@v0.6.2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
@@ -193,9 +193,9 @@ jobs:
     needs: publish-tauri
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd
+      - uses: actions/checkout@v5.0.1
 
-      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444
+      - uses: actions/setup-node@v5.0.0
         with:
           node-version: 24
           cache: yarn

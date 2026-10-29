@@ -32,16 +32,16 @@ jobs:
     runs-on: ${{ matrix.platform }}
     steps:
       - name: Checkout code
-        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd
+        uses: actions/checkout@v5.0.1
 
       - name: Set up Node.js
-        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444
+        uses: actions/setup-node@v5.0.0
         with:
           node-version: '24'
           cache: 'yarn'
 
       - name: Restore runtime client cache
-        uses: ./.github/actions/runtime-client-cache
+        uses: $/.github/actions/runtime-client-cache
 
       - name: Configure CI paths
         shell: bash
@@ -73,13 +73,13 @@ jobs:
 
       - name: Setup rust-toolchain stable
         if: matrix.suite == 'e2e'
-        uses: dtolnay/rust-toolchain@67ef31d5b988238dd797d409d6f9574278e20537
+        uses: dtolnay/rust-toolchain@v1
         with:
           toolchain: stable
 
       - name: Setup Rust cache
         if: matrix.suite == 'e2e'
-        uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32
+        uses: Swatinem/rust-cache@v2.9.1
         with:
           workspaces: src-tauri
 
@@ -163,7 +163,7 @@ jobs:
 
       - name: Upload failed integration network diagnostics
         if: failure() && matrix.suite == 'non-e2e'
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        uses: actions/upload-artifact@v4.6.2
         with:
           name: integration-diagnostics-${{ github.run_id }}-${{ github.run_attempt }}
           path: e2e/artifacts/integration-diagnostics/*.log
@@ -171,7 +171,7 @@ jobs:
 
       - name: Upload e2e artifacts
         if: failure() && matrix.suite == 'e2e'
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        uses: actions/upload-artifact@v4.6.2
         with:
           name: e2e-artifacts-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.platform }}
           path: |
@@ -184,7 +184,7 @@ jobs:
 
       - name: Upload e2e screenshots
         if: always() && matrix.suite == 'e2e'
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        uses: actions/upload-artifact@v4.6.2
         with:
           name: e2e-screenshots-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.platform }}
           path: ${{ env.E2E_SCREENSHOT_DIR }}
