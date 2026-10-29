@@ -1713,9 +1713,11 @@ describe('ArgonBonds', () => {
     { specVersion: 158, changes: [true, false] },
     { specVersion: 159, changes: [true, false, true] },
     { specVersion: 160, changes: [true] },
+    { specVersion: 161, changes: [true] },
+    { specVersion: 162, metadataSpecVersion: 161, changes: [true] },
   ])(
     'keeps cursor and recovered purchase history equal for spec $specVersion with changes $changes',
-    async ({ specVersion, changes }) => {
+    async ({ specVersion, metadataSpecVersion = specVersion, changes }) => {
       const liveDb = await createTestDb();
       const recoveredDb = await createTestDb();
       const block: IBlockHeaderInfo = {
@@ -1747,7 +1749,10 @@ describe('ArgonBonds', () => {
       const finalFlexibility = changes.at(-1) ?? false;
       const source = new TypeRegistry();
       source.setMetadata(
-        new Metadata(source, Object.entries(getBundledMetadata()).find(([key]) => key.endsWith(`-${specVersion}`))![1]),
+        new Metadata(
+          source,
+          Object.entries(getBundledMetadata()).find(([key]) => key.endsWith(`-${metadataSpecVersion}`))![1],
+        ),
       );
       const storedLot = toPlain(
         source.createType('PalletTreasuryBondLot', {
@@ -1797,7 +1802,7 @@ describe('ArgonBonds', () => {
         }),
       ) as NonNullable<LiveQueryRecord<'treasury', 'bondLotById'>>;
       const api = {
-        runtimeVersion: { specVersion: registry.createType('u32', 160) },
+        runtimeVersion: { specVersion: registry.createType('u32', Math.max(160, specVersion)) },
         query: {
           treasury: {
             bondLotIdsByAccount: { keys: async () => [{ args: [accountId, 7] }] },
