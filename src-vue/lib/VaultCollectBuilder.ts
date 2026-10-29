@@ -6,7 +6,6 @@ import {
   type ArgonQueryClient,
   type MoveTo,
   type IReleaseRequest,
-  type IBitcoinCooperativeReleaseMailboxRecord,
   type IBitcoinLockFundingUtxo,
 } from '@argonprotocol/apps-core';
 import BigNumber from 'bignumber.js';
@@ -14,6 +13,7 @@ import { u8aToHex, type SubmittableExtrinsic } from '@argonprotocol/mainchain';
 import type { IMintingAuthorityAuthorizeMetadata } from './MintingAuthorities.ts';
 import type { MyVault } from './MyVault.ts';
 import { TxAttemptState } from './TransactionTracker.ts';
+import type { BitcoinCooperativeReleases } from './BitcoinCooperativeReleases.ts';
 
 // Read-only display projection over the current chain and mailbox requests.
 export interface IVaultBitcoinSigningRequest {
@@ -22,7 +22,7 @@ export interface IVaultBitcoinSigningRequest {
   ownerAccount: string;
   releaseRequest: IReleaseRequest;
   utxos: IBitcoinLockFundingUtxo[];
-  mailbox?: IBitcoinCooperativeReleaseMailboxRecord;
+  mailbox?: BitcoinCooperativeReleases['data']['requests'][number];
   securitizationReleased?: bigint;
 }
 
@@ -119,21 +119,18 @@ export class VaultCollectBuilder {
         ];
       },
     );
-    const mailbox = this.myVault.bitcoinLocks.cooperativeReleases.data.requests.flatMap(record => {
-      if (record.verificationError) return [];
+    const mailbox = this.myVault.bitcoinLocks.cooperativeReleases.data.requests.map(record => {
       const { request } = record;
-      return [
-        {
-          kind: 'Mailbox',
-          lockId: request.lockId,
-          ownerAccount: request.ownerAccount,
-          releaseRequest: request,
-          utxos: [
-            { utxoRef: { txid: request.utxoRef.txid, vout: request.utxoRef.outputIndex }, satoshis: request.satoshis },
-          ],
-          mailbox: record,
-        } satisfies IVaultBitcoinSigningRequest,
-      ];
+      return {
+        kind: 'Mailbox',
+        lockId: request.lockId,
+        ownerAccount: request.ownerAccount,
+        releaseRequest: request,
+        utxos: [
+          { utxoRef: { txid: request.utxoRef.txid, vout: request.utxoRef.outputIndex }, satoshis: request.satoshis },
+        ],
+        mailbox: record,
+      } satisfies IVaultBitcoinSigningRequest;
     });
     return [...releases, ...orphans, ...mailbox];
   }

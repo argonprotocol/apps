@@ -27,6 +27,7 @@ import { getMyVault, getVaults } from '../../../src-vue/stores/vaults.ts';
 import { getEthereumMoveTracker } from '../../../src-vue/stores/moveFromEthereum.ts';
 import { loadEthereumChainConfig } from '../../../src-vue/lib/EthereumClient.ts';
 import { getConfig } from '../../../src-vue/stores/config.ts';
+import { getTransactionTracker } from '../../../src-vue/stores/transactions.ts';
 import { getCurrency } from '../../../src-vue/stores/currency.ts';
 import { getMainchainClient } from '../../../src-vue/stores/mainchain.ts';
 import { OperationalStepId, useCertificationController } from '../../../src-vue/stores/certificationController.ts';
@@ -1156,6 +1157,31 @@ export const BitcoinUnattachedDepositReturn: Story = {
 
     await userEvent.click(await canvas.findByTestId('WalletViewMain.unattachedBitcoinDeposit'));
   },
+};
+
+export const BitcoinUnattachedReturnInterrupted: Story = {
+  beforeEach: () => {
+    useBitcoinUnattachedDepositScenario();
+    const locks = getBitcoinLocks();
+    const record = locks.utxoTracking
+      .getUtxosForLock(101)
+      .find(record => record.status === BitcoinUtxoStatus.Orphaned)!;
+    record.activeReleaseId = 'synthetic-interrupted-return';
+    Object.assign(locks.releases, { transactionTracker: getTransactionTracker() });
+    const release = createBitcoinRelease({
+      id: record.activeReleaseId,
+      kind: BitcoinReleaseKind.Orphan,
+      lockId: record.lockId,
+      inputUtxoIds: [record.id],
+      status: BitcoinReleaseStatus.SubmittingRequestOnArgon,
+      createdAt: new Date(record.firstSeenAt.getTime() + 5 * 60_000),
+      statusError: 'The return request was not submitted. Retry the return to submit the saved destination and fee.',
+    });
+    locks.releases.data.releasesById[release.id] = release;
+    request.view = { type: 'unattachedBitcoin', recordId: record.id };
+    isInteractive.value = false;
+  },
+  play: waitForWalletOverlay,
 };
 
 export const BitcoinUnattachedDepositWaiting: Story = {

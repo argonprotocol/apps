@@ -66,7 +66,10 @@
           </template>
         </p>
 
-        <details v-if="bitcoinSigningRequests.length" class="text-sm">
+        <details
+          v-if="bitcoinSigningRequests.length"
+          :open="bitcoinSigningRequests.some(request => request.mailbox?.verificationError)"
+          class="text-sm">
           <summary class="cursor-pointer underline decoration-dotted underline-offset-2">View cosigning requests</summary>
           <div class="mt-3 flex max-h-96 flex-col gap-3 overflow-y-auto">
             <div
@@ -80,6 +83,9 @@
                 <span class="text-slate-600">
                   ({{ currency.symbol }}{{ microgonToMoneyNm(request.securitizationReleased ?? 0n).format('0,0') }} securitization)
                 </span>
+              </p>
+              <p v-if="request.mailbox?.verificationError" role="alert" class="text-argon-error mt-2">
+                <strong>Cannot sign yet:</strong> {{ request.mailbox.verificationError }}
               </p>
             </div>
           </div>

@@ -493,6 +493,18 @@ export default class BitcoinReleases {
     return utxo.fundingRejectionReason === 'BelowMinimum' || !!lock.removalBlockNumber;
   }
 
+  public canRetryDepositReturn(utxo: IBitcoinUtxoRecord): boolean {
+    if (utxo.status !== BitcoinUtxoStatus.Orphaned || utxo.isOnArgonChain === false) return false;
+    if (utxo.spendStatus === BitcoinUtxoSpendStatus.Spent) return false;
+
+    const release = this.getActiveForUtxo(utxo);
+    if (release?.kind !== BitcoinReleaseKind.Orphan) return false;
+    if (release.status !== BitcoinReleaseStatus.SubmittingRequestOnArgon || !release.statusError) return false;
+
+    const txInfo = this.getOrphanTransactionInfo(release);
+    return !txInfo || !!getTransactionFailureMessage(txInfo);
+  }
+
   public prepareCooperativeRelease({
     lock,
     record,
@@ -545,11 +557,15 @@ export default class BitcoinReleases {
       lock,
       async () => {
         if (!lock.lockId || !lock.createdAtArgonBlock || lock.ownerAccount !== owner.address)
-          throw new Error('The original lock owner and creation block are required for this return.');
+          throw new Error(
+            "Unable to verify this deposit's history and wallet. Run the Missing Data Scanner under Troubleshooting, then reopen this return in the wallet that received the Bitcoin.",
+          );
         if (record.lockId !== lock.lockId || !this.canRequestDepositReturn(lock, record))
           throw new Error('This deposit is not available for a cooperative return.');
         if (record.status === BitcoinUtxoStatus.Orphaned && record.isOnArgonChain !== false)
-          throw new Error('This deposit must use the existing Argon orphan return.');
+          throw new Error(
+            'This deposit needs a different return process. Go back to Unattached Bitcoin, select Find missing deposits, then reopen this return.',
+          );
 
         const spend = await this.bitcoinLocks.utxoTracking.refreshDepositSpend(record);
         if (spend?.isConfirmed) throw new Error('This Bitcoin deposit is already spent.');
@@ -872,7 +888,8 @@ export default class BitcoinReleases {
           if (!recoveredFromChain) {
             await this.recordRetryableError(
               release,
-              txFailure ?? 'Orphan return was interrupted before submission. Please retry the return.',
+              txFailure ??
+                'The return request was not submitted. Retry the return to submit the saved destination and fee.',
             );
             continue;
           }
@@ -1613,7 +1630,7 @@ export default class BitcoinReleases {
     // A cosign removes the orphan too. Find its finalized event before retiring an active return.
     const requestBlock = this.getOrphanTransactionInfo(release)?.tx.blockHeight ?? lock.createdAtArgonBlock;
     if (!lock.ownerAccount || requestBlock == null) {
-      throw new Error('Use Find Missing Data to restore the history for this Bitcoin return.');
+      throw new Error('Run the Missing Data Scanner under Troubleshooting to restore the history for this return.');
     }
     const finalizedBlock = this.blockWatch.finalizedBlockHeader;
     const toBlock = finalizedBlock.blockNumber;
@@ -1630,7 +1647,9 @@ export default class BitcoinReleases {
       activityMask: AccountActivityKind.BitcoinLock,
     });
     if (activity.definitionVersion < 3) {
-      throw new Error('Upgrade and rebuild the activity indexer to restore this Bitcoin return.');
+      throw new Error(
+        "The Argon history service needs an update before this return can continue. Report this issue through the app's Discord or GitHub links.",
+      );
     }
     if (
       activity.asOfBlock < toBlock ||
@@ -1686,7 +1705,10 @@ export default class BitcoinReleases {
   private async syncCooperativeVaultCosign(release: IBitcoinReleaseRecord): Promise<void> {
     let request = release.cooperativeRequest;
     if (!request) {
-      await this.failRelease(release, 'The signed cooperative release request is missing.');
+      await this.failRelease(
+        release,
+        "The saved approval for this return is missing. Report this issue through the app's Discord or GitHub links before starting another return.",
+      );
       return;
     }
 
@@ -1778,7 +1800,10 @@ export default class BitcoinReleases {
       }
 
       if (release.kind === BitcoinReleaseKind.Cooperative) {
-        if (!release.cooperativeRequest) throw new Error('The signed cooperative release request is missing.');
+        if (!release.cooperativeRequest)
+          throw new Error(
+            "The saved approval for this return is missing. Report this issue through the app's Discord or GitHub links before starting another return.",
+          );
 
         const finalizedClient = await this.blockWatch.getFinalizedApi();
         try {
@@ -1792,7 +1817,7 @@ export default class BitcoinReleases {
                 status: BitcoinReleaseStatus.ConfirmingOnBitcoin,
                 statusError:
                   `${error.message} The Bitcoin return may already have been sent. ` +
-                  'Its funds are reserved until the transaction is resolved; contact support before another send.',
+                  "Its Bitcoin remains reserved while the app checks the transaction. Do not send it again. If this remains unresolved, report the issue through the app's Discord or GitHub links.",
               });
             }
             return;

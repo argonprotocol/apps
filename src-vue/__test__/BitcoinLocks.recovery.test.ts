@@ -799,12 +799,18 @@ describe('BitcoinLocks recovery', () => {
     expect(record).not.toHaveProperty('ratchets');
   });
 
-  it.each([false, true])('backfills penalty removal evidence only for a removed lock (retained=%s)', async retained => {
+  it.each([
+    { kind: 'penalty', retained: false },
+    { kind: 'penalty', retained: true },
+    { kind: 'unfunded expiry', retained: false },
+    { kind: 'unfunded expiry', retained: true },
+  ])('backfills removal evidence only for a removed lock ($kind, retained=$retained)', async ({ kind, retained }) => {
     const db = await createTestDb();
     const chainLock = createHistoricalLock({
       accountId: encodeAddress(new Uint8Array(32).fill(0x33)),
       liquidityPromised: 1_000n,
     });
+    if (kind === 'unfunded expiry') chainLock.fundedSatoshis = 0n;
     const pending = await db.bitcoinLocksTable.insertPending({
       uuid: 'penalty-removal-evidence',
       status: BitcoinLockStatus.LockIsProcessingOnArgon,
@@ -827,15 +833,21 @@ describe('BitcoinLocks recovery', () => {
     const removal = historyBlock(180);
 
     await store.recovery.beginHistoryReplay({ lockScope: 'all', purpose: 'financial-backfill' });
-    await store.recovery.recoverBlock(removal, [
-      historyEvent(159, 'bitcoinLocks', 'BitcoinCosignPastDue', {
-        lockId: record.lockId,
-        vaultId: record.vaultId,
-        releaseNumber: 1,
-        compensationAmount: 0n,
-        compensatedAccountId: record.ownerAccount,
-      }),
-    ]);
+    if (kind === 'unfunded expiry') {
+      await store.recovery.recoverBlock(removal, [
+        historyEvent(151, 'bitcoinUtxos', 'UtxoUnwatched', { utxoId: record.lockId }),
+      ]);
+    } else {
+      await store.recovery.recoverBlock(removal, [
+        historyEvent(159, 'bitcoinLocks', 'BitcoinCosignPastDue', {
+          lockId: record.lockId,
+          vaultId: record.vaultId,
+          releaseNumber: 1,
+          compensationAmount: 0n,
+          compensatedAccountId: record.ownerAccount,
+        }),
+      ]);
+    }
     expect(record.removalBlockNumber).toBeUndefined();
     await publishRecoveredHistory(store, removal.blockNumber);
 
@@ -852,57 +864,84 @@ describe('BitcoinLocks recovery', () => {
       expect(record.removalBlockNumber).toBe(removal.blockNumber);
     }
     expect(durable?.status).toBe(record.status);
-    expect(durable?.removalReason).toBeUndefined();
+    if (kind === 'unfunded expiry' && !retained) {
+      expect(durable?.removalReason).toBe('expired');
+    } else {
+      expect(durable?.removalReason).toBeUndefined();
+    }
+    if (retained) expect(record.status).toBe(BitcoinLockStatus.LockPendingFunding);
     await db.close();
   });
 
-  it('keeps recovered expired locks retired during a full history replay', async () => {
-    const db = await createTestDb();
-    const chainLock = createHistoricalLock({
-      accountId: encodeAddress(new Uint8Array(32).fill(0x33)),
-      liquidityPromised: 1_000n,
-    });
-    const pending = await db.bitcoinLocksTable.insertPending({
-      uuid: 'expired-lock',
-      status: BitcoinLockStatus.LockIsProcessingOnArgon,
-      securitizedSatoshis: 10_000n,
-      cosignVersion: 'v1',
-      network: 'testnet',
-      hdPath: "m/84'/0'/0'",
-      vaultId: 1,
-    });
-    const record = await db.bitcoinLocksTable.finalizePending({
-      uuid: pending.uuid,
-      lock: createCurrentLock(BitcoinHistory.toBitcoinLockDetails(chainLock)),
-    });
-    record.status = BitcoinLockStatus.LockPendingFunding;
-    record.removalReason = 'expired';
-    await db.bitcoinLocksTable.saveRecoveredHistory(record);
+  it.each([BitcoinLockStatus.LockPendingFunding, BitcoinLockStatus.LockFailedAcknowledged])(
+    'restores removal evidence while keeping an unfunded expired lock retired (%s)',
+    async status => {
+      const db = await createTestDb();
+      const chainLock = {
+        ...createHistoricalLock({
+          accountId: encodeAddress(new Uint8Array(32).fill(0x33)),
+          liquidityPromised: 0n,
+        }),
+        fundedSatoshis: 0n,
+      };
+      const pending = await db.bitcoinLocksTable.insertPending({
+        uuid: 'expired-lock',
+        status: BitcoinLockStatus.LockIsProcessingOnArgon,
+        securitizedSatoshis: 10_000n,
+        cosignVersion: 'v1',
+        network: 'testnet',
+        hdPath: "m/84'/0'/0'",
+        vaultId: 1,
+      });
+      const record = await db.bitcoinLocksTable.finalizePending({
+        uuid: pending.uuid,
+        lock: createCurrentLock(BitcoinHistory.toBitcoinLockDetails(chainLock)),
+      });
+      record.status = status;
+      record.removalReason = 'expired';
+      await db.bitcoinLocksTable.saveRecoveredHistory(record);
 
-    const store = createStore({ db });
-    store.data.locksByLockId[7] = record;
+      const store = createStore({
+        db,
+        blockWatch: { getApi: vi.fn(async () => ({})) } as unknown as BlockWatch,
+      });
+      vi.mocked(BitcoinHistory.getHistoricalBitcoinLock).mockResolvedValue(undefined);
+      store.data.locksByLockId[7] = record;
 
-    await store.recovery.beginHistoryReplay({ lockScope: 'all' });
-    await store.recovery.recoverLock({
-      lock: chainLock,
-      createdAtArgonBlockHeight: 100,
-      finalFee: 0n,
-    });
+      await store.recovery.beginHistoryReplay({ lockScope: 'all' });
+      await store.recovery.recoverLock({
+        lock: chainLock,
+        createdAtArgonBlockHeight: 100,
+        finalFee: 0n,
+      });
 
-    expect(record.isHistoryRecoveryPending).toBe(false);
+      expect(record.isHistoryRecoveryPending).toBe(false);
 
-    await publishRecoveredHistory(store);
+      const removal = historyBlock(180);
+      await store.recovery.recoverBlock(removal, [historyEvent(151, 'bitcoinUtxos', 'UtxoUnwatched', { utxoId: 7 })]);
+      expect(record.removalBlockNumber).toBeUndefined();
+      await publishRecoveredHistory(store, removal.blockNumber);
+      expect(record.removalBlockNumber).toBe(removal.blockNumber);
+      expect(record.status).toBe(status);
 
-    expect(store.getActiveLocks()).toEqual([]);
-    expect(store.getAllLocks()).toEqual([record]);
-    expect(store.getLockById(7)).toBe(record);
-    expect(record.isHistoryRecoveryPending).toBe(false);
-    const durable = await db.bitcoinLocksTable.getByLockId(7);
-    expect(durable?.isHistoryRecoveryPending).toBe(false);
-    expect(durable?.securitizationHoldExpirationBitcoinHeight).toBe(506);
-    expect(durable).not.toHaveProperty('lockedTargetPrice');
-    expect(durable).not.toHaveProperty('liquidityPromised');
-  });
+      expect(store.getActiveLocks()).toEqual([]);
+      expect(store.getAllLocks()).toEqual([record]);
+      expect(store.getLockById(7)).toBe(record);
+      expect(record.isHistoryRecoveryPending).toBe(false);
+      const durable = await db.bitcoinLocksTable.getByLockId(7);
+      expect(durable).toMatchObject({
+        status,
+        removalReason: 'expired',
+        removalBlockNumber: removal.blockNumber,
+        removalBlockHash: removal.blockHash,
+        removalBlockTime: new Date(removal.blockTime),
+      });
+      expect(durable?.isHistoryRecoveryPending).toBe(false);
+      expect(durable?.securitizationHoldExpirationBitcoinHeight).toBe(506);
+      expect(durable).not.toHaveProperty('lockedTargetPrice');
+      expect(durable).not.toHaveProperty('liquidityPromised');
+    },
+  );
 });
 
 function createFissionHistoryRecord(

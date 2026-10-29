@@ -3,6 +3,7 @@ import { clickIfVisible, parseRequiredNumber, pollEvery } from '../helpers/utils
 import type { IE2EFlowRuntime, IE2EOperationInspectState } from '../types.ts';
 import { Operation } from './index.ts';
 import type { IMiningFlowContext } from '../contexts/miningContext.ts';
+import miningFundWallet from './Mining.op.fundWallet.ts';
 
 type IFinalizeSetupUiState = {
   dashboardVisible: boolean;
@@ -141,6 +142,8 @@ export default new Operation<IMiningFlowContext, IFinalizeSetupState>(import.met
       await waitForPostLaunchReadyState(flow, flowName);
       return;
     }
+
+    await flow.run(miningFundWallet);
 
     if (!state.launchBotClickable) {
       console.info(`[E2E] ${flowName}: finalizeSetup waiting for launch button to become ready`);

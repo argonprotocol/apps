@@ -209,9 +209,13 @@
               This deposit has been spent on Bitcoin and is no longer available to return.
             </p>
           </template>
+          <template v-else-if="canRetryReturn">
+            <div class="font-semibold text-slate-800">Return request interrupted</div>
+            <p class="text-sm text-slate-600">Retry to submit the saved return request.</p>
+          </template>
           <template v-else-if="release?.status === BitcoinReleaseStatus.Failed">
             <div class="font-semibold text-slate-800">Return unavailable</div>
-            <p class="text-sm text-slate-600">The vault could not approve this deposit for a cooperative return.</p>
+            <p class="text-sm text-slate-600">This return could not be completed. See the reason below.</p>
           </template>
           <template
             v-else-if="
@@ -262,14 +266,17 @@
               </dd>
             </div>
             <div>
-              <dt class="text-slate-500">Request sent</dt>
+              <dt class="text-slate-500">{{ canRetryReturn ? 'Request created' : 'Request sent' }}</dt>
               <dd class="mt-0.5 text-slate-800">
-                {{ releaseRequestedAt || 'Waiting for Argon confirmation' }}
+                <template v-if="canRetryReturn">
+                  {{ dayjs(release.createdAt).local().format('MMM D, YYYY [at] h:mm A') }}
+                </template>
+                <template v-else>{{ releaseRequestedAt || 'Waiting for Argon confirmation' }}</template>
               </dd>
             </div>
           </dl>
           <a
-            v-if="release?.bitcoinTxid && release.bitcoinFirstSeenAt"
+            v-if="release?.bitcoinTxid"
             :href="mempool.txUrl(release.bitcoinTxid)"
             target="_blank"
             rel="noopener noreferrer"
@@ -281,13 +288,22 @@
         </div>
       </div>
 
-      <p
+      <div
         v-if="release?.statusError || record.statusError || requestError"
-        class="border-argon-error/30 bg-argon-error/5 text-argon-error rounded-md border px-4 py-3 text-sm"
+        class="border-argon-error/30 bg-argon-error/5 text-argon-error space-y-3 rounded-md border px-4 py-3 text-sm"
         role="alert"
       >
-        {{ requestError || release?.statusError || record.statusError }}
-      </p>
+        <p>{{ requestError || release?.statusError || record.statusError }}</p>
+        <button
+          v-if="canRetryReturn"
+          type="button"
+          :disabled="isSubmitting"
+          @click="requestReturn"
+          class="text-argon-600 cursor-pointer font-semibold hover:underline disabled:cursor-wait disabled:opacity-50"
+        >
+          {{ isSubmitting ? 'Retrying return...' : 'Retry return' }}
+        </button>
+      </div>
     </div>
   </div>
 </template>
@@ -366,6 +382,7 @@ const release = Vue.computed(
   () => bitcoinLocks.releases.getActiveForUtxo(props.record) ?? bitcoinLocks.releases.getLatestForUtxo(props.record),
 );
 const canRequestReturn = Vue.computed(() => bitcoinLocks.releases.canRequestDepositReturn(props.lock, props.record));
+const canRetryReturn = Vue.computed(() => bitcoinLocks.releases.canRetryDepositReturn(props.record));
 const isCooperativeReturn = Vue.computed(
   () => props.record.status !== BitcoinUtxoStatus.Orphaned || props.record.isOnArgonChain === false,
 );
@@ -565,7 +582,9 @@ function queueArgonFeeQuote(): void {
 }
 
 async function requestReturn(): Promise<void> {
-  if (!canSubmit.value) return;
+  if (isSubmitting.value) return;
+  if (!canSubmit.value && !canRetryReturn.value) return;
+  const retry = canRetryReturn.value ? release.value : undefined;
   isSubmitting.value = true;
   isArgonRequestInProgress.value = !isCooperativeReturn.value;
   requestError.value = '';
@@ -584,7 +603,8 @@ async function requestReturn(): Promise<void> {
     const txInfo = await bitcoinOrphanRelease.submit({
       lock: props.lock,
       record: props.record,
-      toScriptPubkey: trimmedDestination.value,
+      toScriptPubkey: retry?.toScriptPubkey ?? trimmedDestination.value,
+      bitcoinNetworkFee: retry?.bitcoinNetworkFee,
       feeRatePerSatVb: feeRatePerSatVb.value,
       txSigner: await getWalletKeys().getLiquidLockingKeypair(),
     });
