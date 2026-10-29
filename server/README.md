@@ -246,6 +246,20 @@ docker compose port router 8080
 Leaving `ROUTER_PORT` unset, or setting it to `0`, lets Docker choose a free loopback port for local development and CI.
 Set `ROUTER_PORT` only when local diagnostics need a stable host-local router port.
 
+## Container Image Pins
+
+Dockerfile base images, including the local VM in `local-machine/`, use immutable `tag@sha256:...` references. The digest pins the image content; the tag records the intended version. Pins use the multi-platform image index so Docker can select the host's architecture.
+
+To refresh a base image pin, resolve its tag and update every Dockerfile that uses it:
+
+```sh
+docker buildx imagetools inspect node:24.22.1-slim --format '{{.Manifest.Digest}}'
+```
+
+Mainnet and testnet select a digest-pinned Argon miner through `ARGON_IMAGE` in their server environment files. `ARGON_VERSION` remains the readable version used by installer messages and qualification tools. `yarn mainchain:pin <release-tag>` resolves and updates both values together; this requires Docker Buildx and registry access, but does not require a running Docker daemon. Development environments continue selecting their local or commit-tagged miner images through `ARGON_VERSION`.
+
+Bitcoin bootstrap snapshot images intentionally use `latest` so first installs receive the newest CI-generated snapshot. Their Dockerfile base is pinned independently. Locally built service images use the bundled source and pinned bases; a Compose image override would not pin those bases.
+
 ## Fresh Server Notes
 
 Typical local/manual flow:

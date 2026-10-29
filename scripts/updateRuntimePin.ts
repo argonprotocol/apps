@@ -71,7 +71,6 @@ async function main(): Promise<void> {
   const rootPackageJson = JSON.parse(rootPackageJsonRaw) as {
     workspaces?: string[];
   };
-  const compatibilityResult = await updateRuntimeCompatibilityTypes(rootPackageJsonRaw);
 
   const envResult = updateEnvContents(envRaw, {
     VERSION: resolvedPin.dockerVersion,
@@ -79,22 +78,31 @@ async function main(): Promise<void> {
   const serverEnvResult = updateEnvContents(serverEnvRaw, {
     ARGON_VERSION: resolvedPin.dockerVersion,
   });
-  const releaseServerEnvResults = isTagPin
-    ? [
-        {
-          envPath: SERVER_MAINNET_ENV_PATH,
-          ...updateEnvContents(Fs.readFileSync(SERVER_MAINNET_ENV_PATH, 'utf8'), {
-            ARGON_VERSION: resolvedPin.dockerVersion,
-          }),
-        },
-        {
-          envPath: SERVER_TESTNET_ENV_PATH,
-          ...updateEnvContents(Fs.readFileSync(SERVER_TESTNET_ENV_PATH, 'utf8'), {
-            ARGON_VERSION: resolvedPin.dockerVersion,
-          }),
-        },
-      ]
-    : [];
+  const releaseServerEnvResults = [];
+  if (isTagPin) {
+    const image = `ghcr.io/argonprotocol/argon-miner:${resolvedPin.dockerVersion}`;
+    const digest = execFileSync(
+      'docker',
+      ['buildx', 'imagetools', 'inspect', image, '--format', '{{.Manifest.Digest}}'],
+      {
+        encoding: 'utf8',
+      },
+    ).trim();
+    if (!/^sha256:[a-f0-9]{64}$/.test(digest)) {
+      throw new Error(`Could not resolve an image digest for ${image}: ${digest}`);
+    }
+
+    for (const envPath of [SERVER_MAINNET_ENV_PATH, SERVER_TESTNET_ENV_PATH]) {
+      releaseServerEnvResults.push({
+        envPath,
+        ...updateEnvContents(Fs.readFileSync(envPath, 'utf8'), {
+          ARGON_VERSION: resolvedPin.dockerVersion,
+          ARGON_IMAGE: `${image}@${digest}`,
+        }),
+      });
+    }
+  }
+
   const packageManifestResults = [
     ROOT_PACKAGE_JSON_PATH,
     ...(rootPackageJson.workspaces ?? []).map(workspace => Path.join(REPO_ROOT, workspace, 'package.json')),
@@ -109,6 +117,8 @@ async function main(): Promise<void> {
       }),
     };
   });
+
+  const compatibilityResult = await updateRuntimeCompatibilityTypes(rootPackageJsonRaw);
 
   if (envResult.changedKeys.length) {
     Fs.writeFileSync(ARGON_ENV_PATH, envResult.next, 'utf8');

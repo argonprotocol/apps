@@ -133,7 +133,7 @@ services:
 
   argon-miner:
     <<: *common-config
-    image: ghcr.io/argonprotocol/argon-miner:${ARGON_VERSION}
+    image: ${ARGON_IMAGE:-ghcr.io/argonprotocol/argon-miner:${ARGON_VERSION}}
     user: '${UID}:${GID}'
     restart: unless-stopped
     depends_on:
