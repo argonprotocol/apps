@@ -15,6 +15,7 @@ import { Vault } from '../src/Vault.ts';
 
 const registry = getOfflineRegistry();
 const metadata = new Metadata(registry, Object.entries(getBundledMetadata()).find(([key]) => key.endsWith('-160'))![1]);
+registry.setMetadata(metadata);
 const constants = toPlain(
   decorateConstants(registry, metadata.asLatest, metadata.version).treasury,
 ) as CurrentRuntimeConstants['treasury'];
@@ -36,6 +37,65 @@ const capital = {
 } satisfies TreasuryRewards['capital'];
 
 describe('Treasury rewards', () => {
+  it.each([
+    { covered: 0n, locked: 0n, bonds: 10_000_000n, earnings: 6_000_000n },
+    { covered: 100_000_000n, locked: 10_000_000n, bonds: 0n, earnings: 46_000_000n },
+    { covered: 100_000_000n, locked: 15_000_000n, bonds: 0n, earnings: 41_500_000n },
+    { covered: 100_000_000n, locked: 30_000_000n, bonds: 10_000_000n, earnings: 42_000_000n },
+  ])(
+    'pays frozen coverage $covered, market value $locked and bonds $bonds independently',
+    ({ covered, locked, bonds, earnings }) => {
+      // Native treasury payout cases: bonds earn without Bitcoin, and excess Bitcoin
+      // reduces only its own tier, with the reduction capped at 20%.
+      const rewards = new TreasuryRewards({
+        capital: {
+          ...capital,
+          totalActiveBonds: bonds / 1_000_000n,
+          targetSecuritization: 10_000_000n,
+          totalSecuritization: 10_000_000n,
+          vaultSecuritizationPositions: {
+            4: {
+              ...position,
+              securitization: 10_000_000n,
+              activatedSecuritization: covered > 0n ? 10_000_000n : 0n,
+              bitcoinLockedMicrogons: locked,
+              activeBondMicrogons: bonds,
+            },
+          },
+        },
+        bitcoin: {
+          frameId: capital.frameId,
+          totalNetworkSecuritizedSatoshis: covered,
+          targetSecuritizedSatoshis: 100_000_000n,
+          vaultSecuritizedSatoshis: { 4: covered },
+        },
+        constants,
+        fullBidPool: 100_000_000n,
+      });
+      expect(rewards.vaultRevenuePotential(4)).toMatchObject({
+        actualEarnings: earnings,
+        maximumEarnings: 51_000_000n,
+      });
+      expect(rewards.vaultRevenuePotential(4)?.capturedPercent).toBeCloseTo(Number(earnings) / 510_000, 10);
+      expect(rewards.vaultRevenuePotential(4, 0n)?.capturedPercent).toBe(
+        rewards.vaultRevenuePotential(4)?.capturedPercent,
+      );
+
+      // Bounded-out vaults remain in the network denominator.
+      rewards.bitcoin = { ...rewards.bitcoin!, totalNetworkSecuritizedSatoshis: 200_000_000n };
+      if (covered > 0n) {
+        const bondAndSecuritization = bonds > 0n ? 6_000_000n : 1_000_000n;
+        expect(rewards.vaultRevenuePotential(4)?.actualEarnings).toBe(
+          (earnings - bondAndSecuritization) / 2n + bondAndSecuritization,
+        );
+      }
+
+      // No frozen market price means no Bitcoin tier, even with covered Bitcoin.
+      rewards.bitcoin = { ...rewards.bitcoin, targetSecuritizedSatoshis: null };
+      expect(rewards.vaultRevenuePotential(4)?.actualEarnings).toBe(bonds > 0n ? 6_000_000n : 1_000_000n);
+    },
+  );
+
   it('matches native checked division and saturated ceiling for the ARGNOT target', () => {
     const rewards = new TreasuryRewards({
       capital,

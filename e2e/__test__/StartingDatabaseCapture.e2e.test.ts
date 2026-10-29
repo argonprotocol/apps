@@ -9,6 +9,7 @@ import * as core from '@argonprotocol/apps-core';
 import { ApiPromise } from '@polkadot/api';
 import { encodeAddress } from '@polkadot/util-crypto';
 import { SyncStateKeys } from 'src-vue/lib/db/SyncStateTable.ts';
+import * as bitcoinFissionHistory from 'src-vue/lib/recovery/BitcoinFissions.ts';
 import { AppSession } from '../AppSession.ts';
 import { AppProcessOutput } from '../AppProcessOutput.ts';
 import { DriverClient } from '../driver/client.ts';
@@ -99,7 +100,7 @@ describe('starting database capture', () => {
     vi.spyOn(client, 'at').mockResolvedValue(
       Object.create(ApiPromise.prototype) as Awaited<ReturnType<core.ArgonClient['at']>>,
     );
-    vi.spyOn(core.BitcoinFission, 'getAllByOwner').mockResolvedValue([]);
+    vi.spyOn(bitcoinFissionHistory, 'getHistoricalBitcoinFissions').mockResolvedValue([]);
     vi.spyOn(core.TreasuryBonds, 'getBondLotsByAccount').mockResolvedValue([]);
     vi.spyOn(core, 'getVaultByOperator').mockResolvedValue(undefined);
     let starts = 0;

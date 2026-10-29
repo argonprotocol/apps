@@ -1,13 +1,15 @@
+import { getHistoricalBitcoinLockDetails } from '../recovery/BitcoinLockHistory.ts';
 import {
   bigIntMax,
   bigIntMin,
   BitcoinLock,
   type BitcoinLockFeeCoupon,
+  type IBitcoinLockCouponRequest,
   type Currency,
   type IBitcoinLockCouponStatus,
   type ArgonClient,
   type TxSigningAccount,
-  type Vault,
+  Vault,
 } from '@argonprotocol/apps-core';
 import type { PriceIndex } from '@argonprotocol/mainchain';
 
@@ -102,56 +104,33 @@ export class BitcoinLockResecuritize extends TransactionOperation<
       satoshis: securitizedSatoshis,
       microgonsAtTargetPerBtc,
     });
-    const totalSecurityFee = BitcoinLock.calculateResecuritizationFee({
+    const quote = BitcoinLockResecuritize.calculateFee({
+      lock,
       vault,
+      txSigner,
+      operatorCoupon,
+      maximumFeeCreditMicrogons,
+      satoshis: securitizedSatoshis,
+      microgonsAtTargetPerBtc,
       currentCoverageMicrogons,
       replacementCoverageMicrogons,
-      createdAtBitcoinHeight: lock.scriptDetails.createdAtHeight,
-      vaultClaimBitcoinHeight: lock.scriptDetails.vaultClaimHeight,
       currentBitcoinHeight,
     });
-    const pendingUse = operatorCoupon?.uses?.find(
-      use => use.status === 'Prepared' && use.utxoId === lock.lockId && use.feeCoupon,
-    );
-    const availableFeeCreditMicrogons =
-      (operatorCoupon?.remainingFeeCreditMicrogons ?? 0n) + (pendingUse?.feeCreditMicrogons ?? 0n);
-    const maximumFeeCredit = bigIntMin(
-      availableFeeCreditMicrogons,
-      maximumFeeCreditMicrogons ?? availableFeeCreditMicrogons,
-    );
-    const requestedFeeCreditMicrogons =
-      txSigner.address === vault.operatorAccountId ? 0n : bigIntMin(totalSecurityFee, maximumFeeCredit);
+    const { totalSecurityFee } = quote;
+    let securityFee = quote.securityFee;
     let feeCouponRequestId: string | undefined;
     let feeCoupon: BitcoinLockFeeCoupon | undefined;
 
-    if (requestedFeeCreditMicrogons > 0n) {
-      if (!operatorCoupon || operatorCoupon.coupon.vaultId !== vault.vaultId) {
-        throw new Error('This Bitcoin fee gift is for a different vault.');
-      }
-      if (operatorCoupon.coupon.accountId && operatorCoupon.coupon.accountId !== txSigner.address) {
-        throw new Error(
-          `This invite is claimed by ${operatorCoupon.coupon.accountId}. Import or switch to that account before continuing.`,
-        );
-      }
-
+    if (operatorCoupon && quote.feeCouponRequest) {
       const response = await this.upstreamOperatorClient.initializeBitcoinLock(operatorCoupon.coupon.offerCode, {
-        requestId: pendingUse?.requestId ?? BitcoinLocksTable.createUuid(),
-        feeCouponNonce: pendingUse?.feeCoupon?.nonce,
-        utxoId: lock.lockId,
-        requestedSatoshis: securitizedSatoshis,
-        ownerAccountId: txSigner.address,
-        ownerBitcoinPubkey: lock.scriptDetails.ownerPubkey,
-        microgonsAtTargetPerBtc,
-        feeCreditMicrogons: requestedFeeCreditMicrogons,
+        ...quote.feeCouponRequest,
+        requestId: quote.feeCouponRequest.requestId ?? BitcoinLocksTable.createUuid(),
       });
       feeCouponRequestId = response.execution.requestId;
       feeCoupon = response.execution.feeCoupon;
+      securityFee = bigIntMax(totalSecurityFee - feeCoupon.feeDiscount, 0n);
     }
 
-    const securityFee =
-      txSigner.address === vault.operatorAccountId
-        ? 0n
-        : bigIntMax(totalSecurityFee - (feeCoupon?.feeDiscount ?? 0n), 0n);
     const tx = BitcoinLock.createResecuritizeTx({
       client,
       lockId: lock.lockId,
@@ -225,9 +204,11 @@ export class BitcoinLockResecuritize extends TransactionOperation<
     if (lock) {
       const client = await getMainchainClient(true);
       const blockHash = await txInfo.txResult.waitForFinalizedBlock;
-      const current = await BitcoinLock.get(await client.at(blockHash), lockId);
+      const current = await getHistoricalBitcoinLockDetails(await client.at(blockHash), lockId);
       if (!current) throw new Error(`Bitcoin Lock #${lockId} was not found after resecuritization.`);
-      await this.bitcoinLocks.updateCurrentLock(lock, current, txInfo);
+      const payment = BitcoinLock.readLockGuaranteePayment(txInfo.txResult.events, lockId, current.ownerAccount);
+      if (!payment) throw new Error(`Bitcoin Lock #${lockId} finalized without its guarantee event.`);
+      await this.bitcoinLocks.updateCurrentLock(lock, current, txInfo, payment);
     }
     if (feeCouponRequestId) {
       await this.upstreamOperatorClient.recordBitcoinLockFeeCouponUse(feeCouponRequestId, 'Finalized');
@@ -261,5 +242,73 @@ export class BitcoinLockResecuritize extends TransactionOperation<
       prepared.txFeePlusTip +
       prepared.client.consts.balances.existentialDeposit;
     return new BitcoinLockWalletFundingError(requiredWalletBalanceMicrogons);
+  }
+
+  public static calculateFee(
+    args: Pick<
+      BitcoinLockResecuritizeInput,
+      'lock' | 'vault' | 'txSigner' | 'operatorCoupon' | 'maximumFeeCreditMicrogons' | 'microgonsAtTargetPerBtc'
+    > & {
+      satoshis: bigint;
+      currentCoverageMicrogons: bigint;
+      replacementCoverageMicrogons: bigint;
+      currentBitcoinHeight: number;
+      claimedCouponRequestIds?: ReadonlySet<string>;
+    },
+  ): { totalSecurityFee: bigint; securityFee: bigint; feeCouponRequest?: IBitcoinLockCouponRequest } {
+    const {
+      lock,
+      vault,
+      txSigner,
+      operatorCoupon,
+      maximumFeeCreditMicrogons,
+      satoshis,
+      microgonsAtTargetPerBtc,
+      currentCoverageMicrogons,
+      replacementCoverageMicrogons,
+      currentBitcoinHeight,
+      claimedCouponRequestIds,
+    } = args;
+    if (lock.lockId == null || !lock.scriptDetails) throw new Error('This Bitcoin Lock is unavailable.');
+
+    const totalSecurityFee = BitcoinLock.calculateResecuritizationFee({
+      vault,
+      currentCoverageMicrogons,
+      replacementCoverageMicrogons,
+      currentBitcoinHeight,
+      createdAtBitcoinHeight: lock.scriptDetails.createdAtHeight,
+      vaultClaimBitcoinHeight: lock.scriptDetails.vaultClaimHeight,
+    });
+    if (txSigner.address === vault.operatorAccountId) return { totalSecurityFee, securityFee: 0n };
+
+    const pendingUse = operatorCoupon?.uses?.find(use => {
+      if (use.status !== 'Prepared') return false;
+      if (use.utxoId !== lock.lockId || !use.feeCoupon) return false;
+      return !claimedCouponRequestIds?.has(use.requestId);
+    });
+    const availableCredit =
+      (operatorCoupon?.remainingFeeCreditMicrogons ?? 0n) + (pendingUse?.feeCreditMicrogons ?? 0n);
+    const creditLimit = bigIntMin(availableCredit, maximumFeeCreditMicrogons ?? availableCredit);
+    const feeCreditMicrogons = bigIntMin(totalSecurityFee, creditLimit);
+    if (feeCreditMicrogons === 0n) return { totalSecurityFee, securityFee: totalSecurityFee };
+
+    if (!operatorCoupon || operatorCoupon.coupon.vaultId !== vault.vaultId)
+      throw new Error('This Bitcoin fee gift is for a different vault.');
+    if (operatorCoupon.coupon.accountId && operatorCoupon.coupon.accountId !== txSigner.address)
+      throw new Error('This Bitcoin fee gift belongs to a different account.');
+
+    const feeCouponRequest: IBitcoinLockCouponRequest = {
+      utxoId: lock.lockId,
+      requestedSatoshis: satoshis,
+      ownerAccountId: txSigner.address,
+      ownerBitcoinPubkey: lock.scriptDetails.ownerPubkey,
+      microgonsAtTargetPerBtc,
+      feeCreditMicrogons,
+    };
+    if (pendingUse) {
+      feeCouponRequest.requestId = pendingUse.requestId;
+      feeCouponRequest.feeCouponNonce = pendingUse.feeCoupon!.nonce;
+    }
+    return { totalSecurityFee, securityFee: totalSecurityFee - feeCreditMicrogons, feeCouponRequest };
   }
 }

@@ -15,16 +15,11 @@ import {
 import Path from 'node:path';
 import process from 'node:process';
 import { parseArgs } from 'node:util';
-import {
-  BitcoinFission,
-  createArgonClient,
-  getVaultByOperator,
-  TreasuryBonds,
-  type ArgonClient,
-} from '@argonprotocol/apps-core';
+import { createArgonClient, getVaultByOperator, TreasuryBonds, type ArgonClient } from '@argonprotocol/apps-core';
 import { getClient } from '@argonprotocol/mainchain';
 import type { IFinancialHistoryDomain } from 'src-vue/lib/db/SyncStateTable.ts';
 import { AppSession } from '../AppSession.ts';
+import { getHistoricalBitcoinFissions } from 'src-vue/lib/recovery/BitcoinFissions.ts';
 import { delay } from '../../scripts/utils.ts';
 import { writeReadonlyWallet } from '../../scripts/troubleshootAccount.ts';
 import { LocalMainnet } from './LocalMainnet.ts';
@@ -348,7 +343,7 @@ export class StartingDatabaseCapture {
     const [activeFissions, activeBondLots, vault] = await Promise.all([
       client
         .at(this.mainnet.deployedBlock.hash)
-        .then(at => BitcoinFission.getAllByOwner(at, identity.defaultAccountId)),
+        .then(at => getHistoricalBitcoinFissions(at, identity.defaultAccountId)),
       TreasuryBonds.getBondLotsByAccount(client, identity.defaultAccountId),
       getVaultByOperator({ client, operatorAddress: identity.defaultAccountId }),
     ]);

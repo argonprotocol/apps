@@ -8,7 +8,8 @@ import {
   bigIntMax,
   bigIntMin,
   type ArgonClient,
-  type ArgonQueryClient,
+  type ArgonApi,
+  type ArgonCurrentQueryClient,
   type BlockWatch,
   type Currency,
   type IBlockHeaderInfo,
@@ -40,6 +41,7 @@ import type BitcoinMempool from './BitcoinMempool.ts';
 import { closeFinalizedSecuritization, recordFinalizedSecuritization } from './BitcoinSecuritizationTerms.ts';
 import type { Db } from './Db.ts';
 import { getMainchainClient } from '../stores/mainchain.ts';
+import { getHistoricalBitcoinLockDetails } from './recovery/BitcoinLockHistory.ts';
 import { getTransactionFailureMessage, type TransactionInfo } from './TransactionInfo.ts';
 import type { TransactionTracker } from './TransactionTracker.ts';
 import { ExtrinsicType, TransactionStatus } from './db/TransactionsTable.ts';
@@ -1059,7 +1061,7 @@ export default class BitcoinReleases {
     lock: IBitcoinLockRecord,
     release: IBitcoinReleaseRecord,
     block: IBlockHeaderInfo,
-    api: ArgonQueryClient,
+    api: ArgonApi,
     eventRecord: RuntimeSystemEventRecord,
     blockEvents: readonly RuntimeSystemEventRecord[] = [eventRecord],
   ): Promise<void> {
@@ -1083,7 +1085,7 @@ export default class BitcoinReleases {
       if (extrinsicIndex === undefined) {
         throw new Error(`Bitcoin release ${release.id} settlement is missing its extrinsic index`);
       }
-      const currentLock = await BitcoinLock.get(api, lock.lockId!);
+      const currentLock = await getHistoricalBitcoinLockDetails(api, lock.lockId!);
       const settlementIndex = blockEvents.findIndex(candidate => {
         const event = toRuntimeEvent(candidate.event);
         return (
@@ -1143,8 +1145,8 @@ export default class BitcoinReleases {
         }
 
         const previousSecuritizedSatoshis = lockDraft.securitizedSatoshis;
-        const expectedSecuritizedSatoshis = bigIntMin(previousSecuritizedSatoshis, releaseDraft.changeSatoshis);
-        if (currentLock && currentLock.securitizedSatoshis !== expectedSecuritizedSatoshis) {
+        const maximumSecuritizedSatoshis = bigIntMin(previousSecuritizedSatoshis, releaseDraft.changeSatoshis);
+        if (currentLock && currentLock.securitizedSatoshis > maximumSecuritizedSatoshis) {
           throw new Error(`Bitcoin release ${release.id} has an unexpected retained securitization`);
         }
 
@@ -1188,7 +1190,7 @@ export default class BitcoinReleases {
         lockDraft.fundingUtxoIds = [change.id];
         if (!currentLock) {
           lockDraft.fundedSatoshis = releaseDraft.changeSatoshis;
-          lockDraft.securitizedSatoshis = expectedSecuritizedSatoshis;
+          lockDraft.securitizedSatoshis = maximumSecuritizedSatoshis;
           await transaction.bitcoinLocksTable.saveRecoveredHistory(lockDraft);
           await transaction.bitcoinLocksTable.recordRemoval(lockDraft, BitcoinLockStatus.Releasing, {
             removalBlockNumber: block.blockNumber,
@@ -1858,7 +1860,7 @@ export default class BitcoinReleases {
     }
   }
 
-  private async syncLockArgonRequest(lock: IBitcoinLockRecord, apiClient: ArgonQueryClient): Promise<void> {
+  private async syncLockArgonRequest(lock: IBitcoinLockRecord, apiClient: ArgonCurrentQueryClient): Promise<void> {
     const release = this.getActiveForLock(lock);
     if (!release || release.status !== BitcoinReleaseStatus.SubmittingRequestOnArgon) return;
 

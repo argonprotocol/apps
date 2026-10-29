@@ -285,6 +285,7 @@ function createBitcoinLiquid(
         ? fragments[0].ratchet.txFee
         : undefined;
       const historicalSecurityFees = fragments.filter(({ ratchet }) => ratchet.source === 'lock');
+      const fissionSecurityFee = fragments.reduce((total, { ratchet }) => total + (ratchet.netSecurityFee ?? 0n), 0n);
       const hasHistoricalSecurityFees = historicalSecurityFees.every(({ ratchet }) => ratchet.securityFee != null);
       const directlyCreatedTerms =
         first.extrinsicIndex === undefined
@@ -301,7 +302,9 @@ function createBitcoinLiquid(
             (total, { ratchet }) =>
               total + bigIntMax((ratchet.securityFee ?? 0n) - (ratchet.securityFeeCoupon ?? 0n), 0n),
             0n,
-          ) + directlyCreatedTerms.reduce((total, term) => total + term.addedNetSecurityFee, 0n)
+          ) +
+          fissionSecurityFee +
+          directlyCreatedTerms.reduce((total, term) => total + term.addedNetSecurityFee, 0n)
         : undefined;
       const liabilityAfter = totalLiability;
 

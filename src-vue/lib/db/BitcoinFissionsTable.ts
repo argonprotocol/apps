@@ -27,6 +27,7 @@ export class BitcoinFissionsTable extends BaseTable {
       'amountMinted',
       'amountBurned',
       'mintPending',
+      'netSecurityFee',
       'securityFee',
       'securityFeeCoupon',
       'txFee',
@@ -85,6 +86,7 @@ export class BitcoinFissionsTable extends BaseTable {
          amountMinted,
          amountBurned,
          mintPending,
+         netSecurityFee,
          securityFee,
          securityFeeCoupon,
          txFee,
@@ -336,6 +338,7 @@ export class BitcoinFissionsTable extends BaseTable {
          amountMinted,
          amountBurned,
          mintPending,
+         netSecurityFee,
          securityFee,
          securityFeeCoupon,
          txFee,
@@ -344,7 +347,7 @@ export class BitcoinFissionsTable extends BaseTable {
          blockHash,
          blockTime,
          extrinsicIndex
-       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(ownerAccount, fissionId, source, sourceRatchetIndex) DO UPDATE SET
          liquidId = excluded.liquidId,
          lockId = excluded.lockId,
@@ -354,6 +357,7 @@ export class BitcoinFissionsTable extends BaseTable {
          amountMinted = excluded.amountMinted,
          amountBurned = excluded.amountBurned,
          mintPending = excluded.mintPending,
+         netSecurityFee = excluded.netSecurityFee,
          securityFee = excluded.securityFee,
          securityFeeCoupon = excluded.securityFeeCoupon,
          txFee = excluded.txFee,
@@ -376,6 +380,7 @@ export class BitcoinFissionsTable extends BaseTable {
         ratchet.amountMinted,
         ratchet.amountBurned,
         ratchet.mintPending,
+        ratchet.netSecurityFee,
         ratchet.securityFee,
         ratchet.securityFeeCoupon,
         ratchet.txFee,

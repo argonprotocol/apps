@@ -1,11 +1,6 @@
 import BigNumber from 'bignumber.js';
 import { getOfflineRegistry } from '@argonprotocol/mainchain';
-import {
-  getBundledMetadata,
-  runtimeClient,
-  toPlain,
-  type VaultsVaultsByIdResultSpec159Variant15,
-} from '@argonprotocol/runtime-client';
+import { getBundledMetadata, runtimeClient, toPlain, type LiveQueryRecord } from '@argonprotocol/runtime-client';
 import { Metadata, TypeRegistry } from '@polkadot/types';
 import { decorateConstants } from '@polkadot/types/metadata/decorate';
 import type { Percent } from '@polkadot/types/interfaces';
@@ -34,6 +29,7 @@ const currentVault = {
   flexibleSecuritizationLocked: 0n,
   reservedSecuritizationSpace: 0n,
   securitizationPendingActivation: 0n,
+  committedMicrogons: 0n,
   securitizedSatoshis: 0n,
   totalSatoshis: 0n,
   ratioAdjustedSatoshis: 0n,
@@ -41,11 +37,10 @@ const currentVault = {
   securitizationReleaseSchedule: {},
   securitizationRatio: new BigNumber(1),
   isClosed: false,
-  terms: { bitcoinAnnualPercentRate: new BigNumber(0), bitcoinBaseFee: 0n, treasuryProfitSharing: new BigNumber(0) },
+  terms: { bitcoinAnnualPercentRate: new BigNumber(0), bitcoinBaseFee: 0n },
   pendingTerms: null,
   openedTick: 1,
-  operationalMinimumReleaseTick: null,
-} satisfies NonNullable<VaultsVaultsByIdResultSpec159Variant15>;
+} satisfies NonNullable<LiveQueryRecord<'vaults', 'vaultsById'>>;
 
 it('publishes current vaults before statistics and preserves them through failure and retry', async () => {
   const statsReady = createDeferred();

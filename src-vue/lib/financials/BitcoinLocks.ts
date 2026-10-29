@@ -85,6 +85,7 @@ export class BitcoinFinancials {
         fissions: lockFissions,
         activeFissionIds,
         currentRedemptionAmount,
+        terms: securitizationHistory?.terms,
       });
     });
     const hodlingInvestments: IPerformanceReturnInput[] = [];
@@ -373,6 +374,11 @@ function mergeCurrentCoverageTerms(args: {
     const opening = fissions.toSorted(
       (left, right) => (left.createdAtArgonBlock ?? 0) - (right.createdAtArgonBlock ?? 0),
     )[0];
+    const directFees = fissions.reduce(
+      (total, fission) => total + fission.ratchets.reduce((sum, ratchet) => sum + (ratchet.netSecurityFee ?? 0n), 0n),
+      0n,
+    );
+    const lockSecurityFees = bigIntMax(summary.securityFees - directFees, 0n);
     termsByLockId.set(lockId, [
       {
         lockId,
@@ -382,8 +388,8 @@ function mergeCurrentCoverageTerms(args: {
         startBlockNumber: opening?.createdAtArgonBlock ?? record.createdAtArgonBlock ?? 0,
         securitizedSatoshis: record.securitizedSatoshis,
         securitizationCoverageMicrogons: record.securitizationCoverageMicrogons,
-        cumulativeNetSecurityFee: summary.securityFees,
-        addedNetSecurityFee: summary.securityFees,
+        cumulativeNetSecurityFee: lockSecurityFees,
+        addedNetSecurityFee: lockSecurityFees,
       },
     ]);
   }
@@ -396,8 +402,9 @@ export function applyBitcoinFissionValuation(args: {
   fissions: readonly BitcoinFission[];
   activeFissionIds: ReadonlySet<number>;
   currentRedemptionAmount: bigint | undefined;
+  terms?: readonly IBitcoinSecuritizationTerm[];
 }): IBitcoinLockSummary {
-  const { summary, fissions, activeFissionIds, currentRedemptionAmount } = args;
+  const { summary, fissions, activeFissionIds, currentRedemptionAmount, terms } = args;
   if (!fissions.length) return summary;
 
   let totalLiquidity = 0n;
@@ -405,6 +412,7 @@ export function applyBitcoinFissionValuation(args: {
   let burnedLiquidity = 0n;
   let targetValue = 0n;
   let transactionFees = 0n;
+  let fissionGuaranteeFees = 0n;
   let historicalRedemptionAmount: bigint | undefined = 0n;
   let hasActiveFission = false;
 
@@ -414,6 +422,7 @@ export function applyBitcoinFissionValuation(args: {
     totalLiquidity += minted || fission.liquidityPromised;
     burnedLiquidity += ratchets.reduce((total, ratchet) => total + ratchet.amountBurned, 0n);
     transactionFees += ratchets.reduce((total, ratchet) => total + (ratchet.txFee ?? 0n), 0n);
+    fissionGuaranteeFees += ratchets.reduce((total, ratchet) => total + (ratchet.netSecurityFee ?? 0n), 0n);
     if (activeFissionIds.has(fission.fissionId)) {
       hasActiveFission = true;
       pendingLiquidity += fission.pendingMints.reduce((total, mint) => total + mint.remainingAmount, 0n);
@@ -440,7 +449,12 @@ export function applyBitcoinFissionValuation(args: {
   const receivedLiquidity = bigIntMax(totalLiquidity - pendingLiquidity - burnedLiquidity, 0n);
   const startingCapital = receivedLiquidity + pendingLiquidity;
   const valueBeyondLiquidity = bigIntMax(summary.valueOfBtc - targetValue, 0n);
-  const totalFees = summary.securityFees + transactionFees;
+  const lockGuaranteeFees =
+    terms
+      ?.filter(term => term.lockId === summary.lockId)
+      .reduce((total, term) => total + term.addedNetSecurityFee, 0n) ?? 0n;
+  const securityFees = bigIntMax(summary.securityFees, lockGuaranteeFees + fissionGuaranteeFees);
+  const totalFees = securityFees + transactionFees;
   const historicalTransactionFees =
     summary.historicalTransactionFees === undefined ? undefined : summary.historicalTransactionFees + transactionFees;
   const redemptionAmount = currentRedemptionAmount ?? (hasActiveFission ? 0n : (historicalRedemptionAmount ?? 0n));
@@ -454,6 +468,7 @@ export function applyBitcoinFissionValuation(args: {
 
   return {
     ...summary,
+    securityFees,
     totalLiquidity,
     pendingLiquidity,
     receivedLiquidity,
@@ -465,8 +480,7 @@ export function applyBitcoinFissionValuation(args: {
     transactionFees,
     totalFees,
     historicalTransactionFees,
-    historicalTotalFees:
-      historicalTransactionFees === undefined ? undefined : summary.securityFees + historicalTransactionFees,
+    historicalTotalFees: historicalTransactionFees === undefined ? undefined : securityFees + historicalTransactionFees,
     totalReturn: calculateBitcoinReturn(startingCapital, endingCapital),
   };
 }

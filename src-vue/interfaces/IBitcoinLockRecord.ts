@@ -48,7 +48,7 @@ export interface IBitcoinLockRecord {
   securityFees: bigint;
   couponFeesPaid: bigint;
   scriptDetails?: IBitcoinLockScriptDetails;
-  securitizationHoldExpirationBitcoinHeight?: number;
+  securitizationHoldExpirationBitcoinHeight?: number | null;
   isFlexible?: boolean;
   fundHoldExtensionsByBitcoinExpirationHeight: Record<number, bigint>;
   createdAtArgonBlock?: number;

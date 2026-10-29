@@ -1,5 +1,5 @@
+import { getHistoricalBitcoinLockDetails } from './recovery/BitcoinLockHistory.ts';
 import { getMainchainClient } from '../stores/mainchain.ts';
-import BigNumber from 'bignumber.js';
 import dayjs from 'dayjs';
 import utc from 'dayjs/plugin/utc.js';
 import {
@@ -12,7 +12,7 @@ import {
 } from '@argonprotocol/bitcoin';
 import { Address, OutScript } from '@scure/btc-signer';
 import { formatArgons, hexToU8a, u8aEq, u8aToHex } from '@argonprotocol/mainchain';
-import { toRuntimeEvent } from '@argonprotocol/runtime-client';
+import { runtimeClient, toRuntimeEvent } from '@argonprotocol/runtime-client';
 import { Db } from './Db.ts';
 import { BitcoinLocksTable, BitcoinLockStatus, IBitcoinLockBlockExtrinsicError } from './db/BitcoinLocksTable.ts';
 import type { IBitcoinLockRecord } from '../interfaces/IBitcoinLockRecord.ts';
@@ -26,9 +26,8 @@ import { mergeRecoveredSecuritizationTerms, recordFinalizedSecuritization } from
 import { BlockProgress } from './BlockProgress.ts';
 import { BITCOIN_BLOCK_MILLIS, ESPLORA_HOST } from './Env.ts';
 import {
-  type ArgonQueryClient,
+  type ArgonCurrentQueryClient,
   bigIntMax,
-  bigNumberToBigInt,
   BitcoinLock,
   BlockWatch,
   createDeferred,
@@ -44,7 +43,7 @@ import {
   NetworkConfig,
   type RuntimeSystemEventRecord,
   SingleFileQueue,
-  type Vault,
+  Vault,
 } from '@argonprotocol/apps-core';
 import { TransactionTracker } from './TransactionTracker.ts';
 import { deriveBitcoinLockHdKey, WalletKeys } from './WalletKeys.ts';
@@ -98,7 +97,7 @@ export default class BitcoinLocks {
   public readonly events = createTypedEventEmitter<{
     'fissions:changed': (change: {
       block: IBlockHeaderInfo;
-      client: ArgonQueryClient;
+      client: ArgonCurrentQueryClient;
       events: readonly RuntimeSystemEventRecord[];
     }) => void;
   }>();
@@ -287,7 +286,7 @@ export default class BitcoinLocks {
   }: {
     vaultId: number;
     operatorAddress: string;
-    client?: ArgonQueryClient;
+    client?: ArgonCurrentQueryClient;
   }): Promise<IBitcoinLock[]> {
     client ??= await getMainchainClient(false);
 
@@ -396,7 +395,7 @@ export default class BitcoinLocks {
     }
     const createdAtHeight = lock.scriptDetails?.createdAtHeight;
     const expirationHeight = lock.securitizationHoldExpirationBitcoinHeight;
-    if (createdAtHeight === undefined || expirationHeight === undefined) {
+    if (createdAtHeight === undefined || expirationHeight == null) {
       throw new Error('Bitcoin lock funding terms are unavailable.');
     }
     const oracleBitcoinBlockHeight = this.oracleBitcoinBlockHeight;
@@ -1043,22 +1042,14 @@ export default class BitcoinLocks {
     vaultCapacityLiquidityMicrogons: bigint;
   }> {
     const { vault, lockOwner, maxSatoshis, projectedFlexibleSecuritizationLocked, microgonsAtTargetPerBtc } = args;
-    let vaultCapacityLiquidityMicrogons: bigint;
-    if (projectedFlexibleSecuritizationLocked == null) {
-      vaultCapacityLiquidityMicrogons = vault.availableBitcoinSpace(lockOwner) ?? 0n;
-    } else {
-      const projectedOrdinarySecuritizationLocked = bigIntMax(
-        vault.securitizationLocked - projectedFlexibleSecuritizationLocked,
-        0n,
-      );
-      const projectedAvailableSecuritization = bigIntMax(
-        vault.securitization - projectedOrdinarySecuritizationLocked - vault.reservedSecuritizationSpace,
-        0n,
-      );
-      vaultCapacityLiquidityMicrogons = bigNumberToBigInt(
-        BigNumber(projectedAvailableSecuritization).dividedBy(vault.securitizationRatio),
-      );
+    let capacityVault = vault;
+    if (projectedFlexibleSecuritizationLocked != null) {
+      capacityVault = Object.assign(Object.create(Vault.prototype) as Vault, vault, {
+        flexibleSecuritizationLocked: projectedFlexibleSecuritizationLocked,
+      });
     }
+    const vaultCapacityLiquidityMicrogons = capacityVault.availableBitcoinSpace(lockOwner);
+
     if (!this.#currency.isLoaded) {
       await this.#currency.load();
     }
@@ -1134,6 +1125,7 @@ export default class BitcoinLocks {
     uuid: string,
     lock: IBitcoinLock,
     txInfo: TransactionInfo,
+    payment?: NonNullable<ReturnType<typeof BitcoinLock.readLockGuaranteePayment>>,
   ): Promise<IBitcoinLockRecord> {
     const { block, extrinsicIndex } = await this.getFinalizedTransactionLocation(txInfo);
     return await this.runInQueueForLock(
@@ -1147,6 +1139,7 @@ export default class BitcoinLocks {
             extrinsicIndex,
             lock,
             origin: 'created',
+            ...payment,
           });
           return finalized;
         });
@@ -1382,7 +1375,7 @@ export default class BitcoinLocks {
     };
   }
 
-  private async syncPendingFundingSignals(lock: IBitcoinLockRecord, apiClient?: ArgonQueryClient) {
+  private async syncPendingFundingSignals(lock: IBitcoinLockRecord, apiClient?: ArgonCurrentQueryClient) {
     try {
       await this.utxoTracking.syncPendingFundingSignals(lock, apiClient);
     } catch (error) {
@@ -1447,23 +1440,33 @@ export default class BitcoinLocks {
 
   public async updateCurrentLock(
     lock: IBitcoinLockRecord,
-    currentLock: IBitcoinLock,
+    finalizedLock: IBitcoinLock,
     txInfo: TransactionInfo,
+    payment?: NonNullable<ReturnType<typeof BitcoinLock.readLockGuaranteePayment>>,
   ): Promise<void> {
     const { block, extrinsicIndex } = await this.getFinalizedTransactionLocation(txInfo);
-    const updated = { ...lock };
-    const db = await this.dbPromise;
-    await db.transaction(async transaction => {
-      await transaction.bitcoinLocksTable.updateFromCurrentLock(updated, currentLock);
-      await recordFinalizedSecuritization(transaction.bitcoinSecuritizationHistoryTable, {
-        block,
-        extrinsicIndex,
-        lock: currentLock,
-        origin: 'resecuritized',
-      });
-    });
-    Object.assign(lock, updated);
-    this.publishFinancialRevision();
+    await this.runInQueueForLock(
+      lock,
+      async () => {
+        const { api } = await this.blockWatch.getLatestFinalizedSnapshot();
+        const currentLock = await BitcoinLock.get(api, finalizedLock.lockId);
+        const updated = { ...lock };
+        const db = await this.dbPromise;
+        await db.transaction(async transaction => {
+          if (currentLock) await transaction.bitcoinLocksTable.updateFromCurrentLock(updated, currentLock);
+          await recordFinalizedSecuritization(transaction.bitcoinSecuritizationHistoryTable, {
+            block,
+            extrinsicIndex,
+            lock: finalizedLock,
+            origin: 'resecuritized',
+            ...payment,
+          });
+        });
+        Object.assign(lock, updated);
+        this.publishFinancialRevision();
+      },
+      { skipActionAvailability: true },
+    );
   }
 
   public async runInQueueForLock<T>(
@@ -1530,7 +1533,8 @@ export default class BitcoinLocks {
       }
       const archivedBitcoinBlockHeight = this.data.oracleBitcoinBlockHeight;
 
-      const { api: clientAt, events } = await this.blockWatch.getEventsWithSpec(header);
+      const { api, events } = await this.blockWatch.getEventsWithSpec(header);
+      const clientAt = runtimeClient(api);
       await this.releases.applyOrphanCosignEvents(header, events);
       const runtimeEvents = events.flatMap(record => {
         const event = toRuntimeEvent(record.event);
@@ -1643,7 +1647,7 @@ export default class BitcoinLocks {
                     lockRecord,
                     release,
                     header,
-                    clientAt,
+                    api,
                     releaseCompletionEvent.record,
                     events,
                   );
@@ -1666,6 +1670,40 @@ export default class BitcoinLocks {
                 await this.updateLockingStatus(lockRecord, clientAt).catch(err =>
                   console.warn(`[BitcoinLocks] Error updating locking status for utxo ${lockRecord.uuid}`, err),
                 );
+              }
+
+              for (const { event, record } of runtimeEvents) {
+                if (event.section !== 'bitcoinLocks') continue;
+                if (event.method !== 'BitcoinLockResecuritized' && event.method !== 'BitcoinLockGuaranteeSet') continue;
+                if (
+                  event.data.lockId !== lockRecord.lockId ||
+                  event.data.accountId !== this.walletKeys.defaultArgonAddress
+                )
+                  continue;
+                if (record.phase.type !== 'ApplyExtrinsic') continue;
+
+                const lock = await getHistoricalBitcoinLockDetails(api, event.data.lockId);
+                if (!lock) throw new Error(`Bitcoin Lock #${event.data.lockId} is missing its finalized guarantee.`);
+                const extrinsicIndex = record.phase.value;
+                const extrinsicEvents = runtimeEvents
+                  .filter(
+                    candidate =>
+                      candidate.record.phase.type === 'ApplyExtrinsic' &&
+                      candidate.record.phase.value === extrinsicIndex,
+                  )
+                  .map(candidate => candidate.event);
+                const payment = BitcoinLock.readLockGuaranteePayment(extrinsicEvents, lock.lockId, lock.ownerAccount);
+                if (!payment) throw new Error(`Bitcoin Lock #${lock.lockId} finalized without its guarantee event.`);
+                const db = await this.dbPromise;
+                await db.transaction(async transaction => {
+                  await recordFinalizedSecuritization(transaction.bitcoinSecuritizationHistoryTable, {
+                    block: header,
+                    extrinsicIndex,
+                    lock,
+                    origin: 'resecuritized',
+                    ...payment,
+                  });
+                });
               }
 
               // Phase 2: funding sync.
@@ -1721,7 +1759,7 @@ export default class BitcoinLocks {
 
   private async tryUpdateFundingUtxos(
     lock: IBitcoinLockRecord,
-    apiClient: ArgonQueryClient,
+    apiClient: ArgonCurrentQueryClient,
     latestBitcoinLock?: IBitcoinLock,
   ): Promise<void> {
     latestBitcoinLock ??= await BitcoinLock.get(apiClient, lock.lockId!);
@@ -1730,7 +1768,7 @@ export default class BitcoinLocks {
     await this.utxoTracking.syncFundingUtxos(lock, latestBitcoinLock);
   }
 
-  private async updateLockingStatus(lock: IBitcoinLockRecord, finalizedApi: ArgonQueryClient): Promise<void> {
+  private async updateLockingStatus(lock: IBitcoinLockRecord, finalizedApi: ArgonCurrentQueryClient): Promise<void> {
     const bitcoinLock = await BitcoinLock.get(finalizedApi, lock.lockId!);
     if (!bitcoinLock) {
       console.warn(`Lock with ID ${lock.lockId} not found`);

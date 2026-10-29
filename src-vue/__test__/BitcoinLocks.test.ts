@@ -1,6 +1,19 @@
+import { getHistoricalBitcoinFissions } from '../lib/recovery/BitcoinFissions.ts';
+import { getHistoricalBitcoinLockDetails } from '../lib/recovery/BitcoinLockHistory.ts';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import BigNumber from 'bignumber.js';
-import { BitcoinLock, Currency, type MainchainClients, type TxSigningAccount, Vault } from '@argonprotocol/apps-core';
+import { Metadata, TypeRegistry } from '@polkadot/types';
+import { decorateConstants } from '@polkadot/types/metadata/decorate';
+import { getBundledMetadata, runtimeClient } from '@argonprotocol/runtime-client';
+import {
+  BitcoinLock,
+  Currency,
+  type ArgonCurrentQueryClient,
+  type ArgonApi,
+  type MainchainClients,
+  type TxSigningAccount,
+  Vault,
+} from '@argonprotocol/apps-core';
 import { type TransactionTracker, TxAttemptState } from '../lib/TransactionTracker.ts';
 import { BitcoinLockStatus } from '../lib/db/BitcoinLocksTable.ts';
 import { ExtrinsicType } from '../lib/db/TransactionsTable.ts';
@@ -19,6 +32,75 @@ vi.mock('../stores/mainchain.ts', () => ({
 }));
 
 afterEach(() => vi.useRealTimers());
+
+describe('saved Bitcoin Lock inclusion snapshots', () => {
+  it.each([159, 160, 161])('decodes runtime %s Lock and Fission storage through historical readers', async spec => {
+    const registry = new TypeRegistry();
+    const metadata = new Metadata(
+      registry,
+      Object.entries(getBundledMetadata()).find(([key]) => key.endsWith(`-${spec}`))![1],
+    );
+    registry.setMetadata(metadata);
+    const record = registry.createType('Option<PalletBitcoinLocksLockedBitcoin>', {
+      vaultId: 7,
+      ownerAccount: new Uint8Array(32).fill(17),
+      fundedSatoshis: 3n,
+      fissionedSatoshis: 1n,
+      fundingUtxos: new Map([[{ txid: `0x${'22'.repeat(32)}`, outputIndex: 0 }, 3n]]),
+      cosignerGuarantee: {
+        basis: { satoshis: 3n, microgonsAtTargetPerBtc: 1_000n, tick: 12 },
+        guaranteedMicrogons: 31n,
+        fundHoldExtensions: {},
+      },
+      securitizationBasis: { satoshis: 3n, microgonsAtTargetPerBtc: 1_000n },
+      securitizationCoverageMicrogons: 31n,
+      securitizationRatio: 1_500_000_000_000_000_000n,
+      securitizationTick: 12,
+      fundHoldExtensions: {},
+      securitizationHoldExpirationBitcoinHeight: spec < 161 ? 144 : null,
+    });
+    const fissionRecord = registry.createType('Option<PalletBitcoinFissionsFission>', {
+      lockId: 4,
+      liquidId: 12,
+      satoshis: 1n,
+      liquidityPromised: 10n,
+      ratchetNumber: 1,
+      cosignerGuarantee: {
+        basis: { satoshis: 1n, microgonsAtTargetPerBtc: 1_000n, tick: 12 },
+        guaranteedMicrogons: 10n,
+        fundHoldExtensions: {},
+      },
+    });
+    const ownerAccount = registry.createType('AccountId32', new Uint8Array(32).fill(17)).toString();
+    const api = runtimeClient({
+      registry,
+      query: {
+        bitcoinLocks: { locksById: async () => record },
+        bitcoinFissions: {
+          fissionByOwnerAndId: { entries: async () => [[{ args: [ownerAccount, 3] }, fissionRecord]] },
+        },
+      },
+    }) as unknown as ArgonApi;
+    const lock = await getHistoricalBitcoinLockDetails(api, 4);
+    expect(lock?.fundingUtxos[0].satoshis).toBe(3n);
+    expect(lock?.fissionedSatoshis).toBe(1n);
+    expect(lock?.securitizedSatoshis).toBe(spec < 161 ? 3n : 2n);
+    expect(lock?.securitizationCoverageMicrogons).toBe(spec < 161 ? 31n : 20n);
+    expect(lock?.securitizationHoldExpirationBitcoinHeight).toBe(spec < 161 ? 144 : null);
+    expect(lock?.securitizationRatio).toBe(spec < 161 ? 1.5 : undefined);
+    expect(lock?.securitizationTick).toBe(12);
+    const [fission] = await getHistoricalBitcoinFissions(api, ownerAccount);
+    expect(fission).toMatchObject({
+      ownerAccount,
+      fissionId: 3,
+      lockId: 4,
+      satoshis: 1n,
+      liquidityPromised: 10n,
+      ratchetNumber: 1,
+    });
+    expect(fission.cosignerGuarantee?.guaranteedMicrogons).toBe(spec === 161 ? 10n : undefined);
+  });
+});
 
 describe('BitcoinLocks fee coupon recovery', () => {
   afterEach(() => vi.restoreAllMocks());
@@ -392,19 +474,50 @@ describe('BitcoinLocks capacity owners', () => {
     expect(memberCapacity.availableLiquidityMicrogons).toBe(400n);
   });
 
-  it('includes unused space when projecting flexible capacity changes', async () => {
+  it.each([160, 161])('projects flexible capacity without changing the loaded Vault on runtime %s', async spec => {
+    const registry = new TypeRegistry();
+    const metadata = new Metadata(
+      registry,
+      Object.entries(getBundledMetadata()).find(([key]) => key.endsWith(`-${spec}`))![1],
+    );
+    registry.setMetadata(metadata);
+    const record = registry.createType('Option<ArgonPrimitivesVault>', {
+      operatorAccountId: new Uint8Array(32).fill(17),
+      securitization: 1_000n,
+      securitizationTarget: 1_000n,
+      securitizationLocked: 800n,
+      flexibleSecuritizationLocked: 0n,
+      reservedSecuritizationSpace: 100n,
+      securitizationRatio: 1_500_000_000_000_000_000n,
+    });
+    const client = runtimeClient({
+      registry,
+      consts: decorateConstants(registry, metadata.asLatest, metadata.version),
+      query: { vaults: { vaultsById: async () => record } },
+    }) as unknown as ArgonCurrentQueryClient;
+    const vault = await Vault.get(client, 7, 1_000);
     const capacity = await store.getLockableBitcoinCapacity({
-      vault: {
-        reservedSecuritizationSpace: 100n,
-        securitization: 1_000n,
-        securitizationLocked: 800n,
-        securitizationRatio: BigNumber(1),
-      } as never,
+      vault,
+      lockOwner: 'bitcoin-owner',
       projectedFlexibleSecuritizationLocked: 300n,
     });
 
-    expect(capacity.vaultCapacityLiquidityMicrogons).toBe(400n);
-    expect(capacity.availableSatoshis).toBe(200n);
-    expect(capacity.availableLiquidityMicrogons).toBe(400n);
+    // 1,000 - (800 - 300) - 100 leaves 400 collateral; only 160 divides by its 1.5 ratio.
+    expect(capacity.vaultCapacityLiquidityMicrogons).toBe(spec === 160 ? 266n : 400n);
+    expect(capacity.availableSatoshis).toBe(spec === 160 ? 133n : 200n);
+    expect(capacity.availableLiquidityMicrogons).toBe(spec === 160 ? 266n : 400n);
+
+    const operatorCapacity = await store.getLockableBitcoinCapacity({
+      vault,
+      lockOwner: vault.operatorAccountId,
+      projectedFlexibleSecuritizationLocked: 300n,
+    });
+    // Operators can use only the 200 physically free collateral, with whole-satoshi rounding.
+    expect(operatorCapacity.vaultCapacityLiquidityMicrogons).toBe(spec === 160 ? 133n : 200n);
+    expect(operatorCapacity.availableSatoshis).toBe(spec === 160 ? 66n : 100n);
+    expect(operatorCapacity.availableLiquidityMicrogons).toBe(spec === 160 ? 132n : 200n);
+
+    expect(vault.flexibleSecuritizationLocked).toBe(0n);
+    expect(vault.availableBitcoinSpace('bitcoin-owner')).toBe(spec === 160 ? 66n : 100n);
   });
 });

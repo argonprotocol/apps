@@ -1,4 +1,5 @@
 import { submitAndFinalize } from '@argonprotocol/apps-core/__test__/helpers/mainchain.ts';
+import { runtimeClient } from '@argonprotocol/runtime-client';
 import { setTimeout as delay } from 'node:timers/promises';
 import {
   createOperationalAccessProof,
@@ -210,6 +211,7 @@ export class AppVaultOperator {
       vaults,
       bitcoinLockResecuritize,
       upstreamOperatorClient,
+      miningFrames.blockWatch,
     );
     const bitcoinLockCreate = new BitcoinLockCreate(bitcoinLocks, transactionTracker, currency, upstreamOperatorClient);
     const config = new Config(dbPromise, walletKeys);
@@ -442,7 +444,7 @@ export class AppVaultOperator {
           await txInfo.waitForPostProcessing;
 
           const blockHash = txInfo.tx.blockHash ?? (await txInfo.txResult.waitForInFirstBlock);
-          const apiAt = await client.at(blockHash);
+          const apiAt = runtimeClient(await client.at(blockHash));
           const { lock: treasuryLock } = await BitcoinLock.getBitcoinLockFromTxResult(apiAt, txInfo.txResult);
 
           const fundingAddress = BitcoinLocks.formatP2wshAddress(
@@ -553,7 +555,7 @@ export class AppVaultOperator {
   public async ensureOperationalLiquid(args: { client: ArgonClient }): Promise<void> {
     const { client } = args;
     const finalizedBitcoin = await waitFor(45e3, 'upstream treasury finalized Bitcoin funding', async () => {
-      const finalizedClient = await client.at(await client.rpc.chain.getFinalizedHead());
+      const { api: finalizedClient } = await this.#miningFrames.blockWatch.getLatestFinalizedSnapshot();
       const currentFissions = await BitcoinFission.getAllByOwner(finalizedClient, this.walletKeys.defaultArgonAddress);
       if (currentFissions.length) return { currentFissions };
 

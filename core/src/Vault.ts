@@ -1,8 +1,14 @@
 import type { CurrentRuntimeQueries, LiveQueryRecord, RuntimeQueryResult } from '@argonprotocol/runtime-client';
 import type { ArgonClient, ArgonCurrentQueryClient, ArgonQueryClient } from './MainchainClients.js';
 import BigNumber from 'bignumber.js';
-import { FIXED_U128_DECIMALS, toFixedNumber, type ArgonPrimitivesVaultVaultTerms } from '@argonprotocol/mainchain';
+import {
+  FIXED_U128_DECIMALS,
+  toFixedNumber,
+  type ArgonPrimitivesVaultVaultTerms,
+  type PalletVaultsVaultConfig,
+} from '@argonprotocol/mainchain';
 import { bigNumberToBigInt, bigIntMax, bigIntMin } from './utils.js';
+import type { PreviousRuntimeSpec } from './runtimeCompatibility.js';
 
 type RuntimeVault = NonNullable<RuntimeQueryResult<CurrentRuntimeQueries['vaults']['vaultsById']>>;
 type SecuritizationScheduleEntry = RuntimeVault['securitizationReleaseSchedule'][string];
@@ -18,10 +24,8 @@ export class Vault implements Omit<RuntimeVault, 'securitizationReleaseSchedule'
   public securitizationPendingActivation: RuntimeVault['securitizationPendingActivation'];
   public securitizedSatoshis: RuntimeVault['securitizedSatoshis'];
   public totalSatoshis: RuntimeVault['totalSatoshis'];
-  public ratioAdjustedSatoshis: RuntimeVault['ratioAdjustedSatoshis'];
-  public flexibleRatioAdjustedSatoshis: RuntimeVault['flexibleRatioAdjustedSatoshis'];
   public committedMicrogons: RuntimeVault['committedMicrogons'];
-  public securitizationRatio: RuntimeVault['securitizationRatio'];
+  public securitizationRatio?: BigNumber;
   public isClosed: RuntimeVault['isClosed'];
   public terms: RuntimeVault['terms'];
   public pendingTerms: RuntimeVault['pendingTerms'];
@@ -37,7 +41,7 @@ export class Vault implements Omit<RuntimeVault, 'securitizationReleaseSchedule'
 
   constructor(
     public vaultId: number,
-    vault: RuntimeVault,
+    vault: NonNullable<LiveQueryRecord<'vaults', 'vaultsById'>>,
     public tickDuration: number,
     public securitizationExitNoticeBlocks?: number,
   ) {
@@ -51,10 +55,8 @@ export class Vault implements Omit<RuntimeVault, 'securitizationReleaseSchedule'
     this.securitizationPendingActivation = vault.securitizationPendingActivation;
     this.securitizedSatoshis = vault.securitizedSatoshis;
     this.totalSatoshis = vault.totalSatoshis;
-    this.ratioAdjustedSatoshis = vault.ratioAdjustedSatoshis;
-    this.flexibleRatioAdjustedSatoshis = vault.flexibleRatioAdjustedSatoshis;
     this.committedMicrogons = vault.committedMicrogons;
-    this.securitizationRatio = vault.securitizationRatio;
+    if ('securitizationRatio' in vault) this.securitizationRatio = vault.securitizationRatio;
     this.isClosed = vault.isClosed;
     this.terms = vault.terms;
     this.pendingTerms = vault.pendingTerms;
@@ -71,48 +73,7 @@ export class Vault implements Omit<RuntimeVault, 'securitizationReleaseSchedule'
     tickDuration: number,
     constants: Pick<ArgonCurrentQueryClient['consts'], 'vaults' | 'operationalAccounts'>,
   ): Vault {
-    if ('committedMicrogons' in vault) {
-      const securitizationExitNoticeBlocks =
-        'securitizationExitNoticeBlocks' in constants.vaults
-          ? constants.vaults.securitizationExitNoticeBlocks
-          : undefined;
-      return new Vault(id, vault, tickDuration, securitizationExitNoticeBlocks);
-    }
-    const { treasuryProfitSharing, ...terms } = vault.terms;
-    let pendingTerms: RuntimeVault['pendingTerms'] = vault.pendingTerms;
-    let pendingBondProfitSharing: BigNumber | undefined;
-    if (vault.pendingTerms) {
-      const [applyTick, { treasuryProfitSharing: pendingProfitSharing, ...bitcoinTerms }] = vault.pendingTerms;
-      pendingTerms = [applyTick, bitcoinTerms];
-      pendingBondProfitSharing = pendingProfitSharing;
-    }
-    const schedule = Object.fromEntries(
-      Object.entries(vault.securitizationReleaseSchedule).map(([height, amount]) => [
-        height,
-        {
-          lockedCommitments: 0n,
-          relockableCommitments: amount,
-          argonWithdrawals: 0n,
-          argonotWithdrawals: 0n,
-        },
-      ]),
-    );
-    const normalized = new Vault(
-      id,
-      {
-        ...vault,
-        terms,
-        pendingTerms,
-        committedMicrogons: 0n,
-        securitizationReleaseSchedule: schedule,
-      },
-      tickDuration,
-    );
-    normalized.operationalMinimumReleaseTick = vault.operationalMinimumReleaseTick;
-    normalized.operationalMinimumMicrogons = constants.operationalAccounts.operationalMinimumVaultSecuritization;
-    normalized.bondProfitSharing = treasuryProfitSharing;
-    normalized.pendingBondProfitSharing = pendingBondProfitSharing;
-    return normalized;
+    return new Vault(id, vault, tickDuration, constants.vaults.securitizationExitNoticeBlocks);
   }
 
   /**
@@ -206,13 +167,17 @@ export class Vault implements Omit<RuntimeVault, 'securitizationReleaseSchedule'
     return this.securitization;
   }
 
-  public availableBitcoinSpace(lockOwner?: string): bigint {
-    const availableSecuritization = this.availableSecuritizationSpace(lockOwner);
-    const microgons = BigNumber(availableSecuritization).div(this.securitizationRatio);
-    return bigNumberToBigInt(microgons);
+  public bitcoinCapacityMicrogons(securitization = this.securitization): bigint {
+    if (!this.securitizationRatio) return securitization;
+    return bigNumberToBigInt(BigNumber(securitization).div(this.securitizationRatio));
   }
 
-  public availableSecuritizationSpace(lockOwner?: string): bigint {
+  public availableBitcoinSpace(lockOwner?: string, isFlexible = false): bigint {
+    return this.bitcoinCapacityMicrogons(this.availableSecuritizationSpace(lockOwner, isFlexible));
+  }
+
+  public availableSecuritizationSpace(lockOwner?: string, isFlexible = false): bigint {
+    if (isFlexible) return bigIntMax(this.securitization - this.securitizationLocked, 0n);
     const regularSecuritizationLocked =
       this.securitizationLocked > this.flexibleSecuritizationLocked
         ? this.securitizationLocked - this.flexibleSecuritizationLocked
@@ -263,6 +228,40 @@ export class Vault implements Omit<RuntimeVault, 'securitizationReleaseSchedule'
     });
   }
 
+  public static buildCreateTx(
+    client: ArgonClient,
+    config: Exclude<
+      Parameters<ArgonClient['tx']['vaults']['create']>[0],
+      string | Uint8Array | PalletVaultsVaultConfig
+    >,
+    securitizationRatio = new BigNumber(1),
+  ) {
+    const encoded = client.registry.createType<PalletVaultsVaultConfig>('PalletVaultsVaultConfig', {
+      ...config,
+      securitizationRatio: toFixedNumber(securitizationRatio, FIXED_U128_DECIMALS),
+    });
+    return client.tx.vaults.create(encoded);
+  }
+
+  public buildModifyFundingTx(client: ArgonClient, securitization: bigint) {
+    const modifyFunding = client.tx.vaults.modifyFunding as
+      | typeof client.tx.vaults.modifyFunding
+      | PreviousRuntimeSpec.Transactions<'promise'>['vaults']['modifyFunding'];
+    if (modifyFunding.meta.args.length === 2) {
+      return client.tx.vaults.modifyFunding(this.vaultId, securitization);
+    }
+
+    if (!this.securitizationRatio)
+      throw new Error('The connected vault funding contract requires its securitization ratio.');
+    const previousModifyFunding =
+      modifyFunding as PreviousRuntimeSpec.Transactions<'promise'>['vaults']['modifyFunding'];
+    return previousModifyFunding(
+      this.vaultId,
+      securitization,
+      toFixedNumber(this.securitizationRatio, FIXED_U128_DECIMALS),
+    );
+  }
+
   public static async get(
     client: ArgonCurrentQueryClient,
     vaultId: number,
@@ -278,17 +277,7 @@ export class Vault implements Omit<RuntimeVault, 'securitizationReleaseSchedule'
   }
 
   public static async getArgonotSecuritization(client: ArgonQueryClient, vaultId: number) {
-    if ('argonotSecuritizationByVaultId' in client.raw.query.vaults) {
-      return await client.query.vaults.argonotSecuritizationByVaultId(vaultId);
-    }
-    const commitment = await client.query.vaults.argonotCommitmentByVaultId(vaultId);
-    return commitment
-      ? {
-          heldMicronots: commitment.committedMicronots,
-          committedMicronots: 0n,
-          encumberedMicronots: commitment.encumberedMicronots,
-        }
-      : null;
+    return await client.query.vaults.argonotSecuritizationByVaultId(vaultId);
   }
 
   public static buildSetArgonotSecuritizationTx(client: ArgonClient, amount: bigint) {

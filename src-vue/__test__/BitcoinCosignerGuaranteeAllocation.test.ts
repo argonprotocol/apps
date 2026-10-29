@@ -90,6 +90,71 @@ describe('Bitcoin Liquid cosigner guarantee allocation', () => {
     expect(allocation.unallocatedCost).toBe(0n);
   });
 
+  it.each([
+    {
+      satoshis: 50n,
+      expectedCosts: new Map([
+        [1, 22n],
+        [2, 5n],
+      ]),
+    },
+    { satoshis: 200n, expectedCosts: new Map([[1, 27n]]) },
+  ])(
+    'shares only the Lock-covered slice and retains direct Fission fees for $satoshis satoshis',
+    ({ satoshis, expectedCosts }) => {
+      const first = createFission({ fissionId: 1, liquidId: 1, createdAtTick: 10, satoshis });
+      const second = createFission({ fissionId: 2, liquidId: 2, createdAtTick: 10, satoshis: 50n });
+      first.ratchets = [
+        {
+          source: 'fission',
+          sourceRatchetIndex: 1,
+          microgonsAtTargetPerBtc: 100n,
+          amountMinted: 0n,
+          amountBurned: 0n,
+          mintPending: 0n,
+          blockNumber: 20,
+          netSecurityFee: 17n,
+        },
+      ];
+      const allocation = allocateBitcoinCosignerGuaranteeCosts({
+        terms: [createTerm({ securitizedSatoshis: 100n, addedNetSecurityFee: 10n, cumulativeNetSecurityFee: 10n })],
+        fissions: [first, second],
+      });
+      expect(allocation.costByLiquidId).toEqual(expectedCosts);
+      expect(allocation.unallocatedCost).toBe(0n);
+      expect(allocation.incompleteLiquidIds).toEqual(new Set());
+
+      const afterPartialReturn = allocateBitcoinCosignerGuaranteeCosts({
+        terms: [
+          createTerm({
+            securitizedSatoshis: 100n,
+            addedNetSecurityFee: 10n,
+            cumulativeNetSecurityFee: 10n,
+            endTick: 20,
+          }),
+          createTerm({
+            termIndex: 1,
+            origin: 'partial-release',
+            startTick: 20,
+            securitizedSatoshis: 10n,
+            addedNetSecurityFee: 0n,
+            cumulativeNetSecurityFee: 10n,
+          }),
+        ],
+        fissions: [first, second],
+      });
+      expect(afterPartialReturn).toEqual(allocation);
+
+      // An offline ratchet is visible in current storage before recovery has its fee event.
+      first.ratchetNumber = 2;
+      const awaitingHistory = allocateBitcoinCosignerGuaranteeCosts({
+        terms: [createTerm({ securitizedSatoshis: 100n, addedNetSecurityFee: 10n, cumulativeNetSecurityFee: 10n })],
+        fissions: [first, second],
+      });
+      expect(awaitingHistory.incompleteLiquidIds).toEqual(new Set([first.liquidId]));
+    },
+  );
+
   it('marks a Liquid incomplete when its tick history cannot place its guaranteed slice', () => {
     const allocation = allocateBitcoinCosignerGuaranteeCosts({
       terms: [createTerm()],

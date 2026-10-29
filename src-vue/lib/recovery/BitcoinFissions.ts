@@ -1,7 +1,9 @@
 import {
   BitcoinFission,
+  readBitcoinGuaranteeFee,
   convertBitcoinTargetValueToPricePerBtc,
   type BlockWatch,
+  type ArgonApi,
   type Currency,
   JsonExt,
   type IBitcoinFission,
@@ -24,6 +26,7 @@ type DeferredFissionEvent = {
   block: IBlockHeaderInfo;
   record: NamedFissionRecoveryEventRecord;
   transactionFee?: bigint;
+  netSecurityFee: bigint;
 };
 
 type FissionHistoryReplay = {
@@ -107,11 +110,20 @@ export class BitcoinFissionRecovery {
         if (replay.failureByFissionId.has(fissionId)) continue;
 
         const transactionFee = readTransactionFee(eventRecords, record, this.ownerAccount);
+        const extrinsicIndex = readExtrinsicIndex(record);
+        const extrinsicEvents = eventRecords
+          .filter(candidate => readExtrinsicIndex(candidate) === extrinsicIndex)
+          .map(candidate => candidate.event);
+        const netSecurityFee = readBitcoinGuaranteeFee(
+          extrinsicEvents,
+          extrinsicEvents.indexOf(event),
+          this.ownerAccount,
+        );
         if (event.method !== 'FissionCreated' && !knownRecord) {
-          replay.deferredEvents.push({ fissionId, eventLockId, block, record, transactionFee });
+          replay.deferredEvents.push({ fissionId, eventLockId, block, record, transactionFee, netSecurityFee });
           continue;
         }
-        await this.applyEvent(replay, block, record, transactionFee);
+        await this.applyEvent(replay, block, record, transactionFee, netSecurityFee);
       } catch (error) {
         if (!isolateFailures || !this.recordReplayFailure(replay, error)) throw error;
       } finally {
@@ -131,7 +143,7 @@ export class BitcoinFissionRecovery {
       if (replay.unscopedFailure) throw new Error(replay.unscopedFailure);
       const activeFissions = this.getActiveFissions();
       for (const deferred of replay.deferredEvents) {
-        const { fissionId, eventLockId, block, record, transactionFee } = deferred;
+        const { fissionId, eventLockId, block, record, transactionFee, netSecurityFee } = deferred;
         if (replay.failureByFissionId.has(fissionId)) continue;
         const knownRecord = replay.recordsByFissionId.get(fissionId);
         let failureLockId = knownRecord?.lockId;
@@ -167,7 +179,7 @@ export class BitcoinFissionRecovery {
             if (!migrated) throw new Error(missingCreationMessage);
             replay.recordsByFissionId.set(fissionId, migrated);
           }
-          await this.applyEvent(replay, block, record, transactionFee);
+          await this.applyEvent(replay, block, record, transactionFee, netSecurityFee);
         } catch (error) {
           const message = error instanceof Error ? error.message : String(error);
           if (failureLockId === undefined) replay.unscopedFailure = message;
@@ -258,6 +270,7 @@ export class BitcoinFissionRecovery {
     block: IBlockHeaderInfo,
     record: NamedFissionRecoveryEventRecord,
     transactionFee?: bigint,
+    netSecurityFee?: bigint,
   ): Promise<void> {
     const { event } = record;
     if (!BitcoinFission.isOwnedEvent(event, this.ownerAccount)) return;
@@ -274,6 +287,7 @@ export class BitcoinFissionRecovery {
           event,
           extrinsicIndex: readExtrinsicIndex(record),
           transactionFee,
+          netSecurityFee,
         }),
       );
       return;
@@ -298,6 +312,7 @@ export class BitcoinFissionRecovery {
         event,
         extrinsicIndex: readExtrinsicIndex(record),
         transactionFee,
+        netSecurityFee,
         btcPriceAtCloseMicrogons,
       }),
     );
@@ -428,6 +443,15 @@ export class BitcoinFissionRecovery {
     );
     return await result;
   }
+}
+
+/** Native Fissions begin at runtime 159; earlier Liquids are reconstructed from historical Locks. */
+export async function getHistoricalBitcoinFissions(client: ArgonApi, ownerAccount: string): Promise<BitcoinFission[]> {
+  const entries = await client.query.bitcoinFissions.fissionByOwnerAndId.entries(ownerAccount);
+  return (entries ?? []).flatMap(([key, fission]) => {
+    if (!fission) return [];
+    return [new BitcoinFission({ ...fission, ownerAccount, fissionId: key.args[1] })];
+  });
 }
 
 function readErrorMessage(error: unknown, fallback: string): string {

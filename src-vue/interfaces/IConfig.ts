@@ -235,7 +235,6 @@ export const ConfigSchema = z.object({
   vaultSetup: z.object({
     securitizationMicrogons: z.bigint(),
     committedMicronots: z.bigint(),
-    securitizationRatio: z.number(),
     btcFlatFee: z.bigint(),
     btcPctFee: z.number(),
   }),

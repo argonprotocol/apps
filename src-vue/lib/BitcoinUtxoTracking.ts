@@ -1,3 +1,4 @@
+import { getFinalizedClient } from '../stores/mainchain.ts';
 import dayjs from 'dayjs';
 import utc from 'dayjs/plugin/utc.js';
 import { BitcoinNetwork } from '@argonprotocol/bitcoin';
@@ -5,6 +6,7 @@ import {
   BitcoinLock,
   type ArgonClient,
   type ArgonQueryClient,
+  type ArgonCurrentQueryClient,
   type IBitcoinLock,
   type IBitcoinLockConfig,
 } from '@argonprotocol/apps-core';
@@ -256,7 +258,7 @@ export default class BitcoinUtxoTracking {
 
   public async observeMempoolFunding(
     lock: IBitcoinLockRecord,
-    client: ArgonQueryClient,
+    client: ArgonCurrentQueryClient,
   ): Promise<IMempoolFundingObservation | undefined> {
     if (!lock.lockId) return undefined;
     // Mempool is a best-effort preview. The runtime-confirmed funding or orphan state remains authoritative.
@@ -312,7 +314,7 @@ export default class BitcoinUtxoTracking {
     return this.getObservedFundingUtxos(lock).at(-1)?.mempoolObservation;
   }
 
-  public async syncUnattachedDeposits(lock: IBitcoinLockRecord, client: ArgonQueryClient): Promise<void> {
+  public async syncUnattachedDeposits(lock: IBitcoinLockRecord, client: ArgonCurrentQueryClient): Promise<void> {
     if (!lock.lockId || !lock.ownerAccount) return;
     const candidates = this.getUtxosForLock(lock.lockId).filter(record => {
       return (
@@ -389,7 +391,7 @@ export default class BitcoinUtxoTracking {
 
   public async syncPendingFundingSignals(
     lock: IBitcoinLockRecord,
-    preferredClient?: ArgonQueryClient,
+    preferredClient?: ArgonCurrentQueryClient,
   ): Promise<boolean> {
     if (!lock.lockId || !this.shouldTrackFundingSignals(lock)) return false;
 
@@ -398,7 +400,7 @@ export default class BitcoinUtxoTracking {
     let client = preferredClient;
     if (!client) {
       const archiveClient = await this.deps.getMainchainClient(true);
-      client = await archiveClient.at(await archiveClient.rpc.chain.getFinalizedHead());
+      client = await getFinalizedClient(archiveClient);
     }
     const [orphanResult, mempoolObservationResult] = await Promise.allSettled([
       this.syncArgonOrphans([lock], client),

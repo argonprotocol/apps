@@ -200,6 +200,10 @@ export const BitcoinLocksFillRemainingSpace: Story = {
     const lock = locks[1];
     lock.status = BitcoinLockStatus.LockFunded;
     lock.securitizationCoverageMicrogons = 0n;
+    myVault.data.bitcoinCollateralByLockId = {
+      [liquid.lockId!]: liquid.securitizationCoverageMicrogons,
+      [lock.lockId!]: 0n,
+    };
     lock.fissionedSatoshis = 0n;
     lock.fundedSatoshis = 50_000_000n;
     lock.securitizedSatoshis = lock.fundedSatoshis;
@@ -648,6 +652,10 @@ export const UnderSecuritized: Story = {
     lock.microgonsAtTargetPerBtc = liquid.microgonsAtTargetPerBtc;
     lock.fissionedSatoshis = 0n;
     lock.securitizationCoverageMicrogons = 0n;
+    myVault.data.bitcoinCollateralByLockId = {
+      [liquid.lockId!]: liquid.securitizationCoverageMicrogons,
+      [lock.lockId!]: 0n,
+    };
     getBitcoinLocks().getAllLocks = fn(() => [liquid, lock]);
     myVault.data.externalLocks = {};
     myVault.createdVault!.securitizationLocked = liquid.securitizationCoverageMicrogons;
@@ -896,7 +904,9 @@ async function setupBitcoinHoverScenario() {
   securedLock.securitizationCoverageMicrogons = currency.priceIndex.getSatoshiPriceInMarketMicrogons(
     securedLock.fundedSatoshis,
   );
-  securedLock.securitizationRatio = 1;
+  myVault.data.bitcoinCollateralByLockId = {
+    [securedLock.lockId!]: securedLock.securitizationCoverageMicrogons,
+  };
   mocked(bitcoinLocks, true).getAllLocks.mockReturnValue([securedLock]);
 
   const pendingLock = myVault.data.externalLocks[2_101];

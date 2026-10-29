@@ -33,6 +33,7 @@ describe('HistoricalEventSpecs', () => {
     expect(historicalEventSpecSources[152]).toBe('@argonprotocol/mainchain@1.4.6');
     expect(historicalEventSpecSources[157]).toBe('@argonprotocol/mainchain@1.4.11');
     expect(historicalEventSpecSources[158]).toBe('@argonprotocol/mainchain@1.4.12');
+    expect(historicalEventSpecSources[160]).toBe('@argonprotocol/mainchain@1.5.2');
     expect(historicalEventSpecSources[latestRegisteredSpec]).toBe(
       `@argonprotocol/mainchain@${packageJson.dependencies['@argonprotocol/mainchain']}`,
     );
@@ -43,6 +44,50 @@ describe('HistoricalEventSpecs', () => {
       'utxoId',
       'vaultId',
       'isFlexible',
+    ]);
+  });
+
+  it('preserves spec 160 resecuritization and declares the spec 161 guarantee replacement', () => {
+    expect(getHistoricalEventFields(160, 'bitcoinLocks', 'BitcoinLockResecuritized')).toEqual([
+      'lockId',
+      'vaultId',
+      'securitizationBasis',
+      'accountId',
+    ]);
+    expect(getHistoricalEventFields(160, 'bitcoinLocks', 'BitcoinLockGuaranteeSet')).toBeUndefined();
+    expect(getHistoricalEventFields(161, 'bitcoinLocks', 'BitcoinLockResecuritized')).toBeUndefined();
+    expect(getHistoricalEventFields(161, 'bitcoinLocks', 'BitcoinLockGuaranteeSet')).toEqual([
+      'lockId',
+      'vaultId',
+      'securitizationBasis',
+      'accountId',
+    ]);
+  });
+
+  it('removes the vault ratio and renames reserved coverage only in spec 161 events', () => {
+    expect(getHistoricalEventFields(160, 'vaults', 'VaultCreated')).toContain('securitizationRatio');
+    expect(getHistoricalEventFields(160, 'vaults', 'VaultModified')).toContain('securitizationRatio');
+    expect(getHistoricalEventFields(160, 'vaults', 'SecuritizationReserved')).toContain(
+      'securitizationCoverageMicrogons',
+    );
+
+    expect(getHistoricalEventFields(161, 'vaults', 'VaultCreated')).toEqual([
+      'vaultId',
+      'securitization',
+      'operatorAccountId',
+      'openedTick',
+    ]);
+    expect(getHistoricalEventFields(161, 'vaults', 'VaultModified')).toEqual([
+      'vaultId',
+      'securitization',
+      'securitizationTarget',
+    ]);
+    expect(getHistoricalEventFields(161, 'vaults', 'SecuritizationReserved')).toEqual([
+      'vaultId',
+      'locker',
+      'securitizationMicrogons',
+      'feeRevenue',
+      'didUseFeeCoupon',
     ]);
   });
 

@@ -41,32 +41,7 @@ export function mergeRecoveredSecuritizationTerms(
     for (const term of publishedLockTerms) {
       if (term.startBlockNumber > asOfBlock) lockTerms.push({ ...term });
     }
-    lockTerms.sort(
-      (a, b) => a.startBlockNumber - b.startBlockNumber || (a.startExtrinsicIndex ?? 0) - (b.startExtrinsicIndex ?? 0),
-    );
-
-    // Earlier recovered terms change the indexes and each term's incremental fee.
-    for (const [index, term] of lockTerms.entries()) {
-      term.termIndex = index;
-      if (term.origin === 'partial-release') {
-        term.addedNetSecurityFee = 0n;
-      } else {
-        const previousFee = lockTerms[index - 1]?.cumulativeNetSecurityFee ?? 0n;
-        term.addedNetSecurityFee = bigIntMax(term.cumulativeNetSecurityFee - previousFee, 0n);
-      }
-
-      if (term.endBlockNumber !== undefined) continue;
-      const next = lockTerms[index + 1];
-      if (!next) continue;
-
-      Object.assign(term, {
-        endTick: next.startTick,
-        endBlockNumber: next.startBlockNumber,
-        endBlockHash: next.startBlockHash,
-        endExtrinsicIndex: next.startExtrinsicIndex,
-        endReason: next.origin === 'partial-release' ? 'partial-release' : 'resecuritized',
-      });
-    }
+    reconcileSecuritizationTerms(lockTerms);
     mergedTerms.push(...lockTerms);
   }
 
@@ -108,16 +83,27 @@ export async function recordFinalizedSecuritization(
     extrinsicIndex: number;
     lock: IBitcoinLock;
     origin: IBitcoinSecuritizationTerm['origin'];
+    netSecurityFee?: bigint;
+    securitizedSatoshis?: bigint;
   },
 ): Promise<void> {
-  const { block, extrinsicIndex, lock, origin } = args;
+  const { block, extrinsicIndex, lock, origin, netSecurityFee, securitizedSatoshis = lock.securitizedSatoshis } = args;
   const published = await table.getPublishedSnapshot(lock.ownerAccount);
   const terms = (published?.terms ?? []).map(term => ({ ...term }));
   const lockTerms = terms.filter(term => term.lockId === lock.lockId);
+  lockTerms.sort(
+    (left, right) =>
+      left.startBlockNumber - right.startBlockNumber ||
+      (left.startExtrinsicIndex ?? -1) - (right.startExtrinsicIndex ?? -1),
+  );
   const existing = lockTerms.find(term => {
     return term.startBlockHash === block.blockHash && term.startExtrinsicIndex === extrinsicIndex;
   });
-  const previous = existing ? lockTerms[lockTerms.indexOf(existing) - 1] : lockTerms.at(-1);
+  const previous = lockTerms.findLast(
+    term =>
+      term.startBlockNumber < block.blockNumber ||
+      (term.startBlockNumber === block.blockNumber && (term.startExtrinsicIndex ?? -1) < extrinsicIndex),
+  );
   if (
     !existing &&
     origin === 'partial-release' &&
@@ -134,13 +120,14 @@ export async function recordFinalizedSecuritization(
   const current: IBitcoinSecuritizationTerm = {
     lockId: lock.lockId,
     termIndex: existing?.termIndex ?? lockTerms.length,
-    origin,
+    origin: existing?.origin ?? origin,
     startTick: block.tick,
     startBlockNumber: block.blockNumber,
     startBlockHash: block.blockHash,
     startExtrinsicIndex: extrinsicIndex,
-    securitizedSatoshis: lock.securitizedSatoshis,
+    securitizedSatoshis,
     securitizationCoverageMicrogons: lock.securitizationCoverageMicrogons,
+    netSecurityFee,
     cumulativeNetSecurityFee,
     addedNetSecurityFee:
       origin === 'partial-release'
@@ -168,10 +155,43 @@ export async function recordFinalizedSecuritization(
     terms.push(current);
   }
 
+  reconcileSecuritizationTerms(terms.filter(term => term.lockId === lock.lockId));
   const snapshot = await table.createSnapshot(
     lock.ownerAccount,
     Math.max(published?.asOfBlock ?? 0, block.blockNumber),
     terms.sort((left, right) => left.lockId - right.lockId || left.termIndex - right.termIndex),
   );
   await table.publishSnapshot(snapshot);
+}
+
+function reconcileSecuritizationTerms(terms: IBitcoinSecuritizationTerm[]): void {
+  terms.sort(
+    (left, right) =>
+      left.startBlockNumber - right.startBlockNumber ||
+      (left.startExtrinsicIndex ?? -1) - (right.startExtrinsicIndex ?? -1),
+  );
+  for (const [index, term] of terms.entries()) {
+    term.termIndex = index;
+    const previousFee = terms[index - 1]?.cumulativeNetSecurityFee ?? 0n;
+    if (term.origin === 'partial-release') {
+      term.addedNetSecurityFee = 0n;
+      term.cumulativeNetSecurityFee = previousFee;
+    } else if (term.netSecurityFee !== undefined) {
+      term.addedNetSecurityFee = term.netSecurityFee;
+      term.cumulativeNetSecurityFee = previousFee + term.netSecurityFee;
+    } else {
+      term.addedNetSecurityFee = bigIntMax(term.cumulativeNetSecurityFee - previousFee, 0n);
+    }
+
+    const next = terms[index + 1];
+    if (!next) continue;
+    if (term.endBlockNumber !== undefined && term.endBlockNumber < next.startBlockNumber) continue;
+    Object.assign(term, {
+      endTick: next.startTick,
+      endBlockNumber: next.startBlockNumber,
+      endBlockHash: next.startBlockHash,
+      endExtrinsicIndex: next.startExtrinsicIndex,
+      endReason: next.origin === 'partial-release' ? 'partial-release' : 'resecuritized',
+    });
+  }
 }

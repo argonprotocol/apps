@@ -1,8 +1,6 @@
-import { runtimeClient } from '@argonprotocol/runtime-client';
 import {
   bigIntMax,
   bigIntMin,
-  bigNumberToBigInt,
   BitcoinFission,
   BitcoinLock,
   Currency,
@@ -11,23 +9,24 @@ import {
   SATS_PER_BTC,
   SingleFileQueue,
   type IBitcoinLockCouponStatus,
+  type IBitcoinFissionCreationQuote,
   type ArgonClient,
+  type BlockWatch,
   type TxSigningAccount,
   Vault,
   type Vaults,
 } from '@argonprotocol/apps-core';
 import type { PriceIndex } from '@argonprotocol/mainchain';
-import type { BitcoinLocksLocksByIdResult } from '@argonprotocol/runtime-client';
 
 import BitcoinLocks, { BitcoinLockWalletFundingError } from '../BitcoinLocks.ts';
 import type { BitcoinFissions } from '../BitcoinFissions.ts';
-import type { IBitcoinLockRecord } from '../db/BitcoinLocksTable.ts';
+import { BitcoinLocksTable, type IBitcoinLockRecord } from '../db/BitcoinLocksTable.ts';
 import { ExtrinsicType } from '../db/TransactionsTable.ts';
 import type { TransactionInfo } from '../TransactionInfo.ts';
 import type { TransactionTracker } from '../TransactionTracker.ts';
 import type { UpstreamOperatorClient } from '../UpstreamOperatorClient.ts';
 import { getMainchainClient } from '../../stores/mainchain.ts';
-import type { BitcoinLockResecuritize, IBitcoinResecuritizationMetadata } from './BitcoinLock.resecuritize.ts';
+import { BitcoinLockResecuritize, type IBitcoinResecuritizationMetadata } from './BitcoinLock.resecuritize.ts';
 import {
   TransactionOperation,
   type PreparedTransactionOperation,
@@ -60,18 +59,14 @@ export interface IBitcoinLiquidCreateFission {
   satoshis: bigint;
   microgonsAtTargetPerBtc: bigint;
   liquidityPromised: bigint;
+  securityFee?: bigint;
+  feeCouponRequestId?: string;
 }
 
-type CurrentAllocation = {
-  input: BitcoinLiquidCreateAllocation;
-  lock: BitcoinLock;
-  runtimeLock: NonNullable<BitcoinLocksLocksByIdResult>;
-  needsResecuritization: boolean;
+type QuotedAllocation = {
+  allocation: BitcoinLiquidCreateAllocation;
   vault: Vault;
-  maximumSatoshis: bigint;
-  securitizedSatoshis: bigint;
-  microgonsAtTargetPerBtc: bigint;
-  totalSecurityFee: bigint;
+  quote: IBitcoinFissionCreationQuote;
 };
 
 type CurrentCreateState = {
@@ -82,7 +77,7 @@ type CurrentCreateState = {
   nextFissionId: number;
   microgonsAtTargetPerBtc: bigint;
   microgonsAtTargetPerBtcTick: number;
-  allocations: CurrentAllocation[];
+  allocations: QuotedAllocation[];
 };
 
 type BitcoinLiquidCreateBuild = TransactionOperationBuild<IBitcoinLiquidCreateMetadata>;
@@ -121,6 +116,7 @@ export class BitcoinLiquidCreate extends TransactionOperation<
     private readonly vaults: Vaults,
     private readonly bitcoinLockResecuritize: BitcoinLockResecuritize,
     private readonly upstreamOperatorClient: UpstreamOperatorClient,
+    private readonly blockWatch: BlockWatch,
   ) {
     super(transactionTracker);
   }
@@ -141,8 +137,7 @@ export class BitcoinLiquidCreate extends TransactionOperation<
 
   public async preview(args: BitcoinLiquidCreateInput): Promise<IBitcoinLiquidCreatePreview> {
     const { txSigner } = args;
-    const { priceIndex, microgonsAtTargetPerBtc, microgonsAtTargetPerBtcTick, allocations } =
-      await this.readCurrentState(args);
+    const { microgonsAtTargetPerBtc, microgonsAtTargetPerBtcTick, allocations } = await this.readCurrentState(args);
     const remainingFeeCreditByCouponId = this.getAvailableFeeCreditByCouponId(allocations);
     let liquidityMicrogons = 0n;
     let totalSecurityFeeMicrogons = 0n;
@@ -150,8 +145,9 @@ export class BitcoinLiquidCreate extends TransactionOperation<
     let couponCreditMicrogons = 0n;
 
     for (const allocation of allocations) {
-      const { input, vault, totalSecurityFee } = allocation;
+      const { allocation: input, vault, quote } = allocation;
       const { operatorCoupon } = input;
+      const totalSecurityFee = (quote.lockGuarantee ?? quote.fissionGuarantee)?.totalSecurityFee ?? 0n;
       const availableFeeCredit = operatorCoupon
         ? (remainingFeeCreditByCouponId.get(operatorCoupon.coupon.id) ?? 0n)
         : 0n;
@@ -161,11 +157,7 @@ export class BitcoinLiquidCreate extends TransactionOperation<
         remainingFeeCreditByCouponId.set(operatorCoupon.coupon.id, availableFeeCredit - couponCredit);
       }
 
-      liquidityMicrogons += BitcoinLock.calculateLiquidityPromised({
-        priceIndex,
-        satoshis: input.satoshis,
-        microgonsAtTargetPerBtc,
-      });
+      liquidityMicrogons += quote.fission.liquidityPromised;
       totalSecurityFeeMicrogons += totalSecurityFee;
       if (txSigner.address !== vault.operatorAccountId) {
         securityFeeMicrogons += totalSecurityFee - couponCredit;
@@ -181,87 +173,106 @@ export class BitcoinLiquidCreate extends TransactionOperation<
       securityFeeMicrogons,
       couponCreditMicrogons,
       maximumSatoshisByLockId: Object.fromEntries(
-        allocations.map(({ input, maximumSatoshis }) => [input.lock.lockId!, maximumSatoshis]),
+        allocations.map(({ allocation, quote }) => [allocation.lock.lockId!, quote.maximumSatoshis]),
       ),
     };
   }
 
   protected async build(args: BitcoinLiquidCreateInput): Promise<BitcoinLiquidCreateBuild> {
     const { txSigner, tip } = args;
-    const state = await this.readCurrentState(args);
-    const {
-      client,
+    const { client, snapshotBlockHash, priceIndex, currentBitcoinHeight, nextFissionId, allocations } =
+      await this.readCurrentState(args);
+    const metadata: IBitcoinLiquidCreateMetadata = {
+      liquidId: nextFissionId,
       snapshotBlockHash,
-      priceIndex,
-      currentBitcoinHeight,
-      nextFissionId,
-      microgonsAtTargetPerBtc,
-      allocations,
-    } = state;
-    const table = await this.bitcoinLocks.getTable();
+      fissions: [],
+      resecuritizations: [],
+    };
     const remainingFeeCreditByCouponId = this.getAvailableFeeCreditByCouponId(allocations);
-    const resecuritizations: IBitcoinResecuritizationMetadata[] = [];
-    const resecuritizationTxs = [];
+    const lockGuaranteeTxs = [];
+    const fissionTxs = [];
     let securityFee = 0n;
 
     try {
-      for (const allocation of allocations) {
-        const { input, lock: currentLock, runtimeLock, vault, securitizedSatoshis, totalSecurityFee } = allocation;
-        const { lock, operatorCoupon } = input;
-        await table.updateFromCurrentLock(lock, currentLock);
-        if (!allocation.needsResecuritization) continue;
+      for (const [index, { allocation, vault, quote }] of allocations.entries()) {
+        const { lock, operatorCoupon } = allocation;
+        const fission: IBitcoinLiquidCreateFission = {
+          fissionId: nextFissionId + index,
+          lockId: lock.lockId!,
+          ...quote.fission,
+        };
+        metadata.fissions.push(fission);
 
         const availableFeeCredit = operatorCoupon
           ? (remainingFeeCreditByCouponId.get(operatorCoupon.coupon.id) ?? 0n)
           : 0n;
-        const feeCreditMicrogons = bigIntMin(totalSecurityFee, availableFeeCredit);
-        if (operatorCoupon) {
-          remainingFeeCreditByCouponId.set(operatorCoupon.coupon.id, availableFeeCredit - feeCreditMicrogons);
+        let paidSecurityFee = 0n;
+        let feeCoupon;
+
+        if (quote.lockGuarantee) {
+          const guarantee = quote.lockGuarantee;
+          const prepared = await this.bitcoinLockResecuritize.prepare({
+            lock,
+            vault,
+            securitizedSatoshis: guarantee.satoshis,
+            microgonsAtTargetPerBtc: guarantee.microgonsAtTargetPerBtc,
+            currentCoverageMicrogons: guarantee.currentCoverageMicrogons,
+            txSigner,
+            operatorCoupon,
+            client,
+            priceIndex,
+            currentBitcoinHeight,
+            maximumFeeCreditMicrogons: availableFeeCredit,
+          });
+          metadata.resecuritizations.push(prepared.metadata);
+          lockGuaranteeTxs.push(prepared.tx);
+          paidSecurityFee = prepared.securityFee;
         }
-        const prepared = await this.bitcoinLockResecuritize.prepare({
-          lock,
-          vault,
-          securitizedSatoshis,
-          microgonsAtTargetPerBtc: allocation.microgonsAtTargetPerBtc,
-          txSigner,
-          operatorCoupon,
-          client,
-          priceIndex,
-          currentBitcoinHeight,
-          currentCoverageMicrogons: runtimeLock.securitizationCoverageMicrogons,
-          maximumFeeCreditMicrogons: feeCreditMicrogons,
-        });
-        resecuritizationTxs.push(prepared.tx);
-        resecuritizations.push(prepared.metadata);
-        securityFee += prepared.securityFee;
+
+        if (quote.fissionGuarantee) {
+          const feeQuote = BitcoinLockResecuritize.calculateFee({
+            ...quote.fissionGuarantee,
+            lock,
+            vault,
+            txSigner,
+            operatorCoupon,
+            currentBitcoinHeight,
+            maximumFeeCreditMicrogons: availableFeeCredit,
+          });
+          fission.securityFee = feeQuote.securityFee;
+          if (operatorCoupon && feeQuote.feeCouponRequest) {
+            const response = await this.upstreamOperatorClient.initializeBitcoinLock(operatorCoupon.coupon.offerCode, {
+              ...feeQuote.feeCouponRequest,
+              requestId: feeQuote.feeCouponRequest.requestId ?? BitcoinLocksTable.createUuid(),
+            });
+            fission.feeCouponRequestId = response.execution.requestId;
+            feeCoupon = response.execution.feeCoupon;
+            fission.securityFee = bigIntMax(feeQuote.totalSecurityFee - feeCoupon.feeDiscount, 0n);
+          }
+          paidSecurityFee = fission.securityFee;
+        }
+
+        securityFee += paidSecurityFee;
+        if (operatorCoupon && txSigner.address !== vault.operatorAccountId) {
+          const totalSecurityFee = (quote.lockGuarantee ?? quote.fissionGuarantee)?.totalSecurityFee ?? 0n;
+          const couponCredit = totalSecurityFee - paidSecurityFee;
+          remainingFeeCreditByCouponId.set(operatorCoupon.coupon.id, bigIntMax(availableFeeCredit - couponCredit, 0n));
+        }
+        fissionTxs.push(BitcoinFission.createTx({ client, liquidId: nextFissionId, ...fission, feeCoupon }));
       }
     } catch (error) {
-      await Promise.all(resecuritizations.map(metadata => this.bitcoinLockResecuritize.failResecuritization(metadata)));
+      await this.failGuaranteePurchases(metadata);
       throw error;
     }
 
-    const liquidId = nextFissionId;
-    const fissions: IBitcoinLiquidCreateFission[] = allocations.map(({ input }, index) => ({
-      fissionId: liquidId + index,
-      lockId: input.lock.lockId!,
-      satoshis: input.satoshis,
-      microgonsAtTargetPerBtc,
-      liquidityPromised: BitcoinLock.calculateLiquidityPromised({
-        priceIndex,
-        satoshis: input.satoshis,
-        microgonsAtTargetPerBtc,
-      }),
-    }));
-    const fissionTxs = fissions.map(fission => BitcoinFission.createTx({ client, liquidId, ...fission }));
-
     return {
       client,
-      txs: [...resecuritizationTxs, ...fissionTxs],
+      txs: [...lockGuaranteeTxs, ...fissionTxs],
       txSigner,
       tip,
       unavailableBalance: securityFee,
       includeExistentialDeposit: true,
-      metadata: { liquidId, snapshotBlockHash, fissions, resecuritizations },
+      metadata,
     };
   }
 
@@ -328,21 +339,25 @@ export class BitcoinLiquidCreate extends TransactionOperation<
 
   protected async onFinalized(txInfo: TransactionInfo<IBitcoinLiquidCreateMetadata>): Promise<void> {
     await txInfo.txResult.waitForFinalizedBlock;
+    await this.transactionTracker.ensureStoredEvents(txInfo);
     for (const metadata of txInfo.tx.metadataJson.resecuritizations) {
       await this.bitcoinLockResecuritize.finalizeResecuritization(metadata, txInfo);
     }
-    await this.transactionTracker.ensureStoredEvents(txInfo);
     await this.fissions.recordFinalizedTransaction(txInfo);
+    for (const { feeCouponRequestId } of txInfo.tx.metadataJson.fissions) {
+      if (feeCouponRequestId)
+        await this.upstreamOperatorClient.recordBitcoinLockFeeCouponUse(feeCouponRequestId, 'Finalized');
+    }
   }
 
   protected async onFailed(txInfo: TransactionInfo<IBitcoinLiquidCreateMetadata>): Promise<void> {
-    await this.failResecuritizations(txInfo.tx.metadataJson.resecuritizations);
+    await this.failGuaranteePurchases(txInfo.tx.metadataJson);
   }
 
   protected async onSubmissionFailed(
     prepared: PreparedTransactionOperation<IBitcoinLiquidCreateMetadata, BitcoinLiquidCreateBuild>,
   ): Promise<void> {
-    await this.failResecuritizations(prepared.metadata.resecuritizations);
+    await this.failGuaranteePurchases(prepared.metadata);
   }
 
   protected createInsufficientFundsError(
@@ -368,8 +383,7 @@ export class BitcoinLiquidCreate extends TransactionOperation<
     }
 
     const client = providedClient ?? (await getMainchainClient(false));
-    const finalizedHead = await client.rpc.chain.getFinalizedHead();
-    const snapshotClient = runtimeClient(await client.raw.at(finalizedHead));
+    const { block, api: snapshotClient } = await this.blockWatch.getLatestFinalizedSnapshot();
     const priceIndex = await Currency.fetchPriceIndex(snapshotClient);
     if (allocations.some(({ operatorCoupon }) => operatorCoupon)) {
       const currentCoupons = await this.upstreamOperatorClient.getBitcoinLockCoupons();
@@ -390,7 +404,10 @@ export class BitcoinLiquidCreate extends TransactionOperation<
         return { ...allocation, operatorCoupon: currentCoupon };
       });
     }
-    const lockIds = allocations.map(({ lock }) => lock.lockId).filter((lockId): lockId is number => lockId != null);
+    if (allocations.some(({ lock }) => lock.lockId == null)) {
+      throw new BitcoinLiquidCreateStateChangedError('Some of this Bitcoin is no longer available on Argon.');
+    }
+    const lockIds = allocations.map(({ lock }) => lock.lockId!);
     const [runtimeLocks, releaseRequests, bitcoinTip, nextFissionId, rateHistory, currentTick] = await Promise.all([
       snapshotClient.query.bitcoinLocks.locksById.multi(lockIds),
       Promise.all(lockIds.map(lockId => BitcoinLock.getReleaseRequest(snapshotClient, lockId))),
@@ -422,185 +439,61 @@ export class BitcoinLiquidCreate extends TransactionOperation<
       currentFissions = await BitcoinFission.getAllByOwner(snapshotClient, txSigner.address);
     }
 
+    const vaultIds = [...new Set(currentLocks.flatMap(lock => (lock ? [lock.vaultId] : [])))];
+    const vaults = await Promise.all(
+      vaultIds.map(vaultId => Vault.get(snapshotClient, vaultId, NetworkConfig.tickMillis)),
+    );
+    const vaultsById = new Map(vaults.map(vault => [vault.vaultId, vault]));
     const currentBitcoinHeight = bitcoinTip?.blockHeight ?? 0;
     const remainingCapacityByVaultId = new Map<number, Vault>();
-    const maximumSatoshisByLockId: Record<number, bigint> = {};
-    const currentAllocations: CurrentAllocation[] = [];
+    const maximumSatoshisByLockId: Record<number, bigint> = Object.fromEntries(
+      currentLocks.flatMap((lock, index) => {
+        if (!lock) return [];
+        return [[lockIds[index], bigIntMax(lock.fundedSatoshis - lock.fissionedSatoshis, 0n)]];
+      }),
+    );
+    const currentAllocations: QuotedAllocation[] = [];
     let capacityChanged = false;
 
-    for (const [index, input] of allocations.entries()) {
-      const { lock: localLock, satoshis } = input;
-      const lockId = localLock.lockId;
+    for (const [index, allocation] of allocations.entries()) {
+      const { satoshis } = allocation;
+      const lockId = lockIds[index];
       const runtimeLock = currentLocks[index];
-      if (lockId == null || !runtimeLock) {
+      if (!runtimeLock) {
         throw new BitcoinLiquidCreateStateChangedError('Some of this Bitcoin is no longer available on Argon.');
       }
-      const lock = BitcoinLock.fromRuntime(lockId, runtimeLock);
-      if (lock.ownerAccount !== txSigner.address) {
+      if (runtimeLock.ownerAccount !== txSigner.address) {
         throw new Error(`Bitcoin Lock #${lockId} belongs to a different account.`);
       }
       if (releaseRequests[index]) {
         throw new BitcoinLiquidCreateStateChangedError(`Bitcoin Lock #${lockId} is already being returned.`);
       }
-
-      let vault: Vault;
-      try {
-        vault = await Vault.get(snapshotClient, lock.vaultId, NetworkConfig.tickMillis);
-      } catch {
-        throw new BitcoinLiquidCreateStateChangedError(`The vault for Bitcoin Lock #${lockId} is unavailable.`);
-      }
+      const vault = vaultsById.get(runtimeLock.vaultId)!;
       this.vaults.vaultsById[vault.vaultId] = vault;
-      // Native replacement unwinds the old cosigner guarantee before purchasing its replacement.
-      // Keep the batch projection separate from the published Vault snapshot.
-      const remainingCapacity = Object.assign(
-        Object.create(Vault.prototype) as Vault,
-        remainingCapacityByVaultId.get(vault.vaultId) ?? vault,
-      );
-      const currentCollateral = bigNumberToBigInt(
-        runtimeLock.securitizationRatio.multipliedBy(runtimeLock.securitizationCoverageMicrogons),
-      );
-      remainingCapacity.securitizationLocked -= currentCollateral;
-      if (lock.isFlexible) {
-        remainingCapacity.flexibleSecuritizationLocked -= bigNumberToBigInt(
-          runtimeLock.securitizationRatio.multipliedBy(lock.securitizationCoverageMicrogons),
-        );
-      }
-      const availableCollateral = lock.isFlexible
-        ? bigIntMax(remainingCapacity.securitization - remainingCapacity.securitizationLocked, 0n)
-        : remainingCapacity.availableSecuritizationSpace(txSigner.address);
 
-      const lockFissions = currentFissions.filter(fission => fission.lockId === lockId);
-      let existingLiquidityPromised = 0n;
-      let requiredRate = microgonsAtTargetPerBtc;
-      let requiredTick = lock.securitizationTick;
-      for (const fission of lockFissions) {
-        existingLiquidityPromised += fission.liquidityPromised;
-        requiredRate = bigIntMax(requiredRate, fission.microgonsAtTargetPerBtc);
-        requiredTick = Math.max(requiredTick, fission.lastRatchetTick ?? 0);
-      }
-
-      const requiredLiquidity =
-        existingLiquidityPromised +
-        BitcoinLock.calculateLiquidityPromised({
-          priceIndex,
-          satoshis,
-          microgonsAtTargetPerBtc,
-        });
-      const securitizedSatoshis = bigIntMax(lock.securitizedSatoshis, lock.fissionedSatoshis + satoshis);
-      const increasesSatoshis = securitizedSatoshis > lock.securitizedSatoshis;
-      const increasesRate = microgonsAtTargetPerBtc > lock.microgonsAtTargetPerBtc;
-      const exceedsCoverage = requiredLiquidity > lock.securitizationCoverageMicrogons;
-      const needsResecuritization = increasesSatoshis || increasesRate || exceedsCoverage;
-
-      const capacityInput = {
-        lock,
-        runtimeLock,
+      const quote = BitcoinLock.quoteFissionCreation({
+        lockId,
+        lock: runtimeLock,
+        satoshis,
+        vault: remainingCapacityByVaultId.get(vault.vaultId) ?? vault,
         priceIndex,
-        existingLiquidityPromised,
-        availableCollateral,
-        allocationRate: microgonsAtTargetPerBtc,
-      };
-      const compatibleRates = eligibleRates.filter(([tick, rate]) => {
-        if (tick < requiredTick) return false;
-        return rate >= requiredRate;
+        microgonsAtTargetPerBtc,
+        eligibleRates,
+        lockFissions: currentFissions.filter(fission => fission.lockId === lockId),
+        currentBitcoinHeight,
       });
-      let lockRate = lock.microgonsAtTargetPerBtc;
-      if (needsResecuritization) {
-        if (!compatibleRates.length) {
-          throw new BitcoinLiquidCreateStateChangedError(
-            'Existing Liquids need a Bitcoin price that is no longer available. Reduce the amount to Bitcoin already covered by a cosigner guarantee, or wait for an eligible price.',
-          );
-        }
-
-        const coverageRates = compatibleRates.filter(([, rate]) => {
-          const sameSatoshis = securitizedSatoshis === runtimeLock.securitizationBasis.satoshis;
-          if (sameSatoshis && rate === runtimeLock.securitizationBasis.microgonsAtTargetPerBtc) return false;
-
-          const replacementCoverage = BitcoinLock.calculateLiquidityPromised({
-            priceIndex,
-            satoshis: securitizedSatoshis,
-            microgonsAtTargetPerBtc: rate,
-          });
-          return replacementCoverage >= requiredLiquidity;
-        });
-        if (!coverageRates.length) {
-          throw new BitcoinLiquidCreateStateChangedError(
-            'This Bitcoin cannot cover the existing and selected Liquids at the current price. Reduce the amount or wait for an eligible price.',
-          );
-        }
-
-        const affordableRates = coverageRates.filter(([, rate]) => {
-          const maximumSatoshis = this.getMaximumAffordableSatoshis({ ...capacityInput, replacementRate: rate });
-          return maximumSatoshis >= satoshis;
-        });
-        let selectableRates = coverageRates;
-        if (affordableRates.length) {
-          selectableRates = affordableRates;
-        }
-
-        const existingRate = selectableRates.findLast(([, rate]) => rate === lock.microgonsAtTargetPerBtc);
-        const replacementRate = existingRate ?? selectableRates.at(-1)!;
-        lockRate = replacementRate[1];
+      if ('error' in quote) {
+        const vaultName = this.vaults.operatorNamesByVaultId[vault.vaultId] ?? `Vault ${vault.vaultId}`;
+        const message = `${vaultName}: ${quote.error}`;
+        if (quote.maximumSatoshis === undefined) throw new BitcoinLiquidCreateStateChangedError(message);
+        maximumSatoshisByLockId[lockId] = quote.maximumSatoshis;
+        throw new BitcoinLiquidCreateStateChangedError(message, maximumSatoshisByLockId);
       }
 
-      const eligibleReplacement = compatibleRates.some(([, rate]) => rate === lockRate);
-      const selectedMaximumSatoshis = this.getMaximumAffordableSatoshis({
-        ...capacityInput,
-        replacementRate: eligibleReplacement ? lockRate : undefined,
-      });
-
-      // A retained guarantee need not limit the capacity available at eligible replacement prices.
-      let minimumCompatibleRate: bigint | undefined;
-      for (const [, rate] of compatibleRates) {
-        if (minimumCompatibleRate === undefined || rate < minimumCompatibleRate) minimumCompatibleRate = rate;
-      }
-      const maximumSatoshis = this.getMaximumAffordableSatoshis({
-        ...capacityInput,
-        replacementRate: minimumCompatibleRate,
-      });
-      maximumSatoshisByLockId[lockId] = maximumSatoshis;
-      if (satoshis > selectedMaximumSatoshis) {
-        capacityChanged = true;
-      }
-
-      const acceptedSatoshis = bigIntMin(satoshis, selectedMaximumSatoshis);
-      const acceptedSecuritizedSatoshis = bigIntMax(
-        lock.securitizedSatoshis,
-        lock.fissionedSatoshis + acceptedSatoshis,
-      );
-      let replacementCoverageMicrogons = runtimeLock.securitizationCoverageMicrogons;
-      if (needsResecuritization) {
-        replacementCoverageMicrogons = BitcoinLock.calculateLiquidityPromised({
-          priceIndex,
-          satoshis: acceptedSecuritizedSatoshis,
-          microgonsAtTargetPerBtc: lockRate,
-        });
-
-        const replacementCollateral = bigNumberToBigInt(
-          runtimeLock.securitizationRatio.multipliedBy(replacementCoverageMicrogons),
-        );
-        remainingCapacity.securitizationLocked += replacementCollateral;
-        if (lock.isFlexible) remainingCapacity.flexibleSecuritizationLocked += replacementCollateral;
-        remainingCapacityByVaultId.set(vault.vaultId, remainingCapacity);
-      }
-      currentAllocations.push({
-        input: { ...input, satoshis: acceptedSatoshis },
-        lock,
-        runtimeLock,
-        needsResecuritization,
-        vault,
-        maximumSatoshis,
-        securitizedSatoshis: acceptedSecuritizedSatoshis,
-        microgonsAtTargetPerBtc: lockRate,
-        totalSecurityFee: BitcoinLock.calculateResecuritizationFee({
-          vault,
-          currentCoverageMicrogons: runtimeLock.securitizationCoverageMicrogons,
-          replacementCoverageMicrogons,
-          createdAtBitcoinHeight: lock.createdAtHeight,
-          vaultClaimBitcoinHeight: lock.vaultClaimHeight,
-          currentBitcoinHeight,
-        }),
-      });
+      maximumSatoshisByLockId[lockId] = quote.maximumSatoshis;
+      if (quote.fission.satoshis < satoshis) capacityChanged = true;
+      remainingCapacityByVaultId.set(vault.vaultId, quote.projectedVault);
+      currentAllocations.push({ allocation, vault, quote });
     }
 
     if (capacityChanged) {
@@ -612,7 +505,7 @@ export class BitcoinLiquidCreate extends TransactionOperation<
 
     return {
       client,
-      snapshotBlockHash: finalizedHead.toHex(),
+      snapshotBlockHash: block.blockHash,
       priceIndex,
       currentBitcoinHeight,
       nextFissionId,
@@ -622,69 +515,11 @@ export class BitcoinLiquidCreate extends TransactionOperation<
     };
   }
 
-  private getMaximumAffordableSatoshis(
-    args: Pick<CurrentAllocation, 'lock' | 'runtimeLock'> & {
-      priceIndex: PriceIndex;
-      allocationRate: bigint;
-      replacementRate?: bigint;
-      existingLiquidityPromised: bigint;
-      availableCollateral: bigint;
-    },
-  ): bigint {
-    const {
-      lock,
-      runtimeLock,
-      priceIndex,
-      allocationRate,
-      replacementRate,
-      existingLiquidityPromised,
-      availableCollateral,
-    } = args;
-    const availableSatoshis = bigIntMax(lock.fundedSatoshis - lock.fissionedSatoshis, 0n);
-    const findMaximum = (canUse: (satoshis: bigint) => boolean) => {
-      if (canUse(availableSatoshis)) return availableSatoshis;
-      let lower = 0n;
-      let upper = availableSatoshis;
-      while (lower + 1n < upper) {
-        const middle = (lower + upper) / 2n;
-        if (canUse(middle)) lower = middle;
-        else upper = middle;
-      }
-      return lower;
-    };
-    const retainedMaximum = findMaximum(satoshis => {
-      if (lock.fissionedSatoshis + satoshis > lock.securitizedSatoshis) return false;
-      if (allocationRate > lock.microgonsAtTargetPerBtc) return false;
-      const requiredLiquidity =
-        existingLiquidityPromised +
-        BitcoinLock.calculateLiquidityPromised({
-          priceIndex,
-          satoshis,
-          microgonsAtTargetPerBtc: allocationRate,
-        });
-      return requiredLiquidity <= lock.securitizationCoverageMicrogons;
-    });
-    if (replacementRate === undefined) return retainedMaximum;
-
-    // The selected allocation already passed its basis, rate and liability checks.
-    // This upper bound measures affordability; other allocations must be quoted again.
-    const replacementMaximum = findMaximum(satoshis => {
-      const coverage = BitcoinLock.calculateLiquidityPromised({
-        priceIndex,
-        satoshis: bigIntMax(lock.securitizedSatoshis, lock.fissionedSatoshis + satoshis),
-        microgonsAtTargetPerBtc: replacementRate,
-      });
-      const collateral = bigNumberToBigInt(runtimeLock.securitizationRatio.multipliedBy(coverage));
-      return collateral <= availableCollateral;
-    });
-    return bigIntMax(retainedMaximum, replacementMaximum);
-  }
-
-  private getAvailableFeeCreditByCouponId(allocations: CurrentAllocation[]): Map<number, bigint> {
-    const plannedLockIds = new Set(allocations.map(({ lock }) => lock.lockId));
+  private getAvailableFeeCreditByCouponId(allocations: QuotedAllocation[]): Map<number, bigint> {
+    const plannedLockIds = new Set(allocations.map(({ allocation }) => allocation.lock.lockId));
     const availableByCouponId = new Map<number, bigint>();
-    for (const { input } of allocations) {
-      const { operatorCoupon } = input;
+    for (const { allocation } of allocations) {
+      const { operatorCoupon } = allocation;
       if (!operatorCoupon || availableByCouponId.has(operatorCoupon.coupon.id)) continue;
       const resumableCredit =
         operatorCoupon.uses?.reduce((total, use) => {
@@ -700,7 +535,13 @@ export class BitcoinLiquidCreate extends TransactionOperation<
     return availableByCouponId;
   }
 
-  private async failResecuritizations(resecuritizations: IBitcoinResecuritizationMetadata[]): Promise<void> {
-    await Promise.all(resecuritizations.map(metadata => this.bitcoinLockResecuritize.failResecuritization(metadata)));
+  private async failGuaranteePurchases(metadata: IBitcoinLiquidCreateMetadata): Promise<void> {
+    await Promise.all(
+      metadata.resecuritizations.map(purchase => this.bitcoinLockResecuritize.failResecuritization(purchase)),
+    );
+    for (const { feeCouponRequestId } of metadata.fissions) {
+      if (feeCouponRequestId)
+        await this.upstreamOperatorClient.recordBitcoinLockFeeCouponUse(feeCouponRequestId, 'Failed');
+    }
   }
 }

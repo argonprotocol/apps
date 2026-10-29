@@ -10,8 +10,7 @@ import {
   Mining,
   MiningFrames,
 } from '@argonprotocol/apps-core';
-import { runtimeClient, type LiveRuntimeQueries } from '@argonprotocol/runtime-client';
-import type { ApiDecoration } from '@argonprotocol/mainchain';
+import { runtimeClient } from '@argonprotocol/runtime-client';
 import { INSTANCE_NAME, LOG_DEBUG, NETWORK_NAME, NETWORK_URL } from '../lib/Env.ts';
 import { getConfig } from './config';
 import { botEmitter } from '../lib/Bot.ts';
@@ -48,8 +47,7 @@ export function getMainchainClient(needsHistoricalAccess: boolean): Promise<Argo
 export async function getFinalizedClient(client?: ArgonClient): Promise<ArgonCurrentQueryClient> {
   client ??= await getMainchainClient(false);
   const finalized = await client.rpc.chain.getFinalizedHead();
-  const api = await client.raw.at(finalized);
-  return runtimeClient<ApiDecoration<'promise'>, LiveRuntimeQueries>(api);
+  return runtimeClient(await client.at(finalized));
 }
 
 export async function getEthereumGatewayPauseReason(finalizedClient?: ArgonQueryClient): Promise<string | undefined> {

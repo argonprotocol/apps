@@ -981,7 +981,6 @@ const defaults: IConfigDefaults = {
   vaultSetup: () => ({
     securitizationMicrogons: 2_500n * BigInt(MICROGONS_PER_ARGON),
     committedMicronots: 0n,
-    securitizationRatio: 1,
     btcFlatFee: 2n * BigInt(MICROGONS_PER_ARGON),
     btcPctFee: 3.4,
   }),

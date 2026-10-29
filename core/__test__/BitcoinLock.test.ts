@@ -1,56 +1,45 @@
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import BigNumber from 'bignumber.js';
+import { PriceIndex } from '@argonprotocol/mainchain';
 
 import { BitcoinLock } from '../src/BitcoinLock.ts';
 import type { BlockWatch, RuntimeSystemEventRecord } from '../src/BlockWatch.ts';
-import type { ArgonQueryClient } from '../src/MainchainClients.ts';
 
 describe('BitcoinLock current runtime state', () => {
-  it('keeps the pending basis and applies Mainchain fixed-point rounding after funding', async () => {
-    const runtimeLock = {
-      vaultId: 3,
-      securitizationBasis: {
-        satoshis: 1_000_001n,
-        microgonsAtTargetPerBtc: 2_000_000n,
-      },
-      securitizationCoverageMicrogons: 1_000_001n,
-      securitizationTick: 100,
-      fundedSatoshis: 0n,
-      fundingUtxos: [],
-      fissionedSatoshis: 0n,
-      ownerAccount: 'owner-account',
-      securitizationRatio: new BigNumber(1),
-      securityFees: 50n,
-      couponPaidFees: 5n,
-      vaultPubkey: `0x02${'11'.repeat(32)}`,
-      vaultClaimPubkey: `0x02${'22'.repeat(32)}`,
-      ownerPubkey: `0x03${'33'.repeat(32)}`,
-      vaultXpubSources: ['0x01020304', 1, 2],
-      vaultClaimHeight: 200,
-      openClaimHeight: 210,
-      createdAtHeight: 90,
-      securitizationHoldExpirationBitcoinHeight: 150,
-      utxoScriptPubkey: { type: 'P2WSH', value: { wscriptHash: `0x${'44'.repeat(32)}` } },
-      isFlexible: false,
-      fundHoldExtensions: {},
-      createdAtArgonBlock: 80,
-    };
-    const locksById = vi.fn(async () => runtimeLock);
-    const client = { query: { bitcoinLocks: { locksById } } } as unknown as ArgonQueryClient;
+  it.each([
+    [undefined, 11n],
+    [60_000_000n, 37n],
+  ] as const)('finds the minimum satoshis for coverage at price %s', (microgonsAtTargetPerBtc, expectedSatoshis) => {
+    const priceIndex = new PriceIndex();
+    priceIndex.btcUsdPrice = new BigNumber(200);
+    priceIndex.argonUsdPrice = new BigNumber(0.95);
+    priceIndex.argonUsdTargetPrice = new BigNumber(1);
+    const satoshis = BitcoinLock.satoshisRequiredForRedemptionAmount(priceIndex, 20n, microgonsAtTargetPerBtc);
 
-    await expect(BitcoinLock.get(client, 7)).resolves.toMatchObject({
-      securitizedSatoshis: 1_000_001n,
-      securitizationCoverageMicrogons: 1_000_001n,
-      securitizationCollateralMicrogons: 1_000_001n,
-    });
+    // At the selected price: floor(37 * 0.6) * 0.95 rounds to 20; 36 satoshis yields 19.
+    expect(satoshis).toBe(expectedSatoshis);
+    expect(BitcoinLock.calculateLiquidityPromised({ priceIndex, satoshis, microgonsAtTargetPerBtc })).toBe(20n);
+    expect(
+      BitcoinLock.calculateLiquidityPromised({
+        priceIndex,
+        satoshis: satoshis - 1n,
+        microgonsAtTargetPerBtc,
+      }),
+    ).toBeLessThan(20n);
+    expect(BitcoinLock.satoshisRequiredForRedemptionAmount(priceIndex, 0n, microgonsAtTargetPerBtc)).toBe(0n);
+  });
 
-    runtimeLock.fundedSatoshis = 500_000n;
-    runtimeLock.fundingUtxos = [[{ txid: '00'.repeat(32), outputIndex: 1 }, 500_000n]] as never;
-    await expect(BitcoinLock.get(client, 7)).resolves.toMatchObject({
-      securitizedSatoshis: 500_000n,
-      securitizationCoverageMicrogons: 499_999n,
-      securitizationCollateralMicrogons: 1_000_001n,
-    });
+  it('uses native nearest fixed-point rounding before charging for additional guarantee coverage', () => {
+    expect(
+      BitcoinLock.calculateResecuritizationFee({
+        vault: { terms: { bitcoinBaseFee: 0n, bitcoinAnnualPercentRate: new BigNumber(1) } },
+        currentCoverageMicrogons: 0n,
+        replacementCoverageMicrogons: 1_000_000_000_000_000_000n,
+        createdAtBitcoinHeight: 0,
+        vaultClaimBitcoinHeight: 52_560,
+        currentBitcoinHeight: 52_559,
+      }),
+    ).toBe(19_025_875_190_259n);
   });
 
   it('walks the finalized cosign chain to find an earlier release', async () => {

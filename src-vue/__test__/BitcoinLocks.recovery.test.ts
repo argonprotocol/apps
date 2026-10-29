@@ -2217,15 +2217,13 @@ describe('BitcoinLocks history replay publication', () => {
         expect(restarted.releases.getInputUtxos(release).every(input => input.activeReleaseId === release.id)).toBe(
           true,
         );
-        getBitcoinLock.mockResolvedValueOnce(
-          new BitcoinLock(
-            createCurrentLock({
-              ownerAccount: accountId,
-              fundedSatoshis: 6_900n,
-              securitizedSatoshis: 6_900n,
-              fundingUtxos: [{ utxoRef: { txid: `0x${'22'.repeat(32)}`, vout: 1 }, satoshis: 6_900n }],
-            }),
-          ),
+        vi.spyOn(BitcoinHistory, 'getHistoricalBitcoinLockDetails').mockResolvedValueOnce(
+          createCurrentLock({
+            ownerAccount: accountId,
+            fundedSatoshis: 6_900n,
+            securitizedSatoshis: 6_900n,
+            fundingUtxos: [{ utxoRef: { txid: `0x${'22'.repeat(32)}`, vout: 1 }, satoshis: 6_900n }],
+          }),
         );
         await restarted.releases.completeLockReleaseFromArgon(
           restartedLock,
@@ -2727,6 +2725,12 @@ describe('BitcoinLocks history replay publication', () => {
       await db.bitcoinLocksTable.saveRecoveredHistory(record);
     }
     await store.recovery.recoverBlock({ ...historyBlock(159), tick: 500 }, [
+      historyEvent(159, 'balances', 'TransferAndHold', {
+        source: accountId,
+        dest: `0x${'22'.repeat(32)}`,
+        transferred: 100n,
+        reason: { Vaults: 'PendingCollect' },
+      }),
       historyEvent(159, 'bitcoinLocks', 'BitcoinLockCreated', {
         lockId: 7,
         vaultId: 1,
@@ -2737,6 +2741,12 @@ describe('BitcoinLocks history replay publication', () => {
       }),
     ]);
     await store.recovery.recoverBlock({ ...historyBlock(170), tick: 550 }, [
+      historyEvent(159, 'balances', 'TransferAndHold', {
+        source: accountId,
+        dest: `0x${'22'.repeat(32)}`,
+        transferred: 20n,
+        reason: { Vaults: 'PendingCollect' },
+      }),
       historyEvent(159, 'bitcoinLocks', 'BitcoinLockResecuritized', {
         lockId: 7,
         vaultId: 1,

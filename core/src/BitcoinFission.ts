@@ -1,12 +1,13 @@
 import type { PriceIndex } from '@argonprotocol/mainchain';
-import type { BitcoinFissionsFissionByOwnerAndIdResultSpec159 } from '@argonprotocol/runtime-client';
+import type { LiveQueryRecord } from '@argonprotocol/runtime-client';
 import type { HistoricalEvent } from '@argonprotocol/runtime-client/events';
-import { BitcoinLock, SATS_PER_BTC } from './BitcoinLock.js';
+import { BitcoinLock, SATS_PER_BTC, type BitcoinCosignerGuarantee } from './BitcoinLock.js';
 import type { IBlockHeaderInfo } from './BlockWatch.js';
-import type { ArgonClient, ArgonQueryClient } from './MainchainClients.js';
+import type { ArgonClient, ArgonCurrentQueryClient, ArgonQueryClient } from './MainchainClients.js';
 import { bigIntAbs, bigIntMin } from './utils.js';
+import type { BitcoinLockFeeCoupon } from './interfaces/IBitcoinLockCoupon.js';
+import type { PreviousRuntimeSpec } from './runtimeCompatibility.js';
 
-type IQueryableClient = ArgonQueryClient;
 type BitcoinMintFissionHistoryEvent = Extract<HistoricalEvent, { section: 'mint'; method: 'BitcoinMint' }> & {
   data: { fissionId: number };
 };
@@ -24,6 +25,7 @@ export class BitcoinFission implements IBitcoinFission {
   public satoshis: bigint;
   public microgonsAtTargetPerBtc: bigint;
   public liquidityPromised: bigint;
+  public cosignerGuarantee?: BitcoinCosignerGuarantee;
   public createdAtArgonBlock?: number;
   public ratchetNumber: number;
   public lastRatchetTick?: number;
@@ -56,6 +58,7 @@ export class BitcoinFission implements IBitcoinFission {
     this.satoshis = data.satoshis;
     this.microgonsAtTargetPerBtc = data.microgonsAtTargetPerBtc;
     this.liquidityPromised = data.liquidityPromised;
+    this.cosignerGuarantee = data.cosignerGuarantee;
     this.createdAtArgonBlock = data.createdAtArgonBlock;
     this.ratchetNumber = data.ratchetNumber;
     this.lastRatchetTick = data.lastRatchetTick;
@@ -119,8 +122,9 @@ export class BitcoinFission implements IBitcoinFission {
     event: BitcoinFissionCreatedEvent;
     extrinsicIndex?: number;
     transactionFee?: bigint;
+    netSecurityFee?: bigint;
   }): IBitcoinFissionRecord {
-    const { block, event, extrinsicIndex, transactionFee } = args;
+    const { block, event, extrinsicIndex, transactionFee, netSecurityFee } = args;
     const { accountId: ownerAccount, ...fission } = event.data;
     const blockTime = new Date(block.blockTime);
     return {
@@ -142,6 +146,7 @@ export class BitcoinFission implements IBitcoinFission {
           amountBurned: 0n,
           mintPending: fission.liquidityPromised,
           txFee: transactionFee,
+          netSecurityFee,
           blockNumber: block.blockNumber,
           tick: block.tick,
           blockHash: block.blockHash,
@@ -164,9 +169,10 @@ export class BitcoinFission implements IBitcoinFission {
     event: BitcoinFissionUpdateEvent;
     extrinsicIndex?: number;
     transactionFee?: bigint;
+    netSecurityFee?: bigint;
     btcPriceAtCloseMicrogons?: bigint;
   }): IBitcoinFissionRecord {
-    const { block, event, extrinsicIndex, transactionFee, btcPriceAtCloseMicrogons } = args;
+    const { block, event, extrinsicIndex, transactionFee, netSecurityFee, btcPriceAtCloseMicrogons } = args;
     const blockTime = new Date(block.blockTime);
     const fissionId = event.data.fissionId;
     const record = { ...args.record, ratchets: args.record.ratchets.map(ratchet => ({ ...ratchet })) };
@@ -198,6 +204,7 @@ export class BitcoinFission implements IBitcoinFission {
         amountBurned: event.data.amountBurned,
         mintPending: event.data.amountMinted,
         txFee: transactionFee,
+        netSecurityFee,
         blockNumber: block.blockNumber,
         tick: block.tick,
         blockHash: block.blockHash,
@@ -271,6 +278,7 @@ export class BitcoinFission implements IBitcoinFission {
               ...current,
               ratchetNumber: current.ratchetNumber ?? recovered.ratchetNumber,
               liquidityPromised: current.liquidityPromised ?? recovered.liquidityPromised,
+              netSecurityFee: recovered.netSecurityFee ?? current.netSecurityFee,
               securityFee: recovered.securityFee ?? current.securityFee,
               securityFeeCoupon: recovered.securityFeeCoupon ?? current.securityFeeCoupon,
               txFee: recovered.txFee ?? current.txFee,
@@ -388,6 +396,24 @@ export class BitcoinFission implements IBitcoinFission {
     return BitcoinLock.calculateRedemptionAmountFromSatoshis(priceIndex, this.satoshis, maximumMicrogonsAtTarget);
   }
 
+  public quoteGuaranteeReplacement(args: Parameters<BitcoinFission['calculateRatchetAmounts']>[0]) {
+    const { priceIndex, microgonsAtTargetPerBtc } = args;
+    const guarantee = this.cosignerGuarantee;
+    if (!guarantee) return;
+
+    const replacementCoverageMicrogons = BitcoinLock.calculateLiquidityPromised({
+      priceIndex,
+      satoshis: this.satoshis,
+      microgonsAtTargetPerBtc,
+    });
+    const needsReplacement =
+      microgonsAtTargetPerBtc > guarantee.basis.microgonsAtTargetPerBtc ||
+      replacementCoverageMicrogons > guarantee.guaranteedMicrogons;
+    if (!needsReplacement) return;
+
+    return { guarantee, replacementCoverageMicrogons };
+  }
+
   public static createTx(args: {
     client: ArgonClient;
     fissionId: number;
@@ -395,14 +421,43 @@ export class BitcoinFission implements IBitcoinFission {
     lockId: number;
     satoshis: bigint;
     microgonsAtTargetPerBtc: bigint;
+    feeCoupon?: BitcoinLockFeeCoupon;
   }) {
-    const { client, fissionId, liquidId, lockId, satoshis, microgonsAtTargetPerBtc } = args;
-    return client.tx.bitcoinFissions.create(fissionId, liquidId, lockId, satoshis, microgonsAtTargetPerBtc);
+    const { client, fissionId, liquidId, lockId, satoshis, microgonsAtTargetPerBtc, feeCoupon } = args;
+    const create = client.tx.bitcoinFissions.create as
+      | typeof client.tx.bitcoinFissions.create
+      | PreviousRuntimeSpec.Transactions<'promise'>['bitcoinFissions']['create'];
+    if (create.meta.args.length === 5) {
+      if (feeCoupon) throw new Error('Fission guarantee coupons require a runtime upgrade.');
+      const previousCreate = create as PreviousRuntimeSpec.Transactions<'promise'>['bitcoinFissions']['create'];
+      return previousCreate(fissionId, liquidId, lockId, satoshis, microgonsAtTargetPerBtc);
+    }
+    return client.tx.bitcoinFissions.create(
+      fissionId,
+      liquidId,
+      lockId,
+      satoshis,
+      microgonsAtTargetPerBtc,
+      feeCoupon ?? null,
+    );
   }
 
-  public static createRatchetTx(args: { client: ArgonClient; fissionId: number; microgonsAtTargetPerBtc: bigint }) {
-    const { client, fissionId, microgonsAtTargetPerBtc } = args;
-    return client.tx.bitcoinFissions.ratchet(fissionId, microgonsAtTargetPerBtc);
+  public static createRatchetTx(args: {
+    client: ArgonClient;
+    fissionId: number;
+    microgonsAtTargetPerBtc: bigint;
+    feeCoupon?: BitcoinLockFeeCoupon;
+  }) {
+    const { client, fissionId, microgonsAtTargetPerBtc, feeCoupon } = args;
+    const ratchet = client.tx.bitcoinFissions.ratchet as
+      | typeof client.tx.bitcoinFissions.ratchet
+      | PreviousRuntimeSpec.Transactions<'promise'>['bitcoinFissions']['ratchet'];
+    if (ratchet.meta.args.length === 2) {
+      if (feeCoupon) throw new Error('Fission guarantee coupons require a runtime upgrade.');
+      const previousRatchet = ratchet as PreviousRuntimeSpec.Transactions<'promise'>['bitcoinFissions']['ratchet'];
+      return previousRatchet(fissionId, microgonsAtTargetPerBtc);
+    }
+    return client.tx.bitcoinFissions.ratchet(fissionId, microgonsAtTargetPerBtc, feeCoupon ?? null);
   }
 
   public static createCloseTx(args: { client: ArgonClient; fissionId: number }) {
@@ -410,7 +465,7 @@ export class BitcoinFission implements IBitcoinFission {
     return client.tx.bitcoinFissions.close(fissionId);
   }
 
-  public static async getAllByOwner(client: IQueryableClient, ownerAccount: string): Promise<BitcoinFission[]> {
+  public static async getAllByOwner(client: ArgonCurrentQueryClient, ownerAccount: string): Promise<BitcoinFission[]> {
     const entries = await client.query.bitcoinFissions.fissionByOwnerAndId.entries(ownerAccount);
 
     return (entries ?? []).flatMap(([key, rawFission]) => {
@@ -422,7 +477,7 @@ export class BitcoinFission implements IBitcoinFission {
   }
 
   public static async get(
-    client: IQueryableClient,
+    client: ArgonCurrentQueryClient,
     ownerAccount: string,
     fissionId: number,
   ): Promise<BitcoinFission | undefined> {
@@ -432,17 +487,17 @@ export class BitcoinFission implements IBitcoinFission {
     return BitcoinFission.fromRuntime(ownerAccount, fissionId, rawFission);
   }
 
-  public static async idsByLock(client: IQueryableClient, lockId: number): Promise<number[]> {
+  public static async idsByLock(client: ArgonQueryClient, lockId: number): Promise<number[]> {
     const fissionIds = await client.query.bitcoinFissions.fissionIdsByLockId(lockId);
     return [...(fissionIds ?? [])];
   }
 
-  public static async nextId(client: IQueryableClient, ownerAccount: string): Promise<number> {
+  public static async nextId(client: ArgonQueryClient, ownerAccount: string): Promise<number> {
     const fissionId = await client.query.bitcoinFissions.nextFissionIdByOwner(ownerAccount);
     return fissionId ?? 0;
   }
 
-  public static async pendingMintsForLock(client: IQueryableClient, lockId: number): Promise<IBitcoinPendingMint[]> {
+  public static async pendingMintsForLock(client: ArgonQueryClient, lockId: number): Promise<IBitcoinPendingMint[]> {
     const pendingIndices = await client.query.mint.pendingMintIndicesByLockId(lockId);
     if (!pendingIndices) return [];
     const pendingMints = await client.query.mint.pendingBitcoinMintsByIndex.multi(pendingIndices);
@@ -466,7 +521,7 @@ export class BitcoinFission implements IBitcoinFission {
   private static fromRuntime(
     ownerAccount: string,
     fissionId: number,
-    fission: NonNullable<BitcoinFissionsFissionByOwnerAndIdResultSpec159>,
+    fission: NonNullable<LiveQueryRecord<'bitcoinFissions', 'fissionByOwnerAndId'>>,
   ): BitcoinFission {
     return new BitcoinFission({
       ...fission,
@@ -483,6 +538,7 @@ export class BitcoinFission implements IBitcoinFission {
     this.satoshis = current.satoshis;
     this.microgonsAtTargetPerBtc = current.microgonsAtTargetPerBtc;
     this.liquidityPromised = current.liquidityPromised;
+    this.cosignerGuarantee = current.cosignerGuarantee;
     this.createdAtArgonBlock = current.createdAtArgonBlock;
     this.ratchetNumber = current.ratchetNumber;
     this.lastRatchetTick = current.lastRatchetTick;
@@ -498,6 +554,7 @@ export interface IBitcoinFission {
   satoshis: bigint;
   microgonsAtTargetPerBtc: bigint;
   liquidityPromised: bigint;
+  cosignerGuarantee?: BitcoinCosignerGuarantee;
   createdAtArgonBlock?: number;
   ratchetNumber: number;
   lastRatchetTick?: number;
@@ -539,6 +596,8 @@ export interface IBitcoinFissionRatchet {
   amountMinted: bigint;
   amountBurned: bigint;
   mintPending: bigint;
+  /** Owner-paid fee for this Fission guarantee, after coupon credit. */
+  netSecurityFee?: bigint;
   securityFee?: bigint;
   securityFeeCoupon?: bigint;
   txFee?: bigint;

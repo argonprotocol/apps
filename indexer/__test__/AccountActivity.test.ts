@@ -590,6 +590,7 @@ const indexedBitcoinLockMethods = [
   'BitcoinLockCreated',
   'BitcoinLockRatcheted',
   'BitcoinLockResecuritized',
+  'BitcoinLockGuaranteeSet',
   'BitcoinLockTerminated',
   'BitcoinSpentAfterRelease',
   'BitcoinUtxoCosignRequested',

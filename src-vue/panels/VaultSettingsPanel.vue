@@ -500,7 +500,7 @@
                   {{
                     numeral(
                       currency.convertMicrogonTo(
-                        bigNumberToBigInt(BigNumber(proposedSecuritization).div(vault?.securitizationRatio ?? 1)),
+                        vault?.bitcoinCapacityMicrogons(proposedSecuritization) ?? 0n,
                         UnitOfMeasurement.BTC,
                       ),
                     ).format('0,0.[0000]')
@@ -677,9 +677,7 @@ const { microgonToArgonNm, micronotToArgonotNm, microgonToMoneyNm } = createNume
 const vault = Vue.computed(() => myVault.createdVault);
 const bitcoinTerms = Vue.computed(() => vault.value?.pendingTerms?.[1] ?? vault.value?.terms);
 
-const bitcoinCapacityMicrogons = Vue.computed(() =>
-  bigNumberToBigInt(BigNumber(vault.value?.securitization ?? 0n).div(vault.value?.securitizationRatio ?? 1)),
-);
+const bitcoinCapacityMicrogons = Vue.computed(() => vault.value?.bitcoinCapacityMicrogons() ?? 0n);
 
 const rewardBacking = Vue.computed(() => {
   if (!vault.value) return;

@@ -8,6 +8,8 @@ export interface IBitcoinSecuritizationTerm {
   startExtrinsicIndex?: number;
   securitizedSatoshis: bigint;
   securitizationCoverageMicrogons?: bigint;
+  /** Exact payment for this purchase; older rows retain only the native cumulative counter. */
+  netSecurityFee?: bigint;
   cumulativeNetSecurityFee: bigint;
   addedNetSecurityFee: bigint;
   endTick?: number;

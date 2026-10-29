@@ -289,9 +289,7 @@ const certificationSecuritization = Vue.computed(() =>
 const walletMaximum = Vue.computed(() =>
   bigIntMax(0n, wallets.defaultArgonWallet.availableMicrogons - MyVault.setupFeeBudgetMicrogons),
 );
-const bitcoinCapacityMicrogons = Vue.computed(() =>
-  bigNumberToBigInt(BigNumber(vaultSetup.value.securitizationMicrogons).div(vaultSetup.value.securitizationRatio)),
-);
+const bitcoinCapacityMicrogons = Vue.computed(() => vaultSetup.value.securitizationMicrogons);
 const maximumReturnsMicronots = Vue.computed(() =>
   vaults.rewards?.argonotSecuritizationTarget(vaultSetup.value.securitizationMicrogons),
 );

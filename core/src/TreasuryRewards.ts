@@ -4,7 +4,7 @@ import type {
   LiveQueryRecord,
   RuntimeQueryResult,
 } from '@argonprotocol/runtime-client';
-import { hexToU8a, stringToU8a, u8aConcat } from '@polkadot/util';
+import { stringToU8a, u8aConcat, u8aToU8a } from '@polkadot/util';
 import BigNumber from 'bignumber.js';
 import type { ArgonCurrentQueryClient, ArgonQueryClient } from './MainchainClients.js';
 import type { Vault } from './Vault.js';
@@ -12,6 +12,7 @@ import { bigIntMax, bigIntMin, bigNumberToBigInt } from './utils.js';
 import { FIXED_U128_ONE, U128_MAX, fixedU128Divide, fixedU128Multiply, fixedU128Rational } from './FixedU128.js';
 
 type FrameCapital = NonNullable<RuntimeQueryResult<CurrentRuntimeQueries['treasury']['currentFrameVaultCapital']>>;
+type FrameBitcoin = NonNullable<LiveQueryRecord<'treasury', 'currentFrameVaultBitcoin'>>;
 type VaultPosition = FrameCapital['vaultSecuritizationPositions'][string];
 type RewardConstants = CurrentRuntimeConstants['treasury'];
 type ArgonotSecuritization = NonNullable<LiveQueryRecord<'vaults', 'argonotSecuritizationByVaultId'>>;
@@ -19,22 +20,26 @@ type ArgonotSecuritization = NonNullable<LiveQueryRecord<'vaults', 'argonotSecur
 /** Reward projections from one runtime's frozen frame capital and reward constants. */
 export class TreasuryRewards {
   public capital: FrameCapital;
+  public bitcoin?: FrameBitcoin;
   public constants: RewardConstants;
   public fullBidPool: bigint;
   public averageMicrogonsPerArgonot?: bigint;
 
   constructor({
     capital,
+    bitcoin,
     constants,
     fullBidPool,
     averageMicrogonsPerArgonot,
   }: {
     capital: FrameCapital;
+    bitcoin?: FrameBitcoin;
     constants: RewardConstants;
     fullBidPool: bigint;
     averageMicrogonsPerArgonot?: bigint;
   }) {
     this.capital = capital;
+    this.bitcoin = bitcoin;
     this.constants = constants;
     this.fullBidPool = fullBidPool;
     this.averageMicrogonsPerArgonot = averageMicrogonsPerArgonot;
@@ -47,12 +52,14 @@ export class TreasuryRewards {
     const capital = await client.query.treasury.currentFrameVaultCapital();
     if (!capital || !('vaultSecuritizationPositions' in capital)) return;
 
-    const [prices, account] = await Promise.all([
+    const [bitcoin, prices, account] = await Promise.all([
+      client.query.treasury.currentFrameVaultBitcoin?.(),
       client.query.priceIndex.historicArgonotAverageByFrame(),
       client.query.system.account(this.getBidPoolAccountId(client)),
     ]);
     return new TreasuryRewards({
       capital,
+      bitcoin: bitcoin?.frameId === capital.frameId ? bitcoin : undefined,
       constants,
       fullBidPool: account.data.free,
       averageMicrogonsPerArgonot: prices?.[Math.max(0, capital.frameId - 1)],
@@ -60,7 +67,7 @@ export class TreasuryRewards {
   }
 
   public static getBidPoolAccountId(client: ArgonQueryClient): Uint8Array {
-    const palletId = hexToU8a(client.consts.treasury.palletId);
+    const palletId = u8aToU8a(client.consts.treasury.palletId);
     const raw = u8aConcat(stringToU8a('modl'), palletId, new Uint8Array(32 - 4 - palletId.length));
     return client.registry.createType('AccountId32', raw).toU8a();
   }
@@ -83,12 +90,28 @@ export class TreasuryRewards {
       argonotSecuritizationInMicrogons: maximumPosition.argonotSecuritizationInMicrogons,
     };
 
-    const actualRate = this.vaultRewardRate(position);
-    const maximumRate = this.vaultRewardRate(maximumPosition);
-    const maximumArgonotRate = this.vaultRewardRate(maximumArgonotPosition);
-    const denominator = bigIntMax(this.capital.targetSecuritization, this.capital.totalSecuritization);
-    let coverage = 0n;
-    if (denominator > 0n) coverage = fixedU128Rational(position.securitization, denominator);
+    let maximumBitcoin = this.bitcoin;
+    if (maximumBitcoin) {
+      const covered = maximumBitcoin.vaultSecuritizedSatoshis[vaultId] ?? 0n;
+      let maximumCovered = covered;
+      if (maximumBitcoin.targetSecuritizedSatoshis !== null && this.capital.targetSecuritization > 0n) {
+        maximumCovered = bigIntMax(
+          covered,
+          (position.securitization * maximumBitcoin.targetSecuritizedSatoshis) / this.capital.targetSecuritization,
+        );
+      }
+      maximumBitcoin = {
+        ...maximumBitcoin,
+        totalNetworkSecuritizedSatoshis: maximumBitcoin.totalNetworkSecuritizedSatoshis + maximumCovered - covered,
+        vaultSecuritizedSatoshis: { ...maximumBitcoin.vaultSecuritizedSatoshis, [vaultId]: maximumCovered },
+      };
+    }
+    const maximumActiveBonds =
+      this.capital.totalActiveBonds +
+      bigIntMax(0n, position.securitization - position.activeBondMicrogons) / 1_000_000n;
+    const actualRate = this.vaultEarningsRate(vaultId, position);
+    const maximumRate = this.vaultEarningsRate(vaultId, maximumPosition, maximumBitcoin, maximumActiveBonds);
+    const maximumArgonotRate = this.vaultEarningsRate(vaultId, maximumArgonotPosition);
 
     let capturedPercent: number | undefined;
     let capturedWithMaximumArgonotsPercent: number | undefined;
@@ -98,8 +121,8 @@ export class TreasuryRewards {
     }
 
     return {
-      actualEarnings: fixedU128Multiply(fixedU128Multiply(coverage, actualRate), fullBidPool),
-      maximumEarnings: fixedU128Multiply(fixedU128Multiply(coverage, maximumRate), fullBidPool),
+      actualEarnings: fixedU128Multiply(actualRate, fullBidPool),
+      maximumEarnings: fixedU128Multiply(maximumRate, fullBidPool),
       upstreamParticipationPercent: position.upstreamParticipation.times(100).toNumber(),
       capturedPercent,
       capturedWithMaximumArgonotsPercent,
@@ -144,7 +167,69 @@ export class TreasuryRewards {
     };
   }
 
-  private vaultRewardRate(position: VaultPosition): bigint {
+  private vaultEarningsRate(
+    vaultId: number,
+    position: VaultPosition,
+    bitcoin = this.bitcoin,
+    totalActiveBonds = this.capital.totalActiveBonds,
+  ): bigint {
+    if (position.securitization <= 0n) return 0n;
+
+    const denominator = bigIntMax(this.capital.targetSecuritization, this.capital.totalSecuritization);
+    const coverage = fixedU128Rational(position.securitization, denominator);
+    if (!bitcoin) return fixedU128Multiply(coverage, this.vaultRewardRateWithoutBitcoinSnapshot(position));
+
+    let bitcoinShare = 0n;
+    if (bitcoin.targetSecuritizedSatoshis !== null) {
+      const bitcoinDenominator = bigIntMax(bitcoin.targetSecuritizedSatoshis, bitcoin.totalNetworkSecuritizedSatoshis);
+      if (bitcoinDenominator > 0n) {
+        bitcoinShare = fixedU128Rational(bitcoin.vaultSecuritizedSatoshis[vaultId] ?? 0n, bitcoinDenominator);
+      }
+    }
+    const bondDenominator = bigIntMax(
+      this.capital.targetSecuritization,
+      bigIntMin(U128_MAX, totalActiveBonds * 1_000_000n),
+    );
+    let bondShare = 0n;
+    if (bondDenominator > 0n) bondShare = fixedU128Rational(position.activeBondMicrogons, bondDenominator);
+
+    const minimumRate = bigNumberToBigInt(this.constants.minimumVaultProfitPercent.times(FIXED_U128_ONE));
+    const variableRate = bigIntMax(
+      0n,
+      bigNumberToBigInt(this.constants.percentForVaultPool.times(FIXED_U128_ONE)) - minimumRate,
+    );
+    const bitcoinRate = fixedU128Multiply(variableRate, (9n * FIXED_U128_ONE) / 10n);
+    const bondRate = variableRate - bitcoinRate;
+
+    const multiplier = BigInt(this.constants.argonotSecuritizationMultiplier);
+    const argonotCapacity = bigIntMin(U128_MAX, position.securitization * multiplier);
+    const argonotValue = bigIntMin(position.argonotSecuritizationInMicrogons, argonotCapacity);
+    let argonotBonusRate = 0n;
+    let argonotUtilization = 0n;
+    if (multiplier > 0n) argonotBonusRate = (29n * FIXED_U128_ONE) / 100n;
+    if (argonotCapacity > 0n) argonotUtilization = fixedU128Rational(argonotValue, argonotCapacity);
+    const maximumBacking = fixedU128Multiply((1n + multiplier) * FIXED_U128_ONE, FIXED_U128_ONE + argonotBonusRate);
+    const backing = fixedU128Rational(
+      bigIntMin(U128_MAX, position.securitization + argonotValue),
+      position.securitization,
+    );
+    const bonus = FIXED_U128_ONE + fixedU128Multiply(argonotBonusRate, argonotUtilization);
+
+    const excessBitcoin = bigIntMax(0n, position.bitcoinLockedMicrogons - position.securitization);
+    const excessRatio = fixedU128Rational(bigIntMin(excessBitcoin, position.securitization), position.securitization);
+    const bitcoinRewardFactor = FIXED_U128_ONE - fixedU128Multiply(excessRatio, FIXED_U128_ONE / 5n);
+    const bitcoinEarnings = fixedU128Multiply(
+      fixedU128Multiply(bitcoinShare, fixedU128Divide(bitcoinRate, maximumBacking) ?? 0n),
+      bitcoinRewardFactor,
+    );
+    const bondEarnings = fixedU128Multiply(bondShare, fixedU128Divide(bondRate, maximumBacking) ?? 0n);
+    const backedEarnings = fixedU128Multiply(fixedU128Multiply(bitcoinEarnings + bondEarnings, backing), bonus);
+    const participation = bigNumberToBigInt(position.upstreamParticipation.times(FIXED_U128_ONE));
+    return fixedU128Multiply(coverage, minimumRate) + fixedU128Multiply(backedEarnings, participation);
+  }
+
+  /** Runtime 160 and frames frozen before the Bitcoin snapshot retain the utilization formula. */
+  private vaultRewardRateWithoutBitcoinSnapshot(position: VaultPosition): bigint {
     const {
       securitization,
       activatedSecuritization,
