@@ -143,6 +143,8 @@ jobs:
         if: matrix.suite == 'non-e2e'
         # Vitest unions repeated negative project filters, so exclude E2E by file instead.
         run: yarn vitest --run --project '!storybook' --exclude 'e2e/__test__/**/*.e2e.test.ts'
+        env:
+          ARGON_TEST_RUST_LOG: info,argon=info,pallet=trace,basic-authorship=debug,txpool=trace
 
       - name: Warm local VM image layers
         if: matrix.suite == 'e2e'
