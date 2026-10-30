@@ -197,7 +197,8 @@ export async function startArgonTestNetwork(
       await ensureServerBundle();
       await ensureDockerComposeAssets();
       await stop();
-      await generateChainSpec({ computeDifficulty: 25, env: composeEnv });
+      // Leave time for commitments, reveals, and a competing batch before auction admission closes.
+      await generateChainSpec({ ticksBetweenSlots: 30, computeDifficulty: 25, env: composeEnv });
     } finally {
       await releaseAssets();
     }

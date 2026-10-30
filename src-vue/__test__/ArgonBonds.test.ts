@@ -19,6 +19,7 @@ import { createTestDb, createTestDbAtMigration } from './helpers/db.ts';
 import {
   BondLot,
   createDeferred,
+  createTypedEventEmitter,
   Currency,
   type IBlockHeaderInfo,
   type MiningFrames,
@@ -54,6 +55,38 @@ deployedRegistry.setMetadata(
 const accountId = encodeAddress(new Uint8Array(32).fill(0x22));
 
 describe('ArgonBonds', () => {
+  it('refreshes the subscribed bid pool when standing bids increase automatically', async () => {
+    let poolBalance = 100n;
+    const events = createTypedEventEmitter<{ 'best-blocks': (blocks: IBlockHeaderInfo[]) => void }>();
+    const client = {
+      registry,
+      consts: { treasury: { palletId: new Uint8Array(8), percentForArgonBondPool: new BigNumber(0.8) } },
+      query: { system: { account: async () => ({ data: { free: poolBalance } }) } },
+    };
+    const miningFrames = {
+      blockWatch: {
+        bestBlockHeader: { frameId: 10 },
+        start: async () => undefined,
+        events,
+        getApi: async () => client,
+        getEvents: async () => [
+          {
+            event: { section: 'miningSlot', method: 'WinningBidPriceChanged', data: { accountId, bidAmount: 200n } },
+          },
+        ],
+      },
+    } as unknown as MiningFrames;
+    const bonds = new ArgonBonds(Promise.resolve(null!), null!, null!, miningFrames, {
+      defaultArgonAddress: accountId,
+    } as any);
+    await bonds.subscribeGlobal(client as any);
+    expect(bonds.data.distributableBidPool).toBe(80n);
+
+    poolBalance = 200n;
+    events.emit('best-blocks', [{ blockNumber: 101, blockHash: '0x101', frameId: 10 } as IBlockHeaderInfo]);
+    await vi.waitFor(() => expect(bonds.data.distributableBidPool).toBe(160n));
+  });
+
   it('compares current Bitcoin backing at market prices and updates after funding', () => {
     vi.spyOn(vaultStore, 'getVaults').mockReturnValue({ rewards: undefined } as ReturnType<
       typeof vaultStore.getVaults

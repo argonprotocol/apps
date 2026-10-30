@@ -1,4 +1,6 @@
-import type { ArgonClient, ArgonQueryClient, MainchainClients } from './MainchainClients.js';
+import type { ArgonClient, ArgonCurrentQueryClient, ArgonQueryClient, MainchainClients } from './MainchainClients.js';
+import type { PreviousRuntimeSpec } from './runtimeCompatibility.js';
+import type { LiveQueryRecord } from '@argonprotocol/runtime-client';
 import { bigIntMax, bigIntMin, bigNumberToBigInt, numericToAlpha } from './utils.js';
 import type { IWinningBid } from './interfaces/index.js';
 import { BotActivityType, type IHistoryFile } from './interfaces/IHistoryFile.js';
@@ -44,6 +46,88 @@ export class Mining {
   }
 
   constructor(public readonly clients: MainchainClients) {}
+
+  public static async usesRangeBidding(client: ArgonCurrentQueryClient, frameId: number): Promise<boolean> {
+    if (!('auctionRulesStartAt' in client.query.miningSlot)) return false;
+
+    const firstRangeFrame = await client.query.miningSlot.auctionRulesStartAt();
+    if (firstRangeFrame === null) throw new Error('Mining auction activation is unavailable');
+
+    return frameId >= firstRangeFrame;
+  }
+
+  public static createBidTx(
+    client: ArgonClient,
+    options: {
+      bidAmount: bigint;
+      keys: Parameters<ArgonClient['tx']['miningSlot']['bid']>[1];
+      address: string;
+      frameId?: number;
+      maxHash?: string;
+    },
+  ) {
+    const { bidAmount, keys, address, frameId, maxHash } = options;
+    const bid = client.tx.miningSlot.bid as
+      | ArgonClient['tx']['miningSlot']['bid']
+      | PreviousRuntimeSpec.Transactions<'promise'>['miningSlot']['bid'];
+    if (bid.meta.args.length === 5) {
+      return (bid as ArgonClient['tx']['miningSlot']['bid'])(
+        bidAmount,
+        keys,
+        address,
+        frameId ?? null,
+        maxHash ?? null,
+      );
+    }
+    return (bid as PreviousRuntimeSpec.Transactions<'promise'>['miningSlot']['bid'])(bidAmount, keys, address);
+  }
+
+  public static async fetchBidMaxima(
+    client: ArgonCurrentQueryClient,
+    bids: NonNullable<LiveQueryRecord<'miningSlot', 'bidsForNextSlotCohort'>>,
+  ) {
+    const standingBids = await client.query.miningSlot.standingBids.multi(bids.map(bid => bid.accountId));
+    if (!standingBids) throw new Error('Standing mining bids are unavailable');
+
+    const funders = [...new Set(bids.map(bid => bid.externalFundingAccount ?? bid.accountId))];
+    const accounts = await client.query.system.account.multi(funders);
+    const available = new Map<string, bigint>();
+    for (const [index, account] of accounts.entries()) {
+      available.set(funders[index], this.availableBidBalance(account, client.consts.balances.existentialDeposit));
+    }
+
+    const offers = bids.map((bid, index) => ({ bid, standing: standingBids[index], index }));
+    offers.sort((a, b) => {
+      const blockOrder = (a.standing?.submittedAt ?? 0) - (b.standing?.submittedAt ?? 0);
+      if (blockOrder !== 0) return blockOrder;
+      return (a.standing?.position ?? a.index) - (b.standing?.position ?? b.index);
+    });
+
+    const increment = client.consts.miningSlot.bidIncrements;
+    const maxima = new Map<string, { maxMicrogons: bigint; fundedMaxMicrogons: bigint }>();
+
+    // Match funded_standing_offers: shared wallets fund older commitments first.
+    for (const { bid, standing } of offers) {
+      const funder = bid.externalFundingAccount ?? bid.accountId;
+      const free = available.get(funder)!;
+      const maxMicrogons = standing?.max ?? bid.bid;
+      const extra = bigIntMin(bigIntMax(maxMicrogons - bid.bid, 0n), (free / increment) * increment);
+
+      maxima.set(bid.accountId, { maxMicrogons, fundedMaxMicrogons: bid.bid + extra });
+      available.set(funder, free - extra);
+    }
+
+    return maxima;
+  }
+
+  public static availableBidBalance(account: LiveQueryRecord<'system', 'account'>, existentialDeposit: bigint): bigint {
+    let untouchable = bigIntMax(account.data.frozen - account.data.reserved, 0n);
+    if (account.data.free > 0n && account.providers === 1) {
+      untouchable = bigIntMax(untouchable, existentialDeposit);
+    }
+
+    return bigIntMax(account.data.free - untouchable, 0n);
+  }
 
   public async getRecentSeatSummaries(
     api?: ArgonQueryClient,
@@ -293,7 +377,7 @@ export class Mining {
       if (acceptedCount <= 0) continue;
 
       acceptedBidCount += acceptedCount;
-      const amount = activity.data.microgonsPerSeat;
+      const amount = activity.data.maxMicrogonsPerSeat ?? activity.data.microgonsPerSeat;
       if (maximumMicrogons === undefined || amount > maximumMicrogons) maximumMicrogons = amount;
     }
     return { submittedBidCount, acceptedBidCount, maximumMicrogons };

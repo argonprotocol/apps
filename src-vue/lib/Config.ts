@@ -973,9 +973,6 @@ const defaults: IConfigDefaults = {
       initialMicrogonRequirement: 0n,
       initialMicronotRequirement: 0n,
       initialCapitalCommitment: undefined,
-
-      sidelinedMicronots: 0n,
-      sidelinedMicrogons: 0n,
     };
   },
   vaultSetup: () => ({

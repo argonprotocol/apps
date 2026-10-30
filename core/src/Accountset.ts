@@ -1,4 +1,5 @@
 import {
+  createMiningBidCommitment,
   getOfflineRegistry,
   Keyring,
   type KeyringPair,
@@ -11,7 +12,7 @@ import { DEV_PHRASE } from '@polkadot/keyring';
 import { HttpProvider } from '@polkadot/rpc-provider';
 import { Mining } from './Mining.js';
 import { TxSubmitter } from './TxSubmitter.js';
-import type { ArgonClient, ArgonQueryClient } from './MainchainClients.js';
+import type { ArgonClient, ArgonCurrentQueryClient, ArgonQueryClient } from './MainchainClients.js';
 
 export type SubaccountRange = readonly number[];
 
@@ -94,14 +95,6 @@ export class Accountset {
     const bytes = Uint8Array.from([...address32, ...index16]);
     const hash = blake2AsU8a(bytes, 256);
     return registry.createType('AccountId32', hash).toHuman();
-  }
-
-  public async submitterBalance(blockHash?: Uint8Array): Promise<bigint> {
-    const client = this.client;
-    const api = blockHash ? await client.at(blockHash) : client;
-    const accountData = await api.query.system.account(this.fundingAccountId);
-
-    return accountData.data.free;
   }
 
   public async accountMicronots(blockHash?: Uint8Array): Promise<bigint> {
@@ -253,29 +246,77 @@ export class Accountset {
    * Create but don't submit a mining bid transaction.
    * @param options
    */
-  public async createMiningBidTx(options: { subaccounts: { address: string }[]; bidAmount: bigint }) {
+  public async createMiningBidTx(options: {
+    subaccounts: { address: string }[];
+    bidAmount: bigint;
+    frameId?: number;
+    maxBid?: bigint;
+  }) {
+    const { bidAmount, subaccounts, frameId, maxBid } = options;
     const client = this.client;
-    const { bidAmount, subaccounts } = options;
+    const keys = this.keys();
+    const authorityKeys = { grandpa: keys.gran.rawPublicKey, blockSealAuthority: keys.seal.rawPublicKey };
+    const calls = subaccounts.map(({ address }) => {
+      let maxHash: string | undefined;
+      if (maxBid !== undefined && maxBid > bidAmount && frameId !== undefined) {
+        maxHash = this.miningBidCommitment({ address, bidAmount, maxBid, frameId }).maxHash;
+      }
 
-    const batch = client.tx.utility.batch(
-      subaccounts.map(x => {
-        const keys = this.keys();
-        return client.tx.miningSlot.bid(
-          bidAmount,
-          {
-            grandpa: keys.gran.rawPublicKey,
-            blockSealAuthority: keys.seal.rawPublicKey,
-          },
-          x.address,
-        );
-      }),
+      return Mining.createBidTx(client, { bidAmount, keys: authorityKeys, address, frameId, maxHash });
+    });
+
+    return this.createMiningBidSubmitter(calls);
+  }
+
+  public async pendingMiningBids(api: ArgonCurrentQueryClient = this.client) {
+    if (!('pendingBids' in api.query.miningSlot)) return [];
+
+    const bids = await api.query.miningSlot.pendingBids.multi(Object.keys(this.subAccountsByAddress));
+    if (!bids) throw new Error('Pending mining bids are unavailable');
+
+    return bids.filter(bid => bid !== null).filter(bid => bid.funding === this.fundingAccountId);
+  }
+
+  public miningBidCommitment(options: { address: string; bidAmount: bigint; maxBid: bigint; frameId: number }) {
+    const { address, bidAmount, maxBid, frameId } = options;
+    const client = this.client;
+    const keys = this.keys();
+    const authorityKeys = client.registry.createType(
+      client.registry.createLookupType(client.tx.miningSlot.bid.meta.fields[1].type),
+      { grandpa: keys.gran.rawPublicKey, blockSealAuthority: keys.seal.rawPublicKey },
     );
 
-    let tx = batch;
-    if (this.isProxy) {
-      tx = client.tx.proxy.proxy(this.fundingAccountId, 'MiningBidRealPaysFee', batch);
-    }
-    return new TxSubmitter(client, tx, this.txSubmitterPair);
+    const salt = blake2AsU8a(
+      JSON.stringify([
+        'argon-mining-bid-salt-v1',
+        keys.seal.privateKey,
+        client.genesisHash.toHex(),
+        frameId,
+        address,
+        bidAmount.toString(),
+        maxBid.toString(),
+      ]),
+    );
+
+    return createMiningBidCommitment(client.raw, {
+      targetFrameId: BigInt(frameId),
+      fundingAccount: this.fundingAccountId,
+      miningAccount: address,
+      bid: bidAmount,
+      max: maxBid,
+      keys: authorityKeys.toU8a(),
+      salt,
+    });
+  }
+
+  public async createMiningBidMaxTx(options: {
+    bids: { address: string; maxBid: bigint; salt: string }[];
+    frameId: number;
+  }) {
+    const { bids, frameId } = options;
+    return this.createMiningBidSubmitter(
+      bids.map(({ address, maxBid, salt }) => this.client.tx.miningSlot.bidMax(maxBid, salt, address, frameId)),
+    );
   }
 
   public async planMiningBidProxySetup(): Promise<MiningBidProxySetupPlan> {
@@ -324,6 +365,15 @@ export class Accountset {
         return entries.has(account.index);
       })
       .map(([address, { index }]) => ({ index, address }));
+  }
+
+  private createMiningBidSubmitter(calls: SubmittableExtrinsic[]) {
+    const client = this.client;
+    let tx = client.tx.utility.batch(calls);
+    if (this.isProxy) {
+      tx = client.tx.proxy.proxy(this.fundingAccountId, 'MiningBidRealPaysFee', tx);
+    }
+    return new TxSubmitter(client, tx, this.txSubmitterPair);
   }
 }
 

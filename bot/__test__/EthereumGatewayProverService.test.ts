@@ -33,7 +33,7 @@ const submissionMock = vi.hoisted(() => {
 
 const gatewayProofMock = vi.hoisted(() => {
   return {
-    buildGatewayActivityProofPayload: vi.fn(),
+    buildGatewayActivityReceiptProofPayloads: vi.fn(),
     getLatestArgonFinalizedExecutionHeader: vi.fn(async () => ({ blockNumber: 160n })),
   };
 });
@@ -42,6 +42,7 @@ const viemMock = vi.hoisted(() => {
   return {
     createPublicClient: vi.fn(),
     readContract: vi.fn(),
+    getBlock: vi.fn(),
   };
 });
 
@@ -74,7 +75,7 @@ const mainchainMock = vi.hoisted(() => {
   }
 
   return {
-    buildGatewayActivityProofPayload: gatewayProofMock.buildGatewayActivityProofPayload,
+    buildGatewayActivityReceiptProofPayloads: gatewayProofMock.buildGatewayActivityReceiptProofPayloads,
     getLatestArgonFinalizedExecutionHeader: gatewayProofMock.getLatestArgonFinalizedExecutionHeader,
     TxSubmitter,
   };
@@ -92,7 +93,11 @@ vi.mock('@argonprotocol/mainchain', async () => {
   const actual = await vi.importActual<typeof import('@argonprotocol/mainchain')>('@argonprotocol/mainchain');
   return {
     ...actual,
-    buildGatewayActivityProofPayload: mainchainMock.buildGatewayActivityProofPayload,
+    // Exercise SDK discovery with the test's Ethereum transport instead of its private URL cache.
+    discoverMissingGatewayActivityLocators: (
+      options: Parameters<typeof actual.discoverMissingGatewayActivityLocators>[0],
+    ) => actual.discoverMissingGatewayActivityLocators({ ...options, executionClient: viemMock.createPublicClient() }),
+    buildGatewayActivityReceiptProofPayloads: mainchainMock.buildGatewayActivityReceiptProofPayloads,
     getLatestArgonFinalizedExecutionHeader: mainchainMock.getLatestArgonFinalizedExecutionHeader,
   };
 });
@@ -106,7 +111,7 @@ vi.mock('@argonprotocol/apps-core', async () => {
   };
 });
 
-import { TxSubmissionError, TxSubmissionErrorCode } from '@argonprotocol/mainchain';
+import { TxSubmissionError, TxSubmissionErrorCode, type MissingGatewayActivityLocator } from '@argonprotocol/mainchain';
 import { DelegateSubmitLane } from '../src/DelegateSubmitLane.ts';
 import { EthereumGatewayProverService } from '../src/EthereumGatewayProverService.ts';
 
@@ -121,13 +126,27 @@ let currentClientArgs:
 describe('EthereumGatewayProverService', () => {
   afterEach(() => {
     vi.useRealTimers();
-    gatewayProofMock.buildGatewayActivityProofPayload.mockReset();
+    gatewayProofMock.buildGatewayActivityReceiptProofPayloads.mockReset();
   });
 
   beforeEach(() => {
     vi.clearAllMocks();
+
+    viemMock.readContract.mockImplementation(async args => {
+      const parameters = args as { functionName: string; args?: bigint[] };
+      if (parameters.functionName === 'latestActivityBlockLocatorIndex') {
+        return currentClientArgs?.latestLocatorIndex ?? 1n;
+      }
+      if (parameters.functionName === 'activityBlockLocators') {
+        return [0n, 0n, currentClientArgs?.latestLocatorEndGatewayActivityNonce ?? 1n, `0x${'00'.repeat(32)}`] as const;
+      }
+      throw new Error(`Unexpected readContract(${parameters.functionName})`);
+    });
+
+    viemMock.getBlock.mockReset().mockResolvedValue({ number: 160n });
     viemMock.createPublicClient.mockReturnValue({
       readContract: viemMock.readContract,
+      getBlock: viemMock.getBlock,
       transport: { onResponse: vi.fn() },
     });
     NetworkConfig.setNetwork('dev-docker');
@@ -144,11 +163,11 @@ describe('EthereumGatewayProverService', () => {
         executionRpcUrls: ['http://paid-ethereum.test', 'http://public-ethereum.test'],
       },
     });
-    gatewayProofMock.buildGatewayActivityProofPayload
-      .mockResolvedValueOnce(null)
+    gatewayProofMock.buildGatewayActivityReceiptProofPayloads
+      .mockResolvedValueOnce({ payloads: [], deferredLocators: [], recaptureLocators: [] })
       .mockRejectedValueOnce(new Error('Public Ethereum RPC should not be called'));
     const service = new EthereumGatewayProverService(
-      createSubmitLane(createClient({ runtimeGatewayActivityNonce: 5n })),
+      createSubmitLane(createClient({ runtimeGatewayActivityNonce: 5n, latestLocatorEndGatewayActivityNonce: 5n })),
     );
 
     await expect(
@@ -160,10 +179,10 @@ describe('EthereumGatewayProverService', () => {
       outcome: 'Noop',
       throughGatewayActivityNonce: 5n,
     });
-    expect(gatewayProofMock.buildGatewayActivityProofPayload).toHaveBeenCalledWith(expect.anything(), {
+    expect(gatewayProofMock.buildGatewayActivityReceiptProofPayloads).toHaveBeenCalledWith(expect.anything(), {
       executionRpcUrl: 'http://paid-ethereum.test',
-      gatewayAddress: '0xgateway',
-      throughExecutionBlockNumber: 160n,
+      gatewayAddress: '0x0000000000000000000000000000000000000001',
+      locators: [],
     });
   });
 
@@ -185,10 +204,13 @@ describe('EthereumGatewayProverService', () => {
     await runBackgroundSweep();
 
     expect(gatewayProofMock.getLatestArgonFinalizedExecutionHeader).not.toHaveBeenCalled();
-    expect(gatewayProofMock.buildGatewayActivityProofPayload).not.toHaveBeenCalled();
+    expect(gatewayProofMock.buildGatewayActivityReceiptProofPayloads).not.toHaveBeenCalled();
   });
 
-  it('submits proveGatewayActivity through the delegate lane until a checkpoint is fully caught up', async () => {
+  it.each([
+    { scenario: 'consumes a ready proof batch once while advancing the chain checkpoint', concurrentNonce: undefined },
+    { scenario: 'rebuilds the remaining proof when another relay advances the chain', concurrentNonce: 8n },
+  ])('$scenario', async ({ concurrentNonce }) => {
     const signedTx = {
       method: { toHuman: () => ({ section: 'crosschainTransfer', method: 'proveGatewayActivity' }) },
       nonce: { toNumber: () => 9 },
@@ -200,37 +222,76 @@ describe('EthereumGatewayProverService', () => {
         },
       })),
     };
-    const client = createClient({ tx, accountNextNonce: 9 });
+    let runtimeGatewayActivityNonce = 6n;
+    const client = createClient({
+      tx,
+      accountNextNonce: 9,
+      runtimeGatewayActivityNonce,
+      latestLocatorEndGatewayActivityNonce: 9n,
+    });
+    client.query.crosschainTransfer.gatewayStateBySourceChain.mockImplementation(async () => ({
+      gatewayActivityNonce: runtimeGatewayActivityNonce,
+    }));
     const service = new EthereumGatewayProverService(createSubmitLane(client), {
       shouldApplySharedRelayStagger: true,
     });
 
-    gatewayProofMock.buildGatewayActivityProofPayload
-      .mockResolvedValueOnce({
-        previousGatewayActivityNonce: 6n,
-        proof: { batch: 'proof-1' },
-        gatewayActivityNonceRange: { start: 7n, end: 7n },
-        executionBlockNumberRange: { start: 160n, end: 160n },
-        activities: [{ gatewayState: { gatewayActivityNonce: 7n } }],
-      })
-      .mockResolvedValueOnce({
-        previousGatewayActivityNonce: 7n,
-        proof: { batch: 'proof-2' },
-        gatewayActivityNonceRange: { start: 8n, end: 9n },
-        executionBlockNumberRange: { start: 160n, end: 160n },
-        activities: [{ gatewayState: { gatewayActivityNonce: 9n } }],
-      });
-    submissionMock.submitWithTerminalStatusWatch.mockResolvedValue({
-      signedTx,
-      result: {
-        extrinsic: {
-          signedHash: '0xrelaytx',
-          submittedAtBlockNumber: 321,
-          submittedTime: new Date('2026-05-13T16:00:00.000Z'),
+    const resumedProofPayload = {
+      previousGatewayActivityNonce: 7n,
+      proof: { batch: 'proof-2' },
+      gatewayActivityNonceRange: { start: 8n, end: 9n },
+      executionBlockNumberRange: { start: 160n, end: 160n },
+      activities: [{ gatewayState: { gatewayActivityNonce: 9n } }],
+    };
+    gatewayProofMock.buildGatewayActivityReceiptProofPayloads.mockResolvedValueOnce({
+      payloads: [
+        {
+          previousGatewayActivityNonce: 6n,
+          proof: { batch: 'proof-1' },
+          gatewayActivityNonceRange: { start: 7n, end: 7n },
+          executionBlockNumberRange: { start: 160n, end: 160n },
+          activities: [{ gatewayState: { gatewayActivityNonce: 7n } }],
         },
-        blockNumber: 321,
-        waitForInFirstBlock: Promise.resolve(new Uint8Array([1])),
-      },
+        resumedProofPayload,
+      ],
+      deferredLocators: [],
+      recaptureLocators: [],
+    });
+    gatewayProofMock.buildGatewayActivityReceiptProofPayloads.mockResolvedValue({
+      payloads: [resumedProofPayload],
+      deferredLocators: [],
+      recaptureLocators: [],
+    });
+    if (concurrentNonce !== undefined) {
+      gatewayProofMock.buildGatewayActivityReceiptProofPayloads.mockResolvedValueOnce({
+        payloads: [
+          {
+            previousGatewayActivityNonce: concurrentNonce,
+            proof: { batch: 'proof-2-rebuilt' },
+            gatewayActivityNonceRange: { start: concurrentNonce + 1n, end: 9n },
+            executionBlockNumberRange: { start: 160n, end: 160n },
+            activities: [{ gatewayState: { gatewayActivityNonce: 9n } }],
+          },
+        ],
+        deferredLocators: [],
+        recaptureLocators: [],
+      });
+    }
+    submissionMock.submitWithTerminalStatusWatch.mockImplementation(async () => {
+      if (runtimeGatewayActivityNonce === 6n) runtimeGatewayActivityNonce = concurrentNonce ?? 7n;
+      else runtimeGatewayActivityNonce = 9n;
+      return {
+        signedTx,
+        result: {
+          extrinsic: {
+            signedHash: '0xrelaytx',
+            submittedAtBlockNumber: 321,
+            submittedTime: new Date('2026-05-13T16:00:00.000Z'),
+          },
+          blockNumber: 321,
+          waitForInFirstBlock: Promise.resolve(new Uint8Array([1])),
+        },
+      };
     });
 
     await expect(
@@ -247,6 +308,151 @@ describe('EthereumGatewayProverService', () => {
       throughGatewayActivityNonce: 9n,
     });
     expect(submissionMock.submitWithTerminalStatusWatch).toHaveBeenCalledTimes(2);
+    expect(runtimeGatewayActivityNonce).toBe(9n);
+    expect(client.tx.crosschainTransfer.proveGatewayActivity).toHaveBeenNthCalledWith(1, 'Ethereum', 6n, {
+      batch: 'proof-1',
+    });
+    expect(client.tx.crosschainTransfer.proveGatewayActivity).toHaveBeenNthCalledWith(
+      2,
+      'Ethereum',
+      concurrentNonce ?? 7n,
+      { batch: concurrentNonce === undefined ? 'proof-2' : 'proof-2-rebuilt' },
+    );
+    expect(gatewayProofMock.buildGatewayActivityReceiptProofPayloads).toHaveBeenCalledTimes(
+      concurrentNonce === undefined ? 1 : 2,
+    );
+  });
+
+  it('reuses deferred locators from a fallback RPC when the primary recovers', async () => {
+    NetworkConfig.setRuntimeOverride('dev-docker', {
+      ethereumNetwork: {
+        executionRpcUrls: ['http://primary-ethereum.test', 'http://fallback-ethereum.test'],
+      },
+    });
+    viemMock.getBlock.mockRejectedValueOnce(new Error('Primary Ethereum RPC is unavailable'));
+    const client = createClient({ runtimeGatewayActivityNonce: 6n });
+    const service = new EthereumGatewayProverService(createSubmitLane(client));
+    gatewayProofMock.buildGatewayActivityReceiptProofPayloads.mockResolvedValueOnce({
+      payloads: [],
+      deferredLocators: [
+        {
+          locatorIndex: 1n,
+          blockNumber: 0n,
+          startGatewayActivityNonce: 0n,
+          endGatewayActivityNonce: 7n,
+          previousLocatorHash: `0x${'00'.repeat(32)}`,
+          activityRoot: `0x${'00'.repeat(32)}`,
+        },
+      ],
+      recaptureLocators: [],
+    });
+
+    const request = { sourceChain: 'Ethereum' as const, throughGatewayActivityNonce: 7n };
+    await expect(service.runToCheckpoint(request)).rejects.toThrow('not ready to relay');
+    expect(submissionMock.submitWithTerminalStatusWatch).not.toHaveBeenCalled();
+    const firstLocators: MissingGatewayActivityLocator[] =
+      gatewayProofMock.buildGatewayActivityReceiptProofPayloads.mock.calls[0][1].locators;
+    expect(firstLocators).toHaveLength(1);
+    viemMock.readContract.mockClear();
+
+    gatewayProofMock.buildGatewayActivityReceiptProofPayloads.mockResolvedValueOnce({
+      payloads: [
+        {
+          previousGatewayActivityNonce: 6n,
+          proof: { batch: 'ready-proof' },
+          gatewayActivityNonceRange: { start: 7n, end: 7n },
+          executionBlockNumberRange: { start: 160n, end: 160n },
+          activities: [{ gatewayState: { gatewayActivityNonce: 7n } }],
+        },
+      ],
+      deferredLocators: [],
+      recaptureLocators: [],
+    });
+    submissionMock.submitWithTerminalStatusWatch.mockResolvedValue({
+      extrinsic: { signedHash: '0xready', nonce: 4 },
+      waitForInFirstBlock: Promise.resolve(new Uint8Array([1])),
+    });
+    await expect(service.runToCheckpoint(request)).resolves.toMatchObject({
+      outcome: 'Submitted',
+      throughGatewayActivityNonce: 7n,
+    });
+    const retriedLocators: MissingGatewayActivityLocator[] =
+      gatewayProofMock.buildGatewayActivityReceiptProofPayloads.mock.calls[1][1].locators;
+    expect(retriedLocators).toEqual(firstLocators);
+    expect(gatewayProofMock.buildGatewayActivityReceiptProofPayloads.mock.calls[0][1].executionRpcUrl).toBe(
+      'http://fallback-ethereum.test',
+    );
+    expect(gatewayProofMock.buildGatewayActivityReceiptProofPayloads.mock.calls[1][1].executionRpcUrl).toBe(
+      'http://primary-ethereum.test',
+    );
+    expect(viemMock.readContract).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({ functionName: 'latestActivityBlockLocatorIndex' }),
+    );
+  });
+
+  it('prunes consumed locators and rediscovers them after the runtime checkpoint rewinds', async () => {
+    let runtimeNonce = 6n;
+    let latestLocatorIndex = 2n;
+    const records = [
+      [100n, 7n, 7n, `0x${'01'.repeat(32)}`],
+      [110n, 8n, 9n, `0x${'02'.repeat(32)}`],
+      [120n, 10n, 11n, `0x${'03'.repeat(32)}`],
+    ] as const;
+    const client = createClient();
+    client.query.crosschainTransfer.gatewayStateBySourceChain.mockImplementation(async () => ({
+      gatewayActivityNonce: runtimeNonce,
+    }));
+    viemMock.readContract.mockImplementation(async ({ functionName, args }) => {
+      if (functionName === 'latestActivityBlockLocatorIndex') return latestLocatorIndex;
+      return records[Number(args[0]) - 1];
+    });
+    gatewayProofMock.buildGatewayActivityReceiptProofPayloads.mockImplementation(async (_, { locators }) => ({
+      payloads: [],
+      deferredLocators: locators,
+      recaptureLocators: [],
+    }));
+    const service = new EthereumGatewayProverService(createSubmitLane(client));
+    const request = { sourceChain: 'Ethereum' as const, throughGatewayActivityNonce: 11n };
+
+    await expect(service.runToCheckpoint(request)).rejects.toThrow('not ready to relay');
+    const initialLocators: MissingGatewayActivityLocator[] =
+      gatewayProofMock.buildGatewayActivityReceiptProofPayloads.mock.calls.at(-1)![1].locators;
+    expect(initialLocators.map(locator => locator.locatorIndex)).toEqual([1n, 2n]);
+
+    // Another relay consumes the first two records; collect the new finalized suffix.
+    runtimeNonce = 9n;
+    latestLocatorIndex = 3n;
+    gatewayProofMock.buildGatewayActivityReceiptProofPayloads.mockRejectedValueOnce(
+      new Error('Receipt RPC unavailable'),
+    );
+    await expect(service.runToCheckpoint(request)).rejects.toThrow('Receipt RPC unavailable');
+
+    // A failed proof read must leave the cache cursor available for another RPC or retry.
+    viemMock.readContract.mockClear();
+    await expect(service.runToCheckpoint(request)).rejects.toThrow('not ready to relay');
+    const suffixLocators: MissingGatewayActivityLocator[] =
+      gatewayProofMock.buildGatewayActivityReceiptProofPayloads.mock.calls.at(-1)![1].locators;
+    expect(suffixLocators.map(locator => locator.locatorIndex)).toEqual([3n]);
+    expect(viemMock.readContract.mock.calls).toEqual([
+      [expect.objectContaining({ functionName: 'latestActivityBlockLocatorIndex' })],
+      [expect.objectContaining({ functionName: 'activityBlockLocators', args: [2n] })],
+      [expect.objectContaining({ functionName: 'activityBlockLocators', args: [3n] })],
+    ]);
+
+    // A best-chain rollback needs records older than the retained consumed tail.
+    runtimeNonce = 6n;
+    viemMock.readContract.mockClear();
+    await expect(service.runToCheckpoint(request)).rejects.toThrow('not ready to relay');
+    const restoredLocators: MissingGatewayActivityLocator[] =
+      gatewayProofMock.buildGatewayActivityReceiptProofPayloads.mock.calls.at(-1)![1].locators;
+    expect(restoredLocators.map(locator => locator.locatorIndex)).toEqual([1n, 2n, 3n]);
+    expect(viemMock.readContract.mock.calls).toEqual([
+      [expect.objectContaining({ functionName: 'latestActivityBlockLocatorIndex' })],
+      [expect.objectContaining({ functionName: 'activityBlockLocators', args: [3n] })],
+      [expect.objectContaining({ functionName: 'activityBlockLocators', args: [2n] })],
+      [expect.objectContaining({ functionName: 'activityBlockLocators', args: [1n] })],
+    ]);
+    expect(submissionMock.submitWithTerminalStatusWatch).not.toHaveBeenCalled();
   });
 
   it('retries a dropped delegate submission with the still-available nonce', async () => {
@@ -255,20 +461,32 @@ describe('EthereumGatewayProverService', () => {
       shouldApplySharedRelayStagger: true,
     });
 
-    gatewayProofMock.buildGatewayActivityProofPayload
+    gatewayProofMock.buildGatewayActivityReceiptProofPayloads
       .mockResolvedValueOnce({
-        previousGatewayActivityNonce: 6n,
-        proof: { batch: 'proof' },
-        gatewayActivityNonceRange: { start: 7n, end: 7n },
-        executionBlockNumberRange: { start: 160n, end: 160n },
-        activities: [{ gatewayState: { gatewayActivityNonce: 7n } }],
+        payloads: [
+          {
+            previousGatewayActivityNonce: 6n,
+            proof: { batch: 'proof' },
+            gatewayActivityNonceRange: { start: 7n, end: 7n },
+            executionBlockNumberRange: { start: 160n, end: 160n },
+            activities: [{ gatewayState: { gatewayActivityNonce: 7n } }],
+          },
+        ],
+        deferredLocators: [],
+        recaptureLocators: [],
       })
       .mockResolvedValueOnce({
-        previousGatewayActivityNonce: 6n,
-        proof: { batch: 'proof' },
-        gatewayActivityNonceRange: { start: 7n, end: 7n },
-        executionBlockNumberRange: { start: 160n, end: 160n },
-        activities: [{ gatewayState: { gatewayActivityNonce: 7n } }],
+        payloads: [
+          {
+            previousGatewayActivityNonce: 6n,
+            proof: { batch: 'proof' },
+            gatewayActivityNonceRange: { start: 7n, end: 7n },
+            executionBlockNumberRange: { start: 160n, end: 160n },
+            activities: [{ gatewayState: { gatewayActivityNonce: 7n } }],
+          },
+        ],
+        deferredLocators: [],
+        recaptureLocators: [],
       });
     submissionMock.submitWithTerminalStatusWatch.mockImplementationOnce(
       async (_submitter, options?: { nonce?: number }) => {
@@ -338,12 +556,18 @@ describe('EthereumGatewayProverService', () => {
     const service = new EthereumGatewayProverService(createSubmitLane(client), {
       shouldApplySharedRelayStagger: true,
     });
-    gatewayProofMock.buildGatewayActivityProofPayload.mockResolvedValue({
-      previousGatewayActivityNonce: 6n,
-      proof: { batch: 'proof' },
-      gatewayActivityNonceRange: { start: 7n, end: 7n },
-      executionBlockNumberRange: { start: 160n, end: 160n },
-      activities: [{ gatewayState: { gatewayActivityNonce: 7n } }],
+    gatewayProofMock.buildGatewayActivityReceiptProofPayloads.mockResolvedValue({
+      payloads: [
+        {
+          previousGatewayActivityNonce: 6n,
+          proof: { batch: 'proof' },
+          gatewayActivityNonceRange: { start: 7n, end: 7n },
+          executionBlockNumberRange: { start: 160n, end: 160n },
+          activities: [{ gatewayState: { gatewayActivityNonce: 7n } }],
+        },
+      ],
+      deferredLocators: [],
+      recaptureLocators: [],
     });
     submissionMock.submitWithTerminalStatusWatch
       .mockImplementationOnce(async (_submitter, options?: { nonce?: number }) => {
@@ -431,12 +655,18 @@ describe('EthereumGatewayProverService', () => {
       shouldApplySharedRelayStagger: true,
     });
 
-    gatewayProofMock.buildGatewayActivityProofPayload.mockResolvedValue({
-      previousGatewayActivityNonce: 6n,
-      proof: { batch: 'proof' },
-      gatewayActivityNonceRange: { start: 7n, end: 7n },
-      executionBlockNumberRange: { start: 160n, end: 160n },
-      activities: [{ gatewayState: { gatewayActivityNonce: 7n } }],
+    gatewayProofMock.buildGatewayActivityReceiptProofPayloads.mockResolvedValue({
+      payloads: [
+        {
+          previousGatewayActivityNonce: 6n,
+          proof: { batch: 'proof' },
+          gatewayActivityNonceRange: { start: 7n, end: 7n },
+          executionBlockNumberRange: { start: 160n, end: 160n },
+          activities: [{ gatewayState: { gatewayActivityNonce: 7n } }],
+        },
+      ],
+      deferredLocators: [],
+      recaptureLocators: [],
     });
 
     await expect(
@@ -524,7 +754,7 @@ describe('EthereumGatewayProverService', () => {
       outcome: 'Noop',
       throughGatewayActivityNonce: 7n,
     });
-    expect(gatewayProofMock.buildGatewayActivityProofPayload).not.toHaveBeenCalled();
+    expect(gatewayProofMock.buildGatewayActivityReceiptProofPayloads).not.toHaveBeenCalled();
   });
 
   it('coalesces concurrent catch-up requests into one submission', async () => {
@@ -539,7 +769,7 @@ describe('EthereumGatewayProverService', () => {
       releaseBuildProofPlan = resolve;
     });
 
-    gatewayProofMock.buildGatewayActivityProofPayload.mockReturnValueOnce(buildProofPlan);
+    gatewayProofMock.buildGatewayActivityReceiptProofPayloads.mockReturnValueOnce(buildProofPlan);
     submissionMock.submitWithTerminalStatusWatch.mockResolvedValue({
       signedTx,
       result: {
@@ -557,11 +787,17 @@ describe('EthereumGatewayProverService', () => {
     const second = service.runToCheckpoint({ sourceChain: 'Ethereum', throughGatewayActivityNonce: 7n });
 
     releaseBuildProofPlan({
-      previousGatewayActivityNonce: 6n,
-      proof: { batch: 'proof' },
-      gatewayActivityNonceRange: { start: 7n, end: 7n },
-      executionBlockNumberRange: { start: 160n, end: 160n },
-      activities: [{ gatewayState: { gatewayActivityNonce: 7n } }],
+      payloads: [
+        {
+          previousGatewayActivityNonce: 6n,
+          proof: { batch: 'proof' },
+          gatewayActivityNonceRange: { start: 7n, end: 7n },
+          executionBlockNumberRange: { start: 160n, end: 160n },
+          activities: [{ gatewayState: { gatewayActivityNonce: 7n } }],
+        },
+      ],
+      deferredLocators: [],
+      recaptureLocators: [],
     });
 
     await expect(Promise.all([first, second])).resolves.toEqual([
@@ -588,7 +824,7 @@ describe('EthereumGatewayProverService', () => {
         throughGatewayActivityNonce: 7n,
       },
     ]);
-    expect(gatewayProofMock.buildGatewayActivityProofPayload).toHaveBeenCalledTimes(1);
+    expect(gatewayProofMock.buildGatewayActivityReceiptProofPayloads).toHaveBeenCalledTimes(1);
     expect(submissionMock.submitWithTerminalStatusWatch).toHaveBeenCalledTimes(1);
   });
 
@@ -603,12 +839,18 @@ describe('EthereumGatewayProverService', () => {
     const client = createClient({ runtimeGatewayActivityNonce: 6n, accountNextNonce: 5, freeHeadersInterval: 2 });
     const service = new EthereumGatewayProverService(createSubmitLane(client));
 
-    gatewayProofMock.buildGatewayActivityProofPayload.mockResolvedValue({
-      previousGatewayActivityNonce: 6n,
-      proof: { batch: 'proof' },
-      gatewayActivityNonceRange: { start: 7n, end: 7n },
-      executionBlockNumberRange: { start: 160n, end: 160n },
-      activities: [{ gatewayState: { gatewayActivityNonce: 7n } }],
+    gatewayProofMock.buildGatewayActivityReceiptProofPayloads.mockResolvedValue({
+      payloads: [
+        {
+          previousGatewayActivityNonce: 6n,
+          proof: { batch: 'proof' },
+          gatewayActivityNonceRange: { start: 7n, end: 7n },
+          executionBlockNumberRange: { start: 160n, end: 160n },
+          activities: [{ gatewayState: { gatewayActivityNonce: 7n } }],
+        },
+      ],
+      deferredLocators: [],
+      recaptureLocators: [],
     });
     submissionMock.submitWithTerminalStatusWatch.mockResolvedValue({
       signedTx,
@@ -643,12 +885,18 @@ describe('EthereumGatewayProverService', () => {
       shouldApplySharedRelayStagger: false,
     });
 
-    gatewayProofMock.buildGatewayActivityProofPayload.mockResolvedValue({
-      previousGatewayActivityNonce: 6n,
-      proof: { batch: 'proof' },
-      gatewayActivityNonceRange: { start: 7n, end: 7n },
-      executionBlockNumberRange: { start: 160n, end: 160n },
-      activities: [{ gatewayState: { gatewayActivityNonce: 7n } }],
+    gatewayProofMock.buildGatewayActivityReceiptProofPayloads.mockResolvedValue({
+      payloads: [
+        {
+          previousGatewayActivityNonce: 6n,
+          proof: { batch: 'proof' },
+          gatewayActivityNonceRange: { start: 7n, end: 7n },
+          executionBlockNumberRange: { start: 160n, end: 160n },
+          activities: [{ gatewayState: { gatewayActivityNonce: 7n } }],
+        },
+      ],
+      deferredLocators: [],
+      recaptureLocators: [],
     });
     submissionMock.submitWithTerminalStatusWatch.mockResolvedValue({
       signedTx,
@@ -681,12 +929,18 @@ describe('EthereumGatewayProverService', () => {
     const client = createClient({ runtimeGatewayActivityNonce: 6n, accountNextNonce: 5, freeHeadersInterval: 2 });
     const service = new EthereumGatewayProverService(createSubmitLane(client));
 
-    gatewayProofMock.buildGatewayActivityProofPayload.mockResolvedValue({
-      previousGatewayActivityNonce: 6n,
-      proof: { batch: 'proof' },
-      gatewayActivityNonceRange: { start: 7n, end: 7n },
-      executionBlockNumberRange: { start: 160n, end: 160n },
-      activities: [{ gatewayState: { gatewayActivityNonce: 7n } }],
+    gatewayProofMock.buildGatewayActivityReceiptProofPayloads.mockResolvedValue({
+      payloads: [
+        {
+          previousGatewayActivityNonce: 6n,
+          proof: { batch: 'proof' },
+          gatewayActivityNonceRange: { start: 7n, end: 7n },
+          executionBlockNumberRange: { start: 160n, end: 160n },
+          activities: [{ gatewayState: { gatewayActivityNonce: 7n } }],
+        },
+      ],
+      deferredLocators: [],
+      recaptureLocators: [],
     });
     submissionMock.submitWithTerminalStatusWatch.mockResolvedValue({
       signedTx,
@@ -730,17 +984,23 @@ describe('EthereumGatewayProverService', () => {
       }
     ).runBackgroundSweep.bind(service);
 
-    gatewayProofMock.buildGatewayActivityProofPayload.mockResolvedValue({
-      previousGatewayActivityNonce: 6n,
-      proof: { batch: 'proof' },
-      gatewayActivityNonceRange: { start: 7n, end: 7n },
-      executionBlockNumberRange: { start: 160n, end: 160n },
-      activities: [
+    gatewayProofMock.buildGatewayActivityReceiptProofPayloads.mockResolvedValue({
+      payloads: [
         {
-          kind: 'TransferOutOfArgonFinalized',
-          gatewayState: { gatewayActivityNonce: 7n },
+          previousGatewayActivityNonce: 6n,
+          proof: { batch: 'proof' },
+          gatewayActivityNonceRange: { start: 7n, end: 7n },
+          executionBlockNumberRange: { start: 160n, end: 160n },
+          activities: [
+            {
+              kind: 'TransferOutOfArgonFinalized',
+              gatewayState: { gatewayActivityNonce: 7n },
+            },
+          ],
         },
       ],
+      deferredLocators: [],
+      recaptureLocators: [],
     });
     submissionMock.submitWithTerminalStatusWatch.mockResolvedValue({
       signedTx,
@@ -756,17 +1016,17 @@ describe('EthereumGatewayProverService', () => {
     });
 
     await runBackgroundSweep();
-    expect(gatewayProofMock.buildGatewayActivityProofPayload).toHaveBeenCalledTimes(1);
+    expect(gatewayProofMock.buildGatewayActivityReceiptProofPayloads).toHaveBeenCalledTimes(1);
     expect(submissionMock.submitWithTerminalStatusWatch).not.toHaveBeenCalled();
 
     vi.setSystemTime(new Date('2026-05-13T16:00:23.000Z'));
     await runBackgroundSweep();
-    expect(gatewayProofMock.buildGatewayActivityProofPayload).toHaveBeenCalledTimes(2);
+    expect(gatewayProofMock.buildGatewayActivityReceiptProofPayloads).toHaveBeenCalledTimes(2);
     expect(submissionMock.submitWithTerminalStatusWatch).not.toHaveBeenCalled();
 
     vi.setSystemTime(new Date('2026-05-13T16:01:11.000Z'));
     await runBackgroundSweep();
-    expect(gatewayProofMock.buildGatewayActivityProofPayload).toHaveBeenCalledTimes(3);
+    expect(gatewayProofMock.buildGatewayActivityReceiptProofPayloads).toHaveBeenCalledTimes(3);
     expect(submissionMock.submitWithTerminalStatusWatch).toHaveBeenCalledTimes(1);
   });
 
@@ -788,17 +1048,23 @@ describe('EthereumGatewayProverService', () => {
       }
     ).runBackgroundSweep.bind(service);
 
-    gatewayProofMock.buildGatewayActivityProofPayload.mockResolvedValue({
-      previousGatewayActivityNonce: 6n,
-      proof: { batch: 'proof' },
-      gatewayActivityNonceRange: { start: 7n, end: 7n },
-      executionBlockNumberRange: { start: 150n, end: 150n },
-      activities: [
+    gatewayProofMock.buildGatewayActivityReceiptProofPayloads.mockResolvedValue({
+      payloads: [
         {
-          kind: 'TransferOutOfArgonFinalized',
-          gatewayState: { gatewayActivityNonce: 7n },
+          previousGatewayActivityNonce: 6n,
+          proof: { batch: 'proof' },
+          gatewayActivityNonceRange: { start: 7n, end: 7n },
+          executionBlockNumberRange: { start: 150n, end: 150n },
+          activities: [
+            {
+              kind: 'TransferOutOfArgonFinalized',
+              gatewayState: { gatewayActivityNonce: 7n },
+            },
+          ],
         },
       ],
+      deferredLocators: [],
+      recaptureLocators: [],
     });
     submissionMock.submitWithTerminalStatusWatch.mockResolvedValue({
       signedTx,
@@ -815,7 +1081,7 @@ describe('EthereumGatewayProverService', () => {
 
     await runBackgroundSweep();
 
-    expect(gatewayProofMock.buildGatewayActivityProofPayload).toHaveBeenCalledTimes(1);
+    expect(gatewayProofMock.buildGatewayActivityReceiptProofPayloads).toHaveBeenCalledTimes(1);
     expect(submissionMock.submitWithTerminalStatusWatch).toHaveBeenCalledTimes(1);
   });
 
@@ -836,17 +1102,23 @@ describe('EthereumGatewayProverService', () => {
     const client = createClient({ runtimeGatewayActivityNonce: 6n, accountNextNonce: 5, freeHeadersInterval: 2 });
     const service = new EthereumGatewayProverService(createSubmitLane(client));
 
-    gatewayProofMock.buildGatewayActivityProofPayload.mockResolvedValue({
-      previousGatewayActivityNonce: 6n,
-      proof: { batch: 'proof' },
-      gatewayActivityNonceRange: { start: 7n, end: 7n },
-      executionBlockNumberRange: { start: 150n, end: 150n },
-      activities: [
+    gatewayProofMock.buildGatewayActivityReceiptProofPayloads.mockResolvedValue({
+      payloads: [
         {
-          kind: 'TransferOutOfArgonFinalized',
-          gatewayState: { gatewayActivityNonce: 7n },
+          previousGatewayActivityNonce: 6n,
+          proof: { batch: 'proof' },
+          gatewayActivityNonceRange: { start: 7n, end: 7n },
+          executionBlockNumberRange: { start: 150n, end: 150n },
+          activities: [
+            {
+              kind: 'TransferOutOfArgonFinalized',
+              gatewayState: { gatewayActivityNonce: 7n },
+            },
+          ],
         },
       ],
+      deferredLocators: [],
+      recaptureLocators: [],
     });
     submissionMock.submitWithTerminalStatusWatch.mockResolvedValue({
       signedTx,
@@ -891,17 +1163,23 @@ describe('EthereumGatewayProverService', () => {
     const client = createClient({ runtimeGatewayActivityNonce: 6n, accountNextNonce: 5, freeHeadersInterval: 2 });
     const service = new EthereumGatewayProverService(createSubmitLane(client));
 
-    gatewayProofMock.buildGatewayActivityProofPayload.mockResolvedValue({
-      previousGatewayActivityNonce: 6n,
-      proof: { batch: 'proof' },
-      gatewayActivityNonceRange: { start: 7n, end: 7n },
-      executionBlockNumberRange: { start: 150n, end: 150n },
-      activities: [
+    gatewayProofMock.buildGatewayActivityReceiptProofPayloads.mockResolvedValue({
+      payloads: [
         {
-          kind: 'TransferOutOfArgonFinalized',
-          gatewayState: { gatewayActivityNonce: 7n },
+          previousGatewayActivityNonce: 6n,
+          proof: { batch: 'proof' },
+          gatewayActivityNonceRange: { start: 7n, end: 7n },
+          executionBlockNumberRange: { start: 150n, end: 150n },
+          activities: [
+            {
+              kind: 'TransferOutOfArgonFinalized',
+              gatewayState: { gatewayActivityNonce: 7n },
+            },
+          ],
         },
       ],
+      deferredLocators: [],
+      recaptureLocators: [],
     });
     submissionMock.submitWithTerminalStatusWatch
       .mockRejectedValueOnce(new Error('Already imported'))
@@ -954,18 +1232,24 @@ describe('EthereumGatewayProverService', () => {
       }
     ).runBackgroundSweep.bind(service);
 
-    gatewayProofMock.buildGatewayActivityProofPayload.mockResolvedValue({
-      previousGatewayActivityNonce: 6n,
-      proof: { batch: 'proof' },
-      gatewayActivityNonceRange: { start: 7n, end: 7n },
-      executionBlockNumberRange: { start: 160n, end: 160n },
-      activities: [
+    gatewayProofMock.buildGatewayActivityReceiptProofPayloads.mockResolvedValue({
+      payloads: [
         {
-          kind: 'TransferOutOfArgonFinalized',
-          mintingCollateral: [{ signingKey: '0x00000000000000000000000000000000000000aa' }],
-          gatewayState: { gatewayActivityNonce: 7n },
+          previousGatewayActivityNonce: 6n,
+          proof: { batch: 'proof' },
+          gatewayActivityNonceRange: { start: 7n, end: 7n },
+          executionBlockNumberRange: { start: 160n, end: 160n },
+          activities: [
+            {
+              kind: 'TransferOutOfArgonFinalized',
+              mintingCollateral: [{ signingKey: '0x00000000000000000000000000000000000000aa' }],
+              gatewayState: { gatewayActivityNonce: 7n },
+            },
+          ],
         },
       ],
+      deferredLocators: [],
+      recaptureLocators: [],
     });
     submissionMock.submitWithTerminalStatusWatch.mockResolvedValue({
       signedTx,
@@ -982,7 +1266,7 @@ describe('EthereumGatewayProverService', () => {
 
     await runBackgroundSweep();
 
-    expect(gatewayProofMock.buildGatewayActivityProofPayload).toHaveBeenCalledTimes(1);
+    expect(gatewayProofMock.buildGatewayActivityReceiptProofPayloads).toHaveBeenCalledTimes(1);
     expect(submissionMock.submitWithTerminalStatusWatch).toHaveBeenCalledTimes(1);
   });
 });
@@ -1051,7 +1335,9 @@ function createClient(
           args.runtimeGatewayActivityNonce == null ? null : { gatewayActivityNonce: args.runtimeGatewayActivityNonce },
         ),
         chainConfigBySourceChain: vi.fn(async () =>
-          args.hasEthereumChainConfig === false ? null : { type: 'Evm', value: { gateway: '0xgateway' } },
+          args.hasEthereumChainConfig === false
+            ? null
+            : { type: 'Evm', value: { gateway: '0x0000000000000000000000000000000000000001' } },
         ),
         mintingAuthoritiesBySigner: vi.fn(async (signingKey: string) => {
           const owner = args.mintingAuthorityOwnersBySigner?.[signingKey.toLowerCase()];
@@ -1104,14 +1390,3 @@ function createClient(
     },
   };
 }
-
-viemMock.readContract.mockImplementation(async args => {
-  const parameters = args as { functionName: string; args?: bigint[] };
-  if (parameters.functionName === 'latestActivityBlockLocatorIndex') {
-    return currentClientArgs?.latestLocatorIndex ?? 1n;
-  }
-  if (parameters.functionName === 'activityBlockLocators') {
-    return [0n, 0n, currentClientArgs?.latestLocatorEndGatewayActivityNonce ?? 1n, `0x${'00'.repeat(32)}`] as const;
-  }
-  throw new Error(`Unexpected readContract(${parameters.functionName})`);
-});

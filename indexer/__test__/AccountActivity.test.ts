@@ -7,6 +7,27 @@ import { createHistoricalEventData } from './helpers/historicalEvents.ts';
 const emptyEventData = Object.assign([], { names: [], typeDef: [] });
 
 describe('AccountActivityDecoder', () => {
+  it.each(['BidCommitted', 'BidRevealed', 'BidRejected', 'BidLost', 'WinningBidPriceChanged'])(
+    'indexes %s as mining bid history for the named miner',
+    method => {
+      const miner = encodeAddress(new Uint8Array(32).fill(12));
+      const values: Record<string, unknown> = { accountId: miner };
+      if (method === 'BidCommitted') values.targetFrameId = 3;
+      if (method === 'WinningBidPriceChanged') values.bidAmount = 100_000;
+      const event = {
+        section: 'miningSlot',
+        method,
+        data: createHistoricalEventData(161, 'miningSlot', method, values),
+      };
+
+      const result = new AccountActivityDecoder().decode({
+        eventGroups: [{ extrinsicIndex: 1, extrinsicEvents: [event] }],
+        specVersion: 161,
+      });
+      expect(result.accounts).toContainEqual({ address: miner, mask: AccountActivityKind.MiningBid });
+    },
+  );
+
   it('attributes minting authority lifecycle to its registered owner', () => {
     const authorityOwner = encodeAddress(new Uint8Array(32).fill(1));
     const destinationSigningKey = `0x${'33'.repeat(20)}`;

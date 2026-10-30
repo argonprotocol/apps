@@ -7,6 +7,15 @@ import { Accountset } from '../src/Accountset.ts';
 import { createArgonClient, type ArgonClient } from '../src/MainchainClients.ts';
 import { integrationAccountUri } from './integrationNetwork.ts';
 
+it('preserves deployed miner identities for their funding account and index', { tags: ['no-argon-network'] }, () => {
+  const funding = new Keyring({ type: 'sr25519' }).addFromUri('//Alice').address;
+  expect([0, 1, 256].map(index => Accountset.createMiningSubaccount(funding, index))).toEqual([
+    '5FyAcpXX7p2sx8DMN1w12eauupJsj9QAb2u1rYnzWnh8CLwd',
+    '5CuFCF6KsvdRf4ZjEhkQnxkdwEQuXUAqWHnoeCFbE27DVbZY',
+    '5Dj3uixNCFri4m1GVurAFQFUVCJHU1bKp2g2w6SGcJQRU5sY',
+  ]);
+});
+
 it(
   'registers mining keys while runtime state is unavailable and rejects keys the node did not retain',
   { tags: ['no-argon-network'] },

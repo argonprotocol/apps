@@ -248,8 +248,7 @@ const minimumMicrogonsNeeded = Vue.computed(() => {
 
 const minimumMicronotsNeeded = Vue.computed(() => {
   if (guidanceContext.value === 'mining') {
-    const baseAmountNeeded = requiredMicronotsForGoal.value;
-    return baseAmountNeeded + (config.biddingRules?.sidelinedMicronots ?? 0n);
+    return requiredMicronotsForGoal.value;
   } else if (guidanceContext.value === 'vaulting') {
     return vaultFunding.value.requiredMicronots;
   }
@@ -314,8 +313,7 @@ const baseMinimumMicrogonsNeeded = Vue.computed(() => {
       return config.biddingRules?.initialMicrogonRequirement ?? 0n;
     }
 
-    const baseAmountNeeded = requiredMicrogonsForGoal.value;
-    return baseAmountNeeded + (config.biddingRules?.sidelinedMicrogons ?? 0n);
+    return requiredMicrogonsForGoal.value;
   } else if (guidanceContext.value === 'vaulting') {
     if (config.vaultingSetupStatus === VaultingSetupStatus.Finished) return 0n;
     return config.vaultSetup.securitizationMicrogons;

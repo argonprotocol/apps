@@ -23,7 +23,13 @@ import {
 } from '@argonprotocol/apps-core/__test__/helpers/mainchain.ts';
 import { sudoFundWallet } from '@argonprotocol/apps-core/__test__/helpers/sudoFundWallet.ts';
 import { integrationAccountUri } from '@argonprotocol/apps-core/__test__/integrationNetwork.ts';
-import { buildGatewayActivityProofPayload, EvmContracts, Keyring, toFixedNumber } from '@argonprotocol/mainchain';
+import {
+  buildGatewayActivityReceiptProofPayloads,
+  discoverMissingGatewayActivityLocators,
+  EvmContracts,
+  Keyring,
+  toFixedNumber,
+} from '@argonprotocol/mainchain';
 import {
   sudo,
   teardown,
@@ -215,6 +221,7 @@ describe.skipIf(skipE2E || !TestEthereum.isInstalled())('EthereumCrosschain inte
 
     db = await createTestDb();
     client = await mainchainClients.get(false);
+    expect(client.runtimeVersion.specVersion.toNumber()).toBe(Number(process.env.ARGON_TEST_RUNTIME_SPEC ?? 161));
 
     await sudoFundWallet({
       client,
@@ -255,6 +262,7 @@ describe.skipIf(skipE2E || !TestEthereum.isInstalled())('EthereumCrosschain inte
       pollMs: 1_000,
       submitLane,
     });
+    await beaconSyncService.start();
     gatewayProverService = new EthereumGatewayProverService(submitLane, {
       backgroundSweepMs: 1_000,
       shouldApplySharedRelayStagger: false,
@@ -451,15 +459,23 @@ describe.skipIf(skipE2E || !TestEthereum.isInstalled())('EthereumCrosschain inte
         expect(anchor.blockNumber).toBeGreaterThanOrEqual(latestExecutionBlockNumber);
       }, 120_000);
 
-      const activationProofPayload = await buildGatewayActivityProofPayload(client.raw, {
+      const locators = await discoverMissingGatewayActivityLocators({
         executionRpcUrl: ethereum.executionRpcUrl!,
         gatewayAddress,
-        throughExecutionBlockNumber: latestExecutionBlockNumber,
+        finalizedExecutionBlockNumber: latestExecutionBlockNumber,
+        minimumGatewayActivityNonce: 1n,
       });
+      const { payloads } = await buildGatewayActivityReceiptProofPayloads(client.raw, {
+        executionRpcUrl: ethereum.executionRpcUrl!,
+        gatewayAddress,
+        locators,
+      });
+      expect(payloads).toHaveLength(1);
+      const activationProofPayload = payloads[0];
       expect(activationProofPayload).toBeDefined();
-      expect(activationProofPayload!.gatewayActivityNonceRange).toEqual({ start: 1n, end: 1n });
-      expect(activationProofPayload!.activities).toHaveLength(1);
-      expect(activationProofPayload!.activities[0]?.kind).toBe('MintingAuthorityActivated');
+      expect(activationProofPayload.gatewayActivityNonceRange).toEqual({ start: 1n, end: 1n });
+      expect(activationProofPayload.activities).toHaveLength(1);
+      expect(activationProofPayload.activities[0]?.kind).toBe('MintingAuthorityActivated');
 
       await vi.waitFor(async () => {
         await beaconSyncService.runOnce();

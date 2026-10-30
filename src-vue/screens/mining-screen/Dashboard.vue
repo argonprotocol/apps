@@ -240,13 +240,16 @@
                     <div class="px-4">
                       <header class="font-semibold text-slate-500">New Seats Won</header>
                       <div class="text-argon-600 pt-1 font-mono text-3xl font-bold">
-                        <template v-if="inspectedWinningBids && inspectedFrameDetail && (item.id < myMiningSeats.latestFrameId || inspectedFrameDetail.auctionCloseTick)">
+                        <template v-if="inspectedWinningBids && inspectedFrameDetail && item.id < myMiningSeats.latestFrameId">
                           {{ numeral(inspectedWinningBids.length).format('0,0') }}
                         </template>
                         <template v-else>&mdash;</template>
                       </div>
                       <p class="mt-1 text-slate-500">
-                        <template v-if="item.id === myMiningSeats.latestFrameId && inspectedFrameDetail && !inspectedFrameDetail.auctionCloseTick">Auction open</template>
+                        <template v-if="item.id === myMiningSeats.latestFrameId && inspectedFrameDetail">
+                          <template v-if="inspectedFrameDetail.auctionCloseTick">Auction settling</template>
+                          <template v-else>Auction open</template>
+                        </template>
                         <template v-else-if="inspectedFrameDetail?.auctionSeatCount !== undefined">of {{ numeral(inspectedFrameDetail.auctionSeatCount).format('0,0') }} in auction</template>
                         <template v-else>&mdash;</template>
                       </p>
