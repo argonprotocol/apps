@@ -21,6 +21,7 @@ import {
   TransactionEvents,
   ISubmittableOptions,
   type TxSigningAccount,
+  TxSubmitter,
   TxResult,
 } from '@argonprotocol/apps-core';
 import { ExtrinsicType, ITransactionRecord, TransactionsTable, TransactionStatus } from './db/TransactionsTable.ts';
@@ -57,6 +58,7 @@ enum TxReconciliationState {
   InPool = 'InPool',
   Absent = 'Absent',
   Unavailable = 'Unavailable',
+  NonceConsumed = 'NonceConsumed',
 }
 
 export class TransactionTracker {
@@ -119,6 +121,7 @@ export class TransactionTracker {
           accountAddress: tx.accountAddress,
           method: tx.extrinsicMethodJson,
           nonce: tx.txNonce ?? 0,
+          mortalityPeriod: tx.mortalityPeriod,
           signedHash: tx.extrinsicHash,
           submittedTime: tx.submittedAtTime,
           submittedAtBlockNumber: tx.submittedAtBlockHeight,
@@ -229,16 +232,19 @@ export class TransactionTracker {
     return await this.runInTransactionStatusLane(txInfo.tx.id, async () => {
       if (txInfo.tx.isFinalized) return false;
       const finalizedBlockHeader = { ...this.blockWatch.finalizedBlockHeader };
+      const inclusionWindow = Math.max(maxBlocksToCheck, txInfo.tx.mortalityPeriod ?? 0);
       const state = await this.reconcilePendingTransaction({
         txInfo,
         bestBlockInfo: { ...this.blockWatch.bestBlockHeader },
         finalizedBlockHeader,
         finalizedAccountNonceByAddress: new Map(),
-        maxBlocksToCheck,
+        maxBlocksToCheck: inclusionWindow,
       });
+      if (state === TxReconciliationState.NonceConsumed) return true;
       return (
+        txInfo.tx.mortalityPeriod !== 0 &&
         state === TxReconciliationState.Absent &&
-        finalizedBlockHeader.blockNumber - txInfo.tx.submittedAtBlockHeight > maxBlocksToCheck
+        finalizedBlockHeader.blockNumber - txInfo.tx.submittedAtBlockHeight > inclusionWindow
       );
     });
   }
@@ -294,16 +300,14 @@ export class TransactionTracker {
     let txInfo: TransactionInfo<T>;
 
     try {
-      const signedTx =
-        'signer' in txSigner
-          ? await submissionTx.signAsync(txSigner.address, { ...apiOptions, signer: txSigner.signer })
-          : await submissionTx.signAsync(txSigner, apiOptions);
+      const signedTx = await new TxSubmitter(client, submissionTx, txSigner, this.blockWatch).sign(apiOptions);
       const submittedAtBlockHeight = await client.rpc.chain.getHeader().then(x => x.number.toNumber());
 
       const txResultExtrinsic = {
         signedHash: signedTx.hash.toHex(),
         method: signedTx.method.toHuman(),
         nonce: signedTx.nonce.toNumber(),
+        mortalityPeriod: signedTx.era.isMortalEra ? signedTx.era.asMortalEra.period.toNumber() : 0,
         accountAddress: txSigner.address,
         submittedTime: new Date(),
         submittedAtBlockNumber: submittedAtBlockHeight,
@@ -560,6 +564,7 @@ export class TransactionTracker {
       submittedAtBlockHeight: txResult.extrinsic.submittedAtBlockNumber,
       submittedAtTime: txResult.extrinsic.submittedTime,
       txNonce,
+      mortalityPeriod: txResult.extrinsic.mortalityPeriod,
     });
 
     const txInfo = new TransactionInfo<T>({ tx: record, txResult });
@@ -633,7 +638,8 @@ export class TransactionTracker {
     const { tx, txResult } = txInfo;
     const finalizedHeight = finalizedBlockHeader.blockNumber;
     const finalizedBlockTime = finalizedBlockHeader.blockTime;
-    const reconciliationHead = `${bestBlockInfo.blockNumber}:${bestBlockInfo.blockHash}:${finalizedHeight}:${finalizedBlockHeader.blockHash}:${args.maxBlocksToCheck ?? 60}`;
+    const inclusionWindow = Math.max(args.maxBlocksToCheck ?? 60, tx.mortalityPeriod ?? 0);
+    const reconciliationHead = `${bestBlockInfo.blockNumber}:${bestBlockInfo.blockHash}:${finalizedHeight}:${finalizedBlockHeader.blockHash}:${inclusionWindow}`;
     const cachedReconciliation = this.#reconciliationByTxId.get(tx.id);
     if (cachedReconciliation?.head === reconciliationHead) {
       return cachedReconciliation.state;
@@ -662,11 +668,10 @@ export class TransactionTracker {
       }
     }
 
-    const MAX_BLOCKS_TO_CHECK = args.maxBlocksToCheck ?? 60;
     if (!reconciliationState) {
       const searchStartBlockHeight = this.getSearchStartBlockHeight(tx);
       const maxBlocksToCheck = Math.min(
-        MAX_BLOCKS_TO_CHECK,
+        inclusionWindow,
         Math.max(0, bestBlockInfo.blockNumber - searchStartBlockHeight),
       );
       const findTransactionResult = await TransactionEvents.findByExtrinsicHash({
@@ -755,13 +760,14 @@ export class TransactionTracker {
               source: TransactionHistorySource.Local,
             });
             await this.recordSubmissionError(tx, error);
-            return TxReconciliationState.Absent;
+            return TxReconciliationState.NonceConsumed;
           }
         }
 
         if (
           reconciliationState === TxReconciliationState.Absent &&
-          finalizedHeight - tx.submittedAtBlockHeight > MAX_BLOCKS_TO_CHECK
+          tx.mortalityPeriod !== 0 &&
+          finalizedHeight - tx.submittedAtBlockHeight > inclusionWindow
         ) {
           try {
             if (await this.isInTransactionPool(tx.extrinsicHash)) {

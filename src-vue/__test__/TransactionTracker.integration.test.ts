@@ -1,5 +1,5 @@
 import { integrationNetwork as sharedNetwork } from '@argonprotocol/apps-core/__test__/integration.setup.ts';
-import { Keyring, mnemonicGenerate } from '@argonprotocol/mainchain';
+import { Keyring, mnemonicGenerate, type SubmittableExtrinsic } from '@argonprotocol/mainchain';
 import { teardown } from '@argonprotocol/testing';
 import {
   BitcoinLock,
@@ -16,6 +16,7 @@ import { integrationAccountUri } from '@argonprotocol/apps-core/__test__/integra
 import { createTestDb } from './helpers/db.ts';
 import { setMainchainClients } from '../stores/mainchain.ts';
 import { TransactionTracker } from '../lib/TransactionTracker.ts';
+import { getTransactionFailureMessage } from '../lib/TransactionInfo.ts';
 import { trackTransactionProgress } from '../lib/TransactionProgress.ts';
 import { ExtrinsicType, TransactionStatus } from '../lib/db/TransactionsTable.ts';
 import { TransactionHistorySource, TransactionHistoryStatus } from '../lib/db/TransactionStatusHistoryTable.ts';
@@ -337,6 +338,80 @@ describe.skipIf(skipE2E).sequential('Transaction tracker tests', { timeout: 60e3
 
     await expect(loadedFirst.followOnTxInfo).resolves.toBe(loadedSecond);
   });
+
+  it(
+    'keeps a lag-adjusted transaction eligible after restart until the same signed bytes finalize',
+    { timeout: 180e3 },
+    async () => {
+      const client = await clients.get(false);
+      const db = await createTestDb();
+      const blockwatch = createTrackedBlockWatch();
+      const tracker = new TransactionTracker(Promise.resolve(db), blockwatch);
+      const recipient = new Keyring({ type: 'sr25519' }).addFromUri(`${accountUri}//late-recipient`);
+      const tx = client.tx.balances.transferAllowDeath(recipient.address, 1_000_000n);
+      let signedBytes = '';
+      const lostBroadcast = vi.spyOn(Object.getPrototypeOf(tx), 'send').mockImplementation(async function (
+        this: SubmittableExtrinsic,
+      ) {
+        signedBytes = this.toHex();
+        throw new Error('Submission connection lost');
+      });
+      let restored: TransactionTracker | undefined;
+
+      try {
+        const original = await tracker.submitAndWatch({
+          client,
+          tx,
+          txSigner: alice,
+          extrinsicType: ExtrinsicType.Transfer,
+          metadata: { mortalityBlocks: 64 },
+          era: 64,
+          useLatestNonce: true,
+        });
+        lostBroadcast.mockRestore();
+        const signed = client.tx(signedBytes);
+        const period = signed.era.asMortalEra.period.toNumber();
+        expect(period).toBeGreaterThan(64);
+        expect(original.tx.mortalityPeriod).toBe(period);
+        expect(original.tx.status).toBe(TransactionStatus.Error);
+
+        await waitFor(150e3, 'finalized head past the requested 64-block lifetime', async () => {
+          return blockwatch.finalizedBlockHeader.blockNumber > original.tx.submittedAtBlockHeight + 64;
+        });
+        await tracker.shutdown();
+        restored = new TransactionTracker(Promise.resolve(db), createTrackedBlockWatch());
+        await restored.load();
+        const recovered = restored.data.txInfos[0];
+        expect(recovered.tx.mortalityPeriod).toBe(period);
+        expect((await db.transactionsTable.fetchAll())[0].mortalityPeriod).toBe(period);
+        expect(await restored.reconcileUnconfirmedTransaction(recovered, 64)).toBe(false);
+        expect(recovered.tx.status).not.toBe(TransactionStatus.TimedOutWaitingForBlock);
+
+        const submitted = await new TxSubmitter(client, signed, alice).submitSigned(signed);
+        await submitted.waitForFinalizedBlock;
+        await waitFor(30e3, 'restored tracker observes finalization', async () => {
+          await restored!.reconcileUnconfirmedTransaction(recovered, 64);
+          return recovered.tx.isFinalized;
+        });
+        expect(recovered.tx.isFinalized).toBe(true);
+        expect(getTransactionFailureMessage(recovered)).toBeUndefined();
+        expect(await db.transactionsTable.fetchAll()).toEqual([
+          expect.objectContaining({
+            id: original.tx.id,
+            extrinsicHash: signed.hash.toHex(),
+            txNonce: signed.nonce.toNumber(),
+            mortalityPeriod: period,
+            status: TransactionStatus.Finalized,
+          }),
+        ]);
+      } finally {
+        lostBroadcast.mockRestore();
+        await tracker.shutdown();
+        await restored?.shutdown();
+        await db.close();
+      }
+    },
+  );
 
   function createTrackedBlockWatch(): BlockWatch {
     const blockWatch = new BlockWatch(clients);

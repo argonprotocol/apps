@@ -1122,6 +1122,7 @@ describe('MyVault cosign recovery', () => {
   it('submits combined vault securitization through TxSubmitter and tracks both amounts', async () => {
     const { myVault, trackTxResult } = createVault();
     const tx = createMockTxResultTx();
+    const sign = vi.spyOn(AppsCore.TxSubmitter.prototype, 'sign').mockResolvedValue(tx.signedTx as any);
     const txResultInfo = createTxInfo({
       extrinsicType: ExtrinsicType.VaultIncreaseAllocation,
       metadataJson: {
@@ -1163,46 +1164,45 @@ describe('MyVault cosign recovery', () => {
     };
     const getMainchainClient = vi.spyOn(mainchainStore, 'getMainchainClient').mockResolvedValue(client as any);
 
-    const result = await myVault.setVaultSecuritization({
-      securitizationMicrogons: 1_100n,
-      committedMicronots: 350n,
-      metadata: { moveFrom: 'VaultingHold', moveTo: 'VaultingSecurity' },
-    });
-
-    expect(buildSecuritizationTx).toHaveBeenCalledWith(
-      {
+    try {
+      const result = await myVault.setVaultSecuritization({
         securitizationMicrogons: 1_100n,
         committedMicronots: 350n,
-      },
-      client,
-    );
-    expect(tx.signAsync).toHaveBeenCalledWith(expect.objectContaining({ address: expect.any(String) }), {
-      nonce: 9,
-      tip: undefined,
-    });
-    expect(tx.signedTx.send).toHaveBeenCalledTimes(1);
-    expect(trackTxResult).toHaveBeenCalledWith({
-      txResult: expect.objectContaining({
-        extrinsic: expect.objectContaining({
-          nonce: 9,
-          submittedAtBlockNumber: 170,
+        metadata: { moveFrom: 'VaultingHold', moveTo: 'VaultingSecurity' },
+      });
+
+      expect(buildSecuritizationTx).toHaveBeenCalledWith(
+        {
+          securitizationMicrogons: 1_100n,
+          committedMicronots: 350n,
+        },
+        client,
+      );
+      expect(tx.signedTx.send).toHaveBeenCalledTimes(1);
+      expect(trackTxResult).toHaveBeenCalledWith({
+        txResult: expect.objectContaining({
+          extrinsic: expect.objectContaining({
+            nonce: 9,
+            submittedAtBlockNumber: 170,
+          }),
         }),
-      }),
-      extrinsicType: ExtrinsicType.VaultIncreaseAllocation,
-      metadata: {
-        securitizationMicrogons: 1_100n,
-        securitizationChangeMicrogons: 100n,
-        securitizationTargetChangeMicrogons: 200n,
-        committedMicronots: 350n,
-        argonotChangeMicronots: 250n,
-        vaultId: 7,
-        moveFrom: 'VaultingHold',
-        moveTo: 'VaultingSecurity',
-      },
-    });
-    expect(result).toBe(txResultInfo);
-
-    getMainchainClient.mockRestore();
+        extrinsicType: ExtrinsicType.VaultIncreaseAllocation,
+        metadata: {
+          securitizationMicrogons: 1_100n,
+          securitizationChangeMicrogons: 100n,
+          securitizationTargetChangeMicrogons: 200n,
+          committedMicronots: 350n,
+          argonotChangeMicronots: 250n,
+          vaultId: 7,
+          moveFrom: 'VaultingHold',
+          moveTo: 'VaultingSecurity',
+        },
+      });
+      expect(result).toBe(txResultInfo);
+    } finally {
+      sign.mockRestore();
+      getMainchainClient.mockRestore();
+    }
   });
 
   it('publishes the current securitization transaction until its post-processing finishes', async () => {
@@ -2748,6 +2748,7 @@ function createTestVault(args: {
 
 function createMockTxResultTx() {
   const signedTx = {
+    era: new TypeRegistry().createType('ExtrinsicEra', 0),
     hash: { toHex: () => '0xsigned' },
     method: { toHuman: () => ({ section: 'vaults', method: 'modifyFunding' }) },
     nonce: { toNumber: () => 9 },

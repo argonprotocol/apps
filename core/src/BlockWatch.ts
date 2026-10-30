@@ -175,11 +175,9 @@ export class BlockWatch {
       const { client, source: activeSource } = await this.getSubscriptionClient(source);
       this.activeSource = activeSource;
       this.subscriptionClient = client;
-      const finalizedHeader = await client.rpc.chain.getFinalizedHead().then(hash => client.rpc.chain.getHeader(hash));
-      const finalizedBlock = BlockWatch.readHeader(finalizedHeader, true);
+      const { finalizedBlockHeader: finalizedBlock, bestBlockHeader: bestBlock } =
+        await BlockWatch.readCurrentHeaders(client);
       this.latestHeaders = [finalizedBlock];
-      const bestHeader = await client.rpc.chain.getHeader();
-      const bestBlock = BlockWatch.readHeader(bestHeader);
       if (bestBlock.blockHash !== finalizedBlock.blockHash) {
         this.latestHeaders.push(bestBlock);
       }
@@ -953,6 +951,15 @@ export class BlockWatch {
       this.pendingRestart = undefined;
       this.scheduleRestart(pendingRestart.source, pendingRestart.reason, pendingRestart.delayMs);
     }
+  }
+
+  public static async readCurrentHeaders(
+    client: ArgonClient,
+  ): Promise<Pick<BlockWatch, 'finalizedBlockHeader' | 'bestBlockHeader'>> {
+    const finalizedHeader = await client.rpc.chain.getFinalizedHead().then(hash => client.rpc.chain.getHeader(hash));
+    const finalizedBlockHeader = BlockWatch.readHeader(finalizedHeader, true);
+    const bestBlockHeader = BlockWatch.readHeader(await client.rpc.chain.getHeader());
+    return { finalizedBlockHeader, bestBlockHeader };
   }
 
   public static readHeader(header: Header, isFinalized = false): IBlockHeaderInfo {

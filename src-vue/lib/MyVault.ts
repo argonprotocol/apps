@@ -2069,7 +2069,7 @@ export class MyVault {
       useLatestNonce: true,
       tip: args.tip,
     };
-    const submitter = new TxSubmitter(client, tx, txSigner);
+    const submitter = new TxSubmitter(client, tx, txSigner, this.miningFrames.blockWatch);
     const txResult = await submitter.submit(submitOptions);
     const metadata: IVaultIncreaseAllocationMetadata = {
       vaultId: vault.vaultId,

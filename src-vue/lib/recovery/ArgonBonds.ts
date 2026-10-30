@@ -352,11 +352,6 @@ async function readBondFrameEarnings({
   payout: ArgonApi;
   events: readonly RuntimeSystemEventRecord[];
 }): Promise<IBondFrameEarnings[]> {
-  const participationSpec = participation.runtimeVersion.specVersion.toNumber();
-  const payoutSpec = payout.runtimeVersion.specVersion.toNumber();
-  if (participationSpec > 160 || payoutSpec > 160) {
-    throw new Error(`Bond history requires an app update for runtime ${Math.max(participationSpec, payoutSpec)}`);
-  }
   const paysOwners = events.some(
     ({ event }) =>
       event.section === 'treasury' &&
@@ -588,8 +583,6 @@ async function getEarningParticipation({
 }
 
 export async function readHistoricalBondLots(client: ArgonApi, accountId: string): Promise<BondLot[]> {
-  const specVersion = client.runtimeVersion.specVersion.toNumber();
-  if (specVersion > 160) throw new Error(`Bond history requires an app update for runtime ${specVersion}`);
   const keys = await client.query.treasury.bondLotIdsByAccount.keys(accountId);
   const ids = (keys ?? []).map(key => key.args[1]);
   const stored = await client.query.treasury.bondLotById.multi(ids);
@@ -601,8 +594,6 @@ export async function readHistoricalBondLot(
   id: number,
   accountId: string,
 ): Promise<BondLot | undefined> {
-  const specVersion = client.runtimeVersion.specVersion.toNumber();
-  if (specVersion > 160) throw new Error(`Bond history requires an app update for runtime ${specVersion}`);
   const stored = await client.query.treasury.bondLotById(id);
   if (stored) return decodeHistoricalBondLot(id, stored, accountId);
 }

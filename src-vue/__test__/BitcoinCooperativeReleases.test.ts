@@ -289,6 +289,8 @@ describe('cooperative release approval with simulated chain observations', () =>
       const input = store.utxoTracking.getUtxoRecordById(discovered.id)!;
       expect(input.fundingRejectionReason).toBeUndefined();
       if (ownVault && !expired) {
+        // Keep the selected deposit older than the separate funding output, even within the same second.
+        await appDb.execute('UPDATE BitcoinUtxos SET createdAt = ? WHERE id = ?', ['2026-01-01 00:00:00', input.id]);
         fixture.currentLock = {
           ...fixture.storage,
           fundedSatoshis: fixture.request.satoshis,
@@ -381,7 +383,9 @@ describe('cooperative release approval with simulated chain observations', () =>
       }
       const persisted = (await appDb.bitcoinReleasesTable.fetchAll())[0];
       expect(persisted.cooperativeRequest?.requestSignature).toBeTruthy();
-      expect((await appDb.bitcoinUtxosTable.fetchAll())[0].activeReleaseId).toBe(persisted.id);
+      expect(
+        (await appDb.bitcoinUtxosTable.getByLockOutpoint(input.lockId, input.txid, input.vout))?.activeReleaseId,
+      ).toBe(persisted.id);
       expect(pendingFunding.value).toEqual([]);
       if (!ownVault) {
         expect(persisted.status).toBe(BitcoinReleaseStatus.WaitingForVaultCosign);
@@ -490,7 +494,7 @@ describe('cooperative release approval with simulated chain observations', () =>
       expect(await appDb.bitcoinReleasesTable.fetchAll()).toEqual([
         expect.objectContaining({ status: BitcoinReleaseStatus.Complete }),
       ]);
-      expect((await appDb.bitcoinUtxosTable.fetchAll())[0]).toMatchObject({
+      expect(await appDb.bitcoinUtxosTable.getByLockOutpoint(input.lockId, input.txid, input.vout)).toMatchObject({
         spendStatus: BitcoinUtxoSpendStatus.Spent,
         spentByReleaseId: persisted.id,
       });

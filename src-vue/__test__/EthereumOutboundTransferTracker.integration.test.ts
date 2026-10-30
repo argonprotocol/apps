@@ -2,7 +2,7 @@ import { EventEmitter } from 'node:events';
 import { computed, reactive } from 'vue';
 import { Metadata, TypeRegistry } from '@polkadot/types';
 import { hexToU8a, u8aConcat, u8aToHex } from '@polkadot/util';
-import { JsonExt, MoveToken, NetworkConfig, TransactionEvents } from '@argonprotocol/apps-core';
+import { JsonExt, MoveToken, NetworkConfig, TransactionEvents, TxSubmitter } from '@argonprotocol/apps-core';
 import { EvmContracts } from '@argonprotocol/mainchain';
 import { getBundledMetadata, type HistoricalEvent } from '@argonprotocol/runtime-client';
 import { afterEach, beforeEach, describe, expect, it, vi, type MockInstance } from 'vitest';
@@ -96,6 +96,7 @@ describe('EthereumOutboundTransferTracker integration', { tags: ['no-argon-netwo
           hash: { toHex: () => `0x${(options.nonce === 0 ? 'fb' : 'fc').repeat(32)}` },
           method: { toHuman: () => ({ section: 'crosschainTransfer', method: 'transferOut' }) },
           nonce: { toNumber: () => options.nonce },
+          era: new TypeRegistry().createType('ExtrinsicEra', 0),
           send: async () => {
             const intent = await db.crosschainOutboundTransfersTable.get(localId);
             const journal = (await db.transactionsTable.fetchAll())[0];
@@ -131,6 +132,12 @@ describe('EthereumOutboundTransferTracker integration', { tags: ['no-argon-netwo
       },
     };
     getMainchainClientMock.mockResolvedValue(client);
+    const sign = vi.spyOn(TxSubmitter.prototype, 'sign').mockImplementation(async function (
+      this: TxSubmitter,
+      options = {},
+    ) {
+      return await this.tx.signAsync(this.account.address, options);
+    });
     const findTransaction = vi.spyOn(TransactionEvents, 'findByExtrinsicHash').mockResolvedValue(undefined);
     const transactions = new TransactionTracker(Promise.resolve(db), blockWatch.instance as any);
     const tracker = new EthereumOutboundTransferTracker(
@@ -216,6 +223,7 @@ describe('EthereumOutboundTransferTracker integration', { tags: ['no-argon-netwo
       resumeSigning();
       tracker.shutdown();
       await transactions.shutdown();
+      sign.mockRestore();
       findTransaction.mockRestore();
       await db.close();
     }

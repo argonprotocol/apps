@@ -1,7 +1,8 @@
-import { TransactionEvents, type ArgonClient, type BlockWatch, MoveToken } from '@argonprotocol/apps-core';
+import { TransactionEvents, type ArgonClient, type BlockWatch, MoveToken, TxSubmitter } from '@argonprotocol/apps-core';
 import { ExtrinsicError, getOfflineRegistry } from '@argonprotocol/mainchain';
 import { SubmittableResult } from '@polkadot/api/submittable/Result';
 import type { ISubmittableResult } from '@polkadot/types/types';
+import { TypeRegistry } from '@polkadot/types';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { numberCodec } from '../../core/__test__/helpers/codecs.ts';
 import { TxAttemptState, TransactionTracker } from '../lib/TransactionTracker.ts';
@@ -27,6 +28,13 @@ type ITransactionTrackerTestApi = {
 describe('TransactionTracker', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.spyOn(TxSubmitter.prototype, 'sign').mockImplementation(async function (this: TxSubmitter, options = {}) {
+      const signed = await this.tx.signAsync(this.account.address, options);
+      Object.assign(signed, {
+        era: new TypeRegistry().createType('ExtrinsicEra', 0),
+      });
+      return signed;
+    });
   });
 
   it('retries a failed load and clears stale tx type entries on reload', async () => {
@@ -414,6 +422,33 @@ describe('TransactionTracker', () => {
     expect(txResult.isFinalized).toBe(false);
     findTransaction.mockRestore();
   });
+
+  it.each([0, 5])(
+    'does not expire an immortal attempt unless its finalized nonce is consumed (%s)',
+    async finalizedAccountNonce => {
+      const tx = {
+        ...createTransaction({
+          id: 4,
+          status: TransactionStatus.Submitted,
+          submittedAtBlockHeight: 100,
+          txNonce: 4,
+          blockHeight: undefined,
+          blockHash: undefined,
+        }),
+        mortalityPeriod: 0,
+      };
+      const findTransaction = vi.spyOn(TransactionEvents, 'findByExtrinsicHash').mockResolvedValue(undefined);
+      const { tracker } = await createTracker({ txs: [tx], finalizedHeight: 200, finalizedAccountNonce });
+      try {
+        expect(await tracker.reconcileUnconfirmedTransaction(tracker.data.txInfos[0], 64)).toBe(
+          finalizedAccountNonce > 4,
+        );
+        expect(tx.status).not.toBe(TransactionStatus.TimedOutWaitingForBlock);
+      } finally {
+        findTransaction.mockRestore();
+      }
+    },
+  );
 
   it('drops a stale submitted attempt and releases its nonce for replacement', async () => {
     const tx = createTransaction({
