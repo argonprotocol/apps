@@ -32,6 +32,8 @@ export interface IMiningIndex {
 }
 
 export const MINING_BID_PROXY_FEE_FLOAT = 1n * BigInt(MICROGONS_PER_ARGON);
+// Leave room to commit and reveal without spending the capital reserved for the maximum.
+export const MINING_BID_FEE_RESERVE = 2n * MINING_BID_PROXY_FEE_FLOAT;
 
 export type MiningBidProxySetupMetadata = {
   fundingAccountId: string;

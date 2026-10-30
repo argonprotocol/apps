@@ -68,7 +68,7 @@ it.for([
   vi.spyOn(accountset, 'createMiningBidMaxTx').mockResolvedValue(submitter);
 
   // @ts-expect-error exercise the real budget decision with only chain reads and fee estimation mocked
-  await bidder.planBid(blockHeader(100), 0, api);
+  await bidder.planBid(blockHeader(100), bidder.options, api);
   expect(bidder.nextBid?.subaccounts).toEqual([accounts[1].address]);
   expect(bidder.nextBid?.microgonsPerSeat).toBe(10_000n);
   blockWatch.destroy();

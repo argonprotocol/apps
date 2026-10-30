@@ -93,15 +93,14 @@ export class RangeCohortBidder extends CohortBidderBase<ICohortBiddingOptions, R
 
     if (pendingBids.length > 0) {
       this.nextBid = undefined;
-      const canReveal = await this.reconcileReveal(header);
-      if (this.isStopping || generation !== this.headerGeneration) return;
-
-      if (canReveal) {
-        this.pendingRequest = this.revealMaxima(pendingBids, header).finally(() => {
+      this.pendingRequest = (async () => {
+        if (await this.reconcileReveal(header)) await this.revealMaxima(pendingBids, header);
+      })()
+        .catch(error => this.error('Could not reconcile mining reveals; retrying on the next header:', error))
+        .finally(() => {
           this.pendingRequest = undefined;
           this.onUpdatedFn?.();
         });
-      }
       return;
     }
 
@@ -112,18 +111,23 @@ export class RangeCohortBidder extends CohortBidderBase<ICohortBiddingOptions, R
 
     if (this.activeBidAttempt && !this.activeBidAttempt.inclusion) return;
 
-    await this.planBid(header, generation, api);
-    if (this.isStopping || generation !== this.headerGeneration) return;
-    if (!this.isBiddingOpen || !this.nextBid) return;
+    const options = this.options;
+    this.pendingRequest = (async () => {
+      await this.planBid(header, options, api);
+      if (this.isStopping || this.options !== options) return;
+      if (!this.isBiddingOpen || !this.nextBid) return;
 
-    this.pendingRequest = this.submitBid(header).finally(() => {
-      this.pendingRequest = undefined;
-      this.onUpdatedFn?.();
-    });
+      await this.submitBid(header);
+    })()
+      .catch(error => this.error('Could not plan mining bids; retrying on the next header:', error))
+      .finally(() => {
+        this.pendingRequest = undefined;
+        this.onUpdatedFn?.();
+      });
   }
 
-  private async planBid(header: IBlockHeaderInfo, generation: number, api: ArgonCurrentQueryClient) {
-    const { minBid, maxBid } = this.options;
+  private async planBid(header: IBlockHeaderInfo, options: ICohortBiddingOptions, api: ArgonCurrentQueryClient) {
+    const { minBid, maxBid } = options;
     const bids = this.currentBids.bids;
     const ownedBids = bids.filter(bid => this.myAddresses.has(bid.address));
     const ownedByAddress = new Map(ownedBids.map(bid => [bid.address, bid]));
@@ -207,7 +211,7 @@ export class RangeCohortBidder extends CohortBidderBase<ICohortBiddingOptions, R
     }
 
     if (accountsToBid.length) {
-      const tip = this.options.tipPerTransaction ?? 0n;
+      const tip = options.tipPerTransaction ?? 0n;
       const commitment = await this.accountset.createMiningBidTx({
         subaccounts: accountsToBid,
         bidAmount: openingBid,
@@ -257,7 +261,9 @@ export class RangeCohortBidder extends CohortBidderBase<ICohortBiddingOptions, R
       }
     }
 
-    if (this.isStopping || generation !== this.headerGeneration) return;
+    const canonical = await this.blockWatch.getHeader(header.blockNumber);
+    if (this.isStopping || this.options !== options) return;
+    if (canonical.blockHash !== header.blockHash) return;
 
     this.botCapital = botCapital;
     this.nextBid = undefined;
@@ -291,7 +297,7 @@ export class RangeCohortBidder extends CohortBidderBase<ICohortBiddingOptions, R
         subaccounts: accountsToBid.map(account => account.address),
         alreadyWinningSeats: ownedBids.length,
         bidAtTick: header.tick,
-        tip: this.options.tipPerTransaction ?? 0n,
+        tip: options.tipPerTransaction ?? 0n,
       };
     }
 
@@ -335,6 +341,9 @@ export class RangeCohortBidder extends CohortBidderBase<ICohortBiddingOptions, R
         tip: bid.tip,
       });
 
+      const plannedAt = await this.blockWatch.getHeader(header.blockNumber);
+      if (plannedAt.blockHash !== header.blockHash) return;
+
       const current = this.blockWatch.bestBlockHeader;
       if (this.isStopping || !this.isBiddingOpen) return;
       if (current.blockNumber >= deathBlock || current.frameId !== header.frameId) return;
@@ -346,9 +355,13 @@ export class RangeCohortBidder extends CohortBidderBase<ICohortBiddingOptions, R
         api.query.miningSlot.nextFrameId(),
       ]);
       if (!biddingOpen || admissionClosed) return;
-      if (this.options !== options) return;
       if (frameId !== this.cohortStartingFrameId) return;
-      if (this.blockWatch.bestBlockHeader.blockHash !== current.blockHash) return;
+      const canonical = await this.blockWatch.getHeader(current.blockNumber);
+      if (canonical.blockHash !== current.blockHash) return;
+
+      const latest = this.blockWatch.bestBlockHeader;
+      if (this.isStopping || !this.isBiddingOpen || this.options !== options) return;
+      if (latest.blockNumber >= deathBlock || latest.frameId !== header.frameId) return;
 
       // Sponsored commitment and reveal calls share a pool tag; reconcile their canonical receipts.
       const result = await submitter.submitSigned(signedTx, { disableAutomaticTxTracking: this.accountset.isProxy });
@@ -370,7 +383,6 @@ export class RangeCohortBidder extends CohortBidderBase<ICohortBiddingOptions, R
     const attempt = this.revealAttempt;
     if (!attempt || attempt.txResult.isFinalized || attempt.txResult.submissionError) return true;
 
-    const generation = this.headerGeneration;
     const { txResult } = attempt;
     const inclusion = await TransactionEvents.findByExtrinsicHash({
       blockWatch: this.blockWatch,
@@ -378,8 +390,9 @@ export class RangeCohortBidder extends CohortBidderBase<ICohortBiddingOptions, R
       searchStartBlockHeight: txResult.extrinsic.submittedAtBlockNumber,
       bestBlockHeight: header.blockNumber,
     });
-    if (this.isStopping || generation !== this.headerGeneration) return false;
-    if (this.blockWatch.bestBlockHeader.blockHash !== header.blockHash) return false;
+    const canonical = await this.blockWatch.getHeader(header.blockNumber);
+    if (this.isStopping || this.revealAttempt !== attempt) return false;
+    if (canonical.blockHash !== header.blockHash) return false;
 
     // An unseen transaction is still pending; a previously seen one has been reorged.
     if (!inclusion) return attempt.inclusion !== undefined;
@@ -448,7 +461,13 @@ export class RangeCohortBidder extends CohortBidderBase<ICohortBiddingOptions, R
 
       const api = runtimeClient(await this.client.at(current.blockHash));
       const currentPending = await api.query.miningSlot.pendingBids.multi(bids.map(bid => bid.address));
-      if (this.blockWatch.bestBlockHeader.blockHash !== current.blockHash) return;
+      const canonical = await this.blockWatch.getHeader(current.blockNumber);
+      if (canonical.blockHash !== current.blockHash) return;
+
+      const latestHeader = this.blockWatch.bestBlockHeader;
+      if (this.isStopping || latestHeader.frameId !== header.frameId) return;
+      if (latestHeader.blockNumber >= lastRevealBlock || latestHeader.blockNumber >= deathBlock) return;
+
       for (const [index, bid] of bids.entries()) {
         const original = pending.find(entry => entry.miner === bid.address)!;
         const latest = currentPending?.[index];

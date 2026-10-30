@@ -3,6 +3,7 @@ import {
   bigIntMax,
   bigIntMin,
   MINING_BID_PROXY_FEE_FLOAT,
+  MINING_BID_FEE_RESERVE,
   type MiningBidProxySetupMetadata,
   MoveFrom,
   MoveTo,
@@ -94,7 +95,22 @@ export class MiningSetup {
 
     const funding = await this.createFunding(input);
     if (funding.kind !== 'funding') {
-      if (funding.kind !== 'ready') return funding;
+      if (funding.kind === 'blocked') return funding;
+      if (funding.kind === 'noSpendableFundsToSweep') {
+        const { miningBotWallet, config } = input;
+        if (
+          miningBotWallet.availableMicrogons + miningBotWallet.reservedMicrogons <
+          config.biddingRules.initialMicrogonRequirement
+        ) {
+          return funding;
+        }
+        if (
+          miningBotWallet.availableMicronots + miningBotWallet.reservedMicronots <
+          config.biddingRules.initialMicronotRequirement
+        ) {
+          return funding;
+        }
+      }
 
       const proxySetup = await this.proxySetup.ensure(input.client);
       if (proxySetup.kind === 'ready') return proxySetup;
@@ -129,6 +145,7 @@ export class MiningSetup {
     const spendableMicronots = bigIntMax(defaultWallet.availableMicronots - existentialDepositMicronots, 0n);
     const requiredMicrogons = bigIntMax(
       config.biddingRules.initialMicrogonRequirement +
+        MINING_BID_FEE_RESERVE +
         MINING_BID_PROXY_FEE_FLOAT -
         (miningBotWallet.availableMicrogons + miningBotWallet.reservedMicrogons),
       0n,

@@ -1,5 +1,4 @@
-import { integrationNetwork as network } from '@argonprotocol/apps-core/__test__/integration.setup.ts';
-import { afterAll, beforeAll, describe, expect, inject, it, vi } from 'vitest';
+import { afterAll, afterEach, beforeAll, describe, expect, inject, it, vi } from 'vitest';
 import { createKeyringPair, Keyring, mnemonicGenerate } from '@argonprotocol/mainchain';
 import { SKIP_E2E } from '@argonprotocol/testing';
 import {
@@ -7,6 +6,7 @@ import {
   type ArgonClient,
   getRange,
   MainchainClients,
+  NetworkConfig,
   Mining,
   MiningFrames,
   RangeCohortBidder,
@@ -24,16 +24,19 @@ import { History } from '../src/History.ts';
 import { Storage } from '../src/Storage.ts';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
+import { randomUUID } from 'node:crypto';
+import { startArgonTestNetwork } from '@argonprotocol/apps-core/__test__/startArgonTestNetwork.ts';
 import Path from 'node:path';
 import { sudoSubmitAndFinalize } from '@argonprotocol/apps-core/__test__/helpers/mainchain.ts';
 
-describe.skipIf(SKIP_E2E)('Range cohort bidder', { tags: ['mining-auction'] }, () => {
+describe.skipIf(SKIP_E2E)('Range cohort bidder', { tags: ['isolated-argon-network'] }, () => {
   const fundingAccount = new Keyring({ type: 'sr25519' }).addFromUri(
     integrationAccountUri(inject('argonIntegrationRunId'), import.meta.filename, 'funded'),
   );
   const sessionMiniSecretOrMnemonic = mnemonicGenerate();
   const rivalAccount = fundingAccount.derive('//rival');
   const bidders: RangeCohortBidder[] = [];
+  let network: Awaited<ReturnType<typeof startArgonTestNetwork>>;
   let clients: MainchainClients;
   let frames: MiningFrames;
   let client: ArgonClient;
@@ -41,8 +44,23 @@ describe.skipIf(SKIP_E2E)('Range cohort bidder', { tags: ['mining-auction'] }, (
   let rival: Accountset;
 
   beforeAll(async () => {
+    // A finalized standing ceiling and a competing batch must fit within the same auction.
+    network = await startArgonTestNetwork(`range-bidder-${randomUUID()}`, {
+      ticksBetweenSlots: 30,
+      profiles: ['bob', 'price-oracle'],
+      registerTeardown: false,
+    });
     clients = new MainchainClients(network.archiveUrl, () => false);
     client = await clients.get(false);
+    NetworkConfig.setNetwork('dev-docker');
+    await NetworkConfig.updateConfig(client);
+    NetworkConfig.setRuntimeOverride('dev-docker', network.networkConfigOverride);
+    await sudoFundWallet({
+      client,
+      address: fundingAccount.address,
+      microgons: 500_000_000n,
+      micronots: (await client.query.miningSlot.argonotsPerMiningSeat()) * BigInt(client.consts.mint.maxPossibleMiners),
+    });
     frames = new MiningFrames(clients);
     accountset = new Accountset({
       client,
@@ -71,10 +89,13 @@ describe.skipIf(SKIP_E2E)('Range cohort bidder', { tags: ['mining-auction'] }, (
     }
   });
 
+  afterEach(() => vi.restoreAllMocks());
+
   afterAll(async () => {
     await Promise.allSettled(bidders.map(bidder => bidder.stop(false)));
     await frames?.stop();
     await clients?.disconnect();
+    await network?.stop();
   });
 
   it.for([
@@ -102,6 +123,30 @@ describe.skipIf(SKIP_E2E)('Range cohort bidder', { tags: ['mining-auction'] }, (
       { onBidParamsAdjusted: capacity => capacities.push(capacity) },
     );
     bidders.push(bidder);
+
+    // Reproduce an RPC response arriving after the next block. The previous bidder cancelled
+    // these valid bids because the queried block was no longer the best block.
+    const at = client.raw.at.bind(client.raw);
+    const delayed = new WeakSet<object>();
+    vi.spyOn(client.raw, 'at').mockImplementation(async (...args) => {
+      const api = await at(...args);
+      // Reusing a snapshot must not wrap its query again and stack additional block waits.
+      if (!delayed.has(api)) {
+        delayed.add(api);
+        const nextFrameId = api.query.miningSlot.nextFrameId;
+        vi.spyOn(api.query.miningSlot, 'nextFrameId').mockImplementation(async (...queryArgs) => {
+          const height = frames.blockWatch.bestBlockHeader.blockNumber;
+          const result = await nextFrameId(...queryArgs);
+          // Delay delivery of the real response; keep the data from the originally queried block.
+          await waitFor(10_000, 'canonical head to advance during preflight', () => {
+            return frames.blockWatch.bestBlockHeader.blockNumber > height;
+          });
+          return result;
+        });
+      }
+      return api;
+    });
+
     await bidder.start();
     const established = await waitFor(45_000, 'finalized standing range ceiling', async () => {
       const hash = await client.rpc.chain.getFinalizedHead();
