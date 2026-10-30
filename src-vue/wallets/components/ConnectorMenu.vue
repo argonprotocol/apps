@@ -39,7 +39,7 @@
         >
           <DropdownMenuItem asChild :disabled="!chainConfig">
             <a
-              :href="chainConfig && StableSwaps.getUniswapMarketUrl(chainConfig.argonTokenAddress, chainConfig.chainId)"
+              :href="chainConfig && getUniswapMarketUrl(chainConfig.argonTokenAddress, chainConfig.chainId)"
               target="_blank"
               rel="noopener noreferrer"
             >
@@ -50,7 +50,7 @@
         </WalletGuideAnchor>
         <DropdownMenuItem asChild :disabled="!chainConfig">
           <a
-            :href="chainConfig && StableSwaps.getUniswapMarketUrl(chainConfig.argonotTokenAddress, chainConfig.chainId)"
+            :href="chainConfig && getUniswapMarketUrl(chainConfig.argonotTokenAddress, chainConfig.chainId)"
             target="_blank"
             rel="noopener noreferrer"
           >
@@ -139,7 +139,7 @@ import {
 } from 'reka-ui';
 import basicEmitter from '../../emitters/basicEmitter.ts';
 import { loadEthereumChainConfig, type IEthereumChainConfig } from '../../lib/EthereumClient.ts';
-import { StableSwaps } from '../../lib/StableSwaps.ts';
+import { getUniswapMarketUrl } from '../../lib/Utils.ts';
 import type { WalletForEthereum } from '../../lib/WalletForEthereum.ts';
 import { WalletType } from '../../lib/Wallet.ts';
 import OverlayBase from '../../overlays/OverlayBase.vue';

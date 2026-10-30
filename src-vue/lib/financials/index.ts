@@ -475,7 +475,6 @@ function isReturnPosition(position: IFinancialPosition): position is IFinancialI
     position.kind === 'mining-cohort' ||
     position.kind === 'vault' ||
     position.kind === 'bond' ||
-    position.kind === 'bitcoin-liquid' ||
-    position.kind === 'stable-swap'
+    position.kind === 'bitcoin-liquid'
   );
 }

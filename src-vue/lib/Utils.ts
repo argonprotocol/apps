@@ -254,3 +254,10 @@ export function generateProgressLabel(
   const ordinalSuffix = getOrdinalSuffix(num);
   return `${prefix}Waiting for ${num}${ordinalSuffix} ${blockType}Block...`;
 }
+
+export function getUniswapMarketUrl(tokenAddress: string, chainId: number): string {
+  if (chainId === 11155111) {
+    return `https://app.uniswap.org/swap?chain=sepolia&outputCurrency=${tokenAddress}`;
+  }
+  return `https://app.uniswap.org/explore/tokens/ethereum/${tokenAddress}`;
+}

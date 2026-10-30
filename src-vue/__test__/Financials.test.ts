@@ -301,7 +301,7 @@ describe('financial position accounting', () => {
   });
 
   it.each(['mainnet', 'dev-docker'] as const)(
-    'weights vault and stable-swap returns over simulated days on %s',
+    'weights account returns by cost across vault investments over simulated days on %s',
     network => {
       const previousNetwork = NetworkConfig.networkName!;
       onTestFinished(() => NetworkConfig.setNetwork(previousNetwork));
@@ -329,10 +329,10 @@ describe('financial position accounting', () => {
           revenueHistory: [],
         },
         {
-          id: 'swap-1',
-          kind: 'stable-swap',
-          group: 'ethereum',
-          label: 'Stable swap holdings',
+          id: 'vault-2',
+          kind: 'vault',
+          group: 'vaulting',
+          label: 'Vault 2',
           lifecycle: 'active',
 
           currentValue: 330n,
@@ -340,10 +340,12 @@ describe('financial position accounting', () => {
           paidIncome: 0n,
           settledPrincipalValue: 0n,
           startedAt,
-          wallet,
-          purchases: [],
-          nativeAmount: 330n,
-          isQuantityReconciled: true,
+          vaultId: 2,
+          vault: {} as Vault,
+          securitization: 330n,
+          uncollectedRevenue: 0n,
+          capitalHistory: [],
+          revenueHistory: [],
         },
       ];
 
@@ -363,29 +365,31 @@ describe('financial position accounting', () => {
   it('keeps an unavailable investment return unavailable instead of reporting zero percent', () => {
     const positions: IFinancialPosition[] = [
       {
-        id: 'stable-swap-1',
-        kind: 'stable-swap',
-        group: 'ethereum',
-        label: 'Stable swap holdings',
+        id: 'vault-unknown',
+        kind: 'vault',
+        group: 'vaulting',
+        label: 'Vault holdings',
         lifecycle: 'active',
 
         currentValue: 100n,
         paidIncome: 0n,
         settledPrincipalValue: 0n,
         startedAt: new Date('2026-01-01T00:00:00Z'),
-        wallet,
-        purchases: [],
-        nativeAmount: 100n,
-        isQuantityReconciled: false,
+        vaultId: 2,
+        vault: {} as Vault,
+        securitization: 100n,
+        uncollectedRevenue: 0n,
+        capitalHistory: [],
+        revenueHistory: [],
       },
     ];
 
     const aggregate = reduceFinancialPositions(readySnapshots(positions));
-    const stableSwaps = aggregate.groupSummaries.ethereum;
+    const vaulting = aggregate.groupSummaries.vaulting;
 
-    expect(stableSwaps?.returnSummary.availability).toBe('unavailable');
-    expect(stableSwaps?.returnSummary.percent).toBeUndefined();
-    expect(stableSwaps?.returnSummary.returnAmount).toBeUndefined();
+    expect(vaulting?.returnSummary.availability).toBe('unavailable');
+    expect(vaulting?.returnSummary.percent).toBeUndefined();
+    expect(vaulting?.returnSummary.returnAmount).toBeUndefined();
   });
 
   it('values wallet ARGNOT without reporting it as an investment return', () => {

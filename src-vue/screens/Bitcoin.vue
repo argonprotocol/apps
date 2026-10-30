@@ -21,8 +21,8 @@
 <script setup lang="ts">
 import * as Vue from 'vue';
 import BitcoinLiquidCreationController from '../overlays/BitcoinLiquidCreationController.vue';
-import BlankSlate from './bitcoin-screen/BlankSlate.vue';
-import Dashboard from './bitcoin-screen/Dashboard.vue';
+import BlankSlate from './bitcoin-liquids-screen/BlankSlate.vue';
+import Dashboard from './bitcoin-liquids-screen/Dashboard.vue';
 import { getBitcoinFissions, getBitcoinLocks } from '../stores/bitcoin.ts';
 import { getCurrency } from '../stores/currency.ts';
 

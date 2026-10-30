@@ -8,7 +8,6 @@ import type {
 
 import type { IWallet } from '../lib/Wallet.ts';
 import type { BitcoinLiquid } from '../lib/BitcoinLiquid.ts';
-import type { IStableSwapPurchaseRecord } from '../lib/db/StableSwapPurchasesTable.ts';
 import type { IBondLotHistoryRecord } from '../lib/db/BondLotHistoryTable.ts';
 import type { IBitcoinLockRecord } from './IBitcoinLockRecord.ts';
 import type { IMiningCohortFinancialRecord } from './db/ICohortFrameRecord.ts';
@@ -197,15 +196,6 @@ export interface IBitcoinLiabilityFinancialPosition extends IFinancialPositionBa
   lock: IBitcoinLockRecord;
 }
 
-export interface IStableSwapFinancialPosition extends IFinancialInvestmentPositionBase {
-  kind: 'stable-swap';
-  group: 'ethereum';
-  wallet: IWallet;
-  purchases: readonly IStableSwapPurchaseRecord[];
-  nativeAmount: bigint;
-  isQuantityReconciled: boolean;
-}
-
 export type IFinancialInvestmentPosition =
   | IWalletHoldingFinancialPosition
   | IMiningBidFinancialPosition
@@ -213,8 +203,7 @@ export type IFinancialInvestmentPosition =
   | IMiningArgonotFinancialPosition
   | IBondFinancialPosition
   | IVaultFinancialPosition
-  | IBitcoinLiquidFinancialPosition
-  | IStableSwapFinancialPosition;
+  | IBitcoinLiquidFinancialPosition;
 
 export type IFinancialPosition =
   | IWalletBalanceFinancialPosition
@@ -251,7 +240,6 @@ const financialGroupByPositionKind = {
   'bitcoin-asset': 'bitcoin',
   'bitcoin-liquid': 'bitcoin',
   'bitcoin-liability': 'bitcoin',
-  'stable-swap': 'ethereum',
 } as const satisfies { [Kind in FinancialPositionKind]: IFinancialPositionByKind[Kind]['group'] };
 
 type FinancialInvestmentPositionKind = IFinancialInvestmentPosition['kind'];

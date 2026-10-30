@@ -36,15 +36,7 @@
               <div class="mr-1 w-6">
                 <SwapIcon class="w-5.5 opacity-90" />
               </div>
-              <div class="grow">Stable Swaps</div>
-              <!--              <div v-if="currency.isLoaded" class="opacity-60">-->
-              <!--                {{ currency.symbol-->
-              <!--                }}{{-->
-              <!--                  config.hasActivatedStableSwaps-->
-              <!--                    ? microgonToMoneyNm(financials.swapsTotalValue).format('0,0.00')-->
-              <!--                    : '0.00'-->
-              <!--                }}-->
-              <!--              </div>-->
+              <div class="grow">Market Stablizers</div>
             </article>
             <div Selector LastSelector />
           </li>

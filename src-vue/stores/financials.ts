@@ -35,14 +35,12 @@ import {
 import type { IBitcoinLockSummary } from '../interfaces/IBitcoinLockSummary.ts';
 import { VaultFinancials } from '../lib/financials/MyVault.ts';
 import type { IArgonAccountSnapshot } from '../lib/WalletsForArgon.ts';
-import { StableSwapFinancials } from '../lib/financials/StableSwaps.ts';
 import { WalletFinancials } from '../lib/financials/WalletBalances.ts';
 import { ArgonBondsFinancials } from '../lib/financials/ArgonBonds.ts';
 import { MiningFinancials } from '../lib/financials/MyMiningSeats.ts';
 import type { MyMiningSeats } from '../lib/MyMiningSeats.ts';
 import { useVaultingStats } from './vaultingStats.ts';
 import { getConfig } from './config.ts';
-import { useStableSwaps } from './stableSwaps.ts';
 import { logStartupTiming } from '../lib/Utils.ts';
 
 const mainchainFinancialGroups = ['liquid', 'mining', 'vaulting', 'bonds', 'bitcoin'] as const;
@@ -57,12 +55,10 @@ export const useFinancials = defineStore('financials', () => {
   const config = getConfig();
   const vaultStore = getVaults();
   const myVault = getMyVault();
-  const stableSwaps = useStableSwaps();
   const walletFinancials = new WalletFinancials(walletsForArgon);
   const bondFinancials = new ArgonBondsFinancials(argonBonds);
   const bitcoinFinancials = new BitcoinFinancials(bitcoinLocks, bitcoinFissions, getDbPromise());
   const vaultFinancials = new VaultFinancials(myVault, argonBonds);
-  const stableSwapFinancials = new StableSwapFinancials(stableSwaps);
   let myMiningSeats: ReturnType<typeof getMyMiningSeats> | undefined;
   let miningFinancials: MiningFinancials | undefined;
   let vaultingStats: ReturnType<typeof useVaultingStats> | undefined;
@@ -106,19 +102,6 @@ export const useFinancials = defineStore('financials', () => {
 
     const refresh = financialPositionBook.beginRefresh('ethereum');
     const positions: IFinancialPosition[] = [...wallets.ethereumFinancialPositions];
-
-    // if (config.hasActivatedStableSwaps && !wallets.ethereumWallet.fetchErrorMsg) {
-    //   const [stableSwapPosition] = stableSwapFinancials.createFinancialPositions({
-    //     wallet: wallets.ethereumWallet,
-    //     walletSnapshot: stableSwaps.walletSnapshot,
-    //     currentPriceMicrogons: stableSwaps.marketSnapshot?.currentPriceMicrogons,
-    //   });
-    //   if (stableSwapPosition?.currentValue !== undefined) {
-    //     const argonPositionIndex = positions.findIndex(position => position.id === stableSwapPosition.id);
-    //     if (argonPositionIndex === -1) positions.push(stableSwapPosition);
-    //     else positions[argonPositionIndex] = stableSwapPosition;
-    //   }
-    // }
 
     financialPositionBook.publish(refresh, positions, {
       observedAt: new Date(),
@@ -449,24 +432,6 @@ export const useFinancials = defineStore('financials', () => {
     };
   }
 
-  async function refreshStableSwapPosition(): Promise<void> {
-    // if (!config.hasExtensionTreasury || !config.hasActivatedStableSwaps) {
-    //   publishEthereumWallet();
-    //   return;
-    // }
-    //
-    // try {
-    //   if (stableSwaps.marketSnapshot) {
-    //     await stableSwaps.refreshWalletSnapshot();
-    //   } else {
-    //     await stableSwapFinancials.loadPositions({ wallet: wallets.ethereumWallet });
-    //   }
-    // } catch (error) {
-    //   console.error('Unable to load stable swap history', error);
-    // }
-    // publishEthereumWallet();
-  }
-
   // Vaults ////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
   const vaultsActiveRecords = Vue.computed(() =>
@@ -722,36 +687,6 @@ export const useFinancials = defineStore('financials', () => {
     { deep: true },
   );
 
-  // Vue.watch(
-  //   () => [wallets.ethereumWallet.address, wallets.ethereumWallet.availableMicrogons],
-  //   ([address], [previousAddress]) => {
-  //     if (!isLoaded.value) return;
-  //     if (!config.hasActivatedStableSwaps) return;
-  //     if (
-  //       address !== previousAddress ||
-  //       (!stableSwaps.marketSnapshot && wallets.ethereumWallet.availableMicrogons > 0n)
-  //     ) {
-  //       void refreshStableSwapPosition();
-  //     }
-  //   },
-  // );
-
-  Vue.watch(
-    () => config.isLoaded && config.hasActivatedStableSwaps,
-    () => {
-      if (!isLoaded.value) return;
-      void refreshStableSwapPosition();
-    },
-  );
-
-  Vue.watch(
-    () => [stableSwaps.walletSnapshot, stableSwaps.marketSnapshot],
-    () => {
-      if (!isLoaded.value || !config.hasActivatedStableSwaps) return;
-      publishEthereumWallet();
-    },
-  );
-
   wallets.on('balance-change', () => {
     if (!isLoaded.value) return;
     void queueAccountRefresh();
@@ -864,7 +799,6 @@ export const useFinancials = defineStore('financials', () => {
         if (config.hasExtensionTreasury) {
           startLockSummaryProgressRefresh();
         }
-        await refreshStableSwapPosition();
 
         // The basic app snapshot omits hold details. Reload the current best
         // block when a domain activates so its positions can claim those holds.
@@ -875,25 +809,6 @@ export const useFinancials = defineStore('financials', () => {
       }
     },
   );
-
-  // Stable Swaps //////////////////////////////////////////////////////////////////////////////////////////////////////
-
-  const swapsTotalValue = Vue.computed(() => {
-    return 0n;
-    // const micronotValue = currency.convertMicronotTo(
-    //   wallets.ethereumWallet.availableMicronots,
-    //   UnitOfMeasurement.Microgon,
-    // );
-    // const otherTokenValue = wallets.ethereumWallet.otherTokens.reduce((totalValue, token) => {
-    //   return totalValue + currency.convertOtherToMicrogon(token);
-    // }, 0n);
-    //
-    // return wallets.ethereumWallet.availableMicrogons + micronotValue + otherTokenValue;
-  });
-
-  const stableSwapPerformanceReturns = Vue.computed(() => {
-    return financialPositionAggregate.value.groupSummaries.ethereum.returnSummary;
-  });
 
   //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
@@ -931,7 +846,6 @@ export const useFinancials = defineStore('financials', () => {
     });
     savingsIsLoaded.value = true;
     publishEmptyBaseGroup();
-    void refreshStableSwapPosition();
     if (config.hasExtensionTreasury) startLockSummaryProgressRefresh();
 
     isLoaded.value = true;
@@ -987,9 +901,6 @@ export const useFinancials = defineStore('financials', () => {
     liquidCurrentBitcoinDebt,
     liquidPerformanceReturns,
     liquidHodlingReturns,
-
-    swapsTotalValue,
-    stableSwapPerformanceReturns,
 
     financialPositionAggregate,
   };

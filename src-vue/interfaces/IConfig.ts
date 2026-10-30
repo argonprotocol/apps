@@ -249,8 +249,6 @@ export const ConfigSchema = z.object({
     longitude: z.string(),
   }),
   certificationDetails: ConfigCertificationDetailsSchema.optional(),
-
-  hasActivatedStableSwaps: z.boolean(),
 });
 
 // ---- Optional Type Inference ---- //
@@ -317,6 +315,4 @@ export interface IConfigDefaults {
   returnMetric: () => IConfig['returnMetric'];
   userJurisdiction: () => IConfig['userJurisdiction'];
   certificationDetails: () => IConfig['certificationDetails'];
-
-  hasActivatedStableSwaps: () => IConfig['hasActivatedStableSwaps'];
 }

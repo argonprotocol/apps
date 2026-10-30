@@ -187,8 +187,8 @@ const returnRows = Vue.computed(() => {
     const group = aggregate.value.groupSummaries[groupName];
     if (group.returnSummary.investmentPositionCount === 0) return [];
     if ((group.group === 'mining' || group.group === 'vaulting') && !config.hasExtensionOperations) return [];
-    if (group.group === 'ethereum' && !config.hasActivatedStableSwaps) return [];
-    if (!['mining', 'vaulting', 'ethereum'].includes(group.group) && !config.hasExtensionTreasury) return [];
+    if (group.group === 'ethereum') return [];
+    if (!['mining', 'vaulting'].includes(group.group) && !config.hasExtensionTreasury) return [];
 
     if (group.group === 'bonds') {
       return bondAssetMenuItems.flatMap(({ asset, label }) => {
@@ -199,8 +199,7 @@ const returnRows = Vue.computed(() => {
     }
 
     let label = financialMenuLabels[group.group];
-    if (group.group === 'ethereum') label = 'Stable swaps';
-    else if (group.group === 'bitcoin') label = 'Bitcoin Liquids';
+    if (group.group === 'bitcoin') label = 'Bitcoin Liquids';
 
     return [{ ...group, key: group.group, label }];
   });
