@@ -1,3 +1,4 @@
+import { MINING_BID_PROXY_FEE_FLOAT, MINING_BID_FEE_RESERVE } from '@argonprotocol/apps-core';
 import { MICROGONS_PER_ARGON } from '@argonprotocol/mainchain';
 import { sudoFundWallet, type ISudoFundWalletInput } from '../helpers/sudoFundWallet.ts';
 import { parseDecimalToUnits, pollEvery } from '../helpers/utils.ts';
@@ -7,7 +8,6 @@ import type { IE2EOperationInspectState } from '../types.ts';
 import { MiningSetupStatus } from '../types/srcVue.ts';
 
 const DEFAULT_MINING_FUNDING_MULTIPLIER = 10n;
-const MICROGONS_PER_ARGON_TEXT = BigInt(MICROGONS_PER_ARGON).toString();
 
 type IFundingState = {
   walletFullyFunded: boolean;
@@ -172,13 +172,26 @@ function deriveMiningFunding(
 
 async function readFundingState(flow: IMiningFlowContext['flow']): Promise<IFundingState | undefined> {
   return await flow.queryApp(
-    (refs, args: { microgonsPerArgonText: string; finishedSetupStatus: MiningSetupStatus }) => {
+    (
+      refs,
+      args: {
+        feeReserve: string;
+        proxyFloat: string;
+        finishedSetupStatus: MiningSetupStatus;
+        installingSetupStatus: MiningSetupStatus;
+      },
+    ) => {
       if (!refs.config.hasSavedBiddingRules) {
         return { walletFullyFunded: false };
       }
 
-      const futureTransactionFeeBudgetMicrogons =
-        refs.config.miningSetupStatus === args.finishedSetupStatus ? 0n : 2n * BigInt(args.microgonsPerArgonText);
+      let futureTransactionFeeBudgetMicrogons = 0n;
+      if (
+        refs.config.miningSetupStatus !== args.finishedSetupStatus &&
+        refs.config.miningSetupStatus !== args.installingSetupStatus
+      ) {
+        futureTransactionFeeBudgetMicrogons = BigInt(args.feeReserve) + BigInt(args.proxyFloat);
+      }
       const availableMicronots =
         refs.wallets.defaultArgonWallet.availableMicronots + refs.wallets.miningBotWallet.availableMicronots;
       const reservedMicronots =
@@ -196,8 +209,10 @@ async function readFundingState(flow: IMiningFlowContext['flow']): Promise<IFund
     {
       timeoutMs: 10_000,
       args: {
-        microgonsPerArgonText: MICROGONS_PER_ARGON_TEXT,
+        feeReserve: MINING_BID_FEE_RESERVE.toString(),
+        proxyFloat: MINING_BID_PROXY_FEE_FLOAT.toString(),
         finishedSetupStatus: MiningSetupStatus.Finished,
+        installingSetupStatus: MiningSetupStatus.Installing,
       },
     },
   );

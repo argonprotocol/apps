@@ -64,9 +64,6 @@ export const BiddingRulesSchema = z.object({
   initialMicrogonRequirement: z.bigint(),
   initialMicronotRequirement: z.bigint(),
   initialCapitalCommitment: z.bigint().optional(),
-
-  sidelinedMicrogons: z.bigint(),
-  sidelinedMicronots: z.bigint(),
 });
 
 export type IBiddingRules = z.infer<typeof BiddingRulesSchema>;

@@ -327,13 +327,12 @@ describe('CohortBidder unit tests', () => {
     expect(onBidParamsAdjusted.mock.calls[0][0].reason).toBe('max-bid-too-low');
   });
 
-  it('should be not exceed available argonots', async () => {
+  it('does not bid more seats than its available ARGNOT can fund', async () => {
     const { cohortBidder } = await createBidderWithMocks(accountset, [0, 9], {
       minBid: Argons(0.5),
       maxBid: Argons(5),
       accountBalance: Argons(10),
-      accountMicronots: 30_000n,
-      sidelinedWalletMicronots: 10_000n, // max of 2 seats worth
+      accountMicronots: 20_000n,
     });
     cohortBidder.currentBids.bids = createBids(10, Argons(0.5));
     cohortBidder.currentBids.atTick = 10;
@@ -350,14 +349,13 @@ describe('CohortBidder unit tests', () => {
     expect(cohortBidder.nextBid?.subaccounts.length).toBe(2);
   });
 
-  it('should be able to set a max argonot budget', async () => {
+  it('limits additional seats to free ARGNOT when already winning seats', async () => {
     const { cohortBidder } = await createBidderWithMocks(accountset, [0, 9], {
       minBid: Argons(0.5),
       maxBid: Argons(5),
       accountBalance: Argons(10),
-      accountMicronots: 100_000n, // max of 2 seats worth
+      accountMicronots: 10_000n,
     });
-    cohortBidder.options.sidelinedWalletMicronots = 90_000n; // max 1 more
     cohortBidder.currentBids.bids = [
       ...cohortBidder.subaccounts.slice(0, 2).map(x => {
         return { bidAtTick: 10, bidMicrogons: Argons(1), address: x.address, micronotsStaked: 10_000n };
@@ -812,7 +810,7 @@ describe('CohortBidder unit tests', () => {
     // @ts-expect-error constraining the private cohort size for this planning race
     cohortBidder.nextCohortSize = 1;
     let resolveOlderBalance!: (balance: bigint) => void;
-    vi.spyOn(accountset, 'submitterBalance')
+    vi.spyOn(accountset, 'balance')
       .mockReset()
       .mockReturnValueOnce(
         new Promise(resolve => {
@@ -859,7 +857,7 @@ describe('CohortBidder unit tests', () => {
       accountBalance,
       accountMicronots,
     });
-    vi.spyOn(accountset, 'submitterBalance').mockImplementation(() => Promise.resolve(accountBalance));
+    vi.spyOn(accountset, 'balance').mockImplementation(() => Promise.resolve(accountBalance));
     vi.spyOn(accountset, 'accountMicronots').mockImplementation(() => Promise.resolve(accountMicronots));
     vi.spyOn(cohortBidder, 'submitNextBid' as any).mockResolvedValue(undefined);
     cohortBidder.currentBids.atBlockNumber = 100;
@@ -1246,8 +1244,8 @@ describe('CohortBidder unit tests', () => {
     const { blockWatch, cohortBidder, includedBlock, txResult } = createBidRecoveryHarness(accountset);
     const findTransaction = vi.spyOn(TransactionEvents, 'findByExtrinsicHash');
 
-    // @ts-expect-error exercising private mortality fallback behavior
-    cohortBidder.startBidMortalityFallback(txResult, deathBlock);
+    // @ts-expect-error exercise the real bidder receipt tracking boundary
+    void cohortBidder.trackReceipt(txResult, deathBlock);
     const found = createFoundTransaction(includedBlock);
     await txResult.setSeenInBlock(accountset.client, {
       blockHash: Uint8Array.from({ length: 32 }, () => 1),
@@ -1270,8 +1268,8 @@ describe('CohortBidder unit tests', () => {
     const { blockWatch, cohortBidder, txResult } = createBidRecoveryHarness(accountset);
     const findTransaction = vi.spyOn(TransactionEvents, 'findByExtrinsicHash').mockResolvedValue(undefined);
 
-    // @ts-expect-error exercising private mortality fallback behavior
-    cohortBidder.startBidMortalityFallback(txResult, deathBlock);
+    // @ts-expect-error exercise the real bidder receipt tracking boundary
+    void cohortBidder.trackReceipt(txResult, deathBlock);
     const previousHeader = createBlockHeader(deathBlock - 1, `0x${'07'.repeat(32)}`);
     Object.assign(blockWatch, { bestBlockHeader: previousHeader });
     blockWatch.events.emit('best-blocks', [previousHeader]);
@@ -1296,8 +1294,8 @@ describe('CohortBidder unit tests', () => {
       .spyOn(TransactionEvents, 'findByExtrinsicHash')
       .mockResolvedValue(createFoundTransaction(includedBlock));
 
-    // @ts-expect-error exercising private mortality fallback behavior
-    cohortBidder.startBidMortalityFallback(txResult, deathBlock);
+    // @ts-expect-error exercise the real bidder receipt tracking boundary
+    void cohortBidder.trackReceipt(txResult, deathBlock);
     const deathHeader = createBlockHeader(deathBlock, `0x${'08'.repeat(32)}`);
     Object.assign(blockWatch, { bestBlockHeader: deathHeader });
     blockWatch.events.emit('best-blocks', [deathHeader]);
@@ -1312,6 +1310,13 @@ describe('CohortBidder unit tests', () => {
 
     await expect(txResult.waitForFinalizedBlock).resolves.toHaveLength(32);
     expect(getFinalizedHash).toHaveBeenCalledWith(includedBlock.blockNumber);
+
+    await new Promise(setImmediate);
+    blockWatch.events.emit('best-blocks', [deathHeader]);
+    blockWatch.events.emit('finalized', [finalizedHeader]);
+    await new Promise(setImmediate);
+    expect(findTransaction).toHaveBeenCalledTimes(1);
+    expect(getFinalizedHash).toHaveBeenCalledTimes(1);
   });
 
   it('finalizes when transaction tracking stops after reporting inclusion', async () => {
@@ -1320,8 +1325,8 @@ describe('CohortBidder unit tests', () => {
     const found = createFoundTransaction(includedBlock);
     const findTransaction = vi.spyOn(TransactionEvents, 'findByExtrinsicHash').mockResolvedValue(found);
 
-    // @ts-expect-error exercising private mortality fallback behavior
-    cohortBidder.startBidMortalityFallback(txResult, deathBlock);
+    // @ts-expect-error exercise the real bidder receipt tracking boundary
+    void cohortBidder.trackReceipt(txResult, deathBlock);
     await txResult.setSeenInBlock(accountset.client, {
       blockHash: Uint8Array.from({ length: 32 }, () => 1),
       blockNumber: found.blockNumber,
@@ -1349,8 +1354,8 @@ describe('CohortBidder unit tests', () => {
     vi.spyOn(TransactionEvents, 'findByExtrinsicHash').mockResolvedValue(createFoundTransaction(includedBlock));
     getFinalizedHash.mockResolvedValue(`0x${'02'.repeat(32)}`);
 
-    // @ts-expect-error exercising private mortality fallback behavior
-    cohortBidder.startBidMortalityFallback(txResult, deathBlock);
+    // @ts-expect-error exercise the real bidder receipt tracking boundary
+    void cohortBidder.trackReceipt(txResult, deathBlock);
     const deathHeader = createBlockHeader(deathBlock, `0x${'08'.repeat(32)}`);
     Object.assign(blockWatch, { bestBlockHeader: deathHeader });
     blockWatch.events.emit('best-blocks', [deathHeader]);
@@ -1373,10 +1378,10 @@ describe('CohortBidder unit tests', () => {
     const findTransaction = vi
       .spyOn(TransactionEvents, 'findByExtrinsicHash')
       .mockRejectedValue(new Error('temporary rpc failure'));
-    vi.spyOn(cohortBidder, 'error' as any).mockImplementation(() => undefined);
+    vi.spyOn(console, 'error').mockImplementation(() => undefined);
 
-    // @ts-expect-error exercising private mortality fallback behavior
-    cohortBidder.startBidMortalityFallback(txResult, deathBlock);
+    // @ts-expect-error exercise the real bidder receipt tracking boundary
+    void cohortBidder.trackReceipt(txResult, deathBlock);
     const deathHeader = createBlockHeader(deathBlock, `0x${'08'.repeat(32)}`);
     Object.assign(blockWatch, { bestBlockHeader: deathHeader });
     vi.useFakeTimers();
@@ -1563,7 +1568,7 @@ async function createBidderWithMocks(
   vi.spyOn(cohortBidder, 'estimateFee' as any).mockImplementation(() => {
     return 60_000n;
   });
-  vi.spyOn(accountset, 'submitterBalance').mockImplementation(() => {
+  vi.spyOn(accountset, 'balance').mockImplementation(() => {
     return Promise.resolve(options.accountBalance);
   });
   vi.spyOn(accountset, 'accountMicronots').mockImplementation(() => {

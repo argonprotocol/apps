@@ -366,6 +366,17 @@ export const CurrentDayInProgress: Story = {
   play: ({ canvasElement }) => inspectMiningDay(canvasElement),
 };
 
+export const CurrentAuctionSettling: Story = {
+  parameters: { hoverInfo: true },
+  beforeEach: () => {
+    const frameDetails = setupMiningPortfolioScenario();
+    const frameId = getMyMiningSeats().latestFrameId;
+    frameDetails.get(frameId)!.auctionCloseTick = 1_000;
+    Object.assign(getBot().state!, { isBiddingOpen: false, nextBid: undefined });
+  },
+  play: ({ canvasElement }) => inspectMiningDay(canvasElement),
+};
+
 export const FirstMiningDay: Story = {
   parameters: { hoverInfo: true },
   beforeEach: () => {

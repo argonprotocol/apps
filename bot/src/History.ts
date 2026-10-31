@@ -58,6 +58,17 @@ export class History {
     return Mining.summarizeBidHistory(history)?.submittedBidCount ?? 0;
   }
 
+  public async getBidMaxima(frameId: number): Promise<Record<string, bigint>> {
+    return (await this.storage.historyFile(frameId).get()).preparedBidMaxima ?? {};
+  }
+
+  public async saveBidMaxima(frameId: number, maxima: Record<string, bigint>): Promise<void> {
+    const saved = await this.storage.historyFile(frameId).mutate(history => {
+      Object.assign((history.preparedBidMaxima ??= {}), maxima);
+    });
+    if (!saved) throw new Error('Could not save mining bid maxima before submission');
+  }
+
   public initCohort(cohortStartingFrameId: number, myAddresses: Set<string>) {
     this.cohortStartingFrameId = cohortStartingFrameId;
     this.myAddresses = myAddresses;
@@ -135,6 +146,7 @@ export class History {
     blockNumber: number;
     frameId: number;
     microgonsPerSeat: bigint;
+    maxMicrogonsPerSeat?: bigint;
     txFeePlusTip: bigint;
     submittedCount: number;
   }) {
@@ -154,6 +166,7 @@ export class History {
     blockNumber: number;
     frameId: number;
     microgonsPerSeat: bigint;
+    maxMicrogonsPerSeat?: bigint;
     rejectedCount: number;
     submittedCount: number;
     bidError?: ExtrinsicError;
@@ -219,8 +232,14 @@ export class History {
     frameId: number;
     nextEntrants: { address: string; bidMicrogons: bigint }[];
     isReloadingInitialState: boolean;
+    seatGoalCount?: number;
   }) {
     const { tick, blockNumber, nextEntrants, frameId } = args;
+    if (frameId === this.cohortStartingFrameId && args.seatGoalCount === 0) {
+      this.maxSeatsInPlay = nextEntrants.filter(bid => this.myAddresses.has(bid.address)).length;
+      this.maxSeatsReductionReason = undefined;
+    }
+
     this.lastProcessedBlockNumber = Math.max(blockNumber, this.lastProcessedBlockNumber);
     const hasDiffs = JsonExt.stringify(nextEntrants) !== JsonExt.stringify(this.lastBids);
     if (hasDiffs) {

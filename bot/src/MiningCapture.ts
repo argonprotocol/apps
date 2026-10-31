@@ -276,20 +276,24 @@ export class MiningCapture {
     for (const { event, phase } of events) {
       if (
         event.section === 'miningSlot' &&
-        event.method === 'SlotBidderAdded' &&
+        (event.method === 'SlotBidderAdded' || event.method === 'BidCommitted') &&
         this.accountset.subAccountsByAddress[event.data.accountId]
       ) {
         hasMiningBids = true;
       }
 
-      if (phase.type === 'Finalization' && event.section === 'miningSlot' && event.method === 'MiningBidsClosed') {
-        const closedFrameId = event.data.frameId;
-        if (closedFrameId === undefined) continue;
+      if (event.section === 'miningSlot' && event.method === 'MiningBidsClosed') {
+        let activationFrameId = event.data.frameId ?? event.data.cohortFrameId;
+        if (activationFrameId === undefined && event.data.cohortId !== undefined) {
+          activationFrameId = Number(event.data.cohortId);
+        }
+        if (activationFrameId === undefined) continue;
+        const biddingFrameId = activationFrameId - 1;
 
         const historicalBidsPerSlot = await api.query.miningSlot.historicalBidsPerSlot();
         const latestHistoricalBidStats = historicalBidsPerSlot[0];
 
-        await this.storage.miningFrameFile(closedFrameId).mutate(x => {
+        await this.storage.miningFrameFile(biddingFrameId).mutate(x => {
           x.auctionCloseTick = block.tick;
           x.totalBidCount = latestHistoricalBidStats?.bidsCount ?? x.totalBidCount;
         });
@@ -359,7 +363,7 @@ export class MiningCapture {
         // The completed auction's winner list belongs to mining-frame history, not the bid totals file.
         await this.storage.miningFrameFile(biddingFrameIdOfNewCohort).mutate(x => {
           x.auctionCloseTick ??= block.tick;
-          x.totalBidCount ||= latestClosedBidStats?.bidsCount ?? 0;
+          x.totalBidCount = latestClosedBidStats?.bidsCount ?? x.totalBidCount;
           x.winningBids = winningBids;
         });
       }
@@ -418,7 +422,12 @@ export class MiningCapture {
       }
       const decoded = dispatchError ? findRuntimeModuleError(api, dispatchError) : undefined;
       if (decoded?.section === 'miningSlot') return true;
-      if (event.section === 'miningSlot' && event.method === 'SlotBidderAdded') return true;
+      if (
+        event.section === 'miningSlot' &&
+        (event.method === 'SlotBidderAdded' || event.method === 'BidCommitted' || event.method === 'BidRevealed')
+      ) {
+        return true;
+      }
     });
     return isMiningTx ? actualFee : 0n;
   }

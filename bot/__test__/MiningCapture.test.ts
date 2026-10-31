@@ -17,9 +17,77 @@ afterEach(() => {
   for (const dir of dataDirs.splice(0)) fs.rmSync(dir, { recursive: true, force: true });
 });
 
-it.each(['funding-account', 'proxy-account'])(
-  'captures completed bids and fees paid by %s without historical bid lists',
-  async feePayer => {
+it('captures commitment and reveal fees before a range bid settles', async () => {
+  NetworkConfig.setNetwork('dev-docker');
+  const dataDir = fs.mkdtempSync(Path.join(os.tmpdir(), 'mining-range-fees-'));
+  dataDirs.push(dataDir);
+  const storage = new Storage(dataDir);
+  const funding = new Keyring({ type: 'sr25519' }).addFromUri('//Alice');
+  const accountset = new Accountset({ client: null as any, txSubmitter: funding, subaccountRange: [0] });
+  vi.spyOn(accountset, 'loadRegisteredMiners').mockResolvedValue([]);
+  const miner = accountset.getAccountsInRange()[0].address;
+  const miningFrames = {
+    currentFrameId: 4,
+    getTickStart: () => 100,
+    getFrameRewardTicksRemaining: () => 100,
+    waitForFrameId: async () => undefined,
+  } as unknown as MiningFrames;
+  const capture = new MiningCapture(
+    accountset,
+    storage,
+    { events: { on: () => () => undefined } } as unknown as MainchainClients,
+    miningFrames,
+  );
+  vi.spyOn(capture['currency'], 'fetchMainchainRates').mockResolvedValue({ USD: 1n, BTC: 1n, ARGNOT: 2n } as any);
+  vi.spyOn(capture['mining'], 'fetchMicrogonsPerBlockForMiner').mockResolvedValue(30n);
+  const api = {
+    query: { miningSlot: { bidsForNextSlotCohort: async () => [], argonotsPerMiningSeat: async () => 20n } },
+  } as unknown as ArgonApi;
+  await capture.restore(api);
+
+  for (const [index, method] of ['BidCommitted', 'BidRevealed'].entries()) {
+    const blockNumber = 120 + index;
+    const events = [
+      {
+        phase: { type: 'ApplyExtrinsic', value: 0 },
+        event: { section: 'miningSlot', method, data: { accountId: miner, targetFrameId: 5 } },
+      },
+      {
+        phase: { type: 'ApplyExtrinsic', value: 0 },
+        event: {
+          section: 'transactionPayment',
+          method: 'TransactionFeePaid',
+          data: { who: funding.address, actualFee: 12_345n, tip: 0n },
+        },
+      },
+    ] as unknown as RuntimeSystemEventRecord[];
+    const result = await capture.processBlock(
+      {
+        number: blockNumber,
+        hash: `block-${blockNumber}`,
+        author: '',
+        tick: blockNumber,
+        frameId: 4,
+        isNewFrame: false,
+      },
+      { api, events },
+    );
+    if (method === 'BidCommitted') expect(result.hasMiningBids).toBe(true);
+  }
+
+  expect(await storage.bidsFile(4, 5).get()).toMatchObject({
+    seatCountWon: 0,
+    transactionFeesByBlock: { 120: 12_345n, 121: 12_345n },
+  });
+  await storage.close();
+});
+
+it.each([
+  { feePayer: 'funding-account', closePhase: 'Initialization' },
+  { feePayer: 'proxy-account', closePhase: 'ApplyExtrinsic' },
+])(
+  'captures $closePhase admission closure and completed bids with fees paid by $feePayer',
+  async ({ feePayer, closePhase }) => {
     NetworkConfig.setNetwork('dev-docker');
     const dataDir = fs.mkdtempSync(Path.join(os.tmpdir(), 'block-sync-bids-'));
     dataDirs.push(dataDir);
@@ -43,17 +111,31 @@ it.each(['funding-account', 'proxy-account'])(
     vi.spyOn(capture['currency'], 'fetchMainchainRates').mockResolvedValue({ USD: 1n, BTC: 1n, ARGNOT: 2n } as any);
 
     const bidsForNextSlotCohort = vi.fn(async () => [{ accountId: 'our-miner', bid: 120n, bidAtTick: 121 }]);
+    let bidCounts = [{ bidsCount: 3 }, { bidsCount: 5 }];
     const api = {
       query: {
         miningSlot: {
           bidsForNextSlotCohort,
-          historicalBidsPerSlot: async () => [{ bidsCount: 0 }, { bidsCount: 5 }],
+          historicalBidsPerSlot: async () => bidCounts,
           activeMinersCount: async () => 10,
           argonotsPerMiningSeat: async () => 20n,
         },
       },
     } as unknown as ArgonApi;
     await capture.restore(api);
+    await capture.processBlock(
+      { number: 119, hash: 'admission-closed', author: '', tick: 119, frameId: 3, isNewFrame: false },
+      {
+        api,
+        events: [
+          {
+            phase: { type: closePhase, value: 0 },
+            event: { section: 'miningSlot', method: 'MiningBidsClosed', data: { frameId: 4 } },
+          },
+        ] as unknown as RuntimeSystemEventRecord[],
+      },
+    );
+    bidCounts = [{ bidsCount: 0 }, { bidsCount: 5 }];
     const events = [
       {
         phase: { type: 'ApplyExtrinsic', value: 0 },
@@ -91,6 +173,7 @@ it.each(['funding-account', 'proxy-account'])(
       transactionFeesByBlock: { 120: 12_345n },
     });
     expect((await storage.miningFrameFile(3).get()).totalBidCount).toBe(5);
+    expect((await storage.miningFrameFile(3).get()).auctionCloseTick).toBe(119);
     expect((await storage.miningFrameFile(3).get()).winningBids[0].micronotsStakedPerSeat).toBe(10n);
 
     miningFrames.currentFrameId = 4;

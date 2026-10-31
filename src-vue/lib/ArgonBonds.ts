@@ -690,7 +690,11 @@ export class ArgonBonds {
     for (const block of blocks) {
       const events = await this.miningFrames.blockWatch.getEvents(block);
       for (const { event } of events) {
-        if (event.section === 'miningSlot' && event.method === 'SlotBidderAdded' && event.data.bidAmount > 0n) {
+        if (
+          event.section === 'miningSlot' &&
+          (event.method === 'SlotBidderAdded' || event.method === 'WinningBidPriceChanged') &&
+          event.data.bidAmount > 0n
+        ) {
           refreshBidPool = true;
         } else if (event.section === 'miningSlot' && event.method === 'SlotBidderDropped') {
           refreshBidPool = true;

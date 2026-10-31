@@ -196,9 +196,11 @@
                       : 's'
                   }}
                   ({{
-                    microgonToArgonNm(
-                      wallets.miningBotWallet.availableMicrogons - (config.biddingRules.sidelinedMicrogons ?? 0n),
-                    ).formatIfElse('< 100', '0,0.[000000]', '0,0.[00]')
+                    microgonToArgonNm(wallets.miningBotWallet.availableMicrogons).formatIfElse(
+                      '< 100',
+                      '0,0.[000000]',
+                      '0,0.[00]',
+                    )
                   }}
                   are currently available to spend), which gives your bot enough capital to fully operate. However, you
                   can always add more capital.
@@ -244,39 +246,6 @@
                     class="cursor-pointer rounded-md border border-red-600 px-4 py-1.5 font-bold text-red-700/70 hover:bg-red-600/10"
                   >
                     Transfer Tokens Into Account
-                  </button>
-                </div>
-              </div>
-              <div v-else class="rounded-md bg-yellow-100/70 px-4 py-4">
-                <header class="flex flex-row items-center gap-x-2 text-lg font-bold whitespace-nowrap text-yellow-600">
-                  <StatusNeutral class="h-5 w-5" />
-                  <span>Your Mining Account Has Excess Funds</span>
-                </header>
-                <p class="mt-px py-1 opacity-80">
-                  Your account has an extra
-                  {{
-                    microgonToArgonNm(config.biddingRules.sidelinedMicrogons ?? 0n).formatIfElse(
-                      '< 100',
-                      '0,0.[000000]',
-                      '0,0.[00]',
-                    )
-                  }}
-                  argon{{
-                    microgonToArgonNm(config.biddingRules.sidelinedMicrogons ?? 0n).formatIfElse(
-                      '< 100',
-                      '0,0.[000000]',
-                      '0,0.[00]',
-                    ) === '1'
-                      ? ''
-                      : 's'
-                  }}
-                  sitting unused. This isn't causing harm, but it's also not generating yield on your asset.
-                </p>
-                <div class="mt-2 flex flex-row gap-x-2">
-                  <button
-                    class="cursor-pointer rounded-md border border-red-600 px-4 py-1.5 font-bold text-red-700/70 hover:bg-red-600/10"
-                  >
-                    Add Capital to Bidding Budget
                   </button>
                 </div>
               </div>

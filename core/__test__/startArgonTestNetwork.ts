@@ -33,6 +33,7 @@ export interface StartArgonTestNetworkOptions {
   composeProjectName?: string;
   chainStartTimeoutMs?: number;
   chainStartPollMs?: number;
+  ticksBetweenSlots?: number;
 }
 
 export interface ResolvedTestSessionIdentity {
@@ -197,7 +198,7 @@ export async function startArgonTestNetwork(
       await ensureServerBundle();
       await ensureDockerComposeAssets();
       await stop();
-      await generateChainSpec({ computeDifficulty: 25, env: composeEnv });
+      await generateChainSpec({ ticksBetweenSlots: options.ticksBetweenSlots, computeDifficulty: 25, env: composeEnv });
     } finally {
       await releaseAssets();
     }
