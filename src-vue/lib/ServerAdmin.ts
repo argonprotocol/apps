@@ -1,5 +1,6 @@
 import { parse as parseEnv } from 'dotenv';
 import {
+  BiddingRulesSchema,
   type IBiddingRules,
   type IBotStateFile,
   JsonExt,
@@ -194,7 +195,9 @@ export class ServerAdmin {
       `cat ${this.workDir}/config/biddingRules.json 2>/dev/null || true`,
       20e3,
     );
-    return biddingRulesRaw ? JsonExt.parse(biddingRulesRaw) : undefined;
+    if (!biddingRulesRaw) return;
+
+    return BiddingRulesSchema.parse(JsonExt.parse(biddingRulesRaw));
   }
 
   public async downloadConfigState(): Promise<{

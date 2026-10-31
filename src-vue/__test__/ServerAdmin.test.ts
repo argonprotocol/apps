@@ -5,16 +5,33 @@ import { tmpdir } from 'node:os';
 import * as Path from 'node:path';
 import { InstallStepKey, ServerType } from '../interfaces/IConfig.ts';
 import { ServerAdmin } from '../lib/ServerAdmin.ts';
+import { Config } from '../lib/Config.ts';
+import { JsonExt } from '@argonprotocol/apps-core';
 
-it('reads persisted mining history with imported server config', async () => {
+it('imports bidding rules and mining history without restoring the removed reserves', async () => {
+  const rules = {
+    ...(Config.getDefault('biddingRules') as Config['biddingRules']),
+    maximumBidCustom: 4_000_000n,
+    seatGoalCount: 5,
+  };
+  let uploadedRules = '';
   const connection = {
     runCommandWithTimeout: vi.fn(async (command: string) => {
       if (command === 'cat /root/data/argon/bot-state.json 2>/dev/null || true') {
         return [JSON.stringify({ hasMiningBids: true, hasMiningSeats: false }), 0] as const;
       }
-      if (command.includes('biddingRules.json') || command.includes('.env.state')) return ['', 0] as const;
+      if (command.includes('biddingRules.json')) {
+        return [
+          JsonExt.stringify({ ...rules, sidelinedMicrogons: 9_000_000n, sidelinedMicronots: 20_000n }),
+          0,
+        ] as const;
+      }
+      if (command.includes('.env.state')) return ['', 0] as const;
       throw new Error(`Unexpected command: ${command}`);
     }),
+    uploadFileWithTimeout: async (content: string) => {
+      uploadedRules = content;
+    },
   };
   const server = new ServerAdmin(connection as any, {
     ipAddress: '127.0.0.1',
@@ -23,12 +40,13 @@ it('reads persisted mining history with imported server config', async () => {
     workDir: '/root',
   });
 
-  await expect(server.downloadConfigState()).resolves.toEqual(
-    expect.objectContaining({
-      hasMiningBids: true,
-      hasMiningSeats: false,
-    }),
-  );
+  const imported = await server.downloadConfigState();
+  expect(imported.hasMiningBids).toBe(true);
+  expect(imported.hasMiningSeats).toBe(false);
+  expect(imported.biddingRules).toEqual(rules);
+
+  await server.uploadBiddingRules(imported.biddingRules!);
+  expect(JsonExt.parse(uploadedRules)).toEqual(rules);
 });
 
 it('advances server collection progress without completing it before the archive is ready', async () => {

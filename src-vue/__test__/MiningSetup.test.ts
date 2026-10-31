@@ -1,6 +1,8 @@
-import { MINING_BID_PROXY_FEE_FLOAT, MoveFrom, MoveTo, MoveToken } from '@argonprotocol/apps-core';
+import { MoveFrom, MoveTo, MoveToken } from '@argonprotocol/apps-core';
 import { describe, expect, it, vi } from 'vitest';
 
+import { MiningSetupStatus } from '../interfaces/IConfig.ts';
+import { getMiningFundingState } from '../screens/mining-screen/miningFunding.ts';
 import { MiningSetup, type MiningSetupInput } from '../lib/MiningSetup.ts';
 import type { TransactionInfo } from '../lib/TransactionInfo.ts';
 import { defaultArgonOperationalReserveMicrogons, existentialDepositMicronots } from '../lib/WalletForArgon.ts';
@@ -8,13 +10,35 @@ import { ExtrinsicType } from '../lib/db/TransactionsTable.ts';
 import { TxAttemptState } from '../lib/TransactionTracker.ts';
 import { BalanceTransfer, type ITransactionMoveMetadata } from '../lib/txs/Balance.transfer.ts';
 
+it('treats setup fees as a startup budget rather than unspent capital after installation starts', () => {
+  const funding = {
+    hasSavedBiddingRules: true,
+    miningMicrogonsOnHand: 4_000_000n,
+    miningMicronotsOnHand: 10_000n,
+    initialMicrogonRequirement: 1_000_000n,
+    initialMicronotRequirement: 10_000n,
+  };
+  const before = getMiningFundingState({ ...funding, miningSetupStatus: MiningSetupStatus.Checklist });
+  expect(before.requiredMicrogons).toBe(4_000_000n);
+  expect(before.isFullyFunded).toBe(true);
+
+  // The proxy receives its float and setup spends fees; the bid capital remains available.
+  const afterSetup = { ...funding, miningMicrogonsOnHand: 2_990_000n };
+  for (const status of [MiningSetupStatus.Installing, MiningSetupStatus.Finished]) {
+    const state = getMiningFundingState({ ...afterSetup, miningSetupStatus: status });
+    expect(state.requiredMicrogons).toBe(1_000_000n);
+    expect(state.additionalMicrogonsNeeded).toBe(0n);
+    expect(state.isFullyFunded).toBe(true);
+  }
+});
+
 describe('MiningSetup', () => {
   it('runs proxy setup as post-processing for the funding transaction', async () => {
     const funding = createTxInfo(1, ExtrinsicType.Transfer, {
       moveFrom: MoveFrom.DefaultArgon,
       moveTo: MoveTo.MiningBot,
       assetsToMove: {
-        [MoveToken.ARGN]: 1_000_000n + MINING_BID_PROXY_FEE_FLOAT,
+        [MoveToken.ARGN]: 4_000_000n,
         [MoveToken.ARGNOT]: 1_000_000n,
       },
       workflow: 'miningSetup',
@@ -53,6 +77,7 @@ describe('MiningSetup', () => {
         moveFrom: MoveFrom.DefaultArgon,
         moveTo: MoveTo.MiningBot,
         workflow: 'miningSetup',
+        assetsToMove: { [MoveToken.ARGN]: 4_000_000n, [MoveToken.ARGNOT]: 1_000_000n },
       }),
     );
   });
@@ -239,16 +264,28 @@ describe('MiningSetup', () => {
     expect(followOn.resolve).toHaveBeenCalledWith(proxy);
   });
 
-  it('does not create a funding transaction when funding and proxy setup are ready', async () => {
+  it.for([
+    { balance: 4_000_000n, setupFeesPaid: false, proxyReady: true },
+    { balance: 2_990_000n, setupFeesPaid: true, proxyReady: true },
+    { balance: 2_990_000n, setupFeesPaid: true, proxyReady: false },
+  ])('checks proxy readiness with $balance remaining ($proxyReady)', async ({ balance, setupFeesPaid, proxyReady }) => {
     const proxySetup = createProxySetup({ kind: 'ready' });
+    if (!proxyReady) {
+      proxySetup.ensure.mockResolvedValue({ kind: 'insufficientFunds', error: 'Proxy setup requires funding.' });
+    }
     const miningSetup = new MiningSetup({} as any, createTransactionTracker([]) as any, proxySetup as any);
     const submit = vi.spyOn(getFundingTransfer(miningSetup), 'submit');
 
-    const result = await miningSetup.ensure(
-      createInput({ miningBotMicrogons: 2_000_000n, miningBotMicronots: 1_000_000n }),
-    );
+    const input = createInput({ miningBotMicrogons: balance, miningBotMicronots: 1_000_000n });
+    if (setupFeesPaid) {
+      Object.assign(input.defaultWallet, {
+        availableMicrogons: defaultArgonOperationalReserveMicrogons,
+        availableMicronots: existentialDepositMicronots,
+      });
+    }
+    const result = await miningSetup.ensure(input);
 
-    expect(result).toEqual({ kind: 'ready' });
+    expect(result.kind).toBe(proxyReady ? 'ready' : 'blocked');
     expect(submit).not.toHaveBeenCalled();
   });
 });

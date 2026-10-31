@@ -310,8 +310,7 @@ export const useWallets = defineStore('wallets', () => {
       defaultArgonSpendableMicrogons.value +
       miningBotWallet.availableMicrogons +
       miningSeatMicrogons.value +
-      miningBidMicrogons.value -
-      config.biddingRules.sidelinedMicrogons
+      miningBidMicrogons.value
     );
   });
 
@@ -320,8 +319,7 @@ export const useWallets = defineStore('wallets', () => {
       defaultArgonWallet.availableMicronots +
       defaultArgonWallet.reservedMicronots +
       miningBotWallet.availableMicronots +
-      miningBotWallet.reservedMicronots -
-      config.biddingRules.sidelinedMicronots
+      miningBotWallet.reservedMicronots
     );
   });
 

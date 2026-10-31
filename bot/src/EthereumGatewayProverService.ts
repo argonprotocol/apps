@@ -13,9 +13,11 @@ import {
   TxSubmitter,
 } from '@argonprotocol/apps-core';
 import {
-  buildGatewayActivityProofPayload,
+  buildGatewayActivityReceiptProofPayloads,
+  discoverMissingGatewayActivityLocators,
   EvmContracts,
-  type EthereumGatewayActivityProofPayload,
+  type EthereumGatewayActivityReceiptProofPayload,
+  type MissingGatewayActivityLocator,
   isOutdatedTransactionError,
   isTxSubmissionError,
   type EthereumGatewayActivity,
@@ -43,7 +45,8 @@ export class EthereumGatewayProverService {
   private lastStallSweepWindowIndex?: number;
   private latestLocatorTailByIndex?: { index: bigint; endGatewayActivityNonce: bigint };
   private ownedAuthoritySignerByAddress = new Map<string, boolean>();
-  private preparedCheckpointProofPayload?: EthereumGatewayActivityProofPayload;
+  private preparedCheckpointProofPayloads?: EthereumGatewayActivityReceiptProofPayload[];
+  private finalizedLocators: MissingGatewayActivityLocator[] = [];
   private readonly stateData: Pick<IEthereumSyncStatus, 'gatewayActivityNonceGap'> = {};
 
   constructor(
@@ -229,21 +232,25 @@ export class EthereumGatewayProverService {
         return;
       }
       const latestExecutionHeader = await getLatestArgonFinalizedExecutionHeader(client);
-      const proofPayload = await buildGatewayActivityProofPayloadWithFallback(client, executionRpcUrls, {
+      const proofPayloads = await this.buildGatewayActivityProofPayloadsWithFallback(client, executionRpcUrls, {
         gatewayAddress,
-        throughExecutionBlockNumber: latestExecutionHeader.blockNumber,
+        minimumGatewayActivityNonce: currentRuntimeGatewayActivityNonce + 1n,
+        throughGatewayActivityNonce: latestLocatorEndGatewayActivityNonce,
       });
-      if (!proofPayload) {
+      const firstProofPayload = proofPayloads[0];
+      if (!firstProofPayload) {
         this.stateData.gatewayActivityNonceGap = 0n;
         return;
       }
+      const lastProofPayload = proofPayloads.at(-1)!;
 
-      const gatewayActivityNonceGap = proofPayload.gatewayActivityNonceRange.end - currentRuntimeGatewayActivityNonce;
+      const gatewayActivityNonceGap =
+        lastProofPayload.gatewayActivityNonceRange.end - currentRuntimeGatewayActivityNonce;
       this.stateData.gatewayActivityNonceGap = gatewayActivityNonceGap;
       const freeHeaderInterval = BigInt(client.consts.ethereumVerifier.freeHeadersInterval);
       const sharedRelayExecutionBlockLag =
-        latestExecutionHeader.blockNumber > proofPayload.executionBlockNumberRange.end
-          ? latestExecutionHeader.blockNumber - proofPayload.executionBlockNumberRange.end
+        latestExecutionHeader.blockNumber > firstProofPayload.executionBlockNumberRange.end
+          ? latestExecutionHeader.blockNumber - firstProofPayload.executionBlockNumberRange.end
           : 0n;
       // FreeHeadersInterval is slot-based in the verifier; execution-block lag is a conservative
       // lower bound because Ethereum can skip slots but cannot produce multiple execution blocks per slot.
@@ -251,16 +258,21 @@ export class EthereumGatewayProverService {
 
       console.log(
         `[EthereumGatewayProverService] Found relay work at anchor block ${latestExecutionHeader.blockNumber}; ` +
-          `runtime nonce ${currentRuntimeGatewayActivityNonce} -> target ${proofPayload.gatewayActivityNonceRange.end} ` +
+          `runtime nonce ${currentRuntimeGatewayActivityNonce} -> target ${lastProofPayload.gatewayActivityNonceRange.end} ` +
           `(gap ${gatewayActivityNonceGap})`,
       );
 
-      if (await this.hasOwnedRelayActivity(client, proofPayload.activities)) {
+      if (
+        await this.hasOwnedRelayActivity(
+          client,
+          proofPayloads.flatMap(payload => payload.activities),
+        )
+      ) {
         console.log(
           `[EthereumGatewayProverService] Prioritizing owned gateway relay through activity ` +
-            `${proofPayload.gatewayActivityNonceRange.end}`,
+            `${lastProofPayload.gatewayActivityNonceRange.end}`,
         );
-        await this.queueCheckpoint(proofPayload.gatewayActivityNonceRange.end, proofPayload);
+        await this.queueCheckpoint(lastProofPayload.gatewayActivityNonceRange.end, proofPayloads);
         return;
       }
 
@@ -272,9 +284,9 @@ export class EthereumGatewayProverService {
 
         console.log(
           `[EthereumGatewayProverService] Shared gateway relay through activity ` +
-            `${proofPayload.gatewayActivityNonceRange.end} ${bypassReason}; bypassing the stagger window`,
+            `${lastProofPayload.gatewayActivityNonceRange.end} ${bypassReason}; bypassing the stagger window`,
         );
-        const response = await this.queueCheckpoint(proofPayload.gatewayActivityNonceRange.end, proofPayload);
+        const response = await this.queueCheckpoint(lastProofPayload.gatewayActivityNonceRange.end, proofPayloads);
         if (response.outcome !== 'Rejected') {
           this.scheduleSharedSweepFollowUp(NetworkConfig.tickMillis);
         }
@@ -287,7 +299,7 @@ export class EthereumGatewayProverService {
         this.scheduleSharedSweepFollowUp(getNextStallSweepDelayMs(client, this.submitLane.address, stalledSince, now));
         console.log(
           `[EthereumGatewayProverService] Deferring shared gateway relay through activity ` +
-            `${proofPayload.gatewayActivityNonceRange.end} until the stagger window opens`,
+            `${lastProofPayload.gatewayActivityNonceRange.end} until the stagger window opens`,
         );
         return;
       }
@@ -305,7 +317,7 @@ export class EthereumGatewayProverService {
           `running staggered catch-up sweep after ${stallSweepWindow.stalledMs}ms (window ${stallSweepWindow.windowIndex})`,
       );
 
-      await this.queueCheckpoint(proofPayload.gatewayActivityNonceRange.end, proofPayload);
+      await this.queueCheckpoint(lastProofPayload.gatewayActivityNonceRange.end, proofPayloads);
     })();
 
     try {
@@ -317,21 +329,20 @@ export class EthereumGatewayProverService {
 
   private async queueCheckpoint(
     throughGatewayActivityNonce: bigint,
-    preparedProofPayload?: EthereumGatewayActivityProofPayload,
+    preparedProofPayloads?: EthereumGatewayActivityReceiptProofPayload[],
   ): Promise<IEthereumGatewayCatchUpResponse> {
     const previousPendingCatchUpNonce = this.pendingCatchUpNonce;
-    this.pendingCatchUpNonce =
-      this.pendingCatchUpNonce === undefined || throughGatewayActivityNonce > this.pendingCatchUpNonce
-        ? throughGatewayActivityNonce
-        : this.pendingCatchUpNonce;
+    if (this.pendingCatchUpNonce === undefined || throughGatewayActivityNonce > this.pendingCatchUpNonce) {
+      this.pendingCatchUpNonce = throughGatewayActivityNonce;
+    }
+
+    const preparedThroughNonce = preparedProofPayloads?.at(-1)?.gatewayActivityNonceRange.end;
     if (
-      preparedProofPayload &&
-      preparedProofPayload.gatewayActivityNonceRange.end >= this.pendingCatchUpNonce &&
-      (this.preparedCheckpointProofPayload === undefined ||
-        preparedProofPayload.gatewayActivityNonceRange.end >=
-          this.preparedCheckpointProofPayload.gatewayActivityNonceRange.end)
+      preparedThroughNonce !== undefined &&
+      preparedThroughNonce >= this.pendingCatchUpNonce &&
+      preparedThroughNonce >= (this.preparedCheckpointProofPayloads?.at(-1)?.gatewayActivityNonceRange.end ?? 0n)
     ) {
-      this.preparedCheckpointProofPayload = preparedProofPayload;
+      this.preparedCheckpointProofPayloads = preparedProofPayloads;
     }
 
     if (previousPendingCatchUpNonce !== this.pendingCatchUpNonce) {
@@ -354,8 +365,8 @@ export class EthereumGatewayProverService {
       while (this.pendingCatchUpNonce !== undefined) {
         const throughGatewayActivityNonce = this.pendingCatchUpNonce;
         this.pendingCatchUpNonce = undefined;
-        const preparedProofPayload = this.preparedCheckpointProofPayload;
-        this.preparedCheckpointProofPayload = undefined;
+        const preparedProofPayloads = this.preparedCheckpointProofPayloads;
+        this.preparedCheckpointProofPayloads = undefined;
         const client = this.requireClient();
         const currentRuntimeGatewayActivityNonce = await this.loadCurrentRuntimeGatewayActivityNonce(client);
         if (currentRuntimeGatewayActivityNonce >= throughGatewayActivityNonce) {
@@ -373,7 +384,7 @@ export class EthereumGatewayProverService {
           client,
           executionRpcUrls,
           gatewayAddress,
-          preparedProofPayload,
+          preparedProofPayloads,
         );
 
         if (this.pendingCatchUpNonce !== undefined && isCheckpointSatisfied(latestResponse, this.pendingCatchUpNonce)) {
@@ -396,7 +407,7 @@ export class EthereumGatewayProverService {
     client: ReturnType<EthereumGatewayProverService['requireClient']>,
     executionRpcUrls: string[],
     gatewayAddress: Hex,
-    preparedProofPayload?: EthereumGatewayActivityProofPayload,
+    proofPayloads: EthereumGatewayActivityReceiptProofPayload[] = [],
   ): Promise<IEthereumGatewayCatchUpResponse> {
     let latestResponse: IEthereumGatewayCatchUpResponse | undefined;
 
@@ -423,17 +434,16 @@ export class EthereumGatewayProverService {
         };
       }
 
-      let proofPayload: EthereumGatewayActivityProofPayload | null | undefined = preparedProofPayload;
-      preparedProofPayload = undefined;
-      if (proofPayload?.previousGatewayActivityNonce !== currentRuntimeGatewayActivityNonce) {
-        proofPayload = undefined;
-      }
+      let proofPayload = proofPayloads.find(
+        payload => payload.previousGatewayActivityNonce === currentRuntimeGatewayActivityNonce,
+      );
       if (!proofPayload) {
-        const latestExecutionHeader = await getLatestArgonFinalizedExecutionHeader(client);
-        proofPayload = await buildGatewayActivityProofPayloadWithFallback(client, executionRpcUrls, {
+        proofPayloads = await this.buildGatewayActivityProofPayloadsWithFallback(client, executionRpcUrls, {
           gatewayAddress,
-          throughExecutionBlockNumber: latestExecutionHeader.blockNumber,
+          minimumGatewayActivityNonce: currentRuntimeGatewayActivityNonce + 1n,
+          throughGatewayActivityNonce,
         });
+        proofPayload = proofPayloads[0];
       }
       if (!proofPayload) {
         this.stateData.gatewayActivityNonceGap = 0n;
@@ -552,6 +562,81 @@ export class EthereumGatewayProverService {
         return latestResponse;
       }
     }
+  }
+
+  private async buildGatewayActivityProofPayloadsWithFallback(
+    client: ArgonClient,
+    executionRpcUrls: string[],
+    args: Pick<
+      Parameters<typeof discoverMissingGatewayActivityLocators>[0],
+      'gatewayAddress' | 'minimumGatewayActivityNonce'
+    > &
+      Pick<IEthereumGatewayCatchUpRequest, 'throughGatewayActivityNonce'>,
+  ): Promise<EthereumGatewayActivityReceiptProofPayload[]> {
+    const { gatewayAddress, minimumGatewayActivityNonce, throughGatewayActivityNonce } = args;
+    let lastError: unknown;
+
+    for (const executionRpcUrl of executionRpcUrls) {
+      try {
+        const executionClient = createEthereumExecutionClient([executionRpcUrl]);
+        const finalizedBlock = await executionClient.getBlock({ blockTag: 'finalized' });
+        let cachedLocators = this.finalizedLocators;
+        // Argon's best-chain nonce can rewind beyond the records retained by a previous sweep.
+        if (cachedLocators[0] && minimumGatewayActivityNonce < cachedLocators[0].startGatewayActivityNonce) {
+          cachedLocators = [];
+        }
+
+        const discovered = await discoverMissingGatewayActivityLocators({
+          gatewayAddress,
+          minimumGatewayActivityNonce,
+          afterLocatorIndex: cachedLocators.at(-1)?.locatorIndex,
+          finalizedExecutionBlockNumber: finalizedBlock.number,
+          executionRpcUrl,
+        });
+        const collectedLocators = [...cachedLocators, ...discovered];
+        const pendingLocators = collectedLocators.filter(
+          locator => locator.endGatewayActivityNonce >= minimumGatewayActivityNonce,
+        );
+        // Retain unproven records and one consumed tail so discovery can continue incrementally.
+        const consumedTail = collectedLocators.findLast(
+          locator => locator.endGatewayActivityNonce < minimumGatewayActivityNonce,
+        );
+        const retainedLocators = consumedTail ? [consumedTail, ...pendingLocators] : pendingLocators;
+
+        const locators = pendingLocators.filter(
+          locator => locator.startGatewayActivityNonce <= throughGatewayActivityNonce,
+        );
+        const { payloads, deferredLocators } = await buildGatewayActivityReceiptProofPayloads(client.raw, {
+          gatewayAddress,
+          executionRpcUrl,
+          locators,
+        });
+        this.finalizedLocators = retainedLocators;
+
+        if (payloads.length) return payloads;
+        if (deferredLocators.length) throw new Error('Ethereum gateway activities are not ready to relay');
+        return [];
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        // These errors come from Argon runtime bounds, so another execution RPC cannot resolve them.
+        if (message.startsWith('Gateway receipt proof requires ')) {
+          throw error;
+        }
+
+        lastError = error;
+        logEthereumExecutionRpcFallback({
+          executionRpcUrls,
+          failedRpcUrl: executionRpcUrl,
+          method: 'buildGatewayActivityReceiptProofPayloads',
+        });
+      }
+    }
+
+    if (lastError instanceof Error) {
+      throw lastError;
+    }
+
+    throw new Error(lastError ? String(lastError) : 'Ethereum execution RPC is not configured on this network.');
   }
 
   private async loadGatewayAddress(): Promise<Hex> {
@@ -704,45 +789,6 @@ export class EthereumGatewayProverService {
       }
     }
   }
-}
-
-async function buildGatewayActivityProofPayloadWithFallback(
-  client: ArgonClient,
-  executionRpcUrls: string[],
-  args: Omit<Parameters<typeof buildGatewayActivityProofPayload>[1], 'executionRpcUrl'>,
-): ReturnType<typeof buildGatewayActivityProofPayload> {
-  let lastError: unknown;
-
-  for (const executionRpcUrl of executionRpcUrls) {
-    try {
-      return await buildGatewayActivityProofPayload(client.raw, {
-        ...args,
-        executionRpcUrl,
-      });
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      // These errors come from Argon runtime bounds, so another execution RPC cannot resolve them.
-      if (
-        message.startsWith('Gateway proof requires ') ||
-        message === 'Oldest uncovered gateway activity exceeds the Argon finalized execution-header window'
-      ) {
-        throw error;
-      }
-
-      lastError = error;
-      logEthereumExecutionRpcFallback({
-        executionRpcUrls,
-        failedRpcUrl: executionRpcUrl,
-        method: 'buildGatewayActivityProofPayload',
-      });
-    }
-  }
-
-  if (lastError instanceof Error) {
-    throw lastError;
-  }
-
-  throw new Error(lastError ? String(lastError) : 'Ethereum execution RPC is not configured on this network.');
 }
 
 function isRedundantCatchUpError(reason: string): boolean {

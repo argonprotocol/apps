@@ -4,6 +4,9 @@ import { GlobalMiningStats } from '../src/GlobalMiningStats.ts';
 import { Mining, normalizeMiningSeatSlots } from '../src/Mining.ts';
 import { BotActivityType, type IHistoryFile } from '../src/interfaces/IHistoryFile.ts';
 import { NetworkConfig } from '../src/NetworkConfig.ts';
+import { encodeAddress, getOfflineRegistry } from '@argonprotocol/mainchain';
+import { runtimeClient } from '@argonprotocol/runtime-client';
+import type { ArgonCurrentQueryClient } from '../src/MainchainClients.ts';
 
 beforeEach(() => {
   NetworkConfig.setNetwork('mainnet');
@@ -11,6 +14,49 @@ beforeEach(() => {
 });
 
 describe('Mining auction bid activity', () => {
+  it('funds standing maxima in commitment order with freezes, holds, and protected account reserves', async () => {
+    const registry = getOfflineRegistry();
+    const funder = encodeAddress(new Uint8Array(32).fill(10));
+    const miners = [11, 12, 13].map(byte => encodeAddress(new Uint8Array(32).fill(byte)));
+    const registrations = registry.createType(
+      'Vec<ArgonPrimitivesBlockSealMiningRegistration>',
+      miners.map(accountId => ({ accountId, externalFundingAccount: funder, bid: 100_000n })),
+    );
+    const standing = [2, 1, 3].map(submittedAt =>
+      registry.createType('Option<PalletMiningSlotStandingBid>', {
+        bid: 100_000n,
+        max: 500_000n,
+        fixed: false,
+        submittedAt,
+        position: 0,
+      }),
+    );
+    let balance = { free: 300_000n, reserved: 100_000n, frozen: 220_000n };
+    const client = runtimeClient({
+      registry,
+      consts: { balances: { existentialDeposit: 10_000n }, miningSlot: { bidIncrements: 10_000n } },
+      query: {
+        miningSlot: {
+          bidsForNextSlotCohort: async () => registrations,
+          standingBids: { multi: async () => standing },
+        },
+        system: {
+          account: {
+            multi: async () => [registry.createType('FrameSystemAccountInfo', { providers: 1, data: balance })],
+          },
+        },
+      },
+    }) as unknown as ArgonCurrentQueryClient;
+    const bids = await client.query.miningSlot.bidsForNextSlotCohort();
+    const maxima = await Mining.fetchBidMaxima(client, bids);
+    expect(miners.map(miner => maxima.get(miner)?.fundedMaxMicrogons)).toEqual([100_000n, 280_000n, 100_000n]);
+    expect(maxima.get(miners[1])?.maxMicrogons).toBe(500_000n);
+
+    balance = { free: 800_000n, reserved: 0n, frozen: 0n };
+    const funded = await Mining.fetchBidMaxima(client, bids);
+    expect(miners.map(miner => funded.get(miner)?.fundedMaxMicrogons)).toEqual([490_000n, 500_000n, 100_000n]);
+  });
+
   it('knows accepted bids are zero in an empty auction without inferring missing attempts', () => {
     expect(Mining.summarizeBidHistory({ activities: [] }, 0)).toEqual({
       acceptedBidCount: 0,
@@ -29,13 +75,13 @@ describe('Mining auction bid activity', () => {
           id: 1,
           tick: 1,
           type: BotActivityType.BidsSubmitted,
-          data: { submittedCount: 2, microgonsPerSeat: 20n, txFeePlusTip: 1n },
+          data: { submittedCount: 2, microgonsPerSeat: 20n, maxMicrogonsPerSeat: 40n, txFeePlusTip: 1n },
         },
         {
           id: 2,
           tick: 2,
           type: BotActivityType.BidsRejected,
-          data: { submittedCount: 3, rejectedCount: 2, microgonsPerSeat: 15n },
+          data: { submittedCount: 3, rejectedCount: 2, microgonsPerSeat: 15n, maxMicrogonsPerSeat: 30n },
         },
         {
           id: 3,
@@ -48,7 +94,7 @@ describe('Mining auction bid activity', () => {
     expect(Mining.summarizeBidHistory(history, 9)).toEqual({
       submittedBidCount: 9,
       acceptedBidCount: 3,
-      maximumMicrogons: 20n,
+      maximumMicrogons: 40n,
     });
     expect(Mining.summarizeBidHistory({ activities: history.activities.slice(2) }, 0)).toEqual({
       submittedBidCount: 4,
@@ -59,8 +105,25 @@ describe('Mining auction bid activity', () => {
     expect(Mining.summarizeBidHistory(history, 0)).toEqual({
       submittedBidCount: 9,
       acceptedBidCount: 3,
-      maximumMicrogons: 20n,
+      maximumMicrogons: 40n,
     });
+    expect(Mining.summarizeBidHistory({ activities: history.activities.slice(1) })).toEqual({
+      submittedBidCount: 7,
+      acceptedBidCount: 1,
+      maximumMicrogons: 30n,
+    });
+    expect(
+      Mining.summarizeBidHistory({
+        activities: [
+          {
+            id: 4,
+            tick: 4,
+            type: BotActivityType.BidsSubmitted,
+            data: { submittedCount: 1, microgonsPerSeat: 15n, txFeePlusTip: 1n },
+          },
+        ],
+      })?.maximumMicrogons,
+    ).toBe(15n);
   });
 });
 

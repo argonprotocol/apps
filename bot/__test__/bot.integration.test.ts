@@ -14,6 +14,7 @@ import {
   JsonExt,
   MINING_BID_PROXY_FEE_FLOAT,
   MicronotPriceChangeType,
+  RangeCohortBidder,
   SeatGoalInterval,
   SeatGoalType,
   TxSubmitter,
@@ -65,7 +66,7 @@ it.skipIf(skipE2E)(
       rebiddingIncrementBy: 10_000n,
       maximumBidFormulaType: BidAmountFormulaType.Custom,
       maximumBidAdjustmentType: BidAmountAdjustmentType.Relative,
-      maximumBidCustom: 100_000_000n,
+      maximumBidCustom: 1_000_000n,
       maximumBidAdjustAbsolute: 0n,
       maximumBidAdjustRelative: 0,
       seatGoalType: SeatGoalType.Max,
@@ -74,8 +75,6 @@ it.skipIf(skipE2E)(
       seatGoalInterval: SeatGoalInterval.Frame,
       initialMicrogonRequirement: 0n,
       initialMicronotRequirement: 0n,
-      sidelinedMicrogons: 0n,
-      sidelinedMicronots: 0n,
     };
     await fs.promises.writeFile(biddingRulesPath, JsonExt.stringify(biddingRules));
 
@@ -131,16 +130,18 @@ it.skipIf(skipE2E)(
     const activeBidder = await waitFor(30e3, 'initial active bidder', () => bot.autobidder.currentBidder);
     const updatedBiddingRules: IBiddingRules = {
       ...biddingRules,
-      maximumBidCustom: 50_000_000n,
+      maximumBidCustom: 500_000n,
       rebiddingDelay: 3,
       rebiddingIncrementBy: 20_000n,
     };
     await fs.promises.writeFile(biddingRulesPath, JsonExt.stringify(updatedBiddingRules));
     await waitFor(30e3, 'updated active bidder', () => {
       const updatedBidder = bot.autobidder.currentBidder;
-      if (!updatedBidder || updatedBidder === activeBidder) return;
+      if (!updatedBidder || updatedBidder.options.maxBid !== 500_000n) return;
+      if (activeBidder instanceof RangeCohortBidder) expect(updatedBidder).toBe(activeBidder);
+      else expect(updatedBidder).not.toBe(activeBidder);
       expect(updatedBidder.options).toMatchObject({
-        maxBid: 50_000_000n,
+        maxBid: 500_000n,
         bidDelay: 3,
         bidIncrement: 20_000n,
       });
@@ -265,8 +266,9 @@ it.skipIf(skipE2E)(
       await fs.promises.rm(path2, { recursive: true, force: true });
     });
     console.log('Starting bot 2');
+    // eslint-disable-next-line @typescript-eslint/unbound-method -- Invoked with call(this) below.
+    const originalLoad = BlockSync.prototype.load;
     const loadSpy = vi.spyOn(BlockSync.prototype, 'load');
-    const originalLoad = loadSpy.getMockImplementation()!;
     let releaseHistory!: () => void;
     const historyCanStart = new Promise<void>(resolve => {
       releaseHistory = resolve;

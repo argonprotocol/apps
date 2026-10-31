@@ -42,7 +42,9 @@ export class JsonStore<T extends Record<string, any> & ILastModifiedAt> {
       if (this.shouldLog) {
         console.log(`[JsonStore]: Saving changes to ${this.key}:`, changesProps);
       }
-      await atomicWrite(this.path, JsonExt.stringify(newData, 2));
+      const saved = await atomicWrite(this.path, JsonExt.stringify(newData, 2));
+      if (!saved) return false;
+
       this.data = newData;
       for (const fn of this.onMutate) {
         fn(newData);
@@ -90,18 +92,16 @@ export class JsonStore<T extends Record<string, any> & ILastModifiedAt> {
   }
 }
 
-export async function atomicWrite(path: string, contents: string) {
+export async function atomicWrite(path: string, contents: string): Promise<boolean> {
   await fs.promises.mkdir(Path.dirname(path), { recursive: true });
   const tmp = `${path}.tmp`;
   try {
     await fs.promises.writeFile(tmp, contents);
     await fs.promises.rename(tmp, path);
-  } catch (e: unknown) {
-    if (e && typeof e === 'object' && 'code' in e && e.code === 'ENOENT') {
-      return;
-    } else {
-      throw e;
-    }
+    return true;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException)?.code === 'ENOENT') return false;
+    throw error;
   } finally {
     await fs.promises.rm(tmp, { force: true }).catch(() => undefined);
   }

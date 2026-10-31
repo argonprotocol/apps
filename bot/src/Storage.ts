@@ -178,6 +178,7 @@ export class Storage {
       entry = new JsonStore<IHistoryFile>(this.basedir, key, () => {
         return {
           activities: [],
+          preparedBidMaxima: {},
         };
       });
       entry.onMutate.push(() => {
@@ -196,6 +197,7 @@ export class Storage {
         return {
           frameId,
           totalBidCount: 0,
+          auctionCloseTick: undefined,
           auctionSeatCount: undefined,
           winningBids: [],
           slots: [],

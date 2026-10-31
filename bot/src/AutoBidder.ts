@@ -1,6 +1,8 @@
 import {
   type Accountset,
   CohortBidder,
+  RangeCohortBidder,
+  type CohortBidderBase,
   type IBidderParams,
   type IBiddingRules,
   MainchainClients,
@@ -11,22 +13,19 @@ import { type History } from './History.ts';
 import BiddingCalculatorData from '@argonprotocol/apps-core/src/BiddingCalculatorData.ts';
 import BiddingCalculator from '@argonprotocol/apps-core/src/BiddingCalculator.ts';
 
-/**
- * Creates a bidding process. Between each cohort, it will ask the callback for parameters for the next cohort.
- * @param accountset
- * @param storage
- * @param biddingRules
- */
+/** Manages auction bidders and applies bidding policy without interrupting pending reveals. */
 export class AutoBidder {
   public readonly mining: Mining;
-  public get currentBidder(): CohortBidder | undefined {
+
+  public get currentBidder(): CohortBidderBase | undefined {
     return this.cohortBiddersByActivationFrameId.get(this.nextCohortActivationFrameId ?? 0);
   }
-  public get previousBidder(): CohortBidder | undefined {
+  public get previousBidder(): CohortBidderBase | undefined {
     if (!this.nextCohortActivationFrameId) return undefined;
     return this.cohortBiddersByActivationFrameId.get(this.nextCohortActivationFrameId - 1);
   }
-  private cohortBiddersByActivationFrameId = new Map<number, CohortBidder>();
+
+  private cohortBiddersByActivationFrameId = new Map<number, CohortBidderBase>();
   private nextCohortActivationFrameId: number | null = null;
   private isStopped = false;
   private unsubscribe?: () => void;
@@ -43,14 +42,14 @@ export class AutoBidder {
     private readonly accountset: Accountset,
     private readonly mainchainClients: MainchainClients,
     private readonly history: History,
-    private biddingRules: IBiddingRules | null,
+    biddingRules: IBiddingRules | null,
     private readonly miningFrames: MiningFrames,
   ) {
     this.mining = new Mining(this.mainchainClients);
-    if (this.biddingRules) {
+    if (biddingRules) {
       this.biddingCalculator = new BiddingCalculator(
         new BiddingCalculatorData(this.mining, this.miningFrames),
-        this.biddingRules,
+        biddingRules,
       );
     }
   }
@@ -69,8 +68,7 @@ export class AutoBidder {
     }
     this.unsubscribeFrame?.();
     const { unsubscribe } = await this.mining.onCohortChange({
-      onBiddingStart: cohortActivationFrameId =>
-        this.queueLifecycle(() => this.onBiddingStart(cohortActivationFrameId)),
+      onBiddingStart: () => this.queueLifecycle(() => this.reloadActiveCohort()),
       onBiddingEnd: cohortActivationFrameId => this.queueLifecycle(() => this.onBiddingEnd(cohortActivationFrameId)),
     });
     this.unsubscribe = unsubscribe;
@@ -79,16 +77,13 @@ export class AutoBidder {
       void this.queueLifecycle(() => this.reloadActiveCohort());
     });
 
-    if (!this.biddingRules || !this.biddingCalculator) {
-      return;
+    if (this.biddingCalculator) {
+      if (!this.hasRegisteredKeys) {
+        await this.accountset.registerKeys(this.localRpcUrl);
+        this.hasRegisteredKeys = true;
+      }
+      await this.biddingCalculator.load();
     }
-
-    if (!this.hasRegisteredKeys) {
-      await this.accountset.registerKeys(this.localRpcUrl);
-      this.hasRegisteredKeys = true;
-    }
-
-    await this.biddingCalculator.load();
     await this.queueLifecycle(() => this.reloadActiveCohort());
   }
 
@@ -115,89 +110,75 @@ export class AutoBidder {
 
   public async updateBiddingRules(biddingRules: IBiddingRules | null): Promise<void> {
     await this.queueLifecycle(async () => {
-      this.biddingRules = biddingRules;
       this.biddingCalculator?.unload();
-      await this.stopActiveBidders(false);
+      // Finish existing reveals while the next pricing policy loads, without admitting new bids.
+      for (const bidder of this.cohortBiddersByActivationFrameId.values()) bidder.isBiddingOpen = false;
 
-      if (!this.biddingRules) {
+      if (biddingRules) {
+        this.biddingCalculator = new BiddingCalculator(
+          new BiddingCalculatorData(this.mining, this.miningFrames),
+          biddingRules,
+        );
+      } else {
         this.biddingCalculator = undefined;
-        return;
       }
-
-      this.biddingCalculator = new BiddingCalculator(
-        new BiddingCalculatorData(this.mining, this.miningFrames),
-        this.biddingRules,
-      );
 
       if (!this.unsubscribe || !this.localRpcUrl) {
         return;
       }
 
-      if (!this.hasRegisteredKeys) {
-        await this.accountset.registerKeys(this.localRpcUrl);
-        this.hasRegisteredKeys = true;
+      try {
+        if (this.biddingCalculator) {
+          if (!this.hasRegisteredKeys) {
+            await this.accountset.registerKeys(this.localRpcUrl);
+            this.hasRegisteredKeys = true;
+          }
+          await this.biddingCalculator.load();
+        }
+        await this.reloadActiveCohort(true);
+      } catch (error) {
+        this.scheduleBiddingRetry();
+        throw error;
       }
-
-      await this.biddingCalculator.load();
-      await this.reloadActiveCohort();
     });
   }
 
-  private async createBidderParams(cohortActivationFrameId: number): Promise<IBidderParams> {
-    if (!this.biddingCalculator || !this.biddingRules) {
-      throw new Error('Bidding rules are not configured.');
-    }
-
-    await this.biddingCalculator.data.load(cohortActivationFrameId - 1);
-    this.biddingCalculator.calculateBidAmounts();
-    const calculator = this.biddingCalculator;
-
-    const minBid = calculator.startingBidAmountOverride ?? calculator.startingBidAmount;
-    const maxBid = calculator.maximumBidAmountOverride ?? calculator.maximumBidAmount;
-
-    const maxSeats = calculator.data.getMaxFrameSeats(this.biddingRules);
-
-    const bidDelay = this.biddingRules.rebiddingDelay || 0;
-    const bidIncrement = this.biddingRules.rebiddingIncrementBy || 1n;
-
-    return {
-      minBid,
-      maxBid,
-      maxSeats,
-      bidDelay,
-      bidIncrement,
-      sidelinedWalletMicrogons: this.biddingRules.sidelinedMicrogons,
-      sidelinedWalletMicronots: this.biddingRules.sidelinedMicronots,
-    };
-  }
-
-  private async onBiddingEnd(cohortActivationFrameId: number, waitForFinalBids = true): Promise<void> {
-    const cohortBidder = this.cohortBiddersByActivationFrameId.get(cohortActivationFrameId);
-    if (!cohortBidder) return;
-
-    cohortBidder.isBiddingOpen = false;
-    await cohortBidder.stop(waitForFinalBids, this.shutdownController.signal);
+  private async reloadActiveCohort(refreshOptions = false): Promise<void> {
     if (this.isStopped) return;
-    this.cohortBiddersByActivationFrameId.delete(cohortActivationFrameId);
-    if (this.nextCohortActivationFrameId === cohortActivationFrameId) {
-      this.nextCohortActivationFrameId = null;
-    }
-    this.history.initCohort(cohortActivationFrameId, new Set());
-    this.onUpdatedFn?.();
-    console.log('Bidding stopped', { cohortActivationFrameId });
-  }
-
-  private async onBiddingStart(cohortActivationFrameId: number) {
-    if (this.isStopped || !this.biddingRules || !this.biddingCalculator) return;
-    if (
-      this.nextCohortActivationFrameId === cohortActivationFrameId &&
-      this.cohortBiddersByActivationFrameId.has(cohortActivationFrameId)
-    ) {
-      return;
-    }
-
-    let cohortBidder: CohortBidder | undefined;
+    let cohortBidder: CohortBidderBase | undefined;
     try {
+      const client = await this.mainchainClients.prunedClientOrArchivePromise;
+      const isBiddingOpen = await client.query.miningSlot.isNextSlotBiddingOpen();
+      const cohortActivationFrameId = await this.mining.fetchNextFrameId(client);
+      if (this.isStopped) return;
+
+      const existing = this.cohortBiddersByActivationFrameId.get(cohortActivationFrameId);
+      if (existing && !refreshOptions) {
+        existing.isBiddingOpen &&= isBiddingOpen;
+        return;
+      }
+
+      // Disabling admission does not cancel commitments or their receipt tracking.
+      if (!this.biddingCalculator && existing instanceof RangeCohortBidder && !existing.isStopping) {
+        existing.isBiddingOpen = false;
+        existing.updateBiddingOptions({ ...existing.options, maxSeats: 0 }, existing.subaccounts);
+        return;
+      }
+
+      const pending = (await this.accountset.pendingMiningBids(client)).filter(
+        bid => bid.frame === cohortActivationFrameId,
+      );
+      const preparedMaxima = await this.history.getBidMaxima(cohortActivationFrameId);
+      const hasRevealWork = pending.length > 0 || Object.keys(preparedMaxima).length > 0;
+      if (!isBiddingOpen && !hasRevealWork) {
+        await this.stopActiveBidders(false);
+        return;
+      }
+      if (!this.biddingCalculator && !hasRevealWork) {
+        await this.stopActiveBidders(false);
+        return;
+      }
+
       if (this.accountset.isProxy) {
         const proxySetup = await this.accountset.planMiningBidProxySetup();
         if (proxySetup.kind !== 'ready') {
@@ -205,8 +186,10 @@ export class AutoBidder {
             cohortActivationFrameId,
             proxySetup: proxySetup.kind,
           });
-          this.history.initCohort(cohortActivationFrameId, new Set());
-          this.onUpdatedFn?.();
+          if (!existing) {
+            this.history.initCohort(cohortActivationFrameId, new Set());
+            this.onUpdatedFn?.();
+          }
           this.scheduleBiddingRetry();
           return;
         }
@@ -216,11 +199,19 @@ export class AutoBidder {
         }
       }
 
-      const params = await this.createBidderParams(cohortActivationFrameId);
+      let params: IBidderParams;
+      if (this.biddingCalculator) {
+        params = await this.createBidderParams(cohortActivationFrameId, this.biddingCalculator);
+      } else {
+        // A restarted bidder with saved commitments only needs to finish its reveals.
+        params = { minBid: 0n, maxBid: 0n, maxSeats: 0, bidDelay: 0, bidIncrement: 0n };
+      }
       if (this.isStopped) return;
 
       console.log('Bidder params', params);
-      if (params.maxSeats === 0) {
+      if (params.maxSeats === 0 && !hasRevealWork && !(existing instanceof RangeCohortBidder)) {
+        await this.stopActiveBidders(false);
+        if (this.isStopped) return;
         this.history.initCohort(cohortActivationFrameId, new Set());
         this.onUpdatedFn?.();
         return;
@@ -245,21 +236,40 @@ export class AutoBidder {
           });
         }
       }
-      // check if we need to add more seats
+      for (const bid of pending) {
+        if (subaccounts.some(account => account.address === bid.miner)) continue;
+        const account = this.accountset.subAccountsByAddress[bid.miner];
+        subaccounts.push({ index: account.index, address: bid.miner, isRebid: false });
+      }
       if (subaccounts.length < params.maxSeats) {
         const neededSeats = params.maxSeats - subaccounts.length;
-        const added = await this.accountset.getAvailableMinerAccounts(neededSeats, miningSeatsAndBids);
+        // Pending commitments are not winning bids yet, so exclude them explicitly.
+        const available = miningSeatsAndBids.filter(
+          seat => !subaccounts.some(account => account.address === seat.address),
+        );
+        const added = await this.accountset.getAvailableMinerAccounts(neededSeats, available);
         subaccounts.push(...added);
       }
       if (this.isStopped) return;
 
-      cohortBidder = new CohortBidder(
+      if (existing instanceof RangeCohortBidder && !existing.isStopping) {
+        existing.isBiddingOpen = isBiddingOpen && params.maxSeats > 0;
+        existing.updateBiddingOptions(params, subaccounts);
+        return;
+      }
+
+      await this.stopActiveBidders(false);
+      if (this.isStopped) return;
+
+      cohortBidder = await CohortBidder.create(
         this.accountset,
         this.miningFrames,
         cohortActivationFrameId,
         subaccounts,
         params,
         {
+          loadBidMaxima: async () => preparedMaxima,
+          onBidMaximaPrepared: maxima => this.history.saveBidMaxima(cohortActivationFrameId, maxima),
           onBidParamsAdjusted: args => {
             const {
               availableBalanceForBids,
@@ -290,28 +300,18 @@ export class AutoBidder {
               nextEntrants: bids,
               frameId: cohortActivationFrameId,
               isReloadingInitialState,
+              seatGoalCount: cohortBidder?.seatGoalCount,
             });
           },
           onBidsSubmitted: args => {
-            const { tick, blockNumber, microgonsPerSeat, submittedCount, txFeePlusTip } = args;
             this.history.handleBidsSubmitted({
-              tick,
-              blockNumber,
-              microgonsPerSeat,
-              submittedCount,
-              txFeePlusTip,
+              ...args,
               frameId: cohortActivationFrameId,
             });
           },
           onBidsRejected: args => {
-            const { tick, blockNumber, bidError, microgonsPerSeat, rejectedCount, submittedCount } = args;
             this.history.handleBidsRejected({
-              tick,
-              blockNumber,
-              bidError,
-              microgonsPerSeat,
-              rejectedCount,
-              submittedCount,
+              ...args,
               frameId: cohortActivationFrameId,
             });
           },
@@ -320,6 +320,7 @@ export class AutoBidder {
       );
       if (this.isStopped) return;
       cohortBidder.bidsAttempted = await this.history.getSubmittedBidCount(cohortActivationFrameId);
+      cohortBidder.isBiddingOpen = isBiddingOpen && params.maxSeats > 0;
       if (this.isStopped) return;
       cohortBidder.onUpdatedFn = this.onUpdatedFn;
       this.nextCohortActivationFrameId = cohortActivationFrameId;
@@ -333,23 +334,68 @@ export class AutoBidder {
       this.history.initCohort(cohortActivationFrameId, cohortBidder.myAddresses);
       this.onUpdatedFn?.();
       await cohortBidder.start();
+      if (!isBiddingOpen) await this.onBiddingEnd(cohortActivationFrameId);
       if (this.pendingBiddingRetryTimeout) {
         clearTimeout(this.pendingBiddingRetryTimeout);
         this.pendingBiddingRetryTimeout = undefined;
       }
-    } catch (err) {
-      console.error('Error starting bidding for cohort', cohortActivationFrameId, err);
-      if (this.cohortBiddersByActivationFrameId.get(cohortActivationFrameId) === cohortBidder) {
-        this.cohortBiddersByActivationFrameId.delete(cohortActivationFrameId);
-        this.nextCohortActivationFrameId = null;
+    } catch (error) {
+      console.error('Could not reconcile the mining auction; retrying:', error);
+      if (cohortBidder) {
+        const frameId = cohortBidder.cohortStartingFrameId;
+        if (this.cohortBiddersByActivationFrameId.get(frameId) === cohortBidder) {
+          this.cohortBiddersByActivationFrameId.delete(frameId);
+          this.nextCohortActivationFrameId = null;
+        }
+        await cohortBidder.stop(false).catch(cleanupError => {
+          console.error('Error cleaning up failed cohort bidder', frameId, cleanupError);
+        });
+        this.history.initCohort(frameId, new Set());
+        this.onUpdatedFn?.();
       }
-      await cohortBidder?.stop(false).catch(cleanupError => {
-        console.error('Error cleaning up failed cohort bidder', cohortActivationFrameId, cleanupError);
-      });
-      this.history.initCohort(cohortActivationFrameId, new Set());
-      this.onUpdatedFn?.();
       this.scheduleBiddingRetry();
     }
+  }
+
+  private async createBidderParams(
+    cohortActivationFrameId: number,
+    calculator: BiddingCalculator,
+  ): Promise<IBidderParams> {
+    const rules = calculator.biddingRules;
+    await calculator.data.load(cohortActivationFrameId - 1);
+    calculator.calculateBidAmounts();
+
+    const minBid = calculator.startingBidAmountOverride ?? calculator.startingBidAmount;
+    const maxBid = calculator.maximumBidAmountOverride ?? calculator.maximumBidAmount;
+
+    const maxSeats = calculator.data.getMaxFrameSeats(rules);
+
+    const bidDelay = rules.rebiddingDelay || 0;
+    const bidIncrement = rules.rebiddingIncrementBy || 1n;
+
+    return {
+      minBid,
+      maxBid,
+      maxSeats,
+      bidDelay,
+      bidIncrement,
+    };
+  }
+
+  private async onBiddingEnd(cohortActivationFrameId: number, waitForFinalBids = true): Promise<void> {
+    const cohortBidder = this.cohortBiddersByActivationFrameId.get(cohortActivationFrameId);
+    if (!cohortBidder) return;
+
+    cohortBidder.isBiddingOpen = false;
+    await cohortBidder.stop(waitForFinalBids, this.shutdownController.signal);
+    if (this.isStopped) return;
+    this.cohortBiddersByActivationFrameId.delete(cohortActivationFrameId);
+    if (this.nextCohortActivationFrameId === cohortActivationFrameId) {
+      this.nextCohortActivationFrameId = null;
+    }
+    this.history.initCohort(cohortActivationFrameId, new Set());
+    this.onUpdatedFn?.();
+    console.log('Bidding stopped', { cohortActivationFrameId });
   }
 
   private queueLifecycle(task: () => Promise<void>): Promise<void> {
@@ -363,7 +409,7 @@ export class AutoBidder {
 
     this.pendingBiddingRetryTimeout = setTimeout(() => {
       this.pendingBiddingRetryTimeout = undefined;
-      void this.queueLifecycle(() => this.reloadActiveCohort()).catch(error => {
+      void this.queueLifecycle(() => this.reloadActiveCohort(true)).catch(error => {
         console.error('Error retrying bidding setup', error);
         this.scheduleBiddingRetry();
       });
@@ -374,25 +420,5 @@ export class AutoBidder {
     for (const cohortActivationFrameId of [...this.cohortBiddersByActivationFrameId.keys()]) {
       await this.onBiddingEnd(cohortActivationFrameId, waitForFinalBids);
     }
-  }
-
-  private async reloadActiveCohort(): Promise<void> {
-    const client = await this.mainchainClients.prunedClientOrArchivePromise;
-    const isBiddingOpen = await client.query.miningSlot.isNextSlotBiddingOpen();
-    if (!isBiddingOpen) {
-      await this.stopActiveBidders(false);
-      return;
-    }
-
-    const cohortActivationFrameId = await this.mining.fetchNextFrameId(client);
-    if (
-      this.nextCohortActivationFrameId === cohortActivationFrameId &&
-      this.cohortBiddersByActivationFrameId.has(cohortActivationFrameId)
-    ) {
-      return;
-    }
-
-    await this.stopActiveBidders(false);
-    await this.onBiddingStart(cohortActivationFrameId);
   }
 }

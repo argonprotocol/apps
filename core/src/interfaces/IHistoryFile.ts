@@ -3,6 +3,7 @@ import type { ILastModifiedAt } from './ILastModified.ts';
 
 export interface IHistoryFile extends ILastModifiedAt {
   activities: IBotActivity[];
+  preparedBidMaxima?: Record<string, bigint>;
 }
 
 export enum BotActivityType {
@@ -31,11 +32,13 @@ export interface IBotActivityError extends IBotActivityBasic {
 
 export interface IBotActivityBidsSubmitted extends IBotActivityBasic {
   microgonsPerSeat: bigint;
+  maxMicrogonsPerSeat?: bigint;
   txFeePlusTip: bigint;
   submittedCount: number;
 }
 export interface IBotActivityBidsRejected extends IBotActivityBasic {
   microgonsPerSeat: bigint;
+  maxMicrogonsPerSeat?: bigint;
   submittedCount: number;
   rejectedCount: number;
   bidError?: ExtrinsicError;

@@ -306,6 +306,11 @@ function classifyEventKind(
 }
 
 const miningBidEvents = new Set([
+  'BidCommitted',
+  'BidRevealed',
+  'BidRejected',
+  'BidLost',
+  'WinningBidPriceChanged',
   'MiningBidsClosed',
   'ReleaseBidError',
   'SlotBidderAdded',

@@ -1,4 +1,4 @@
-import { MINING_BID_PROXY_FEE_FLOAT } from '@argonprotocol/apps-core';
+import { MINING_BID_PROXY_FEE_FLOAT, MINING_BID_FEE_RESERVE } from '@argonprotocol/apps-core';
 import { bigIntMax } from '@argonprotocol/apps-core/src/utils.ts';
 import { MiningSetupStatus } from '../../interfaces/IConfig.ts';
 
@@ -28,9 +28,10 @@ export function getMiningFundingState(args: {
     };
   }
 
-  const requiredMicrogons =
-    (args.initialMicrogonRequirement ?? 0n) +
-    (args.miningSetupStatus === MiningSetupStatus.Finished ? 0n : MINING_BID_PROXY_FEE_FLOAT);
+  let requiredMicrogons = args.initialMicrogonRequirement ?? 0n;
+  if (args.miningSetupStatus === MiningSetupStatus.None || args.miningSetupStatus === MiningSetupStatus.Checklist) {
+    requiredMicrogons += MINING_BID_FEE_RESERVE + MINING_BID_PROXY_FEE_FLOAT;
+  }
   const requiredMicronots = args.initialMicronotRequirement ?? 0n;
   const additionalMicrogonsNeeded = bigIntMax(requiredMicrogons - args.miningMicrogonsOnHand, 0n);
   const additionalMicronotsNeeded = bigIntMax(requiredMicronots - args.miningMicronotsOnHand, 0n);

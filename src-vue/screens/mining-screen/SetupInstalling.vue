@@ -242,14 +242,6 @@ async function ensureMiningSetup(force = false) {
       return;
     }
     if (setupResult.kind === 'noSpendableFundsToSweep') {
-      if (fundingState.value.isFullyFunded) {
-        transactionErrorMessage.value = '';
-        txProgressLabel.value = 'Mining capital is ready.';
-        txProgressPct.value = 100;
-        await finalizeMiningSetup();
-        return;
-      }
-
       txProgressPct.value = 0;
       txProgressLabel.value = 'Mining capital needs attention.';
       transactionErrorMessage.value = 'This miner is not fully funded yet.';
