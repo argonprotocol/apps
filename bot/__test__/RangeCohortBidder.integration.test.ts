@@ -667,16 +667,7 @@ describe.skipIf(SKIP_E2E)('Range cohort bidder', { tags: ['isolated-argon-networ
   }, 180_000);
 
   async function prepareNextAuction() {
-    const startingFrame = await client.query.miningSlot.nextFrameId();
-    const frameId = await waitFor(120_000, 'next open auction', async () => {
-      const header = frames.blockWatch.bestBlockHeader;
-      const api = runtimeClient(await client.at(header.blockHash));
-      const [frameId, open] = await Promise.all([
-        api.query.miningSlot.nextFrameId(),
-        api.query.miningSlot.isNextSlotBiddingOpen(),
-      ]);
-      if (frameId > startingFrame && open && header.frameId! + 1 === frameId) return frameId;
-    });
+    // Finish funding before the auction starts so setup does not consume its bidding window.
     const requiredStake =
       (await client.query.miningSlot.argonotsPerMiningSeat()) * BigInt(client.consts.mint.maxPossibleMiners);
     const addresses = [fundingAccount.address, rivalAccount.address];
@@ -690,6 +681,16 @@ describe.skipIf(SKIP_E2E)('Range cohort bidder', { tags: ['isolated-argon-networ
       const result = await sudoSubmitAndFinalize(client, client.tx.utility.batchAll(funding), { useLatestNonce: true });
       expect(result.extrinsicError).toBeUndefined();
     }
-    return frameId;
+
+    const startingFrame = await client.query.miningSlot.nextFrameId();
+    return await waitFor(120_000, 'next open auction', async () => {
+      const header = frames.blockWatch.bestBlockHeader;
+      const api = runtimeClient(await client.at(header.blockHash));
+      const [frameId, open] = await Promise.all([
+        api.query.miningSlot.nextFrameId(),
+        api.query.miningSlot.isNextSlotBiddingOpen(),
+      ]);
+      if (frameId > startingFrame && open && header.frameId! + 1 === frameId) return frameId;
+    });
   }
 });

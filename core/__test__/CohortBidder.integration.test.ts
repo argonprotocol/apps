@@ -1,4 +1,4 @@
-import { integrationNetwork as sharedNetwork } from '@argonprotocol/apps-core/__test__/integration.setup.ts';
+import { randomUUID } from 'node:crypto';
 import {
   Accountset,
   CohortBidder,
@@ -7,13 +7,13 @@ import {
   MainchainClients,
   Mining,
   MiningFrames,
+  NetworkConfig,
 } from '../src/index.ts';
-import { COMPOSE_CONFIG, COMPOSE_DIR, waitForQueryableClient } from './startArgonTestNetwork.ts';
+import { startArgonTestNetwork, waitForQueryableClient } from './startArgonTestNetwork.ts';
 import { runOnTeardown, SKIP_E2E, teardown } from '@argonprotocol/testing';
 import { it, afterAll, afterEach, describe, expect, inject, vi } from 'vitest';
 import { inspect } from 'util';
 import { Keyring, mnemonicGenerate } from '@argonprotocol/mainchain';
-import docker from 'docker-compose';
 import { integrationAccountUri } from './integrationNetwork.ts';
 import { sudoFundWallet } from './helpers/sudoFundWallet.ts';
 
@@ -35,21 +35,34 @@ afterAll(async () => {
   await teardown();
 });
 
-describe.skipIf(SKIP_E2E)('Cohort Integration Bidder tests', { tags: ['mining-auction'] }, () => {
+describe.skipIf(SKIP_E2E)('Cohort Integration Bidder tests', { tags: ['isolated-argon-network'] }, () => {
   it('can compete on bids', async () => {
-    const network = sharedNetwork;
+    // Both commitments and delayed reveals must fit before this auction activates.
+    const network = await startArgonTestNetwork(`cohort-bidders-${randomUUID()}`, {
+      ticksBetweenSlots: 30,
+      profiles: ['bob', 'price-oracle'],
+      registerTeardown: false,
+    });
+    runOnTeardown(async () => {
+      await network.stop();
+    });
     const accountUri = integrationAccountUri(inject('argonIntegrationRunId'), import.meta.filename, 'funded');
     const aliceRing = new Keyring({ type: 'sr25519' }).addFromUri(accountUri);
     const aliceBudget = 10_000_000n;
 
     const clients = trackMainchainClients(new MainchainClients(network.archiveUrl, () => false));
     const aliceClient = await clients.get(false);
+    NetworkConfig.setNetwork('dev-docker');
+    await NetworkConfig.updateConfig(aliceClient);
+    NetworkConfig.setRuntimeOverride('dev-docker', network.networkConfigOverride);
     const bobRing = new Keyring({ type: 'sr25519' }).addFromUri(`${accountUri}//bob`);
 
     await sudoFundWallet({
       address: aliceRing.address,
       microgons: aliceBudget,
-      micronots: (await aliceClient.query.ownership.account(aliceRing.address)).free,
+      micronots:
+        (await aliceClient.query.miningSlot.argonotsPerMiningSeat()) *
+        BigInt(aliceClient.consts.mint.maxPossibleMiners),
       client: aliceClient,
     });
 
@@ -72,13 +85,7 @@ describe.skipIf(SKIP_E2E)('Cohort Integration Bidder tests', { tags: ['mining-au
     });
     console.log('Bob funding is ready');
 
-    const {
-      data: { port: bobPort },
-    } = await docker.port('miner-1', '9944', {
-      config: COMPOSE_CONFIG,
-      cwd: COMPOSE_DIR,
-      env: { ...process.env, COMPOSE_PROJECT_NAME: network.composeProjectName },
-    });
+    const bobPort = await network.getPort('miner-1', 9944);
     const bobAddress = `ws://localhost:${bobPort}`;
     await waitForQueryableClient(bobAddress, { label: bobAddress });
 
@@ -132,6 +139,7 @@ describe.skipIf(SKIP_E2E)('Cohort Integration Bidder tests', { tags: ['mining-au
             maxBid: 5_000_000n,
             bidIncrement: 1_000_000n,
             bidDelay: 0,
+            tipPerTransaction: 600_000n,
           },
           {
             onBidsSubmitted: ({ microgonsPerSeat, blockNumber }) => {
@@ -153,6 +161,7 @@ describe.skipIf(SKIP_E2E)('Cohort Integration Bidder tests', { tags: ['mining-au
             maxBid: 4_000_000n,
             bidIncrement: 1_000_000n,
             bidDelay: 0,
+            tipPerTransaction: 600_000n,
           },
           {
             onBidsSubmitted: ({ microgonsPerSeat, maxMicrogonsPerSeat, submittedCount, blockNumber }) => {
