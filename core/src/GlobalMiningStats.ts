@@ -3,7 +3,7 @@ import {
   calculateAnnualPercentageRate,
   calculateAnnualPercentageYield,
 } from './FinancialReturns.js';
-import { Currency, UnitOfMeasurement } from './Currency.js';
+import { Currency } from './Currency.js';
 import type { Mining } from './Mining.js';
 import { NetworkConfig } from './NetworkConfig.js';
 
@@ -41,44 +41,67 @@ export class GlobalMiningStats {
   public async update() {
     const client = await this.mining.prunedClientOrArchivePromise;
     const api = await client.at(await client.rpc.chain.getFinalizedHead());
-    const [activeSeatCount, aggregateBlockRewards, aggregateBidCosts, aggregateMicronotsStaked] = await Promise.all([
+    const [activeSeatCount, cohorts] = await Promise.all([
       this.mining.fetchActiveMinersCount(api),
-      this.mining.fetchAggregateBlockRewards(api),
-      this.mining.fetchAggregateBidCosts(api),
-      this.mining.fetchAggregateMicronotsStaked(api),
+      this.mining.fetchActiveCohortStats(api),
     ]);
-    const markedStake = this.currency.convertMicronotTo(aggregateMicronotsStaked, UnitOfMeasurement.Microgon);
-    const valueOfMicronots = this.currency.convertMicronotTo(
-      aggregateBlockRewards.micronots,
-      UnitOfMeasurement.Microgon,
-    );
-    const aggregateRewards = aggregateBlockRewards.microgons + valueOfMicronots;
+
+    let aggregateBidCosts = 0n;
+    let aggregateStakedValue = 0n;
+    let aggregateRewardValue = 0n;
+    const aggregateBlockRewards = { microgons: 0n, micronots: 0n };
+    let totalCohortAPR = 0;
+    let totalCohortAPY = 0;
+    let totalCohortTDR = 0;
+    let eligibleCohortCount = 0;
+
+    for (const { bidCosts, micronotsStaked, blockRewards, entryArgonotPrice, frameRewards } of cohorts) {
+      aggregateBidCosts += bidCosts;
+      aggregateBlockRewards.microgons += blockRewards.microgons;
+      aggregateBlockRewards.micronots += blockRewards.micronots;
+
+      const markedStake = Currency.convertMicronotToMicrogonAtPrice(micronotsStaked, entryArgonotPrice);
+      const rewardValue = frameRewards.reduce(
+        (sum, frame) =>
+          sum + frame.microgons + Currency.convertMicronotToMicrogonAtPrice(frame.micronots, frame.argonotPrice),
+        0n,
+      );
+      aggregateStakedValue += markedStake;
+      aggregateRewardValue += rewardValue;
+      const startingValue = bidCosts + markedStake;
+      if (startingValue <= 0n) continue;
+
+      const endingValue = markedStake + rewardValue;
+      const annualizedInput = { startingValue, endingValue, periodDays: NetworkConfig.framesPerCohort };
+      totalCohortAPR += calculateAnnualPercentageRate(annualizedInput);
+      totalCohortAPY += calculateAnnualPercentageYield(annualizedInput);
+      totalCohortTDR += calculateAggregateReturn([
+        { startingCapital: startingValue, endingCapital: endingValue },
+      ]).percent;
+      eligibleCohortCount += 1;
+    }
+
     const aggregateReturn = calculateAggregateReturn([
       {
-        startingCapital: aggregateBidCosts + markedStake,
-        endingCapital: markedStake + aggregateRewards,
+        startingCapital: aggregateBidCosts + aggregateStakedValue,
+        endingCapital: aggregateStakedValue + aggregateRewardValue,
       },
     ]);
-    const annualizedInput = {
-      startingValue: aggregateReturn.eligibleCapitalInvested,
-      endingValue: aggregateReturn.eligibleCapitalInvested + aggregateReturn.totalProfits,
-      periodDays: NetworkConfig.framesPerCohort,
-    };
 
     this.activeSeatCount = activeSeatCount;
     this.aggregatedBidCosts = aggregateBidCosts;
     const blocksPerCohort = BigInt(NetworkConfig.ticksPerCohort);
     this.baseMicrogonRewardsPerBlock = aggregateBlockRewards.microgons / blocksPerCohort;
     this.baseMicronotRewardsPerBlock = aggregateBlockRewards.micronots / blocksPerCohort;
-    this.aggregatedBlockRewards = aggregateRewards;
+    this.aggregatedBlockRewards = aggregateRewardValue;
     this.investedCapital = aggregateReturn.eligibleCapitalInvested;
     this.projectedProfit = aggregateReturn.totalProfits;
-    this.averageAPR = calculateAnnualPercentageRate(annualizedInput);
-    this.averageAPY = calculateAnnualPercentageYield(annualizedInput);
+    this.averageAPR = eligibleCohortCount > 0 ? totalCohortAPR / eligibleCohortCount : 0;
+    this.averageAPY = eligibleCohortCount > 0 ? totalCohortAPY / eligibleCohortCount : 0;
 
     this.activeBidCosts = this.aggregatedBidCosts;
     this.activeBlockRewards = this.aggregatedBlockRewards;
-    this.activeTDR = aggregateReturn.percent;
+    this.activeTDR = eligibleCohortCount > 0 ? totalCohortTDR / eligibleCohortCount : 0;
     this.activeAPR = this.averageAPR;
     this.activeAPY = this.averageAPY;
   }
