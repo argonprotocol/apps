@@ -919,12 +919,16 @@ export const BitcoinReceiveLoadErrorGuide: Story = {
 
 export const BitcoinFundingConfirmedGuide: Story = {
   beforeEach: () => {
-    useScenario(WalletType.argon, undefined, 'bitcoinSend');
+    useScenario(WalletType.argon, undefined, 'bitcoinSend', true);
     getConfig().hasExtensionTreasury = true;
     const controller = useCertificationController();
     controller.chainProgress.hasOperationalAccount = true;
     controller.chainProgress.hasBitcoinLock = false;
     controller.activeGuideId = OperationalStepId.LiquidLock;
+  },
+  play: async () => {
+    await waitForWalletOverlay();
+    await showBitcoinGuide();
   },
 };
 

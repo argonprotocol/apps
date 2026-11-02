@@ -363,7 +363,10 @@ export const CurrentDayInProgress: Story = {
     setupMiningPortfolioScenario();
     Object.assign(getMyMiningSeats().frames.at(-1)!, { progress: 50, profitPct: 1.4, score: 20 });
   },
-  play: ({ canvasElement }) => inspectMiningDay(canvasElement),
+  play: async ({ canvasElement }) => {
+    await inspectMiningDay(canvasElement);
+    await within(canvasElement.ownerDocument.body).findByText(/58\.00 \/ seat/);
+  },
 };
 
 export const CurrentAuctionSettling: Story = {

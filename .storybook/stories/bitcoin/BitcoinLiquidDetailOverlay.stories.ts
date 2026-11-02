@@ -262,7 +262,7 @@ function setupDetails(
     pendingLiquidity?: bigint;
     pendingMintPerFrame?: bigint;
     myVaultId?: number;
-    closeQuoteDelayMs?: number;
+    closeQuoteLoading?: boolean;
     isClosing?: boolean;
     closeProgressPct?: number;
     closeProgressLabel?: string;
@@ -421,7 +421,7 @@ function setupDetails(
       }
     }),
     prepare: fn(async () => {
-      if (args.closeQuoteDelayMs) await new Promise(resolve => setTimeout(resolve, args.closeQuoteDelayMs));
+      if (args.closeQuoteLoading) return new Promise<never>(() => undefined);
       if (args.closeQuoteError && closeQuoteAttempts++ === 0) throw new Error(args.closeQuoteError);
       return {
         client: { consts: { balances: { existentialDeposit: { toBigInt: () => 0n } } } },
@@ -659,8 +659,8 @@ export const CloseConfirmation: Story = {
   },
 };
 
-export const CloseQuoteWhilePriceUpdates: Story = {
-  beforeEach: () => setupDetails({ closeQuoteDelayMs: 250 }),
+export const CloseQuoteLoading: Story = {
+  beforeEach: () => setupDetails({ closeQuoteLoading: true }),
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement.ownerDocument.body);
     await userEvent.click(canvas.getByRole('button', { name: /Repay .* Close Liquid/ }));
