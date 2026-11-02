@@ -345,7 +345,7 @@ import { createNumeralHelpers } from '../lib/numeral.ts';
 import { getEthereumWalletDisplayName, getWalletTotalValue } from '../lib/Wallet.ts';
 import { useFinancials } from '../stores/financials.ts';
 import { useWallets } from '../stores/wallets.ts';
-import { financialMenuLabels } from './financialMenuLabels.ts';
+import { financialMenuGroupOrder, financialMenuLabels } from './financialMenuLabels.ts';
 
 const rootRef = Vue.ref<HTMLElement>();
 
@@ -400,14 +400,16 @@ const bondAssetRows = Vue.computed(() => {
 });
 
 const visibleGroups = Vue.computed(() => {
-  return aggregate.value.groups.filter(group => {
-    if (group.state === 'loading') return false;
-    if (group.group === 'base') return false;
-    if (group.group === 'liquid') return true;
-    if (group.group === 'ethereum') return true;
-    if (config.hasExtensionTreasury && (group.group === 'bonds' || group.group === 'bitcoin')) return true;
-    return group.state !== 'ready' || group.grossAssets !== 0n || group.grossLiabilities !== 0n;
-  });
+  return financialMenuGroupOrder
+    .map(group => aggregate.value.groupSummaries[group])
+    .filter(group => {
+      if (group.state === 'loading') return false;
+      if (group.group === 'base') return false;
+      if (group.group === 'liquid') return true;
+      if (group.group === 'ethereum') return true;
+      if (config.hasExtensionTreasury && (group.group === 'bonds' || group.group === 'bitcoin')) return true;
+      return group.state !== 'ready' || group.grossAssets !== 0n || group.grossLiabilities !== 0n;
+    });
 });
 const ethereumWalletRows = Vue.computed(() => {
   return wallets.ethereumWallets.persistedWallets.map(wallet => ({

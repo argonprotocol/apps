@@ -1,5 +1,15 @@
 import type { FinancialGroup } from '../interfaces/IFinancialPosition.ts';
 
+export const financialMenuGroupOrder: readonly FinancialGroup[] = [
+  'liquid',
+  'ethereum',
+  'base',
+  'bitcoin',
+  'bonds',
+  'mining',
+  'vaulting',
+];
+
 export const financialMenuLabels: Record<FinancialGroup, string> = {
   liquid: 'Internal App Wallet',
   ethereum: 'Ethereum Wallet',
@@ -11,6 +21,6 @@ export const financialMenuLabels: Record<FinancialGroup, string> = {
 };
 
 export const bondAssetMenuItems = [
-  { asset: 'ARGN', label: 'Argon' },
-  { asset: 'ARGNOT', label: 'Argonot' },
-] as const;
+  { asset: 'ARGN' as const, label: 'Argon Bonds' },
+  { asset: 'ARGNOT' as const, label: 'Argonot Stakes' },
+];

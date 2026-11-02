@@ -889,6 +889,13 @@ describe('financial position accounting', () => {
     expect(calculatePositionReturn([backfilling]).apy).toBe(initialApy);
 
     delete stats.revenueBackfill;
+    const latestFrame = stats.vaultsById[1].changesByFrame[0];
+    latestFrame.bitcoinFeeCouponValueUsed = undefined;
+    const [incompleteFrame] = source.createFinancialPositions(positionArgs);
+    expect(incompleteFrame).toMatchObject({ kind: 'vault', dailyReturnPeriodDays: 2 });
+    expect(Math.log1p(calculatePositionReturn([incompleteFrame]).apy! / 100)).toBeCloseTo(Math.log(1.1) * (365 / 2));
+
+    latestFrame.bitcoinFeeCouponValueUsed = 0n;
     const [position] = source.createFinancialPositions(positionArgs);
     const returns = calculatePositionReturn([position]);
     expect(returns.percent).toBe(30);
@@ -3026,6 +3033,21 @@ describe('financial position accounting', () => {
       { ...argonotLot, participatedFrames: 3, cumulativeEarnings: 6_000_000n },
       argonotLot.ownAddress,
     );
+    const restoredArgs = {
+      bondLots: [advancedArgonotLot],
+      historyRecords: [{ ...argonotHistory, participatedFrames: 3, cumulativeEarningsMicrogons: 6_000_000n }],
+      dailyEarnings: argonotDailyEarnings,
+      liveArgonotRateMicrogons: 3_000_000n,
+      frameDates: new Map([[argonotLot.createdFrameId, new Date('2026-01-01T00:00:00Z')]]),
+    };
+    const [restoredArgonot] = bondFinancials.createFinancialPositions(restoredArgs);
+    expect(calculatePositionReturn([restoredArgonot])).toMatchObject({ percent: 30, apy: argonotReturn.apy });
+    const [changedPrincipal] = bondFinancials.createFinancialPositions({
+      ...restoredArgs,
+      historyRecords: [{ ...argonotHistory, nativePrincipal: argonotHistory.nativePrincipal + 1n }],
+    });
+    expect(calculatePositionReturn([changedPrincipal]).apy).toBeUndefined();
+
     const [incompleteArgonot] = bondFinancials.createFinancialPositions({
       bondLots: [advancedArgonotLot],
       historyRecords: [argonotHistory],

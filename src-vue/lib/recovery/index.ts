@@ -10,6 +10,7 @@ import type { IBitcoinFissionRecord } from '../../interfaces/IBitcoinFissionReco
 import { findAddressActivity } from '../IndexerClient.ts';
 import { SyncStateKeys, type IFinancialHistoryDomain, type ISyncSchemas } from '../db/SyncStateTable.ts';
 import type { ArgonBonds } from '../ArgonBonds.ts';
+import { readHistoricalBondLots } from './ArgonBonds.ts';
 import type { VaultHistory } from './MyVault.ts';
 import type { BitcoinLockRecovery } from './BitcoinLocks.ts';
 import type { BitcoinHistoryReplayLockScope, IHistoricalBitcoinLockRecord } from './BitcoinLockReplay.ts';
@@ -112,6 +113,31 @@ const historyRecoveryVersions: Partial<Record<IFinancialHistoryDomain, number>> 
   bonds: 4,
   vaulting: 1,
 };
+
+/** Reads contiguous indexed history through its asOfBlock; domains own replay and publication. */
+export async function findFinancialHistoryActivity(
+  accountId: string,
+  domain: IFinancialHistoryDomain,
+  range: Pick<IIndexerSpec['/v2/activity/:address']['requestQuery'], 'afterBlock' | 'toBlock'>,
+) {
+  const indexedHistory = await findAddressActivity(accountId, {
+    ...range,
+    activityMask: domainActivityMasks[domain],
+  });
+  const minimumCompatibleDefinitionVersion = minimumActivityDefinitionVersions[domain];
+  if (indexedHistory.definitionVersion < minimumCompatibleDefinitionVersion) {
+    throw new Error(
+      `Activity index definition ${indexedHistory.definitionVersion} is older than the required definition ${minimumCompatibleDefinitionVersion}; upgrade and rebuild the indexer before recovering ${domain} history`,
+    );
+  }
+  const firstGap = indexedHistory.coverage.gaps[0];
+  if (firstGap) {
+    throw new Error(
+      `Investment history index has a coverage gap from block ${firstGap.fromBlock.toLocaleString()} to ${firstGap.toBlock.toLocaleString()}: ${firstGap.reason}`,
+    );
+  }
+  return indexedHistory;
+}
 
 export async function restoreFinancialHistory(args: {
   db: Db;
@@ -708,33 +734,17 @@ async function restoreFinancialHistoryDomain(args: {
     }
   }
 
-  let indexedHistory = await findAddressActivity(accountId, {
+  let indexedHistory = await findFinancialHistoryActivity(accountId, domain, {
     afterBlock,
     toBlock: args.targetBlock,
-    activityMask: domainActivityMasks[domain],
   });
-  const minimumCompatibleDefinitionVersion = minimumActivityDefinitionVersions[domain];
-  if (indexedHistory.definitionVersion < minimumCompatibleDefinitionVersion) {
-    throw new Error(
-      `Activity index definition ${indexedHistory.definitionVersion} is older than the required definition ${minimumCompatibleDefinitionVersion}; upgrade and rebuild the indexer before recovering ${domain} history`,
-    );
-  }
-
   const definitionChanged = !!checkpoint && checkpoint.definitionVersion !== indexedHistory.definitionVersion;
   if (afterBlock > 0 && definitionChanged) {
     afterBlock = 0;
-    indexedHistory = await findAddressActivity(accountId, {
+    indexedHistory = await findFinancialHistoryActivity(accountId, domain, {
       afterBlock,
       toBlock: args.targetBlock,
-      activityMask: domainActivityMasks[domain],
     });
-  }
-
-  if (indexedHistory.coverage.gaps.length) {
-    const firstGap = indexedHistory.coverage.gaps[0];
-    throw new Error(
-      `Investment history index has a coverage gap from block ${firstGap.fromBlock.toLocaleString()} to ${firstGap.toBlock.toLocaleString()}: ${firstGap.reason}`,
-    );
   }
 
   if (domain === 'bitcoin' && bitcoinLockRecovery) {
@@ -801,9 +811,13 @@ async function restoreFinancialHistoryDomain(args: {
 
   const recoveredThroughBlock = Math.min(indexedHistory.asOfBlock, args.targetBlock);
   if (afterBlock === 0 && recoveredThroughBlock >= args.targetBlock) {
+    // Live positions can advance while replay runs; completeness belongs to its cutoff.
+    const recoveredBlock = await blockWatch.getHeader(recoveredThroughBlock);
+    const recoveredApi = await blockWatch.getApi(recoveredBlock);
+
     if (domain === 'bonds') {
       const bondHistory = await db.bondLotHistoryTable.fetchAll(accountId);
-      const activeBondLots = argonBonds.data.bondLots;
+      const activeBondLots = await readHistoricalBondLots(recoveredApi, accountId);
       const earliestEventBackedBondFrame = activeBondLots.length
         ? argonBonds.miningFrames.earliestWithSpec(earliestSupportedSpecVersions.bonds)
         : 0;
@@ -821,8 +835,7 @@ async function restoreFinancialHistoryDomain(args: {
     if (domain === 'bitcoin') {
       if (!bitcoinLockRecovery) throw new Error('Bitcoin lock history recovery is not configured');
 
-      const finalizedApi = await blockWatch.getFinalizedApi();
-      const missingLockIds = await bitcoinLockRecovery.findMissingActiveLockIds(finalizedApi);
+      const missingLockIds = await bitcoinLockRecovery.findMissingActiveLockIds(recoveredApi);
       if (missingLockIds.length) {
         throw new Error(
           `The indexer has not restored active Bitcoin lock${missingLockIds.length === 1 ? '' : 's'} ${missingLockIds.join(', ')}`,
@@ -831,8 +844,7 @@ async function restoreFinancialHistoryDomain(args: {
     }
 
     if (domain === 'vaulting') {
-      const finalizedApi = await blockWatch.getFinalizedApi();
-      const vaultId = await finalizedApi.query.vaults.vaultIdByOperator(accountId);
+      const vaultId = await recoveredApi.query.vaults.vaultIdByOperator(accountId);
       if (vaultId !== null) {
         const capitalHistory = await db.vaultCapitalHistoryTable.fetchAll(accountId, vaultId);
         if (capitalHistory[0]?.eventType !== 'created') {

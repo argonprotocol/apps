@@ -265,19 +265,24 @@ export class VaultFinancials implements IFinancialPositionSource<VaultFinancialP
     }
     if (throughFrame <= openedFrame) return { returns: [], periodDays: 0 };
 
-    const frames = vaultStats.changesByFrame.filter(
-      frame => frame.frameId > openedFrame && frame.frameId <= throughFrame,
-    );
+    const frames = vaultStats.changesByFrame
+      .filter(frame => frame.frameId > openedFrame && frame.frameId <= throughFrame)
+      .sort((left, right) => left.frameId - right.frameId);
     const earnings = VaultFinancials.getFrameEarnings(vaultId, frames, this.bonds.data);
     const returns: IAggregateReturnInput[] = [];
+    let verifiedThroughFrame = throughFrame;
     for (const frame of frames) {
       const income = earnings.get(frame.frameId)?.income;
-      if (income === undefined || frame.securitization <= 0n) return null;
+      if (income === undefined || frame.securitization <= 0n) {
+        verifiedThroughFrame = frame.frameId - 1;
+        break;
+      }
       returns.push({ startingCapital: frame.securitization, endingCapital: frame.securitization + income });
     }
+    if (verifiedThroughFrame <= openedFrame) return null;
     return {
       returns,
-      periodDays: throughFrame - openedFrame,
+      periodDays: verifiedThroughFrame - openedFrame,
     };
   }
 }

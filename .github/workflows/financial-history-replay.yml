@@ -90,6 +90,9 @@ jobs:
           yarn extract:financial-history-replay
           yarn vitest --run --project=integration FinancialHistoryReplay.integration.test.ts
 
+      - name: Check live financial history services
+        run: yarn check:financial-history-services
+
       - name: Read corpus identity
         id: corpus
         shell: bash
