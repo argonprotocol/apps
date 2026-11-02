@@ -33,6 +33,7 @@ const runWithReplay =
 const recordingClient =
   process.env.FINANCIAL_HISTORY_REPLAY_CAPTURE === '1' ? await getClient('https://rpc.argon.network') : undefined;
 
+vi.setConfig({ testTimeout: recordingClient ? 60 * 60_000 : 20 * 60_000 });
 afterAll(async () => recordingClient?.disconnect());
 
 runWithReplay('Bond financial history replay corpus', { tags: ['no-argon-network'] }, () => {
