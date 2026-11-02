@@ -42,7 +42,7 @@ jobs:
           package-manager-cache: false
 
       - name: Restore runtime client cache
-        uses: ./.github/actions/runtime-client-cache
+        uses: $/.github/actions/runtime-client-cache
 
       - name: Enable Corepack
         run: corepack enable

@@ -165,7 +165,7 @@ runWithReplay('Bond financial history replay corpus', { tags: ['no-argon-network
               bondLots: argonBonds.data.bondLots,
               historyRecords: argonBonds.data.bondHistory,
               dailyEarnings: argonBonds.data.dailyEarnings,
-              completedFrame: (latestBlock.frameId ?? miningFrames.getForTick(latestBlock.tick)!) - 1,
+              completedFrame: (latestBlock.frameId ?? miningFrames.getForTick(latestBlock.tick)) - 1,
               liveArgonotRateMicrogons: 1_000_000n,
               frameDates: new Map(miningFrames.frames.map(frame => [frame.frameId, new Date(frame.dateStart)])),
             });
