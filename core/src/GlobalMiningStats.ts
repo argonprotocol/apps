@@ -55,10 +55,6 @@ export class GlobalMiningStats {
     let aggregateStakedValue = 0n;
     let aggregateRewardValue = 0n;
     const aggregateBlockRewards = { microgons: 0n, micronots: 0n };
-    let totalCohortAPR = 0;
-    let totalCohortAPY = 0;
-    let totalCohortTDR = 0;
-    let eligibleCohortCount = 0;
 
     for (const { bidCosts, micronotsStaked, blockRewards, entryArgonotPrice, frameRewards } of cohorts) {
       aggregateBidCosts += bidCosts;
@@ -73,17 +69,6 @@ export class GlobalMiningStats {
       );
       aggregateStakedValue += markedStake;
       aggregateRewardValue += rewardValue;
-      const startingValue = bidCosts + markedStake;
-      if (startingValue <= 0n) continue;
-
-      const endingValue = markedStake + rewardValue;
-      const annualizedInput = { startingValue, endingValue, periodDays: NetworkConfig.framesPerCohort };
-      totalCohortAPR += calculateAnnualPercentageRate(annualizedInput);
-      totalCohortAPY += calculateAnnualPercentageYield(annualizedInput);
-      totalCohortTDR += calculateAggregateReturn([
-        { startingCapital: startingValue, endingCapital: endingValue },
-      ]).percent;
-      eligibleCohortCount += 1;
     }
 
     const aggregateReturn = calculateAggregateReturn([
@@ -92,6 +77,11 @@ export class GlobalMiningStats {
         endingCapital: aggregateStakedValue + aggregateRewardValue,
       },
     ]);
+    const annualizedInput = {
+      startingValue: aggregateReturn.eligibleCapitalInvested,
+      endingValue: aggregateReturn.eligibleCapitalInvested + aggregateReturn.totalProfits,
+      periodDays: NetworkConfig.framesPerCohort,
+    };
 
     this.activeSeatCount = activeSeatCount;
     this.aggregatedBidCosts = aggregateBidCosts;
@@ -101,12 +91,12 @@ export class GlobalMiningStats {
     this.aggregatedBlockRewards = aggregateRewardValue;
     this.investedCapital = aggregateReturn.eligibleCapitalInvested;
     this.projectedProfit = aggregateReturn.totalProfits;
-    this.averageAPR = eligibleCohortCount > 0 ? totalCohortAPR / eligibleCohortCount : 0;
-    this.averageAPY = eligibleCohortCount > 0 ? totalCohortAPY / eligibleCohortCount : 0;
+    this.averageAPR = calculateAnnualPercentageRate(annualizedInput);
+    this.averageAPY = calculateAnnualPercentageYield(annualizedInput);
 
     this.activeBidCosts = this.aggregatedBidCosts;
     this.activeBlockRewards = this.aggregatedBlockRewards;
-    this.activeTDR = eligibleCohortCount > 0 ? totalCohortTDR / eligibleCohortCount : 0;
+    this.activeTDR = aggregateReturn.percent;
     this.activeAPR = this.averageAPR;
     this.activeAPY = this.averageAPY;
   }

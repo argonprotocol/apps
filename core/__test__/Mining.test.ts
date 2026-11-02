@@ -200,6 +200,8 @@ describe('Mining network returns', () => {
     let latestPrice = 5;
     let failFrame = false;
     let latestBlock = 6;
+    let archiveFinalizedBlock = 5;
+    let archiveAvailableBlock = 5;
     const snapshots = (blockNumber: number) => ({
       consts: {
         blockRewards: {
@@ -244,7 +246,7 @@ describe('Mining network returns', () => {
         miningSlot: {
           activeMinersCount: vi.fn().mockResolvedValue(blockNumber < 5 ? 2 : 4),
           nextFrameId: vi.fn().mockResolvedValue(blockNumber < 5 ? 13 : 14),
-          frameRewardTicksRemaining: vi.fn().mockResolvedValue(blockNumber >= 7 ? 2 : 3),
+          frameRewardTicksRemaining: vi.fn().mockResolvedValue(blockNumber === 5 ? 4 : blockNumber >= 7 ? 2 : 3),
           frameStartBlockNumbers: vi.fn().mockResolvedValue([5, 1]),
           minerNonceScoringByCohort: vi.fn(
             async (): Promise<HistoricalQueryRecord<'miningSlot', 'minerNonceScoringByCohort'>> => {
@@ -296,9 +298,22 @@ describe('Mining network returns', () => {
       },
       at: vi.fn(async (hash: string) => (hash === '6' ? api : snapshots(Number(hash)))),
     };
+    const archive = {
+      rpc: {
+        chain: {
+          getFinalizedHead: vi.fn(async () => String(archiveFinalizedBlock)),
+          getHeader: vi.fn(async (hash: string) => getOfflineRegistry().createType('Header', { number: Number(hash) })),
+          getBlockHash: vi.fn(async (block: number) => {
+            if (block > archiveAvailableBlock) throw new Error('Archive has not synced the requested block');
+            return getOfflineRegistry().createType('Hash', `0x${block.toString(16).padStart(64, '0')}`);
+          }),
+        },
+      },
+      at: vi.fn(async (hash: string) => snapshots(Number(hash))),
+    };
     const clients = {
       prunedClientPromise: Promise.resolve(client),
-      archiveClientPromise: Promise.resolve(client),
+      archiveClientPromise: Promise.resolve(archive),
       events: new EventEmitter(),
     };
     const mining = new Mining(clients as any);
@@ -313,9 +328,9 @@ describe('Mining network returns', () => {
     expect(stats.aggregatedBlockRewards).toBe(1_364n);
     expect(stats.investedCapital).toBe(1_750n);
     expect(stats.projectedProfit).toBe(364n);
-    expect(stats.activeTDR).toBeCloseTo((492 / 250 - 1 + (1_622 / 1_500 - 1)) * 50);
-    expect(stats.averageAPR).toBeCloseTo((492 / 250 - 1 + (1_622 / 1_500 - 1)) * 50 * 36.5);
-    expect(stats.averageAPY).toBeCloseTo((((492 / 250) ** 36.5 - 1) * 100 + ((1_622 / 1_500) ** 36.5 - 1) * 100) / 2);
+    expect(stats.activeTDR).toBe(20.8);
+    expect(stats.averageAPR).toBeCloseTo(759.2);
+    expect(stats.averageAPY).toBeCloseTo((1.208 ** 36.5 - 1) * 100);
     expect(stats.activeAPR).toBe(stats.averageAPR);
     expect(stats.activeAPY).toBe(stats.averageAPY);
     expect(stats.activeSeatCount).toBe(4);
@@ -323,6 +338,11 @@ describe('Mining network returns', () => {
     expect(stats.baseMicrogonRewardsPerBlock).toBe(8n);
     expect(stats.baseMicronotRewardsPerBlock).toBe(5n);
     await expect(mining.fetchAggregateBlockRewards(api as any)).resolves.toEqual({ microgons: 350n, micronots: 200n });
+    const [currentCohort] = await mining.fetchActiveCohortStats();
+    expect(currentCohort.frameRewards.slice(0, 2)).toMatchObject([
+      { frameId: 12, microgons: 15n, micronots: 15n },
+      { frameId: 13, microgons: 17n, micronots: 8n },
+    ]);
 
     latestPrice = 6;
     await stats.update();
@@ -350,11 +370,40 @@ describe('Mining network returns', () => {
     expect(stats.aggregatedBlockRewards).toBe(1_555n);
     expect(client.query.blockRewards.payoutsByBlock.entriesAt).not.toHaveBeenCalled();
     expect(client.query.blockRewards.payoutsByBlock.at).not.toHaveBeenCalled();
-    expect(new Set(client.rpc.chain.getBlockHash.mock.calls.map(([block]) => block))).toEqual(
-      new Set([0, 1, 4, 5, 6, 7, 8, 10_000]),
+    expect(new Set(archive.rpc.chain.getBlockHash.mock.calls.map(([block]) => block))).toEqual(new Set([0, 1, 4, 5]));
+    expect(archive.rpc.chain.getFinalizedHead).toHaveBeenCalledOnce();
+    expect(client.rpc.chain.getBlockHash).not.toHaveBeenCalled();
+
+    // On activation, the supplied snapshot also owns the entry price and first-block payout.
+    latestBlock = 5;
+    archiveFinalizedBlock = 4;
+    archiveAvailableBlock = 4;
+    archive.rpc.chain.getBlockHash.mockClear();
+    const activationStats = new GlobalMiningStats(new Mining(clients as any), new Currency(clients as any));
+    await activationStats.update();
+    // Closed income 45 + expansion 9 + nine remaining cohort-12 frames at 25 + ten cohort-13 frames at 90.
+    expect(activationStats.aggregatedBlockRewards).toBe(1_179n);
+    expect(activationStats.investedCapital).toBe(1_750n);
+    expect(activationStats.projectedProfit).toBe(179n);
+    expect(archive.rpc.chain.getBlockHash).not.toHaveBeenCalledWith(5);
+
+    // Synced history can still be unfinalized. Preserve the quote until that boundary is finalized.
+    latestBlock = 6;
+    archiveAvailableBlock = 5;
+    archive.rpc.chain.getBlockHash.mockClear();
+    await expect(activationStats.update()).rejects.toThrow(
+      'Mining history requires block 5, but the archive has only finalized block 4',
     );
+    expect(activationStats.aggregatedBlockRewards).toBe(1_179n);
+    expect(activationStats.projectedProfit).toBe(179n);
+    expect(archive.rpc.chain.getBlockHash).not.toHaveBeenCalled();
+    archiveFinalizedBlock = 5;
+    await activationStats.update();
+    expect(activationStats.aggregatedBlockRewards).toBe(1_558n);
+    expect(activationStats.projectedProfit).toBe(558n);
 
     // A surviving cohort also receives the exact activation payout, once, outside reset counters.
+    latestBlock = 10_000;
     const activationPayout = { ...payouts.get(5)![0], blockSealAuthority: 'seal-miner-1' };
     payouts.set(5, [
       activationPayout,
@@ -365,7 +414,151 @@ describe('Mining network returns', () => {
     await survivingCohortStats.update();
     expect(survivingCohortStats.aggregatedBlockRewards).toBe(1_625n);
     expect(survivingCohortStats.projectedProfit).toBe(625n);
+
+    // An in-flight cache failure during archive replacement must not bypass the new archive's finality.
+    const pendingSnapshot = Promise.withResolvers<ReturnType<typeof snapshots>>();
+    const snapshotRequested = Promise.withResolvers<void>();
+    archive.at.mockImplementation(async hash => {
+      if (Number(hash) === 5) {
+        snapshotRequested.resolve();
+        return pendingSnapshot.promise;
+      }
+      return snapshots(Number(hash));
+    });
+    const replacementConnection = Promise.withResolvers<typeof archive>();
+    const waitingForReplacement = Promise.withResolvers<void>();
+    let archiveConnection = Promise.resolve(archive);
+    const replacingClients = {
+      ...clients,
+      get archiveClientPromise() {
+        if (archiveConnection === replacementConnection.promise) waitingForReplacement.resolve();
+        return archiveConnection;
+      },
+    };
+    const replacingStats = new GlobalMiningStats(
+      new Mining(replacingClients as any),
+      new Currency(replacingClients as any),
+    );
+    const firstFailure = expect(replacingStats.update()).rejects.toThrow('Archive connection interrupted');
+    await snapshotRequested.promise;
+
+    archiveConnection = replacementConnection.promise;
+    const concurrentFailure = expect(replacingStats.update()).rejects.toThrow('Archive connection interrupted');
+    await waitingForReplacement.promise;
+    pendingSnapshot.reject(new Error('Archive connection interrupted'));
+    await firstFailure;
+
+    archiveFinalizedBlock = 4;
+    const replacementArchive = {
+      rpc: {
+        chain: {
+          getFinalizedHead: vi.fn(async () => String(archiveFinalizedBlock)),
+          getHeader: archive.rpc.chain.getHeader,
+          getBlockHash: vi.fn(async (block: number) => archive.rpc.chain.getBlockHash(block)),
+        },
+      },
+      at: vi.fn(async (hash: string) => snapshots(Number(hash))),
+    };
+    replacementConnection.resolve(replacementArchive);
+    await concurrentFailure;
+    expect(replacingStats.aggregatedBlockRewards).toBe(0n);
+    expect(replacementArchive.rpc.chain.getBlockHash).not.toHaveBeenCalled();
+
+    await expect(replacingStats.update()).rejects.toThrow(
+      'Mining history requires block 5, but the archive has only finalized block 4',
+    );
+    expect(replacingStats.aggregatedBlockRewards).toBe(0n);
+    expect(replacementArchive.rpc.chain.getBlockHash).not.toHaveBeenCalled();
+    archiveFinalizedBlock = 5;
+    await replacingStats.update();
+    expect(replacingStats.aggregatedBlockRewards).toBe(1_625n);
+    expect(replacingStats.projectedProfit).toBe(625n);
   });
+
+  it.each([
+    { boundary: 'growth', currentTick: 103, currentFrameMicronots: 7n, nextFrameMicronots: 13n },
+    { boundary: 'halving', currentTick: 115, currentFrameMicronots: 10n, nextFrameMicronots: 7n },
+  ])(
+    'projects payouts after the finalized tick across $boundary boundaries',
+    async ({ currentTick, currentFrameMicronots, nextFrameMicronots }) => {
+      NetworkConfig.setRuntimeOverride('mainnet', { genesisTick: 101, ticksBetweenFrames: 4 });
+      const snapshots = (blockNumber: number) => ({
+        consts: {
+          blockRewards: {
+            startingArgonsPerBlock: 10n,
+            startingOwnershipTokensPerBlock: 3n,
+            incrementalGrowth: [2n, 3n, 9n],
+            halvingBeginTicks: 9,
+            halvingTicks: 6,
+            minerPayoutPercent: new BigNumber(0.5),
+          },
+        },
+        query: {
+          system: { number: vi.fn().mockResolvedValue(blockNumber) },
+          ticks: { currentTick: vi.fn().mockResolvedValue(currentTick + blockNumber - 6) },
+          priceIndex: {
+            current: vi.fn(
+              async (): Promise<HistoricalQueryRecord<'priceIndex', 'current'>> => ({
+                btcUsdPrice: new BigNumber(100),
+                argonUsdPrice: new BigNumber(1),
+                argonUsdTargetPrice: new BigNumber(1),
+                argonotUsdPrice: new BigNumber(1),
+                argonTimeWeightedAverageLiquidity: new BigNumber(0),
+                tick: currentTick + blockNumber - 6,
+              }),
+            ),
+          },
+          blockRewards: {
+            blockRewardsByCohort: vi.fn().mockResolvedValue([
+              [1, 10n],
+              [2, 10n],
+            ]),
+            payoutsByBlock: vi.fn().mockResolvedValue([]),
+          },
+          miningSlot: {
+            activeMinersCount: vi.fn().mockResolvedValue(1),
+            nextFrameId: vi.fn().mockResolvedValue(2),
+            frameRewardTicksRemaining: vi.fn().mockResolvedValue(3),
+            frameStartBlockNumbers: vi.fn().mockResolvedValue([5]),
+            minersByCohort: {
+              entries: vi
+                .fn()
+                .mockResolvedValue(blockNumber >= 5 ? [[createCohortKey(1), [createMember('miner-1')]]] : []),
+            },
+            minerNonceScoringByCohort: vi.fn(
+              async (): Promise<HistoricalQueryRecord<'miningSlot', 'minerNonceScoringByCohort'>> => ({
+                1: [{ nonce: 1n, lastWinBlock: 6, blocksWonInFrame: 1, frameStartBlocksWonSurplus: 0n }],
+              }),
+            ),
+          },
+          mint: { miningMintPerCohort: vi.fn().mockResolvedValue({}) },
+        },
+      });
+      const client = {
+        rpc: {
+          chain: {
+            getFinalizedHead: vi.fn().mockResolvedValue('5'),
+            getHeader: vi.fn().mockResolvedValue(getOfflineRegistry().createType('Header', { number: 5 })),
+            getBlockHash: vi.fn(async (block: number) =>
+              getOfflineRegistry().createType('Hash', `0x${block.toString(16).padStart(64, '0')}`),
+            ),
+          },
+        },
+        at: vi.fn(async (hash: string) => snapshots(Number(hash))),
+      };
+      const mining = new Mining({ archiveClientPromise: Promise.resolve(client) } as any);
+
+      const [cohort] = await mining.fetchActiveCohortStats(snapshots(6) as any);
+
+      // Growth: observed tick 103 pays 1; ticks 104..106 pay 2 each, then 107..110 pay 3,3,3,4.
+      // Halving: observed tick 115 pays 4; ticks 116..118 pay 2 each, then 119..122 pay 2,2,2,1.
+      expect(cohort.frameRewards.slice(0, 2)).toMatchObject([
+        { frameId: 1, microgons: 20n, micronots: currentFrameMicronots },
+        { frameId: 2, microgons: 20n, micronots: nextFrameMicronots },
+      ]);
+      expect(cohort.frameRewards.reduce((sum, frame) => sum + frame.microgons, 0n)).toBe(200n);
+    },
+  );
 
   it('applies the miner cut to bootstrap ARGN rewards', async () => {
     const mining = new Mining({} as any);

@@ -8,6 +8,14 @@ export const useMiningStats = defineStore('miningStats', () => {
   let hasLoaded = false;
   let updatePromise: Promise<void> | undefined = undefined;
   let isLoadedPromise: Promise<void> | undefined = undefined;
+  let retryTimer: ReturnType<typeof setTimeout> | undefined;
+  let retryAttempts = 0;
+  let isDisposed = false;
+
+  Vue.onScopeDispose(() => {
+    isDisposed = true;
+    clearTimeout(retryTimer);
+  });
 
   const mining = getMining();
   const currency = getCurrency();
@@ -27,6 +35,9 @@ export const useMiningStats = defineStore('miningStats', () => {
 
   async function update() {
     if (updatePromise) return await updatePromise;
+
+    clearTimeout(retryTimer);
+    retryTimer = undefined;
 
     updatePromise = (async () => {
       if (!hasLoaded) {
@@ -50,12 +61,28 @@ export const useMiningStats = defineStore('miningStats', () => {
 
     try {
       await updatePromise;
+      retryAttempts = 0;
+    } catch (error) {
+      scheduleRetry();
+      throw error;
     } finally {
       updatePromise = undefined;
     }
   }
 
+  function scheduleRetry() {
+    if (isDisposed || retryTimer || retryAttempts >= 3) return;
+
+    const retryDelayMs = 1_000 * 2 ** retryAttempts;
+    retryAttempts += 1;
+    retryTimer = setTimeout(() => {
+      retryTimer = undefined;
+      void update().catch(error => console.warn('[MiningStats] Unable to refresh returns', error));
+    }, retryDelayMs);
+  }
+
   isLoadedPromise = update();
+  void isLoadedPromise.catch(error => console.warn('[MiningStats] Unable to load returns', error));
 
   return {
     isLoadedPromise,

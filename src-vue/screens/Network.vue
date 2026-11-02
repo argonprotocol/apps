@@ -182,6 +182,13 @@ const data = Vue.computed(() => {
 });
 
 async function loadData() {
+  void miningStats.update().catch(error => console.warn('[Network] Unable to refresh mining statistics', error));
+  void vaultingStats
+    .update()
+    .then(() => getVaults().updateRevenue())
+    .then(() => vaultingStats.update())
+    .catch(error => console.warn('[Network] Unable to refresh vaulting statistics', error));
+
   try {
     await currency.load();
     const client = await getMainchainClient(false);
@@ -189,18 +196,11 @@ async function loadData() {
       client.query.system.number(),
       currency.fetchMicrogonsInCirculation(client),
       currency.fetchMicronotsInCirculation(),
-      miningStats.update(),
-      vaultingStats.update(),
     ]);
 
     currentBlockNumber.value = blockNumber;
     microgonsInCirculation.value = microgons;
     micronotsInCirculation.value = micronots;
-
-    void getVaults()
-      .updateRevenue()
-      .then(() => vaultingStats.update())
-      .catch(error => console.warn('[Network] Unable to refresh vault revenue statistics', error));
   } catch (error) {
     console.error('[Network] Unable to load live network statistics', error);
   }
