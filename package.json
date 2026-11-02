@@ -13,7 +13,7 @@
     "build": "yarn generate:runtime-client && yarn build:version && yarn build:server && vue-tsc --noEmit && vite build",
     "build:workspace": "yarn generate:runtime-client && yarn workspaces foreach --all run build",
     "build:indexer": "yarn generate:runtime-client && yarn workspace @argonprotocol/apps-indexer run build",
-    "capture:financial-history-replay": "FINANCIAL_HISTORY_REPLAY_CAPTURE=1 vitest --run --project=integration --no-file-parallelism --testTimeout=1200000 FinancialHistoryReplay.integration.test.ts",
+    "capture:financial-history-replay": "FINANCIAL_HISTORY_REPLAY_CAPTURE=1 vitest --run --project=integration --no-file-parallelism --testTimeout=1800000 FinancialHistoryReplay.integration.test.ts",
     "check:financial-history-services": "FINANCIAL_HISTORY_LIVE_SMOKE=1 vitest --run --project=integration FinancialHistoryServices.integration.test.ts",
     "troubleshoot:inspect": "tsx scripts/inspectTroubleshootingArchive.ts",
     "troubleshoot:account": "tsx scripts/troubleshootAccount.ts",

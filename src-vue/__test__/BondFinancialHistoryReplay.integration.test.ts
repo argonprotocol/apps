@@ -120,7 +120,7 @@ runWithReplay('Bond financial history replay corpus', { tags: ['no-argon-network
 
       const recovered = await runRecoveryLifecycle({
         name: 'Mainnet bond histories',
-        timeoutMs: 10 * 60_000,
+        timeoutMs: recordingClient ? 20 * 60_000 : 10 * 60_000,
         recover: async () => {
           let importedBlockCount = 0;
           let expectedBlockCount = 0;
