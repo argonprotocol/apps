@@ -120,12 +120,12 @@ runWithReplay('Bond financial history replay corpus', { tags: ['no-argon-network
 
       const recovered = await runRecoveryLifecycle({
         name: 'Mainnet bond histories',
-        timeoutMs: recordingClient ? 20 * 60_000 : 10 * 60_000,
+        timeoutMs: recordingClient ? 40 * 60_000 : 10 * 60_000,
         recover: async () => {
           let importedBlockCount = 0;
           let expectedBlockCount = 0;
 
-          for (const accountId of accountIds) {
+          for (const [accountIndex, accountId] of accountIds.entries()) {
             const walletKeys = { defaultArgonAddress: accountId } as WalletKeys;
             const currency = new Currency({ events: { on: () => () => undefined } } as unknown as MainchainClients);
             const argonBonds = new ArgonBonds(
@@ -159,6 +159,8 @@ runWithReplay('Bond financial history replay corpus', { tags: ['no-argon-network
               recoverMissingCheckpointsFor: ['bonds'],
               force: true,
             });
+            if (recordingClient)
+              console.info(`[Bond replay] Restored account ${accountIndex + 1}/${accountIds.length}`);
             expect(result.asOfBlock).toBe(latestBlock.blockNumber);
             expect(argonBonds.data.historyCoveragePending).toBe(false);
             const positions = new ArgonBondsFinancials(argonBonds).createFinancialPositions({
