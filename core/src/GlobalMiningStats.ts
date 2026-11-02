@@ -7,6 +7,11 @@ import { Currency } from './Currency.js';
 import type { Mining } from './Mining.js';
 import { NetworkConfig } from './NetworkConfig.js';
 
+/**
+ * Network return estimates over each active cohort's full term. Elapsed rewards
+ * combine observed wins at scheduled rates with actual expansion minting; remaining
+ * rewards are projected. Completed-frame prices and entry stake values stay fixed.
+ */
 export class GlobalMiningStats {
   private mining: Mining;
   private currency: Currency;

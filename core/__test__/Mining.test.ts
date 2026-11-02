@@ -172,7 +172,7 @@ describe('Mining seat slot construction', () => {
 });
 
 describe('Mining network returns', () => {
-  it('prices completed frames at their close, projects unfinished rewards at the latest price, and freezes entry stakes', async () => {
+  it('estimates frame income from observed wins, preserves historical valuation, and bounds archive reads', async () => {
     NetworkConfig.setRuntimeOverride('mainnet', { genesisTick: 0, ticksBetweenFrames: 4 });
     const cohorts = [
       [createCohortKey(12), [createMember('miner-1')]],
@@ -182,77 +182,29 @@ describe('Mining network returns', () => {
       ],
     ];
     type Payouts = HistoricalQueryRecord<'blockRewards', 'payoutsByBlock'>;
-    const payouts = new Map<number, Payouts>([
-      [
-        1,
+    const payouts = new Map<number, Payouts>(
+      (
         [
-          {
-            accountId: 'shared-recipient',
-            argons: 10n,
-            ownership: 2n,
-            rewardType: { type: 'Miner' },
-            blockSealAuthority: 'seal-miner-1',
-          },
-        ],
-      ],
-      [
-        2,
-        [
-          {
-            accountId: 'shared-recipient',
-            argons: 20n,
-            ownership: 3n,
-            rewardType: { type: 'Miner' },
-            blockSealAuthority: 'seal-miner-1',
-          },
-          {
-            accountId: 'shared-recipient',
-            argons: 999n,
-            ownership: 999n,
-            rewardType: { type: 'Voter' },
-            blockSealAuthority: null,
-          },
-        ],
-      ],
-      [
-        3,
-        [
-          {
-            accountId: 'shared-recipient',
-            argons: 40n,
-            ownership: 5n,
-            rewardType: { type: 'Miner' },
-            blockSealAuthority: 'seal-miner-2',
-          },
-        ],
-      ],
-      [
-        4,
-        [
-          {
-            accountId: 'shared-recipient',
-            argons: 5n,
-            ownership: 1n,
-            rewardType: { type: 'Miner' },
-            blockSealAuthority: 'seal-miner-1',
-          },
-          {
-            accountId: 'shared-recipient',
-            argons: 999n,
-            ownership: 999n,
-            rewardType: { type: 'ProfitShare' },
-            blockSealAuthority: 'seal-miner-1',
-          },
-        ],
-      ],
-    ]);
+          [1, 10n, 2n, 'seal-miner-1'],
+          [2, 20n, 3n, 'seal-miner-1'],
+          [3, 10n, 3n, 'seal-miner-1'],
+          [4, 5n, 1n, 'seal-miner-1'],
+          [5, 40n, 5n, 'seal-miner-2'],
+          [6, 5n, 1n, 'seal-miner-1'],
+        ] as const
+      ).map(([block, argons, ownership, blockSealAuthority]) => [
+        block,
+        [{ accountId: 'shared-recipient', argons, ownership, blockSealAuthority, rewardType: { type: 'Miner' } }],
+      ]),
+    );
     let latestPrice = 5;
-    let failPayout = false;
-    let latestBlock = 4;
+    let failFrame = false;
+    let latestBlock = 6;
     const snapshots = (blockNumber: number) => ({
       consts: {
         blockRewards: {
           minerPayoutPercent: new BigNumber(0.5),
+          startingOwnershipTokensPerBlock: 10n,
           halvingBeginTicks: 1_000_000,
           halvingTicks: 1_000_000,
           incrementalGrowth: [0n, 1_000n, 10n],
@@ -261,16 +213,16 @@ describe('Mining network returns', () => {
       query: {
         system: { number: vi.fn().mockResolvedValue(blockNumber) },
         priceIndex: {
-          current: vi.fn(async (): Promise<HistoricalQueryRecord<'priceIndex', 'current'>> => {
-            return {
+          current: vi.fn(
+            async (): Promise<HistoricalQueryRecord<'priceIndex', 'current'>> => ({
               btcUsdPrice: new BigNumber(100),
               argonUsdPrice: new BigNumber(1),
               argonUsdTargetPrice: new BigNumber(1),
-              argonotUsdPrice: new BigNumber(blockNumber >= 4 ? latestPrice : [1, 3, 2, 4][blockNumber]),
+              argonotUsdPrice: new BigNumber(blockNumber >= 6 ? latestPrice : [1, 3, 2, 2, 2, 4][blockNumber]),
               argonTimeWeightedAverageLiquidity: new BigNumber(0),
               tick: blockNumber,
-            };
-          }),
+            }),
+          ),
         },
         blockRewards: {
           blockRewardsByCohort: vi.fn().mockResolvedValue([
@@ -281,40 +233,48 @@ describe('Mining network returns', () => {
           payoutsByBlock: Object.assign(
             vi.fn(async (block: number) => payouts.get(block) ?? []),
             {
-              entries: vi.fn(async () => {
-                if (blockNumber === 5 && failPayout) throw new Error('Historical payout temporarily unavailable');
-                return [...payouts]
+              entries: vi.fn(async () =>
+                [...payouts]
                   .filter(([number]) => number <= blockNumber && number > blockNumber - 5)
-                  .map(([number, values]) => [{ args: [number] }, values] as const);
-              }),
+                  .map(([number, values]) => [{ args: [number] }, values] as const),
+              ),
             },
           ),
         },
         miningSlot: {
-          activeMinersCount: vi.fn().mockResolvedValue(4),
-          nextFrameId: vi.fn().mockResolvedValue(blockNumber < 3 ? 13 : 14),
-          frameRewardTicksRemaining: vi.fn().mockResolvedValue(blockNumber >= 5 ? 1 : 2),
-          frameStartBlockNumbers: vi.fn().mockResolvedValue([3, 1]),
+          activeMinersCount: vi.fn().mockResolvedValue(blockNumber < 5 ? 2 : 4),
+          nextFrameId: vi.fn().mockResolvedValue(blockNumber < 5 ? 13 : 14),
+          frameRewardTicksRemaining: vi.fn().mockResolvedValue(blockNumber >= 7 ? 2 : 3),
+          frameStartBlockNumbers: vi.fn().mockResolvedValue([5, 1]),
+          minerNonceScoringByCohort: vi.fn(
+            async (): Promise<HistoricalQueryRecord<'miningSlot', 'minerNonceScoringByCohort'>> => {
+              if (blockNumber === 7 && failFrame) throw new Error('Mining frame temporarily unavailable');
+              const blocksWonInFrame = blockNumber < 5 ? Math.max(0, blockNumber - 1) : Math.min(blockNumber - 5, 2);
+              return {
+                12: [{ nonce: 1n, lastWinBlock: blockNumber, blocksWonInFrame, frameStartBlocksWonSurplus: 0n }],
+              };
+            },
+          ),
           minersByCohort: {
             entries: vi.fn().mockResolvedValue(
               blockNumber === 0
                 ? [
                     [createCohortKey(2), cohorts[0][1]],
-                    [createCohortKey(3), cohorts[1][1]],
+                    [createCohortKey(3), [createMember('miner-2')]],
                   ]
-                : blockNumber < 3
-                  ? [cohorts[0], [createCohortKey(3), cohorts[1][1]]]
+                : blockNumber < 5
+                  ? [cohorts[0], [createCohortKey(3), [createMember('miner-2')]]]
                   : cohorts,
             ),
           },
         },
         mint: {
-          miningMintPerCohort: vi.fn().mockResolvedValue(blockNumber < 3 ? {} : { 12: 9n }),
+          miningMintPerCohort: vi.fn().mockResolvedValue(blockNumber < 5 ? {} : { 12: 9n }),
         },
-        ticks: { currentTick: vi.fn().mockResolvedValue(blockNumber >= 5 ? 7 : 6) },
+        ticks: { currentTick: vi.fn().mockResolvedValue(blockNumber) },
       },
     });
-    const api = snapshots(4);
+    const api = snapshots(6);
     const client = {
       query: {
         blockRewards: {
@@ -334,7 +294,7 @@ describe('Mining network returns', () => {
           ),
         },
       },
-      at: vi.fn(async (hash: string) => (hash === '4' ? api : snapshots(Number(hash)))),
+      at: vi.fn(async (hash: string) => (hash === '6' ? api : snapshots(Number(hash)))),
     };
     const clients = {
       prunedClientPromise: Promise.resolve(client),
@@ -342,22 +302,20 @@ describe('Mining network returns', () => {
       events: new EventEmitter(),
     };
     const mining = new Mining(clients as any);
-    const currency = new Currency(clients as any);
-    currency.microgonsPer = { ...currency.microgonsPer, ARGNOT: 5_000_000n };
-    const stats = new GlobalMiningStats(mining, currency);
+    const stats = new GlobalMiningStats(mining, new Currency(clients as any));
 
     await stats.update();
 
-    // Activation-block payouts belong to retired cohorts 2 and 3, not renewed seats 12 and 13.
-    // Cohort 12: closed-frame income 26 + current income 19 + remaining projection 252 = 297.
-    // Cohort 13: no current income + remaining projection 995 = 995.
-    // Stakes enter at 3 and 4 ARGN/ARGNOT, independent of the latest rate of 5.
-    expect(stats.aggregatedBlockRewards).toBe(1_292n);
+    // The two activation payouts belong to retired cohorts 2 and 3, including renewed authorities.
+    // Cohort 12: three closed-frame wins * (5 ARGN + 5 ARGNOT * 2) = 45;
+    // current income = 5 + 5 * 5 + 9 expansion; remaining projection = 18 + 8 * 30.
+    // Cohort 13: remaining projection = 77 + 9 * 105. Entry stakes stay at prices 3 and 4.
+    expect(stats.aggregatedBlockRewards).toBe(1_364n);
     expect(stats.investedCapital).toBe(1_750n);
-    expect(stats.projectedProfit).toBe(292n);
-    expect(stats.activeTDR).toBeCloseTo((447 / 250 - 1 + (1_595 / 1_500 - 1)) * 50);
-    expect(stats.averageAPR).toBeCloseTo(1_553.6833333333334);
-    expect(stats.averageAPY).toBeCloseTo(((1.788 ** 36.5 - 1) * 100 + ((1_595 / 1_500) ** 36.5 - 1) * 100) / 2);
+    expect(stats.projectedProfit).toBe(364n);
+    expect(stats.activeTDR).toBeCloseTo((492 / 250 - 1 + (1_622 / 1_500 - 1)) * 50);
+    expect(stats.averageAPR).toBeCloseTo((492 / 250 - 1 + (1_622 / 1_500 - 1)) * 50 * 36.5);
+    expect(stats.averageAPY).toBeCloseTo((((492 / 250) ** 36.5 - 1) * 100 + ((1_622 / 1_500) ** 36.5 - 1) * 100) / 2);
     expect(stats.activeAPR).toBe(stats.averageAPR);
     expect(stats.activeAPY).toBe(stats.averageAPY);
     expect(stats.activeSeatCount).toBe(4);
@@ -366,34 +324,83 @@ describe('Mining network returns', () => {
     expect(stats.baseMicronotRewardsPerBlock).toBe(5n);
     await expect(mining.fetchAggregateBlockRewards(api as any)).resolves.toEqual({ microgons: 350n, micronots: 200n });
 
-    // Changing today's quote must not reprice already-sold rewards or committed stakes.
     latestPrice = 6;
     await stats.update();
-    expect(stats.aggregatedBlockRewards).toBe(1_477n);
+    expect(stats.aggregatedBlockRewards).toBe(1_558n);
     expect(stats.investedCapital).toBe(1_750n);
-    expect(stats.projectedProfit).toBe(477n);
+    expect(stats.projectedProfit).toBe(558n);
 
-    // A failed incremental historical read preserves the last complete quote.
-    payouts.set(5, [
-      {
-        accountId: 'shared-recipient',
-        argons: 1n,
-        ownership: 0n,
-        rewardType: { type: 'Miner' },
-        blockSealAuthority: 'seal-miner-1',
-      },
-    ]);
-    latestBlock = 5;
-    failPayout = true;
-    await expect(stats.update()).rejects.toThrow('Historical payout temporarily unavailable');
-    expect(stats.aggregatedBlockRewards).toBe(1_477n);
+    // Refresh failure preserves a usable quote; retry publishes the newer absolute counters once.
+    latestBlock = 7;
+    failFrame = true;
+    await expect(stats.update()).rejects.toThrow('Mining frame temporarily unavailable');
+    expect(stats.aggregatedBlockRewards).toBe(1_558n);
     expect(stats.investedCapital).toBe(1_750n);
-    failPayout = false;
-    latestBlock = 6; // A finalized block without a payout must not add or duplicate income.
+    failFrame = false;
     await stats.update();
-    expect(stats.aggregatedBlockRewards).toBe(1_439n);
-    expect(stats.projectedProfit).toBe(439n);
+    expect(stats.aggregatedBlockRewards).toBe(1_555n);
+    latestBlock = 8; // A compute block does not add another mining win.
+    await stats.update();
+    expect(stats.aggregatedBlockRewards).toBe(1_555n);
+    expect(stats.projectedProfit).toBe(555n);
+
+    // A long frame with no more reward ticks must still use only its boundary snapshots.
+    latestBlock = 10_000;
+    await stats.update();
+    expect(stats.aggregatedBlockRewards).toBe(1_555n);
+    expect(client.query.blockRewards.payoutsByBlock.entriesAt).not.toHaveBeenCalled();
+    expect(client.query.blockRewards.payoutsByBlock.at).not.toHaveBeenCalled();
+    expect(new Set(client.rpc.chain.getBlockHash.mock.calls.map(([block]) => block))).toEqual(
+      new Set([0, 1, 4, 5, 6, 7, 8, 10_000]),
+    );
+
+    // A surviving cohort also receives the exact activation payout, once, outside reset counters.
+    const activationPayout = { ...payouts.get(5)![0], blockSealAuthority: 'seal-miner-1' };
+    payouts.set(5, [
+      activationPayout,
+      { ...activationPayout, argons: 999n, ownership: 999n, rewardType: { type: 'Voter' } },
+      { ...activationPayout, argons: 999n, ownership: 999n, rewardType: { type: 'ProfitShare' } },
+    ]);
+    const survivingCohortStats = new GlobalMiningStats(new Mining(clients as any), new Currency(clients as any));
+    await survivingCohortStats.update();
+    expect(survivingCohortStats.aggregatedBlockRewards).toBe(1_625n);
+    expect(survivingCohortStats.projectedProfit).toBe(625n);
   });
+
+  it('applies the miner cut to bootstrap ARGN rewards', async () => {
+    const mining = new Mining({} as any);
+    const api = {
+      consts: { blockRewards: { startingArgonsPerBlock: 11n, minerPayoutPercent: new BigNumber(0.5) } },
+    };
+    await expect(mining.fetchMicrogonsPerBlockForMiner(api as any, 1)).resolves.toBe(5n);
+  });
+
+  it.each([
+    { start: 102, end: 109, expected: 14n },
+    { start: 109, end: 114, expected: 19n },
+    { start: 114, end: 123, expected: 21n },
+    { start: 122, end: 125, expected: 3n },
+  ])(
+    'sums the ARGNOT schedule over growth and halving boundaries: $start to $end',
+    async ({ start, end, expected }) => {
+      NetworkConfig.setRuntimeOverride('mainnet', { genesisTick: 101, ticksBetweenFrames: 4 });
+      const api = {
+        consts: {
+          blockRewards: {
+            startingOwnershipTokensPerBlock: 3n,
+            incrementalGrowth: [2n, 3n, 9n],
+            halvingBeginTicks: 9,
+            halvingTicks: 6,
+            minerPayoutPercent: new BigNumber(0.5),
+          },
+        },
+      };
+      const mining = new Mining({} as any);
+      // Raw rewards at elapsed ticks 0..2, 3..5, 6..8, 9..14, 15..20, 21.. are 3,5,7,9,4,3.
+      // Apply the miner cut per block (1,2,3,4,2,1) before summing, as the runtime does.
+      await expect(mining.minimumMicronotsMinedDuringTickRange(start, end, api as any)).resolves.toBe(expected);
+    },
+  );
 
   it('returns no aggregate block rewards when there are no active miners', async () => {
     const api = {

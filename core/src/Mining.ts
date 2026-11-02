@@ -6,7 +6,7 @@ import type {
   MainchainClients,
 } from './MainchainClients.js';
 import type { PreviousRuntimeSpec } from './runtimeCompatibility.js';
-import type { HistoricalQueryRecord, LiveQueryRecord } from '@argonprotocol/runtime-client';
+import type { LiveQueryRecord } from '@argonprotocol/runtime-client';
 import { bigIntMax, bigIntMin, bigNumberToBigInt, numericToAlpha } from './utils.js';
 import type { IWinningBid } from './interfaces/index.js';
 import { BotActivityType, type IHistoryFile } from './interfaces/IHistoryFile.js';
@@ -58,6 +58,7 @@ export interface IMiningCohortStats {
     micronots: bigint;
   };
   entryArgonotPrice: bigint;
+  /** Scheduled rewards estimated from observed wins, plus actual expansion minting. */
   frameRewards: {
     frameId: number;
     microgons: bigint;
@@ -69,16 +70,11 @@ export interface IMiningCohortStats {
 export class Mining {
   private readonly historicalSnapshots = new Map<number, Promise<ArgonApi>>();
   private readonly historicalArgonotPrices = new Map<number, Promise<bigint>>();
-  private readonly historicalPayouts = new Map<
-    number,
-    Promise<HistoricalQueryRecord<'blockRewards', 'payoutsByBlock'>>
-  >();
   private readonly frameRewardHistory = new Map<
     number,
     {
       lastBlockNumber: number;
       rewardsByCohort: Map<number, { microgons: bigint; micronots: bigint }>;
-      mintedByCohort: Record<string, bigint>;
     }
   >();
 
@@ -240,26 +236,31 @@ export class Mining {
         rewards: Map<number, { microgons: bigint; micronots: bigint }>;
       }
     >();
-    for (let index = 0; index < frames.length; index += 1) {
-      const frame = frames[index];
-      const lastBlockNumber = frames[index + 1]?.firstBlockNumber
-        ? frames[index + 1].firstBlockNumber - 1
-        : blockNumber;
-      const [entryPrice, rewards, price] = await Promise.all([
-        this.getHistoricalArgonotPrice(frame.firstBlockNumber),
-        this.readFrameRewards({ frameId: frame.frameId, firstBlockNumber: frame.firstBlockNumber, lastBlockNumber }),
-        frame.frameId < currentFrameId ? this.getHistoricalArgonotPrice(lastBlockNumber) : latestPrice,
-      ]);
-      history.set(frame.frameId, {
-        entryPrice,
-        price,
-        rewards,
-      });
-    }
+    await Promise.all(
+      frames.map(async (frame, index) => {
+        const lastBlockNumber = frames[index + 1]?.firstBlockNumber
+          ? frames[index + 1].firstBlockNumber - 1
+          : blockNumber;
+        const [entryPrice, rewards, price] = await Promise.all([
+          this.getHistoricalArgonotPrice(frame.firstBlockNumber),
+          this.estimateFrameRewards({
+            frameId: frame.frameId,
+            firstBlockNumber: frame.firstBlockNumber,
+            lastBlockNumber,
+          }),
+          frame.frameId < currentFrameId ? this.getHistoricalArgonotPrice(lastBlockNumber) : latestPrice,
+        ]);
+        history.set(frame.frameId, {
+          entryPrice,
+          price,
+          rewards,
+        });
+      }),
+    );
 
     // Finalized frame facts are immutable. Keep only the active terms' history.
     const firstBlockNumber = frames[0].firstBlockNumber;
-    for (const cache of [this.historicalSnapshots, this.historicalArgonotPrices, this.historicalPayouts]) {
+    for (const cache of [this.historicalSnapshots, this.historicalArgonotPrices]) {
       for (const key of cache.keys()) if (key < firstBlockNumber - 1) cache.delete(key);
     }
     for (const frameId of this.frameRewardHistory.keys()) {
@@ -273,23 +274,25 @@ export class Mining {
         const entry = history.get(cohort.startingFrameId);
         if (!entry) throw new Error(`No entry price for mining cohort ${cohort.startingFrameId}`);
         const frameRewards: IMiningCohortStats['frameRewards'] = [];
+        const argonReward = await this.fetchMicrogonsPerBlockForMiner(client, cohort.startingFrameId);
         for (
           let frameId = cohort.startingFrameId;
           frameId < cohort.startingFrameId + NetworkConfig.framesPerCohort;
           frameId += 1
         ) {
           const frame = history.get(frameId);
-          const actual = frame?.rewards.get(cohort.startingFrameId);
-          let microgons = actual?.microgons ?? 0n;
-          let micronots = actual?.micronots ?? 0n;
+          const estimated = frame?.rewards.get(cohort.startingFrameId);
+          let microgons = estimated?.microgons ?? 0n;
+          let micronots = estimated?.micronots ?? 0n;
           if (frameId >= currentFrameId) {
             const startingTick =
               frameId === currentFrameId ? currentTick : nextFrameTick + (frameId - currentFrameId - 1) * ticksPerFrame;
             const ticks = frameId === currentFrameId ? remainingTicks : ticksPerFrame;
-            const [argonReward, argonotRewards] = await Promise.all([
-              this.fetchMicrogonsPerBlockForMiner(client, cohort.startingFrameId),
-              this.minimumMicronotsMinedDuringTickRange(startingTick, startingTick + ticks, client),
-            ]);
+            const argonotRewards = await this.minimumMicronotsMinedDuringTickRange(
+              startingTick,
+              startingTick + ticks,
+              client,
+            );
             microgons += (argonReward * BigInt(ticks) * BigInt(cohort.seatCount)) / BigInt(activeMiners);
             micronots += (argonotRewards * BigInt(cohort.seatCount)) / BigInt(activeMiners);
           }
@@ -689,7 +692,7 @@ export class Mining {
   public async fetchMicrogonsPerBlockForMiner(api: ArgonQueryClient, frameId?: number): Promise<bigint> {
     frameId ??= await this.fetchNextFrameId(api);
     if (frameId <= 1) {
-      return api.consts.blockRewards.startingArgonsPerBlock;
+      return this.getMiningRewardCut(api.consts.blockRewards.startingArgonsPerBlock, api);
     }
     const microgonsPerBlockByCohort = (await api.query.blockRewards.blockRewardsByCohort()) ?? [];
     for (const [cohortFrameActivationId, blockReward] of microgonsPerBlockByCohort) {
@@ -712,42 +715,35 @@ export class Mining {
     api?: ArgonQueryClient,
   ): Promise<bigint> {
     const client = api ?? (await this.prunedClientOrArchivePromise);
-    const halvingStartTick = client.consts.blockRewards.halvingBeginTicks;
-    const halvingTicks = client.consts.blockRewards.halvingTicks;
-    const ticksSinceGenesis = this.getTicksSinceGenesis(tickStart);
-    const [incrementAmount, incrementTicks, maxMicrogonsPerBlock] = client.consts.blockRewards.incrementalGrowth;
-    const blockRewardMax = maxMicrogonsPerBlock;
-    const incrementIntervalTicks = Number(incrementTicks);
-    const increasePerIntervalMicrogons = incrementAmount;
-
-    const initialReward = 500_000n; // Initial microgons reward per block
-
-    // Calculate the number of intervals
-    let rewardsPerBlock = blockRewardMax;
-    if (ticksSinceGenesis < halvingStartTick) {
-      const numIntervals = Math.floor(ticksSinceGenesis / incrementIntervalTicks);
-
-      // Calculate the current reward per block
-      const currentReward = initialReward + BigInt(numIntervals) * increasePerIntervalMicrogons;
-      rewardsPerBlock = bigIntMin(currentReward, blockRewardMax);
-    }
-
+    const { halvingBeginTicks, halvingTicks, incrementalGrowth, startingOwnershipTokensPerBlock } =
+      client.consts.blockRewards;
+    const [incrementAmount, incrementTicks, finalReward] = incrementalGrowth;
+    const genesisTick = BigInt(NetworkConfig.get().genesisTick);
+    const halvingStart = BigInt(halvingBeginTicks);
+    const halvingInterval = BigInt(halvingTicks);
+    const endingTick = BigInt(tickEnd);
     let totalRewards = 0n;
-    for (let i = tickStart; i < tickEnd; i++) {
-      // Update rewardsPerBlock at each frame
-      if (i % NetworkConfig.rewardTicksPerFrame === 0) {
-        const elapsedTicks = this.getTicksSinceGenesis(i);
-        if (elapsedTicks >= halvingStartTick) {
-          const halvings = Math.floor((elapsedTicks - halvingStartTick) / halvingTicks);
-          rewardsPerBlock = BigInt(Math.floor(Number(blockRewardMax) / (halvings + 1)));
-        } else if (elapsedTicks % incrementIntervalTicks === 0) {
-          rewardsPerBlock += increasePerIntervalMicrogons;
-          rewardsPerBlock = bigIntMin(rewardsPerBlock, blockRewardMax);
-        }
+
+    // The runtime changes the per-block amount at elapsed-tick boundaries, independently
+    // of mining frame rotation. Sum each constant-rate span and round the miner cut per block.
+    for (let tick = BigInt(tickStart); tick < endingTick; ) {
+      const elapsedTicks = tick - genesisTick;
+      let rewardsPerBlock: bigint;
+      let ticksUntilChange: bigint;
+      if (elapsedTicks < halvingStart) {
+        rewardsPerBlock = startingOwnershipTokensPerBlock + (elapsedTicks / incrementTicks) * incrementAmount;
+        ticksUntilChange = bigIntMin(halvingStart - elapsedTicks, incrementTicks - (elapsedTicks % incrementTicks));
+      } else {
+        const ticksAfterHalving = elapsedTicks - halvingStart;
+        const halvings = ticksAfterHalving / halvingInterval;
+        rewardsPerBlock = finalReward / (halvings + 1n);
+        ticksUntilChange = halvingInterval - (ticksAfterHalving % halvingInterval);
       }
-      totalRewards += rewardsPerBlock;
+      const nextTick = bigIntMin(endingTick, tick + ticksUntilChange);
+      totalRewards += (await this.getMiningRewardCut(rewardsPerBlock, client)) * (nextTick - tick);
+      tick = nextTick;
     }
-    return this.getMiningRewardCut(totalRewards, client);
+    return totalRewards;
   }
 
   private async fetchProjectedCohortStats(
@@ -807,11 +803,13 @@ export class Mining {
   }
 
   /**
-   * Shared, read-only mining statistics over finalized historical storage. Retained
-   * payout windows are sampled, with any gaps read at their own finalized block.
-   * Missing storage or prices fail the refresh rather than inventing zero income.
+   * Shared, read-only estimates from finalized frame boundaries. Observed wins use
+   * scheduled ARGN payouts and the elapsed interval's average ARGNOT payout. Notebook
+   * reductions, pauses, and mint failures are not reconstructed. Expansion minting and
+   * the pre-rotation activation payout remain actual amounts. Missing inputs fail the
+   * refresh rather than publishing incomplete income.
    */
-  private async readFrameRewards({
+  private async estimateFrameRewards({
     frameId,
     firstBlockNumber,
     lastBlockNumber,
@@ -822,122 +820,86 @@ export class Mining {
   }): Promise<Map<number, { microgons: bigint; micronots: bigint }>> {
     const cached = this.frameRewardHistory.get(frameId);
     if (cached?.lastBlockNumber === lastBlockNumber) return cached.rewardsByCohort;
-    const previous = cached && cached.lastBlockNumber < lastBlockNumber ? cached : undefined;
-    const [api, beforeApi] = await Promise.all([
+
+    const [api, firstApi, beforeApi] = await Promise.all([
       this.getHistoricalSnapshot(lastBlockNumber),
-      previous ? undefined : this.getHistoricalSnapshot(firstBlockNumber - 1),
+      this.getHistoricalSnapshot(firstBlockNumber),
+      this.getHistoricalSnapshot(firstBlockNumber - 1),
     ]);
-    const [cohorts, mintedByCohort, before, beforeCohorts] = await Promise.all([
-      api.query.miningSlot.minersByCohort.entries(),
+    const [
+      scoringByCohort,
+      blockRewards,
+      mintedByCohort,
+      beforeMinted,
+      beforeCohorts,
+      activationPayouts,
+      firstTick,
+      lastTick,
+    ] = await Promise.all([
+      api.query.miningSlot.minerNonceScoringByCohort(),
+      api.query.blockRewards.blockRewardsByCohort(),
       api.query.mint.miningMintPerCohort(),
-      previous ? previous.mintedByCohort : beforeApi?.query.mint.miningMintPerCohort(),
-      beforeApi?.query.miningSlot.minersByCohort.entries(),
+      beforeApi.query.mint.miningMintPerCohort(),
+      beforeApi.query.miningSlot.minersByCohort.entries(),
+      firstApi.query.blockRewards.payoutsByBlock(firstBlockNumber),
+      firstApi.query.ticks.currentTick(),
+      api.query.ticks.currentTick(),
     ]);
-    if (!cohorts || !mintedByCohort || !before || (!previous && !beforeCohorts)) {
-      throw new Error('Mining reward history is unavailable');
+    if (!scoringByCohort || !blockRewards || !mintedByCohort || !beforeMinted || !beforeCohorts) {
+      throw new Error('Mining frame statistics are unavailable');
     }
-    // Activation-block rewards belong to the pre-rotation seats, including a
-    // retiring miner that renews with the same account and seal authority.
-    const [activationRegistrations, frameRegistrations] = [beforeCohorts ?? cohorts, cohorts].map(registrations => {
-      const cohortByAccount = new Map<string, number>();
-      const cohortsByAuthority = new Map<string, number[]>();
-      for (const [key, members] of registrations) {
-        for (const member of members) {
-          cohortByAccount.set(member.accountId, key.args[0]);
-          const authority = member.authorityKeys.blockSealAuthority;
-          const ids = cohortsByAuthority.get(authority) ?? [];
-          if (!ids.includes(key.args[0])) ids.push(key.args[0]);
-          cohortsByAuthority.set(authority, ids);
-        }
-      }
-      return { cohortByAccount, cohortsByAuthority };
-    });
-    const rewards = new Map([...(previous?.rewardsByCohort ?? [])].map(([id, amounts]) => [id, { ...amounts }]));
-    const archive = await this.clients.archiveClientPromise;
-    const firstUnreadBlock = previous ? previous.lastBlockNumber + 1 : firstBlockNumber;
-    const batchSize = 64;
-    // Supported runtimes use stable FIFO retention. Every gap between a retained entry
-    // and the snapshot block is therefore a confirmed block without a payout.
-    const retained = await api.query.blockRewards.payoutsByBlock.entries();
-    let payoutWindow = 1;
-    const cachePayoutWindow = (number: number, entries: typeof retained) => {
-      const oldest = Math.min(number, ...entries.map(([key]) => key.args[0]));
-      payoutWindow = Math.max(payoutWindow, number - oldest + 1);
-      for (const [key, payouts] of entries) this.historicalPayouts.set(key.args[0], Promise.resolve(payouts));
-      for (let block = oldest; block <= number; block += 1) {
-        if (!this.historicalPayouts.has(block)) this.historicalPayouts.set(block, Promise.resolve([]));
-      }
-    };
-    cachePayoutWindow(lastBlockNumber, retained);
-    // Observed window sizes only choose sample points. Any uncovered block is
-    // still read at its own snapshot rather than assuming a fixed window size.
-    for (let number = lastBlockNumber - payoutWindow; number >= firstUnreadBlock; ) {
-      const samples: number[] = [];
-      while (samples.length < batchSize && number >= firstUnreadBlock) {
-        if (!this.historicalPayouts.has(number)) samples.push(number);
-        number -= payoutWindow;
-      }
-      await Promise.all(
-        samples.map(async number => {
-          const hash = await archive.rpc.chain.getBlockHash(number);
-          const entries = await archive.query.blockRewards.payoutsByBlock.entriesAt(hash);
-          cachePayoutWindow(number, entries);
-        }),
-      );
-    }
-    for (let first = firstUnreadBlock; first <= lastBlockNumber; first += batchSize) {
-      const blocks = Array.from(
-        { length: Math.min(batchSize, lastBlockNumber - first + 1) },
-        (_, index) => first + index,
-      );
-      const rows = await Promise.all(
-        blocks.map(async number => {
-          let payouts = this.historicalPayouts.get(number);
-          if (!payouts) {
-            payouts = (async () => {
-              const hash = await archive.rpc.chain.getBlockHash(number);
-              return await archive.query.blockRewards.payoutsByBlock.at(hash, number);
-            })();
-            this.historicalPayouts.set(number, payouts);
-            void payouts.catch(() => {
-              if (this.historicalPayouts.get(number) === payouts) this.historicalPayouts.delete(number);
-            });
-          }
-          const result: { cohortId: number; microgons: bigint; micronots: bigint }[] = [];
-          const { cohortByAccount, cohortsByAuthority } =
-            number === firstBlockNumber ? activationRegistrations : frameRegistrations;
-          for (const payout of await payouts) {
-            if (payout.rewardType.type !== 'Miner') continue;
-            const ids = payout.blockSealAuthority ? cohortsByAuthority.get(payout.blockSealAuthority) : undefined;
-            let cohortId = ids?.length === 1 ? ids[0] : undefined;
-            if (cohortId === undefined) {
-              const hash = await archive.rpc.chain.getBlockHash(number);
-              const header = await archive.rpc.chain.getHeader(hash);
-              cohortId = cohortByAccount.get(BlockWatch.readHeader(header).author);
-            }
-            if (cohortId !== undefined)
-              result.push({ cohortId, microgons: payout.argons, micronots: payout.ownership });
-          }
-          return result;
-        }),
-      );
-      for (const payout of rows.flat()) {
-        const amounts = rewards.get(payout.cohortId) ?? { microgons: 0n, micronots: 0n };
-        amounts.microgons += payout.microgons;
-        amounts.micronots += payout.micronots;
-        rewards.set(payout.cohortId, amounts);
-      }
+
+    const rewards = new Map<number, { microgons: bigint; micronots: bigint }>();
+    const argonsByCohort = new Map(blockRewards.map(([id, reward]) => [Number(id), reward]));
+    const elapsedTicks = lastTick - firstTick + 1;
+    const scheduledMicronots = await this.minimumMicronotsMinedDuringTickRange(firstTick, lastTick + 1, api);
+    for (const [id, miners] of Object.entries(scoringByCohort)) {
+      const cohortId = Number(id);
+      const wins = BigInt(miners.reduce((total, miner) => total + miner.blocksWonInFrame, 0));
+      if (wins === 0n) continue;
+      const blockReward =
+        argonsByCohort.get(cohortId) ?? (cohortId <= 1 ? api.consts.blockRewards.startingArgonsPerBlock : undefined);
+      if (blockReward === undefined) throw new Error(`No block reward found for mining cohort ${cohortId}`);
+      rewards.set(cohortId, {
+        microgons: (await this.getMiningRewardCut(blockReward, api)) * wins,
+        micronots: (scheduledMicronots * wins) / BigInt(elapsedTicks),
+      });
     }
     for (const [id, total] of Object.entries(mintedByCohort)) {
       const cohortId = Number(id);
       const amounts = rewards.get(cohortId) ?? { microgons: 0n, micronots: 0n };
-      amounts.microgons += total - (before[id] ?? 0n);
+      amounts.microgons += total - (beforeMinted[id] ?? 0n);
       rewards.set(cohortId, amounts);
     }
-    // An older concurrent observation must not replace a newer finalized range.
+
+    // Scoring resets after the activation block is credited to the previous seats.
+    // Read only that block's payout, correlating before rotation even when a miner renews.
+    for (const payout of activationPayouts) {
+      if (payout.rewardType.type !== 'Miner') continue;
+      const matchingCohorts = beforeCohorts.filter(([, members]) =>
+        members.some(member => member.authorityKeys.blockSealAuthority === payout.blockSealAuthority),
+      );
+      let cohortId =
+        payout.blockSealAuthority && matchingCohorts.length === 1 ? matchingCohorts[0][0].args[0] : undefined;
+      if (cohortId === undefined) {
+        const archive = await this.clients.archiveClientPromise;
+        const hash = await archive.rpc.chain.getBlockHash(firstBlockNumber);
+        const author = BlockWatch.readHeader(await archive.rpc.chain.getHeader(hash)).author;
+        cohortId = beforeCohorts.find(([, members]) => members.some(member => member.accountId === author))?.[0]
+          .args[0];
+      }
+      if (cohortId === undefined) continue;
+      const amounts = rewards.get(cohortId) ?? { microgons: 0n, micronots: 0n };
+      amounts.microgons += payout.argons;
+      amounts.micronots += payout.ownership;
+      rewards.set(cohortId, amounts);
+    }
+
+    // Recompute absolute frame counters on refresh; an older concurrent read cannot
+    // replace the cached result for a newer finalized head.
     const latest = this.frameRewardHistory.get(frameId);
     if (!latest || latest.lastBlockNumber < lastBlockNumber) {
-      this.frameRewardHistory.set(frameId, { lastBlockNumber, rewardsByCohort: rewards, mintedByCohort });
+      this.frameRewardHistory.set(frameId, { lastBlockNumber, rewardsByCohort: rewards });
     }
     return rewards;
   }
@@ -980,11 +942,6 @@ export class Mining {
       throw new Error('ARGNOT price is unavailable for mining returns');
     }
     return bigNumberToBigInt(price.argonotUsdPrice.dividedBy(price.argonUsdTargetPrice).times(1_000_000));
-  }
-
-  private getTicksSinceGenesis(currentTick: number): number {
-    const { genesisTick } = NetworkConfig.get();
-    return currentTick - genesisTick;
   }
 }
 
