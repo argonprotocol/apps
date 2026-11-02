@@ -2,7 +2,7 @@
 # Update only during explicit Bitcoin or security releases.
 FROM debian:bullseye-20251208-slim@sha256:e899040a73d36e2b36fa33216943539d9957cba8172b858097c2cabcdb20a3e2
 
-ARG VERSION=28.0
+ARG VERSION=31.2
 ENV VERSION=$VERSION
 
 RUN <<END
