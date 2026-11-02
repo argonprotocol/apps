@@ -46,7 +46,7 @@ jobs:
           cache: 'yarn'
 
       - name: Restore runtime client cache
-        uses: $/.github/actions/runtime-client-cache
+        uses: ./.github/actions/runtime-client-cache
 
       - name: Enable Corepack
         run: corepack enable
@@ -68,7 +68,7 @@ jobs:
         uses: actions/checkout@v5.0.1
 
       - name: Restore pull request runtime client cache
-        uses: $/.github/actions/runtime-client-cache
+        uses: ./.github/actions/runtime-client-cache
 
       - name: Install pull request dependencies
         run: yarn install --immutable

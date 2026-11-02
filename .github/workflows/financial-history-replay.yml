@@ -38,7 +38,7 @@ jobs:
           cache: yarn
 
       - name: Restore runtime client cache
-        uses: $/.github/actions/runtime-client-cache
+        uses: ./.github/actions/runtime-client-cache
 
       - name: Enable Corepack
         run: corepack enable
@@ -89,6 +89,9 @@ jobs:
           yarn package:financial-history-replay
           yarn extract:financial-history-replay
           yarn vitest --run --project=integration FinancialHistoryReplay.integration.test.ts
+
+      - name: Check live financial history services
+        run: yarn check:financial-history-services
 
       - name: Read corpus identity
         id: corpus

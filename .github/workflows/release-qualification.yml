@@ -39,7 +39,7 @@ jobs:
           cache: yarn
 
       - name: Restore runtime client cache
-        uses: $/.github/actions/runtime-client-cache
+        uses: ./.github/actions/runtime-client-cache
 
       - name: Install dependencies and generate the runtime client
         run: |
