@@ -4,6 +4,7 @@ import Fs from 'node:fs';
 import Path from 'node:path';
 import {
   AccountActivityKind,
+  ACCOUNT_ACTIVITY_DEFINITION_VERSION,
   type ArgonCurrentQueryClient,
   type BlockWatch,
   Currency,
@@ -12,11 +13,14 @@ import {
   NetworkConfig,
 } from '@argonprotocol/apps-core';
 import { getClient } from '@argonprotocol/mainchain';
-import { afterAll, describe, expect } from 'vitest';
+import { afterAll, describe, expect, vi } from 'vitest';
 import { ArgonBonds } from '../lib/ArgonBonds.ts';
 import type { WalletKeys } from '../lib/WalletKeys.ts';
 import { VaultHistory } from '../lib/recovery/MyVault.ts';
-import { FinancialHistoryImporter } from '../lib/recovery/index.ts';
+import { restoreFinancialHistory } from '../lib/recovery/index.ts';
+import * as indexerClient from '../lib/IndexerClient.ts';
+import { ArgonBondsFinancials } from '../lib/financials/ArgonBonds.ts';
+import { calculatePositionReturn } from '../lib/financials/index.ts';
 import { CapturedHistoryReader } from './helpers/CapturedHistoryReader.ts';
 import { createTestDb } from './helpers/db.ts';
 import { runRecoveryLifecycle } from './helpers/RecoveryLifecycleRunner.ts';
@@ -40,6 +44,14 @@ runWithReplay('Bond financial history replay corpus', { tags: ['no-argon-network
 
     const reader = new CapturedHistoryReader(replayPath, recordingClient);
     const db = await createTestDb();
+    const findActivity = vi
+      .spyOn(indexerClient, 'findAddressActivity')
+      .mockImplementation(async (address, filters) => ({
+        asOfBlock: reader.latestBlockNumber,
+        definitionVersion: ACCOUNT_ACTIVITY_DEFINITION_VERSION,
+        blocks: reader.findActivityBlocks(address, filters),
+        coverage: { fromBlock: 0, toBlock: reader.latestBlockNumber, gaps: [] },
+      }));
 
     try {
       const accountIds = await reader.findBondOwners(151);
@@ -91,13 +103,19 @@ runWithReplay('Bond financial history replay corpus', { tags: ['no-argon-network
 
       const latestBlock = await reader.getHeader(reader.latestBlockNumber);
       const latestApi = runtimeClient((await reader.getApi(latestBlock)).raw);
-      const miningFrames = new MiningFrames({} as MainchainClients, reader as unknown as BlockWatch);
+      const blockWatch = Object.assign(reader, {
+        finalizedBlockHeader: latestBlock,
+        getCurrentApi: async () => latestApi,
+        getEvents: async (block: Parameters<CapturedHistoryReader['getEventsWithSpec']>[0]) =>
+          (await reader.getEventsWithSpec(block)).events,
+      }) as unknown as BlockWatch;
+      const miningFrames = new MiningFrames({} as MainchainClients, blockWatch);
       const earliestEventBackedBondFrame = miningFrames.earliestWithSpec(151);
       const currentLotsByAccount = new Map<string, Awaited<ReturnType<ArgonBonds['getOwnBondLots']>>>();
+      const assetsWithVerifiedApy = new Set<string>();
       const resultsByPhase: {
         importedBlockCount: number;
         expectedBlockCount: number;
-        failures: string[];
       }[] = [];
 
       const recovered = await runRecoveryLifecycle({
@@ -106,7 +124,6 @@ runWithReplay('Bond financial history replay corpus', { tags: ['no-argon-network
         recover: async () => {
           let importedBlockCount = 0;
           let expectedBlockCount = 0;
-          const failures: string[] = [];
 
           for (const accountId of accountIds) {
             const walletKeys = { defaultArgonAddress: accountId } as WalletKeys;
@@ -132,22 +149,69 @@ runWithReplay('Bond financial history replay corpus', { tags: ['no-argon-network
             await argonBonds.refreshHistory();
 
             const blocks = activityBlocksByAccount.get(accountId) ?? [];
-            const importer = new FinancialHistoryImporter({
-              blockWatch: reader as unknown as BlockWatch,
+            const result = await restoreFinancialHistory({
+              db,
+              blockWatch,
+              accountId,
               argonBonds,
               vaultHistory: new VaultHistory(Promise.resolve(db), accountId),
               enabledDomains: ['bonds'],
+              recoverMissingCheckpointsFor: ['bonds'],
+              force: true,
             });
-            argonBonds.beginHistoryReplay();
-            const result = await importer.importBlocks(blocks);
-            if (Object.keys(result.domainErrors).length) argonBonds.discardRecoveredHistory();
-            else await argonBonds.publishRecoveredHistory();
+            expect(result.asOfBlock).toBe(latestBlock.blockNumber);
+            expect(argonBonds.data.historyCoveragePending).toBe(false);
+            const positions = new ArgonBondsFinancials(argonBonds).createFinancialPositions({
+              bondLots: argonBonds.data.bondLots,
+              historyRecords: argonBonds.data.bondHistory,
+              dailyEarnings: argonBonds.data.dailyEarnings,
+              completedFrame: (latestBlock.frameId ?? miningFrames.getForTick(latestBlock.tick)!) - 1,
+              liveArgonotRateMicrogons: 1_000_000n,
+              frameDates: new Map(miningFrames.frames.map(frame => [frame.frameId, new Date(frame.dateStart)])),
+            });
+            for (const history of argonBonds.data.bondHistory) {
+              const throughFrame = Math.min(
+                history.earningsHistoryThroughFrame ?? -1,
+                (history.releaseFrame ?? Infinity) - 1,
+              );
+              if (
+                throughFrame <= history.createdFrame ||
+                !history.earningsComplete ||
+                !history.flexibilityHistoryComplete
+              )
+                continue;
+              let investedCost = history.nativePrincipal;
+              if (history.nativeAsset === 'ARGNOT') {
+                if (!history.entryArgonotRateMicrogons) continue;
+                investedCost = (investedCost * history.entryArgonotRateMicrogons) / 1_000_000n;
+              }
+              if (investedCost <= 0n) continue;
+              const earnings = argonBonds.data.dailyEarnings.filter(
+                record => record.bondLotId === history.bondLotId && record.frameId <= throughFrame,
+              );
+              if (!earnings.length || earnings.some(record => record.earningsMicrogons == null)) continue;
+
+              const position = positions.find(
+                position => (position.bondLot?.id ?? position.history?.bondLotId) === history.bondLotId,
+              );
+              expect(position).toBeDefined();
+              expect(position!.dailyReturns).not.toBeNull();
+              expect(position!.dailyReturnPeriodDays).toBe(throughFrame - history.createdFrame);
+              const summary = calculatePositionReturn([position!]);
+              const logGrowth = earnings.reduce(
+                (sum, day) => sum + Math.log1p(Number(day.earningsMicrogons!) / Number(investedCost)),
+                0,
+              );
+              expect(Math.log1p(summary.apy! / 100)).toBeCloseTo(
+                logGrowth * (365 / (throughFrame - history.createdFrame)),
+              );
+              assetsWithVerifiedApy.add(history.nativeAsset);
+            }
             importedBlockCount += result.importedBlockCount;
             expectedBlockCount += blocks.length;
-            failures.push(...Object.values(result.domainErrors).map(error => `${accountId}: ${error}`));
           }
 
-          resultsByPhase.push({ importedBlockCount, expectedBlockCount, failures });
+          resultsByPhase.push({ importedBlockCount, expectedBlockCount });
         },
         readDurableState: async () => {
           const histories = await Promise.all(accountIds.map(accountId => db.bondLotHistoryTable.fetchAll(accountId)));
@@ -155,7 +219,7 @@ runWithReplay('Bond financial history replay corpus', { tags: ['no-argon-network
         },
       });
 
-      expect(resultsByPhase.flatMap(({ failures }) => failures)).toEqual([]);
+      expect([...assetsWithVerifiedApy].sort()).toEqual(['ARGN', 'ARGNOT']);
       for (const result of resultsByPhase) {
         expect(result.importedBlockCount).toBe(result.expectedBlockCount);
       }
@@ -200,6 +264,7 @@ runWithReplay('Bond financial history replay corpus', { tags: ['no-argon-network
         }
       }
     } finally {
+      findActivity.mockRestore();
       reader.close();
       await db.close();
       NetworkConfig.networkName = previousNetwork;

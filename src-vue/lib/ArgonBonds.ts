@@ -27,6 +27,7 @@ import { SyncStateKeys } from './db/SyncStateTable.ts';
 import { getMainchainClient } from '../stores/mainchain.ts';
 import { ArgonBondsRecovery, readHistoricalBondLots } from './recovery/ArgonBonds.ts';
 import { getBondEarnings, isNewUnparticipatedBond } from './BondEarnings.ts';
+import { findFinancialHistoryActivity } from './recovery/index.ts';
 
 const INITIAL_FINALIZED_HISTORY_BLOCKS = 90;
 
@@ -231,13 +232,18 @@ export class ArgonBonds {
       const finalizedApi = await blockWatch.getApi(finalizedBlock);
       const finalizedClient = runtimeClient(finalizedApi);
       const lots = await this.getOwnBondLots(finalizedClient);
+      const storedHistory = await db.bondLotHistoryTable.fetchAll(this.walletKeys.defaultArgonAddress);
+      const recordedLots = new Set(storedHistory.map(record => record.bondLotId));
       await db.transaction(async transaction => {
-        for (const lot of lots)
+        for (const lot of lots) {
+          if (recordedLots.has(lot.id)) continue;
+
           await transaction.bondLotHistoryTable.recordObservation({
             lot,
             blockNumber: finalizedBlock.blockNumber,
             blockHash: finalizedBlock.blockHash,
           });
+        }
       });
       const [history, dailyEarnings] = await Promise.all([
         db.bondLotHistoryTable.fetchAll(this.walletKeys.defaultArgonAddress),
@@ -609,17 +615,53 @@ export class ArgonBonds {
     if (this.isHistoryReplaying) return;
 
     const db = await this.dbPromise;
-    let cursor = this.finalizedHistoryCursor;
-    if (!cursor) throw new Error('Bond history cursor has not been loaded');
+    const savedCursor = this.finalizedHistoryCursor;
+    if (!savedCursor) throw new Error('Bond history cursor has not been loaded');
+    let cursor = savedCursor;
     const retryingPublication = !!this.data.historyError;
     const wasCoveragePending = this.data.historyCoveragePending;
     let hasChangedHistory = false;
+    const blockNumbers = new Set<number>();
+    const indexedHashes = new Map<number, string>();
+    if (targetBlockNumber - cursor.blockNumber > INITIAL_FINALIZED_HISTORY_BLOCKS) {
+      const indexed = await findFinancialHistoryActivity(this.walletKeys.defaultArgonAddress, 'bonds', {
+        afterBlock: cursor.blockNumber,
+        toBlock: targetBlockNumber,
+      });
+      const canonicalCursor = await this.miningFrames.blockWatch.getHeader(cursor.blockNumber);
+      if (canonicalCursor.blockHash !== cursor.blockHash) {
+        throw new Error(`Finalized bond history changed at block ${cursor.blockNumber}`);
+      }
+      const throughBlock = Math.min(targetBlockNumber, indexed.asOfBlock);
+      if (throughBlock <= cursor.blockNumber) throw new Error('Bond history activity index has not caught up yet');
+      for (const block of indexed.blocks) {
+        if (block.blockNumber <= cursor.blockNumber || block.blockNumber > throughBlock) continue;
+        blockNumbers.add(block.blockNumber);
+        indexedHashes.set(block.blockNumber, block.blockHash);
+      }
+      // Global payout events do not necessarily carry account activity.
+      for (const frame of this.miningFrames.frames) {
+        const blockNumber = frame.firstBlockNumber;
+        if (blockNumber !== null && blockNumber > cursor.blockNumber && blockNumber <= throughBlock) {
+          blockNumbers.add(blockNumber);
+        }
+      }
+      blockNumbers.add(throughBlock);
+    } else {
+      for (let blockNumber = cursor.blockNumber + 1; blockNumber <= targetBlockNumber; blockNumber += 1) {
+        blockNumbers.add(blockNumber);
+      }
+    }
 
-    for (let blockNumber = cursor.blockNumber + 1; blockNumber <= targetBlockNumber; blockNumber += 1) {
+    for (const blockNumber of [...blockNumbers].sort((left, right) => left - right)) {
       if (this.isHistoryReplaying) break;
 
       const block = await this.miningFrames.blockWatch.getHeader(blockNumber);
-      if (block.parentHash !== cursor.blockHash) {
+      const indexedHash = indexedHashes.get(blockNumber);
+      if (indexedHash !== undefined && indexedHash !== block.blockHash) {
+        throw new Error(`Bond history index hash does not match finalized block ${blockNumber}`);
+      }
+      if (blockNumber === cursor.blockNumber + 1 && block.parentHash !== cursor.blockHash) {
         throw new Error(`Finalized bond history changed parent at block ${blockNumber}`);
       }
       const events = await this.miningFrames.blockWatch.getEvents(block);

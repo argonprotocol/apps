@@ -147,7 +147,7 @@ import Tooltip from '../components/Tooltip.vue';
 import { useFinancials } from '../stores/financials.ts';
 import { useFinancialHistory } from '../stores/financialHistory.ts';
 import { getConfig } from '../stores/config.ts';
-import { bondAssetMenuItems, financialMenuLabels } from './financialMenuLabels.ts';
+import { bondAssetMenuItems, financialMenuGroupOrder, financialMenuLabels } from './financialMenuLabels.ts';
 
 const rootRef = Vue.ref<HTMLElement>();
 
@@ -183,7 +183,8 @@ const historyRecoveryProgress = Vue.computed(() => {
 const returnRows = Vue.computed(() => {
   if (!config.isLoaded) return [];
 
-  return aggregate.value.groups.flatMap(group => {
+  return financialMenuGroupOrder.flatMap(groupName => {
+    const group = aggregate.value.groupSummaries[groupName];
     if (group.returnSummary.investmentPositionCount === 0) return [];
     if ((group.group === 'mining' || group.group === 'vaulting') && !config.hasExtensionOperations) return [];
     if (group.group === 'ethereum' && !config.hasActivatedStableSwaps) return [];
@@ -193,7 +194,7 @@ const returnRows = Vue.computed(() => {
       return bondAssetMenuItems.flatMap(({ asset, label }) => {
         const returnSummary = bondSummariesByAsset.value[asset].returnSummary;
         if (!returnSummary.investmentPositionCount) return [];
-        return [{ ...group, key: `bonds-${asset}`, label: `${label} Bonds`, returnSummary }];
+        return [{ ...group, key: `bonds-${asset}`, label, returnSummary }];
       });
     }
 

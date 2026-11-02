@@ -25,6 +25,7 @@ import {
   type MiningFrames,
   type RuntimeSystemEventRecord,
   MICROGONS_PER_ARGON,
+  NetworkConfig,
   TreasuryBonds,
   TxSubmitter,
   Vault,
@@ -32,6 +33,7 @@ import {
   AccountActivityKind,
 } from '@argonprotocol/apps-core';
 import type { WalletForArgon } from '../lib/WalletForArgon.ts';
+import type { WalletKeys } from '../lib/WalletKeys.ts';
 import { encodeAddress } from '@polkadot/util-crypto';
 import { numberCodec } from '../../core/__test__/helpers/codecs.ts';
 import { TransactionStatus } from '../lib/db/TransactionsTable.ts';
@@ -1392,11 +1394,11 @@ describe('ArgonBonds', () => {
       owner: accountId,
       program: { Vault: { vaultId: 4, sharingPercent: 0, bonusPercent: 0 } },
       bonds: 10,
-      createdFrameId: 3,
-      participatedFrames: 0,
-      lastFrameEarningsFrameId: null,
-      lastFrameEarnings: null,
-      cumulativeEarnings: 0,
+      createdFrameId: 2,
+      participatedFrames: 1,
+      lastFrameEarningsFrameId: 3,
+      lastFrameEarnings: 1_000_000,
+      cumulativeEarnings: 1_000_000,
       isFlexible: true,
       releaseFrameId: null,
       releaseReason: null,
@@ -1404,6 +1406,17 @@ describe('ArgonBonds', () => {
     const lot = BondLot.fromRuntime(7, lotCodec, accountId);
     await db.bondLotHistoryTable.recordObservation({ lot, blockNumber: 100, blockHash: '0x100' });
     await db.bondLotHistoryTable.confirmFlexibilityHistory(accountId);
+    await db.bondEarningsTable.upsert({
+      accountId,
+      programType: 'Vault',
+      bondLotId: 7,
+      frameId: 3,
+      earningsMicrogons: 1_000_000n,
+      earningsDestination: 'Owner',
+      payoutBlockNumber: 100,
+      payoutBlockHash: '0x100',
+    });
+    await db.bondLotHistoryTable.recordEarningsCoverage(accountId, 2, 3);
     await db.syncStateTable.upsert(SyncStateKeys.BondHistory, {
       accountId,
       blockNumber: 100,
@@ -1417,8 +1430,8 @@ describe('ArgonBonds', () => {
     const refreshedLots = createDeferred<BondLot[]>(false);
     let onFinalized: ((blocks: { blockNumber: number }[]) => void) | undefined;
     const blockWatch = {
-      bestBlockHeader: { blockNumber: 102, blockHash: '0x102', frameId: 4 },
-      finalizedBlockHeader: { blockNumber: 102, blockHash: '0x102', frameId: 4 },
+      bestBlockHeader: { blockNumber: 102, blockHash: '0x102', frameId: 5 },
+      finalizedBlockHeader: { blockNumber: 102, blockHash: '0x102', frameId: 5 },
       start: vi.fn(async () => undefined),
       events: {
         on: vi.fn((name: string, listener: (blocks: { blockNumber: number }[]) => void) => {
@@ -1438,7 +1451,15 @@ describe('ArgonBonds', () => {
       }),
       getApi: vi.fn(async () => ({
         runtimeVersion: { specVersion: registry.createType('u32', 160) },
-        query: { treasury: { bondLotById: vi.fn(async () => lotCodec) } },
+        query: {
+          treasury: {
+            bondLotIdsByAccount: { keys: async () => [{ args: [accountId, 7] }] },
+            bondLotById: Object.assign(
+              vi.fn(async () => lotCodec),
+              { multi: async () => [lotCodec] },
+            ),
+          },
+        },
       })),
       getCurrentApi: vi.fn(async () => ({})),
       getEvents: vi.fn(async (block: { blockNumber: number }) => {
@@ -1478,7 +1499,9 @@ describe('ArgonBonds', () => {
     };
     const getBondLots = vi
       .spyOn(TreasuryBonds, 'getBondLotsByAccount')
-      .mockResolvedValueOnce([lot])
+      .mockResolvedValueOnce([
+        BondLot.fromRuntime(7, { ...lotCodec, participatedFrames: 2, cumulativeEarnings: 2_000_000n }, accountId),
+      ])
       .mockImplementation(() => refreshedLots.promise);
     const argonBonds = new ArgonBonds(
       Promise.resolve(db),
@@ -1489,8 +1512,20 @@ describe('ArgonBonds', () => {
     );
 
     await argonBonds.load();
-    expect(argonBonds.data.bondLots).toEqual([lot]);
+    expect(argonBonds.data.bondLots[0].cumulativeEarnings).toBe(2_000_000n);
     expect(argonBonds.data.historyCoveragePending).toBe(true);
+    expect(argonBonds.getEarningsHistory(7).isComplete).toBe(true);
+    const positions = new ArgonBondsFinancials(argonBonds).createFinancialPositions({
+      bondLots: argonBonds.data.bondLots,
+      historyRecords: argonBonds.data.bondHistory,
+      dailyEarnings: argonBonds.data.dailyEarnings,
+      completedFrame: 4,
+      frameDates: new Map([[2, new Date('2026-07-01T12:00:00Z')]]),
+    });
+    const priorReturn = calculatePositionReturn(positions);
+    expect(priorReturn).toMatchObject({ availability: 'partial', isStale: true });
+    expect(priorReturn.percent).toBeUndefined();
+    expect(Math.log1p(priorReturn.apy! / 100)).toBeCloseTo(Math.log(1.1) * 365);
     const initialRevision = argonBonds.data.financialRevision;
     eventsAt101.resolve([
       {
@@ -1513,7 +1548,7 @@ describe('ArgonBonds', () => {
     });
 
     const financialRevision = argonBonds.data.financialRevision;
-    blockWatch.finalizedBlockHeader = { blockNumber: 103, blockHash: '0x103', frameId: 4 };
+    blockWatch.finalizedBlockHeader = { blockNumber: 103, blockHash: '0x103', frameId: 5 };
     expect(onFinalized).toBeDefined();
     onFinalized?.([{ blockNumber: 103 }]);
     expect(argonBonds.data.historyCoveragePending).toBe(false);
@@ -1525,7 +1560,7 @@ describe('ArgonBonds', () => {
     });
 
     blockWatch.getCurrentApi.mockRejectedValueOnce(new Error('offline'));
-    blockWatch.finalizedBlockHeader = { blockNumber: 104, blockHash: '0x104', frameId: 4 };
+    blockWatch.finalizedBlockHeader = { blockNumber: 104, blockHash: '0x104', frameId: 5 };
     onFinalized?.([{ blockNumber: 104 }]);
     await vi.waitFor(() => expect(argonBonds.data.historyError).toContain('offline'));
     expect(argonBonds.data.bondHistory[0]?.flexibilityHistory).toHaveLength(1);
@@ -1535,7 +1570,7 @@ describe('ArgonBonds', () => {
     expect(argonBonds.data.historyError).toBeUndefined();
     expect(argonBonds.data.bondHistory[0]?.flexibilityHistory).toHaveLength(2);
 
-    blockWatch.finalizedBlockHeader = { blockNumber: 105, blockHash: '0x105', frameId: 4 };
+    blockWatch.finalizedBlockHeader = { blockNumber: 105, blockHash: '0x105', frameId: 5 };
     onFinalized?.([{ blockNumber: 105 }]);
     await vi.waitFor(async () => {
       expect(await db.syncStateTable.get(SyncStateKeys.BondHistory)).toMatchObject({ blockNumber: 105 });
@@ -1543,17 +1578,17 @@ describe('ArgonBonds', () => {
       expect(argonBonds.data.bondHistory[0]?.flexibilityHistory).toHaveLength(2);
     });
     // Indexed recovery must publish without waiting for every block in an old cursor gap.
-    blockWatch.finalizedBlockHeader = { blockNumber: 200, blockHash: '0x200', frameId: 4 };
-    onFinalized?.([{ blockNumber: 200 }]);
+    blockWatch.finalizedBlockHeader = { blockNumber: 190, blockHash: '0x190', frameId: 5 };
+    onFinalized?.([{ blockNumber: 190 }]);
     await vi.waitFor(() =>
       expect(blockWatch.getEvents).toHaveBeenCalledWith(expect.objectContaining({ blockNumber: 106 })),
     );
     const replayStarted = createDeferred<void>(false);
     getBondLots.mockResolvedValue([lot]);
     const findActivity = vi.spyOn(indexerClient, 'findAddressActivity').mockResolvedValue({
-      asOfBlock: 200,
+      asOfBlock: 190,
       definitionVersion: ACCOUNT_ACTIVITY_DEFINITION_VERSION,
-      coverage: { fromBlock: 0, toBlock: 200, gaps: [] },
+      coverage: { fromBlock: 0, toBlock: 190, gaps: [] },
       blocks: [90, 101, 104].map(blockNumber => ({
         blockNumber,
         blockHash: `0x${blockNumber}`,
@@ -1575,16 +1610,21 @@ describe('ArgonBonds', () => {
     void restore.catch(() => undefined);
     try {
       await replayStarted.promise;
+      const purchasedAfterCutoff = BondLot.fromRuntime(8, { ...lotCodec, createdFrameId: 5 }, accountId);
+      getBondLots.mockResolvedValue([lot, purchasedAfterCutoff]);
+      await argonBonds.refreshBondLots({} as any);
       eventsAt106.resolve([]);
+      await restore;
       await vi.waitFor(async () => {
-        expect(await db.syncStateTable.get(SyncStateKeys.BondHistory)).toMatchObject({ blockNumber: 200 });
+        expect(await db.syncStateTable.get(SyncStateKeys.BondHistory)).toMatchObject({ blockNumber: 190 });
         expect(argonBonds.data.bondHistory[0]).toMatchObject({
           purchaseBlockNumber: 90,
           flexibilityHistoryComplete: true,
         });
         expect(argonBonds.data.historyCoveragePending).toBe(false);
       });
-      await restore;
+      expect(argonBonds.data.bondLots.map(lot => lot.id)).toEqual([7, 8]);
+      expect(await db.bondLotHistoryTable.fetchAll(accountId)).toHaveLength(1);
       expect(argonBonds.data.bondHistory[0].flexibilityHistory).toEqual([
         expect.objectContaining({ source: 'purchase', blockNumber: 90, isFlexible: true }),
         expect.objectContaining({ blockNumber: 101, isFlexible: true }),
@@ -1597,6 +1637,162 @@ describe('ArgonBonds', () => {
       getBondLots.mockRestore();
     }
   });
+
+  it.each(['Vault', 'Argonot'] as const)(
+    'repairs a long %s earnings gap without losing verified APY',
+    async programType => {
+      const db = await createTestDb();
+      const previousNetwork = NetworkConfig.networkName!;
+      NetworkConfig.setNetwork('mainnet');
+      const priorCodec = createRuntimeBondLot({
+        owner: accountId,
+        program:
+          programType === 'Vault' ? { Vault: { vaultId: 4, sharingPercent: 0, bonusPercent: 0 } } : { Argonot: null },
+        bonds: 10,
+        createdFrameId: 2,
+        participatedFrames: 1,
+        lastFrameEarningsFrameId: 3,
+        lastFrameEarnings: 1_000_000,
+        cumulativeEarnings: 1_000_000,
+        isFlexible: programType === 'Vault',
+      });
+      const prior = BondLot.fromRuntime(7, priorCodec, accountId);
+      const currentCodec = {
+        ...priorCodec,
+        participatedFrames: 2,
+        lastFrameEarningsFrameId: 4,
+        lastFrameEarnings: 2_000_000n,
+        cumulativeEarnings: 3_000_000n,
+      };
+      const current = BondLot.fromRuntime(7, currentCodec, accountId);
+      await db.bondLotHistoryTable.recordObservation({
+        lot: prior,
+        blockNumber: 100,
+        blockHash: '0x100',
+        purchase: { blockTime: new Date('2026-07-01T12:00:00Z'), entryArgonotRateMicrogons: 1_000_000n },
+      });
+      await db.bondLotHistoryTable.confirmFlexibilityHistory(accountId);
+      await db.bondLotHistoryTable.recordEarningsCoverage(accountId, 2, 3);
+      await db.bondEarningsTable.upsert({
+        accountId,
+        programType,
+        bondLotId: 7,
+        frameId: 3,
+        earningsMicrogons: 1_000_000n,
+        earningsDestination: 'Owner',
+        payoutBlockNumber: 100,
+        payoutBlockHash: '0x100',
+      });
+      await db.syncStateTable.upsert(SyncStateKeys.BondHistory, { accountId, blockNumber: 100, blockHash: '0x100' });
+
+      const indexRead = createDeferred<Awaited<ReturnType<typeof indexerClient.findAddressActivity>>>(false);
+      const indexed = {
+        asOfBlock: 500,
+        definitionVersion: ACCOUNT_ACTIVITY_DEFINITION_VERSION,
+        blocks: [],
+        coverage: { fromBlock: 100, toBlock: 500, gaps: [] },
+      };
+      const findActivity = vi
+        .spyOn(indexerClient, 'findAddressActivity')
+        .mockImplementationOnce(() => indexRead.promise)
+        .mockResolvedValue(indexed);
+      const getLots = vi.spyOn(TreasuryBonds, 'getBondLotsByAccount').mockResolvedValue([current]);
+      const blockWatch = {
+        bestBlockHeader: {
+          blockNumber: 500,
+          blockHash: '0x500',
+          frameId: 5,
+          blockTime: new Date('2026-07-03T12:00:00Z').getTime(),
+        },
+        finalizedBlockHeader: { blockNumber: 500, blockHash: '0x500', frameId: 5 },
+        start: async () => undefined,
+        events: { on: () => () => undefined },
+        getHeader: vi.fn(async (blockNumber: number) => ({
+          blockNumber,
+          blockHash: `0x${blockNumber}`,
+          parentHash: `0x${blockNumber - 1}`,
+          blockTime: new Date('2026-07-03T12:00:00Z').getTime(),
+          isFinalized: true,
+        })),
+        getApi: async ({ blockNumber }: Pick<IBlockHeaderInfo, 'blockNumber'>) => ({
+          query: {
+            treasury: {
+              bondLotIdsByAccount: { keys: async () => [{ args: [accountId, 7] }] },
+              bondLotById: { multi: async () => [blockNumber >= 200 ? currentCodec : priorCodec] },
+              currentFrameVaultCapital: async () => null,
+            },
+          },
+        }),
+        getCurrentApi: async () => ({}),
+        getEvents: async ({ blockNumber }: Pick<IBlockHeaderInfo, 'blockNumber'>) => {
+          if (blockNumber !== 200) return [];
+          return [
+            {
+              event: {
+                section: 'treasury',
+                method: 'FrameEarningsDistributed',
+                data: { frameId: 4, argonBondPoolDistributed: 1n },
+              },
+            },
+          ];
+        },
+      };
+      const bonds = new ArgonBonds(
+        Promise.resolve(db),
+        { isLoadedPromise: Promise.resolve(), upstreamOperator: undefined },
+        { isLoadedPromise: Promise.resolve(), fetchMainchainRatesAtBlock: vi.fn() },
+        {
+          load: async () => undefined,
+          blockWatch,
+          frames: [{ frameId: 5, firstBlockNumber: 200 }],
+        } as unknown as MiningFrames,
+        { defaultArgonAddress: accountId } as WalletKeys,
+      );
+      const financials = new ArgonBondsFinancials(bonds);
+      const readReturn = () =>
+        calculatePositionReturn(
+          financials.createFinancialPositions({
+            bondLots: bonds.data.bondLots,
+            historyRecords: bonds.data.bondHistory,
+            dailyEarnings: bonds.data.dailyEarnings,
+            completedFrame: 4,
+            liveArgonotRateMicrogons: 1_000_000n,
+            frameDates: new Map([[2, new Date('2026-07-01T12:00:00Z')]]),
+          }),
+        );
+      try {
+        await bonds.load();
+        expect(Math.log1p(readReturn().apy! / 100)).toBeCloseTo(Math.log(1.1) * 365);
+        indexRead.resolve({
+          ...indexed,
+          coverage: { ...indexed.coverage, gaps: [{ fromBlock: 101, toBlock: 199, reason: 'unavailable' }] },
+        });
+        await vi.waitFor(() =>
+          expect(bonds.data).toMatchObject({ historyError: expect.stringContaining('coverage gap') }),
+        );
+        expect(await db.syncStateTable.get(SyncStateKeys.BondHistory)).toMatchObject({ blockNumber: 100 });
+        expect(Math.log1p(readReturn().apy! / 100)).toBeCloseTo(Math.log(1.1) * 365);
+
+        await bonds.retryHistory();
+        expect(bonds.data.historyError).toBeUndefined();
+        expect(bonds.data.historyCoveragePending).toBe(false);
+        expect(await db.syncStateTable.get(SyncStateKeys.BondHistory)).toMatchObject({ blockNumber: 500 });
+        expect((await db.bondLotHistoryTable.fetchAll(accountId))[0]).toMatchObject({
+          cumulativeEarningsMicrogons: 3_000_000n,
+          earningsHistoryThroughFrame: 4,
+        });
+        expect(readReturn().percent).toBe(30);
+        expect(Math.log1p(readReturn().apy! / 100)).toBeCloseTo(Math.log(1.1 * 1.2) * (365 / 2));
+        expect(blockWatch.getHeader.mock.calls.map(([blockNumber]) => blockNumber)).toEqual([100, 200, 199, 500]);
+      } finally {
+        indexRead.resolve(indexed);
+        findActivity.mockRestore();
+        getLots.mockRestore();
+        NetworkConfig.setNetwork(previousNetwork);
+        await db.close();
+      }
+    },
+  );
 
   it('retains one bond investment through recovered pre-flexibility-name transitions', async () => {
     const db = await createTestDb();

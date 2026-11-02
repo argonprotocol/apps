@@ -335,19 +335,43 @@ export function calculatePositionReturn(
   }
 
   const eligibleInvestments: IPerformanceReturnInput[] = [];
+  const verifiedDailyInvestments: IPerformanceReturnInput[] = [];
   let paidIncome = 0n;
   let hasUnknownIncome = false;
   let settledPrincipalValue = 0n;
   const retainedIds = new Set(group?.retainedReturns?.map(retained => retained.position.id));
-  const isStale = investments.some(position => retainedIds.has(position.id));
 
   for (const position of investments) {
     const positionIncome = position.paidIncome;
     if (positionIncome === undefined) hasUnknownIncome = true;
     else paidIncome += positionIncome;
     settledPrincipalValue += position.settledPrincipalValue ?? 0n;
-    if (positionIncome === undefined) continue;
-    if ((position.kind === 'bond' || position.kind === 'vault') && position.returnIsComplete === false) continue;
+    const lifetimeIsIncomplete =
+      positionIncome === undefined ||
+      ((position.kind === 'bond' || position.kind === 'vault') && position.returnIsComplete === false);
+    if (lifetimeIsIncomplete) {
+      if (
+        (position.kind === 'bond' || position.kind === 'vault') &&
+        position.dailyReturns &&
+        position.dailyReturnPeriodDays !== undefined &&
+        position.startedAt !== undefined &&
+        position.investedCost !== undefined &&
+        position.investedCost > 0n
+      ) {
+        verifiedDailyInvestments.push({
+          startingDate: position.startedAt,
+          startingCapital: position.investedCost,
+          endingDate: position.endedAt,
+          endingCapital:
+            position.investedCost +
+            position.dailyReturns.reduce((sum, day) => sum + day.endingCapital - day.startingCapital, 0n),
+          capitalFlows: position.capitalFlows,
+          dailyReturns: position.dailyReturns,
+          dailyReturnPeriodDays: position.dailyReturnPeriodDays,
+        });
+      }
+      continue;
+    }
 
     const { investedCost } = position;
     if (position.lifecycle === 'unavailable') continue;
@@ -392,9 +416,17 @@ export function calculatePositionReturn(
     });
   }
 
+  const isStale = investments.some(position => retainedIds.has(position.id)) || verifiedDailyInvestments.length > 0;
+  const returnOptions = { dayMillis: NetworkConfig.rewardTicksPerFrame * NetworkConfig.tickMillis };
+  let verifiedApy: number | undefined;
+  if (verifiedDailyInvestments.length) {
+    verifiedApy = calculatePerformanceReturn([...eligibleInvestments, ...verifiedDailyInvestments], returnOptions).apy;
+  }
   if (eligibleInvestments.length === 0) {
     return {
-      availability: 'unavailable',
+      availability: verifiedApy !== undefined ? 'partial' : 'unavailable',
+      ...(isStale ? { isStale: true } : {}),
+      ...(verifiedApy !== undefined ? { apy: verifiedApy } : {}),
       investedCost: 0n,
       paidIncome: hasUnknownIncome ? undefined : paidIncome,
       settledPrincipalValue,
@@ -403,9 +435,7 @@ export function calculatePositionReturn(
     };
   }
 
-  const performance = calculatePerformanceReturn(eligibleInvestments, {
-    dayMillis: NetworkConfig.rewardTicksPerFrame * NetworkConfig.tickMillis,
-  });
+  const performance = calculatePerformanceReturn(eligibleInvestments, returnOptions);
   const availability = eligibleInvestments.length === investments.length ? 'available' : 'partial';
 
   return {
@@ -418,7 +448,7 @@ export function calculatePositionReturn(
     basisPoints: performance.basisPoints,
     percent: performance.percent,
     apr: performance.apr,
-    apy: performance.apy,
+    apy: verifiedDailyInvestments.length ? verifiedApy : performance.apy,
     eligiblePositionCount: eligibleInvestments.length,
     investmentPositionCount: investments.length,
   };

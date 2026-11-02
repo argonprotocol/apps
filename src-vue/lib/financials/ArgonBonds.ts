@@ -287,12 +287,20 @@ export class ArgonBondsFinancials
     if (verifiedThroughFrame !== undefined) {
       finalizedRecords = records.filter(record => record.frameId <= verifiedThroughFrame);
     }
-    const finalizedEarnings = history
-      ? getBondEarnings(undefined, history, finalizedRecords, verifiedThroughFrame)
-      : undefined;
+    let hasVerifiedHistory = history !== undefined && verifiedThroughFrame !== undefined;
+    if (history?.earningsComplete === false) hasVerifiedHistory = false;
+    if (history?.programType === 'Vault' && !history.flexibilityHistoryComplete) hasVerifiedHistory = false;
+    if (
+      bond instanceof BondLot &&
+      history &&
+      history.nativePrincipal !== (bond.principalMicrogons ?? bond.principalMicronots)
+    ) {
+      hasVerifiedHistory = false;
+    }
+    if (finalizedRecords.some(record => record.earningsMicrogons == null)) hasVerifiedHistory = false;
     const isBeforeFirstFinalizedPayout =
       bond instanceof BondLot && completedFrame !== undefined && bond.createdFrameId >= completedFrame;
-    if (investedCost !== undefined && (finalizedEarnings?.isComplete || isBeforeFirstFinalizedPayout)) {
+    if (investedCost !== undefined && (hasVerifiedHistory || isBeforeFirstFinalizedPayout)) {
       dailyReturns = finalizedRecords.map(record => ({
         startingCapital: investedCost,
         endingCapital: investedCost + record.earningsMicrogons!,

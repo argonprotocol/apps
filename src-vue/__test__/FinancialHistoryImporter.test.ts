@@ -10,12 +10,21 @@ import { SyncStateKeys } from '../lib/db/SyncStateTable.ts';
 import { BitcoinLockStatus } from '../lib/db/BitcoinLocksTable.ts';
 import { createTestDb } from './helpers/db.ts';
 import { optionCodec } from '../../core/__test__/helpers/codecs.ts';
+import { getOfflineRegistry } from '@argonprotocol/mainchain';
+import { toPlain } from '@argonprotocol/runtime-client';
+import { encodeAddress } from '@polkadot/util-crypto';
 
 vi.mock('../lib/IndexerClient.ts', () => ({ findAddressActivity: vi.fn() }));
 
 afterEach(() => vi.mocked(findAddressActivity).mockReset());
 
 const withBackgroundArchiveRead = async <T>(read: () => Promise<T>): Promise<T> => await read();
+const emptyHistoricalApi = {
+  query: {
+    treasury: { bondLotIdsByAccount: { keys: async () => [] }, bondLotById: { multi: async () => [] } },
+    vaults: { vaultIdByOperator: async () => null },
+  },
+};
 const emptyPreparedBitcoinHistory = () => ({
   records: [],
   failuresByLockId: new Map(),
@@ -62,11 +71,14 @@ describe('FinancialHistoryImporter', () => {
         ...recovery,
         enabledDomains: ['vaulting'],
         blockWatch: {
-          finalizedBlockHeader: { blockNumber: 100 },
-          getFinalizedApi: async () => ({ query: { vaults: { vaultIdByOperator: async () => null } } }),
+          finalizedBlockHeader: { blockNumber: 101 },
+          getHeader: async (blockNumber: number) => ({ blockNumber, blockHash: `0x${blockNumber}` }),
+          getApi: async () => emptyHistoricalApi,
+          getFinalizedApi: async () => ({ query: { vaults: { vaultIdByOperator: async () => 1 } } }),
         } as any,
         argonBonds: {} as any,
         vaultHistory: {} as any,
+        minimumAsOfBlock: 100,
       });
       expect((await db.syncStateTable.get(SyncStateKeys.FinancialHistory))?.domainCheckpoints?.vaulting).toMatchObject({
         asOfBlock: 100,
@@ -318,7 +330,11 @@ describe('FinancialHistoryImporter', () => {
         },
         bondLotHistoryTable: { fetchAll: vi.fn(async () => []) },
       } as any,
-      blockWatch: { finalizedBlockHeader: { blockNumber: 100 } } as any,
+      blockWatch: {
+        finalizedBlockHeader: { blockNumber: 100 },
+        getHeader: async (blockNumber: number) => ({ blockNumber, blockHash: `0x${blockNumber}` }),
+        getApi: async () => emptyHistoricalApi,
+      } as any,
       accountId: '5owner',
       argonBonds: {
         data: { bondLots: [] },
@@ -373,7 +389,11 @@ describe('FinancialHistoryImporter', () => {
         },
         bondLotHistoryTable: { fetchAll: vi.fn(async () => []) },
       } as any,
-      blockWatch: { finalizedBlockHeader: { blockNumber: 100 } } as any,
+      blockWatch: {
+        finalizedBlockHeader: { blockNumber: 100 },
+        getHeader: async (blockNumber: number) => ({ blockNumber, blockHash: `0x${blockNumber}` }),
+        getApi: async () => emptyHistoricalApi,
+      } as any,
       accountId: '5owner',
       argonBonds: {
         data: { bondLots: [] },
@@ -444,7 +464,11 @@ describe('FinancialHistoryImporter', () => {
     const restore = () =>
       restoreFinancialHistory({
         db: db as any,
-        blockWatch: { finalizedBlockHeader: { blockNumber: 100 } } as any,
+        blockWatch: {
+          finalizedBlockHeader: { blockNumber: 100 },
+          getHeader: async (blockNumber: number) => ({ blockNumber, blockHash: `0x${blockNumber}` }),
+          getApi: async () => emptyHistoricalApi,
+        } as any,
         accountId: '5owner',
         argonBonds: argonBonds as any,
         vaultHistory: {} as any,
@@ -676,6 +700,8 @@ describe('FinancialHistoryImporter', () => {
       blockWatch: {
         finalizedBlockHeader: { blockNumber: 100 },
         getFinalizedApi: vi.fn(async () => ({})),
+        getHeader: async (blockNumber: number) => ({ blockNumber, blockHash: `0x${blockNumber}` }),
+        getApi: async () => emptyHistoricalApi,
       } as any,
       accountId: '5owner',
       argonBonds: { data: { bondLots: [] } } as any,
@@ -781,9 +807,8 @@ describe('FinancialHistoryImporter', () => {
       } as any,
       blockWatch: {
         finalizedBlockHeader: { blockNumber: 100 },
-        getFinalizedApi: vi.fn(async () => ({
-          query: { vaults: { vaultIdByOperator: vi.fn(async () => null) } },
-        })),
+        getHeader: async (blockNumber: number) => ({ blockNumber, blockHash: `0x${blockNumber}` }),
+        getApi: async () => emptyHistoricalApi,
       } as any,
       accountId: '5owner',
       argonBonds: { data: { bondLots: [] }, importHistoryBlock: vi.fn() } as any,
@@ -864,10 +889,12 @@ describe('FinancialHistoryImporter', () => {
         blockWatch: {
           finalizedBlockHeader: { blockNumber: 10 },
           withBackgroundArchiveRead,
-          getHeader: vi.fn(async ({ blockNumber }: { blockNumber: number }) => {
+          getHeader: vi.fn(async (input: number | { blockNumber: number }) => {
+            const blockNumber = typeof input === 'number' ? input : input.blockNumber;
             if (blockNumber === 9) throw new Error('archive unavailable');
             return { blockNumber, blockHash: `0x${blockNumber}` };
           }),
+          getApi: async () => emptyHistoricalApi,
           getEventsWithSpec: vi.fn(async () => ({ events: [], specVersion: 151 })),
         } as any,
         accountId: '5owner',
@@ -970,7 +997,11 @@ describe('FinancialHistoryImporter', () => {
         finalizedBlockHeader: { blockNumber: 100 },
         withBackgroundArchiveRead,
         getFinalizedApi: vi.fn(async () => ({})),
-        getHeader: vi.fn(async () => ({ blockNumber: 80, blockHash: '0x80' })),
+        getHeader: async (input: number | { blockNumber: number }) => {
+          const blockNumber = typeof input === 'number' ? input : input.blockNumber;
+          return { blockNumber, blockHash: `0x${blockNumber}` };
+        },
+        getApi: async () => emptyHistoricalApi,
         getEventsWithSpec,
       } as any,
       argonBonds: {} as any,
@@ -1034,6 +1065,15 @@ describe('FinancialHistoryImporter', () => {
 
   it('does not let another account checkpoint hide missing active bond history', async () => {
     const upsert = vi.fn();
+    const accountId = encodeAddress(new Uint8Array(32).fill(0x22));
+    const lot = toPlain(
+      getOfflineRegistry().createType('PalletTreasuryBondLot', {
+        owner: accountId,
+        program: { Argonot: null },
+        bonds: 10,
+        createdFrameId: 3,
+      }),
+    );
     vi.mocked(findAddressActivity).mockResolvedValueOnce({
       asOfBlock: 100,
       definitionVersion: ACCOUNT_ACTIVITY_DEFINITION_VERSION,
@@ -1057,11 +1097,17 @@ describe('FinancialHistoryImporter', () => {
         } as any,
         blockWatch: {
           finalizedBlockHeader: { blockNumber: 100 },
-          getFinalizedApi: vi.fn(async () => ({
-            query: { vaults: { vaultIdByOperator: vi.fn(async () => optionCodec()) } },
-          })),
+          getHeader: async (blockNumber: number) => ({ blockNumber, blockHash: `0x${blockNumber}` }),
+          getApi: async () => ({
+            query: {
+              treasury: {
+                bondLotIdsByAccount: { keys: async () => [{ args: [accountId, 7] }] },
+                bondLotById: { multi: async () => [lot] },
+              },
+            },
+          }),
         } as any,
-        accountId: '5owner',
+        accountId,
         argonBonds: {
           data: { bondLots: [{ id: 7, programType: 'Argonot' }], bondHistory: [] },
           miningFrames: { earliestWithSpec: vi.fn(() => 0) },
@@ -1077,7 +1123,7 @@ describe('FinancialHistoryImporter', () => {
       }),
     ).rejects.toThrow('not restored all active bond purchases');
 
-    expect(findAddressActivity).toHaveBeenCalledWith('5owner', expect.objectContaining({ afterBlock: 0 }));
+    expect(findAddressActivity).toHaveBeenCalledWith(accountId, expect.objectContaining({ afterBlock: 0 }));
     expect(upsert).not.toHaveBeenCalled();
   });
 
