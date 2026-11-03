@@ -4,6 +4,7 @@ import { InvokeTimeout } from './tauriApi';
 import { SSHConnection } from './SSHConnection';
 import { ServerAdmin } from './ServerAdmin';
 import type { WalletKeys } from './WalletKeys.ts';
+import { base64Encode } from '@polkadot/util-crypto';
 
 export type ITryServerData = Awaited<ReturnType<ServerAdmin['downloadConfigState']>> & {
   walletAddress: string | undefined;
@@ -34,7 +35,7 @@ export class SSH {
   public static async getOrCreateConnection(retries = 3): Promise<SSHConnection> {
     if (!this.walletKeys.canAccessServer) throw new Error('Server access is unavailable');
     await this.config.isLoadedPromise;
-    this.connection ??= new SSHConnection({ ...this.config.serverDetails });
+    this.connection ??= new SSHConnection({ ...this.config.serverDetails }, this.walletKeys);
     try {
       await this.connection.connect(retries);
     } catch (e) {
@@ -47,7 +48,7 @@ export class SSH {
 
   public static async tryConnection(serverDetails: IConfigServerDetails): Promise<ITryServerData> {
     if (!this.walletKeys.canAccessServer) throw new Error('Server access is unavailable');
-    const connection = new SSHConnection({ ...serverDetails });
+    const connection = new SSHConnection({ ...serverDetails }, this.walletKeys);
     await connection.connect(0);
     const server = new ServerAdmin(connection, serverDetails);
     const walletAddress = await server.downloadAccountAddress();
@@ -152,4 +153,15 @@ export class SSH {
     await this.connection?.close();
     await this.connection?.connect();
   }
+}
+
+export function formatEd25519PublicKey(publicKey: Uint8Array): string {
+  const algorithm = new TextEncoder().encode('ssh-ed25519');
+  const blob = new Uint8Array(4 + algorithm.length + 4 + publicKey.length);
+  const lengths = new DataView(blob.buffer);
+  lengths.setUint32(0, algorithm.length);
+  blob.set(algorithm, 4);
+  lengths.setUint32(4 + algorithm.length, publicKey.length);
+  blob.set(publicKey, 8 + algorithm.length);
+  return `ssh-ed25519 ${base64Encode(blob)}`;
 }

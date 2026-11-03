@@ -1,3 +1,4 @@
+import { TxSigner } from '@argonprotocol/apps-core';
 import { once } from 'node:events';
 import { createServer } from 'node:http';
 import { getClient, getOfflineRegistry, Keyring } from '@argonprotocol/mainchain';
@@ -102,7 +103,7 @@ it(
       const accountUri = integrationAccountUri(inject('argonIntegrationRunId'), import.meta.filename, 'mining-keys');
       const accountset = new Accountset({
         client,
-        txSubmitter: new Keyring({ type: 'sr25519' }).addFromUri(accountUri),
+        txSubmitter: new TxSigner(new Keyring({ type: 'sr25519' }).addFromUri(accountUri)),
         subaccountRange: [],
         sessionMiniSecretOrMnemonic: accountUri,
       });

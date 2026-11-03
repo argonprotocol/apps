@@ -118,7 +118,7 @@ it('submits a current-runtime profile name with a funded linked signer', async (
   };
   const walletKeys = {
     operationalAddress: 'operator',
-    getVaultingKeypair: vi.fn().mockResolvedValue(vaulting),
+    getVaultingSigner: vi.fn().mockResolvedValue(vaulting),
   };
 
   const txInfo = await setOperationalProfileName({
@@ -167,7 +167,7 @@ it('resumes a pending profile name after restart without submitting it again', a
   };
   const walletKeys = {
     operationalAddress: 'operator',
-    getVaultingKeypair: vi.fn(),
+    getVaultingSigner: vi.fn(),
   };
 
   const txInfo = await setOperationalProfileName({
@@ -180,7 +180,7 @@ it('resumes a pending profile name after restart without submitting it again', a
   expect(txInfo).toBe(pending);
   expect(setName).not.toHaveBeenCalled();
   expect(transactionTracker.submitAndWatch).not.toHaveBeenCalled();
-  expect(walletKeys.getVaultingKeypair).not.toHaveBeenCalled();
+  expect(walletKeys.getVaultingSigner).not.toHaveBeenCalled();
 });
 
 it('uses the finalized operator profile before repairing an underfunded delegate', async () => {
@@ -217,7 +217,7 @@ it('uses the finalized operator profile before repairing an underfunded delegate
   const transactionTracker = { load: vi.fn() };
   const walletKeys = {
     vaultingAddress: 'vaulting',
-    getVaultDelegateKeypair: vi.fn().mockResolvedValue({ address: 'delegate' }),
+    getVaultDelegateSigner: vi.fn().mockResolvedValue({ address: 'delegate' }),
   };
   const transactions: unknown[] = [];
   appsCoreMocks.getVaultByOperator
@@ -290,7 +290,7 @@ it('restores a finalized operator name transaction when the profile query initia
   };
   const walletKeys = {
     vaultingAddress: 'vaulting',
-    getVaultDelegateKeypair: vi.fn().mockResolvedValue({ address: 'delegate' }),
+    getVaultDelegateSigner: vi.fn().mockResolvedValue({ address: 'delegate' }),
   };
   appsCoreMocks.getVaultByOperator.mockRejectedValue(new Error('Archive RPC unavailable'));
 
@@ -345,12 +345,12 @@ it('submits operational registration once the treasury wallet can afford it', as
   };
   const walletKeys = {
     operationalAddress: operational.address,
-    getOperationalKeypair: vi.fn().mockResolvedValue(operational),
+    getOperationalSigner: vi.fn().mockResolvedValue(operational),
     getOperationalEncryptionKeypair: vi.fn().mockResolvedValue(new Uint8Array(32)),
-    getVaultingKeypair: vi.fn().mockResolvedValue(vaulting),
-    getDefaultArgonKeypair: vi.fn().mockResolvedValue(defaultArgon),
-    getMiningBotKeypair: vi.fn().mockResolvedValue(miningBot),
-    getTreasuryKeypair: vi.fn().mockResolvedValue(defaultArgon),
+    getVaultingSigner: vi.fn().mockResolvedValue(vaulting),
+    getDefaultArgonSigner: vi.fn().mockResolvedValue(defaultArgon),
+    getMiningBotSigner: vi.fn().mockResolvedValue(miningBot),
+    getTreasurySigner: vi.fn().mockResolvedValue(defaultArgon),
   };
 
   const txInfo = await ensureOperationalAccountRegistered({
@@ -412,12 +412,12 @@ it('waits for more treasury funds before submitting operational registration', a
   };
   const walletKeys = {
     operationalAddress: operational.address,
-    getOperationalKeypair: vi.fn().mockResolvedValue(operational),
+    getOperationalSigner: vi.fn().mockResolvedValue(operational),
     getOperationalEncryptionKeypair: vi.fn().mockResolvedValue(new Uint8Array(32)),
-    getVaultingKeypair: vi.fn().mockResolvedValue(vaulting),
-    getDefaultArgonKeypair: vi.fn().mockResolvedValue(defaultArgon),
-    getMiningBotKeypair: vi.fn().mockResolvedValue(miningBot),
-    getTreasuryKeypair: vi.fn().mockResolvedValue(defaultArgon),
+    getVaultingSigner: vi.fn().mockResolvedValue(vaulting),
+    getDefaultArgonSigner: vi.fn().mockResolvedValue(defaultArgon),
+    getMiningBotSigner: vi.fn().mockResolvedValue(miningBot),
+    getTreasurySigner: vi.fn().mockResolvedValue(defaultArgon),
   };
 
   const txInfo = await ensureOperationalAccountRegistered({

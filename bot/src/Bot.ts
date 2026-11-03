@@ -28,6 +28,7 @@ import {
   MiningFrames,
   NetworkConfig,
   signTreasuryMemberSeal,
+  TxSigner,
 } from '@argonprotocol/apps-core';
 import { HttpError } from './HttpError.ts';
 import { MiningFrameHistory } from './MiningFrameHistory.ts';
@@ -95,7 +96,7 @@ export default class Bot {
       Boolean(JSON.parse(process.env.ARGON_LOG_APIS ?? '0')),
     );
     this.blockWatch = new BlockWatch(this.mainchainClients, true);
-    this.delegateSubmitLane = new DelegateSubmitLane(this.options.bitcoinInitializerDelegateKeypair);
+    this.delegateSubmitLane = new DelegateSubmitLane(new TxSigner(this.options.bitcoinInitializerDelegateKeypair));
     this.bitcoinLockFeeCouponService = new BitcoinLockFeeCouponService(
       this.mainchainClients,
       this.options.vaultOperatorAddress,
@@ -120,7 +121,7 @@ export default class Bot {
         throw error;
       });
 
-    return signTreasuryMemberSeal(this.delegateSubmitLane.keypair, claim, {
+    return signTreasuryMemberSeal(this.delegateSubmitLane.signer, claim, {
       genesisHash: client.genesisHash.toHex(),
       vaultId: await this.vaultIdPromise,
     });
@@ -299,7 +300,7 @@ export default class Bot {
         client: this.localClient,
         sessionMiniSecretOrMnemonic: this.options.sessionMiniSecret,
         subaccountRange: getRange(0, this.localClient.consts.mint.maxPossibleMiners),
-        txSubmitter: this.options.bidderKeypair,
+        txSubmitter: new TxSigner(this.options.bidderKeypair),
       };
       const accountsetOptions: AccountsetOptions = isProxyBidder
         ? {

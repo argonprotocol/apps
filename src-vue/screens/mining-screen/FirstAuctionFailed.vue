@@ -58,7 +58,7 @@ import { getCurrency } from '../../stores/currency.ts';
 import { createNumeralHelpers } from '../../lib/numeral.ts';
 import { bigIntMax, bigIntMin } from '@argonprotocol/apps-core';
 import { getMyMiningSeats } from '../../stores/myMiningSeats.ts';
-import { getBot } from '../../stores/bot.ts';
+import { getBot } from '../../stores/startup.ts';
 
 dayjs.extend(utc);
 

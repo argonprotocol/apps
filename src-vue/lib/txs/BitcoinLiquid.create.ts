@@ -12,7 +12,7 @@ import {
   type IBitcoinFissionCreationQuote,
   type ArgonClient,
   type BlockWatch,
-  type TxSigningAccount,
+  type TxSigner,
   Vault,
   type Vaults,
 } from '@argonprotocol/apps-core';
@@ -41,7 +41,7 @@ export interface BitcoinLiquidCreateAllocation {
 
 export interface BitcoinLiquidCreateInput {
   allocations: BitcoinLiquidCreateAllocation[];
-  txSigner: TxSigningAccount;
+  txSigner: TxSigner;
   tip?: bigint;
   client?: ArgonClient;
 }

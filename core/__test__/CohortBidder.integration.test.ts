@@ -8,6 +8,7 @@ import {
   Mining,
   MiningFrames,
   NetworkConfig,
+  TxSigner,
 } from '../src/index.ts';
 import { startArgonTestNetwork, waitForQueryableClient } from './startArgonTestNetwork.ts';
 import { runOnTeardown, SKIP_E2E, teardown } from '@argonprotocol/testing';
@@ -68,7 +69,7 @@ describe.skipIf(SKIP_E2E)('Cohort Integration Bidder tests', { tags: ['isolated-
 
     const alice = new Accountset({
       client: aliceClient,
-      txSubmitter: aliceRing,
+      txSubmitter: new TxSigner(aliceRing),
       subaccountRange: getRange(0, 49),
       sessionMiniSecretOrMnemonic: mnemonicGenerate(),
       name: 'alice',
@@ -91,7 +92,7 @@ describe.skipIf(SKIP_E2E)('Cohort Integration Bidder tests', { tags: ['isolated-
 
     const bob = new Accountset({
       client: aliceClient,
-      txSubmitter: bobRing,
+      txSubmitter: new TxSigner(bobRing),
       subaccountRange: getRange(0, 49),
       sessionMiniSecretOrMnemonic: mnemonicGenerate(),
       name: 'bob',

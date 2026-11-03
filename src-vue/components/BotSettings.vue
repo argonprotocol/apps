@@ -300,7 +300,7 @@
 import * as Vue from 'vue';
 import { getConfig } from '../stores/config';
 import { getCurrency } from '../stores/currency';
-import { getBot } from '../stores/bot';
+import { getBot } from '../stores/startup.ts';
 import AlertIcon from '../assets/alert.svg?component';
 import EditIcon from '../assets/edit.svg?component';
 import {

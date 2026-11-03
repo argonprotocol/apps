@@ -77,10 +77,13 @@ const isLoaded = Vue.ref(false);
 const isRemoving = Vue.ref(false);
 const overlayZIndex = useOverlayZIndex(() => isOpen.value);
 
-basicEmitter.on('openServerRemoveOverlay', async (data: any) => {
+function openOverlay() {
   isOpen.value = true;
   isLoaded.value = true;
-});
+}
+
+basicEmitter.on('openServerRemoveOverlay', openOverlay);
+Vue.onBeforeUnmount(() => basicEmitter.off('openServerRemoveOverlay', openOverlay));
 
 const closeOverlay = () => {
   if (isRemoving.value) return;

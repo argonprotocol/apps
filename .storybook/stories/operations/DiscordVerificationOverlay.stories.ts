@@ -1,5 +1,6 @@
 import type { Meta, StoryObj } from '@storybook/vue3-vite';
-import { setFetchImplementation, signTreasuryMemberSeal, type FetchImplementation } from '@argonprotocol/apps-core';
+// prettier-ignore
+import { setFetchImplementation, signTreasuryMemberSeal, TxSigner, type FetchImplementation } from '@argonprotocol/apps-core';
 import { Keyring } from '@argonprotocol/mainchain';
 import { createPinia, setActivePinia } from 'pinia';
 import * as Vue from 'vue';
@@ -133,7 +134,7 @@ function setupState(response: Response | Promise<Response>, hasConnectedDiscord 
   });
   mocked(getConfig, { partial: true }).mockReturnValue(config);
   mocked(getWalletKeys, { partial: true }).mockReturnValue({
-    getOperationalKeypair: async () => operator,
+    getOperationalSigner: async () => new TxSigner(operator),
   });
   mocked(getUpstreamOperatorClient, { partial: true }).mockReturnValue({
     getTreasuryMemberSeal: async proof =>

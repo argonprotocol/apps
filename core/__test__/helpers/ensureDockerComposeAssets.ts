@@ -60,6 +60,14 @@ export async function ensureDockerComposeAssets(force = false): Promise<void> {
       `Using cached docker-compose.yml for argon dev-docker network (${composeVersionState?.requestedRef ?? candidateRefs[0]})`,
     );
   }
+  const compose = await Fs.readFile(ARGON_DOCKER_COMPOSE, 'utf-8');
+  const composeWithDefaults = compose
+    .replaceAll('${BLS_API_KEY}', '${BLS_API_KEY:-}')
+    .replaceAll('${ETHEREUM_RPC_URLS}', '${ETHEREUM_RPC_URLS:-}');
+  if (composeWithDefaults !== compose) {
+    await Fs.writeFile(ARGON_DOCKER_COMPOSE, composeWithDefaults, 'utf-8');
+  }
+
   for (const oracleStatePath of getOracleStatePaths()) {
     if (
       !(await Fs.stat(oracleStatePath)

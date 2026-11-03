@@ -2,6 +2,10 @@ import { MyVault } from '../lib/MyVault.ts';
 import { JsonExt } from '@argonprotocol/apps-core';
 import { invoke } from '@tauri-apps/api/core';
 import { getConfig } from '../stores/config';
+import { getAppStartup, useStartupStore } from '../stores/startup.ts';
+import { useCertificationController } from '../stores/certificationController.ts';
+import { until } from '@vueuse/core';
+import { nextTick } from 'vue';
 import { getDbPromise } from '../stores/helpers/dbPromise.ts';
 import { getMainchainClient, getMiningFrames } from '../stores/mainchain';
 import { getBitcoinFissions, getBitcoinLocks } from '../stores/bitcoin';
@@ -743,11 +747,17 @@ function withTimeout<T>(promise: Promise<T>, timeoutMs: number, label: string): 
 async function waitForAppReady(timeoutMs = DEFAULT_READY_TIMEOUT_MS): Promise<void> {
   if (!appReadyPromise) {
     appReadyPromise = (async () => {
-      const config = getConfig();
-      await withTimeout(config.isLoadedPromise, timeoutMs, 'config');
+      const startup = useStartupStore();
+      await until(() => startup.startup?.isReady || !!startup.errorMessage).toBeTruthy({
+        timeout: timeoutMs,
+        throwOnTimeout: true,
+      });
+      if (startup.errorMessage) throw new CommandError('startup_failed', startup.errorMessage);
+      await withTimeout(useCertificationController().isLoadedPromise, timeoutMs, 'main UI');
+      await nextTick();
 
       // Mining frame history can take much longer than basic UI readiness.
-      // Start it in the background so test commands can proceed once config is ready.
+      // Start it in the background without delaying the ready UI.
       const miningFrames = getMiningFrames();
       void miningFrames.load().catch(error => {
         console.warn('[E2E] Background miningFrames.load failed', error);
@@ -763,7 +773,8 @@ async function waitForAppReady(timeoutMs = DEFAULT_READY_TIMEOUT_MS): Promise<vo
 }
 
 async function ensureAppReadyForUi(timeoutMs: number): Promise<void> {
-  await waitForAppReady(timeoutMs);
+  // Bootstrap controls, including authentication, must remain usable before startup finishes.
+  await withTimeout(getConfig().isLoadedPromise, timeoutMs, 'config');
 }
 
 function isRendered(element: HTMLElement): boolean {
@@ -1231,6 +1242,7 @@ async function getAppQueryRefs(): Promise<IAppQueryRefs> {
 
   return {
     config,
+    startup: getAppStartup(),
     db: await getDbPromise(),
     bitcoinLocks,
     myVault,

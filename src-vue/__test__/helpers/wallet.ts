@@ -1,7 +1,7 @@
 import { Keyring, mnemonicGenerate } from '@argonprotocol/mainchain';
 import { bip39 } from '@argonprotocol/bitcoin';
 import { wordlist as englishWordlist } from '@scure/bip39/wordlists/english';
-import { MemoryWalletKeys } from '../../lib/MemoryWalletKeys.ts';
+import { WalletKeys } from '../../lib/WalletKeys.ts';
 
 const DEFAULT_TEST_MNEMONIC = 'test test test test test test test test test test test junk';
 
@@ -29,9 +29,9 @@ export function createTestWallet(
     miningBotAccount,
     vaultingAccount,
     operationalAccount,
-    walletKeys: new MemoryWalletKeys({
+    walletKeys: WalletKeys.fromMnemonic(masterMnemonic, {
       substrateSuri,
-      masterMnemonic,
+
       ...capabilities,
     }),
   };

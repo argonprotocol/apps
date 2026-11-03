@@ -506,8 +506,8 @@ async function upgradeMemberToOperations() {
   isActionInProgress.value = true;
   errorMessage.value = '';
   try {
-    const operationalKeypair = await walletKeys.getOperationalKeypair();
-    const accessProof = createOperationalAccessProof(operationalKeypair, member.operationalAccountId!);
+    const operationalSigner = await walletKeys.getOperationalSigner();
+    const accessProof = createOperationalAccessProof(operationalSigner, member.operationalAccountId!);
     updateInvite(await serverApiClient.markOperationsUpgraded(member.inviteCode, { signature: accessProof.signature }));
   } catch (error: any) {
     errorMessage.value = error?.message ?? 'Unable to approve operations access right now.';

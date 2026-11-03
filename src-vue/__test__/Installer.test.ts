@@ -3,7 +3,7 @@ import { beforeEach, expect, it, vi } from 'vitest';
 import * as Vue from 'vue';
 import { Config } from '../lib/Config';
 import Installer, { ReasonsToSkipInstall, resetInstaller } from '../lib/Installer';
-import { createMockedDbPromise } from './helpers/db';
+import { createMockedDbPromise, createTestDb } from './helpers/db';
 import { IInstallStepStatuses, InstallStepStatusType } from '../lib/ServerAdmin';
 import {
   type IConfigInstallStep,
@@ -19,11 +19,19 @@ import { WalletKeys } from '../lib/WalletKeys.ts';
 import { createMockWalletKeys, createTestWallet } from './helpers/wallet.ts';
 import { TICK_MILLIS } from '../lib/Env.ts';
 import { ServerApiClient } from '../lib/ServerApiClient.ts';
+import { WalletSecrets } from '../lib/WalletSecrets.ts';
+import { EncryptionSecret, type EncryptionAuthentication } from '../lib/EncryptionSecret.ts';
+import { AccountSecurity } from '../lib/AccountSecurity.ts';
+import { createCipheriv, createDecipheriv, randomBytes } from 'node:crypto';
+import { Keyring } from '@argonprotocol/mainchain';
+import { miniSecretFromUri } from '@argonprotocol/apps-core';
+import { signatureVerify } from '@polkadot/util-crypto';
+import type { ServerAdmin } from '../lib/ServerAdmin.ts';
+vi.mock('../../core/src/MainchainRpcProvider.js', () => ({ getMainchainClient: () => new Promise(() => undefined) }));
 
 beforeEach(() => {
   vi.restoreAllMocks();
   resetInstaller();
-  WalletKeys.prototype.didWalletHavePreviousLife = vi.fn().mockResolvedValue(false);
 });
 
 it('settles startup without checking or publishing a configured server when access is unavailable', async () => {
@@ -39,14 +47,11 @@ it('settles startup without checking or publishing a configured server when acce
         workDir: '~',
       }),
     }),
-    walletKeys,
   );
   await config.load();
-  const publishOwnServerEndpoint = vi.fn();
-  const publishOwnServerRecovery = vi.fn();
+  const publishOwnServer = vi.fn();
   const installer = new Installer(config, walletKeys, {
-    publishOwnServerEndpoint,
-    publishOwnServerRecovery,
+    publishOwnServer,
   });
   const getServer = vi.spyOn(installer as any, 'getServer');
 
@@ -54,15 +59,14 @@ it('settles startup without checking or publishing a configured server when acce
 
   expect(installer.isLoaded).toBe(true);
   expect(getServer).not.toHaveBeenCalled();
-  expect(publishOwnServerEndpoint).not.toHaveBeenCalled();
-  expect(publishOwnServerRecovery).not.toHaveBeenCalled();
+  expect(publishOwnServer).not.toHaveBeenCalled();
 });
 
 it('should skip install if server is not connected', async () => {
   const dbPromise = createMockedDbPromise({ miningSetupStatus: `"${MiningSetupStatus.None}"` });
 
   const { walletKeys } = createTestWallet('//Alice');
-  const config = new Config(dbPromise, walletKeys);
+  const config = new Config(dbPromise);
   await config.load();
 
   const installer = new Installer(config, walletKeys);
@@ -87,7 +91,6 @@ it('keeps the installer loadable when a server check fails and clears the error 
         workDir: '~',
       }),
     }),
-    walletKeys,
   );
   await config.load();
 
@@ -131,7 +134,6 @@ it('attributes a reload failure to the install step already in progress', async 
         workDir: '/app',
       }),
     }),
-    walletKeys,
   );
   await config.load();
   config.serverInstaller.ServerConnect.status = InstallStepStatus.Completed;
@@ -155,7 +157,6 @@ it('ensures the mining bid proxy is funded when an existing miner starts', async
       miningSetupStatus: `"${MiningSetupStatus.Finished}"`,
       isServerInstalled: 'true',
     }),
-    walletKeys,
   );
   await config.load();
   for (const stepKey of Object.values(InstallStepKey)) {
@@ -199,7 +200,6 @@ it('does not fund the mining bid proxy while the final mining install step is st
       miningSetupStatus: `"${MiningSetupStatus.Finished}"`,
       isServerInstalled: 'true',
     }),
-    walletKeys,
   );
   await config.load();
   for (const stepKey of Object.values(InstallStepKey)) {
@@ -220,7 +220,7 @@ it('does not fund the mining bid proxy while the final mining install step is st
 it('should skip install if install is already running', async () => {
   const dbPromise = createMockedDbPromise({ miningSetupStatus: `"${MiningSetupStatus.Installing}"` });
   const { walletKeys } = createTestWallet('//Alice');
-  const config = new Config(dbPromise, walletKeys);
+  const config = new Config(dbPromise);
   await config.load();
 
   const installer = new Installer(config, walletKeys);
@@ -235,7 +235,7 @@ it('should skip install if install is already running', async () => {
 it('installs a fresh server without treating it as an abandoned install', async () => {
   const dbPromise = createMockedDbPromise({});
   const { walletKeys } = createTestWallet('//Alice');
-  const config = new Config(dbPromise, walletKeys);
+  const config = new Config(dbPromise);
   await config.load();
 
   const installer = new Installer(config, walletKeys);
@@ -272,7 +272,7 @@ it('installs a fresh server without treating it as an abandoned install', async 
 it('clears abandoned install steps when cached progress says the install completed', async () => {
   const dbPromise = createMockedDbPromise({});
   const walletKeys = createMockWalletKeys();
-  const config = new Config(dbPromise, walletKeys);
+  const config = new Config(dbPromise);
   await config.load();
 
   const installer = new Installer(config, walletKeys);
@@ -320,7 +320,7 @@ it('clears abandoned install steps when cached progress says the install complet
 it('reruns an installed server when all remote step markers are missing', async () => {
   const dbPromise = createMockedDbPromise({});
   const walletKeys = createMockWalletKeys();
-  const config = new Config(dbPromise, walletKeys);
+  const config = new Config(dbPromise);
   await config.load();
 
   const installer = new Installer(config, walletKeys);
@@ -374,7 +374,7 @@ it('reruns an installed server when all remote step markers are missing', async 
 it('preserves failed install steps when the remote installer is no longer running', async () => {
   const dbPromise = createMockedDbPromise({});
   const walletKeys = createMockWalletKeys();
-  const config = new Config(dbPromise, walletKeys);
+  const config = new Config(dbPromise);
   await config.load();
 
   const installer = new Installer(config, walletKeys);
@@ -432,7 +432,7 @@ it('preserves failed install steps when the remote installer is no longer runnin
 it('only uploads bot config files when updating server config', async () => {
   const dbPromise = createMockedDbPromise({});
   const walletKeys = createMockWalletKeys();
-  const config = new Config(dbPromise, walletKeys);
+  const config = new Config(dbPromise);
   await config.load();
 
   const installer = new Installer(config, walletKeys);
@@ -447,18 +447,22 @@ it('only uploads bot config files when updating server config', async () => {
 
 it('uploads the mining bid proxy wallet while keeping the mining bot as the funding account', async () => {
   const dbPromise = createMockedDbPromise({});
-  const walletKeys = createMockWalletKeys();
-  const config = new Config(dbPromise, walletKeys);
+  const mnemonic = 'test test test test test test test test test test test junk';
+  const walletKeys = new WalletKeys(
+    WalletKeys.deriveIdentity(mnemonic),
+    new WalletSecrets({ encryptedMnemonic: 'synthetic-encrypted-mnemonic' }),
+  );
+  walletKeys.initializeSession(mnemonic);
+  const config = new Config(dbPromise);
   await config.load();
 
   const installer = new Installer(config, walletKeys);
   await installer.load();
 
-  const miningBidProxyWalletJson = await walletKeys.exportMiningBidProxyAccountJson('');
   const server = {
     createConfigDir: vi.fn().mockResolvedValue(undefined),
-    uploadMiningBotWallet: vi.fn().mockResolvedValue(undefined),
-    uploadVaultDelegateWallet: vi.fn().mockResolvedValue(undefined),
+    uploadMiningBotWallet: vi.fn<ServerAdmin['uploadMiningBotWallet']>().mockResolvedValue(undefined),
+    uploadVaultDelegateWallet: vi.fn<ServerAdmin['uploadVaultDelegateWallet']>().mockResolvedValue(undefined),
     uploadBiddingRules: vi.fn().mockResolvedValue(undefined),
     uploadEnvState: vi.fn().mockResolvedValue(undefined),
     uploadEnvSecurity: vi.fn().mockResolvedValue(undefined),
@@ -466,21 +470,36 @@ it('uploads the mining bid proxy wallet while keeping the mining bot as the fund
   // @ts-ignore - keep the test focused on upload payloads
   installer.getServer = vi.fn().mockResolvedValue(server);
 
-  // @ts-ignore - exercise the upload path directly
-  await installer.uploadBotConfigFiles();
+  await installer.updateServerConfig();
 
-  expect(server.uploadMiningBotWallet).toHaveBeenCalledWith(miningBidProxyWalletJson);
+  for (const [upload, path] of [
+    [server.uploadMiningBotWallet, '//mining//proxy'],
+    [server.uploadVaultDelegateWallet, '//vaulting//delegate'],
+  ] as const) {
+    const exported = new Keyring({ type: 'sr25519' }).addFromJson(upload.mock.calls[0][0]);
+    exported.decodePkcs8();
+    const expected = new Keyring({ type: 'sr25519' }).createFromUri(`${mnemonic}${path}`);
+    const payload = new TextEncoder().encode('synthetic server credentials');
+    expect(signatureVerify(payload, exported.sign(payload), expected.address).isValid).toBe(true);
+    exported.lock();
+    expected.lock();
+  }
   expect(server.uploadEnvState).toHaveBeenCalledWith(
     expect.objectContaining({
       miningFundingAccountId: walletKeys.miningBotAddress,
+      routerRestoreKey: miniSecretFromUri(`${mnemonic}//router-restore-sealing`),
+      routerBootstrapEndpointSecret: miniSecretFromUri(`${mnemonic}//bootstrap-endpoint//0`),
     }),
   );
+  expect(server.uploadEnvSecurity).toHaveBeenCalledWith({
+    sessionMiniSecret: miniSecretFromUri(`${mnemonic}//mining//sessions`),
+  });
 });
 
 it('should run through entire install process', async () => {
   const dbPromise = createMockedDbPromise({ serverAdd: '{ "localComputer": {} }' });
   const walletKeys = createMockWalletKeys();
-  const config = Vue.reactive(new Config(dbPromise, walletKeys)) as Config;
+  const config = Vue.reactive(new Config(dbPromise)) as Config;
   await config.load();
 
   MiningMachine.setupLocalComputer = vi.fn().mockResolvedValue({
@@ -535,7 +554,7 @@ it('should run through entire install process', async () => {
 
 it('marks the active install step failed before returning an upload error', async () => {
   const walletKeys = createMockWalletKeys();
-  const config = new Config(createMockedDbPromise({}), walletKeys);
+  const config = new Config(createMockedDbPromise({}));
   await config.load();
   config.serverDetails = {
     ...config.serverDetails,
@@ -569,7 +588,7 @@ it('marks the active install step failed before returning an upload error', asyn
 
 it('does not let an in-flight status check erase a local installer failure', async () => {
   const walletKeys = createMockWalletKeys();
-  const config = new Config(createMockedDbPromise({}), walletKeys);
+  const config = new Config(createMockedDbPromise({}));
   await config.load();
 
   const installer = new Installer(config, walletKeys);
@@ -593,7 +612,7 @@ it('does not let an in-flight status check erase a local installer failure', asy
 it('preserves the remote Docker Compose project name across a core file replacement', async () => {
   const dbPromise = createMockedDbPromise({});
   const walletKeys = createMockWalletKeys();
-  const config = new Config(dbPromise, walletKeys);
+  const config = new Config(dbPromise);
   await config.load();
 
   config.serverDetails = {
@@ -646,7 +665,7 @@ it('preserves the remote Docker Compose project name across a core file replacem
 
 it('uses a brief startup estimate until bot sync progress is available', async () => {
   const walletKeys = createMockWalletKeys();
-  const config = new Config(createMockedDbPromise({}), walletKeys);
+  const config = new Config(createMockedDbPromise({}));
   await config.load();
   config.serverDetails = {
     ...config.serverDetails,
@@ -684,12 +703,12 @@ it('uses a brief startup estimate until bot sync progress is available', async (
   ).resolves.toBe(37.5);
 });
 
-it('persists and publishes SSH recovery before later installation work can fail', async () => {
+it('persists SSH details before later installation work can fail', async () => {
   const dbPromise = createMockedDbPromise({ serverAdd: '{ "localComputer": {} }' });
   const db = await dbPromise;
   const insertOrReplace = vi.spyOn(db.configTable, 'insertOrReplace');
   const walletKeys = createMockWalletKeys();
-  const config = new Config(dbPromise, walletKeys);
+  const config = new Config(dbPromise);
   await config.load();
 
   MiningMachine.setupLocalComputer = vi.fn().mockResolvedValue({
@@ -700,13 +719,7 @@ it('persists and publishes SSH recovery before later installation work can fail'
     workDir: '/app',
   });
 
-  let wasRecoveryPublishedBeforeFailure = false;
-  const publishOwnServerRecovery = vi.fn().mockImplementation(async () => {
-    wasRecoveryPublishedBeforeFailure = true;
-  });
-  const installer = new Installer(config, walletKeys, {
-    publishOwnServerRecovery,
-  });
+  const installer = new Installer(config, walletKeys);
   let wereSshDetailsSavedBeforeFailure = false;
   // @ts-ignore - keep the failure after machine setup and before bot installation
   installer.getServer = vi.fn().mockImplementation(async () => {
@@ -721,7 +734,6 @@ it('persists and publishes SSH recovery before later installation work can fail'
   await installer.load();
 
   expect(wereSshDetailsSavedBeforeFailure).toBe(true);
-  expect(wasRecoveryPublishedBeforeFailure).toBe(true);
   expect(config.serverDetails).toMatchObject({
     ipAddress: '127.0.0.1',
     sshPort: 2222,
@@ -732,7 +744,7 @@ it('persists and publishes SSH recovery before later installation work can fail'
 it('does not resume installer polling when the remote installer is no longer running', async () => {
   const dbPromise = createMockedDbPromise({});
   const walletKeys = createMockWalletKeys();
-  const config = new Config(dbPromise, walletKeys);
+  const config = new Config(dbPromise);
   await config.load();
 
   const installer = new Installer(config, walletKeys);
@@ -767,7 +779,7 @@ it('does not resume installer polling when the remote installer is no longer run
 
 it('resumes installer polling when cached progress is 100 but the final step is still working', async () => {
   const walletKeys = createMockWalletKeys();
-  const config = new Config(createMockedDbPromise({}), walletKeys);
+  const config = new Config(createMockedDbPromise({}));
   await config.load();
 
   const installer = new Installer(config, walletKeys);
@@ -798,7 +810,7 @@ it('resumes installer polling when cached progress is 100 but the final step is 
 it('keeps installer failures visible when the remote installer is no longer running', async () => {
   const dbPromise = createMockedDbPromise({});
   const walletKeys = createMockWalletKeys();
-  const config = new Config(dbPromise, walletKeys);
+  const config = new Config(dbPromise);
   await config.load();
 
   const installer = new Installer(config, walletKeys);
@@ -837,7 +849,7 @@ it('keeps installer failures visible when the remote installer is no longer runn
 it('waits for the first Argon block before uploading bot config files', async () => {
   const dbPromise = createMockedDbPromise({});
   const walletKeys = createMockWalletKeys();
-  const config = new Config(dbPromise, walletKeys);
+  const config = new Config(dbPromise);
   await config.load();
   config.miningSetupStatus = MiningSetupStatus.Finished;
 
@@ -899,7 +911,7 @@ it('waits for the first Argon block before uploading bot config files', async ()
 it('shows file-upload progress between 90 and 96 while waiting for proxy setup inclusion', async () => {
   const dbPromise = createMockedDbPromise({});
   const walletKeys = createMockWalletKeys();
-  const config = new Config(dbPromise, walletKeys);
+  const config = new Config(dbPromise);
   await config.load();
   config.miningSetupStatus = MiningSetupStatus.Finished;
 
@@ -1006,7 +1018,7 @@ it('shows file-upload progress between 90 and 96 while waiting for proxy setup i
 it('does not start the remote installer after an app update is installed', async () => {
   const dbPromise = createMockedDbPromise({});
   const walletKeys = createMockWalletKeys();
-  const config = new Config(dbPromise, walletKeys);
+  const config = new Config(dbPromise);
   await config.load();
 
   let isAppUpdateBlockingInstall = false;
@@ -1070,7 +1082,7 @@ it('does not start the remote installer after an app update is installed', async
 it('skips installer proxy setup before mining setup is finished', async () => {
   const dbPromise = createMockedDbPromise({});
   const walletKeys = createMockWalletKeys();
-  const config = new Config(dbPromise, walletKeys);
+  const config = new Config(dbPromise);
   await config.load();
 
   const proxySetupSpy = vi.fn();
@@ -1117,7 +1129,7 @@ it('skips installer proxy setup before mining setup is finished', async () => {
 it('does not fail installer proxy migration when the mining funding account is short on funds', async () => {
   const dbPromise = createMockedDbPromise({});
   const walletKeys = createMockWalletKeys();
-  const config = new Config(dbPromise, walletKeys);
+  const config = new Config(dbPromise);
   await config.load();
   config.miningSetupStatus = MiningSetupStatus.Finished;
 

@@ -12,9 +12,11 @@ import type { AccountHistoryRecovery } from '../e2e/AccountHistoryRecovery.ts';
 import type { useFinancials } from '../stores/financials.ts';
 import type { MyVault } from '../lib/MyVault.ts';
 import type { ArgonBonds } from '../lib/ArgonBonds.ts';
+import type { AppStartup } from '../lib/AppStartup.ts';
 
 export interface IAppQueryRefs {
   config: IConfigQueryRef;
+  startup: Pick<AppStartup, 'isReady' | 'isRecoveringHistory'>;
   db: Db;
   bitcoinLocks: BitcoinLocks;
   myVault: IMyVaultQueryRef;

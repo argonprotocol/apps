@@ -219,7 +219,7 @@ async function activateAndClaimReward() {
     const tx = await buildOperationalActivationRewardClaimTx(rewardClaimAmount, client);
     const txInfo = await transactionTracker.submitAndWatch({
       tx,
-      txSigner: await walletKeys.getDefaultArgonKeypair(),
+      txSigner: await walletKeys.getDefaultArgonSigner(),
       extrinsicType: ExtrinsicType.OperationalActivateAndClaim,
       metadata: {
         rewardAccount: 'argon',

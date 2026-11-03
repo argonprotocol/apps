@@ -1,7 +1,7 @@
 import { bigIntMax, MoveToken, type IEthereumGatewayRelayReasonCode } from '@argonprotocol/apps-core';
 import { BlockWatch } from '@argonprotocol/apps-core/src/BlockWatch.ts';
 import { nanoid } from 'nanoid';
-import { formatEther, type Hash } from 'viem';
+import type { Hash } from 'viem';
 import type { IArgonWalletType, IEthereumInboundTransferState } from '../interfaces/IEthereumInboundTransferTracker.ts';
 import {
   completeInboundTransferProgress,
@@ -56,7 +56,6 @@ type IEthereumInboundTransferClient = Pick<
   | 'executionRpcUrl'
   | 'startTransferToArgon'
   | 'estimateTransferToArgonFee'
-  | 'getNativeBalanceWei'
   | 'confirmTransferToArgon'
   | 'getTransactionProgress'
   | 'getTransactionFinalityPollMs'
@@ -288,13 +287,6 @@ export class EthereumInboundTransferTracker {
         progressPct: 0,
         detail: 'Preparing Ethereum transfer...',
       });
-      await this.ensureSufficientEthereumFeeBalance({
-        moveToken,
-        amountBaseUnits,
-        destinationAddress,
-        ethereumWallet,
-      });
-
       await this.requireEthereumClient().startTransferToArgon({
         moveToken,
         amountBaseUnits,
@@ -361,33 +353,6 @@ export class EthereumInboundTransferTracker {
         await sleep(ethereumClient.getTransactionFinalityPollMs());
       }
     }
-  }
-
-  private async ensureSufficientEthereumFeeBalance(args: {
-    moveToken: IEthereumMoveToken;
-    amountBaseUnits: bigint;
-    destinationAddress: string;
-    ethereumWallet: WalletForEthereum;
-  }) {
-    const { moveToken, amountBaseUnits, destinationAddress, ethereumWallet } = args;
-    const ethereumClient = this.requireEthereumClient();
-    const feeEstimateWei = await ethereumClient.estimateTransferToArgonFee({
-      moveToken,
-      amountBaseUnits,
-      destinationAddress,
-      ethereumWallet,
-    });
-    const ethereumBalanceWei = await ethereumClient.getNativeBalanceWei(ethereumWallet);
-    if (ethereumBalanceWei >= feeEstimateWei) {
-      return;
-    }
-
-    const missingWei = feeEstimateWei - ethereumBalanceWei;
-    throw new Error(
-      `Your Ethereum wallet has ${formatEther(ethereumBalanceWei)} ETH, but this transfer needs about ${formatEther(
-        feeEstimateWei,
-      )} ETH for network fees. Add about ${formatEther(missingWei)} ETH and retry.`,
-    );
   }
 
   private async loadTransfers() {
@@ -808,7 +773,7 @@ export class EthereumInboundTransferTracker {
   ) {
     let isLocalRelaySetupComplete: boolean | undefined;
     if (isRelayFundingReason(relayResult.localRelayReasonCode)) {
-      const delegateAddress = await this.walletKeys.getVaultDelegateKeypair().then(x => x.address);
+      const delegateAddress = (await this.walletKeys.getVaultDelegateSigner()).address;
       if (this.myVault?.createdVault) {
         isLocalRelaySetupComplete = this.myVault.createdVault.delegateAccountId === delegateAddress;
       }

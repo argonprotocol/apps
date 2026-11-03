@@ -8,7 +8,8 @@ import type { Signer, SignerPayloadJSON } from '@polkadot/types/types';
 import { sr25519Verify } from '@polkadot/util-crypto';
 import { getMainchainClient } from '../src/MainchainRpcProvider.ts';
 import { createArgonClient } from '../src/MainchainClients.ts';
-import { TxSubmitter, type ISubmittableOptions, type TxSigningAccount } from '../src/TxSubmitter.ts';
+import { TxSubmitter, type ISubmittableOptions } from '../src/TxSubmitter.ts';
+import { TxSigner } from '../src/TxSigner.ts';
 
 afterEach(() => vi.restoreAllMocks());
 
@@ -94,7 +95,7 @@ it.each([
     const account = new Keyring({ type: 'sr25519' }).addFromUri('//Alice');
     const tx = client.tx.system.remark('fork regression');
     let externalBlockNumber: string | undefined;
-    let accountSigner: TxSigningAccount = account;
+    let accountSigner = new TxSigner(account);
     if (signer.startsWith('external')) {
       const externalSigner: Signer = {
         async signPayload(payload: SignerPayloadJSON) {
@@ -111,10 +112,10 @@ it.each([
           return { id: 1, ...result };
         },
       };
-      accountSigner = {
+      accountSigner = new TxSigner({
         address: account.address,
         signer: externalSigner,
-      };
+      });
     }
     const options: ISubmittableOptions = {
       useLatestNonce: true,

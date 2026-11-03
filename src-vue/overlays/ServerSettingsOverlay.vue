@@ -127,9 +127,8 @@ import {
   getEthereumBeaconApiUrl,
   getEthereumExecutionRpcUrl,
 } from '../lib/EthereumClient.ts';
-import { getBot } from '../stores/bot.ts';
+import { getBot, getInstaller } from '../stores/startup.ts';
 import { getConfig } from '../stores/config.ts';
-import { getInstaller } from '../stores/installer.ts';
 import { SERVER_ENV_VARS } from '../lib/Env.ts';
 
 const ETHEREUM_BEACON_API_REQUIRED_PATHS = [
@@ -160,11 +159,14 @@ const ethereumSyncLastUpdatedAt = Vue.computed(() => {
   return lastUpdatedAt ? dayjs(lastUpdatedAt) : null;
 });
 
-basicEmitter.on('openServerSettingsOverlay', async () => {
+async function openOverlay() {
   isOpen.value = true;
   await refreshServerSettings();
   await bot.refreshState().catch(() => undefined);
-});
+}
+
+basicEmitter.on('openServerSettingsOverlay', openOverlay);
+Vue.onBeforeUnmount(() => basicEmitter.off('openServerSettingsOverlay', openOverlay));
 
 Vue.onMounted(async () => {
   if (!config.isLoaded) {

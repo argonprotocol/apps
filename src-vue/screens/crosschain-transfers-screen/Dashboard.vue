@@ -1,6 +1,6 @@
 <!-- prettier-ignore -->
 <template>
-  <div data-testid="CrosschainTransfersDashboard" class="flex h-full min-h-0 grow flex-col gap-y-2 overflow-y-auto pr-2.5">
+  <div data-testid="CrosschainTransfersDashboard" class="flex h-full min-h-0 grow flex-col gap-y-2 overflow-y-auto">
     <section class="flex h-[14%] min-h-24 shrink-0 flex-row gap-x-2">
       <Tooltip :asChild="true">
         <div box stat-box class="flex w-1/5 cursor-help flex-col">
@@ -406,7 +406,7 @@ import CrosschainTransferDetails from '../../components/CrosschainTransferDetail
 import ProgressBar from '../../components/ProgressBar.vue';
 import Tooltip from '../../components/Tooltip.vue';
 import EthereumSyncPopover from '../../overlays/EthereumSyncPopover.vue';
-import { getBot } from '../../stores/bot.ts';
+import { getBot } from '../../stores/startup.ts';
 import { getConfig } from '../../stores/config.ts';
 import { getCurrency } from '../../stores/currency.ts';
 import { getEthereumOutboundTransferTracker } from '../../stores/moveToEthereum.ts';

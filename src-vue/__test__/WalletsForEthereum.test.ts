@@ -1,3 +1,5 @@
+import { AccountSecurity } from '../lib/AccountSecurity.ts';
+import { invoke } from '@tauri-apps/api/core';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { WalletForEthereum } from '../lib/WalletForEthereum.ts';
 import { WalletsForEthereum } from '../lib/WalletsForEthereum.ts';
@@ -5,13 +7,73 @@ import { FinancialCacheTypes } from '../lib/db/FinancialCacheTable.ts';
 import { createTestDb } from './helpers/db.ts';
 import { nextTick, reactive, watchEffect } from 'vue';
 import { createDeferred } from '@argonprotocol/apps-core';
+import { WalletKeys } from '../lib/WalletKeys.ts';
+import { privateKeyToAccount } from 'viem/accounts';
 
-const coreAddress = '0x0000000000000000000000000000000000000001';
+const mnemonic = 'test test test test test test test test test test test junk';
+const coreAddress = '0x5d2d1735e986a9e0fcbc75de222d55d3d3b4d272';
 const externalAddress = '0x0000000000000000000000000000000000000002';
+
+vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn() }));
 
 afterEach(() => vi.restoreAllMocks());
 
 describe('WalletsForEthereum', () => {
+  it('uses only encryption access to approve and save an imported wallet', async () => {
+    const db = await createTestDb();
+    vi.mocked(invoke).mockImplementation(async command => {
+      if (command === 'keychain_info') return { method: 'none' };
+      if (command === 'keychain_encrypt') return 'saved-wallet-ciphertext';
+      throw new Error(`Unexpected native command: ${command}`);
+    });
+    const security = new AccountSecurity();
+    const wallets = createWallets(db, security.request.bind(security));
+    try {
+      const imported = await wallets.importPrivateKey({ name: 'Imported', privateKey: `0x${'42'.repeat(32)}` });
+      const [saved] = await db.walletsTable.fetchEthereumWallets();
+      expect(imported.id).toBe(saved.id);
+      expect(imported.record?.encryptedSecret).toBe('saved-wallet-ciphertext');
+      expect(saved.encryptedSecret).toBe('saved-wallet-ciphertext');
+    } finally {
+      wallets.dispose();
+      await db.close();
+    }
+  });
+
+  it('finishes saving an encrypted import before the next approved action can replace its encryption key', async () => {
+    const db = await createTestDb();
+    vi.mocked(invoke).mockImplementation(async command => {
+      if (command === 'keychain_info') return { method: 'none' };
+      if (command === 'keychain_encrypt') return 'ciphertext-from-current-key';
+      throw new Error(`Unexpected native command: ${command}`);
+    });
+    const security = new AccountSecurity();
+    const wallets = createWallets(db, security.request.bind(security));
+    const saveStarted = createDeferred<void>(false);
+    const releaseSave = createDeferred<void>(false);
+    const save = db.walletsTable.importExternalEthereum.bind(db.walletsTable);
+    vi.spyOn(db.walletsTable, 'importExternalEthereum').mockImplementation(async record => {
+      saveStarted.resolve();
+      await releaseSave.promise;
+      return save(record);
+    });
+
+    try {
+      const importing = wallets.importPrivateKey({ name: 'Imported', privateKey: `0x${'42'.repeat(32)}` });
+      await saveStarted.promise;
+      const nextAction = security.request('change Account Security settings', () => db.walletsTable.fetchAll());
+      await new Promise<void>(resolve => setImmediate(resolve));
+      releaseSave.resolve();
+      const [wallet, savedBeforeNextAction] = await Promise.all([importing, nextAction]);
+      expect(savedBeforeNextAction).toMatchObject([{ id: wallet.id, encryptedSecret: 'ciphertext-from-current-key' }]);
+      expect(wallet.record?.encryptedSecret).toBe('ciphertext-from-current-key');
+    } finally {
+      releaseSave.resolve();
+      wallets.dispose();
+      await db.close();
+    }
+  });
+
   it('always owns the core wallet without exposing or persisting it while it is empty', async () => {
     const db = await createTestDb();
     vi.spyOn(WalletForEthereum.prototype, 'load').mockResolvedValue();
@@ -218,24 +280,35 @@ describe('WalletsForEthereum', () => {
   it('removes a disconnected wallet from persistence and the live collection', async () => {
     const db = await createTestDb();
     vi.spyOn(WalletForEthereum.prototype, 'load').mockResolvedValue();
+    const privateKey = `0x${'42'.repeat(32)}` as const;
     const record = await db.walletsTable.importExternalEthereum({
       name: 'External',
-      address: externalAddress,
+      address: privateKeyToAccount(privateKey).address,
       coreEthereumAddress: coreAddress,
       secretKind: 'privateKey',
       encryptedSecret: 'encrypted',
     });
-    const wallets = createWallets(db);
+    const keys = WalletKeys.fromMnemonic(mnemonic);
+    keys.initializeEthereumWallet(record, privateKey);
+    const wallets = new WalletsForEthereum(
+      keys,
+      Promise.resolve(db),
+      Promise.resolve(db.financialCacheTable),
+      async (_reason, operation) => operation({}),
+    );
 
     try {
       await wallets.load();
       const wallet = wallets.get(record.id);
+      const signer = await keys.getEthereumSigner(undefined, wallet);
 
       await wallets.disconnect(wallet);
 
       expect(wallets.find(record.id)).toBeUndefined();
       expect(wallets.persistedWallets).not.toContain(wallet);
       expect(await db.walletsTable.fetchEthereumWallets()).toEqual([]);
+      await expect(keys.getEthereumSigner(undefined, wallet)).rejects.toThrow('not unlocked');
+      await expect(signer.signMessage({ message: 'disconnected wallet' })).rejects.toThrow('Signing access has ended');
     } finally {
       wallets.dispose();
       await db.close();
@@ -243,13 +316,16 @@ describe('WalletsForEthereum', () => {
   });
 });
 
-function createWallets(db: Awaited<ReturnType<typeof createTestDb>>) {
+function createWallets(
+  db: Awaited<ReturnType<typeof createTestDb>>,
+  requestAuthentication: AccountSecurity['request'] = vi
+    .fn()
+    .mockImplementation(async (_reason: string, operation: Parameters<AccountSecurity['request']>[1]) => operation({})),
+) {
   return new WalletsForEthereum(
-    {
-      coreEthereumAddress: coreAddress,
-      isCoreEthereumWallet: record => record?.address.toLowerCase() === coreAddress,
-    },
+    WalletKeys.fromMnemonic(mnemonic),
     Promise.resolve(db),
     Promise.resolve(db.financialCacheTable),
+    requestAuthentication,
   );
 }

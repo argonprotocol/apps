@@ -1,4 +1,5 @@
 import { getConfig, type Config } from '../stores/config.ts';
+import { recoverPreviousWalletHistory } from '../stores/startup.ts';
 import { getDbPromise } from '../stores/helpers/dbPromise.ts';
 import { getWalletHistoryRecovery, getWalletKeys, useWallets } from '../stores/wallets.ts';
 import { useFinancialHistory } from '../stores/financialHistory.ts';
@@ -28,7 +29,7 @@ export class AccountHistoryRecovery {
     }
 
     await new Importer(this.config, this.walletKeys, this.dbPromise).recoverCurrentAccountState();
-    await this.config.recoverPreviousWalletHistory();
+    await recoverPreviousWalletHistory();
     await this.wallets.isLoadedPromise;
 
     const walletHistoryRecovery = getWalletHistoryRecovery();

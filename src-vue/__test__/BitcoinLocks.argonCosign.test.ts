@@ -1,6 +1,8 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { BitcoinLock, createRuntimeExtrinsicError } from '@argonprotocol/apps-core';
 import { getOfflineRegistry } from '@argonprotocol/mainchain';
+import { BitcoinNetwork, HDKey } from '@argonprotocol/bitcoin';
+import { BitcoinSigner } from '../lib/BitcoinSigner.ts';
 import { type ArgonClient, BlockWatch, Currency as CurrencyBase } from '@argonprotocol/apps-core';
 import BitcoinLocks from '../lib/BitcoinLocks.ts';
 import type { Db } from '../lib/Db.ts';
@@ -513,7 +515,11 @@ describe('BitcoinLocks Argon cosign gating', () => {
         {
           defaultArgonAddress: lock.ownerAccount,
           canSign: hasBroadcastOutage,
-          getBitcoinChildXpriv: vi.fn().mockResolvedValue({}),
+          getBitcoinSigner: vi
+            .fn()
+            .mockResolvedValue(
+              new BitcoinSigner(HDKey.fromMasterSeed(new Uint8Array(32).fill(1)), BitcoinNetwork.Regtest),
+            ),
         } as unknown as WalletKeys,
         blockWatch,
         {} as CurrencyBase,
@@ -521,13 +527,11 @@ describe('BitcoinLocks Argon cosign gating', () => {
         mempool,
       );
       if (hasBroadcastOutage) {
-        vi.spyOn(store, 'createCosignScript').mockReturnValue({
-          cosignAndGenerateTx: () => ({
-            isFinal: true,
-            hash: bitcoinTxid.slice(2),
-            toBytes: () => new Uint8Array([1]),
-          }),
-        } as unknown as ReturnType<BitcoinLocks['createCosignScript']>);
+        vi.spyOn(BitcoinSigner.prototype, 'cosignAndGenerateTx').mockReturnValue({
+          isFinal: true,
+          hash: bitcoinTxid.slice(2),
+          toBytes: () => new Uint8Array([1]),
+        } as ReturnType<BitcoinSigner['cosignAndGenerateTx']>);
       }
       store.data.locksByLockId = { 11: lock };
       store.utxoTracking.load([orphanRecord]);

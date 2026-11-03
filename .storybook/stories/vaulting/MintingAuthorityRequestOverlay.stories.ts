@@ -1,6 +1,6 @@
 import type { Meta, StoryObj } from '@storybook/vue3-vite';
 import { Keyring } from '@argonprotocol/mainchain';
-import { minimumVaultDelegateBalance } from '@argonprotocol/apps-core';
+import { minimumVaultDelegateBalance, TxSigner } from '@argonprotocol/apps-core';
 import * as Vue from 'vue';
 import { fn, mocked, spyOn, userEvent, within } from 'storybook/test';
 import basicEmitter from '../../../src-vue/emitters/basicEmitter.ts';
@@ -92,7 +92,7 @@ function setupMintingAuthorityRequest(encumberedMicronots: bigint, hasPendingWit
   wallets.defaultArgonSpendableMicrogons = 1_000_000_000n;
   const keys = getWalletKeys();
   keys.getEthereumAddresses = fn(async () => ['0x1111111111111111111111111111111111111111']);
-  keys.getVaultDelegateKeypair = fn(async () => delegate);
+  keys.getVaultDelegateSigner = fn(async () => new TxSigner(delegate));
   spyOn(myVault.mintingAuthorities, 'refresh').mockResolvedValue([]);
   spyOn(myVault.mintingAuthorities, 'getNextSigner').mockResolvedValue({
     signer: '0x2222222222222222222222222222222222222222',

@@ -1274,7 +1274,7 @@ Vue.watch(
     try {
       const satoshis =
         liquidityMicrogons === 0n ? 0n : await bitcoinLocks.satoshisForArgonLiquidity(liquidityMicrogons);
-      const txSigner = await walletKeys.getLiquidLockingKeypair();
+      const txSigner = await walletKeys.getLiquidLockingSigner();
       if (cancelled) return;
       const preview = await bitcoinLockCreate.preview({ vault, satoshis, txSigner, feeDiscountMicrogons });
       if (!cancelled) channelCostPreview.value = preview;
@@ -1502,7 +1502,7 @@ async function createChannel() {
     const channel = await props.wallet.createChannel({
       vault,
       liquidityMicrogons,
-      txSigner: await walletKeys.getLiquidLockingKeypair(),
+      txSigner: await walletKeys.getLiquidLockingSigner(),
       operatorCoupon: coupon,
       isOwnedVault: isOwnedDefaultVault.value,
     });
@@ -1728,7 +1728,7 @@ async function submitCosignerGuarantee(): Promise<void> {
       vault,
       securitizedSatoshis,
       microgonsAtTargetPerBtc: coverageRateMicrogonsPerBtc.value,
-      txSigner: await walletKeys.getLiquidLockingKeypair(),
+      txSigner: await walletKeys.getLiquidLockingSigner(),
       operatorCoupon: getCosignerGuaranteeCoupon(channel),
     });
     trackCoverageTransaction(txInfo);

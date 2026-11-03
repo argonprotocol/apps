@@ -48,6 +48,7 @@ export interface TestSessionIdentityOptions {
   networkName?: string;
   rawAppInstance?: string;
   sessionName?: string;
+  sessionId?: string;
   fallbackSessionName?: string;
   processEnv?: NodeJS.ProcessEnv;
 }
@@ -65,13 +66,14 @@ export function resolveTestSessionIdentity(options: TestSessionIdentityOptions =
     .trim()
     .split(':');
   const normalizedInstance = stripNetworkPrefix(appInstanceName || '', normalizedNetworkName);
-  const sessionName = normalizedInstance || options.fallbackSessionName?.trim() || 'e2e';
+  let sessionName = normalizedInstance || options.fallbackSessionName?.trim() || 'e2e';
+  if (options.sessionId) sessionName = `${sessionName}-${options.sessionId}`;
   const composeProjectName = toComposeProjectName(sessionName, normalizedNetworkName);
   return {
     composeNetwork: normalizedNetworkName,
     sessionName,
     composeProjectName,
-    appInstanceName: normalizedInstance,
+    appInstanceName: options.sessionId ? sessionName : normalizedInstance,
     appInstancePort,
   };
 }
@@ -96,10 +98,7 @@ export interface TestSessionCommandEnvOptions extends TestSessionIdentityOptions
 export function resolveTestSessionCommandEnv(options: TestSessionCommandEnvOptions): ResolvedTestSessionCommandEnv {
   const baseEnv = options.baseEnv ?? process.env;
   const identity = resolveTestSessionIdentity({
-    networkName: options.networkName,
-    rawAppInstance: options.rawAppInstance,
-    sessionName: options.sessionName,
-    fallbackSessionName: options.fallbackSessionName,
+    ...options,
     processEnv: baseEnv,
   });
   const appInstance = `${identity.sessionName}:${options.appPort}`;

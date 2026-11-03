@@ -1,13 +1,13 @@
 import Fs from 'node:fs';
 import Path from 'node:path';
 import { mnemonicGenerate, waitForLoad } from '@argonprotocol/mainchain';
-import { MemoryWalletKeys } from '../src-vue/lib/MemoryWalletKeys.ts';
+import { WalletKeys } from '../src-vue/lib/WalletKeys.ts';
 import { getDevPaths, type DevProfile } from './session.ts';
 
 export async function readDevWalletKeys(
   options: DevProfile & { detachUpstreamApp?: boolean },
   create = false,
-): Promise<MemoryWalletKeys> {
+): Promise<WalletKeys> {
   const { instanceDir } = getDevPaths(options);
   const mnemonicPath = Path.join(instanceDir, 'mnemonic');
   if (!Fs.existsSync(mnemonicPath)) {
@@ -27,5 +27,5 @@ export async function readDevWalletKeys(
   }
   await waitForLoad();
   const mnemonic = Fs.readFileSync(mnemonicPath, 'utf8').trim();
-  return new MemoryWalletKeys({ substrateSuri: mnemonic, masterMnemonic: mnemonic });
+  return WalletKeys.fromMnemonic(mnemonic);
 }

@@ -141,6 +141,7 @@ const mocks = vi.hoisted(() => {
       hasActivatedStableSwaps: false,
       walletAccountsHadPreviousLife: false,
     },
+    startup: { isReadyPromise: Promise.resolve() },
     currency: {
       isLoadedPromise: Promise.resolve(),
       microgonsPer: { ARGNOT: 0n },
@@ -278,7 +279,9 @@ const mocks = vi.hoisted(() => {
       importedBlockCount: 0,
     })),
     needsFinancialHistoryRecovery: vi.fn(async () => true),
-    getEnabledFinancialHistoryDomains: vi.fn(() => [] as ('bitcoin' | 'bonds' | 'vaulting')[]),
+    getEnabledFinancialHistoryDomains: vi.fn<
+      typeof import('../lib/recovery/index.ts').getEnabledFinancialHistoryDomains
+    >(() => []),
   };
 });
 
@@ -309,6 +312,7 @@ vi.mock('../stores/helpers/dbPromise.ts', () => ({ getDbPromise: vi.fn(async () 
 vi.mock('../stores/myMiningSeats.ts', () => ({ getMyMiningSeats: () => mocks.myMiningSeats }));
 vi.mock('../stores/vaultingStats.ts', () => ({ useVaultingStats: () => mocks.vaultingStats }));
 vi.mock('../stores/config.ts', () => ({ getConfig: () => mocks.config }));
+vi.mock('../stores/startup.ts', () => ({ getAppStartup: () => mocks.startup }));
 vi.mock('../stores/stableSwaps.ts', () => ({ useStableSwaps: () => mocks.stableSwaps }));
 vi.mock('../lib/recovery/index.ts', () => ({
   getEnabledFinancialHistoryDomains: mocks.getEnabledFinancialHistoryDomains,
@@ -338,6 +342,7 @@ describe('financials store lifecycle', () => {
     mocks.config.hasExtensionOperations = false;
     mocks.config.hasActivatedStableSwaps = false;
     mocks.config.walletAccountsHadPreviousLife = false;
+    mocks.startup.isReadyPromise = Promise.resolve();
     mocks.wallets.isLoadedPromise = Promise.resolve();
     mocks.wallets.defaultArgonWallet = reactive({
       ...mocks.wallets.defaultArgonWallet,
@@ -992,6 +997,7 @@ describe('financials store lifecycle', () => {
       message: 'configuration failed',
       fail: () => {
         mocks.config.isLoadedPromise = Promise.reject(new Error('configuration failed'));
+        mocks.startup.isReadyPromise = mocks.config.isLoadedPromise;
       },
     },
     {
@@ -1588,6 +1594,28 @@ describe('financials store lifecycle', () => {
     );
     expect(mocks.restoreFinancialHistory).not.toHaveBeenCalled();
     expect(financialHistory.historyRecovery.state).toBe('ready');
+  });
+
+  it('initializes history after startup discovers a previously used account', async () => {
+    const { getEnabledFinancialHistoryDomains } =
+      await vi.importActual<typeof import('../lib/recovery/index.ts')>('../lib/recovery/index.ts');
+    mocks.getEnabledFinancialHistoryDomains.mockImplementation(getEnabledFinancialHistoryDomains);
+    let finishStartup!: () => void;
+    mocks.startup.isReadyPromise = new Promise<void>(resolve => (finishStartup = resolve));
+    let finishCoverageCheck!: (needsRecovery: boolean) => void;
+    mocks.needsFinancialHistoryRecovery.mockImplementation(
+      () => new Promise<boolean>(resolve => (finishCoverageCheck = resolve)),
+    );
+    const financialHistory = useFinancialHistory();
+    await new Promise(resolve => setImmediate(resolve));
+
+    mocks.config.walletAccountsHadPreviousLife = true;
+    finishStartup();
+    await vi.waitFor(() => expect(financialHistory.historyRecoveryByDomain.bitcoin.state).toBe('checking'));
+    finishCoverageCheck(false);
+    await vi.waitFor(() => expect(financialHistory.historyRecovery.state).toBe('ready'));
+    expect(financialHistory.historyRecoveryByDomain.bonds.state).toBe('ready');
+    expect(financialHistory.historyRecoveryByDomain.vaulting.state).toBe('ready');
   });
 
   it('catches up an existing financial-history checkpoint for a current-app wallet', async () => {

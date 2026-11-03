@@ -1,4 +1,4 @@
-import { BitcoinLock, type ArgonClient, type TxSigningAccount } from '@argonprotocol/apps-core';
+import { BitcoinLock, type ArgonClient, type TxSigner } from '@argonprotocol/apps-core';
 
 import type { MyVault } from '../MyVault.ts';
 import type { IVaultCollectMetadata } from '../VaultCollectBuilder.ts';
@@ -11,7 +11,7 @@ const COSIGN_ATTEMPT_CONFIRMATIONS_TO_WAIT = 2;
 
 export interface BitcoinLockCosignInput extends IBitcoinLockCosignMetadata {
   client: ArgonClient;
-  txSigner: TxSigningAccount;
+  txSigner: TxSigner;
   vaultSignatureHexes: string[];
 }
 

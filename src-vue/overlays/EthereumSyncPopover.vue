@@ -101,7 +101,7 @@ import dayjs from 'dayjs';
 import { PopoverContent, PopoverPortal, PopoverRoot, PopoverTrigger } from 'reka-ui';
 import CountupClock from '../components/CountupClock.vue';
 import PopoverPanelArrow from '../components/PopoverPanelArrow.vue';
-import { getBot } from '../stores/bot.ts';
+import { getBot } from '../stores/startup.ts';
 import { useFloatingZIndex } from './helpers/OverlayZIndex.ts';
 
 const props = withDefaults(

@@ -10,6 +10,7 @@ import {
   type ArgonClient,
   TxResult,
   TxSubmitter,
+  TxSigner,
 } from '../src/index.ts';
 import { sudo } from '@argonprotocol/testing';
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
@@ -27,7 +28,7 @@ describe('CohortBidder unit tests', () => {
   beforeAll(() => {
     accountset = new Accountset({
       client: null as any,
-      txSubmitter: sudo(),
+      txSubmitter: new TxSigner(sudo()),
       subaccountRange,
       sessionMiniSecretOrMnemonic: mnemonicGenerate(),
       name: 'alice',
@@ -746,7 +747,7 @@ describe('CohortBidder unit tests', () => {
       method: {},
       submittedTime: new Date(),
       submittedAtBlockNumber: 100,
-      accountAddress: accountset.txSubmitterPair.address,
+      accountAddress: accountset.txSigner.address,
       nonce: 0,
     });
     await txResult.setSeenInBlock(client as unknown as ArgonClient, {
@@ -1486,7 +1487,7 @@ describe('CohortBidder unit tests', () => {
       method: {},
       submittedTime: new Date(),
       submittedAtBlockNumber: 100,
-      accountAddress: accountset.txSubmitterPair.address,
+      accountAddress: accountset.txSigner.address,
       nonce: 0,
     });
     const signedTx = {
@@ -1496,7 +1497,7 @@ describe('CohortBidder unit tests', () => {
     const submitter = new TxSubmitter(
       client as unknown as ArgonClient,
       { signAsync: vi.fn().mockResolvedValue(signedTx) } as never,
-      accountset.txSubmitterPair,
+      accountset.txSigner,
     );
     vi.spyOn(submitter, 'submitSigned').mockResolvedValue(txResult);
     vi.spyOn(accountset, 'createMiningBidTx').mockResolvedValue(submitter);
@@ -1636,13 +1637,13 @@ async function createBidLifecycleHarness(accountset: Accountset) {
       method: {},
       submittedTime: new Date(),
       submittedAtBlockNumber: blockWatch.bestBlockHeader.blockNumber,
-      accountAddress: accountset.txSubmitterPair.address,
+      accountAddress: accountset.txSigner.address,
       nonce: signedTx.nonce.toNumber(),
     });
     results.push(result);
     return result;
   });
-  const submitter = new TxSubmitter(client.api, { signAsync: sign } as never, accountset.txSubmitterPair);
+  const submitter = new TxSubmitter(client.api, { signAsync: sign } as never, accountset.txSigner);
   vi.spyOn(submitter, 'submitSigned').mockImplementation(submitSigned as never);
   vi.spyOn(accountset, 'createMiningBidTx').mockResolvedValue(submitter);
 
@@ -1694,7 +1695,7 @@ function createBidRecoveryHarness(accountset: Accountset, args: { latestBlockNum
     method: {},
     submittedTime: new Date(),
     submittedAtBlockNumber: submittedBlock.blockNumber,
-    accountAddress: accountset.txSubmitterPair.address,
+    accountAddress: accountset.txSigner.address,
     nonce: 0,
   });
 

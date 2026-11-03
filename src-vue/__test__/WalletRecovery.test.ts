@@ -156,6 +156,7 @@ it('counts epoch scans as work units and does not process below the recovery bou
   );
   const progress: number[] = [];
   const liveClient = {
+    consts: { mint: { maxPossibleMiners: 144 } },
     query: {
       miningSlot: {
         bidsForNextSlotCohort: vi.fn().mockResolvedValue([]),

@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { NetworkConfig } from '@argonprotocol/apps-core';
+import { NetworkConfig, TxSigner } from '@argonprotocol/apps-core';
 
 type IMockSignedTx = {
   method: { toHuman(): unknown };
@@ -53,9 +53,9 @@ const mainchainMock = vi.hoisted(() => {
     constructor(
       public readonly client: unknown,
       public readonly tx: unknown,
-      public readonly account: { address: string },
+      public readonly signer: { address: string },
     ) {
-      this.address = account.address;
+      this.address = signer.address;
     }
 
     public async submit(options?: { nonce?: number }) {
@@ -115,7 +115,7 @@ import { TxSubmissionError, TxSubmissionErrorCode, type MissingGatewayActivityLo
 import { DelegateSubmitLane } from '../src/DelegateSubmitLane.ts';
 import { EthereumGatewayProverService } from '../src/EthereumGatewayProverService.ts';
 
-const relayKeypair = { address: '5RelayDelegate' } as any;
+const relaySigner = new TxSigner({ address: '5RelayDelegate' } as any);
 let currentClientArgs:
   | {
       latestLocatorIndex?: bigint;
@@ -1272,7 +1272,7 @@ describe('EthereumGatewayProverService', () => {
 });
 
 function createSubmitLane(client: ReturnType<typeof createClient>) {
-  const lane = new DelegateSubmitLane(relayKeypair);
+  const lane = new DelegateSubmitLane(relaySigner);
   lane.client = client as any;
   return lane;
 }

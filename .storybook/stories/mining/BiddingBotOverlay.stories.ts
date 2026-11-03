@@ -18,7 +18,7 @@ import MiningScreen from '../../../src-vue/screens/Mining.vue';
 import type { MoveCapital } from '../../../src-vue/lib/MoveCapital.ts';
 import type { ITransactionMoveMetadata } from '../../../src-vue/lib/txs/Balance.transfer.ts';
 import type { TransactionInfo } from '../../../src-vue/lib/TransactionInfo.ts';
-import { getBot } from '../../../src-vue/stores/bot.ts';
+import { getBot } from '../../../src-vue/stores/startup.ts';
 import { getCurrency } from '../../../src-vue/stores/currency.ts';
 import {
   getBiddingCalculator,
@@ -401,6 +401,7 @@ export const LoadsBidsFromChainWithoutBotServer: Story = {
     });
     Object.assign(getMyMiningSeats(), { allWinningBids: [] });
     mocked(getMainchainClient).mockResolvedValue({
+      consts: { mint: { maxPossibleMiners: 144 } },
       query: {
         miningSlot: {
           bidsForNextSlotCohort: fn(async () => chainCurrentBids),

@@ -28,8 +28,8 @@ it('recognizes the configured mining bid proxy without submitting another transa
     },
   };
   const walletKeys = {
-    getMiningBotKeypair: vi.fn().mockResolvedValue(fundingAccount),
-    getMiningBidProxyKeypair: vi.fn().mockResolvedValue(proxyAccount),
+    getMiningBotSigner: vi.fn().mockResolvedValue(fundingAccount),
+    getMiningBidProxySigner: vi.fn().mockResolvedValue(proxyAccount),
   };
   const transactionTracker = {
     data: { txInfos: [] },

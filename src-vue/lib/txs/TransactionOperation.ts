@@ -1,9 +1,4 @@
-import {
-  TxSubmitter,
-  type ArgonClient,
-  type ISubmittableOptions,
-  type TxSigningAccount,
-} from '@argonprotocol/apps-core';
+import { TxSubmitter, type ArgonClient, type ISubmittableOptions, type TxSigner } from '@argonprotocol/apps-core';
 import type { SubmittableExtrinsic } from '@argonprotocol/mainchain';
 
 import { getTransactionFailureMessage, type TransactionInfo } from '../TransactionInfo.ts';
@@ -13,7 +8,7 @@ import type { ExtrinsicType } from '../db/TransactionsTable.ts';
 export interface TransactionOperationBuild<Metadata> {
   client: ArgonClient;
   txs: SubmittableExtrinsic[];
-  txSigner: TxSigningAccount;
+  txSigner: TxSigner;
   metadata: Metadata;
   tip?: bigint;
   era?: ISubmittableOptions['era'];

@@ -187,7 +187,7 @@ export class EthereumBeaconSyncService {
           }
 
           try {
-            return await new TxSubmitter(client, tx, submitLane.keypair).submit({
+            return await new TxSubmitter(client, tx, submitLane.signer).submit({
               nonce: await getNonce(),
             });
           } catch (error) {

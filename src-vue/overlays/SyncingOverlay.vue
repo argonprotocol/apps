@@ -54,7 +54,7 @@ import { TransitionChild, TransitionRoot } from '@headlessui/vue';
 import BgOverlay from '../components/BgOverlay.vue';
 import ProgressBar from '../components/ProgressBar.vue';
 import AlertIcon from '../assets/alert.svg?component';
-import { getBot } from '../stores/bot.ts';
+import { getBot } from '../stores/startup.ts';
 import Draggable from './helpers/Draggable.ts';
 
 const isOpen = Vue.ref(true);

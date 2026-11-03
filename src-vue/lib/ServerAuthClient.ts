@@ -1,4 +1,5 @@
 import {
+  type TxSigner,
   fetch,
   JsonExt,
   type RouterAuthRole as ServerAuthRole,
@@ -6,7 +7,6 @@ import {
   signRouterAuthChallenge as signServerAuthChallenge,
   UserRole,
 } from '@argonprotocol/apps-core';
-import type { KeyringPair } from '@argonprotocol/mainchain';
 import type {
   IRouterAuthChallengeRequest as IServerAuthChallengeRequest,
   IRouterAuthChallengeResponse as IServerAuthChallenge,
@@ -37,9 +37,9 @@ export type ServerAuthWalletKeys = Pick<
   WalletKeys,
   | 'defaultArgonAddress'
   | 'operationalAddress'
-  | 'getDefaultArgonKeypair'
-  | 'getOperationalKeypair'
-  | 'getUpstreamOperatorAuthKeypair'
+  | 'getDefaultArgonSigner'
+  | 'getOperationalSigner'
+  | 'getUpstreamOperatorAuthSigner'
 >;
 
 export class RequestStatusError extends Error {
@@ -77,7 +77,7 @@ export class ServerAuthClient {
       baseUrl,
       walletKeys.operationalAddress,
       UserRole.AdminOperator,
-      () => walletKeys.getOperationalKeypair(),
+      () => walletKeys.getOperationalSigner(),
       options,
     );
     return session.sessionId;
@@ -91,12 +91,12 @@ export class ServerAuthClient {
 
   public async getMemberSessionId(baseUrl: string, options: ServerAuthOptions = {}): Promise<string> {
     const walletKeys = this.getWalletKeys();
-    const authKeypair = await walletKeys.getUpstreamOperatorAuthKeypair();
+    const authSigner = await walletKeys.getUpstreamOperatorAuthSigner();
     const session = await this.ensureSession(
       baseUrl,
-      authKeypair.address,
+      authSigner.address,
       UserRole.Member,
-      () => Promise.resolve(authKeypair),
+      () => Promise.resolve(authSigner),
       options,
     );
     return session.sessionId;
@@ -104,8 +104,8 @@ export class ServerAuthClient {
 
   public async invalidateMemberSessionId(baseUrl: string): Promise<void> {
     const walletKeys = this.getWalletKeys();
-    const authKeypair = await walletKeys.getUpstreamOperatorAuthKeypair();
-    const cacheKey = getCacheKey(baseUrl, authKeypair.address, UserRole.Member);
+    const authSigner = await walletKeys.getUpstreamOperatorAuthSigner();
+    const cacheKey = getCacheKey(baseUrl, authSigner.address, UserRole.Member);
     this.invalidateSession(cacheKey);
   }
 
@@ -113,14 +113,14 @@ export class ServerAuthClient {
     baseUrl: string,
     authAccountId: string,
     role: ServerAuthRole,
-    getAuthKeypair: () => Promise<KeyringPair>,
+    getAuthSigner: () => Promise<TxSigner>,
     options: ServerAuthOptions,
   ): Promise<VerifiedServerSession> {
     const cacheKey = getCacheKey(baseUrl, authAccountId, role);
     const existingPromise = this.sessionPromisesBySessionKey.get(cacheKey);
     if (existingPromise) return existingPromise;
 
-    const promise = this.runEnsureSession(baseUrl, authAccountId, role, getAuthKeypair, options, cacheKey);
+    const promise = this.runEnsureSession(baseUrl, authAccountId, role, getAuthSigner, options, cacheKey);
     this.sessionPromisesBySessionKey.set(cacheKey, promise);
 
     try {
@@ -136,7 +136,7 @@ export class ServerAuthClient {
     baseUrl: string,
     authAccountId: string,
     role: ServerAuthRole,
-    getAuthKeypair: () => Promise<KeyringPair>,
+    getAuthSigner: () => Promise<TxSigner>,
     options: ServerAuthOptions,
     cacheKey: string,
   ): Promise<VerifiedServerSession> {
@@ -187,14 +187,14 @@ export class ServerAuthClient {
         throw new Error('The upstream operator no longer recognizes this member, and no restore package is available.');
       }
 
-      const authKeypair = await getAuthKeypair();
+      const authSigner = await getAuthSigner();
       const sessionRequest: IServerAuthSessionRequest = {
         ...challenge,
-        signature: signServerAuthChallenge(authKeypair, challenge),
+        signature: signServerAuthChallenge(authSigner, challenge),
       };
       if (challenge.restorePackageRequired && restorePackage) {
         const walletKeys = this.getWalletKeys();
-        const defaultAccount = await walletKeys.getDefaultArgonKeypair();
+        const defaultAccount = await walletKeys.getDefaultArgonSigner();
         const accountBinding = {
           accountId: walletKeys.defaultArgonAddress,
           operationalAccountId: walletKeys.operationalAddress,

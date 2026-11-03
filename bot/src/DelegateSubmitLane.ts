@@ -1,6 +1,11 @@
 import { setTimeout as sleep } from 'node:timers/promises';
-import { type ArgonClient, isUnreadableBlockError, raceWithTimeout, SingleFileQueue } from '@argonprotocol/apps-core';
-import { type KeyringPair } from '@argonprotocol/mainchain';
+import {
+  type ArgonClient,
+  isUnreadableBlockError,
+  raceWithTimeout,
+  SingleFileQueue,
+  type TxSigner,
+} from '@argonprotocol/apps-core';
 
 const NONCE_STABILITY_BLOCKS = 2;
 const NONCE_WAIT_TIMEOUT_MS = 10 * 60_000;
@@ -10,14 +15,14 @@ export class DelegateSubmitLane {
   private readonly queue: SingleFileQueue;
 
   constructor(
-    public readonly keypair: KeyringPair,
+    public readonly signer: TxSigner,
     queue = new SingleFileQueue(),
   ) {
     this.queue = queue;
   }
 
   public get address(): string {
-    return this.keypair.address;
+    return this.signer.address;
   }
 
   public async runExclusive<T>(fn: (client: ArgonClient, getNonce: () => Promise<number>) => Promise<T>): Promise<T> {

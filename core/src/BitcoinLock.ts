@@ -13,7 +13,8 @@ import type { BlockWatch, IBlockHeaderInfo } from './BlockWatch.js';
 import type { BitcoinLockFeeCoupon } from './interfaces/IBitcoinLockCoupon.js';
 import type { ArgonClient, ArgonCurrentQueryClient, ArgonQueryClient } from './MainchainClients.js';
 import { TxResult, type RuntimeEvent } from './TxResult.js';
-import { TxSubmitter, type TxSigningAccount } from './TxSubmitter.js';
+import { TxSubmitter } from './TxSubmitter.js';
+import type { TxSigner } from './TxSigner.js';
 import { bigIntMin, bigIntMax, bigNumberToBigInt } from './utils.js';
 import { Vault } from './Vault.js';
 import type { BitcoinFission, IBitcoinFission } from './BitcoinFission.js';
@@ -444,7 +445,7 @@ export class BitcoinLock implements IBitcoinLock {
       priceIndex: PriceIndex;
       ownerBitcoinPubkey: Uint8Array;
       satoshis: bigint;
-      txSigner: TxSigningAccount;
+      txSigner: TxSigner;
       tip?: bigint;
     } & BitcoinLockInitializationTerms,
   ) {

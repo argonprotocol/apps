@@ -489,7 +489,7 @@ export class EthereumGatewayProverService {
               `[EthereumGatewayProverService] Submitting gateway relay through activity ${throughGatewayActivityNonce}; ` +
                 `estimated fee ${estimatedFee}`,
             );
-            const submitted = await new TxSubmitter(lockedClient, tx, this.submitLane.keypair).submit({
+            const submitted = await new TxSubmitter(lockedClient, tx, this.submitLane.signer).submit({
               nonce: await getNonce(),
             });
 

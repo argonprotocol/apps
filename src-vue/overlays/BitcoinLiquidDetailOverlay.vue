@@ -1025,7 +1025,7 @@ async function loadRatchetQuote(
     const prepared = await bitcoinLiquidRatchet.prepare({
       liquidId: currentLiquid.liquidId,
       microgonsAtTargetPerBtc: rate,
-      txSigner: await walletKeys.getLiquidLockingKeypair(),
+      txSigner: await walletKeys.getLiquidLockingSigner(),
     });
     if (!isCurrent(currentLiquid, currentLoadId)) return;
 
@@ -1058,7 +1058,7 @@ async function loadCloseQuote(currentLiquid: BitcoinLiquid, currentLoadId: numbe
   try {
     const prepared = await bitcoinLiquidClose.prepare({
       liquidId: currentLiquid.liquidId,
-      txSigner: await walletKeys.getLiquidLockingKeypair(),
+      txSigner: await walletKeys.getLiquidLockingSigner(),
     });
     if (!isCurrent(currentLiquid, currentLoadId)) return;
 

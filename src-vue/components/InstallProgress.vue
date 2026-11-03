@@ -18,7 +18,6 @@
 <script setup lang="ts">
 import { stepLabels } from '../lib/InstallerStep';
 import InstallProgressStep from './InstallProgressStep.vue';
-
 const props = defineProps<{
   isCompact?: boolean;
 }>();

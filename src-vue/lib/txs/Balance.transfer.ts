@@ -4,7 +4,7 @@ import {
   MoveFrom,
   MoveTo,
   MoveToken,
-  type TxSigningAccount,
+  type TxSigner,
 } from '@argonprotocol/apps-core';
 import type { SubmittableExtrinsic } from '@argonprotocol/mainchain';
 
@@ -55,7 +55,7 @@ export interface BalanceTransferInput {
   externalAddress?: string;
   allocationChange?: IAllocationChange;
   workflow?: 'miningSetup' | 'legacyMiningHoldCleanup';
-  txSigner?: TxSigningAccount;
+  txSigner?: TxSigner;
   client?: ArgonClient;
 }
 
@@ -93,8 +93,8 @@ export class BalanceTransfer extends TransactionOperation<
     if (!txs.length) return 0n;
 
     const tx = txs.length === 1 ? txs[0] : client.tx.utility.batchAll(txs);
-    const signer = input.txSigner ?? (await this.getSigner(input.moveFrom));
-    return await tx.paymentInfo(signer.address).then(fee => fee.partialFee.toBigInt());
+    const address = input.txSigner?.address ?? this.getSourceAddress(input.moveFrom);
+    return await tx.paymentInfo(address).then(fee => fee.partialFee.toBigInt());
   }
 
   protected async build(input: BalanceTransferInput): Promise<BalanceTransferBuild> {
@@ -180,9 +180,16 @@ export class BalanceTransfer extends TransactionOperation<
     return address;
   }
 
-  private async getSigner(moveFrom: BalanceTransferInput['moveFrom']): Promise<TxSigningAccount> {
-    if (moveFrom === MoveFrom.MiningBot) return await this.walletKeys.getMiningBotKeypair();
-    if (moveFrom === MoveFrom.DefaultArgon) return await this.walletKeys.getDefaultArgonKeypair();
+  private async getSigner(moveFrom: BalanceTransferInput['moveFrom']): Promise<TxSigner> {
+    if (moveFrom === MoveFrom.MiningBot) return await this.walletKeys.getMiningBotSigner();
+    if (moveFrom === MoveFrom.DefaultArgon) return await this.walletKeys.getDefaultArgonSigner();
     throw new Error(`A signer is required for ${moveFrom} transfers.`);
+  }
+
+  private getSourceAddress(moveFrom: BalanceTransferInput['moveFrom']): string {
+    if (moveFrom === MoveFrom.MiningBot) return this.walletKeys.miningBotAddress;
+    if (moveFrom === MoveFrom.DefaultArgon) return this.walletKeys.defaultArgonAddress;
+    if (moveFrom === 'MiningHold') return this.walletKeys.legacyMiningHoldAddress;
+    throw new Error('A source account is required for this transfer.');
   }
 }

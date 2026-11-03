@@ -7,6 +7,7 @@ import './lib/LogForwarding.ts';
 import App from './App.vue';
 import './main.css';
 import { getVersion } from '@tauri-apps/api/app';
+import { open as tauriOpenUrl } from '@tauri-apps/plugin-shell';
 
 window.addEventListener('unhandledrejection', error => {
   console.error('Unhandled promise rejection:', error.reason);
@@ -18,6 +19,16 @@ window.addEventListener('error', error => {
   const col = error.colno ?? '?';
 
   console.error(`[${file}:${line}:${col}] Unhandled error: ${error.message}`, error.error);
+});
+
+document.addEventListener('click', event => {
+  if (event.defaultPrevented || !(event.target instanceof Element)) return;
+
+  const anchor = event.target.closest<HTMLAnchorElement>('a[href]');
+  if (!anchor || !['http:', 'https:'].includes(new URL(anchor.href).protocol)) return;
+
+  event.preventDefault();
+  void tauriOpenUrl(anchor.href);
 });
 
 const isE2E = __ARGON_DRIVER_WS__.trim().length > 0;

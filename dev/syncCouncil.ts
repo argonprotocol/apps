@@ -1,5 +1,11 @@
 import process from 'node:process';
-import { type ArgonApi, createArgonClient, NetworkConfigSettings, TxSubmitter } from '@argonprotocol/apps-core';
+import {
+  type ArgonApi,
+  createArgonClient,
+  NetworkConfigSettings,
+  TxSubmitter,
+  TxSigner,
+} from '@argonprotocol/apps-core';
 import { EvmContracts, getClient, Keyring } from '@argonprotocol/mainchain';
 import { createPublicClient, encodeFunctionData, getAddress, http } from 'viem';
 import { resolveDevEthereumRpcUrl, sendDevEthereumAdminTransaction } from '../e2e/devEthereum.ts';
@@ -43,7 +49,7 @@ export async function forceUpdateGlobalIssuanceCouncil(args: ForceUpdateGlobalIs
       client.tx.sudo.sudo(
         client.tx.crosschainTransfer.forceSetGlobalIssuanceCouncil('Ethereum', afterNonce, vaultAddresses),
       ),
-      sudoKeypair,
+      new TxSigner(sudoKeypair),
     ).submit({
       useLatestNonce: true,
     });

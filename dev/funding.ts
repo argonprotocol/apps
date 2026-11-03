@@ -1,11 +1,13 @@
 import Path from 'node:path';
+import Fs from 'node:fs';
 import { configureDevEnvironment } from './environment.ts';
 import { acquireDevLock } from './lock.ts';
 import { DevOutput } from './output.ts';
 import { readDevSession } from './session.ts';
 import { formatUnits, getAddress, parseUnits } from 'viem';
-import type { MemoryWalletKeys } from '../src-vue/lib/MemoryWalletKeys.ts';
+import type { WalletKeys } from '../src-vue/lib/WalletKeys.ts';
 import type { DevProfile } from './session.ts';
+import { walletFileSchema, type IWalletFile } from '../src-vue/interfaces/IWalletFile.ts';
 
 export interface FundingOptions {
   argons?: string;
@@ -19,7 +21,7 @@ export interface FundingOptions {
 }
 
 export async function fundExistingDevAccount(options: FundingOptions & DevProfile): Promise<void> {
-  getDevFundingAmounts(options);
+  const amounts = getDevFundingAmounts(options);
   const { paths, context } = await configureDevEnvironment(options);
   const owner = options.join ?? options.instance;
   const release = acquireDevLock(Path.join(paths.networkDir, `.${owner}.dev-environment.lock`), 'Environment funding');
@@ -32,13 +34,26 @@ export async function fundExistingDevAccount(options: FundingOptions & DevProfil
     if (archiveUrl !== `ws://127.0.0.1:${port}`) {
       throw new Error('The local network changed. Restart this profile before funding it.');
     }
-    const { readDevWalletKeys } = await import('./wallet.ts');
     const output = new DevOutput(paths.logPath);
     try {
+      const walletPath = Path.join(paths.instanceDir, 'wallet.json');
+      let meta: IWalletFile['meta'];
+      if (Fs.existsSync(walletPath)) {
+        meta = walletFileSchema.parse(JSON.parse(Fs.readFileSync(walletPath, 'utf8'))).meta;
+      }
+      let walletKeys: Pick<WalletKeys, 'defaultArgonAddress' | 'coreEthereumAddress'>;
+      const needsEthereumAddress =
+        !options.ethTo && (amounts.ethArgons > 0n || amounts.ethArgonots > 0n || amounts.eth > 0n || amounts.usdc > 0n);
+      if (meta && (!needsEthereumAddress || meta.ethereumAddress)) {
+        walletKeys = { defaultArgonAddress: meta.vaultingAddress, coreEthereumAddress: meta.ethereumAddress };
+      } else {
+        const { readDevWalletKeys } = await import('./wallet.ts');
+        walletKeys = await readDevWalletKeys(options);
+      }
       await fundDevAccount({
         options,
         progress: message => output.progress(message),
-        walletKeys: await readDevWalletKeys(options),
+        walletKeys,
         archiveUrl,
         executionRpcUrl: state.networkConfigOverride?.ethereumNetwork?.executionRpcUrls?.[0],
       });
@@ -55,7 +70,7 @@ export async function fundExistingDevAccount(options: FundingOptions & DevProfil
 
 export async function fundDevAccount(args: {
   options: FundingOptions & Pick<DevProfile, 'network'>;
-  walletKeys: Pick<MemoryWalletKeys, 'defaultArgonAddress' | 'coreEthereumAddress'>;
+  walletKeys: Pick<WalletKeys, 'defaultArgonAddress' | 'coreEthereumAddress'>;
   archiveUrl: string;
   executionRpcUrl?: string;
   progress: (message: string) => void;

@@ -5,7 +5,8 @@ import {
   SubmittableExtrinsic,
   u8aToHex,
 } from '@argonprotocol/mainchain';
-import { BitcoinNetwork, CosignScript, HDKey, type ICosignScriptLock } from '@argonprotocol/bitcoin';
+import { BitcoinNetwork, CosignScript, type ICosignScriptLock } from '@argonprotocol/bitcoin';
+import type { BitcoinSigner } from './BitcoinSigner.ts';
 import {
   runtimeClient,
   type BitcoinLocksOrphanedUtxosByAccountResult,
@@ -68,6 +69,7 @@ import bs58check from 'bs58check';
 import BigNumber from 'bignumber.js';
 import { VaultHistory } from './recovery/MyVault.ts';
 import { getHistoricalBitcoinLock } from './recovery/BitcoinLockHistory.ts';
+import { BootstrapRecovery } from './BootstrapRecovery.ts';
 import { isValidOperatorName, OPERATOR_NAME_REQUIREMENTS } from './Utils.ts';
 import { BitcoinLockCosign, type IBitcoinLockCosignMetadata } from './txs/BitcoinLock.cosign.ts';
 import type { ServerApiClient } from './ServerApiClient.ts';
@@ -304,13 +306,13 @@ export class MyVault {
     if (this.data.isLoaded) this.data.financialRevision += 1;
   }
 
-  private async getVaultXpriv(masterXpubPath?: string): Promise<HDKey> {
+  private async getVaultBitcoinSigner(masterXpubPath?: string): Promise<BitcoinSigner> {
     masterXpubPath ??= this.metadata!.hdPath;
     if (!masterXpubPath) {
       throw new Error('No master xpub path defined in metadata');
     }
     const network = await this.getBitcoinNetwork();
-    return await this.walletKeys.getBitcoinChildXpriv(masterXpubPath, network);
+    return await this.walletKeys.getBitcoinSigner(masterXpubPath, network);
   }
 
   public async load(reload = false): Promise<void> {
@@ -802,7 +804,7 @@ export class MyVault {
     }
 
     return await this.#vaultQueue.add(async () => {
-      const delegateAddress = await this.walletKeys.getVaultDelegateKeypair().then(x => x.address);
+      const delegateAddress = await this.walletKeys.getVaultDelegateSigner().then(x => x.address);
       const vaultId = this.createdVault!.vaultId;
       const pendingAttempt = await this.#transactionTracker.findLatestTxAttempt<{
         vaultId?: number;
@@ -847,7 +849,7 @@ export class MyVault {
       this.#singleRunTransactions.set(ExtrinsicType.VaultSetBitcoinLockDelegate, deferred.promise);
 
       try {
-        const txSigner = await this.walletKeys.getVaultingKeypair();
+        const txSigner = await this.walletKeys.getVaultingSigner();
         const txInfo = await this.#transactionTracker.submitAndWatch({
           tx: client.tx.utility.batchAll(txs),
           txSigner,
@@ -883,7 +885,7 @@ export class MyVault {
     }
 
     client ??= await getMainchainClient(false);
-    const signer = await this.walletKeys.getVaultingKeypair();
+    const signer = await this.walletKeys.getVaultingSigner();
     const txs = await this.buildFlexibleAssetTxs({
       bitcoinChanges,
       bondChanges,
@@ -921,8 +923,8 @@ export class MyVault {
 
     return await this.#vaultQueue.add(async () => {
       const client = await getMainchainClient(false);
-      const signer = await this.walletKeys.getVaultingKeypair();
-      const delegateAddress = await this.walletKeys.getVaultDelegateKeypair().then(x => x.address);
+      const signer = await this.walletKeys.getVaultingSigner();
+      const delegateAddress = await this.walletKeys.getVaultDelegateSigner().then(x => x.address);
       const { txs } = await this.buildVaultDelegateSetupTxs({ client, delegateAddress });
 
       txs.push(
@@ -950,7 +952,7 @@ export class MyVault {
     if (!this.createdVault) return;
 
     const client = await getMainchainClient(false);
-    const delegateAddress = await this.walletKeys.getVaultDelegateKeypair().then(x => x.address);
+    const delegateAddress = await this.walletKeys.getVaultDelegateSigner().then(x => x.address);
     const vaultId = this.createdVault.vaultId;
 
     return await this.#vaultQueue.add(async () => {
@@ -994,7 +996,7 @@ export class MyVault {
         this.#singleRunTransactions.set(ExtrinsicType.VaultSetBitcoinLockDelegate, deferred.promise);
 
         try {
-          const txSigner = await this.walletKeys.getVaultingKeypair();
+          const txSigner = await this.walletKeys.getVaultingSigner();
           const txInfo = await this.#transactionTracker.submitAndWatch({
             tx: txs.length === 1 ? txs[0] : client.tx.utility.batchAll(txs),
             txSigner,
@@ -1013,7 +1015,7 @@ export class MyVault {
         return await deferred.promise;
       }
 
-      const txSigner = await this.walletKeys.getVaultingKeypair();
+      const txSigner = await this.walletKeys.getVaultingSigner();
       return await this.#transactionTracker.submitAndWatch({
         tx: txs[0],
         txSigner,
@@ -1036,7 +1038,7 @@ export class MyVault {
     const vaultId = this.createdVault.vaultId;
     return await this.#vaultQueue.add(async () => {
       const client = await getMainchainClient(false);
-      const txSigner = await this.walletKeys.getVaultingKeypair();
+      const txSigner = await this.walletKeys.getVaultingSigner();
 
       return await this.#transactionTracker.submitAndWatch({
         tx: Vault.buildSetArgonotSecuritizationTx(client, committedMicronots),
@@ -1084,8 +1086,8 @@ export class MyVault {
       },
       utxos: fundingUtxos,
     });
-    const vaultXpriv = await this.getVaultXpriv();
-    const signedPsbt = cosign.vaultCosignPsbt(psbt, lock, vaultXpriv);
+    const vaultSigner = await this.getVaultBitcoinSigner();
+    const signedPsbt = vaultSigner.vaultCosignPsbt(cosign.lock, psbt);
     const vaultSignatures = fundingUtxos.map((fundingUtxo, index) => {
       const vaultSignature = signedPsbt.getInput(index).partialSig?.[0]?.[1];
       if (!vaultSignature) {
@@ -1121,7 +1123,7 @@ export class MyVault {
 
       await this.bitcoinLockCosign.submit({
         client: await getMainchainClient(false),
-        txSigner: await this.walletKeys.getVaultingKeypair(),
+        txSigner: await this.walletKeys.getVaultingSigner(),
         lockId,
         releaseNumber,
         vaultSignatureHexes,
@@ -1202,7 +1204,7 @@ export class MyVault {
         return;
       }
 
-      const txSigner = await this.walletKeys.getVaultingKeypair();
+      const txSigner = await this.walletKeys.getVaultingSigner();
       const txInfo = await this.#transactionTracker.submitAndWatch({
         tx: submission.tx,
         txSigner,
@@ -1292,7 +1294,7 @@ export class MyVault {
   }): Promise<{ tx: SubmittableExtrinsic; metadata: ICollectOrphanCosignMetadata }[]> {
     const { finalizedClient, submitClient, vaultId } = args;
     const ownerEntries = (await finalizedClient.query.vaults.orphanedUtxoAccountsByVaultId.entries(vaultId)) ?? [];
-    const vaultXpriv = await this.getVaultXpriv();
+    const vaultSigner = await this.getVaultBitcoinSigner();
     const bitcoinNetwork = await this.getBitcoinNetwork();
     const queued = new Set<string>();
     const txs: { tx: SubmittableExtrinsic; metadata: ICollectOrphanCosignMetadata }[] = [];
@@ -1353,7 +1355,7 @@ export class MyVault {
           satoshis: orphan.satoshis,
           bitcoinNetworkFee,
           toScriptPubkey,
-          vaultXpriv,
+          vaultSigner,
           bitcoinNetwork,
         });
         txs.push({
@@ -1373,11 +1375,11 @@ export class MyVault {
     satoshis: bigint;
     bitcoinNetworkFee: bigint;
     toScriptPubkey: string;
-    vaultXpriv?: HDKey;
+    vaultSigner?: BitcoinSigner;
     bitcoinNetwork?: BitcoinNetwork;
   }): Promise<{ vaultSignature: Uint8Array; vaultSignatureHex: string }> {
     const bitcoinNetwork = args.bitcoinNetwork ?? (await this.getBitcoinNetwork());
-    const vaultXpriv = args.vaultXpriv ?? (await this.getVaultXpriv());
+    const vaultSigner = args.vaultSigner ?? (await this.getVaultBitcoinSigner());
     const cosign = new CosignScript(args.lock, bitcoinNetwork);
     const psbt = cosign.getCosignPsbt({
       releaseRequest: {
@@ -1388,7 +1390,7 @@ export class MyVault {
       },
       utxos: [{ utxoRef: { txid: args.txid, vout: args.vout }, satoshis: args.satoshis }],
     });
-    const signedPsbt = cosign.vaultCosignPsbt(psbt, args.lock, vaultXpriv);
+    const signedPsbt = vaultSigner.vaultCosignPsbt(cosign.lock, psbt);
     const vaultSignature = signedPsbt.getInput(0).partialSig?.[0]?.[1];
     if (!vaultSignature) {
       throw new Error(`Failed to get deposit vault signature for ${args.txid}:${args.vout}`);
@@ -1405,7 +1407,7 @@ export class MyVault {
     satoshis: bigint;
     bitcoinNetworkFee: bigint;
     toScriptPubkey: string;
-    vaultXpriv?: HDKey;
+    vaultSigner?: BitcoinSigner;
     bitcoinNetwork?: BitcoinNetwork;
   }): Promise<{ tx: SubmittableExtrinsic; vaultSignature: Uint8Array; vaultSignatureHex: string }> {
     const { vaultSignature, vaultSignatureHex } = await this.buildDepositSignature({
@@ -1415,7 +1417,7 @@ export class MyVault {
       satoshis: args.satoshis,
       bitcoinNetworkFee: args.bitcoinNetworkFee,
       toScriptPubkey: args.toScriptPubkey,
-      vaultXpriv: args.vaultXpriv,
+      vaultSigner: args.vaultSigner,
       bitcoinNetwork: args.bitcoinNetwork,
     });
     return {
@@ -1480,7 +1482,7 @@ export class MyVault {
           : undefined;
 
       if (isDefaultArgonMoveTo(txInfo.tx.metadataJson.moveTo) && revenue && revenue > 0n) {
-        const txSigner = await this.walletKeys.getVaultingKeypair();
+        const txSigner = await this.walletKeys.getVaultingSigner();
         const followOnTx = this.#transactionTracker.createIntentForFollowOnTx(txInfo);
         try {
           const blockHash = txInfo.tx.blockHash ?? (await txInfo.txResult.waitForInFirstBlock);
@@ -1609,7 +1611,9 @@ export class MyVault {
   public async createNew({
     vaultSetup,
     masterXpubPath,
+    config,
   }: {
+    config?: Config;
     vaultSetup: IConfig['vaultSetup'];
     masterXpubPath: string;
   }): Promise<TransactionInfo<{ masterXpubPath: string; masterXpub: string }>> {
@@ -1620,11 +1624,14 @@ export class MyVault {
     const deferred = createDeferred<TransactionInfo<{ masterXpubPath: string; masterXpub: string }>>();
     this.#singleRunTransactions.set(ExtrinsicType.VaultCreate, deferred.promise);
     try {
-      const txSigner = await this.walletKeys.getVaultingKeypair();
+      const txSigner = await this.walletKeys.getVaultingSigner();
       console.log('Creating a vault with address', txSigner.address);
-      const vaultXpriv = await this.getVaultXpriv(masterXpubPath);
-      const masterXpub = vaultXpriv.publicExtendedKey;
-      const delegateAddress = await this.walletKeys.getVaultDelegateKeypair().then(x => x.address);
+      const bitcoinNetwork = await this.getBitcoinNetwork();
+      const { publicExtendedKey: masterXpub } = await this.walletKeys.getBitcoinPublicKey(
+        masterXpubPath,
+        bitcoinNetwork,
+      );
+      const delegateAddress = await this.walletKeys.getVaultDelegateSigner().then(x => x.address);
       const client = await getMainchainClient(false);
       if (vaultSetup.btcFlatFee < MINIMUM_BITCOIN_BASE_FEE) {
         throw new Error('The Bitcoin base fee must be at least ₳1.00.');
@@ -1659,6 +1666,12 @@ export class MyVault {
       }
       const registerCouncilSignerTx = await this.globalCouncil.buildRegisterCouncilSignerTx(client);
       if (registerCouncilSignerTx) txs.push(registerCouncilSignerTx);
+      if (config)
+        await new BootstrapRecovery(this.walletKeys).publishOwnServer({
+          config,
+          client,
+          transactionTracker: this.#transactionTracker,
+        });
       const tx = txs.length === 1 ? txs[0] : client.tx.utility.batchAll(txs);
       const txInfo = await this.#transactionTracker.submitAndWatch({
         client,
@@ -1988,7 +2001,7 @@ export class MyVault {
 
     const client = await getMainchainClient(false);
     const tx = client.tx.vaults.modifyTerms(vault.vaultId, Vault.encodeTerms(client.registry, terms));
-    const txSigner = await this.walletKeys.getVaultingKeypair();
+    const txSigner = await this.walletKeys.getVaultingSigner();
     const info = await this.#transactionTracker.submitAndWatch({
       tx,
       txSigner,
@@ -2064,7 +2077,7 @@ export class MyVault {
       change.committedMicronots = args.committedMicronots;
     }
     const tx = await this.buildSecuritizationTx(change, client);
-    const txSigner = await this.walletKeys.getVaultingKeypair();
+    const txSigner = await this.walletKeys.getVaultingSigner();
     const submitOptions = {
       useLatestNonce: true,
       tip: args.tip,

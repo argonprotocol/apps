@@ -14,7 +14,7 @@ import FirstAuctionWinning from './FirstAuctionWinning.vue';
 import FirstAuctionFailed from './FirstAuctionFailed.vue';
 import { getMyMiningSeats } from '../../stores/myMiningSeats.ts';
 import { getConfig } from '../../stores/config.ts';
-import { getBot } from '../../stores/bot.ts';
+import { getBot } from '../../stores/startup.ts';
 
 const myMiningSeats = getMyMiningSeats();
 const bot = getBot();

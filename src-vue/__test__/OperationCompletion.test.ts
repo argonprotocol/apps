@@ -12,6 +12,30 @@ import { MiningSetupStatus } from '../interfaces/IConfig.ts';
 import { getMiningFundingState } from '../screens/mining-screen/miningFunding.ts';
 import { FinancialPositionBook, reduceFinancialPositions } from '../lib/financials/index.ts';
 import { financialGroups } from '../interfaces/IFinancialPosition.ts';
+import { runFlow } from '../../e2e/flows/index.ts';
+import type { DriverClient } from '../../e2e/driver/client.ts';
+
+it('completes a manual flow only after its selected operation has completed', async () => {
+  let captures = 0;
+  const driver = {
+    command: async (command: string) => {
+      if (command === 'app.waitForReady' || command === 'ui.waitFor') return { ok: true };
+      if (command === 'app.captureScreenshot') {
+        captures += 1;
+        return { path: '/synthetic/manual-capture.png' };
+      }
+      if (command === 'ui.isVisible') return { visible: false, clickable: false };
+      throw new Error(`Unexpected driver command: ${command}`);
+    },
+  } as DriverClient;
+
+  const result = await runFlow(driver, 'App.flow.runManual', {
+    input: { operationContext: 'app', operations: 'App.op.captureScreenshot' },
+  });
+
+  expect(captures).toBe(1);
+  expect(result.data.manualScreenshotPath).toBe('/synthetic/manual-capture.png');
+});
 
 vi.mock('../../e2e/flows/helpers/sudoFundWallet.ts', () => ({ sudoFundWallet: vi.fn() }));
 

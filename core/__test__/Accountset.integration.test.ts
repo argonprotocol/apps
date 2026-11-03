@@ -1,7 +1,7 @@
 import { integrationNetwork as network } from './integration.setup.ts';
 import { createKeyringPair, Keyring, mnemonicGenerate } from '@argonprotocol/mainchain';
 import { SKIP_E2E, teardown } from '@argonprotocol/testing';
-import { Accountset, type ArgonClient, getRange, TxSubmitter } from '../src/index.ts';
+import { Accountset, type ArgonClient, getRange, TxSubmitter, TxSigner } from '../src/index.ts';
 import { it, beforeAll, afterAll, describe, expect, inject } from 'vitest';
 import { integrationAccountUri } from './integrationNetwork.ts';
 import { waitFor } from './helpers/waitFor.ts';
@@ -29,7 +29,7 @@ describe.skipIf(SKIP_E2E)('Public mining bid transactions', { tags: ['mining-auc
       const signer = mode === 'proxy' ? createKeyringPair({}) : fundingAccount;
       const accountset = new Accountset({
         client,
-        txSubmitter: signer,
+        txSubmitter: new TxSigner(signer),
         fundingAccountId: fundingAccount.address,
         isProxy: mode === 'proxy',
         subaccountRange: getRange(firstMinerIndex, firstMinerIndex + 5),
@@ -40,7 +40,9 @@ describe.skipIf(SKIP_E2E)('Public mining bid transactions', { tags: ['mining-auc
       if (accountset.isProxy) {
         const setup = await accountset.planMiningBidProxySetup();
         if (setup.kind !== 'tx') throw new Error(`Expected proxy setup transaction, got ${setup.kind}`);
-        const result = await new TxSubmitter(client, setup.tx, fundingAccount).submit({ useLatestNonce: true });
+        const result = await new TxSubmitter(client, setup.tx, new TxSigner(fundingAccount)).submit({
+          useLatestNonce: true,
+        });
         await result.waitForFinalizedBlock;
         expect(await accountset.planMiningBidProxySetup()).toEqual({ kind: 'ready' });
       }

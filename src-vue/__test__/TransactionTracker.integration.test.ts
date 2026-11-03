@@ -8,6 +8,7 @@ import {
   MainchainClients,
   TransactionEvents,
   TxSubmitter,
+  TxSigner,
 } from '@argonprotocol/apps-core';
 import { it, beforeAll, afterAll, afterEach, describe, expect, inject, vi } from 'vitest';
 import { reactive, ref } from 'vue';
@@ -58,7 +59,7 @@ describe.skipIf(skipE2E).sequential('Transaction tracker tests', { timeout: 60e3
     const keypair = new Keyring({ type: 'sr25519' }).addFromMnemonic(newMnemonic);
     const { tx, txResult } = await transactionTracker.submitAndWatch({
       tx: client.tx.balances.transferAllowDeath(alice.address, 1_000_000n),
-      txSigner: keypair,
+      txSigner: new TxSigner(keypair),
       metadata: { testId: 1 },
       extrinsicType: ExtrinsicType.VaultCreate,
     });
@@ -98,7 +99,7 @@ describe.skipIf(skipE2E).sequential('Transaction tracker tests', { timeout: 60e3
           securitizedSatoshis: 1_000_000n,
           microgonsAtTargetPerBtc: 1_000_000n,
         }),
-        alice,
+        new TxSigner(alice),
       ).submit({ useLatestNonce: true, disableAutomaticTxTracking: true });
       await tracker.trackTxResult({ txResult: submitted, extrinsicType: ExtrinsicType.BitcoinResecuritize });
       const txInfo = tracker.data.txInfos[0];
@@ -159,7 +160,7 @@ describe.skipIf(skipE2E).sequential('Transaction tracker tests', { timeout: 60e3
     {
       const { tx } = await transactionTracker.submitAndWatch({
         tx: client.tx.balances.transferAllowDeath(bob.address, 1_000_000n),
-        txSigner: alice,
+        txSigner: new TxSigner(alice),
         metadata: { testId: 2 },
         extrinsicType: ExtrinsicType.Transfer,
       });

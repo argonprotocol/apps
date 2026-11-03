@@ -2,7 +2,6 @@ import {
   createMiningBidCommitment,
   getOfflineRegistry,
   Keyring,
-  type KeyringPair,
   MICROGONS_PER_ARGON,
   type SubmittableExtrinsic,
   u8aToHex,
@@ -12,6 +11,7 @@ import { DEV_PHRASE } from '@polkadot/keyring';
 import { HttpProvider } from '@polkadot/rpc-provider';
 import { Mining } from './Mining.js';
 import { TxSubmitter } from './TxSubmitter.js';
+import type { TxSigner } from './TxSigner.js';
 import type { ArgonClient, ArgonCurrentQueryClient, ArgonQueryClient } from './MainchainClients.js';
 
 export type SubaccountRange = readonly number[];
@@ -56,19 +56,19 @@ export type AccountsetOptions = {
   name?: string;
 } & (
   | {
-      txSubmitter: KeyringPair;
+      txSubmitter: TxSigner;
       fundingAccountId?: string;
       isProxy?: false;
     }
   | {
-      txSubmitter: KeyringPair;
+      txSubmitter: TxSigner;
       fundingAccountId: string;
       isProxy: true;
     }
 );
 
 export class Accountset {
-  public txSubmitterPair: KeyringPair;
+  public txSigner: TxSigner;
   public isProxy = false;
   public fundingAccountId: string;
   public subAccountsByAddress: {
@@ -79,7 +79,7 @@ export class Accountset {
   public sessionMiniSecretOrMnemonic: string | undefined;
 
   constructor(options: AccountsetOptions) {
-    this.txSubmitterPair = options.txSubmitter;
+    this.txSigner = options.txSubmitter;
     this.isProxy = options.isProxy ?? false;
     this.fundingAccountId = options.fundingAccountId ?? options.txSubmitter.address;
     this.sessionMiniSecretOrMnemonic = options.sessionMiniSecretOrMnemonic;
@@ -327,7 +327,7 @@ export class Accountset {
     }
 
     const client = this.client;
-    const proxyAccountId = this.txSubmitterPair.address;
+    const proxyAccountId = this.txSigner.address;
     const [proxyDefinitions, fundingAccountBalance] = await Promise.all([
       client.query.proxy.proxies(this.fundingAccountId).then(([definitions]) => definitions),
       this.balance(),
@@ -375,7 +375,7 @@ export class Accountset {
     if (this.isProxy) {
       tx = client.tx.proxy.proxy(this.fundingAccountId, 'MiningBidRealPaysFee', tx);
     }
-    return new TxSubmitter(client, tx, this.txSubmitterPair);
+    return new TxSubmitter(client, tx, this.txSigner);
   }
 }
 

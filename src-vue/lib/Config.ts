@@ -29,14 +29,10 @@ import {
 import { message as tauriMessage } from '@tauri-apps/plugin-dialog';
 import { ensureOnlyOneInstance } from './Utils';
 import { UnitOfMeasurement } from './Currency';
-import { getUserJurisdiction } from './Countries';
-import { IS_STABLE_BUILD, IS_TEST, NETWORK_NAME, NETWORK_URL } from './Env.ts';
-import { invokeWithTimeout } from './tauriApi.ts';
-import { LocalMachine } from './LocalMachine.ts';
+import { NETWORK_NAME, NETWORK_URL } from './Env.ts';
 import PluginSql from '@tauri-apps/plugin-sql';
 import { ZodAny } from 'zod';
-import { WalletKeys } from './WalletKeys.ts';
-import { WalletRecoveryFn } from './WalletRecovery.ts';
+import { EncryptionSecret, type EncryptionAuthentication } from './EncryptionSecret.ts';
 
 const BOOTSTRAP_NETWORK_PLACEHOLDER = 'ARGON_NETWORK_NAME';
 
@@ -55,6 +51,8 @@ export class Config implements IConfig {
   }
   public hasDbMigrationError: boolean;
   public isRestarting: boolean;
+  // Session-only credentials are never included in the persisted config fields.
+  public digitalOceanApiKey?: string;
 
   private _loadedDeferred!: IDeferred<void>;
 
@@ -63,14 +61,7 @@ export class Config implements IConfig {
   private _dbPromise: Promise<Db>;
   private _loadedData!: IConfig;
   private _rawData = {} as IConfigStringified;
-  private _walletPreviousHistoryLoadPct: number = 0;
-  private _isRecoveringPreviousWalletHistory: boolean = false;
-
-  constructor(
-    dbPromise: Promise<Db>,
-    private _walletKeys: WalletKeys,
-    private accountRecoveryFn?: WalletRecoveryFn,
-  ) {
+  constructor(dbPromise: Promise<Db>) {
     ensureOnlyOneInstance(this.constructor);
     this._loadedDeferred = createDeferred<void>(false);
     this.hasDbMigrationError = false;
@@ -79,7 +70,6 @@ export class Config implements IConfig {
     this._dbPromise = dbPromise;
     this._loadedData = {
       version: packageJson.version,
-      requiresPassword: false,
       showWelcomeOverlay: Config.getDefault(dbFields.showWelcomeOverlay) as IConfig['showWelcomeOverlay'],
       postWelcomeLaunchCount: Config.getDefault(dbFields.postWelcomeLaunchCount) as IConfig['postWelcomeLaunchCount'],
       wasImportedFromLegacy: Config.getDefault(dbFields.wasImportedFromLegacy) as IConfig['wasImportedFromLegacy'],
@@ -120,15 +110,7 @@ export class Config implements IConfig {
       vaultSetup: Config.getDefault(dbFields.vaultSetup) as IConfig['vaultSetup'],
       defaultCurrencyKey: Config.getDefault(dbFields.defaultCurrencyKey) as ICurrencyKey,
       returnMetric: Config.getDefault(dbFields.returnMetric) as IConfig['returnMetric'],
-      userJurisdiction: {
-        ipAddress: '',
-        city: '',
-        region: '',
-        countryName: '',
-        countryCode: '',
-        latitude: '',
-        longitude: '',
-      },
+      userJurisdiction: defaults.userJurisdiction(),
       certificationDetails: Config.getDefault(dbFields.certificationDetails) as IConfig['certificationDetails'],
 
       hasActivatedStableSwaps: Config.getDefault(dbFields.hasActivatedStableSwaps) as boolean,
@@ -161,14 +143,13 @@ export class Config implements IConfig {
           'walletPreviousLifeRecovered',
           'defaultCurrencyKey',
           'returnMetric',
-          'requiresPassword',
           'certificationDetails',
         ];
 
     for (const key of Object.keys(defaults) as (keyof IConfig)[]) {
       this._fieldsToSave.add(key);
       if (!preserveFields.includes(key)) {
-        const defaultValue = await defaults[key as keyof IConfigDefaults]();
+        const defaultValue = defaults[key as keyof IConfigDefaults]();
         this._rawData[key] = JsonExt.stringify(defaultValue, 2);
         (this._loadedData as any)[key] = defaultValue as any;
       }
@@ -180,7 +161,8 @@ export class Config implements IConfig {
       }
     }
     const data = Config.extractDataToSave(this._fieldsToSave, this._rawData);
-    await this._db.configTable.insertOrReplace(data, sql);
+    const db = await this._dbPromise;
+    await db.configTable.insertOrReplace(data, sql);
   }
 
   public async load(force = false) {
@@ -262,9 +244,13 @@ export class Config implements IConfig {
         }
         if (rawValue === undefined || rawValue === '') {
           // eslint-disable-next-line @typescript-eslint/no-unsafe-call
-          const defaultValue = await value();
+          const defaultValue = value();
           loadedData[key] = defaultValue;
-          if (key !== dbFields.biddingRules && key !== dbFields.vaultSetup) {
+          if (
+            key !== dbFields.biddingRules &&
+            key !== dbFields.vaultSetup &&
+            key !== dbFields.walletAccountsHadPreviousLife
+          ) {
             fieldsToSave.add(key);
             rawData[key as keyof typeof rawData] = JsonExt.stringify(defaultValue, 2);
           }
@@ -286,68 +272,7 @@ export class Config implements IConfig {
         rawData[dbFields.bootstrapDetails] = '';
         rawData[dbFields.upstreamOperator] = '';
       }
-      const isFirstTimeAppLoad = Object.keys(dbRawData).length === 0;
-      const isWalletOnlyReadonlyLoad =
-        !this._walletKeys.canSign && dbRawData[dbFields.walletAccountsHadPreviousLife] === undefined;
-      if (isFirstTimeAppLoad || isWalletOnlyReadonlyLoad) {
-        await this._injectInitialWalletHistory(loadedData, rawData, fieldsToSave);
-      }
 
-      const hasLegacyAccountState =
-        loadedData.isServerInstalled ||
-        loadedData.miningSetupStatus !== MiningSetupStatus.None ||
-        loadedData.vaultingSetupStatus !== VaultingSetupStatus.None;
-      const hasRunningOperations =
-        loadedData.miningSetupStatus === MiningSetupStatus.Finished ||
-        loadedData.vaultingSetupStatus === VaultingSetupStatus.Finished;
-
-      if (loadedData.upstreamOperator && !loadedData.hasExtensionTreasury) {
-        loadedData.hasExtensionTreasury = true;
-        fieldsToSave.add(dbFields.hasExtensionTreasury);
-        rawData[dbFields.hasExtensionTreasury] = JsonExt.stringify(loadedData.hasExtensionTreasury);
-      }
-
-      if (
-        (loadedData.bootstrapDetails || hasLegacyAccountState) &&
-        loadedData.showWelcomeOverlay &&
-        !loadedData.wasImportedFromLegacy
-      ) {
-        loadedData.showWelcomeOverlay = false;
-        fieldsToSave.add(dbFields.showWelcomeOverlay);
-        rawData[dbFields.showWelcomeOverlay] = JsonExt.stringify(loadedData.showWelcomeOverlay, 2);
-      }
-
-      if (hasRunningOperations && (!loadedData.hasExtensionTreasury || !loadedData.hasExtensionOperations)) {
-        loadedData.hasExtensionTreasury = true;
-        loadedData.hasExtensionOperations = true;
-
-        fieldsToSave.add(dbFields.hasExtensionTreasury);
-        fieldsToSave.add(dbFields.hasExtensionOperations);
-        rawData[dbFields.hasExtensionTreasury] = JsonExt.stringify(loadedData.hasExtensionTreasury, 2);
-        rawData[dbFields.hasExtensionOperations] = JsonExt.stringify(loadedData.hasExtensionOperations, 2);
-      }
-
-      const managesLocalComputer =
-        this._walletKeys.canAccessServer &&
-        loadedData.serverDetails.type === ServerType.LocalComputer &&
-        loadedData.serverAdd?.localComputer;
-      if (managesLocalComputer) {
-        const localMachine = await LocalMachine.activate();
-        if (localMachine) {
-          if (!IS_TEST && IS_STABLE_BUILD) {
-            await invokeWithTimeout('toggle_nosleep', { enable: true }, 5000);
-          }
-          loadedData.serverDetails.ipAddress = `127.0.0.1`;
-          loadedData.serverDetails.sshPort = localMachine.sshPort;
-        } else if (!loadedData.isServerInstalling) {
-          loadedData.serverDetails = defaults.serverDetails();
-          loadedData.isServerInstalled = false;
-          fieldsToSave.add(dbFields.isServerInstalled);
-          rawData[dbFields.isServerInstalled] = JsonExt.stringify(false);
-        }
-        fieldsToSave.add(dbFields.serverDetails);
-        rawData[dbFields.serverDetails] = JsonExt.stringify(loadedData.serverDetails, 2);
-      }
       const dataToSave = Config.extractDataToSave(fieldsToSave, rawData);
       await db.configTable.insertOrReplace(dataToSave);
 
@@ -355,15 +280,6 @@ export class Config implements IConfig {
       this._loadedData = loadedData as IConfig;
       this._rawData = rawData;
       this._loadedDeferred.resolve();
-      try {
-        await this.recoverPreviousWalletHistory();
-      } catch (error) {
-        console.error('Config: Unable to recover previous wallet history', error);
-        void tauriMessage(
-          'Argon Desktop could not finish restoring this account history. The app will continue; use Find Missing Data in Troubleshooting to retry.',
-          { title: 'Account Recovery Incomplete', kind: 'warning' },
-        );
-      }
     } catch (e) {
       this._loadedDeferred.reject(e);
     }
@@ -393,26 +309,6 @@ export class Config implements IConfig {
     this.setField('miningBotAccountPreviousHistory', value);
   }
 
-  public get isBootingUpPreviousWalletHistory(): boolean {
-    return this._isRecoveringPreviousWalletHistory;
-  }
-
-  public get walletPreviousHistoryLoadPct(): number {
-    if (!this.isBootingUpPreviousWalletHistory) return 100;
-    return Math.min(this._walletPreviousHistoryLoadPct, 100);
-  }
-
-  public async recoverPreviousWalletHistory(): Promise<void> {
-    if (!this.walletAccountsHadPreviousLife || this.walletPreviousLifeRecovered) return;
-
-    this._isRecoveringPreviousWalletHistory = true;
-    try {
-      await this._bootupFromAccountPreviousHistory();
-    } finally {
-      this._isRecoveringPreviousWalletHistory = false;
-    }
-  }
-
   public get miningSetupStatus(): MiningSetupStatus {
     return this.getField('miningSetupStatus');
   }
@@ -432,13 +328,6 @@ export class Config implements IConfig {
   }
   public set onboardingSetupStatus(value: OnboardingSetupStatus) {
     this.setField('onboardingSetupStatus', value);
-  }
-
-  public get requiresPassword(): boolean {
-    return this.getField('requiresPassword');
-  }
-  public set requiresPassword(value: boolean) {
-    this.setField('requiresPassword', value);
   }
 
   public get ethereumBeaconApiUrl(): IConfig['ethereumBeaconApiUrl'] {
@@ -524,7 +413,50 @@ export class Config implements IConfig {
     return this.getField('serverAdd');
   }
   public set serverAdd(value: IConfig['serverAdd']) {
+    if (value?.digitalOcean !== this.serverAdd?.digitalOcean) this.digitalOceanApiKey = undefined;
     this.setField('serverAdd', value);
+  }
+
+  public readEncryptedSecrets(): { digitalOceanApiKey?: string } {
+    const ciphertext = this.serverAdd?.digitalOcean?.encryptedApiKey;
+    return ciphertext ? { digitalOceanApiKey: ciphertext } : {};
+  }
+
+  public async unlock(secrets: Map<string, string>, authentication: EncryptionAuthentication): Promise<void> {
+    const connection = this.serverAdd?.digitalOcean;
+    if (!connection) return;
+
+    this.digitalOceanApiKey = undefined;
+    if (!connection.apiKey) {
+      this.digitalOceanApiKey = secrets.get(connection.encryptedApiKey!);
+      return;
+    }
+
+    try {
+      const encryptedApiKey = await new EncryptionSecret().encrypt(connection.apiKey, authentication);
+      this.serverAdd = { ...this.serverAdd, digitalOcean: { encryptedApiKey } };
+      await this.save();
+      this.digitalOceanApiKey = connection.apiKey;
+    } catch (error) {
+      console.warn('Unable to secure the saved DigitalOcean credential; reconnect it to retry server setup.', error);
+    }
+  }
+
+  public async replaceEncryptedSecrets(replacements: Record<string, string>, transaction = this._db): Promise<void> {
+    const ciphertext = this.serverAdd?.digitalOcean?.encryptedApiKey;
+    const replacement = ciphertext && replacements[ciphertext];
+    if (!replacement) return;
+    const serverAdd = {
+      ...this.serverAdd,
+      digitalOcean: { ...this.serverAdd?.digitalOcean, encryptedApiKey: replacement },
+    };
+    const serialized = JsonExt.stringify(serverAdd, 2);
+    await transaction.configTable.insertOrReplace({ serverAdd: serialized });
+    transaction.afterCommit(() => {
+      this._loadedData.serverAdd = serverAdd;
+      this._rawData.serverAdd = serialized;
+      this._fieldsToSave.delete('serverAdd');
+    });
   }
 
   public get serverDetails(): IConfig['serverDetails'] {
@@ -696,6 +628,7 @@ export class Config implements IConfig {
 
   public async save() {
     this._throwErrorIfNotLoaded();
+
     const fieldsToSave = this._fieldsToSave;
     const dataToSave = Config.extractDataToSave(fieldsToSave, this._rawData);
     this._fieldsToSave = new Set();
@@ -707,6 +640,10 @@ export class Config implements IConfig {
       for (const field of fieldsToSave) this._fieldsToSave.add(field);
       throw error;
     }
+  }
+
+  public hasStoredField(field: keyof IConfig): boolean {
+    return this._rawData[field] !== undefined;
   }
 
   public resetField(field: keyof typeof dbFields) {
@@ -738,84 +675,6 @@ export class Config implements IConfig {
 
     this._rawData[field] = stringifiedValue;
     this._fieldsToSave.add(field);
-  }
-
-  private async _injectInitialWalletHistory(
-    loadedData: Partial<IConfig>,
-    stringifiedData: IConfigStringified,
-    fieldsToSave: Set<string>,
-  ) {
-    // We cannot use this._tryFieldsToSave because this._stringifiedData and this._fieldsToSave are not initialized yet. Instead
-    // we can set the values to their temporary loadedData and stringifiedData objects
-
-    const walletHadPreviousLife = await this._walletKeys.didWalletHavePreviousLife();
-    loadedData.walletAccountsHadPreviousLife = walletHadPreviousLife;
-    stringifiedData[dbFields.walletAccountsHadPreviousLife] = JsonExt.stringify(walletHadPreviousLife, 2);
-    fieldsToSave.add(dbFields.walletAccountsHadPreviousLife);
-
-    if (walletHadPreviousLife) {
-      loadedData.showWelcomeOverlay = false;
-      stringifiedData[dbFields.showWelcomeOverlay] = JsonExt.stringify(false);
-      fieldsToSave.add(dbFields.showWelcomeOverlay);
-    }
-  }
-
-  private async _bootupFromAccountPreviousHistory() {
-    console.log('Config: Booting up from account previous history...');
-    if (!this.accountRecoveryFn) {
-      throw new Error('Config: No account recovery function provided');
-    }
-
-    const { miningHistory, vault } = await this.accountRecoveryFn(pct => {
-      const recoveryProgress = Math.min(100, Math.max(0, pct));
-      this._walletPreviousHistoryLoadPct = Math.max(this._walletPreviousHistoryLoadPct, recoveryProgress * 0.95);
-    });
-    if (!miningHistory?.length && !vault) {
-      console.warn('Config: No previous mining or vault history found');
-      this.walletPreviousLifeRecovered = true;
-      await this.save();
-      this._walletPreviousHistoryLoadPct = 100;
-      return;
-    }
-    if (miningHistory) {
-      console.log('Config: Previous mining history found');
-      const frameIdsProcessed = miningHistory.map(x => x.frameId);
-      const oldestFrameIdProcessed = frameIdsProcessed.length ? Math.min(...frameIdsProcessed) : 0;
-      if (miningHistory.length === 1 && !miningHistory[0].seats.length) {
-        // We only found bids for today, which means today was the start
-        this.oldestFrameIdToSync = oldestFrameIdProcessed;
-        this.hasMiningBids = true;
-      } else if (miningHistory.length) {
-        // We found seat history, so we can set the oldestFrameIdToSync to the previous frame of the oldest we have
-        // It must be previous frame because we can't have a seat for today if we didn't bid yesterday
-        this.oldestFrameIdToSync = oldestFrameIdProcessed - 1;
-        this.hasMiningBids = true;
-        this.hasMiningSeats = true;
-      }
-      this.miningBotAccountPreviousHistory = miningHistory;
-      // Account recovery continues after the initial config load resolves, so onboarding may already be installing.
-      if (this.miningSetupStatus === MiningSetupStatus.None) {
-        this.miningSetupStatus = MiningSetupStatus.Checklist;
-      }
-      if (this.serverDetails.ipAddress) {
-        this.miningSetupStatus = MiningSetupStatus.Finished;
-        this.miningBotAccountPreviousHistory = null;
-      }
-    }
-
-    if (this.serverDetails.ipAddress) {
-      this.isServerInstalled = true;
-      this.isServerInstalling = false;
-      this.setCertificationDetails({ showBonusTooltip: false });
-    }
-
-    if (vault) {
-      this.vaultingSetupStatus = VaultingSetupStatus.Finished;
-    }
-
-    this.walletPreviousLifeRecovered = true;
-    await this.save();
-    this._walletPreviousHistoryLoadPct = 100;
   }
 
   private static extractDataToSave(
@@ -852,7 +711,6 @@ const dbFields = {
   hasConnectedDiscord: 'hasConnectedDiscord',
   selectedTab: 'selectedTab',
 
-  requiresPassword: 'requiresPassword',
   ethereumBeaconApiUrl: 'ethereumBeaconApiUrl',
   ethereumExecutionRpcUrl: 'ethereumExecutionRpcUrl',
   bootstrapDetails: 'bootstrapDetails',
@@ -896,7 +754,6 @@ const defaults: IConfigDefaults = {
   hasConnectedDiscord: () => false,
   selectedTab: () => TopTab.Home,
 
-  requiresPassword: () => false,
   ethereumBeaconApiUrl: () => undefined,
   ethereumExecutionRpcUrl: () => undefined,
   bootstrapDetails: () => undefined,
@@ -983,22 +840,15 @@ const defaults: IConfigDefaults = {
   }),
   defaultCurrencyKey: () => UnitOfMeasurement.ARGN,
   returnMetric: () => 'RTD',
-  userJurisdiction: async () => {
-    try {
-      return await getUserJurisdiction();
-    } catch (error) {
-      console.error('Error getting user jurisdiction:', error);
-      return {
-        ipAddress: '',
-        city: '',
-        region: '',
-        countryName: '',
-        countryCode: '',
-        latitude: '',
-        longitude: '',
-      };
-    }
-  },
+  userJurisdiction: () => ({
+    ipAddress: '',
+    city: '',
+    region: '',
+    countryName: '',
+    countryCode: '',
+    latitude: '',
+    longitude: '',
+  }),
   certificationDetails: () => undefined,
 
   hasActivatedStableSwaps: () => false,

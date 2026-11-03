@@ -116,7 +116,7 @@ describe.skipIf(skipE2E).sequential('BitcoinLocks integration', { timeout: 240e3
         await submitAndFinalize(
           client,
           client.tx.vaults.setReservedSecuritizationSpace(vault.availableSecuritizationSpace() - capacityMicrogons),
-          await operator.walletKeys.getVaultingKeypair(),
+          await operator.walletKeys.getVaultingSigner(),
         );
 
         const snapshot = await getFinalizedClient(client);
@@ -131,7 +131,7 @@ describe.skipIf(skipE2E).sequential('BitcoinLocks integration', { timeout: 240e3
         const channel = await wallet.createChannel({
           vault: currentVault,
           liquidityMicrogons: maximum,
-          txSigner: await member.walletKeys.getLiquidLockingKeypair(),
+          txSigner: await member.walletKeys.getLiquidLockingSigner(),
         });
         const txInfo = member.bitcoinLockCreate.getPendingLockTxInfo(channel.uuid)!;
         await txInfo.waitForPostProcessing;
@@ -361,7 +361,7 @@ describe.skipIf(skipE2E).sequential('BitcoinLocks integration', { timeout: 240e3
           owner.miningFrames.blockWatch,
         );
         await Promise.all([createLiquid.load(), ratchetLiquid.load(), closeLiquid.load()]);
-        const txSigner = await owner.walletKeys.getLiquidLockingKeypair();
+        const txSigner = await owner.walletKeys.getLiquidLockingSigner();
         const liquidTx = await createLiquid.submit({
           allocations: [{ lock: fundedLock, satoshis: fissionSatoshis }],
           txSigner,
@@ -606,7 +606,7 @@ describe.skipIf(skipE2E).sequential('BitcoinLocks integration', { timeout: 240e3
           toScriptPubkey: releaseDestination,
           bitcoinNetworkFee: releaseNetworkFee,
           destinationSatoshis: fundedLock.fundedSatoshis - releaseNetworkFee,
-          txSigner: await owner.walletKeys.getLiquidLockingKeypair(),
+          txSigner: await owner.walletKeys.getLiquidLockingSigner(),
         });
         await releaseTx.txResult.waitForFinalizedBlock;
         await releaseTx.waitForPostProcessing;
@@ -670,7 +670,7 @@ describe.skipIf(skipE2E).sequential('BitcoinLocks integration', { timeout: 240e3
           record: orphan,
           toScriptPubkey: returnDestination,
           bitcoinNetworkFee,
-          txSigner: await owner.walletKeys.getLiquidLockingKeypair(),
+          txSigner: await owner.walletKeys.getLiquidLockingSigner(),
         });
         await returnTx.txResult.waitForFinalizedBlock;
         await returnTx.waitForPostProcessing;
@@ -809,7 +809,7 @@ describe.skipIf(skipE2E).sequential('BitcoinLocks integration', { timeout: 240e3
         const txInfo = await recovered.bitcoinLockCreate.submit({
           satoshis,
           vault: harness.myVault.createdVault!,
-          txSigner: await recovered.walletKeys.getLiquidLockingKeypair(),
+          txSigner: await recovered.walletKeys.getLiquidLockingSigner(),
         });
         const pendingLock = recovered.bitcoinLocks.getLockByUuid(txInfo.tx.metadataJson.bitcoin.uuid)!;
         await txInfo.txResult.waitForFinalizedBlock;
@@ -920,7 +920,7 @@ async function createLock(
     satoshis,
     vault,
     microgonsAtTargetPerBtc,
-    txSigner: await harness.walletKeys.getLiquidLockingKeypair(),
+    txSigner: await harness.walletKeys.getLiquidLockingSigner(),
   });
   const pendingLock = harness.bitcoinLocks.getLockByUuid(txInfo.tx.metadataJson.bitcoin.uuid)!;
 

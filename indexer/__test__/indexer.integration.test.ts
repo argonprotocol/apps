@@ -1,7 +1,7 @@
 import { integrationNetwork as sharedNetwork } from '@argonprotocol/apps-core/__test__/integration.setup.ts';
 import { it, beforeAll, afterAll, afterEach, expect, inject } from 'vitest';
 import { runOnTeardown, teardown } from '@argonprotocol/testing';
-import { TxSubmitter } from '@argonprotocol/apps-core';
+import { TxSubmitter, TxSigner } from '@argonprotocol/apps-core';
 import { Keyring } from '@argonprotocol/mainchain';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -57,7 +57,11 @@ it.skipIf(skipE2E)('indexes account activity blocks', async () => {
     expect(collectsResponse.status).toBe(404);
   }
 
-  const submitter = new TxSubmitter(client, client.tx.balances.transferAllowDeath(bob.address, 1_000_000n), alice);
+  const submitter = new TxSubmitter(
+    client,
+    client.tx.balances.transferAllowDeath(bob.address, 1_000_000n),
+    new TxSigner(alice),
+  );
   const result = await submitter.submit();
   await result.waitForFinalizedBlock;
 
@@ -77,13 +81,17 @@ it.skipIf(skipE2E)('indexes account activity blocks', async () => {
     expect((transferBlock?.activityMask ?? 0) & AccountActivityKind.Transfer).toBe(AccountActivityKind.Transfer);
   }
 
-  const proxySetup = await new TxSubmitter(client, client.tx.proxy.addProxy(bob.address, 'Any', 0), alice).submit();
+  const proxySetup = await new TxSubmitter(
+    client,
+    client.tx.proxy.addProxy(bob.address, 'Any', 0),
+    new TxSigner(alice),
+  ).submit();
   await proxySetup.waitForFinalizedBlock;
 
   const proxyTransfer = await new TxSubmitter(
     client,
     client.tx.proxy.proxy(alice.address, null, client.tx.balances.transferAllowDeath(charlie.address, 1_000_000n)),
-    bob,
+    new TxSigner(bob),
   ).submit();
   await proxyTransfer.waitForFinalizedBlock;
 

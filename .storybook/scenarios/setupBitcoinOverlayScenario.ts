@@ -1,3 +1,6 @@
+import { Keyring } from '@argonprotocol/mainchain';
+
+import type { KeyringPair } from '@argonprotocol/mainchain';
 import * as Vue from 'vue';
 import { BitcoinNetwork } from '@argonprotocol/bitcoin';
 import {
@@ -9,6 +12,7 @@ import {
   type IBitcoinLockCouponUseRecord,
   UnitOfMeasurement,
   TxResult,
+  TxSigner,
 } from '@argonprotocol/apps-core';
 import type { IBitcoinLockCouponStatus } from '@argonprotocol/apps-router';
 
@@ -556,7 +560,7 @@ export function setupBitcoinOverlayScenario() {
   mocked(getWalletKeys, { partial: true }).mockReturnValue({
     defaultArgonAddress: '5SyntheticInternalWallet',
     vaultingAddress: '5SyntheticVaultingWallet',
-    getLiquidLockingKeypair: fn(async () => ({ address: '5SyntheticLiquidLockingWallet' }) as never),
+    getLiquidLockingSigner: fn(async () => new TxSigner(new Keyring({ type: 'sr25519' }).createFromUri('//Alice'))),
   });
 
   const myVault = getMyVault();

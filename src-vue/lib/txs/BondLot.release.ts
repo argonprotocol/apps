@@ -1,4 +1,4 @@
-import { BondLot, type ArgonClient, TreasuryBonds, type TxSigningAccount } from '@argonprotocol/apps-core';
+import { BondLot, type ArgonClient, TreasuryBonds, type TxSigner } from '@argonprotocol/apps-core';
 import type { ArgonBonds } from '../ArgonBonds.ts';
 import type { TransactionInfo } from '../TransactionInfo.ts';
 import type { TransactionTracker } from '../TransactionTracker.ts';
@@ -9,7 +9,7 @@ import { TransactionOperation, type TransactionOperationBuild } from './Transact
 
 export interface BondLotReleaseInput {
   bondLot: BondLot;
-  txSigner: TxSigningAccount;
+  txSigner: TxSigner;
   client?: ArgonClient;
 }
 

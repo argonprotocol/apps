@@ -83,7 +83,7 @@ export class BitcoinLockFeeCouponService {
       ])
       .toU8a();
 
-    feeCoupon.signature = u8aToHex(this.submitLane.keypair.sign(blake2AsU8a(message, 256), { withType: true }));
+    feeCoupon.signature = u8aToHex(this.submitLane.signer.sign(blake2AsU8a(message, 256), { withType: true }));
     return feeCoupon;
   }
 }

@@ -1,3 +1,4 @@
+import { AccountSecurityBatch } from '../lib/AccountSecurity.ts';
 import { EventEmitter } from 'node:events';
 import { computed, reactive } from 'vue';
 import { Metadata, TypeRegistry } from '@polkadot/types';
@@ -31,6 +32,8 @@ import { CrosschainOutboundTransferStatus } from '../lib/db/CrosschainOutboundTr
 import { ExtrinsicType, TransactionStatus } from '../lib/db/TransactionsTable.ts';
 import { WalletType } from '../lib/Wallet.ts';
 import { WalletForEthereum } from '../lib/WalletForEthereum.ts';
+import { WalletsForEthereum } from '../lib/WalletsForEthereum.ts';
+import { privateKeyToAccount } from 'viem/accounts';
 
 import { TransactionTracker } from '../lib/TransactionTracker.ts';
 import { createTestDb, createTestDbAtMigration } from './helpers/db.ts';
@@ -70,6 +73,22 @@ describe('EthereumOutboundTransferTracker integration', { tags: ['no-argon-netwo
   it('writes intent before signing, then preserves the current nonce attempt through replacement', async () => {
     const db = await createTestDb();
     const walletKeys = createMockWalletKeys(TEST_MNEMONIC);
+    const privateKey = `0x${'42'.repeat(32)}` as const;
+    const imported = await db.walletsTable.importExternalEthereum({
+      name: 'Approved wallet',
+      address: privateKeyToAccount(privateKey).address,
+      coreEthereumAddress: walletKeys.coreEthereumAddress,
+      secretKind: 'privateKey',
+      encryptedSecret: 'approved-wallet-ciphertext',
+    });
+    walletKeys.initializeEthereumWallet(imported, privateKey);
+    const wallets = new WalletsForEthereum(
+      walletKeys,
+      Promise.resolve(db),
+      Promise.resolve(db.financialCacheTable),
+      async (_reason, operation) => operation({}),
+    );
+    await wallets.loadCachedBalances();
     const blockWatch = createBlockWatch({
       initialHeader: { blockNumber: 1, blockHash: `0x${'fa'.repeat(32)}` },
       getApi: async () => ({
@@ -136,32 +155,51 @@ describe('EthereumOutboundTransferTracker integration', { tags: ['no-argon-netwo
       this: TxSubmitter,
       options = {},
     ) {
-      return await this.tx.signAsync(this.account.address, options);
+      return await this.tx.signAsync(this.signer.address, options);
     });
     const findTransaction = vi.spyOn(TransactionEvents, 'findByExtrinsicHash').mockResolvedValue(undefined);
     const transactions = new TransactionTracker(Promise.resolve(db), blockWatch.instance as any);
+    let authenticationRequests = 0;
     const tracker = new EthereumOutboundTransferTracker(
       Promise.resolve(db),
       transactions,
       blockWatch.instance as any,
       walletKeys,
+      () =>
+        new AccountSecurityBatch(async () => {
+          authenticationRequests++;
+        }),
       new EthereumClient(walletKeys, 'https://ethereum.test'),
     );
     tracker.data = reactive(tracker.data);
     const visible = computed(() => tracker.getTransferStateForToken(MoveToken.ARGN));
     const pending = computed(() =>
-      tracker.getPendingAmount(walletKeys.defaultArgonAddress, walletKeys.coreEthereumAddress, MoveToken.ARGN),
+      tracker.getPendingAmount(walletKeys.defaultArgonAddress, imported.address, MoveToken.ARGN),
     );
-    const request = {
+    let request = {
       moveToken: MoveToken.ARGN,
       amount: 100n,
       sourceWalletType: WalletType.argon,
-      ethereumWallet: new WalletForEthereum(walletKeys.coreEthereumAddress, undefined, undefined, true),
+      ethereumWallet: wallets.get(imported.id),
     } as const;
     await db.execute(`CREATE TRIGGER RejectOutboundInsert BEFORE INSERT ON CrosschainOutboundTransfers
       BEGIN SELECT RAISE(ABORT, 'temporary outbound insert failure'); END`);
 
     try {
+      // A database edit can publish a wallet, but cannot approve its destination.
+      await db.walletsTable.insert({ ...imported, address: `0x${'ab'.repeat(20)}` });
+      await wallets.reloadRecords(true);
+      await expect(tracker.startMove({ ...request, ethereumWallet: wallets.get(imported.id) })).rejects.toThrow(
+        'Reconnect it to continue',
+      );
+      expect(Object.keys(tracker.data.transfersById)).toEqual([]);
+      expect(await db.crosschainOutboundTransfersTable.fetchAll()).toEqual([]);
+      expect(await db.transactionsTable.fetchAll()).toEqual([]);
+      expect(broadcasts).toBe(0);
+
+      await db.walletsTable.insert(imported);
+      await wallets.reloadRecords(true);
+      request = { ...request, ethereumWallet: wallets.get(imported.id) };
       await tracker.startMove(request);
       await vi.waitFor(() => expect(Boolean(visible.value.error) || signingAttempts > 0).toBe(true));
       expect(signingAttempts).toBe(0);
@@ -170,15 +208,17 @@ describe('EthereumOutboundTransferTracker integration', { tags: ['no-argon-netwo
       expect(await db.transactionsTable.fetchAll()).toEqual([]);
       expect(await db.crosschainOutboundTransfersTable.fetchAll()).toEqual([]);
       expect(pending.value).toBe(0n);
-      expect(tracker.hasSignerDependentTransfer(walletKeys.coreEthereumAddress)).toBe(false);
+      expect(tracker.hasSignerDependentTransfer(imported.address)).toBe(false);
 
       await db.execute('DROP TRIGGER RejectOutboundInsert');
       const transfer = (await tracker.startMove(request))!;
       localId = transfer.id;
       await vi.waitFor(() => expect(signingAttempts).toBe(1));
+      expect(authenticationRequests).toBe(0);
       expect(await db.crosschainOutboundTransfersTable.get(localId)).toMatchObject({
         status: CrosschainOutboundTransferStatus.RequestPendingSubmission,
         amount: 100n,
+        destinationAddress: imported.address,
       });
       expect(pending.value).toBe(100n);
       expect(await db.transactionsTable.fetchAll()).toEqual([]);
@@ -201,7 +241,7 @@ describe('EthereumOutboundTransferTracker integration', { tags: ['no-argon-netwo
       });
       expect((await db.crosschainOutboundTransfersTable.get(localId))?.argonRequestTransactionId).toBeUndefined();
       expect(pending.value).toBe(100n);
-      expect(tracker.hasSignerDependentTransfer(walletKeys.coreEthereumAddress)).toBe(true);
+      expect(tracker.hasSignerDependentTransfer(imported.address)).toBe(true);
       expect(visible.value.needsAttention).toBe(false);
       await db.execute('DROP TRIGGER RejectRequestLink');
       blockWatch.emitFinalized({ blockNumber: 3, blockHash: `0x${'fe'.repeat(32)}` });
@@ -220,6 +260,7 @@ describe('EthereumOutboundTransferTracker integration', { tags: ['no-argon-netwo
       expect(pending.value).toBe(100n);
       expect(broadcasts).toBe(2);
     } finally {
+      wallets.dispose();
       resumeSigning();
       tracker.shutdown();
       await transactions.shutdown();
@@ -255,6 +296,7 @@ describe('EthereumOutboundTransferTracker integration', { tags: ['no-argon-netwo
       transactions,
       blockWatch.instance as any,
       walletKeys,
+      () => new AccountSecurityBatch(async () => {}),
       undefined,
     );
     tracker.data = reactive(tracker.data);
@@ -322,6 +364,7 @@ describe('EthereumOutboundTransferTracker integration', { tags: ['no-argon-netwo
       transactions,
       blockWatch.instance as any,
       walletKeys,
+      () => new AccountSecurityBatch(async () => {}),
       undefined,
     );
     tracker.data = reactive(tracker.data);
@@ -478,6 +521,7 @@ describe('EthereumOutboundTransferTracker integration', { tags: ['no-argon-netwo
         transactions,
         blockWatch.instance as any,
         walletKeys,
+        () => new AccountSecurityBatch(async () => {}),
         undefined,
       );
       tracker.data = reactive(tracker.data);
@@ -616,6 +660,7 @@ describe('EthereumOutboundTransferTracker integration', { tags: ['no-argon-netwo
       transactions,
       blockWatch.instance as any,
       walletKeys,
+      () => new AccountSecurityBatch(async () => {}),
       undefined,
     );
     let restoredTransactions: TransactionTracker | undefined;
@@ -652,6 +697,7 @@ describe('EthereumOutboundTransferTracker integration', { tags: ['no-argon-netwo
         restoredTransactions,
         restoredWatch.instance as any,
         walletKeys,
+        () => new AccountSecurityBatch(async () => {}),
         undefined,
       );
       restored.data = reactive(restored.data);
@@ -765,7 +811,12 @@ describe('EthereumOutboundTransferTracker integration', { tags: ['no-argon-netwo
     };
     const ethereumClient = new EthereumClient(walletKeys, 'https://ethereum.test');
     Object.assign(ethereumClient, {
-      loadChainConfig: async () => ({ chainId: 1, gatewayAddress }),
+      loadChainConfig: async () => ({
+        chainId: 1,
+        gatewayAddress,
+        argonTokenAddress: request.token,
+        argonotTokenAddress: `0x${'56'.repeat(20)}`,
+      }),
       createExecutionClient: async () => ({
         chain: { id: 1 },
         publicClient: {
@@ -806,6 +857,7 @@ describe('EthereumOutboundTransferTracker integration', { tags: ['no-argon-netwo
       transactions,
       blockWatch.instance as any,
       walletKeys,
+      () => new AccountSecurityBatch(async () => {}),
       ethereumClient,
     );
     let restored: EthereumOutboundTransferTracker | undefined;
@@ -843,6 +895,7 @@ describe('EthereumOutboundTransferTracker integration', { tags: ['no-argon-netwo
         transactions,
         blockWatch.instance as any,
         walletKeys,
+        () => new AccountSecurityBatch(async () => {}),
         ethereumClient,
       );
       restored.data = reactive(restored.data);
@@ -1070,6 +1123,7 @@ describe('EthereumOutboundTransferTracker integration', { tags: ['no-argon-netwo
         transactions,
         blockWatch.instance as any,
         walletKeys,
+        () => new AccountSecurityBatch(async () => {}),
         ethereumClient,
       );
       tracker.data = reactive(tracker.data);
@@ -1244,6 +1298,7 @@ describe('EthereumOutboundTransferTracker integration', { tags: ['no-argon-netwo
           transactions,
           firstBlockWatch.instance as any,
           walletKeys,
+          () => new AccountSecurityBatch(async () => {}),
           undefined,
         );
         await tracker.load();
@@ -1269,6 +1324,7 @@ describe('EthereumOutboundTransferTracker integration', { tags: ['no-argon-netwo
           restoredTransactionTracker,
           restoredBlockWatch.instance as any,
           walletKeys,
+          () => new AccountSecurityBatch(async () => {}),
           undefined,
         );
         restored.data = reactive(restored.data);

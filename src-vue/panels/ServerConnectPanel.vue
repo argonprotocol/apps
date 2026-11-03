@@ -122,7 +122,7 @@ export interface IServerConnectChildExposed {
 <script setup lang="ts">
 import * as Vue from 'vue';
 import basicEmitter from '../emitters/basicEmitter.ts';
-import { getConfig, Config } from '../stores/config.ts';
+import { getConfig } from '../stores/config.ts';
 import BgOverlay from '../components/BgOverlay.vue';
 import { ExclamationTriangleIcon } from '@heroicons/vue/20/solid';
 import { XMarkIcon } from '@heroicons/vue/24/outline';
@@ -140,14 +140,11 @@ import {
 import DigitalOcean from './server-connect/DigitalOcean.vue';
 import LocalComputer from './server-connect/LocalComputer.vue';
 import CustomServer from './server-connect/CustomServer.vue';
-import { MiningMachine } from '../lib/MiningMachine.ts';
-import { getWalletKeys } from '../stores/wallets.ts';
-import { MiningSetupStatus } from '../interfaces/IConfig.ts';
-import { getInstaller } from '../stores/installer.ts';
+import { getAccountSecurity } from '../stores/wallets.ts';
+import { getInstaller } from '../stores/startup.ts';
 import { provideOverlayContentZIndex, useOverlayZIndex } from '../overlays/helpers/OverlayZIndex.ts';
 
 const config = getConfig();
-const walletKeys = getWalletKeys();
 const installer = getInstaller();
 
 const isOpen = Vue.ref(false);
@@ -209,16 +206,7 @@ async function connect() {
   serverAddError.value = '';
 
   try {
-    config.serverAdd = await extractServerAdd();
-    config.resetField('serverInstaller');
-
-    if (config.serverAdd.customServer?.hasRunningBot) {
-      config.serverDetails = await MiningMachine.setup(config as Config, walletKeys);
-      config.miningSetupStatus = MiningSetupStatus.Finished;
-    }
-
-    await config.save();
-    void installer.run();
+    await installer.connect(await extractServerAdd(), getAccountSecurity());
   } catch (error: any) {
     serverAddError.value = error.message;
     throw error;

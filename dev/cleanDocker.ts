@@ -6,6 +6,7 @@ import process from 'node:process';
 import { stripNetworkPrefix, toComposeProjectName } from '../core/src/utils.ts';
 import { readDevEthereumRuntimeState } from '../e2e/devEthereum.ts';
 import { resolveDevUpstreamDir, stopDevUpstreamWorkerSync } from '../e2e/scripts/devUpstreamProcess.ts';
+import { clearMacDevKeychain } from './stopEnvironment.ts';
 
 const appIds = ['com.argon.desktop.local'] as const;
 
@@ -163,6 +164,7 @@ function bringDownLocalMachineComposeProjects(networkName: string, instanceName:
     const vmServerDir = Path.join(vmDir, 'app', 'server');
     runDockerComposeDown(vmServerDir, env);
 
+    clearMacDevKeychain({ network: networkName, instance: instanceName }, env);
     try {
       if (existsSync(instanceDir)) {
         rmSync(instanceDir, { recursive: true, force: true });

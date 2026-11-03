@@ -234,15 +234,6 @@ export class WalletsForArgon {
     await Promise.all([this.blockQueue.stop(true), this.finalizedBlockQueue.stop(true)]);
   }
 
-  public didWalletHavePreviousLife() {
-    for (const wallet of this.wallets) {
-      if (wallet.hasValue()) {
-        return true;
-      }
-    }
-    return false;
-  }
-
   public async loadBalancesAt(_announcedHeader: IBlockHeaderInfo) {
     if (this.isClosed) {
       return;

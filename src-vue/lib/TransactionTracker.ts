@@ -20,7 +20,7 @@ import {
   IDeferred,
   TransactionEvents,
   ISubmittableOptions,
-  type TxSigningAccount,
+  type TxSigner,
   TxSubmitter,
   TxResult,
 } from '@argonprotocol/apps-core';
@@ -253,7 +253,7 @@ export class TransactionTracker {
     args: {
       client?: ArgonClient;
       tx: SubmittableExtrinsic;
-      txSigner: TxSigningAccount;
+      txSigner: TxSigner;
       extrinsicType: ExtrinsicType;
       metadata?: T;
     } & ISubmittableOptions,
@@ -271,7 +271,7 @@ export class TransactionTracker {
     args: {
       client?: ArgonClient;
       tx: SubmittableExtrinsic;
-      txSigner: TxSigningAccount;
+      txSigner: TxSigner;
       extrinsicType: ExtrinsicType;
       metadata?: T;
     } & ISubmittableOptions,

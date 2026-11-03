@@ -3,13 +3,14 @@
   <div ref="rootRef" class="flex flex-row items-center">
     <NavigationMenuItem value="account" class="pointer-events-auto">
       <NavigationMenuTrigger
+        aria-label="Settings"
         class="h-[30px] group relative cursor-pointer rounded-md border border-slate-400/50 text-sm/6 font-semibold text-argon-600/60 hover:border-slate-400/50 hover:bg-slate-400/10 focus:outline-none data-[state=open]:border-slate-400/60 data-[state=open]:bg-slate-400/10"
       >
         <div class="w-[38px] h-full flex flex-row items-center justify-center">
           <ConfigIcon class="h-5 w-5" />
         </div>
         <ArrowCalloutButton
-          v-if="controller.activeGuideId === OperationalStepId.BackupMnemonic && !basics.overlayIsOpen"
+          v-if="controller && controller.activeGuideId === OperationalStepId.BackupMnemonic && !basics.overlayIsOpen"
           class="absolute top-1/2 left-2 z-50 -translate-x-full -translate-y-1/2 group-data-[state=open]:hidden"
           label="Mouse Over"
           guidance="Open your account menu."
@@ -29,98 +30,110 @@
             <header>Check for Updates</header>
           </NavigationMenuLink>
           <li divider class="my-1 h-[1px] w-full bg-slate-400/30" />
-          <template v-if="config.isLoaded && config.upstreamOperator">
-            <NavigationMenuLink MenuItem @click="() => openSponsorOverlay()" >
-              <header>View Sponsor Details</header>
+          <template v-if="startupOnly">
+            <NavigationMenuLink MenuItem @click="openTroubleshooting">
+              <header>Troubleshooting Tools</header>
+            </NavigationMenuLink>
+            <li divider class="my-1 h-[1px] w-full bg-slate-400/30" />
+            <NavigationMenuLink v-if="canBackUpMnemonic" MenuItem @click="basicEmitter.emit('openSecuritySettingsOverlay', { screen: 'mnemonics' })">
+              <header>Back-up mnemonic</header>
             </NavigationMenuLink>
             <li divider class="my-1 h-[1px] w-full bg-slate-400/30" />
           </template>
-          <NavigationMenuLink MenuItem @click="() => openImportAccountOverlay()">
-            <header>Import Existing Account</header>
-          </NavigationMenuLink>
-          <li divider class="my-1 h-[1px] w-full bg-slate-400/30" />
-          <template v-if="config.hasExtensionOperations">
-            <NavigationMenuLink MenuItem @click="() => openOperationalProfileOverlay()" >
-              <header>Operational Profile</header>
+          <template v-else>
+            <template v-if="config?.isLoaded && config.upstreamOperator">
+              <NavigationMenuLink MenuItem @click="() => openSponsorOverlay()" >
+                <header>View Sponsor Details</header>
+              </NavigationMenuLink>
+              <li divider class="my-1 h-[1px] w-full bg-slate-400/30" />
+            </template>
+            <NavigationMenuLink MenuItem @click="() => openImportAccountOverlay()">
+              <header>Import Existing Account</header>
             </NavigationMenuLink>
             <li divider class="my-1 h-[1px] w-full bg-slate-400/30" />
-          </template>
-          <NavigationMenuLink MenuItem @click="basicEmitter.emit('openDiscordVerificationOverlay')">
-            <header>Connect to Discord</header>
-          </NavigationMenuLink>
-          <li divider class="my-1 h-[1px] w-full bg-slate-400/30" />
-          <NavigationMenuLink MenuItem @click="() => openJurisdictionOverlay()" >
-            <header>Manage Default Jurisdiction</header>
-          </NavigationMenuLink>
-          <li divider class="my-1 h-[1px] w-full bg-slate-400/30" />
-          <NavigationMenuLink MenuItem @click="() => openTroubleshooting()">
-            <header>Troubleshooting Tools</header>
-          </NavigationMenuLink>
-          <li divider class="my-1 h-[1px] w-full bg-slate-400/30" />
-          <NavigationMenuLink MenuItem @click="() => openSecuritySettingsOverlay()" class="relative">
-            <header>Security and Backups</header>
-            <ArrowCalloutButton
-              v-if="controller.activeGuideId === OperationalStepId.BackupMnemonic"
-              class="absolute top-1/2 left-2 -translate-y-1/2 -translate-x-full z-50"
-              guidance="Open the overlay."
-              direction="right"
-            />
-          </NavigationMenuLink>
-          <li divider class="my-1 h-[1px] w-full bg-slate-400/30" />
-          <NavigationMenuLink MenuItem @click="openWallet">
-            <header>Internal App Wallet</header>
-          </NavigationMenuLink>
-          <li divider class="my-1 h-[1px] w-full bg-slate-400/30" />
-          <li>
-            <NavigationMenuSub
-              :model-value="walletsMenuValue"
-              orientation="vertical"
-              class="relative"
-              @mouseenter="clearWalletsMenuClose"
-              @mouseleave="scheduleWalletsMenuClose"
-              @update:model-value="setWalletsMenuValue"
-            >
-              <NavigationMenuList class="flex flex-col">
-                <NavigationMenuItem value="wallets">
-                  <NavigationMenuTrigger
-                    :class="submenuTriggerClass"
-                  >
-                    <ChevronLeftIcon class="absolute top-1/2 left-0.5 h-5 w-5 -translate-y-1/2 text-gray-400" />
-                    <header>Ethereum Wallets</header>
-                  </NavigationMenuTrigger>
-                  <NavigationMenuContent class="absolute top-0 left-0 w-full sm:w-auto">
-                    <ul class="min-w-50 bg-argon-menu-bg flex shrink flex-col rounded p-1 text-sm/6 font-semibold text-gray-900 shadow-lg ring-1 ring-gray-900/20">
-                      <NavigationMenuLink
-                        v-for="wallet in ethereumWallets"
-                        :key="wallet.id"
-                        MenuItem
-                        @click="openEthereumWallet(wallet)"
-                      >
-                        <header>{{ getEthereumWalletDisplayName(wallet.name) }}</header>
-                        <p>{{ abbreviateAddress(wallet.address, 8) }}</p>
-                      </NavigationMenuLink>
-                      <NavigationMenuLink v-if="ethereumWallets.length === 0" disabled MenuItem>
-                        <header>No wallets yet</header>
-                        <p>Add an Ethereum wallet to get started.</p>
-                      </NavigationMenuLink>
-                      <li divider class="my-1 h-[1px] w-full bg-slate-400/30" />
-                      <NavigationMenuLink MenuItem @click="addEthereumWallet">
-                        <div class="flex flex-row items-center justify-end gap-x-2">
-                          <PlusIcon class="h-4 w-4 text-argon-600" />
-                          <header>Add New Wallet</header>
-                        </div>
-                      </NavigationMenuLink>
-                    </ul>
-                  </NavigationMenuContent>
-                </NavigationMenuItem>
-              </NavigationMenuList>
-              <NavigationMenuViewport
-                align="start"
-                class="pointer-events-auto absolute top-[var(--reka-navigation-menu-viewport-top)] right-full mr-1 h-[var(--reka-navigation-menu-viewport-height)] w-[var(--reka-navigation-menu-viewport-width)] overflow-visible"
+            <template v-if="config?.hasExtensionOperations">
+              <NavigationMenuLink MenuItem @click="() => openOperationalProfileOverlay()" >
+                <header>Operational Profile</header>
+              </NavigationMenuLink>
+              <li divider class="my-1 h-[1px] w-full bg-slate-400/30" />
+            </template>
+            <NavigationMenuLink MenuItem @click="basicEmitter.emit('openDiscordVerificationOverlay')">
+              <header>Connect to Discord</header>
+            </NavigationMenuLink>
+            <li divider class="my-1 h-[1px] w-full bg-slate-400/30" />
+            <NavigationMenuLink MenuItem @click="() => openJurisdictionOverlay()" >
+              <header>Manage Default Jurisdiction</header>
+            </NavigationMenuLink>
+            <li divider class="my-1 h-[1px] w-full bg-slate-400/30" />
+            <NavigationMenuLink MenuItem @click="() => openTroubleshooting()">
+              <header>Troubleshooting Tools</header>
+            </NavigationMenuLink>
+            <li divider class="my-1 h-[1px] w-full bg-slate-400/30" />
+            <NavigationMenuLink MenuItem @click="() => openSecuritySettingsOverlay()" class="relative">
+              <header>Security and Backups</header>
+              <ArrowCalloutButton
+                v-if="controller && controller.activeGuideId === OperationalStepId.BackupMnemonic"
+                class="absolute top-1/2 left-2 -translate-y-1/2 -translate-x-full z-50"
+                guidance="Open the overlay."
+                direction="right"
               />
-            </NavigationMenuSub>
-          </li>
-          <li divider class="my-1 h-[1px] w-full bg-slate-400/30" />
+            </NavigationMenuLink>
+            <li divider class="my-1 h-[1px] w-full bg-slate-400/30" />
+            <NavigationMenuLink MenuItem @click="openWallet">
+              <header>Internal App Wallet</header>
+            </NavigationMenuLink>
+            <li divider class="my-1 h-[1px] w-full bg-slate-400/30" />
+            <li>
+              <NavigationMenuSub
+                :model-value="walletsMenuValue"
+                orientation="vertical"
+                class="relative"
+                @mouseenter="clearWalletsMenuClose"
+                @mouseleave="scheduleWalletsMenuClose"
+                @update:model-value="setWalletsMenuValue"
+              >
+                <NavigationMenuList class="flex flex-col">
+                  <NavigationMenuItem value="wallets">
+                    <NavigationMenuTrigger
+                      :class="submenuTriggerClass"
+                    >
+                      <ChevronLeftIcon class="absolute top-1/2 left-0.5 h-5 w-5 -translate-y-1/2 text-gray-400" />
+                      <header>Ethereum Wallets</header>
+                    </NavigationMenuTrigger>
+                    <NavigationMenuContent class="absolute top-0 left-0 w-full sm:w-auto">
+                      <ul class="min-w-50 bg-argon-menu-bg flex shrink flex-col rounded p-1 text-sm/6 font-semibold text-gray-900 shadow-lg ring-1 ring-gray-900/20">
+                        <NavigationMenuLink
+                          v-for="wallet in ethereumWallets"
+                          :key="wallet.id"
+                          MenuItem
+                          @click="openEthereumWallet(wallet)"
+                        >
+                          <header>{{ getEthereumWalletDisplayName(wallet.name) }}</header>
+                          <p>{{ abbreviateAddress(wallet.address, 8) }}</p>
+                        </NavigationMenuLink>
+                        <NavigationMenuLink v-if="ethereumWallets.length === 0" disabled MenuItem>
+                          <header>No wallets yet</header>
+                          <p>Add an Ethereum wallet to get started.</p>
+                        </NavigationMenuLink>
+                        <li divider class="my-1 h-[1px] w-full bg-slate-400/30" />
+                        <NavigationMenuLink MenuItem @click="addEthereumWallet">
+                          <div class="flex flex-row items-center justify-end gap-x-2">
+                            <PlusIcon class="h-4 w-4 text-argon-600" />
+                            <header>Add New Wallet</header>
+                          </div>
+                        </NavigationMenuLink>
+                      </ul>
+                    </NavigationMenuContent>
+                  </NavigationMenuItem>
+                </NavigationMenuList>
+                <NavigationMenuViewport
+                  align="start"
+                  class="pointer-events-auto absolute top-[var(--reka-navigation-menu-viewport-top)] right-full mr-1 h-[var(--reka-navigation-menu-viewport-height)] w-[var(--reka-navigation-menu-viewport-width)] overflow-visible"
+                />
+              </NavigationMenuSub>
+            </li>
+            <li divider class="my-1 h-[1px] w-full bg-slate-400/30" />
+          </template>
           <li>
             <NavigationMenuSub
               :model-value="resourcesMenuValue"
@@ -147,9 +160,10 @@
                         <header>Frequent Questions</header>
                       </NavigationMenuLink>
                       <NavigationMenuLink
+                        v-if="tour"
                         MenuItem
                         :class="[tour.isDisabled ? 'pointer-events-none opacity-30' : '']"
-                        @click="() => !tour.isDisabled && takeTheTour()"
+                        @click="() => !tour?.isDisabled && takeTheTour()"
                       >
                         <header>Take the Welcome Tour</header>
                       </NavigationMenuLink>
@@ -204,16 +218,21 @@ import { useWallets } from '../stores/wallets.ts';
 import { abbreviateAddress } from '../lib/Utils.ts';
 import type { WalletForEthereum } from '../lib/WalletForEthereum.ts';
 
-const tour = useTour();
+const { startupOnly = false, canBackUpMnemonic = true } = defineProps<{
+  startupOnly?: boolean;
+  canBackUpMnemonic?: boolean;
+}>();
+
 const basics = useBasics();
-const config = getConfig();
-const controller = useCertificationController();
-const wallets = useWallets();
+const tour = startupOnly ? undefined : useTour();
+const config = startupOnly ? undefined : getConfig();
+const controller = startupOnly ? undefined : useCertificationController();
+const wallets = startupOnly ? undefined : useWallets();
 
 const rootRef = Vue.ref<HTMLElement>();
 const walletsMenuValue = Vue.ref('');
 const resourcesMenuValue = Vue.ref('');
-const ethereumWallets = Vue.computed(() => wallets.ethereumWallets.persistedWallets);
+const ethereumWallets = Vue.computed(() => wallets?.ethereumWallets.persistedWallets ?? []);
 let walletsMenuCloseTimeoutId: ReturnType<typeof setTimeout> | undefined = undefined;
 let resourcesMenuCloseTimeoutId: ReturnType<typeof setTimeout> | undefined = undefined;
 
@@ -262,10 +281,11 @@ function openOperationalProfileOverlay(): void {
 }
 
 function takeTheTour() {
-  tour.start();
+  tour?.start();
 }
 
 function openWallet() {
+  if (!wallets) return;
   basicEmitter.emit('openWalletOverlay', { wallet: wallets.argonWallets.defaultArgonWallet });
 }
 

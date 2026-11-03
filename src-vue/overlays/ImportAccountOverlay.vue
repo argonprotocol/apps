@@ -26,7 +26,12 @@ function closeOverlay() {
   isOpen.value = false;
 }
 
-basicEmitter.on('openImportAccountOverlay', async () => {
+function openOverlay() {
   isOpen.value = true;
+}
+
+basicEmitter.on('openImportAccountOverlay', openOverlay);
+Vue.onBeforeUnmount(() => {
+  basicEmitter.off('openImportAccountOverlay', openOverlay);
 });
 </script>

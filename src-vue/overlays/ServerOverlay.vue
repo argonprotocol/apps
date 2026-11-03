@@ -178,9 +178,8 @@ import basicEmitter from '../emitters/basicEmitter.ts';
 import { ServerType } from '../interfaces/IConfig.ts';
 import { getConfig } from '../stores/config.ts';
 import InstallProgress from '../components/InstallProgress.vue';
-import { getInstaller } from '../stores/installer.ts';
+import { getInstaller, getBot } from '../stores/startup.ts';
 import { getMyMiningSeats } from '../stores/myMiningSeats.ts';
-import { getBot } from '../stores/bot.ts';
 import { getEthereumBeaconApiUrl } from '../lib/EthereumClient.ts';
 import ArgonBlocksOverlay from './ArgonBlocksOverlay.vue';
 import BitcoinBlocksOverlay from './BitcoinBlocksOverlay.vue';
@@ -295,11 +294,14 @@ function openServerSettingsOverlay() {
   basicEmitter.emit('openServerSettingsOverlay');
 }
 
-basicEmitter.on('openServerOverlay', async () => {
+async function openOverlay() {
   showInstallComplete.value = false;
   isOpen.value = true;
   await bot.refreshState().catch(() => undefined);
-});
+}
+
+basicEmitter.on('openServerOverlay', openOverlay);
+Vue.onBeforeUnmount(() => basicEmitter.off('openServerOverlay', openOverlay));
 
 Vue.watch(isInstalling, (current, previous) => {
   if (!isOpen.value) return;

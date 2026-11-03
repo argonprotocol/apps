@@ -332,7 +332,7 @@ import { getBitcoinLocks, getBitcoinTransactionOperations } from '../../stores/b
 import { getConfig } from '../../stores/config.ts';
 import { getCurrency } from '../../stores/currency.ts';
 import { getMyVault, getVaults } from '../../stores/vaults.ts';
-import { getWalletKeys, useWallets } from '../../stores/wallets.ts';
+import { getAccountSecurity, getWalletKeys, useWallets } from '../../stores/wallets.ts';
 import type { IWalletView } from '../walletOverlayState.ts';
 import WalletHeader from './WalletHeader.vue';
 
@@ -590,13 +590,14 @@ async function requestReturn(): Promise<void> {
   requestError.value = '';
 
   try {
+    await getAccountSecurity().authenticate('release this Bitcoin');
     if (isCooperativeReturn.value) {
       await bitcoinLocks.releases.requestCooperativeRelease({
         lock: props.lock,
         record: props.record,
         toScriptPubkey: trimmedDestination.value,
         feeRatePerSatVb: feeRatePerSatVb.value,
-        owner: await getWalletKeys().getLiquidLockingKeypair(),
+        owner: await getWalletKeys().getLiquidLockingSigner(),
       });
       return;
     }
@@ -606,7 +607,7 @@ async function requestReturn(): Promise<void> {
       toScriptPubkey: retry?.toScriptPubkey ?? trimmedDestination.value,
       bitcoinNetworkFee: retry?.bitcoinNetworkFee,
       feeRatePerSatVb: feeRatePerSatVb.value,
-      txSigner: await getWalletKeys().getLiquidLockingKeypair(),
+      txSigner: await getWalletKeys().getLiquidLockingSigner(),
     });
     trackArgonRequestProgress(txInfo);
   } catch (error) {
@@ -657,7 +658,7 @@ async function refreshArgonFeeQuote(runId: number): Promise<void> {
       record: props.record,
       toScriptPubkey: trimmedDestination.value,
       feeRatePerSatVb: feeRatePerSatVb.value,
-      txSigner: await getWalletKeys().getLiquidLockingKeypair(),
+      txSigner: await getWalletKeys().getLiquidLockingSigner(),
     });
     if (runId !== feeQuoteRunId) return;
     argonFeeQuote.value = {

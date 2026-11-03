@@ -379,7 +379,7 @@ import CheckboxIcon from '../assets/checkbox.svg';
 import { Motion } from 'motion-v';
 import basicEmitter from '../emitters/basicEmitter.ts';
 import { createNumeralHelpers } from '../lib/numeral.ts';
-import { getInstaller } from '../stores/installer.ts';
+import { getInstaller } from '../stores/startup.ts';
 import { getBiddingCalculator } from '../stores/mainchain.ts';
 import { bigIntMax } from '@argonprotocol/apps-core';
 import { MiningSetupStatus, VaultingSetupStatus } from '../interfaces/IConfig.ts';

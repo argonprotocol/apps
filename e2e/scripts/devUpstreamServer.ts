@@ -20,15 +20,15 @@ import {
   NetworkConfig,
   SeatGoalType,
 } from '@argonprotocol/apps-core';
-import { getClient } from '@argonprotocol/mainchain';
+import { getClient, u8aToHex } from '@argonprotocol/mainchain';
 import { sudoFundWallet, type ISudoFundWalletInput } from '@argonprotocol/apps-core/__test__/helpers/sudoFundWallet.ts';
 import type { IDevEthereumConfig, IStartDevEthereumResult } from '../devEthereum.ts';
-import { AppVaultOperator } from '../actors/AppVaultOperator.ts';
+import type { AppVaultOperator } from '../actors/AppVaultOperator.ts';
 import { ensureDevGatewayCerts } from '../../dev/gatewayCerts.ts';
 import { type IConfig, ServerType } from 'src-vue/interfaces/IConfig.ts';
 import { BootstrapRecovery } from 'src-vue/lib/BootstrapRecovery.ts';
 import { Config } from 'src-vue/lib/Config.ts';
-import { MemoryWalletKeys } from 'src-vue/lib/MemoryWalletKeys.ts';
+import { WalletKeys } from 'src-vue/lib/WalletKeys.ts';
 import { ServerApiClient } from 'src-vue/lib/ServerApiClient.ts';
 import { ServerAuthClient } from 'src-vue/lib/ServerAuthClient.ts';
 import { resolveDevUpstreamDir, type IDevUpstreamWorkerStartOptions } from './devUpstreamProcess.ts';
@@ -199,6 +199,7 @@ export async function startDevUpstreamServer(args: {
   const clients = new MainchainClients(archiveUrl, () => false);
   let actor: AppVaultOperator;
   try {
+    const { AppVaultOperator } = await import('../actors/AppVaultOperator.ts');
     actor = await AppVaultOperator.load({
       clients,
       walletKeys,
@@ -325,7 +326,7 @@ export async function prepareDevUpstreamServer({
   devEthereum,
   devEthereumConfig,
 }: Pick<IDevUpstreamWorkerStartOptions, 'devUpstreamDir' | 'devEthereum' | 'devEthereumConfig'> & {
-  walletKeys: MemoryWalletKeys;
+  walletKeys: WalletKeys;
   client: ArgonClient;
 }): Promise<void> {
   const configDir = path.join(devUpstreamDir, 'config');
@@ -338,14 +339,13 @@ export async function prepareDevUpstreamServer({
   await Fs.mkdir(configDir, { recursive: true });
   await Fs.mkdir(dataDir, { recursive: true });
 
-  const [miningBotKeypair, vaultDelegateKeypair, sessionMiniSecret, restoreKey, bootstrapEndpointSecret] =
-    await Promise.all([
-      walletKeys.getMiningBotKeypair(),
-      walletKeys.getVaultDelegateKeypair(),
-      walletKeys.getMiningSessionMiniSecret(),
-      walletKeys.getRouterRestoreSealingKey(),
-      walletKeys.getOwnServerBootstrapEndpointSecret(),
-    ]);
+  const { miningBotAccount, vaultDelegateAccount, sessionMiniSecret, restoreKey, bootstrapEndpointSecret } = {
+    miningBotAccount: await walletKeys.exportMiningBotAccountJson(''),
+    vaultDelegateAccount: await walletKeys.exportVaultDelegateAccountJson(''),
+    sessionMiniSecret: await walletKeys.getMiningSessionMiniSecret(),
+    restoreKey: await walletKeys.getRouterRestoreSealingKey(),
+    bootstrapEndpointSecret: await walletKeys.getOwnServerBootstrapEndpointSecret(0),
+  };
   const biddingRules = {
     ...(Config.getDefault('biddingRules') as IConfig['biddingRules']),
     seatGoalType: SeatGoalType.Max,
@@ -358,8 +358,8 @@ export async function prepareDevUpstreamServer({
     Fs.writeFile(biddingRulesPath, JsonExt.stringify(biddingRules, 2) + '\n', { flag: 'wx' }).catch(error => {
       if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;
     }),
-    Fs.writeFile(miningBotWalletPath, JSON.stringify(miningBotKeypair.toJson(''), null, 2) + '\n'),
-    Fs.writeFile(vaultDelegateWalletPath, JSON.stringify(vaultDelegateKeypair.toJson(''), null, 2) + '\n'),
+    Fs.writeFile(miningBotWalletPath, JSON.stringify(miningBotAccount, null, 2) + '\n'),
+    Fs.writeFile(vaultDelegateWalletPath, JSON.stringify(vaultDelegateAccount, null, 2) + '\n'),
   ]);
 
   let existingState: Record<string, string | undefined> = {};
@@ -382,7 +382,7 @@ export async function prepareDevUpstreamServer({
     : undefined;
   const envState = {
     ...existingState,
-    MINING_FUNDING_ACCOUNT_ID: miningBotKeypair.address,
+    MINING_FUNDING_ACCOUNT_ID: walletKeys.miningBotAddress,
     VAULT_OPERATOR_ADDRESS: walletKeys.vaultingAddress,
     OPERATOR_ACCOUNT_ID: walletKeys.operationalAddress,
     ROUTER_RESTORE_KEY: restoreKey,
@@ -498,11 +498,8 @@ export function readComposeContainerId(args: { context?: DevDockerComposeContext
   return containerId;
 }
 
-export async function createDevUpstreamWalletKeys(): Promise<MemoryWalletKeys> {
-  return new MemoryWalletKeys({
-    substrateSuri: DEV_UPSTREAM_MASTER_MNEMONIC,
-    masterMnemonic: DEV_UPSTREAM_MASTER_MNEMONIC,
-  });
+export async function createDevUpstreamWalletKeys(): Promise<WalletKeys> {
+  return WalletKeys.fromMnemonic(DEV_UPSTREAM_MASTER_MNEMONIC);
 }
 
 export async function waitForDevUpstreamEthereumRelayReady(args: {
@@ -510,7 +507,7 @@ export async function waitForDevUpstreamEthereumRelayReady(args: {
   botPort: string;
 }): Promise<void> {
   const walletKeys = await createDevUpstreamWalletKeys();
-  const delegateAddress = (await walletKeys.getVaultDelegateKeypair()).address;
+  const delegateAddress = (await walletKeys.getVaultDelegateSigner()).address;
   const startedAt = Date.now();
   const timeoutMs = 120_000;
   let didFundDelegate = false;

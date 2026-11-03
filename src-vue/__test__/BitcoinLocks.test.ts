@@ -11,7 +11,7 @@ import {
   type ArgonCurrentQueryClient,
   type ArgonApi,
   type MainchainClients,
-  type TxSigningAccount,
+  type TxSigner,
   Vault,
 } from '@argonprotocol/apps-core';
 import { type TransactionTracker, TxAttemptState } from '../lib/TransactionTracker.ts';
@@ -137,7 +137,7 @@ describe('BitcoinLocks fee coupon recovery', () => {
     const estimate = await operation.preview({
       vault: { vaultId: 12 } as never,
       satoshis: 10_000n,
-      txSigner: { address: walletKeys.liquidLockingAddress } as TxSigningAccount,
+      txSigner: { address: walletKeys.liquidLockingAddress } as TxSigner,
       microgonsAtTargetPerBtc: 80_000_000n,
       feeDiscountMicrogons: 68n,
     });
@@ -260,7 +260,7 @@ describe('BitcoinLocks fee coupon recovery', () => {
           terms: { bitcoinBaseFee: 10n },
         } as never,
         satoshis: pendingInitialization.requestedSatoshis + 1n,
-        txSigner: { address: walletKeys.liquidLockingAddress } as TxSigningAccount,
+        txSigner: { address: walletKeys.liquidLockingAddress } as TxSigner,
         microgonsAtTargetPerBtc: 80_000_000n,
         operatorCoupon: {
           vaultId,

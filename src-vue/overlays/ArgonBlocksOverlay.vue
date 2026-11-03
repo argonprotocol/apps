@@ -86,6 +86,7 @@ import numeral, { createNumeralHelpers } from '../lib/numeral.ts';
 import { abbreviateAddress } from '../lib/Utils.ts';
 import { PopoverContent, PopoverPortal, PopoverRoot, PopoverTrigger } from 'reka-ui';
 import { getWalletKeys } from '../stores/wallets.ts';
+import { getMiningBotSubaccountCount } from '../stores/mainchain.ts';
 import { UnitOfMeasurement } from '../lib/Currency.ts';
 import PopoverPanelArrow from '../components/PopoverPanelArrow.vue';
 import { useFloatingZIndex } from './helpers/OverlayZIndex.ts';
@@ -106,12 +107,11 @@ const sortedBlocks = Vue.computed(() => {
 });
 
 const subaccounts = Vue.ref(new Set<string>());
-Vue.onMounted(() => {
-  walletKeys.getMiningBotSubaccounts().then(x => {
-    for (const key of Object.keys(x)) {
-      subaccounts.value.add(key);
-    }
-  });
+Vue.onMounted(async () => {
+  const accounts = await walletKeys.getMiningBotSubaccounts(await getMiningBotSubaccountCount());
+  for (const key of Object.keys(accounts)) {
+    subaccounts.value.add(key);
+  }
 });
 
 const props = withDefaults(

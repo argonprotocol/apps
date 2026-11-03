@@ -98,7 +98,7 @@ describe.skipIf(skipE2E).sequential('Bitcoin cooperative releases on real chains
       const changed = await sudoSubmitAndFinalize(client, client.tx.bitcoinLocks.adminModifyMinimumLockedSats(5_000n));
       if (changed.extrinsicError) throw changed.extrinsicError;
 
-      const owner = await walletKeys.getLiquidLockingKeypair();
+      const owner = await walletKeys.getLiquidLockingSigner();
       // Use the production lock submission and its finalized, published record.
       const vault = harness.myVault.createdVault!;
       const microgonsAtTargetPerBtc = (await client.query.bitcoinLocks.microgonPerBtcHistory()).at(-1)![1];
@@ -203,7 +203,7 @@ describe.skipIf(skipE2E).sequential('Bitcoin cooperative releases on real chains
       routerDb.userInvitesTable.claimInvite(
         invite.id,
         downstreamWallet.defaultArgonAddress,
-        (await downstreamWallet.getUpstreamOperatorAuthKeypair()).address,
+        (await downstreamWallet.getUpstreamOperatorAuthSigner()).address,
       );
 
       const router = new RouterServer({
@@ -250,7 +250,7 @@ describe.skipIf(skipE2E).sequential('Bitcoin cooperative releases on real chains
         micronots: 0n,
         archiveUrl: network.archiveUrl,
       });
-      const downstreamOwner = await downstreamWallet.getLiquidLockingKeypair();
+      const downstreamOwner = await downstreamWallet.getLiquidLockingSigner();
       expect(downstreamOwner.address).not.toBe(owner.address);
       const downstreamSatoshis = await downstream.bitcoinLocks.satoshisForArgonLiquidity(
         (harness.myVault.createdVault!.availableBitcoinSpace() * 4n) / 5n,
@@ -401,7 +401,7 @@ describe.skipIf(skipE2E).sequential('Bitcoin cooperative releases on real chains
 
       // An owner-approved request cannot turn compensated, still-unspent Bitcoin into a cooperative return.
       request.removalBlockNumber = compensated.blockNumber;
-      const keyAccess = vi.spyOn(walletKeys, 'getBitcoinChildXpriv');
+      const keyAccess = vi.spyOn(walletKeys, 'getBitcoinSigner');
       await expect(harness.myVault.createVaultSignatureForCooperativeRelease(request)).rejects.toThrow(
         'was funding it when removed',
       );

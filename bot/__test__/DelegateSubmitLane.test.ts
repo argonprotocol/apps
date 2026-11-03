@@ -1,8 +1,8 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import type { ArgonClient } from '@argonprotocol/apps-core';
+import { type ArgonClient, TxSigner } from '@argonprotocol/apps-core';
 import { DelegateSubmitLane } from '../src/DelegateSubmitLane.ts';
 
-const keypair = { address: 'delegate-account' } as any;
+const signer = new TxSigner({ address: 'delegate-account' } as any);
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -23,7 +23,7 @@ describe('DelegateSubmitLane', () => {
         [103, 5],
       ]),
     };
-    const lane = new DelegateSubmitLane(keypair);
+    const lane = new DelegateSubmitLane(signer);
     lane.client = createClient(nonceState);
 
     const nonceAssigned = vi.fn();
@@ -60,7 +60,7 @@ describe('DelegateSubmitLane', () => {
       pool: 5,
       nonceByBlock: new Map([[100, 4]]),
     };
-    const lane = new DelegateSubmitLane(keypair);
+    const lane = new DelegateSubmitLane(signer);
     lane.client = createClient(nonceState);
 
     const nonceAssigned = vi.fn();
@@ -86,7 +86,7 @@ describe('DelegateSubmitLane', () => {
       pool: 4,
       nonceByBlock: new Map([[100, 4]]),
     };
-    const lane = new DelegateSubmitLane(keypair);
+    const lane = new DelegateSubmitLane(signer);
     lane.client = createClient(nonceState);
     const at = vi.spyOn(lane.client, 'at').mockRejectedValueOnce(new Error('4003: State already discarded'));
 
@@ -105,7 +105,7 @@ describe('DelegateSubmitLane', () => {
       pool: 4,
       nonceByBlock: new Map([[100, 4]]),
     };
-    const lane = new DelegateSubmitLane(keypair);
+    const lane = new DelegateSubmitLane(signer);
     lane.client = createClient(nonceState);
     const error = new Error('Unexpected codec failure');
     const at = vi.spyOn(lane.client, 'at').mockRejectedValueOnce(error);
@@ -127,7 +127,7 @@ describe('DelegateSubmitLane', () => {
       pool: 5,
       nonceByBlock: new Map([[100, 4]]),
     };
-    const lane = new DelegateSubmitLane(keypair);
+    const lane = new DelegateSubmitLane(signer);
     lane.client = createClient(nonceState);
     vi.spyOn(console, 'error').mockImplementation(() => undefined);
 
@@ -150,7 +150,7 @@ describe('DelegateSubmitLane', () => {
       pool: 4,
       nonceByBlock: new Map([[100, 4]]),
     };
-    const lane = new DelegateSubmitLane(keypair);
+    const lane = new DelegateSubmitLane(signer);
     lane.client = createClient(nonceState);
     const getHeader = vi.mocked(lane.client.rpc.chain.getHeader);
     getHeader.mockReturnValueOnce(new Promise<never>(() => undefined));

@@ -18,9 +18,8 @@ import {
 } from '../../../src-vue/interfaces/IConfig.ts';
 import { Config } from '../../../src-vue/lib/Config.ts';
 import type { TransactionInfo } from '../../../src-vue/lib/TransactionInfo.ts';
-import { getBot } from '../../../src-vue/stores/bot.ts';
+import { getBot, getInstaller } from '../../../src-vue/stores/startup.ts';
 import { getConfig } from '../../../src-vue/stores/config.ts';
-import { getInstaller } from '../../../src-vue/stores/installer.ts';
 import { getMiningSetup } from '../../../src-vue/stores/wallets.ts';
 import { getMyMiningSeats } from '../../../src-vue/stores/myMiningSeats.ts';
 import { useFinancials } from '../../../src-vue/stores/financials.ts';

@@ -1,5 +1,5 @@
 import { getHistoricalBitcoinLockDetails } from '../recovery/BitcoinLockHistory.ts';
-import { BitcoinLock, type ArgonClient, type TxSigningAccount } from '@argonprotocol/apps-core';
+import { BitcoinLock, type ArgonClient, type TxSigner } from '@argonprotocol/apps-core';
 import { addressBytesHex, type IBitcoinReleaseRequest } from '@argonprotocol/bitcoin';
 import { formatArgons, u8aToHex } from '@argonprotocol/mainchain';
 
@@ -22,7 +22,7 @@ export interface BitcoinLockReleaseInput {
   destinationSatoshis: bigint;
   bitcoinNetworkFee: bigint;
   toScriptPubkey: string;
-  txSigner: TxSigningAccount;
+  txSigner: TxSigner;
   tip?: bigint;
   client?: ArgonClient;
 }

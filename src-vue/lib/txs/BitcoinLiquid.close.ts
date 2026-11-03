@@ -4,7 +4,7 @@ import {
   type Currency,
   type BlockWatch,
   type ArgonClient,
-  type TxSigningAccount,
+  type TxSigner,
 } from '@argonprotocol/apps-core';
 
 import type { BitcoinFissions } from '../BitcoinFissions.ts';
@@ -20,7 +20,7 @@ import {
 
 export interface BitcoinLiquidCloseInput {
   liquidId: number;
-  txSigner: TxSigningAccount;
+  txSigner: TxSigner;
   tip?: bigint;
   client?: ArgonClient;
 }

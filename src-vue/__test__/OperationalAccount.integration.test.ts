@@ -92,7 +92,7 @@ describe.skipIf(skipE2E).sequential('OperationalAccount integration tests', { ti
       const txInfo = await bitcoinLockCreate.submit({
         vault,
         satoshis,
-        txSigner: await walletKeys.getLiquidLockingKeypair(),
+        txSigner: await walletKeys.getLiquidLockingSigner(),
       });
 
       const blockHash = txInfo.tx.blockHash ?? (await txInfo.txResult.waitForInFirstBlock);
@@ -107,7 +107,7 @@ describe.skipIf(skipE2E).sequential('OperationalAccount integration tests', { ti
         vaultId: vault.vaultId,
         bondPurchaseMicrogons: rewardConfig.treasuryMinimumBonds,
       });
-      const treasurySigner = await walletKeys.getTreasuryKeypair();
+      const treasurySigner = await walletKeys.getTreasurySigner();
 
       const transferTotalsKey = runtimeClient.query.crosschainTransfer.transferTotalsByAccount.key(
         walletKeys.treasuryAddress,

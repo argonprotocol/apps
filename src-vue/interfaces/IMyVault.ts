@@ -10,8 +10,8 @@ type IMyVaultWalletKeysQueryRef = Pick<
   | 'coreEthereumAddress'
   | 'getEthereumAddresses'
   | 'getMintingAuthorityEthereumHdPath'
-  | 'getVaultDelegateKeypair'
-  | 'getVaultingKeypair'
+  | 'getVaultDelegateSigner'
+  | 'getVaultingSigner'
   | 'signEthereumPersonalMessage'
 >;
 

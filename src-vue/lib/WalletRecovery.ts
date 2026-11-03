@@ -96,7 +96,7 @@ export class WalletRecovery {
       );
     }
     const minerFirstBidBlock = miningActivity.blocks.at(0)?.blockNumber ?? null;
-    const accountSubaccounts = await this.walletKeys.getMiningBotSubaccounts();
+    const accountSubaccounts = await this.walletKeys.getMiningBotSubaccounts(liveClient.consts.mint.maxPossibleMiners);
     onProgress(15);
 
     const currentFrameBids: IMiningAccountPreviousHistoryBid[] = [];

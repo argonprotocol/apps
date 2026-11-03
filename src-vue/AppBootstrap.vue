@@ -3,44 +3,44 @@
     class="from-argon-600/6 via-argon-menu-bg flex h-screen w-screen cursor-default flex-col overflow-hidden rounded-[10px] bg-gradient-to-br to-white"
   >
     <div
-      class="flex min-h-14 w-full flex-row items-center bg-white/95 select-none"
+      class="TopBar relative flex min-h-14 w-full flex-row items-center bg-white/95 select-none"
       style="border-radius: 10px 10px 0 0; box-shadow: 0 2px 2px rgba(0, 0, 0, 0.2)"
       data-tauri-drag-region
     >
+      <!-- prettier-ignore -->
+      <div class="pointer-events-none absolute top-0 right-0 h-[calc(100%+4px)] w-2/3 rounded-tr-[10px] bg-gradient-to-r from-transparent via-[var(--bg-color)] via-55% to-[var(--bg-color)]" />
+      <!-- prettier-ignore -->
+      <div class="absolute right-2 -bottom-px h-px w-full bg-slate-400/30" />
       <div class="pointer-events-none relative top-px flex w-1/2 flex-row items-center">
         <WindowControls />
-        <div class="text-argon-text-primary text-[19px] font-bold whitespace-nowrap">
+        <div class="relative top-px text-[19px] font-bold whitespace-nowrap">
           {{ APP_NAME }}
         </div>
       </div>
 
       <div class="pointer-events-none relative top-px mr-3 flex w-1/2 grow flex-row items-center justify-end space-x-2">
         <button
-          v-if="!isBrowserUnsupported"
-          class="text-argon-600/70 hover:text-argon-600 decoration-argon-600/30 hover:decoration-argon-600/70 pointer-events-auto cursor-pointer px-2 py-2 text-xs font-medium underline underline-offset-4 transition"
-          @click="openMnemonicExport"
-        >
-          Export recovery phrase
-        </button>
-        <button
-          v-if="!isBrowserUnsupported && phase !== 'upgrade-required'"
+          v-if="shouldShowCompatibilityScreen && !isBrowserUnsupported && !isLoading && phase !== 'upgrade-required'"
           class="text-argon-600 border-argon-600/20 hover:border-argon-600/40 hover:bg-argon-600/6 pointer-events-auto cursor-pointer rounded-full border bg-white/70 px-4 py-2 text-sm font-semibold transition disabled:opacity-70"
-          :disabled="isLoading"
           @click="runtimeCompatibility.refreshCompatibility('manual')"
         >
-          <template v-if="isLoading">Loading...</template>
-          <template v-else>Retry Now</template>
+          Retry Now
         </button>
+        <NavigationMenuRoot class="pointer-events-auto relative" :delay-duration="0">
+          <NavigationMenuList>
+            <AccountMenu startup-only :can-back-up-mnemonic="!isBrowserUnsupported" />
+          </NavigationMenuList>
+          <NavigationMenuViewport
+            align="end"
+            class="bg-argon-menu-bg absolute top-full left-[var(--reka-navigation-menu-viewport-left)] z-50 mt-2 h-[var(--reka-navigation-menu-viewport-height)] w-[var(--reka-navigation-menu-viewport-width)] rounded border border-gray-900/20 shadow-lg"
+          />
+        </NavigationMenuRoot>
       </div>
     </div>
 
-    <main class="relative flex h-full items-center justify-center px-6 py-20">
-      <div v-if="isLoading" class="mb-8 flex flex-col items-center justify-center py-10">
-        <Spinner class="mr-0" />
-        <div class="text-argon-600/70 mt-4 text-xs font-semibold tracking-[0.3em] uppercase">Loading</div>
-      </div>
+    <main class="relative flex min-h-0 flex-1 items-center justify-center px-6 py-20">
       <section
-        v-else
+        v-if="shouldShowCompatibilityScreen && !isLoading"
         class="inner-input-shadow bg-argon-menu-bg w-full max-w-3xl rounded-md border border-black/30 p-8 backdrop-blur"
         style="
           box-shadow:
@@ -117,20 +117,63 @@
           </div>
         </div>
       </section>
+      <section
+        v-else-if="isRecovering"
+        class="max-h-full w-full max-w-xl overflow-y-auto rounded-lg border border-slate-300 bg-white p-6"
+      >
+        <h1 class="mb-4 text-xl font-bold text-slate-700">Recover Account Access</h1>
+        <FromMnemonic recovery-only @close="isRecovering = false" @recovered="openAccount" />
+      </section>
+      <section v-else-if="startup.errorMessage && !startup.isLoading" class="w-full max-w-sm text-center">
+        <p class="mt-4 text-sm text-slate-600" role="alert">{{ startup.errorMessage }}</p>
+        <button
+          type="button"
+          class="bg-argon-button hover:bg-argon-button-hover mt-6 cursor-pointer rounded-md px-4 py-1 font-bold text-white"
+          @click="openAccount()"
+        >
+          Try again
+        </button>
+        <button
+          type="button"
+          class="mt-4 block w-full cursor-pointer text-sm text-slate-600 underline"
+          @click="isRecovering = true"
+        >
+          Recover from Mnemonic
+        </button>
+      </section>
+      <div v-else class="flex flex-col items-center pb-12 text-center" role="status" aria-live="polite">
+        <ArgonLogo class="text-argon-800/80 mx-auto mb-3 block h-28 w-28" aria-hidden="true" />
+        <h1 class="text-argon-600 mt-5 text-5xl font-bold">Argon Desktop</h1>
+        <div class="mt-7 flex items-center justify-center gap-3 font-light text-gray-500">
+          <Spinner class="mr-0" aria-hidden="true" />
+          <span>Loading…</span>
+        </div>
+      </div>
     </main>
   </div>
 </template>
 
 <script setup lang="ts">
+import * as Vue from 'vue';
 import { storeToRefs } from 'pinia';
-import WindowControls from '../tauri-controls/WindowControls.vue';
-import ProgressBar from '../components/ProgressBar.vue';
-import Spinner from '../components/Spinner.vue';
-import basicEmitter from '../emitters/basicEmitter.ts';
-import { APP_NAME } from '../lib/Env.ts';
-import { useAppUpdater } from '../stores/appUpdater.ts';
-import { useRuntimeCompatibility } from '../stores/runtimeCompatibility.ts';
-import { platformType } from '../tauri-controls/utils/os.ts';
+import { useStartupStore } from './stores/startup.ts';
+import FromMnemonic from './overlays/import-account/FromMnemonic.vue';
+import type { EncryptionAuthentication } from './lib/EncryptionSecret.ts';
+import WindowControls from './tauri-controls/WindowControls.vue';
+import ProgressBar from './components/ProgressBar.vue';
+import Spinner from './components/Spinner.vue';
+import ArgonLogo from './assets/wallets/tokens/argon.svg?component';
+import AccountMenu from './navigation/AccountMenu.vue';
+import { NavigationMenuList, NavigationMenuRoot, NavigationMenuViewport } from 'reka-ui';
+import { APP_NAME } from './lib/Env.ts';
+import { useAppUpdater } from './stores/appUpdater.ts';
+import { useRuntimeCompatibility } from './stores/runtimeCompatibility.ts';
+import { platformType } from './tauri-controls/utils/os.ts';
+
+const emit = defineEmits<{ openAccount: [authentication?: EncryptionAuthentication] }>();
+
+const startup = useStartupStore();
+const isRecovering = Vue.ref(false);
 
 const updater = useAppUpdater();
 const runtimeCompatibility = useRuntimeCompatibility();
@@ -162,9 +205,11 @@ const {
   isBrowserUnsupported,
   isLoading,
   phase,
+  shouldShowCompatibilityScreen,
 } = storeToRefs(runtimeCompatibility);
 
-function openMnemonicExport() {
-  basicEmitter.emit('openSecuritySettingsOverlay', { screen: 'mnemonics' });
+function openAccount(authentication?: EncryptionAuthentication) {
+  isRecovering.value = false;
+  emit('openAccount', authentication);
 }
 </script>

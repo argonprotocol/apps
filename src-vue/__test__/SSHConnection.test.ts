@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { ServerType } from '../interfaces/IConfig.ts';
 import { SSHConnection } from '../lib/SSHConnection.ts';
 import { InvokeTimeout } from '../lib/tauriApi.ts';
+import { createTestWallet } from './helpers/wallet.ts';
 
 const { invokeWithTimeout, listen, MockInvokeTimeout } = vi.hoisted(() => {
   class MockInvokeTimeout extends Error {}
@@ -41,13 +42,16 @@ describe('SSHConnection', () => {
       .mockResolvedValueOnce('success')
       .mockResolvedValueOnce(['ok', 0]);
 
-    const connection = new SSHConnection({
-      type: ServerType.LocalComputer,
-      ipAddress: '127.0.0.1',
-      sshPort: 55404,
-      sshUser: 'root',
-      workDir: '/app',
-    });
+    const connection = new SSHConnection(
+      {
+        type: ServerType.LocalComputer,
+        ipAddress: '127.0.0.1',
+        sshPort: 55404,
+        sshUser: 'root',
+        workDir: '/app',
+      },
+      createTestWallet().walletKeys,
+    );
 
     await connection.connect(0);
 
@@ -70,13 +74,16 @@ describe('SSHConnection', () => {
       .mockResolvedValueOnce('success')
       .mockResolvedValueOnce(['ok', 0]);
 
-    const connection = new SSHConnection({
-      type: ServerType.LocalComputer,
-      ipAddress: '127.0.0.1',
-      sshPort: 55404,
-      sshUser: 'root',
-      workDir: '/app',
-    });
+    const connection = new SSHConnection(
+      {
+        type: ServerType.LocalComputer,
+        ipAddress: '127.0.0.1',
+        sshPort: 55404,
+        sshUser: 'root',
+        workDir: '/app',
+      },
+      createTestWallet().walletKeys,
+    );
 
     await connection.connect(0);
 
@@ -97,13 +104,16 @@ describe('SSHConnection', () => {
       .mockRejectedValueOnce(new Error('SSH upload timed out after 120s'))
       .mockResolvedValueOnce('success');
 
-    const connection = new SSHConnection({
-      type: ServerType.LocalComputer,
-      ipAddress: '127.0.0.1',
-      sshPort: 55404,
-      sshUser: 'root',
-      workDir: '/app',
-    });
+    const connection = new SSHConnection(
+      {
+        type: ServerType.LocalComputer,
+        ipAddress: '127.0.0.1',
+        sshPort: 55404,
+        sshUser: 'root',
+        workDir: '/app',
+      },
+      createTestWallet().walletKeys,
+    );
 
     await expect(
       connection.uploadEmbeddedFileWithTimeout(
@@ -127,13 +137,16 @@ describe('SSHConnection', () => {
   it('passes the small upload deadline to the backend', async () => {
     invokeWithTimeout.mockResolvedValueOnce('success');
 
-    const connection = new SSHConnection({
-      type: ServerType.LocalComputer,
-      ipAddress: '127.0.0.1',
-      sshPort: 55404,
-      sshUser: 'root',
-      workDir: '/app',
-    });
+    const connection = new SSHConnection(
+      {
+        type: ServerType.LocalComputer,
+        ipAddress: '127.0.0.1',
+        sshPort: 55404,
+        sshUser: 'root',
+        workDir: '/app',
+      },
+      createTestWallet().walletKeys,
+    );
 
     await expect(connection.uploadFileWithTimeout('manifest', '~/.argon-server.json', 10_000)).resolves.toBeUndefined();
 
@@ -160,13 +173,16 @@ describe('SSHConnection', () => {
       throw new Error('SSH upload timed out after 120s');
     });
 
-    const connection = new SSHConnection({
-      type: ServerType.LocalComputer,
-      ipAddress: '127.0.0.1',
-      sshPort: 55404,
-      sshUser: 'root',
-      workDir: '/app',
-    });
+    const connection = new SSHConnection(
+      {
+        type: ServerType.LocalComputer,
+        ipAddress: '127.0.0.1',
+        sshPort: 55404,
+        sshUser: 'root',
+        workDir: '/app',
+      },
+      createTestWallet().walletKeys,
+    );
 
     await expect(
       connection.uploadEmbeddedFileWithTimeout(

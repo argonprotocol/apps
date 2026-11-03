@@ -166,7 +166,7 @@ async function submit(action: 'connect' | 'update'): Promise<void> {
       }
 
       path = '/role-proofs';
-      const operationalKey = await getWalletKeys().getOperationalKeypair();
+      const operationalKey = await getWalletKeys().getOperationalSigner();
       const roleClaim = {
         discordApplicationId: DISCORD_VERIFICATION_CONFIG.applicationId,
         verificationCode: code,
@@ -189,7 +189,7 @@ async function submit(action: 'connect' | 'update'): Promise<void> {
         treasuryMemberSeal,
       };
     } else {
-      const operationalKey = await getWalletKeys().getOperationalKeypair();
+      const operationalKey = await getWalletKeys().getOperationalSigner();
       const proof = {
         version: 1,
         discordApplicationId: DISCORD_VERIFICATION_CONFIG.applicationId,

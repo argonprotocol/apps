@@ -73,7 +73,7 @@ import { XMarkIcon } from '@heroicons/vue/24/outline';
 import Tooltip from '../components/Tooltip.vue';
 import BotSettings from '../components/BotSettings.vue';
 import Draggable from './helpers/Draggable.ts';
-import { getBot } from '../stores/bot.ts';
+import { getBot } from '../stores/startup.ts';
 import basicEmitter from '../emitters/basicEmitter.ts';
 import { provideOverlayContentZIndex, useFloatingZIndex, useOverlayZIndex } from './helpers/OverlayZIndex.ts';
 

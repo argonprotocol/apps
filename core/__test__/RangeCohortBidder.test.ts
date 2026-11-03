@@ -14,6 +14,7 @@ import {
   RangeCohortBidder,
   TxResult,
   TxSubmitter,
+  TxSigner,
 } from '../src/index.ts';
 
 afterEach(() => vi.restoreAllMocks());
@@ -61,7 +62,7 @@ it.for([
   const submitter = new TxSubmitter(
     api as unknown as ArgonClient,
     registry.createType('Extrinsic') as never,
-    accountset.txSubmitterPair,
+    accountset.txSigner,
   );
   vi.spyOn(submitter, 'feeEstimate').mockResolvedValue(fee);
   vi.spyOn(accountset, 'createMiningBidTx').mockResolvedValue(submitter);
@@ -136,7 +137,7 @@ it('waits three blocks from canonical commitment inclusion, including a reorg du
     frameId: 10,
   }).maxHash;
 
-  const submitter = new TxSubmitter(client, registry.createType('Extrinsic') as never, accountset.txSubmitterPair);
+  const submitter = new TxSubmitter(client, registry.createType('Extrinsic') as never, accountset.txSigner);
   vi.spyOn(accountset, 'createMiningBidMaxTx').mockResolvedValue(submitter);
   let reorgDuringSigning = true;
   vi.spyOn(submitter, 'signMortal').mockImplementation(async () => {
@@ -379,7 +380,7 @@ function createReceiptScenario() {
   const frames = new MiningFrames(clients, blockWatch);
   const accountset = new Accountset({
     client: blockWatch.subscriptionClient,
-    txSubmitter: new Keyring({ type: 'sr25519' }).addFromUri('//Alice'),
+    txSubmitter: new TxSigner(new Keyring({ type: 'sr25519' }).addFromUri('//Alice')),
     sessionMiniSecretOrMnemonic: mnemonicGenerate(),
   });
   const accounts = accountset.getAccountsInRange([0]).map(account => ({ ...account, isRebid: false }));

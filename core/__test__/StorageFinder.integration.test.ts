@@ -9,6 +9,7 @@ import {
   TransactionEvents,
   TxSubmitter,
   Vault,
+  TxSigner,
 } from '@argonprotocol/apps-core';
 import { it, beforeAll, afterAll, describe, expect, inject } from 'vitest';
 import { integrationAccountUri } from './integrationNetwork.ts';
@@ -51,7 +52,7 @@ describe.skipIf(skipE2E)('Storage/Fees Finder tests', () => {
       bitcoinXpubkey: bs58check.decode(vaultMasterXpub),
       delegateAccountId: null,
     });
-    const txResult = await new TxSubmitter(client, createVaultTx, alice).submit({ useLatestNonce: true });
+    const txResult = await new TxSubmitter(client, createVaultTx, new TxSigner(alice)).submit({ useLatestNonce: true });
     await txResult.waitForFinalizedBlock;
     const vaultCreated = txResult.events.find(event => event.section === 'vaults' && event.method === 'VaultCreated');
     if (!vaultCreated) throw new Error('VaultCreated event not found');

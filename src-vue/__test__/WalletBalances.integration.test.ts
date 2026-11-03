@@ -7,6 +7,7 @@ import {
   MainchainClients,
   NetworkConfig,
   TxSubmitter,
+  TxSigner,
 } from '@argonprotocol/apps-core';
 import { it, beforeAll, afterAll, describe, expect, inject, vi } from 'vitest';
 import { integrationAccountUri } from '@argonprotocol/apps-core/__test__/integrationNetwork.ts';
@@ -91,7 +92,7 @@ describe
         const result = await new TxSubmitter(
           client,
           client.tx.balances.transferKeepAlive(operationalAccount.address, 5_000_000n),
-          alice,
+          new TxSigner(alice),
         ).submit();
         await result.waitForInFirstBlock;
         await expect(didGetOperationalBalance.promise).resolves.toBeUndefined();

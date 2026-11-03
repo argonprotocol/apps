@@ -1,6 +1,7 @@
 import { InvokeTimeout, invokeWithTimeout } from './tauriApi';
 import { listen } from '@tauri-apps/api/event';
 import { IConfigServerDetails, ServerType } from '../interfaces/IConfig.ts';
+import type { WalletKeys } from './WalletKeys.ts';
 
 export type ISSHConfig = IConfigServerDetails;
 
@@ -18,7 +19,10 @@ export class SSHConnection {
   public isDockerHostProxy = false;
   public isDestroyed = false;
 
-  constructor(sshConfig: ISSHConfig) {
+  constructor(
+    sshConfig: ISSHConfig,
+    private readonly walletKeys: WalletKeys,
+  ) {
     this.host = sshConfig.ipAddress;
     this.port = sshConfig.sshPort ?? 22;
     this.username = sshConfig.sshUser;
@@ -44,7 +48,12 @@ export class SSHConnection {
         return;
       }
       try {
-        await invokeWithTimeout('open_ssh_connection', sshConfig, 30e3);
+        const privateKeySeed = await this.walletKeys.getSshPrivateKeySeed();
+        await invokeWithTimeout(
+          'open_ssh_connection',
+          { ...sshConfig, privateKeySeed: Array.from(privateKeySeed) },
+          30e3,
+        );
         this.isConnected = true;
         resolve();
       } catch (error) {

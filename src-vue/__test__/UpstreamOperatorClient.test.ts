@@ -99,8 +99,8 @@ it('refuses redirects when claiming a pasted invite', async () => {
   await UpstreamOperatorClient.claimInvite({
     operatorHost: 'https://203.0.113.10',
     inviteCode: 'member-invite-1',
-    defaultAccountKeypair: await walletKeys.getLiquidLockingKeypair(),
-    authKeypair: await walletKeys.getUpstreamOperatorAuthKeypair(),
+    defaultAccountSigner: await walletKeys.getLiquidLockingSigner(),
+    authSigner: await walletKeys.getUpstreamOperatorAuthSigner(),
   });
 
   expect(fetchMock).toHaveBeenCalledOnce();

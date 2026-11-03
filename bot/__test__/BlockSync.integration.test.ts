@@ -2,7 +2,7 @@ import { integrationNetwork as sharedNetwork } from '@argonprotocol/apps-core/__
 import { afterAll, afterEach, beforeAll, expect, inject, it } from 'vitest';
 import { runOnTeardown, teardown } from '@argonprotocol/testing';
 import { Keyring, mnemonicGenerate } from '@argonprotocol/mainchain';
-import { Accountset, MainchainClients, MiningFrames, NetworkConfig } from '@argonprotocol/apps-core';
+import { Accountset, MainchainClients, MiningFrames, NetworkConfig, TxSigner } from '@argonprotocol/apps-core';
 import { BlockSync } from '../src/BlockSync.js';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -32,8 +32,10 @@ it.skipIf(skipE2E)('starts at the first known frame block and resumes forward af
 
   const accountset = new Accountset({
     client,
-    txSubmitter: new Keyring({ type: 'sr25519' }).addFromUri(
-      integrationAccountUri(inject('argonIntegrationRunId'), import.meta.filename, 'funded'),
+    txSubmitter: new TxSigner(
+      new Keyring({ type: 'sr25519' }).addFromUri(
+        integrationAccountUri(inject('argonIntegrationRunId'), import.meta.filename, 'funded'),
+      ),
     ),
     sessionMiniSecretOrMnemonic: mnemonicGenerate(),
     subaccountRange: new Array(99).fill(0).map((_, i) => i),

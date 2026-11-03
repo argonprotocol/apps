@@ -1,15 +1,19 @@
-import { MoveFrom, MoveTo, MoveToken, TxResult } from '@argonprotocol/apps-core';
+import { MoveFrom, MoveTo, MoveToken, TxResult, type ArgonClient, type BlockWatch } from '@argonprotocol/apps-core';
 import * as Vue from 'vue';
 import { describe, expect, it, vi } from 'vitest';
 
 import { MoveCapital } from '../lib/MoveCapital.ts';
 import { TransactionInfo } from '../lib/TransactionInfo.ts';
-import type { TransactionTracker } from '../lib/TransactionTracker.ts';
-import { TxAttemptState } from '../lib/TransactionTracker.ts';
+import { TransactionTracker, TxAttemptState } from '../lib/TransactionTracker.ts';
 import { existentialDepositMicronots } from '../lib/WalletForArgon.ts';
-import type { WalletKeys } from '../lib/WalletKeys.ts';
+import { WalletKeys } from '../lib/WalletKeys.ts';
 import { ExtrinsicType, type ITransactionRecord, TransactionStatus } from '../lib/db/TransactionsTable.ts';
 import type { IAllocationChange, ITransactionMoveMetadata } from '../lib/txs/Balance.transfer.ts';
+import { getOfflineRegistry, hexToU8a, u8aToHex, type KeyringPair } from '@argonprotocol/mainchain';
+import { signatureVerify } from '@polkadot/util-crypto';
+import type { SignerOptions } from '@polkadot/api-base/types';
+import { createTestDb } from './helpers/db.ts';
+import * as mainchain from '../stores/mainchain.ts';
 
 const argonAddress = '5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY';
 
@@ -206,7 +210,7 @@ describe('MoveCapital', () => {
       load: vi.fn().mockResolvedValue(undefined),
       getTxAttemptState: vi.fn().mockResolvedValue(TxAttemptState.Pending),
     } as unknown as TransactionTracker;
-    const moveCapital = new MoveCapital({} as WalletKeys, transactionTracker);
+    const moveCapital = new MoveCapital({} as WalletKeys, transactionTracker, async () => {});
     moveCapital.data = Vue.shallowReactive(moveCapital.data);
     const observedPendingIds: (number | undefined)[] = [];
     const stopObserving = Vue.watch(
@@ -280,6 +284,7 @@ describe('MoveCapital', () => {
         pendingBlockTxInfosAtLoad: [],
         load: vi.fn().mockResolvedValue(undefined),
       } as unknown as TransactionTracker,
+      async () => {},
     );
 
     await moveCapital.load();
@@ -316,6 +321,7 @@ describe('MoveCapital', () => {
         pendingBlockTxInfosAtLoad: [txInfo],
         load: vi.fn().mockResolvedValue(undefined),
       } as unknown as TransactionTracker,
+      async () => {},
     );
 
     await moveCapital.load();
@@ -325,7 +331,13 @@ describe('MoveCapital', () => {
     expect(moveCapital.data.allocationError).toBeUndefined();
   });
 
-  it('continues a missing allocation leg after restart', async () => {
+  it('continues a missing allocation leg after restart using session signing', async () => {
+    const db = await createTestDb();
+    const mnemonic = 'test test test test test test test test test test test junk';
+    const keys = WalletKeys.fromMnemonic(mnemonic);
+    const authenticate = vi.fn(async () => {
+      throw new Error('Internal allocation must not prompt');
+    });
     const allocationChange: IAllocationChange = {
       id: 'allocation-1',
       targetMicrogons: 50n,
@@ -344,34 +356,85 @@ describe('MoveCapital', () => {
         },
       ],
     };
-    const firstLeg = createAllocationTransaction(1, allocationChange);
-    const secondLeg = createAllocationTransaction(2, { ...allocationChange, legIndex: 1 });
-    const followOn = { resolve: vi.fn(), reject: vi.fn() };
-    const transactionTracker = {
-      data: { txInfos: [firstLeg] },
-      pendingBlockTxInfosAtLoad: [],
-      load: vi.fn().mockResolvedValue(undefined),
-      getTxAttemptState: vi.fn().mockResolvedValue(TxAttemptState.Finalized),
-      createIntentForFollowOnTx: vi.fn().mockReturnValue(followOn),
-    } as unknown as TransactionTracker;
-    const moveCapital = new MoveCapital({} as WalletKeys, transactionTracker);
-    const move = vi.spyOn(moveCapital, 'move').mockImplementation(async () => {
-      transactionTracker.data.txInfos.push(secondLeg);
-      return secondLeg;
+    const first = await db.transactionsTable.insert({
+      extrinsicHash: `0x${'01'.repeat(32)}`,
+      extrinsicMethodJson: {},
+      metadataJson: { ...allocationChange.legs[0], allocationChange },
+      extrinsicType: ExtrinsicType.Transfer,
+      accountAddress: keys.defaultArgonAddress,
+      submittedAtBlockHeight: 1,
+      submittedAtTime: new Date(),
+      txNonce: 0,
     });
-
-    await moveCapital.load();
-    await vi.waitFor(() => expect(move).toHaveBeenCalledOnce());
-    await secondLeg.waitForPostProcessing;
-    await Promise.resolve();
-
-    expect(move).toHaveBeenCalledWith({
-      ...allocationChange.legs[1],
-      allocationChange: { ...allocationChange, legIndex: 1 },
-      client: undefined,
+    const block = { blockNumber: 1, blockHash: `0x${'10'.repeat(32)}`, blockTime: new Date() };
+    await db.transactionsTable.recordInBlock(first, {
+      ...block,
+      tip: 0n,
+      feePlusTip: 1n,
+      extrinsicIndex: 0,
+      transactionEvents: [],
     });
-    expect(followOn.resolve).toHaveBeenCalledWith(secondLeg);
-    await vi.waitFor(() => expect(moveCapital.data.pendingAllocationChange).toBeUndefined());
+    await db.transactionsTable.markFinalized(first, block);
+
+    const payload = '0x010203';
+    const signatures: { signature: string; address: string }[] = [];
+    const extrinsic = {
+      paymentInfo: async () => ({ partialFee: { toBigInt: () => 1n } }),
+      signAsync: async (keypair: KeyringPair, options: SignerOptions) => {
+        const address = keypair.address;
+        const signature = u8aToHex(keypair.sign(hexToU8a(payload), { withType: true }));
+        signatures.push({ signature, address });
+        return {
+          hash: { toHex: () => `0x${'02'.repeat(32)}` },
+          method: { toHuman: () => ({}) },
+          nonce: { toNumber: () => 0 },
+          era: options.era,
+          send: async () => {
+            throw new Error('Chain rejected the follow-on');
+          },
+        };
+      },
+    };
+    const tx = Object.assign((value: unknown) => value, {
+      ownership: { transferAllowDeath: () => extrinsic },
+      balances: { transferAllowDeath: () => extrinsic },
+    });
+    const client = {
+      tx,
+      registry: getOfflineRegistry(),
+      consts: { system: { blockHashCount: 256 } },
+      derive: { tx: { signingInfo: async () => ({ nonce: 0, mortalLength: 64 }) } },
+      query: { system: { account: async () => ({ data: { free: 1_000n } }) } },
+      rpc: {
+        system: { accountNextIndex: async () => ({ toNumber: () => 0 }) },
+        chain: { getHeader: async () => ({ number: { toNumber: () => 2 } }) },
+      },
+    } as unknown as ArgonClient;
+    const chain = vi.spyOn(mainchain, 'getMainchainClient').mockResolvedValue(client);
+    const blockWatch = {
+      start: async () => undefined,
+      bestBlockHeader: block,
+      finalizedBlockHeader: block,
+      events: { on: () => () => undefined },
+    } as unknown as BlockWatch;
+    const tracker = new TransactionTracker(Promise.resolve(db), blockWatch);
+    const moveCapital = new MoveCapital(keys, tracker, authenticate);
+    try {
+      await moveCapital.load();
+      await vi.waitFor(() => expect(moveCapital.data.allocationError).toBe('Chain rejected the follow-on'));
+      expect(moveCapital.data.pendingAllocationChange).toBeUndefined();
+      expect(authenticate).not.toHaveBeenCalled();
+      expect(signatures).toHaveLength(1);
+      expect(signatureVerify(payload, signatures[0].signature, keys.miningBotAddress).isValid).toBe(true);
+      const rows = await db.transactionsTable.fetchAll();
+      expect(rows).toHaveLength(2);
+      expect(rows.find(row => row.id === first.id)?.followOnTxId).toBe(rows.find(row => row.id !== first.id)?.id);
+      expect(rows.find(row => row.id !== first.id)?.submissionErrorJson?.message).toBe('Chain rejected the follow-on');
+    } finally {
+      await tracker.shutdown();
+      chain.mockRestore();
+      await db.close();
+    }
   });
 
   it('replaces the active allocation leg after restart', async () => {
@@ -395,7 +458,7 @@ describe('MoveCapital', () => {
       load: vi.fn().mockResolvedValue(undefined),
       getTxAttemptState: vi.fn().mockResolvedValue(TxAttemptState.Replace),
     } as unknown as TransactionTracker;
-    const moveCapital = new MoveCapital({} as WalletKeys, transactionTracker);
+    const moveCapital = new MoveCapital({} as WalletKeys, transactionTracker, async () => {});
     const move = vi.spyOn(moveCapital, 'move').mockResolvedValue(expiredLeg);
 
     await moveCapital.load();
@@ -420,6 +483,7 @@ function createMoveCapital() {
       pendingBlockTxInfosAtLoad: [],
       load: vi.fn().mockResolvedValue(undefined),
     } as any,
+    async () => {},
   );
 }
 

@@ -134,8 +134,7 @@ import Restarter from '../../lib/Restarter.ts';
 import { AdvancedRestartOption } from '../../interfaces/IAdvancedRestartOption.ts';
 import { getDbPromise } from '../../stores/helpers/dbPromise.ts';
 import { getConfig } from '../../stores/config.ts';
-import { getInstaller } from '../../stores/installer.ts';
-import { getBot } from '../../stores/bot.ts';
+import { getInstaller, getBot } from '../../stores/startup.ts';
 
 const config = getConfig();
 const installer = getInstaller();

@@ -6,7 +6,7 @@ import { MainchainClients, NetworkConfig } from '@argonprotocol/apps-core';
 import * as mainchainRpc from '@argonprotocol/apps-core/src/MainchainRpcProvider.ts';
 import { EventEmitter } from 'node:events';
 import * as testDb from './helpers/db.ts';
-import { MemoryWalletKeys } from '../lib/MemoryWalletKeys.ts';
+import { WalletKeys } from '../lib/WalletKeys.ts';
 import type { Db } from '../lib/Db.ts';
 
 describe('AppVaultOperator', () => {
@@ -27,9 +27,8 @@ describe('AppVaultOperator', () => {
     const rpc = vi.spyOn(mainchainRpc, 'getMainchainClient').mockResolvedValue(transport as never);
     const databases = vi.spyOn(testDb, 'createTestDb');
     const clients = new MainchainClients('ws://synthetic-archive', () => false);
-    const walletKeys = new MemoryWalletKeys({
+    const walletKeys = WalletKeys.fromMnemonic('test test test test test test test test test test test junk', {
       substrateSuri: '//Alice',
-      masterMnemonic: 'test test test test test test test test test test test junk',
     });
     const esploraHost = 'http://127.0.0.1:32567';
     NetworkConfig.setNetwork('mainnet');
@@ -109,7 +108,7 @@ describe('AppVaultOperator', () => {
     let approvedInviteCode: string | undefined;
     const actor = Object.assign(Object.create(AppVaultOperator.prototype), {
       walletKeys: {
-        getOperationalKeypair: async () => operationalKeypair,
+        getOperationalSigner: async () => operationalKeypair,
       },
       requestRouterJson: async ({ path, init }: { path: string; init?: RequestInit }) => {
         if (path === '/invites') {

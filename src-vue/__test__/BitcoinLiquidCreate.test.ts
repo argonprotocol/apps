@@ -1,5 +1,5 @@
 import { runtimeClient, type BitcoinLocksLocksByIdResult } from '@argonprotocol/runtime-client';
-import { Vault, type BlockWatch, type ArgonClient, type TxSigningAccount, type Vaults } from '@argonprotocol/apps-core';
+import { Vault, type BlockWatch, type ArgonClient, type TxSigner, type Vaults } from '@argonprotocol/apps-core';
 import BigNumber from 'bignumber.js';
 import { getOfflineRegistry } from '@argonprotocol/mainchain';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -21,7 +21,7 @@ describe('Liquid Bitcoin rate freshness', () => {
   const guaranteeRate = 120_000_000_000n;
   const currentRate = 110_000_000_000n;
   const ownerAccount = 'synthetic-liquid-owner';
-  const txSigner = { address: ownerAccount } as TxSigningAccount;
+  const txSigner = { address: ownerAccount } as TxSigner;
   const lock = { lockId: 7 } as IBitcoinLockRecord;
 
   beforeEach(() => {

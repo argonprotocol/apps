@@ -19,6 +19,18 @@ describe('clean dev docker', () => {
       const runtimeStateDir = Path.join(testDir, 'ethereum-state');
       const removalsPath = Path.join(testDir, 'removed-enclaves.txt');
       const instanceName = `cleanup-test-${process.pid}`;
+      const keychainDir = Path.join(testDir, 'synthetic-keychain');
+      const account = `dev-docker/${instanceName}`;
+      const keychainEntries = [
+        `com.argon.desktop.local.mnemonic/${account}`,
+        'com.argon.desktop.local.mnemonic/dev-docker/other-profile',
+        'com.argon.desktop.mnemonic/mainnet/default',
+      ];
+      for (const entry of keychainEntries) {
+        const entryPath = Path.join(keychainDir, entry);
+        Fs.mkdirSync(Path.dirname(entryPath), { recursive: true });
+        Fs.writeFileSync(entryPath, 'synthetic credential');
+      }
       const configDir =
         process.platform === 'darwin'
           ? Path.join(testDir, 'Library', 'Application Support')
@@ -63,6 +75,21 @@ fi
 `,
       );
       writeExecutable(Path.join(binDir, 'ps'), '#!/bin/sh\n');
+      writeExecutable(
+        Path.join(binDir, 'security'),
+        `#!/bin/sh
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    -a) shift; account="$1" ;;
+    -s) shift; service="$1" ;;
+  esac
+  shift
+done
+entry="$SYNTHETIC_KEYCHAIN/$service/$account"
+[ -f "$entry" ] || exit 44
+rm "$entry"
+`,
+      );
 
       const parentInstance = process.env.ARGON_APP_INSTANCE;
       const parentRuntimeStateDir = process.env.ARGON_DEV_ETHEREUM_RUNTIME_STATE_DIR;
@@ -77,12 +104,16 @@ fi
           ARGON_NETWORK_NAME: 'dev-docker',
           COMPOSE_PROJECT_NAME: `dev-docker-cleanup-test-${process.pid}`,
           KURTOSIS_REMOVALS: removalsPath,
+          SYNTHETIC_KEYCHAIN: keychainDir,
           PATH: `${binDir}${Path.delimiter}${process.env.PATH}`,
         },
       });
 
       expect(Fs.readFileSync(removalsPath, 'utf8').trim().split('\n')).toEqual(['argon-eth-owned']);
       expect(Fs.existsSync(instanceDir)).toBe(false);
+      if (process.platform === 'darwin') {
+        expect(keychainEntries.map(entry => Fs.existsSync(Path.join(keychainDir, entry)))).toEqual([false, true, true]);
+      }
       expect(process.env.ARGON_APP_INSTANCE).toBe(parentInstance);
       expect(process.env.ARGON_DEV_ETHEREUM_RUNTIME_STATE_DIR).toBe(parentRuntimeStateDir);
     },

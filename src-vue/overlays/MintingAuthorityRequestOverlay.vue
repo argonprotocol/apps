@@ -534,12 +534,12 @@ async function loadState() {
 
     vaultId.value = myVault.vaultId;
 
-    const [[localCouncilSigner], delegateKeypair, finalizedClient] = await Promise.all([
+    const [[localCouncilSigner], delegateSigner, finalizedClient] = await Promise.all([
       walletKeys.getEthereumAddresses([walletKeys.councilSignerEthereumHdPath]),
-      walletKeys.getVaultDelegateKeypair(),
+      walletKeys.getVaultDelegateSigner(),
       getFinalizedClient(),
     ]);
-    relayDelegateAddress.value = delegateKeypair.address;
+    relayDelegateAddress.value = delegateSigner.address;
     await Promise.all([
       myVault.mintingAuthorities.refresh(finalizedClient),
       myVault.globalCouncil.refresh(finalizedClient),
@@ -557,7 +557,7 @@ async function loadState() {
       finalizedClient.query.treasury.encumberedBondMicrogonsByAccount(walletKeys.vaultingAddress),
       finalizedClient.query.crosschainTransfer.activeGlobalIssuanceCouncilByDestinationChain('Ethereum'),
       finalizedClient.query.crosschainTransfer.minimumMintingAuthorityValueByDestinationChain('Ethereum'),
-      finalizedClient.query.system.account(delegateKeypair.address),
+      finalizedClient.query.system.account(delegateSigner.address),
     ]);
 
     if (commitmentOption) {

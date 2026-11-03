@@ -6,8 +6,7 @@ import basicEmitter from './emitters/basicEmitter.ts';
 import { open as tauriOpenUrl } from '@tauri-apps/plugin-shell';
 import { TopTab } from './interfaces/IConfig.ts';
 import { useCertificationController } from './stores/certificationController.ts';
-import { checkInstallerIfCloseAllowed, getInstaller } from './stores/installer.ts';
-import { getBot } from './stores/bot.ts';
+import { checkInstallerIfCloseAllowed, getInstaller, getBot, getAppStartup } from './stores/startup.ts';
 import { getConfig } from './stores/config.ts';
 import { useTour } from './stores/tour.ts';
 import { getWalletsForArgon } from './stores/wallets.ts';
@@ -23,7 +22,7 @@ export async function createMenu() {
   const bot = getBot();
   const tour = useTour();
 
-  await config.isLoadedPromise;
+  await getAppStartup().isReadyPromise;
 
   const mainMenu = await Submenu.new({
     text: 'Argon',

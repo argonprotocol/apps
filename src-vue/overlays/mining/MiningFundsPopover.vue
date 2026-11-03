@@ -89,7 +89,7 @@
 <script setup lang="ts">
 import { createNumeralHelpers } from '../../lib/numeral.ts';
 import { getCurrency } from '../../stores/currency.ts';
-import { getBot } from '../../stores/bot.ts';
+import { getBot } from '../../stores/startup.ts';
 import MiningCapitalForm from './MiningCapitalForm.vue';
 import MiningStatPopover from './MiningStatPopover.vue';
 import ProgressBar from '../../components/ProgressBar.vue';

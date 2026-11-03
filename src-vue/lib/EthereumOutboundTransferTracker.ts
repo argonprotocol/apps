@@ -45,6 +45,7 @@ import type { MintingAuthorities, IMintingAuthorityAuthorizeMetadata } from './M
 import { existentialDepositMicrogons, existentialDepositMicronots } from './WalletForArgon.ts';
 import { WalletForEthereum } from './WalletForEthereum.ts';
 import { CrosschainTransferOut, type CrosschainTransferOutInput } from './txs/CrosschainTransfer.out.ts';
+import type { AccountSecurity, AccountSecurityBatch } from './AccountSecurity.ts';
 
 const NETWORK = 'Ethereum';
 const ETHEREUM_TRANSACTION_NOT_FOUND_TIMEOUT_MS = 120_000;
@@ -111,6 +112,7 @@ export class EthereumOutboundTransferTracker {
   #isStopped = false;
 
   #argonRequest: CrosschainTransferOut;
+  #authenticationByTransfer = new WeakMap<IEthereumOutboundActiveTransfer, AccountSecurityBatch>();
   #confirmedAbsentArgonRequests = new Set<number>();
 
   #pendingArgonProgressByTransferId = new Map<string, { txId: number; unsubscribe: VoidFunction }>();
@@ -120,6 +122,7 @@ export class EthereumOutboundTransferTracker {
     private readonly transactionTracker: TransactionTracker,
     private readonly blockWatch: BlockWatch,
     private readonly walletKeys: WalletKeys,
+    private readonly createAuthentication: AccountSecurity['createBatch'],
     private readonly ethereumClient: EthereumClient | undefined,
     private readonly mintingAuthorities?: MintingAuthorities,
     private readonly configuredExecutionRpcUrl?: string,
@@ -171,6 +174,8 @@ export class EthereumOutboundTransferTracker {
       sourceWalletType,
       ethereumWallet,
     } = args;
+    const destinationAddress = ethereumWallet.address;
+
     if (amountToSpend != null || availableAmount != null || availableArgonAmount != null) {
       const fees = await this.estimateArgonFees({ moveToken, amount, sourceWalletType, ethereumWallet });
       let spentAmount = amount + fees.mintingAuthorityTip;
@@ -208,9 +213,16 @@ export class EthereumOutboundTransferTracker {
       throw new Error(transferOutUnavailableReason);
     }
 
+    if (!this.walletKeys.isCoreEthereumAddress(destinationAddress)) {
+      const signer = await this.walletKeys.getEthereumSigner(undefined, ethereumWallet);
+      if (signer.address.toLowerCase() !== destinationAddress.toLowerCase()) {
+        throw new Error('The selected Ethereum wallet changed. Select it again before sending.');
+      }
+    }
+
     const transfer = this.trackTransfer(nanoid(), moveToken);
     transfer.argonSourceAddress = this.walletKeys.getWalletAddress(sourceWalletType);
-    transfer.destinationAddress = ethereumWallet.address;
+    transfer.destinationAddress = destinationAddress;
     this.data.latestTransferIdByToken[moveToken] = transfer.id;
     transfer.transferState = {
       ...createEmptyTransferState(),
@@ -225,7 +237,7 @@ export class EthereumOutboundTransferTracker {
 
     void (async () => {
       const client = await getMainchainClient(false);
-      const txSigner = await this.walletKeys.getWalletKeypair(sourceWalletType);
+      const txSigner = await this.walletKeys.getWalletSigner(sourceWalletType);
       await this.#argonRequest.submit({
         client,
         txSigner,
@@ -235,7 +247,7 @@ export class EthereumOutboundTransferTracker {
           moveToken,
           amount,
           sourceWalletType,
-          destinationAddress: ethereumWallet.address,
+          destinationAddress,
           mortalityBlocks: CrosschainTransferOut.mortalityBlocks,
         },
       });
@@ -1270,7 +1282,12 @@ export class EthereumOutboundTransferTracker {
     });
 
     try {
-      const txInfo = await this.mintingAuthorities.authorize([transferId]);
+      let authentication = this.#authenticationByTransfer.get(transfer);
+      if (!authentication) {
+        authentication = this.createAuthentication('complete your Ethereum transfer');
+        this.#authenticationByTransfer.set(transfer, authentication);
+      }
+      const txInfo = await this.mintingAuthorities.authorize([transferId], authentication);
       await this.attachPendingArgonProgress({
         transferId,
         transfer,

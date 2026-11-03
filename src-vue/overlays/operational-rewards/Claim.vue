@@ -257,7 +257,7 @@ async function claimRewards() {
     const tx = await buildOperationalRewardsClaimTx(claimableNow.value, client);
     const txInfo = await transactionTracker.submitAndWatch({
       tx,
-      txSigner: await walletKeys.getDefaultArgonKeypair(),
+      txSigner: await walletKeys.getDefaultArgonSigner(),
       extrinsicType: ExtrinsicType.OperationalClaimRewards,
       metadata: {
         amount: claimableNow.value,

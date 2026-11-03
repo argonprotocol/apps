@@ -7,7 +7,7 @@ import { getMiningFrames } from './mainchain.ts';
 import { getCurrency } from './currency.ts';
 import { getTransactionTracker } from './transactions.ts';
 import { getBitcoinLocks } from './bitcoin.ts';
-import { getWalletKeys } from './wallets.ts';
+import { getWalletKeys, getAccountSecurity } from './wallets.ts';
 import { GlobalCouncil } from '../lib/GlobalCouncil.ts';
 import { MintingAuthorities } from '../lib/MintingAuthorities.ts';
 import { getServerApiClient } from './server.ts';
@@ -86,20 +86,34 @@ export function getMyVault(): MyVault {
     const bitcoinLocks = getBitcoinLocks();
     myVaultBitcoinLocks = bitcoinLocks;
     const keys = getWalletKeys();
+    const security = getAccountSecurity();
     const miningFrames = getMiningFrames();
-    const globalCouncil = new GlobalCouncil(dbPromise, keys, miningFrames, async () => {
-      await config.isLoadedPromise;
-      return config.ethereumExecutionRpcUrl;
-    });
+    const globalCouncil = new GlobalCouncil(
+      dbPromise,
+      keys,
+      miningFrames,
+      security.authenticate.bind(security),
+      async () => {
+        await config.isLoadedPromise;
+        return config.ethereumExecutionRpcUrl;
+      },
+    );
     globalCouncil.data = reactive(globalCouncil.data) as any;
 
-    const mintingAuthorities = new MintingAuthorities(dbPromise, keys, miningFrames, transactionTracker, async () => {
-      await config.isLoadedPromise;
-      return {
-        serverApiClient: config.serverDetails.ipAddress ? getServerApiClient() : undefined,
-        upstreamOperatorClient: getUpstreamOperatorClient(),
-      };
-    });
+    const mintingAuthorities = new MintingAuthorities(
+      dbPromise,
+      keys,
+      miningFrames,
+      transactionTracker,
+      security.authenticate.bind(security),
+      async () => {
+        await config.isLoadedPromise;
+        return {
+          serverApiClient: config.serverDetails.ipAddress ? getServerApiClient() : undefined,
+          upstreamOperatorClient: getUpstreamOperatorClient(),
+        };
+      },
+    );
     mintingAuthorities.data = reactive(mintingAuthorities.data) as any;
     watch(
       () =>

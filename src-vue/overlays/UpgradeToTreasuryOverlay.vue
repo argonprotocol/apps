@@ -147,6 +147,7 @@ import { InviteEnvelope, MAX_INVITE_INPUT_LENGTH } from '@argonprotocol/apps-cor
 import { getConfig } from '../stores/config.ts';
 import { useCertificationController } from '../stores/certificationController.ts';
 import { getUpstreamOperatorAuthClient } from '../stores/server.ts';
+import { enrollUpstreamRecovery } from '../stores/bootstrapRecovery.ts';
 import { getWalletKeys } from '../stores/wallets.ts';
 import AlertIcon from '../assets/alert.svg?component';
 import { BootstrapType, TopTab } from '../interfaces/IConfig.ts';
@@ -259,13 +260,13 @@ async function connectToNetwork() {
 
   isConnecting.value = true;
   try {
-    const authKeypair = await walletKeys.getUpstreamOperatorAuthKeypair();
-    const defaultAccountKeypair = await walletKeys.getLiquidLockingKeypair();
+    const authSigner = await walletKeys.getUpstreamOperatorAuthSigner();
+    const defaultAccountSigner = await walletKeys.getLiquidLockingSigner();
     const body = await UpstreamOperatorClient.claimInvite({
       operatorHost,
       inviteCode: meta.inviteCode,
-      defaultAccountKeypair,
-      authKeypair,
+      defaultAccountSigner,
+      authSigner,
     });
 
     if (!body?.fromName || !body.invite?.vaultId || !body.invite.bitcoinLockCoupon) {
@@ -283,18 +284,20 @@ async function connectToNetwork() {
     config.bootstrapDetails = {
       ...UpstreamOperatorClient.getBootstrapDetails(operatorHost, BootstrapType.Private),
     };
+    config.showWelcomeOverlay = !config.hasExtensionOperations;
+    await config.save();
+
+    controller.setTab(TopTab.BitcoinLocks);
     isConnecting.value = false;
     closeOverlay();
-    config.showWelcomeOverlay = !config.hasExtensionOperations;
     emit('claimed');
 
-    await config.save();
     try {
       await getUpstreamOperatorAuthClient().getMemberSessionId(operatorHost);
+      await enrollUpstreamRecovery();
     } catch (error) {
       console.warn('Unable to enroll upstream recovery during invite claim', error);
     }
-    controller.setTab(TopTab.BitcoinLocks);
   } catch (error) {
     if (error instanceof RequestStatusError && error.status === 404) {
       formError.value = 'The access code was not found.';
@@ -308,10 +311,13 @@ async function connectToNetwork() {
   }
 }
 
-basicEmitter.on('openUpgradeToTreasuryOverlay', () => {
+function openOverlay() {
   isOpen.value = true;
   void refreshArgonotStakingApr();
-});
+}
+
+basicEmitter.on('openUpgradeToTreasuryOverlay', openOverlay);
+Vue.onBeforeUnmount(() => basicEmitter.off('openUpgradeToTreasuryOverlay', openOverlay));
 
 Vue.watch(
   inviteCode,

@@ -7,7 +7,7 @@ import { setImmediate } from 'node:timers/promises';
 import { WebSocketServer } from 'ws';
 import { getOfflineRegistry, keyringFromSuri, u8aToHex } from '@argonprotocol/mainchain';
 import { xxhashAsHex } from '@polkadot/util-crypto';
-import { Accountset, MainchainClients, MiningFrames, NetworkConfig } from '@argonprotocol/apps-core';
+import { Accountset, MainchainClients, MiningFrames, NetworkConfig, TxSigner } from '@argonprotocol/apps-core';
 import { BlockWatch } from '@argonprotocol/apps-core/src/BlockWatch.ts';
 import { BlockSync } from '../src/BlockSync.ts';
 import { Storage } from '../src/Storage.ts';
@@ -211,7 +211,7 @@ it.each(['recovery', 'shutdown'] as const)('handles %s while local RPC state rec
     const localClient = await clients.setPrunedClient(prunedUrl);
     const accountset = new Accountset({
       client: localClient,
-      txSubmitter: keyringFromSuri('//Alice'),
+      txSubmitter: new TxSigner(keyringFromSuri('//Alice')),
       subaccountRange: [],
     });
     const blockSync = new BlockSync(accountset, storage, clients, miningFrames, blockWatch, 0);

@@ -70,7 +70,7 @@ import numeral from '../lib/numeral.ts';
 import { PopoverContent, PopoverPortal, PopoverRoot, PopoverTrigger } from 'reka-ui';
 import dayjs from 'dayjs';
 import { getMyMiningSeats } from '../stores/myMiningSeats.ts';
-import { getBot } from '../stores/bot.ts';
+import { getBot } from '../stores/startup.ts';
 import { getConfig } from '../stores/config.ts';
 import PopoverPanelArrow from '../components/PopoverPanelArrow.vue';
 import { useFloatingZIndex } from './helpers/OverlayZIndex.ts';

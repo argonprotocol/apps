@@ -383,7 +383,7 @@
                 <input
                   type="text"
                   v-model="apiKey"
-                  placeholder="Digital Ocean API Key"
+                  :placeholder="hasApiKey ? 'Saved API key — leave blank to reuse' : 'Digital Ocean API Key'"
                   class="mt-3 mb-2 w-full rounded-md border border-slate-300 bg-white px-4 py-3"
                 />
                 <div
@@ -429,12 +429,12 @@ const emit = defineEmits(['ready']);
 
 const config = getConfig();
 
-const hasApiKey = !!config.serverAdd?.digitalOcean?.apiKey;
+const hasApiKey = !!(config.serverAdd?.digitalOcean?.encryptedApiKey || config.serverAdd?.digitalOcean?.apiKey);
 const accordionValue = Vue.ref(hasApiKey ? '3' : '1');
 const selectedStep = Vue.ref(hasApiKey ? 3.1 : 1.0);
 const hoveredStep = Vue.ref(0);
 const currentStep = Vue.computed(() => hoveredStep.value || selectedStep.value);
-const apiKey = Vue.ref(config.serverAdd?.digitalOcean?.apiKey ?? '');
+const apiKey = Vue.ref('');
 
 const hasInvalidApiKeyError = Vue.ref(false);
 const hasUnauthorizedApiKeyError = Vue.ref(false);
@@ -465,12 +465,14 @@ function toggle(step: number) {
 }
 
 async function connect(): Promise<IConfigServerAddDigitalOcean> {
-  if (!apiKey.value) {
+  const token = apiKey.value.trim();
+  if (!token && config.serverAdd?.digitalOcean) return config.serverAdd.digitalOcean;
+  if (!token) {
     throw new Error('API Key is required');
   }
 
   try {
-    await MiningMachine.testDigitalOcean(apiKey.value);
+    await MiningMachine.testDigitalOcean(token);
   } catch (error) {
     if (error instanceof Error && error.message === 'Unauthorized') {
       hasUnauthorizedApiKeyError.value = true;
@@ -478,9 +480,7 @@ async function connect(): Promise<IConfigServerAddDigitalOcean> {
     throw error;
   }
 
-  return {
-    apiKey: apiKey.value,
-  };
+  return { apiKey: token };
 }
 
 Vue.watch(
@@ -491,7 +491,7 @@ Vue.watch(
     const isValid = digitalOceanApiKeyRegex.test(apiKey.value.trim());
     hasInvalidApiKeyError.value = !!apiKey.value && !isValid;
     hasUnauthorizedApiKeyError.value = false;
-    emit('ready', isValid);
+    emit('ready', isValid || (!apiKey.value.trim() && hasApiKey));
   },
   { immediate: true },
 );

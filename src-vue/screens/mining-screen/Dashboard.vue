@@ -5,7 +5,7 @@
       <template #icon><MiningIcon class="h-full w-full" /></template>
     </ServerConnectionStatus>
 
-    <div data-testid="MiningDashboard" :class="myMiningSeats.isLoaded ? '' : 'opacity-30 pointer-events-none'" class="flex min-w-0 flex-col h-full pr-2.5 gap-y-2 justify-stretch grow">
+    <div data-testid="MiningDashboard" :class="myMiningSeats.isLoaded ? '' : 'opacity-30 pointer-events-none'" class="flex min-w-0 flex-col h-full gap-y-2 justify-stretch grow">
       <span data-testid="TotalBlocksMined" :data-value="totalBlocksMined" class="sr-only">{{ totalBlocksMined }}</span>
 
       <section class="flex flex-row gap-x-2 h-[14%]">
@@ -358,8 +358,14 @@ import { TooltipProvider, TooltipRoot, TooltipTrigger, TooltipContent, TooltipAr
 import { useFloatingZIndex } from '../../overlays/helpers/OverlayZIndex.ts';
 import CountdownClock from '../../components/CountdownClock.vue';
 import MiningSeats from './components/MiningSeats.vue';
-import { getBlockWatch, getMainchainClient, getMining, getMiningFrames } from '../../stores/mainchain.ts';
-import { getBot } from '../../stores/bot.ts';
+import {
+  getBlockWatch,
+  getMainchainClient,
+  getMining,
+  getMiningFrames,
+  getMiningBotSubaccountCount,
+} from '../../stores/mainchain.ts';
+import { getBot } from '../../stores/startup.ts';
 import { getConfig } from '../../stores/config.ts';
 import { getWalletKeys, useWallets } from '../../stores/wallets.ts';
 import { useFinancials } from '../../stores/financials.ts';
@@ -583,7 +589,7 @@ const inspectedWinningBids = Vue.computed(() => {
 Vue.watch(
   () => myMiningSeats.financialRevision,
   async () => {
-    const subaccounts = await walletKeys.getMiningBotSubaccounts();
+    const subaccounts = await walletKeys.getMiningBotSubaccounts(await getMiningBotSubaccountCount());
     ourBidAddresses.value = new Set(Object.keys(subaccounts));
   },
   { immediate: true },

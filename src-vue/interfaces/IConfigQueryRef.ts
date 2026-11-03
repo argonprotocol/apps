@@ -16,6 +16,5 @@ export interface IConfigQueryRef
   hasSavedBiddingRules: boolean;
   hasSavedVaultSetup: boolean;
   isServerAdded: boolean;
-  isBootingUpPreviousWalletHistory: boolean;
   save(): Promise<void>;
 }

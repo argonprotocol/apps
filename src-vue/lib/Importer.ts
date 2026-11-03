@@ -1,19 +1,23 @@
-import { type Config } from './Config';
+import { Config } from './Config';
 import Restarter from './Restarter';
 import { Db } from './Db';
 import { invokeWithTimeout } from './tauriApi';
 import { type ITryServerData, SSH } from './SSH';
 import {
+  ConfigSchema,
   type IConfig,
   type IConfigServerDetails,
   MiningSetupStatus,
   OnboardingSetupStatus,
   VaultingSetupStatus,
 } from '../interfaces/IConfig';
-import { IS_LOCAL_BUILD, NETWORK_NAME, SECURITY } from './Env.ts';
+import { IS_LOCAL_BUILD, NETWORK_NAME } from './Env.ts';
 import { hasArgonWalletValue } from './WalletForArgon.ts';
 import { WalletKeys } from './WalletKeys.ts';
-import { MemoryWalletKeys } from './MemoryWalletKeys.ts';
+import { WalletSecrets } from './WalletSecrets.ts';
+import { EncryptionSecret } from './EncryptionSecret.ts';
+import { walletFileSchema } from '../interfaces/IWalletFile.ts';
+import { z } from 'zod';
 import { isAccountInGlobalIssuanceCouncil } from './CrosschainTransferView.ts';
 import { findOwnedEthereumMintingAuthoritySigners } from './MintingAuthorities.ts';
 import { readArgonWalletBalanceValues } from './WalletsForArgon.ts';
@@ -55,27 +59,24 @@ export default class Importer {
     this.failureToReadData = false;
   }
 
-  public async importFromMnemonic(mnemonic: string) {
-    const importWalletKeys = new MemoryWalletKeys({
-      substrateSuri: mnemonic,
-      masterMnemonic: mnemonic,
-    });
+  public async importFromMnemonic(mnemonic: string, { removeMnemonicFiles = false } = {}): Promise<boolean> {
+    if (await this.walletKeys.matchesMnemonic(mnemonic)) return false;
+
+    const importWalletKeys = WalletKeys.fromMnemonic(mnemonic);
     const { isUpgradedToOperations, ...recoveredState } = await this.inspectAccountState(importWalletKeys);
 
     if (NETWORK_NAME === 'mainnet' && !IS_LOCAL_BUILD && !recoveredState.walletAccountsHadPreviousLife) {
       throw new Error('No existing wallet value was found for that mnemonic on this network.');
     }
 
+    const mnemonicsToRemove: string[] = [];
+    if (removeMnemonicFiles) {
+      mnemonicsToRemove.push(mnemonic);
+      if (this.walletKeys.canSign) mnemonicsToRemove.push(await this.walletKeys.exposeMasterMnemonic());
+    }
+
     await this.shutdownBackgroundSync();
-    const security = await invokeWithTimeout('import_mnemonic', { mnemonic }, 10_000);
-    const restarter = new Restarter(this.dbPromise, this.config);
-    await restarter.deleteAndCreateLocalDatabase();
-    const db = await this.dbPromise;
-    await db.reconnect();
-
-    Object.assign(SECURITY, security);
-
-    // The wallet singleton still references the previous mnemonic until reload, so restore the inspected account state.
+    await invokeWithTimeout('backup_current_instance_database_for_import', {}, 30e3);
     const importedConfig: Partial<IConfig> = {
       showWelcomeOverlay: false,
       ...recoveredState,
@@ -86,9 +87,81 @@ export default class Importer {
         dismissedOperationsActivatedOverlay: isUpgradedToOperations,
       },
     };
-    await this.config.restoreToConnection(db.sql, importedConfig);
+    const prepared = await WalletSecrets.prepareWallet(
+      mnemonic,
+      WalletKeys.deriveIdentity(mnemonic),
+      mnemonicsToRemove,
+    );
+    try {
+      await invokeWithTimeout(
+        'write_wallet_file',
+        {
+          filename: 'wallet.tmp.json',
+          contents: JSON.stringify({ ...prepared, config: importedConfig }),
+          createNew: true,
+        },
+        30e3,
+      );
+      await Importer.finishPendingImport({ dbPromise: this.dbPromise, config: this.config });
+    } finally {
+      // Even an ambiguous staging error must not leave the old session running over a pending import.
+      new Restarter(this.dbPromise, this.config).restart();
+    }
+    return true;
+  }
 
-    restarter.restart();
+  public static async finishPendingImport(storage?: { dbPromise: Promise<Db>; config: Config }): Promise<boolean> {
+    const raw = await invokeWithTimeout<string | null>('read_wallet_file', { filename: 'wallet.tmp.json' }, 30e3);
+    if (raw === null) {
+      // The atomic writer may have stopped before publishing intent; no key or database write has begun.
+      await invokeWithTimeout('delete_wallet_file', { filename: 'wallet.tmp.json.tmp' }, 30e3);
+      return false;
+    }
+    const pending = pendingImportSchema.parse(JSON.parse(raw));
+
+    if (pending.keychainValue !== undefined) {
+      await new EncryptionSecret().write(pending.keychainValue);
+      delete pending.keychainValue;
+      await invokeWithTimeout(
+        'write_wallet_file',
+        {
+          filename: 'wallet.tmp.json',
+          contents: JSON.stringify(pending),
+          createNew: false,
+        },
+        30e3,
+      );
+    }
+    if (!storage) {
+      // A UI reload does not rerun native startup; repair an interrupted schema before Db.load reads table state.
+      await invokeWithTimeout('run_db_migrations', {}, 30e3);
+      const dbPromise = Db.load();
+      storage = { dbPromise, config: new Config(dbPromise) };
+    }
+    const { dbPromise, config } = storage;
+    await new Restarter(dbPromise, config).deleteAndCreateLocalDatabase();
+    const db = await dbPromise;
+    await db.reconnect();
+    await config.restoreToConnection(db.sql, pending.config);
+    await invokeWithTimeout(
+      'write_wallet_file',
+      {
+        filename: 'wallet.json',
+        contents: JSON.stringify(pending.wallet),
+        createNew: false,
+      },
+      30e3,
+    );
+    if (pending.encryptedMnemonicCleanup.length) {
+      // Prove the committed key opens the incoming wallet before removing confirmed backup copies.
+      const [, ...mnemonicsToRemove] = await new EncryptionSecret().decrypt([
+        pending.wallet.encryptedMnemonic,
+        ...pending.encryptedMnemonicCleanup,
+      ]);
+      for (const mnemonic of new Set(mnemonicsToRemove)) await WalletSecrets.cleanupMnemonicFiles(mnemonic);
+    }
+    await invokeWithTimeout('delete_wallet_file', { filename: 'wallet.tmp.json' }, 30e3);
+    return true;
   }
 
   public async recoverCurrentAccountState(): Promise<void> {
@@ -288,3 +361,14 @@ export default class Importer {
     return serverData;
   }
 }
+
+const pendingImportSchema = z.object({
+  wallet: walletFileSchema,
+  keychainValue: z.string().optional(),
+  encryptedMnemonicCleanup: z
+    .unknown()
+    .refine(value => !Array.isArray(value) || value.length <= 2, 'An account import can remove at most two mnemonics.')
+    .pipe(z.array(z.string()))
+    .default([]),
+  config: ConfigSchema.partial(),
+});

@@ -1,9 +1,8 @@
-use crate::security::Security;
-use crate::ssh;
+use crate::ssh::{SSH, SSHConfig};
 use secrecy::{ExposeSecret, SecretString};
-use sp_core::Pair;
+use sp_core::{Pair, ed25519};
 use std::time::Duration;
-use tauri::{AppHandle, State};
+use tauri::State;
 use tokio::sync::Mutex;
 
 const SSH_ACCESS_CONNECT_TIMEOUT: Duration = Duration::from_secs(30);
@@ -56,23 +55,23 @@ pub async fn ssh_access_status(
 
 #[tauri::command]
 pub async fn ssh_access_activate(
-    app: AppHandle,
     state: State<'_, SshAccessState>,
     address: &str,
     host: &str,
     port: u16,
     username: String,
+    private_key_seed: [u8; 32],
 ) -> Result<SshAccessStatus, String> {
     log::debug!("Activating temporary SSH access for {address}");
     if state.access.lock().await.is_some() {
-        clear_ssh_access(&app, &state, address, host, port, &username).await?;
+        clear_ssh_access(&state, address, host, port, &username, &private_key_seed).await?;
     }
 
-    let ssh = open_access_connection(&app, host, port, &username).await?;
+    let ssh = open_access_connection(host, port, &username, &private_key_seed).await?;
 
-    let (pair, _phrase, _seed) = sp_core::ed25519::Pair::generate_with_phrase(None);
+    let (pair, _phrase, _seed) = ed25519::Pair::generate_with_phrase(None);
     let (private_key_openssh, public_key_openssh) =
-        ssh::SSH::format_as_openssh(pair).map_err(|e| e.to_string())?;
+        SSH::format_as_openssh(pair).map_err(|e| e.to_string())?;
     let now = now_epoch();
     let comment = format!("argon-app-ssh:{now}");
     let public_key_with_comment = format!("{} {}", public_key_openssh.trim(), comment);
@@ -101,15 +100,15 @@ pub async fn ssh_access_activate(
 
 #[tauri::command]
 pub async fn ssh_access_deactivate(
-    app: AppHandle,
     state: State<'_, SshAccessState>,
     address: &str,
     host: &str,
     port: u16,
     username: String,
+    private_key_seed: [u8; 32],
 ) -> Result<SshAccessStatus, String> {
     log::debug!("Deactivating temporary SSH access for {address}");
-    clear_ssh_access(&app, &state, address, host, port, &username).await?;
+    clear_ssh_access(&state, address, host, port, &username, &private_key_seed).await?;
     Ok(SshAccessStatus {
         active: false,
         public_key: None,
@@ -118,17 +117,17 @@ pub async fn ssh_access_deactivate(
 }
 
 async fn clear_ssh_access(
-    app: &AppHandle,
     state: &SshAccessState,
     address: &str,
     host: &str,
     port: u16,
     username: &str,
+    private_key_seed: &[u8; 32],
 ) -> Result<(), String> {
     log::debug!("Clearing temporary SSH access for {address}");
     let access = state.access.lock().await.clone();
     if let Some(access) = access {
-        let ssh = open_access_connection(app, host, port, username).await?;
+        let ssh = open_access_connection(host, port, username, private_key_seed).await?;
 
         let remove_cmd = format!(
             "if [ -f ~/.ssh/authorized_keys ]; then grep -v '{key}' ~/.ssh/authorized_keys > ~/.ssh/authorized_keys.tmp && mv ~/.ssh/authorized_keys.tmp ~/.ssh/authorized_keys; fi",
@@ -151,15 +150,17 @@ async fn clear_ssh_access(
 }
 
 async fn open_access_connection(
-    app: &AppHandle,
     host: &str,
     port: u16,
     username: &str,
-) -> Result<ssh::SSH, String> {
-    let private_key = Security::expose_private_key_openssh(app).map_err(|e| e.to_string())?;
-    let config = ssh::SSHConfig::new(host, port, username.to_string(), private_key)
+    private_key_seed: &[u8; 32],
+) -> Result<SSH, String> {
+    let (private_key, _) = SSH::format_as_openssh(ed25519::Pair::from_seed(private_key_seed))
         .map_err(|e| e.to_string())?;
-    ssh::SSH::connect(&config, SSH_ACCESS_CONNECT_TIMEOUT)
+    let private_key = SecretString::new(private_key.into());
+    let config =
+        SSHConfig::new(host, port, username.to_string(), private_key).map_err(|e| e.to_string())?;
+    SSH::connect(&config, SSH_ACCESS_CONNECT_TIMEOUT)
         .await
         .map_err(|e| e.to_string())
 }

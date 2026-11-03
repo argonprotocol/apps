@@ -23,7 +23,10 @@ import { getMyVault } from '../stores/vaults.ts';
 
 vi.mock('../stores/config.ts', () => ({ getConfig: vi.fn(), NETWORK_NAME: 'dev-docker' }));
 vi.mock('../stores/helpers/dbPromise.ts', () => ({ getDbPromise: vi.fn() }));
-vi.mock('../stores/wallets.ts', () => ({ getWalletKeys: vi.fn() }));
+vi.mock('../stores/wallets.ts', () => ({
+  getWalletKeys: vi.fn(),
+  getAccountSecurity: () => ({ authenticate: async () => undefined }),
+}));
 vi.mock('../stores/mainchain.ts', () => ({ getMiningFrames: vi.fn(), getMainchainClients: vi.fn() }));
 vi.mock('../stores/currency.ts', () => ({ getCurrency: vi.fn() }));
 vi.mock('../stores/transactions.ts', () => ({ getTransactionTracker: vi.fn() }));
@@ -35,7 +38,6 @@ it('publishes the Ethereum approval nonce when config loads after council startu
   const db = await createTestDb();
   await db.configTable.insertOrReplace({ ethereumExecutionRpcUrl: JSON.stringify('http://127.0.0.1:18545') });
   const { walletKeys } = createTestWallet('//Alice', { canSign: false, canAccessServer: false });
-  vi.spyOn(walletKeys, 'didWalletHavePreviousLife').mockResolvedValue(false);
   instanceChecks.delete(Config.prototype.constructor);
   let releaseConfig!: () => void;
   const waitForConfig = new Promise<void>(resolve => (releaseConfig = resolve));
@@ -44,7 +46,7 @@ it('publishes the Ethereum approval nonce when config loads after council startu
     await waitForConfig;
     return fetchConfig();
   });
-  const config = reactive(new Config(Promise.resolve(db), walletKeys));
+  const config = reactive(new Config(Promise.resolve(db)));
   const loadConfig = config.load();
   const clients = { events: { on: vi.fn() } } as unknown as MainchainClients;
   const miningFrames = new MiningFrames(clients);

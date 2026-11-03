@@ -20,6 +20,7 @@ import {
   type ArgonApi,
   type ArgonClient,
   type INetworkConfigOverride,
+  TxSigner,
 } from '@argonprotocol/apps-core';
 import {
   createBitcoinAddress,
@@ -59,7 +60,7 @@ import { Vaults } from '../../src-vue/lib/Vaults.ts';
 import { createTestDb } from '../../src-vue/__test__/helpers/db.ts';
 import { getEthereumGatewayPauseReason, setMainchainClients } from '../../src-vue/stores/mainchain.ts';
 import { Db } from '../../src-vue/lib/Db.ts';
-import type { MemoryWalletKeys } from '../../src-vue/lib/MemoryWalletKeys.ts';
+import type { WalletKeys } from '../../src-vue/lib/WalletKeys.ts';
 import { ServerAuthClient } from '../../src-vue/lib/ServerAuthClient.ts';
 import type { ServerApiClient } from '../../src-vue/lib/ServerApiClient.ts';
 
@@ -81,7 +82,7 @@ export type IEthereumMintingAuthorityStatus = IEthereumMintingAuthorityWalletSet
 };
 
 export class AppVaultOperator {
-  public readonly walletKeys: MemoryWalletKeys;
+  public readonly walletKeys: WalletKeys;
   public readonly config: Config;
   public readonly myVault: MyVault;
   public readonly globalCouncil: GlobalCouncil;
@@ -90,7 +91,7 @@ export class AppVaultOperator {
 
   private constructor(args: {
     db: Db;
-    walletKeys: MemoryWalletKeys;
+    walletKeys: WalletKeys;
     miningFrames: MiningFrames;
     config: Config;
     myVault: MyVault;
@@ -125,7 +126,7 @@ export class AppVaultOperator {
 
   public static async load(args: {
     clients: MainchainClients;
-    walletKeys: MemoryWalletKeys;
+    walletKeys: WalletKeys;
     networkConfigOverride?: INetworkConfigOverride;
     serverApiClient?: ServerApiClient;
   }): Promise<AppVaultOperator> {
@@ -157,8 +158,10 @@ export class AppVaultOperator {
       miningFrames.blockWatch,
       currency,
     );
-    const globalCouncil = new GlobalCouncil(dbPromise, walletKeys, miningFrames);
-    const relaySubmitLane = new DelegateSubmitLane(new Keyring({ type: 'sr25519' }).createFromUri('//Charlie'));
+    const globalCouncil = new GlobalCouncil(dbPromise, walletKeys, miningFrames, async () => undefined);
+    const relaySubmitLane = new DelegateSubmitLane(
+      new TxSigner(new Keyring({ type: 'sr25519' }).createFromUri('//Charlie')),
+    );
     const ethereumGatewayProverService = new EthereumGatewayProverService(relaySubmitLane, {
       shouldApplySharedRelayStagger: false,
     });
@@ -167,6 +170,7 @@ export class AppVaultOperator {
       walletKeys,
       miningFrames,
       transactionTracker,
+      async () => undefined,
       async () => ({
         serverApiClient: {
           getEthereumRelayStatus: async () => {
@@ -214,7 +218,7 @@ export class AppVaultOperator {
       miningFrames.blockWatch,
     );
     const bitcoinLockCreate = new BitcoinLockCreate(bitcoinLocks, transactionTracker, currency, upstreamOperatorClient);
-    const config = new Config(dbPromise, walletKeys);
+    const config = new Config(dbPromise);
 
     Object.assign(vaults, {
       load: () => Promise.resolve(),
@@ -439,7 +443,7 @@ export class AppVaultOperator {
           const txInfo = await this.#bitcoinLockCreate.submit({
             vault,
             satoshis,
-            txSigner: await this.walletKeys.getLiquidLockingKeypair(),
+            txSigner: await this.walletKeys.getLiquidLockingSigner(),
           });
           await txInfo.waitForPostProcessing;
 
@@ -470,7 +474,7 @@ export class AppVaultOperator {
             vaultId: vault.vaultId,
             bondPurchaseMicrogons: rewardConfig.treasuryMinimumBonds - (certification.treasuryBondAmount ?? 0n),
           });
-          const txSigner = await this.walletKeys.getTreasuryKeypair();
+          const txSigner = await this.walletKeys.getTreasurySigner();
           const txResult = await new TxSubmitter(client, bondTx, txSigner).submit({
             useLatestNonce: true,
           });
@@ -492,7 +496,7 @@ export class AppVaultOperator {
       client,
     });
     if (registrationTx) {
-      const txSigner = await this.walletKeys.getTreasuryKeypair();
+      const txSigner = await this.walletKeys.getTreasurySigner();
       const txResult = await new TxSubmitter(client, registrationTx, txSigner).submit({
         useLatestNonce: true,
       });
@@ -525,7 +529,7 @@ export class AppVaultOperator {
     );
 
     if (!existingProgress.isOperational) {
-      const txSigner = await this.walletKeys.getTreasuryKeypair();
+      const txSigner = await this.walletKeys.getTreasurySigner();
       const activateResult = await new TxSubmitter(client, client.tx.operationalAccounts.activate(), txSigner).submit({
         useLatestNonce: true,
       });
@@ -580,7 +584,7 @@ export class AppVaultOperator {
       throw new Error(`AppVaultOperator could not recover Bitcoin Lock #${currentLock.lockId}.`);
     }
 
-    const txSigner = await this.walletKeys.getLiquidLockingKeypair();
+    const txSigner = await this.walletKeys.getLiquidLockingSigner();
     const liquidTxInfo = await this.#bitcoinLiquidCreate.submit({
       allocations: [{ lock, satoshis: currentLock.fundedSatoshis - currentLock.fissionedSatoshis }],
       txSigner,
@@ -643,7 +647,7 @@ export class AppVaultOperator {
               continue;
             }
 
-            const operationalKeypair = await this.walletKeys.getOperationalKeypair();
+            const operationalKeypair = await this.walletKeys.getOperationalSigner();
             const accessProof = createOperationalAccessProof(operationalKeypair, invite.operationalAccountId);
 
             await this.requestRouterJson<IInviteResponse>({
@@ -841,7 +845,7 @@ export class AppVaultOperator {
   }
 
   private async submitVaultingTx(args: { client: ArgonClient; tx: SubmittableExtrinsic }): Promise<void> {
-    const txSigner = await this.walletKeys.getVaultingKeypair();
+    const txSigner = await this.walletKeys.getVaultingSigner();
     const txResult = await new TxSubmitter(args.client, args.tx, txSigner).submit({
       useLatestNonce: true,
     });
@@ -849,7 +853,7 @@ export class AppVaultOperator {
   }
 
   private async readEthereumMintingAuthorityWalletSetup(): Promise<IEthereumMintingAuthorityWalletSetup> {
-    const delegateKeypair = await this.walletKeys.getVaultDelegateKeypair();
+    const delegateKeypair = await this.walletKeys.getVaultDelegateSigner();
     const mintingAuthorityHdPath = this.walletKeys.getMintingAuthorityEthereumHdPath(0);
     const [mintingAuthoritySigner, councilSigner] = await this.walletKeys.getEthereumAddresses([
       mintingAuthorityHdPath,

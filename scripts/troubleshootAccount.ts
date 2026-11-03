@@ -14,11 +14,6 @@ import { u8aToString } from '@polkadot/util';
 import { reserveEphemeralPort } from './utils.ts';
 
 const LOCAL_APP_ID = 'com.argon.desktop.local';
-const DEFAULT_ETHEREUM_HD_PREFIXES = {
-  primary: "m/44'/60'/0'/0'",
-  councilSigner: "m/44'/60'/1'/0'",
-  mintingAuthority: "m/44'/60'/2'/0'",
-} as const;
 
 export type RuntimeOperationalAccount = NonNullable<
   HistoricalQueryRecord<'operationalAccounts', 'operationalAccounts'>
@@ -85,13 +80,10 @@ export function writeReadonlyWallet(instanceDirectory: string, identity: Readonl
   const wallet = {
     encryptedMnemonic: '',
     meta: {
-      miningHoldAddress: '',
       miningBotAddress: identity.miningAccountId,
       vaultingAddress: identity.defaultAccountId,
       operationalAddress: identity.operationalAccountId,
       ethereumAddress: '',
-      ethereumHdPrefixes: DEFAULT_ETHEREUM_HD_PREFIXES,
-      sshPublicKey: '',
     },
   };
 
@@ -102,9 +94,7 @@ export function writeReadonlyWallet(instanceDirectory: string, identity: Readonl
       existing.meta.vaultingAddress === identity.defaultAccountId &&
       existing.meta.operationalAddress === identity.operationalAccountId &&
       existing.meta.miningBotAddress === identity.miningAccountId &&
-      existing.meta.miningHoldAddress === '' &&
-      existing.meta.ethereumAddress === '' &&
-      existing.meta.sshPublicKey === ''
+      existing.meta.ethereumAddress === ''
     ) {
       return walletPath;
     }

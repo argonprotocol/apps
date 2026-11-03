@@ -13,7 +13,6 @@ declare const __ARGON_APP_NAME__: string;
 declare const __ARGON_APP_INSTANCE__: string;
 declare const __ARGON_APP_ENABLE_AUTOUPDATE__: boolean;
 declare const __ARGON_E2E_HEADLESS__: boolean;
-declare const __ARGON_APP_SECURITY__: any;
 declare const __ARGON_NETWORK_NAME__: string;
 declare const __ARGON_NETWORK_CONFIG_OVERRIDE__: Record<string, unknown> | null;
 declare const __IS_TEST__: boolean;

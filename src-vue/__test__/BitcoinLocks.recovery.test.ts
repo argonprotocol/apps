@@ -6,6 +6,8 @@ import {
   type IBlockHeaderInfo,
   BitcoinLock,
   BitcoinFission,
+  AccountActivityKind,
+  ACCOUNT_ACTIVITY_DEFINITION_VERSION,
   convertBitcoinTargetValueToPricePerBtc,
 } from '@argonprotocol/apps-core';
 import * as BitcoinHistory from '../lib/recovery/BitcoinLockHistory.ts';
@@ -15,7 +17,10 @@ import BitcoinMempool from '../lib/BitcoinMempool.ts';
 import { BitcoinFissions } from '../lib/BitcoinFissions.ts';
 import type { Db } from '../lib/Db.ts';
 import type { IBitcoinFissionRecord } from '../interfaces/IBitcoinFissionRecord.ts';
-import type { WalletKeys } from '../lib/WalletKeys.ts';
+import { WalletKeys, bitcoinLockHdPath } from '../lib/WalletKeys.ts';
+import { WalletSecrets } from '../lib/WalletSecrets.ts';
+import { AccountSecurity } from '../lib/AccountSecurity.ts';
+import { invoke } from '@tauri-apps/api/core';
 import { BitcoinLockStatus, type IBitcoinLockRecord } from '../lib/db/BitcoinLocksTable.ts';
 import { BitcoinUtxoSpendStatus, BitcoinUtxoStatus } from '../lib/db/BitcoinUtxosTable.ts';
 import { BitcoinReleaseKind, BitcoinReleaseStatus } from '../interfaces/IBitcoinReleaseRecord.ts';
@@ -27,7 +32,8 @@ import { encodeAddress, sha256AsU8a } from '@polkadot/util-crypto';
 import { getBitcoinAlertNotices } from '../lib/Alerts.ts';
 import { BitcoinFinancials } from '../lib/financials/BitcoinLocks.ts';
 import { BitcoinFissionRecovery } from '../lib/recovery/BitcoinFissions.ts';
-import { publishBitcoinHistoryReplay } from '../lib/recovery/index.ts';
+import { publishBitcoinHistoryReplay, restoreFinancialHistory } from '../lib/recovery/index.ts';
+import { findAddressActivity } from '../lib/IndexerClient.ts';
 import { getMainchainClient } from '../stores/mainchain.ts';
 import { createTestDb } from './helpers/db.ts';
 import { bitcoinRecoveryEventPolicies } from '../lib/recovery/BitcoinLockReplay.ts';
@@ -41,7 +47,10 @@ import {
   historyEvent,
 } from './helpers/bitcoin.ts';
 import { nextTick, reactive, watch, watchEffect } from 'vue';
-import { BitcoinNetwork, CosignScript, HDKey } from '@argonprotocol/bitcoin';
+import { BitcoinNetwork, CosignScript, HDKey, bip39 } from '@argonprotocol/bitcoin';
+
+vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn() }));
+vi.mock('../lib/IndexerClient.ts', () => ({ findAddressActivity: vi.fn() }));
 
 vi.mock('../lib/recovery/BitcoinLockHistory.ts', async importOriginal => ({
   ...(await importOriginal()),
@@ -982,6 +991,118 @@ function createFissionHistoryRecord(
 }
 
 describe('BitcoinLocks history replay publication', () => {
+  it('discovers closed channels in previously unknown vaults using the unlocked session', async () => {
+    const db = await createTestDb();
+    const mnemonic = 'test test test test test test test test test test test junk';
+    const native = vi.mocked(invoke);
+    native.mockImplementation(async command => {
+      if (command === 'keychain_info') return { method: 'system' } as never;
+      if (command === 'keychain_decrypt') return [mnemonic] as never;
+      return null as never;
+    });
+    const prompt = vi.fn(async () => undefined);
+    const security = new AccountSecurity(prompt);
+    await security.ready;
+    const keys = new WalletKeys(
+      WalletKeys.deriveIdentity(mnemonic),
+      new WalletSecrets({ encryptedMnemonic: 'synthetic-mnemonic' }, security),
+    );
+    keys.initializeSession(mnemonic);
+    native.mockRejectedValue(new Error('Secret access has ended'));
+    const root = HDKey.fromMasterSeed(bip39.mnemonicToSeedSync(mnemonic));
+    const locks = [12, 34].map((vaultId, index) => ({
+      ...createHistoricalLock({ accountId: keys.defaultArgonAddress, liquidityPromised: 0n }),
+      utxoId: 7 + index,
+      vaultId,
+      ownerPubkey: u8aToHex(root.derive(bitcoinLockHdPath(vaultId, index + 3)).publicKey),
+    }));
+    root.wipePrivateData();
+    const events = locks.flatMap(lock => [
+      historyEvent(157, 'bitcoinLocks', 'BitcoinLockCreated', {
+        utxoId: lock.utxoId,
+        vaultId: lock.vaultId,
+        accountId: keys.defaultArgonAddress,
+        liquidityPromised: 0n,
+        securitization: 1_000n,
+        lockedTargetPrice: 1_000n,
+        securityFee: 20n,
+      }),
+      historyEvent(157, 'bitcoinLocks', 'BitcoinSpentAfterRelease', { utxoId: lock.utxoId, vaultId: lock.vaultId }),
+    ]);
+    const cutoffApi = {
+      runtimeVersion: { specVersion: numberCodec(159) },
+      query: { bitcoinLocks: { lockIdsByOwnerAccount: { keys: async () => [] } } },
+    };
+    const blockWatch = {
+      finalizedBlockHeader: historyBlock(200),
+      getHeader: async (block: Parameters<BlockWatch['getHeader']>[0]) =>
+        historyBlock(typeof block === 'number' ? block : block.blockNumber),
+      getEventsWithSpec: async () => ({ events, specVersion: 157 }),
+      getApi: async (block: IBlockHeaderInfo) => {
+        if (block.blockNumber === 200) return cutoffApi;
+        return {};
+      },
+      getFinalizedApi: async () => cutoffApi,
+      withBackgroundArchiveRead: async <T>(read: () => Promise<T>) => read(),
+    } as unknown as BlockWatch;
+    const store = createStore({ db, walletKeys: keys, blockWatch });
+    vi.mocked(BitcoinHistory.getHistoricalBitcoinLock).mockImplementation(async (_, id) =>
+      locks.find(lock => lock.utxoId === id),
+    );
+    vi.mocked(BitcoinHistory.getHistoricalBitcoinFundingUtxos).mockResolvedValue([]);
+    vi.mocked(BitcoinHistory.getHistoricalBitcoinPendingMints).mockResolvedValue([]);
+    vi.mocked(findAddressActivity).mockResolvedValue({
+      asOfBlock: 200,
+      definitionVersion: ACCOUNT_ACTIVITY_DEFINITION_VERSION,
+      blocks: [
+        { blockNumber: 151, blockHash: '0x151', specVersion: 157, activityMask: AccountActivityKind.BitcoinLock },
+      ],
+      coverage: { fromBlock: 0, toBlock: 200, gaps: [] },
+    });
+    const recovery = {
+      db,
+      blockWatch,
+      accountId: keys.defaultArgonAddress,
+      bitcoinLocks: store,
+      argonBonds: {} as Parameters<typeof restoreFinancialHistory>[0]['argonBonds'],
+      vaultHistory: {} as Parameters<typeof restoreFinancialHistory>[0]['vaultHistory'],
+      enabledDomains: ['bitcoin'] as const,
+      recoverMissingCheckpointsFor: ['bitcoin'] as const,
+    };
+    try {
+      await restoreFinancialHistory(recovery);
+      expect(prompt).not.toHaveBeenCalled();
+      const saved = await db.bitcoinLocksTable.fetchAll();
+      expect(saved.map(lock => [lock.vaultId, lock.hdPath, lock.status])).toEqual([
+        [12, bitcoinLockHdPath(12, 3), BitcoinLockStatus.Released],
+        [34, bitcoinLockHdPath(34, 4), BitcoinLockStatus.Released],
+      ]);
+      const hdKeys = await Promise.all(
+        [12, 34].map(vaultId =>
+          db.walletHdKeysTable.fetchByScope({
+            keyRole: 'bitcoinLock',
+            scopeKey: String(vaultId),
+          }),
+        ),
+      );
+      expect(
+        hdKeys
+          .flat()
+          .map(key => key.hdPath)
+          .sort(),
+      ).toEqual([bitcoinLockHdPath(12, 3), bitcoinLockHdPath(34, 4)].sort());
+      expect((await store.getDerivedPubkey(34, 4)).ownerBitcoinPubkey).toEqual(hexToU8a(locks[1].ownerPubkey));
+      expect(store.getAllLocks().map(lock => lock.status)).toEqual([
+        BitcoinLockStatus.Released,
+        BitcoinLockStatus.Released,
+      ]);
+    } finally {
+      native.mockReset();
+      vi.mocked(findAddressActivity).mockReset();
+      await db.close();
+    }
+  });
+
   it('acknowledges current funding on a restored channel while retaining receipts for later deposits', async () => {
     const db = await createTestDb();
     const accountId = encodeAddress(new Uint8Array(32).fill(0x44));
@@ -1036,9 +1157,6 @@ describe('BitcoinLocks history replay publication', () => {
     const walletKeys = {
       canSign: false,
       defaultArgonAddress: accountId,
-      getBitcoinChildXpriv: async () => {
-        throw new Error('Wallet encryption key is unavailable');
-      },
     } as unknown as WalletKeys;
     const store = createStore({
       db,
@@ -1338,13 +1456,9 @@ describe('BitcoinLocks history replay publication', () => {
       utxos: [{ utxoRef: { txid: fundingTxid, vout: 1 }, satoshis: 10_000n }],
     });
     const releaseTxid = u8aToHex(sha256AsU8a(sha256AsU8a(psbt.unsignedTx)));
-    const getBitcoinChildXpriv = vi.fn(async () => {
-      throw new Error('Wallet encryption key is unavailable');
-    });
     const walletKeys = {
       canSign: false,
       defaultArgonAddress: accountId,
-      getBitcoinChildXpriv,
     } as unknown as WalletKeys;
     const api = {
       query: {
@@ -1446,7 +1560,6 @@ describe('BitcoinLocks history replay publication', () => {
     ]);
     await publishRecoveredHistory(store, 155);
 
-    expect(getBitcoinChildXpriv).not.toHaveBeenCalled();
     expect(store.getActiveLocks()).toEqual([currentRecord]);
     expect(store.getLockById(7)).toBeUndefined();
     expect(store.getLockById(70)).toBe(currentRecord);

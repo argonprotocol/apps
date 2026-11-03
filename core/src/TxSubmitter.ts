@@ -2,18 +2,16 @@
 import { waitForLoad } from '@argonprotocol/mainchain';
 import type { SignerOptions } from '@polkadot/api-base/types';
 import type { SubmittableExtrinsic } from '@polkadot/api/promise/types';
-import type { KeyringPair } from '@polkadot/keyring/types';
 import type { SignerPayloadJSON } from '@polkadot/types/types';
 import { numberToHex } from '@polkadot/util';
 import { BlockWatch } from './BlockWatch.js';
 import { type ITxProgressCallback, type ITxStatusCallback, TxResult } from './TxResult.js';
 import type { ArgonClient } from './MainchainClients.js';
+import type { TxSigner } from './TxSigner.js';
 
 const MINIMUM_MORTAL_PERIOD = 4;
 const MAXIMUM_MORTAL_PERIOD = 65_536;
 const MAXIMUM_AUTOMATIC_MORTAL_PERIOD = 4096;
-
-export type TxSigningAccount = KeyringPair | { address: string; signer: NonNullable<SignerOptions['signer']> };
 
 export type ISubmittableOptions = Partial<Omit<SignerOptions, 'signer'>> & {
   tip?: bigint;
@@ -30,10 +28,10 @@ export class TxSubmitter {
   constructor(
     public readonly client: ArgonClient,
     public tx: SubmittableExtrinsic,
-    public readonly account: TxSigningAccount,
+    public readonly signer: TxSigner,
     private readonly blockWatch?: BlockWatch,
   ) {
-    this.address = account.address;
+    this.address = signer.address;
   }
 
   public async feeEstimate(tip?: bigint): Promise<bigint> {
@@ -104,8 +102,8 @@ export class TxSubmitter {
       signingBlockNumber = numberToHex(finalizedNumber, 32);
     }
 
-    if ('signer' in this.account) {
-      const externalSigner = this.account.signer;
+    if (this.signer.externalSigner) {
+      const externalSigner = this.signer.externalSigner;
       const { signPayload, update } = externalSigner;
       const blockNumber = signingBlockNumber;
       let signer = externalSigner;
@@ -119,7 +117,7 @@ export class TxSubmitter {
       return await this.tx.signAsync(this.address, { ...apiOptions, signer });
     }
 
-    return await this.tx.signAsync(this.account, apiOptions);
+    return await this.tx.signAsync(this.signer, apiOptions);
   }
 
   public static replacementTip(pendingTip: bigint, minimumIncrease: bigint): bigint {

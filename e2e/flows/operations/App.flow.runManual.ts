@@ -65,12 +65,12 @@ export default new OperationalFlow<IRunOperationsContext, IRunOperationsState>(i
         operationTimeoutMs: parsedState.operationTimeoutMs,
         operationMode: parsedState.operationMode,
       },
-      state: 'runnable',
+      state: flow.getData<boolean>(`${flowName}.complete`) ? 'complete' : 'runnable',
       blockers: [],
       ...parsedState,
     };
   },
-  async run({ flow }, state) {
+  async run({ flow, flowName }, state) {
     if (state.operationTimeoutMs) {
       flow.defaultTimeoutMs = state.operationTimeoutMs;
       console.info(`[E2E] Operation command timeout set to ${state.operationTimeoutMs}ms`);
@@ -144,6 +144,7 @@ export default new OperationalFlow<IRunOperationsContext, IRunOperationsState>(i
       flow.setData('requiredInputs', inputSummary.requiredInputKeys);
       flow.setData('missingRequiredInputs', missingRequiredInputs);
       flow.setData('missingRequiredInputsByOperation', missingRequiredInputsByOperation);
+      flow.setData(`${flowName}.complete`, true);
       return;
     }
 
@@ -162,6 +163,7 @@ export default new OperationalFlow<IRunOperationsContext, IRunOperationsState>(i
         timeoutMs: state.operationTimeoutMs,
       });
     }
+    flow.setData(`${flowName}.complete`, true);
   },
 });
 

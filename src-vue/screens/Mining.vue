@@ -28,7 +28,7 @@ import ActiveSeatsOverlay from '../overlays/mining/ActiveSeatsOverlay.vue';
 import BiddingBotOverlay from '../overlays/mining/BiddingBotOverlay.vue';
 import basicEmitter from '../emitters/basicEmitter.ts';
 import { getConfig } from '../stores/config.ts';
-import { getBot } from '../stores/bot.ts';
+import { getBot } from '../stores/startup.ts';
 import { MiningSetupStatus } from '../interfaces/IConfig.ts';
 
 const config = getConfig();

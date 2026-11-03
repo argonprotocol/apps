@@ -81,6 +81,8 @@ import { MyVaultRecovery } from '../../lib/recovery/MyVaultRecovery.ts';
 import { getBlockWatch, getMainchainClients, getFinalizedClient } from '../../stores/mainchain.ts';
 import { useFinancialHistory } from '../../stores/financialHistory.ts';
 import { getConfig } from '../../stores/config.ts';
+import { getUpstreamOperatorClient } from '../../stores/upstreamOperator.ts';
+import { recoverPreviousWalletHistory } from '../../stores/startup.ts';
 import { getDbPromise } from '../../stores/helpers/dbPromise.ts';
 import Importer from '../../lib/Importer.ts';
 import type { Config } from '../../lib/Config.ts';
@@ -110,12 +112,15 @@ function scrollToBottom() {
 }
 
 async function checkWalletHistory() {
+  await bitcoinLocks.syncCurrentLocks();
   await accountImporter.recoverCurrentAccountState();
-  await config.recoverPreviousWalletHistory();
+  await recoverPreviousWalletHistory();
   await wallets.isLoadedPromise;
   const walletHistoryRecovery = getWalletHistoryRecovery();
   await walletHistoryRecovery.prepare();
   await walletHistoryRecovery.recoverNow(getBlockWatch().finalizedBlockHeader.blockNumber, true);
+  if (config.upstreamOperator?.restorePackage && walletKeys.canAccessServer)
+    await getUpstreamOperatorClient().getMemberSessionId();
 }
 
 async function checkVault() {

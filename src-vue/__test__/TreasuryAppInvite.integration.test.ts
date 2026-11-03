@@ -105,7 +105,7 @@ describe.skipIf(skipE2E).sequential('Treasury app invite flow integration', { ti
     try {
       const operatorVault = operatorHarness.myVault.createdVault!;
       const expectedFromName = 'OperatorOne';
-      const delegateKeypair = await operatorHarness.walletKeys.getVaultDelegateKeypair();
+      const delegateKeypair = await operatorHarness.walletKeys.getVaultDelegateSigner();
 
       const delegateSetupTx = await operatorHarness.myVault.ensureVaultDelegateReady();
       await delegateSetupTx?.txResult.waitForFinalizedBlock;
@@ -212,8 +212,8 @@ describe.skipIf(skipE2E).sequential('Treasury app invite flow integration', { ti
       const claimedInvite = await UpstreamOperatorClient.claimInvite({
         operatorHost,
         inviteCode: createdInvite.inviteCode,
-        defaultAccountKeypair: await treasuryHarness.walletKeys.getLiquidLockingKeypair(),
-        authKeypair: await treasuryHarness.walletKeys.getUpstreamOperatorAuthKeypair(),
+        defaultAccountSigner: await treasuryHarness.walletKeys.getLiquidLockingSigner(),
+        authSigner: await treasuryHarness.walletKeys.getUpstreamOperatorAuthSigner(),
       });
       const coupon = claimedInvite.invite.bitcoinLockCoupon!;
       expect(claimedInvite.fromName).toBe(expectedFromName);
@@ -222,7 +222,7 @@ describe.skipIf(skipE2E).sequential('Treasury app invite flow integration', { ti
       expect(coupon.remainingFeeCreditMicrogons).toBe(feeCreditMicrogons);
       expect(claimedInvite.invite.defaultAccountId).toBe(defaultAccountId);
       expect(claimedInvite.invite.authAccountId).toBe(
-        (await treasuryHarness.walletKeys.getUpstreamOperatorAuthKeypair()).address,
+        (await treasuryHarness.walletKeys.getUpstreamOperatorAuthSigner()).address,
       );
       expect(routerDb.userInvitesTable.fetchByCode(createdInvite.inviteCode)?.defaultAccountId).toBe(defaultAccountId);
       expect(routerDb.userInvitesTable.fetchByCode(createdInvite.inviteCode)?.authAccountId).toBe(
@@ -233,8 +233,8 @@ describe.skipIf(skipE2E).sequential('Treasury app invite flow integration', { ti
         UpstreamOperatorClient.claimInvite({
           operatorHost,
           inviteCode: createdInvite.inviteCode,
-          defaultAccountKeypair: await operatorHarness.walletKeys.getLiquidLockingKeypair(),
-          authKeypair: await operatorHarness.walletKeys.getUpstreamOperatorAuthKeypair(),
+          defaultAccountSigner: await operatorHarness.walletKeys.getLiquidLockingSigner(),
+          authSigner: await operatorHarness.walletKeys.getUpstreamOperatorAuthSigner(),
         }),
       ).rejects.toThrow('already claimed by a different account');
 
@@ -261,7 +261,7 @@ describe.skipIf(skipE2E).sequential('Treasury app invite flow integration', { ti
       ).rejects.toThrow('Forbidden');
 
       // The member submits two beneficiary-specific coupon securitizations concurrently.
-      const txSigner = await treasuryHarness.walletKeys.getLiquidLockingKeypair();
+      const txSigner = await treasuryHarness.walletKeys.getLiquidLockingSigner();
       const [firstTxInfo, secondTxInfo] = await Promise.all([
         treasuryHarness.bitcoinLockCreate.submit({
           satoshis: requestedSatoshis,

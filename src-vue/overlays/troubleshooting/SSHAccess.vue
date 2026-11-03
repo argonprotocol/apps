@@ -40,6 +40,7 @@
 import * as Vue from 'vue';
 import CopyCommandBlock from '../../components/CopyCommandBlock.vue';
 import { getConfig } from '../../stores/config.ts';
+import { getWalletKeys } from '../../stores/wallets.ts';
 import { platformType } from '../../tauri-controls/utils/os.ts';
 import { invokeWithTimeout } from '../../lib/tauriApi.ts';
 
@@ -126,6 +127,7 @@ async function activateAccess() {
         host,
         port,
         username,
+        privateKeySeed: Array.from(await getWalletKeys().getSshPrivateKeySeed()),
       },
       60e3,
     );
@@ -153,6 +155,7 @@ async function deactivateAccess() {
         host,
         port,
         username,
+        privateKeySeed: Array.from(await getWalletKeys().getSshPrivateKeySeed()),
       },
       60e3,
     );

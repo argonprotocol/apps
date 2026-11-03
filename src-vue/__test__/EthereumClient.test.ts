@@ -1,4 +1,4 @@
-import { NetworkConfig, setFetchImplementation, type FetchImplementation } from '@argonprotocol/apps-core';
+import { NetworkConfig, MoveToken, setFetchImplementation, type FetchImplementation } from '@argonprotocol/apps-core';
 import { EvmContracts } from '@argonprotocol/mainchain';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
@@ -119,6 +119,28 @@ describe('EthereumClient', () => {
     ).rejects.toThrow('Missing or invalid parameters. Double check you have provided the correct parameters.');
   });
 
+  it('quotes the provisional inbound network fee without unlocking or signing a permit', async () => {
+    const keys = createMockWalletKeys();
+    const unlock = vi.spyOn(keys, 'getEthereumSigner').mockImplementation(() => {
+      throw new Error('Account is locked');
+    });
+    const client = new EthereumClient(keys, 'https://ethereum.test');
+    Object.assign(client, {
+      createExecutionClient: async () => ({
+        publicClient: { estimateFeesPerGas: async () => ({ maxFeePerGas: 7n, gasPrice: 5n }) },
+      }),
+    });
+    const ethereumWallet = new WalletForEthereum(keys.coreEthereumAddress, undefined, undefined, true);
+    const fee = await client.estimateTransferToArgonFee({
+      moveToken: MoveToken.ARGN,
+      amountBaseUnits: 100n,
+      destinationAddress: keys.defaultArgonAddress,
+      ethereumWallet,
+    });
+    expect(fee).toBe(350_000n * 7n);
+    expect(unlock).not.toHaveBeenCalled();
+  });
+
   it('reserves distinct Ethereum nonces for concurrent outbound finalizations', async () => {
     const walletKeys = createMockWalletKeys();
     const ethereumClient = new EthereumClient(walletKeys, 'https://ethereum.test');
@@ -163,7 +185,7 @@ describe('EthereumClient', () => {
     };
 
     await Promise.all(
-      [1n, 2n].map(argonTransferNonce =>
+      [1n, 2n].map(async argonTransferNonce =>
         ethereumClient.finalizeTransferOutOfArgon({
           request: {
             argonAccountId: repeatHex('44', 32),
@@ -376,10 +398,7 @@ describe('EthereumClient', () => {
     const receipt = await fixture.ethereumClient.applyReadyGatewayUpdates(
       fixture.finalizedClient as any,
       fixture.walletKeys.vaultingAddress,
-      {
-        address: fixture.walletKeys.coreEthereumAddress,
-        hdPath: `m/44'/60'/0'/0'`,
-      },
+      { address: fixture.walletKeys.coreEthereumAddress, hdPath: fixture.walletKeys.ethereumHdPath },
       { allowUncompensatedRelay: true },
     );
     const decoded = decodeFunctionData({
@@ -482,10 +501,7 @@ describe('EthereumClient', () => {
     const receipt = await fixture.ethereumClient.applyReadyGatewayUpdates(
       fixture.finalizedClient as any,
       fixture.walletKeys.vaultingAddress,
-      {
-        address: fixture.walletKeys.coreEthereumAddress,
-        hdPath: `m/44'/60'/0'/0'`,
-      },
+      { address: fixture.walletKeys.coreEthereumAddress, hdPath: fixture.walletKeys.ethereumHdPath },
       { allowUncompensatedRelay: true },
     );
 
@@ -518,10 +534,7 @@ describe('EthereumClient', () => {
       fixture.ethereumClient.applyReadyGatewayUpdates(
         fixture.finalizedClient as any,
         fixture.walletKeys.vaultingAddress,
-        {
-          address: fixture.walletKeys.coreEthereumAddress,
-          hdPath: `m/44'/60'/0'/0'`,
-        },
+        { address: fixture.walletKeys.coreEthereumAddress, hdPath: fixture.walletKeys.ethereumHdPath },
         { allowUncompensatedRelay: true },
       ),
     ).rejects.toThrow(`Queue nonce 1 ${expectedError}`);

@@ -11,6 +11,8 @@ import {
 import { spawn } from 'child_process';
 import { type INetworkConfigOverride, toComposeProjectName } from '@argonprotocol/apps-core';
 import { ensureDevGatewayCerts } from './gatewayCerts.ts';
+import { prepareMacosDevelopmentSigning } from './macosSigning.ts';
+import tauriConfig from '../src-tauri/tauri.conf.json';
 import {
   createDevEthereumSetup,
   type IDevEthereumSetup,
@@ -33,6 +35,7 @@ import {
 import { isPortAvailable } from '../scripts/utils.ts';
 import fs from 'fs';
 import path from 'path';
+import os from 'os';
 import process from 'process';
 import { fileURLToPath } from 'url';
 
@@ -65,6 +68,7 @@ export async function startDesktop(
   const tauriEnv: NodeJS.ProcessEnv = { ...process.env };
   tauriEnv.ARGON_NETWORK_NAME = network;
   tauriEnv.ARGON_APP_INSTANCE = `${argonAppInstance.split(':')[0] || 'default'}:${tauriPort}`;
+  const signingConfigPath = await prepareMacosDevelopmentSigning(tauriEnv, { ...tauriConfig, ...baseConfig });
   const devEthereumConfig = readDevEthereumConfigFromEnv();
   let devEthereumSetup: IDevEthereumSetup | undefined;
   let devDockerArchiveUrl: string | undefined;
@@ -157,6 +161,8 @@ export async function startDesktop(
     console.log('[tauri-dev] Enabling e2e features (ARGON_DRIVER_WS detected)');
   }
 
+  if (signingConfigPath) tauriArgs.push('--', '--config', signingConfigPath);
+
   if (devEthereumSetup) {
     const ethereumSetupStartedAt = Date.now();
     await devEthereumSetup.start().catch(error => {
@@ -207,6 +213,12 @@ export async function startDesktop(
 
   await options.beforeLaunch?.(tauriEnv, startedDevEthereum);
   options.progress?.('Launching desktop');
+
+  let signingRunDirectory: string | undefined;
+  if (signingConfigPath) {
+    signingRunDirectory = fs.mkdtempSync(path.join(os.tmpdir(), 'argon-signed-dev-'));
+    tauriEnv.ARGON_MACOS_SIGNING_RUN_DIR = signingRunDirectory;
+  }
 
   const child = spawn('yarn', tauriArgs, {
     env: tauriEnv,
@@ -263,6 +275,7 @@ export async function startDesktop(
     appInstanceWatcher?.close();
     process.off('SIGINT', onInterrupt);
     process.off('SIGTERM', onTerminate);
+    if (signingRunDirectory) fs.rmSync(signingRunDirectory, { recursive: true, force: true });
   }
 }
 

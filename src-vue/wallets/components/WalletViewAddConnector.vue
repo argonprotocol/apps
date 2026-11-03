@@ -295,6 +295,7 @@ import { NetworkConfig } from '@argonprotocol/apps-core';
 import { XMarkIcon } from '@heroicons/vue/24/outline';
 import Unicon from '../../components/Unicon.vue';
 import WalletGuideAnchor from './WalletGuideAnchor.vue';
+import { EthereumKeys } from '../../lib/EthereumKeys.ts';
 import { WalletForEthereum } from '../../lib/WalletForEthereum.ts';
 import { createNumeralHelpers } from '../../lib/numeral.ts';
 import { getCurrency } from '../../stores/currency.ts';
@@ -378,7 +379,7 @@ async function continueExternalImport() {
       return;
     }
     ethereumSecretInput.value = mnemonic;
-    mnemonicAccounts.value = await WalletForEthereum.previewMnemonic(mnemonic);
+    mnemonicAccounts.value = EthereumKeys.previewMnemonic(mnemonic);
     selectedMnemonicPath.value = controller.isTransferGuideActive
       ? ''
       : (mnemonicAccounts.value[0]?.derivationPath ?? '');

@@ -21,27 +21,28 @@
         >
           Download
         </button>
-        <button
-          @click="includeWalletMnemonics = !includeWalletMnemonics"
-          type="button"
-          :disabled="isCreatingTroubleshootingPackage"
-          class="ml-2 flex cursor-pointer flex-row items-center space-x-2 whitespace-nowrap text-gray-800"
-        >
-          <Checkbox :isChecked="includeWalletMnemonics" :size="5" />
-          <span class="text-sm font-bold">Include Wallet Mnemonics</span>
-        </button>
       </div>
-      <p class="mt-2 text-xs text-slate-500">Wallet mnemonic files are excluded unless you opt in.</p>
+      <p v-if="savedPackagePath" class="mt-3 text-sm text-slate-600">
+        Saved debugging package:
+        <a
+          :href="savedPackagePath"
+          :title="savedPackagePath"
+          class="text-argon-600 cursor-pointer break-all underline"
+          @click.prevent="revealSavedPackage"
+        >
+          {{ savedPackagePath.split(/[\\/]/).at(-1) }}
+        </a>
+      </p>
     </li>
   </ul>
 </template>
 
 <script setup lang="ts">
 import * as Vue from 'vue';
-import { appConfigDir, appLogDir, downloadDir, join, tempDir } from '@tauri-apps/api/path';
+import { invoke } from '@tauri-apps/api/core';
+import { appLogDir, downloadDir, join, tempDir } from '@tauri-apps/api/path';
 import { listen } from '@tauri-apps/api/event';
 import { revealItemInDir } from '@tauri-apps/plugin-opener';
-import Checkbox from '../../components/Checkbox.vue';
 import { Config, getConfig } from '../../stores/config.ts';
 import { Diagnostics } from '../../lib/Diagnostics.ts';
 import ProgressBar from '../../components/ProgressBar.vue';
@@ -49,17 +50,14 @@ import { invokeWithTimeout } from '../../lib/tauriApi.ts';
 import { copyFile, mkdir, readDir, remove, writeTextFile } from '@tauri-apps/plugin-fs';
 import { getInstanceConfigDir } from '../../lib/Utils.ts';
 import { getWalletKeys } from '../../stores/wallets.ts';
-import { INSTANCE_NAME } from '../../lib/Env.ts';
+import { INSTANCE_NAME, LOG_FILE_PREFIX } from '../../lib/Env.ts';
 
-const config = getConfig();
-const walletKeys = getWalletKeys();
+const { includeServer = true } = defineProps<{ includeServer?: boolean }>();
 
-const diagnostics = new Diagnostics(config as Config, walletKeys);
-const localLogDir = Vue.ref('');
 const troubleshootingProgress = Vue.ref(0);
 const isCreatingTroubleshootingPackage = Vue.ref(false);
 const troubleshootingError = Vue.ref('');
-const includeWalletMnemonics = Vue.ref(false);
+const savedPackagePath = Vue.ref('');
 
 async function downloadTroubleshooting() {
   isCreatingTroubleshootingPackage.value = true;
@@ -82,7 +80,9 @@ async function downloadTroubleshooting() {
     removeOnFinish.push({ path: troubleshootingRoot, recursive: true });
     await mkdir(dataSnapshotDir, { recursive: true });
 
-    if (diagnostics.hasServer()) {
+    let diagnostics: Diagnostics | undefined;
+    if (includeServer) diagnostics = new Diagnostics(getConfig() as Config, getWalletKeys());
+    if (diagnostics?.hasServer()) {
       try {
         await diagnostics.load();
         const downloadPath = await diagnostics.downloadTroubleshootingPackage(progress => {
@@ -99,12 +99,7 @@ async function downloadTroubleshooting() {
       troubleshootingProgress.value = 15;
     }
 
-    await copyDirectorySnapshot(
-      await getInstanceConfigDir(),
-      dataSnapshotDir,
-      includeWalletMnemonics.value,
-      collectionErrors,
-    );
+    await copyDirectorySnapshot(await getInstanceConfigDir(), dataSnapshotDir, collectionErrors);
     troubleshootingProgress.value = Math.max(troubleshootingProgress.value, 75);
 
     try {
@@ -116,10 +111,20 @@ async function downloadTroubleshooting() {
     }
     troubleshootingProgress.value = Math.max(troubleshootingProgress.value, 85);
 
-    const pathsWithPrefixes: [string, string][] = [
-      ['logs', localLogDir.value],
-      ['data', dataSnapshotDir],
-    ];
+    const localLogDir = await appLogDir();
+    const logEntries = await readDir(localLogDir).catch(error => {
+      collectionErrors.push(`Local logs: ${String(error)}`);
+      return [];
+    });
+    const pathsWithPrefixes: [string, string][] = [];
+    for (const entry of logEntries) {
+      if (!entry.isFile || !entry.name.startsWith(LOG_FILE_PREFIX)) continue;
+      const suffix = entry.name.slice(LOG_FILE_PREFIX.length);
+      // Current file and timestamped rotations from the native logger.
+      if (suffix !== '.log' && !/^_\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2}\.log(?:\.bak)?$/.test(suffix)) continue;
+      pathsWithPrefixes.push(['logs', await join(localLogDir, entry.name)]);
+    }
+    pathsWithPrefixes.push(['data', dataSnapshotDir]);
 
     if (hasOsProfile) pathsWithPrefixes.push(['profile', osProfilePath]);
     if (serverPackagePath) {
@@ -140,20 +145,16 @@ async function downloadTroubleshooting() {
       }
     });
 
-    await invokeWithTimeout(
-      'create_zip',
-      {
-        eventProgressKey: zipProgressEventKey,
-        pathsWithPrefixes,
-        zipName: zipPath,
-      },
-      300e3,
-    );
+    // A frontend timeout cannot stop the native job; keep its inputs until it actually finishes.
+    await invoke('create_zip', {
+      eventProgressKey: zipProgressEventKey,
+      pathsWithPrefixes,
+      zipName: zipPath,
+    });
 
     troubleshootingProgress.value = 100;
-    await revealItemInDir(zipPath).catch(error => {
-      console.warn('Unable to reveal the saved debugging package:', error);
-    });
+    savedPackagePath.value = zipPath;
+    await revealSavedPackage();
   } catch (err) {
     console.error('Error downloading debugging package:', err);
     troubleshootingError.value = 'Could not save the debugging package. Please try again.';
@@ -170,12 +171,13 @@ async function downloadTroubleshooting() {
   }
 }
 
-async function copyDirectorySnapshot(
-  sourceDir: string,
-  destinationDir: string,
-  includeMnemonic: boolean,
-  collectionErrors: string[],
-) {
+async function revealSavedPackage() {
+  await revealItemInDir(savedPackagePath.value).catch(error => {
+    console.warn('Unable to reveal the saved debugging package:', error);
+  });
+}
+
+async function copyDirectorySnapshot(sourceDir: string, destinationDir: string, collectionErrors: string[]) {
   await mkdir(destinationDir, { recursive: true }).catch(error => {
     collectionErrors.push(`Create local snapshot directory ${destinationDir}: ${String(error)}`);
   });
@@ -195,7 +197,11 @@ async function copyDirectorySnapshot(
     if (entry.isDirectory && entry.name === 'virtual-machine') {
       continue;
     }
-    if (!includeMnemonic && entry.name.toLowerCase().startsWith('mnemonic')) {
+    if (entry.name.toLowerCase().startsWith('mnemonic')) {
+      continue;
+    }
+    // An unfinished account replacement can still contain its keychain encryption key.
+    if (entry.name.startsWith('wallet.tmp.json')) {
       continue;
     }
 
@@ -203,7 +209,7 @@ async function copyDirectorySnapshot(
     const destinationPath = await join(destinationDir, entry.name);
 
     if (entry.isDirectory) {
-      await copyDirectorySnapshot(sourcePath, destinationPath, includeMnemonic, collectionErrors);
+      await copyDirectorySnapshot(sourcePath, destinationPath, collectionErrors);
       continue;
     }
     if (entry.isFile) {
@@ -213,10 +219,6 @@ async function copyDirectorySnapshot(
     }
   }
 }
-
-Vue.onMounted(async () => {
-  localLogDir.value = await appLogDir();
-});
 </script>
 
 <style scoped>

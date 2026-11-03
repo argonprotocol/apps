@@ -5,10 +5,12 @@ import {
   type ArgonApi,
   type ArgonClient,
   type BlockWatch,
-  type TxSigningAccount,
+  type TxSigner,
   type TxResult,
+  JsonExt,
 } from '@argonprotocol/apps-core';
-import { BitcoinNetwork } from '@argonprotocol/bitcoin';
+import { BitcoinNetwork, HDKey } from '@argonprotocol/bitcoin';
+import { BitcoinSigner } from '../lib/BitcoinSigner.ts';
 import type { SubmittableExtrinsic } from '@argonprotocol/mainchain';
 import { describe, expect, it, vi } from 'vitest';
 import { computed, reactive } from 'vue';
@@ -33,6 +35,7 @@ import { BitcoinLockRelease } from '../lib/txs/BitcoinLock.release.ts';
 import { BitcoinOrphanRelease } from '../lib/txs/BitcoinOrphan.release.ts';
 import * as mainchainStore from '../stores/mainchain.ts';
 import { createCurrentLock, createStore, historyBlock, historyEvent } from './helpers/bitcoin.ts';
+import { toBitcoinLockScriptDetails } from '../lib/db/BitcoinLocksTable.ts';
 import { createTestDb } from './helpers/db.ts';
 
 describe('Bitcoin lock release', () => {
@@ -59,7 +62,7 @@ describe('Bitcoin lock release', () => {
           destinationSatoshis: 500n,
           bitcoinNetworkFee: 500n,
           toScriptPubkey: 'unused-before-active-liquid-guard',
-          txSigner: { address: 'owner-account' } as TxSigningAccount,
+          txSigner: { address: 'owner-account' } as TxSigner,
           client: {} as ArgonClient,
         }),
       ).rejects.toThrow('Close its Liquid before releasing this Bitcoin lock.');
@@ -122,8 +125,9 @@ describe('Bitcoin lock release', () => {
         firstSeenAt: new Date('2026-09-11T00:01:00Z'),
         firstSeenBitcoinHeight: 100,
       });
-      await db.execute('UPDATE BitcoinLocks SET fundingUtxoIds = ? WHERE uuid = ?', [
+      await db.execute('UPDATE BitcoinLocks SET fundingUtxoIds = ?, scriptDetails = ? WHERE uuid = ?', [
         [firstInput.id, secondInput.id],
+        JsonExt.stringify(toBitcoinLockScriptDetails(createCurrentLock())),
         pendingLock.uuid,
       ]);
       const originalLock = new BitcoinLock(
@@ -191,7 +195,7 @@ describe('Bitcoin lock release', () => {
       const lock = bitcoinLocks.getLockById(7)!;
       const releases = bitcoinLocks.releases;
       const operation = new BitcoinLockRelease(bitcoinLocks, transactionTracker);
-      const txSigner = { address: ownerAccount } as TxSigningAccount;
+      const txSigner = { address: ownerAccount } as TxSigner;
       const tx = {} as SubmittableExtrinsic;
 
       await expect(
@@ -302,7 +306,11 @@ describe('Bitcoin lock release', () => {
       const walletKeys = {
         canSign: true,
         defaultArgonAddress: ownerAccount,
-        getBitcoinChildXpriv: vi.fn().mockResolvedValue({}),
+        getBitcoinSigner: vi
+          .fn()
+          .mockResolvedValue(
+            new BitcoinSigner(HDKey.fromMasterSeed(new Uint8Array(32).fill(1)), BitcoinNetwork.Regtest),
+          ),
       } as unknown as WalletKeys;
       const mempool = {
         getTxStatus: vi.fn().mockResolvedValue(undefined),
@@ -310,12 +318,16 @@ describe('Bitcoin lock release', () => {
         getTipHeight: vi.fn().mockResolvedValue(120),
       } as unknown as BitcoinMempool;
       restarted = await loadReleaseState(db, { walletKeys, mempool });
-      vi.spyOn(restarted.bitcoinLocks, 'createCosignScript').mockReturnValue({
-        cosignAndGenerateTx: () => finalTx,
-      } as never);
-      await restarted.releases.reconcileLockRelease(restarted.lock, false);
-      findVaultCosignatures.mockRestore();
-      getMainchainClient.mockRestore();
+      const signBitcoin = vi
+        .spyOn(BitcoinSigner.prototype, 'cosignAndGenerateTx')
+        .mockReturnValue(finalTx as ReturnType<BitcoinSigner['cosignAndGenerateTx']>);
+      try {
+        await restarted.releases.reconcileLockRelease(restarted.lock, false);
+      } finally {
+        signBitcoin.mockRestore();
+        findVaultCosignatures.mockRestore();
+        getMainchainClient.mockRestore();
+      }
       restarted = await loadReleaseState(db);
       expect(restarted.release).toMatchObject({
         status: BitcoinReleaseStatus.ConfirmingOnBitcoin,
@@ -685,7 +697,7 @@ describe('Bitcoin lock release', () => {
     } as unknown as TransactionTracker;
     const bitcoinLocks = await loadBitcoinLocksState(db, transactionTracker);
     const operation = new BitcoinLockRelease(bitcoinLocks, transactionTracker);
-    const txSigner = { address: 'owner-account' } as TxSigningAccount;
+    const txSigner = { address: 'owner-account' } as TxSigner;
 
     const results = await Promise.allSettled(
       lockIds.map((lockId, index) => {
@@ -941,7 +953,7 @@ describe('Bitcoin lock release', () => {
       releases,
     } as unknown as BitcoinLocks;
     const operation = new BitcoinOrphanRelease(bitcoinLocks, transactionTracker);
-    const txSigner = { address: 'owner-account' } as TxSigningAccount;
+    const txSigner = { address: 'owner-account' } as TxSigner;
     const tx = {} as SubmittableExtrinsic;
 
     await expect(

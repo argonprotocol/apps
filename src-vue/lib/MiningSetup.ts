@@ -22,13 +22,13 @@ import {
 } from './WalletForArgon.ts';
 import { ExtrinsicType } from './db/TransactionsTable.ts';
 import type { WalletKeys } from './WalletKeys.ts';
+import { BootstrapRecovery } from './BootstrapRecovery.ts';
 import { BalanceTransfer, type IAssetsToMove, type ITransactionMoveMetadata } from './txs/Balance.transfer.ts';
 import type { MiningBidProxySetup, MiningBidProxySetupResult } from './txs/MiningBidProxy.setup.ts';
 
 export interface MiningSetupInput {
   defaultWallet: IWallet;
   miningBotWallet: IWallet;
-  config: Config;
   client?: ArgonClient;
 }
 
@@ -47,9 +47,10 @@ export class MiningSetup {
   private ensurePromise?: Promise<MiningSetupResult>;
 
   constructor(
-    walletKeys: WalletKeys,
+    private readonly walletKeys: WalletKeys,
     private readonly transactionTracker: TransactionTracker,
     private readonly proxySetup: MiningBidProxySetup,
+    private readonly config: Config,
   ) {
     this.fundingTransfer = new BalanceTransfer(walletKeys, transactionTracker, {
       ownsTransfer: txInfo => this.isFundingTransfer(txInfo),
@@ -79,6 +80,7 @@ export class MiningSetup {
     const recoveredFunding = await this.findIncompleteFundingTransaction();
     if (recoveredFunding) {
       if (recoveredFunding.tx.isFinalized && !recoveredFunding.hasPendingPostProcessing) {
+        await this.publishServerBootstrap(input.client);
         const proxySetup = await this.ensureLinkedProxySetup(recoveredFunding, input.client);
         if (proxySetup.kind === 'ready') return proxySetup;
         if (proxySetup.kind === 'insufficientFunds') return { kind: 'blocked', error: proxySetup.error };
@@ -97,7 +99,8 @@ export class MiningSetup {
     if (funding.kind !== 'funding') {
       if (funding.kind === 'blocked') return funding;
       if (funding.kind === 'noSpendableFundsToSweep') {
-        const { miningBotWallet, config } = input;
+        const { miningBotWallet } = input;
+        const config = this.config;
         if (
           miningBotWallet.availableMicrogons + miningBotWallet.reservedMicrogons <
           config.biddingRules.initialMicrogonRequirement
@@ -112,6 +115,7 @@ export class MiningSetup {
         }
       }
 
+      await this.publishServerBootstrap(input.client);
       const proxySetup = await this.proxySetup.ensure(input.client);
       if (proxySetup.kind === 'ready') return proxySetup;
       if (proxySetup.kind === 'insufficientFunds') return { kind: 'blocked', error: proxySetup.error };
@@ -140,7 +144,8 @@ export class MiningSetup {
     | { kind: 'noSpendableFundsToSweep' }
     | { kind: 'blocked'; error: string }
   > {
-    const { defaultWallet, miningBotWallet, config } = input;
+    const { defaultWallet, miningBotWallet } = input;
+    const config = this.config;
     const spendableMicrogons = getSpendableDefaultArgonMicrogons(defaultWallet.availableMicrogons);
     const spendableMicronots = bigIntMax(defaultWallet.availableMicronots - existentialDepositMicronots, 0n);
     const requiredMicrogons = bigIntMax(
@@ -229,10 +234,20 @@ export class MiningSetup {
   }
 
   private async completeFunding(txInfo: TransactionInfo<ITransactionMoveMetadata>): Promise<void> {
+    await this.publishServerBootstrap();
     const proxySetup = await this.ensureLinkedProxySetup(txInfo);
     if (proxySetup.kind === 'insufficientFunds') throw new Error(proxySetup.error);
     if (proxySetup.kind === 'ready') return;
     await proxySetup.txInfo.waitForPostProcessing;
+  }
+
+  private async publishServerBootstrap(client?: ArgonClient): Promise<void> {
+    if (!this.config.isServerInstalled) return;
+    await new BootstrapRecovery(this.walletKeys).publishOwnServer({
+      config: this.config,
+      client: client ?? (await getMainchainClient(false)),
+      transactionTracker: this.transactionTracker,
+    });
   }
 
   private async ensureLinkedProxySetup(

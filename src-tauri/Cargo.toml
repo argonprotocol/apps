@@ -33,7 +33,7 @@ dotenvy = "0.15"
 
 
 [dependencies]
-tauri = { version = "2", features = ["default", "macos-private-api", "image-png", "devtools"] }
+tauri = { version = "2", features = ["default", "macos-private-api", "image-png"] }
 tauri-plugin-autostart = "2"
 tauri-plugin-dialog = "2"
 tauri-plugin-process = "2"
@@ -58,9 +58,6 @@ color-backtrace = "0.7.1"
 include_dir = "0.7"
 lazy_static = "1.5.0"
 anyhow = "1.0"
-alloy-sol-types = "1.5"
-alloy-rlp = { version = "0.3.15", features = ["derive"] }
-alloy-primitives = { version = "1.5", features = ["rlp"] }
 tauri-plugin-log = { version = "2", features = ["colored" ] }
 keyring = {version = "3", features = ["apple-native", "windows-native", "linux-native", "sync-secret-service", "crypto-rust"] }
 hex = "0.4.3"
@@ -73,13 +70,7 @@ dotenvy = "0.15"
 fs2 = "0.4"
 aes-gcm = "0.10"
 base64 = "0.22"
-bip39 = { version = "2" }
-bip32 = { version = "0.5.3"}
-curve25519-dalek = "4.1.3"
-hkdf = "0.12.4"
 reqwest = { version = "0.12"  }
-secp256k1 = { version = "0.28.2", features = ["recovery"] }
-sha2 = "0.10.9"
 tauri-plugin-deep-link = "2"
 xcap = { version = "0.8.2", optional = true, default-features = false, features = ["image"] }
 
@@ -91,6 +82,20 @@ libc = "0.2"
 
 [target.'cfg(target_os = "linux")'.dependencies]
 webkit2gtk = "2.0.1"
+futures-util = "0.3"
+zbus = { version = "5.12", default-features = false, features = ["tokio"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2-app-kit = "0.3.2"
+objc2-local-authentication = { version = "0.3.2", default-features = false, features = ["std", "LAContext", "LABiometryType", "block2"] }
+objc2-foundation = "0.3.2"
+objc2 = "0.6.4"
+block2 = "0.6.2"
+security-framework = { version = "3.5.1", features = ["OSX_10_15"] }
+security-framework-sys = { version = "2.15.0", features = ["OSX_10_15"] }
+core-foundation = "0.10.1"
+
+[target.'cfg(target_os = "windows")'.dependencies]
+windows = { version = "0.61", features = ["Security_Credentials", "Security_Credentials_UI", "Security_Cryptography", "Storage_Streams", "Win32_System_TpmBaseServices", "Win32_System_WinRT", "Win32_Foundation"] }
+windows-future = "0.2"
+sha2 = "0.10"

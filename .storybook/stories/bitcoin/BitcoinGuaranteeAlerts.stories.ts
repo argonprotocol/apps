@@ -7,7 +7,7 @@ import {
   type BitcoinOverlayScenario,
 } from '../../scenarios/setupBitcoinOverlayScenario.ts';
 import { BitcoinLockStatus } from '../../../src-vue/interfaces/IBitcoinLockRecord.ts';
-import { getInstaller } from '../../../src-vue/stores/installer.ts';
+import { getInstaller } from '../../../src-vue/stores/startup.ts';
 import { getMainchainClients } from '../../../src-vue/stores/mainchain.ts';
 import AlertBars from '../../../src-vue/navigation/AlertBars.vue';
 

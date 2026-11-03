@@ -220,7 +220,7 @@ describe('EthereumInboundTransferTracker integration', { tags: ['no-argon-networ
     const db = await createTestDb();
     const walletKeys = createMockWalletKeys();
     let provenNonce = 6n;
-    const delegateAddress = await walletKeys.getVaultDelegateKeypair().then(x => x.address);
+    const delegateAddress = (await walletKeys.getVaultDelegateSigner()).address;
     const mainchainClient = createMainchainClient({
       getProvenNonce: () => provenNonce,
     });
@@ -341,7 +341,7 @@ describe('EthereumInboundTransferTracker integration', { tags: ['no-argon-networ
   it('explains when the Argon network is taking over after the server runs out of relay funds', async () => {
     const db = await createTestDb();
     const walletKeys = createMockWalletKeys();
-    const delegateAddress = await walletKeys.getVaultDelegateKeypair().then(x => x.address);
+    const delegateAddress = (await walletKeys.getVaultDelegateSigner()).address;
     const mainchainClient = createMainchainClient({
       getProvenNonce: () => 6n,
     });
@@ -1382,62 +1382,6 @@ describe('EthereumInboundTransferTracker integration', { tags: ['no-argon-networ
     }
   });
 
-  it('surfaces a clear error when the Ethereum wallet cannot cover the network fee', async () => {
-    const db = await createTestDb();
-    const walletKeys = createMockWalletKeys();
-    const ethereumClient = createEthereumClient({
-      sourceAddress: walletKeys.coreEthereumAddress,
-      destinationAddress: walletKeys.defaultArgonAddress,
-      sourceTxHash: `0x${'77'.repeat(32)}`,
-      sourceBlockNumber: 42,
-      sourceBlockHash: `0x${'88'.repeat(32)}`,
-      sourceLogIndex: 9,
-      gatewayActivityNonce: 7n,
-      nativeBalanceWei: 0n,
-      feeEstimateWei: 5n,
-    });
-    const tracker = new EthereumInboundTransferTracker(
-      Promise.resolve(db),
-      createTransactionTracker(),
-      createBlockWatch(
-        createMainchainClient({
-          getProvenNonce: () => 6n,
-        }),
-      ),
-      walletKeys,
-      ethereumClient,
-      undefined,
-      {
-        resolveOperatorHost: async () => undefined,
-        requestEthereumGatewayCatchUp: vi.fn(),
-      },
-    );
-
-    tracker.data = reactive(tracker.data);
-    const ethereumWallet = new WalletForEthereum(walletKeys.coreEthereumAddress, undefined, undefined, true);
-    ethereumWallet.data.availableMicrogons = 5n;
-    const spendableAmount = computed(() => tracker.getAvailableAmount(ethereumWallet, MoveToken.ARGN));
-    expect(spendableAmount.value).toBe(5n);
-
-    const activeTransfer = await tracker.startMove({
-      moveToken: MoveToken.ARGN,
-      amountBaseUnits: 5_000_000_000_000n,
-      targetWalletType: WalletType.argon,
-      ethereumWallet,
-    });
-
-    await vi.waitFor(() => {
-      expect(activeTransfer?.transferState.isSubmitting).toBe(false);
-      expect(activeTransfer?.transferState.needsAttention).toBe(true);
-      expect(activeTransfer?.transferState.error).toContain('Your Ethereum wallet has 0 ETH');
-      expect(activeTransfer?.transferState.error).toContain('Add about 0.000000000000000005 ETH and retry.');
-    });
-
-    expect(ethereumClient.startTransferToArgon).not.toHaveBeenCalled();
-    expect(spendableAmount.value).toBe(5n);
-    await db.close();
-  });
-
   it('restores the spendable ARGNOT amount after Ethereum rejects submission', async () => {
     const db = await createTestDb();
     const walletKeys = createMockWalletKeys();
@@ -1476,6 +1420,8 @@ describe('EthereumInboundTransferTracker integration', { tags: ['no-argon-networ
       ethereumWallet,
     });
     expect(spendableAmount.value).toBe(0n);
+    expect(getCrosschainTransferProgressView(transfer?.transferState, Date.now() + 3_600_000).progressPct).toBe(0);
+    expect(await db.crosschainInboundTransfersTable.fetchAll()).toEqual([]);
     submission.reject(new Error('Ethereum rejected this transaction'));
 
     await vi.waitFor(() => expect(transfer?.transferState.needsAttention).toBe(true));
@@ -1525,6 +1471,7 @@ describe('EthereumInboundTransferTracker integration', { tags: ['no-argon-networ
     const finality = createDeferred<Awaited<ReturnType<EthereumClient['waitForTransactionFinality']>>>();
     const waitForFinality = vi.fn(() => finality.promise);
     let loseBroadcastReply = false;
+    let nativeBalanceWei = 0n;
     const sendRawTransaction = vi.fn(async ({ serializedTransaction }: { serializedTransaction: Hex }) => {
       if (!loseBroadcastReply) return keccak256(serializedTransaction);
       const rows = await db.crosschainInboundTransfersTable.fetchAll();
@@ -1551,7 +1498,7 @@ describe('EthereumInboundTransferTracker integration', { tags: ['no-argon-networ
           getTransactionCount: async () => 0,
           estimateGas: async () => 100_000n,
           estimateFeesPerGas: async () => ({ gasPrice: 1n, maxFeePerGas: 1n, maxPriorityFeePerGas: 1n }),
-          getBalance: async () => 1_000_000n,
+          getBalance: async () => nativeBalanceWei,
           sendRawTransaction,
           getTransaction: async ({ hash }: { hash: Hex }) => {
             throw new TransactionNotFoundError({ hash });
@@ -1577,6 +1524,19 @@ describe('EthereumInboundTransferTracker integration', { tags: ['no-argon-networ
     await db.execute(`CREATE TRIGGER reject_inbound_insert BEFORE INSERT ON CrosschainInboundTransfers
       BEGIN SELECT RAISE(ABORT, 'temporary inbound write failure'); END`);
 
+    const unaffordable = await tracker.startMove({
+      moveToken: MoveToken.ARGN,
+      amountBaseUnits: 5_000_000_000_000n,
+      targetWalletType: WalletType.argon,
+      ethereumWallet,
+    });
+    await vi.waitFor(() => expect(unaffordable?.transferState.needsAttention).toBe(true));
+    expect(unaffordable?.transferState.error).toContain('0.00000000000017 ETH');
+    expect(await db.crosschainInboundTransfersTable.fetchAll()).toEqual([]);
+    expect(sendRawTransaction).not.toHaveBeenCalled();
+
+    // Enough for the actual padded 170,000 gas, but below the locked 350,000-gas preview.
+    nativeBalanceWei = 200_000n;
     const failedTransfer = await tracker.startMove({
       moveToken: MoveToken.ARGN,
       amountBaseUnits: 5_000_000_000_000n,
@@ -1766,7 +1726,9 @@ describe('EthereumInboundTransferTracker integration', { tags: ['no-argon-networ
 
     try {
       await vi.waitFor(() =>
-        expect(second.transferState.progress.currentStepDetail).not.toBe('Preparing Ethereum transfer...'),
+        expect(second.transferState.progress.currentStepLabel).toBe(
+          'Waiting for an earlier transfer from this Ethereum wallet to be mined...',
+        ),
       );
       firstMined = true;
       await vi.waitFor(async () => {
@@ -1857,8 +1819,6 @@ function createEthereumClient(args: {
   gatewayActivityNonce: bigint;
   pollMs?: number;
   waitEstimateMs?: number;
-  feeEstimateWei?: bigint;
-  nativeBalanceWei?: bigint;
 }): Pick<
   EthereumClient,
   | 'sourceAddress'
@@ -1866,7 +1826,6 @@ function createEthereumClient(args: {
   | 'startTransferToArgon'
   | 'confirmTransferToArgon'
   | 'estimateTransferToArgonFee'
-  | 'getNativeBalanceWei'
   | 'getTransactionProgress'
   | 'getTransactionFinalityPollMs'
   | 'getTransactionFinalityBlocks'
@@ -1896,8 +1855,7 @@ function createEthereumClient(args: {
         sourceTxHash: args.sourceTxHash,
       };
     }),
-    estimateTransferToArgonFee: vi.fn(async () => args.feeEstimateWei ?? 1n),
-    getNativeBalanceWei: vi.fn(async () => args.nativeBalanceWei ?? 10n),
+    estimateTransferToArgonFee: vi.fn(async () => 1n),
     confirmTransferToArgon: vi.fn(async () => ({
       moveToken: MoveToken.ARGN as MoveToken.ARGN,
       amountBaseUnits: 5_000_000_000_000n,

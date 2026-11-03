@@ -7,7 +7,7 @@ import {
   NetworkConfig,
   type ArgonClient,
   type BlockWatch,
-  type TxSigningAccount,
+  type TxSigner,
   Vault,
   type Vaults,
   type ArgonCurrentQueryClient,
@@ -63,7 +63,7 @@ export interface IBitcoinLiquidRatchetMetadata {
 export interface BitcoinLiquidRatchetInput {
   liquidId: number;
   microgonsAtTargetPerBtc: bigint;
-  txSigner: TxSigningAccount;
+  txSigner: TxSigner;
   tip?: bigint;
   client?: ArgonClient;
 }

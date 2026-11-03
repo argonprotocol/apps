@@ -1,8 +1,9 @@
 import { vi } from 'vitest';
 
 vi.mock('../../lib/SSH', async () => {
+  const actual = await vi.importActual('../../lib/SSH');
   const { sshMockFn } = await import('./ssh');
-  return sshMockFn();
+  return { ...actual, ...sshMockFn() };
 });
 
 vi.mock('../../lib/Countries', async () => {
@@ -24,5 +25,5 @@ vi.mock('../../lib/tauriApi', async () => {
 });
 
 vi.mock('@tauri-apps/plugin-dialog', () => {
-  return { message: vi.fn() };
+  return { message: vi.fn(), confirm: vi.fn() };
 });
