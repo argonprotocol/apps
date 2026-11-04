@@ -1,16 +1,13 @@
 import { z } from 'zod';
-import { BiddingRulesSchema, type ICurrencyKey, UnitOfMeasurement } from '@argonprotocol/apps-core';
+import { BiddingRulesSchema, UnitOfMeasurement } from '@argonprotocol/apps-core';
 
-const CurrencyKeySchema = z
-  .nativeEnum(UnitOfMeasurement)
-  .refine(
-    (val): val is ICurrencyKey =>
-      val === UnitOfMeasurement.ARGN ||
-      val === UnitOfMeasurement.USD ||
-      val === UnitOfMeasurement.EUR ||
-      val === UnitOfMeasurement.GBP ||
-      val === UnitOfMeasurement.INR,
-  );
+const CurrencyKeySchema = z.enum([
+  UnitOfMeasurement.ARGN,
+  UnitOfMeasurement.USD,
+  UnitOfMeasurement.EUR,
+  UnitOfMeasurement.GBP,
+  UnitOfMeasurement.INR,
+]);
 
 const HostOrIpSchema = z
   .string()
@@ -101,7 +98,7 @@ export const ConfigServerAddLocalComputerSchema = z.object({});
 export const ConfigServerAddCustomServerSchema = z.object({
   port: z.number(),
   sshUser: z.string(),
-  ipAddress: z.string().ip().or(z.literal('')),
+  ipAddress: z.union([z.ipv4(), z.ipv6(), z.literal('')]),
   hasRunningBot: z.boolean().optional(),
 });
 
@@ -112,7 +109,7 @@ export const ConfigServerAddSchema = z.object({
 });
 
 export const ConfigServerDetailsSchema = z.object({
-  ipAddress: z.string().ip().or(z.literal('')),
+  ipAddress: z.union([z.ipv4(), z.ipv6(), z.literal('')]),
   sshPort: z.number().optional(),
   gatewayPort: z.number().optional(),
   bootstrapEndpointIndex: z.number().int().nonnegative().optional(),
