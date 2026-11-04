@@ -1,6 +1,7 @@
-FROM nginx:1.27-alpine@sha256:65645c7bb6a0661892a8b03b89d0743208a18dd2f3f17a54ef4b76fb8e2f2a10
+FROM nginx:1.30.6-alpine3.24@sha256:0e52bd054126cdc040b1276c0af347aeb02a41b9cfe305d6094767ac30e97949
 
-RUN apk add --no-cache curl jq
+RUN apk upgrade --no-cache && \
+    apk add --no-cache curl jq
 
 COPY templates /etc/nginx/templates
 COPY entrypoint.sh /usr/local/bin/argon-nginx-entrypoint

@@ -1,4 +1,4 @@
-FROM certbot/certbot:v5.3.0@sha256:63f918e44ae3b85c45549104d99b3121ad57435a67054030c3e829a3fbf36b34
+FROM certbot/certbot:v5.9.0@sha256:bc93cb710b413e6b456d622f9b0133b3e109c0a78c2ed9976af43d209b0a1805
 
 COPY entrypoint.sh /usr/local/bin/argon-gateway-certbot
 RUN chmod +x /usr/local/bin/argon-gateway-certbot

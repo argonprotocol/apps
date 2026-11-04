@@ -17,7 +17,8 @@ WORKDIR /usr/src/argon-apps
 COPY --from=build /usr/src/argon-apps/node_modules ./node_modules
 COPY --from=build /usr/src/argon-apps/discord-verifier/dist ./discord-verifier/dist
 
-RUN mkdir -p /var/lib/argon-discord-verifier \
+RUN rm -rf /usr/local/lib/node_modules/npm /usr/local/bin/npm /usr/local/bin/npx \
+  && mkdir -p /var/lib/argon-discord-verifier \
   && chown node:node /var/lib/argon-discord-verifier
 
 ENV DATABASE_PATH=/var/lib/argon-discord-verifier/verifier.sqlite

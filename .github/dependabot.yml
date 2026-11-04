@@ -27,20 +27,3 @@ updates:
       time: "09:00"
       timezone: "America/New_York"
     open-pull-requests-limit: 0
-
-  - package-ecosystem: "docker"
-    directories:
-      - "/indexer"
-      - "/local-machine"
-      - "/server/router"
-      - "/server/bot"
-      - "/server/nginx"
-      - "/server/gateway-certbot"
-      - "/server/bitcoin"
-      - "/server/bitcoin-data"
-    schedule:
-      interval: "weekly"
-      day: "monday"
-      time: "09:00"
-      timezone: "America/New_York"
-    open-pull-requests-limit: 0

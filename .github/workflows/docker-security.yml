@@ -1,0 +1,139 @@
+name: Docker Security
+
+on:
+  push:
+    branches:
+      - v[0-9]+.*
+  schedule:
+    - cron: '43 9 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: docker-security-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  GRYPE_IMAGE: anchore/grype:v0.121.1@sha256:6b06708b036f74b2cd70e94b706b4586af96d1932e6ac46255940b2e39dd44a9
+
+jobs:
+  scan:
+    name: Scan ${{ matrix.name }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: router
+            context: server/router
+            workspace: '@argonprotocol/apps-router'
+          - name: bot
+            context: server/bot
+            workspace: '@argonprotocol/apps-bot'
+          - name: bitcoin
+            context: server/bitcoin
+          - name: nginx
+            context: server/nginx
+          - name: certbot
+            context: server/gateway-certbot
+          - name: indexer
+            context: indexer
+            workspace: '@argonprotocol/apps-indexer'
+          - name: discord-verifier
+            context: .
+            dockerfile: discord-verifier/Dockerfile
+          - name: miner-mainnet
+            environment-file: server/.env.mainnet
+          - name: miner-testnet
+            environment-file: server/.env.testnet
+          - name: snapshot-base
+            base-dockerfile: server/bitcoin-data/Dockerfile
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Node.js
+        if: matrix.workspace
+        uses: actions/setup-node@v5.0.0
+        with:
+          node-version: '24'
+          cache: yarn
+
+      - name: Restore runtime client cache
+        if: matrix.workspace
+        uses: $/.github/actions/runtime-client-cache
+
+      - name: Build application bundle
+        if: matrix.workspace
+        env:
+          WORKSPACE: ${{ matrix.workspace }}
+        run: |
+          corepack enable
+          yarn install --immutable
+          yarn generate:runtime-client
+          yarn workspace "$WORKSPACE" build
+
+      - name: Prepare image archive
+        env:
+          BUILD_CONTEXT: ${{ matrix.context }}
+          DOCKERFILE: ${{ matrix.dockerfile }}
+          ENVIRONMENT_FILE: ${{ matrix.environment-file }}
+          BASE_DOCKERFILE: ${{ matrix.base-dockerfile }}
+        run: |
+          if [[ -n "$ENVIRONMENT_FILE" ]]; then
+            image=$(sed -n 's/^ARGON_IMAGE=//p' "$ENVIRONMENT_FILE")
+            test -n "$image"
+            docker pull --platform linux/amd64 "$image"
+          elif [[ -n "$BASE_DOCKERFILE" ]]; then
+            image=$(awk '/^FROM / { print $NF; exit }' "$BASE_DOCKERFILE")
+            test -n "$image"
+            docker pull --platform linux/amd64 "$image"
+          else
+            image=argon-security:scan
+            dockerfile=${DOCKERFILE:-$BUILD_CONTEXT/Dockerfile}
+            docker build --platform linux/amd64 --tag "$image" --file "$dockerfile" "$BUILD_CONTEXT"
+          fi
+
+          docker image inspect "$image" --format 'Image: {{.Id}}; image USER: {{if .Config.User}}{{json .Config.User}}{{else}}root (default){{end}}' >> "$GITHUB_STEP_SUMMARY"
+          docker image save --output "$RUNNER_TEMP/image.tar" "$image"
+
+      - name: Scan for fixable High and Critical vulnerabilities
+        run: |
+          status=0
+          docker run --rm \
+            --user "$(id -u):$(id -g)" \
+            --read-only \
+            --cap-drop ALL \
+            --security-opt no-new-privileges:true \
+            --tmpfs /tmp:rw,nosuid,nodev,noexec,mode=1777 \
+            --env GRYPE_DB_CACHE_DIR=/tmp/grype-db \
+            --env GRYPE_CHECK_FOR_APP_UPDATE=false \
+            --mount "type=bind,source=$RUNNER_TEMP/image.tar,target=/scan/image.tar,readonly" \
+            "$GRYPE_IMAGE" docker-archive:/scan/image.tar \
+            --only-fixed --fail-on high --output json \
+            > "$RUNNER_TEMP/grype.json" || status=$?
+
+          jq -r '
+            ["| Package | Installed | Fixed in | Vulnerability | Severity |", "|---|---|---|---|---|"][],
+            (.matches[] | select(.vulnerability.severity == "High" or .vulnerability.severity == "Critical") | [
+              .artifact.name, .artifact.version,
+              (.vulnerability.fix.versions | join(", ")),
+              .vulnerability.id, .vulnerability.severity
+            ] | "| " + join(" | ") + " |")
+          ' "$RUNNER_TEMP/grype.json" >> "$GITHUB_STEP_SUMMARY"
+          exit "$status"
+
+      - name: Upload scan report
+        if: always()
+        uses: actions/upload-artifact@v7.0.0
+        with:
+          name: docker-security-${{ matrix.name }}
+          path: ${{ runner.temp }}/grype.json
+          if-no-files-found: warn
+          retention-days: 14

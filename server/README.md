@@ -246,6 +246,12 @@ docker compose port router 8080
 Leaving `ROUTER_PORT` unset, or setting it to `0`, lets Docker choose a free loopback port for local development and CI.
 Set `ROUTER_PORT` only when local diagnostics need a stable host-local router port.
 
+## Miner Container Permissions
+
+The miner runs as the configured host UID/GID with all Linux capabilities dropped, no privilege escalation, and a read-only image filesystem. Its `/data` mount remains writable for the chain database, keystore, and P2P key; `/tmp` is temporary writable storage. The host data directory must belong to that UID/GID. The explicit `cap_add: []` prevents inheriting the shared `DAC_OVERRIDE` capability used by root services to access host-owned files. Docker's default seccomp profile remains enabled.
+
+This follows [Polkadot's validator service guidance](https://docs.polkadot.com/node-infrastructure/run-a-validator/onboarding-and-offboarding/start-validating/), which uses a dedicated user, an empty capability bounding set, `NoNewPrivileges`, a private temporary directory, and filesystem protection. [Docker recommends retaining its default seccomp profile](https://docs.docker.com/engine/security/seccomp/).
+
 ## Container Image Pins
 
 Dockerfile base images, including the local VM in `local-machine/`, use immutable `tag@sha256:...` references. The digest pins the image content; the tag records the intended version. Pins use the multi-platform image index so Docker can select the host's architecture.
@@ -259,6 +265,16 @@ docker buildx imagetools inspect node:24.22.1-slim --format '{{.Manifest.Digest}
 Mainnet and testnet select a digest-pinned Argon miner through `ARGON_IMAGE` in their server environment files. `ARGON_VERSION` remains the readable version used by installer messages and qualification tools. `yarn mainchain:pin <release-tag>` resolves and updates both values together; this requires Docker Buildx and registry access, but does not require a running Docker daemon. Development environments continue selecting their local or commit-tagged miner images through `ARGON_VERSION`.
 
 Bitcoin bootstrap snapshot images intentionally use `latest` so first installs receive the newest CI-generated snapshot. Their Dockerfile base is pinned independently. Locally built service images use the bundled source and pinned bases; a Compose image override would not pin those bases.
+
+## Container Vulnerability Checks
+
+The `Docker Security` workflow scans Linux AMD64 runtime images on release-branch pushes (`v[0-9]+.*`, matching release qualification), every Monday, and on manual dispatch. It builds router, bot, Bitcoin, nginx, Certbot, indexer, and Discord verifier images from the checkout, and scans the miner images pinned in both server network environment files. Indexer builds include its software bundle without regenerating chain-data seeds. Snapshot checks scan the pinned Debian base, since snapshot payloads are chain data rather than installed software. The local development VM and other architectures are outside this workflow.
+
+Grype runs from an immutable image digest as a non-root user, without a Docker socket, with only the image archive mounted read-only. Each scan downloads a current vulnerability database. Fixable High or Critical vulnerabilities fail the check; fixable findings appear in the job summary and JSON artifacts, including when the scan fails. Summaries also show the image identity and default `USER`; Compose user overrides and privilege drops require runtime review. Scanner errors also fail the check. Unfixed vulnerabilities are excluded from this gate.
+
+When a check fails, update the affected base-image digest, installed package, or application dependency and rerun it. Bundled JavaScript dependency coverage still relies on the existing dependency-review workflow; an image scan cannot reliably identify every dependency after bundling. These checks find known package vulnerabilities and do not validate container permissions or replace runtime tests.
+
+To update the scanner, verify the intended `anchore/grype` release and replace both the version and digest in `.github/workflows/docker-security.yml`. Keep the digest pinned; update workflow action references with `gh actions-lock`.
 
 ## Fresh Server Notes
 

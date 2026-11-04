@@ -5,6 +5,9 @@ x-common-config: &common-config
     - no-new-privileges:true
   cap_drop:
     - ALL
+  # Bind-mounted configuration and data retain their host ownership.
+  cap_add:
+    - DAC_OVERRIDE
   networks:
     - default
   extra_hosts:
@@ -53,6 +56,7 @@ services:
       dockerfile: Dockerfile
     restart: unless-stopped
     cap_add:
+      - DAC_OVERRIDE
       - NET_BIND_SERVICE
     environment:
       - GATEWAY_CERT_IP=${GATEWAY_CERT_IP:-}
@@ -75,6 +79,10 @@ services:
       dockerfile: Dockerfile
     restart: unless-stopped
     cap_add:
+      - DAC_OVERRIDE
+      - CHOWN
+      - SETGID
+      - SETUID
       - NET_BIND_SERVICE
     depends_on:
       - router
@@ -148,6 +156,8 @@ services:
     <<: [*common-config, *readonly-config]
     image: ${ARGON_IMAGE:-ghcr.io/argonprotocol/argon-miner:${ARGON_VERSION}}
     user: '${UID}:${GID}'
+    # /data belongs to this user; do not inherit DAC_OVERRIDE.
+    cap_add: []
     restart: unless-stopped
     depends_on:
       - bitcoin-node
