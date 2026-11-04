@@ -1348,6 +1348,7 @@ async function createFixture(inputSatoshis = 50_000n, historicalSpecVersion = 15
     bestBlockHeader: historyBlock(200),
     getFinalizedApi: async () => client,
     getApi: async () => live,
+    getHeader: async (blockNumber: number) => historyBlock(blockNumber),
     getRpcClient: async () => ({
       rpc: {
         chain: {
