@@ -4,7 +4,7 @@ import {
   calculateAnnualPercentageYield,
 } from './FinancialReturns.js';
 import { Currency } from './Currency.js';
-import type { Mining } from './Mining.js';
+import type { IMiningCohortStats, Mining } from './Mining.js';
 import { NetworkConfig } from './NetworkConfig.js';
 
 /**
@@ -33,24 +33,47 @@ export class GlobalMiningStats {
   public activeAPR: number = 0;
   public activeAPY: number = 0;
 
+  public hasCurrentStats = false;
+  public cohortProgress = { completed: 0, total: 0 };
+  public provisionalReturns?: { apr: number; apy: number; microgonRevenue: bigint };
+
   constructor(mining: Mining, currency: Currency) {
     this.mining = mining;
     this.currency = currency;
   }
 
-  public async load() {
+  public async load(onProgress?: () => void) {
     await this.currency.load();
-    await this.update();
+    await this.update(onProgress);
   }
 
-  public async update() {
+  public async update(onProgress?: () => void) {
     const client = await this.mining.prunedClientOrArchivePromise;
     const api = await client.at(await client.rpc.chain.getFinalizedHead());
-    const [activeSeatCount, cohorts] = await Promise.all([
-      this.mining.fetchActiveMinersCount(api),
-      this.mining.fetchActiveCohortStats(api),
-    ]);
+    const activeSeatCount = await this.mining.fetchActiveMinersCount(api);
+    const cohorts = await this.mining.fetchActiveCohortStats(api, progress => {
+      this.activeSeatCount = progress.activeSeatCount;
+      this.activeBidCosts = progress.activeBidCosts;
+      this.hasCurrentStats = true;
+      this.cohortProgress = { completed: progress.cohorts.length, total: progress.totalCohorts };
+      if (progress.cohorts.length > 0) {
+        const returns = this.calculateReturns(progress.cohorts);
+        this.provisionalReturns = {
+          apr: returns.averageAPR,
+          apy: returns.averageAPY,
+          microgonRevenue: returns.aggregatedBlockRewards,
+        };
+      }
+      onProgress?.();
+    });
 
+    this.activeSeatCount = activeSeatCount;
+    Object.assign(this, this.calculateReturns(cohorts));
+    this.hasCurrentStats = true;
+    this.cohortProgress = { completed: cohorts.length, total: cohorts.length };
+  }
+
+  private calculateReturns(cohorts: readonly IMiningCohortStats[]) {
     let aggregateBidCosts = 0n;
     let aggregateStakedValue = 0n;
     let aggregateRewardValue = 0n;
@@ -83,21 +106,23 @@ export class GlobalMiningStats {
       periodDays: NetworkConfig.framesPerCohort,
     };
 
-    this.activeSeatCount = activeSeatCount;
-    this.aggregatedBidCosts = aggregateBidCosts;
     const blocksPerCohort = BigInt(NetworkConfig.ticksPerCohort);
-    this.baseMicrogonRewardsPerBlock = aggregateBlockRewards.microgons / blocksPerCohort;
-    this.baseMicronotRewardsPerBlock = aggregateBlockRewards.micronots / blocksPerCohort;
-    this.aggregatedBlockRewards = aggregateRewardValue;
-    this.investedCapital = aggregateReturn.eligibleCapitalInvested;
-    this.projectedProfit = aggregateReturn.totalProfits;
-    this.averageAPR = calculateAnnualPercentageRate(annualizedInput);
-    this.averageAPY = calculateAnnualPercentageYield(annualizedInput);
-
-    this.activeBidCosts = this.aggregatedBidCosts;
-    this.activeBlockRewards = this.aggregatedBlockRewards;
-    this.activeTDR = aggregateReturn.percent;
-    this.activeAPR = this.averageAPR;
-    this.activeAPY = this.averageAPY;
+    const averageAPR = calculateAnnualPercentageRate(annualizedInput);
+    const averageAPY = calculateAnnualPercentageYield(annualizedInput);
+    return {
+      aggregatedBidCosts: aggregateBidCosts,
+      baseMicrogonRewardsPerBlock: aggregateBlockRewards.microgons / blocksPerCohort,
+      baseMicronotRewardsPerBlock: aggregateBlockRewards.micronots / blocksPerCohort,
+      aggregatedBlockRewards: aggregateRewardValue,
+      investedCapital: aggregateReturn.eligibleCapitalInvested,
+      projectedProfit: aggregateReturn.totalProfits,
+      averageAPR,
+      averageAPY,
+      activeBidCosts: aggregateBidCosts,
+      activeBlockRewards: aggregateRewardValue,
+      activeTDR: aggregateReturn.percent,
+      activeAPR: averageAPR,
+      activeAPY: averageAPY,
+    };
   }
 }

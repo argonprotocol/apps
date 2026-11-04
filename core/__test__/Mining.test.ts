@@ -214,6 +214,7 @@ describe('Mining network returns', () => {
       },
       query: {
         system: { number: vi.fn().mockResolvedValue(blockNumber) },
+        blockSeal: { isBlockFromVoteSeal: vi.fn().mockResolvedValue(true) },
         priceIndex: {
           current: vi.fn(
             async (): Promise<HistoricalQueryRecord<'priceIndex', 'current'>> => ({
@@ -476,12 +477,72 @@ describe('Mining network returns', () => {
   });
 
   it.each([
-    { boundary: 'growth', currentTick: 103, currentFrameMicronots: 7n, nextFrameMicronots: 13n },
-    { boundary: 'halving', currentTick: 115, currentFrameMicronots: 10n, nextFrameMicronots: 7n },
+    {
+      boundary: 'projected growth',
+      activationTick: 102,
+      currentTick: 103,
+      activationIsVote: true,
+      currentBlockNumber: 6,
+      currentFrameMicronots: 7n,
+      nextFrameMicronots: 13n,
+    },
+    {
+      boundary: 'projected halving',
+      activationTick: 114,
+      currentTick: 115,
+      activationIsVote: true,
+      currentBlockNumber: 6,
+      currentFrameMicronots: 10n,
+      nextFrameMicronots: 7n,
+    },
+    {
+      boundary: 'observed growth after vote activation',
+      activationTick: 103,
+      currentTick: 104,
+      activationIsVote: true,
+      currentBlockNumber: 6,
+      currentFrameMicronots: 9n,
+      nextFrameMicronots: 14n,
+    },
+    {
+      boundary: 'observed halving after vote activation',
+      activationTick: 115,
+      currentTick: 116,
+      activationIsVote: true,
+      currentBlockNumber: 6,
+      currentFrameMicronots: 8n,
+      nextFrameMicronots: 6n,
+    },
+    {
+      boundary: 'a same-tick vote after compute activation',
+      activationTick: 103,
+      currentTick: 103,
+      activationIsVote: false,
+      currentBlockNumber: 6,
+      currentFrameMicronots: 7n,
+      nextFrameMicronots: 13n,
+    },
+    {
+      boundary: 'vote activation before any post-reset win',
+      activationTick: 103,
+      currentTick: 103,
+      activationIsVote: true,
+      currentBlockNumber: 5,
+      currentFrameMicronots: 9n,
+      nextFrameMicronots: 14n,
+    },
   ])(
-    'projects payouts after the finalized tick across $boundary boundaries',
-    async ({ currentTick, currentFrameMicronots, nextFrameMicronots }) => {
+    'estimates observed and remaining payouts across $boundary',
+    async ({
+      activationTick,
+      currentTick,
+      activationIsVote,
+      currentBlockNumber,
+      currentFrameMicronots,
+      nextFrameMicronots,
+    }) => {
       NetworkConfig.setRuntimeOverride('mainnet', { genesisTick: 101, ticksBetweenFrames: 4 });
+      const tickAtBlock = (blockNumber: number) => (blockNumber >= 6 ? currentTick : activationTick + blockNumber - 5);
       const snapshots = (blockNumber: number) => ({
         consts: {
           blockRewards: {
@@ -495,7 +556,8 @@ describe('Mining network returns', () => {
         },
         query: {
           system: { number: vi.fn().mockResolvedValue(blockNumber) },
-          ticks: { currentTick: vi.fn().mockResolvedValue(currentTick + blockNumber - 6) },
+          ticks: { currentTick: vi.fn().mockResolvedValue(tickAtBlock(blockNumber)) },
+          blockSeal: { isBlockFromVoteSeal: vi.fn().mockResolvedValue(blockNumber === 5 ? activationIsVote : true) },
           priceIndex: {
             current: vi.fn(
               async (): Promise<HistoricalQueryRecord<'priceIndex', 'current'>> => ({
@@ -504,7 +566,7 @@ describe('Mining network returns', () => {
                 argonUsdTargetPrice: new BigNumber(1),
                 argonotUsdPrice: new BigNumber(1),
                 argonTimeWeightedAverageLiquidity: new BigNumber(0),
-                tick: currentTick + blockNumber - 6,
+                tick: tickAtBlock(blockNumber),
               }),
             ),
           },
@@ -518,7 +580,7 @@ describe('Mining network returns', () => {
           miningSlot: {
             activeMinersCount: vi.fn().mockResolvedValue(1),
             nextFrameId: vi.fn().mockResolvedValue(2),
-            frameRewardTicksRemaining: vi.fn().mockResolvedValue(3),
+            frameRewardTicksRemaining: vi.fn().mockResolvedValue(blockNumber === 5 ? 4 : 3),
             frameStartBlockNumbers: vi.fn().mockResolvedValue([5]),
             minersByCohort: {
               entries: vi
@@ -527,7 +589,14 @@ describe('Mining network returns', () => {
             },
             minerNonceScoringByCohort: vi.fn(
               async (): Promise<HistoricalQueryRecord<'miningSlot', 'minerNonceScoringByCohort'>> => ({
-                1: [{ nonce: 1n, lastWinBlock: 6, blocksWonInFrame: 1, frameStartBlocksWonSurplus: 0n }],
+                1: [
+                  {
+                    nonce: 1n,
+                    lastWinBlock: blockNumber >= 6 ? 6 : null,
+                    blocksWonInFrame: blockNumber >= 6 ? 1 : 0,
+                    frameStartBlocksWonSurplus: 0n,
+                  },
+                ],
               }),
             ),
           },
@@ -548,10 +617,10 @@ describe('Mining network returns', () => {
       };
       const mining = new Mining({ archiveClientPromise: Promise.resolve(client) } as any);
 
-      const [cohort] = await mining.fetchActiveCohortStats(snapshots(6) as any);
+      const [cohort] = await mining.fetchActiveCohortStats(snapshots(currentBlockNumber) as any);
 
-      // Growth: observed tick 103 pays 1; ticks 104..106 pay 2 each, then 107..110 pay 3,3,3,4.
-      // Halving: observed tick 115 pays 4; ticks 116..118 pay 2 each, then 119..122 pay 2,2,2,1.
+      // Miner rewards at ticks 102..103, 104..106, 107..109, 110..115, 116..121, 122.. are 1,2,3,4,2,1.
+      // Only block 6 contributes an observed win; block 5 activates and resets the counters.
       expect(cohort.frameRewards.slice(0, 2)).toMatchObject([
         { frameId: 1, microgons: 20n, micronots: currentFrameMicronots },
         { frameId: 2, microgons: 20n, micronots: nextFrameMicronots },

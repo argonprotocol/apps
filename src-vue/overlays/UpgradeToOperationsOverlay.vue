@@ -26,7 +26,7 @@
               <span class="text-base opacity-80">The network's computation</span>
             </div>
             <div class="bg-argon-100/50 rounded px-3 py-2 text-2xl leading-none font-bold">
-              <template v-if="areOperationReturnsReady">
+              <template v-if="miningStats.averageAPY !== undefined">
                 <Returns metric="APY" :returns="{ apy: miningStats.averageAPY }" :showLabel="false" />
               </template>
               <template v-else>---%</template>
@@ -38,7 +38,7 @@
               <span class="text-base opacity-80">The currency's stabilization</span>
             </div>
             <div class="bg-argon-100/50 rounded px-3 py-2 text-2xl leading-none font-bold">
-              <template v-if="areOperationReturnsReady">
+              <template v-if="vaultingStats.isLoaded">
                 <Returns metric="APY" :returns="{ apy: vaultingStats.averageAPY }" :showLabel="false" />
               </template>
               <template v-else>---%</template>
@@ -113,7 +113,6 @@ const invite = Vue.ref<IMemberInvite | null>(null);
 const isLoading = Vue.ref(true);
 const isSubmitting = Vue.ref(false);
 const formError = Vue.ref('');
-const areOperationReturnsReady = Vue.ref(false);
 const hasOpenedWelcome = Vue.ref(false);
 
 let refreshInterval: ReturnType<typeof setInterval> | undefined;
@@ -221,11 +220,8 @@ function openWelcomeIfApproved() {
 }
 
 async function refreshOperationReturns(): Promise<void> {
-  areOperationReturnsReady.value = false;
-
   try {
     await Promise.all([miningStats.update(), vaultingStats.update()]);
-    areOperationReturnsReady.value = true;
   } catch (error) {
     console.warn('[UpgradeToOperationsOverlay] Unable to refresh operation returns', error);
   }
