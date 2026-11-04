@@ -31,7 +31,6 @@ import {
   ROUTER_AUTH_SESSION_TTL_SECONDS,
   ROUTER_BOOTSTRAP_ENDPOINT_SECRET,
   ROUTER_RESTORE_KEY,
-  SERVER_ROOT,
   VAULT_OPERATOR_ADDRESS,
 } from './env.ts';
 import type { Db } from './Db.ts';
@@ -169,7 +168,6 @@ export class RouterServer {
         localNodeUrl: this.options.localNodeUrl,
         mainNodeUrl: this.options.mainNodeUrl,
         bitcoinConfig: BITCOIN_CONFIG,
-        serverRoot: SERVER_ROOT,
         authEnabled: routerAuth.isEnabled,
         bitcoinCooperativeReleaseMailboxVersion: routerAuth.isEnabled ? 1 : 0,
       })),

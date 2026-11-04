@@ -1,14 +1,26 @@
 x-common-config: &common-config
   logging:
     driver: '${DOCKER_LOG_DRIVER:-local}'
+  security_opt:
+    - no-new-privileges:true
+  cap_drop:
+    - ALL
+  # Bind-mounted configuration and data retain their host ownership.
+  cap_add:
+    - DAC_OVERRIDE
   networks:
     - default
   extra_hosts:
     - 'host.docker.internal:host-gateway'
 
+x-readonly-config: &readonly-config
+  read_only: true
+  tmpfs:
+    - /tmp
+
 services:
   router:
-    <<: *common-config
+    <<: [*common-config, *readonly-config]
     build:
       context: ./router
       dockerfile: Dockerfile
@@ -43,6 +55,9 @@ services:
       context: ./gateway-certbot
       dockerfile: Dockerfile
     restart: unless-stopped
+    cap_add:
+      - DAC_OVERRIDE
+      - NET_BIND_SERVICE
     environment:
       - GATEWAY_CERT_IP=${GATEWAY_CERT_IP:-}
     volumes:
@@ -63,6 +78,12 @@ services:
       context: ./nginx
       dockerfile: Dockerfile
     restart: unless-stopped
+    cap_add:
+      - DAC_OVERRIDE
+      - CHOWN
+      - SETGID
+      - SETUID
+      - NET_BIND_SERVICE
     depends_on:
       - router
     volumes:
@@ -77,7 +98,7 @@ services:
       retries: 12
 
   bitcoin-data:
-    <<: *common-config
+    <<: [*common-config, *readonly-config]
     image: ghcr.io/argonprotocol/apps/${BITCOIN_DATA_SLUG}:latest
     platform: linux/amd64
     build:
@@ -98,7 +119,7 @@ services:
       replicas: 1
 
   bitcoin-node:
-    <<: *common-config
+    <<: [*common-config, *readonly-config]
     restart: unless-stopped
     build:
       context: bitcoin
@@ -132,7 +153,7 @@ services:
       retries: 10
 
   argon-miner:
-    <<: *common-config
+    <<: [*common-config, *readonly-config]
     image: ${ARGON_IMAGE:-ghcr.io/argonprotocol/argon-miner:${ARGON_VERSION}}
     user: '${UID}:${GID}'
     restart: unless-stopped
@@ -182,7 +203,7 @@ services:
       start_period: 30s
       retries: 12
   bot:
-    <<: *common-config
+    <<: [*common-config, *readonly-config]
     build:
       context: ./bot
       dockerfile: Dockerfile
@@ -196,18 +217,18 @@ services:
       - ../config/.env.security
     environment:
       - PORT=8080
-      - BIDDING_RULES_PATH=/tmp/biddingRules.json
-      - BIDDER_KEYPAIR_PATH=/tmp/walletMiningBot.json
-      - VAULT_DELEGATE_KEYPAIR_PATH=/tmp/walletVaultDelegate.json
+      - BIDDING_RULES_PATH=/run/argon/biddingRules.json
+      - BIDDER_KEYPAIR_PATH=/run/argon/walletMiningBot.json
+      - VAULT_DELEGATE_KEYPAIR_PATH=/run/argon/walletVaultDelegate.json
       - LOCAL_RPC_URL=ws://argon-miner:9944
       - ARCHIVE_NODE_URL=${ARGON_ARCHIVE_NODE}
       - ROUTER_URL=http://router:8080
       - ARGON_CHAIN=${ARGON_CHAIN}
       - DATADIR=/data
     volumes:
-      - $ARGON_CONFIG_FOLDER/walletMiningBot.json:/tmp/walletMiningBot.json
-      - $ARGON_CONFIG_FOLDER/walletVaultDelegate.json:/tmp/walletVaultDelegate.json
-      - $ARGON_CONFIG_FOLDER/biddingRules.json:/tmp/biddingRules.json
+      - $ARGON_CONFIG_FOLDER/walletMiningBot.json:/run/argon/walletMiningBot.json:ro
+      - $ARGON_CONFIG_FOLDER/walletVaultDelegate.json:/run/argon/walletVaultDelegate.json:ro
+      - $ARGON_CONFIG_FOLDER/biddingRules.json:/run/argon/biddingRules.json:ro
       - $ARGON_DATA_FOLDER:/data
     profiles:
       - all

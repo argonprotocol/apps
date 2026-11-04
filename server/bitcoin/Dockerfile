@@ -1,6 +1,6 @@
 # Base image pinned for deterministic third-party installs.
 # Update only during explicit Bitcoin or security releases.
-FROM debian:bullseye-20251208-slim@sha256:e899040a73d36e2b36fa33216943539d9957cba8172b858097c2cabcdb20a3e2
+FROM debian:bookworm-slim@sha256:99c0b25c46d0214d5a2091092e7908907dcaecd6a962cde0ac700acee222b6f3
 
 ARG VERSION=31.2
 ENV VERSION=$VERSION
@@ -8,7 +8,8 @@ ENV VERSION=$VERSION
 RUN <<END
     set -ex
     apt-get update
-    apt-get install -y wget curl jq gnupg
+    apt-get install -y --no-install-recommends ca-certificates wget curl jq gnupg
+    rm -rf /var/lib/apt/lists/*
     # Dynamically fetch and import all builder keys from Bitcoin Core guix.sigs
     mkdir -p /tmp/builder-keys
     cd /tmp/builder-keys

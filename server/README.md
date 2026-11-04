@@ -246,6 +246,12 @@ docker compose port router 8080
 Leaving `ROUTER_PORT` unset, or setting it to `0`, lets Docker choose a free loopback port for local development and CI.
 Set `ROUTER_PORT` only when local diagnostics need a stable host-local router port.
 
+## Miner Container Permissions
+
+The miner keeps the existing Compose UID/GID setting. The current installer leaves UID/GID unset, which selects root. All default Linux capabilities are dropped except `DAC_OVERRIDE`, which allows existing root installations to execute the image's owner/group-executable node binary and access host-owned data. File ownership stays unchanged.
+
+The image filesystem is read-only, `/data` remains writable for the chain database, keystore, and P2P key, and `/tmp` provides temporary writable storage. No-new-privileges and [Docker's default seccomp profile](https://docs.docker.com/engine/security/seccomp/) remain enabled. Moving existing installations to a dedicated non-root user requires a separate permissions migration.
+
 ## Container Image Pins
 
 Dockerfile base images, including the local VM in `local-machine/`, use immutable `tag@sha256:...` references. The digest pins the image content; the tag records the intended version. Pins use the multi-platform image index so Docker can select the host's architecture.
@@ -259,6 +265,16 @@ docker buildx imagetools inspect node:24.22.1-slim --format '{{.Manifest.Digest}
 Mainnet and testnet select a digest-pinned Argon miner through `ARGON_IMAGE` in their server environment files. `ARGON_VERSION` remains the readable version used by installer messages and qualification tools. `yarn mainchain:pin <release-tag>` resolves and updates both values together; this requires Docker Buildx and registry access, but does not require a running Docker daemon. Development environments continue selecting their local or commit-tagged miner images through `ARGON_VERSION`.
 
 Bitcoin bootstrap snapshot images intentionally use `latest` so first installs receive the newest CI-generated snapshot. Their Dockerfile base is pinned independently. Locally built service images use the bundled source and pinned bases; a Compose image override would not pin those bases.
+
+## Container Vulnerability Checks
+
+The `Docker Security` workflow scans Linux AMD64 runtime images on release-branch pushes (`v[0-9]+.*`, matching release qualification), every Monday, and on manual dispatch. It builds router, bot, Bitcoin, nginx, Certbot, indexer, and Discord verifier images from the checkout, and scans the miner images pinned in both server network environment files. Indexer builds include its software bundle without regenerating chain-data seeds. Snapshot checks scan the pinned Debian base, since snapshot payloads are chain data rather than installed software. The local development VM and other architectures are outside this workflow.
+
+Grype runs from an immutable image digest as a non-root user, without a Docker socket, with only the image archive mounted read-only. Each scan downloads a current vulnerability database. Fixable High or Critical vulnerabilities fail the check; fixable findings appear in the job summary and JSON artifacts, including when the scan fails. Summaries also show the image identity and default `USER`; Compose user overrides and privilege drops require runtime review. Scanner errors also fail the check. Unfixed vulnerabilities are excluded from this gate.
+
+When a check fails, update the affected base-image digest, installed package, or application dependency and rerun it. Bundled JavaScript dependency coverage still relies on the existing dependency-review workflow; an image scan cannot reliably identify every dependency after bundling. These checks find known package vulnerabilities and do not validate container permissions or replace runtime tests.
+
+To update the scanner, verify the intended `anchore/grype` release and replace both the version and digest in `.github/workflows/docker-security.yml`. Keep the digest pinned; update workflow action references with `gh actions-lock`.
 
 ## Fresh Server Notes
 
