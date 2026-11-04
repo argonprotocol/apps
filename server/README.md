@@ -248,9 +248,9 @@ Set `ROUTER_PORT` only when local diagnostics need a stable host-local router po
 
 ## Miner Container Permissions
 
-The miner runs as the configured host UID/GID with all Linux capabilities dropped, no privilege escalation, and a read-only image filesystem. Its `/data` mount remains writable for the chain database, keystore, and P2P key; `/tmp` is temporary writable storage. The host data directory must belong to that UID/GID. The explicit `cap_add: []` prevents inheriting the shared `DAC_OVERRIDE` capability used by root services to access host-owned files. Docker's default seccomp profile remains enabled.
+The miner keeps the existing Compose UID/GID setting. The current installer leaves UID/GID unset, which selects root. All default Linux capabilities are dropped except `DAC_OVERRIDE`, which allows existing root installations to execute the image's owner/group-executable node binary and access host-owned data. File ownership stays unchanged.
 
-This follows [Polkadot's validator service guidance](https://docs.polkadot.com/node-infrastructure/run-a-validator/onboarding-and-offboarding/start-validating/), which uses a dedicated user, an empty capability bounding set, `NoNewPrivileges`, a private temporary directory, and filesystem protection. [Docker recommends retaining its default seccomp profile](https://docs.docker.com/engine/security/seccomp/).
+The image filesystem is read-only, `/data` remains writable for the chain database, keystore, and P2P key, and `/tmp` provides temporary writable storage. No-new-privileges and [Docker's default seccomp profile](https://docs.docker.com/engine/security/seccomp/) remain enabled. Moving existing installations to a dedicated non-root user requires a separate permissions migration.
 
 ## Container Image Pins
 

@@ -156,8 +156,6 @@ services:
     <<: [*common-config, *readonly-config]
     image: ${ARGON_IMAGE:-ghcr.io/argonprotocol/argon-miner:${ARGON_VERSION}}
     user: '${UID}:${GID}'
-    # /data belongs to this user; do not inherit DAC_OVERRIDE.
-    cap_add: []
     restart: unless-stopped
     depends_on:
       - bitcoin-node
