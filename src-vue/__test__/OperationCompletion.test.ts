@@ -15,7 +15,6 @@ import { getMiningFundingState } from '../screens/mining-screen/miningFunding.ts
 import { FinancialPositionBook, reduceFinancialPositions } from '../lib/financials/index.ts';
 import { financialGroups } from '../interfaces/IFinancialPosition.ts';
 import { runFlow } from '../../e2e/flows/index.ts';
-import type { DriverClient } from '../../e2e/driver/client.ts';
 
 it('completes a manual flow only after its selected operation has completed', async () => {
   let captures = 0;
