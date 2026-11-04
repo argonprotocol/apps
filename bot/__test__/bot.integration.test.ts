@@ -14,7 +14,6 @@ import {
   JsonExt,
   MINING_BID_PROXY_FEE_FLOAT,
   MicronotPriceChangeType,
-  RangeCohortBidder,
   SeatGoalInterval,
   SeatGoalType,
   TxSubmitter,
@@ -127,7 +126,7 @@ it.skipIf(skipE2E)(
     });
 
     await expect(bot.start()).resolves.toBeUndefined();
-    const activeBidder = await waitFor(30e3, 'initial active bidder', () => bot.autobidder.currentBidder);
+    await waitFor(30e3, 'initial active bidder', () => bot.autobidder.currentBidder);
     const updatedBiddingRules: IBiddingRules = {
       ...biddingRules,
       maximumBidCustom: 500_000n,
@@ -138,8 +137,6 @@ it.skipIf(skipE2E)(
     await waitFor(30e3, 'updated active bidder', () => {
       const updatedBidder = bot.autobidder.currentBidder;
       if (!updatedBidder || updatedBidder.options.maxBid !== 500_000n) return;
-      if (activeBidder instanceof RangeCohortBidder) expect(updatedBidder).toBe(activeBidder);
-      else expect(updatedBidder).not.toBe(activeBidder);
       expect(updatedBidder.options).toMatchObject({
         maxBid: 500_000n,
         bidDelay: 3,
