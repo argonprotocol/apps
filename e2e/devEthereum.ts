@@ -1,3 +1,4 @@
+import { execFileSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import fs from 'node:fs/promises';
 import path from 'node:path';
@@ -154,6 +155,8 @@ export async function startDevEthereum(
       'Kurtosis is required to launch the local Ethereum devnet. Install Kurtosis first, or rerun with ARGON_DEV_ETHEREUM=0 to disable Ethereum.',
     );
   }
+
+  ensureKurtosisInfrastructure();
 
   const ethereumPackage = fileURLToPath(new URL('./ethereum', import.meta.url));
 
@@ -368,6 +371,118 @@ export async function sendDevEthereumAdminTransaction(args: {
     hash,
     sender: account.address,
   };
+}
+
+function ensureKurtosisInfrastructure(): void {
+  ensureKurtosisLogsAggregator();
+
+  const commandOptions = { encoding: 'utf8', timeout: 10_000, stdio: 'pipe' } as const;
+  const proxyArgs = [
+    'ps',
+    '--all',
+    '--filter',
+    'label=com.kurtosistech.app-id=kurtosis',
+    '--filter',
+    'label=com.kurtosistech.container-type=kurtosis-reverse-proxy',
+    '--format',
+    '{{.ID}}\t{{.State}}',
+  ];
+
+  try {
+    const [containerId, status] = execFileSync('docker', proxyArgs, commandOptions).trim().split('\t');
+    if (status === 'running') return;
+
+    if (containerId) {
+      if (status !== 'exited' && status !== 'created') throw new Error(`Container is ${status}.`);
+      console.log('[tauri-dev] Starting the stopped Kurtosis reverse proxy');
+      try {
+        execFileSync('docker', ['start', containerId], { ...commandOptions, timeout: 30_000 });
+      } catch (error) {
+        if (!(error instanceof Error) || !/network .+ not found/i.test(error.message)) throw error;
+        rebuildKurtosisReverseProxy(containerId);
+      }
+    } else {
+      const runningEngine = execFileSync(
+        'docker',
+        [
+          'ps',
+          '--quiet',
+          '--filter',
+          'label=com.kurtosistech.app-id=kurtosis',
+          '--filter',
+          'label=com.kurtosistech.container-type=kurtosis-engine',
+          '--filter',
+          'status=running',
+        ],
+        commandOptions,
+      ).trim();
+      if (!runningEngine) return;
+      rebuildKurtosisReverseProxy();
+    }
+
+    const [, finalStatus] = execFileSync('docker', proxyArgs, commandOptions).trim().split('\t');
+    if (finalStatus !== 'running') {
+      throw new Error(`Container did not stay running (status: ${finalStatus || 'missing'}).`);
+    }
+  } catch (error) {
+    throw new Error(
+      `Could not prepare the Kurtosis reverse proxy. Inspect it with docker ps -a --filter label=com.kurtosistech.container-type=kurtosis-reverse-proxy and kurtosis engine logs, then retry yarn dev start. ${error instanceof Error ? error.message : String(error)}`,
+      { cause: error },
+    );
+  }
+}
+
+function rebuildKurtosisReverseProxy(containerId?: string): void {
+  const commandOptions = { encoding: 'utf8', timeout: 10_000, stdio: 'pipe' } as const;
+  const activeEnclaves = execFileSync(
+    'docker',
+    [
+      'ps',
+      '--quiet',
+      '--filter',
+      'label=com.kurtosistech.app-id=kurtosis',
+      '--filter',
+      'label=com.kurtosistech.enclave-id',
+    ],
+    commandOptions,
+  ).trim();
+  if (activeEnclaves) {
+    throw new Error('Other Kurtosis enclaves are active. Stop those enclaves before retrying yarn dev start.');
+  }
+
+  console.log('[tauri-dev] Rebuilding the Kurtosis reverse proxy after incomplete infrastructure startup');
+  if (containerId) execFileSync('docker', ['rm', containerId], commandOptions);
+  execFileSync('kurtosis', ['engine', 'restart', '--restart-api-containers=false'], {
+    ...commandOptions,
+    timeout: 60_000,
+  });
+  ensureKurtosisLogsAggregator();
+}
+
+function ensureKurtosisLogsAggregator(): void {
+  const container = 'kurtosis-logs-aggregator';
+  const statusArgs = ['ps', '--all', '--filter', `name=^/${container}$`, '--format', '{{.State}}'];
+  const commandOptions = { encoding: 'utf8', timeout: 10_000 } as const;
+
+  try {
+    let status = execFileSync('docker', statusArgs, commandOptions).trim();
+    if (!status || status === 'running') return;
+    if (status !== 'exited' && status !== 'created') {
+      throw new Error(`Container is ${status}.`);
+    }
+
+    console.log('[tauri-dev] Starting the stopped Kurtosis logs aggregator');
+    execFileSync('docker', ['start', container], { ...commandOptions, timeout: 30_000 });
+    status = execFileSync('docker', statusArgs, commandOptions).trim();
+    if (status !== 'running') {
+      throw new Error(`Container did not stay running (status: ${status || 'missing'}).`);
+    }
+  } catch (error) {
+    throw new Error(
+      `Could not prepare the Kurtosis logs aggregator. Inspect it with docker logs ${container} and docker inspect ${container}, then retry yarn dev start. ${error instanceof Error ? error.message : String(error)}`,
+      { cause: error },
+    );
+  }
 }
 
 async function doesDevEthereumGatewayMatch(executionRpcUrl: string, gateway: DevEthereumGateway): Promise<boolean> {

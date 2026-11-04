@@ -5830,5 +5830,95 @@
     "firstBlockSpecVersion": 160,
     "frameStartTick": 29878784,
     "dateStart": "2026-10-23T03:44:00.000Z"
+  },
+  {
+    "frameId": 636,
+    "frameStartTick": 29880224,
+    "dateStart": "2026-10-24T03:44:00.000Z",
+    "firstBlockNumber": 1023547,
+    "firstBlockHash": "0x82d7bece18ec136c49f4f7eb39b78c7c9ca099093bbd7ddcdb6adec915e72fe6",
+    "firstBlockTick": 29880224,
+    "firstBlockSpecVersion": 160
+  },
+  {
+    "frameId": 637,
+    "frameStartTick": 29881685,
+    "dateStart": "2026-10-25T04:05:00.000Z",
+    "firstBlockNumber": 1025001,
+    "firstBlockHash": "0xaa939ddcf5df3b044f21e232934a8e2ef77a95b127183631ff04cf1582e0957b",
+    "firstBlockTick": 29881685,
+    "firstBlockSpecVersion": 160
+  },
+  {
+    "frameId": 638,
+    "frameStartTick": 29883125,
+    "dateStart": "2026-10-26T04:05:00.000Z",
+    "firstBlockNumber": 1026441,
+    "firstBlockHash": "0x6848b97d3bf5f72d7175562716cd932596915a8c99991e35aabe70ab86161db0",
+    "firstBlockTick": 29883125,
+    "firstBlockSpecVersion": 160
+  },
+  {
+    "frameId": 639,
+    "frameStartTick": 29884565,
+    "dateStart": "2026-10-27T04:05:00.000Z",
+    "firstBlockNumber": 1027881,
+    "firstBlockHash": "0xb5707c7c03012e8c0d47ece0424b5e165c5849f20b53f491e29a3f8bca5024d6",
+    "firstBlockTick": 29884565,
+    "firstBlockSpecVersion": 160
+  },
+  {
+    "frameId": 640,
+    "frameStartTick": 29886005,
+    "dateStart": "2026-10-28T04:05:00.000Z",
+    "firstBlockNumber": 1029321,
+    "firstBlockHash": "0xe41792c42212975ea58bd83229638695d585b5e1b0aa1be8252663dd8094a6ea",
+    "firstBlockTick": 29886005,
+    "firstBlockSpecVersion": 160
+  },
+  {
+    "frameId": 641,
+    "frameStartTick": 29887445,
+    "dateStart": "2026-10-29T04:05:00.000Z",
+    "firstBlockNumber": 1030761,
+    "firstBlockHash": "0x2609ecce3d2f25cbdfe994777e1fcde950e47f0c8fdb8bf3fdd284fd4be64318",
+    "firstBlockTick": 29887445,
+    "firstBlockSpecVersion": 160
+  },
+  {
+    "frameId": 642,
+    "frameStartTick": 29888885,
+    "dateStart": "2026-10-30T04:05:00.000Z",
+    "firstBlockNumber": 1032201,
+    "firstBlockHash": "0x8ea61fd5d76e489ba6ffc6feb69da74fe410c2baf0e2fa6d033a2616213c86f9",
+    "firstBlockTick": 29888885,
+    "firstBlockSpecVersion": 160
+  },
+  {
+    "frameId": 643,
+    "frameStartTick": 29890325,
+    "dateStart": "2026-10-31T04:05:00.000Z",
+    "firstBlockNumber": 1033641,
+    "firstBlockHash": "0x3ec72c454fb73b30efd8e90f8c76a9d3d521c0187806072f0aa55bf1681e9f6f",
+    "firstBlockTick": 29890325,
+    "firstBlockSpecVersion": 160
+  },
+  {
+    "frameId": 644,
+    "frameStartTick": 29891765,
+    "dateStart": "2026-11-01T04:05:00.000Z",
+    "firstBlockNumber": 1035081,
+    "firstBlockHash": "0x454e2f54d63e819e6b08d9d95185ea4542cd4d58b1ed1910c948b841fb75eb19",
+    "firstBlockTick": 29891765,
+    "firstBlockSpecVersion": 160
+  },
+  {
+    "frameId": 645,
+    "frameStartTick": 29893205,
+    "dateStart": "2026-11-02T04:05:00.000Z",
+    "firstBlockNumber": 1036521,
+    "firstBlockHash": "0x1c41e125796812e63c26257a2cf3362ddd0426d25a2ec30c308454fb1c8e0f34",
+    "firstBlockTick": 29893205,
+    "firstBlockSpecVersion": 160
   }
 ]

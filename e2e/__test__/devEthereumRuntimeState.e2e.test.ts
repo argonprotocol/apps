@@ -1,10 +1,16 @@
+import { execFileSync } from 'node:child_process';
 import fs from 'node:fs/promises';
 import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
 import { TestEthereum } from '@argonprotocol/testing';
-import { padHex, toFunctionSelector, type Address } from 'viem';
+import { padHex, toFunctionSelector } from 'viem';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
+vi.mock('node:child_process', async importOriginal => ({
+  ...(await importOriginal<typeof import('node:child_process')>()),
+  execFileSync: vi.fn(),
+}));
 
 const runtimeState = {
   beaconPreset: 'minimal',
@@ -39,7 +45,32 @@ async function startEthereumRpc(gateway = runtimeState.gateway) {
         method: string;
         params?: [{ data?: string }];
       };
-      let result: string | Address = runtimeState.chainId;
+      let result: unknown = runtimeState.chainId;
+      if (['eth_blockNumber', 'eth_gasPrice', 'eth_maxPriorityFeePerGas'].includes(body.method)) result = '0x1';
+      if (body.method === 'eth_getTransactionCount') result = '0x0';
+      if (body.method === 'eth_estimateGas') result = '0x300000';
+      if (body.method === 'eth_getBlockByNumber') {
+        result = { number: '0x1', baseFeePerGas: '0x1', transactions: [] };
+      }
+      if (body.method === 'eth_sendRawTransaction') result = `0x${'ab'.repeat(32)}`;
+      if (body.method === 'eth_getTransactionReceipt') {
+        result = {
+          blockHash: `0x${'cd'.repeat(32)}`,
+          blockNumber: '0x1',
+          contractAddress: runtimeState.usdcTokenAddress,
+          cumulativeGasUsed: '0x200000',
+          effectiveGasPrice: '0x1',
+          from: `0x${'aa'.repeat(20)}`,
+          gasUsed: '0x200000',
+          logs: [],
+          logsBloom: `0x${'00'.repeat(256)}`,
+          status: '0x1',
+          to: null,
+          transactionHash: `0x${'ab'.repeat(32)}`,
+          transactionIndex: '0x0',
+          type: '0x2',
+        };
+      }
       const callData = body.params?.[0]?.data;
       if (body.method === 'eth_call' && callData?.startsWith(toFunctionSelector('argonToken()'))) {
         result = padHex(gateway.argonTokenAddress, { size: 32 });
@@ -75,11 +106,14 @@ describe('dev Ethereum runtime state', () => {
   let runtimeStateDir: string;
 
   beforeEach(async () => {
+    vi.mocked(execFileSync).mockReset().mockReturnValue('');
+    vi.spyOn(TestEthereum.prototype, 'teardown').mockResolvedValue(undefined);
     runtimeStateDir = await fs.mkdtemp(path.join(os.tmpdir(), 'argon-dev-ethereum-runtime-state-'));
     process.env.ARGON_DEV_ETHEREUM_RUNTIME_STATE_DIR = runtimeStateDir;
   });
 
   afterEach(async () => {
+    vi.restoreAllMocks();
     if (previousRuntimeStateDir === undefined) {
       delete process.env.ARGON_DEV_ETHEREUM_RUNTIME_STATE_DIR;
     } else {
@@ -129,6 +163,7 @@ describe('dev Ethereum runtime state', () => {
         expect(ethereum.enclaveName).toBe(runtimeState.enclaveName);
         expect(ethereum.executionRpcUrl).toBe(rpc.url);
         expect(ethereum.gateway).toEqual(runtimeState.gateway);
+        expect(execFileSync).not.toHaveBeenCalled();
         if (setupStatus === 'ready') {
           await expect(resolveDevEthereumRpcUrl({})).resolves.toBe(rpc.url);
         } else {
@@ -169,6 +204,176 @@ describe('dev Ethereum runtime state', () => {
       await rpc.close();
     }
   });
+
+  it.each([
+    { aggregator: 'exited', proxy: 'running' },
+    { aggregator: 'created', proxy: 'running' },
+    { aggregator: 'running', proxy: 'running' },
+    { aggregator: 'absent', proxy: 'absent' },
+    { aggregator: 'running', proxy: 'exited' },
+    { aggregator: 'running', proxy: 'stale-network' },
+    { aggregator: 'running', proxy: 'interrupted-rebuild' },
+  ])('launches and saves a deployment with aggregator $aggregator and proxy $proxy', async ({ aggregator, proxy }) => {
+    const rpc = await startEthereumRpc();
+    let aggregatorStatus = aggregator === 'absent' ? '' : aggregator;
+    let proxyStatus = ['stale-network', 'interrupted-rebuild'].includes(proxy) ? 'exited' : proxy;
+    let engineRunning = proxy !== 'absent';
+    let restartFails = proxy === 'interrupted-rebuild';
+    vi.mocked(execFileSync).mockImplementation((file, args) => {
+      if (file === 'kurtosis' && args?.join(' ') === 'engine restart --restart-api-containers=false') {
+        if (restartFails) {
+          restartFails = false;
+          throw new Error('Synthetic engine restart failed');
+        }
+        engineRunning = true;
+        proxyStatus = 'running';
+        aggregatorStatus = 'exited';
+        return '';
+      }
+      if (file === 'docker' && args?.[0] === 'ps') {
+        if (args.includes('label=com.kurtosistech.container-type=kurtosis-reverse-proxy')) {
+          return proxyStatus === 'absent' ? '' : `abcdef012345\t${proxyStatus}`;
+        }
+        if (args.includes('label=com.kurtosistech.container-type=kurtosis-engine')) {
+          return engineRunning ? 'synthetic-engine' : '';
+        }
+        if (args.includes('label=com.kurtosistech.enclave-id')) return '';
+        expect(args).toEqual(['ps', '--all', '--filter', 'name=^/kurtosis-logs-aggregator$', '--format', '{{.State}}']);
+        return aggregatorStatus;
+      }
+      if (file === 'docker' && args?.join(' ') === 'start kurtosis-logs-aggregator') {
+        aggregatorStatus = 'running';
+        return 'kurtosis-logs-aggregator';
+      }
+      if (file === 'docker' && args?.join(' ') === 'start abcdef012345') {
+        if (['stale-network', 'interrupted-rebuild'].includes(proxy)) {
+          throw new Error('network kt-deleted-test-enclave not found');
+        }
+        proxyStatus = 'running';
+        return 'abcdef012345';
+      }
+      if (file === 'docker' && args?.join(' ') === 'rm abcdef012345') {
+        proxyStatus = 'absent';
+        return 'abcdef012345';
+      }
+      throw new Error(`Unexpected command: ${file} ${args?.join(' ')}`);
+    });
+    vi.spyOn(TestEthereum, 'isInstalled').mockReturnValue(true);
+    vi.spyOn(TestEthereum.prototype, 'launch').mockImplementation(async () => {
+      // Kurtosis creates missing infrastructure, but cannot reuse a stopped aggregator.
+      if (!aggregatorStatus) aggregatorStatus = 'running';
+      if (aggregatorStatus !== 'running') {
+        throw new Error('The logs aggregator container exists but is not running.');
+      }
+      if (proxyStatus === 'absent' && !engineRunning) proxyStatus = 'running';
+      if (proxyStatus !== 'running') {
+        throw new Error('An error occurred while getting the reverse proxy enclave network IP address');
+      }
+      return { executionRpcUrl: rpc.url, beaconApiUrl: rpc.url, chainId: runtimeState.chainId };
+    });
+
+    try {
+      const config = {
+        beaconPreset: 'minimal' as const,
+        secondsPerSlot: 1,
+        finalityMillis: 16_000,
+        finalityBlocks: 16,
+      };
+      if (proxy === 'interrupted-rebuild') {
+        await expect(startDevEthereum(config)).rejects.toThrow('Synthetic engine restart failed');
+        expect(proxyStatus).toBe('absent');
+        expect(await readDevEthereumRuntimeState()).toBeUndefined();
+      }
+      const ethereum = await startDevEthereum(config);
+
+      expect(aggregatorStatus).toBe('running');
+      expect(proxyStatus).toBe('running');
+      expect(await readDevEthereumRuntimeState()).toMatchObject({
+        enclaveName: ethereum.enclaveName,
+        executionRpcUrl: rpc.url,
+        usdcTokenAddress: runtimeState.usdcTokenAddress,
+        setupStatus: 'starting',
+      });
+      const aggregatorStarts = vi
+        .mocked(execFileSync)
+        .mock.calls.filter(([, args]) => args?.join(' ') === 'start kurtosis-logs-aggregator');
+      const needsAggregatorStart =
+        ['exited', 'created'].includes(aggregator) || ['stale-network', 'interrupted-rebuild'].includes(proxy);
+      expect(aggregatorStarts).toHaveLength(Number(needsAggregatorStart));
+    } finally {
+      await rpc.close();
+    }
+  });
+
+  it.each(['active enclave', 'unrelated start error', 'proxy exits after starting'])(
+    'does not rebuild the shared proxy on %s',
+    async failure => {
+      const activeEnclave = failure === 'active enclave' ? 'synthetic-enclave-api' : '';
+      vi.mocked(execFileSync).mockImplementation((file, args) => {
+        if (file === 'docker' && args?.[0] === 'ps') {
+          if (args.includes('label=com.kurtosistech.container-type=kurtosis-reverse-proxy')) {
+            return 'abcdef012345\texited';
+          }
+          if (args.includes('label=com.kurtosistech.enclave-id')) return activeEnclave;
+          return 'running';
+        }
+        if (file === 'docker' && args?.join(' ') === 'start abcdef012345') {
+          if (failure === 'proxy exits after starting') return 'abcdef012345';
+          if (failure === 'unrelated start error') throw new Error('port is already allocated');
+          throw new Error('network kt-deleted-test-enclave not found');
+        }
+        throw new Error(`Unexpected command: ${file} ${args?.join(' ')}`);
+      });
+      vi.spyOn(TestEthereum, 'isInstalled').mockReturnValue(true);
+      const launch = vi.spyOn(TestEthereum.prototype, 'launch').mockRejectedValue(new Error('Unexpected launch'));
+
+      await expect(
+        startDevEthereum({
+          beaconPreset: 'minimal',
+          secondsPerSlot: 1,
+          finalityMillis: 16_000,
+          finalityBlocks: 16,
+        }),
+      ).rejects.toThrow(failure === 'active enclave' ? 'Other Kurtosis enclaves are active' : 'Kurtosis reverse proxy');
+
+      expect(launch).not.toHaveBeenCalled();
+      expect(await readDevEthereumRuntimeState()).toBeUndefined();
+      expect(vi.mocked(execFileSync).mock.calls.some(([file, args]) => file === 'kurtosis' || args?.[0] === 'rm')).toBe(
+        false,
+      );
+    },
+  );
+
+  it.each(['start fails', 'exits after starting', 'paused'])(
+    'blocks enclave creation on logs aggregator failure: %s',
+    async failure => {
+      vi.mocked(execFileSync).mockImplementation((file, args) => {
+        if (file === 'docker' && args?.[0] === 'ps') return failure === 'paused' ? 'paused' : 'exited';
+        if (file === 'docker' && args?.join(' ') === 'start kurtosis-logs-aggregator') {
+          if (failure === 'start fails') throw new Error('Docker could not start the container');
+          return 'kurtosis-logs-aggregator';
+        }
+        throw new Error(`Unexpected command: ${file} ${args?.join(' ')}`);
+      });
+      vi.spyOn(TestEthereum, 'isInstalled').mockReturnValue(true);
+      const launch = vi.spyOn(TestEthereum.prototype, 'launch').mockRejectedValue(new Error('Unexpected launch'));
+
+      await expect(
+        startDevEthereum({
+          beaconPreset: 'minimal',
+          secondsPerSlot: 1,
+          finalityMillis: 16_000,
+          finalityBlocks: 16,
+        }),
+      ).rejects.toThrow('docker logs kurtosis-logs-aggregator');
+
+      expect(launch).not.toHaveBeenCalled();
+      expect(await readDevEthereumRuntimeState()).toBeUndefined();
+      if (failure === 'paused') {
+        expect(vi.mocked(execFileSync).mock.calls.some(([, args]) => args?.[0] === 'start')).toBe(false);
+      }
+    },
+  );
 
   it('recovers a reachable prior deployment when the latest deployment is unavailable', async () => {
     const rpc = await startEthereumRpc();

@@ -448,7 +448,7 @@ export class MiningFrames {
   private async safeSaveUpdates() {
     if (!this.updatesWriter) return;
     try {
-      const json = JSON.stringify(Object.values(this.framesById));
+      const json = JSON.stringify(this.frames, null, 2) + '\n';
       await this.updatesWriter.write(json);
     } catch (error) {
       console.error('[Mining Frames] Error saving frame updates', error);
