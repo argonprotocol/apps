@@ -645,9 +645,10 @@ export class MyVault {
         Vault.get(api, vaultId),
         Vault.getArgonotSecuritization(api, vaultId),
       ]);
+      const canonicalHeader = await this.miningFrames.blockWatch.getHeader(header.blockNumber);
       if (updateSeq !== this.#capitalUpdateSeq) return;
       if (vaultId !== this.vaultId) return;
-      if (header.blockHash !== this.miningFrames.blockWatch.bestBlockHeader.blockHash) continue;
+      if (header.blockHash !== canonicalHeader.blockHash) continue;
 
       this.vaults.vaultsById[vaultId] = vault;
       this.data.createdVault = vault;
@@ -659,7 +660,7 @@ export class MyVault {
       if (this.data.isLoaded) this.data.financialRevision += 1;
       return;
     }
-    throw new Error('The current vault block kept changing while refreshing capital. Please retry.');
+    throw new Error('The vault capital snapshot was repeatedly reorganized. Please retry.');
   }
 
   private async refreshFinalizedBitcoinCosignState(client: ArgonCurrentQueryClient, vaultId: number): Promise<void> {

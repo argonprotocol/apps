@@ -15,6 +15,7 @@ import {
 import { it, beforeAll, afterAll, describe, expect, vi } from 'vitest';
 import { submitAndFinalize } from '@argonprotocol/apps-core/__test__/helpers/mainchain.ts';
 import { sudoFundWallet } from '@argonprotocol/apps-core/__test__/helpers/sudoFundWallet.ts';
+import { waitFor } from '@argonprotocol/apps-core/__test__/helpers/waitFor.ts';
 import { DEFAULT_MASTER_XPUB_PATH, MyVault } from '../lib/MyVault.ts';
 import { createTestDb } from './helpers/db.ts';
 import { Vaults } from '../lib/Vaults.ts';
@@ -43,6 +44,7 @@ describe.skipIf(skipE2E).sequential('Your Vault tests', {}, () => {
   let db: Db;
   let vaultId: number;
   let myVault: MyVault;
+  let miningFrames: MiningFrames;
   let bitcoinLockCreate: BitcoinLockCreate;
   const trackedBitcoinLocks: BitcoinLocks[] = [];
   const trackedBlockWatches: BlockWatch[] = [];
@@ -102,7 +104,7 @@ describe.skipIf(skipE2E).sequential('Your Vault tests', {}, () => {
       }
       const currency = new CurrencyBase(clients);
       await currency.fetchMainchainRates();
-      const miningFrames = trackMiningFrames(new MiningFrames(clients));
+      miningFrames = trackMiningFrames(new MiningFrames(clients));
       const vaults = new Vaults('dev-docker', currency, miningFrames);
       let transactionTracker = new TransactionTracker(Promise.resolve(db), miningFrames.blockWatch);
       let bitcoinLocks = trackBitcoinLocks(
@@ -266,6 +268,34 @@ describe.skipIf(skipE2E).sequential('Your Vault tests', {}, () => {
       vaultId = vault.vaultId;
     },
   );
+
+  it('loads a canonical capital snapshot while the head advances', async () => {
+    myVault.unsubscribe();
+    await myVault.revenuePublication;
+
+    const blockWatch = miningFrames.blockWatch;
+    const getApi = blockWatch.getApi.bind(blockWatch);
+    const previousVault = myVault.createdVault;
+    const delayedRead = vi.spyOn(blockWatch, 'getApi').mockImplementation(async header => {
+      const api = await getApi(header);
+      await waitFor(15_000, 'a new head during the capital read', () => {
+        return blockWatch.bestBlockHeader.blockNumber > header.blockNumber;
+      });
+      return api;
+    });
+
+    try {
+      await myVault.load(true);
+
+      expect(myVault.data.isLoaded).toBe(true);
+      expect(myVault.createdVault).not.toBe(previousVault);
+      expect(myVault.createdVault?.securitization).toBe(vaultSetup.securitizationMicrogons);
+      expect(myVault.data.argonotCommitment.heldMicronots).toBe(vaultSetup.committedMicronots);
+      expect(myVault.vaults.vaultsById[vaultId]).toBe(myVault.createdVault);
+    } finally {
+      delayedRead.mockRestore();
+    }
+  });
 
   it('recovers vault details without local signing keys', async () => {
     const readonlyWalletKeys = createMockWalletKeys(mnemonic, { canSign: false, canAccessServer: false });

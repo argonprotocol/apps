@@ -1875,6 +1875,7 @@ describe('MyVault cosign recovery', () => {
         blockWatch: {
           bestBlockHeader: { blockNumber: 1, blockHash: '0x01' },
           getApi: async () => client,
+          getHeader: async () => ({ blockHash: '0x01' }),
         },
       } as any,
       {
@@ -2315,6 +2316,7 @@ describe('MyVault cosign recovery', () => {
         blockWatch: {
           bestBlockHeader: { blockNumber: 1, blockHash: '0x01' },
           getApi: async () => client,
+          getHeader: async () => ({ blockHash: '0x01' }),
         },
       } as any,
       {
@@ -2401,7 +2403,8 @@ describe('MyVault cosign recovery', () => {
     const getMainchainClient = vi.spyOn(mainchainStore, 'getMainchainClient').mockResolvedValue({
       at: async () => commandApi,
     } as any);
-    const { myVault, blockWatch } = createVault({ db, walletKeys, finalizedApi: currentApi });
+    const headerByHeight: Record<number, string> = { 56: '0x56', 57: '0x57', 58: '0x58' };
+    const { myVault, blockWatch } = createVault({ db, walletKeys, finalizedApi: currentApi, headerByHeight });
     blockWatch.bestBlockHeader = { blockNumber: 56, blockHash: '0x56' };
     myVault.data.metadata = { id: 7 } as any;
     myVault.data.isLoaded = true;
@@ -2460,12 +2463,46 @@ describe('MyVault cosign recovery', () => {
     });
     const movedHead = myVault.recordFinalizedVaultCapital(txInfo);
     await vi.waitFor(() => expect(blockWatch.getApi).toHaveBeenCalledTimes(4));
+    headerByHeight[56] = '0xfork56';
     blockWatch.bestBlockHeader = { blockNumber: 57, blockHash: '0x57' };
     finishOlderRead(olderVault);
     await movedHead;
     expect(myVault.createdVault?.securitizationReleaseSchedule.size).toBe(0);
     expect(myVault.argonotSecuritizationTarget).toBe(2_000n);
     expect(blockWatch.getApi.mock.calls.at(-1)).toEqual([blockWatch.bestBlockHeader]);
+
+    let finishSupersededRead!: (vault: typeof olderVault) => void;
+    const supersededRead = new Promise<typeof olderVault>(resolve => {
+      finishSupersededRead = resolve;
+    });
+    blockWatch.getApi.mockResolvedValueOnce({
+      ...currentApi,
+      query: { ...currentApi.query, vaults: { ...currentApi.query.vaults, vaultsById: () => supersededRead } },
+    });
+    const supersededRefresh = myVault.recordFinalizedVaultCapital(txInfo);
+    await vi.waitFor(() => expect(blockWatch.getApi).toHaveBeenCalledTimes(6));
+    blockWatch.bestBlockHeader = { blockNumber: 58, blockHash: '0x58' };
+    await myVault.recordFinalizedVaultCapital(txInfo);
+    const revision = myVault.data.financialRevision;
+    finishSupersededRead(olderVault);
+    await supersededRefresh;
+
+    expect(myVault.createdVault?.securitizationTarget).toBe(900n);
+    expect(myVault.createdVault?.securitizationReleaseSchedule.size).toBe(0);
+    expect(myVault.argonotSecuritizationTarget).toBe(2_000n);
+    expect(myVault.data.financialRevision).toBe(revision);
+
+    blockWatch.getApi.mockImplementation(async () => {
+      const blockNumber = blockWatch.bestBlockHeader.blockNumber + 1;
+      const blockHash = `0x${blockNumber.toString(16)}`;
+      headerByHeight[blockNumber] = blockHash;
+      blockWatch.bestBlockHeader = { blockNumber, blockHash };
+      return currentApi;
+    });
+    await expect(myVault.recordFinalizedVaultCapital(txInfo)).resolves.toBeUndefined();
+    expect(myVault.createdVault?.securitizationTarget).toBe(900n);
+    expect(myVault.argonotSecuritizationTarget).toBe(2_000n);
+    expect(myVault.vaults.vaultsById[7]).toBe(myVault.createdVault);
     getMainchainClient.mockRestore();
   });
 

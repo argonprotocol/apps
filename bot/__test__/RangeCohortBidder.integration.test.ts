@@ -44,12 +44,16 @@ describe.skipIf(SKIP_E2E)('Range cohort bidder', { tags: ['isolated-argon-networ
   let rival: Accountset;
 
   beforeAll(async () => {
+    const setupStartedAt = Date.now();
     // A finalized standing ceiling and a competing batch must fit within the same auction.
     network = await startArgonTestNetwork(`range-bidder-${randomUUID()}`, {
       ticksBetweenSlots: 30,
       profiles: ['bob', 'price-oracle'],
       registerTeardown: false,
     });
+    console.info(`[Range cohort bidder] Network ready after ${Date.now() - setupStartedAt}ms`);
+
+    const fundingStartedAt = Date.now();
     clients = new MainchainClients(network.archiveUrl, () => false);
     client = await clients.get(false);
     NetworkConfig.setNetwork('dev-docker');
@@ -83,11 +87,20 @@ describe.skipIf(SKIP_E2E)('Range cohort bidder', { tags: ['isolated-argon-networ
         micronots:
           (await client.query.miningSlot.argonotsPerMiningSeat()) * BigInt(client.consts.mint.maxPossibleMiners),
       });
+    }
+    console.info(`[Range cohort bidder] Accounts funded after ${Date.now() - fundingStartedAt}ms`);
+
+    if (rival) {
+      const keyRegistrationStartedAt = Date.now();
       await accountset.registerKeys(network.archiveUrl);
       await rival.registerKeys(network.archiveUrl);
+      console.info(`[Range cohort bidder] Keys registered after ${Date.now() - keyRegistrationStartedAt}ms`);
+
+      const framesStartedAt = Date.now();
       await frames.load();
+      console.info(`[Range cohort bidder] Frames loaded after ${Date.now() - framesStartedAt}ms`);
     }
-  });
+  }, 5 * 60_000);
 
   afterEach(() => vi.restoreAllMocks());
 

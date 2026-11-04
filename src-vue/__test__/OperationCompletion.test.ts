@@ -1,6 +1,8 @@
 import { expect, it, vi } from 'vitest';
 import { encodeAddress } from '@argonprotocol/mainchain';
 import { Operation, runOperation } from '../../e2e/flows/operations/index.ts';
+import { executeFlow } from '../../e2e/flows/runtime.ts';
+import { DriverClient } from '../../e2e/driver/client.ts';
 import miningConnectServer from '../../e2e/flows/operations/Mining.op.connectServer.ts';
 import miningFinalizeSetup from '../../e2e/flows/operations/Mining.op.finalizeSetup.ts';
 import miningFundWallet from '../../e2e/flows/operations/Mining.op.fundWallet.ts';
@@ -38,6 +40,54 @@ it('completes a manual flow only after its selected operation has completed', as
 });
 
 vi.mock('../../e2e/flows/helpers/sudoFundWallet.ts', () => ({ sudoFundWallet: vi.fn() }));
+
+it('restarts an app query interrupted by a dismissible global overlay', async () => {
+  vi.stubEnv('E2E_SCREENSHOT_MODE', '0');
+  const driver = new DriverClient('ws://127.0.0.1:1');
+  const address = encodeAddress(new Uint8Array(32).fill(0x77));
+  let interruptionVisible = true;
+  let completed = false;
+  const command = vi.spyOn(driver, 'command').mockImplementation(async (name, args) => {
+    if (name === 'ui.isVisible' && args?.selector === '[data-e2e-root-dismiss]') {
+      return { ok: true, clickable: interruptionVisible };
+    }
+    if (name === 'ui.click' && args?.selector === '[data-e2e-root-dismiss]') {
+      interruptionVisible = false;
+      return { ok: true };
+    }
+    if (name === 'command.queryApp') return { value: address };
+    if (name === 'ui.waitFor') return { ok: true };
+    throw new Error(`Unexpected driver command: ${name}`);
+  });
+  const operation = new Operation<{ flow: IE2EFlowRuntime }>(import.meta, {
+    async inspect() {
+      return { state: completed ? 'complete' : 'runnable' };
+    },
+    async run({ flow }) {
+      const walletAddress = await flow.queryApp(refs => refs.defaultArgonAddress);
+      if (!walletAddress) throw new Error('missing default Argon wallet address');
+      flow.setData('fundingAddress', walletAddress);
+      completed = true;
+    },
+  });
+
+  try {
+    const result = await executeFlow(driver, {
+      name: 'interrupted-wallet-query',
+      description: 'Resume the wallet operation after dismissing a global overlay.',
+      run: async flow => {
+        await runOperation({ flow }, operation, { throwIfNotReady: true });
+      },
+    });
+
+    expect(result.data.fundingAddress).toBe(address);
+    expect(completed).toBe(true);
+    expect(interruptionVisible).toBe(false);
+  } finally {
+    command.mockRestore();
+    vi.unstubAllEnvs();
+  }
+});
 
 it('waits at post-run validation for a stale financial snapshot to recover', async () => {
   const book = new FinancialPositionBook();

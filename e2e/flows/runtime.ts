@@ -236,7 +236,10 @@ export async function executeFlow(
         fn: fn.toString(),
         timeoutMs: options.timeoutMs ?? defaultTimeoutMs,
         args: options.args ?? {},
-      }).catch(() => undefined);
+      }).catch(error => {
+        if (error instanceof E2EGlobalInterruptionError) throw error;
+        return undefined;
+      });
       return result?.value;
     },
     click: async (target, options?: IE2EClickOptions) => {
