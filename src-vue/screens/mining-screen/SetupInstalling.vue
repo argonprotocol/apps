@@ -44,7 +44,6 @@ import ProgressBar from '../../components/ProgressBar.vue';
 import MiningIcon from '../../assets/mining.svg?component';
 import { getMiningSetup, useWallets } from '../../stores/wallets.ts';
 import type { TransactionInfo } from '../../lib/TransactionInfo.ts';
-import type { Config } from '../../lib/Config.ts';
 import { getMiningFundingState } from './miningFunding.ts';
 
 const config = getConfig();
@@ -228,7 +227,6 @@ async function ensureMiningSetup(force = false) {
     const setupResult = await miningSetup.ensure({
       defaultWallet: wallets.defaultArgonWallet,
       miningBotWallet: wallets.miningBotWallet,
-      config: config as Config,
     });
     if (setupResult.kind === 'transaction') {
       trackSetupTransaction(setupResult);

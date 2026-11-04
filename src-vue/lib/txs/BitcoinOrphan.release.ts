@@ -1,4 +1,4 @@
-import { BitcoinLock, type ArgonClient, type TxSigningAccount } from '@argonprotocol/apps-core';
+import { BitcoinLock, type ArgonClient, type TxSigner } from '@argonprotocol/apps-core';
 import { addressBytesHex } from '@argonprotocol/bitcoin';
 import { hexToU8a } from '@argonprotocol/mainchain';
 import { nanoid } from 'nanoid';
@@ -23,7 +23,7 @@ export interface BitcoinOrphanReleaseInput {
   toScriptPubkey: string;
   bitcoinNetworkFee?: bigint;
   feeRatePerSatVb?: bigint;
-  txSigner: TxSigningAccount;
+  txSigner: TxSigner;
   tip?: bigint;
   client?: ArgonClient;
 }

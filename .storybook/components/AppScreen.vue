@@ -13,7 +13,7 @@
     <div inert>
       <TopBar />
     </div>
-    <div class="flex min-h-0 grow flex-row gap-x-2 overflow-scroll pt-2 pb-2 pl-2">
+    <div class="flex min-h-0 grow flex-row gap-x-2 overflow-scroll p-2">
       <div :inert="!interactiveNavigation" class="flex">
         <LeftBar />
       </div>

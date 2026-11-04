@@ -13,8 +13,7 @@ import {
   restoreOwnedEthereumMintingAuthorities,
   type IMintingAuthorityRegisterMetadata,
 } from '../lib/MintingAuthorities.ts';
-import { getEthereumHdPath } from '../lib/WalletKeys.ts';
-import { DEFAULT_MEMORY_WALLET_KEYS_ETHEREUM_HD_PREFIXES } from '../lib/MemoryWalletKeys.ts';
+import { getEthereumHdPath, ETHEREUM_HD_PREFIXES } from '../lib/EthereumKeys.ts';
 import { mnemonicToAccount } from 'viem/accounts';
 import { TransactionInfo } from '../lib/TransactionInfo.ts';
 import type { ITransactionRecord } from '../lib/db/TransactionsTable.ts';
@@ -35,6 +34,7 @@ describe('MintingAuthorities', () => {
       {} as WalletKeys,
       {} as any,
       {} as any,
+      async () => {},
     );
 
     await expect(mintingAuthorities['onRegister'](txInfo)).rejects.toThrow(setupError);
@@ -84,6 +84,7 @@ describe('MintingAuthorities', () => {
       walletKeys as unknown as WalletKeys,
       {} as any,
       { data: { txInfos: [] } } as any,
+      async () => {},
     );
     mintingAuthorities.data.sourceTotalsByAccount.set('5PreviousSource', {
       microgonsOut: 3n,
@@ -121,6 +122,7 @@ describe('MintingAuthorities', () => {
       walletKeys as unknown as WalletKeys,
       {} as any,
       { data: { txInfos: [] } } as any,
+      async () => {},
     );
 
     await mintingAuthorities.refresh(client as any);
@@ -153,6 +155,7 @@ describe('MintingAuthorities', () => {
       walletKeys as unknown as WalletKeys,
       {} as any,
       { data: { txInfos: [] } } as any,
+      async () => {},
     );
 
     const firstRefresh = mintingAuthorities.refresh(firstClient as any);
@@ -202,6 +205,7 @@ describe('MintingAuthorities', () => {
         pendingBlockTxInfosAtLoad: [],
         data: { txInfos: [] },
       } as any,
+      async () => {},
     );
 
     await mintingAuthorities.load();
@@ -234,6 +238,7 @@ describe('MintingAuthorities', () => {
         pendingBlockTxInfosAtLoad: [],
         data: { txInfos: [] },
       } as any,
+      async () => {},
     );
 
     await mintingAuthorities.load();
@@ -306,6 +311,7 @@ describe('MintingAuthorities', () => {
         pendingBlockTxInfosAtLoad: [],
         data: { txInfos: [] },
       } as any,
+      async () => {},
     );
 
     await mintingAuthorities.load();
@@ -390,7 +396,7 @@ describe('MintingAuthorities', () => {
     deriveAuthoritySigners.mockClear();
 
     const councilSigner = mnemonicToAccount(TEST_MNEMONIC, {
-      path: getEthereumHdPath(DEFAULT_MEMORY_WALLET_KEYS_ETHEREUM_HD_PREFIXES.councilSigner),
+      path: getEthereumHdPath(ETHEREUM_HD_PREFIXES.councilSigner),
     }).address;
     const nextSigner = await getNextMintingAuthoritySigner({
       councilSigner,
@@ -451,7 +457,7 @@ describe('MintingAuthorities', () => {
     deriveAuthoritySigners.mockClear();
 
     const councilSigner = mnemonicToAccount(TEST_MNEMONIC, {
-      path: getEthereumHdPath(DEFAULT_MEMORY_WALLET_KEYS_ETHEREUM_HD_PREFIXES.councilSigner),
+      path: getEthereumHdPath(ETHEREUM_HD_PREFIXES.councilSigner),
     }).address;
     const nextSigner = await getNextMintingAuthoritySigner({
       councilSigner,
@@ -783,9 +789,9 @@ describe('MintingAuthorities', () => {
       txResult: {},
     }));
     const walletKeys = {
-      getVaultingKeypair: vi.fn(async () => ({ address: '5VaultSigner' })),
+      getVaultingSigner: vi.fn(async () => ({ address: '5VaultSigner' })),
       getMintingAuthorityEthereumHdPath(hdIndex: number): `m/44'/60'/${string}` {
-        return getEthereumHdPath(DEFAULT_MEMORY_WALLET_KEYS_ETHEREUM_HD_PREFIXES.mintingAuthority, hdIndex);
+        return getEthereumHdPath(ETHEREUM_HD_PREFIXES.mintingAuthority, hdIndex);
       },
       signEthereumPersonalMessage: vi.fn(async (authorizationHash: string) => {
         if (authorizationHash === `0x${'aa'.repeat(32)}`) return `0x${'11'.repeat(64)}1c`;
@@ -826,6 +832,7 @@ describe('MintingAuthorities', () => {
       },
     ];
     const mintingAuthorities = {
+      authenticate: async () => {},
       data: {
         pendingMintingAuthorizations,
         pendingMintingAuthorizeTxInfosByTransferId: new Map(),
@@ -971,6 +978,7 @@ describe('MintingAuthorities', () => {
         },
       } as any,
       { pendingBlockTxInfosAtLoad: [], data: { txInfos: [] } } as any,
+      async () => {},
       async () => ({
         serverApiClient: {
           getEthereumRelayStatus,
@@ -1015,6 +1023,7 @@ describe('MintingAuthorities', () => {
         },
       } as any,
       { pendingBlockTxInfosAtLoad: [], data: { txInfos: [] } } as any,
+      async () => {},
       async () => ({
         serverApiClient: {
           getEthereumRelayStatus,
@@ -1181,18 +1190,18 @@ function someTransfer(transferId: string) {
 
 function createWalletKeysStub() {
   const ethereumAddress = mnemonicToAccount(TEST_MNEMONIC, {
-    path: getEthereumHdPath(DEFAULT_MEMORY_WALLET_KEYS_ETHEREUM_HD_PREFIXES.primary),
+    path: getEthereumHdPath(ETHEREUM_HD_PREFIXES.primary),
   }).address;
 
   return {
     canSign: true,
-    councilSignerEthereumHdPath: getEthereumHdPath(DEFAULT_MEMORY_WALLET_KEYS_ETHEREUM_HD_PREFIXES.councilSigner),
+    councilSignerEthereumHdPath: getEthereumHdPath(ETHEREUM_HD_PREFIXES.councilSigner),
     ethereumAddress,
-    ethereumHdPrefixes: DEFAULT_MEMORY_WALLET_KEYS_ETHEREUM_HD_PREFIXES,
+    ethereumHdPrefixes: ETHEREUM_HD_PREFIXES,
     defaultArgonAddress: '5VaultingAddress',
     vaultingAddress: '5VaultingAddress',
     getMintingAuthorityEthereumHdPath(hdIndex: number): `m/44'/60'/${string}` {
-      return getEthereumHdPath(DEFAULT_MEMORY_WALLET_KEYS_ETHEREUM_HD_PREFIXES.mintingAuthority, hdIndex);
+      return getEthereumHdPath(ETHEREUM_HD_PREFIXES.mintingAuthority, hdIndex);
     },
     getMintingAuthorityEthereumHdPaths(count: number, startIndex = 0): `m/44'/60'/${string}`[] {
       return Array.from({ length: count }, (_, offset) => this.getMintingAuthorityEthereumHdPath(startIndex + offset));

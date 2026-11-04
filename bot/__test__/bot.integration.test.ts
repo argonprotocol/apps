@@ -18,6 +18,7 @@ import {
   SeatGoalInterval,
   SeatGoalType,
   TxSubmitter,
+  TxSigner,
 } from '@argonprotocol/apps-core';
 import { DockerStatus } from '../src/DockerStatus.js';
 import { integrationAccountUri } from '@argonprotocol/apps-core/__test__/integrationNetwork.ts';
@@ -104,7 +105,7 @@ it.skipIf(skipE2E)(
         client.tx.balances.transferAllowDeath(proxyKeypair.address, MINING_BID_PROXY_FEE_FLOAT),
       );
     }
-    const fundingSetup = await new TxSubmitter(client, client.tx.utility.batchAll(setupCalls), fundingAccount).submit();
+    const fundingSetup = await new TxSubmitter(client, client.tx.utility.batchAll(setupCalls), new TxSigner(fundingAccount)).submit();
     await fundingSetup.waitForInFirstBlock;
 
     const historyStartingFrameId = (await client.query.miningSlot.nextFrameId()) - 1;

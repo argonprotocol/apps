@@ -31,15 +31,16 @@ These rules apply to implementation and review in this repository. Keep changes 
 - Group `<script setup>` declarations by concern, with blank lines between groups. Keep related reactive state, computed values, and watchers together, and keep declarations near their use.
 - Use `v-if`/`v-else` for substantial rendering branches. Allow ternaries only for short, simple value choices; do not use nested or multiline ternaries in templates.
 
-## Storybook UI States
+## Storybook UI Coverage
 
-- Reuse or update existing Storybook stories first. Add a story only for a materially distinct visible layout, message, control, or interaction that the current catalog does not represent.
+- Use Storybook for broad visual coverage of major screens, overlays, and workflows, not an exhaustive inventory of every possible UI state.
+- Reuse or update existing stories first. Add stories for new or substantially redesigned UI, or a major layout variation useful for visual review. Minor label changes, individual enabled/disabled controls, timing fixes, and internal state changes do not require new stories.
 - Prefer the highest meaningful production screen, overlay, or workflow panel. Full-screen stories should use the shared app frame so the real TopBar and LeftBar are visible; focused overlays and independently useful panels can remain isolated. Do not recreate production markup or initialize the entire application service graph.
-- Cover affected empty, loading, progress, blocked, error, success, recovery, and populated states only when visually distinct. Different backend flags, amounts, failure causes, or reasons for an existing empty or hidden state do not by themselves justify another story; verify those behaviors in Vitest or E2E. State the existing visual coverage when no additional story is needed.
+- Choose representative states. Include loading, progress, empty, or error variants only when they materially change the overall experience and help review the UI. Do not enumerate every transition, backend flag, or combination; verify those behaviors in Vitest or E2E. A small behavior fix does not need a new story or a visual-coverage justification.
 - Mock only external boundaries and store accessors. Use deterministic synthetic data, real exported types, and the production component's actual state selectors.
-- Use `play` interactions only to reveal the visual state represented by a story. Do not put behavior assertions in Storybook or count passing stories as behavior verification; put those assertions in Vitest or E2E coverage. Represent service-driven progress and failure states as explicit stories rather than timers or fake buttons.
+- Use `play` interactions only to reveal the representative UI being reviewed. Do not put behavior assertions in Storybook or count passing stories as behavior verification; put those assertions in Vitest or E2E coverage. When a service-driven variant merits a story, use a deterministic fixture rather than timers or fake buttons.
 - Keep fixed state stories inert and visibly labeled. Mark a story interactive only while every reachable control in that state has a deterministic mocked outcome; never expose production controls that fall through to unavailable Tauri, database, chain, or network services.
-- Follow `.storybook/README.md`, run `yarn storybook:test` and `yarn storybook:build`, and never commit generated `storybook-static` output.
+- Follow `.storybook/README.md`. Run `yarn storybook:test` and `yarn storybook:build` when changing stories, Storybook infrastructure, or broad cataloged UI; minor behavior-only changes do not require these checks. Never commit generated `storybook-static` output.
 
 ## Domain and State Design
 

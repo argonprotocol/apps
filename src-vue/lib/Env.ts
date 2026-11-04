@@ -1,5 +1,4 @@
 import { NetworkConfig } from '@argonprotocol/apps-core';
-import type ISecurity from '../interfaces/ISecurity.ts';
 
 type ServerEnvVars = typeof __SERVER_ENV_VARS__;
 type RuntimeEnv = Partial<{
@@ -10,8 +9,7 @@ type RuntimeEnv = Partial<{
   __ARGON_APP_ENABLE_AUTOUPDATE__?: boolean;
   __SERVER_ENV_VARS__?: ServerEnvVars;
   __ARGON_APP_INSTANCE__?: string;
-  __ARGON_APP_SECURITY__?: ISecurity;
-  __ARGON_APP_CAN_SIGN__?: boolean;
+  __ARGON_LOG_FILE_PREFIX__?: string;
   __LOG_DEBUG__?: boolean;
 }>;
 
@@ -40,6 +38,7 @@ export const SERVER_ENV_VARS: ServerEnvVars = readInjected('__SERVER_ENV_VARS__'
 const networkConfig = NetworkConfig.get();
 export const NETWORK_URL = networkConfig.archiveUrl;
 export const [INSTANCE_NAME, INSTANCE_PORT] = readInjected('__ARGON_APP_INSTANCE__', 'default:1420').split(':');
+export const LOG_FILE_PREFIX = readInjected('__ARGON_LOG_FILE_PREFIX__', `${NETWORK_NAME}-${INSTANCE_NAME}`);
 
 export const env = (import.meta as any).env ?? {};
 export const IS_E2E = typeof __ARGON_DRIVER_WS__ !== 'undefined' && __ARGON_DRIVER_WS__.trim().length > 0;
@@ -47,10 +46,7 @@ export const TICK_MILLIS: number = networkConfig.tickMillis;
 export const ESPLORA_HOST: string = networkConfig.esploraHost;
 export const BITCOIN_BLOCK_MILLIS: number = networkConfig.bitcoinBlockMillis;
 export const DEPLOY_ENV_FILE = `.env.${NETWORK_NAME}`;
-export const SECURITY = (globalThis as RuntimeEnv).__ARGON_APP_SECURITY__ as ISecurity;
-export const CAN_SIGN = (globalThis as RuntimeEnv).__ARGON_APP_CAN_SIGN__ ?? true;
 export const IS_TEST = (typeof __IS_TEST__ !== 'undefined' && __IS_TEST__) || IS_E2E;
 // eslint-disable-next-line prefer-const
 export let LOG_DEBUG =
   (globalThis as RuntimeEnv).__LOG_DEBUG__ ?? (typeof __LOG_DEBUG__ !== 'undefined' ? __LOG_DEBUG__ : false);
-delete (globalThis as any).__ARGON_APP_SECURITY__; // remove from global scope

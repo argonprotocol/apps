@@ -1,4 +1,4 @@
-import { bigIntMax, type TxSigningAccount, type Vault } from '@argonprotocol/apps-core';
+import { bigIntMax, type TxSigner, type Vault } from '@argonprotocol/apps-core';
 import * as Vue from 'vue';
 import { BitcoinLockStatus, type IBitcoinLockRecord } from '../interfaces/IBitcoinLockRecord.ts';
 import type { IBitcoinLockProcessingDetails } from '../interfaces/IBitcoinLockSummary.ts';
@@ -198,7 +198,7 @@ export class WalletForBitcoin extends WalletForChain<WalletType.bitcoin> {
   public createChannel(args: {
     vault: Vault;
     liquidityMicrogons: bigint;
-    txSigner: TxSigningAccount;
+    txSigner: TxSigner;
     operatorCoupon?: IOperatorBitcoinLockCouponRoute;
     isOwnedVault?: boolean;
   }): Promise<IBitcoinLockRecord> {
@@ -221,7 +221,7 @@ export class WalletForBitcoin extends WalletForChain<WalletType.bitcoin> {
   private async beginChannelCreation(args: {
     vault: Vault;
     liquidityMicrogons: bigint;
-    txSigner: TxSigningAccount;
+    txSigner: TxSigner;
     operatorCoupon?: IOperatorBitcoinLockCouponRoute;
   }): Promise<IBitcoinLockRecord> {
     const { vault, liquidityMicrogons, txSigner, operatorCoupon } = args;

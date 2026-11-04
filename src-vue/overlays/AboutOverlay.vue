@@ -25,7 +25,7 @@
             <img src="/app-icon.png" class="w-14 h-14 rounded-lg mx-auto" />
             <DialogTitle class="text-lg font-bold mt-4">{{ APP_NAME }}</DialogTitle>
             <div class="flex flex-col gap-2 border-y border-black/10 py-4 mt-4">
-              <div>Version: {{ config.version }}</div>
+              <div>Version: {{ packageJson.version }}</div>
               <div>OS: {{ platformName }} {{ platformVersion }}</div>
               <div>Instance Name: {{ INSTANCE_NAME }}</div>
               <div>Internal Tauri Port: {{ INSTANCE_PORT }}</div>
@@ -63,14 +63,12 @@ import basicEmitter from '../emitters/basicEmitter.ts';
 import BgOverlay from '../components/BgOverlay.vue';
 import { DialogContent, DialogOverlay, DialogPortal, DialogRoot, DialogTitle } from 'reka-ui';
 import { AnimatePresence, Motion } from 'motion-v';
-import { getConfig } from '../stores/config.ts';
+import packageJson from '../../package.json';
 import Draggable from './helpers/Draggable.ts';
 import { platformName, platformVersion } from '../tauri-controls/utils/os.ts';
 import { APP_NAME, INSTANCE_NAME, INSTANCE_PORT, NETWORK_NAME } from '../lib/Env.ts';
 import { SOFTWARE_INFO_TITLE } from '../lib/SoftwareInfo.ts';
 import { useOverlayZIndex } from './helpers/OverlayZIndex.ts';
-
-const config = getConfig();
 
 const isOpen = Vue.ref(false);
 const wasCopied = Vue.ref(false);
@@ -87,7 +85,7 @@ function closeOverlay() {
 }
 
 function copyDetails() {
-  const details = `Version: ${config.version}\nOS: ${platformName} ${platformVersion}`;
+  const details = `Version: ${packageJson.version}\nOS: ${platformName} ${platformVersion}`;
   navigator.clipboard.writeText(details);
   wasCopied.value = true;
   setTimeout(() => {

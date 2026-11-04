@@ -11,6 +11,7 @@ import {
   MoveTo,
   type BlockWatch,
   SingleFileQueue,
+  TxSigner,
   createDeferred,
   signBitcoinCooperativeReleaseRequest,
   bitcoinCooperativeReleaseRequestSchema,
@@ -39,6 +40,7 @@ import { BitcoinUtxoSpendStatus, BitcoinUtxoStatus } from '../interfaces/IBitcoi
 import { UpstreamOperatorClient } from '../lib/UpstreamOperatorClient.ts';
 import type { ServerAuthClient } from '../lib/ServerAuthClient.ts';
 import type { WalletKeys } from '../lib/WalletKeys.ts';
+import { BitcoinSigner } from '../lib/BitcoinSigner.ts';
 import { MyVault } from '../lib/MyVault.ts';
 import { WalletForBitcoin } from '../lib/WalletForBitcoin.ts';
 import type { Vaults } from '../lib/Vaults.ts';
@@ -232,7 +234,8 @@ describe('cooperative release approval with simulated chain observations', () =>
       const walletKeys = {
         canSign: true,
         defaultArgonAddress: fixture.account.address,
-        getBitcoinChildXpriv: async (path: string) => (path === 'vault' ? fixture.vaultKey : fixture.ownerKey),
+        getBitcoinSigner: async (path: string) =>
+          new BitcoinSigner(path === 'vault' ? fixture.vaultKey : fixture.ownerKey, BitcoinNetwork.Regtest),
       } as unknown as WalletKeys;
       const operator = new UpstreamOperatorClient(
         { getMemberSessionId: async () => 'synthetic-session' } as unknown as ServerAuthClient,
@@ -372,7 +375,7 @@ describe('cooperative release approval with simulated chain observations', () =>
         record: input,
         toScriptPubkey: fixture.request.toScriptPubkey,
         feeRatePerSatVb: 5n,
-        owner: fixture.account,
+        owner: new TxSigner(fixture.account),
       };
       if (ownVault)
         await expect(store.releases.requestCooperativeRelease(terms)).rejects.toThrow('broadcast interrupted');
@@ -610,7 +613,7 @@ describe('cooperative release approval with simulated chain observations', () =>
       const appDb = await createTestDb();
       const walletKeys = {
         canSign: true,
-        getBitcoinChildXpriv: async () => fixture.ownerKey,
+        getBitcoinSigner: async () => new BitcoinSigner(fixture.ownerKey, BitcoinNetwork.Regtest),
       } as unknown as WalletKeys;
       const store = createStore({
         db: appDb,

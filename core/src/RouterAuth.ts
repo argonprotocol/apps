@@ -1,4 +1,4 @@
-import type { KeyringPair } from '@argonprotocol/mainchain';
+import type { IKeyringPair } from '@polkadot/types/types';
 import { hexToU8a, u8aToHex } from '@argonprotocol/mainchain';
 import { stringToU8a } from '@polkadot/util';
 import { blake2AsU8a, signatureVerify } from '@polkadot/util-crypto';
@@ -21,7 +21,7 @@ export interface IRouterAuthAccountBinding {
   expiresAt: number;
 }
 
-export function signRouterAuthChallenge(account: KeyringPair, challenge: IRouterAuthChallenge): string {
+export function signRouterAuthChallenge(account: IKeyringPair, challenge: IRouterAuthChallenge): string {
   return u8aToHex(account.sign(getRouterAuthPayloadHash(challenge), { withType: true }));
 }
 
@@ -29,7 +29,7 @@ export function verifyRouterAuthChallenge(challenge: IRouterAuthChallenge, signa
   return signatureVerify(getRouterAuthPayloadHash(challenge), hexToU8a(signature), challenge.authAccountId).isValid;
 }
 
-export function signRouterAuthAccountBinding(account: KeyringPair, binding: IRouterAuthAccountBinding): string {
+export function signRouterAuthAccountBinding(account: IKeyringPair, binding: IRouterAuthAccountBinding): string {
   return u8aToHex(account.sign(getRouterAuthAccountBindingPayloadHash(binding), { withType: true }));
 }
 

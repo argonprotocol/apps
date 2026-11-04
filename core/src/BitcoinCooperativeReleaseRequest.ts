@@ -1,4 +1,4 @@
-import type { KeyringPair } from '@argonprotocol/mainchain';
+import type { IKeyringPair } from '@polkadot/types/types';
 import { hexToU8a, stringToU8a, u8aToHex } from '@polkadot/util';
 import { blake2AsU8a, signatureVerify } from '@polkadot/util-crypto';
 import { z } from 'zod';
@@ -62,7 +62,7 @@ export const bitcoinCooperativeReleaseRequestSchema: z.ZodType<IBitcoinCooperati
   .strict();
 
 export function signBitcoinCooperativeReleaseRequest(
-  account: KeyringPair,
+  account: IKeyringPair,
   request: Omit<IBitcoinCooperativeReleaseRequest, 'requestSignature'>,
 ): string {
   return u8aToHex(account.sign(getBitcoinCooperativeReleaseRequestHash(request), { withType: true }));

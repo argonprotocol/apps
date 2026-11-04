@@ -31,7 +31,7 @@ const replayPath =
 const runWithReplay =
   process.env.FINANCIAL_HISTORY_REPLAY_CAPTURE === '1' || Fs.existsSync(replayPath) ? describe : describe.skip;
 const recordingClient =
-  process.env.FINANCIAL_HISTORY_REPLAY_CAPTURE === '1' ? await getClient('https://rpc.argon.network') : undefined;
+  process.env.FINANCIAL_HISTORY_REPLAY_CAPTURE === '1' ? await getClient('wss://rpc.argon.network') : undefined;
 
 afterAll(async () => recordingClient?.disconnect());
 

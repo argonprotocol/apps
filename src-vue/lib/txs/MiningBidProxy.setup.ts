@@ -3,7 +3,7 @@ import {
   type ArgonClient,
   type MiningBidProxySetupMetadata,
   type MiningBidProxySetupPlan,
-  type TxSigningAccount,
+  type TxSigner,
 } from '@argonprotocol/apps-core';
 import type { SubmittableExtrinsic } from '@argonprotocol/mainchain';
 
@@ -18,7 +18,7 @@ type MiningBidProxySetupTransaction = Extract<MiningBidProxySetupPlan, { kind: '
 
 type MiningBidProxySetupInput = {
   client: ArgonClient;
-  fundingAccount: TxSigningAccount;
+  fundingAccount: TxSigner;
   proxySetup: MiningBidProxySetupTransaction;
 };
 
@@ -52,8 +52,8 @@ export class MiningBidProxySetup extends TransactionOperation<
 
     client ??= await getMainchainClient(true);
     const [fundingAccount, proxyAccount] = await Promise.all([
-      this.walletKeys.getMiningBotKeypair(),
-      this.walletKeys.getMiningBidProxyKeypair(),
+      this.walletKeys.getMiningBotSigner(),
+      this.walletKeys.getMiningBidProxySigner(),
     ]);
     const proxySetup = await new Accountset({
       client,

@@ -104,7 +104,7 @@ import numeral from '../../lib/numeral.ts';
 import { getCurrency } from '../../stores/currency.ts';
 import { getEthereumOutboundTransferTracker } from '../../stores/moveToEthereum.ts';
 import { getBitcoinLocks, getBitcoinTransactionOperations } from '../../stores/bitcoin.ts';
-import { getMoveCapital, getWalletKeys, useWallets } from '../../stores/wallets.ts';
+import { getAccountSecurity, getMoveCapital, getWalletKeys, useWallets } from '../../stores/wallets.ts';
 import ProgressBar from '../../components/ProgressBar.vue';
 import WalletHeader from './WalletHeader.vue';
 import WalletTransferForm, { type ITransferWallet } from './WalletTransferForm.vue';
@@ -284,7 +284,8 @@ async function initiateBitcoinTransfer(form: InstanceType<typeof WalletTransferF
   isInitiatingTransfer.value = true;
   form.setFormError('');
   try {
-    const txSigner = await getWalletKeys().getLiquidLockingKeypair();
+    const txSigner = await getWalletKeys().getLiquidLockingSigner();
+    await getAccountSecurity().authenticate('release the selected Bitcoin');
     const sendId = crypto.randomUUID();
     const inputs = releasePlan.map(release => ({
       lockId: release.channel.lockId!,

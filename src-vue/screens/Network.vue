@@ -1,6 +1,6 @@
 <!-- prettier-ignore -->
 <template>
-  <div class="flex h-full grow flex-col justify-stretch pr-2.5">
+  <div class="flex h-full grow flex-col justify-stretch">
     <section box class="grow flex flex-col p-3  overflow-y-scroll">
 
       <div StatWrapper class="w-full flex flex-col h-full border-b border-slate-400/50">

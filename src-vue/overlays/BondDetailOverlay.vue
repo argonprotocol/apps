@@ -448,8 +448,8 @@ async function liquidateBondLot() {
   try {
     const signer =
       props.liquidationAccount === 'vaulting'
-        ? await walletKeys.getVaultingKeypair()
-        : await walletKeys.getDefaultArgonKeypair();
+        ? await walletKeys.getVaultingSigner()
+        : await walletKeys.getDefaultArgonSigner();
     const info = await bondLotRelease.submit({
       bondLot: props.bondLot,
       txSigner: signer,

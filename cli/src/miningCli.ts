@@ -7,8 +7,9 @@ import {
   Mining,
   MiningFrames,
   TxSubmitter,
+  TxSigner,
 } from '@argonprotocol/apps-core';
-import { getClient, type KeyringPair, MICROGONS_PER_ARGON } from '@argonprotocol/mainchain';
+import { getClient, MICROGONS_PER_ARGON } from '@argonprotocol/mainchain';
 
 import { accountsetFromCli, globalOptions, saveKeyringPair } from './index.js';
 
@@ -112,17 +113,17 @@ export default function miningCli() {
         client.tx.proxy.addProxy(address, 'MiningBidRealPaysFee', 0),
         client.tx.balances.transferAllowDeath(address, BigInt(feeArgons * MICROGONS_PER_ARGON)),
       ]);
-      let keypair: KeyringPair;
+      let signer: TxSigner;
       try {
         const accountset = await accountsetFromCli(program, { client });
-        keypair = accountset.txSubmitterPair;
+        signer = accountset.txSigner;
       } catch (e) {
         const polkadotLink = `https://polkadot.js.org/apps/?rpc=${mainchainUrl}#/extrinsics/decode/${tx.toHex()}`;
         console.log(`Complete the registration at this link:`, polkadotLink);
         process.exit(0);
       }
       try {
-        const res = await new TxSubmitter(client, tx, keypair).submit();
+        const res = await new TxSubmitter(client, tx, signer).submit();
         await res.waitForInFirstBlock;
 
         console.log('Mining bid proxy added and funded.');

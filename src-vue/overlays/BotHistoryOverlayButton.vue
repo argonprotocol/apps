@@ -87,8 +87,9 @@ import dayjs from 'dayjs';
 import utc from 'dayjs/plugin/utc';
 import relativeTime from 'dayjs/plugin/relativeTime';
 import { getWalletKeys } from '../stores/wallets.ts';
+import { getMiningBotSubaccountCount } from '../stores/mainchain.ts';
 import { botEmitter } from '../lib/Bot.ts';
-import { getBot } from '../stores/bot.ts';
+import { getBot } from '../stores/startup.ts';
 import { getConfig } from '../stores/config.ts';
 import PopoverPanelArrow from '../components/PopoverPanelArrow.vue';
 import { useFloatingZIndex } from './helpers/OverlayZIndex.ts';
@@ -179,12 +180,11 @@ const currency = getCurrency();
 const { microgonToMoneyNm } = createNumeralHelpers(currency);
 
 const subaccounts = Vue.ref(new Set<string>());
-Vue.onMounted(() => {
-  walletKeys.getMiningBotSubaccounts().then(x => {
-    for (const key of Object.keys(x)) {
-      subaccounts.value.add(key);
-    }
-  });
+Vue.onMounted(async () => {
+  const accounts = await walletKeys.getMiningBotSubaccounts(await getMiningBotSubaccountCount());
+  for (const key of Object.keys(accounts)) {
+    subaccounts.value.add(key);
+  }
 });
 
 const activities = Vue.ref(

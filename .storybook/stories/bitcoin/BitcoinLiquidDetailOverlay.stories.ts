@@ -1,4 +1,8 @@
-import { BitcoinFission } from '@argonprotocol/apps-core';
+import { Keyring } from '@argonprotocol/mainchain';
+
+import type { KeyringPair } from '@argonprotocol/mainchain';
+import { BitcoinFission, TxSigner } from '@argonprotocol/apps-core';
+
 import type { Meta, StoryObj } from '@storybook/vue3-vite';
 import BigNumber from 'bignumber.js';
 import * as Vue from 'vue';
@@ -277,7 +281,7 @@ function setupDetails(
   } = {},
 ) {
   setupAppScenario({ selectedTab: TopTab.BitcoinLocks, myVaultId: args.myVaultId });
-  mocked(getBitcoinLocks().getLockById).mockImplementation(lockId =>
+  getBitcoinLocks().getLockById = fn(lockId =>
     args.isBitcoinSettlementPending ? ({ lockId, activeReleaseId: 'synthetic-partial-release' } as never) : undefined,
   );
   getCurrency().priceIndex = Vue.shallowReactive(getCurrency().priceIndex);
@@ -444,7 +448,7 @@ function setupDetails(
     } as never);
   }
   Object.assign(getWalletKeys(), {
-    getLiquidLockingKeypair: fn(async () => ({ address: 'owner-account' }) as never),
+    getLiquidLockingSigner: fn(async () => new TxSigner(new Keyring({ type: 'sr25519' }).createFromUri('//Alice'))),
   });
 }
 

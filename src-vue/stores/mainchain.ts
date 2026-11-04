@@ -15,7 +15,7 @@ import { INSTANCE_NAME, LOG_DEBUG, NETWORK_NAME, NETWORK_URL } from '../lib/Env.
 import { getConfig } from './config';
 import { botEmitter } from '../lib/Bot.ts';
 import { BotStatus } from '../lib/BotSyncer.ts';
-import { getBot } from './bot.ts';
+import { getBot } from './startup.ts';
 import { Config } from '../lib/Config.ts';
 import { BaseDirectory, readTextFile, writeTextFile } from '@tauri-apps/plugin-fs';
 import { BlockWatch } from '@argonprotocol/apps-core/src/BlockWatch.ts';
@@ -42,6 +42,16 @@ export async function getMainchainClientAt(
 }
 export function getMainchainClient(needsHistoricalAccess: boolean): Promise<ArgonClient> {
   return getMainchainClients().get(needsHistoricalAccess);
+}
+
+export async function getMiningBotSubaccountCount(): Promise<number | undefined> {
+  try {
+    const client = await getMainchainClient(false);
+    return client.consts.mint.maxPossibleMiners;
+  } catch {
+    // The caller can use its public-address fallback and retry the runtime lookup next time.
+    return;
+  }
 }
 
 export async function getFinalizedClient(client?: ArgonClient): Promise<ArgonCurrentQueryClient> {
@@ -100,17 +110,6 @@ export function setMainchainClients(clients: MainchainClients) {
 export function getMainchainClients(): MainchainClients {
   if (!mainchainClients) {
     mainchainClients = new MainchainClients(NETWORK_URL, () => __LOG_DEBUG__ || LOG_DEBUG);
-
-    const config = getConfig();
-    if (config.isLoaded) {
-      refreshPrunedClientFromConfig();
-    } else {
-      void config.isLoadedPromise.then(refreshPrunedClientFromConfig);
-    }
-
-    if (getBot().isReady) {
-      refreshPrunedClientFromConfig();
-    }
 
     botEmitter.on('status-changed', status => {
       if (status === BotStatus.Ready && !mainchainClients.prunedClientPromise) {

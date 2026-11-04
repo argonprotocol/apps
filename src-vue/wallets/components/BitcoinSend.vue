@@ -59,7 +59,7 @@ import { createNumeralHelpers } from '../../lib/numeral.ts';
 import type { IBitcoinLockRecord } from '../../interfaces/IBitcoinLockRecord.ts';
 import { getBitcoinLocks, getBitcoinTransactionOperations } from '../../stores/bitcoin.ts';
 import { getCurrency } from '../../stores/currency.ts';
-import { getWalletKeys, useWallets } from '../../stores/wallets.ts';
+import { getAccountSecurity, getWalletKeys, useWallets } from '../../stores/wallets.ts';
 
 const props = defineProps<{
   personalLock: IBitcoinLockRecord;
@@ -141,12 +141,13 @@ async function sendBitcoin(): Promise<void> {
   isSubmitting.value = true;
   requestError.value = '';
   try {
+    await getAccountSecurity().authenticate('release this Bitcoin');
     await bitcoinLockRelease.submit({
       lockId: lockId,
       bitcoinNetworkFee: quote.bitcoinFee,
       destinationSatoshis: props.personalLock.fundedSatoshis - quote.bitcoinFee,
       toScriptPubkey: trimmedDestinationAddress.value,
-      txSigner: await getWalletKeys().getLiquidLockingKeypair(),
+      txSigner: await getWalletKeys().getLiquidLockingSigner(),
     });
     emit('done');
   } catch (error) {
@@ -171,7 +172,7 @@ async function refreshArgonFeeQuote(isCancelled: () => boolean): Promise<void> {
       bitcoinNetworkFee: bitcoinFee,
       destinationSatoshis: props.personalLock.fundedSatoshis - bitcoinFee,
       toScriptPubkey: trimmedDestinationAddress.value,
-      txSigner: await getWalletKeys().getLiquidLockingKeypair(),
+      txSigner: await getWalletKeys().getLiquidLockingSigner(),
     });
     if (isCancelled()) return;
     argonFeeQuote.value = {

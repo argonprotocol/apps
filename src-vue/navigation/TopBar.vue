@@ -15,7 +15,7 @@
       <div class="relative top-px text-[19px] font-bold whitespace-nowrap flex flex-row items-center">
         Argon Desktop
         <NavigationMenuRoot
-          v-if="controller.isLoaded && !controller.isImporting"
+          v-if="controller.isLoaded && !startup.isImporting"
           class="relative pointer-events-auto"
           :delay-duration="0"
           :skip-delay-duration="0"
@@ -42,7 +42,7 @@
     </div>
 
     <NavigationMenuRoot
-      v-if="controller.isLoaded && !controller.isImporting"
+      v-if="controller.isLoaded && !startup.isImporting"
       class="relative mr-3 flex flex-row grow items-center justify-end pointer-events-none"
       :model-value="navigationMenuValue"
       :delay-duration="0"
@@ -105,7 +105,7 @@ import { useCertificationController } from '../stores/certificationController.ts
 import WindowControls from '../tauri-controls/WindowControls.vue';
 import AccountMenu from './AccountMenu.vue';
 import { useWallets } from '../stores/wallets.ts';
-import { getBot } from '../stores/bot.ts';
+import { getBot, useStartupStore } from '../stores/startup.ts';
 import { useTour } from '../stores/tour.ts';
 import ServerMenu from './ServerMenu.vue';
 import SponsorMenu from './SponsorMenu.vue';
@@ -125,6 +125,7 @@ import { INSTANCE_NAME, NETWORK_NAME } from '../lib/Env.ts';
 import { getWalletKeys } from '../stores/wallets.ts';
 
 const controller = useCertificationController();
+const startup = useStartupStore();
 const walletKeys = getWalletKeys();
 const wallets = useWallets();
 const tour = useTour();

@@ -12,7 +12,7 @@ import { getOfflineRegistry, hexToU8a, Keyring, u8aToHex } from '@argonprotocol/
 import { stringToU8a } from '@polkadot/util';
 import { blake2AsU8a, cryptoWaitReady, signatureVerify } from '@polkadot/util-crypto';
 import { BootstrapRecovery, BootstrapRecoveryContext } from '../lib/BootstrapRecovery.ts';
-import type { MemoryWalletKeys } from '../lib/MemoryWalletKeys.ts';
+import type { WalletKeys } from '../lib/WalletKeys.ts';
 import { createMockWalletKeys } from './helpers/wallet.ts';
 
 beforeAll(async () => {
@@ -22,7 +22,7 @@ beforeAll(async () => {
 describe('BootstrapRecovery', () => {
   it('signs the exact runtime recovery proof payload', async () => {
     const wallet = createMockWalletKeys('//RecoveryProof');
-    const writer = await wallet.getDefaultArgonKeypair();
+    const writer = await wallet.getDefaultArgonSigner();
     const recoverySeed = await wallet.getUpstreamEndpointRecoverySeed();
     const recoveryKeypair = new Keyring({ type: 'ed25519' }).addFromSeed(hexToU8a(recoverySeed));
     const encryptedRecovery = new Uint8Array([1, 2, 3, 4]);
@@ -129,7 +129,7 @@ describe('BootstrapRecovery', () => {
 });
 
 async function createBootstrapClient(args: {
-  wallet: MemoryWalletKeys;
+  wallet: WalletKeys;
   context: BootstrapRecoveryContext;
   endpointSecret: string;
   endpointIndex?: number;

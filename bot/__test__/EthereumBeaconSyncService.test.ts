@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { type ArgonClient, minimumVaultDelegateBalance, NetworkConfig } from '@argonprotocol/apps-core';
+import { type ArgonClient, minimumVaultDelegateBalance, NetworkConfig, TxSigner } from '@argonprotocol/apps-core';
 
 type IMockTx = { id: string };
 type IMockSignedTx = {
@@ -44,9 +44,9 @@ const mainchainMock = vi.hoisted(() => {
     constructor(
       public readonly client: unknown,
       public readonly tx: IMockTx,
-      public readonly account: { address: string },
+      public readonly signer: { address: string },
     ) {
-      this.address = account.address;
+      this.address = signer.address;
     }
 
     public async submit(options?: { nonce?: number }) {
@@ -102,7 +102,7 @@ import {
   waitForFinalizedBeaconExecutionAtOrAbove,
 } from '../src/EthereumBeaconSyncService.ts';
 
-const syncKeypair = { address: 'sync-account' } as any;
+const syncSigner = new TxSigner({ address: 'sync-account' } as any);
 
 describe('EthereumBeaconSyncService', () => {
   const createClient = ({
@@ -329,8 +329,8 @@ describe('EthereumBeaconSyncService', () => {
     expect(submissionMock.submitWithTerminalStatusWatch).toHaveBeenNthCalledWith(
       1,
       expect.objectContaining({
-        account: syncKeypair,
-        address: syncKeypair.address,
+        signer: syncSigner,
+        address: syncSigner.address,
         client,
         tx: txs[0],
       }),
@@ -347,8 +347,8 @@ describe('EthereumBeaconSyncService', () => {
     expect(submissionMock.submitWithTerminalStatusWatch).toHaveBeenNthCalledWith(
       2,
       expect.objectContaining({
-        account: syncKeypair,
-        address: syncKeypair.address,
+        signer: syncSigner,
+        address: syncSigner.address,
         client,
         tx: txs[1],
       }),
@@ -463,8 +463,8 @@ describe('EthereumBeaconSyncService', () => {
     expect(submissionMock.submitWithTerminalStatusWatch).toHaveBeenNthCalledWith(
       2,
       expect.objectContaining({
-        account: syncKeypair,
-        address: syncKeypair.address,
+        signer: syncSigner,
+        address: syncSigner.address,
         client,
         tx: txs[0],
       }),
@@ -696,8 +696,8 @@ describe('EthereumBeaconSyncService', () => {
     expect(submissionMock.submitWithTerminalStatusWatch).toHaveBeenNthCalledWith(
       1,
       expect.objectContaining({
-        account: syncKeypair,
-        address: syncKeypair.address,
+        signer: syncSigner,
+        address: syncSigner.address,
         client,
         tx: txs[0],
       }),
@@ -706,8 +706,8 @@ describe('EthereumBeaconSyncService', () => {
     expect(submissionMock.submitWithTerminalStatusWatch).toHaveBeenNthCalledWith(
       2,
       expect.objectContaining({
-        account: syncKeypair,
-        address: syncKeypair.address,
+        signer: syncSigner,
+        address: syncSigner.address,
         client,
         tx: txs[1],
       }),
@@ -756,7 +756,7 @@ describe('EthereumBeaconSyncService', () => {
 });
 
 function createSubmitLane(client: any) {
-  const lane = new DelegateSubmitLane(syncKeypair);
+  const lane = new DelegateSubmitLane(syncSigner);
   lane.client = client;
   return lane;
 }

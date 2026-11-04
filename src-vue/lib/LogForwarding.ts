@@ -15,7 +15,7 @@ function forwardConsole(
       // don't log these noisy tauri internal messages
       return;
     }
-    const ts = dayjs().local().format('HH:mm:ss.SSS');
+    const ts = dayjs().format('HH:mm:ss.SSS');
     // eslint-disable-next-line @typescript-eslint/no-unsafe-return
     args = args.map(arg => safeRaw(arg));
     message = safeRaw(message);
@@ -37,6 +37,24 @@ forwardConsole('debug', debug);
 forwardConsole('info', info);
 forwardConsole('warn', warn);
 forwardConsole('error', error);
+
+window.addEventListener('securitypolicyviolation', event => {
+  let blockedOrigin = event.blockedURI;
+  try {
+    const url = new URL(blockedOrigin);
+    blockedOrigin = url.origin === 'null' ? url.protocol : url.origin;
+  } catch {
+    if (!['inline', 'eval', 'wasm-eval'].includes(blockedOrigin)) {
+      blockedOrigin = 'unknown';
+    }
+  }
+
+  console.error('[CSP] Policy violation', {
+    directive: event.effectiveDirective,
+    blockedOrigin,
+    disposition: event.disposition,
+  });
+});
 
 function safeRaw<T>(value: T): T {
   try {

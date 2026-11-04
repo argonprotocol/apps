@@ -83,7 +83,7 @@ import * as Vue from 'vue';
 import AlertIcon from '../assets/alert.svg?component';
 import { stepLabels } from '../lib/InstallerStep.ts';
 import { getConfig } from '../stores/config.ts';
-import { getInstaller } from '../stores/installer.ts';
+import { getInstaller } from '../stores/startup.ts';
 
 defineProps<{
   featureName: string;

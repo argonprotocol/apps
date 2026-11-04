@@ -18,11 +18,14 @@ import { Config } from '../../../src-vue/lib/Config.ts';
 import { activateOperationalAccountSetup } from '../../../src-vue/lib/OperationalAccount.ts';
 import { useCertificationController } from '../../../src-vue/stores/certificationController.ts';
 import { getConfig } from '../../../src-vue/stores/config.ts';
-import { getInstaller } from '../../../src-vue/stores/installer.ts';
+import { getInstaller } from '../../../src-vue/stores/startup.ts';
 import { getMainchainClient } from '../../../src-vue/stores/mainchain.ts';
 import { getMyVault } from '../../../src-vue/stores/vaults.ts';
 import { getServerApiClient } from '../../../src-vue/stores/server.ts';
 import Onboarding from '../../../src-vue/screens/Onboarding.vue';
+import { useFinancials } from '../../../src-vue/stores/financials.ts';
+import { financialGroups } from '../../../src-vue/interfaces/IFinancialPosition.ts';
+import { reduceFinancialPositions } from '../../../src-vue/lib/financials/index.ts';
 
 const meta = {
   title: 'Onboarding/Overview',
@@ -48,7 +51,8 @@ export const LockedForTreasury: Story = {
 
 export const Start: Story = {
   beforeEach: () => {
-    setupOnboardingScenario(OnboardingSetupStatus.None);
+    const controller = setupOnboardingScenario(OnboardingSetupStatus.None);
+    controller.isLoaded = true;
   },
 };
 
@@ -183,6 +187,17 @@ export const EmptyDashboard: Story = {
       serverInstalled: true,
     });
     controller.hasLoadedOperationalInvites = true;
+    controller.isLoaded = true;
+    Object.assign(useFinancials(), {
+      financialPositionAggregate: reduceFinancialPositions(
+        financialGroups.map(group => ({
+          group,
+          state: 'ready' as const,
+          positions: [],
+          observation: { observedAt: new Date('2026-01-01') },
+        })),
+      ),
+    });
   },
 };
 

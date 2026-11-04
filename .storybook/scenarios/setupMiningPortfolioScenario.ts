@@ -12,7 +12,7 @@ import {
 import { fn, mocked } from 'storybook/test';
 import type { IDashboardFrameStats } from '../../src-vue/interfaces/IMiningSeatStats.ts';
 import { MiningSetupStatus, TopTab } from '../../src-vue/interfaces/IConfig.ts';
-import { getBot } from '../../src-vue/stores/bot.ts';
+import { getBot } from '../../src-vue/stores/startup.ts';
 import { getCurrency } from '../../src-vue/stores/currency.ts';
 import { useFinancials } from '../../src-vue/stores/financials.ts';
 import { getDbPromise } from '../../src-vue/stores/helpers/dbPromise.ts';

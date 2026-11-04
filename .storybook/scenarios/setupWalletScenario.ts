@@ -1,4 +1,6 @@
+import { getOfflineRegistry, Keyring, type KeyringPair } from '@argonprotocol/mainchain';
 import * as Vue from 'vue';
+import { EthereumKeys } from '../../src-vue/lib/EthereumKeys.ts';
 import {
   bigIntMax,
   BitcoinLock,
@@ -6,11 +8,11 @@ import {
   MICROGONS_PER_ARGON,
   MICRONOTS_PER_ARGONOT,
   MoveToken,
+  TxSigner,
   UnitOfMeasurement,
   type BlockWatch,
 } from '@argonprotocol/apps-core';
 import { BitcoinNetwork } from '@argonprotocol/bitcoin';
-import { getOfflineRegistry } from '@argonprotocol/mainchain';
 import { fn, mocked, spyOn } from 'storybook/test';
 import type { IEthereumInboundTransferState } from '../../src-vue/interfaces/IEthereumInboundTransferTracker.ts';
 import { BitcoinLockStatus, type IBitcoinLockRecord } from '../../src-vue/interfaces/IBitcoinLockRecord.ts';
@@ -168,7 +170,7 @@ export function setupWalletScenario(state: WalletScenario): WalletScenarioState 
   const currency = getCurrency();
   const financials = useFinancials();
   const now = new Date('2026-08-16T12:00:00.000Z');
-  mocked(BitcoinLocks.getFeeRates).mockRestore?.();
+  mocked(BitcoinLocks).getFeeRates.mockRestore?.();
   const getFeeRates = spyOn(BitcoinLocks, 'getFeeRates').mockResolvedValue({
     fast: { feeRate: 3n, estimatedMinutes: 10 },
     medium: { feeRate: 1n, estimatedMinutes: 30 },
@@ -395,7 +397,7 @@ export function setupWalletScenario(state: WalletScenario): WalletScenarioState 
       readiness: 'ready',
     },
     releases,
-    utxoTracking: {
+    utxoTracking: Object.assign(Object.create(BitcoinUtxoTracking.prototype) as BitcoinUtxoTracking, {
       load: fn((records: IBitcoinUtxoRecord[]) => bitcoinUtxos.splice(0, bitcoinUtxos.length, ...records)),
       refreshDepositSpend: fn(async () => undefined),
       getAllOrphanLifecycleUtxos: fn(() => bitcoinUtxos.filter(utxo => utxo.status === BitcoinUtxoStatus.Orphaned)),
@@ -415,7 +417,6 @@ export function setupWalletScenario(state: WalletScenario): WalletScenarioState 
           return utxo?.lockId === lock.lockId ? [utxo] : [];
         }),
       ),
-      getUnacknowledgedFundingUtxos: BitcoinUtxoTracking.prototype.getUnacknowledgedFundingUtxos,
       getObservedFundingUtxos: fn((lock: IBitcoinLockRecord) => {
         return bitcoinUtxos
           .filter(
@@ -434,7 +435,7 @@ export function setupWalletScenario(state: WalletScenario): WalletScenarioState 
       acknowledgeBelowMinimum: fn(async (record: IBitcoinUtxoRecord) => {
         record.isDepositAcknowledged = true;
       }),
-    },
+    }),
     load: fn(async () => undefined),
     getAllLocks: fn(() => bitcoinChannels),
     getActiveLocks: fn(() => bitcoinChannels.filter(lock => lock.status !== BitcoinLockStatus.Released)),
@@ -697,7 +698,7 @@ export function setupWalletScenario(state: WalletScenario): WalletScenarioState 
     loadChannels: fn(async () => undefined),
     getChannelFundingAddress: fn((lock: IBitcoinLockRecord) => `bc1qstorybook${lock.lockId}`),
   });
-  WalletForEthereum.previewMnemonic = fn(async () => [
+  EthereumKeys.previewMnemonic = fn(() => [
     { address: ethereumTreasury.address, derivationPath: "m/44'/60'/0'/0/0" },
     { address: ethereumSavings.address, derivationPath: "m/44'/60'/0'/0/1" },
   ]);
@@ -756,7 +757,9 @@ export function setupWalletScenario(state: WalletScenario): WalletScenarioState 
       getPendingReleaseTxInfo: fn(() => undefined),
     },
   } as never);
-  getWalletKeys().getLiquidLockingKeypair = fn(async () => ({ address: '5SyntheticLiquidLockingWallet' }) as never);
+  getWalletKeys().getLiquidLockingSigner = fn(
+    async () => new TxSigner(new Keyring({ type: 'sr25519' }).createFromUri('//Alice')),
+  );
   mocked(getEthereumMoveTracker).mockReturnValue(createInboundTransferTracker());
   mocked(getEthereumOutboundTransferTracker).mockReturnValue(
     createOutboundTransferTracker(undefined, 'outboundForm').tracker,

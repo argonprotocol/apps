@@ -4,7 +4,7 @@ import { getEthereumFinalityMillis } from '../lib/EthereumClient.ts';
 
 describe('GlobalCouncil', () => {
   it('serializes Ethereum relays so a concurrent caller rechecks after the active transaction', async () => {
-    const globalCouncil = new GlobalCouncil(Promise.resolve({} as any), {} as any, {} as any);
+    const globalCouncil = new GlobalCouncil(Promise.resolve({} as any), {} as any, {} as any, async () => {});
     let resolveRelay!: (receipt: { transactionHash: string }) => void;
     const relayResult = new Promise<{ transactionHash: string }>(resolve => {
       resolveRelay = resolve;
@@ -27,7 +27,12 @@ describe('GlobalCouncil', () => {
   });
 
   it('relays immediately when our signed approvals are awaiting Ethereum relay', async () => {
-    const globalCouncil = new GlobalCouncil(Promise.resolve({} as any), { canSign: true } as any, {} as any);
+    const globalCouncil = new GlobalCouncil(
+      Promise.resolve({} as any),
+      { canSign: true } as any,
+      {} as any,
+      async () => {},
+    );
     const getReadyGatewayRelayPreview = vi
       .spyOn(globalCouncil, 'getReadyGatewayRelayPreview')
       .mockResolvedValue({ canRelay: true } as any);
@@ -63,7 +68,12 @@ describe('GlobalCouncil', () => {
     vi.setSystemTime(new Date('2026-06-02T17:00:00Z'));
 
     try {
-      const globalCouncil = new GlobalCouncil(Promise.resolve({} as any), { canSign: true } as any, {} as any);
+      const globalCouncil = new GlobalCouncil(
+        Promise.resolve({} as any),
+        { canSign: true } as any,
+        {} as any,
+        async () => {},
+      );
       const getReadyGatewayRelayPreview = vi.spyOn(globalCouncil, 'getReadyGatewayRelayPreview').mockResolvedValue({
         canRelay: true,
         firstQueueNonce: 9n,
@@ -107,7 +117,12 @@ describe('GlobalCouncil', () => {
     vi.setSystemTime(new Date('2026-06-02T17:00:00Z'));
 
     try {
-      const globalCouncil = new GlobalCouncil(Promise.resolve({} as any), { canSign: true } as any, {} as any);
+      const globalCouncil = new GlobalCouncil(
+        Promise.resolve({} as any),
+        { canSign: true } as any,
+        {} as any,
+        async () => {},
+      );
       const getReadyGatewayRelayPreview = vi.spyOn(globalCouncil, 'getReadyGatewayRelayPreview').mockResolvedValue({
         canRelay: true,
         firstQueueNonce: 9n,
@@ -171,6 +186,7 @@ describe('GlobalCouncil', () => {
         vaultingAddress: '5existing',
       } as any,
       {} as any,
+      async () => {},
     );
     const syncApprovedGatewayRelay = vi
       .spyOn(
@@ -319,6 +335,7 @@ describe('GlobalCouncil', () => {
         signEthereumPersonalMessage,
       } as any,
       {} as any,
+      async () => {},
     );
 
     const approveQueueEntries = vi.fn((_chain: string, signatures: string[]) => ({ signatures }));
@@ -357,6 +374,7 @@ describe('GlobalCouncil', () => {
         getEthereumAddresses: vi.fn(async () => ['0xabc']),
       } as any,
       {} as any,
+      async () => {},
     );
     const syncApprovedGatewayRelay = vi
       .spyOn(

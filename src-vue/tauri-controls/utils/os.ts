@@ -2,7 +2,7 @@ import { ref } from 'vue';
 import type { window } from '@tauri-apps/api';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { platform as getPlatform, version as getVersion } from '@tauri-apps/plugin-os';
-import { checkInstallerIfCloseAllowed, getInstaller } from '../../stores/installer.ts';
+import { checkInstallerIfCloseAllowed, getInstaller } from '../../stores/startup.ts';
 
 // Throttle utility function
 function throttle<T extends (...args: any[]) => any>(func: T, limit: number): (...args: Parameters<T>) => void {

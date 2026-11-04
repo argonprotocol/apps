@@ -3,6 +3,8 @@
 This workspace uses code-based flows in `e2e/flows/` as the source of truth for onboarding automation.
 Vitest specs wrap the same flows for test reporting.
 
+Isolated sessions append their driver session ID to the app profile name. Independent runs use separate wallet files and profile-scoped keychain entries through the production keychain path; restarts within a session reuse that profile. Stateful sessions keep their requested profile names.
+
 ## Quick Start
 
 ```bash

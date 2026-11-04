@@ -1,6 +1,7 @@
 import { SSH } from './SSH';
 import {
   type IConfigInstallStep,
+  type IConfigServerAdd,
   InstallStepErrorType,
   InstallStepKey,
   InstallStepStatus,
@@ -24,6 +25,8 @@ import { getEthereumBeaconApiUrl, getEthereumExecutionRpcUrl } from './EthereumC
 import { MyVault } from './MyVault.ts';
 import type { MiningBidProxySetupResult } from './txs/MiningBidProxy.setup.ts';
 import { MiningSetupStatus } from '../interfaces/IConfig.ts';
+import type { AccountSecurity } from './AccountSecurity.ts';
+import { EncryptionSecret, type EncryptionAuthentication } from './EncryptionSecret.ts';
 
 dayjs.extend(utc);
 
@@ -44,8 +47,8 @@ export enum ReasonsToSkipInstall {
 type InstallerFns = {
   refreshPrunedClient?: () => void;
   isAppUpdateBlockingInstall?: () => boolean | Promise<boolean>;
+  publishOwnServer?: () => Promise<void>;
   publishOwnServerEndpoint?: () => Promise<void>;
-  publishOwnServerRecovery?: () => Promise<void>;
   ensureMiningBidProxy?: () => Promise<MiningBidProxySetupResult>;
 };
 
@@ -209,18 +212,10 @@ export default class Installer {
       await this.config.save().catch(() => undefined);
     }
 
-    void this.fns.publishOwnServerRecovery?.().catch(error => {
-      console.warn('[Installer] Unable to publish the configured server recovery', error);
-    });
-
-    if (this.config.serverDetails.bootstrapEndpointSequence === undefined) {
-      void this.fns.publishOwnServerEndpoint?.().catch(error => {
-        console.warn('[Installer] Unable to publish the configured server endpoint', error);
-      });
-    }
-
     this.isLoaded = true;
     this.isLoadedDeferred.resolve();
+
+    if (this.walletKeys.canAccessServer) void this.publishServerBootstrap();
   }
 
   public stop(disableWrites = true) {
@@ -230,6 +225,51 @@ export default class Installer {
     this.isRunningInBackground = false;
     this.isReadyToRun = false;
     this.disableWrites = disableWrites;
+  }
+
+  public async connect(serverAdd: IConfigServerAdd, accountSecurity: AccountSecurity): Promise<void> {
+    await this.isLoadedPromise;
+    if (this.isRunning) throw new Error('Wait for the current server installation to finish.');
+
+    const saveConnection = async (authentication: EncryptionAuthentication = {}) => {
+      try {
+        let savedConnection = serverAdd;
+        let apiKey: string | undefined;
+        if (serverAdd.digitalOcean) {
+          apiKey = serverAdd.digitalOcean.apiKey ?? this.config.digitalOceanApiKey;
+          if (!apiKey) throw new Error('Enter your DigitalOcean API key before creating a server.');
+          let encryptedApiKey = serverAdd.digitalOcean.encryptedApiKey;
+          if (serverAdd.digitalOcean.apiKey) {
+            encryptedApiKey = await new EncryptionSecret().encrypt(apiKey, authentication);
+          } else {
+            await MiningMachine.testDigitalOcean(apiKey);
+          }
+          savedConnection = { ...serverAdd, digitalOcean: { encryptedApiKey } };
+        }
+
+        this.config.serverAdd = savedConnection;
+        this.config.resetField('serverInstaller');
+        if (savedConnection.customServer?.hasRunningBot) {
+          this.config.serverDetails = await MiningMachine.setup(this.config, this.walletKeys);
+          this.config.miningSetupStatus = MiningSetupStatus.Finished;
+        }
+        await this.config.save();
+        this.config.digitalOceanApiKey = apiKey;
+      } finally {
+        delete authentication.passcode;
+      }
+    };
+    if (serverAdd.digitalOcean?.apiKey)
+      await accountSecurity.request('save your DigitalOcean credentials', saveConnection);
+    else await saveConnection();
+
+    void this.run().catch(async error => {
+      this.config.serverInstaller.errorType = InstallStepErrorType.ServerConnect;
+      this.config.serverInstaller.errorMessage = error instanceof Error ? error.message : String(error);
+      this.isRunning = false;
+      this.isRunningInBackground = false;
+      await this.config.save().catch(() => console.warn('Unable to save the server installation error.'));
+    });
   }
 
   public async run(waitForLoaded: boolean = true): Promise<void> {
@@ -253,6 +293,9 @@ export default class Installer {
           this.reasonToSkipInstallData,
         );
         this.isRunning = false;
+        if (this.reasonToSkipInstall === 'ServerUpToDate') {
+          void this.publishServerBootstrap();
+        }
         return;
       }
     }
@@ -286,6 +329,7 @@ export default class Installer {
 
     let installPhase: InstallStepErrorType | undefined = InstallStepErrorType.ServerConnect;
     try {
+      if (!this.isRunning) return;
       console.info('Setting up mining machine');
 
       if (!this.config.serverDetails.ipAddress) {
@@ -295,10 +339,6 @@ export default class Installer {
         this.remoteFilesNeedUpdating = true;
         await this.config.save();
       }
-
-      void this.fns.publishOwnServerRecovery?.().catch(error => {
-        console.warn('[Installer] Unable to publish the configured server recovery', error);
-      });
 
       this.serverConnectProgress = 60;
       const server = await this.getServer(5);
@@ -358,14 +398,16 @@ export default class Installer {
       await this.installerCheck.noThrowWaitForInstallToComplete();
       await this.saveLocalGatewayPortWhenReady(server, { timeoutMs: 30e3, updateExisting: true });
       this.fns.refreshPrunedClient?.();
-      void this.fns.publishOwnServerEndpoint?.().catch(error => {
-        console.warn('[Installer] Unable to publish the configured server endpoint', error);
-      });
+      if (!this.isRunning) return;
+      this.isLoaded = true;
+      this.isLoadedDeferred.resolve();
+      void this.publishServerBootstrap();
 
       console.info('Confirming all install flags');
       this.remoteFilesNeedUpdating = false;
       console.info('Installer finished');
     } catch (e: any) {
+      if (!this.isRunning) return;
       console.error('Installation failed', {
         installPhase,
         serverType: this.config.serverDetails.type,
@@ -438,10 +480,19 @@ export default class Installer {
   ): Promise<void> {
     await this.isLoadedPromise;
     if (await this.pauseForAppUpdate()) return;
-
     await this.uploadBotConfigFiles(options.progressFn, {
       restartBot: options.restartBot ?? this.config.isServerInstalled,
     });
+    void this.publishServerBootstrap();
+  }
+
+  private async publishServerBootstrap(): Promise<void> {
+    if (!this.config.isServerInstalled || !this.fns.publishOwnServer) return;
+    try {
+      await this.fns.publishOwnServer();
+    } catch (error) {
+      console.warn('[Installer] Unable to publish server recovery details; retrying in the next server action', error);
+    }
   }
 
   private async getServer(retries?: number): Promise<ServerAdmin> {
@@ -822,7 +873,6 @@ export default class Installer {
     options: { restartBot?: boolean } = {},
   ): Promise<void> {
     const server = await this.getServer();
-    const delegateKeypair = await this.walletKeys.getVaultDelegateKeypair();
     const ethereumBeaconApiUrl =
       this.config.ethereumBeaconApiUrl === ''
         ? ''
@@ -839,7 +889,7 @@ export default class Installer {
     await server.uploadMiningBotWallet(miningBidProxyAccount);
     progressFn?.(totalCount, 1);
 
-    await server.uploadVaultDelegateWallet(delegateKeypair.toJson(''));
+    await server.uploadVaultDelegateWallet(await this.walletKeys.exportVaultDelegateAccountJson(''));
     progressFn?.(totalCount, 2);
 
     await server.uploadBiddingRules(this.config.biddingRules);

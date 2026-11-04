@@ -409,7 +409,7 @@ export class MiningCapture {
     if (event.section !== 'transactionPayment' || event.method !== 'TransactionFeePaid') return 0n;
 
     const { who: feePayer, actualFee } = event.data;
-    if (feePayer !== this.accountset.fundingAccountId && feePayer !== this.accountset.txSubmitterPair.address) {
+    if (feePayer !== this.accountset.fundingAccountId && feePayer !== this.accountset.txSigner.address) {
       return 0n;
     }
     const isMiningTx = extrinsicEvents.some(event => {

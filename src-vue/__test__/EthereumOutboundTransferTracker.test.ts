@@ -1,3 +1,4 @@
+import { AccountSecurityBatch } from '../lib/AccountSecurity.ts';
 import { MoveToken, NetworkConfig } from '@argonprotocol/apps-core';
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -46,6 +47,7 @@ describe('EthereumOutboundTransferTracker decisions', () => {
       { data: { txInfos: [] } } as any,
       { start: vi.fn(async () => {}) } as any,
       walletKeys,
+      () => new AccountSecurityBatch(async () => {}),
       new EthereumClient(walletKeys, 'https://ethereum.test'),
     );
 
@@ -135,6 +137,7 @@ describe('EthereumOutboundTransferTracker decisions', () => {
       { data: { txInfos: [] } } as any,
       { start: vi.fn(async () => {}) } as any,
       walletKeys,
+      () => new AccountSecurityBatch(async () => {}),
       new EthereumClient(walletKeys, 'https://ethereum.test'),
     );
 

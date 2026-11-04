@@ -1,6 +1,3 @@
-import { mnemonicGenerate } from '@argonprotocol/mainchain';
-import ISecurity from './src-vue/interfaces/ISecurity';
-
 (globalThis as any).__ARGON_APP_ID__ = 'com.argon.desktop';
 (globalThis as any).__ARGON_APP_NAME__ = 'ARGON';
 (globalThis as any).__ARGON_NETWORK_NAME__ = 'dev-docker';
@@ -13,7 +10,3 @@ import ISecurity from './src-vue/interfaces/ISecurity';
 (globalThis as any).__ARGON_DRIVER_WS__ = '';
 (globalThis as any).__ARGON_E2E_SCREENSHOT_MODE__ = '';
 (globalThis as any).__LOG_DEBUG__ = false;
-(globalThis as any).__ARGON_APP_SECURITY__ = {
-  masterMnemonic: mnemonicGenerate(),
-  sshPublicKey: '',
-} as unknown as ISecurity;

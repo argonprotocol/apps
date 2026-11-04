@@ -150,8 +150,14 @@ export async function createBitcoinLocksHarness(args: {
     loadStatsFromFile: async () => undefined,
   });
 
-  const globalCouncil = new GlobalCouncil(Promise.resolve(db), walletKeys, miningFrames);
-  const mintingAuthorities = new MintingAuthorities(Promise.resolve(db), walletKeys, miningFrames, transactionTracker);
+  const globalCouncil = new GlobalCouncil(Promise.resolve(db), walletKeys, miningFrames, async () => undefined);
+  const mintingAuthorities = new MintingAuthorities(
+    Promise.resolve(db),
+    walletKeys,
+    miningFrames,
+    transactionTracker,
+    async () => undefined,
+  );
   const myVault = new MyVault(
     Promise.resolve(db),
     vaults,
@@ -169,7 +175,7 @@ export async function createBitcoinLocksHarness(args: {
     updateRevenue: async () => ({}) as IAllVaultStats,
   });
 
-  const config = new Config(Promise.resolve(db), walletKeys);
+  const config = new Config(Promise.resolve(db));
   await config.load();
   await myVault.load();
 

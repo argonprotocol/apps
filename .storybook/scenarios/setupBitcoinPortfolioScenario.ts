@@ -1,6 +1,11 @@
+import { Keyring } from '@argonprotocol/mainchain';
+
+import type { KeyringPair } from '@argonprotocol/mainchain';
 import * as Vue from 'vue';
+
 import BitcoinUtxoTracking from '../../src-vue/lib/BitcoinUtxoTracking.ts';
-import { BitcoinFission, createDeferred, SATOSHIS_PER_BITCOIN, UnitOfMeasurement } from '@argonprotocol/apps-core';
+// prettier-ignore
+import { BitcoinFission, createDeferred, SATOSHIS_PER_BITCOIN, TxSigner, UnitOfMeasurement } from '@argonprotocol/apps-core';
 import type { IBitcoinLockCouponStatus } from '@argonprotocol/apps-router';
 import BigNumber from 'bignumber.js';
 import { fn, mocked } from 'storybook/test';
@@ -397,7 +402,9 @@ export function setupBitcoinPortfolioScenario(
           return utxo?.lockId === lock.lockId ? [utxo] : [];
         }),
       ),
-      getUnacknowledgedFundingUtxos: BitcoinUtxoTracking.prototype.getUnacknowledgedFundingUtxos,
+      getUnacknowledgedFundingUtxos: function (this: BitcoinUtxoTracking, lock: IBitcoinLockRecord) {
+        return BitcoinUtxoTracking.prototype.getUnacknowledgedFundingUtxos.call(this, lock);
+      },
     },
     load: fn(async () => undefined),
     getAllLocks: fn(() =>
@@ -617,7 +624,7 @@ export function setupBitcoinPortfolioScenario(
   Object.assign(getCurrency(), { fetchMainchainRates: fn(async () => ({})) });
   if (options.pendingLiquidCreation) Object.assign(useWallets(), { defaultArgonSpendableMicrogons: 1_000_000_000n });
   Object.assign(getWalletKeys(), {
-    getLiquidLockingKeypair: fn(async () => ({ address: '5SyntheticLiquidLockingWallet' }) as never),
+    getLiquidLockingSigner: fn(async () => new TxSigner(new Keyring({ type: 'sr25519' }).createFromUri('//Alice'))),
   });
   const currentCoupon: IBitcoinLockCouponStatus | undefined = options.feeWaiver
     ? {

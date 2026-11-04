@@ -611,7 +611,7 @@ async function submit() {
     }
 
     const bondPurchaseMicrogons = BigInt(purchaseAmount.value) * MICROGONS_PER_ARGON_BIGINT;
-    const signer = await walletKeys.getDefaultArgonKeypair();
+    const signer = await walletKeys.getDefaultArgonSigner();
     if (session !== purchaseSession || !isOpen.value) return;
     if (!vaultId.value) throw new Error('Select a vault before buying bonds.');
     const info = await bondPurchase.submit({

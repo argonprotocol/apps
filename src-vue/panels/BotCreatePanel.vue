@@ -213,7 +213,7 @@ import InputMoney from '../components/InputMoney.vue';
 import NeedMoreCapitalHover from '../overlays/bot/NeedMoreCapitalHover.vue';
 import ReturnsOverlay from '../overlays/bot/BotReturns.vue';
 import CapitalOverlay from '../overlays/bot/BotCapital.vue';
-import { getBot } from '../stores/bot.ts';
+import { getBot } from '../stores/startup.ts';
 import PiechartIcon from '../assets/piechart.svg?component';
 import Tooltip from '../components/Tooltip.vue';
 import { ITourPos } from '../stores/tour.ts';

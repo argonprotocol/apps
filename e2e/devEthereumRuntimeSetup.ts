@@ -1,4 +1,4 @@
-import { type ArgonApi, type ArgonClient, TxSubmitter } from '@argonprotocol/apps-core';
+import { type ArgonApi, type ArgonClient, TxSubmitter, TxSigner } from '@argonprotocol/apps-core';
 import {
   EvmContracts,
   getEthereumBeaconSyncBootstrapTx,
@@ -290,7 +290,7 @@ export async function submitDevSudoTransaction(args: {
   await submitDevAdminTransaction({
     isApplied,
     submit: async () => {
-      const result = await new TxSubmitter(client, client.tx.sudo.sudo(tx), sudoKeypair).submit({
+      const result = await new TxSubmitter(client, client.tx.sudo.sudo(tx), new TxSigner(sudoKeypair)).submit({
         useLatestNonce: true,
       });
       await result.waitForInFirstBlock;

@@ -160,15 +160,15 @@ async function requestUpgrade() {
   formError.value = '';
 
   try {
-    const [defaultAccountKeypair, authKeypair] = await Promise.all([
-      walletKeys.getLiquidLockingKeypair(),
-      walletKeys.getUpstreamOperatorAuthKeypair(),
+    const [defaultAccountSigner, authSigner] = await Promise.all([
+      walletKeys.getLiquidLockingSigner(),
+      walletKeys.getUpstreamOperatorAuthSigner(),
     ]);
 
     const operationsUpgradeRequestedAt = await upstreamOperatorClient.requestOperationsUpgrade({
-      defaultAccountKeypair,
+      defaultAccountSigner,
       operationalAccountId: walletKeys.operationalAddress,
-      authKeypair,
+      authSigner,
     });
 
     hasRequestedUpgradeThisSession.value = true;
@@ -232,7 +232,9 @@ function closeOverlay() {
 }
 
 function openUpgradeToOperationsOverlay() {
+  hasOpenedWelcome.value = false;
   isOpen.value = true;
+  openWelcomeIfApproved();
   void refreshOperationReturns();
 }
 

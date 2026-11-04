@@ -47,7 +47,7 @@
           </p>
           <p>
             Debugging packages are created only when you choose to download one. They contain local app data and
-            logs; wallet mnemonic files are excluded unless you explicitly include them.
+            logs; wallet mnemonic files are excluded.
           </p>
         </div>
       </section>

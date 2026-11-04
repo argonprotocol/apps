@@ -1,4 +1,4 @@
-import type { KeyringPair } from '@argonprotocol/mainchain';
+import type { IKeyringPair } from '@polkadot/types/types';
 import { hexToU8a, u8aToHex } from '@argonprotocol/mainchain';
 import { stringToU8a } from '@polkadot/util';
 import { blake2AsU8a, signatureVerify } from '@polkadot/util-crypto';
@@ -59,7 +59,7 @@ export interface ITreasuryMemberSeal {
   signature: string;
 }
 
-export function signDiscordRoleProof(account: KeyringPair, proof: IDiscordRoleProof): string {
+export function signDiscordRoleProof(account: IKeyringPair, proof: IDiscordRoleProof): string {
   return u8aToHex(account.sign(getDiscordRoleProofHash(proof), { withType: true }));
 }
 
@@ -67,7 +67,7 @@ export function verifyDiscordRoleProof(proof: IDiscordRoleProof, signature: stri
   return signatureVerify(getDiscordRoleProofHash(proof), hexToU8a(signature), proof.operationalAccountId).isValid;
 }
 
-export function signDiscordRoleUpdateProof(account: KeyringPair, proof: IDiscordRoleUpdateProof): string {
+export function signDiscordRoleUpdateProof(account: IKeyringPair, proof: IDiscordRoleUpdateProof): string {
   return u8aToHex(account.sign(getDiscordRoleUpdateProofHash(proof), { withType: true }));
 }
 
@@ -76,7 +76,7 @@ export function verifyDiscordRoleUpdateProof(proof: IDiscordRoleUpdateProof, sig
 }
 
 export function signTreasuryMemberSeal(
-  account: KeyringPair,
+  account: IKeyringPair,
   claim: IDiscordRoleClaim,
   seal: Pick<ITreasuryMemberSeal, 'genesisHash' | 'vaultId'>,
 ): ITreasuryMemberSeal {

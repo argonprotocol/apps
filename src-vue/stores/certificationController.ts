@@ -4,8 +4,8 @@ import { defineStore } from 'pinia';
 import type { IMemberInvite } from '@argonprotocol/apps-router';
 import basicEmitter from '../emitters/basicEmitter.ts';
 import { type Config, getConfig } from './config.ts';
+import { getAppStartup } from './startup.ts';
 import { getWalletKeys, useWallets } from './wallets.ts';
-import { getDbPromise } from './helpers/dbPromise.ts';
 import {
   bigIntMax,
   countCompletedTreasuryCertificationRequirements,
@@ -19,7 +19,6 @@ import {
   treasuryCertificationRequirementCount,
 } from '@argonprotocol/apps-core';
 import handleFatalError from './helpers/handleFatalError.ts';
-import Importer from '../lib/Importer.ts';
 import {
   getOnboardingSetupStatus,
   getOperationalChainProgressFromAccount,
@@ -162,7 +161,6 @@ export const useCertificationController = defineStore('certificationController',
   const isLoaded = Vue.ref(false);
   const { promise: isLoadedPromise, resolve: isLoadedResolve, reject: isLoadedReject } = createDeferred<void>();
 
-  const dbPromise = getDbPromise();
   const config = getConfig();
   const bitcoinLocks = getBitcoinLocks();
   const bitcoinFissions = getBitcoinFissions();
@@ -186,7 +184,6 @@ export const useCertificationController = defineStore('certificationController',
     );
   });
 
-  const isImporting = Vue.ref(false);
   const stopSuggestingBotTour = Vue.ref(true);
   const stopSuggestingVaultTour = Vue.ref(true);
 
@@ -626,7 +623,7 @@ export const useCertificationController = defineStore('certificationController',
   }
 
   async function load() {
-    await config.isLoadedPromise;
+    await getAppStartup().isReadyPromise;
     selectedTab.value = config.selectedTab;
 
     if (operationalAccountUnsubscribe) return;
@@ -798,16 +795,6 @@ export const useCertificationController = defineStore('certificationController',
 
     isLoaded.value = true;
     isLoadedResolve();
-  }
-
-  async function importFromMnemonic(mnemonic: string) {
-    isImporting.value = true;
-    const importer = new Importer(config as Config, walletKeys, dbPromise);
-    try {
-      await importer.importFromMnemonic(mnemonic);
-    } finally {
-      isImporting.value = false;
-    }
   }
 
   async function loadOperationalInvites() {
@@ -1072,7 +1059,6 @@ export const useCertificationController = defineStore('certificationController',
     operatorName,
     isLoaded,
     isLoadedPromise,
-    isImporting,
     stopSuggestingBotTour,
     stopSuggestingVaultTour,
     backButtonTriggersHome,
@@ -1105,7 +1091,6 @@ export const useCertificationController = defineStore('certificationController',
     isOperationalActivationReady,
     isOperationalRewardsFlowActive,
     pendingCompletionNoticeStepId,
-    importFromMnemonic,
     dismissCompletionNotice,
     clearCompletionNotices,
     loadOperationalInvites,

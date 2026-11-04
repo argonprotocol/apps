@@ -5,7 +5,7 @@ import type {
   ICertificationProgress,
 } from '@argonprotocol/apps-core';
 import type { IBitcoinLockCouponStatus, IMemberInvite } from '@argonprotocol/apps-router';
-import { MiningFrames, NetworkConfig } from '@argonprotocol/apps-core';
+import { MiningFrames, NetworkConfig, TxSigner } from '@argonprotocol/apps-core';
 import { Keyring } from '@polkadot/keyring';
 import * as Vue from 'vue';
 import { fn, mocked, userEvent, within } from 'storybook/test';
@@ -377,7 +377,7 @@ function setupOperationsUpgradeAction(state: 'progress' | 'error') {
   controller.setOperationalInvites([selectedInvite]);
   mocked(getMainchainClient).mockResolvedValue(createMemberClient(3_487_660_000n));
   Object.assign(getWalletKeys(), {
-    getOperationalKeypair: fn(async () => operatorKeypair),
+    getOperationalSigner: fn(async () => new TxSigner(operatorKeypair)),
   });
   mocked(getServerApiClient, { partial: true }).mockReturnValue({
     markOperationsUpgraded: fn(() => {

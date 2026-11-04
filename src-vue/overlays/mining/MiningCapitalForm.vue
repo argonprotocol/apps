@@ -174,7 +174,7 @@ import AlertIcon from '../../assets/alert.svg?component';
 import InputToken from '../../components/InputToken.vue';
 import { createNumeralHelpers } from '../../lib/numeral.ts';
 import { getConfig } from '../../stores/config.ts';
-import { getBot } from '../../stores/bot.ts';
+import { getBot } from '../../stores/startup.ts';
 import { getCurrency } from '../../stores/currency.ts';
 import { getBiddingCalculator, getBiddingCalculatorData } from '../../stores/mainchain.ts';
 import { getMyMiningSeats } from '../../stores/myMiningSeats.ts';

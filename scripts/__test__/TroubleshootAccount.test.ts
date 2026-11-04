@@ -17,7 +17,7 @@ afterEach(() => {
 });
 
 describe('troubleshoot account', () => {
-  it('resolves an operator name and writes the existing wallet format with unavailable fields empty', async () => {
+  it('resolves an operator name and writes reusable readonly wallet metadata', async () => {
     const profile = {
       vaultAccount: defaultAccountId,
       miningAccount: miningAccountId,
@@ -48,19 +48,16 @@ describe('troubleshoot account', () => {
     expect(JSON.parse(readFileSync(Path.join(instanceDirectory, 'wallet.json'), 'utf8'))).toEqual({
       encryptedMnemonic: '',
       meta: {
-        miningHoldAddress: '',
         miningBotAddress: miningAccountId,
         vaultingAddress: defaultAccountId,
         operationalAddress: operationalAccountId,
         ethereumAddress: '',
-        ethereumHdPrefixes: {
-          primary: "m/44'/60'/0'/0'",
-          councilSigner: "m/44'/60'/1'/0'",
-          mintingAuthority: "m/44'/60'/2'/0'",
-        },
-        sshPublicKey: '',
       },
     });
+    const walletPath = Path.join(instanceDirectory, 'wallet.json');
+    const contents = readFileSync(walletPath, 'utf8');
+    expect(writeReadonlyWallet(instanceDirectory, identity)).toBe(walletPath);
+    expect(readFileSync(walletPath, 'utf8')).toBe(contents);
     expect(resolveReadonlyInstanceName(identity)).toBe('atlas-readonly');
   });
 

@@ -1,5 +1,7 @@
 import { invoke } from '@tauri-apps/api/core';
 
+export type SystemAuthenticationOption = 'touchId' | 'faceId' | 'windowsHello' | 'fingerprint';
+
 export class InvokeTimeout extends Error {
   constructor(message: string) {
     super(message);
@@ -7,13 +9,19 @@ export class InvokeTimeout extends Error {
 }
 
 const SENSITIVE_COMMANDS = new Set([
-  'import_mnemonic',
-  'encrypt_wallet_secret',
-  'derive_external_ethereum_addresses',
-  'derive_external_ethereum_address_from_private_key',
-  'sign_external_ethereum_personal_message',
-  'sign_external_ethereum_permit',
-  'sign_external_ethereum_transaction',
+  'keychain_create',
+  'keychain_write',
+  'keychain_set_protection',
+  'keychain_delete',
+  'keychain_encrypt',
+  'keychain_decrypt',
+  'keychain_authenticate',
+  'export_sr25519_seed',
+  'cleanup_mnemonic_files',
+  'write_wallet_file',
+  'open_ssh_connection',
+  'ssh_access_activate',
+  'ssh_access_deactivate',
 ]);
 
 export async function invokeWithTimeout<T>(cmd: string, args: Record<string, any>, timeoutMs: number): Promise<T> {

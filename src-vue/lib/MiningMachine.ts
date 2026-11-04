@@ -41,9 +41,12 @@ export class MiningMachine {
     const sshPublicKey = walletKeys.sshPublicKey;
 
     if (config.serverAdd?.digitalOcean) {
-      const { apiKey } = config.serverAdd.digitalOcean;
+      const digitalOceanApiKey = config.digitalOceanApiKey;
+      if (!digitalOceanApiKey)
+        throw new MiningMachineError('Reconnect your DigitalOcean API key before creating a server.');
+
       return await this.setupDigitalOcean(
-        apiKey,
+        digitalOceanApiKey,
         sshPublicKey,
         walletKeys.miningBotAddress,
         config.userJurisdiction,

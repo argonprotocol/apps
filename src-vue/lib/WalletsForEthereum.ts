@@ -5,7 +5,9 @@ import { WalletForEthereum } from './WalletForEthereum.ts';
 import type { WalletKeys } from './WalletKeys.ts';
 import type { IWalletRecord } from './db/WalletsTable.ts';
 import { restoreCachedExternalWalletBalances, type FinancialCacheTable } from './db/FinancialCacheTable.ts';
-import { invokeWithTimeout } from './tauriApi.ts';
+import { EncryptionSecret } from './EncryptionSecret.ts';
+import { EthereumKeys } from './EthereumKeys.ts';
+import type { AccountSecurity } from './AccountSecurity.ts';
 
 const DEFAULT_ETHEREUM_HD_PATH = "m/44'/60'/0'/0'/0'";
 
@@ -18,9 +20,13 @@ export class WalletsForEthereum {
   private recordsLoadPromise?: Promise<void>;
 
   constructor(
-    private readonly walletKeys: Pick<WalletKeys, 'coreEthereumAddress' | 'isCoreEthereumWallet'>,
+    private readonly walletKeys: Pick<
+      WalletKeys,
+      'coreEthereumAddress' | 'isCoreEthereumWallet' | 'initializeEthereumWallet' | 'removeEthereumWallet'
+    >,
     private readonly dbPromise: Promise<Db>,
     private readonly financialCache: Promise<FinancialCacheTable>,
+    private readonly requestAuthentication: AccountSecurity['request'],
   ) {
     this.coreWallet = this.createWallet(walletKeys.coreEthereumAddress, undefined, true);
   }
@@ -90,21 +96,20 @@ export class WalletsForEthereum {
   }
 
   public async importPrivateKey(args: { name: string; privateKey: string }): Promise<WalletForEthereum> {
-    const [address, encryptedSecret] = await Promise.all([
-      invokeWithTimeout<string>(
-        'derive_external_ethereum_address_from_private_key',
-        { privateKey: args.privateKey },
-        60e3,
-      ),
-      invokeWithTimeout<string>('encrypt_wallet_secret', { secret: args.privateKey }, 60e3),
-    ]);
-    const db = await this.dbPromise;
-    const record = await db.walletsTable.importExternalEthereum({
-      name: args.name,
-      address,
-      coreEthereumAddress: this.walletKeys.coreEthereumAddress,
-      secretKind: 'privateKey',
-      encryptedSecret,
+    const { name, privateKey: input } = args;
+    const { privateKey, address } = EthereumKeys.parsePrivateKey(input);
+    const record = await this.requestAuthentication('import your Ethereum wallet', async authentication => {
+      const encryptedSecret = await new EncryptionSecret().encrypt(privateKey, authentication);
+      const db = await this.dbPromise;
+      const imported = await db.walletsTable.importExternalEthereum({
+        name,
+        address,
+        coreEthereumAddress: this.walletKeys.coreEthereumAddress,
+        secretKind: 'privateKey',
+        encryptedSecret,
+      });
+      this.walletKeys.initializeEthereumWallet(imported, privateKey);
+      return imported;
     });
     await this.reloadRecords(true);
     return this.get(record.id);
@@ -116,15 +121,20 @@ export class WalletsForEthereum {
     address: string;
     derivationPath: string;
   }): Promise<WalletForEthereum> {
-    const encryptedSecret = await invokeWithTimeout<string>('encrypt_wallet_secret', { secret: args.mnemonic }, 60e3);
-    const db = await this.dbPromise;
-    const record = await db.walletsTable.importExternalEthereum({
-      name: args.name,
-      address: args.address,
-      coreEthereumAddress: this.walletKeys.coreEthereumAddress,
-      derivationPath: args.derivationPath,
-      secretKind: 'mnemonic',
-      encryptedSecret,
+    const { name, mnemonic, address, derivationPath } = args;
+    const record = await this.requestAuthentication('import your Ethereum wallet', async authentication => {
+      const encryptedSecret = await new EncryptionSecret().encrypt(mnemonic, authentication);
+      const db = await this.dbPromise;
+      const imported = await db.walletsTable.importExternalEthereum({
+        name,
+        address,
+        coreEthereumAddress: this.walletKeys.coreEthereumAddress,
+        derivationPath,
+        secretKind: 'mnemonic',
+        encryptedSecret,
+      });
+      this.walletKeys.initializeEthereumWallet(imported, mnemonic);
+      return imported;
     });
     await this.reloadRecords(true);
     return this.get(record.id);
@@ -149,6 +159,7 @@ export class WalletsForEthereum {
     const db = await this.dbPromise;
     await db.financialCacheTable.deleteExternalWalletBalance('ethereum', wallet.address);
     await db.walletsTable.deleteEthereumWallet(record.id);
+    this.walletKeys.removeEthereumWallet(record.address);
     await this.reloadRecords(true);
   }
 
@@ -174,7 +185,7 @@ export class WalletsForEthereum {
     this.persistedWallets.length = 0;
   }
 
-  private async reloadRecords(force = false): Promise<void> {
+  public async reloadRecords(force = false): Promise<void> {
     if (this.recordsLoadPromise) {
       await this.recordsLoadPromise;
       if (!force) return;

@@ -7,7 +7,7 @@ import { getDbPromise } from './helpers/dbPromise.ts';
 import { getBlockWatch } from './mainchain.ts';
 import { getTransactionTracker } from './transactions.ts';
 import { getMyVault } from './vaults.ts';
-import { getWalletKeys, getWalletsForEthereum } from './wallets.ts';
+import { getAccountSecurity, getWalletKeys, getWalletsForEthereum } from './wallets.ts';
 
 let ethereumOutboundTransferTracker: EthereumOutboundTransferTracker;
 
@@ -15,12 +15,14 @@ export function getEthereumOutboundTransferTracker(): EthereumOutboundTransferTr
   if (!ethereumOutboundTransferTracker) {
     const walletKeys = getWalletKeys();
     const executionRpcUrl = getEthereumExecutionRpcUrl(getConfig().ethereumExecutionRpcUrl);
+    const security = getAccountSecurity();
 
     ethereumOutboundTransferTracker = new EthereumOutboundTransferTracker(
       getDbPromise(),
       getTransactionTracker(),
       getBlockWatch(),
       walletKeys,
+      security.createBatch.bind(security),
       executionRpcUrl ? new EthereumClient(walletKeys, executionRpcUrl) : undefined,
       getMyVault().mintingAuthorities,
       executionRpcUrl,

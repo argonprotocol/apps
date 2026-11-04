@@ -1,5 +1,6 @@
-import { getOfflineRegistry, type KeyringPair, type SubmittableExtrinsic, u8aToHex } from '@argonprotocol/mainchain';
+import { getOfflineRegistry, type SubmittableExtrinsic, u8aToHex } from '@argonprotocol/mainchain';
 import {
+  type TxSigner,
   type ArgonClient,
   createDeferred,
   type ICertificationThresholds,
@@ -94,7 +95,7 @@ interface IEnsureOperationalAccountRegisteredArgs {
   client?: ArgonClient;
 }
 
-function createOwnershipProof(account: KeyringPair, ownerAddr: string, accountAddr: string, domain: string) {
+function createOwnershipProof(account: TxSigner, ownerAddr: string, accountAddr: string, domain: string) {
   const domainBytes = stringToU8a(domain);
   const payload = getOfflineRegistry()
     .createType('(Bytes,AccountId,AccountId)', [u8aToHex(domainBytes), ownerAddr, accountAddr])
@@ -118,10 +119,10 @@ export async function buildOperatorAccountRegistrationTx(
   if (existing) return;
 
   const [operationalAccount, operationalEncryptionKey, vaultingAccount, miningBotAccount] = await Promise.all([
-    walletKeys.getOperationalKeypair(),
+    walletKeys.getOperationalSigner(),
     walletKeys.getOperationalEncryptionKeypair(),
-    walletKeys.getVaultingKeypair(),
-    walletKeys.getMiningBotKeypair(),
+    walletKeys.getVaultingSigner(),
+    walletKeys.getMiningBotSigner(),
   ]);
   const operationalAddr = operationalAccount.address;
   const vaultingAddr = vaultingAccount.address;
@@ -188,7 +189,7 @@ export async function ensureOperationalAccountRegistered(
     return;
   }
 
-  const txSigner = await args.walletKeys.getTreasuryKeypair();
+  const txSigner = await args.walletKeys.getTreasurySigner();
   const feeEstimate = await tx.paymentInfo(txSigner.address);
   if (args.availableMicrogons < feeEstimate.partialFee.toBigInt()) {
     return;
@@ -251,7 +252,7 @@ export async function setOperationalProfileName(args: {
   }
 
   const tx = client.tx.operationalAccounts.setName(name);
-  const txSigner = await args.walletKeys.getVaultingKeypair();
+  const txSigner = await args.walletKeys.getVaultingSigner();
   return await args.transactionTracker.submitAndWatch({
     tx,
     txSigner,
@@ -368,7 +369,7 @@ export async function loadOperationalAccountSetup(args: {
 
   let vaultDelegateIsReady = true;
   if (args.vault) {
-    const delegateAddress = await args.walletKeys.getVaultDelegateKeypair().then(keypair => keypair.address);
+    const delegateAddress = await args.walletKeys.getVaultDelegateSigner().then(signer => signer.address);
     vaultDelegateIsReady = await MyVault.isVaultDelegateReady(args.client, args.vault, delegateAddress);
   }
 

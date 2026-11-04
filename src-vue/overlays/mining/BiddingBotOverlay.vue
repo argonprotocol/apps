@@ -95,7 +95,7 @@ import MiningWinningBidsPopover from './MiningWinningBidsPopover.vue';
 import basicEmitter from '../../emitters/basicEmitter.ts';
 import type { ITransactionMoveMetadata } from '../../lib/txs/Balance.transfer.ts';
 import type { TransactionInfo } from '../../lib/TransactionInfo.ts';
-import { getBot } from '../../stores/bot.ts';
+import { getBot } from '../../stores/startup.ts';
 import { getMainchainClient, getMining, getMiningFrames } from '../../stores/mainchain.ts';
 import { getMyMiningSeats } from '../../stores/myMiningSeats.ts';
 import { getMoveCapital, getWalletKeys, useWallets } from '../../stores/wallets.ts';
@@ -215,7 +215,7 @@ async function loadBidsFromChain(requestId: number) {
     const [current, previous, subaccounts] = await Promise.all([
       bot.isReady ? undefined : Mining.fetchWinningBids(client),
       currentFrameId > 0 ? client.query.miningSlot.minersByCohort(currentFrameId) : [],
-      getWalletKeys().getMiningBotSubaccounts(),
+      getWalletKeys().getMiningBotSubaccounts(client.consts.mint.maxPossibleMiners),
     ]);
     if (requestId !== biddingRefreshRequestId) return;
 

@@ -2,11 +2,11 @@ import {
   createArgonClient,
   type ArgonClient,
   type ISubmittableOptions,
-  type TxSigningAccount,
+  TxSigner,
   TxSubmitter,
   raceWithTimeout,
 } from '@argonprotocol/apps-core';
-import { getClient, type SubmittableExtrinsic } from '@argonprotocol/mainchain';
+import { getClient, type KeyringPair, type SubmittableExtrinsic } from '@argonprotocol/mainchain';
 import type { ApiOptions } from '@polkadot/api/types';
 import { sudo } from '@argonprotocol/testing';
 import { integrationSession } from '../integrationNetwork.ts';
@@ -23,14 +23,15 @@ export async function getFinalizedClient(client: ArgonClient) {
 export async function submitAndFinalize(
   client: ArgonClient,
   tx: SubmittableExtrinsic,
-  txSigner: TxSigningAccount,
+  txSigner: KeyringPair | TxSigner,
   options?: ISubmittableOptions,
 ) {
   const session = integrationSession.getStore();
   const release =
     txSigner.address === sudo().address ? await acquireIntegrationLock('sudo', session?.lockDirectory) : undefined;
   try {
-    const result = await new TxSubmitter(client, tx, txSigner).submit(options);
+    const signer = txSigner instanceof TxSigner ? txSigner : new TxSigner(txSigner);
+    const result = await new TxSubmitter(client, tx, signer).submit(options);
     if (session) {
       await raceWithTimeout(result.waitForFinalizedBlock, 120_000, () => {
         throw new Error('Shared integration transaction did not finalize within 120 seconds');

@@ -1,3 +1,4 @@
+import { AccountSecurityBatch } from '../lib/AccountSecurity.ts';
 import { TransactionEvents, type ArgonClient, type BlockWatch, MoveToken, TxSubmitter } from '@argonprotocol/apps-core';
 import { ExtrinsicError, getOfflineRegistry } from '@argonprotocol/mainchain';
 import { SubmittableResult } from '@polkadot/api/submittable/Result';
@@ -29,7 +30,7 @@ describe('TransactionTracker', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.spyOn(TxSubmitter.prototype, 'sign').mockImplementation(async function (this: TxSubmitter, options = {}) {
-      const signed = await this.tx.signAsync(this.account.address, options);
+      const signed = await this.tx.signAsync(this.signer.address, options);
       Object.assign(signed, {
         era: new TypeRegistry().createType('ExtrinsicEra', 0),
       });
@@ -330,6 +331,7 @@ describe('TransactionTracker', () => {
           tracker,
           blockWatch,
           walletKeys,
+          () => new AccountSecurityBatch(async () => {}),
           new EthereumClient(walletKeys, 'https://ethereum.test'),
         );
         await outbound.load();

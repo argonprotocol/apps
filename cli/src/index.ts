@@ -7,6 +7,7 @@ import {
   Accountset,
   createArgonClient,
   NetworkConfig,
+  TxSigner,
   type AccountsetOptions,
   type ArgonClient,
 } from '@argonprotocol/apps-core';
@@ -126,7 +127,7 @@ export async function accountsetFromCli(
 
   const commonAccountsetOptions = {
     client,
-    txSubmitter: keypair,
+    txSubmitter: new TxSigner(keypair),
     sessionMiniSecretOrMnemonic: opts.sessionMiniSecretOrMnemonic,
     subaccountRange: opts.subaccounts,
   };

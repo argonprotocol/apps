@@ -45,7 +45,7 @@
           <div v-else class="text-slate-900 font-md mb-3">
             <p>The wallet connected to this app seems to have been previously used. We're looking through the chain to see if we can find any mining seats or vaults owned by you.</p>
           </div>
-          <ProgressBar :progress="config.walletPreviousHistoryLoadPct" class="mt-3" />
+          <ProgressBar :progress="startup.historyLoadPct" class="mt-3" />
         </div>
       </TransitionChild>
     </div>
@@ -58,16 +58,13 @@ import { TransitionChild, TransitionRoot } from '@headlessui/vue';
 import BgOverlay from '../components/BgOverlay.vue';
 import ProgressBar from '../components/ProgressBar.vue';
 import AlertIcon from '../assets/alert.svg?component';
-import { getConfig } from '../stores/config.ts';
+import { getAppStartup } from '../stores/startup.ts';
 import Draggable from './helpers/Draggable.ts';
-import { ConfigServerAddSchema, ConfigServerDetailsSchema, IConfig } from '../interfaces/IConfig.ts';
-import { SSH } from '../lib/SSH.ts';
-import { JsonExt } from '@argonprotocol/apps-core';
 import { useOverlayZIndex } from './helpers/OverlayZIndex.ts';
 
 const isOpen = Vue.ref(true);
 const isRetrying = Vue.ref(false);
-const config = getConfig();
+const startup = getAppStartup();
 const overlayZIndex = useOverlayZIndex(() => true);
 
 const draggable = Vue.reactive(new Draggable());

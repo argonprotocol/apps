@@ -1,0 +1,23 @@
+// !$*UTF8*$!
+{
+  archiveVersion = 1;
+  classes = {};
+  objectVersion = 56;
+  objects = {
+    A00000000000000000000001 = { isa = PBXProject; attributes = { LastUpgradeCheck = 1600; TargetAttributes = { A00000000000000000000002 = { ProvisioningStyle = Automatic; SystemCapabilities = { com.apple.Keychain = { enabled = 1; }; }; }; }; }; buildConfigurationList = A00000000000000000000003; compatibilityVersion = "Xcode 14.0"; developmentRegion = en; hasScannedForEncodings = 0; knownRegions = (en, Base); mainGroup = A00000000000000000000004; productRefGroup = A00000000000000000000005; projectDirPath = ""; projectRoot = ""; targets = (A00000000000000000000002); };
+    A00000000000000000000002 = { isa = PBXNativeTarget; buildConfigurationList = A00000000000000000000006; buildPhases = (A00000000000000000000007, A00000000000000000000008, A00000000000000000000009); buildRules = (); dependencies = (); name = LocalSigning; productName = LocalSigning; productReference = A0000000000000000000000A; productType = "com.apple.product-type.application"; };
+    A00000000000000000000003 = { isa = XCConfigurationList; buildConfigurations = (A0000000000000000000000B); defaultConfigurationIsVisible = 0; defaultConfigurationName = Debug; };
+    A00000000000000000000004 = { isa = PBXGroup; children = (A0000000000000000000000C, A00000000000000000000005); sourceTree = "<group>"; };
+    A00000000000000000000005 = { isa = PBXGroup; children = (A0000000000000000000000A); name = Products; sourceTree = "<group>"; };
+    A00000000000000000000006 = { isa = XCConfigurationList; buildConfigurations = (A0000000000000000000000D); defaultConfigurationIsVisible = 0; defaultConfigurationName = Debug; };
+    A00000000000000000000007 = { isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (A0000000000000000000000E); runOnlyForDeploymentPostprocessing = 0; };
+    A00000000000000000000008 = { isa = PBXFrameworksBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };
+    A00000000000000000000009 = { isa = PBXResourcesBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };
+    A0000000000000000000000A = { isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = LocalSigning.app; sourceTree = BUILT_PRODUCTS_DIR; };
+    A0000000000000000000000B = { isa = XCBuildConfiguration; buildSettings = { SDKROOT = macosx; MACOSX_DEPLOYMENT_TARGET = 13.0;  }; name = Debug; };
+    A0000000000000000000000C = { isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; path = main.c; sourceTree = "<group>"; };
+    A0000000000000000000000D = { isa = XCBuildConfiguration; buildSettings = { PRODUCT_BUNDLE_IDENTIFIER = com.argon.desktop.local; PRODUCT_NAME = "$(TARGET_NAME)"; CODE_SIGN_STYLE = Automatic; CODE_SIGN_IDENTITY = "Apple Development"; CODE_SIGN_ENTITLEMENTS = "../../src-tauri/Entitlements.plist"; GENERATE_INFOPLIST_FILE = YES; ALWAYS_SEARCH_USER_PATHS = NO; ENABLE_HARDENED_RUNTIME = NO; }; name = Debug; };
+    A0000000000000000000000E = { isa = PBXBuildFile; fileRef = A0000000000000000000000C; };
+  };
+  rootObject = A00000000000000000000001;
+}

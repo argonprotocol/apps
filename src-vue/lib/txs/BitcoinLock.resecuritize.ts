@@ -8,7 +8,7 @@ import {
   type Currency,
   type IBitcoinLockCouponStatus,
   type ArgonClient,
-  type TxSigningAccount,
+  type TxSigner,
   Vault,
 } from '@argonprotocol/apps-core';
 import type { PriceIndex } from '@argonprotocol/mainchain';
@@ -31,7 +31,7 @@ export interface BitcoinLockResecuritizeInput {
   vault: Vault;
   securitizedSatoshis: bigint;
   microgonsAtTargetPerBtc: bigint;
-  txSigner: TxSigningAccount;
+  txSigner: TxSigner;
   tip?: bigint;
   operatorCoupon?: IBitcoinLockCouponStatus;
   client?: ArgonClient;

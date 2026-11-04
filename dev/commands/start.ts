@@ -89,7 +89,7 @@ Funding amounts use whole-token decimal units. Amount flags fund only the named
 assets; --funded supplies defaults that amount flags may override.
 Use --no-<flag> to disable inherited service flags.
 
-Funding recipients derive from the profile's mnemonic; --to and --eth-to override them.
+Funding uses the profile's saved account addresses; --to and --eth-to override them.
 Joined profiles and upstream app handoffs reuse their shared environment.
 Start the owner profile to reset it. Desktop-only runs started against a
 separately prepared environment remain under that caller's cleanup.

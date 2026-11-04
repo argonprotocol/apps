@@ -4,6 +4,7 @@ import * as Vue from 'vue';
 import { getArgonBonds } from './argonBonds.ts';
 import { getBitcoinFissions, getBitcoinLocks } from './bitcoin.ts';
 import { getConfig } from './config.ts';
+import { getAppStartup } from './startup.ts';
 import { getDbPromise } from './helpers/dbPromise.ts';
 import { getBlockWatch } from './mainchain.ts';
 import { getMyVault } from './vaults.ts';
@@ -244,7 +245,7 @@ export const useFinancialHistory = defineStore('financialHistory', () => {
   async function load(): Promise<void> {
     loadPromise ??= (async () => {
       try {
-        await Promise.all([config.isLoadedPromise, wallets.isLoadedPromise]);
+        await Promise.all([getAppStartup().isReadyPromise, wallets.isLoadedPromise]);
         isLoaded = true;
         await initialize();
       } catch (error) {

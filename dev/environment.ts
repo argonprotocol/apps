@@ -125,6 +125,12 @@ export async function configureDevEnvironment(profile: DevProfile, chainSpec?: s
     chainSpec = Path.resolve(chainSpec);
   }
 
+  if (!process.env.DOCKER_HOST) {
+    process.env.DOCKER_HOST = execFileSync('docker', ['context', 'inspect', '--format', '{{.Endpoints.docker.Host}}'], {
+      encoding: 'utf8',
+    }).trim();
+  }
+
   const paths = getDevPaths(profile);
   const { toComposeProjectName } = await import('@argonprotocol/apps-core');
   const composeProjectName = toComposeProjectName(join ?? instance, network);

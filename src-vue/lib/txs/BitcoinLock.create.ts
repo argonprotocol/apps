@@ -6,7 +6,7 @@ import {
   SATOSHIS_PER_BITCOIN,
   type ArgonClient,
   type Currency,
-  type TxSigningAccount,
+  type TxSigner,
   type Vault,
 } from '@argonprotocol/apps-core';
 import { u8aToHex } from '@argonprotocol/mainchain';
@@ -32,7 +32,7 @@ import {
 export interface BitcoinLockCreateInput {
   vault: Vault;
   satoshis: bigint;
-  txSigner: TxSigningAccount;
+  txSigner: TxSigner;
   tip?: bigint;
   operatorCoupon?: IOperatorBitcoinLockCouponRoute;
   microgonsAtTargetPerBtc?: bigint;
@@ -42,7 +42,7 @@ export interface BitcoinLockCreateInput {
 export interface BitcoinLockCreatePreviewInput {
   vault: Vault;
   satoshis: bigint;
-  txSigner: TxSigningAccount;
+  txSigner: TxSigner;
   tip?: bigint;
   microgonsAtTargetPerBtc?: bigint;
   feeDiscountMicrogons?: bigint;
@@ -333,7 +333,7 @@ export class BitcoinLockCreate extends TransactionOperation<
     client: ArgonClient;
     vault: Vault;
     satoshis: bigint;
-    txSigner: TxSigningAccount;
+    txSigner: TxSigner;
     tip?: bigint;
     microgonsAtTargetPerBtc: bigint;
     liquidityPromised: bigint;

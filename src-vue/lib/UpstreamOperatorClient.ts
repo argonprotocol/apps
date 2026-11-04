@@ -1,4 +1,5 @@
 import {
+  type TxSigner,
   getObjectStringProperty,
   fetch,
   type IDiscordRoleClaim,
@@ -10,7 +11,6 @@ import {
   type IBitcoinCooperativeReleaseRequest,
   type IBitcoinCooperativeReleaseMailboxRecord,
 } from '@argonprotocol/apps-core';
-import type { KeyringPair } from '@argonprotocol/mainchain';
 import type {
   IBitcoinLockCouponStatus,
   IBitcoinLockStatusResponse,
@@ -147,18 +147,18 @@ export class UpstreamOperatorClient {
   public static async claimInvite(args: {
     operatorHost: string;
     inviteCode: string;
-    defaultAccountKeypair: KeyringPair;
-    authKeypair: KeyringPair;
+    defaultAccountSigner: TxSigner;
+    authSigner: TxSigner;
   }): Promise<IOpenInviteResponse> {
     return await this.postJson<IOpenInviteResponse>(
       args.operatorHost,
       `/invites/${encodeURIComponent(args.inviteCode)}/open`,
       {
-        defaultAccountId: args.defaultAccountKeypair.address,
+        defaultAccountId: args.defaultAccountSigner.address,
         ...createRouterAuthBinding({
           inviteCode: args.inviteCode,
-          defaultAccountKeypair: args.defaultAccountKeypair,
-          authKeypair: args.authKeypair,
+          defaultAccountSigner: args.defaultAccountSigner,
+          authSigner: args.authSigner,
         }),
       },
     );
@@ -234,14 +234,14 @@ export class UpstreamOperatorClient {
   }
 
   public async requestOperationsUpgrade(args: {
-    defaultAccountKeypair: KeyringPair;
+    defaultAccountSigner: TxSigner;
     operationalAccountId: string;
-    authKeypair: KeyringPair;
+    authSigner: TxSigner;
   }): Promise<Date> {
     const { authBindingExpiresAt, authBindingSignature } = createRouterAuthBinding({
-      defaultAccountKeypair: args.defaultAccountKeypair,
+      defaultAccountSigner: args.defaultAccountSigner,
       operationalAccountId: args.operationalAccountId,
-      authKeypair: args.authKeypair,
+      authSigner: args.authSigner,
     });
     const payload: IRequestOperationsUpgradeRequest = {
       operationalAccountId: args.operationalAccountId,
@@ -469,9 +469,9 @@ function normalizeOperatorHost(value: string): string {
 
 function createRouterAuthBinding(args: {
   inviteCode?: string;
-  defaultAccountKeypair: KeyringPair;
+  defaultAccountSigner: TxSigner;
   operationalAccountId?: string;
-  authKeypair: KeyringPair;
+  authSigner: TxSigner;
 }): {
   authAccountId: string;
   authBindingExpiresAt: number;
@@ -479,9 +479,9 @@ function createRouterAuthBinding(args: {
 } {
   const authBindingExpiresAt = Date.now() + 5 * 60_000;
   const binding = {
-    accountId: args.defaultAccountKeypair.address,
+    accountId: args.defaultAccountSigner.address,
     operationalAccountId: args.operationalAccountId,
-    authAccountId: args.authKeypair.address,
+    authAccountId: args.authSigner.address,
     inviteCode: args.inviteCode,
     expiresAt: authBindingExpiresAt,
   };
@@ -489,6 +489,6 @@ function createRouterAuthBinding(args: {
   return {
     authAccountId: binding.authAccountId,
     authBindingExpiresAt,
-    authBindingSignature: signRouterAuthAccountBinding(args.defaultAccountKeypair, binding),
+    authBindingSignature: signRouterAuthAccountBinding(args.defaultAccountSigner, binding),
   };
 }

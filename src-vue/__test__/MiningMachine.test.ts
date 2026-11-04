@@ -5,8 +5,11 @@ import { ServerType } from '../interfaces/IConfig.ts';
 import { createMockedDbPromise } from './helpers/db.ts';
 import { createTestWallet } from './helpers/wallet.ts';
 
-const invokeWithTimeout = vi.hoisted(() => vi.fn());
+const invokeWithTimeout = vi.hoisted(() => vi.fn<typeof import('../lib/tauriApi.ts').invokeWithTimeout>());
 vi.mock('../lib/tauriApi.ts', () => ({ invokeWithTimeout }));
+vi.mock('@tauri-apps/api/core', () => ({
+  invoke: (command: string, args: Record<string, unknown> = {}) => invokeWithTimeout(command, args, 60e3),
+}));
 
 let config: Config;
 let walletKeys: ReturnType<typeof createTestWallet>['walletKeys'];
@@ -18,8 +21,10 @@ beforeEach(async () => {
   creationRequests.length = 0;
   creationResponses.length = 0;
   regions = [{ slug: 'atl1', available: true, sizes: ['s-4vcpu-8gb', 's-4vcpu-8gb-amd'] }];
-  invokeWithTimeout.mockReset().mockImplementation(async (_command, { url }: { url: string }) => {
-    if (new URL(url).hostname.startsWith('atl1.')) return 1n;
+  invokeWithTimeout.mockReset().mockImplementation(async (command, args) => {
+    if (command === 'keychain_info') return { method: 'none' };
+    if (command === 'keychain_decrypt') return ['synthetic-digitalocean-token'];
+    if (new URL(args.url).hostname.startsWith('atl1.')) return 1n;
     return 10n;
   });
 
@@ -36,15 +41,16 @@ beforeEach(async () => {
         longitude: '-85',
       }),
     }),
-    walletKeys,
   );
   await config.load();
-  config.serverAdd = { digitalOcean: { apiKey: 'synthetic-digitalocean-token' } };
+  config.serverAdd = { digitalOcean: { encryptedApiKey: 'encrypted-digitalocean-token' } };
+  config.digitalOceanApiKey = 'synthetic-digitalocean-token';
 
   vi.stubGlobal(
     'fetch',
     vi.fn(async (input: Parameters<typeof fetch>[0], init?: RequestInit) => {
       const url = new URL(String(input));
+      expect(new Headers(init?.headers).get('Authorization')).toBe('Bearer synthetic-digitalocean-token');
       if (url.pathname === '/v2/regions') return Response.json({ regions });
       if (url.pathname === '/v2/account/keys') {
         return Response.json({ ssh_keys: [{ id: 'synthetic-key', public_key: walletKeys.sshPublicKey }] });
@@ -83,6 +89,14 @@ beforeEach(async () => {
 });
 
 afterEach(() => vi.unstubAllGlobals());
+
+it('does not decrypt a saved credential or create a server without an unlocked session', async () => {
+  config.digitalOceanApiKey = undefined;
+  await expect(MiningMachine.setup(config, walletKeys)).rejects.toThrow('Reconnect your DigitalOcean API key');
+  expect(creationRequests).toEqual([]);
+  expect(fetch).not.toHaveBeenCalled();
+  expect(invokeWithTimeout).not.toHaveBeenCalled();
+});
 
 it('tries another advertised size when DigitalOcean rejects the preferred size', async () => {
   creationResponses.push(Response.json({ message: 'Size is not available in this region' }, { status: 422 }));

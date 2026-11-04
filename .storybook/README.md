@@ -1,6 +1,6 @@
-# Storybook UI states
+# Storybook UI coverage
 
-Storybook is the reviewable catalog of user-visible application states. For each pull request, CI captures every story from both its base commit and the pull request, compares them, and links a browsable visual diff report from a comment. The generated `storybook-static` directory and visual review artifacts are temporary output and must not be committed.
+Storybook provides broad visual coverage of the application's major screens, overlays, and workflows. It is not an exhaustive inventory of every possible UI state. For each pull request, CI captures every story from both its base commit and the pull request, compares them, and links a browsable visual diff report from a comment. The generated `storybook-static` directory and visual review artifacts are temporary output and must not be committed.
 
 The catalog lives under `.storybook/stories`, grouped by the same product areas shown in the Storybook sidebar. Shared synthetic state belongs in `.storybook/scenarios`; Storybook-only components and test utilities belong in `.storybook/components` and `.storybook/support`. Keep production component names in story filenames so the rendered source remains easy to locate.
 
@@ -12,11 +12,11 @@ Use the highest production component that owns the experience:
 - an overlay for a focused workflow;
 - a major panel when it has meaningful states independent of its parent.
 
-Do not add stories for every leaf component. Full-screen release stories should render the production parent screen in the app frame, while focused overlays and independently useful panels can remain isolated. Do not mount `App.vue`; `AppScreen.vue` supplies its visible chrome without initializing unrelated application services and global overlays.
+Do not add stories for every leaf component. Full-screen release stories should render the production parent screen in the app frame, while focused overlays and independently useful panels can remain isolated. Use `AppScreen.vue` instead of mounting `App.vue` for ordinary screen stories; it supplies the visible chrome without unrelated services and global overlays. Startup stories may render `App.vue` with a synthetic startup-store boundary when the shared authentication overlays are part of the experience.
 
-Reuse or update existing stories first. Add a story only for a materially distinct visible layout, message, control, or interaction that the current catalog does not represent. Cover affected empty, loading, progress, blocked, error, success, recovery, and populated states when they have a distinct visual result.
+Reuse or update existing stories first. Add stories for new or substantially redesigned UI, or a major layout variation useful for visual review. Choose representative states rather than enumerating every transition or combination. Loading, progress, empty, or error variants merit a story only when they materially change the overall experience and help review the UI.
 
-Different backend flags, amounts, failure causes, or reasons for an existing empty or hidden state do not by themselves justify another story. Verify those behaviors in Vitest or E2E, extending an existing scenario when possible. A behavior fix does not automatically need a new story; identify the existing visual coverage in the handoff.
+Minor label changes, individual enabled/disabled controls, timing fixes, backend flags, amounts, and failure causes do not require new stories. Verify behavior in Vitest or E2E, extending an existing scenario when possible. A small behavior fix does not need a new story or a visual-coverage justification.
 
 ## Defining state
 
@@ -30,7 +30,7 @@ Register module mocks statically in `.storybook/preview.ts`, provide typed manua
 
 Use a `play` function only when clicking, typing, selecting, or hovering is needed to reveal the visual state represented by the story. Keep these interactions minimal and do not assert rendered text, fields, styling, or application behavior in Storybook. Put behavior and domain-state assertions in Vitest or E2E coverage instead.
 
-Progress, connection loss, backend errors, and other externally driven transitions should be separate deterministic stories. Do not use timers to imitate application activity and do not add controls that do not exist in production.
+When a service-driven variant merits a story, use a deterministic fixture. Do not add separate stories for every externally driven transition, use timers to imitate application activity, or add controls that do not exist in production.
 
 `AppScreen` stories are fixed, inert state previews by default. Set `interactive` only while every reachable click in that state has a deterministic mocked outcome. If an interaction transitions into a state whose remaining controls are not supported by that story, switch the frame back to its fixed preview mode. The mode badge must accurately describe what the reviewer can do; do not leave production controls live when their external boundaries are absent.
 
@@ -40,12 +40,14 @@ Group stories by the app's product and navigation areas, such as `Mining/Overvie
 
 ## Verification
 
-Run:
+For changes to stories, Storybook infrastructure, or broad cataloged UI, run:
 
 ```sh
 yarn storybook:test
 yarn storybook:build
 ```
+
+Minor behavior-only changes do not require these checks.
 
 `yarn storybook:test` renders every story in headless Chromium and executes the interactions needed to expose its visual state. When `STORYBOOK_SCREENSHOT_DIR` is set, the same run also captures each story after its interactions complete. The Storybook testing widget runs the same story interactions and marks stories that fail to render in the sidebar. Generated output belongs in `storybook-static` or the CI artifact directories, which are not committed.
 

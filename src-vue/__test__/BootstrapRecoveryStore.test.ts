@@ -1,10 +1,17 @@
-import { afterEach, expect, it, vi } from 'vitest';
-import { encryptBootstrapRecovery } from '@argonprotocol/apps-core';
+import { afterEach, beforeEach, expect, it, vi } from 'vitest';
+import { encryptBootstrapRecovery, type ArgonClient, type MainchainClients } from '@argonprotocol/apps-core';
 import { u8aToHex } from '@argonprotocol/mainchain';
+import { cryptoWaitReady } from '@polkadot/util-crypto';
+import { WalletKeys } from '../lib/WalletKeys.ts';
+import { createMockWalletKeys } from './helpers/wallet.ts';
 import { type IConfig, ServerType } from '../interfaces/IConfig.ts';
 import { BootstrapRecovery, BootstrapRecoveryContext } from '../lib/BootstrapRecovery.ts';
 import { ServerAdmin } from '../lib/ServerAdmin.ts';
 import { SSHConnection } from '../lib/SSHConnection.ts';
+import { AppStartup } from '../lib/AppStartup.ts';
+import type { WalletRecovery } from '../lib/WalletRecovery.ts';
+import type { Config } from '../lib/Config.ts';
+import type { TransactionTracker } from '../lib/TransactionTracker.ts';
 
 const mocks = vi.hoisted(() => ({
   recoverySeed: `0x${'11'.repeat(32)}`,
@@ -18,10 +25,8 @@ const mocks = vi.hoisted(() => ({
     serverDetails: {} as IConfig['serverDetails'],
     save: vi.fn(),
   },
-  walletKeys: {
-    getUpstreamEndpointRecoverySeed: vi.fn(),
-    getOwnServerBootstrapEndpointSecret: vi.fn(),
-  },
+  walletKeys: undefined as WalletKeys | undefined,
+  startup: undefined as AppStartup | undefined,
   wallets: {
     defaultArgonWallet: {
       availableMicrogons: 1n,
@@ -29,13 +34,15 @@ const mocks = vi.hoisted(() => ({
     balanceListeners: new Set<(...args: any[]) => void>(),
   },
   refreshPrunedClientFromConfig: vi.fn(),
+  client: undefined as ArgonClient | undefined,
+  transactionTracker: undefined as TransactionTracker | undefined,
 }));
 
 vi.mock('../stores/config.ts', () => ({
   getConfig: () => mocks.config,
 }));
 vi.mock('../stores/mainchain.ts', () => ({
-  getMainchainClient: () => Promise.resolve('mainchain-client'),
+  getMainchainClient: () => Promise.resolve(mocks.client ?? 'mainchain-client'),
   refreshPrunedClientFromConfig: mocks.refreshPrunedClientFromConfig,
 }));
 vi.mock('../stores/wallets.ts', () => ({
@@ -51,15 +58,20 @@ vi.mock('../stores/wallets.ts', () => ({
   }),
 }));
 vi.mock('../stores/transactions.ts', () => ({
-  getTransactionTracker: () => 'transaction-tracker',
+  getTransactionTracker: () => mocks.transactionTracker ?? 'transaction-tracker',
 }));
+vi.mock('../stores/startup.ts', () => ({ getAppStartup: () => mocks.startup }));
 
-import {
-  publishOwnServerEndpoint,
-  publishOwnServerRecovery,
-  recoverOwnServer,
-  recoverUpstreamHost,
-} from '../stores/bootstrapRecovery.ts';
+import { recoverUpstreamHost } from '../stores/bootstrapRecovery.ts';
+
+beforeEach(async () => {
+  await cryptoWaitReady();
+  mocks.walletKeys = createMockWalletKeys('//BootstrapPublication');
+  mocks.recoverySeed = await mocks.walletKeys.getUpstreamEndpointRecoverySeed();
+  mocks.startup = new AppStartup(mocks.config as unknown as Config, mocks.walletKeys, {
+    get: async () => 'mainchain-client',
+  } as unknown as MainchainClients);
+});
 
 afterEach(() => {
   mocks.config.bootstrapDetails = undefined;
@@ -70,11 +82,11 @@ afterEach(() => {
   mocks.config.walletAccountsHadPreviousLife = false;
   mocks.config.serverDetails = {} as IConfig['serverDetails'];
   mocks.config.save.mockReset();
-  mocks.walletKeys.getUpstreamEndpointRecoverySeed.mockResolvedValue(mocks.recoverySeed);
-  mocks.walletKeys.getOwnServerBootstrapEndpointSecret.mockReset();
   mocks.wallets.defaultArgonWallet.availableMicrogons = 1n;
   mocks.wallets.balanceListeners.clear();
   mocks.refreshPrunedClientFromConfig.mockReset();
+  mocks.client = undefined;
+  mocks.transactionTracker = undefined;
   vi.restoreAllMocks();
 });
 
@@ -86,7 +98,7 @@ it('restores the recovered server install type and work directory before marking
     type: 'DigitalOcean',
     workDir: '~',
   } as IConfig['serverDetails'];
-  vi.spyOn(BootstrapRecovery.prototype, 'recoverEndpoint').mockResolvedValue({
+  vi.spyOn(BootstrapRecovery.prototype, 'recoverEndpoint').mockResolvedValueOnce({
     version: 1,
     host: '127.0.0.1',
     port: 8443,
@@ -106,7 +118,7 @@ it('restores the recovered server install type and work directory before marking
     workDir: '/app',
   });
 
-  await recoverOwnServer();
+  await mocks.startup!.recoverOwnServerConnection();
 
   expect(mocks.config.serverDetails).toMatchObject({
     ipAddress: '127.0.0.1',
@@ -130,7 +142,7 @@ it('restores a recovered server with defaults when SSH is unavailable', async ()
     type: 'DigitalOcean',
     workDir: '~',
   } as IConfig['serverDetails'];
-  vi.spyOn(BootstrapRecovery.prototype, 'recoverEndpoint').mockResolvedValue({
+  vi.spyOn(BootstrapRecovery.prototype, 'recoverEndpoint').mockResolvedValueOnce({
     version: 1,
     host: '127.0.0.1',
     port: 8443,
@@ -144,7 +156,7 @@ it('restores a recovered server with defaults when SSH is unavailable', async ()
   });
   vi.spyOn(SSHConnection.prototype, 'connect').mockRejectedValue(new Error('SSH unavailable'));
 
-  await recoverOwnServer();
+  await mocks.startup!.recoverOwnServerConnection();
 
   expect(mocks.config.serverDetails).toMatchObject({
     ipAddress: '127.0.0.1',
@@ -215,38 +227,4 @@ it('resolves the cached encrypted recovery without rewriting an unchanged host',
   expect(recoverEndpoint).not.toHaveBeenCalled();
   expect(mocks.config.save).not.toHaveBeenCalled();
   expect(mocks.refreshPrunedClientFromConfig).not.toHaveBeenCalled();
-});
-
-it('publishes existing server recovery and endpoint when the default account receives funds', async () => {
-  mocks.config.isServerInstalled = true;
-  mocks.config.serverDetails = {
-    ipAddress: '127.0.0.1',
-    sshPort: 22,
-    sshUser: 'argon',
-    gatewayPort: 443,
-  } as IConfig['serverDetails'];
-  mocks.wallets.defaultArgonWallet.availableMicrogons = 0n;
-  mocks.walletKeys.getOwnServerBootstrapEndpointSecret.mockResolvedValue('bootstrap-secret');
-  const publishRecovery = vi.spyOn(BootstrapRecovery.prototype, 'publishRecovery').mockResolvedValue();
-  const publishEndpoint = vi.spyOn(BootstrapRecovery.prototype, 'publishEndpoint').mockResolvedValue({
-    version: 1,
-    host: '127.0.0.1',
-    port: 443,
-    sequence: 1,
-  });
-
-  await Promise.all([publishOwnServerRecovery(), publishOwnServerEndpoint()]);
-
-  expect(publishRecovery).not.toHaveBeenCalled();
-  expect(publishEndpoint).not.toHaveBeenCalled();
-
-  mocks.wallets.defaultArgonWallet.availableMicrogons = 1n;
-  for (const listener of mocks.wallets.balanceListeners) {
-    listener({ availableMicrogons: 1n }, 'argon');
-  }
-
-  await vi.waitFor(() => {
-    expect(publishRecovery).toHaveBeenCalledOnce();
-    expect(publishEndpoint).toHaveBeenCalledOnce();
-  });
 });

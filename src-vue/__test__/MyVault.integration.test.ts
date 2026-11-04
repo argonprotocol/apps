@@ -108,12 +108,13 @@ describe.skipIf(skipE2E).sequential('Your Vault tests', {}, () => {
       let bitcoinLocks = trackBitcoinLocks(
         new BitcoinLocks(Promise.resolve(db), walletKeys, miningFrames.blockWatch, currency, transactionTracker),
       );
-      const globalCouncil = new GlobalCouncil(Promise.resolve(db), walletKeys, miningFrames);
+      const globalCouncil = new GlobalCouncil(Promise.resolve(db), walletKeys, miningFrames, async () => {});
       let mintingAuthorities = new MintingAuthorities(
         Promise.resolve(db),
         walletKeys,
         miningFrames,
         transactionTracker,
+        async () => {},
       );
       myVault = new MyVault(
         Promise.resolve(db),
@@ -130,7 +131,7 @@ describe.skipIf(skipE2E).sequential('Your Vault tests', {}, () => {
         return {} as IAllVaultStats;
       });
 
-      const config = new Config(Promise.resolve(db), walletKeys);
+      const config = new Config(Promise.resolve(db));
       await config.load();
       await myVault.load();
 
@@ -152,7 +153,13 @@ describe.skipIf(skipE2E).sequential('Your Vault tests', {}, () => {
       bitcoinLocks = trackBitcoinLocks(
         new BitcoinLocks(Promise.resolve(db), walletKeys, miningFrames.blockWatch, currency, transactionTracker),
       );
-      mintingAuthorities = new MintingAuthorities(Promise.resolve(db), walletKeys, miningFrames, transactionTracker);
+      mintingAuthorities = new MintingAuthorities(
+        Promise.resolve(db),
+        walletKeys,
+        miningFrames,
+        transactionTracker,
+        async () => {},
+      );
       myVault = new MyVault(
         Promise.resolve(db),
         vaults,
@@ -190,7 +197,7 @@ describe.skipIf(skipE2E).sequential('Your Vault tests', {}, () => {
         micronots: 100_000_000n,
         archiveUrl: mainchainUrl,
       });
-      const signer = await walletKeys.getVaultingKeypair();
+      const signer = await walletKeys.getVaultingSigner();
       const nextNonce = await client.rpc.system.accountNextIndex(signer.address);
       const nonceQuery = vi
         .spyOn(client.rpc.system, 'accountNextIndex')
@@ -236,7 +243,7 @@ describe.skipIf(skipE2E).sequential('Your Vault tests', {}, () => {
       expect(createdVault.bitcoinCapacityMicrogons()).toBe(vaultSetup.securitizationMicrogons);
       if (spec === 160) expect(createdVault.securitizationRatio?.toNumber()).toBe(1);
       else expect(createdVault.securitizationRatio).toBeUndefined();
-      const delegateAddress = await walletKeys.getVaultDelegateKeypair().then(x => x.address);
+      const delegateAddress = await walletKeys.getVaultDelegateSigner().then(x => x.address);
       const delegateBalance = await client.query.system.account(delegateAddress).then(x => x.data.free);
       expect(createdVault.delegateAccountId).toBe(delegateAddress);
       expect(delegateBalance).toBeGreaterThanOrEqual(minimumVaultDelegateBalance);
@@ -263,7 +270,7 @@ describe.skipIf(skipE2E).sequential('Your Vault tests', {}, () => {
   it('recovers vault details without local signing keys', async () => {
     const readonlyWalletKeys = createMockWalletKeys(mnemonic, { canSign: false, canAccessServer: false });
     const deriveBitcoinKey = vi
-      .spyOn(readonlyWalletKeys, 'getBitcoinChildXpriv')
+      .spyOn(readonlyWalletKeys, 'getBitcoinPublicKey')
       .mockRejectedValue(new Error('Wallet encryption key is unavailable'));
 
     const recovered = await MyVaultRecovery.findOperatorVault(clients, BitcoinNetwork.Regtest, readonlyWalletKeys);
@@ -288,7 +295,7 @@ describe.skipIf(skipE2E).sequential('Your Vault tests', {}, () => {
       const lockTxInfo = await bitcoinLockCreate.submit({
         satoshis: await bitcoinLocks.satoshisForArgonLiquidity(targetLiquidity),
         vault: myVault.createdVault!,
-        txSigner: await walletKeys.getLiquidLockingKeypair(),
+        txSigner: await walletKeys.getLiquidLockingSigner(),
       });
       const trackedLockTxInfo = lockTxInfo;
       await trackedLockTxInfo.txResult.waitForFinalizedBlock;
@@ -332,7 +339,7 @@ describe.skipIf(skipE2E).sequential('Your Vault tests', {}, () => {
 
   it('finalizes settings, bond lots and ARGNOT securitization', { timeout: 180e3 }, async () => {
     const client = await clients.get(false);
-    const signer = await walletKeys.getVaultingKeypair();
+    const signer = await walletKeys.getVaultingSigner();
     await sudoFundWallet({ address: signer.address, microgons: 1_000_000_000n, micronots: 100_000_000n, client });
     const settings = { ...vaultSetup, btcFlatFee: 2_000_000n, btcPctFee: 1.5 };
     const settingsTx = await myVault.updateSettings({
@@ -362,7 +369,7 @@ describe.skipIf(skipE2E).sequential('Your Vault tests', {}, () => {
       await submitAndFinalize(
         client,
         existing.buildModifyFundingTx(client, existing.securitizationTarget),
-        await walletKeys.getVaultingKeypair(),
+        await walletKeys.getVaultingSigner(),
       );
       myVault.data.createdVault = await Vault.get(client, vaultId);
     }
@@ -382,7 +389,7 @@ describe.skipIf(skipE2E).sequential('Your Vault tests', {}, () => {
         (myVault.createdVault!.availableBitcoinSpace() * 4n) / 5n,
       ),
       vault: myVault.createdVault!,
-      txSigner: await walletKeys.getLiquidLockingKeypair(),
+      txSigner: await walletKeys.getLiquidLockingSigner(),
     });
     await additionalLock.waitForPostProcessing;
     const purchase = await TreasuryBonds.buildBuyBondTx({ client, vaultId, bondPurchaseMicrogons: minimumPurchase });

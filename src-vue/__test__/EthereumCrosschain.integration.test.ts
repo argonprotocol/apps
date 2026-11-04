@@ -1,3 +1,4 @@
+import { AccountSecurityBatch } from '../lib/AccountSecurity.ts';
 import { randomUUID } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { afterAll, beforeAll, describe, expect, inject, it, vi } from 'vitest';
@@ -48,7 +49,7 @@ import { EthereumOutboundTransferTracker } from '../lib/EthereumOutboundTransfer
 import { GlobalCouncil } from '../lib/GlobalCouncil.ts';
 import { DEFAULT_MASTER_XPUB_PATH, MyVault } from '../lib/MyVault.ts';
 import { MintingAuthorities } from '../lib/MintingAuthorities.ts';
-import { MemoryWalletKeys } from '../lib/MemoryWalletKeys.ts';
+import { WalletKeys } from '../lib/WalletKeys.ts';
 import { TransactionTracker } from '../lib/TransactionTracker.ts';
 import { Vaults } from '../lib/Vaults.ts';
 import { CrosschainInboundTransferStatus } from '../lib/db/CrosschainInboundTransfersTable.ts';
@@ -119,7 +120,7 @@ describe.skipIf(skipE2E || !TestEthereum.isInstalled())('EthereumCrosschain inte
   let mintingAuthorities: MintingAuthorities;
   let vaults: Vaults;
   let myVault: MyVault;
-  let delegateKeypair: Awaited<ReturnType<typeof walletKeys.getVaultDelegateKeypair>>;
+  let delegateKeypair: Awaited<ReturnType<typeof walletKeys.getVaultDelegateSigner>>;
   let publicClient: TestEthereumPublicClient;
   let deployerClient: Pick<TestEthereumWalletClient, 'writeContract'>;
   let chain: ReturnType<typeof defineChain>;
@@ -210,7 +211,7 @@ describe.skipIf(skipE2E || !TestEthereum.isInstalled())('EthereumCrosschain inte
     await submitAndFinalize(
       mainchainClient,
       mainchainClient.tx.balances.transferKeepAlive(
-        (await walletKeys.getVaultDelegateKeypair()).address,
+        (await walletKeys.getVaultDelegateSigner()).address,
         minimumVaultDelegateBalance * 2n,
       ),
       sudo(),
@@ -253,7 +254,7 @@ describe.skipIf(skipE2E || !TestEthereum.isInstalled())('EthereumCrosschain inte
 
     miningFrames = new MiningFrames(mainchainClients);
     transactionTracker = new TransactionTracker(Promise.resolve(db), miningFrames.blockWatch);
-    delegateKeypair = await walletKeys.getVaultDelegateKeypair();
+    delegateKeypair = await walletKeys.getVaultDelegateSigner();
     submitLane = new DelegateSubmitLane(delegateKeypair);
     submitLane.client = client;
 
@@ -290,14 +291,14 @@ describe.skipIf(skipE2E || !TestEthereum.isInstalled())('EthereumCrosschain inte
       currency,
       transactionTracker,
     );
-    globalCouncil = new GlobalCouncil(Promise.resolve(db), walletKeys, miningFrames);
-    mintingAuthorities = new MintingAuthorities(Promise.resolve(db), walletKeys, miningFrames, transactionTracker);
+    globalCouncil = new GlobalCouncil(Promise.resolve(db), walletKeys, miningFrames, async () => {});
+    mintingAuthorities = new MintingAuthorities(Promise.resolve(db), walletKeys, miningFrames, transactionTracker, async () => {});
     outboundTracker = new EthereumOutboundTransferTracker(
       Promise.resolve(db),
       transactionTracker,
       miningFrames.blockWatch,
       walletKeys,
-      ethereumClient,
+      () => new AccountSecurityBatch(async () => {}), ethereumClient,
     );
     vaults = new Vaults('dev-docker', currency, miningFrames);
     myVault = new MyVault(
@@ -315,7 +316,7 @@ describe.skipIf(skipE2E || !TestEthereum.isInstalled())('EthereumCrosschain inte
       updateRevenue: async () => ({}),
     });
 
-    config = new Config(Promise.resolve(db), walletKeys);
+    config = new Config(Promise.resolve(db));
     await config.load();
     const chainConfig = await loadEthereumChainConfig();
     if (!chainConfig) {
@@ -369,7 +370,7 @@ describe.skipIf(skipE2E || !TestEthereum.isInstalled())('EthereumCrosschain inte
       await submitAndFinalize(
         client,
         Vault.buildSetArgonotSecuritizationTx(client, 1_000_000n),
-        await walletKeys.getVaultingKeypair(),
+        await walletKeys.getVaultingSigner(),
         { useLatestNonce: true },
       );
       await sudoSubmitAndFinalize(
@@ -753,9 +754,8 @@ describe.skipIf(skipE2E || !TestEthereum.isInstalled())('EthereumCrosschain inte
         throw new Error('Run the whole EthereumCrosschain integration suite. The minting authority must be active.');
       }
 
-      const senderKeys = new MemoryWalletKeys({
+      const senderKeys = WalletKeys.fromMnemonic(TEST_WALLET_MNEMONIC, {
         substrateSuri: integrationAccountUri(inject('argonIntegrationRunId'), import.meta.filename, `maximum-${moveToken}`),
-        masterMnemonic: TEST_WALLET_MNEMONIC,
       });
       await sudoFundWallet({
         client,
@@ -768,7 +768,7 @@ describe.skipIf(skipE2E || !TestEthereum.isInstalled())('EthereumCrosschain inte
         transactionTracker,
         miningFrames.blockWatch,
         senderKeys,
-        ethereumClient,
+        () => new AccountSecurityBatch(async () => {}), ethereumClient,
       );
       const ethereumWallet = new WalletForEthereum(walletKeys.coreEthereumAddress, undefined, undefined, true);
       const finalizedClient = await getFinalizedClient(client);

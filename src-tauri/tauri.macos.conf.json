@@ -1,0 +1,14 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "build": {
+    "beforeBundleCommand": "yarn tsx scripts/prepareMacosSigning.ts"
+  },
+  "bundle": {
+    "macOS": {
+      "entitlements": "gen/apple/Entitlements.plist",
+      "files": {
+        "embedded.provisionprofile": "Distribution.provisionprofile"
+      }
+    }
+  }
+}

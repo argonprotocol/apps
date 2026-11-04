@@ -34,6 +34,7 @@ export * from './StorageFinder.js';
 export * from './TransactionEvents.js';
 export * from './TxResult.js';
 export * from './TxSubmitter.js';
+export * from './TxSigner.js';
 export * from './RuntimeDispatchError.js';
 export * from './Vaults.js';
 export * from './Vault.js';

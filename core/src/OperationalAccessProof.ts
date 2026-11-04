@@ -1,4 +1,4 @@
-import type { KeyringPair } from '@argonprotocol/mainchain';
+import type { IKeyringPair } from '@polkadot/types/types';
 import { getOfflineRegistry, hexToU8a, u8aToHex } from '@argonprotocol/mainchain';
 import { stringToU8a } from '@polkadot/util';
 import { blake2AsU8a, signatureVerify } from '@polkadot/util-crypto';
@@ -11,7 +11,7 @@ export interface IOperationalAccessProof {
 }
 
 export function createOperationalAccessProof(
-  upstreamAccount: KeyringPair,
+  upstreamAccount: IKeyringPair,
   downstreamOperationalAccount: string,
 ): IOperationalAccessProof {
   return {

@@ -17,6 +17,9 @@ vi.mock('../stores/config.ts', async importOriginal => ({
   ...(await importOriginal()),
   getConfig: () => config,
 }));
+vi.mock('../stores/startup.ts', () => ({
+  getAppStartup: () => ({ isReadyPromise: config.isLoadedPromise }),
+}));
 vi.mock('../stores/vaults.ts', async importOriginal => ({
   ...(await importOriginal()),
   getMyVault: () => ({

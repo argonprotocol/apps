@@ -41,6 +41,7 @@ import { NavigationMenuItem, NavigationMenuTrigger, NavigationMenuContent, Navig
 import { INSTANCE_NAME, NETWORK_NAME } from '../lib/Env.ts';
 import { invokeWithTimeout } from '../lib/tauriApi.ts';
 import { CheckIcon } from '@heroicons/vue/20/solid';
+import { message } from '@tauri-apps/plugin-dialog';
 
 const isOpen = Vue.ref(false);
 const rootRef = Vue.ref<HTMLElement>();
@@ -57,8 +58,15 @@ defineExpose({
 const networkName = NETWORK_NAME.replace('dev-docker', 'docknet');
 
 async function openInstance(instance: IInstance) {
-  await invokeWithTimeout('load_instance', { name: instance.name }, 10000);
-  isOpen.value = false;
+  try {
+    await invokeWithTimeout('load_instance', { name: instance.name }, 10000);
+    isOpen.value = false;
+  } catch (error) {
+    await message(error instanceof Error ? error.message : String(error), {
+      title: 'Unable to Switch Profiles',
+      kind: 'error',
+    });
+  }
 }
 </script>
 

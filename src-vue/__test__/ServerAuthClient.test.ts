@@ -20,9 +20,9 @@ const walletMock = vi.hoisted(() => {
     signer,
     defaultSigner,
     upstreamOperatorAuthSigner,
-    getDefaultArgonKeypair: vi.fn(),
-    getOperationalKeypair: vi.fn(),
-    getUpstreamOperatorAuthKeypair: vi.fn(),
+    getDefaultArgonSigner: vi.fn(),
+    getOperationalSigner: vi.fn(),
+    getUpstreamOperatorAuthSigner: vi.fn(),
   };
 });
 
@@ -33,19 +33,19 @@ describe('ServerAuthClient', () => {
     serverAuthClient = new ServerAuthClient(() => ({
       defaultArgonAddress: 'default-account',
       operationalAddress: 'admin-account',
-      getDefaultArgonKeypair: walletMock.getDefaultArgonKeypair,
-      getOperationalKeypair: walletMock.getOperationalKeypair,
-      getUpstreamOperatorAuthKeypair: walletMock.getUpstreamOperatorAuthKeypair,
+      getDefaultArgonSigner: walletMock.getDefaultArgonSigner,
+      getOperationalSigner: walletMock.getOperationalSigner,
+      getUpstreamOperatorAuthSigner: walletMock.getUpstreamOperatorAuthSigner,
     }));
     walletMock.signer.sign.mockClear();
     walletMock.defaultSigner.sign.mockClear();
     walletMock.upstreamOperatorAuthSigner.sign.mockClear();
-    walletMock.getOperationalKeypair.mockReset();
-    walletMock.getDefaultArgonKeypair.mockReset();
-    walletMock.getUpstreamOperatorAuthKeypair.mockReset();
-    walletMock.getOperationalKeypair.mockResolvedValue(walletMock.signer);
-    walletMock.getDefaultArgonKeypair.mockResolvedValue(walletMock.defaultSigner);
-    walletMock.getUpstreamOperatorAuthKeypair.mockResolvedValue(walletMock.upstreamOperatorAuthSigner);
+    walletMock.getOperationalSigner.mockReset();
+    walletMock.getDefaultArgonSigner.mockReset();
+    walletMock.getUpstreamOperatorAuthSigner.mockReset();
+    walletMock.getOperationalSigner.mockResolvedValue(walletMock.signer);
+    walletMock.getDefaultArgonSigner.mockResolvedValue(walletMock.defaultSigner);
+    walletMock.getUpstreamOperatorAuthSigner.mockResolvedValue(walletMock.upstreamOperatorAuthSigner);
     vi.unstubAllGlobals();
   });
 
@@ -63,7 +63,7 @@ describe('ServerAuthClient', () => {
 
     expect(fetchPaths(fetchMock)).toEqual(['/auth/challenge', '/auth/login', '/auth/verify/admin']);
     expect(fetchUrls(fetchMock)[2].searchParams.get('sessionId')).toBe('session-admin-operator');
-    expect(walletMock.getOperationalKeypair).toHaveBeenCalledTimes(1);
+    expect(walletMock.getOperationalSigner).toHaveBeenCalledTimes(1);
   });
 
   it('shares one login flow between concurrent callers', async () => {
@@ -88,7 +88,7 @@ describe('ServerAuthClient', () => {
     await Promise.all([firstSession, secondSession]);
 
     expect(fetchPaths(fetchMock)).toEqual(['/auth/challenge', '/auth/login', '/auth/verify/admin']);
-    expect(walletMock.getOperationalKeypair).toHaveBeenCalledTimes(1);
+    expect(walletMock.getOperationalSigner).toHaveBeenCalledTimes(1);
   });
 
   it('creates a fresh session when a forced session check is rejected', async () => {
@@ -116,7 +116,7 @@ describe('ServerAuthClient', () => {
       '/auth/login',
       '/auth/verify/admin',
     ]);
-    expect(walletMock.getOperationalKeypair).toHaveBeenCalledTimes(2);
+    expect(walletMock.getOperationalSigner).toHaveBeenCalledTimes(2);
   });
 
   it('fails fast after auth is unavailable', async () => {
@@ -128,7 +128,7 @@ describe('ServerAuthClient', () => {
     await expect(serverAuthClient.getAdminOperatorSessionId(baseUrl)).rejects.toThrow('Server auth is not configured.');
 
     expect(fetchPaths(fetchMock)).toEqual(['/auth/challenge']);
-    expect(walletMock.getOperationalKeypair).not.toHaveBeenCalled();
+    expect(walletMock.getOperationalSigner).not.toHaveBeenCalled();
   });
 
   it('uses the derived upstream auth key for member sessions', async () => {
@@ -165,9 +165,9 @@ describe('ServerAuthClient', () => {
       () => ({
         defaultArgonAddress: 'default-account',
         operationalAddress: 'admin-account',
-        getDefaultArgonKeypair: walletMock.getDefaultArgonKeypair,
-        getOperationalKeypair: walletMock.getOperationalKeypair,
-        getUpstreamOperatorAuthKeypair: walletMock.getUpstreamOperatorAuthKeypair,
+        getDefaultArgonSigner: walletMock.getDefaultArgonSigner,
+        getOperationalSigner: walletMock.getOperationalSigner,
+        getUpstreamOperatorAuthSigner: walletMock.getUpstreamOperatorAuthSigner,
       }),
       {
         getRestorePackage: () => ({

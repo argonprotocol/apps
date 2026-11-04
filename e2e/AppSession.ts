@@ -135,6 +135,7 @@ export class AppSession {
     const recoverHistory: IAppQueryFn<IAccountHistoryRecoveryReport, { throughBlock: number }> = (refs, args) =>
       refs.accountHistoryRecovery.recoverThrough(args.throughBlock);
     try {
+      await this.waitForReady(timeoutMs);
       const result = await this.driver.command<{ value?: IAccountHistoryRecoveryReport }>('command.queryApp', {
         fn: recoverHistory.toString(),
         args: { throughBlock },
@@ -256,11 +257,13 @@ export class AppSession {
     const sessionData: Record<string, unknown> = {};
 
     const defaultSessionName = requestedSessionName || 'e2e';
-    const sessionIdentity = resolveTestSessionIdentity({
+    const identityOptions = {
       sessionName: requestedSessionName,
       fallbackSessionName: defaultSessionName,
       networkName: configuredNetworkName,
-    });
+      ...(sessionMode === 'isolated' ? { sessionId: driverServer.session } : {}),
+    };
+    const sessionIdentity = resolveTestSessionIdentity(identityOptions);
     const appInstanceName = sessionIdentity.appInstanceName || sessionIdentity.sessionName;
     const appPort = await chooseAvailablePort(sessionIdentity.appInstancePort);
     const appConfigId = options.tauriDevConfig?.identifier ?? LOCAL_APP_CONFIG_ID;
@@ -275,11 +278,9 @@ export class AppSession {
       instanceName: appInstanceName,
     });
     const { composeProjectName, appEnv: commandEnv } = resolveTestSessionCommandEnv({
+      ...identityOptions,
       baseEnv: process.env,
-      sessionName: requestedSessionName,
-      fallbackSessionName: defaultSessionName,
       appPort,
-      networkName: configuredNetworkName,
     });
     const isolatedDataEnv: NodeJS.ProcessEnv = {};
     let priceIndexFilePath: string | undefined;

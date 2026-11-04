@@ -50,7 +50,7 @@ import {
   type BitcoinLocksHarness,
 } from './helpers/bitcoinLocksHarness.ts';
 import { AppVaultOperator } from '../../e2e/actors/AppVaultOperator.ts';
-import type { MemoryWalletKeys } from '../lib/MemoryWalletKeys.ts';
+import type { WalletKeys } from '../lib/WalletKeys.ts';
 import { createMockWalletKeys } from './helpers/wallet.ts';
 import { Db as RouterDb } from '../../router/src/Db.ts';
 import { BitcoinLockCouponService } from '../../router/src/BitcoinLockCouponService.ts';
@@ -104,7 +104,7 @@ describe.skipIf(SKIP_E2E).sequential('Bitcoin Liquids integration', { timeout: 3
       await harness.currency.fetchMainchainRates(client, { ignoreCache: true });
       const lock = await createFundedLock(harness, targetLiquidity, { verifyRestoredCreation: true });
       const { createLiquid, fissions } = await createLiquidServices(harness);
-      const txSigner = await harness.walletKeys.getLiquidLockingKeypair();
+      const txSigner = await harness.walletKeys.getLiquidLockingSigner();
       const satoshis = lock.securitizedSatoshis;
 
       await waitFor(90_000, 'fresh unchanged Bitcoin price with an older history entry', async () => {
@@ -175,8 +175,8 @@ describe.skipIf(SKIP_E2E).sequential('Bitcoin Liquids integration', { timeout: 3
         ),
       );
       const vault = operator.myVault.createdVault!;
-      const delegate = await operator.walletKeys.getVaultDelegateKeypair();
-      const operatorSigner = await operator.walletKeys.getVaultingKeypair();
+      const delegate = await operator.walletKeys.getVaultDelegateSigner();
+      const operatorSigner = await operator.walletKeys.getVaultingSigner();
       await cleanupBitcoinLocksHarness(operator);
       const harness = await createHarness(
         createMockWalletKeys(
@@ -204,7 +204,7 @@ describe.skipIf(SKIP_E2E).sequential('Bitcoin Liquids integration', { timeout: 3
           const tip = await snapshot.query.bitcoinUtxos.confirmedBitcoinBlockTip();
           if (tip?.blockHeight === confirmedHeight) return true;
         });
-        const txSigner = await harness.walletKeys.getLiquidLockingKeypair();
+        const txSigner = await harness.walletKeys.getLiquidLockingSigner();
         const upstream = new UpstreamOperatorClient(undefined, () => 'synthetic-operator');
         const signer = new BitcoinLockFeeCouponService(
           harness.clients,
@@ -674,7 +674,7 @@ describe.skipIf(SKIP_E2E).sequential('Bitcoin Liquids integration', { timeout: 3
       await submitBitcoinPrice(harness, { btcUsdPrice: 120_000 });
       const lock = await createFundedLock(harness, harness.myVault.createdVault!.availableBitcoinSpace() / 10n);
       const { createLiquid, fissions } = await createLiquidServices(harness);
-      const txSigner = await harness.walletKeys.getLiquidLockingKeypair();
+      const txSigner = await harness.walletKeys.getLiquidLockingSigner();
       const coveredSatoshis = lock.securitizedSatoshis;
 
       if (hasExistingLiquid) {
@@ -782,7 +782,7 @@ describe.skipIf(SKIP_E2E).sequential('Bitcoin Liquids integration', { timeout: 3
       await submitBitcoinPrice(harness, { btcUsdPrice: 120_001, argonUsdPrice: 0.795 });
       await submitBitcoinPrice(harness, { btcUsdPrice: 120_000, argonUsdPrice: 0.795 });
       const { createLiquid, fissions } = await createLiquidServices(harness);
-      const txSigner = await harness.walletKeys.getLiquidLockingKeypair();
+      const txSigner = await harness.walletKeys.getLiquidLockingSigner();
       const coveredSatoshis = lock.securitizedSatoshis;
       const firstCreation = await createLiquid.submit({
         allocations: [{ lock, satoshis: coveredSatoshis * 9n / 10n }], txSigner, client,
@@ -836,7 +836,7 @@ describe.skipIf(SKIP_E2E).sequential('Bitcoin Liquids integration', { timeout: 3
       await submitBitcoinPrice(harness, { btcUsdPrice: 120_001 });
       await submitBitcoinPrice(harness, { btcUsdPrice: 120_000 });
       const { createLiquid, fissions } = await createLiquidServices(harness);
-      const txSigner = await harness.walletKeys.getLiquidLockingKeypair();
+      const txSigner = await harness.walletKeys.getLiquidLockingSigner();
       const coveredSatoshis = lock.securitizedSatoshis;
       const satoshis = coveredSatoshis * 9n / 10n;
       const firstCreation = await createLiquid.submit({ allocations: [{ lock, satoshis }], txSigner, client });
@@ -890,7 +890,7 @@ describe.skipIf(SKIP_E2E).sequential('Bitcoin Liquids integration', { timeout: 3
         { lock: secondLock, satoshis: secondLock.securitizedSatoshis },
       ];
       const { createLiquid, fissions } = await createLiquidServices(harness);
-      const txSigner = await harness.walletKeys.getLiquidLockingKeypair();
+      const txSigner = await harness.walletKeys.getLiquidLockingSigner();
 
       const txInfo = await createLiquid.submit({ allocations, txSigner, client });
       await txInfo.txResult.waitForFinalizedBlock;
@@ -952,7 +952,7 @@ describe.skipIf(SKIP_E2E).sequential('Bitcoin Liquids integration', { timeout: 3
         if (runtimeSpec === 160) {
           await submitBitcoinPrice(harness, { btcUsdPrice: 120_000 });
           const { createLiquid, ratchetLiquid, fissions } = await createLiquidServices(harness);
-          const txSigner = await harness.walletKeys.getLiquidLockingKeypair();
+          const txSigner = await harness.walletKeys.getLiquidLockingSigner();
           const creation = await createLiquid.submit({
             allocations: [{ lock, satoshis: fundedSatoshis }],
             txSigner,
@@ -1010,7 +1010,7 @@ describe.skipIf(SKIP_E2E).sequential('Bitcoin Liquids integration', { timeout: 3
         const rate = await submitBitcoinPrice(harness, { btcUsdPrice: 120_000, argonUsdPrice: 0.795 });
         expect(rate).toBe(coveredLock.cosignerGuarantee!.basis.microgonsAtTargetPerBtc);
         const { createLiquid, fissions } = await createLiquidServices(harness);
-        const txSigner = await harness.walletKeys.getLiquidLockingKeypair();
+        const txSigner = await harness.walletKeys.getLiquidLockingSigner();
         const allocations = [{ lock, satoshis: fundedSatoshis }];
         const preview = await createLiquid.preview({ allocations, txSigner, client });
         expect(preview.securityFeeMicrogons).toBe(0n);
@@ -1066,11 +1066,11 @@ describe.skipIf(SKIP_E2E).sequential('Bitcoin Liquids integration', { timeout: 3
         const startingBitcoinPrice = hasRoundingBoundary ? 110_327.92353274 : 120_000;
         await submitBitcoinPrice(harness, { btcUsdPrice: startingBitcoinPrice, argonUsdPrice: 0.795 });
         if (hasRoundingBoundary) {
-          const vaultSigner = await harness.walletKeys.getVaultingKeypair();
+          const vaultSigner = await harness.walletKeys.getVaultingSigner();
           await submitAndFinalize(
             client,
             client.tx.balances.transferKeepAlive(vaultSigner.address, 100_000_000n),
-            await harness.walletKeys.getLiquidLockingKeypair(),
+            await harness.walletKeys.getLiquidLockingSigner(),
             { useLatestNonce: true },
           );
           await submitAndFinalize(
@@ -1090,7 +1090,7 @@ describe.skipIf(SKIP_E2E).sequential('Bitcoin Liquids integration', { timeout: 3
         await submitBitcoinPrice(harness, { btcUsdPrice: startingBitcoinPrice, argonUsdPrice: 0.795 });
         const coveredSatoshis = lock.securitizedSatoshis;
         const { createLiquid, fissions } = await createLiquidServices(harness);
-        const txSigner = await harness.walletKeys.getLiquidLockingKeypair();
+        const txSigner = await harness.walletKeys.getLiquidLockingSigner();
         const firstCreation = await createLiquid.submit({
           allocations: [{ lock, satoshis: coveredSatoshis / 2n }],
           txSigner,
@@ -1244,7 +1244,7 @@ describe.skipIf(SKIP_E2E).sequential('Bitcoin Liquids integration', { timeout: 3
         await submitAndFinalize(
           client,
           client.tx.vaults.setReservedSecuritizationSpace(vault.availableSecuritizationSpace()),
-          await harness.walletKeys.getVaultingKeypair(),
+          await harness.walletKeys.getVaultingSigner(),
           { useLatestNonce: true },
         );
         const constrained = await getFinalizedClient(client);
@@ -1264,7 +1264,7 @@ describe.skipIf(SKIP_E2E).sequential('Bitcoin Liquids integration', { timeout: 3
           firstCoverage + second.securitizationCoverageMicrogons!,
         );
         const { createLiquid, fissions } = await createLiquidServices(harness);
-        const txSigner = await harness.walletKeys.getLiquidLockingKeypair();
+        const txSigner = await harness.walletKeys.getLiquidLockingSigner();
         const allocations = [
           { lock: first, satoshis: firstSatoshis * 2n },
           { lock: second, satoshis: secondSatoshis * 2n },
@@ -1318,7 +1318,7 @@ describe.skipIf(SKIP_E2E).sequential('Bitcoin Liquids integration', { timeout: 3
         await submitAndFinalize(
           client,
           client.tx.vaults.setReservedSecuritizationSpace(vault.availableSecuritizationSpace()),
-          await harness.walletKeys.getVaultingKeypair(),
+          await harness.walletKeys.getVaultingSigner(),
           { useLatestNonce: true },
         );
         const constrained = await getFinalizedClient(client);
@@ -1337,7 +1337,7 @@ describe.skipIf(SKIP_E2E).sequential('Bitcoin Liquids integration', { timeout: 3
           BitcoinLock.calculateLiquidityPromised({ priceIndex, satoshis, microgonsAtTargetPerBtc: rate }),
         ).toBeLessThan(storedCoverage);
         const { createLiquid, fissions } = await createLiquidServices(harness);
-        const txSigner = await harness.walletKeys.getLiquidLockingKeypair();
+        const txSigner = await harness.walletKeys.getLiquidLockingSigner();
         const allocations = [{ lock, satoshis }];
         const preview = await createLiquid.preview({ allocations, txSigner, client });
         expect(preview.maximumSatoshisByLockId[lock.lockId!]).toBeGreaterThanOrEqual(satoshis);
@@ -1368,7 +1368,7 @@ describe.skipIf(SKIP_E2E).sequential('Bitcoin Liquids integration', { timeout: 3
       const firstLock = await createFundedLock(harness, targetLiquidity);
       const secondLock = await createFundedLock(harness, targetLiquidity);
       const { createLiquid } = await createLiquidServices(harness);
-      const txSigner = await harness.walletKeys.getLiquidLockingKeypair();
+      const txSigner = await harness.walletKeys.getLiquidLockingSigner();
 
       const transactions = await Promise.all([
         createLiquid.submit({
@@ -1459,7 +1459,7 @@ describe.skipIf(SKIP_E2E).sequential('Bitcoin Liquids integration', { timeout: 3
       await submitBitcoinPrice(harness, { btcUsdPrice: 121_000 });
       const { createLiquid, ratchetLiquid, fissions } = await createLiquidServices(harness);
       const satoshis = lock.securitizedSatoshis;
-      const txSigner = await harness.walletKeys.getLiquidLockingKeypair();
+      const txSigner = await harness.walletKeys.getLiquidLockingSigner();
 
       const createTxInfo = await createLiquid.submit({
         allocations: [{ lock, satoshis: satoshis }],
@@ -1578,7 +1578,7 @@ describe.skipIf(SKIP_E2E).sequential('Bitcoin Liquids integration', { timeout: 3
       const lock = await createFundedLock(harness, targetLiquidity);
       const fundedSatoshis = (await BitcoinLock.get(client, lock.lockId!))!.fundedSatoshis;
       const { createLiquid, closeLiquid, fissions } = await createLiquidServices(harness);
-      const txSigner = await harness.walletKeys.getLiquidLockingKeypair();
+      const txSigner = await harness.walletKeys.getLiquidLockingSigner();
 
       const createTxInfo = await createLiquid.submit({
         allocations: [{ lock, satoshis: fundedSatoshis }],
@@ -1692,7 +1692,7 @@ async function submitBitcoinPrice(
   });
 }
 
-async function createHarness(walletKeys?: MemoryWalletKeys): Promise<BitcoinLocksHarness> {
+async function createHarness(walletKeys?: WalletKeys): Promise<BitcoinLocksHarness> {
   return await createBitcoinLocksHarness({
     archiveUrl: network.archiveUrl,
     esploraHost: network.networkConfigOverride.esploraHost,
@@ -1717,7 +1717,7 @@ async function createFundedLock(
   const vault = args.vault ?? harness.myVault.createdVault!;
   const client = await harness.clients.get(false);
   await harness.currency.fetchMainchainRates(client, { ignoreCache: true });
-  const txSigner = await harness.walletKeys.getLiquidLockingKeypair();
+  const txSigner = await harness.walletKeys.getLiquidLockingSigner();
   let pendingLockUuid: string;
   if (verifyRestoredCreation) {
     const wallet = new WalletForBitcoin(

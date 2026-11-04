@@ -1,6 +1,6 @@
 import * as Vue from 'vue';
 import { defineStore } from 'pinia';
-import { fetch, SingleFileQueue, type ArgonClient } from '@argonprotocol/apps-core';
+import { fetch, raceWithTimeout, SingleFileQueue, type ArgonClient } from '@argonprotocol/apps-core';
 import { ENABLE_AUTO_UPDATE, IS_EXPERIMENTAL_BUILD } from '../lib/Env.ts';
 import { getMainchainClients } from './mainchain.ts';
 import { useAppUpdater } from './appUpdater.ts';
@@ -45,6 +45,10 @@ export const useRuntimeCompatibility = defineStore('runtimeCompatibility', () =>
     pruned: null,
   });
   const stopRuntimeVersionSubscriptions: Partial<Record<ClientType, Unsubscribe>> = {};
+
+  Vue.onScopeDispose(() => {
+    if (refreshInterval) clearInterval(refreshInterval);
+  });
 
   function start() {
     if (isStarted) {
@@ -185,6 +189,7 @@ export const useRuntimeCompatibility = defineStore('runtimeCompatibility', () =>
     const channelName = `desktop-${IS_EXPERIMENTAL_BUILD ? 'experimental' : 'stable'}`;
     const response = await fetch(
       `https://raw.githubusercontent.com/argonprotocol/apps/refs/heads/main/release-channels/${channelName}-compatibility.json?t=${Date.now()}`,
+      { signal: AbortSignal.timeout(INITIAL_LOADING_POLL_MILLIS) },
     );
 
     if (response.ok) {
@@ -207,13 +212,20 @@ export const useRuntimeCompatibility = defineStore('runtimeCompatibility', () =>
 
     return refreshQueue.add(async () => {
       try {
-        const version = await updater.ensureInstalledVersion();
-        const compatibilityByVersion = await loadCompatibilityByVersion();
+        const [version, compatibilityByVersion] = await raceWithTimeout(
+          Promise.all([updater.ensureInstalledVersion(), loadCompatibilityByVersion()]),
+          INITIAL_LOADING_POLL_MILLIS,
+          () => {
+            throw new Error('The app compatibility check timed out');
+          },
+        );
         const compatibility = compatibilityByVersion[version];
         errorMessage.value = '';
 
         if (!observedSpecVersionByClient.archive) {
-          await loadObservedSpecVersion('archive');
+          await raceWithTimeout(loadObservedSpecVersion('archive'), INITIAL_LOADING_POLL_MILLIS, () => {
+            throw new Error('The Argon network version check timed out');
+          });
         }
 
         const specVersions = Object.values(observedSpecVersionByClient).flatMap(specVersion =>

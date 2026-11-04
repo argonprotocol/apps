@@ -82,7 +82,7 @@ describe.skipIf(skipE2E).sequential('member auth handshake integration', { timeo
     );
     const restoreKey = `0x${'42'.repeat(32)}`;
     const bootstrapEndpointSecret = await operatorWalletKeys.getOwnServerBootstrapEndpointSecret();
-    const defaultAccountKeypair = await memberWalletKeys.getLiquidLockingKeypair();
+    const defaultAccountSigner = await memberWalletKeys.getLiquidLockingSigner();
     await sudoFundWallet({
       client,
       address: operatorWalletKeys.defaultArgonAddress,
@@ -91,7 +91,7 @@ describe.skipIf(skipE2E).sequential('member auth handshake integration', { timeo
     });
     await sudoFundWallet({
       client,
-      address: defaultAccountKeypair.address,
+      address: defaultAccountSigner.address,
       microgons: 10n * BigInt(MICROGONS_PER_ARGON),
       micronots: 0n,
     });
@@ -189,8 +189,8 @@ describe.skipIf(skipE2E).sequential('member auth handshake integration', { timeo
     const claimed = await UpstreamOperatorClient.claimInvite({
       operatorHost: source.operatorHost,
       inviteCode: invite.inviteCode,
-      defaultAccountKeypair,
-      authKeypair: await memberWalletKeys.getUpstreamOperatorAuthKeypair(),
+      defaultAccountSigner,
+      authSigner: await memberWalletKeys.getUpstreamOperatorAuthSigner(),
     });
     const couponUse = source.routerDb.bitcoinLockCouponsTable.insertUse({
       couponId: coupon.id,
@@ -267,9 +267,9 @@ describe.skipIf(skipE2E).sequential('member auth handshake integration', { timeo
     });
 
     const operationsUpgradeRequestedAt = await upstreamOperatorClient.requestOperationsUpgrade({
-      defaultAccountKeypair,
+      defaultAccountSigner,
       operationalAccountId: memberWalletKeys.operationalAddress,
-      authKeypair: await memberWalletKeys.getUpstreamOperatorAuthKeypair(),
+      authSigner: await memberWalletKeys.getUpstreamOperatorAuthSigner(),
     });
     await serverAuthClient.invalidateMemberSessionId(source.operatorHost);
     await serverAuthClient.getMemberSessionId(source.operatorHost);
@@ -279,7 +279,7 @@ describe.skipIf(skipE2E).sequential('member auth handshake integration', { timeo
     const operatorAuthClient = new ServerAuthClient(() => operatorWalletKeys);
     const operatorSessionId = await operatorAuthClient.getAdminOperatorSessionId(source.operatorHost);
     const accessProof = createOperationalAccessProof(
-      await operatorWalletKeys.getOperationalKeypair(),
+      await operatorWalletKeys.getOperationalSigner(),
       memberWalletKeys.operationalAddress,
     );
     const approvalResponse = await fetch(

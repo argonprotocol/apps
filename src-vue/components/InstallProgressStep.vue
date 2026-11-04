@@ -86,7 +86,7 @@ import ProgressBar from '../components/ProgressBar.vue';
 import CheckboxGray from '../components/CheckboxGray.vue';
 import AlertIcon from '../assets/alert.svg?component';
 import basicEmitter from '../emitters/basicEmitter';
-import { getInstaller } from '../stores/installer';
+import { getInstaller } from '../stores/startup.ts';
 import { twMerge } from 'tailwind-merge';
 
 const props = defineProps<{

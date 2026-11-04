@@ -18,8 +18,7 @@
 <script setup lang="ts">
 import * as Vue from 'vue';
 import { getMyMiningSeats } from '../../stores/myMiningSeats.ts';
-import { getBot } from '../../stores/bot.ts';
-import { getInstaller } from '../../stores/installer.ts';
+import { getBot, getInstaller } from '../../stores/startup.ts';
 
 const myMiningSeats = getMyMiningSeats();
 const bot = getBot();

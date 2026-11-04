@@ -11,6 +11,7 @@ import {
   MainchainClients,
   TreasuryBonds,
   TxSubmitter,
+  TxSigner,
 } from '@argonprotocol/apps-core';
 import {
   integrationAccountUri,
@@ -18,7 +19,7 @@ import {
 } from '@argonprotocol/apps-core/__test__/integrationNetwork.ts';
 import { waitFor } from '@argonprotocol/apps-core/__test__/helpers/waitFor.ts';
 import { AppVaultOperator } from '../../e2e/actors/AppVaultOperator.ts';
-import { MemoryWalletKeys } from '../lib/MemoryWalletKeys.ts';
+import { WalletKeys } from '../lib/WalletKeys.ts';
 import {
   getOperationalRewardConfig,
   loadOperationalAccount,
@@ -52,9 +53,8 @@ it(
   { tags: ['exclusive-argon-network'], timeout: 600e3 },
   async () => {
     const mnemonic = mnemonicGenerate();
-    const walletKeys = new MemoryWalletKeys({
+    const walletKeys = WalletKeys.fromMnemonic(mnemonic, {
       substrateSuri: integrationAccountUri(inject('argonIntegrationRunId'), import.meta.filename, 'upstream'),
-      masterMnemonic: mnemonic,
     });
     const client = await clients.get(false);
     const treasuryPositions = runtimeClient<typeof client.raw, CurrentRuntimeQueries>(client.raw).query
@@ -145,7 +145,7 @@ it(
       vaultId: actor.myVault.vaultId!,
       bondPurchaseMicrogons: rewardConfig.treasuryMinimumBonds,
     });
-    const purchase = await new TxSubmitter(client, bondTx, downstream).submit({ useLatestNonce: true });
+    const purchase = await new TxSubmitter(client, bondTx, new TxSigner(downstream)).submit({ useLatestNonce: true });
     await purchase.waitForFinalizedBlock;
     expect(await loadCertificationProgress({ client, defaultAccountId: downstream.address })).toMatchObject({
       hasTreasuryBonds: true,

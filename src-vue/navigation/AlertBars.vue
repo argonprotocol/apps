@@ -246,11 +246,10 @@ import { PopoverAnchor, PopoverContent, PopoverPortal, PopoverRoot, PopoverTrigg
 import { getConfig } from '../stores/config.ts';
 import basicEmitter from '../emitters/basicEmitter.ts';
 import type { IBitcoinLockRecord } from '../lib/db/BitcoinLocksTable.ts';
-import { getBot } from '../stores/bot.ts';
+import { getBot, getInstaller } from '../stores/startup.ts';
 import { createNumeralHelpers } from '../lib/numeral.ts';
 import Restarter from '../lib/Restarter.ts';
 import { getDbPromise } from '../stores/helpers/dbPromise.ts';
-import { getInstaller } from '../stores/installer.ts';
 import { getMainchainClient, getMainchainClients } from '../stores/mainchain.ts';
 import { getBitcoinLocks } from '../stores/bitcoin.ts';
 import { getCurrency } from '../stores/currency.ts';

@@ -240,7 +240,7 @@ function previewLiquid(allocations: BitcoinLiquidCreateAllocation[]) {
     (async () =>
       await bitcoinLiquidCreate.preview({
         allocations,
-        txSigner: await walletKeys.getLiquidLockingKeypair(),
+        txSigner: await walletKeys.getLiquidLockingSigner(),
       }))(),
     PREVIEW_TIMEOUT_MS,
     () => {
@@ -327,7 +327,7 @@ async function submit(satoshis: bigint): Promise<void> {
     }
     const txInfo = await bitcoinLiquidCreate.submit({
       allocations: allocate(selectedSatoshis.value),
-      txSigner: await walletKeys.getLiquidLockingKeypair(),
+      txSigner: await walletKeys.getLiquidLockingSigner(),
     });
     trackCreateTransaction(txInfo);
   } catch (error) {

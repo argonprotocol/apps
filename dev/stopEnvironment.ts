@@ -1,5 +1,6 @@
 import Fs from 'node:fs';
 import Path from 'node:path';
+import { spawnSync } from 'node:child_process';
 import { configureDevEnvironment, readOwnedEthereumStates, recordEthereumContainers } from './environment.ts';
 import { acquireDevLock } from './lock.ts';
 import { DevOutput } from './output.ts';
@@ -72,12 +73,40 @@ export async function stopDevEnvironment(profile: DevProfile, reset = false): Pr
           );
         }
       }
-      if (reset) Fs.rmSync(instanceDir, { recursive: true, force: true });
     }
-    if (reset) Fs.rmSync(paths.ownerDir, { recursive: true, force: true });
+    if (reset) {
+      const instances = new Set([...owned.map(({ instance }) => instance.instance), owner]);
+      for (const instance of instances) {
+        const resetProfile = { ...profile, instance };
+        clearMacDevKeychain(resetProfile);
+        Fs.rmSync(getDevPaths(resetProfile).instanceDir, { recursive: true, force: true });
+      }
+    }
     output.progress(`${reset ? 'Reset' : 'Stopped'} ${owner}`);
   } finally {
     release?.();
     output.close();
+  }
+}
+
+export function clearMacDevKeychain(
+  { network, instance }: Pick<DevProfile, 'network' | 'instance'>,
+  env: NodeJS.ProcessEnv = process.env,
+): void {
+  if (process.platform !== 'darwin' || network !== 'dev-docker') return;
+
+  const account = `${network}/${instance}`;
+  const result = spawnSync(
+    'security',
+    ['delete-generic-password', '-s', 'com.argon.desktop.local.mnemonic', '-a', account],
+    {
+      env,
+      encoding: 'utf8',
+      timeout: 10_000,
+    },
+  );
+  // security exits with 44 when the entry is already absent.
+  if (result.status !== 0 && result.status !== 44) {
+    throw new Error('Could not clear this development profile’s keychain entry.', { cause: result.error });
   }
 }

@@ -16,9 +16,6 @@ import {
   type FinancialCacheTable,
 } from './db/FinancialCacheTable.ts';
 import type { IWalletRecord } from './db/WalletsTable.ts';
-import { invokeWithTimeout } from './tauriApi.ts';
-
-const EXTERNAL_ETHEREUM_HD_PREFIX = "m/44'/60'/0'/0";
 
 type ITokenBalanceClient = {
   readContract(args: {
@@ -95,19 +92,6 @@ export class WalletForEthereum extends WalletForChain<WalletType.ethereum> {
 
   public async refresh(): Promise<void> {
     await this.load({ force: true });
-  }
-
-  public static async previewMnemonic(mnemonic: string, count = 10) {
-    const derivationPaths = Array.from({ length: count }, (_, index) => `${EXTERNAL_ETHEREUM_HD_PREFIX}/${index}`);
-    const addresses = await invokeWithTimeout<string[]>(
-      'derive_external_ethereum_addresses',
-      { mnemonic, hdPaths: derivationPaths },
-      60e3,
-    );
-    return derivationPaths.map((derivationPath, index) => ({
-      derivationPath,
-      address: addresses[index],
-    }));
   }
 
   public static async inspect(addresses: string[]): Promise<WalletForEthereum[]> {

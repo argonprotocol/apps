@@ -3,6 +3,7 @@ import type { EventCallback, UnlistenFn } from '@tauri-apps/api/event';
 import { SSHConnection } from '../lib/SSHConnection.ts';
 import { ServerAdmin } from '../lib/ServerAdmin.ts';
 import { ServerType } from '../interfaces/IConfig.ts';
+import { createTestWallet } from './helpers/wallet.ts';
 
 const { invoke, listen } = vi.hoisted(() => ({
   invoke: vi.fn(),
@@ -31,7 +32,7 @@ it('keeps a progressing download alive past one minute and releases its progress
     sshUser: 'argon',
     workDir: '~',
   };
-  const connection = new SSHConnection(details);
+  const connection = new SSHConnection(details, createTestWallet().walletKeys);
   try {
     const transfer = new ServerAdmin(connection, details).downloadTroubleshootingPackage(progress);
     const result = transfer.then(

@@ -1,3 +1,4 @@
+import { AccountSecurityBatch, type AccountSecurity } from './AccountSecurity.ts';
 import {
   type ArgonQueryClient,
   bigIntMax,
@@ -159,6 +160,7 @@ export class MintingAuthorities {
     public readonly walletKeys: WalletKeys,
     private readonly miningFrames: MiningFrames,
     private readonly transactionTracker: TransactionTracker,
+    private readonly authenticate: AccountSecurity['authenticate'],
     private readonly getGatewayRelayClients?: () => Promise<{
       serverApiClient?: Pick<ServerApiClient, 'getEthereumRelayStatus' | 'requestEthereumGatewayCatchUp'>;
       upstreamOperatorClient?: Pick<UpstreamOperatorClient, 'resolveOperatorHost' | 'requestEthereumGatewayCatchUp'>;
@@ -480,7 +482,7 @@ export class MintingAuthorities {
       });
 
       const client = await this.miningFrames.blockWatch.clients.get(false);
-      const txSigner = await this.walletKeys.getVaultingKeypair();
+      const txSigner = await this.walletKeys.getVaultingSigner();
       const payload = u8aToHex(
         u8aConcat(
           client.registry.createType('Bytes', MINTING_AUTHORITY_SIGNER_REGISTRATION_MESSAGE_KEY).toU8a(),
@@ -525,7 +527,12 @@ export class MintingAuthorities {
     }
   }
 
-  public async authorize(transferIds?: string[]): Promise<TransactionInfo<IMintingAuthorityAuthorizeMetadata>> {
+  public async authorize(
+    transferIds?: string[],
+    authentication = new AccountSecurityBatch(() =>
+      this.authenticate('approve the selected crosschain minting requests'),
+    ),
+  ): Promise<TransactionInfo<IMintingAuthorityAuthorizeMetadata>> {
     const selectedTransferIds = transferIds
       ? [...new Set(transferIds.map(transferId => transferId.toLowerCase()))]
       : undefined;
@@ -585,8 +592,9 @@ export class MintingAuthorities {
       );
     }
 
+    await authentication.authenticate();
     const client = await this.miningFrames.blockWatch.clients.get(false);
-    const txSigner = await this.walletKeys.getVaultingKeypair();
+    const txSigner = await this.walletKeys.getVaultingSigner();
     const txs = await Promise.all(
       authorizations.map(async authorization =>
         client.tx.crosschainTransfer.collateralizeTransfer(

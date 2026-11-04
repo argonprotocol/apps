@@ -28,6 +28,7 @@ import {
   encodeFunctionData,
   fallback,
   getAddress,
+  formatEther,
   keccak256,
   hexToBytes,
   type Hash,
@@ -190,15 +191,7 @@ export class EthereumClient {
   #inboundSubmissionQueues = new Map<string, SingleFileQueue>();
 
   constructor(
-    private readonly walletKeys: Pick<
-      WalletKeys,
-      | 'configureEthereumSignerPolicy'
-      | 'coreEthereumAddress'
-      | 'ethereumHdPath'
-      | 'signEthereumPermit'
-      | 'signEthereumTransaction'
-      | 'vaultingAddress'
-    >,
+    private readonly walletKeys: WalletKeys,
     public readonly executionRpcUrl: string,
   ) {}
 
@@ -258,7 +251,17 @@ export class EthereumClient {
     }
 
     return await queue.add(async () => {
-      const { publicClient, transaction, unsignedTransaction } = await this.prepareTransferToArgon(args);
+      const { publicClient, transaction, unsignedTransaction, feeEstimateWei } =
+        await this.prepareTransferToArgon(args);
+      const ethereumBalanceWei = await publicClient.getBalance({ address: getAddress(ethereumWallet.address) });
+      if (ethereumBalanceWei < feeEstimateWei) {
+        const missingWei = feeEstimateWei - ethereumBalanceWei;
+        throw new Error(
+          `Your Ethereum wallet has ${formatEther(ethereumBalanceWei)} ETH, but this transfer needs about ${formatEther(
+            feeEstimateWei,
+          )} ETH for network fees. Add about ${formatEther(missingWei)} ETH and retry.`,
+        );
+      }
       const signature = await this.walletKeys.signEthereumTransaction(
         unsignedTransaction,
         this.walletKeys.ethereumHdPath,
@@ -283,14 +286,14 @@ export class EthereumClient {
     }).promise;
   }
 
-  public async estimateTransferToArgonFee(args: {
+  public async estimateTransferToArgonFee(_args: {
     moveToken: IEthereumMoveToken;
     amountBaseUnits: bigint;
     destinationAddress: string;
     ethereumWallet: WalletForEthereum;
   }): Promise<bigint> {
-    const { feeEstimateWei } = await this.prepareTransferToArgon(args);
-    return feeEstimateWei;
+    const { publicClient } = await this.createExecutionClient();
+    return estimateEthereumFeeWeiForGas(publicClient, 350_000n);
   }
 
   public async estimateFinalizeTransferOutOfArgonFee(

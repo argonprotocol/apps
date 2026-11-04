@@ -1,4 +1,5 @@
 import {
+  type TxSigner,
   AccountActivityKind,
   BitcoinLock,
   JsonExt,
@@ -17,7 +18,7 @@ import {
   type IReleaseRequestDetails,
   type RuntimeSystemEventRecord,
 } from '@argonprotocol/apps-core';
-import { hexToU8a, u8aToHex, type KeyringPair } from '@argonprotocol/mainchain';
+import { hexToU8a, u8aToHex } from '@argonprotocol/mainchain';
 import { addressBytesHex, type CosignScript } from '@argonprotocol/bitcoin';
 import { OutScript } from '@scure/btc-signer';
 import { sha256AsU8a } from '@polkadot/util-crypto';
@@ -553,7 +554,7 @@ export default class BitcoinReleases {
     record: IBitcoinUtxoRecord;
     toScriptPubkey: string;
     feeRatePerSatVb: bigint;
-    owner: KeyringPair;
+    owner: TxSigner;
   }): Promise<IBitcoinReleaseRecord> {
     return this.bitcoinLocks.runInQueueForLock(
       lock,
@@ -1364,15 +1365,15 @@ export default class BitcoinReleases {
       outpoints.add(outpoint);
     }
 
-    const cosign = this.bitcoinLocks.createCosignScript({ lock, fundedSatoshis: lock.fundedSatoshis });
-    const tx = cosign.cosignAndGenerateTx({
+    const scriptLock = this.bitcoinLocks.getCosignScriptLock({ lock, fundedSatoshis: lock.fundedSatoshis });
+    const signer = await this.walletKeys.getBitcoinSigner(lock.hdPath, this.bitcoinLocks.bitcoinNetwork);
+    const tx = signer.cosignAndGenerateTx(scriptLock, {
       releaseRequest: release,
       vaultCosignatures: release.vaultSignatures,
       utxos: fundingUtxos.map(record => ({
         utxoRef: { txid: record.txid, vout: record.vout },
         satoshis: record.satoshis,
       })),
-      ownerXpriv: await this.walletKeys.getBitcoinChildXpriv(lock.hdPath, this.bitcoinLocks.bitcoinNetwork),
     });
     if (!tx?.isFinal) {
       throw new Error(`Failed to build finalized release transaction for lock ${lock.lockId}`);
@@ -1764,9 +1765,9 @@ export default class BitcoinReleases {
         throw new Error(`Bitcoin release ${release.id} does not have one input and one vault signature`);
       }
 
-      const ownerXpriv = await this.walletKeys.getBitcoinChildXpriv(lock.hdPath, this.bitcoinLocks.bitcoinNetwork);
-      const cosign = this.bitcoinLocks.createCosignScript({ lock, fundedSatoshis: utxo.satoshis });
-      const tx = cosign.cosignAndGenerateTx({
+      const signer = await this.walletKeys.getBitcoinSigner(lock.hdPath, this.bitcoinLocks.bitcoinNetwork);
+      const scriptLock = this.bitcoinLocks.getCosignScriptLock({ lock, fundedSatoshis: utxo.satoshis });
+      const tx = signer.cosignAndGenerateTx(scriptLock, {
         releaseRequest: {
           toScriptPubkey: release.toScriptPubkey,
           bitcoinNetworkFee: release.bitcoinNetworkFee,
@@ -1775,7 +1776,6 @@ export default class BitcoinReleases {
         },
         vaultCosignatures: release.vaultSignatures,
         utxos: [{ utxoRef: { txid: utxo.txid, vout: utxo.vout }, satoshis: utxo.satoshis }],
-        ownerXpriv,
       });
       if (!tx?.isFinal) throw new Error('Failed to generate deposit release transaction.');
 

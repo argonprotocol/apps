@@ -2,14 +2,14 @@ import type { ArgonClient } from '@argonprotocol/apps-core';
 import { sudo } from '@argonprotocol/testing';
 import { submitAndFinalize } from '../core/__test__/helpers/mainchain.ts';
 import { loadOperationalAccount } from '../src-vue/lib/OperationalAccount.ts';
-import type { MemoryWalletKeys } from '../src-vue/lib/MemoryWalletKeys.ts';
+import type { WalletKeys } from '../src-vue/lib/WalletKeys.ts';
 
 export async function certifyDevAccount({
   client,
   walletKeys,
 }: {
   client: ArgonClient;
-  walletKeys: MemoryWalletKeys;
+  walletKeys: WalletKeys;
 }): Promise<void> {
   const account = await loadOperationalAccount(walletKeys, client);
   if (account?.isOperationallyCertified) return;

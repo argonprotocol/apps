@@ -443,7 +443,7 @@ async function submit() {
   isSubmitting.value = true;
 
   try {
-    const signer = await walletKeys.getDefaultArgonKeypair();
+    const signer = await walletKeys.getDefaultArgonSigner();
     const info = await bondPurchase.submit({
       purchaseBonds: purchaseBonds.value,
       bondPurchaseMicronots: purchaseAmount.value,

@@ -79,13 +79,19 @@ export function hydrateCrosschainTransferProgress(
   const completedAllSteps = activeStepIndex === -1 && pendingStepIndex === -1;
   const overallProgressUnits = completedAllSteps ? completedStepCount : completedStepCount + activeStepProgress / 100;
   const overallProgressPct = totalSteps === 0 ? 0 : (overallProgressUnits / totalSteps) * 100;
+  let currentStepLabel = `Step ${currentStepIndex + 1} of ${totalSteps}: ${currentStep.title}`;
+  let currentStepDetail = currentStep.detail;
+  if (currentStep.status === 'pending' && currentStepDetail) {
+    currentStepLabel = currentStepDetail;
+    currentStepDetail = undefined;
+  }
 
   return {
     totalSteps,
     currentStep: currentStepIndex + 1,
     overallProgressPct,
-    currentStepLabel: `Step ${currentStepIndex + 1} of ${totalSteps}: ${currentStep.title}`,
-    currentStepDetail: currentStep.detail,
+    currentStepLabel,
+    currentStepDetail,
     currentStepHint: currentStep.hint,
     currentStepRemainingMintingAuthorizationMicrogons: currentStep.remainingMintingAuthorizationMicrogons,
     steps,
@@ -133,16 +139,14 @@ export function setInboundEthereumStepProgress(
   },
 ) {
   return replaceCrosschainTransferProgress(progress, steps => {
-    steps[0] = {
+    steps[0] = transactionStep({
       ...steps[0],
-      status: 'active',
       progressPct: args.progressPct,
-      startedAt: steps[0].startedAt ?? Date.now(),
       estimatedDurationMs: steps[0].estimatedDurationMs ?? getEthereumFinalityMillis(),
       detail: args.detail,
       confirmations: args.confirmations,
       expectedConfirmations: args.expectedConfirmations,
-    };
+    });
     steps[1] = {
       ...pendingStep(steps[1]),
       hint: 'This step can take several minutes.',
@@ -211,15 +215,13 @@ export function setOutboundArgonStepProgress(
   },
 ) {
   return replaceCrosschainTransferProgress(progress, steps => {
-    steps[0] = {
+    steps[0] = transactionStep({
       ...steps[0],
-      status: 'active',
       progressPct: args.progressPct,
-      startedAt: steps[0].startedAt ?? Date.now(),
       detail: args.detail,
       confirmations: args.confirmations,
       expectedConfirmations: args.expectedConfirmations,
-    };
+    });
     steps[1] = {
       ...pendingStep(steps[1]),
       hint: 'Usually about an hour, and sometimes up to a day.',
@@ -283,16 +285,14 @@ export function setOutboundEthereumStepProgress(
   return replaceCrosschainTransferProgress(progress, steps => {
     steps[0] = completeStep(steps[0]);
     steps[1] = completeStep(steps[1]);
-    steps[2] = {
+    steps[2] = transactionStep({
       ...steps[2],
-      status: 'active',
       progressPct: args.progressPct,
-      startedAt: steps[2].startedAt ?? Date.now(),
       detail: args.detail,
       hint: args.hint,
       confirmations: args.confirmations,
       expectedConfirmations: args.expectedConfirmations,
-    };
+    });
   });
 }
 
@@ -338,4 +338,15 @@ function getDisplayedStepProgress(step: ICrosschainTransferStepProgress, nowMs: 
   const elapsedMs = Math.max(0, nowMs - step.startedAt);
   const estimatedProgressPct = Math.min(99, (elapsedMs / step.estimatedDurationMs) * 100);
   return Math.max(actualProgressPct, estimatedProgressPct);
+}
+
+function transactionStep(step: ICrosschainTransferStepProgress): ICrosschainTransferStepProgress {
+  if (step.progressPct === 0 && step.confirmations === undefined) {
+    step.status = 'pending';
+    delete step.startedAt;
+  } else {
+    step.status = 'active';
+    step.startedAt ??= Date.now();
+  }
+  return step;
 }

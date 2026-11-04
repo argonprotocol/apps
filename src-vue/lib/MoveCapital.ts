@@ -7,6 +7,7 @@ import {
   MoveToken,
 } from '@argonprotocol/apps-core';
 import { nanoid } from 'nanoid';
+import type { AccountSecurity } from './AccountSecurity.ts';
 
 import { ExtrinsicType } from './db/TransactionsTable.ts';
 import { getTransactionFailureMessage, type TransactionInfo } from './TransactionInfo.ts';
@@ -68,6 +69,7 @@ export class MoveCapital {
   constructor(
     walletKeys: WalletKeys,
     private readonly transactionTracker: TransactionTracker,
+    private readonly authenticate: AccountSecurity['authenticate'],
   ) {
     this.balanceTransfers = new BalanceTransfer(walletKeys, transactionTracker, {
       ownsTransfer: txInfo => {
@@ -94,6 +96,7 @@ export class MoveCapital {
 
     const loading = (async () => {
       await this.balanceTransfers.load();
+      this.publishPendingTransfers();
       await this.restoreAllocationChange();
       this.publishPendingTransfers();
       this.data.loadError = undefined;
@@ -114,6 +117,8 @@ export class MoveCapital {
     if (input.moveTo === MoveTo.External && !isValidArgonAccountAddress(input.externalAddress?.trim() ?? '')) {
       throw new Error('Enter a valid Argon address.');
     }
+
+    if (input.moveTo === MoveTo.External) await this.authenticate('send funds outside your account');
 
     const txInfo = await this.balanceTransfers.submit(input);
     this.publishPendingTransfers();

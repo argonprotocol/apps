@@ -21,7 +21,8 @@
               @click="openUpgradeToOperationsOverlay"
             >
               <div class="relative flex flex-row items-center gap-1.5 whitespace-nowrap pl-2.5 pr-3 pt-px">
-                <template v-if="hasRequestedOperationsUpgrade">Operations Requested</template>
+                <template v-if="isOperationsSetupPending">Activating Operations</template>
+                <template v-else-if="hasRequestedOperationsUpgrade">Operations Requested</template>
                 <template v-else>Upgrade to Operations</template>
               </div>
             </div>
@@ -290,9 +291,13 @@ const isShowingActivatedTooltip = Vue.computed(() => {
   );
 });
 
+const isOperationsSetupPending = Vue.computed(() => {
+  return config.hasExtensionOperations && !config.certificationDetails?.dismissedWelcomeToOperationsOverlay;
+});
+
 const isShowingUpgradeButton = Vue.computed(() => {
   return (
-    controller.canRequestOperationsUpgrade &&
+    (controller.canRequestOperationsUpgrade || isOperationsSetupPending.value) &&
     !completionNoticeStepId.value &&
     !controller.isOperationalRewardsFlowActive
   );
@@ -301,6 +306,7 @@ const isShowingUpgradeButton = Vue.computed(() => {
 const isShowingUpgradeTooltip = Vue.computed(() => {
   return (
     isShowingUpgradeButton.value &&
+    !isOperationsSetupPending.value &&
     !hasRequestedOperationsUpgrade.value &&
     !config.certificationDetails?.dismissedOperationsUpgradeOverlay &&
     !isOpen.value
@@ -347,6 +353,10 @@ function openActivatedAction() {
 }
 
 function openUpgradeToOperationsOverlay() {
+  if (isOperationsSetupPending.value) {
+    basicEmitter.emit('openWelcomeToOperationsOverlay');
+    return;
+  }
   dismissUpgradeTooltip();
   basicEmitter.emit('openUpgradeToOperationsOverlay');
 }

@@ -170,7 +170,7 @@ export default new OperationalFlow<IAccountReviewFlowContext, IAccountReviewFlow
         hasTreasuryAccess: refs.config.hasExtensionTreasury,
         hasOperationsAccess: refs.config.hasExtensionOperations,
         configuredServerLoaded: refs.config.isServerAdded,
-        recoveryInProgress: refs.config.isBootingUpPreviousWalletHistory,
+        recoveryInProgress: refs.startup.isRecoveringHistory,
         upstreamName: refs.config.upstreamOperator?.name,
         vaultId,
         vaultBitcoinMapItemCount,

@@ -470,7 +470,7 @@ const feeEstimateError = Vue.computed(() => {
 const showFeeError = Vue.computed(() => {
   if (!showFees.value || tokensToMove.value <= 0n || isEstimatingFees.value) return false;
   if (feeEstimateError.value) return true;
-  if (feeEstimateWei.value != null && !hasSufficientEthereumFeeBalance.value) return true;
+  if (isOutboundTransfer.value && feeEstimateWei.value != null && !hasSufficientEthereumFeeBalance.value) return true;
   if (!hasSufficientArgonFeeBalance.value) return true;
   return isBitcoinTransfer.value && bitcoinFeeEstimate.value?.canAfford === false;
 });
@@ -506,7 +506,10 @@ const isReady = Vue.computed(() => {
   if (isOutboundTransfer.value) {
     if (!outboundQuote.value?.amountToTransfer || !hasSufficientArgonFeeBalance.value) return false;
   }
-  if (showEthereumFees.value) return hasSufficientEthereumFeeBalance.value;
+  if (showEthereumFees.value) {
+    if (isOutboundTransfer.value) return hasSufficientEthereumFeeBalance.value;
+    return feeEstimateWei.value != null;
+  }
   return true;
 });
 
@@ -682,7 +685,7 @@ Vue.watch(
       try {
         const estimates = await raceWithTimeout(
           (async () => {
-            const txSigner = await getWalletKeys().getLiquidLockingKeypair();
+            const txSigner = await getWalletKeys().getLiquidLockingSigner();
             const [minimumRetainedSatoshis, sources] = await Promise.all([
               getMinimumBitcoinRetainedSatoshis(),
               Promise.all(

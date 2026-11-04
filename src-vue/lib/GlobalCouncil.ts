@@ -1,3 +1,4 @@
+import { AccountSecurityBatch, type AccountSecurity } from './AccountSecurity.ts';
 import {
   type ArgonClient,
   type ArgonQueryClient,
@@ -93,6 +94,7 @@ export class GlobalCouncil {
     private readonly dbPromise: Promise<Db>,
     private readonly walletKeys: WalletKeys,
     private readonly miningFrames: MiningFrames,
+    private readonly authenticate: AccountSecurity['authenticate'],
     private readonly getConfiguredExecutionRpcUrl?: () => string | undefined | Promise<string | undefined>,
   ) {
     this.data = {
@@ -241,8 +243,11 @@ export class GlobalCouncil {
   public async buildApprovePendingGatewayUpdateTxs(
     client: ArgonClient,
     pendingApprovals: IGlobalCouncilApproval[] = this.data.pendingApprovals,
+    authentication = new AccountSecurityBatch(() => this.authenticate('approve the selected council changes')),
   ): Promise<SubmittableExtrinsic[]> {
     const txs: SubmittableExtrinsic[] = [];
+    if (!pendingApprovals.length) return txs;
+    await authentication.authenticate();
     const maxQueueApprovalsPerCall = client.consts.crosschainTransfer.maxQueueApprovalsPerCall;
 
     for (let i = 0; i < pendingApprovals.length; i += maxQueueApprovalsPerCall) {
@@ -289,7 +294,7 @@ export class GlobalCouncil {
       throw new Error('Ethereum execution RPC is not configured for this app instance.');
     }
 
-    const delegateAddress = await this.walletKeys.getVaultDelegateKeypair().then(x => x.address);
+    const delegateAddress = await this.walletKeys.getVaultDelegateSigner().then(x => x.address);
     const ethereumClient = new EthereumClient(this.walletKeys, executionRpcUrl);
     const receipt = await ethereumClient.applyReadyGatewayUpdates(
       finalizedClient,
@@ -315,7 +320,7 @@ export class GlobalCouncil {
       throw new Error('Ethereum execution RPC is not configured for this app instance.');
     }
 
-    const delegateAddress = await this.walletKeys.getVaultDelegateKeypair().then(x => x.address);
+    const delegateAddress = await this.walletKeys.getVaultDelegateSigner().then(x => x.address);
     return await new EthereumClient(this.walletKeys, executionRpcUrl).getReadyGatewayRelayPreview(
       finalizedClient,
       delegateAddress,

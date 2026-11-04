@@ -3,7 +3,7 @@ import os from 'node:os';
 import Path from 'node:path';
 import { afterEach, expect, it, vi } from 'vitest';
 import type { ArgonApi, ArgonClient, MainchainClients, MiningFrames } from '@argonprotocol/apps-core';
-import { Accountset, NetworkConfig } from '@argonprotocol/apps-core';
+import { Accountset, NetworkConfig, TxSigner } from '@argonprotocol/apps-core';
 import { getOfflineRegistry, Keyring, type GenericEvent } from '@argonprotocol/mainchain';
 import { getTypeDef } from '@polkadot/types-create';
 import { getHistoricalEventFieldAlternatives, toHistoricalEvent } from '@argonprotocol/runtime-client/events';
@@ -95,7 +95,7 @@ it.each([
     const accountset = {
       subAccountsByAddress: { 'our-miner': { index: 3 } },
       fundingAccountId: 'funding-account',
-      txSubmitterPair: { address: 'proxy-account' },
+      txSigner: { address: 'proxy-account' },
       loadRegisteredMiners: async () => [],
     } as unknown as Accountset;
     const miningFrames = {
@@ -275,7 +275,7 @@ it.each([117, 124, 125, 141, 159])(
       },
     } as unknown as ArgonApi;
     const accountset = new Accountset({
-      txSubmitter: funding,
+      txSubmitter: new TxSigner(funding),
       client: api as unknown as ArgonClient,
       subaccountRange: [0, 1, 2],
     });

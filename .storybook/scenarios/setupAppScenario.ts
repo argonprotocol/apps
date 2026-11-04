@@ -32,6 +32,8 @@ import { calculatePositionReturn, reduceFinancialPositions } from '../../src-vue
 import { GlobalCouncil } from '../../src-vue/lib/GlobalCouncil.ts';
 import { MintingAuthorities } from '../../src-vue/lib/MintingAuthorities.ts';
 import { MoveCapital } from '../../src-vue/lib/MoveCapital.ts';
+import { WalletKeys } from '../../src-vue/lib/WalletKeys.ts';
+import { cryptoWaitReady } from '@polkadot/util-crypto';
 import type { TransactionInfo } from '../../src-vue/lib/TransactionInfo.ts';
 import { getOperationalRewardConfig, subscribeOperationalAccount } from '../../src-vue/lib/OperationalAccount.ts';
 import { defaultWalletData, type IWalletData, WalletType } from '../../src-vue/lib/Wallet.ts';
@@ -41,7 +43,7 @@ import { BitcoinLockCreate } from '../../src-vue/lib/txs/BitcoinLock.create.ts';
 import { getArgonBonds, getBondTransactionOperations } from '../../src-vue/stores/argonBonds.ts';
 import { useBasics } from '../../src-vue/stores/basics.ts';
 import { getBitcoinFissions, getBitcoinLockCoupons, getBitcoinLocks } from '../../src-vue/stores/bitcoin.ts';
-import { getBot } from '../../src-vue/stores/bot.ts';
+import { getBot, getAppStartup, getInstaller } from '../../src-vue/stores/startup.ts';
 import { useCertificationController } from '../../src-vue/stores/certificationController.ts';
 import { getConfig } from '../../src-vue/stores/config.ts';
 import { getCurrency } from '../../src-vue/stores/currency.ts';
@@ -52,6 +54,7 @@ import {
   getBiddingCalculator,
   getBiddingCalculatorData,
   getMainchainClient,
+  getMiningBotSubaccountCount,
   getMiningFrames,
 } from '../../src-vue/stores/mainchain.ts';
 import { useMiningAssetBreakdown } from '../../src-vue/stores/miningAssetBreakdown.ts';
@@ -71,7 +74,9 @@ import {
   getMiningBidProxySetup,
   getMiningSetup,
   getMoveCapital,
+  getAccountSecurity,
   getWalletKeys,
+  exposeMasterMnemonic,
   useWallets,
 } from '../../src-vue/stores/wallets.ts';
 
@@ -96,11 +101,11 @@ export function setupAppScenario({
     }) as unknown as ReturnType<typeof getDbPromise>,
   );
 
-  const certificationDetails: NonNullable<IConfig['certificationDetails']> = {
+  const certificationDetails = Vue.reactive<NonNullable<IConfig['certificationDetails']>>({
     hasSavedMnemonic: false,
     showBonusTooltip: true,
     dismissedCompletionNoticeStepIds: [],
-  };
+  });
   const setCertificationDetails = fn(
     (details: Partial<NonNullable<IConfig['certificationDetails']>>): NonNullable<IConfig['certificationDetails']> =>
       Object.assign(certificationDetails, details),
@@ -218,7 +223,14 @@ export function setupAppScenario({
   const reactiveMyVaultData = Vue.shallowReactive(myVaultData);
 
   mocked(getConfig, { partial: true }).mockReturnValue(config);
+  mocked(getAppStartup, { partial: true }).mockReturnValue({
+    isReady: true,
+    isReadyPromise: Promise.resolve(),
+    isRecoveringHistory: false,
+    historyLoadPct: 100,
+  });
   mocked(getMainchainClient).mockReturnValue(new Promise(() => undefined));
+  mocked(getMiningBotSubaccountCount).mockResolvedValue(144);
   mocked(getOperationalRewardConfig).mockReturnValue(new Promise(() => undefined));
   mocked(getBitcoinLocks, { partial: true }).mockReturnValue({
     data: Vue.reactive({
@@ -311,14 +323,32 @@ export function setupAppScenario({
     canSign: true,
     canAccessServer: true,
     defaultArgonAddress: defaultArgonWallet.address,
+    defaultArgonKeyReference: '//vaulting',
     vaultingAddress: '5SyntheticVaultingWallet',
     liquidLockingAddress: '5SyntheticLiquidLockingWallet',
     coreEthereumAddress: '0x4444444444444444444444444444444444444444',
     exportEthereumPrivateKey: fn(async () => `0x${'34'.repeat(32)}` as const),
     exportDefaultArgonPrivateKey: fn(async () => `0x${'12'.repeat(32)}`),
     getMiningBotSubaccounts: fn(async () => ({})),
+    async getArgonSigner(path = '//vaulting') {
+      await cryptoWaitReady();
+      return WalletKeys.fromMnemonic('test test test test test test test test test test test junk').getArgonSigner(
+        path,
+      );
+    },
+    async getDefaultArgonSigner() {
+      await cryptoWaitReady();
+      return WalletKeys.fromMnemonic(
+        'test test test test test test test test test test test junk',
+      ).getDefaultArgonSigner();
+    },
   };
   mocked(getWalletKeys, { partial: true }).mockReturnValue(walletKeys);
+  mocked(exposeMasterMnemonic).mockResolvedValue('test test test test test test test test test test test junk');
+  mocked(getAccountSecurity, { partial: true }).mockReturnValue({
+    data: { method: 'none', systemOption: null, isLoaded: true },
+    authenticate: fn(async () => undefined),
+  });
   const moveCapital = Object.assign(Object.create(MoveCapital.prototype) as MoveCapital, {
     data: Vue.shallowReactive({ isLoaded: true }),
     load: fn(async () => undefined),
@@ -368,6 +398,9 @@ export function setupAppScenario({
       isReady: false,
       isSyncing: false,
     }),
+  );
+  mocked(getInstaller, { partial: true }).mockReturnValue(
+    Vue.reactive({ isRunning: false, isRunningInBackground: false, isLoaded: true }),
   );
   useBasics().overlayIsOpen = false;
   mocked(getBitcoinLockCoupons, { partial: true }).mockReturnValue(
@@ -522,11 +555,12 @@ export function setupAppScenario({
     getWalletKeys(),
     getMiningFrames(),
     getTransactionTracker(),
+    async () => undefined,
   );
   Object.assign(mintingAuthorities.data, {
     isReady: true,
   });
-  const globalCouncil = new GlobalCouncil(getDbPromise(), getWalletKeys(), getMiningFrames());
+  const globalCouncil = new GlobalCouncil(getDbPromise(), getWalletKeys(), getMiningFrames(), async () => undefined);
   Object.assign(globalCouncil.data, {
     isReady: true,
   });

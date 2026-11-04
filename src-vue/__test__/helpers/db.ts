@@ -12,17 +12,20 @@ const shouldLogDbQueries = process.env.TEST_DB_DEBUG === '1';
 const __dirname = fileURLToPath(new URL('.', import.meta.url));
 let migrationSqlStatementsPromise: Promise<{ version: number; sql: string }[]> | null = null;
 
-export async function createTestDb(): Promise<Db> {
-  return (await createTestDbAtMigration()).db;
+export async function createTestDb(filename = ':memory:'): Promise<Db> {
+  return (await createTestDbAtMigration(Number.POSITIVE_INFINITY, filename)).db;
 }
 
-export async function createTestDbAtMigration(throughVersion = Number.POSITIVE_INFINITY): Promise<{
+export async function createTestDbAtMigration(
+  throughVersion = Number.POSITIVE_INFINITY,
+  filename = ':memory:',
+): Promise<{
   db: Db;
   migrateToLatest: () => Promise<void>;
 }> {
-  const database = new TestSqliteDb(':memory:');
+  const database = new TestSqliteDb(filename);
   const migrations = await getMigrations();
-  for (const migration of migrations.filter(x => x.version <= throughVersion)) await database.exec(migration.sql);
+  for (const migration of migrations.filter(x => x.version <= throughVersion)) await database.migrate(migration.sql);
 
   const plugin = {
     async execute(query: string, bindValues?: unknown[]): Promise<QueryResult> {
@@ -50,7 +53,7 @@ export async function createTestDbAtMigration(throughVersion = Number.POSITIVE_I
   return {
     db: new TestDb(plugin, false),
     migrateToLatest: async () => {
-      for (const migration of migrations.filter(x => x.version > throughVersion)) await database.exec(migration.sql);
+      for (const migration of migrations.filter(x => x.version > throughVersion)) await database.migrate(migration.sql);
     },
   };
 }
@@ -105,6 +108,18 @@ export class TestSqliteDb {
 
   constructor(filename: string = ':memory:') {
     this.#database = new DatabaseSync(filename);
+  }
+
+  public async migrate(query: string): Promise<void> {
+    // SQLx applies each migration script in a single transaction.
+    this.#database.exec('BEGIN');
+    try {
+      this.#database.exec(query);
+      this.#database.exec('COMMIT');
+    } catch (error) {
+      this.#database.exec('ROLLBACK');
+      throw error;
+    }
   }
 
   public async exec(query: string): Promise<void> {

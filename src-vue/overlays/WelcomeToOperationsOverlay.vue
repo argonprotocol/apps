@@ -1,6 +1,6 @@
 <!-- prettier-ignore -->
 <template>
-  <OverlayBase :isOpen="isOpen" :showCloseIcon="false" :enableTopBar="true" class="w-5/12">
+  <OverlayBase :isOpen="isOpen" :enableTopBar="true" class="w-5/12" @close="closeOverlay">
     <template #overlayEffects>
       <div v-if="isOpen && isComplete" ref="confettiContainer" class="operations-confetti absolute inset-0">
         <span
@@ -218,19 +218,23 @@ async function completeRegistration() {
 }
 
 async function closeOverlay() {
+  isOpen.value = false;
+  if (!isComplete.value) return;
   config.setCertificationDetails({ dismissedWelcomeToOperationsOverlay: true });
   await config.save();
-  isOpen.value = false;
 }
 
-basicEmitter.on('openWelcomeToOperationsOverlay', () => {
+function openOverlay() {
   if (config.certificationDetails?.dismissedWelcomeToOperationsOverlay) return;
 
   isOpen.value = true;
-  void completeRegistration();
-});
+  if (!isComplete.value && !isRegistering.value) void completeRegistration();
+}
+
+basicEmitter.on('openWelcomeToOperationsOverlay', openOverlay);
 
 Vue.onBeforeUnmount(() => {
+  basicEmitter.off('openWelcomeToOperationsOverlay', openOverlay);
   unsubscribeProgress?.();
   confettiContext?.revert();
 });

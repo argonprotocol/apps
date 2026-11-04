@@ -1,14 +1,22 @@
-import { MoveFrom, MoveTo, MoveToken } from '@argonprotocol/apps-core';
+// prettier-ignore
+import { MoveFrom, MoveTo, MoveToken, TxSigner, type ArgonClient } from '@argonprotocol/apps-core';
 import { describe, expect, it, vi } from 'vitest';
 
-import { MiningSetupStatus } from '../interfaces/IConfig.ts';
+import { MiningSetupStatus, ServerType } from '../interfaces/IConfig.ts';
 import { getMiningFundingState } from '../screens/mining-screen/miningFunding.ts';
 import { MiningSetup, type MiningSetupInput } from '../lib/MiningSetup.ts';
 import type { TransactionInfo } from '../lib/TransactionInfo.ts';
 import { defaultArgonOperationalReserveMicrogons, existentialDepositMicronots } from '../lib/WalletForArgon.ts';
 import { ExtrinsicType } from '../lib/db/TransactionsTable.ts';
-import { TxAttemptState } from '../lib/TransactionTracker.ts';
+import { TxAttemptState, type TransactionTracker } from '../lib/TransactionTracker.ts';
 import { BalanceTransfer, type ITransactionMoveMetadata } from '../lib/txs/Balance.transfer.ts';
+import { WalletKeys } from '../lib/WalletKeys.ts';
+import { WalletSecrets } from '../lib/WalletSecrets.ts';
+import { signatureVerify } from '@polkadot/util-crypto';
+import { MiningBidProxySetup } from '../lib/txs/MiningBidProxy.setup.ts';
+import * as mainchainStore from '../stores/mainchain.ts';
+import { Config } from '../lib/Config.ts';
+import { createTestDb } from './helpers/db.ts';
 
 it('treats setup fees as a startup budget rather than unspent capital after installation starts', () => {
   const funding = {
@@ -33,53 +41,126 @@ it('treats setup fees as a startup budget rather than unspent capital after inst
 });
 
 describe('MiningSetup', () => {
-  it('runs proxy setup as post-processing for the funding transaction', async () => {
-    const funding = createTxInfo(1, ExtrinsicType.Transfer, {
-      moveFrom: MoveFrom.DefaultArgon,
-      moveTo: MoveTo.MiningBot,
-      assetsToMove: {
+  it('publishes bootstrap and configures the proxy using the unlocked session', async () => {
+    const mnemonic = 'test test test test test test test test test test test junk';
+    const walletKeys = new WalletKeys(
+      WalletKeys.deriveIdentity(mnemonic),
+      new WalletSecrets({ encryptedMnemonic: 'synthetic-encrypted-mnemonic' }),
+    );
+    walletKeys.initializeSession(mnemonic);
+    const db = await createTestDb();
+    const config = new Config(Promise.resolve(db));
+    await config.load();
+    config.isServerInstalled = true;
+    config.biddingRules = {
+      ...config.biddingRules,
+      initialMicrogonRequirement: 1_000_000n,
+      initialMicronotRequirement: 1_000_000n,
+    };
+    config.serverDetails = {
+      ...config.serverDetails,
+      type: ServerType.CustomServer,
+      ipAddress: '203.0.113.10',
+      sshUser: 'argon',
+      sshPort: 22,
+    };
+    const tx = { paymentInfo: async () => ({ partialFee: { toBigInt: () => 25n } }) };
+    const addProxy = vi.fn(() => tx);
+    const client = {
+      query: {
+        system: { account: async () => ({ data: { free: 10_000_000n } }) },
+        proxy: { proxies: async () => [[]] },
+        bootstrap: {
+          encryptedRecoveryPayloadByPubkey: async () => null,
+          encryptedEndpointByPubkey: async () => null,
+          endpointOwnerByPubkey: async () => null,
+        },
+      },
+      tx: {
+        proxy: { addProxy },
+        balances: { transferAllowDeath: () => tx },
+        ownership: { transferAllowDeath: () => tx },
+        utility: { batchAll: () => tx },
+        bootstrap: { setRecoveryPayload: () => tx, setEndpoint: () => tx },
+      },
+    } as unknown as ArgonClient;
+    const mainchain = vi.spyOn(mainchainStore, 'getMainchainClient').mockResolvedValue(client);
+    const followOn = { resolve: vi.fn(), reject: vi.fn() };
+    const retained: TxSigner[] = [];
+    const submittedTypes: ExtrinsicType[] = [];
+    const challenge = new TextEncoder().encode('synthetic mining setup');
+    let funding!: ReturnType<typeof createTxInfo>;
+    let proxy!: ReturnType<typeof createTxInfo>;
+    const transactionTracker = {
+      ...createTransactionTracker([], followOn),
+      findLatestTxAttempt: async () => undefined,
+      submitAndWatch: async ({
+        txSigner,
+        extrinsicType,
+        metadata,
+      }: Parameters<TransactionTracker['submitAndWatch']>[0]) => {
+        const expectedAddress =
+          extrinsicType === ExtrinsicType.MiningBidProxySetup
+            ? walletKeys.miningBotAddress
+            : walletKeys.defaultArgonAddress;
+        if (!(txSigner instanceof TxSigner)) throw new Error('Expected a wallet signer');
+        expect(signatureVerify(challenge, txSigner.sign(challenge), expectedAddress).isValid).toBe(true);
+        retained.push(txSigner);
+        submittedTypes.push(extrinsicType);
+        const submitted = createTxInfo(
+          retained.length,
+          extrinsicType,
+          metadata,
+          extrinsicType !== ExtrinsicType.Transfer,
+        );
+        transactionTracker.data.txInfos.push(submitted);
+        if (extrinsicType === ExtrinsicType.Transfer) funding = submitted;
+        else if (extrinsicType === ExtrinsicType.MiningBidProxySetup) proxy = submitted;
+        return submitted as unknown as TransactionInfo;
+      },
+    };
+    const tracker = transactionTracker as unknown as TransactionTracker;
+    const proxySetup = new MiningBidProxySetup(walletKeys, tracker);
+    const miningSetup = new MiningSetup(walletKeys, tracker, proxySetup, config);
+
+    try {
+      const result = await miningSetup.ensure({ ...createInput(), client });
+      expect(result.kind).toBe('transaction');
+      if (result.kind !== 'transaction') throw new Error('Expected a setup transaction.');
+      expect(result.txInfo).toBe(funding);
+      expect(funding.tx.metadataJson.assetsToMove).toEqual({
         [MoveToken.ARGN]: 4_000_000n,
         [MoveToken.ARGNOT]: 1_000_000n,
-      },
-      workflow: 'miningSetup',
-    });
-    const proxy = createTxInfo(
-      2,
-      ExtrinsicType.MiningBidProxySetup,
-      { fundingAccountId: 'mining-address', proxyAccountId: 'proxy-address' },
-      true,
-    );
-    const followOn = { resolve: vi.fn(), reject: vi.fn() };
-    const transactionTracker = createTransactionTracker([], followOn);
-    const proxySetup = createProxySetup({ kind: 'transaction', txInfo: proxy });
-    const miningSetup = new MiningSetup({} as any, transactionTracker as any, proxySetup as any);
-    const fundingTransfer = getFundingTransfer(miningSetup);
-    vi.spyOn(fundingTransfer, 'estimateFee').mockResolvedValue(25n);
-    const submit = vi.spyOn(fundingTransfer, 'submit').mockImplementation(async () => {
-      fundingTransfer.resume(funding as unknown as TransactionInfo<ITransactionMoveMetadata>);
-      return funding as unknown as TransactionInfo<ITransactionMoveMetadata>;
-    });
+      });
+      expect(retained.map(signer => signer.address)).toEqual([walletKeys.defaultArgonAddress]);
 
-    const result = await miningSetup.ensure(createInput());
+      funding.finish();
+      await result.waitForCompletion;
 
-    expect(result.kind).toBe('transaction');
-    if (result.kind !== 'transaction') throw new Error('Expected a setup transaction.');
-    expect(result.txInfo).toBe(funding);
-    expect(proxySetup.ensure).not.toHaveBeenCalled();
-
-    funding.finish();
-    await result.waitForCompletion;
-
-    expect(proxySetup.ensure).toHaveBeenCalledOnce();
-    expect(followOn.resolve).toHaveBeenCalledWith(proxy);
-    expect(submit).toHaveBeenCalledWith(
-      expect.objectContaining({
-        moveFrom: MoveFrom.DefaultArgon,
-        moveTo: MoveTo.MiningBot,
-        workflow: 'miningSetup',
-        assetsToMove: { [MoveToken.ARGN]: 4_000_000n, [MoveToken.ARGNOT]: 1_000_000n },
-      }),
-    );
+      expect(retained.map(signer => signer.address)).toEqual([
+        walletKeys.defaultArgonAddress,
+        walletKeys.defaultArgonAddress,
+        walletKeys.defaultArgonAddress,
+        walletKeys.miningBotAddress,
+      ]);
+      expect(submittedTypes).toEqual([
+        ExtrinsicType.Transfer,
+        ExtrinsicType.BootstrapPublishRecovery,
+        ExtrinsicType.BootstrapPublishEndpoint,
+        ExtrinsicType.MiningBidProxySetup,
+      ]);
+      expect(config.serverDetails.bootstrapEndpointSequence).toBe(1);
+      expect((await db.configTable.fetchAllAsObject()).serverDetails).toContain('"bootstrapEndpointSequence": 1');
+      expect(addProxy).toHaveBeenCalledWith(
+        (await walletKeys.getMiningBidProxySigner()).address,
+        'MiningBidRealPaysFee',
+        0,
+      );
+      expect(followOn.resolve).toHaveBeenCalledWith(proxy);
+    } finally {
+      mainchain.mockRestore();
+      await db.close();
+    }
   });
 
   it('resumes proxy setup from a finalized funding transaction after restart', async () => {
@@ -103,7 +184,12 @@ describe('MiningSetup', () => {
     const followOn = { resolve: vi.fn(), reject: vi.fn() };
     const transactionTracker = createTransactionTracker([funding], followOn);
     const proxySetup = createProxySetup({ kind: 'transaction', txInfo: proxy });
-    const miningSetup = new MiningSetup({} as any, transactionTracker as any, proxySetup as any);
+    const miningSetup = new MiningSetup(
+      {} as any,
+      transactionTracker as any,
+      proxySetup as any,
+      { biddingRules: { initialMicrogonRequirement: 1_000_000n, initialMicronotRequirement: 1_000_000n } } as any,
+    );
 
     const result = await miningSetup.ensure(createInput({ miningBotMicrogons: 2_000_000n }));
 
@@ -133,7 +219,12 @@ describe('MiningSetup', () => {
     );
     const transactionTracker = createTransactionTracker([funding]);
     const proxySetup = createProxySetup({ kind: 'transaction', txInfo: proxy });
-    const miningSetup = new MiningSetup({} as any, transactionTracker as any, proxySetup as any);
+    const miningSetup = new MiningSetup(
+      {} as any,
+      transactionTracker as any,
+      proxySetup as any,
+      { biddingRules: { initialMicrogonRequirement: 1_000_000n, initialMicronotRequirement: 1_000_000n } } as any,
+    );
     const submit = vi.spyOn(getFundingTransfer(miningSetup), 'submit');
 
     const result = await miningSetup.ensure(createInput({ miningBotMicrogons: 2_000_000n }));
@@ -167,6 +258,7 @@ describe('MiningSetup', () => {
       {} as any,
       createTransactionTracker([funding, proxy]) as any,
       proxySetup as any,
+      { biddingRules: { initialMicrogonRequirement: 1_000_000n, initialMicronotRequirement: 1_000_000n } } as any,
     );
 
     const result = await miningSetup.ensure(createInput({ miningBotMicrogons: 2_000_000n }));
@@ -213,6 +305,7 @@ describe('MiningSetup', () => {
       {} as any,
       createTransactionTracker([funding, failedProxy], followOn) as any,
       proxySetup as any,
+      { biddingRules: { initialMicrogonRequirement: 1_000_000n, initialMicronotRequirement: 1_000_000n } } as any,
     );
 
     const result = await miningSetup.ensure(createInput({ miningBotMicrogons: 2_000_000n }));
@@ -251,6 +344,7 @@ describe('MiningSetup', () => {
       {} as any,
       createTransactionTracker([funding], followOn) as any,
       proxySetup as any,
+      { biddingRules: { initialMicrogonRequirement: 1_000_000n, initialMicronotRequirement: 1_000_000n } } as any,
     );
 
     getFundingTransfer(miningSetup).resume(funding as unknown as TransactionInfo<ITransactionMoveMetadata>);
@@ -273,7 +367,12 @@ describe('MiningSetup', () => {
     if (!proxyReady) {
       proxySetup.ensure.mockResolvedValue({ kind: 'insufficientFunds', error: 'Proxy setup requires funding.' });
     }
-    const miningSetup = new MiningSetup({} as any, createTransactionTracker([]) as any, proxySetup as any);
+    const miningSetup = new MiningSetup(
+      {} as any,
+      createTransactionTracker([]) as any,
+      proxySetup as any,
+      { biddingRules: { initialMicrogonRequirement: 1_000_000n, initialMicronotRequirement: 1_000_000n } } as any,
+    );
     const submit = vi.spyOn(getFundingTransfer(miningSetup), 'submit');
 
     const input = createInput({ miningBotMicrogons: balance, miningBotMicronots: 1_000_000n });

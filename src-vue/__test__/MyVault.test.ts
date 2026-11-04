@@ -3,7 +3,7 @@ import { Db } from '../lib/Db.ts';
 import { createTestDb } from './helpers/db.ts';
 import { describe, expect, it, vi } from 'vitest';
 import * as AppsCore from '@argonprotocol/apps-core';
-import { type MiningFrames, Vault, targetVaultDelegateBalance } from '@argonprotocol/apps-core';
+import { type MiningFrames, TxSigner, Vault, targetVaultDelegateBalance } from '@argonprotocol/apps-core';
 import { reactive } from 'vue';
 import { VaultFinancials } from '../lib/financials/MyVault.ts';
 import { FinancialPositionBook } from '../lib/financials/index.ts';
@@ -31,11 +31,103 @@ import { Metadata, TypeRegistry } from '@polkadot/types';
 import { decorateExtrinsics } from '@polkadot/types/metadata/decorate';
 import BigNumber from 'bignumber.js';
 import { createCurrentLock, createStore, historyEvent } from './helpers/bitcoin.ts';
-import { BitcoinNetwork, CosignScript } from '@argonprotocol/bitcoin';
+import { BitcoinNetwork, CosignScript, HDKey } from '@argonprotocol/bitcoin';
+import { BitcoinSigner } from '../lib/BitcoinSigner.ts';
 import type { IBitcoinLockCosignMetadata } from '../lib/txs/BitcoinLock.cosign.ts';
 import { BitcoinReleaseKind, BitcoinReleaseStatus } from '../interfaces/IBitcoinReleaseRecord.ts';
 import { BitcoinLockStatus } from '../interfaces/IBitcoinLockRecord.ts';
 import { BitcoinUtxoSpendStatus, BitcoinUtxoStatus } from '../interfaces/IBitcoinUtxoRecord.ts';
+import { WalletKeys } from '../lib/WalletKeys.ts';
+import { WalletSecrets } from '../lib/WalletSecrets.ts';
+import { Config } from '../lib/Config.ts';
+import { ServerType } from '../interfaces/IConfig.ts';
+import { signatureVerify } from '@polkadot/util-crypto';
+
+it.each(['success', 'endpoint rejected'] as const)(
+  'publishes bootstrap during vault creation using the unlocked session (%s)',
+  async outcome => {
+    const db = await createTestDb();
+    const config = new Config(Promise.resolve(db));
+    await config.load();
+    config.isServerInstalled = true;
+    config.serverDetails = {
+      ...config.serverDetails,
+      type: ServerType.CustomServer,
+      ipAddress: '203.0.113.10',
+      sshUser: 'argon',
+      sshPort: 22,
+    };
+    const mnemonic = 'test test test test test test test test test test test junk';
+    const walletKeys = new WalletKeys(
+      WalletKeys.deriveIdentity(mnemonic),
+      new WalletSecrets({ encryptedMnemonic: 'synthetic-ciphertext' }),
+    );
+    walletKeys.initializeSession(mnemonic);
+    const submitted: ExtrinsicType[] = [];
+    const retained: TxSigner[] = [];
+    const message = new TextEncoder().encode('synthetic vault setup');
+    const submitAndWatch = vi.fn(async (args: Parameters<TransactionTracker['submitAndWatch']>[0]) => {
+      if (!(args.txSigner instanceof TxSigner)) throw new Error('Expected a wallet signer');
+      expect(signatureVerify(message, args.txSigner.sign(message), walletKeys.defaultArgonAddress).isValid).toBe(true);
+      submitted.push(args.extrinsicType);
+      retained.push(args.txSigner);
+      return new TransactionInfo({
+        tx: createTxInfo({ id: submitted.length, extrinsicType: args.extrinsicType, metadataJson: args.metadata }).tx,
+        txResult: {
+          waitForFinalizedBlock:
+            args.extrinsicType === ExtrinsicType.VaultCreate
+              ? new Promise(() => undefined)
+              : Promise.resolve(new Uint8Array([1])),
+          extrinsicError:
+            outcome === 'endpoint rejected' && args.extrinsicType === ExtrinsicType.BootstrapPublishEndpoint
+              ? new Error('Synthetic endpoint rejection')
+              : undefined,
+        } as AppsCore.TxResult,
+      });
+    });
+    const { myVault, globalCouncil } = createVault({ db, walletKeys, submitAndWatch });
+    Object.assign(globalCouncil, { buildRegisterCouncilSignerTx: async () => undefined });
+    const client = {
+      registry: getOfflineRegistry(),
+      query: {
+        bitcoinUtxos: { bitcoinNetwork: async () => ({ type: 'Regtest' }) },
+        system: { account: async () => ({ data: { free: targetVaultDelegateBalance } }) },
+        bootstrap: {
+          encryptedRecoveryPayloadByPubkey: async () => null,
+          encryptedEndpointByPubkey: async () => null,
+          endpointOwnerByPubkey: async () => null,
+        },
+      },
+      tx: {
+        vaults: { create: () => ({ kind: 'vault-create' }) },
+        bootstrap: { setRecoveryPayload: () => ({ kind: 'recovery' }), setEndpoint: () => ({ kind: 'endpoint' }) },
+      },
+    };
+    const mainchain = vi
+      .spyOn(mainchainStore, 'getMainchainClient')
+      .mockResolvedValue(client as unknown as AppsCore.ArgonClient);
+    try {
+      const creation = myVault.createNew({ config, vaultSetup: config.vaultSetup, masterXpubPath: "m/84'/0'/0'" });
+      if (outcome === 'endpoint rejected') {
+        await expect(creation).rejects.toThrow('Synthetic endpoint rejection');
+        expect(submitted).toEqual([ExtrinsicType.BootstrapPublishRecovery, ExtrinsicType.BootstrapPublishEndpoint]);
+        expect(config.serverDetails.bootstrapEndpointSequence).toBeUndefined();
+      } else {
+        await creation;
+        expect(submitted).toEqual([
+          ExtrinsicType.BootstrapPublishRecovery,
+          ExtrinsicType.BootstrapPublishEndpoint,
+          ExtrinsicType.VaultCreate,
+        ]);
+        expect(config.serverDetails.bootstrapEndpointSequence).toBe(1);
+        expect((await db.configTable.fetchAllAsObject()).serverDetails).toContain('"bootstrapEndpointSequence": 1');
+      }
+    } finally {
+      mainchain.mockRestore();
+      await db.close();
+    }
+  },
+);
 
 type IMyVaultTestTarget = {
   buildPendingOrphanCosignTxs(args: {
@@ -411,7 +503,9 @@ describe('MyVault cosign recovery', () => {
       securitizationAtRisk: 1_000n,
     });
     const getBitcoinNetwork = vi.spyOn(myVault, 'getBitcoinNetwork').mockResolvedValue(BitcoinNetwork.Regtest);
-    const getVaultXpriv = vi.spyOn(myVault as any, 'getVaultXpriv').mockResolvedValue({});
+    const getVaultBitcoinSigner = vi
+      .spyOn(myVault as any, 'getVaultBitcoinSigner')
+      .mockResolvedValue(new BitcoinSigner(HDKey.fromMasterSeed(new Uint8Array(32).fill(1)), BitcoinNetwork.Regtest));
     const getCosignPsbt = vi.spyOn(CosignScript.prototype, 'getCosignPsbt').mockReturnValue(psbt as any);
     const vaultCosignPsbt = vi.spyOn(CosignScript.prototype, 'vaultCosignPsbt').mockReturnValue(signedPsbt as any);
 
@@ -436,7 +530,7 @@ describe('MyVault cosign recovery', () => {
       getLock.mockRestore();
       getReleaseRequest.mockRestore();
       getBitcoinNetwork.mockRestore();
-      getVaultXpriv.mockRestore();
+      getVaultBitcoinSigner.mockRestore();
       getCosignPsbt.mockRestore();
       vaultCosignPsbt.mockRestore();
     }
@@ -1820,7 +1914,7 @@ describe('MyVault cosign recovery', () => {
       submittedAtBlockHeight: 100,
     });
     const { myVault, submitAndWatch } = createVault({ txInfos: [pending] });
-    const delegateAddress = await myVault.walletKeys.getVaultDelegateKeypair().then(x => x.address);
+    const delegateAddress = await myVault.walletKeys.getVaultDelegateSigner().then(x => x.address);
     pending.tx.metadataJson = {
       vaultId: 7,
       delegateAddress,
@@ -1844,7 +1938,7 @@ describe('MyVault cosign recovery', () => {
       status: TransactionStatus.Finalized,
     });
     const { myVault, submitAndWatch } = createVault({ txInfos: [finalized] });
-    const delegateAddress = await myVault.walletKeys.getVaultDelegateKeypair().then(x => x.address);
+    const delegateAddress = await myVault.walletKeys.getVaultDelegateSigner().then(x => x.address);
     finalized.tx.metadataJson = {
       vaultId: 7,
       delegateAddress,
@@ -1889,8 +1983,8 @@ describe('MyVault cosign recovery', () => {
     const { myVault, submitAndWatch } = createVault({
       submitAndWatch: vi.fn().mockResolvedValue(submittedTxInfo),
     });
-    const signer = await myVault.walletKeys.getVaultingKeypair();
-    const delegateAddress = await myVault.walletKeys.getVaultDelegateKeypair().then(x => x.address);
+    const signer = await myVault.walletKeys.getVaultingSigner();
+    const delegateAddress = await myVault.walletKeys.getVaultDelegateSigner().then(x => x.address);
     myVault.data.createdVault = createTestVault({
       vaultId: 7,
       operatorAccountId: signer.address,
@@ -1913,7 +2007,7 @@ describe('MyVault cosign recovery', () => {
     ]);
     expect(submitAndWatch).toHaveBeenCalledWith({
       tx: { kind: 'batch', txs: expect.any(Array) },
-      txSigner: signer,
+      txSigner: expect.objectContaining({ address: signer.address }),
       useLatestNonce: true,
       extrinsicType: ExtrinsicType.VaultSetBitcoinLockDelegate,
       metadata: {
@@ -1937,7 +2031,7 @@ describe('MyVault cosign recovery', () => {
     const { myVault, submitAndWatch } = createVault({
       submitAndWatch: vi.fn().mockResolvedValue(submittedTxInfo),
     });
-    const delegateAddress = await myVault.walletKeys.getVaultDelegateKeypair().then(x => x.address);
+    const delegateAddress = await myVault.walletKeys.getVaultDelegateSigner().then(x => x.address);
     const client = {
       query: {
         system: {
@@ -1991,7 +2085,7 @@ describe('MyVault cosign recovery', () => {
     const { myVault, submitAndWatch } = createVault({
       submitAndWatch: vi.fn().mockResolvedValue(submittedTxInfo),
     });
-    const delegateAddress = await myVault.walletKeys.getVaultDelegateKeypair().then(x => x.address);
+    const delegateAddress = await myVault.walletKeys.getVaultDelegateSigner().then(x => x.address);
     const client = {
       query: {
         system: {
@@ -2039,7 +2133,7 @@ describe('MyVault cosign recovery', () => {
     });
     const transferKeepAlive = vi.fn((address, amount) => ({ kind: 'fund-delegate', address, amount }));
     const { myVault, submitAndWatch } = createVault({ txInfos: [pendingTopUp] });
-    const delegateAddress = await myVault.walletKeys.getVaultDelegateKeypair().then(x => x.address);
+    const delegateAddress = await myVault.walletKeys.getVaultDelegateSigner().then(x => x.address);
     pendingTopUp.tx.metadataJson = { vaultId: 7, delegateAddress };
     const client = {
       query: {
@@ -2089,7 +2183,7 @@ describe('MyVault cosign recovery', () => {
     const { myVault, submitAndWatch } = createVault({
       submitAndWatch: vi.fn().mockResolvedValue(submittedTxInfo),
     });
-    const signer = await myVault.walletKeys.getVaultingKeypair();
+    const signer = await myVault.walletKeys.getVaultingSigner();
     myVault.data.createdVault = createTestVault({
       vaultId: 7,
       operatorAccountId: signer.address,

@@ -48,14 +48,17 @@
         </li>
         <li
           @click="goTo('missing-data-scanner')"
-          class="group hover:text-argon-600 hover:to-argon-menu-hover/70 flex cursor-pointer flex-row items-center rounded-md py-4 hover:bg-gradient-to-r hover:from-transparent">
+          class="group hover:text-argon-600 hover:to-argon-menu-hover/70 flex cursor-pointer flex-row items-center rounded-md py-4 hover:bg-gradient-to-r hover:from-transparent"
+          :class="{ 'opacity-50 pointer-events-none': localOnly }"
+          :aria-disabled="localOnly">
           <ScannerIcon class="group-hover:text-argon-600 mr-2 h-5 w-5 text-slate-600 opacity-70" />
           Run Missing Data Scanner
         </li>
         <li
           @click="goTo('server-diagnostics')"
           class="group hover:text-argon-600 hover:to-argon-menu-hover/70 flex cursor-pointer flex-row items-center rounded-md py-4 hover:bg-gradient-to-r hover:from-transparent"
-          :class="config.isServerAdded ? '' : 'opacity-50 pointer-events-none'"
+          :class="{ 'opacity-50 pointer-events-none': localOnly || !config?.isServerAdded }"
+          :aria-disabled="localOnly || !config?.isServerAdded"
         >
           <DiagnosticIcon class="group-hover:text-argon-600 mr-2 h-5 w-5 opacity-70" />
           Run Server Diagnostics
@@ -63,7 +66,8 @@
         <li
           @click="goTo('ssh')"
           class="group hover:text-argon-600 hover:to-argon-menu-hover/70 flex cursor-pointer flex-row items-center rounded-md py-4 hover:bg-gradient-to-r hover:from-transparent"
-          :class="config.isServerAdded ? '' : 'opacity-50 pointer-events-none'"
+          :class="{ 'opacity-50 pointer-events-none': localOnly || !config?.isServerAdded }"
+          :aria-disabled="localOnly || !config?.isServerAdded"
         >
           <CommandLineIcon class="group-hover:text-argon-600 mr-2 h-5 w-5 opacity-70" />
           Open SSH to Mining Machine
@@ -71,7 +75,9 @@
         <li class="my-4 h-[1px] border-t border-dashed border-slate-300" />
         <li
           @click="goTo('options-for-restart')"
-          class="group hover:text-argon-600 hover:to-argon-menu-hover/70 flex cursor-pointer flex-row items-center rounded-md py-4 hover:bg-gradient-to-r hover:from-transparent">
+          class="group hover:text-argon-600 hover:to-argon-menu-hover/70 flex cursor-pointer flex-row items-center rounded-md py-4 hover:bg-gradient-to-r hover:from-transparent"
+          :class="{ 'opacity-50 pointer-events-none': localOnly }"
+          :aria-disabled="localOnly">
           <RestartIcon class="group-hover:text-argon-600 mr-2 h-5 w-5 opacity-70" />
           Advanced Restart
         </li>
@@ -79,8 +85,8 @@
     </div>
     <ServerDiagnostics v-else-if="activeScreen === 'server-diagnostics'" />
     <DataAndLogFiles v-else-if="activeScreen === 'data-and-logs-dir'" />
-    <DebugPackage v-else-if="activeScreen === 'debug-package'" />
-    <SSHAccess v-if="activeScreen === 'ssh'" />
+    <DebugPackage v-else-if="activeScreen === 'debug-package'" :include-server="!localOnly" />
+    <SSHAccess v-else-if="activeScreen === 'ssh'" />
     <MissingDataScanner v-else-if="activeScreen === 'missing-data-scanner'" />
     <AdvancedRestart v-else-if="activeScreen === 'options-for-restart'" />
   </OverlayBase>
@@ -105,34 +111,35 @@ import { getConfig } from '../stores/config.ts';
 import MissingDataScanner from './troubleshooting/MissingDataScanner.vue';
 import SSHAccess from './troubleshooting/SSHAccess.vue';
 
+const { localOnly = false } = defineProps<{ localOnly?: boolean }>();
 const isOpen = Vue.ref(false);
-const isLoaded = Vue.ref(false);
-const config = getConfig();
+const config = Vue.computed(() => {
+  if (!localOnly) return getConfig();
+});
 
 const activeScreen = Vue.ref('overview');
 
-function goTo(
-  screen:
-    | 'overview'
-    | 'server-diagnostics'
-    | 'data-and-logs-dir'
-    | 'debug-package'
-    | 'options-for-restart'
-    | 'missing-data-scanner'
-    | 'ssh',
-) {
+function goTo(screen: string) {
+  if (localOnly && !['overview', 'data-and-logs-dir', 'debug-package'].includes(screen)) {
+    activeScreen.value = 'overview';
+    return;
+  }
   activeScreen.value = screen;
 }
 
-basicEmitter.on('openTroubleshootingOverlay', async (data: any) => {
-  await config.isLoadedPromise;
+function openOverlay(data: { screen?: string }) {
   isOpen.value = true;
-  isLoaded.value = true;
-  activeScreen.value = data?.screen || 'overview';
-});
+  goTo(data?.screen ?? 'overview');
+}
+
+Vue.watch(
+  () => localOnly,
+  () => goTo(activeScreen.value),
+);
+basicEmitter.on('openTroubleshootingOverlay', openOverlay);
+Vue.onBeforeUnmount(() => basicEmitter.off('openTroubleshootingOverlay', openOverlay));
 
 function closeOverlay() {
   isOpen.value = false;
-  isLoaded.value = false;
 }
 </script>

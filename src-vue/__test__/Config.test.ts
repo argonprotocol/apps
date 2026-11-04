@@ -1,35 +1,35 @@
 import './helpers/mocks.ts';
-import { beforeAll, expect, it, vi } from 'vitest';
+import { expect, it, vi } from 'vitest';
 import { Config } from '../lib/Config';
+import { AppStartup } from '../lib/AppStartup.ts';
+import type { WalletRecovery } from '../lib/WalletRecovery.ts';
+import type { MainchainClients } from '@argonprotocol/apps-core';
 import { createMockedDbPromise, createTestDb, createTestDbAtMigration } from './helpers/db';
 import { instanceChecks } from '../lib/Utils.js';
-import { WalletKeys } from '../lib/WalletKeys.ts';
 import { createTestWallet } from './helpers/wallet.ts';
 import {
   BootstrapType,
   MiningSetupStatus,
   OnboardingSetupStatus,
   ServerType,
+  TopTab,
   VaultingSetupStatus,
 } from '../interfaces/IConfig.ts';
-import { JsonExt, Vault } from '@argonprotocol/apps-core';
-import { getOfflineRegistry, type ArgonPrimitivesVault } from '@argonprotocol/mainchain';
-import { toPlain } from '@argonprotocol/runtime-client';
+import { JsonExt } from '@argonprotocol/apps-core';
 import Restarter from '../lib/Restarter.ts';
 import PluginSql from '@tauri-apps/plugin-sql';
 import { LocalMachine } from '../lib/LocalMachine.ts';
 import { AdvancedRestartOption } from '../interfaces/IAdvancedRestartOption.ts';
+import { invokeWithTimeout } from '../lib/tauriApi.ts';
 
-beforeAll(() => {
-  WalletKeys.prototype.didWalletHavePreviousLife = vi.fn().mockResolvedValue(false);
-});
+const getStartupClient = vi.fn();
+const startupClients = { get: getStartupClient } as unknown as MainchainClients;
 
 it('can load config defaults', async () => {
   const dbPromise = createMockedDbPromise();
   instanceChecks.delete(Config.prototype.constructor);
 
-  const { walletKeys } = createTestWallet('//Alice');
-  const config = new Config(dbPromise, walletKeys);
+  const config = new Config(dbPromise);
   await config.load();
   expect(config.miningSetupStatus).toBe(MiningSetupStatus.None);
   expect(config.onboardingSetupStatus).toBe(OnboardingSetupStatus.None);
@@ -44,19 +44,84 @@ it('can load config defaults', async () => {
 
 it('restores the selected return metric after restart', async () => {
   const db = await createTestDb();
-  const { walletKeys } = createTestWallet('//Alice');
   instanceChecks.delete(Config.prototype.constructor);
-  const config = new Config(Promise.resolve(db), walletKeys);
+  const config = new Config(Promise.resolve(db));
   await config.load();
 
   config.returnMetric = 'APY';
   await config.save();
 
   instanceChecks.delete(Config.prototype.constructor);
-  const restarted = new Config(Promise.resolve(db), walletKeys);
+  const restarted = new Config(Promise.resolve(db));
   await restarted.load();
   expect(restarted.returnMetric).toBe('APY');
   await db.close();
+});
+
+it('publishes replaced secret ciphertext only after commit and keeps it through later saves', async () => {
+  const db = await createTestDb();
+  instanceChecks.delete(Config.prototype.constructor);
+  const config = new Config(Promise.resolve(db));
+  await config.load();
+  config.serverAdd = { digitalOcean: { encryptedApiKey: 'encrypted-service-before' } };
+  await config.save();
+
+  try {
+    const replacements = { 'encrypted-service-before': 'encrypted-service-after' };
+    await expect(
+      db.transaction(async transaction => {
+        await config.replaceEncryptedSecrets(replacements, transaction);
+        expect(config.readEncryptedSecrets()).toEqual({ digitalOceanApiKey: 'encrypted-service-before' });
+        throw new Error('Abort the settings change');
+      }),
+    ).rejects.toThrow('Abort the settings change');
+    expect(config.serverAdd?.digitalOcean?.encryptedApiKey).toBe('encrypted-service-before');
+    expect(JsonExt.parse((await db.configTable.fetchAllAsObject()).serverAdd!)).toEqual(config.serverAdd);
+
+    // A dirty serverAdd must not later overwrite the replacement with its old serialized ciphertext.
+    config.serverAdd = { ...config.serverAdd, localComputer: {} };
+    config.selectedTab = TopTab.Mining;
+    await db.transaction(async transaction => {
+      await config.replaceEncryptedSecrets(replacements, transaction);
+      expect(config.serverAdd?.digitalOcean?.encryptedApiKey).toBe('encrypted-service-before');
+    });
+    expect(config.readEncryptedSecrets()).toEqual({ digitalOceanApiKey: 'encrypted-service-after' });
+    expect(config.serverAdd?.localComputer).toEqual({});
+
+    await config.save();
+    const stored = await db.configTable.fetchAllAsObject();
+    expect(JsonExt.parse(stored.serverAdd!)).toEqual(config.serverAdd);
+    expect(JsonExt.parse(stored.selectedTab!)).toBe(TopTab.Mining);
+  } finally {
+    await db.close();
+  }
+});
+
+it('persists backed-up certification details without requesting mnemonic deletion', async () => {
+  const db = await createTestDb();
+  const nativeCommands = vi.mocked(invokeWithTimeout);
+  nativeCommands.mockClear();
+
+  try {
+    await db.configTable.insertOrReplace({
+      certificationDetails: JsonExt.stringify({ hasSavedMnemonic: true, showBonusTooltip: true }),
+    });
+    instanceChecks.delete(Config.prototype.constructor);
+    const config = new Config(Promise.resolve(db));
+    await config.load();
+
+    config.setCertificationDetails({ showBonusTooltip: false });
+    await config.save();
+
+    expect(JsonExt.parse((await db.configTable.fetchAllAsObject()).certificationDetails!)).toMatchObject({
+      hasSavedMnemonic: true,
+      showBonusTooltip: false,
+    });
+    expect(nativeCommands).not.toHaveBeenCalledWith('cleanup_mnemonic_files', expect.anything(), expect.anything());
+  } finally {
+    nativeCommands.mockClear();
+    await db.close();
+  }
 });
 
 it.each([
@@ -92,9 +157,8 @@ it.each([
   expect(JsonExt.parse(stored.vaultSetup!)).toEqual(expected);
   expect(stored).not.toHaveProperty('vaultingRules');
 
-  const { walletKeys } = createTestWallet('//Alice');
   instanceChecks.delete(Config.prototype.constructor);
-  const config = new Config(Promise.resolve(db), walletKeys);
+  const config = new Config(Promise.resolve(db));
   await config.load();
   const { securitizationRatio: _obsoleteRatio, ...currentChoices } = expected;
   expect(config.vaultSetup).toEqual(currentChoices);
@@ -102,149 +166,11 @@ it.each([
   expect(config.hasSavedVaultSetup).toBe(true);
 
   instanceChecks.delete(Config.prototype.constructor);
-  const restarted = new Config(Promise.resolve(db), walletKeys);
+  const restarted = new Config(Promise.resolve(db));
   await restarted.load();
   expect(restarted.vaultSetup).toEqual(currentChoices);
   expect(restarted.vaultingSetupStatus).toBe(status);
   await db.close();
-});
-
-it.each([false, true])('restores a vault without replacing its creation draft (saved: %s)', async saved => {
-  const db = await createTestDb();
-  const { walletKeys } = createTestWallet('//Alice');
-  const vault = new Vault(
-    7,
-    toPlain(
-      getOfflineRegistry().createType<ArgonPrimitivesVault>('ArgonPrimitivesVault', {
-        operatorAccountId: walletKeys.vaultingAddress,
-        securitization: 9_000_000n,
-      }),
-    ) as ConstructorParameters<typeof Vault>[1],
-    1_000,
-  );
-  const vaultSetup = {
-    ...(Config.getDefault('vaultSetup') as Config['vaultSetup']),
-    securitizationMicrogons: 4_000_000n,
-    committedMicronots: 6_000_000n,
-  };
-  await db.configTable.insertOrReplace({
-    walletAccountsHadPreviousLife: 'true',
-    walletPreviousLifeRecovered: 'false',
-    ...(saved ? { vaultSetup: JsonExt.stringify(vaultSetup) } : {}),
-  });
-  instanceChecks.delete(Config.prototype.constructor);
-  const config = new Config(Promise.resolve(db), walletKeys, async () => ({ vault }));
-  await config.load();
-  await config.recoverPreviousWalletHistory();
-
-  expect(config.vaultingSetupStatus).toBe(VaultingSetupStatus.Finished);
-  expect(config.vaultSetup).toEqual(saved ? vaultSetup : Config.getDefault('vaultSetup'));
-  expect(config.hasSavedVaultSetup).toBe(saved);
-  expect(config.walletPreviousLifeRecovered).toBe(true);
-
-  instanceChecks.delete(Config.prototype.constructor);
-  const restarted = new Config(Promise.resolve(db), walletKeys);
-  await restarted.load();
-  expect(restarted.vaultingSetupStatus).toBe(VaultingSetupStatus.Finished);
-  expect(restarted.vaultSetup).toEqual(config.vaultSetup);
-  expect(restarted.walletPreviousLifeRecovered).toBe(true);
-  await db.close();
-});
-
-it('keeps mnemonic-restored accounts eligible for financial history without mining or vault history', async () => {
-  const dbPromise = createMockedDbPromise();
-  const { walletKeys } = createTestWallet('//Alice');
-  vi.spyOn(walletKeys, 'didWalletHavePreviousLife').mockResolvedValueOnce(true);
-  const recoverAccount = vi.fn(async () => ({}));
-  instanceChecks.delete(Config.prototype.constructor);
-  const config = new Config(dbPromise, walletKeys, recoverAccount);
-
-  await config.load();
-
-  expect(recoverAccount).toHaveBeenCalledOnce();
-  expect(config.walletAccountsHadPreviousLife).toBe(true);
-  expect(config.walletPreviousLifeRecovered).toBe(true);
-});
-
-it('initializes wallet history from a migrated readonly database', async () => {
-  const db = await createTestDb();
-  const { walletKeys } = createTestWallet('//Alice', { canSign: false, canAccessServer: false });
-  vi.spyOn(walletKeys, 'didWalletHavePreviousLife').mockResolvedValueOnce(true);
-  const recoverAccount = vi.fn(async () => ({}));
-  instanceChecks.delete(Config.prototype.constructor);
-  const config = new Config(Promise.resolve(db), walletKeys, recoverAccount);
-
-  await config.load();
-
-  expect(config.walletAccountsHadPreviousLife).toBe(true);
-  expect(config.showWelcomeOverlay).toBe(false);
-  expect(config.walletPreviousLifeRecovered).toBe(true);
-  expect(recoverAccount).toHaveBeenCalledOnce();
-
-  const { walletKeys: restartedWalletKeys } = createTestWallet('//Alice', {
-    canSign: false,
-    canAccessServer: false,
-  });
-  const inspectWalletHistory = vi.spyOn(restartedWalletKeys, 'didWalletHavePreviousLife');
-  const recoverAfterRestart = vi.fn(async () => ({}));
-  instanceChecks.delete(Config.prototype.constructor);
-  const restartedConfig = new Config(Promise.resolve(db), restartedWalletKeys, recoverAfterRestart);
-
-  await restartedConfig.load();
-
-  expect(restartedConfig.walletAccountsHadPreviousLife).toBe(true);
-  expect(restartedConfig.showWelcomeOverlay).toBe(false);
-  expect(inspectWalletHistory).not.toHaveBeenCalled();
-  expect(recoverAfterRestart).not.toHaveBeenCalled();
-  await db.close();
-});
-
-it('leaves failed previous-life recovery retryable after config finishes loading', async () => {
-  const dbPromise = createMockedDbPromise();
-  const { walletKeys } = createTestWallet('//Alice');
-  vi.spyOn(walletKeys, 'didWalletHavePreviousLife').mockResolvedValueOnce(true);
-  const recoverAccount = vi.fn().mockRejectedValueOnce(new Error('history unavailable')).mockResolvedValueOnce({});
-  instanceChecks.delete(Config.prototype.constructor);
-  const config = new Config(dbPromise, walletKeys, recoverAccount);
-
-  await config.load();
-
-  expect(config.walletPreviousLifeRecovered).toBe(false);
-  expect(config.isBootingUpPreviousWalletHistory).toBe(false);
-
-  await config.recoverPreviousWalletHistory();
-
-  expect(config.walletPreviousLifeRecovered).toBe(true);
-  expect(recoverAccount).toHaveBeenCalledTimes(2);
-});
-
-it('reserves the final recovery progress for applying and saving config', async () => {
-  const dbPromise = createMockedDbPromise();
-  const { walletKeys } = createTestWallet('//Alice');
-  vi.spyOn(walletKeys, 'didWalletHavePreviousLife').mockResolvedValueOnce(true);
-  let reportProgress: ((progressPct: number) => void) | undefined;
-  let finishRecovery: ((value: Record<string, never>) => void) | undefined;
-  const recoverAccount = vi.fn(
-    onProgress =>
-      new Promise<Record<string, never>>(resolve => {
-        reportProgress = onProgress;
-        finishRecovery = resolve;
-      }),
-  );
-  instanceChecks.delete(Config.prototype.constructor);
-  const config = new Config(dbPromise, walletKeys, recoverAccount);
-  const loadPromise = config.load();
-  await vi.waitFor(() => expect(reportProgress).toBeTypeOf('function'));
-
-  reportProgress?.(50);
-  expect(config.walletPreviousHistoryLoadPct).toBe(47.5);
-  expect(config.isBootingUpPreviousWalletHistory).toBe(true);
-
-  finishRecovery?.({});
-  await loadPromise;
-
-  expect(config.walletPreviousHistoryLoadPct).toBe(100);
-  expect(config.isBootingUpPreviousWalletHistory).toBe(false);
 });
 
 it('can load config from db state', async () => {
@@ -252,9 +178,8 @@ it('can load config from db state', async () => {
     miningSetupStatus: `"${MiningSetupStatus.Finished}"`,
     postWelcomeLaunchCount: '4',
   });
-  const { walletKeys } = createTestWallet('//Alice');
   instanceChecks.delete(Config.prototype.constructor);
-  const config = new Config(dbPromise, walletKeys);
+  const config = new Config(dbPromise);
   await config.load();
   expect(config.miningSetupStatus).toBe(MiningSetupStatus.Finished);
   expect(config.postWelcomeLaunchCount).toBe(4);
@@ -262,16 +187,15 @@ it('can load config from db state', async () => {
 
 it('keeps Crosschain Transfers available after it has been activated', async () => {
   const db = await createTestDb();
-  const { walletKeys } = createTestWallet('//Alice');
   instanceChecks.delete(Config.prototype.constructor);
-  const config = new Config(Promise.resolve(db), walletKeys);
+  const config = new Config(Promise.resolve(db));
   await config.load();
 
   config.hasActivatedCrosschain = true;
   await config.save();
 
   instanceChecks.delete(Config.prototype.constructor);
-  const restoredConfig = new Config(Promise.resolve(db), walletKeys);
+  const restoredConfig = new Config(Promise.resolve(db));
   await restoredConfig.load();
 
   expect(restoredConfig.hasActivatedCrosschain).toBe(true);
@@ -280,16 +204,15 @@ it('keeps Crosschain Transfers available after it has been activated', async () 
 
 it('remembers that Discord was connected after config reloads', async () => {
   const db = await createTestDb();
-  const { walletKeys } = createTestWallet('//Alice');
   instanceChecks.delete(Config.prototype.constructor);
-  const config = new Config(Promise.resolve(db), walletKeys);
+  const config = new Config(Promise.resolve(db));
   await config.load();
 
   config.hasConnectedDiscord = true;
   await config.save();
 
   instanceChecks.delete(Config.prototype.constructor);
-  const restoredConfig = new Config(Promise.resolve(db), walletKeys);
+  const restoredConfig = new Config(Promise.resolve(db));
   await restoredConfig.load();
 
   expect(restoredConfig.hasConnectedDiscord).toBe(true);
@@ -298,9 +221,8 @@ it('remembers that Discord was connected after config reloads', async () => {
 
 it('persists unchanged vault fees when retrying a failed settings write', async () => {
   const db = await createTestDb();
-  const { walletKeys } = createTestWallet('//Alice');
   instanceChecks.delete(Config.prototype.constructor);
-  const config = new Config(Promise.resolve(db), walletKeys);
+  const config = new Config(Promise.resolve(db));
   await config.load();
   config.vaultSetup.btcFlatFee = 2_000_000n;
   await config.saveVaultSetup();
@@ -311,7 +233,7 @@ it('persists unchanged vault fees when retrying a failed settings write', async 
   await config.saveVaultSetup();
 
   instanceChecks.delete(Config.prototype.constructor);
-  const restarted = new Config(Promise.resolve(db), walletKeys);
+  const restarted = new Config(Promise.resolve(db));
   await restarted.load();
   expect(restarted.vaultSetup.btcFlatFee).toBe(3_000_000n);
   await db.close();
@@ -332,9 +254,8 @@ it('does not recover operation state from cached mining or vault activity', asyn
   const vaultActivitySpy = vi
     .spyOn(db.vaultsTable, 'get')
     .mockRejectedValue(new Error('cached vault activity should not be queried'));
-  const { walletKeys } = createTestWallet('//Alice');
   instanceChecks.delete(Config.prototype.constructor);
-  const config = new Config(dbPromise, walletKeys);
+  const config = new Config(dbPromise);
 
   await config.load();
 
@@ -356,87 +277,13 @@ it('migrates old server port field to sshPort', async () => {
       workDir: '~',
     }),
   });
-  const { walletKeys } = createTestWallet('//Alice');
   instanceChecks.delete(Config.prototype.constructor);
-  const config = new Config(dbPromise, walletKeys);
+  const config = new Config(dbPromise);
 
   await config.load();
 
   expect(config.serverDetails.sshPort).toBe(2222);
   expect((config.serverDetails as any).port).toBeUndefined();
-});
-
-it('loads a copied local-server configuration without activating the server', async () => {
-  const dbPromise = createMockedDbPromise({
-    serverDetails: JsonExt.stringify({
-      ipAddress: '127.0.0.1',
-      sshPort: 55116,
-      sshUser: 'argon',
-      type: ServerType.LocalComputer,
-      workDir: '/app',
-    }),
-    serverAdd: JsonExt.stringify({ localComputer: {} }),
-    isServerInstalled: 'true',
-  });
-  const activate = vi.spyOn(LocalMachine, 'activate').mockResolvedValue({ sshPort: 55222 } as any);
-  const { walletKeys } = createTestWallet('//Alice', { canAccessServer: false });
-  instanceChecks.delete(Config.prototype.constructor);
-  const config = new Config(dbPromise, walletKeys);
-
-  await config.load();
-
-  expect(activate).not.toHaveBeenCalled();
-  expect(config.serverDetails.sshPort).toBe(55116);
-});
-
-it('refreshes the local-server port while recovering an interrupted install', async () => {
-  const dbPromise = createMockedDbPromise({
-    serverDetails: JsonExt.stringify({
-      ipAddress: '127.0.0.1',
-      sshPort: 55116,
-      sshUser: 'argon',
-      type: ServerType.LocalComputer,
-      workDir: '/app',
-    }),
-    serverAdd: JsonExt.stringify({ localComputer: {} }),
-    isServerInstalling: 'true',
-  });
-  vi.spyOn(LocalMachine, 'activate').mockResolvedValue({ sshPort: 55222 });
-  const save = vi.spyOn((await dbPromise).configTable, 'insertOrReplace');
-  const { walletKeys } = createTestWallet('//Alice');
-  instanceChecks.delete(Config.prototype.constructor);
-  const config = new Config(dbPromise, walletKeys);
-
-  await config.load();
-
-  expect(config.serverDetails.sshPort).toBe(55222);
-  expect(save).toHaveBeenCalledWith(expect.objectContaining({ serverDetails: expect.stringContaining('55222') }));
-});
-
-it('returns a configured local server to installation when its VM no longer exists', async () => {
-  const dbPromise = createMockedDbPromise({
-    serverAdd: JsonExt.stringify({ localComputer: {} }),
-    serverDetails: JsonExt.stringify({
-      ipAddress: '127.0.0.1',
-      sshPort: 55116,
-      sshUser: 'argon',
-      type: ServerType.LocalComputer,
-      workDir: '/app',
-    }),
-    isServerInstalled: 'true',
-  });
-  const activate = vi.spyOn(LocalMachine, 'activate').mockResolvedValue(undefined);
-  activate.mockClear();
-  const { walletKeys } = createTestWallet('//Alice');
-  instanceChecks.delete(Config.prototype.constructor);
-  const config = new Config(dbPromise, walletKeys);
-
-  await config.load();
-
-  expect(config.serverAdd).toEqual({ localComputer: {} });
-  expect(config.serverDetails).toEqual(Config.getDefault('serverDetails'));
-  expect(config.isServerInstalled).toBe(false);
-  expect(activate).toHaveBeenCalledOnce();
 });
 
 it.each(['loading', 'ARGON_NETWORK_NAME'])('clears fake upstream state stored with %s', async routerHost => {
@@ -446,9 +293,8 @@ it.each(['loading', 'ARGON_NETWORK_NAME'])('clears fake upstream state stored wi
   });
   const db = await dbPromise;
   const saveSpy = vi.spyOn(db.configTable, 'insertOrReplace');
-  const { walletKeys } = createTestWallet('//Alice');
   instanceChecks.delete(Config.prototype.constructor);
-  const config = new Config(dbPromise, walletKeys);
+  const config = new Config(dbPromise);
 
   await config.load();
 
@@ -490,16 +336,14 @@ it.each([
       operationalFeeMicrogons: 30n,
       isClosed: false,
     });
-    const { walletKeys } = createTestWallet('//Alice');
     instanceChecks.delete(Config.prototype.constructor);
-    const config = new Config(Promise.resolve(db), walletKeys);
+    const config = new Config(Promise.resolve(db));
     await config.load();
 
     if (vaultReadFails) {
       vi.spyOn(db.vaultsTable, 'get').mockRejectedValue(new Error('vault table is unreadable'));
     }
 
-    const previousLifeSpy = vi.spyOn(walletKeys, 'didWalletHavePreviousLife');
     const restarter = new Restarter(Promise.resolve(db), config);
     vi.spyOn(restarter, 'deleteAndCreateLocalDatabase').mockResolvedValue();
     vi.spyOn(restarter, 'restart').mockImplementation(() => undefined);
@@ -507,13 +351,17 @@ it.each([
 
     const recoverAccount = vi.fn(async () => ({}));
     const { walletKeys: restoredWalletKeys } = createTestWallet('//Alice');
+    const previousLifeSpy = getStartupClient;
+    previousLifeSpy.mockClear();
     instanceChecks.delete(Config.prototype.constructor);
-    const restoredConfig = new Config(Promise.resolve(replacementDb), restoredWalletKeys, recoverAccount);
-    await restoredConfig.load();
+    const restoredConfig = new Config(Promise.resolve(replacementDb));
+    const restoredStartup = new AppStartup(restoredConfig, restoredWalletKeys, startupClients);
+    await restoredStartup.initialize();
+    await restoredStartup.recoverPreviousWalletHistory({ findHistory: recoverAccount } as unknown as WalletRecovery);
 
     expect(previousLifeSpy).not.toHaveBeenCalled();
     expect(recoverAccount).not.toHaveBeenCalled();
-    expect(restoredConfig.isBootingUpPreviousWalletHistory).toBe(false);
+    expect(restoredStartup.isRecoveringHistory).toBe(false);
     expect(restoredConfig.hasExtensionTreasury).toBe(true);
     expect(restoredConfig.hasExtensionOperations).toBe(true);
     expect(restoredConfig.bootstrapDetails).toEqual({
@@ -572,9 +420,8 @@ it('preserves connected Ethereum wallets when recreating the local database', as
     });
     const originalWallets = await db.walletsTable.fetchEthereumWallets();
 
-    const { walletKeys } = createTestWallet('//Alice');
     instanceChecks.delete(Config.prototype.constructor);
-    const config = new Config(Promise.resolve(db), walletKeys);
+    const config = new Config(Promise.resolve(db));
     await config.load();
 
     const restarter = new Restarter(Promise.resolve(db), config);
@@ -616,9 +463,8 @@ it('recreates a wiped local server instead of restoring its removed VM connectio
         dismissedWelcomeToOperationsOverlay: true,
       }),
     });
-    const { walletKeys } = createTestWallet('//Alice');
     instanceChecks.delete(Config.prototype.constructor);
-    const config = new Config(Promise.resolve(db), walletKeys);
+    const config = new Config(Promise.resolve(db));
     await config.load();
     activate.mockClear();
 
@@ -637,7 +483,7 @@ it('recreates a wiped local server instead of restoring its removed VM connectio
     );
 
     instanceChecks.delete(Config.prototype.constructor);
-    const restoredConfig = new Config(Promise.resolve(replacementDb), walletKeys);
+    const restoredConfig = new Config(Promise.resolve(replacementDb));
     await restoredConfig.load();
 
     expect(restoredConfig.serverAdd).toEqual({ localComputer: {} });
@@ -666,16 +512,17 @@ it('preserves a wiped remote server connection for reinstallation', async () => 
     type: ServerType.DigitalOcean,
     workDir: '~',
   };
+  const serverAdd = { digitalOcean: { encryptedApiKey: 'encrypted-token' } };
 
   try {
     await db.configTable.insertOrReplace({
-      serverAdd: JsonExt.stringify({ digitalOcean: { apiKey: 'test-api-key' } }, 2),
+      serverAdd: JsonExt.stringify(serverAdd, 2),
       serverDetails: JsonExt.stringify(serverDetails, 2),
       isServerInstalled: 'true',
     });
     const { walletKeys } = createTestWallet('//Alice');
     instanceChecks.delete(Config.prototype.constructor);
-    const config = new Config(Promise.resolve(db), walletKeys);
+    const config = new Config(Promise.resolve(db));
     await config.load();
 
     const restarter = new Restarter(Promise.resolve(db), config);
@@ -693,10 +540,11 @@ it('preserves a wiped remote server connection for reinstallation', async () => 
     );
 
     instanceChecks.delete(Config.prototype.constructor);
-    const restoredConfig = new Config(Promise.resolve(replacementDb), walletKeys);
+    const restoredConfig = new Config(Promise.resolve(replacementDb));
     await restoredConfig.load();
 
     expect(restoredConfig.serverDetails).toEqual(serverDetails);
+    expect(restoredConfig.serverAdd).toEqual(serverAdd);
     expect(restoredConfig.isServerInstalled).toBe(false);
   } finally {
     pluginSqlLoad.mockRestore();

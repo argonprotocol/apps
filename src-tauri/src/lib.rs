@@ -1,10 +1,11 @@
-use crate::security::Security;
+use crate::authentication::SystemAuthenticationOption;
+use crate::ssh::SSH;
 use log::trace;
 use nosleep::{NoSleep, NoSleepType};
 #[cfg(target_os = "macos")]
 use objc2_app_kit::NSWindow;
-use sp_core::Pair;
-use sp_core::crypto::Ss58Codec;
+use secrecy::{ExposeSecret, SecretString};
+use sp_core::{Pair, ed25519, sr25519};
 use std::fs;
 #[cfg(any(test, all(target_os = "macos", not(debug_assertions))))]
 use std::path::Path;
@@ -21,11 +22,16 @@ use utils::Utils;
 use window_vibrancy::*;
 use zip::DateTime;
 
+mod authentication;
 #[cfg(feature = "e2e-screenshots")]
 mod e2e_screenshots;
-mod ethereum_signer;
+mod encryption_key;
+mod keychain;
+#[cfg(target_os = "macos")]
+mod keychain_mac;
+#[cfg(target_os = "windows")]
+mod keychain_windows;
 mod migrations;
-mod security;
 mod sql;
 mod ssh;
 mod ssh_access;
@@ -33,13 +39,44 @@ mod ssh_pool;
 mod troubleshooting;
 mod utils;
 mod vm;
+mod wallet_files;
 
 struct NoSleepState {
     nosleep: Mutex<Option<NoSleep>>,
 }
 
-struct EthereumSignerPolicyState {
-    policy: Mutex<Option<ethereum_signer::EthereumSignerPolicy>>,
+#[tauri::command]
+async fn system_authentication_option() -> Result<Option<SystemAuthenticationOption>, String> {
+    authentication::available_option().await
+}
+
+#[tauri::command]
+fn export_sr25519_seed(suri: String) -> Result<[u8; 32], String> {
+    let suri = SecretString::from(suri);
+    let (_, seed) = sr25519::Pair::from_string_with_seed(suri.expose_secret(), None)
+        .map_err(|error| error.to_string())?;
+    seed.ok_or_else(|| "A private seed cannot be exported from a soft derivation".to_string())
+}
+
+#[tauri::command]
+async fn request_system_authentication(
+    window: WebviewWindow,
+    reason: String,
+) -> Result<(), String> {
+    if reason.trim().is_empty() {
+        return Err("An authentication reason is required.".to_string());
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        let window_handle = window.hwnd().map_err(|error| error.to_string())?.0 as isize;
+        authentication::confirm(reason, window_handle).await
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        let _ = window;
+        authentication::confirm(reason).await
+    }
 }
 
 #[cfg(any(test, all(target_os = "macos", not(debug_assertions))))]
@@ -51,15 +88,16 @@ fn is_running_from_mounted_volume(executable_path: &Path) -> bool {
 
 #[tauri::command]
 async fn open_ssh_connection(
-    app: AppHandle,
     address: &str,
     host: &str,
     port: u16,
     username: String,
+    private_key_seed: [u8; 32],
 ) -> Result<String, String> {
     log::info!("ensure_ssh_connection");
-    let private_key =
-        security::Security::expose_private_key_openssh(&app).map_err(|e| e.to_string())?;
+    let (private_key, _) = SSH::format_as_openssh(ed25519::Pair::from_seed(&private_key_seed))
+        .map_err(|e| e.to_string())?;
+    let private_key = SecretString::new(private_key.into());
     ssh_pool::open_connection(address, host, port, username, private_key)
         .await
         .map_err(|e| {
@@ -82,7 +120,7 @@ async fn close_ssh_connection(address: &str) -> Result<String, String> {
 
 #[tauri::command]
 async fn ssh_run_command(address: &str, command: String) -> Result<(String, u32), String> {
-    let ssh: ssh::SSH = ssh_pool::get_connection(address)
+    let ssh: SSH = ssh_pool::get_connection(address)
         .await
         .map_err(|e| e.to_string())?
         .ok_or("No SSH connection")?;
@@ -98,7 +136,7 @@ async fn ssh_upload_file(
     timeout_ms: u64,
 ) -> Result<String, String> {
     log::info!("ssh_upload_file: {remote_path}");
-    let ssh: ssh::SSH = ssh_pool::get_connection(address)
+    let ssh: SSH = ssh_pool::get_connection(address)
         .await
         .map_err(|e| e.to_string())?
         .ok_or("No SSH connection")?;
@@ -121,7 +159,7 @@ async fn ssh_download_file(
     event_progress_key: String,
 ) -> Result<String, String> {
     log::info!("ssh_download_file: {remote_path}, {download_path}");
-    let ssh: ssh::SSH = ssh_pool::get_connection(address)
+    let ssh: SSH = ssh_pool::get_connection(address)
         .await
         .map_err(|e| e.to_string())?
         .ok_or("No SSH connection")?;
@@ -141,7 +179,7 @@ async fn ssh_upload_embedded_file(
     timeout_ms: u64,
 ) -> Result<String, String> {
     log::info!("ssh_upload_embedded_file: {local_relative_path}, {remote_path}");
-    let ssh: ssh::SSH = ssh_pool::get_connection(address)
+    let ssh: SSH = ssh_pool::get_connection(address)
         .await
         .map_err(|e| e.to_string())?
         .ok_or("No SSH connection")?;
@@ -184,260 +222,11 @@ async fn read_embedded_file(app: AppHandle, local_relative_path: String) -> Resu
 }
 
 #[tauri::command]
-async fn import_mnemonic(
-    app: AppHandle,
-    signer_policy: State<'_, EthereumSignerPolicyState>,
-    mnemonic: String,
-) -> Result<security::Security, String> {
-    log::info!("import_mnemonic");
+async fn backup_current_instance_database_for_import(app: AppHandle) -> Result<(), String> {
     migrations::backup_current_instance_database_for_import(&app)
         .await
         .map_err(|e| e.to_string())?;
-    let security = Security::import_mnemonic(&app, &mnemonic).map_err(|e| e.to_string())?;
-    *signer_policy.policy.lock().await = None;
-    Ok(security)
-}
-
-#[tauri::command]
-async fn expose_mnemonic(app: AppHandle) -> Result<String, String> {
-    let master_mnemonic = Security::expose_mnemonic(&app).map_err(|err| err.to_string())?;
-    Ok(master_mnemonic)
-}
-
-#[tauri::command]
-async fn export_default_ethereum_private_key(app: AppHandle) -> Result<String, String> {
-    let security = Security::load(&app).map_err(|e| e.to_string())?.security;
-    let mnemonic = Security::expose_mnemonic(&app).map_err(|e| e.to_string())?;
-    let hd_path = format!("{}/0'", security.ethereum_hd_prefixes.primary);
-    let private_key = ethereum_signer::export_private_key_at_path(&mnemonic, &hd_path)
-        .map_err(|e| e.to_string())?;
-    Ok(private_key)
-}
-
-#[tauri::command]
-async fn encrypt_wallet_secret(app: AppHandle, secret: String) -> Result<String, String> {
-    Security::encrypt_wallet_secret(&app, &secret).map_err(|e| e.to_string())
-}
-
-#[tauri::command]
-async fn derive_external_ethereum_addresses(
-    mnemonic: String,
-    hd_paths: Vec<String>,
-) -> Result<Vec<String>, String> {
-    ethereum_signer::derive_standard_addresses(&mnemonic, &hd_paths).map_err(|e| e.to_string())
-}
-
-#[tauri::command]
-async fn derive_external_ethereum_address_from_private_key(
-    private_key: String,
-) -> Result<String, String> {
-    ethereum_signer::derive_address_from_private_key(&private_key).map_err(|e| e.to_string())
-}
-
-fn decrypt_external_ethereum_private_key(
-    app: &AppHandle,
-    encrypted_secret: &str,
-    secret_kind: &str,
-    hd_path: Option<String>,
-) -> Result<String, String> {
-    let secret =
-        Security::decrypt_wallet_secret(app, encrypted_secret).map_err(|e| e.to_string())?;
-    match secret_kind {
-        "privateKey" => Ok(secret),
-        "mnemonic" => {
-            let hd_path = hd_path.ok_or("Ethereum mnemonic wallet is missing a derivation path")?;
-            ethereum_signer::export_private_key_at_standard_path(&secret, &hd_path)
-                .map_err(|e| e.to_string())
-        }
-        _ => Err("Unsupported external Ethereum secret kind".to_string()),
-    }
-}
-
-#[tauri::command]
-async fn sign_external_ethereum_personal_message(
-    app: AppHandle,
-    encrypted_secret: String,
-    secret_kind: String,
-    hd_path: Option<String>,
-    message: String,
-) -> Result<String, String> {
-    let private_key =
-        decrypt_external_ethereum_private_key(&app, &encrypted_secret, &secret_kind, hd_path)?;
-    ethereum_signer::sign_personal_message_with_private_key(&private_key, &message)
-        .map_err(|e| e.to_string())
-}
-
-#[tauri::command]
-async fn sign_external_ethereum_permit(
-    app: AppHandle,
-    signer_policy: State<'_, EthereumSignerPolicyState>,
-    encrypted_secret: String,
-    secret_kind: String,
-    hd_path: Option<String>,
-    request: ethereum_signer::EthereumPermitRequest,
-) -> Result<ethereum_signer::EthereumPermitSignature, String> {
-    let current_policy = signer_policy.policy.lock().await;
-    let policy = current_policy
-        .as_ref()
-        .ok_or("Ethereum signer policy has not been configured yet")?;
-    let private_key =
-        decrypt_external_ethereum_private_key(&app, &encrypted_secret, &secret_kind, hd_path)?;
-    ethereum_signer::sign_permit_with_private_key(&private_key, policy, &request)
-        .map_err(|e| e.to_string())
-}
-
-#[tauri::command]
-async fn sign_external_ethereum_transaction(
-    app: AppHandle,
-    signer_policy: State<'_, EthereumSignerPolicyState>,
-    encrypted_secret: String,
-    secret_kind: String,
-    hd_path: Option<String>,
-    request: ethereum_signer::EthereumTransactionRequest,
-) -> Result<ethereum_signer::EthereumTransactionSignature, String> {
-    let current_policy = signer_policy.policy.lock().await;
-    let policy = current_policy
-        .as_ref()
-        .ok_or("Ethereum signer policy has not been configured yet")?;
-    let private_key =
-        decrypt_external_ethereum_private_key(&app, &encrypted_secret, &secret_kind, hd_path)?;
-    ethereum_signer::sign_transaction_with_private_key(&private_key, policy, &request)
-        .map_err(|e| e.to_string())
-}
-
-#[tauri::command]
-async fn derive_sr25519_seed(app: AppHandle, suri: &str) -> Result<[u8; 32], String> {
-    let (_pair, seed) = Security::sr_derive(&app, suri).map_err(|e| e.to_string())?;
-    Ok(seed)
-}
-
-#[tauri::command]
-async fn derive_sr25519_address(app: AppHandle, suris: Vec<String>) -> Result<Vec<String>, String> {
-    let result = suris
-        .into_iter()
-        .map(|suri| {
-            let (pair, _seed) = Security::sr_derive(&app, &suri).map_err(|e| e.to_string())?;
-            let address = pair.public().to_ss58check();
-            Ok(address)
-        })
-        .collect::<Result<Vec<String>, String>>()?;
-    Ok(result)
-}
-
-#[tauri::command]
-async fn derive_ed25519_seed(app: AppHandle, suri: &str) -> Result<[u8; 32], String> {
-    let (_pair, seed) = Security::ed_derive(&app, suri).map_err(|e| e.to_string())?;
-    Ok(seed)
-}
-
-#[tauri::command]
-async fn sign_ethereum_personal_message(
-    app: AppHandle,
-    message: &str,
-    hd_path: String,
-) -> Result<String, String> {
-    let mnemonic = Security::expose_mnemonic(&app).map_err(|e| e.to_string())?;
-    let signature = ethereum_signer::sign_personal_message_at_path(&mnemonic, &hd_path, message)
-        .map_err(|e| e.to_string())?;
-    Ok(signature)
-}
-
-#[tauri::command]
-async fn derive_ethereum_addresses(
-    app: AppHandle,
-    hd_paths: Vec<String>,
-) -> Result<Vec<String>, String> {
-    let mnemonic = Security::expose_mnemonic(&app).map_err(|e| e.to_string())?;
-    let addresses =
-        ethereum_signer::derive_addresses(&mnemonic, &hd_paths).map_err(|e| e.to_string())?;
-    Ok(addresses)
-}
-
-#[tauri::command]
-async fn sign_ethereum_permit(
-    app: AppHandle,
-    hd_path: String,
-    signer_policy: State<'_, EthereumSignerPolicyState>,
-    request: ethereum_signer::EthereumPermitRequest,
-) -> Result<ethereum_signer::EthereumPermitSignature, String> {
-    let current_policy = signer_policy.policy.lock().await;
-    let policy = current_policy
-        .as_ref()
-        .ok_or("Ethereum signer policy has not been configured yet")?;
-    let mnemonic = Security::expose_mnemonic(&app).map_err(|e| e.to_string())?;
-    let signature = ethereum_signer::sign_permit(&mnemonic, &hd_path, policy, &request)
-        .map_err(|e| e.to_string())?;
-    Ok(signature)
-}
-
-#[tauri::command]
-async fn set_ethereum_signer_policy(
-    signer_policy: State<'_, EthereumSignerPolicyState>,
-    request: ethereum_signer::EthereumSignerPolicyRequest,
-) -> Result<(), String> {
-    let mut current_policy = signer_policy.policy.lock().await;
-    ethereum_signer::set_policy(&mut current_policy, &request).map_err(|e| e.to_string())
-}
-
-#[tauri::command]
-async fn sign_ethereum_transaction(
-    app: AppHandle,
-    hd_path: String,
-    signer_policy: State<'_, EthereumSignerPolicyState>,
-    request: ethereum_signer::EthereumTransactionRequest,
-) -> Result<ethereum_signer::EthereumTransactionSignature, String> {
-    let current_policy = signer_policy.policy.lock().await;
-    let policy = current_policy
-        .as_ref()
-        .ok_or("Ethereum signer policy has not been configured yet")?;
-    let mnemonic = Security::expose_mnemonic(&app).map_err(|e| e.to_string())?;
-    let signed_tx = ethereum_signer::sign_transaction(&mnemonic, &hd_path, policy, &request)
-        .map_err(|e| e.to_string())?;
-    Ok(signed_tx)
-}
-
-#[tauri::command]
-async fn derive_x25519_public_key(app: AppHandle, suri: &str) -> Result<Vec<u8>, String> {
-    let public_key = Security::derive_x25519_public_key(&app, suri).map_err(|e| e.to_string())?;
-    Ok(public_key)
-}
-
-#[tauri::command]
-async fn encrypt_x25519_message(
-    app: AppHandle,
-    suri: &str,
-    counterparty_public_key: Vec<u8>,
-    payload: Vec<u8>,
-) -> Result<Vec<u8>, String> {
-    let encrypted =
-        Security::encrypt_x25519_message(&app, suri, &counterparty_public_key, &payload)
-            .map_err(|e| e.to_string())?;
-    Ok(encrypted)
-}
-
-#[tauri::command]
-async fn decrypt_x25519_message(
-    app: AppHandle,
-    suri: &str,
-    counterparty_public_key: Vec<u8>,
-    encrypted_message: Vec<u8>,
-) -> Result<Vec<u8>, String> {
-    let decrypted =
-        Security::decrypt_x25519_message(&app, suri, &counterparty_public_key, &encrypted_message)
-            .map_err(|e| e.to_string())?;
-    Ok(decrypted)
-}
-
-#[tauri::command]
-async fn derive_bitcoin_extended_key(
-    app: AppHandle,
-    hd_path: &str,
-    version: u32,
-) -> Result<String, String> {
-    let extended_key =
-        Security::derive_bitcoin_extended_key(&app, hd_path, version).map_err(|e| e.to_string())?;
-    let bs58_key = format!("{extended_key}");
-    Ok(bs58_key)
+    Ok(())
 }
 
 #[tauri::command]
@@ -639,12 +428,12 @@ fn allow_e2e_insecure_gateway_certs(window: &WebviewWindow) {
 
 ////////////////////////////////////////////////////////////
 
-fn init_logger(network_name: &String, instance_name: &String) -> tauri_plugin_log::Builder {
+fn init_logger(file_name: &str) -> tauri_plugin_log::Builder {
     let mut logger = tauri_plugin_log::Builder::new()
         .clear_targets()
         .target(tauri_plugin_log::Target::new(
             tauri_plugin_log::TargetKind::LogDir {
-                file_name: Some(format!("{network_name}-{instance_name}")),
+                file_name: Some(file_name.to_string()),
             },
         ))
         .target(tauri_plugin_log::Target::new(
@@ -753,7 +542,8 @@ pub fn run() {
     let focus_e2e_app_window = std::env::var("ARGON_E2E_FOCUS_APP_WINDOW")
         .ok()
         .is_some_and(|v| v == "true" || v == "1");
-    let logger = init_logger(&network_name, &instance_name);
+    let log_file_prefix = format!("{network_name}-{instance_name}");
+    let logger = init_logger(&log_file_prefix);
 
     let app_name = context.config().product_name.clone().unwrap_or_default();
 
@@ -795,17 +585,6 @@ pub fn run() {
 
             let handle = window.app_handle();
             let instance_name = Utils::get_instance_name();
-            let loaded_security = security::Security::load(handle);
-            let (security_json, can_sign) = match loaded_security {
-                Ok(loaded) => (serde_json::to_string(&loaded.security).unwrap_or_else(|e| {
-                    log::error!("Failed to serialize security config: {e}");
-                    "null".to_string()
-                }), loaded.can_sign),
-                Err(e) => {
-                    log::error!("Failed to load security config: {e}");
-                    ("null".to_string(), false)
-                }
-            };
             let app_id = &handle.config().identifier;
 
             log::info!("Page loaded for instance '{instance_name}'");
@@ -817,9 +596,8 @@ pub fn run() {
             __LOG_DEBUG__: false,
             __ARGON_APP_ID__: '{app_id}',
             __ARGON_APP_NAME__: '{app_name_clone}',
-            __ARGON_APP_SECURITY__: {security_json},
-            __ARGON_APP_CAN_SIGN__: {can_sign},
             __ARGON_APP_INSTANCE__: '{instance_name}',
+            __ARGON_LOG_FILE_PREFIX__: '{log_file_prefix}',
             __ARGON_APP_ENABLE_AUTOUPDATE__: {enable_auto_update},
             __ARGON_E2E_HEADLESS__: {e2e_headless},
             __ARGON_NETWORK_NAME__: '{network_name_clone}',
@@ -861,10 +639,8 @@ pub fn run() {
 
             let nosleep = NoSleep::new().map_err(|e| e.to_string())?;
             app.manage(NoSleepState { nosleep: Mutex::new(Some(nosleep)) });
-            app.manage(EthereumSignerPolicyState {
-                policy: Mutex::new(None),
-            });
             app.manage(sql::SqliteWriter::default());
+            app.manage(keychain::KeychainLock::default());
             app.manage(ssh_access::SshAccessState {
                 access: Mutex::new(None),
             });
@@ -949,6 +725,22 @@ pub fn run() {
 
     builder
         .invoke_handler(tauri::generate_handler![
+            system_authentication_option,
+            request_system_authentication,
+            keychain::keychain_info,
+            keychain::keychain_create,
+            keychain::keychain_write,
+            keychain::keychain_set_protection,
+            keychain::keychain_delete,
+            keychain::keychain_encrypt,
+            keychain::keychain_decrypt,
+            keychain::keychain_authenticate,
+            export_sr25519_seed,
+            wallet_files::read_wallet_file,
+            wallet_files::read_mnemonic_file,
+            wallet_files::write_wallet_file,
+            wallet_files::delete_wallet_file,
+            wallet_files::cleanup_mnemonic_files,
             open_ssh_connection,
             close_ssh_connection,
             ssh_run_command,
@@ -956,6 +748,7 @@ pub fn run() {
             ssh_download_file,
             ssh_upload_embedded_file,
             read_embedded_file,
+            backup_current_instance_database_for_import,
             run_db_migrations,
             create_zip,
             collect_troubleshooting_os_profile,
@@ -970,27 +763,6 @@ pub fn run() {
             vm::remove_local_vm,
             vm::is_docker_running,
             vm::find_available_port,
-            derive_sr25519_seed,
-            derive_sr25519_address,
-            derive_ed25519_seed,
-            sign_ethereum_personal_message,
-            derive_ethereum_addresses,
-            derive_external_ethereum_addresses,
-            derive_external_ethereum_address_from_private_key,
-            sign_ethereum_permit,
-            sign_external_ethereum_permit,
-            set_ethereum_signer_policy,
-            sign_ethereum_transaction,
-            sign_external_ethereum_transaction,
-            sign_external_ethereum_personal_message,
-            derive_x25519_public_key,
-            encrypt_x25519_message,
-            decrypt_x25519_message,
-            derive_bitcoin_extended_key,
-            expose_mnemonic,
-            export_default_ethereum_private_key,
-            encrypt_wallet_secret,
-            import_mnemonic,
             measure_latency,
             load_instance,
             report_empty_app_root_after_activation,
@@ -1010,8 +782,20 @@ pub fn run() {
 
 #[cfg(test)]
 mod tests {
-    use super::is_running_from_mounted_volume;
+    use super::{export_sr25519_seed, is_running_from_mounted_volume};
+    use sp_core::{Pair, sr25519};
     use std::path::Path;
+
+    #[test]
+    fn exports_the_supplied_sr25519_path_without_loading_a_wallet() {
+        let suri = "test test test test test test test test test test test junk//vaulting";
+        let seed = export_sr25519_seed(suri.to_string()).unwrap();
+        assert_eq!(
+            sr25519::Pair::from_seed(&seed).public(),
+            sr25519::Pair::from_string(suri, None).unwrap().public()
+        );
+        assert!(export_sr25519_seed(format!("{suri}/soft")).is_err());
+    }
 
     #[test]
     fn detects_an_app_running_from_a_mounted_volume() {

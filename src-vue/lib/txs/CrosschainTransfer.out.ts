@@ -1,4 +1,4 @@
-import { MoveToken, type ArgonClient, type TxSigningAccount } from '@argonprotocol/apps-core';
+import { MoveToken, type ArgonClient, type TxSigner } from '@argonprotocol/apps-core';
 import { ExtrinsicType, TransactionStatus } from '../db/TransactionsTable.ts';
 import type { TransactionInfo } from '../TransactionInfo.ts';
 import type { TransactionTracker } from '../TransactionTracker.ts';
@@ -10,7 +10,7 @@ import { TransactionOperation, type TransactionOperationBuild } from './Transact
 
 export interface CrosschainTransferOutInput {
   client: ArgonClient;
-  txSigner: TxSigningAccount;
+  txSigner: TxSigner;
   metadata: ICrosschainTransferOutMetadata & { localTransferId: string };
 }
 

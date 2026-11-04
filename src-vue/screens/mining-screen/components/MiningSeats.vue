@@ -81,6 +81,7 @@ import * as Vue from 'vue';
 import { twMerge } from 'tailwind-merge';
 import { IMiningSeat, IMiningSlot, IMiningSlotBid, normalizeMiningSeatSlots } from '@argonprotocol/apps-core';
 import { getBlockWatch, getMining, getMiningFrames } from '../../../stores/mainchain.ts';
+import { getMiningBotSubaccountCount } from '../../../stores/mainchain.ts';
 import { getWalletKeys, useWallets } from '../../../stores/wallets.ts';
 import { TooltipArrow, TooltipContent, TooltipPortal, TooltipProvider, TooltipRoot, TooltipTrigger } from 'reka-ui';
 import { getDbPromise } from '../../../stores/helpers/dbPromise.ts';
@@ -292,7 +293,7 @@ function clearHoveredSlotId(slotId: number): void {
 }
 
 async function updateSeats() {
-  const subaccounts = await walletKeys.getMiningBotSubaccounts();
+  const subaccounts = await walletKeys.getMiningBotSubaccounts(await getMiningBotSubaccountCount());
   ourBidAddresses.value = new Set(Object.keys(subaccounts));
 
   let nextSlots: IMiningDisplaySlot[];

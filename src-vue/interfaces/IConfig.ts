@@ -92,7 +92,9 @@ export enum BootstrapType {
 }
 
 export const ConfigServerAddDigitalOceanSchema = z.object({
-  apiKey: z.string(),
+  encryptedApiKey: z.string().optional(),
+  // Older configurations are migrated to encryptedApiKey when loaded.
+  apiKey: z.string().optional(),
 });
 export const ConfigServerAddLocalComputerSchema = z.object({});
 export const ConfigServerAddCustomServerSchema = z.object({
@@ -193,7 +195,6 @@ export const MiningAccountPreviousHistoryRecordSchema = z.object({
 
 export const ConfigSchema = z.object({
   version: z.string(),
-  requiresPassword: z.boolean(),
   ethereumBeaconApiUrl: z.string().optional(),
   ethereumExecutionRpcUrl: z.string().optional(),
 
@@ -278,7 +279,6 @@ export type IConfigStringified = {
 export type IConnectedVault = z.infer<typeof UpstreamOperatorSchema>;
 
 export interface IConfigDefaults {
-  requiresPassword: () => IConfig['requiresPassword'];
   ethereumBeaconApiUrl: () => IConfig['ethereumBeaconApiUrl'];
   ethereumExecutionRpcUrl: () => IConfig['ethereumExecutionRpcUrl'];
   bootstrapDetails: () => IConfig['bootstrapDetails'];
@@ -315,7 +315,7 @@ export interface IConfigDefaults {
   vaultSetup: () => IConfig['vaultSetup'];
   defaultCurrencyKey: () => IConfig['defaultCurrencyKey'];
   returnMetric: () => IConfig['returnMetric'];
-  userJurisdiction: () => Promise<IConfig['userJurisdiction']>;
+  userJurisdiction: () => IConfig['userJurisdiction'];
   certificationDetails: () => IConfig['certificationDetails'];
 
   hasActivatedStableSwaps: () => IConfig['hasActivatedStableSwaps'];

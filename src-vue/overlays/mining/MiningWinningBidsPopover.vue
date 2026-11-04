@@ -98,7 +98,7 @@ import * as Vue from 'vue';
 import type { IWinningBid } from '@argonprotocol/apps-core';
 import MiningStatPopover from './MiningStatPopover.vue';
 import numeral, { createNumeralHelpers } from '../../lib/numeral.ts';
-import { getBot } from '../../stores/bot.ts';
+import { getBot } from '../../stores/startup.ts';
 import { getCurrency } from '../../stores/currency.ts';
 import { TICK_MILLIS } from '../../lib/Env.ts';
 

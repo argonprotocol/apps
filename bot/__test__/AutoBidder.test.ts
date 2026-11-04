@@ -18,6 +18,7 @@ import {
   JsonExt,
   type IHistoryFile,
   type ArgonClient,
+  TxSigner,
 } from '@argonprotocol/apps-core';
 import { getOfflineRegistry, Keyring, mnemonicGenerate } from '@argonprotocol/mainchain';
 import { mkdtemp, readFile, rm } from 'node:fs/promises';
@@ -137,7 +138,7 @@ describe('AutoBidder', () => {
     } as unknown as Parameters<typeof createArgonClient>[0]);
     const accountset = new Accountset({
       client,
-      txSubmitter: funding,
+      txSubmitter: new TxSigner(funding),
       subaccountRange: [0, 1],
       sessionMiniSecretOrMnemonic: mnemonicGenerate(),
     });
@@ -193,8 +194,8 @@ describe('AutoBidder', () => {
       nonce: 0,
     });
     const revealResult = new TxResult({ ...commitResult.extrinsic, signedHash: `0x${'22'.repeat(32)}`, nonce: 1 });
-    const commitSubmitter = new TxSubmitter(client, registry.createType('Extrinsic') as never, funding);
-    const revealSubmitter = new TxSubmitter(client, registry.createType('Extrinsic') as never, funding);
+    const commitSubmitter = new TxSubmitter(client, registry.createType('Extrinsic') as never, new TxSigner(funding));
+    const revealSubmitter = new TxSubmitter(client, registry.createType('Extrinsic') as never, new TxSigner(funding));
     for (const submitter of [commitSubmitter, revealSubmitter]) {
       vi.spyOn(submitter, 'feeEstimate').mockResolvedValue(1_000n);
       vi.spyOn(submitter, 'signMortal').mockResolvedValue({
@@ -495,7 +496,7 @@ describe('AutoBidder', () => {
         isProxy: false,
         pendingMiningBids: vi.fn().mockResolvedValue([]),
         client: { query: { miningSlot: {} } },
-        txSubmitterPair: { address: '5FundingAccount' },
+        txSigner: { address: '5FundingAccount' },
         miningSeatsAndBids: vi.fn().mockResolvedValue([]),
         getAvailableMinerAccounts: vi.fn().mockResolvedValue([{ index: 0, isRebid: false, address: '5MiningAccount' }]),
       } as any,
@@ -557,7 +558,7 @@ describe('AutoBidder', () => {
     const miningFrames = new MiningFrames(clients, blockWatch);
     const accountset = new Accountset({
       client: {} as Accountset['client'],
-      txSubmitter: new Keyring({ type: 'sr25519' }).addFromUri('//Alice'),
+      txSubmitter: new TxSigner(new Keyring({ type: 'sr25519' }).addFromUri('//Alice')),
       subaccountRange: getRange(0, 0),
       sessionMiniSecretOrMnemonic: mnemonicGenerate(),
       name: 'shutdown',
@@ -620,7 +621,7 @@ describe('AutoBidder', () => {
     } as unknown as Parameters<typeof createArgonClient>[0]);
     const accountset = new Accountset({
       client,
-      txSubmitter: funding,
+      txSubmitter: new TxSigner(funding),
       subaccountRange: [0],
       sessionMiniSecretOrMnemonic: mnemonicGenerate(),
     });
@@ -708,7 +709,7 @@ describe('AutoBidder', () => {
       isProxy: false,
       pendingMiningBids: vi.fn().mockResolvedValue([]),
       client: { query: { miningSlot: {} } },
-      txSubmitterPair: { address: '5FundingAccount' },
+      txSigner: { address: '5FundingAccount' },
       subAccountsByAddress: {
         '5AlreadyWinning': { index: 2 },
         '5Available': { index: 3 },
@@ -757,7 +758,7 @@ describe('AutoBidder', () => {
       isProxy: false,
       pendingMiningBids: vi.fn().mockResolvedValue([]),
       client: { query: { miningSlot: {} } },
-      txSubmitterPair: { address: 'synthetic-funding' },
+      txSigner: { address: 'synthetic-funding' },
       subAccountsByAddress: { 'synthetic-seat': { index: 0 } },
       miningSeatsAndBids: vi.fn().mockResolvedValue([]),
       getAvailableMinerAccounts: vi.fn().mockResolvedValue([{ index: 0, isRebid: false, address: 'synthetic-seat' }]),

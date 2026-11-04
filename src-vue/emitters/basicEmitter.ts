@@ -7,9 +7,15 @@ import type { IVaultFlexibleAssetChanges } from '../lib/MyVault.ts';
 import type { IMemberInvite } from '@argonprotocol/apps-router';
 import type { IWalletOverlayWallet, IWalletView } from '../wallets/walletOverlayState.ts';
 import type { WalletForEthereum } from '../lib/WalletForEthereum.ts';
+import type { AccountAuthenticationPrompt } from '../lib/AccountSecurity.ts';
 
 export type IWalletGuidanceContext = 'mining' | 'vaulting';
-export type SecuritySettingsScreen = 'overview' | 'mnemonics' | 'encrypt';
+export type SecuritySettingsScreen = 'overview' | 'mnemonics' | 'accountSecurity';
+
+export interface IAccountAuthenticationRequest extends AccountAuthenticationPrompt {
+  resolve: VoidFunction;
+  reject: (error: Error) => void;
+}
 
 export type IOperationalProfileRequest =
   | { screen: 'settings' }
@@ -29,6 +35,7 @@ export type IWalletOverlayOptions = {
 };
 
 type IBasicEmitter = {
+  requestAccountAuthentication: IAccountAuthenticationRequest;
   openWalletOverlay: IWalletOverlayOptions;
   openWalletDisconnectOverlay: { wallet: WalletForEthereum };
   ethereumWalletDisconnected: { wallet: WalletForEthereum };

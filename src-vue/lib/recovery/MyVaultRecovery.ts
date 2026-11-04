@@ -112,8 +112,10 @@ export class MyVaultRecovery {
   }) {
     const { walletKeys, storedXpubMaybe, vaultId } = param;
     const masterXpubPath = DEFAULT_MASTER_XPUB_PATH;
-    const vaultXpriv = await walletKeys.getBitcoinChildXpriv(masterXpubPath, param.bitcoinNetwork);
-    const masterXpub = vaultXpriv.publicExtendedKey;
+    const { publicExtendedKey: masterXpub } = await walletKeys.getBitcoinPublicKey(
+      masterXpubPath,
+      param.bitcoinNetwork,
+    );
     if (!storedXpubMaybe) throw new Error(`Vault with id ${vaultId} xpub not found`);
     const storedXpubPubkey = storedXpubMaybe[0].publicKey.replace('0x', '');
     const expectedXpubHex = u8aToHex(bs58check.decode(masterXpub), undefined, false);
