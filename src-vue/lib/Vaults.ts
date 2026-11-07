@@ -199,7 +199,14 @@ export class Vaults extends VaultsBase {
       }).catch(err => console.warn(`No existing vault stats file found: ${err}`));
     }
 
-    const cachedStats = state ? JsonExt.parse<IAllVaultStats>(state) : undefined;
+    let cachedStats: IAllVaultStats | undefined;
+    if (state) {
+      try {
+        cachedStats = JsonExt.parse<IAllVaultStats>(state);
+      } catch {
+        console.warn('[VaultHistory] Saved stats are unreadable; ignoring the cache');
+      }
+    }
     let stats = cachedStats;
     if (cachedStats?.formatVersion !== VAULT_STATS_FORMAT_VERSION) {
       const bundledHistory = bundledVaultRevenueHistory[this.network];
