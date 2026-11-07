@@ -644,6 +644,36 @@ describe('Vaults cache upgrades', () => {
     cacheFiles.directory = '';
   });
 
+  it('restores bundled history when the saved vault cache contains null bytes', async () => {
+    globalThis.window = {} as Window & typeof globalThis;
+    NetworkConfig.setNetwork('mainnet');
+    cacheFiles.directory = await mkdtemp(join(tmpdir(), 'vault-cache-corrupt-'));
+    await mkdir(join(cacheFiles.directory, 'mainnet'));
+    const statsFile = join(cacheFiles.directory, 'mainnet', 'vaultStats.json');
+    await writeFile(statsFile, '\0'.repeat(100));
+
+    setMainchainClients({
+      events: createTypedEventEmitter(),
+      get: async () => ({ query: { vaults: { vaultsById: { entries: async () => [] } } } }),
+    } as any);
+    const frames = {
+      load: async () => undefined,
+      currentFrameId: 21,
+      blockWatch: { events: createTypedEventEmitter<{ finalized: (headers: IBlockHeaderInfo[]) => void }>() },
+    };
+
+    const vaults = new Vaults('mainnet', currency as any, frames as any);
+    await vaults.load();
+
+    expect(vaults.stats?.synchedToFrame).toBe(20);
+    const repairedCache = JsonExt.parse<IAllVaultStats>(await readFile(statsFile, 'utf8'));
+    expect(repairedCache.synchedToFrame).toBe(20);
+
+    const restarted = new Vaults('mainnet', currency as any, frames as any);
+    await restarted.load();
+    expect(restarted.stats).toEqual(repairedCache);
+  });
+
   it('retains historical revenue and website counts while dropping collection status and unused liquidity', async () => {
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
     globalThis.window = {} as Window & typeof globalThis;
