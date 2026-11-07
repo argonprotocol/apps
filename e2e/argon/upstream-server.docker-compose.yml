@@ -142,7 +142,8 @@ services:
           curl -fsS http://127.0.0.1:8080/is-ready | grep -q true || exit 1
       interval: 5s
       timeout: 3s
-      start_period: 20s
+      # A cold upstream node can take several minutes to synchronize before the bot is ready.
+      start_period: 5m
       retries: 40
 
   upstream-nginx:
