@@ -7,7 +7,6 @@ import type { Config } from './Config.ts';
 import { miniSecretFromUri } from '@argonprotocol/apps-core';
 import { hexToU8a } from '@argonprotocol/mainchain';
 import { mnemonicValidate } from '@polkadot/util-crypto';
-import { bytesToHex } from '@noble/hashes/utils';
 
 export class WalletRecoveryError extends Error {}
 
@@ -43,7 +42,7 @@ export class WalletSecrets {
         ...mnemonicsToRemove,
       ]);
       const wallet: IWalletFile = { encryptedMnemonic, meta: identity, protection: 'none' };
-      return { wallet, keychainValue: bytesToHex(key), encryptedMnemonicCleanup };
+      return { wallet, encryptedMnemonicCleanup };
     } finally {
       key.fill(0);
     }

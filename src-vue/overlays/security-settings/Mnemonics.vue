@@ -45,6 +45,7 @@ import Spinner from '../../components/Spinner.vue';
 import { getConfig } from '../../stores/config.ts';
 import AlertIcon from '../../assets/alert.svg?component';
 import { useStartupStore } from '../../stores/startup.ts';
+import { clearCopiedSecretLater } from '../../lib/clipboardSecrets.ts';
 
 const startup = useStartupStore();
 const config = startup.isWalletReady ? getConfig() : undefined;
@@ -54,30 +55,31 @@ const isCopied = Vue.ref(false);
 const masterMnemonic = Vue.ref('');
 const errorMessage = Vue.ref('');
 const words = Vue.computed(() => masterMnemonic.value.split(' '));
-let clipboardClearTimer: ReturnType<typeof setTimeout> | undefined;
+let copiedResetTimer: ReturnType<typeof setTimeout> | undefined;
 let isUnmounted = false;
 
 const emit = defineEmits(['close', 'goTo']);
 
-function copyToClipboard() {
+async function copyToClipboard() {
   if (!masterMnemonic.value) return;
-  navigator.clipboard.writeText(masterMnemonic.value);
+  const copiedValue = masterMnemonic.value;
+  try {
+    await navigator.clipboard.writeText(copiedValue);
+  } catch (error) {
+    errorMessage.value = error instanceof Error ? error.message : 'Unable to copy the recovery phrase.';
+    return;
+  }
+  clearCopiedSecretLater(copiedValue);
+  if (isUnmounted) return;
   isCopied.value = true;
-  setTimeout(() => {
+  clearTimeout(copiedResetTimer);
+  copiedResetTimer = setTimeout(() => {
     isCopied.value = false;
     config?.setCertificationDetails({ hasSavedMnemonic: true });
     if (controller && controller.activeGuideId === OperationalStepId.BackupMnemonic) {
       emit('close');
     }
   }, 2000);
-  clearTimeout(clipboardClearTimer);
-  const copiedValue = masterMnemonic.value;
-  clipboardClearTimer = setTimeout(async () => {
-    const current = await navigator.clipboard.readText();
-    if (current === copiedValue) {
-      navigator.clipboard.writeText('');
-    }
-  }, 180_000);
 }
 
 Vue.onMounted(async () => {
@@ -93,6 +95,6 @@ Vue.onMounted(async () => {
 Vue.onUnmounted(() => {
   isUnmounted = true;
   masterMnemonic.value = '';
-  clearTimeout(clipboardClearTimer);
+  clearTimeout(copiedResetTimer);
 });
 </script>
