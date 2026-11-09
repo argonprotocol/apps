@@ -100,7 +100,7 @@ jobs:
             docker build --platform linux/amd64 --tag "$image" --file "$dockerfile" "$BUILD_CONTEXT"
           fi
 
-          docker image inspect "$image" --format 'Image: {{.Id}}; image USER: {{if .Config.User}}{{json .Config.User}}{{else}}root (default){{end}}' >> "$GITHUB_STEP_SUMMARY"
+          docker image inspect "$image" --format 'Image: {{.Id}}; image USER: {{if index .Config "User"}}{{json (index .Config "User")}}{{else}}root (default){{end}}' >> "$GITHUB_STEP_SUMMARY"
           docker image save --output "$RUNNER_TEMP/image.tar" "$image"
 
       - name: Scan for fixable High and Critical vulnerabilities

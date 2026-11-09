@@ -4,6 +4,7 @@ WORKDIR /usr/src/app
 
 RUN rm -rf /usr/local/lib/node_modules/npm /usr/local/bin/npm /usr/local/bin/npx && \
   apt-get update && \
+  apt-get upgrade -y && \
   apt-get install -y --no-install-recommends curl && \
   rm -rf /var/lib/apt/lists/*
 

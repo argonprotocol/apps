@@ -8,6 +8,7 @@ ENV VERSION=$VERSION
 RUN <<END
     set -ex
     apt-get update
+    apt-get upgrade -y
     apt-get install -y --no-install-recommends ca-certificates wget curl jq gnupg
     rm -rf /var/lib/apt/lists/*
     # Dynamically fetch and import all builder keys from Bitcoin Core guix.sigs
