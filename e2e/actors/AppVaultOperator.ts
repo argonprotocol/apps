@@ -1,5 +1,5 @@
 import { submitAndFinalize } from '@argonprotocol/apps-core/__test__/helpers/mainchain.ts';
-import { runtimeClient } from '@argonprotocol/runtime-client';
+import { runtimeClient, type LiveRuntimeQueries } from '@argonprotocol/runtime-client';
 import { setTimeout as delay } from 'node:timers/promises';
 import {
   createOperationalAccessProof,
@@ -500,8 +500,16 @@ export class AppVaultOperator {
       const txResult = await new TxSubmitter(client, registrationTx, txSigner).submit({
         useLatestNonce: true,
       });
-      await txResult.waitForInFirstBlock;
+      await txResult.waitForFinalizedBlock;
     }
+
+    // Restart can find registration on the best chain before it is finalized.
+    // A progress update must not overtake that registration on a replacement fork.
+    await waitFor(120_000, 'upstream operational registration to finalize', async () => {
+      const snapshot = await client.at(await client.rpc.chain.getFinalizedHead());
+      const finalized = runtimeClient<typeof snapshot.raw, LiveRuntimeQueries>(snapshot.raw);
+      return finalized.query.operationalAccounts.operationalAccounts(this.walletKeys.operationalAddress);
+    });
 
     let accountBitcoinAmount = rewardConfig.treasuryMinimumBitcoin;
     if (rewardConfig.bitcoinLockSizeForUpgradeCode > accountBitcoinAmount) {

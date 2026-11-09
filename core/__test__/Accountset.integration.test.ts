@@ -1,11 +1,12 @@
 import { integrationNetwork as network } from './integration.setup.ts';
-import { createKeyringPair, Keyring, mnemonicGenerate } from '@argonprotocol/mainchain';
+import { createKeyringPair, ExtrinsicError, Keyring, mnemonicGenerate } from '@argonprotocol/mainchain';
 import { SKIP_E2E, teardown } from '@argonprotocol/testing';
 import { Accountset, type ArgonClient, getRange, TxSubmitter, TxSigner } from '../src/index.ts';
 import { it, beforeAll, afterAll, describe, expect, inject } from 'vitest';
 import { integrationAccountUri } from './integrationNetwork.ts';
 import { waitFor } from './helpers/waitFor.ts';
 import { getTestMainchainClient } from './helpers/mainchain.ts';
+import { runtimeClient, type LiveRuntimeQueries } from '@argonprotocol/runtime-client';
 
 afterAll(teardown);
 
@@ -48,22 +49,45 @@ describe.skipIf(SKIP_E2E)('Public mining bid transactions', { tags: ['mining-auc
       }
       const signerBalanceBefore = (await client.query.system.account(signer.address)).data.free;
 
-      const startingFrame = await client.query.miningSlot.nextFrameId();
-      const frameId = await waitFor(120_000, 'next open auction', async () => {
-        const [frameId, open] = await Promise.all([
-          client.query.miningSlot.nextFrameId(),
-          client.query.miningSlot.isNextSlotBiddingOpen(),
-        ]);
-        if (frameId > startingFrame && frameId > 1 && open) return frameId;
-      });
       const miners = await accountset.getAvailableMinerAccounts(5);
       expect(miners).toHaveLength(5);
       const minerAddresses = new Set(Object.keys(accountset.subAccountsByAddress));
       expect(miners.map(miner => miner.address).sort()).toEqual([...minerAddresses].sort());
 
-      const submitter = await accountset.createMiningBidTx({ bidAmount: 10_000n, subaccounts: miners, frameId });
-      const result = await submitter.submit({ useLatestNonce: true });
-      await result.waitForFinalizedBlock;
+      let lastAttemptedFrame = await client.query.miningSlot.nextFrameId();
+      const { frameId, result } = await waitFor(
+        120_000,
+        'finalized public bid in an accepting auction',
+        async () => {
+          const snapshot = await client.at(await client.rpc.chain.getBlockHash());
+          const api = runtimeClient<typeof snapshot.raw, LiveRuntimeQueries>(snapshot.raw);
+          const [frameId, open, admissionClosed] = await Promise.all([
+            api.query.miningSlot.nextFrameId(),
+            api.query.miningSlot.isNextSlotBiddingOpen(),
+            api.query.miningSlot.auctionAdmissionClosed(),
+          ]);
+          if (frameId <= lastAttemptedFrame || frameId <= 1) return;
+          if (!open || admissionClosed) return;
+
+          lastAttemptedFrame = frameId;
+          const submitter = await accountset.createMiningBidTx({ bidAmount: 10_000n, subaccounts: miners, frameId });
+          const result = await submitter.submit({ useLatestNonce: true });
+          try {
+            await result.waitForFinalizedBlock;
+          } catch (error) {
+            // Admission can close or the frame can change before execution.
+            // Retry only when the first call failed, so this batch placed no partial bids.
+            if (!(error instanceof ExtrinsicError)) throw error;
+            if (error.batchInterruptedIndex !== 0) throw error;
+            if (error.errorCode === 'miningSlot.SlotNotTakingBids' || error.errorCode === 'miningSlot.WrongBidFrame') {
+              return;
+            }
+            throw error;
+          }
+          return { frameId, result };
+        },
+        { retryErrors: false },
+      );
       expect(result.extrinsicError).toBeUndefined();
       expect(result.batchInterruptedIndex).toBeUndefined();
 
