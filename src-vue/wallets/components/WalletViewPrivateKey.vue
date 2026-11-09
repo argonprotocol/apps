@@ -70,6 +70,7 @@ import * as Vue from 'vue';
 import type { IWalletGuidanceContext } from '../../emitters/basicEmitter.ts';
 import { getWalletKeys, useWallets } from '../../stores/wallets.ts';
 import { WalletType } from '../../lib/Wallet.ts';
+import { clearCopiedSecretLater } from '../../lib/clipboardSecrets.ts';
 import WalletHeader from './WalletHeader.vue';
 import type { IWalletView } from '../walletOverlayState.ts';
 
@@ -99,7 +100,6 @@ const isPrivateKeyVisible = Vue.ref(false);
 const privateKey = Vue.ref('');
 const errorMessage = Vue.ref('');
 let copiedResetTimer: ReturnType<typeof setTimeout> | undefined;
-let clipboardClearTimer: ReturnType<typeof setTimeout> | undefined;
 let isUnmounted = false;
 
 function togglePrivateKeyVisibility() {
@@ -110,34 +110,22 @@ function togglePrivateKeyVisibility() {
 async function copyToClipboard() {
   if (!privateKey.value || !isPrivateKeyVisible.value) return;
 
+  const copiedValue = privateKey.value;
   try {
-    await navigator.clipboard.writeText(privateKey.value);
+    await navigator.clipboard.writeText(copiedValue);
+    clearCopiedSecretLater(copiedValue);
+    if (isUnmounted) return;
     isCopied.value = true;
 
     clearTimeout(copiedResetTimer);
     copiedResetTimer = setTimeout(() => {
       isCopied.value = false;
     }, 2_000);
-
-    clearTimeout(clipboardClearTimer);
-    const copiedValue = privateKey.value;
-    clipboardClearTimer = setTimeout(() => {
-      void clearCopiedPrivateKey(copiedValue);
-    }, 180_000);
   } catch (error) {
     errorMessage.value =
       error instanceof Error
         ? error.message
         : `Unable to copy the ${props.walletType === WalletType.ethereum ? 'Ethereum' : 'Argon'} private key.`;
-  }
-}
-
-async function clearCopiedPrivateKey(copiedValue: string) {
-  try {
-    const currentClipboard = await navigator.clipboard.readText();
-    if (currentClipboard === copiedValue) await navigator.clipboard.writeText('');
-  } catch {
-    // Ignore clipboard cleanup failures after the key has already been copied.
   }
 }
 
@@ -165,6 +153,5 @@ Vue.onUnmounted(() => {
   privateKey.value = '';
   errorMessage.value = '';
   clearTimeout(copiedResetTimer);
-  clearTimeout(clipboardClearTimer);
 });
 </script>

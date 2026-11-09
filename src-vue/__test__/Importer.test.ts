@@ -9,7 +9,14 @@ import { remove } from '@tauri-apps/plugin-fs';
 import { confirm } from '@tauri-apps/plugin-dialog';
 import { EncryptionSecret } from '../lib/EncryptionSecret.ts';
 import { WalletSecrets } from '../lib/WalletSecrets.ts';
-import { AccountActivityKind, createDeferred, JsonExt, Mining, Vault } from '@argonprotocol/apps-core';
+import {
+  AccountActivityKind,
+  createDeferred,
+  JsonExt,
+  Mining,
+  Vault,
+  miniSecretFromUri,
+} from '@argonprotocol/apps-core';
 import Importer from '../lib/Importer.ts';
 import { Config } from '../lib/Config.ts';
 import { AppStartup } from '../lib/AppStartup.ts';
@@ -23,6 +30,7 @@ import { type IConfig, MiningSetupStatus, OnboardingSetupStatus, VaultingSetupSt
 import Restarter from '../lib/Restarter.ts';
 import { WalletKeys } from '../lib/WalletKeys.ts';
 import { invokeWithTimeout } from '../lib/tauriApi.ts';
+import { hexToU8a } from '@argonprotocol/mainchain';
 
 const startupClients = { get: vi.fn() } as unknown as MainchainClients;
 const keychain = vi.hoisted(() => ({ value: '', sql: undefined as PluginSql | undefined }));
@@ -33,6 +41,10 @@ vi.mock('@tauri-apps/api/core', () => ({
     if (command === 'keychain_info') return { method: 'none' };
     if (command === 'keychain_write') {
       keychain.value = args.value;
+      return;
+    }
+    if (command === 'keychain_create') {
+      keychain.value = Buffer.from(args.key).toString('hex');
       return;
     }
     if (command === 'sql_start_transaction_session') return;
@@ -275,6 +287,10 @@ it.each([
     await fs.writeFile(unrelatedMnemonicPath, 'unconfirmed recovery material');
 
     const uncommitted = await WalletSecrets.prepareWallet(mnemonic, WalletKeys.deriveIdentity(mnemonic));
+    expect(JSON.stringify(uncommitted)).not.toContain(
+      Buffer.from(hexToU8a(miniSecretFromUri(`${mnemonic}//wallet-encryption`))).toString('hex'),
+    );
+    expect(uncommitted).not.toHaveProperty('keychainValue');
     await fs.writeFile(
       Path.join(importDirectory, 'wallet.tmp.json.tmp'),
       JSON.stringify({ ...uncommitted, config: {} }),
@@ -374,6 +390,18 @@ it.each([
       expect(await db.walletsTable.fetchEthereumWallets()).toHaveLength(1);
       vi.mocked(confirm).mockClear();
     }
+    if (activity === 'unused') {
+      vi.spyOn(EncryptionSecret.prototype, 'create').mockRejectedValueOnce(
+        new Error('Synthetic keychain write failure'),
+      );
+      await expect(importing.importFromMnemonic(mnemonic)).rejects.toThrow('Synthetic keychain write failure');
+      expect(keychain.value).toBe(previousKey.toString('hex'));
+      const staged = await fs.readFile(Path.join(importDirectory, 'wallet.tmp.json'), 'utf8');
+      expect(staged).not.toContain(previousKey.toString('hex'));
+      expect(staged).not.toContain(miniSecretFromUri(`${mnemonic}//wallet-encryption`).slice(2));
+      await expect(Importer.finishPendingImport({ dbPromise: Promise.resolve(db), config })).resolves.toBe(false);
+      expect(await fs.readFile(Path.join(importDirectory, 'wallet.json'), 'utf8')).toBe(previousWallet);
+    }
     const importResult = expect(importing.importFromMnemonic(mnemonic)).rejects.toThrow(expectedFailure);
     if (activity === 'funds') {
       await vi.waitFor(() => expect(importMocks.useWallets).toHaveBeenCalled());
@@ -394,10 +422,17 @@ it.each([
     const pending = JSON.parse(await fs.readFile(Path.join(importDirectory, 'wallet.tmp.json'), 'utf8'));
     expect(pending.keychainValue).toBeUndefined();
     expect(pending.wallet.protection).toBe('none');
+    const nextKey = hexToU8a(miniSecretFromUri(`${mnemonic}//wallet-encryption`));
+    expect(JSON.stringify(pending)).not.toContain(Buffer.from(nextKey).toString('hex'));
+    expect(JSON.stringify(pending)).not.toContain(previousKey.toString('hex'));
     await expect(WalletSecrets.readSavedWallet()).rejects.toThrow('An account import is still pending');
     expect(
-      await EncryptionSecret.decryptWithKey(Buffer.from(keychain.value, 'hex'), [pending.wallet.encryptedMnemonic]),
-    ).toEqual([mnemonic]);
+      await EncryptionSecret.decryptWithKey(nextKey, [
+        pending.wallet.encryptedMnemonic,
+        ...pending.encryptedMnemonicCleanup,
+      ]),
+    ).toEqual(activity === 'unused' ? [mnemonic] : [mnemonic, mnemonic, previousMnemonic]);
+    await expect(EncryptionSecret.decryptWithKey(previousKey, [pending.wallet.encryptedMnemonic])).rejects.toThrow();
     if (interruption !== 'cleanup')
       expect(await fs.readFile(Path.join(importDirectory, 'wallet.json'), 'utf8')).toBe(previousWallet);
     expect(await fs.readFile(previousMnemonicPath, 'utf8')).toBe(previousMnemonic);

@@ -23,13 +23,14 @@ import { findOwnedEthereumMintingAuthoritySigners } from './MintingAuthorities.t
 import { readArgonWalletBalanceValues } from './WalletsForArgon.ts';
 import { getWalletsForArgon } from '../stores/wallets.ts';
 import { getBlockWatch, getFinalizedClient, getMainchainClient } from '../stores/mainchain.ts';
-import { AccountActivityKind, getVaultByOperator, Mining } from '@argonprotocol/apps-core';
+import { AccountActivityKind, getVaultByOperator, Mining, miniSecretFromUri } from '@argonprotocol/apps-core';
 import {
   getOnboardingSetupStatus,
   getOperationalChainProgressFromAccount,
   getOperationalProfileName,
 } from './OperationalAccount.ts';
 import { findAddressActivity } from './IndexerClient.ts';
+import { hexToU8a } from '@argonprotocol/mainchain';
 
 type IRecoveredAccountState = Pick<
   IConfig,
@@ -102,6 +103,8 @@ export default class Importer {
         },
         30e3,
       );
+      const nextKey = hexToU8a(miniSecretFromUri(`${mnemonic}//wallet-encryption`));
+      await new EncryptionSecret().create(nextKey, 'none', {}, { replaceExisting: true });
       await Importer.finishPendingImport({ dbPromise: this.dbPromise, config: this.config });
     } finally {
       // Even an ambiguous staging error must not leave the old session running over a pending import.
@@ -131,6 +134,24 @@ export default class Importer {
         },
         30e3,
       );
+    }
+    try {
+      await new EncryptionSecret().decrypt([pending.wallet.encryptedMnemonic]);
+    } catch (error) {
+      const active = await new EncryptionSecret().info();
+      const previousRaw = await invokeWithTimeout<string | null>('read_wallet_file', { filename: 'wallet.json' }, 30e3);
+      let previousKeyIsActive = active === null || active.method !== 'none';
+      if (!previousKeyIsActive && previousRaw) {
+        try {
+          await new EncryptionSecret().decrypt([walletFileSchema.parse(JSON.parse(previousRaw)).encryptedMnemonic]);
+          previousKeyIsActive = true;
+        } catch {
+          // Neither wallet opens with the active key. Keep the journal for diagnosis.
+        }
+      }
+      if (!previousKeyIsActive) throw error;
+      await invokeWithTimeout('delete_wallet_file', { filename: 'wallet.tmp.json' }, 30e3);
+      return false;
     }
     if (!storage) {
       // A UI reload does not rerun native startup; repair an interrupted schema before Db.load reads table state.
