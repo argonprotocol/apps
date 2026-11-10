@@ -52,6 +52,7 @@ export * from './DiscordVerification.js';
 export * from './Codecs.js';
 export * from './CertificationProgress.js';
 export * from './OperationalAccessProof.js';
+export * from './OperationalRegistration.js';
 export * from './BootstrapPayloads.js';
 export * from './SqliteMigrations.js';
 export * from './SqliteUtils.js';
