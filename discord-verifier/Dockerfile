@@ -17,7 +17,9 @@ WORKDIR /usr/src/argon-apps
 COPY --from=build /usr/src/argon-apps/node_modules ./node_modules
 COPY --from=build /usr/src/argon-apps/discord-verifier/dist ./discord-verifier/dist
 
-RUN rm -rf /usr/local/lib/node_modules/npm /usr/local/bin/npm /usr/local/bin/npx \
+RUN apt-get update \
+  && apt-get upgrade -y \
+  && rm -rf /var/lib/apt/lists/* /usr/local/lib/node_modules/npm /usr/local/bin/npm /usr/local/bin/npx \
   && mkdir -p /var/lib/argon-discord-verifier \
   && chown node:node /var/lib/argon-discord-verifier
 
