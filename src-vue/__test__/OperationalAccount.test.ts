@@ -4,7 +4,7 @@ import { getBundledMetadata, runtimeClient } from '@argonprotocol/runtime-client
 import type { ArgonClient } from '@argonprotocol/apps-core';
 import type { WalletKeys } from '../lib/WalletKeys.ts';
 import { expect, it, vi } from 'vitest';
-import { Keyring, type PalletOperationalAccountsRewardsConfig } from '@argonprotocol/mainchain';
+import { Keyring, getOfflineRegistry, type PalletOperationalAccountsRewardsConfig } from '@argonprotocol/mainchain';
 import {
   activateOperationalAccountSetup,
   ensureOperationalAccountRegistered,
@@ -309,10 +309,9 @@ it('restores a finalized operator name transaction when the profile query initia
   });
 });
 
-it('submits operational registration once the treasury wallet can afford it', async () => {
+it.each([undefined, 2])('submits funded treasury registration with proof version %s', async proofVersion => {
   const keyring = new Keyring({ type: 'sr25519' });
   const operational = keyring.addFromUri('//Operational');
-  const vaulting = keyring.addFromUri('//Vaulting');
   const defaultArgon = keyring.addFromUri('//DefaultArgon');
   const miningBot = keyring.addFromUri('//MiningBot');
   const tx = {
@@ -321,9 +320,14 @@ it('submits operational registration once the treasury wallet can afford it', as
     }),
   };
   const client = {
-    consts: {
-      operationalAccounts: {
-        minimumBitcoin: bigintCodec(0n),
+    registry: getOfflineRegistry(),
+    genesisHash: new Uint8Array(32),
+    raw: {
+      consts: {
+        operationalAccounts:
+          proofVersion === undefined
+            ? {}
+            : { registrationProofVersion: getOfflineRegistry().createType('u8', proofVersion) },
       },
     },
     query: {
@@ -347,7 +351,7 @@ it('submits operational registration once the treasury wallet can afford it', as
     operationalAddress: operational.address,
     getOperationalSigner: vi.fn().mockResolvedValue(operational),
     getOperationalEncryptionKeypair: vi.fn().mockResolvedValue(new Uint8Array(32)),
-    getVaultingSigner: vi.fn().mockResolvedValue(vaulting),
+    getVaultingSigner: vi.fn().mockResolvedValue(defaultArgon),
     getDefaultArgonSigner: vi.fn().mockResolvedValue(defaultArgon),
     getMiningBotSigner: vi.fn().mockResolvedValue(miningBot),
     getTreasurySigner: vi.fn().mockResolvedValue(defaultArgon),
@@ -379,7 +383,6 @@ it('submits operational registration once the treasury wallet can afford it', as
 it('waits for more treasury funds before submitting operational registration', async () => {
   const keyring = new Keyring({ type: 'sr25519' });
   const operational = keyring.addFromUri('//Operational2');
-  const vaulting = keyring.addFromUri('//Vaulting2');
   const defaultArgon = keyring.addFromUri('//DefaultArgon2');
   const miningBot = keyring.addFromUri('//MiningBot2');
   const tx = {
@@ -388,11 +391,9 @@ it('waits for more treasury funds before submitting operational registration', a
     }),
   };
   const client = {
-    consts: {
-      operationalAccounts: {
-        minimumBitcoin: bigintCodec(0n),
-      },
-    },
+    registry: getOfflineRegistry(),
+    genesisHash: new Uint8Array(32),
+    raw: { consts: { operationalAccounts: { registrationProofVersion: getOfflineRegistry().createType('u8', 2) } } },
     query: {
       operationalAccounts: {
         operationalAccounts: vi.fn().mockResolvedValue(null),
@@ -414,7 +415,7 @@ it('waits for more treasury funds before submitting operational registration', a
     operationalAddress: operational.address,
     getOperationalSigner: vi.fn().mockResolvedValue(operational),
     getOperationalEncryptionKeypair: vi.fn().mockResolvedValue(new Uint8Array(32)),
-    getVaultingSigner: vi.fn().mockResolvedValue(vaulting),
+    getVaultingSigner: vi.fn().mockResolvedValue(defaultArgon),
     getDefaultArgonSigner: vi.fn().mockResolvedValue(defaultArgon),
     getMiningBotSigner: vi.fn().mockResolvedValue(miningBot),
     getTreasurySigner: vi.fn().mockResolvedValue(defaultArgon),

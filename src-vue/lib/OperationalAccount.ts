@@ -1,6 +1,6 @@
-import { getOfflineRegistry, type SubmittableExtrinsic, u8aToHex } from '@argonprotocol/mainchain';
+import { type SubmittableExtrinsic } from '@argonprotocol/mainchain';
 import {
-  type TxSigner,
+  buildOperationalRegistration,
   type ArgonClient,
   createDeferred,
   type ICertificationThresholds,
@@ -14,8 +14,7 @@ import {
   type Vault,
 } from '@argonprotocol/apps-core';
 import type { HistoricalQueryRecord, LiveQueryRecord } from '@argonprotocol/runtime-client';
-import { stringToU8a, u8aToString } from '@polkadot/util';
-import { blake2AsU8a, signatureVerify } from '@polkadot/util-crypto';
+import { u8aToString } from '@polkadot/util';
 import { getMainchainClient } from '../stores/mainchain.ts';
 import { ExtrinsicType } from './db/TransactionsTable.ts';
 import { type TransactionInfo } from './TransactionInfo.ts';
@@ -27,9 +26,6 @@ import { isValidOperatorName, OPERATOR_NAME_REQUIREMENTS } from './Utils.ts';
 
 export { isValidOperatorName } from './Utils.ts';
 
-const OPERATIONAL_ACCOUNT_PROOF_MESSAGE_KEY = 'operational_primary_account';
-const VAULT_ACCOUNT_PROOF_MESSAGE_KEY = 'operational_vault_account';
-const MINING_ACCOUNT_PROOF_MESSAGE_KEY = 'operational_mining_account';
 type RuntimeOperationalAccount = LiveQueryRecord<'operationalAccounts', 'operationalAccounts'>;
 
 export type IOperationalRewardConfig = ICertificationThresholds & {
@@ -95,21 +91,6 @@ interface IEnsureOperationalAccountRegisteredArgs {
   client?: ArgonClient;
 }
 
-function createOwnershipProof(account: TxSigner, ownerAddr: string, accountAddr: string, domain: string) {
-  const domainBytes = stringToU8a(domain);
-  const payload = getOfflineRegistry()
-    .createType('(Bytes,AccountId,AccountId)', [u8aToHex(domainBytes), ownerAddr, accountAddr])
-    .toU8a();
-
-  const payloadHash = blake2AsU8a(payload, 256);
-  const signature = account.sign(payloadHash, { withType: true });
-
-  return {
-    signature,
-    isValid: signatureVerify(payloadHash, signature, account.publicKey).isValid,
-  };
-}
-
 export async function buildOperatorAccountRegistrationTx(
   args: IBuildOperatorAccountRegistrationTxArgs,
 ): Promise<SubmittableExtrinsic | undefined> {
@@ -124,45 +105,13 @@ export async function buildOperatorAccountRegistrationTx(
     walletKeys.getVaultingSigner(),
     walletKeys.getMiningBotSigner(),
   ]);
-  const operationalAddr = operationalAccount.address;
-  const vaultingAddr = vaultingAccount.address;
-  const miningBotAddr = miningBotAccount.address;
-
-  const operationalAccountProof = createOwnershipProof(
+  return buildOperationalRegistration({
+    client,
     operationalAccount,
-    operationalAddr,
-    operationalAddr,
-    OPERATIONAL_ACCOUNT_PROOF_MESSAGE_KEY,
-  );
-  const vaultAccountProof = createOwnershipProof(
-    vaultingAccount,
-    operationalAddr,
-    vaultingAddr,
-    VAULT_ACCOUNT_PROOF_MESSAGE_KEY,
-  );
-  const miningBotAccountProof = createOwnershipProof(
-    miningBotAccount,
-    operationalAddr,
-    miningBotAddr,
-    MINING_ACCOUNT_PROOF_MESSAGE_KEY,
-  );
-
-  return client.tx.operationalAccounts.register({
-    V1: {
-      operationalAccount: operationalAddr,
-      encryptionPubkey: operationalEncryptionKey,
-      operationalAccountProof: { signature: operationalAccountProof.signature },
-      vaultAccount: vaultingAddr,
-      miningAccount: miningBotAddr,
-      vaultAccountProof: { signature: vaultAccountProof.signature },
-      miningAccountProof: { signature: miningBotAccountProof.signature },
-      accessProof: accessProof
-        ? {
-            upstreamAccount: accessProof.upstreamAccount,
-            signature: accessProof.signature,
-          }
-        : null,
-    },
+    vaultAccount: vaultingAccount,
+    miningAccount: miningBotAccount,
+    encryptionPubkey: operationalEncryptionKey,
+    accessProof,
   });
 }
 
