@@ -108,6 +108,7 @@
                 <button
                   v-if="
                     transfer.inboundTransfer?.transferState.needsAttention ||
+                    transfer.outboundTransfer?.transferState.needsAttention ||
                     transfer.bitcoinUtxo?.fundingRejectionReason === 'BelowMinimum' ||
                     transfer.bitcoinRelease?.status === BitcoinReleaseStatus.Failed
                   "
@@ -170,6 +171,7 @@ import type { IBitcoinUtxoRecord } from '../../interfaces/IBitcoinUtxoRecord.ts'
 import { BitcoinReleaseStatus, type IBitcoinReleaseRecord } from '../../interfaces/IBitcoinReleaseRecord.ts';
 import { getMiningFrames } from '../../stores/mainchain.ts';
 import { getEthereumMoveTracker } from '../../stores/moveFromEthereum.ts';
+import type { IEthereumOutboundActiveTransfer } from '../../lib/EthereumOutboundTransferTracker.ts';
 import type { IEthereumInboundActiveTransfer } from '../../lib/EthereumInboundTransferTracker.ts';
 import { getEthereumOutboundTransferTracker } from '../../stores/moveToEthereum.ts';
 import { getMyVault, getVaults } from '../../stores/vaults.ts';
@@ -177,6 +179,7 @@ import { useWallets } from '../../stores/wallets.ts';
 import {
   getCrosschainTransferProgressView,
   isCrosschainTransferActive,
+  isCrosschainTransferVisible,
   isCrosschainTransferUnresolved,
   type ITransferProgressView,
 } from './crosschainTransferView.ts';
@@ -192,6 +195,7 @@ type PendingTransfer = {
   updatedAt: number;
   progress: ITransferProgressView;
   inboundTransfer?: IEthereumInboundActiveTransfer;
+  outboundTransfer?: IEthereumOutboundActiveTransfer;
   bitcoinUtxo?: IBitcoinUtxoRecord;
   bitcoinRelease?: IBitcoinReleaseRecord;
 };
@@ -242,7 +246,10 @@ const pendingTransfers = Vue.computed<PendingTransfer[]>(() => {
     });
 
   const outboundTransfers = Object.values(outboundTracker.data.transfersById)
-    .filter(transfer => isCrosschainTransferActive(transfer.transferState))
+    .filter(
+      transfer =>
+        isCrosschainTransferVisible(transfer.transferState) && isCrosschainTransferUnresolved(transfer.transferState),
+    )
     .map<PendingTransfer>(transfer => {
       const ethereumAddress = transfer.persistedRecord?.destinationAddress ?? transfer.destinationAddress ?? '';
       return {
@@ -255,6 +262,7 @@ const pendingTransfers = Vue.computed<PendingTransfer[]>(() => {
         startedAt: transfer.persistedRecord?.createdAt.getTime() ?? transfer.startedAt ?? 0,
         updatedAt: transfer.persistedRecord?.updatedAt.getTime() ?? transfer.startedAt ?? 0,
         progress: getCrosschainTransferProgressView(transfer.transferState, progressNow.value),
+        outboundTransfer: transfer,
       };
     });
 
@@ -380,6 +388,8 @@ async function dismissTransfer(transfer: PendingTransfer): Promise<void> {
   try {
     if (transfer.inboundTransfer) {
       await inboundTracker.dismissFailedTransfer(transfer.inboundTransfer.id);
+    } else if (transfer.outboundTransfer) {
+      await outboundTracker.dismissFailedTransfer(transfer.outboundTransfer.id);
     } else if (transfer.bitcoinUtxo) {
       await bitcoinLocks.utxoTracking.acknowledgeBelowMinimum(transfer.bitcoinUtxo);
     } else if (transfer.bitcoinRelease?.status === BitcoinReleaseStatus.Failed) {

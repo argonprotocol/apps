@@ -22,12 +22,17 @@ import {
 import type { CrosschainTransferCouncilApprovalQueueByDestinationChainAndNonceResultSpec151 } from '@argonprotocol/runtime-client';
 import {
   type Address,
+  BaseError,
   type ContractFunctionArgs,
+  ContractFunctionRevertedError,
   createPublicClient,
   defineChain,
   encodeFunctionData,
+  ExecutionRevertedError,
   fallback,
   getAddress,
+  getContractError,
+  InsufficientFundsError,
   formatEther,
   keccak256,
   hexToBytes,
@@ -37,6 +42,7 @@ import {
   http,
   type PublicClient,
   RpcRequestError,
+  RpcError,
   serializeTransaction,
   shouldThrow,
   TransactionNotFoundError,
@@ -94,14 +100,23 @@ export type IFinalizedEthereumTransactionProgress = IEthereumTransactionProgress
   blockHash: Hash;
 };
 
+export class EthereumTransferOutError extends Error {
+  constructor(
+    cause: BaseError,
+    public readonly errorName: NonNullable<ContractFunctionRevertedError['data']>['errorName'] | undefined,
+    public readonly remainingBlocks?: bigint,
+  ) {
+    super('Ethereum could not complete this transfer.', { cause });
+    this.name = 'EthereumTransferOutError';
+  }
+}
+
 export class EthereumTransactionRevertedError extends Error {
   constructor(
-    txHash: Hash,
+    public readonly txHash: Hash,
     public readonly blockNumber?: bigint,
   ) {
-    super(
-      `Ethereum transaction ${txHash} reverted. Its contract changes were not applied, but the Ethereum network fee was still charged.`,
-    );
+    super('Ethereum transaction reverted. A network fee was charged.');
     this.name = 'EthereumTransactionRevertedError';
   }
 }
@@ -299,20 +314,7 @@ export class EthereumClient {
   public async estimateFinalizeTransferOutOfArgonFee(
     args: IEthereumFinalizeTransferOutOfArgonArgs & { ethereumWallet: WalletForEthereum },
   ): Promise<bigint> {
-    const chainConfig = await this.loadChainConfig();
-    const { chain, publicClient } = await this.createExecutionClient();
-    const { feeEstimateWei } = await buildEthereumUnsignedTransaction({
-      publicClient,
-      from: getAddress(args.ethereumWallet.address),
-      chainId: chain.id,
-      to: chainConfig.gatewayAddress,
-      data: encodeFunctionData({
-        abi: EvmContracts.mintingGatewayAbi,
-        functionName: 'finalizeTransferOutOfArgon',
-        args: [args.request, args.proof],
-      }),
-    });
-
+    const { feeEstimateWei } = await this.prepareTransferOutOfArgon(args);
     return feeEstimateWei;
   }
 
@@ -534,22 +536,11 @@ export class EthereumClient {
       beforeBroadcast?: (txHash: Hash) => Promise<void>;
     },
   ): Promise<Hash> {
-    const { request, proof, ethereumWallet, beforeBroadcast } = args;
+    const { ethereumWallet, beforeBroadcast } = args;
 
     return await this.#outboundFinalizationQueue.add(async () => {
-      const chainConfig = await this.loadChainConfig();
-      const { chain, publicClient } = await this.createExecutionClient();
-      const { transaction, unsignedTransaction } = await buildEthereumUnsignedTransaction({
-        publicClient,
-        from: getAddress(ethereumWallet.address),
-        chainId: chain.id,
-        to: chainConfig.gatewayAddress,
-        data: encodeFunctionData({
-          abi: EvmContracts.mintingGatewayAbi,
-          functionName: 'finalizeTransferOutOfArgon',
-          args: [request, proof],
-        }),
-      });
+      const { chainConfig, publicClient, transaction, unsignedTransaction } =
+        await this.prepareTransferOutOfArgon(args);
 
       await this.ensureEthereumSignerPolicyConfigured(chainConfig);
       const signature = await this.walletKeys.signEthereumTransaction(
@@ -859,6 +850,72 @@ export class EthereumClient {
       chain,
       publicClient,
     };
+  }
+
+  private async prepareTransferOutOfArgon(
+    args: IEthereumFinalizeTransferOutOfArgonArgs & { ethereumWallet: WalletForEthereum },
+  ) {
+    const { request, proof, ethereumWallet } = args;
+    const chainConfig = await this.loadChainConfig();
+    const { chain, publicClient } = await this.createExecutionClient();
+
+    try {
+      const prepared = await buildEthereumUnsignedTransaction({
+        publicClient,
+        from: getAddress(ethereumWallet.address),
+        chainId: chain.id,
+        to: chainConfig.gatewayAddress,
+        data: encodeFunctionData({
+          abi: EvmContracts.mintingGatewayAbi,
+          functionName: 'finalizeTransferOutOfArgon',
+          args: [request, proof],
+        }),
+      });
+      return { chainConfig, publicClient, ...prepared };
+    } catch (error) {
+      if (!(error instanceof BaseError)) throw error;
+      const insufficientFunds = error.walk(cause => cause instanceof InsufficientFundsError);
+      if (insufficientFunds) throw new EthereumTransferOutError(error, insufficientFunds.name);
+      if (error.walk(cause => cause instanceof ExecutionRevertedError) === null) throw error;
+
+      const decoded = getContractError(error, {
+        abi: EvmContracts.mintingGatewayAbi,
+        address: chainConfig.gatewayAddress,
+        functionName: 'finalizeTransferOutOfArgon',
+        args: [request, proof],
+      }).walk(cause => cause instanceof ContractFunctionRevertedError);
+      const errorName = decoded instanceof ContractFunctionRevertedError ? decoded.data?.errorName : undefined;
+      const blockNumber = await publicClient.getBlockNumber({ cacheTime: 0 }).catch(() => undefined);
+      if (blockNumber !== undefined) {
+        const gatewayState = await Promise.all([
+          publicClient.readContract({
+            address: chainConfig.gatewayAddress,
+            abi: EvmContracts.mintingGatewayAbi,
+            functionName: 'maxTransferOutMicrogonsPerArgonot',
+            blockNumber,
+          }),
+          publicClient.readContract({
+            address: chainConfig.gatewayAddress,
+            abi: EvmContracts.mintingGatewayAbi,
+            functionName: 'finalizedTransferOutOfArgonIds',
+            args: [EvmContracts.hashMintingGatewayTransferOutOfArgonRequest(request)],
+            blockNumber,
+          }),
+        ]).catch(() => undefined);
+        if (gatewayState) {
+          const [maximumRate, isFinalized] = gatewayState;
+          // The replay marker covers both delivery and cancellation, so native settlement must resolve it.
+          if (isFinalized) throw new EthereumTransferOutError(error, 'TransferOutOfArgonAlreadyFinalized');
+          if (request.microgonsPerArgonot > maximumRate) {
+            throw new EthereumTransferOutError(error, 'InvalidTransferOutRate', request.validUntilBlock - blockNumber);
+          }
+        }
+        if (blockNumber > request.validUntilBlock)
+          throw new EthereumTransferOutError(error, 'TransferOutOfArgonExpired');
+      }
+
+      throw new EthereumTransferOutError(error, errorName);
+    }
   }
 
   private async prepareTransferToArgon(args: {
@@ -1585,12 +1642,7 @@ async function buildEthereumUnsignedTransaction(args: {
   const [pendingNonce, minedNonce, gasEstimate, fees] = await Promise.all([
     publicClient.getTransactionCount({ address: from, blockTag: 'pending' }),
     publicClient.getTransactionCount({ address: from, blockTag: 'latest' }),
-    publicClient.estimateGas({
-      account: from,
-      to,
-      data,
-      value: 0n,
-    }),
+    publicClient.estimateGas({ account: from, to, data, value: 0n }),
     publicClient.estimateFeesPerGas(),
   ]);
   const fallbackGasPrice = fees.gasPrice ?? (await publicClient.getGasPrice());
@@ -1652,6 +1704,15 @@ export function getTransferToArgonWaitEstimateMs() {
 
 export function getGatewayActivityWaitEstimateMs() {
   return getTransferToArgonWaitEstimateMs();
+}
+
+export function isEthereumRpcError(error: unknown): boolean {
+  if (!(error instanceof BaseError)) return false;
+  return (
+    error.walk(
+      cause => cause instanceof HttpRequestError || cause instanceof RpcRequestError || cause instanceof RpcError,
+    ) !== null
+  );
 }
 
 export function getEthereumUserErrorMessage(error: unknown, fallback: string): string {

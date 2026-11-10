@@ -10,6 +10,9 @@ import { afterEach, beforeEach, describe, expect, it, vi, type MockInstance } fr
 import {
   encodeAbiParameters,
   encodeEventTopics,
+  encodeErrorResult,
+  createPublicClient,
+  custom,
   getAddress,
   keccak256,
   parseTransaction,
@@ -22,11 +25,12 @@ import {
   type ICrosschainTransferOutMetadata,
 } from '../lib/EthereumOutboundTransferTracker.ts';
 import {
+  getCrosschainTransferProgressView,
   isCrosschainTransferVisible,
   isCrosschainTransferActive,
 } from '../wallets/components/crosschainTransferView.ts';
 
-import { EthereumClient } from '../lib/EthereumClient.ts';
+import { EthereumClient, type IEthereumFinalizeTransferOutOfArgonArgs } from '../lib/EthereumClient.ts';
 import { createCrosschainTransferProgress, OUTBOUND_TRANSFER_STEP_TITLES } from '../lib/CrosschainTransferProgress.ts';
 import { CrosschainOutboundTransferStatus } from '../lib/db/CrosschainOutboundTransfersTable.ts';
 import { ExtrinsicType, TransactionStatus } from '../lib/db/TransactionsTable.ts';
@@ -726,6 +730,299 @@ describe('EthereumOutboundTransferTracker integration', { tags: ['no-argon-netwo
     }
   });
 
+  it.each(['fee estimate', 'submission', 'expiry', 'wallet balance'] as const)(
+    'shows a preflight rejection during %s and preserves the pending transfer',
+    async history => {
+      const db = await createTestDb();
+      const walletKeys = createMockWalletKeys(TEST_MNEMONIC);
+      const id = 'rejected-before-broadcast';
+      const transferId = `0x${'61'.repeat(32)}`;
+      const gatewayAddress = `0x${'62'.repeat(20)}` as const;
+      const token = `0x${'63'.repeat(20)}` as const;
+      await db.crosschainOutboundTransfersTable.upsert({
+        id,
+        transferId,
+        destinationChain: 'Ethereum',
+        token: MoveToken.ARGN,
+        amount: 100n,
+        argonSourceAddress: walletKeys.defaultArgonAddress,
+        destinationAddress: walletKeys.coreEthereumAddress,
+        status: CrosschainOutboundTransferStatus.MintingAuthorized,
+        finalizeRequestJson: {
+          argonAccountId: `0x${'64'.repeat(32)}`,
+          argonTransferNonce: 1n,
+          chainId: 1n,
+          microgonsPerArgonot: 3n,
+          recipient: getAddress(walletKeys.coreEthereumAddress),
+          validUntilBlock: 20_000n,
+          token,
+          amount: 100n,
+          mintingAuthorityTip: 1n,
+        },
+        finalizeProofJson: {
+          authorizations: [{ microgonCollateral: 100n, micronotCollateral: 0n, signature: `0x${'00'.repeat(64)}1c` }],
+        },
+        progressJson: createCrosschainTransferProgress(OUTBOUND_TRANSFER_STEP_TITLES),
+      });
+
+      const canonical = (await db.crosschainOutboundTransfersTable.get(id))!;
+      let signature = canonical.finalizeProofJson!.authorizations[0].signature;
+      let revertData: Hex | undefined;
+      let gasEstimateAttempts = 0;
+      let nativeReads = 0;
+      let authorizationReady = true;
+      let gasOutcome: 'unavailable' | 'reverted' | 'accepted' =
+        history === 'wallet balance' ? 'accepted' : 'unavailable';
+      let setupUnavailable = history === 'fee estimate';
+      let balanceUnavailable = history === 'wallet balance';
+      let successfulGasEstimates = 0;
+      let ethereumBlock = 5_600n;
+      let maximumTransferRate = 3n;
+      const gasClient = createPublicClient({
+        transport: custom(
+          {
+            request: async ({ method }) => {
+              if (method === 'eth_getBalance')
+                throw Object.assign(new Error('temporary balance RPC failure'), { code: -32603 });
+              gasEstimateAttempts += 1;
+              if (gasOutcome === 'unavailable') {
+                throw Object.assign(new Error('temporary gas RPC failure'), { code: -32603 });
+              }
+              if (gasOutcome === 'reverted') {
+                if (history !== 'submission' || successfulGasEstimates > 0) {
+                  throw Object.assign(new Error('execution reverted'), { code: 3, data: revertData });
+                }
+              }
+              successfulGasEstimates += 1;
+              return '0x186a0';
+            },
+          },
+          { retryCount: 0 },
+        ),
+      });
+      const sent: Hex[] = [];
+      const ethereumClient = new EthereumClient(walletKeys, 'https://ethereum.test');
+      Object.assign(ethereumClient, {
+        loadChainConfig: async () => {
+          if (setupUnavailable) await gasClient.getChainId();
+          return {
+            chainId: 1,
+            gatewayAddress,
+            argonTokenAddress: token,
+            argonotTokenAddress: `0x${'68'.repeat(20)}`,
+          };
+        },
+        createExecutionClient: async () => ({
+          chain: { id: 1 },
+          publicClient: {
+            estimateGas: gasClient.estimateGas,
+            getTransactionCount: async () => 0,
+            estimateFeesPerGas: async () => ({ gasPrice: 1n, maxFeePerGas: 1n, maxPriorityFeePerGas: 1n }),
+            getBalance: async () => {
+              if (balanceUnavailable)
+                return gasClient.getBalance({ address: getAddress(walletKeys.coreEthereumAddress) });
+              return 10_000_000n;
+            },
+            getBlockNumber: async () => ethereumBlock,
+            readContract: async ({ functionName }: { functionName: string }) => {
+              if (functionName === 'maxTransferOutMicrogonsPerArgonot') return maximumTransferRate;
+              if (functionName === 'finalizedTransferOutOfArgonIds') return false;
+              throw new Error(`Unexpected gateway query ${functionName}`);
+            },
+            sendRawTransaction: async ({ serializedTransaction }: { serializedTransaction: Hex }) => {
+              sent.push(serializedTransaction);
+              return keccak256(serializedTransaction);
+            },
+            getTransactionReceipt: async ({ hash }: { hash: Hex }) => {
+              throw new TransactionReceiptNotFoundError({ hash });
+            },
+          },
+        }),
+      });
+      const blockWatch = createBlockWatch({
+        initialHeader: { blockNumber: 20, blockHash: `0x${'65'.repeat(32)}` },
+        getApi: async () => {
+          nativeReads += 1;
+          const native = readyNativeTransfer(canonical.finalizeRequestJson!, {
+            authorizations: [{ ...canonical.finalizeProofJson!.authorizations[0], signature }],
+          });
+          if (!authorizationReady) {
+            return {
+              query: {
+                crosschainTransfer: {
+                  transferOutById: async () => ({
+                    state: { type: 'Started' },
+                    amount: 100n,
+                    totalAttachedCollateral: 0n,
+                  }),
+                },
+              },
+            };
+          }
+          return { query: { crosschainTransfer: native } };
+        },
+      });
+      getMainchainClientMock.mockResolvedValue({});
+      const transactions = new TransactionTracker(Promise.resolve(db), blockWatch.instance as any);
+      const tracker = new EthereumOutboundTransferTracker(
+        Promise.resolve(db),
+        transactions,
+        blockWatch.instance as any,
+        walletKeys,
+        () => new AccountSecurityBatch(async () => {}),
+        ethereumClient,
+      );
+      tracker.data = reactive(tracker.data);
+      const visible = computed(() => tracker.getTransfer(id)?.transferState);
+      const progress = computed(() => getCrosschainTransferProgressView(visible.value, Date.now()));
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+      try {
+        await tracker.load();
+        await vi.waitFor(() => expect(progress.value.error).toBe('Connection unavailable. Retrying automatically.'));
+        expect(visible.value?.amount).toBe(100n);
+        expect((await db.crosschainOutboundTransfersTable.get(id))?.failureReason).toBeUndefined();
+
+        setupUnavailable = false;
+        balanceUnavailable = false;
+        gasOutcome = 'reverted';
+        blockWatch.emitFinalized({ blockNumber: 21, blockHash: `0x${'66'.repeat(32)}` });
+        await vi.waitFor(() =>
+          expect(progress.value.error).toBe('Unable to submit this transfer. Retrying automatically.'),
+        );
+        expect(progress.value.detail).toBe('Waiting to retry.');
+        expect(visible.value).toMatchObject({ amount: 100n, isSubmitting: false, hasPersistedTransfer: true });
+        expect(await db.crosschainOutboundTransfersTable.get(id)).toMatchObject({
+          status: CrosschainOutboundTransferStatus.MintingAuthorized,
+          transferId,
+        });
+        expect((await db.crosschainOutboundTransfersTable.get(id))?.failureReason).toBeUndefined();
+        expect((await db.crosschainOutboundTransfersTable.get(id))?.targetTxHash).toBeUndefined();
+        expect(sent).toEqual([]);
+
+        gasOutcome = 'unavailable';
+        const previousGasAttempts = gasEstimateAttempts;
+        blockWatch.emitFinalized({ blockNumber: 22, blockHash: `0x${'67'.repeat(32)}` });
+        await vi.waitFor(() => expect(gasEstimateAttempts).toBeGreaterThan(previousGasAttempts));
+        expect(progress.value.error).toBe('Unable to submit this transfer. Retrying automatically.');
+        expect(progress.value.detail).toBe('Waiting to retry.');
+
+        if (history === 'fee estimate') {
+          gasOutcome = 'reverted';
+          let retryBlock = 22;
+          for (const [encodedError, expected] of [
+            [
+              encodeErrorResult({ abi: EvmContracts.mintingGatewayAbi, errorName: 'EnforcedPause' }),
+              'Ethereum transfers are paused. Retrying automatically.',
+            ],
+            [
+              encodeErrorResult({
+                abi: EvmContracts.mintingGatewayAbi,
+                errorName: 'TooManyGatewayActivitiesInBlock',
+                args: [1n, 1n],
+              }),
+              'Ethereum is busy. Retrying automatically.',
+            ],
+            [
+              encodeErrorResult({
+                abi: EvmContracts.mintingGatewayAbi,
+                errorName: 'MintingAuthorityTransferCapacityExceeded',
+                args: [gatewayAddress],
+              }),
+              'Transfer authorization is updating. Retrying automatically.',
+            ],
+          ] as const) {
+            revertData = encodedError;
+            blockWatch.emitFinalized({ blockNumber: ++retryBlock, blockHash: `0x${retryBlock}` });
+            await vi.waitFor(() => expect(progress.value.error).toBe(expected));
+            expect(visible.value?.needsAttention).toBe(false);
+            expect((await db.crosschainOutboundTransfersTable.get(id))?.failureReason).toBeUndefined();
+            expect(sent).toEqual([]);
+          }
+
+          revertData = encodeErrorResult({ abi: EvmContracts.mintingGatewayAbi, errorName: 'ECDSAInvalidSignature' });
+          blockWatch.emitFinalized({ blockNumber: ++retryBlock, blockHash: `0x${retryBlock}` });
+          await vi.waitFor(() => expect(visible.value?.needsAttention).toBe(true));
+          expect(progress.value.error).toBe('Transfer authorization failed. Waiting for funds to return.');
+          await tracker.dismissFailedTransfer(id);
+          expect(isCrosschainTransferVisible(visible.value)).toBe(false);
+          expect(visible.value?.hasPersistedTransfer).toBe(true);
+          const estimatesBefore = gasEstimateAttempts;
+          const readsBefore = nativeReads;
+          blockWatch.emitFinalized({ blockNumber: ++retryBlock, blockHash: `0x${retryBlock}` });
+          await vi.waitFor(() => expect(nativeReads).toBeGreaterThan(readsBefore + 1));
+          expect(gasEstimateAttempts).toBe(estimatesBefore);
+          expect(isCrosschainTransferVisible(visible.value)).toBe(false);
+
+          authorizationReady = false;
+          blockWatch.emitFinalized({ blockNumber: ++retryBlock, blockHash: `0x${retryBlock}` });
+          await vi.waitFor(async () =>
+            expect((await db.crosschainOutboundTransfersTable.get(id))?.status).toBe(
+              CrosschainOutboundTransferStatus.RequestFinalizedOnArgon,
+            ),
+          );
+          expect(gasEstimateAttempts).toBe(estimatesBefore);
+          expect(visible.value?.error).toBe('');
+
+          authorizationReady = true;
+          signature = `0x${'01'.repeat(64)}1c`;
+          revertData = undefined;
+        }
+
+        maximumTransferRate = 2n;
+        gasOutcome = 'reverted';
+        blockWatch.emitFinalized({ blockNumber: 30, blockHash: `0x${'69'.repeat(32)}` });
+        await vi.waitFor(() => {
+          expect(progress.value.error).toBe(
+            'This transaction is using a conversion rate that is no longer valid. Your funds should return to your wallet in about 2 days.',
+          );
+          expect(progress.value.detail).toBe('Waiting for funds to return.');
+        });
+
+        ethereumBlock = 12_800n;
+        blockWatch.emitFinalized({ blockNumber: 31, blockHash: `0x${'6a'.repeat(32)}` });
+        await vi.waitFor(() => expect(progress.value.error).toContain('about 1 day.'));
+        expect((await db.crosschainOutboundTransfersTable.get(id))?.failureReason).toBeUndefined();
+        expect(sent).toEqual([]);
+
+        if (history === 'expiry') {
+          ethereumBlock = 20_001n;
+          blockWatch.emitFinalized({ blockNumber: 32, blockHash: `0x${'6b'.repeat(32)}` });
+          await vi.waitFor(() => {
+            expect(progress.value.error).toBe(
+              'This transaction is using a conversion rate that is no longer valid. Your funds are waiting to be returned to your wallet.',
+            );
+          });
+          expect(sent).toEqual([]);
+          expect(await db.crosschainOutboundTransfersTable.get(id)).toMatchObject({
+            amount: 100n,
+            status: CrosschainOutboundTransferStatus.MintingAuthorized,
+          });
+          expect((await db.crosschainOutboundTransfersTable.get(id))?.failureReason).toBeUndefined();
+          return;
+        }
+
+        maximumTransferRate = 3n;
+        gasOutcome = 'accepted';
+        blockWatch.emitFinalized({ blockNumber: 32, blockHash: `0x${'6b'.repeat(32)}` });
+        await vi.waitFor(async () => {
+          expect(sent).toHaveLength(1);
+          expect(await db.crosschainOutboundTransfersTable.get(id)).toMatchObject({
+            status: CrosschainOutboundTransferStatus.TransferSubmittedToTargetChain,
+            targetTxHash: keccak256(sent[0]),
+          });
+          expect(progress.value.error).toBe('');
+          expect(progress.value.detail).toContain('Waiting for confirmation');
+        });
+      } finally {
+        tracker.shutdown();
+        warn.mockRestore();
+        await transactions.shutdown();
+        await db.close();
+      }
+    },
+  );
+
   it('persists its Ethereum hash before sending and resumes receipt checks through restart and RPC delays', async () => {
     const db = await createTestDb();
     const walletKeys = createMockWalletKeys(TEST_MNEMONIC);
@@ -794,7 +1091,15 @@ describe('EthereumOutboundTransferTracker integration', { tags: ['no-argon-netwo
       initialHeader: { blockNumber: 20, blockHash: `0x${'54'.repeat(32)}` },
       getApi: async header => {
         if (header.blockNumber > 21) throw new Error('Receipt polling must not read native history');
-        return { query: { crosschainTransfer: { transferOutById: async () => ({ state: { type: 'Ready' } }) } } };
+        return {
+          query: {
+            crosschainTransfer: readyNativeTransfer(request, {
+              authorizations: [
+                { microgonCollateral: 100n, micronotCollateral: 0n, signature: `0x${'00'.repeat(64)}1c` },
+              ],
+            }),
+          },
+        };
       },
     });
     const getReceipt = async ({ hash }: { hash: Hex }) => {
@@ -912,7 +1217,7 @@ describe('EthereumOutboundTransferTracker integration', { tags: ['no-argon-netwo
       receiptError = undefined;
       const checksBefore = receiptChecks;
       blockWatch.emitFinalized({ blockNumber: 22, blockHash: `0x${'56'.repeat(32)}` });
-      await vi.waitFor(() => expect(receiptChecks).toBeGreaterThan(checksBefore + 1));
+      await vi.waitFor(() => expect(receiptChecks).toBeGreaterThan(checksBefore));
       expect((await db.crosschainOutboundTransfersTable.get(id))?.targetTxHash).toBe(hash);
       expect(sent).toHaveLength(1);
       expect(visible.value?.needsAttention).toBe(false);
@@ -939,6 +1244,195 @@ describe('EthereumOutboundTransferTracker integration', { tags: ['no-argon-netwo
       await db.close();
     }
   });
+
+  it('preserves pending transfers while migrating the returned-funds status', async () => {
+    const { db, migrateToLatest } = await createTestDbAtMigration(45);
+    try {
+      await db.execute(
+        `INSERT INTO CrosschainOutboundTransfers (
+        id, transferId, destinationChain, token, amount, argonSourceAddress, destinationAddress,
+        status, targetTxHash, mintingAuthorizedArgonBlockNumber, finalizeProofJson,
+        failureReason, isFailureAcknowledged, progressJson
+      ) VALUES (?, ?, 'Ethereum', 'ARGN', '100', ?, ?, 'TransferSubmittedToTargetChain', ?, 10, ?, ?, 1, ?)`,
+        [
+          'pending-upgrade',
+          `0x${'17'.repeat(32)}`,
+          'synthetic-argon-account',
+          `0x${'18'.repeat(20)}`,
+          `0x${'19'.repeat(32)}`,
+          JsonExt.stringify({ authorizations: [] }),
+          'Synthetic failed attempt',
+          JsonExt.stringify(createCrosschainTransferProgress(OUTBOUND_TRANSFER_STEP_TITLES)),
+        ],
+      );
+      const before = await db.crosschainOutboundTransfersTable.get('pending-upgrade');
+      await migrateToLatest();
+      expect(await db.crosschainOutboundTransfersTable.get('pending-upgrade')).toEqual(before);
+      const returned = await db.crosschainOutboundTransfersTable.patch('pending-upgrade', {
+        status: CrosschainOutboundTransferStatus.TransferReturnedToArgon,
+      });
+      expect(returned?.status).toBe(CrosschainOutboundTransferStatus.TransferReturnedToArgon);
+      expect(returned?.isFailureAcknowledged).toBe(true);
+      expect(returned?.targetTxHash).toBe(before?.targetTxHash);
+    } finally {
+      await db.close();
+    }
+  });
+
+  it.each(['TransferOutCanceled', 'TransferOutFinalized'] as const)(
+    'tracks acknowledged pending funds through restart until native %s evidence arrives',
+    async settlement => {
+      const db = await createTestDb();
+      const walletKeys = createMockWalletKeys(TEST_MNEMONIC);
+      const ethereumClient = new EthereumClient(walletKeys, 'https://ethereum.test');
+      const gatewayAddress = `0x${'71'.repeat(20)}` as const;
+      const token = `0x${'72'.repeat(20)}` as const;
+      const txHash = `0x${'73'.repeat(32)}` as const;
+      const transferId = `0x${'74'.repeat(32)}`;
+      const id = 'acknowledged-ethereum-failure';
+      await db.crosschainOutboundTransfersTable.upsert({
+        id,
+        transferId,
+        destinationChain: 'Ethereum',
+        token: MoveToken.ARGN,
+        amount: 100n,
+        argonSourceAddress: walletKeys.defaultArgonAddress,
+        destinationAddress: walletKeys.coreEthereumAddress,
+        status: CrosschainOutboundTransferStatus.TransferSubmittedToTargetChain,
+        targetTxHash: txHash,
+        mintingAuthorizedArgonBlockNumber: 10,
+        mintingAuthorizedArgonBlockHash: `0x${'10'.repeat(32)}`,
+        progressJson: createCrosschainTransferProgress(OUTBOUND_TRANSFER_STEP_TITLES),
+      });
+      Object.assign(ethereumClient, {
+        loadChainConfig: async () => ({ chainId: 1, gatewayAddress, argonTokenAddress: token }),
+        createExecutionClient: async () => ({
+          publicClient: {
+            getBlockNumber: async () => 50n,
+            getTransactionReceipt: async () => ({
+              status: 'reverted',
+              transactionHash: txHash,
+              blockNumber: 40n,
+              blockHash: `0x${'75'.repeat(32)}`,
+            }),
+          },
+        }),
+      });
+      vi.spyOn(ethereumClient, 'getTransactionFinalityBlocks').mockReturnValue(2);
+      let settlementObserved = false;
+      let eventsAvailable = false;
+      const getApi = async (header: { blockNumber: number }) => ({
+        query: {
+          crosschainTransfer: {
+            transferOutById: async () => {
+              if (settlementObserved && header.blockNumber >= 15) return;
+              return { state: { type: 'Ready' } };
+            },
+          },
+        },
+      });
+      const firstWatch = createBlockWatch({ initialHeader: { blockNumber: 12, blockHash: '0x12' }, getApi });
+      getMainchainClientMock.mockResolvedValue({});
+      const transactions = new TransactionTracker(Promise.resolve(db), firstWatch.instance as any);
+      const tracker = new EthereumOutboundTransferTracker(
+        Promise.resolve(db),
+        transactions,
+        firstWatch.instance as any,
+        walletKeys,
+        () => new AccountSecurityBatch(async () => {}),
+        ethereumClient,
+      );
+      tracker.data = reactive(tracker.data);
+      let restored: EthereumOutboundTransferTracker | undefined;
+      let restoredTransactions: TransactionTracker | undefined;
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      try {
+        await tracker.load();
+        await vi.waitFor(() => expect(tracker.getTransfer(id)?.transferState.needsAttention).toBe(true));
+        await tracker.dismissFailedTransfer(id);
+        expect(tracker.getTransfer(id)?.transferState.hasPersistedTransfer).toBe(true);
+        expect(isCrosschainTransferVisible(tracker.getTransfer(id)?.transferState)).toBe(false);
+        expect((await db.crosschainOutboundTransfersTable.get(id))?.isFailureAcknowledged).toBe(true);
+        tracker.shutdown();
+        await transactions.shutdown();
+
+        const restoredWatch = createBlockWatch({ initialHeader: { blockNumber: 14, blockHash: '0x14' }, getApi });
+        Object.assign(restoredWatch.instance, {
+          getHeader: async (blockNumber: number) => ({
+            blockNumber,
+            blockHash: `0x${blockNumber}`,
+            blockTime: Date.now(),
+          }),
+          getEventsWithSpec: async ({ blockNumber }: typeof restoredWatch.instance.finalizedBlockHeader) => {
+            if (!eventsAvailable) throw new Error('temporary settlement event RPC failure');
+            if (blockNumber !== 15) return { events: [] };
+            return {
+              events: [
+                {
+                  event: {
+                    section: 'crosschainTransfer',
+                    method: settlement,
+                    data: {
+                      sourceChain: { type: 'Ethereum' },
+                      transferId,
+                    },
+                  },
+                },
+              ],
+            };
+          },
+        });
+        restoredTransactions = new TransactionTracker(Promise.resolve(db), restoredWatch.instance as any);
+        restored = new EthereumOutboundTransferTracker(
+          Promise.resolve(db),
+          restoredTransactions,
+          restoredWatch.instance as any,
+          walletKeys,
+          () => new AccountSecurityBatch(async () => {}),
+          ethereumClient,
+        );
+        restored.data = reactive(restored.data);
+        const visible = computed(() => restored?.getTransfer(id)?.transferState);
+        await restored.load();
+        expect(visible.value?.hasPersistedTransfer).toBe(true);
+        expect(isCrosschainTransferVisible(visible.value)).toBe(false);
+
+        settlementObserved = true;
+        restoredWatch.emitFinalized({ blockNumber: 30, blockHash: '0x30' });
+        await vi.waitFor(() =>
+          expect(warn).toHaveBeenCalledWith(
+            expect.any(String),
+            expect.objectContaining({
+              message: 'temporary settlement event RPC failure',
+            }),
+          ),
+        );
+        expect(visible.value?.amount).toBe(100n);
+        expect(visible.value?.hasPersistedTransfer).toBe(true);
+        expect((await db.crosschainOutboundTransfersTable.get(id))?.isFailureAcknowledged).toBe(true);
+
+        eventsAvailable = true;
+        restoredWatch.emitFinalized({ blockNumber: 31, blockHash: '0x31' });
+        await vi.waitFor(async () => {
+          expect(visible.value?.isComplete).toBe(true);
+          expect(visible.value?.hasPersistedTransfer).toBe(false);
+          expect(await db.crosschainOutboundTransfersTable.get(id)).toMatchObject({
+            status:
+              settlement === 'TransferOutCanceled'
+                ? 'TransferReturnedToArgon'
+                : CrosschainOutboundTransferStatus.TransferFinalizedOnTargetChain,
+          });
+        });
+      } finally {
+        tracker.shutdown();
+        restored?.shutdown();
+        warn.mockRestore();
+        await transactions.shutdown();
+        await restoredTransactions?.shutdown();
+        await db.close();
+      }
+    },
+  );
 
   it.each(['success', 'reverted'] as const)(
     'advances a sibling and observes Ethereum %s after Argon callbacks stop',
@@ -1078,7 +1572,8 @@ describe('EthereumOutboundTransferTracker integration', { tags: ['no-argon-netwo
         getApi: async header => ({
           query: {
             crosschainTransfer: {
-              transferOutById: async () => {
+              transferOutById: async (queriedId: string) => {
+                if (queriedId === transferId) return { state: { type: 'Ready' } };
                 if (nativeLookupError) throw nativeLookupError;
                 if (header.blockNumber < 2) return;
                 if (header.blockNumber >= 13) return;
@@ -1114,6 +1609,24 @@ describe('EthereumOutboundTransferTracker integration', { tags: ['no-argon-netwo
               }),
             },
           },
+        }),
+      });
+      Object.assign(blockWatch.instance, {
+        getHeader: async (blockNumber: number) => ({
+          blockNumber,
+          blockHash: `0x${blockNumber}`,
+          blockTime: Date.now(),
+        }),
+        getEventsWithSpec: async () => ({
+          events: [
+            {
+              event: {
+                section: 'crosschainTransfer',
+                method: 'TransferOutCanceled',
+                data: { sourceChain: { type: 'Ethereum' }, transferId: `0x${'93'.repeat(32)}` },
+              },
+            },
+          ],
         }),
       });
       getMainchainClientMock.mockResolvedValue({});
@@ -1192,10 +1705,12 @@ describe('EthereumOutboundTransferTracker integration', { tags: ['no-argon-netwo
         await vi.waitFor(async () => {
           const expired = await db.crosschainOutboundTransfersTable.get('awaiting-authorization');
           expect(isCrosschainTransferActive(authorizationState.value)).toBe(false);
-          expect(expired?.failureReason).toContain('no longer available on Argon');
+          expect(expired?.status).toBe(CrosschainOutboundTransferStatus.TransferReturnedToArgon);
+          expect(expired?.failureReason).toBeUndefined();
           expect(expired?.targetTxHash).toBeUndefined();
           expect(expired?.mintingAuthorizedMicrogons).toBe(100n);
-          expect(authorizationState.value?.needsAttention).toBe(true);
+          expect(authorizationState.value?.needsAttention).toBe(false);
+          expect(authorizationState.value?.isComplete).toBe(true);
           expect(authorizationState.value?.amount).toBe(100n);
         });
 
@@ -1234,7 +1749,8 @@ describe('EthereumOutboundTransferTracker integration', { tags: ['no-argon-netwo
         expect(blockWatch.instance.finalizedBlockHeader.blockNumber).toBe(14);
         const receiptReads = receipt.mock.calls.length;
         await vi.advanceTimersByTimeAsync(5_000);
-        expect(receipt).toHaveBeenCalledTimes(receiptReads);
+        if (outcome === 'success') expect(receipt).toHaveBeenCalledTimes(receiptReads);
+        else expect(receipt.mock.calls.length).toBeGreaterThan(receiptReads);
       } finally {
         warn.mockRestore();
         tracker.shutdown();
@@ -1483,5 +1999,31 @@ function createBlockWatch(args: {
       };
       events.emit('finalized', [header]);
     },
+  };
+}
+
+function readyNativeTransfer(
+  request: IEthereumFinalizeTransferOutOfArgonArgs['request'],
+  proof: IEthereumFinalizeTransferOutOfArgonArgs['proof'],
+) {
+  return {
+    transferOutById: async () => ({
+      state: { type: 'Ready' },
+      asset: { type: 'Argon' },
+      amount: request.amount,
+      mintingAuthorityTip: request.mintingAuthorityTip,
+      argonAccountId: request.argonAccountId,
+      argonTransferNonce: request.argonTransferNonce,
+      microgonsPerArgonot: request.microgonsPerArgonot,
+      destinationAccount: request.recipient,
+      validUntilEthereumBlock: request.validUntilBlock,
+      mintingAuthorityCollateralBySigner: Object.fromEntries(
+        proof.authorizations.map((authorization, index) => [String(index), authorization]),
+      ),
+    }),
+    chainConfigBySourceChain: async () => ({
+      type: 'Evm',
+      value: { chainId: request.chainId, argonToken: request.token, argonotToken: `0x${'55'.repeat(20)}` },
+    }),
   };
 }

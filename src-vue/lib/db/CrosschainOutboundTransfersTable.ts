@@ -12,6 +12,7 @@ export enum CrosschainOutboundTransferStatus {
   MintingAuthorized = 'MintingAuthorized',
   TransferSubmittedToTargetChain = 'TransferSubmittedToTargetChain',
   TransferFinalizedOnTargetChain = 'TransferFinalizedOnTargetChain',
+  TransferReturnedToArgon = 'TransferReturnedToArgon',
 }
 
 export interface ICrosschainOutboundTransferRecord {
@@ -112,10 +113,15 @@ export class CrosschainOutboundTransfersTable extends BaseTable {
   ): Promise<ICrosschainOutboundTransferRecord | undefined> {
     const records = await this.db.select<ICrosschainOutboundTransferRecord[]>(
       `SELECT * FROM CrosschainOutboundTransfers
-        WHERE destinationChain = ? AND token = ? AND status != ? AND isFailureAcknowledged = 0
+        WHERE destinationChain = ? AND token = ? AND status NOT IN (?, ?) AND isFailureAcknowledged = 0
         ORDER BY updatedAt DESC, createdAt DESC
         LIMIT 1`,
-      toSqlParams([destinationChain, token, CrosschainOutboundTransferStatus.TransferFinalizedOnTargetChain]),
+      toSqlParams([
+        destinationChain,
+        token,
+        CrosschainOutboundTransferStatus.TransferFinalizedOnTargetChain,
+        CrosschainOutboundTransferStatus.TransferReturnedToArgon,
+      ]),
     );
     return convertFromSqliteFields<ICrosschainOutboundTransferRecord[]>(records, this.fields)[0];
   }
