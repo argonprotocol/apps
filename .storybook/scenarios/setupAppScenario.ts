@@ -43,7 +43,7 @@ import { BitcoinLockCreate } from '../../src-vue/lib/txs/BitcoinLock.create.ts';
 import { getArgonBonds, getBondTransactionOperations } from '../../src-vue/stores/argonBonds.ts';
 import { useBasics } from '../../src-vue/stores/basics.ts';
 import { getBitcoinFissions, getBitcoinLockCoupons, getBitcoinLocks } from '../../src-vue/stores/bitcoin.ts';
-import { getBot, getAppStartup, getInstaller } from '../../src-vue/stores/startup.ts';
+import { getBot, getAppStartup, getInstaller, useStartupStore } from '../../src-vue/stores/startup.ts';
 import { useCertificationController } from '../../src-vue/stores/certificationController.ts';
 import { getConfig } from '../../src-vue/stores/config.ts';
 import { getCurrency } from '../../src-vue/stores/currency.ts';
@@ -223,6 +223,7 @@ export function setupAppScenario({
   const reactiveMyVaultData = Vue.shallowReactive(myVaultData);
 
   mocked(getConfig, { partial: true }).mockReturnValue(config);
+  mocked(useStartupStore, { partial: true }).mockReturnValue({ isImporting: false });
   mocked(getAppStartup, { partial: true }).mockReturnValue({
     isReady: true,
     isReadyPromise: Promise.resolve(),

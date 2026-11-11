@@ -1219,7 +1219,7 @@ describe('EthereumInboundTransferTracker integration', { tags: ['no-argon-networ
 
     await vi.waitFor(async () => {
       const failedRecord = await db.crosschainInboundTransfersTable.get(persistedRecord.id);
-      expect(failedRecord?.failureReason).toContain('reverted');
+      expect(failedRecord?.failureReason).toBe('Ethereum transaction reverted. A network fee was charged.');
       expect(failedRecord?.isFailureAcknowledged).toBe(false);
       expect(tracker.getTransfer(persistedRecord.id)?.transferState).toMatchObject({
         isSubmitting: false,

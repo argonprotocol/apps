@@ -138,6 +138,14 @@ const transferForm = Vue.ref<InstanceType<typeof WalletTransferForm>>();
 
 const selectedDestinationWallet = Vue.ref<ITransferWallet>();
 const activeTransfer = Vue.ref<IEthereumOutboundActiveTransfer>();
+
+Vue.watch(
+  () => activeTransfer.value?.transferState.isFailureAcknowledged,
+  acknowledged => {
+    if (acknowledged) activeTransfer.value = undefined;
+  },
+);
+
 const activeArgonTransfer = Vue.ref<TransactionInfo<ITransactionMoveMetadata>>();
 const isInitiatingTransfer = Vue.ref(false);
 const progressNow = Vue.ref(Date.now());
