@@ -139,6 +139,34 @@ describe('wallet transfer parsing', () => {
     ]);
   });
 
+  it('records a settled stabilizer purchase once as inbound ARGN custody', () => {
+    const records = [
+      event('balances', 'Transfer', ['5gateway', '5default', 150_000_000n]),
+      event('stabilizerBuys', 'PurchaseRecorded', []),
+      event('crosschainTransfer', 'TransferToArgonFromSwapSettled', [
+        { type: 'Ethereum' },
+        { to: '5default', amount: 150_000_000n, asset: { type: 'Argon' } },
+        {},
+        50,
+      ]),
+    ];
+    const filter = new AccountEventsFilter('5default', ['5default']);
+    filter.process(records);
+
+    expect(filter.transfers).toEqual([
+      expect.objectContaining({
+        transferType: 'ethereum',
+        currency: 'argon',
+        amount: 150_000_000n,
+        isInbound: true,
+        isInternal: false,
+      }),
+    ]);
+    expect(filter.eventsByExtrinsic[0]).toContainEqual(
+      expect.objectContaining({ pallet: 'stabilizerBuys', method: 'PurchaseRecorded' }),
+    );
+  });
+
   it('retains only the fee event group paid by this account', () => {
     const ownFee = [event('transactionPayment', 'TransactionFeePaid', ['5default', 2n, 0n])];
     const otherFee = [event('transactionPayment', 'TransactionFeePaid', ['5other', 2n, 0n], 3)];
@@ -228,6 +256,7 @@ function event(section: string, method: string, values: unknown[], extrinsicInde
       'mintingAuthorityTip',
     ],
     'crosschainTransfer.TransferToArgonSettled': ['transferId', 'transfer'],
+    'crosschainTransfer.TransferToArgonFromSwapSettled': ['sourceChain', 'transfer', 'purchase', 'purchaseTick'],
     'transactionPayment.TransactionFeePaid': ['who', 'actualFee', 'tip'],
     'tokenGateway.AssetReceived': ['beneficiary', 'amount', 'source'],
     'tokenGateway.AssetTeleported': ['from', 'to', 'amount', 'dest', 'commitment'],

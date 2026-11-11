@@ -1115,6 +1115,38 @@ describe('EthereumOutboundTransferTracker integration', { tags: ['no-argon-netwo
       };
     };
     const ethereumClient = new EthereumClient(walletKeys, 'https://ethereum.test');
+    const ethereumExecution = {
+      chain: { id: 1 },
+      publicClient: {
+        estimateGas: async () => 100_000n,
+        estimateFeesPerGas: async () => ({ gasPrice: 1n, maxFeePerGas: 5n, maxPriorityFeePerGas: 2n }),
+        getBalance: async () => 10_000_000n,
+        getBlockNumber: async () => 450n,
+        getTransactionCount: async () => 3,
+        readContract: async ({ functionName, args }: { functionName: string; args: Hex[] }) => {
+          expect(functionName).toBe('finalizedTransferOutOfArgonIds');
+          expect(args).toEqual([transferId]);
+          return gatewayFinalized;
+        },
+        getLogs: () => {
+          throw new Error('Receipt polling must not scan Ethereum history');
+        },
+        sendRawTransaction: async ({ serializedTransaction }: { serializedTransaction: Hex }) => {
+          sent.push(serializedTransaction);
+          persistedHashes.push((await db.crosschainOutboundTransfersTable.get(id))?.targetTxHash);
+          return keccak256(serializedTransaction);
+        },
+        getTransactionReceipt: getReceipt,
+        waitForTransactionReceipt: getReceipt,
+        getTransaction: async ({ hash }: { hash: Hex }) => {
+          throw new TransactionNotFoundError({ hash });
+        },
+      },
+    };
+    Object.defineProperty(ethereumClient, 'publicClient', {
+      configurable: true,
+      value: ethereumExecution.publicClient,
+    });
     Object.assign(ethereumClient, {
       loadChainConfig: async () => ({
         chainId: 1,
@@ -1122,34 +1154,7 @@ describe('EthereumOutboundTransferTracker integration', { tags: ['no-argon-netwo
         argonTokenAddress: request.token,
         argonotTokenAddress: `0x${'56'.repeat(20)}`,
       }),
-      createExecutionClient: async () => ({
-        chain: { id: 1 },
-        publicClient: {
-          estimateGas: async () => 100_000n,
-          estimateFeesPerGas: async () => ({ gasPrice: 1n, maxFeePerGas: 5n, maxPriorityFeePerGas: 2n }),
-          getBalance: async () => 10_000_000n,
-          getBlockNumber: async () => 450n,
-          getTransactionCount: async () => 3,
-          readContract: async ({ functionName, args }: { functionName: string; args: Hex[] }) => {
-            expect(functionName).toBe('finalizedTransferOutOfArgonIds');
-            expect(args).toEqual([transferId]);
-            return gatewayFinalized;
-          },
-          getLogs: () => {
-            throw new Error('Receipt polling must not scan Ethereum history');
-          },
-          sendRawTransaction: async ({ serializedTransaction }: { serializedTransaction: Hex }) => {
-            sent.push(serializedTransaction);
-            persistedHashes.push((await db.crosschainOutboundTransfersTable.get(id))?.targetTxHash);
-            return keccak256(serializedTransaction);
-          },
-          getTransactionReceipt: getReceipt,
-          waitForTransactionReceipt: getReceipt,
-          getTransaction: async ({ hash }: { hash: Hex }) => {
-            throw new TransactionNotFoundError({ hash });
-          },
-        },
-      }),
+      createExecutionClient: async () => ethereumExecution,
     });
     await db.execute(`CREATE TRIGGER RejectOutboundHash BEFORE UPDATE OF targetTxHash ON CrosschainOutboundTransfers
       BEGIN SELECT RAISE(ABORT, 'temporary hash write failure'); END`);
@@ -1304,19 +1309,19 @@ describe('EthereumOutboundTransferTracker integration', { tags: ['no-argon-netwo
         mintingAuthorizedArgonBlockHash: `0x${'10'.repeat(32)}`,
         progressJson: createCrosschainTransferProgress(OUTBOUND_TRANSFER_STEP_TITLES),
       });
+      const publicClient = {
+        getBlockNumber: async () => 50n,
+        getTransactionReceipt: async () => ({
+          status: 'reverted',
+          transactionHash: txHash,
+          blockNumber: 40n,
+          blockHash: `0x${'75'.repeat(32)}`,
+        }),
+      };
+      Object.defineProperty(ethereumClient, 'publicClient', { configurable: true, value: publicClient });
       Object.assign(ethereumClient, {
         loadChainConfig: async () => ({ chainId: 1, gatewayAddress, argonTokenAddress: token }),
-        createExecutionClient: async () => ({
-          publicClient: {
-            getBlockNumber: async () => 50n,
-            getTransactionReceipt: async () => ({
-              status: 'reverted',
-              transactionHash: txHash,
-              blockNumber: 40n,
-              blockHash: `0x${'75'.repeat(32)}`,
-            }),
-          },
-        }),
+        createExecutionClient: async () => ({ publicClient }),
       });
       vi.spyOn(ethereumClient, 'getTransactionFinalityBlocks').mockReturnValue(2);
       let settlementObserved = false;
@@ -1548,21 +1553,26 @@ describe('EthereumOutboundTransferTracker integration', { tags: ['no-argon-netwo
         };
       });
       const ethereumClient = new EthereumClient(walletKeys, 'https://ethereum.test');
+      const ethereumExecution = {
+        chain: { id: 1 },
+        publicClient: {
+          getTransactionReceipt: receipt,
+          waitForTransactionReceipt: receipt,
+          getBlockNumber: async () => executionHead,
+          getTransactionCount: async () => 0,
+          estimateFeesPerGas: async () => ({ gasPrice: 1n, maxFeePerGas: 1n, maxPriorityFeePerGas: 1n }),
+          estimateGas: async () => {
+            throw new Error('temporary gas RPC failure');
+          },
+        },
+      };
+      Object.defineProperty(ethereumClient, 'publicClient', {
+        configurable: true,
+        value: ethereumExecution.publicClient,
+      });
       Object.assign(ethereumClient, {
         loadChainConfig: async () => ({ chainId: 1, gatewayAddress }),
-        createExecutionClient: async () => ({
-          chain: { id: 1 },
-          publicClient: {
-            getTransactionReceipt: receipt,
-            waitForTransactionReceipt: receipt,
-            getBlockNumber: async () => executionHead,
-            getTransactionCount: async () => 0,
-            estimateFeesPerGas: async () => ({ gasPrice: 1n, maxFeePerGas: 1n, maxPriorityFeePerGas: 1n }),
-            estimateGas: async () => {
-              throw new Error('temporary gas RPC failure');
-            },
-          },
-        }),
+        createExecutionClient: async () => ethereumExecution,
       });
       vi.spyOn(ethereumClient, 'getTransactionFinalityBlocks').mockReturnValue(2);
       vi.spyOn(ethereumClient, 'getTransactionFinalityPollMs').mockReturnValue(1_000);

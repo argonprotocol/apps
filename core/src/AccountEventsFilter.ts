@@ -96,7 +96,10 @@ export class AccountEventsFilter {
       if (!this.isAccountIdMe(who)) return;
       return this.createInboundTransfer(who, free, 'faucet', 'argonot', extrinsicIndex);
     }
-    if (event.section === 'crosschainTransfer' && event.method === 'TransferToArgonSettled') {
+    if (
+      event.section === 'crosschainTransfer' &&
+      (event.method === 'TransferToArgonSettled' || event.method === 'TransferToArgonFromSwapSettled')
+    ) {
       const { transfer } = event.data;
       if (!this.isAccountIdMe(transfer.to)) return;
       return this.createInboundTransfer(

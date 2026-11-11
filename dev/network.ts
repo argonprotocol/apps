@@ -188,6 +188,11 @@ export async function resolveDevDockerNetworkConfigOverride(
       executionRpcUrls: [ethereumExecutionRpcUrl],
       ...(usdcTokenAddress ? { usdcTokenAddress } : {}),
     };
+    const ethereum = await readDevEthereumRuntimeState(ethereumExecutionRpcUrl);
+    const quoter = ethereum?.stabilization?.deployment?.contracts.uniswapV4PriceQuoter.address;
+    if (quoter) {
+      override.ethereumNetwork.stabilizerBuyQuoterAddress = quoter;
+    }
   }
   if (ports.indexerPort) {
     override.indexerHost = `http://localhost:${ports.indexerPort}`;

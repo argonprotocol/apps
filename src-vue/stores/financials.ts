@@ -35,17 +35,17 @@ import {
 import type { IBitcoinLockSummary } from '../interfaces/IBitcoinLockSummary.ts';
 import { VaultFinancials } from '../lib/financials/MyVault.ts';
 import type { IArgonAccountSnapshot } from '../lib/WalletsForArgon.ts';
-import { StableSwapFinancials } from '../lib/financials/StableSwaps.ts';
 import { WalletFinancials } from '../lib/financials/WalletBalances.ts';
 import { ArgonBondsFinancials } from '../lib/financials/ArgonBonds.ts';
 import { MiningFinancials } from '../lib/financials/MyMiningSeats.ts';
 import type { MyMiningSeats } from '../lib/MyMiningSeats.ts';
 import { useVaultingStats } from './vaultingStats.ts';
 import { getConfig } from './config.ts';
-import { useStableSwaps } from './stableSwaps.ts';
 import { logStartupTiming } from '../lib/Utils.ts';
+import { getStabilizerBuys } from './stabilizerBuys.ts';
+import { createStabilizerBuyFinancialPositions } from '../lib/financials/StabilizerBuys.ts';
 
-const mainchainFinancialGroups = ['liquid', 'mining', 'vaulting', 'bonds', 'bitcoin'] as const;
+const mainchainFinancialGroups = ['liquid', 'mining', 'vaulting', 'bonds', 'bitcoin', 'stabilizer'] as const;
 
 export const useFinancials = defineStore('financials', () => {
   const wallets = useWallets();
@@ -57,12 +57,11 @@ export const useFinancials = defineStore('financials', () => {
   const config = getConfig();
   const vaultStore = getVaults();
   const myVault = getMyVault();
-  const stableSwaps = useStableSwaps();
   const walletFinancials = new WalletFinancials(walletsForArgon);
   const bondFinancials = new ArgonBondsFinancials(argonBonds);
+  const stabilizerBuys = getStabilizerBuys();
   const bitcoinFinancials = new BitcoinFinancials(bitcoinLocks, bitcoinFissions, getDbPromise());
   const vaultFinancials = new VaultFinancials(myVault, argonBonds);
-  const stableSwapFinancials = new StableSwapFinancials(stableSwaps);
   let myMiningSeats: ReturnType<typeof getMyMiningSeats> | undefined;
   let miningFinancials: MiningFinancials | undefined;
   let vaultingStats: ReturnType<typeof useVaultingStats> | undefined;
@@ -106,19 +105,6 @@ export const useFinancials = defineStore('financials', () => {
 
     const refresh = financialPositionBook.beginRefresh('ethereum');
     const positions: IFinancialPosition[] = [...wallets.ethereumFinancialPositions];
-
-    // if (config.hasActivatedStableSwaps && !wallets.ethereumWallet.fetchErrorMsg) {
-    //   const [stableSwapPosition] = stableSwapFinancials.createFinancialPositions({
-    //     wallet: wallets.ethereumWallet,
-    //     walletSnapshot: stableSwaps.walletSnapshot,
-    //     currentPriceMicrogons: stableSwaps.marketSnapshot?.currentPriceMicrogons,
-    //   });
-    //   if (stableSwapPosition?.currentValue !== undefined) {
-    //     const argonPositionIndex = positions.findIndex(position => position.id === stableSwapPosition.id);
-    //     if (argonPositionIndex === -1) positions.push(stableSwapPosition);
-    //     else positions[argonPositionIndex] = stableSwapPosition;
-    //   }
-    // }
 
     financialPositionBook.publish(refresh, positions, {
       observedAt: new Date(),
@@ -166,11 +152,13 @@ export const useFinancials = defineStore('financials', () => {
     treasuryHoldsAreClaimed,
     miningClaimsHolds,
     vaultClaimsHolds,
+    stabilizerClaimsHolds,
   }: {
     snapshot: IArgonAccountSnapshot;
     treasuryHoldsAreClaimed: boolean;
     miningClaimsHolds: boolean;
     vaultClaimsHolds: boolean;
+    stabilizerClaimsHolds: boolean;
   }) {
     const historyCutoff = getBlockWatch().finalizedBlockHeader.blockNumber;
     const hasConfirmedHistoryCoverage = await hasWalletHistoryCoverage(historyCutoff);
@@ -185,6 +173,7 @@ export const useFinancials = defineStore('financials', () => {
         treasury: treasuryHoldsAreClaimed,
         miningSlot: miningClaimsHolds,
         vaults: vaultClaimsHolds,
+        stabilizerBuys: stabilizerClaimsHolds,
       },
       liveArgonotRateMicrogons: currency.microgonsPer.ARGNOT,
       hasConfirmedHistoryCoverage,
@@ -204,6 +193,15 @@ export const useFinancials = defineStore('financials', () => {
       account,
       liveArgonotRateMicrogons: currency.microgonsPer.ARGNOT,
     });
+    return { positions, claimsHolds: true };
+  }
+
+  async function prepareStabilizerPositions(snapshot: IArgonAccountSnapshot, header: IBlockHeaderInfo) {
+    if (!stabilizerBuys.data.isLoaded) return;
+    const account = snapshot.accounts.find(entry => entry.address === wallets.defaultArgonWallet.address);
+    if (!account) throw new Error('Default Argon account is missing from the wallet snapshot');
+    const purchaseSnapshot = await stabilizerBuys.readAccountSnapshot(account, header);
+    const positions = purchaseSnapshot ? createStabilizerBuyFinancialPositions(purchaseSnapshot) : [];
     return { positions, claimsHolds: true };
   }
 
@@ -257,7 +255,7 @@ export const useFinancials = defineStore('financials', () => {
         candidate = await walletsForArgon.readAccountSnapshot({
           api: clientAt,
           header,
-          includeHolds: config.hasExtensionTreasury || config.hasExtensionOperations,
+          includeHolds: config.hasExtensionTreasury || config.hasExtensionOperations || stabilizerBuys.data.isLoaded,
         });
       }
       if (!isOnCurrentBestChain(header)) {
@@ -265,37 +263,51 @@ export const useFinancials = defineStore('financials', () => {
         return;
       }
 
-      const [miningResult, vaultingResult, bondsResult, bitcoinResult] = await Promise.allSettled([
+      const [miningResult, vaultingResult, bondsResult, bitcoinResult, stabilizerResult] = await Promise.allSettled([
         prepareMiningPositions(candidate, header),
         prepareVaultPositions(candidate),
         prepareBondPositions(candidate),
         prepareBitcoinPositions(candidate, header),
+        prepareStabilizerPositions(candidate, header),
       ]);
       const currentGroups = financialPositionAggregate.value.groupSummaries;
-      const [liquidResult] = await Promise.allSettled([
-        prepareWalletPositions({
-          snapshot: candidate,
-          treasuryHoldsAreClaimed:
-            bondsResult.status === 'fulfilled' && bondsResult.value
-              ? bondsResult.value.claimsHolds
-              : currentGroups.bonds.positions.length > 0,
-          miningClaimsHolds:
-            miningResult.status === 'fulfilled' && miningResult.value
-              ? miningResult.value.claimsHolds
-              : currentGroups.mining.positions.length > 0,
-          vaultClaimsHolds:
-            vaultingResult.status === 'fulfilled' && vaultingResult.value
-              ? vaultingResult.value.claimsHolds
-              : currentGroups.vaulting.positions.length > 0,
-        }),
-      ]);
+      let liquidResult: PromiseSettledResult<Awaited<ReturnType<typeof prepareWalletPositions>>>;
+      if (stabilizerResult.status === 'rejected') {
+        liquidResult = stabilizerResult;
+      } else {
+        let treasuryHoldsAreClaimed = currentGroups.bonds.positions.length > 0;
+        if (bondsResult.status === 'fulfilled' && bondsResult.value) {
+          treasuryHoldsAreClaimed = bondsResult.value.claimsHolds;
+        }
+
+        let miningClaimsHolds = currentGroups.mining.positions.length > 0;
+        if (miningResult.status === 'fulfilled' && miningResult.value) {
+          miningClaimsHolds = miningResult.value.claimsHolds;
+        }
+
+        let vaultClaimsHolds = currentGroups.vaulting.positions.length > 0;
+        if (vaultingResult.status === 'fulfilled' && vaultingResult.value) {
+          vaultClaimsHolds = vaultingResult.value.claimsHolds;
+        }
+
+        [liquidResult] = await Promise.allSettled([
+          prepareWalletPositions({
+            snapshot: candidate,
+            treasuryHoldsAreClaimed,
+            miningClaimsHolds,
+            vaultClaimsHolds,
+            stabilizerClaimsHolds: stabilizerResult.value?.claimsHolds ?? false,
+          }),
+        ]);
+      }
       if (!isOnCurrentBestChain(header)) {
         void queueAccountRefresh({ force: true });
         return;
       }
 
       refreshes = mainchainFinancialGroups.map(group => financialPositionBook.beginRefresh(group));
-      const [liquidRefresh, miningRefresh, vaultingRefresh, bondsRefresh, bitcoinRefresh] = refreshes;
+      const [liquidRefresh, miningRefresh, vaultingRefresh, bondsRefresh, bitcoinRefresh, stabilizerRefresh] =
+        refreshes;
       const updates: Parameters<FinancialPositionBook['commit']>[0][number][] = [];
       if (liquidResult.status === 'fulfilled') {
         updates.push({ refresh: liquidRefresh, positions: liquidResult.value, observation: candidate.observation });
@@ -329,6 +341,13 @@ export const useFinancials = defineStore('financials', () => {
           requiredObservation: candidate.observation,
         });
       }
+      if (stabilizerResult.status === 'fulfilled' && stabilizerResult.value && liquidResult.status === 'fulfilled') {
+        updates.push({
+          refresh: stabilizerRefresh,
+          positions: stabilizerResult.value.positions,
+          observation: candidate.observation,
+        });
+      }
       const didCommit = updates.length === 0 || financialPositionBook.commit(updates);
       if (didCommit) {
         accountSnapshot.value = candidate;
@@ -338,12 +357,19 @@ export const useFinancials = defineStore('financials', () => {
           liquidCurrentBitcoinDebt.value = bitcoinResult.value.currentBitcoinDebt;
         }
 
+        let stabilizerPublicationResult = stabilizerResult;
+        if (liquidResult.status === 'rejected') stabilizerPublicationResult = liquidResult;
         const results = [
           { refresh: liquidRefresh, result: liquidResult, fallback: 'Unable to refresh wallet balances' },
           { refresh: miningRefresh, result: miningResult, fallback: 'Unable to refresh mining positions' },
           { refresh: vaultingRefresh, result: vaultingResult, fallback: 'Unable to refresh vault positions' },
           { refresh: bondsRefresh, result: bondsResult, fallback: 'Unable to refresh bond positions' },
           { refresh: bitcoinRefresh, result: bitcoinResult, fallback: 'Unable to refresh Bitcoin positions' },
+          {
+            refresh: stabilizerRefresh,
+            result: stabilizerPublicationResult,
+            fallback: 'Unable to refresh Stabilizer Buys',
+          },
         ];
         for (const { refresh, result, fallback } of results) {
           if (result.status !== 'rejected') continue;
@@ -447,24 +473,6 @@ export const useFinancials = defineStore('financials', () => {
       ...bitcoin,
       observation: snapshot.observation,
     };
-  }
-
-  async function refreshStableSwapPosition(): Promise<void> {
-    // if (!config.hasExtensionTreasury || !config.hasActivatedStableSwaps) {
-    //   publishEthereumWallet();
-    //   return;
-    // }
-    //
-    // try {
-    //   if (stableSwaps.marketSnapshot) {
-    //     await stableSwaps.refreshWalletSnapshot();
-    //   } else {
-    //     await stableSwapFinancials.loadPositions({ wallet: wallets.ethereumWallet });
-    //   }
-    // } catch (error) {
-    //   console.error('Unable to load stable swap history', error);
-    // }
-    // publishEthereumWallet();
   }
 
   // Vaults ////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -722,36 +730,6 @@ export const useFinancials = defineStore('financials', () => {
     { deep: true },
   );
 
-  // Vue.watch(
-  //   () => [wallets.ethereumWallet.address, wallets.ethereumWallet.availableMicrogons],
-  //   ([address], [previousAddress]) => {
-  //     if (!isLoaded.value) return;
-  //     if (!config.hasActivatedStableSwaps) return;
-  //     if (
-  //       address !== previousAddress ||
-  //       (!stableSwaps.marketSnapshot && wallets.ethereumWallet.availableMicrogons > 0n)
-  //     ) {
-  //       void refreshStableSwapPosition();
-  //     }
-  //   },
-  // );
-
-  Vue.watch(
-    () => config.isLoaded && config.hasActivatedStableSwaps,
-    () => {
-      if (!isLoaded.value) return;
-      void refreshStableSwapPosition();
-    },
-  );
-
-  Vue.watch(
-    () => [stableSwaps.walletSnapshot, stableSwaps.marketSnapshot],
-    () => {
-      if (!isLoaded.value || !config.hasActivatedStableSwaps) return;
-      publishEthereumWallet();
-    },
-  );
-
   wallets.on('balance-change', () => {
     if (!isLoaded.value) return;
     void queueAccountRefresh();
@@ -796,6 +774,14 @@ export const useFinancials = defineStore('financials', () => {
     () => (config.isLoaded && config.hasExtensionTreasury ? argonBonds.data.financialRevision : 0),
     () => {
       if (!accountSourcesAreLoaded || !config.hasExtensionTreasury || !argonBonds.data.isLoaded) return;
+      void queueAccountRefresh({ force: true });
+    },
+  );
+
+  Vue.watch(
+    () => (config.isLoaded ? stabilizerBuys.data.financialRevision : 0),
+    () => {
+      if (!accountSourcesAreLoaded || !stabilizerBuys.data.isLoaded) return;
       void queueAccountRefresh({ force: true });
     },
   );
@@ -864,7 +850,6 @@ export const useFinancials = defineStore('financials', () => {
         if (config.hasExtensionTreasury) {
           startLockSummaryProgressRefresh();
         }
-        await refreshStableSwapPosition();
 
         // The basic app snapshot omits hold details. Reload the current best
         // block when a domain activates so its positions can claim those holds.
@@ -875,27 +860,6 @@ export const useFinancials = defineStore('financials', () => {
       }
     },
   );
-
-  // Stable Swaps //////////////////////////////////////////////////////////////////////////////////////////////////////
-
-  const swapsTotalValue = Vue.computed(() => {
-    return 0n;
-    // const micronotValue = currency.convertMicronotTo(
-    //   wallets.ethereumWallet.availableMicronots,
-    //   UnitOfMeasurement.Microgon,
-    // );
-    // const otherTokenValue = wallets.ethereumWallet.otherTokens.reduce((totalValue, token) => {
-    //   return totalValue + currency.convertOtherToMicrogon(token);
-    // }, 0n);
-    //
-    // return wallets.ethereumWallet.availableMicrogons + micronotValue + otherTokenValue;
-  });
-
-  const stableSwapPerformanceReturns = Vue.computed(() => {
-    return financialPositionAggregate.value.groupSummaries.ethereum.returnSummary;
-  });
-
-  //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
   function setFinancialScope(): void {
     const ownedAccounts = [
@@ -931,7 +895,6 @@ export const useFinancials = defineStore('financials', () => {
     });
     savingsIsLoaded.value = true;
     publishEmptyBaseGroup();
-    void refreshStableSwapPosition();
     if (config.hasExtensionTreasury) startLockSummaryProgressRefresh();
 
     isLoaded.value = true;
@@ -987,9 +950,6 @@ export const useFinancials = defineStore('financials', () => {
     liquidCurrentBitcoinDebt,
     liquidPerformanceReturns,
     liquidHodlingReturns,
-
-    swapsTotalValue,
-    stableSwapPerformanceReturns,
 
     financialPositionAggregate,
   };

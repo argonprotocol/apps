@@ -1,7 +1,16 @@
 import { describe, expect, it, vi } from 'vitest';
 import BigNumber from 'bignumber.js';
 import { JsonExt } from '../src/JsonExt.ts';
-import { raceWithTimeout } from '../src/utils.ts';
+import { bigNumberToBigInt, raceWithTimeout } from '../src/utils.ts';
+
+it.each([
+  ['0.1', 0n, 1n],
+  ['-2.1', -2n, -2n],
+  ['1000000000000000000000000.1', 1000000000000000000000000n, 1000000000000000000000001n],
+])('converts %s to bigint with truncation or rounding up', (value, truncated, roundedUp) => {
+  expect(bigNumberToBigInt(BigNumber(value))).toBe(truncated);
+  expect(bigNumberToBigInt(BigNumber(value), true)).toBe(roundedUp);
+});
 
 describe('raceWithTimeout', () => {
   it('returns the original promise result when it resolves before the timeout', async () => {

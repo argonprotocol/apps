@@ -58,8 +58,9 @@ export class EthereumBeaconSyncService {
     if (!this.isEnabled || this.loopPromise) return;
 
     this.shouldStop = false;
-    this.loopPromise = this.loop();
-    await this.runOnce();
+    const firstRun = this.runOnce();
+    this.loopPromise = this.loop(firstRun);
+    await firstRun;
   }
 
   public async shutdown(): Promise<void> {
@@ -68,19 +69,21 @@ export class EthereumBeaconSyncService {
     await this.runQueue.stop(true);
   }
 
-  public async runOnce(): Promise<void> {
+  /** Returns whether an update was included, allowing catch-up to continue immediately. */
+  public async runOnce(): Promise<boolean> {
     if (!this.isEnabled) {
       this.stateData.mode = 'disabled';
-      return;
+      return false;
     }
 
-    await this.runQueue.add(async () => {
-      if (this.shouldStop) return;
+    return await this.runQueue.add(async () => {
+      if (this.shouldStop) return false;
 
       try {
-        await this.runOnceInner();
+        return await this.runOnceInner();
       } catch (error) {
         this.recordError(error);
+        return false;
       } finally {
         this.stateData.lastUpdatedAt = new Date();
       }
@@ -91,15 +94,18 @@ export class EthereumBeaconSyncService {
     return Boolean(this.options.beaconApiUrl);
   }
 
-  private async loop(): Promise<void> {
+  private async loop(firstRun: Promise<boolean>): Promise<void> {
+    let didIncludeUpdate = await firstRun;
+
     while (!this.shouldStop) {
-      await sleep(this.pollMs);
+      if (!didIncludeUpdate) await sleep(this.pollMs);
       if (this.shouldStop) break;
-      await this.runOnce();
+
+      didIncludeUpdate = await this.runOnce();
     }
   }
 
-  private async runOnceInner(): Promise<void> {
+  private async runOnceInner(): Promise<boolean> {
     const beaconApiUrl = this.options.beaconApiUrl!;
     const submitLane = this.options.submitLane;
     delete this.stateData.latestExecutionAnchorBlockNumber;
@@ -108,14 +114,14 @@ export class EthereumBeaconSyncService {
     if (!this.client.isConnected) {
       this.stateData.mode = 'idle';
       this.stateData.lastError = 'Mainchain WebSocket is not connected; waiting to retry.';
-      return;
+      return false;
     }
 
     if (!(await this.loadHasEthereumTransferGatewayConfig())) {
       this.stateData.mode = 'idle';
       this.stateData.lastError = 'Ethereum transfer gateway is not configured on this network.';
       delete this.stateData.latestFinalizedSlot;
-      return;
+      return false;
     }
 
     if (this.stateData.mode === 'submitting' && this.stateData.lastSubmittedTxHash) {
@@ -125,7 +131,7 @@ export class EthereumBeaconSyncService {
       );
 
       if (isSubmittedTxStillPending) {
-        return;
+        return false;
       }
 
       console.warn(
@@ -140,7 +146,7 @@ export class EthereumBeaconSyncService {
     if (delegateBalance < minimumVaultDelegateBalance) {
       this.stateData.mode = 'idle';
       this.stateData.lastError = 'Vault delegate needs more funds before Ethereum beacon sync can run.';
-      return;
+      return false;
     }
 
     const syncState = await getEthereumBeaconSyncState(this.client.raw);
@@ -151,7 +157,7 @@ export class EthereumBeaconSyncService {
     if (!syncState.isBootstrapped) {
       this.stateData.mode = 'needsBootstrap';
       delete this.stateData.latestFinalizedSlot;
-      return;
+      return false;
     }
 
     this.stateData.latestFinalizedSlot = syncState.latestFinalizedSlot;
@@ -163,19 +169,20 @@ export class EthereumBeaconSyncService {
     } catch (error) {
       if (isLightClientFinalityUpdateNotReady(error)) {
         this.stateData.mode = 'idle';
-        return;
+        return false;
       }
       throw error;
     }
 
     if (!txs.length) {
       this.stateData.mode = 'idle';
-      return;
+      return false;
     }
 
     this.stateData.mode = 'submitting';
+    let didIncludeUpdate = false;
     for (const tx of txs) {
-      if (this.shouldStop) return;
+      if (this.shouldStop) return false;
 
       try {
         const result = await submitLane.runExclusive(async (client, getNonce) => {
@@ -203,7 +210,7 @@ export class EthereumBeaconSyncService {
         });
         if (!result) {
           this.stateData.mode = 'idle';
-          return;
+          return false;
         }
         this.stateData.lastSubmittedTxHash = result.extrinsic.signedHash;
         const inclusionTimeoutMs = NetworkConfig.tickMillis * SUBMISSION_INCLUSION_BLOCKS;
@@ -218,8 +225,9 @@ export class EthereumBeaconSyncService {
             `[EthereumBeaconSyncService] Submitted beacon sync tx ${result.extrinsic.signedHash} ` +
               `but did not observe its first block within ${inclusionTimeoutMs}ms; will re-check next sweep`,
           );
-          return;
+          return false;
         }
+        didIncludeUpdate = true;
       } catch (error) {
         if (isRetryableBeaconSyncSubmitError(error)) {
           continue;
@@ -229,7 +237,7 @@ export class EthereumBeaconSyncService {
           error.errorCode === 'ethereumVerifier.ExpectedFinalizedHeaderNotStored'
         ) {
           this.stateData.mode = 'idle';
-          return;
+          return false;
         }
         throw error;
       }
@@ -245,6 +253,7 @@ export class EthereumBeaconSyncService {
       delete this.stateData.latestExecutionAnchorBlockNumber;
       delete this.stateData.latestEthereumBlockNumber;
     }
+    return didIncludeUpdate;
   }
 
   private async loadHasEthereumTransferGatewayConfig(): Promise<boolean> {

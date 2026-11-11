@@ -9,6 +9,7 @@ import type { IBlockHeaderInfo } from './BlockWatch.js';
 import { fetch } from './fetch.js';
 import { SATS_PER_BTC } from './BitcoinLock.js';
 import type { HistoricalQueryRecord } from '@argonprotocol/runtime-client';
+import { JsonExt } from './JsonExt.js';
 
 const TWENTY_FOUR_HOURS_IN_MILLISECONDS = 24 * 60 * 60e3;
 const ETH_PRICE_RETRY_MILLISECONDS = 5 * 60e3;
@@ -390,7 +391,7 @@ export class Currency {
   private async startPriceIndexSubscription(client?: ArgonClient): Promise<void> {
     const subscriptionClient = client ?? (await this.clients.prunedClientOrArchivePromise);
     const unsubscribe = await subscriptionClient.query.priceIndex.current(current => {
-      const storageValue = JSON.stringify(current);
+      const storageValue = JsonExt.stringify(current);
       if (storageValue && storageValue === this.lastPriceIndexStorageValue) return;
 
       void this.updateMainchainRatesFromPriceIndex(current, { ignoreCache: false }).catch(e =>
@@ -451,7 +452,7 @@ export class Currency {
   }
 
   private loadPriceIndex(current: RuntimePriceIndex): void {
-    this.lastPriceIndexStorageValue = JSON.stringify(current);
+    this.lastPriceIndexStorageValue = JsonExt.stringify(current);
     Currency.setPriceIndex(this.priceIndex, current);
   }
 

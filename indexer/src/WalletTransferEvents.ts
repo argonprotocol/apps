@@ -42,6 +42,15 @@ export function decodeWalletTransfer(args: {
     };
   }
 
+  if (client.events.crosschainTransfer.TransferToArgonFromSwapSettled?.is(event)) {
+    return {
+      toAddress: event.data.transfer.to.toHuman(),
+      fromAddress: null,
+      source: WalletTransferSource.Ethereum,
+      currency: WalletTransferCurrency.Argon,
+    };
+  }
+
   if (!isUserTransferEventSet(extrinsicEvents, eventIndex)) return;
 
   if (client.events.balances.Transfer.is(event)) {

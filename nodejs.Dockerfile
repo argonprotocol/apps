@@ -9,10 +9,10 @@ COPY .yarn/ ./.yarn/
 COPY cli/package.json ./cli/
 COPY bot/package.json ./bot/
 COPY core/package.json ./core/
+COPY discord-verifier/package.json ./discord-verifier/
 COPY router/package.json ./router/
 COPY indexer/package.json ./indexer/
 COPY e2e/package.json ./e2e/
-COPY discord-verifier/package.json ./discord-verifier/
 COPY runtime-client/ ./runtime-client/
 
 RUN corepack enable \
@@ -26,6 +26,7 @@ COPY cli/ ./cli/
 COPY bot/ ./bot/
 COPY core/ ./core/
 COPY scripts/ ./scripts/
+COPY tsconfig.json tsconfig.node.json ./
 
 RUN yarn workspace @argonprotocol/cli build
 

@@ -8,7 +8,8 @@ import {
   mergeNetworkConfigOverrides,
 } from './network.ts';
 
-import { spawn } from 'child_process';
+import { execFile, spawn } from 'child_process';
+import { promisify } from 'node:util';
 import { type INetworkConfigOverride, toComposeProjectName } from '@argonprotocol/apps-core';
 import { ensureDevGatewayCerts } from './gatewayCerts.ts';
 import { prepareMacosDevelopmentSigning } from './macosSigning.ts';
@@ -19,6 +20,7 @@ import {
   type IStartDevEthereumResult,
   loadConfiguredDevEthereumGateway,
   readDevEthereumConfigFromEnv,
+  readDevEthereumRuntimeState,
   startDevEthereum,
 } from '../e2e/devEthereum.ts';
 import {
@@ -26,6 +28,7 @@ import {
   readDevUpstreamServerPorts,
   waitForDevUpstreamEthereumRelayReady,
 } from '../e2e/scripts/devUpstreamServer.ts';
+import { getComposeArgs } from '../e2e/scripts/devUpstreamCompose.ts';
 import {
   resolveDevUpstreamDir,
   restartDevUpstreamWorker,
@@ -70,6 +73,10 @@ export async function startDesktop(
   tauriEnv.ARGON_APP_INSTANCE = `${argonAppInstance.split(':')[0] || 'default'}:${tauriPort}`;
   const signingConfigPath = await prepareMacosDevelopmentSigning(tauriEnv, { ...tauriConfig, ...baseConfig });
   const devEthereumConfig = readDevEthereumConfigFromEnv();
+  const isE2EAppRun = Boolean(readNonEmpty(tauriEnv.ARGON_DRIVER_WS));
+  const shouldStartDevUpstream =
+    !['0', 'false', 'no', 'off'].includes(readNonEmpty(process.env.ARGON_DEV_UPSTREAM)?.toLowerCase() ?? '') &&
+    (!isE2EAppRun || !!devEthereumConfig);
   let devEthereumSetup: IDevEthereumSetup | undefined;
   let devDockerArchiveUrl: string | undefined;
   let devEthereumExecutionRpcUrl: string | undefined;
@@ -77,6 +84,7 @@ export async function startDesktop(
   let startedDevEthereum: IStartDevEthereumResult | undefined;
   let appInstanceDir: string | undefined;
   let devUpstreamDir: string | undefined;
+  let hasDesktopExited = false;
   if (network === 'dev-docker') {
     devUpstreamDir = resolveDevUpstreamDir();
     appInstanceDir = path.dirname(devUpstreamDir);
@@ -105,6 +113,16 @@ export async function startDesktop(
       console.warn('[tauri-dev] Server env override unavailable, falling back to static server config');
     }
 
+    if (devDockerArchiveUrl && shouldStartDevUpstream) {
+      options.progress?.('Starting upstream miner');
+      const context = getDevDockerComposeContext();
+      await promisify(execFile)(
+        'docker',
+        [...getComposeArgs(context), 'up', '-d', '--no-deps', '--wait', '--wait-timeout', '180', 'upstream-miner'],
+        { cwd: context.composeDir, env: context.composeEnv },
+      );
+    }
+
     if (devEthereumConfig) {
       const configuredGateway = devDockerArchiveUrl
         ? await loadConfiguredDevEthereumGateway(devDockerArchiveUrl)
@@ -114,10 +132,6 @@ export async function startDesktop(
         `[tauri-dev] Launching local dev Ethereum (preset=${devEthereumConfig.beaconPreset}, secondsPerSlot=${devEthereumConfig.secondsPerSlot})`,
       );
       startedDevEthereum = await startDevEthereum(devEthereumConfig, configuredGateway);
-    }
-    if (devDockerArchiveUrl && startedDevEthereum && devEthereumConfig) {
-      devEthereumSetup = createDevEthereumSetup(devDockerArchiveUrl, startedDevEthereum, devEthereumConfig);
-      Object.assign(tauriEnv, devEthereumSetup.env);
     }
 
     const inheritedOverride = readNonEmpty(process.env.ARGON_NETWORK_CONFIG_OVERRIDE);
@@ -142,6 +156,15 @@ export async function startDesktop(
       : runtimeOverride;
     networkConfigOverride = resolvedOverride ?? undefined;
 
+    if (devDockerArchiveUrl && startedDevEthereum && devEthereumConfig) {
+      devEthereumSetup = createDevEthereumSetup(devDockerArchiveUrl, startedDevEthereum, {
+        ...devEthereumConfig,
+        oracleContext: getDevDockerComposeContext(),
+        networkConfigOverride,
+      });
+      Object.assign(tauriEnv, devEthereumSetup.env);
+    }
+
     if (resolvedOverride) {
       tauriEnv.ARGON_NETWORK_CONFIG_OVERRIDE = JSON.stringify(resolvedOverride);
       console.log(
@@ -155,7 +178,6 @@ export async function startDesktop(
 
   const configArg = process.platform === 'win32' ? `"${configJson.replace(/"/g, '\\"')}"` : configJson;
   const tauriArgs = ['tauri', 'dev', '--config', configArg];
-  const isE2EAppRun = Boolean(readNonEmpty(tauriEnv.ARGON_DRIVER_WS));
   if (isE2EAppRun) {
     tauriArgs.push('--no-watch', '--features', 'e2e-screenshots,e2e-insecure-gateway-certs');
     console.log('[tauri-dev] Enabling e2e features (ARGON_DRIVER_WS detected)');
@@ -163,19 +185,8 @@ export async function startDesktop(
 
   if (signingConfigPath) tauriArgs.push('--', '--config', signingConfigPath);
 
-  if (devEthereumSetup) {
-    const ethereumSetupStartedAt = Date.now();
-    await devEthereumSetup.start().catch(error => {
-      console.error(`[tauri-dev] Failed to configure local Ethereum: ${(error as Error).message}`);
-      throw error;
-    });
-    console.log(`[tauri-dev] Local Ethereum setup finished after ${Date.now() - ethereumSetupStartedAt}ms`);
-  }
-
-  const shouldStartDevUpstream = !['0', 'false', 'no', 'off'].includes(
-    readNonEmpty(process.env.ARGON_DEV_UPSTREAM)?.toLowerCase() ?? '',
-  );
-  if (devDockerArchiveUrl && shouldStartDevUpstream && (!isE2EAppRun || devEthereumConfig)) {
+  const startUpstream = async () => {
+    if (!devDockerArchiveUrl || !shouldStartDevUpstream) return;
     if (!devUpstreamDir) throw new Error('Dev upstream requires an app instance directory.');
     options.progress?.('Starting upstream operator');
     const pid = await restartDevUpstreamWorker({
@@ -191,10 +202,34 @@ export async function startDesktop(
       throw error;
     });
     console.log(`[tauri-dev][upstream-ready] upstream worker is ready (pid ${pid})`);
-    options.progress?.('Upstream operator ready');
+    if (!hasDesktopExited) options.progress?.('Upstream operator ready');
+  };
+
+  if (devEthereumSetup) {
+    const ethereumSetupStartedAt = Date.now();
+    await devEthereumSetup.start().catch(error => {
+      console.error(`[tauri-dev] Failed to configure local Ethereum: ${(error as Error).message}`);
+      throw error;
+    });
+    const ethereum = await readDevEthereumRuntimeState(startedDevEthereum?.executionRpcUrl);
+    const quoter = ethereum?.stabilization?.deployment?.contracts.uniswapV4PriceQuoter.address;
+    if (quoter && networkConfigOverride) {
+      networkConfigOverride.ethereumNetwork = {
+        ...networkConfigOverride.ethereumNetwork,
+        stabilizerBuyQuoterAddress: quoter,
+      };
+      tauriEnv.ARGON_NETWORK_CONFIG_OVERRIDE = JSON.stringify(networkConfigOverride);
+    }
+    console.log(`[tauri-dev] Local Ethereum setup finished after ${Date.now() - ethereumSetupStartedAt}ms`);
   }
 
-  if (devEthereumSetup && !options.deferEthereumRelay) {
+  // Resolve startup addresses and any requested user funding before the worker uses Alice's nonce.
+  await options.beforeLaunch?.(tauriEnv, startedDevEthereum);
+
+  const upstreamReady = (async () => {
+    await startUpstream();
+    if (!devEthereumSetup || options.deferEthereumRelay) return;
+
     try {
       if (!devDockerArchiveUrl || !startedDevEthereum) {
         throw new Error('Dev Ethereum relay activation is missing archive or Ethereum setup details.');
@@ -204,14 +239,20 @@ export async function startDesktop(
         await waitForDevUpstreamEthereumRelayReady({ archiveUrl: devDockerArchiveUrl, botPort });
       }
       console.log('[tauri-dev][ethereum-ready] upstream Ethereum relay is ready');
-      options.progress?.('Ethereum bridge ready');
+      if (!hasDesktopExited) options.progress?.('Ethereum bridge ready');
     } catch (error) {
       console.error(`[tauri-dev] Failed to activate the local Ethereum relay: ${(error as Error).message}`);
       throw error;
     }
+  })();
+
+  if (isE2EAppRun) await upstreamReady;
+  else {
+    void upstreamReady.catch(error => {
+      console.error(`[tauri-dev] Background upstream setup failed: ${(error as Error).message}`);
+    });
   }
 
-  await options.beforeLaunch?.(tauriEnv, startedDevEthereum);
   options.progress?.('Launching desktop');
 
   let signingRunDirectory: string | undefined;
@@ -272,6 +313,7 @@ export async function startDesktop(
       });
     });
   } finally {
+    hasDesktopExited = true;
     appInstanceWatcher?.close();
     process.off('SIGINT', onInterrupt);
     process.off('SIGTERM', onTerminate);

@@ -267,6 +267,72 @@ describe('Bitcoin Liquid structure', () => {
     expect(liquid.historyTransactionFees).toBe(12n);
   });
 
+  it('uses the remaining allocation for a ratchet after a partial repayment', () => {
+    const fission = new BitcoinFission({
+      ownerAccount: 'owner-account',
+      fissionId: 1,
+      liquidId: 10,
+      lockId: 101,
+      initialSatoshis: 100_000_000n,
+      satoshis: 40_000_000n,
+      microgonsAtTargetPerBtc: 150n,
+      liquidityPromised: 60n,
+      ratchetNumber: 1,
+      createdAtArgonBlock: 100,
+      lastUpdatedArgonBlock: 200,
+      repayments: [
+        {
+          satoshis: 60_000_000n,
+          liquidityRepaid: 60n,
+          redemptionAmount: 60n,
+          blockNumber: 150,
+          blockHash: `0x${'15'.repeat(32)}`,
+          eventIndex: 0,
+          tick: 150,
+          blockTime: new Date('2026-01-02T00:00:00Z'),
+        },
+      ],
+      ratchets: [
+        {
+          source: 'fission',
+          sourceRatchetIndex: 0,
+          ratchetNumber: 0,
+          microgonsAtTargetPerBtc: 100n,
+          liquidityPromised: 100n,
+          amountMinted: 100n,
+          amountBurned: 0n,
+          mintPending: 0n,
+          blockNumber: 100,
+        },
+        {
+          source: 'fission',
+          sourceRatchetIndex: 1,
+          ratchetNumber: 1,
+          microgonsAtTargetPerBtc: 150n,
+          liquidityPromised: 60n,
+          amountMinted: 20n,
+          amountBurned: 0n,
+          mintPending: 0n,
+          blockNumber: 200,
+        },
+      ],
+    });
+    const liquid = BitcoinLiquid.create({ liquidId: 10, fissions: [fission] });
+
+    expect(liquid.history.reduce((sum, entry) => sum + entry.liquidityUnlocked, 0n)).toBe(120n);
+    expect(liquid.history[0]).toMatchObject({
+      liabilityBefore: 0n,
+      liabilityAfter: 100n,
+      affectedSatoshis: 100_000_000n,
+    });
+    expect(liquid.history[1]).toMatchObject({
+      liabilityBefore: 40n,
+      liabilityAfter: 60n,
+      affectedSatoshis: 40_000_000n,
+      liquidityUnlocked: 20n,
+    });
+  });
+
   it('reports the total close cost from durable close history', () => {
     const closedBlockTime = new Date('2026-08-08T16:00:00Z');
     const fissions = [

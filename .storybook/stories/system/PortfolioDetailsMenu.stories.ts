@@ -40,6 +40,20 @@ export const ExpandedAssetBreakdowns: Story = {
     const financials = useFinancials();
     const positions = [
       {
+        id: 'stabilizer:frame:12',
+        kind: 'stabilizer-buy',
+        group: 'stabilizer',
+        label: 'Stabilizer Buy',
+        lifecycle: 'held',
+        admissionFrame: 12,
+        currentValue: 105_000_000n,
+        investedCost: 91_000_000n,
+        paidIncome: 0n,
+        settledPrincipalValue: 0n,
+        startedAt: new Date('2026-08-01T12:00:00Z'),
+        returnIsComplete: true,
+      },
+      {
         id: 'mining-balance',
         kind: 'mining-balance',
         group: 'mining',
@@ -67,7 +81,13 @@ export const ExpandedAssetBreakdowns: Story = {
     Object.assign(financials, {
       financialPositionAggregate: reduceFinancialPositions(
         financials.financialPositionAggregate.groups
-          .filter(group => group.state === 'ready' || group.group === 'mining' || group.group === 'vaulting')
+          .filter(
+            group =>
+              group.state === 'ready' ||
+              group.group === 'mining' ||
+              group.group === 'vaulting' ||
+              group.group === 'stabilizer',
+          )
           .map(group => ({
             ...group,
             state: 'ready',

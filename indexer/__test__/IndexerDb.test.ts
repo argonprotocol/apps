@@ -400,6 +400,72 @@ it('replays only blocks from the first bond-flexibility runtime when upgrading d
   }
 });
 
+it('replays spec-161 history after upgrading a definition-4 seed and retains the repaired index on restart', () => {
+  const directory = fs.mkdtempSync(Path.join(os.tmpdir(), 'account-activity-'));
+  const databasePath = Path.join(directory, 'test.db');
+  const db = new IndexerDb(databasePath);
+  db.recordBlocks(
+    [160, 161].map((specVersion, index) => ({
+      blockNumber: index + 1,
+      blockHash: Uint8Array.of(index + 1),
+      specVersion,
+      systemEvents: Uint8Array.of(),
+      accounts: [{ address: alice, mask: AccountActivityKind.Transfer }],
+      vaults: [],
+      vaultOwners: [],
+    })),
+  );
+  db.close();
+
+  const oldSeed = new DatabaseSync(databasePath);
+  oldSeed.prepare(`UPDATE SyncState SET definitionVersion = 4 WHERE id = 'accountActivity'`).run();
+  oldSeed.close();
+
+  try {
+    const upgraded = new IndexerDb(databasePath);
+    expect(upgraded.latestSyncedBlock).toBe(1);
+    expect(upgraded.findAddressActivity(alice)).toMatchObject([{ blockNumber: 1 }]);
+
+    const decoded = new AccountActivityDecoder().decode({
+      specVersion: 161,
+      eventGroups: [
+        {
+          extrinsicEvents: [
+            {
+              section: 'stabilizerBuys',
+              method: 'PayoutCompleted',
+              data: createHistoricalEventData(161, 'stabilizerBuys', 'PayoutCompleted', {
+                account: alice,
+                principal: 150_000_000,
+                reward: 1_000_000,
+              }),
+            },
+          ],
+        },
+      ],
+    });
+    upgraded.recordBlocks([
+      {
+        blockNumber: 2,
+        blockHash: Uint8Array.of(2),
+        specVersion: 161,
+        systemEvents: Uint8Array.of(),
+        ...decoded,
+      },
+    ]);
+    upgraded.close();
+
+    const restarted = new IndexerDb(databasePath);
+    expect(restarted.latestSyncedBlock).toBe(2);
+    expect(restarted.findAddressActivity(alice, { activityMask: 1 << 14 })).toMatchObject([
+      { blockNumber: 2, activityMask: 1 << 14 },
+    ]);
+    restarted.close();
+  } finally {
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});
+
 it('keeps the existing checkpoint when definition 3 has no spec-158 blocks', () => {
   const directory = fs.mkdtempSync(Path.join(os.tmpdir(), 'account-activity-'));
   const databasePath = Path.join(directory, 'test.db');

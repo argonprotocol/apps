@@ -14,7 +14,11 @@ import { FIXED_U128_ONE, U128_MAX, fixedU128Divide, fixedU128Multiply, fixedU128
 type FrameCapital = NonNullable<RuntimeQueryResult<CurrentRuntimeQueries['treasury']['currentFrameVaultCapital']>>;
 type FrameBitcoin = NonNullable<LiveQueryRecord<'treasury', 'currentFrameVaultBitcoin'>>;
 type VaultPosition = FrameCapital['vaultSecuritizationPositions'][string];
-type RewardConstants = CurrentRuntimeConstants['treasury'];
+type RewardConstants = Pick<
+  CurrentRuntimeConstants['treasury'],
+  'argonotSecuritizationMultiplier' | 'minimumVaultProfitPercent' | 'percentForVaultPool'
+> &
+  Partial<Pick<CurrentRuntimeConstants['treasury'], 'vaultBitcoinRewardPercent'>>;
 type ArgonotSecuritization = NonNullable<LiveQueryRecord<'vaults', 'argonotSecuritizationByVaultId'>>;
 
 /** Reward projections from one runtime's frozen frame capital and reward constants. */
@@ -198,7 +202,10 @@ export class TreasuryRewards {
       0n,
       bigNumberToBigInt(this.constants.percentForVaultPool.times(FIXED_U128_ONE)) - minimumRate,
     );
-    const bitcoinRate = fixedU128Multiply(variableRate, (9n * FIXED_U128_ONE) / 10n);
+    const bitcoinRate = bigIntMin(
+      variableRate,
+      bigNumberToBigInt(this.constants.vaultBitcoinRewardPercent!.times(FIXED_U128_ONE)),
+    );
     const bondRate = variableRate - bitcoinRate;
 
     const multiplier = BigInt(this.constants.argonotSecuritizationMultiplier);

@@ -91,7 +91,7 @@ export function bigNumberToBigInt(bn: BigNumber, roundUp = false): bigint {
   }
 
   const roundingMode = roundUp ? BigNumber.ROUND_CEIL : BigNumber.ROUND_DOWN;
-  return BigInt(bn.integerValue(roundingMode).toString());
+  return BigInt(bn.integerValue(roundingMode).toFixed(0));
 }
 
 export async function waitAtLeast<T>(timeoutMs: number, promise: Promise<T>): Promise<T> {
@@ -184,11 +184,13 @@ export function createTypedEventEmitter<Events extends EventsMap = DefaultEvents
 export class TypedEmitter<Events extends EventsMap = DefaultEvents> {
   private events: Partial<{ [E in keyof Events]: Events[E][] }> = {};
 
-  public emit<K extends keyof Events>(this: this, event: K, ...args: Parameters<Events[K]>): void {
+  public emit<K extends keyof Events>(this: this, event: K, ...args: Parameters<Events[K]>): ReturnType<Events[K]>[] {
+    const results: ReturnType<Events[K]>[] = [];
     for (const cb of this.events[event] || []) {
       // eslint-disable-next-line @typescript-eslint/no-unsafe-call
-      cb(...args);
+      results.push(cb(...args));
     }
+    return results;
   }
 
   public on<K extends keyof Events>(this: this, event: K, cb: Events[K]): () => void {

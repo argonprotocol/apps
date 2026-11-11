@@ -71,14 +71,19 @@ export class WalletsForEthereum {
 
   public async load(): Promise<void> {
     await this.loadCachedBalances();
+    await this.refresh({ force: true });
+  }
+
+  public async refresh({ force = false }: { force?: boolean } = {}): Promise<void> {
+    if (!this.recordsAreLoaded) await this.reloadRecords();
 
     let inspectedCoreWallet = false;
     if (!this.coreWallet.isPersisted) {
       inspectedCoreWallet = true;
-      await this.coreWallet.load({ startRefresh: false }).catch(error => {
-        console.warn('Unable to inspect the core Ethereum wallet during wallet seeding', error);
+      await this.coreWallet.load({ force, startRefresh: false }).catch(error => {
+        console.warn('Unable to inspect the core Ethereum wallet', error);
       });
-      if (this.coreWalletHasValue()) {
+      if (walletHasValue(this.coreWallet)) {
         const db = await this.dbPromise;
         await db.walletsTable.createDefaultEthereum({
           address: this.walletKeys.coreEthereumAddress,
@@ -89,9 +94,10 @@ export class WalletsForEthereum {
     }
 
     await Promise.all(
-      this.persistedWallets.map(wallet =>
-        wallet === this.coreWallet && inspectedCoreWallet ? wallet.load({ force: false }) : wallet.load(),
-      ),
+      this.persistedWallets.map(wallet => {
+        if (wallet === this.coreWallet && inspectedCoreWallet) return wallet.load({ force: false });
+        return wallet.load({ force });
+      }),
     );
   }
 
@@ -238,10 +244,6 @@ export class WalletsForEthereum {
     const wallet = new WalletForEthereum(address, this.financialCache, record, isCore);
     wallet.data = Vue.reactive(wallet.data);
     return Vue.markRaw(wallet);
-  }
-
-  private coreWalletHasValue(): boolean {
-    return walletHasValue(this.coreWallet);
   }
 }
 

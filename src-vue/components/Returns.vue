@@ -3,7 +3,7 @@
     <template v-if="percent !== undefined">
       {{
         numeral(percent).formatIfElseCapped(
-          Math.abs(percent) < 100,
+          Math.abs(percent) < hideDecimalsAt,
           Math.abs(percent) < 10 ? '0,0.[00]' : '0,0.[0]',
           '0,0',
           9_999,
@@ -27,8 +27,9 @@ const props = withDefaults(
     returns?: Pick<IFinancialReturnSummary, 'percent' | 'apr' | 'apy'>;
     showLabel?: boolean;
     metric?: IConfig['returnMetric'];
+    hideDecimalsAt?: number;
   }>(),
-  { showLabel: true },
+  { showLabel: true, hideDecimalsAt: 100 },
 );
 
 const config = getConfig();

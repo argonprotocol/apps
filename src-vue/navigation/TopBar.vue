@@ -77,6 +77,9 @@
           <ReturnMetricMenu />
         </div>
         <div class="pointer-events-auto">
+          <NeedsAttentionMenu :isOpen="navigationMenuValue === 'attention'" @close="closeNavigationMenu" />
+        </div>
+        <div class="pointer-events-auto">
           <AccountMenu ref="accountMenuRef" />
         </div>
       </NavigationMenuList>
@@ -104,6 +107,7 @@ import { TopTab } from '../interfaces/IConfig.ts';
 import { useCertificationController } from '../stores/certificationController.ts';
 import WindowControls from '../tauri-controls/WindowControls.vue';
 import AccountMenu from './AccountMenu.vue';
+import NeedsAttentionMenu from './NeedsAttentionMenu.vue';
 import { useWallets } from '../stores/wallets.ts';
 import { getBot, useStartupStore } from '../stores/startup.ts';
 import { useTour } from '../stores/tour.ts';

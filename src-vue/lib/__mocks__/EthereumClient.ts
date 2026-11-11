@@ -12,6 +12,7 @@ export class EthereumClient {
 
 export const loadEthereumChainConfig = fn<EthereumClientModule['loadEthereumChainConfig']>();
 export const createEthereumPublicClient = fn<EthereumClientModule['createEthereumPublicClient']>();
+export const buildEthereumUnsignedTransaction = fn<EthereumClientModule['buildEthereumUnsignedTransaction']>();
 export const getDefaultEthereumExecutionRpcUrl = fn<EthereumClientModule['getDefaultEthereumExecutionRpcUrl']>(
   () => undefined,
 );

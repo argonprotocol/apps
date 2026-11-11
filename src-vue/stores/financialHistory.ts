@@ -17,6 +17,7 @@ import {
   restoreFinancialHistory as restoreFinancialHistoryFromIndex,
 } from '../lib/recovery/index.ts';
 import { FinalizedHistoryScheduler } from '../lib/recovery/Scheduler.ts';
+import { getStabilizerBuys } from './stabilizerBuys.ts';
 
 export type IFinancialHistoryRecoveryState = {
   state: 'checking' | 'restoring' | 'waiting' | 'ready' | 'error';
@@ -32,11 +33,13 @@ export const useFinancialHistory = defineStore('financialHistory', () => {
   const bitcoinLocks = getBitcoinLocks();
   const bitcoinFissions = getBitcoinFissions();
   const myVault = getMyVault();
+  const stabilizerBuys = getStabilizerBuys();
   const historyRecovery = Vue.ref<IFinancialHistoryRecoveryState>({ state: 'ready', recoveredBlockCount: 0 });
   const historyRecoveryByDomain = Vue.reactive<Record<IFinancialHistoryDomain, IFinancialHistoryRecoveryState>>({
     bitcoin: { state: 'ready', recoveredBlockCount: 0 },
     bonds: { state: 'ready', recoveredBlockCount: 0 },
     vaulting: { state: 'ready', recoveredBlockCount: 0 },
+    stabilizer: { state: 'ready', recoveredBlockCount: 0 },
   });
   const activeBitcoinLockCount = Vue.ref<number>();
   const isHistoryRecoveryInProgress = Vue.computed(() => {
@@ -127,6 +130,7 @@ export const useFinancialHistory = defineStore('financialHistory', () => {
         blockWatch: getBlockWatch(),
         accountId: wallets.defaultArgonWallet.address,
         argonBonds,
+        stabilizerBuys,
         bitcoinLocks,
         bitcoinFissions,
         ownedVaultId: myVault.vaultId,

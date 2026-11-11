@@ -37,6 +37,7 @@ export enum ExtrinsicType {
   TreasuryBuyBonds = 'TreasuryBuyBonds',
   TreasuryBuyArgonotBonds = 'TreasuryBuyArgonotBonds',
   TreasuryReleaseBondLot = 'TreasuryReleaseBondLot',
+  StabilizerBuyBid = 'StabilizerBuyBid',
 }
 
 export enum TransactionStatus {

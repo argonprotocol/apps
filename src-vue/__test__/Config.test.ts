@@ -39,22 +39,45 @@ it('can load config defaults', async () => {
   expect(config.biddingRules).toBeTruthy();
   expect(config.postWelcomeLaunchCount).toBe(0);
   expect(config.hasConnectedDiscord).toBe(false);
+  expect(config.hasActivatedStabilizerBuys).toBe(false);
   expect(config.returnMetric).toBe('RTD');
 });
 
-it('restores the selected return metric after restart', async () => {
+it('restores return and Stabilizer alert preferences after restart', async () => {
   const db = await createTestDb();
   instanceChecks.delete(Config.prototype.constructor);
   const config = new Config(Promise.resolve(db));
   await config.load();
 
   config.returnMetric = 'APY';
-  await config.save();
+  await config.saveStabilizerBuyAlert({ minimumApy: 12 });
 
   instanceChecks.delete(Config.prototype.constructor);
   const restarted = new Config(Promise.resolve(db));
   await restarted.load();
   expect(restarted.returnMetric).toBe('APY');
+  expect(restarted.stabilizerBuyAlert).toEqual({
+    minimumApy: 12,
+  });
+
+  await db.sql.execute(
+    "CREATE TRIGGER RejectAlertSave BEFORE INSERT ON Config BEGIN SELECT RAISE(ABORT, 'Interrupted alert save'); END",
+  );
+  const previous = restarted.stabilizerBuyAlert;
+  const previousStored = (await db.configTable.fetchAllAsObject()).stabilizerBuyAlert;
+  const removing = restarted.saveStabilizerBuyAlert(undefined);
+  expect(restarted.stabilizerBuyAlert).toEqual(previous);
+  await expect(removing).rejects.toThrow('Interrupted alert save');
+  expect(restarted.stabilizerBuyAlert).toEqual(previous);
+  expect((await db.configTable.fetchAllAsObject()).stabilizerBuyAlert).toBe(previousStored);
+
+  await db.sql.execute('DROP TRIGGER RejectAlertSave');
+  await restarted.saveStabilizerBuyAlert(undefined);
+
+  instanceChecks.delete(Config.prototype.constructor);
+  const cleared = new Config(Promise.resolve(db));
+  await cleared.load();
+  expect(cleared.stabilizerBuyAlert).toBeUndefined();
   await db.close();
 });
 
@@ -202,6 +225,31 @@ it('keeps Crosschain Transfers available after it has been activated', async () 
   await db.close();
 });
 
+it('publishes Stabilizer Buy activation after a successful save and allows retry after failure', async () => {
+  const db = await createTestDb();
+  instanceChecks.delete(Config.prototype.constructor);
+  const config = new Config(Promise.resolve(db));
+  await config.load();
+  await db.sql.execute(
+    `CREATE TRIGGER RejectStabilizerSetup BEFORE INSERT ON Config
+     WHEN NEW.key = 'hasActivatedStabilizerBuys'
+     BEGIN SELECT RAISE(ABORT, 'Interrupted setup save'); END`,
+  );
+
+  const activation = config.activateStabilizerBuys();
+  expect(config.hasActivatedStabilizerBuys).toBe(false);
+  await expect(activation).rejects.toThrow('Interrupted setup save');
+  expect(config.hasActivatedStabilizerBuys).toBe(false);
+  expect((await db.configTable.fetchAllAsObject()).hasActivatedStabilizerBuys).toBe('false');
+
+  await db.sql.execute('DROP TRIGGER RejectStabilizerSetup');
+  await Promise.all([config.activateStabilizerBuys(), config.activateStabilizerBuys()]);
+  await config.save();
+  expect(config.hasActivatedStabilizerBuys).toBe(true);
+  expect((await db.configTable.fetchAllAsObject()).hasActivatedStabilizerBuys).toBe('true');
+  await db.close();
+});
+
 it('remembers that Discord was connected after config reloads', async () => {
   const db = await createTestDb();
   instanceChecks.delete(Config.prototype.constructor);
@@ -318,6 +366,7 @@ it.each([
       bootstrapDetails: JsonExt.stringify({ type: BootstrapType.Public, routerHost: 'custom-router' }, 2),
       hasExtensionTreasury: 'true',
       hasExtensionOperations: 'true',
+      hasActivatedStabilizerBuys: 'true',
       miningSetupStatus: `"${MiningSetupStatus.Finished}"`,
       vaultingSetupStatus: `"${VaultingSetupStatus.Finished}"`,
       onboardingSetupStatus: `"${OnboardingSetupStatus.Finished}"`,
@@ -364,6 +413,7 @@ it.each([
     expect(restoredStartup.isRecoveringHistory).toBe(false);
     expect(restoredConfig.hasExtensionTreasury).toBe(true);
     expect(restoredConfig.hasExtensionOperations).toBe(true);
+    expect(restoredConfig.hasActivatedStabilizerBuys).toBe(true);
     expect(restoredConfig.bootstrapDetails).toEqual({
       type: BootstrapType.Public,
       routerHost: 'custom-router',

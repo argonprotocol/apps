@@ -483,10 +483,13 @@ export class MintingAuthorities {
 
       const client = await this.miningFrames.blockWatch.clients.get(false);
       const txSigner = await this.walletKeys.getVaultingSigner();
+      const chainType = client.registry.createLookupType(
+        client.tx.crosschainTransfer.registerMintingAuthority.meta.fields[0].type,
+      );
       const payload = u8aToHex(
         u8aConcat(
           client.registry.createType('Bytes', MINTING_AUTHORITY_SIGNER_REGISTRATION_MESSAGE_KEY).toU8a(),
-          client.registry.createType('PalletCrosschainTransferSourceChain', 'Ethereum').toU8a(),
+          client.registry.createType(chainType, 'Ethereum').toU8a(),
           client.registry.createType('AccountId32', this.walletKeys.vaultingAddress).toU8a(),
         ),
       );

@@ -1,7 +1,12 @@
 {
   "argon_usd_target_price": 1.06,
   "argon_usd_price": 1.06,
+  "usdc_usd_price": 1.0,
   "argon_time_weighted_average_liquidity": 100000000,
   "argonot_usd_price": 0.05,
-  "btc_usd_price": 120000.0
+  "btc_usd_price": 120000.0,
+  "ethereum": {
+    "ethereum_usd_price": 3000.0,
+    "ethereum_gas_price_wei": 5000000000
+  }
 }

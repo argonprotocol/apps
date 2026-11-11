@@ -689,7 +689,7 @@ describe.skipIf(skipE2E || !TestEthereum.isInstalled())('EthereumCrosschain inte
         throw new Error('Run the whole EthereumCrosschain integration suite. Phase 3 must complete before phase 4.');
       }
 
-      const amountBaseUnits = 250n * EvmContracts.MINTING_GATEWAY_RUNTIME_TO_ERC20_SCALE;
+      const amountBaseUnits = 10_000n * EvmContracts.MINTING_GATEWAY_RUNTIME_TO_ERC20_SCALE;
       const startingBalance = await submitLane.client.query.system
         .account(walletKeys.defaultArgonAddress)
         .then(x => x.data.free);
@@ -734,7 +734,7 @@ describe.skipIf(skipE2E || !TestEthereum.isInstalled())('EthereumCrosschain inte
         const balance = await submitLane.client.query.system
           .account(walletKeys.defaultArgonAddress)
           .then(x => x.data.free);
-        expect(balance).toBe(startingBalance + 250n);
+        expect(balance).toBe(startingBalance + 10_000n);
       }, 30_000);
 
       const transferState = tracker.getTransferStateForToken(MoveToken.ARGN);

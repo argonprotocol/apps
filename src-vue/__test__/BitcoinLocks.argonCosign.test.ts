@@ -104,11 +104,20 @@ describe('BitcoinLocks Argon cosign gating', () => {
     expect(record.fissionedSatoshis).toBe(6_000n);
     expect(wallet.getSendableChannels()).toEqual([record]);
 
-    eventMethod = 'FissionClosed';
-    currentLock = createCurrentLock({ fundedSatoshis: 10_000n, fissionedSatoshis: 0n });
+    eventMethod = 'FissionRepaid';
+    currentLock = createCurrentLock({ fundedSatoshis: 10_000n, fissionedSatoshis: 3_000n });
     await (store as unknown as IBitcoinLocksTestTarget).checkIncomingArgonBlock({
       blockNumber: 103,
       blockHash: '0x103',
+    });
+    expect(record.fissionedSatoshis).toBe(3_000n);
+    expect(wallet.getSendableChannels()).toEqual([record]);
+
+    eventMethod = 'FissionClosed';
+    currentLock = createCurrentLock({ fundedSatoshis: 10_000n, fissionedSatoshis: 0n });
+    await (store as unknown as IBitcoinLocksTestTarget).checkIncomingArgonBlock({
+      blockNumber: 104,
+      blockHash: '0x104',
     });
     expect(record.fissionedSatoshis).toBe(0n);
     expect(wallet.getSendableChannels()).toEqual([record]);

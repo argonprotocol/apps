@@ -403,12 +403,16 @@ export async function prepareDevUpstreamServer({
   );
   await ensureDevGatewayCerts();
 
-  const [miningBotArgons, miningBotArgonots, treasuryArgons, treasuryArgonots] = await Promise.all([
-    client.query.system.account(walletKeys.miningBotAddress),
-    client.query.ownership.account(walletKeys.miningBotAddress),
-    client.query.system.account(walletKeys.defaultArgonAddress),
-    client.query.ownership.account(walletKeys.defaultArgonAddress),
-  ]);
+  const delegateAddress = (await walletKeys.getVaultDelegateSigner()).address;
+  const [miningBotArgons, miningBotArgonots, treasuryArgons, treasuryArgonots, delegateArgons, delegateArgonots] =
+    await Promise.all([
+      client.query.system.account(walletKeys.miningBotAddress),
+      client.query.ownership.account(walletKeys.miningBotAddress),
+      client.query.system.account(walletKeys.defaultArgonAddress),
+      client.query.ownership.account(walletKeys.defaultArgonAddress),
+      client.query.system.account(delegateAddress),
+      client.query.ownership.account(delegateAddress),
+    ]);
   const funding = planDevUpstreamFunding({
     miningBot: {
       address: walletKeys.miningBotAddress,
@@ -419,6 +423,11 @@ export async function prepareDevUpstreamServer({
       address: walletKeys.defaultArgonAddress,
       microgons: treasuryArgons.data.free,
       micronots: treasuryArgonots.free,
+    },
+    delegate: {
+      address: delegateAddress,
+      microgons: delegateArgons.data.free,
+      micronots: delegateArgonots.free,
     },
   });
 
@@ -550,21 +559,30 @@ export async function waitForDevUpstreamEthereumRelayReady(args: {
 export function planDevUpstreamFunding(input: {
   miningBot: DevUpstreamAccountBalance;
   treasury: DevUpstreamAccountBalance;
+  delegate: DevUpstreamAccountBalance;
 }): Array<Omit<ISudoFundWalletInput, 'archiveUrl' | 'client'>> {
+  const { miningBot, treasury, delegate } = input;
   const funding: Array<Omit<ISudoFundWalletInput, 'archiveUrl' | 'client'>> = [];
 
-  if (input.miningBot.microgons === 0n || input.miningBot.micronots === 0n) {
+  if (miningBot.microgons === 0n || miningBot.micronots === 0n) {
     funding.push({
-      address: input.miningBot.address,
-      microgons: input.miningBot.microgons || 1_000n * BigInt(MICROGONS_PER_ARGON),
-      micronots: input.miningBot.micronots || 1_000n * BigInt(MICRONOTS_PER_ARGONOT),
+      address: miningBot.address,
+      microgons: miningBot.microgons || 1_000n * BigInt(MICROGONS_PER_ARGON),
+      micronots: miningBot.micronots || 1_000n * BigInt(MICRONOTS_PER_ARGONOT),
     });
   }
-  if (input.treasury.microgons === 0n) {
+  if (treasury.microgons === 0n) {
     funding.push({
-      address: input.treasury.address,
+      address: treasury.address,
       microgons: 10n * BigInt(MICROGONS_PER_ARGON),
-      micronots: input.treasury.micronots,
+      micronots: treasury.micronots,
+    });
+  }
+  if (delegate.microgons < minimumVaultDelegateBalance) {
+    funding.push({
+      address: delegate.address,
+      microgons: minimumVaultDelegateBalance * 2n,
+      micronots: delegate.micronots,
     });
   }
 

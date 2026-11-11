@@ -57,9 +57,12 @@ export class BitcoinLiquidClose extends TransactionOperation<
 
     const client = providedClient ?? (await getMainchainClient(false));
     const { api: snapshotClient } = await this.blockWatch.getLatestFinalizedSnapshot();
-    const liquidFissions = (await this.fissions.loadActive(snapshotClient)).filter(
-      fission => fission.liquidId === liquidId,
-    );
+    const { fissions, pendingRepaymentLiquidIds } = await this.fissions.loadCurrentState(snapshotClient);
+    if (pendingRepaymentLiquidIds.has(liquidId)) {
+      throw new Error('A purchase is repaying this Liquid. Close will be available after it settles.');
+    }
+
+    const liquidFissions = fissions.filter(fission => fission.liquidId === liquidId);
     if (!liquidFissions.length) throw new Error(`Liquid #${liquidId} is unavailable from current chain state.`);
     const lockIds = [...new Set(liquidFissions.map(fission => fission.lockId))];
     const releaseRequests = await Promise.all(
@@ -89,6 +92,16 @@ export class BitcoinLiquidClose extends TransactionOperation<
         redemptionAmount,
       },
     };
+  }
+
+  protected async beforeSubmit(
+    prepared: PreparedTransactionOperation<IBitcoinLiquidCloseMetadata, BitcoinLiquidCloseBuild>,
+  ): Promise<void> {
+    const { api } = await this.blockWatch.getLatestFinalizedSnapshot();
+    const pending = await BitcoinFission.getPendingRepaymentLiquidIds(api, this.fissions.ownerAccount);
+    if (pending.has(prepared.metadata.liquidId)) {
+      throw new Error('A purchase is repaying this Liquid. Close will be available after it settles.');
+    }
   }
 
   protected getOperationKey(args: BitcoinLiquidCloseInput): string {

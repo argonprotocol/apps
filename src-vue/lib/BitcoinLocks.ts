@@ -99,7 +99,7 @@ export default class BitcoinLocks {
       block: IBlockHeaderInfo;
       client: ArgonCurrentQueryClient;
       events: readonly RuntimeSystemEventRecord[];
-    }) => void;
+    }) => Promise<void>;
   }>();
 
   public data: {
@@ -1555,6 +1555,7 @@ export default class BitcoinLocks {
           event.section === 'bitcoinFissions' &&
           (event.method === 'FissionCreated' ||
             event.method === 'FissionRatcheted' ||
+            event.method === 'FissionRepaid' ||
             event.method === 'FissionClosed' ||
             event.method === 'FissionClosedByLock')
         );
@@ -1562,6 +1563,12 @@ export default class BitcoinLocks {
       const hasFissionRefreshEvent =
         hasFissionStateEvent ||
         runtimeEvents.some(({ event }) => {
+          if (event.section === 'stabilizerBuys') {
+            return (
+              (event.method === 'PurchaseRecorded' || event.method === 'LiquidRepaymentCompleted') &&
+              event.data.account === this.walletKeys.defaultArgonAddress
+            );
+          }
           return (
             event.section === 'bitcoinLocks' &&
             (event.method === 'BitcoinLockBurned' ||
@@ -1738,6 +1745,9 @@ export default class BitcoinLocks {
         });
       }
       await Promise.all(promises);
+      if (hasFissionRefreshEvent) {
+        await Promise.all(this.events.emit('fissions:changed', { block: header, client: clientAt, events }));
+      }
       this.data.latestArgonBlock = {
         blockNumber: header.blockNumber,
         blockHash: header.blockHash,
@@ -1745,7 +1755,6 @@ export default class BitcoinLocks {
       if (hasBitcoinStateEvent || hasFissionStateEvent || hasNewOracleBitcoinBlockHeight) {
         this.publishFinancialRevision();
       }
-      if (hasFissionRefreshEvent) this.events.emit('fissions:changed', { block: header, client: clientAt, events });
       return true;
     } catch (error) {
       console.warn('[BitcoinLocks] Failed to process incoming Argon block, will retry on the next block', {

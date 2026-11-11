@@ -7,17 +7,22 @@ import {
   type CurrentRuntimeQueries,
   type RuntimeQueryResult,
 } from '@argonprotocol/runtime-client';
-import { Metadata } from '@polkadot/types';
+import { Metadata, TypeRegistry } from '@polkadot/types';
 import { decorateConstants } from '@polkadot/types/metadata/decorate';
 import { describe, expect, it } from 'vitest';
 import { TreasuryRewards } from '../src/TreasuryRewards.ts';
 import { Vault } from '../src/Vault.ts';
 
-const registry = getOfflineRegistry();
+const registry = new TypeRegistry();
 const metadata = new Metadata(registry, Object.entries(getBundledMetadata()).find(([key]) => key.endsWith('-160'))![1]);
 registry.setMetadata(metadata);
 const constants = toPlain(
   decorateConstants(registry, metadata.asLatest, metadata.version).treasury,
+) as CurrentRuntimeConstants['treasury'];
+const currentRegistry = getOfflineRegistry();
+const currentMetadata = new Metadata(currentRegistry, { metadata: { V16: currentRegistry.metadata } });
+const currentConstants = toPlain(
+  decorateConstants(currentRegistry, currentMetadata.asLatest, currentMetadata.version).treasury,
 ) as CurrentRuntimeConstants['treasury'];
 const position = {
   operatorAccountId: '5SyntheticOperator',
@@ -38,10 +43,10 @@ const capital = {
 
 describe('Treasury rewards', () => {
   it.each([
-    { covered: 0n, locked: 0n, bonds: 10_000_000n, earnings: 6_000_000n },
-    { covered: 100_000_000n, locked: 10_000_000n, bonds: 0n, earnings: 46_000_000n },
-    { covered: 100_000_000n, locked: 15_000_000n, bonds: 0n, earnings: 41_500_000n },
-    { covered: 100_000_000n, locked: 30_000_000n, bonds: 10_000_000n, earnings: 42_000_000n },
+    { covered: 0n, locked: 0n, bonds: 10_000_000n, earnings: 8_165_000n },
+    { covered: 100_000_000n, locked: 10_000_000n, bonds: 0n, earnings: 47_835_000n },
+    { covered: 100_000_000n, locked: 15_000_000n, bonds: 0n, earnings: 43_551_500n },
+    { covered: 100_000_000n, locked: 30_000_000n, bonds: 10_000_000n, earnings: 42_433_000n },
   ])(
     'pays frozen coverage $covered, market value $locked and bonds $bonds independently',
     ({ covered, locked, bonds, earnings }) => {
@@ -69,7 +74,7 @@ describe('Treasury rewards', () => {
           targetSecuritizedSatoshis: 100_000_000n,
           vaultSecuritizedSatoshis: { 4: covered },
         },
-        constants,
+        constants: currentConstants,
         fullBidPool: 100_000_000n,
       });
       expect(rewards.vaultRevenuePotential(4)).toMatchObject({
@@ -84,7 +89,7 @@ describe('Treasury rewards', () => {
       // Bounded-out vaults remain in the network denominator.
       rewards.bitcoin = { ...rewards.bitcoin!, totalNetworkSecuritizedSatoshis: 200_000_000n };
       if (covered > 0n) {
-        const bondAndSecuritization = bonds > 0n ? 6_000_000n : 1_000_000n;
+        const bondAndSecuritization = bonds > 0n ? 8_165_000n : 5_000_000n;
         expect(rewards.vaultRevenuePotential(4)?.actualEarnings).toBe(
           (earnings - bondAndSecuritization) / 2n + bondAndSecuritization,
         );
@@ -92,7 +97,7 @@ describe('Treasury rewards', () => {
 
       // No frozen market price means no Bitcoin tier, even with covered Bitcoin.
       rewards.bitcoin = { ...rewards.bitcoin, targetSecuritizedSatoshis: null };
-      expect(rewards.vaultRevenuePotential(4)?.actualEarnings).toBe(bonds > 0n ? 6_000_000n : 1_000_000n);
+      expect(rewards.vaultRevenuePotential(4)?.actualEarnings).toBe(bonds > 0n ? 8_165_000n : 5_000_000n);
     },
   );
 

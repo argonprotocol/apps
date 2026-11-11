@@ -25,9 +25,11 @@ export enum AccountActivityKind {
   AccountBalance = 1 << 12,
   /** Global Council votes, minting-authority work, and related gateway operations. */
   GatewayOperations = 1 << 13,
+  /** Stabilizer purchase admission, reward bids, awards, and principal/reward payouts. */
+  StabilizerBuy = 1 << 14,
 }
 
-export const ACCOUNT_ACTIVITY_DEFINITION_VERSION = 4;
+export const ACCOUNT_ACTIVITY_DEFINITION_VERSION = 5;
 
 export interface IAccountActivityQuery {
   afterBlock?: number;

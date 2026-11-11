@@ -1,9 +1,37 @@
-import { NetworkConfig } from '@argonprotocol/apps-core';
+import { NetworkConfig, StabilizerBuy } from '@argonprotocol/apps-core';
 import { BITCOIN_BLOCK_MILLIS, TICK_MILLIS } from '../lib/Env.ts';
 import type { IBitcoinLockRecord } from '../lib/db/BitcoinLocksTable.ts';
 import { BitcoinLockStatus } from '../lib/db/BitcoinLocksTable.ts';
 import type BitcoinLocks from './BitcoinLocks.ts';
 import type { IVaultCollectNotice } from './VaultCollectBuilder.ts';
+import type { StabilizerBuys } from './StabilizerBuys.ts';
+import type { IStabilizerBuyOpportunity } from '../interfaces/IStabilizerBuyPurchase.ts';
+
+export function getStabilizerBuyBidNotice(
+  buys: StabilizerBuys,
+): Extract<IStabilizerBuyOpportunity, { type: 'bid' }> | undefined {
+  for (const position of buys.data.positions) {
+    if (!position.isBiddingOpen(buys.data.currentFrameId)) continue;
+
+    if (position.purchase.bidRate.isZero()) {
+      const bidEvent = buys.data.frameRewards.find(
+        rewards => rewards.admissionFrame === position.admissionFrame,
+      )?.bidEvent;
+      if (position.purchase.positiveBidCount === 0 && !bidEvent)
+        return { type: 'bid', key: `bid:${buys.accountAddress}:${position.admissionFrame}:first`, position };
+      continue;
+    }
+
+    const snapshot = buys.data.auctionsByFrame[position.admissionFrame];
+    const inclusionPercent = buys.data.market?.auctionInclusionPercent;
+    if (!snapshot || !inclusionPercent) continue;
+
+    const ranked = StabilizerBuy.allocateBids(snapshot.bids, snapshot.auction, inclusionPercent);
+    const own = ranked.find(bid => bid.ownerAccount === buys.accountAddress);
+    if (own && own.fundingEstimate < own.requestedReward)
+      return { type: 'bid', key: `bid:${buys.accountAddress}:${position.admissionFrame}:at-risk`, position, bid: own };
+  }
+}
 
 export type IBitcoinAlert =
   | {

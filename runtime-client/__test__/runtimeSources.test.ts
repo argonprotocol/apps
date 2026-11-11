@@ -2,10 +2,16 @@ import { describe, expect, it } from 'vitest';
 import { readArgonSpecVersion, upsertCurrentRuntimeSource } from '../src/history/runtimeSources.ts';
 
 describe('runtime source registry', () => {
-  it('replaces the canonical source when another pin has the newest spec', () => {
+  it('preserves historical declarations when another pin reuses the newest spec', () => {
     expect(
       upsertCurrentRuntimeSource({ 157: ['1.4.11'], 158: ['1.4.12'] }, { specVersion: 158, source: '1.4.13' }),
-    ).toEqual({ 157: ['1.4.11'], 158: ['1.4.13'] });
+    ).toEqual({ 157: ['1.4.11'], 158: ['1.4.12', '1.4.13'] });
+  });
+
+  it('does not duplicate a source when regenerating the same pin', () => {
+    expect(upsertCurrentRuntimeSource({ 158: ['1.4.12', '1.4.13'] }, { specVersion: 158, source: '1.4.13' })).toEqual({
+      158: ['1.4.12', '1.4.13'],
+    });
   });
 
   it('appends a newer spec without changing frozen multi-source history', () => {

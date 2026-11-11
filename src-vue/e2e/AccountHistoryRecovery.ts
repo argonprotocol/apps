@@ -50,7 +50,7 @@ export class AccountHistoryRecovery {
     if (!financialHistory || financialHistory.accountId !== this.walletKeys.defaultArgonAddress) {
       throw new Error(`Financial history has no checkpoint for ${this.walletKeys.defaultArgonAddress}`);
     }
-    for (const domain of ['bitcoin', 'bonds', 'vaulting'] satisfies IFinancialHistoryDomain[]) {
+    for (const domain of ['bitcoin', 'bonds', 'vaulting', 'stabilizer'] satisfies IFinancialHistoryDomain[]) {
       const checkpoint = financialHistory.domainCheckpoints?.[domain];
       if (!checkpoint || checkpoint.asOfBlock < throughBlock || checkpoint.partialRecovery) {
         throw new Error(

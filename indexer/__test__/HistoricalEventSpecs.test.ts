@@ -35,7 +35,13 @@ describe('HistoricalEventSpecs', () => {
     expect(historicalEventSpecSources[158]).toBe('@argonprotocol/mainchain@1.4.12');
     expect(historicalEventSpecSources[160]).toBe('@argonprotocol/mainchain@1.5.2');
     expect(historicalEventSpecSources[latestRegisteredSpec]).toBe(
-      `@argonprotocol/mainchain@${packageJson.dependencies['@argonprotocol/mainchain']}`,
+      Object.entries(runtimeSources)
+        .find(([spec]) => Number(spec) === latestRegisteredSpec)![1]
+        .map(source => `@argonprotocol/mainchain@${source}`)
+        .join(', '),
+    );
+    expect(Object.entries(runtimeSources).find(([spec]) => Number(spec) === latestRegisteredSpec)![1]).toContain(
+      packageJson.dependencies['@argonprotocol/mainchain'],
     );
   });
 

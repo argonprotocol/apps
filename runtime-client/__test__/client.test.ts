@@ -5,15 +5,21 @@ import BigNumber from 'bignumber.js';
 import { getBundledMetadata } from '../src/index.ts';
 import { describe, expect, it, vi } from 'vitest';
 import { runtimeClient } from '../src/client.ts';
+import { getOfflineRegistry } from '@argonprotocol/mainchain';
 
 describe('runtimeClient', () => {
   it.each([160, 161])('reads native constants and bond IDs from runtime %s metadata', async spec => {
-    const registry = new TypeRegistry();
-    const metadata = new Metadata(
-      registry,
-      Object.entries(getBundledMetadata()).find(([key]) => key.endsWith(`-${spec}`))![1],
-    );
-    registry.setMetadata(metadata);
+    const registry = spec === 161 ? getOfflineRegistry() : new TypeRegistry();
+    let metadata: Metadata;
+    if (spec === 161) {
+      metadata = new Metadata(registry, { metadata: { V16: registry.metadata } });
+    } else {
+      metadata = new Metadata(
+        registry,
+        Object.entries(getBundledMetadata()).find(([key]) => key.endsWith(`-${spec}`))![1],
+      );
+      registry.setMetadata(metadata);
+    }
     const storage = decorateStorage(registry, metadata.asLatest, metadata.version);
     const accountId = registry.createType('AccountId32', `0x${'11'.repeat(32)}`);
     const accountKey = registry.createType('StorageKey', [storage.treasury.bondLotIdsByAccount, [accountId, 7]]);

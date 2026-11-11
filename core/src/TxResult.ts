@@ -8,6 +8,7 @@ import {
 } from '@argonprotocol/mainchain';
 import { toRuntimeEvent, type HistoricalEvent } from '@argonprotocol/runtime-client';
 import type { ISubmittableResult } from '@polkadot/types/types/extrinsic';
+import type { SubmittableResult } from '@polkadot/api';
 import type { ArgonClient } from './MainchainClients.js';
 import { runtimeDispatchErrorToExtrinsicError, type RuntimeDispatchError } from './RuntimeDispatchError.js';
 
@@ -24,7 +25,7 @@ type IBlockInclusion = {
   events: RuntimeEventInput[];
 };
 
-type IPendingInBlock = Omit<IBlockInclusion, 'blockNumber'>;
+type IPendingInBlock = Omit<IBlockInclusion, 'extrinsicIndex'> & { extrinsicIndex?: number };
 
 export class TxResult {
   private broadcast = false;
@@ -129,8 +130,8 @@ export class TxResult {
       return;
     }
 
-    this.pendingInBlock = undefined;
     this.parseEvents(client, block.events);
+    this.pendingInBlock = undefined;
     this.blockHash = block.blockHash;
     this.blockNumber = block.blockNumber;
     this.extrinsicIndex = block.extrinsicIndex;
@@ -143,60 +144,45 @@ export class TxResult {
   }
 
   public async setFinalized(client: ArgonClient) {
-    const pendingInBlock = this.pendingInBlock;
-    if (pendingInBlock) {
-      await this.publishSeenInBlock(client, pendingInBlock);
-    } else if (this.blockHash && this.blockNumber === undefined) {
+    let pendingInBlock = this.pendingInBlock;
+    if (!pendingInBlock && this.blockHash && this.blockNumber === undefined) {
       if (this.extrinsicIndex === undefined) {
         throw new Error('Cannot finalize transaction before extrinsic index is known');
       }
 
-      await this.publishSeenInBlock(client, {
+      pendingInBlock = {
         blockHash: this.blockHash,
         extrinsicIndex: this.extrinsicIndex,
         events: this.events,
-      });
+      };
+      this.pendingInBlock = pendingInBlock;
     }
 
-    this.isFinalized = true;
-    this.updateProgress();
+    if (pendingInBlock) {
+      try {
+        const published = await this.publishSeenInBlock(client, pendingInBlock);
+        if (!published && this.pendingInBlock === pendingInBlock) {
+          throw new Error('The finalized transaction was not found in its reported block. Retry reconciliation.');
+        }
+      } catch (error) {
+        if (this.pendingInBlock === pendingInBlock) throw error;
+      }
 
-    let error = this.extrinsicError ?? this.submissionError;
-    if (!error && !this.blockHash) {
-      error = new Error('Cannot finalize transaction before it is included in a block');
+      if (this.pendingInBlock) return;
+      if (!this.blockHash) return;
+      if (!u8aEq(this.blockHash, pendingInBlock.blockHash)) return;
     }
 
-    if (error) {
-      this.finalizedReject(error);
-      this.inBlockReject(error);
-    } else {
-      this.finalizedResolve(this.blockHash!);
-      this.inBlockResolve(this.blockHash!);
-    }
+    this.publishFinalized();
   }
 
-  public onSubscriptionResult(client: ArgonClient, result: ISubmittableResult) {
-    const { events, status, isFinalized, txIndex } = result;
+  public onSubscriptionResult(client: ArgonClient, result: SubmittableResult) {
+    const { events, status, isFinalized, txIndex, blockNumber } = result;
     this.txStatusCallback?.(status);
-    const extrinsicEvents = events.map(x => x.event);
 
     if (status.isBroadcast) {
       this.isBroadcast = true;
       if (result.internalError) this.submissionError = result.internalError;
-    }
-    if (status.isInBlock && txIndex !== undefined) {
-      try {
-        const pendingInBlock = createPendingInBlock(Uint8Array.from(status.asInBlock), txIndex, extrinsicEvents);
-        this.pendingInBlock = pendingInBlock;
-
-        void this.publishSeenInBlock(client, pendingInBlock).catch(error => {
-          if (!isMissingBlockHeaderError(error)) {
-            this.submissionError = error as Error;
-          }
-        });
-      } catch (error) {
-        this.submissionError = error as Error;
-      }
     }
     if (status.isRetracted) {
       const retractedHash = Uint8Array.from(status.asRetracted);
@@ -236,49 +222,86 @@ export class TxResult {
         'Transaction was rejected as invalid by the node.',
       );
     }
-    if (isFinalized) {
-      try {
-        this.pendingInBlock = createPendingInBlock(
-          Uint8Array.from(status.asFinalized),
-          txIndex ?? this.pendingInBlock?.extrinsicIndex ?? this.extrinsicIndex,
-          extrinsicEvents.length ? extrinsicEvents : this.events,
-        );
-      } catch (error) {
-        this.submissionError = error as Error;
-        return;
-      }
+    if (!status.isInBlock && !isFinalized) return;
 
+    const pendingInBlock = {
+      blockHash: Uint8Array.from(isFinalized ? status.asFinalized : status.asInBlock),
+      blockNumber: blockNumber?.toNumber(),
+      extrinsicIndex: txIndex,
+      events: events.map(x => x.event),
+    };
+    this.pendingInBlock = pendingInBlock;
+
+    if (isFinalized) {
       void this.setFinalized(client).catch(error => {
-        this.submissionError = error as Error;
+        if (this.pendingInBlock === pendingInBlock) {
+          this.submissionError = error as Error;
+          return;
+        }
+        if (this.pendingInBlock) return;
+        if (!this.blockHash) return;
+        if (!u8aEq(this.blockHash, pendingInBlock.blockHash)) return;
+        this.publishFinalized();
       });
+      return;
     }
+
+    void this.publishSeenInBlock(client, pendingInBlock).catch(error => {
+      if (this.pendingInBlock !== pendingInBlock) return;
+      if (!isMissingBlockHeaderError(error)) this.submissionError = error as Error;
+    });
   }
 
   private async publishSeenInBlock(client: ArgonClient, block: IPendingInBlock) {
-    const pendingInBlock = this.pendingInBlock;
-    if (
-      !pendingInBlock ||
-      pendingInBlock.extrinsicIndex !== block.extrinsicIndex ||
-      !u8aEq(pendingInBlock.blockHash, block.blockHash)
-    ) {
-      return;
+    if (this.pendingInBlock !== block) return false;
+
+    const { blockHash } = block;
+    let { blockNumber, extrinsicIndex, events } = block;
+
+    // A subscription can identify inclusion before Polkadot.js can load its events.
+    if (extrinsicIndex === undefined) {
+      const signedBlock = await client.rpc.chain.getBlock(blockHash);
+      extrinsicIndex = signedBlock.block.extrinsics.findIndex(
+        extrinsic => extrinsic.hash.toHex() === this.extrinsic.signedHash,
+      );
+      if (extrinsicIndex < 0) return false;
+
+      blockNumber = signedBlock.block.header.number.toNumber();
+      const snapshot = await client.at(blockHash);
+      const records = await snapshot.query.system.events();
+      events = records
+        .filter(({ phase }) => phase.type === 'ApplyExtrinsic' && phase.value === extrinsicIndex)
+        .map(({ event }) => event);
     }
 
-    const blockNumber = await client.rpc.chain.getHeader(block.blockHash).then(h => h.number.toNumber());
-
-    const currentPendingInBlock = this.pendingInBlock;
-    if (
-      !currentPendingInBlock ||
-      currentPendingInBlock.extrinsicIndex !== block.extrinsicIndex ||
-      !u8aEq(currentPendingInBlock.blockHash, block.blockHash)
-    ) {
-      return;
-    }
+    blockNumber ??= await client.rpc.chain.getHeader(blockHash).then(h => h.number.toNumber());
+    if (this.pendingInBlock !== block) return false;
 
     await this.setSeenInBlock(client, {
-      ...block,
+      blockHash,
       blockNumber,
+      extrinsicIndex,
+      events,
     });
+    return true;
+  }
+
+  private publishFinalized(): void {
+    this.isFinalized = true;
+    this.updateProgress();
+
+    let error = this.extrinsicError ?? this.submissionError;
+    if (!error && !this.blockHash) {
+      error = new Error('Cannot finalize transaction before it is included in a block');
+    }
+
+    if (error) {
+      this.finalizedReject(error);
+      this.inBlockReject(error);
+    } else {
+      this.finalizedResolve(this.blockHash!);
+      this.inBlockResolve(this.blockHash!);
+    }
   }
 
   private updateProgress() {
@@ -325,22 +348,6 @@ export class TxResult {
     }
     this.events = runtimeEvents;
   }
-}
-
-function createPendingInBlock(
-  blockHash: Uint8Array,
-  extrinsicIndex: number | undefined,
-  events: RuntimeEventInput[],
-): IPendingInBlock {
-  if (extrinsicIndex === undefined) {
-    throw new Error('Cannot publish transaction block state before extrinsic index is known');
-  }
-
-  return {
-    blockHash,
-    extrinsicIndex,
-    events,
-  };
 }
 
 function isMissingBlockHeaderError(error: unknown) {

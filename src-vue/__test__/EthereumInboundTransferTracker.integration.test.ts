@@ -1305,23 +1305,28 @@ describe('EthereumInboundTransferTracker integration', { tags: ['no-argon-networ
     });
     const ethereumClient = new EthereumClient(walletKeys, 'https://ethereum.test');
     let finishPolling = false;
-    Object.assign(ethereumClient, {
-      createExecutionClient: async () => ({
-        publicClient: {
-          getTransactionReceipt: async () => {
-            if (finishPolling) {
-              return { blockNumber: 55n, blockHash: `0x${'96'.repeat(32)}`, status: 'success' };
-            }
-            throw new TransactionReceiptNotFoundError({ hash: sourceTxHash });
-          },
-          getTransaction: async () => {
-            if (history === 'missing') throw new TransactionNotFoundError({ hash: sourceTxHash });
-            return { blockNumber: null, nonce: 3, from: walletKeys.coreEthereumAddress };
-          },
-          getTransactionCount: async () => 4,
-          getBlockNumber: async () => 100n,
+    const ethereumExecution = {
+      publicClient: {
+        getTransactionReceipt: async () => {
+          if (finishPolling) {
+            return { blockNumber: 55n, blockHash: `0x${'96'.repeat(32)}`, status: 'success' };
+          }
+          throw new TransactionReceiptNotFoundError({ hash: sourceTxHash });
         },
-      }),
+        getTransaction: async () => {
+          if (history === 'missing') throw new TransactionNotFoundError({ hash: sourceTxHash });
+          return { blockNumber: null, nonce: 3, from: walletKeys.coreEthereumAddress };
+        },
+        getTransactionCount: async () => 4,
+        getBlockNumber: async () => 100n,
+      },
+    };
+    Object.defineProperty(ethereumClient, 'publicClient', {
+      configurable: true,
+      value: ethereumExecution.publicClient,
+    });
+    Object.assign(ethereumClient, {
+      createExecutionClient: async () => ethereumExecution,
       getTransactionFinalityWaitEstimateMs: () => 1,
       getTransactionFinalityPollMs: () => 1,
       confirmTransferToArgon: async (transfer: Parameters<EthereumClient['confirmTransferToArgon']>[0]) => ({
@@ -1466,7 +1471,7 @@ describe('EthereumInboundTransferTracker integration', { tags: ['no-argon-networ
 
     const ethereumWallet = new WalletForEthereum(walletKeys.coreEthereumAddress, undefined, undefined, true);
     ethereumWallet.data = reactive(ethereumWallet.data);
-    ethereumWallet.data.availableMicrogons = 5n;
+    ethereumWallet.data.availableMicrogons = 5_000_000n;
     const ethereumClient = new EthereumClient(walletKeys, 'https://ethereum.test');
     const finality = createDeferred<Awaited<ReturnType<EthereumClient['waitForTransactionFinality']>>>();
     const waitForFinality = vi.fn(() => finality.promise);
@@ -1479,6 +1484,32 @@ describe('EthereumInboundTransferTracker integration', { tags: ['no-argon-networ
       expect(rows[0].sourceTxHash).toBe(keccak256(serializedTransaction));
       throw new Error('Ethereum RPC disconnected after accepting the transaction');
     });
+    const ethereumExecution = {
+      chain: { id: 1 },
+      publicClient: {
+        getBlock: async () => ({ timestamp: 1_000n }),
+        readContract: async ({ functionName }: { functionName: string }) => {
+          if (functionName === 'nonces') return 0n;
+          if (functionName === 'name') return 'Argon';
+          throw new Error(`Unexpected Ethereum read: ${functionName}`);
+        },
+        getTransactionCount: async () => 0,
+        estimateGas: async () => 100_000n,
+        estimateFeesPerGas: async () => ({ gasPrice: 1n, maxFeePerGas: 1n, maxPriorityFeePerGas: 1n }),
+        getBalance: async () => nativeBalanceWei,
+        sendRawTransaction,
+        getTransaction: async ({ hash }: { hash: Hex }) => {
+          throw new TransactionNotFoundError({ hash });
+        },
+        getTransactionReceipt: async ({ hash }: { hash: Hex }) => {
+          throw new TransactionReceiptNotFoundError({ hash });
+        },
+      },
+    };
+    Object.defineProperty(ethereumClient, 'publicClient', {
+      configurable: true,
+      value: ethereumExecution.publicClient,
+    });
     Object.assign(ethereumClient, {
       loadChainConfig: async () => ({
         chainId: 1,
@@ -1486,28 +1517,7 @@ describe('EthereumInboundTransferTracker integration', { tags: ['no-argon-networ
         argonTokenAddress: `0x${'22'.repeat(20)}`,
         argonotTokenAddress: `0x${'33'.repeat(20)}`,
       }),
-      createExecutionClient: async () => ({
-        chain: { id: 1 },
-        publicClient: {
-          getBlock: async () => ({ timestamp: 1_000n }),
-          readContract: async ({ functionName }: { functionName: string }) => {
-            if (functionName === 'nonces') return 0n;
-            if (functionName === 'name') return 'Argon';
-            throw new Error(`Unexpected Ethereum read: ${functionName}`);
-          },
-          getTransactionCount: async () => 0,
-          estimateGas: async () => 100_000n,
-          estimateFeesPerGas: async () => ({ gasPrice: 1n, maxFeePerGas: 1n, maxPriorityFeePerGas: 1n }),
-          getBalance: async () => nativeBalanceWei,
-          sendRawTransaction,
-          getTransaction: async ({ hash }: { hash: Hex }) => {
-            throw new TransactionNotFoundError({ hash });
-          },
-          getTransactionReceipt: async ({ hash }: { hash: Hex }) => {
-            throw new TransactionReceiptNotFoundError({ hash });
-          },
-        },
-      }),
+      createExecutionClient: async () => ethereumExecution,
       waitForTransactionFinality: waitForFinality,
     });
     const tracker = new EthereumInboundTransferTracker(
@@ -1526,7 +1536,7 @@ describe('EthereumInboundTransferTracker integration', { tags: ['no-argon-networ
 
     const unaffordable = await tracker.startMove({
       moveToken: MoveToken.ARGN,
-      amountBaseUnits: 5_000_000_000_000n,
+      amountBaseUnits: 5_000_000_000_000_000_000n,
       targetWalletType: WalletType.argon,
       ethereumWallet,
     });
@@ -1539,7 +1549,7 @@ describe('EthereumInboundTransferTracker integration', { tags: ['no-argon-networ
     nativeBalanceWei = 200_000n;
     const failedTransfer = await tracker.startMove({
       moveToken: MoveToken.ARGN,
-      amountBaseUnits: 5_000_000_000_000n,
+      amountBaseUnits: 5_000_000_000_000_000_000n,
       targetWalletType: WalletType.argon,
       ethereumWallet,
     });
@@ -1547,13 +1557,13 @@ describe('EthereumInboundTransferTracker integration', { tags: ['no-argon-networ
     expect(failedTransfer?.transferState.error).toContain('temporary inbound write failure');
     expect(sendRawTransaction).not.toHaveBeenCalled();
     expect(await db.crosschainInboundTransfersTable.fetchAll()).toEqual([]);
-    expect(spendableAmount.value).toBe(5n);
+    expect(spendableAmount.value).toBe(5_000_000n);
 
     await db.execute('DROP TRIGGER reject_inbound_insert');
     loseBroadcastReply = true;
     const submittedTransfer = await tracker.startMove({
       moveToken: MoveToken.ARGN,
-      amountBaseUnits: 5_000_000_000_000n,
+      amountBaseUnits: 5_000_000_000_000_000_000n,
       targetWalletType: WalletType.argon,
       ethereumWallet,
     });
@@ -1620,6 +1630,77 @@ describe('EthereumInboundTransferTracker integration', { tags: ['no-argon-networ
     let finishPolling = false;
     const ethereumClient = new EthereumClient(walletKeys, 'https://ethereum.test');
 
+    const ethereumExecution = {
+      chain: { id: 1 },
+      publicClient: {
+        getBlock: async () => ({ timestamp: 1_000n }),
+        readContract: async ({ functionName }: { functionName: string }) => {
+          if (functionName === 'nonces') return firstMined ? 1n : 0n;
+          if (functionName === 'name') return 'Argon';
+          throw new Error(`Unexpected Ethereum read: ${functionName}`);
+        },
+        getTransactionCount: async ({ blockTag }: { blockTag: string }) => {
+          if (blockTag === 'latest' && firstMined) return 4;
+          return 3;
+        },
+        estimateGas: async () => 100_000n,
+        estimateFeesPerGas: async () => ({ gasPrice: 1n, maxFeePerGas: 1n, maxPriorityFeePerGas: 1n }),
+        getBalance: async () => 1_000_000n,
+        sendRawTransaction: async ({ serializedTransaction }: { serializedTransaction: Hex }) => {
+          signedTransactions.push(serializedTransaction);
+          return keccak256(serializedTransaction);
+        },
+        getTransactionReceipt: async ({ hash }: { hash: Hex }) => {
+          const index = signedTransactions.findIndex(transaction => keccak256(transaction) === hash);
+          if (index < 0) throw new TransactionReceiptNotFoundError({ hash });
+          const transaction = parseTransaction(signedTransactions[index]);
+          if (!finishPolling && (!firstMined || transaction.nonce !== 3 + index)) {
+            throw new TransactionReceiptNotFoundError({ hash });
+          }
+
+          const call = decodeFunctionData({ abi: EvmContracts.mintingGatewayAbi, data: transaction.data! });
+          if (call.functionName !== 'startTransferToArgon') throw new Error('Unexpected Ethereum transaction');
+          const [token, amount, , deadline, v, r, s] = call.args;
+          const signer = await recoverTypedDataAddress({
+            domain: { name: 'Argon', version: '1', chainId: 1, verifyingContract: token },
+            types: {
+              Permit: [
+                { name: 'owner', type: 'address' },
+                { name: 'spender', type: 'address' },
+                { name: 'value', type: 'uint256' },
+                { name: 'nonce', type: 'uint256' },
+                { name: 'deadline', type: 'uint256' },
+              ],
+            },
+            primaryType: 'Permit',
+            message: {
+              owner: walletKeys.coreEthereumAddress as Hex,
+              spender: gatewayAddress,
+              value: amount * 1_000_000_000_000n,
+              nonce: BigInt(index),
+              deadline,
+            },
+            signature: serializeSignature({ v: BigInt(v), r, s }),
+          });
+          return {
+            blockNumber: 42n + BigInt(index),
+            blockHash: `0x${'44'.repeat(32)}`,
+            transactionHash: hash,
+            status: finishPolling || signer.toLowerCase() === walletKeys.coreEthereumAddress ? 'success' : 'reverted',
+          };
+        },
+        getTransaction: async ({ hash }: { hash: Hex }) => {
+          const signed = signedTransactions.find(transaction => keccak256(transaction) === hash);
+          if (!signed) throw new TransactionNotFoundError({ hash });
+          return { from: walletKeys.coreEthereumAddress, nonce: parseTransaction(signed).nonce, blockNumber: null };
+        },
+        getBlockNumber: async () => 100n,
+      },
+    };
+    Object.defineProperty(ethereumClient, 'publicClient', {
+      configurable: true,
+      value: ethereumExecution.publicClient,
+    });
     Object.assign(ethereumClient, {
       loadChainConfig: async () => ({
         chainId: 1,
@@ -1627,73 +1708,7 @@ describe('EthereumInboundTransferTracker integration', { tags: ['no-argon-networ
         argonTokenAddress: tokenAddress,
         argonotTokenAddress: `0x${'33'.repeat(20)}`,
       }),
-      createExecutionClient: async () => ({
-        chain: { id: 1 },
-        publicClient: {
-          getBlock: async () => ({ timestamp: 1_000n }),
-          readContract: async ({ functionName }: { functionName: string }) => {
-            if (functionName === 'nonces') return firstMined ? 1n : 0n;
-            if (functionName === 'name') return 'Argon';
-            throw new Error(`Unexpected Ethereum read: ${functionName}`);
-          },
-          getTransactionCount: async ({ blockTag }: { blockTag: string }) => {
-            if (blockTag === 'latest' && firstMined) return 4;
-            return 3;
-          },
-          estimateGas: async () => 100_000n,
-          estimateFeesPerGas: async () => ({ gasPrice: 1n, maxFeePerGas: 1n, maxPriorityFeePerGas: 1n }),
-          getBalance: async () => 1_000_000n,
-          sendRawTransaction: async ({ serializedTransaction }: { serializedTransaction: Hex }) => {
-            signedTransactions.push(serializedTransaction);
-            return keccak256(serializedTransaction);
-          },
-          getTransactionReceipt: async ({ hash }: { hash: Hex }) => {
-            const index = signedTransactions.findIndex(transaction => keccak256(transaction) === hash);
-            if (index < 0) throw new TransactionReceiptNotFoundError({ hash });
-            const transaction = parseTransaction(signedTransactions[index]);
-            if (!finishPolling && (!firstMined || transaction.nonce !== 3 + index)) {
-              throw new TransactionReceiptNotFoundError({ hash });
-            }
-
-            const call = decodeFunctionData({ abi: EvmContracts.mintingGatewayAbi, data: transaction.data! });
-            if (call.functionName !== 'startTransferToArgon') throw new Error('Unexpected Ethereum transaction');
-            const [token, amount, , deadline, v, r, s] = call.args;
-            const signer = await recoverTypedDataAddress({
-              domain: { name: 'Argon', version: '1', chainId: 1, verifyingContract: token },
-              types: {
-                Permit: [
-                  { name: 'owner', type: 'address' },
-                  { name: 'spender', type: 'address' },
-                  { name: 'value', type: 'uint256' },
-                  { name: 'nonce', type: 'uint256' },
-                  { name: 'deadline', type: 'uint256' },
-                ],
-              },
-              primaryType: 'Permit',
-              message: {
-                owner: walletKeys.coreEthereumAddress as Hex,
-                spender: gatewayAddress,
-                value: amount * 1_000_000_000_000n,
-                nonce: BigInt(index),
-                deadline,
-              },
-              signature: serializeSignature({ v: BigInt(v), r, s }),
-            });
-            return {
-              blockNumber: 42n + BigInt(index),
-              blockHash: `0x${'44'.repeat(32)}`,
-              transactionHash: hash,
-              status: finishPolling || signer.toLowerCase() === walletKeys.coreEthereumAddress ? 'success' : 'reverted',
-            };
-          },
-          getTransaction: async ({ hash }: { hash: Hex }) => {
-            const signed = signedTransactions.find(transaction => keccak256(transaction) === hash);
-            if (!signed) throw new TransactionNotFoundError({ hash });
-            return { from: walletKeys.coreEthereumAddress, nonce: parseTransaction(signed).nonce, blockNumber: null };
-          },
-          getBlockNumber: async () => 100n,
-        },
-      }),
+      createExecutionClient: async () => ethereumExecution,
       getTransactionFinalityBlocks: () => 2,
       getTransactionFinalityPollMs: () => 1,
       getTransactionFinalityWaitEstimateMs: () => 1,
@@ -1716,13 +1731,13 @@ describe('EthereumInboundTransferTracker integration', { tags: ['no-argon-networ
     const ethereumWallet = new WalletForEthereum(walletKeys.coreEthereumAddress, undefined, undefined, true);
     const request = {
       moveToken: MoveToken.ARGN,
-      amountBaseUnits: 1_000_000_000_000n,
+      amountBaseUnits: 1_000_000_000_000_000_000n,
       targetWalletType: WalletType.argon,
       ethereumWallet,
     } as const;
     const first = (await tracker.startMove(request))!;
     await vi.waitFor(() => expect(first.transferState.progress.currentStepDetail).toBe('Ethereum confirmation 0 of 2'));
-    const second = (await tracker.startMove({ ...request, amountBaseUnits: 7_000_000_000_000n }))!;
+    const second = (await tracker.startMove({ ...request, amountBaseUnits: 7_000_000_000_000_000_000n }))!;
 
     try {
       await vi.waitFor(() =>

@@ -15,7 +15,7 @@
     </div>
     <div class="flex min-h-0 grow flex-row gap-x-2 overflow-scroll p-2">
       <div :inert="!interactiveNavigation" class="flex">
-        <LeftBar />
+        <LeftBar :hasStabilizerOpportunity="hasStabilizerOpportunity" />
       </div>
       <main :inert="!interactive" class="relative flex min-h-0 grow flex-col overflow-hidden">
         <div class="flex min-h-0 grow flex-col overflow-x-hidden overflow-y-auto">
@@ -34,6 +34,7 @@ defineProps<{
   interactive?: boolean;
   interactiveNavigation?: boolean;
   scenarioLabel?: string;
+  hasStabilizerOpportunity?: boolean;
 }>();
 </script>
 

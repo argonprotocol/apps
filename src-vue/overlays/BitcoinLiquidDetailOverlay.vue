@@ -350,7 +350,7 @@
                               <button
                                 data-testid="BitcoinLiquidDetailOverlay.openRatchetReview"
                                 :disabled="
-                                  isBitcoinSettlementPending ||
+                                  !!actionUnavailableReason ||
                                   ((!isRatchetAvailable || !ratchetPreview) && ratchetTransaction.status !== 'pending')
                                 "
                                 class="border-argon-600 text-argon-600 hover:bg-argon-600/5 inline-flex cursor-pointer items-center gap-x-1 rounded border px-3 text-sm leading-5 font-semibold whitespace-nowrap disabled:cursor-not-allowed disabled:border-slate-300 disabled:text-slate-300"
@@ -444,7 +444,7 @@
                       <span class="inline-flex">
                         <button
                           data-testid="BitcoinLiquidDetailOverlay.openCloseReview"
-                          :disabled="isBitcoinSettlementPending"
+                          :disabled="!!actionUnavailableReason"
                           class="border-argon-600 text-argon-600 hover:bg-argon-600/5 inline-flex cursor-pointer items-center gap-x-1 rounded-md border px-5 py-2 font-semibold whitespace-nowrap disabled:cursor-not-allowed disabled:border-slate-300 disabled:text-slate-300"
                           @click="closePopoverOpen = !closePopoverOpen"
                         >
@@ -452,12 +452,12 @@
                           <template v-else>
                             Repay {{ argonSymbol }}{{ microgonToArgonNm(repaymentAmount).format('0,0.00') }} &amp; Close
                             Liquid
-                            <InformationCircleIcon v-if="isBitcoinSettlementPending" class="size-4" />
+                            <InformationCircleIcon v-if="actionUnavailableReason" class="size-4" />
                           </template>
                         </button>
                       </span>
                     </TooltipTrigger>
-                    <TooltipPortal v-if="isBitcoinSettlementPending">
+                    <TooltipPortal v-if="actionUnavailableReason">
                       <TooltipContent
                         side="top"
                         align="end"
@@ -466,7 +466,7 @@
                         :style="{ zIndex: floatingZIndex }"
                         class="w-80 rounded-md border border-gray-800/20 bg-white px-4 py-3 text-sm text-slate-600 shadow-xl"
                       >
-                        {{ bitcoinSettlementPendingReason }}
+                        {{ actionUnavailableReason }}
                         <TooltipArrow :width="18" :height="9" class="-mt-px fill-white stroke-gray-400/30" />
                       </TooltipContent>
                     </TooltipPortal>
@@ -661,6 +661,13 @@ const bitcoinSettlementPendingReason =
 const isBitcoinSettlementPending = Vue.computed(() =>
   liquid.value.fissions.some(fission => bitcoinLocks.getLockById(fission.lockId)?.activeReleaseId !== undefined),
 );
+const actionUnavailableReason = Vue.computed(() => {
+  if (bitcoinFissions.data.pendingRepaymentLiquidIds.has(liquid.value.liquidId)) {
+    return 'A Stabilizer Buy is repaying this Liquid. Ratchet and Close will be available after it settles.';
+  }
+  if (isBitcoinSettlementPending.value) return bitcoinSettlementPendingReason;
+  return '';
+});
 const financialPosition = Vue.computed(() =>
   financials.financialPositionAggregate.groupSummaries.bitcoin.positions.find(
     (position): position is IBitcoinLiquidFinancialPosition =>
@@ -761,9 +768,9 @@ const ratchetPercent = Vue.computed(() =>
       }).percent
     : 0,
 );
-const isRatchetAvailable = Vue.computed(() => ratchetPreview.value?.canRatchet ?? false);
+const isRatchetAvailable = Vue.computed(() => !actionUnavailableReason.value && !!ratchetPreview.value?.canRatchet);
 const ratchetUnavailableReason = Vue.computed(() => {
-  if (isBitcoinSettlementPending.value) return bitcoinSettlementPendingReason;
+  if (actionUnavailableReason.value) return actionUnavailableReason.value;
   if (ratchetState.value.status === 'error') return ratchetState.value.error;
   if (ratchetState.value.status !== 'ready' || ratchetState.value.value.preview.canRatchet) return '';
 
@@ -808,7 +815,9 @@ const closeWalletIsInsufficient = Vue.computed(
     !!closeQuote.value &&
     closeQuote.value.availableWalletBalanceMicrogons < closeQuote.value.requiredWalletBalanceMicrogons,
 );
-const canSubmitClose = Vue.computed(() => !!closeQuote.value && !closeWalletIsInsufficient.value);
+const canSubmitClose = Vue.computed(
+  () => !actionUnavailableReason.value && !!closeQuote.value && !closeWalletIsInsufficient.value,
+);
 
 let loadId = 0;
 let timeout: ReturnType<typeof setTimeout> | undefined;
@@ -910,7 +919,7 @@ function initializeActions(preserveLoadedState = false): void {
     return;
   }
 
-  if (isBitcoinSettlementPending.value) return;
+  if (actionUnavailableReason.value) return;
 
   if (ratchetState.value.status !== 'ready') ratchetState.value = { status: 'loading' };
   const currentLiquid = liquid.value;
@@ -1170,7 +1179,7 @@ Vue.watch(
 Vue.watch(isClosed, closed => {
   if (closed) stopTracking();
 });
-Vue.watch(isBitcoinSettlementPending, () => initializeActions());
+Vue.watch(actionUnavailableReason, () => initializeActions());
 Vue.onMounted(initializeActions);
 Vue.onUnmounted(stopTracking);
 </script>

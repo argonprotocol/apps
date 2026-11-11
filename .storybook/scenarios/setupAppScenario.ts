@@ -9,7 +9,7 @@ import {
   UnitOfMeasurement,
 } from '@argonprotocol/apps-core';
 import { PriceIndex, getOfflineRegistry } from '@argonprotocol/mainchain';
-import { getBundledMetadata, toPlain, type CurrentRuntimeConstants } from '@argonprotocol/runtime-client';
+import { toPlain, type CurrentRuntimeConstants } from '@argonprotocol/runtime-client';
 import { Metadata } from '@polkadot/types';
 import { decorateConstants } from '@polkadot/types/metadata/decorate';
 import BigNumber from 'bignumber.js';
@@ -267,6 +267,7 @@ export function setupAppScenario({
   bitcoinFissions.data = Vue.reactive({
     fissionsById: {},
     activeFissionIds: new Set<number>(),
+    pendingRepaymentLiquidIds: new Set<number>(),
     minimumRatchetPercent: 5n,
     readiness: 'ready' as const,
     financialRevision: 1,
@@ -436,6 +437,7 @@ export function setupAppScenario({
   const financialHistory = Vue.reactive({
     historyRecovery,
     historyRecoveryByDomain: {
+      stabilizer: { ...readyHistory },
       bitcoin: { ...readyHistory },
       bonds: { ...readyHistory },
       vaulting: { ...readyHistory },
@@ -512,10 +514,7 @@ export function setupAppScenario({
     update: fn(async () => undefined),
   });
   const registry = getOfflineRegistry();
-  const metadata = new Metadata(
-    registry,
-    Object.entries(getBundledMetadata()).find(([key]) => key.endsWith('-161'))![1],
-  );
+  const metadata = new Metadata(registry, { metadata: { V16: registry.metadata } });
   const rewardConstants = toPlain(
     decorateConstants(registry, metadata.asLatest, metadata.version).treasury,
   ) as CurrentRuntimeConstants['treasury'];

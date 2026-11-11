@@ -6,6 +6,7 @@
   "main": "src/index.ts",
   "exports": {
     ".": "./src/index.ts",
+    "./generation/readRuntimeSource": "./src/generation/readRuntimeSource.ts",
     "./events": "./src/events.ts",
     "./events.generated": "./src/HistoricalEvents.generated.ts"
   },
@@ -14,7 +15,7 @@
     "tsc": "tsc"
   },
   "dependencies": {
-    "@argonprotocol/mainchain": "1.5.2-dev.20010413",
+    "@argonprotocol/mainchain": "1.5.2-dev.c911d613",
     "@polkadot/api": "17.0.1",
     "@polkadot/api-base": "17.0.1",
     "@polkadot/types": "17.0.1",

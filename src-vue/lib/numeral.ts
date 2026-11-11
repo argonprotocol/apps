@@ -1,5 +1,5 @@
 import * as Vue from 'vue';
-import numeralOriginal, { Numeral } from 'numeral';
+import numeralOriginal, { type Numeral } from 'numeral';
 import BigNumber from 'bignumber.js';
 import { Currency, UnitOfMeasurement } from './Currency';
 import { IOtherToken } from './Wallet.ts';
@@ -25,7 +25,7 @@ declare module 'numeral' {
   }
 }
 
-export { Numeral } from 'numeral';
+export type { Numeral } from 'numeral';
 
 type ICondition = boolean | string | ((value: number) => boolean);
 

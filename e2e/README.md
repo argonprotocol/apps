@@ -57,12 +57,24 @@ Pinning updates:
 
 ## Run Flows
 
+### Local Stabilizer Buys deployment
+
+`yarn dev start` provisions Ethereum with the published SDK's six-decimal USDC, purchase-enabled gateway, and seeded Uniswap v4 stabilization pool. Use the dev tooling to reset an older transfer-only Ethereum stack before reusing it.
+
+The pool starts at the target price reported by the owning Argon chain. The oracle reads its market price and liquidity from Uniswap; the default target price remains $1.06 in the price file.
+
+Run `yarn dev price --argon 0.95` to trade the pool to approximately 0.95 USDC per ARGN. It supports both directions and the usual `--profile NAME` and `--join OWNER` environment selection. The local admin pays for the swap; the Rust oracle observes the new spot price while its TWAP adjusts over time. Restarts preserve the changed pool price.
+
+The existing Ethereum runtime-state file stores deployment progress and the liquidity position identity. Restarts reuse the contracts and position. The setup registers and approves the pool on Argon, then configures the existing Rust file oracle with the local Ethereum RPC and pool hook. Its default price file uses `"argon_usd_price": "UNISWAP"`; other reference prices remain editable. An explicit `PRICE_INDEX_FILE_PATH` remains under the caller's control.
+
 Available flows:
 
 - `Mining.flow.onboarding`
 - `Vaulting.flow.onboarding`
 - `Bitcoin.flow.liquidCreate` (create, ratchet, and close one Liquid)
 - `Bitcoin.flow.lockUnlock`
+- `App.flow.stabilizerBuyAndBid` (buy below target, then submit and revise a reward bid)
+- `Bitcoin.flow.liquidRepayment` (repay a Liquid with an Ethereum purchase and restore its actions after settlement)
 - `App.flow.runManual`
 
 Run flow scripts:
@@ -74,6 +86,7 @@ yarn e2e:docker
 # Run a single flow
 E2E_FLOWS=Mining.flow.onboarding yarn e2e:docker
 E2E_FLOWS=Vaulting.flow.onboarding yarn e2e:docker
+E2E_FLOWS=App.flow.stabilizerBuyAndBid yarn e2e:docker
 
 # Directly through the e2e workspace script
 yarn workspace @argonprotocol/apps-e2e run flows

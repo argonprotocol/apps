@@ -1,6 +1,6 @@
 import { reactive } from 'vue';
 import { EthereumInboundTransferTracker } from '../lib/EthereumInboundTransferTracker.ts';
-import { EthereumClient, getEthereumExecutionRpcUrl } from '../lib/EthereumClient.ts';
+import { createEthereumClient } from './ethereum.ts';
 import { getConfig } from './config.ts';
 import { getServerApiClient } from './server.ts';
 import { getBlockWatch } from './mainchain.ts';
@@ -18,8 +18,7 @@ export function getEthereumMoveTracker(): EthereumInboundTransferTracker {
     const walletKeys = getWalletKeys();
     const transactionTracker = getTransactionTracker();
     const dbPromise = getDbPromise();
-    const executionRpcUrl = getEthereumExecutionRpcUrl(config.ethereumExecutionRpcUrl);
-    const ethereumClient = executionRpcUrl ? new EthereumClient(walletKeys, executionRpcUrl) : undefined;
+    const ethereumClient = createEthereumClient();
     const upstreamOperatorClient = getUpstreamOperatorClient();
     const myVault = getMyVault();
 

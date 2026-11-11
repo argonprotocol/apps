@@ -23,6 +23,7 @@ export class BitcoinFission implements IBitcoinFission {
   public liquidId: number;
   public lockId: number;
   public satoshis: bigint;
+  public initialSatoshis?: bigint;
   public microgonsAtTargetPerBtc: bigint;
   public liquidityPromised: bigint;
   public cosignerGuarantee?: BitcoinCosignerGuarantee;
@@ -32,6 +33,7 @@ export class BitcoinFission implements IBitcoinFission {
   public lastUpdatedArgonBlock?: number;
   public origin?: 'created' | 'lock-migration';
   public ratchets: IBitcoinFissionRatchet[];
+  public repayments: IBitcoinFissionRepayment[];
   public createdAtTick?: number;
   public createdBlockHash?: string;
   public createdBlockTime?: Date;
@@ -56,6 +58,7 @@ export class BitcoinFission implements IBitcoinFission {
     this.liquidId = data.liquidId;
     this.lockId = data.lockId;
     this.satoshis = data.satoshis;
+    this.initialSatoshis = data.initialSatoshis;
     this.microgonsAtTargetPerBtc = data.microgonsAtTargetPerBtc;
     this.liquidityPromised = data.liquidityPromised;
     this.cosignerGuarantee = data.cosignerGuarantee;
@@ -65,6 +68,7 @@ export class BitcoinFission implements IBitcoinFission {
     this.lastUpdatedArgonBlock = data.lastUpdatedArgonBlock;
     this.origin = data.origin;
     this.ratchets = data.ratchets ?? [];
+    this.repayments = data.repayments ?? [];
     this.createdAtTick = data.createdAtTick;
     this.createdBlockHash = data.createdBlockHash;
     this.createdBlockTime = data.createdBlockTime;
@@ -131,6 +135,7 @@ export class BitcoinFission implements IBitcoinFission {
       origin: 'created',
       ownerAccount,
       ...fission,
+      initialSatoshis: fission.satoshis,
       createdAtArgonBlock: block.blockNumber,
       ratchetNumber: 0,
       lastUpdatedArgonBlock: block.blockNumber,
@@ -167,6 +172,7 @@ export class BitcoinFission implements IBitcoinFission {
     record: IBitcoinFissionRecord;
     block: IBlockHeaderInfo;
     event: BitcoinFissionUpdateEvent;
+    eventIndex: number;
     extrinsicIndex?: number;
     transactionFee?: bigint;
     netSecurityFee?: bigint;
@@ -192,6 +198,37 @@ export class BitcoinFission implements IBitcoinFission {
     const priorFeesAreComplete =
       record.feeHistoryCompleteThroughBlock != null &&
       record.feeHistoryCompleteThroughBlock >= record.lastUpdatedArgonBlock;
+    if (event.method === 'FissionRepaid') {
+      const repayments = record.repayments ?? [];
+      if (
+        repayments.some(
+          repayment => repayment.blockHash === block.blockHash && repayment.eventIndex === args.eventIndex,
+        )
+      )
+        return record;
+
+      const { accountId: _accountId, fissionId: _fissionId, ...repayment } = event.data;
+      record.repayments = [
+        ...repayments,
+        {
+          ...repayment,
+          blockNumber: block.blockNumber,
+          blockHash: block.blockHash,
+          blockTime,
+          tick: block.tick,
+          eventIndex: args.eventIndex,
+        },
+      ].sort((left, right) => left.blockNumber - right.blockNumber || left.eventIndex - right.eventIndex);
+      if (block.blockNumber < record.lastUpdatedArgonBlock) return record;
+      const originalSatoshis =
+        record.initialSatoshis ?? record.satoshis + repayments.reduce((sum, value) => sum + value.satoshis, 0n);
+      record.satoshis = originalSatoshis - record.repayments.reduce((sum, value) => sum + value.satoshis, 0n);
+      record.liquidityPromised -= repayment.liquidityRepaid;
+      record.lastUpdatedArgonBlock = block.blockNumber;
+      if (priorFeesAreComplete) record.feeHistoryCompleteThroughBlock = block.blockNumber;
+      record.updatedAt = blockTime;
+      return record;
+    }
     if (event.method === 'FissionRatcheted') {
       const { ratchetNumber } = event.data;
       const ratchet: IBitcoinFissionRatchet = {
@@ -234,7 +271,8 @@ export class BitcoinFission implements IBitcoinFission {
       record.closedExtrinsicIndex = extrinsicIndex;
       record.closeReason = event.method === 'FissionClosed' ? 'closed' : 'lock-spent';
       // Lock-driven closures are runtime hooks or unsigned inherents, with no owner-paid fee.
-      record.closeTxFee = transactionFee ?? (event.method === 'FissionClosedByLock' ? 0n : undefined);
+      record.closeTxFee = transactionFee;
+      if (event.method === 'FissionClosedByLock' || extrinsicIndex === undefined) record.closeTxFee ??= 0n;
       record.lastUpdatedArgonBlock = block.blockNumber;
       record.feeHistoryCompleteThroughBlock =
         priorFeesAreComplete && record.closeTxFee !== undefined ? block.blockNumber : undefined;
@@ -246,6 +284,25 @@ export class BitcoinFission implements IBitcoinFission {
 
     const unsupportedEvent: never = event;
     throw new Error(`Unsupported Bitcoin Fission event: ${JSON.stringify(unsupportedEvent)}`);
+  }
+
+  public static applyClosingState(
+    record: IBitcoinFission,
+    beforeClose: IBitcoinFission | undefined,
+    closingBlock: number,
+  ): void {
+    if (!beforeClose) {
+      if (record.createdAtArgonBlock !== closingBlock)
+        throw new Error('The Fission state before closure is unavailable.');
+      return;
+    }
+
+    const repaidInBlock = (record.repayments ?? []).filter(repayment => repayment.blockNumber === closingBlock);
+    record.satoshis = beforeClose.satoshis - repaidInBlock.reduce((sum, repayment) => sum + repayment.satoshis, 0n);
+    if (!record.ratchets?.some(ratchet => ratchet.blockNumber === closingBlock)) {
+      record.liquidityPromised =
+        beforeClose.liquidityPromised - repaidInBlock.reduce((sum, repayment) => sum + repayment.liquidityRepaid, 0n);
+    }
   }
 
   public applyCurrentSnapshot(current: BitcoinFission): void {
@@ -264,6 +321,15 @@ export class BitcoinFission implements IBitcoinFission {
 
   public enrichHistory(record: IBitcoinFission): void {
     this.origin ??= record.origin;
+    this.initialSatoshis = record.initialSatoshis ?? this.initialSatoshis;
+    const repayments = new Map(
+      this.repayments.map(repayment => [`${repayment.blockHash}:${repayment.eventIndex}`, repayment]),
+    );
+    for (const repayment of record.repayments ?? [])
+      repayments.set(`${repayment.blockHash}:${repayment.eventIndex}`, repayment);
+    this.repayments = [...repayments.values()].sort(
+      (left, right) => left.blockNumber - right.blockNumber || left.eventIndex - right.eventIndex,
+    );
     const ratchets = new Map(
       this.ratchets.map(ratchet => [`${ratchet.source}:${ratchet.sourceRatchetIndex}`, ratchet]),
     );
@@ -317,9 +383,24 @@ export class BitcoinFission implements IBitcoinFission {
       (record.closedExtrinsicIndex ?? -1) === (this.closedExtrinsicIndex ?? -1);
     const recoveredLastUpdatedBlock = record.lastUpdatedArgonBlock ?? -1;
     const currentLastUpdatedBlock = this.lastUpdatedArgonBlock ?? -1;
+    const recoveredRepaymentIndex =
+      record.repayments?.filter(repayment => repayment.blockNumber === recoveredLastUpdatedBlock).at(-1)?.eventIndex ??
+      -1;
+    const currentRepaymentIndex =
+      this.repayments.filter(repayment => repayment.blockNumber === currentLastUpdatedBlock).at(-1)?.eventIndex ?? -1;
+    const hasAdditionalRepayments =
+      record.repayments?.some(
+        repayment =>
+          !this.repayments.some(
+            current => current.blockHash === repayment.blockHash && current.eventIndex === repayment.eventIndex,
+          ),
+      ) ?? false;
     const recoveredCurrentIsNewer =
       recoveredLastUpdatedBlock > currentLastUpdatedBlock ||
-      (recoveredLastUpdatedBlock === currentLastUpdatedBlock && record.ratchetNumber > this.ratchetNumber);
+      (recoveredLastUpdatedBlock === currentLastUpdatedBlock &&
+        (record.ratchetNumber > this.ratchetNumber ||
+          recoveredRepaymentIndex > currentRepaymentIndex ||
+          hasAdditionalRepayments));
     this.enrichHistory(record);
     if (recoveredCurrentIsNewer) this.applyCurrentFields(record);
     if (recoveredCloseIsNewer || recoveredCloseMatchesCurrent) {
@@ -339,6 +420,7 @@ export class BitcoinFission implements IBitcoinFission {
   public applyStoredRecord(record: IBitcoinFission): void {
     Object.assign(this, record, {
       ratchets: record.ratchets ?? [],
+      repayments: record.repayments ?? [],
       pendingMints: this.pendingMints,
     });
   }
@@ -394,6 +476,18 @@ export class BitcoinFission implements IBitcoinFission {
   public calculateRedemptionAmount(priceIndex: PriceIndex): bigint {
     const maximumMicrogonsAtTarget = (this.satoshis * this.microgonsAtTargetPerBtc) / SATS_PER_BTC;
     return BitcoinLock.calculateRedemptionAmountFromSatoshis(priceIndex, this.satoshis, maximumMicrogonsAtTarget);
+  }
+
+  public get originalSatoshis(): bigint {
+    return (
+      this.initialSatoshis ?? this.satoshis + this.repayments.reduce((sum, repayment) => sum + repayment.satoshis, 0n)
+    );
+  }
+
+  public get hasCompleteRepaymentHistory(): boolean {
+    if (this.initialSatoshis === undefined) return this.repayments.length === 0;
+    const repaid = this.repayments.reduce((sum, repayment) => sum + repayment.satoshis, 0n);
+    return this.initialSatoshis - repaid === this.satoshis;
   }
 
   public quoteGuaranteeReplacement(args: Parameters<BitcoinFission['calculateRatchetAmounts']>[0]) {
@@ -476,6 +570,15 @@ export class BitcoinFission implements IBitcoinFission {
     });
   }
 
+  public static async getPendingRepaymentLiquidIds(client: ArgonCurrentQueryClient, ownerAccount: string) {
+    const query = client.query.stabilizerBuys?.pendingLiquidRepayCountByAccountAndLiquid;
+    // The deployed runtime has no Liquid repayment purchases.
+    if (!query) return new Set<number>();
+
+    const entries = await query.entries(ownerAccount);
+    return new Set((entries ?? []).filter(([, count]) => count > 0n).map(([key]) => key.args[1]));
+  }
+
   public static async get(
     client: ArgonCurrentQueryClient,
     ownerAccount: string,
@@ -525,6 +628,7 @@ export class BitcoinFission implements IBitcoinFission {
   ): BitcoinFission {
     return new BitcoinFission({
       ...fission,
+      lastRatchetTick: 'lastRatchetPriceTick' in fission ? fission.lastRatchetPriceTick : fission.lastRatchetTick,
       ownerAccount,
       fissionId,
     });
@@ -552,6 +656,7 @@ export interface IBitcoinFission {
   liquidId: number;
   lockId: number;
   satoshis: bigint;
+  initialSatoshis?: bigint;
   microgonsAtTargetPerBtc: bigint;
   liquidityPromised: bigint;
   cosignerGuarantee?: BitcoinCosignerGuarantee;
@@ -561,6 +666,7 @@ export interface IBitcoinFission {
   lastUpdatedArgonBlock?: number;
   origin?: 'created' | 'lock-migration';
   ratchets?: IBitcoinFissionRatchet[];
+  repayments?: IBitcoinFissionRepayment[];
   createdAtTick?: number;
   createdBlockHash?: string;
   createdBlockTime?: Date;
@@ -607,6 +713,15 @@ export interface IBitcoinFissionRatchet {
   blockTime?: Date;
   extrinsicIndex?: number;
 }
+
+export type IBitcoinFissionRepayment = Omit<
+  Extract<HistoricalEvent, { section: 'bitcoinFissions'; method: 'FissionRepaid' }>['data'],
+  'accountId' | 'fissionId'
+> &
+  Pick<IBlockHeaderInfo, 'blockNumber' | 'blockHash' | 'tick'> & {
+    blockTime: Date;
+    eventIndex: number;
+  };
 
 export interface IBitcoinFissionRatchetAmounts {
   sourceLiquidity: bigint;

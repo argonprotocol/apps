@@ -64,7 +64,7 @@ import {
 } from 'reka-ui';
 import { loadEthereumChainConfig, type IEthereumChainConfig } from '../../lib/EthereumClient.ts';
 import { useFloatingZIndex } from '../../overlays/helpers/OverlayZIndex.ts';
-import { StableSwaps } from '../../lib/StableSwaps.ts';
+import { getUniswapMarketUrl } from '../../lib/Utils.ts';
 
 const props = defineProps<{
   moveToken: MoveToken;
@@ -95,7 +95,7 @@ const tokenAddress = computed(() =>
 );
 const uniswapUrl = computed(() =>
   tokenAddress.value && chainConfig.value
-    ? StableSwaps.getUniswapMarketUrl(tokenAddress.value, chainConfig.value.chainId)
+    ? getUniswapMarketUrl(tokenAddress.value, chainConfig.value.chainId)
     : undefined,
 );
 const etherscanUrl = computed(() => {

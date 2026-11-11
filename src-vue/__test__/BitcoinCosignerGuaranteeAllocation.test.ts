@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
+import { BitcoinFission } from '@argonprotocol/apps-core';
 
 import type { IBitcoinFissionRecord } from '../interfaces/IBitcoinFissionRecord.ts';
 import type { IBitcoinSecuritizationTerm } from '../interfaces/IBitcoinSecuritizationTerm.ts';
@@ -43,6 +44,47 @@ describe('Bitcoin Liquid cosigner guarantee allocation', () => {
     );
     expect(allocation.unallocatedCost).toBe(0n);
     expect(allocation.incompleteLiquidIds).toEqual(new Set());
+  });
+
+  it('retains prior coverage cost when a repayment releases capacity to another Liquid', () => {
+    const first = createFission({
+      fissionId: 1,
+      liquidId: 1,
+      initialSatoshis: 100n,
+      satoshis: 40n,
+      createdAtTick: 0,
+      repayments: [
+        {
+          satoshis: 60n,
+          liquidityRepaid: 60n,
+          redemptionAmount: 60n,
+          blockNumber: 50,
+          tick: 50,
+          eventIndex: 0,
+          blockHash: `0x${'11'.repeat(32)}`,
+          blockTime: new Date(50_000),
+        },
+      ],
+    });
+    const second = createFission({ fissionId: 2, liquidId: 2, satoshis: 60n, createdAtTick: 50 });
+
+    const awaitingRepayment = allocateBitcoinCosignerGuaranteeCosts({
+      terms: [createTerm()],
+      fissions: [new BitcoinFission({ ...first, repayments: [] }), second],
+    });
+    expect(awaitingRepayment.incompleteLiquidIds).toEqual(new Set([1, 2]));
+    expect(awaitingRepayment.unallocatedCost).toBe(1_000n);
+
+    const allocation = allocateBitcoinCosignerGuaranteeCosts({ terms: [createTerm()], fissions: [first, second] });
+
+    expect(allocation.costByLiquidId).toEqual(
+      new Map([
+        [1, 700n],
+        [2, 300n],
+      ]),
+    );
+    expect(allocation.unallocatedCost).toBe(0n);
+    expect(allocation.incompleteLiquidIds.size).toBe(0);
   });
 
   it('partitions concurrent Liquids into exact guaranteed satoshi slices', () => {
@@ -221,9 +263,9 @@ function createTerm(overrides: Partial<IBitcoinSecuritizationTerm> = {}): IBitco
   };
 }
 
-function createFission(overrides: Partial<IBitcoinFissionRecord>): IBitcoinFissionRecord {
+function createFission(overrides: Partial<IBitcoinFissionRecord>): BitcoinFission {
   const createdAt = new Date('2026-01-01T00:00:00Z');
-  return {
+  return new BitcoinFission({
     origin: 'created',
     ownerAccount: '5owner',
     fissionId: 1,
@@ -239,5 +281,5 @@ function createFission(overrides: Partial<IBitcoinFissionRecord>): IBitcoinFissi
     createdAt,
     updatedAt: createdAt,
     ...overrides,
-  };
+  });
 }

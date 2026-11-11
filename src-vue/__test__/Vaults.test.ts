@@ -97,11 +97,16 @@ class TestVaults extends Vaults {
 }
 
 it.each([160, 161])('preserves visible rewards across a failed frame read and retry on runtime %s', async spec => {
-  const registry = getOfflineRegistry();
-  const metadata = new Metadata(
-    registry,
-    Object.entries(getBundledMetadata()).find(([key]) => key.endsWith(`-${spec}`))![1],
-  );
+  const registry = spec === 161 ? getOfflineRegistry() : new TypeRegistry();
+  let metadata: Metadata;
+  if (spec === 161) {
+    metadata = new Metadata(registry, { metadata: { V16: registry.metadata } });
+  } else {
+    metadata = new Metadata(
+      registry,
+      Object.entries(getBundledMetadata()).find(([key]) => key.endsWith(`-${spec}`))![1],
+    );
+  }
   registry.setMetadata(metadata);
   const constants = decorateConstants(registry, metadata.asLatest, metadata.version);
   let frameUnavailable = true;
@@ -170,8 +175,9 @@ it.each([160, 161])('preserves visible rewards across a failed frame read and re
   const vaults = new Vaults('dev-docker', currency as any, { blockWatch } as any);
   vaults.currentState = shallowReactive(vaults.currentState);
   const visibleEarnings = computed(() => vaults.rewards?.vaultRevenuePotential(4)?.actualEarnings);
-  const firstEarnings = 1_000n;
-  const nextEarnings = spec === 160 ? 1_100n : 38_720n;
+  const firstEarnings = spec === 160 ? 1_000n : 5_000n;
+  // Runtime 161: (5% + 42.835% * 80% * 95%) of 110,000, with fixed-point rounding.
+  const nextEarnings = spec === 160 ? 1_100n : 41_310n;
   await vaults.loadCurrentState();
   await vi.waitFor(() => expect(visibleEarnings.value).toBe(firstEarnings));
 
@@ -214,11 +220,16 @@ describe('Vaults stats storage', () => {
   ])(
     'reconstructs the pre-payout pool from runtime $spec metadata',
     async ({ spec, rewardsBeforePayout, expectedPool }) => {
-      const registry = new TypeRegistry();
-      const metadata = new Metadata(
-        registry,
-        Object.entries(getBundledMetadata()).find(([key]) => key.endsWith(`-${spec}`))![1],
-      );
+      const registry = spec === 161 ? getOfflineRegistry() : new TypeRegistry();
+      let metadata: Metadata;
+      if (spec === 161) {
+        metadata = new Metadata(registry, { metadata: { V16: registry.metadata } });
+      } else {
+        metadata = new Metadata(
+          registry,
+          Object.entries(getBundledMetadata()).find(([key]) => key.endsWith(`-${spec}`))![1],
+        );
+      }
       registry.setMetadata(metadata);
       const constants = decorateConstants(registry, metadata.asLatest, metadata.version);
       const poolAddress = registry.createType('AccountId32', `0x6d6f646c6c7164506f6f6c73${'00'.repeat(20)}`).toString();

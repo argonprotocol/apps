@@ -1,4 +1,9 @@
+import { decodeAddress } from '@argonprotocol/mainchain';
+import { toHex, type Hex } from 'viem';
 import type { ArgonQueryClient } from './MainchainClients.js';
+
+/** Minimum ordinary transfer from Ethereum, in six-decimal runtime units. */
+export const ETHEREUM_MIN_TRANSFER_AMOUNT = 10_000n;
 
 export async function getLatestArgonFinalizedExecutionHeader(client: ArgonQueryClient): Promise<{
   blockHash: string;
@@ -16,4 +21,8 @@ export async function getLatestArgonFinalizedExecutionHeader(client: ArgonQueryC
   const header = await headerQuery;
   if (!header) throw new Error(`Argon finalized execution header ${blockHash} is missing`);
   return { blockHash, blockNumber: header.blockNumber };
+}
+
+export function toArgonAccountIdHex(address: string): Hex {
+  return toHex(decodeAddress(address), { size: 32 });
 }

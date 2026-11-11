@@ -1,6 +1,17 @@
-import { getOfflineRegistry, type GenericEvent } from '@argonprotocol/mainchain';
+import type { GenericEvent } from '@argonprotocol/mainchain';
 import { getTypeDef } from '@polkadot/types-create';
 import { getHistoricalEventFieldAlternatives } from '@argonprotocol/runtime-client/events';
+import { getBundledMetadata } from '@argonprotocol/runtime-client';
+import { Metadata, TypeRegistry } from '@polkadot/types';
+import type { HexString } from '@polkadot/util/types';
+import { readRuntimeSource } from '@argonprotocol/runtime-client/generation/readRuntimeSource';
+
+// These deployed versions share a spec number with different published snapshots and are deliberately not bundled.
+const [source116, source148] = await Promise.all([readRuntimeSource('1.0.18'), readRuntimeSource('1.4.2')]);
+const historicalMetadata: Record<number, HexString> = {
+  116: JSON.parse(source116.metadataSource!).result,
+  148: JSON.parse(source148.metadataSource!).result,
+};
 
 export function createHistoricalEventData(
   specVersion: number,
@@ -17,7 +28,12 @@ export function createHistoricalEventData(
   }
 
   const fields = Object.entries(declarations[0]);
-  const registry = getOfflineRegistry();
+  const registry = new TypeRegistry();
+  const metadata =
+    Object.entries(getBundledMetadata()).find(([key]) => key.endsWith(`-${specVersion}`))?.[1] ??
+    historicalMetadata[specVersion];
+  if (!metadata) throw new Error(`Missing test metadata for runtime ${specVersion}`);
+  registry.setMetadata(new Metadata(registry, metadata), undefined, undefined, true);
   const data =
     fields.length === 1
       ? registry.createType<GenericEvent['data']>(`Vec<${fields[0][1]}>`, [values[fields[0][0]]])

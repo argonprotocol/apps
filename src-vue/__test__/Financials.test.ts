@@ -301,7 +301,7 @@ describe('financial position accounting', () => {
   });
 
   it.each(['mainnet', 'dev-docker'] as const)(
-    'weights vault and stable-swap returns over simulated days on %s',
+    'weights vault and stabilizer-buy returns over simulated days on %s',
     network => {
       const previousNetwork = NetworkConfig.networkName!;
       onTestFinished(() => NetworkConfig.setNetwork(previousNetwork));
@@ -329,21 +329,18 @@ describe('financial position accounting', () => {
           revenueHistory: [],
         },
         {
-          id: 'swap-1',
-          kind: 'stable-swap',
-          group: 'ethereum',
-          label: 'Stable swap holdings',
-          lifecycle: 'active',
+          id: 'stabilizer-buy-1',
+          kind: 'stabilizer-buy',
+          group: 'stabilizer',
+          label: 'Stabilizer Buy',
+          lifecycle: 'held',
 
           currentValue: 330n,
           investedCost: 300n,
           paidIncome: 0n,
           settledPrincipalValue: 0n,
           startedAt,
-          wallet,
-          purchases: [],
-          nativeAmount: 330n,
-          isQuantityReconciled: true,
+          returnIsComplete: true,
         },
       ];
 
@@ -363,29 +360,26 @@ describe('financial position accounting', () => {
   it('keeps an unavailable investment return unavailable instead of reporting zero percent', () => {
     const positions: IFinancialPosition[] = [
       {
-        id: 'stable-swap-1',
-        kind: 'stable-swap',
-        group: 'ethereum',
-        label: 'Stable swap holdings',
-        lifecycle: 'active',
+        id: 'stabilizer-buy-1',
+        kind: 'stabilizer-buy',
+        group: 'stabilizer',
+        label: 'Stabilizer Buy',
+        lifecycle: 'held',
 
         currentValue: 100n,
         paidIncome: 0n,
         settledPrincipalValue: 0n,
         startedAt: new Date('2026-01-01T00:00:00Z'),
-        wallet,
-        purchases: [],
-        nativeAmount: 100n,
-        isQuantityReconciled: false,
+        returnIsComplete: false,
       },
     ];
 
     const aggregate = reduceFinancialPositions(readySnapshots(positions));
-    const stableSwaps = aggregate.groupSummaries.ethereum;
+    const stabilizerBuys = aggregate.groupSummaries.stabilizer;
 
-    expect(stableSwaps?.returnSummary.availability).toBe('unavailable');
-    expect(stableSwaps?.returnSummary.percent).toBeUndefined();
-    expect(stableSwaps?.returnSummary.returnAmount).toBeUndefined();
+    expect(stabilizerBuys?.returnSummary.availability).toBe('unavailable');
+    expect(stabilizerBuys?.returnSummary.percent).toBeUndefined();
+    expect(stabilizerBuys?.returnSummary.returnAmount).toBeUndefined();
   });
 
   it('values wallet ARGNOT without reporting it as an investment return', () => {
@@ -1595,6 +1589,50 @@ describe('financial position accounting', () => {
       transactionFees: 5n,
     });
     expect(position.liquid.history[0]).toMatchObject({ securityFee: 10n, transactionFee: 5n, actionFees: 15n });
+
+    fission.initialSatoshis = 100_000_000n;
+    fission.satoshis = 40_000_000n;
+    fission.liquidityPromised = 40n;
+    const [awaitingRepayment] = createBitcoinLiquidPositions({
+      summaries: [summary],
+      fissions: [fission],
+      terms,
+      activeFissionIds: new Set([21]),
+      hasCurrentPrice: true,
+      priceIndex: currentPrice,
+    });
+    expect(awaitingRepayment.totalReturn).toBeUndefined();
+
+    fission.repayments.push({
+      satoshis: 60_000_000n,
+      liquidityRepaid: 60n,
+      redemptionAmount: 60n,
+      blockNumber: 160,
+      blockHash: `0x${'16'.repeat(32)}`,
+      eventIndex: 0,
+      tick: 20,
+      blockTime: new Date('2026-01-02T00:00:00Z'),
+    });
+    const [partiallyRepaid] = createBitcoinLiquidPositions({
+      summaries: [summary],
+      fissions: [fission],
+      terms,
+      activeFissionIds: new Set([21]),
+      hasCurrentPrice: true,
+      priceIndex: currentPrice,
+    });
+    expect(partiallyRepaid).toMatchObject({
+      investedCost: 100n,
+      receivedLiquidity: 100n,
+      repaymentAmount: 40n,
+      performanceEndingCapital: 85n,
+      totalReturn: -15,
+    });
+    expect(partiallyRepaid.capitalFlows?.map(flow => flow.amount)).toEqual([100n, -60n]);
+
+    fission.satoshis = 100_000_000n;
+    fission.liquidityPromised = 100n;
+    fission.repayments = [];
 
     const lowerPrice = new PriceIndex();
     lowerPrice.btcUsdPrice = new BigNumber(0.00008);

@@ -437,6 +437,7 @@ export function setupBitcoinPortfolioScenario(
   const fissionState = Vue.reactive<BitcoinFissions['data']>({
     fissionsById: Object.fromEntries(displayedFissions.map(fission => [fission.fissionId, fission])),
     activeFissionIds: new Set(options.archivedOnly ? [] : liquidFissions.map(fission => fission.fissionId)),
+    pendingRepaymentLiquidIds: new Set<number>(),
     minimumRatchetPercent: 5n,
     readiness: 'ready' as const,
     financialRevision: 1,
@@ -848,6 +849,7 @@ export function setupBitcoinEmptyScenario(
     data: Vue.reactive({
       fissionsById: {},
       activeFissionIds: new Set<number>(),
+      pendingRepaymentLiquidIds: new Set<number>(),
       minimumRatchetPercent: 5n,
       readiness: options.loading ? ('loading' as const) : ('ready' as const),
       financialRevision: 1,

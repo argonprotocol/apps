@@ -1,6 +1,6 @@
 import Fs from 'node:fs';
 import Path from 'node:path';
-import { spawnSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
 import { configureDevEnvironment, readOwnedEthereumStates, recordEthereumContainers } from './environment.ts';
 import { acquireDevLock } from './lock.ts';
 import { DevOutput } from './output.ts';
@@ -49,7 +49,37 @@ export async function stopDevEnvironment(profile: DevProfile, reset = false): Pr
     );
     if (reset) {
       for (const ethereum of readOwnedEthereumStates(profile)) {
-        await output.run('kurtosis', ['enclave', 'rm', '-f', ethereum.enclaveName]);
+        const enclave = execFileSync('kurtosis', ['enclave', 'ls', '--full-uuids'], {
+          encoding: 'utf8',
+          timeout: 15_000,
+        })
+          .split('\n')
+          .map(line => line.trim().split(/\s+/))
+          .find(([, name]) => name === ethereum.enclaveName);
+        if (!enclave) continue;
+
+        const removal = spawnSync('kurtosis', ['enclave', 'rm', '-f', ethereum.enclaveName], {
+          encoding: 'utf8',
+          timeout: 60_000,
+        });
+        if (removal.stdout) Fs.writeSync(output.fd, removal.stdout);
+        if (removal.stderr) Fs.writeSync(output.fd, removal.stderr);
+        if (removal.error) throw removal.error;
+        if (removal.status === null) {
+          throw new Error(`Removing Ethereum enclave ${ethereum.enclaveName} was interrupted. Logs: ${paths.logPath}`);
+        }
+        if (removal.status === 0) continue;
+        if (!removal.stderr?.includes(`No enclave found with identifier '${ethereum.enclaveName}'`)) {
+          throw new Error(`Could not remove Ethereum enclave ${ethereum.enclaveName}. Logs: ${paths.logPath}`);
+        }
+
+        const [enclaveId] = enclave;
+        if (!/^[a-f0-9]{32}$/i.test(enclaveId)) {
+          throw new Error('Kurtosis returned an invalid enclave UUID. Refusing to remove Docker resources.');
+        }
+
+        output.progress(`Removing leftover Docker resources for ${ethereum.enclaveName}`);
+        removeOrphanedEthereumResources(enclaveId, output);
       }
     } else if (environment) {
       recordEthereumContainers(profile, environment);
@@ -108,5 +138,52 @@ export function clearMacDevKeychain(
   // security exits with 44 when the entry is already absent.
   if (result.status !== 0 && result.status !== 44) {
     throw new Error('Could not clear this development profile’s keychain entry.', { cause: result.error });
+  }
+}
+
+function removeOrphanedEthereumResources(enclaveId: string, output: DevOutput): void {
+  const filter = `label=com.kurtosistech.enclave-id=${enclaveId}`;
+  const listOptions = { encoding: 'utf8', timeout: 15_000 } as const;
+  const removalOptions = { timeout: 60_000, stdio: ['ignore' as const, output.fd, output.fd] };
+
+  const containers = execFileSync('docker', ['ps', '-aq', '--filter', filter], listOptions)
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean);
+  if (containers.length) execFileSync('docker', ['rm', '--force', '--volumes', ...containers], removalOptions);
+
+  const volumes = execFileSync('docker', ['volume', 'ls', '-q', '--filter', filter], listOptions)
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean);
+  if (volumes.length) execFileSync('docker', ['volume', 'rm', ...volumes], removalOptions);
+
+  const networks = execFileSync('docker', ['network', 'ls', '-q', '--filter', filter], listOptions)
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean);
+  for (const networkId of networks) {
+    const endpoints =
+      JSON.parse(
+        execFileSync('docker', ['network', 'inspect', '--format', '{{json .Containers}}', networkId], listOptions),
+      ) ?? {};
+    for (const containerId of Object.keys(endpoints)) {
+      const labels = (JSON.parse(
+        execFileSync('docker', ['inspect', '--format', '{{json .Config.Labels}}', containerId], listOptions),
+      ) ?? {}) as Record<string, string>;
+      if (
+        labels['com.kurtosistech.app-id'] !== 'kurtosis' ||
+        labels['com.kurtosistech.container-type'] !== 'kurtosis-reverse-proxy' ||
+        labels['com.kurtosistech.enclave-id']
+      ) {
+        throw new Error(
+          `Unrecognized container ${containerId} is attached to old Ethereum network ${networkId}. Refusing to disconnect it.`,
+        );
+      }
+
+      // The shared proxy belongs to every enclave; only this deleted enclave's attachment is ours.
+      execFileSync('docker', ['network', 'disconnect', networkId, containerId], removalOptions);
+    }
+    execFileSync('docker', ['network', 'rm', networkId], removalOptions);
   }
 }

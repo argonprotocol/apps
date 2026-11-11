@@ -1,6 +1,8 @@
 import type { Preview } from '@storybook/vue3-vite';
 import { NetworkConfig } from '@argonprotocol/apps-core';
-import { sb } from 'storybook/test';
+import { sb, mocked, fn } from 'storybook/test';
+import { useStartupStore } from '../src-vue/stores/startup.ts';
+import { useAttention } from '../src-vue/stores/attention.ts';
 import '../src-vue/main.css';
 
 NetworkConfig.setNetwork('localnet');
@@ -16,6 +18,9 @@ sb.mock(import('../src-vue/stores/argonBonds.ts'), { spy: true });
 sb.mock(import('../src-vue/stores/basics.ts'), { spy: true });
 sb.mock(import('../src-vue/stores/bitcoin.ts'), { spy: true });
 sb.mock(import('../src-vue/stores/config.ts'));
+sb.mock(import('../src-vue/stores/attention.ts'));
+sb.mock(import('../src-vue/stores/marketStabilizers.ts'));
+sb.mock(import('../src-vue/stores/stabilizerBuys.ts'), { spy: true });
 sb.mock(import('../src-vue/stores/startup.ts'));
 sb.mock(import('../src-vue/stores/currency.ts'));
 sb.mock(import('../src-vue/stores/financials.ts'), { spy: true });
@@ -40,6 +45,17 @@ sb.mock(import('../src-vue/tauri-controls/utils/os.ts'));
 sb.mock(import('../src-vue/lib/OperationalAccount.ts'), { spy: true });
 
 const preview: Preview = {
+  beforeEach: () => {
+    mocked(useStartupStore, { partial: true }).mockReturnValue({ isImporting: false });
+    mocked(useAttention).mockReturnValue({
+      count: 0,
+      bitcoinAlertGroups: [],
+      pendingOperationsUpgradeRequests: [],
+      actionKeys: [],
+      hasUnseenActions: false,
+      markViewed: fn(),
+    } as unknown as ReturnType<typeof useAttention>);
+  },
   parameters: {
     layout: 'fullscreen',
   },

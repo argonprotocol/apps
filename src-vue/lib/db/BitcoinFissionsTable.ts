@@ -9,8 +9,10 @@ type StoredFissionRatchet = IBitcoinFissionRatchetRecord &
 
 export class BitcoinFissionsTable extends BaseTable {
   private readonly recordFieldTypes: IFieldTypes = {
+    json: ['repayments'],
     bigint: [
       'satoshis',
+      'initialSatoshis',
       'microgonsAtTargetPerBtc',
       'liquidityPromised',
       'redemptionAmount',
@@ -44,6 +46,7 @@ export class BitcoinFissionsTable extends BaseTable {
          fissions.liquidId,
          fissions.lockId,
          fissions.satoshis,
+         fissions.initialSatoshis,
          fissions.microgonsAtTargetPerBtc,
          fissions.liquidityPromised,
          fissions.createdAtArgonBlock,
@@ -64,7 +67,8 @@ export class BitcoinFissionsTable extends BaseTable {
          fissions.closeTxFee,
          fissions.btcPriceAtCloseMicrogons,
          fissions.createdAt,
-         fissions.updatedAt
+         fissions.updatedAt,
+         fissions.repayments
        FROM BitcoinFissions fissions
        WHERE fissions.ownerAccount = ?
        ORDER BY fissions.fissionId`,
@@ -173,13 +177,17 @@ export class BitcoinFissionsTable extends BaseTable {
       return recovered;
     }
 
-    const isMigrationSeed = durable.origin === 'lock-migration' && durable.ratchetNumber === 0;
+    const hasRepaymentAllocation =
+      (durable.repayments?.length ?? 0) > 0 ||
+      (durable.initialSatoshis !== undefined && durable.satoshis < durable.initialSatoshis);
+    const isMigrationSeed =
+      durable.origin === 'lock-migration' && durable.ratchetNumber === 0 && !hasRepaymentAllocation;
     const fission = new BitcoinFission(durable);
     if (durable.origin === 'lock-migration') {
-      // Migration identity and allocation are immutable, including after a native ratchet or closure.
+      // Migration identity is immutable; newer repayment snapshots retain their current allocation.
       fission.liquidId = recovered.liquidId;
       fission.lockId = recovered.lockId;
-      fission.satoshis = recovered.satoshis;
+      if (!hasRepaymentAllocation) fission.satoshis = recovered.satoshis;
       fission.createdAtArgonBlock = recovered.createdAtArgonBlock;
     }
     if (isMigrationSeed) {
@@ -263,8 +271,10 @@ export class BitcoinFissionsTable extends BaseTable {
          closeTxFee,
          btcPriceAtCloseMicrogons,
          createdAt,
-         updatedAt
-       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         updatedAt,
+         repayments,
+         initialSatoshis
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(ownerAccount, fissionId) DO UPDATE SET
          origin = excluded.origin,
          liquidId = excluded.liquidId,
@@ -290,7 +300,9 @@ export class BitcoinFissionsTable extends BaseTable {
          closeTxFee = excluded.closeTxFee,
          btcPriceAtCloseMicrogons = excluded.btcPriceAtCloseMicrogons,
          createdAt = excluded.createdAt,
-         updatedAt = excluded.updatedAt`,
+         updatedAt = excluded.updatedAt,
+         repayments = excluded.repayments,
+         initialSatoshis = COALESCE(excluded.initialSatoshis, BitcoinFissions.initialSatoshis)`,
       toSqlParams([
         record.ownerAccount,
         record.origin,
@@ -319,6 +331,8 @@ export class BitcoinFissionsTable extends BaseTable {
         record.btcPriceAtCloseMicrogons,
         record.createdAt,
         record.updatedAt,
+        record.repayments ?? [],
+        record.initialSatoshis,
       ]),
     );
   }
@@ -395,7 +409,13 @@ export class BitcoinFissionsTable extends BaseTable {
 }
 
 function normalizeMigratedRecord(record: IBitcoinFissionRecord): IBitcoinFissionRecord {
-  if (record.origin !== 'lock-migration' || record.ratchets.some(ratchet => ratchet.source === 'fission')) {
+  const allocationChanged = record.initialSatoshis !== undefined && record.satoshis < record.initialSatoshis;
+  if (
+    record.origin !== 'lock-migration' ||
+    record.ratchets.some(ratchet => ratchet.source === 'fission') ||
+    record.repayments?.length ||
+    allocationChanged
+  ) {
     return record;
   }
   const lastLockRatchet = record.ratchets.at(-1);

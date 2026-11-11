@@ -2,7 +2,8 @@ import { bigIntMin, getPercent, JsonExt, percentOf } from '@argonprotocol/apps-c
 import { INSTANCE_NAME, IS_TEST, NETWORK_NAME } from './Env.ts';
 import { appConfigDir, join } from '@tauri-apps/api/path';
 import { hexToU8a, u8aToHex } from '@argonprotocol/mainchain';
-import { formatEther } from 'viem';
+import { formatEther, type Address } from 'viem';
+import { sepolia } from 'viem/chains';
 
 export { getPercent, percentOf };
 export { convertFromSqliteFields } from '@argonprotocol/apps-core';
@@ -52,6 +53,13 @@ export async function getInstanceConfigDir(): Promise<string> {
 
 export function abbreviateAddress(address: string, length = 4) {
   return address.slice(0, 6) + '...' + address.slice(-length);
+}
+
+export function getUniswapMarketUrl(tokenAddress: Address, chainId: number): string {
+  if (chainId === sepolia.id) {
+    return `https://app.uniswap.org/swap?chain=sepolia&outputCurrency=${tokenAddress}`;
+  }
+  return `https://app.uniswap.org/explore/tokens/ethereum/${tokenAddress}`;
 }
 
 export function formatEvmNativeFeeWei(valueWei: bigint, maximumFractionDigits = 14) {

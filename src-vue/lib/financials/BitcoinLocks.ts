@@ -23,6 +23,7 @@ import {
   type Currency,
   type IBitcoinFission,
   type IPerformanceReturnInput,
+  type ICapitalFlow,
 } from '@argonprotocol/apps-core';
 import type { PriceIndex } from '@argonprotocol/mainchain';
 
@@ -195,8 +196,10 @@ export function createBitcoinLiquidPositions(
     let pendingLiquidity = 0n;
     let repaymentAmount = 0n;
     let transactionFees = liquid.transactionFees ?? liquid.historyTransactionFees ?? 0n;
+    const capitalFlows: ICapitalFlow[] = [];
 
     for (const fission of liquidFissions) {
+      if (!fission.hasCompleteRepaymentHistory) hasCompleteReturn = false;
       const summary = summariesByLockId.get(fission.lockId);
       const ratchets = fission.ratchets;
       const opening = ratchets[0];
@@ -205,9 +208,30 @@ export function createBitcoinLiquidPositions(
         continue;
       }
 
-      const openingTarget = getFissionTargetValue(fission, opening.microgonsAtTargetPerBtc, opening.source);
+      const openingTarget = getFissionTargetValue(
+        { satoshis: fission.originalSatoshis },
+        opening.microgonsAtTargetPerBtc,
+        opening.source,
+      );
       startingCapital += openingTarget;
       performanceBitcoinValue += openingTarget;
+      recordedPrincipal += fission.repayments.reduce((sum, repayment) => sum + repayment.redemptionAmount, 0n);
+
+      const openedAt = fission.createdBlockTime ?? fission.createdAt;
+      if (openedAt) capitalFlows.push({ amount: openingTarget, occurredAt: openedAt.getTime() });
+      else hasCompleteReturn = false;
+      for (const repayment of fission.repayments) {
+        capitalFlows.push({
+          amount: (-openingTarget * repayment.satoshis) / fission.originalSatoshis,
+          occurredAt: repayment.blockTime.getTime(),
+        });
+      }
+      if (fission.closedBlockTime) {
+        capitalFlows.push({
+          amount: (-openingTarget * fission.satoshis) / fission.originalSatoshis,
+          occurredAt: fission.closedBlockTime.getTime(),
+        });
+      }
 
       let minted = 0n;
       let burned = 0n;
@@ -315,6 +339,11 @@ export function createBitcoinLiquidPositions(
             : {}),
           startedAt,
           endedAt,
+          ...(liquidFissions.some(
+            fission => fission.repayments.length || (isActive && fission.closedAtArgonBlock !== undefined),
+          )
+            ? { capitalFlows }
+            : {}),
         },
         withInvestmentBasis(
           {

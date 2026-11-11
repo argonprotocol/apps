@@ -10,6 +10,7 @@ import {
   type IVaultFrameStats,
   type MainchainClients,
   Mining,
+  StabilizerBuy,
   type Vault,
 } from '@argonprotocol/apps-core';
 import {
@@ -36,6 +37,8 @@ import { BitcoinLiquid } from '../lib/BitcoinLiquid.ts';
 import { createBitcoinLiquids } from '../lib/BitcoinFissions.ts';
 import { MiningFinancials } from '../lib/financials/MyMiningSeats.ts';
 import { MyVault } from '../lib/MyVault.ts';
+import { Metadata } from '@polkadot/types';
+import { decorateStorage } from '@polkadot/types/metadata/decorate';
 
 type FinancialHistoryRestoreArgs = Parameters<typeof import('../lib/recovery/index.ts').restoreFinancialHistory>[0];
 
@@ -138,7 +141,6 @@ const mocks = vi.hoisted(() => {
       isLoadedPromise: Promise.resolve(),
       hasExtensionTreasury: false,
       hasExtensionOperations: false,
-      hasActivatedStableSwaps: false,
       walletAccountsHadPreviousLife: false,
     },
     startup: { isReadyPromise: Promise.resolve() },
@@ -191,12 +193,6 @@ const mocks = vi.hoisted(() => {
       publishRecoveredHistory: vi.fn(function (this: { data: { financialRevision: number } }) {
         this.data.financialRevision += 1;
       }),
-    },
-    stableSwaps: {
-      walletSnapshot: undefined,
-      marketSnapshot: undefined,
-      load: vi.fn<() => Promise<void>>(),
-      refreshWalletSnapshot: vi.fn<() => Promise<void>>(),
     },
     vaults: { vaultsById: {}, currentState: { statsRevision: 0 }, load: vi.fn<() => Promise<void>>() },
     vaultingStats: {
@@ -299,6 +295,16 @@ vi.mock('../stores/bitcoin.ts', () => ({
 }));
 vi.mock('../stores/currency.ts', () => ({ getCurrency: () => mocks.currency }));
 vi.mock('../stores/argonBonds.ts', () => ({ getArgonBonds: () => mocks.argonBonds }));
+vi.mock('../stores/stabilizerBuys.ts', async () => {
+  const { StabilizerBuys } = await import('../lib/StabilizerBuys.ts');
+  const buys = new StabilizerBuys(
+    mocks.blockWatch as unknown as import('@argonprotocol/apps-core').BlockWatch,
+    '5default',
+    Promise.resolve(mocks.db as unknown as import('../lib/Db.ts').Db),
+  );
+  buys.data.isLoaded = true;
+  return { getStabilizerBuys: () => buys };
+});
 vi.mock('../stores/mainchain.ts', () => ({
   getBlockWatch: () => mocks.blockWatch,
   getMainchainClients: () => mocks.mainchainClients,
@@ -313,7 +319,6 @@ vi.mock('../stores/myMiningSeats.ts', () => ({ getMyMiningSeats: () => mocks.myM
 vi.mock('../stores/vaultingStats.ts', () => ({ useVaultingStats: () => mocks.vaultingStats }));
 vi.mock('../stores/config.ts', () => ({ getConfig: () => mocks.config }));
 vi.mock('../stores/startup.ts', () => ({ getAppStartup: () => mocks.startup }));
-vi.mock('../stores/stableSwaps.ts', () => ({ useStableSwaps: () => mocks.stableSwaps }));
 vi.mock('../lib/recovery/index.ts', () => ({
   getEnabledFinancialHistoryDomains: mocks.getEnabledFinancialHistoryDomains,
   needsFinancialHistoryRecovery: mocks.needsFinancialHistoryRecovery,
@@ -321,6 +326,7 @@ vi.mock('../lib/recovery/index.ts', () => ({
 }));
 
 import { useFinancials } from '../stores/financials.ts';
+import { getStabilizerBuys } from '../stores/stabilizerBuys.ts';
 import { useFinancialHistory } from '../stores/financialHistory.ts';
 
 function getMockBitcoinLiquids() {
@@ -331,6 +337,16 @@ describe('financials store lifecycle', () => {
   let pinia: Pinia;
 
   beforeEach(() => {
+    const buys = getStabilizerBuys();
+    buys.data = reactive({
+      ...buys.data,
+      positions: [],
+      buys: [],
+      frameRewards: [],
+      payableReward: 0n,
+      financialRevision: 0,
+      isLoaded: true,
+    }) as typeof buys.data;
     pinia = createPinia();
     setActivePinia(pinia);
     vi.spyOn(console, 'error').mockImplementation(() => undefined);
@@ -340,7 +356,6 @@ describe('financials store lifecycle', () => {
     mocks.config.isLoaded = true;
     mocks.config.hasExtensionTreasury = false;
     mocks.config.hasExtensionOperations = false;
-    mocks.config.hasActivatedStableSwaps = false;
     mocks.config.walletAccountsHadPreviousLife = false;
     mocks.startup.isReadyPromise = Promise.resolve();
     mocks.wallets.isLoadedPromise = Promise.resolve();
@@ -422,9 +437,6 @@ describe('financials store lifecycle', () => {
     mocks.myMiningSeats.isLoaded = true;
     mocks.myMiningSeats.financialRevision = 1;
     mocks.miningFinancials.loadPositions = vi.spyOn(MiningFinancials.prototype, 'loadPositions').mockResolvedValue([]);
-    mocks.stableSwaps.load.mockResolvedValue();
-    mocks.stableSwaps.load.mockClear();
-    mocks.stableSwaps.refreshWalletSnapshot.mockResolvedValue();
     mocks.restoreFinancialHistory.mockResolvedValue({ asOfBlock: 1, importedBlockCount: 0 });
     mocks.restoreFinancialHistory.mockClear();
     mocks.needsFinancialHistoryRecovery.mockResolvedValue(false);
@@ -1082,15 +1094,121 @@ describe('financials store lifecycle', () => {
     expect(financials.financialPositionAggregate.readiness).toBe('partial');
   });
 
-  it('does not load stable swaps before the feature is activated', async () => {
-    mocks.config.hasExtensionTreasury = true;
+  it('keeps a basic wallet and its Stabilizer claims coherent through a payout', async () => {
+    const registry = getOfflineRegistry();
+    const metadata = new Metadata(registry, { metadata: { V16: registry.metadata } });
+    const storage = decorateStorage(registry, metadata.asLatest, metadata.version);
+    const account = registry.createType('AccountId32', new Uint8Array(32).fill(17));
+    const key = registry.createType('StorageKey', [
+      storage.stabilizerBuys.buysByAccountAndFrame,
+      [account, '0x000000000000000c'],
+    ]);
+    const buys = getStabilizerBuys();
+    const position = markRaw(
+      new StabilizerBuy(
+        12,
+        {
+          pendingLiquidRepays: 0n,
+          liquidRepaymentRewardRate: null,
+          principal: 100n,
+          capturedDiscount: 10n,
+          bidRate: BigNumber(0.25),
+          positiveBidCount: 1,
+        },
+        {
+          matchingRate: BigNumber(1),
+          totalMatchingBasis: 10n,
+          budget: 100n,
+          remainingBudget: 95n,
+          remainingMatchingBasis: 1_000_000_000n,
+          maturesAtFrame: 1,
+        },
+      ),
+    );
+    buys.data.positions = [position];
+    buys.data.payableReward = 5n;
+    buys.data.frameRewards = [];
+    mocks.config.hasExtensionTreasury = false;
+    mocks.config.hasExtensionOperations = false;
+    let isPaid = false;
+    mocks.blockWatch.getApi.mockImplementation(async () => ({
+      registry,
+      query: {
+        ticks: { currentTick: async () => 1 },
+        stabilizerBuys: {
+          buysByAccountAndFrame: Object.assign(() => undefined, {
+            entries: async () => {
+              if (isPaid) return [];
 
-    const financials = useFinancials();
-
-    await vi.waitFor(() => {
-      expect(financials.financialPositionAggregate.groupSummaries.ethereum.state).toBe('ready');
+              return [
+                [
+                  key,
+                  registry.createType('Option<PalletStabilizerBuysAccountFrameBuys>', {
+                    pendingLiquidRepays: 0n,
+                    liquidRepaymentRewardRate: null,
+                    principal: 100,
+                    capturedDiscount: 10,
+                    bidRate: 25,
+                    positiveBidCount: 1,
+                  }),
+                ],
+              ];
+            },
+          }),
+          auctions: async () =>
+            registry.createType('Option<PalletStabilizerBuysAuction>', {
+              matchingRate: 1_000_000,
+              totalMatchingBasis: 10,
+              budget: 100,
+              remainingBudget: 95,
+              remainingMatchingBasis: 1_000_000_000n,
+              maturesAtFrame: 1,
+            }),
+          payoutStateByAccount: async () =>
+            registry.createType('PalletStabilizerBuysAccountPayoutState', { payableReward: isPaid ? 0 : 5 }),
+        },
+      },
+    }));
+    mocks.walletsForArgon.readAccountSnapshot.mockImplementation(async ({ header }: { header: IBlockHeaderInfo }) => {
+      const snapshot = createAccountSnapshot(header, isPaid ? 115n : 10n);
+      if (!isPaid) {
+        snapshot.accounts[0].reservedMicrogons = 100n;
+        snapshot.accounts[0].microgonHolds = [
+          { id: { type: 'StabilizerBuys', value: { type: 'PurchasePrincipal' } }, amount: 100n },
+        ];
+      }
+      return snapshot;
     });
-    expect(mocks.stableSwaps.load).not.toHaveBeenCalled();
+    const financials = useFinancials();
+    await vi.waitFor(() =>
+      expect(financials.financialPositionAggregate.groupSummaries.stabilizer.currentValue).toBe(105n),
+    );
+    expect(financials.financialPositionAggregate.netWorth).toBe(115n);
+
+    isPaid = true;
+    expect(mocks.walletsForArgon.readAccountSnapshot).toHaveBeenCalledWith(
+      expect.objectContaining({ includeHolds: true }),
+    );
+    const paidBlock = { blockNumber: 2, blockHash: '0xpaid2', blockTime: Date.parse('2026-07-16T12:01:00Z') };
+    mocks.blockWatch.bestBlockHeader = paidBlock;
+    mocks.blockWatch.latestHeaders.push(paidBlock);
+    const balanceListener = mocks.wallets.on.mock.calls.find(
+      ([event]) => event === 'balance-change',
+    )?.[1] as () => void;
+    balanceListener();
+    await vi.waitFor(() => expect(financials.financialPositionAggregate.groupSummaries.stabilizer.state).toBe('stale'));
+    expect(financials.financialPositionAggregate.groupSummaries.liquid.currentValue).toBe(10n);
+    expect(financials.financialPositionAggregate.groupSummaries.stabilizer.currentValue).toBe(105n);
+    expect(financials.financialPositionAggregate.netWorth).toBe(115n);
+
+    buys.data.positions = [];
+    buys.data.payableReward = 0n;
+    buys.data.frameRewards = [];
+    buys.data.financialRevision += 1;
+    await vi.waitFor(() => expect(financials.financialPositionAggregate.groupSummaries.stabilizer.state).toBe('ready'));
+    expect(financials.financialPositionAggregate.groupSummaries.liquid.currentValue).toBe(115n);
+    expect(financials.financialPositionAggregate.groupSummaries.stabilizer.currentValue).toBe(0n);
+    expect(financials.financialPositionAggregate.netWorth).toBe(115n);
   });
 
   it('keeps bonds and pending mint correctly classified through a best-block handoff', async () => {

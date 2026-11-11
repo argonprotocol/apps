@@ -6,6 +6,7 @@ export const financialMenuGroupOrder: readonly FinancialGroup[] = [
   'base',
   'bitcoin',
   'bonds',
+  'stabilizer',
   'mining',
   'vaulting',
 ];
@@ -18,6 +19,7 @@ export const financialMenuLabels: Record<FinancialGroup, string> = {
   vaulting: 'Vaulting',
   bonds: 'Argon(ot) Bonds',
   bitcoin: 'Bitcoin Liquids',
+  stabilizer: 'Stabilizer Buys',
 };
 
 export const bondAssetMenuItems = [

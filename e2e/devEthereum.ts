@@ -1,4 +1,4 @@
-import { execFileSync } from 'node:child_process';
+import { execFile, execFileSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import fs from 'node:fs/promises';
 import path from 'node:path';
@@ -13,25 +13,30 @@ import {
   type KeyringPair,
   waitForLoad,
 } from '@argonprotocol/mainchain';
-import { TestEthereum } from '@argonprotocol/testing';
-import erc20PresetFixedSupplyArtifact from '@openzeppelin/contracts/build/contracts/ERC20PresetFixedSupply.json' with { type: 'json' };
+import { TestEthereum, type StabilizationPoolDeployment } from '@argonprotocol/testing';
+import { promisify } from 'node:util';
+import { JsonRpcProvider, Wallet } from 'ethers';
+import { runtimeClient } from '@argonprotocol/runtime-client';
 import {
   createPublicClient,
-  createWalletClient,
   defineChain,
   encodeFunctionData,
+  erc20Abi,
   getAddress,
   http,
-  parseUnits,
-  type Abi,
   type Address,
   type Hash,
   type Hex,
-  type TransactionReceipt,
 } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 import { sudoFundWallet } from '../core/__test__/helpers/sudoFundWallet.ts';
-import { createArgonClient } from '@argonprotocol/apps-core';
+import {
+  bigIntMax,
+  createArgonClient,
+  MainchainClients,
+  NetworkConfig,
+  type INetworkConfigOverride,
+} from '@argonprotocol/apps-core';
 import BigNumber from 'bignumber.js';
 import { waitForQueryableClient } from '../core/__test__/startArgonTestNetwork.ts';
 import {
@@ -42,6 +47,12 @@ import {
   submitDevSudoTransaction,
   syncEthereumGatewayActiveCouncilToArgon,
 } from './devEthereumRuntimeSetup.ts';
+import {
+  deployDevEthereumPurchaseDependencies,
+  deployDevEthereumStabilizationPool,
+  type IDevEthereumStabilization,
+} from './devEthereumStabilization.ts';
+import { getComposeArgs, type DevDockerComposeContext } from './scripts/devUpstreamCompose.ts';
 
 export const DEV_ETHEREUM_ADMIN_ACCOUNT = {
   address: '0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266',
@@ -76,6 +87,7 @@ export interface IStartDevEthereumResult {
   serverBeaconApiUrl: string;
   usdcTokenAddress: Address;
   gateway?: DevEthereumGateway;
+  stabilization?: IDevEthereumStabilization;
 }
 
 export interface IDevEthereumRuntimeState extends IStartDevEthereumResult {
@@ -87,7 +99,7 @@ export interface IDevEthereumRuntimeState extends IStartDevEthereumResult {
 
 export interface IDevEthereumSetup {
   env: NodeJS.ProcessEnv;
-  start(): Promise<void>;
+  start(onGatewayReady?: () => Promise<void>): Promise<void>;
 }
 
 export function readDevEthereumConfigFromEnv(): IDevEthereumConfig | undefined {
@@ -111,40 +123,55 @@ export function readDevEthereumConfigFromEnv(): IDevEthereumConfig | undefined {
 
 export async function startDevEthereum(
   config: IDevEthereumConfig,
-  configuredGateway?: DevEthereumGateway,
+  argonGateway?: DevEthereumGateway,
 ): Promise<IStartDevEthereumResult> {
   const candidates = await readDevEthereumRuntimeStateCandidates();
-  for (const current of candidates) {
-    if (current.beaconPreset !== config.beaconPreset) continue;
+  for (const savedDeployment of candidates) {
+    if (savedDeployment.beaconPreset !== config.beaconPreset) continue;
 
     try {
       const [chainId, beaconResponse] = await Promise.all([
-        rpcCall<string>(current.executionRpcUrl, 'eth_chainId', []),
-        fetch(new URL('/eth/v1/beacon/genesis', current.beaconApiUrl), {
+        rpcCall<string>(savedDeployment.executionRpcUrl, 'eth_chainId', []),
+        fetch(new URL('/eth/v1/beacon/genesis', savedDeployment.beaconApiUrl), {
           signal: AbortSignal.timeout(10_000),
         }),
       ]);
-      if (chainId === current.chainId && beaconResponse.ok) {
-        if (configuredGateway && !(await doesDevEthereumGatewayMatch(current.executionRpcUrl, configuredGateway))) {
+      if (chainId === savedDeployment.chainId && beaconResponse.ok) {
+        const execution = createPublicClient({ transport: http(savedDeployment.executionRpcUrl) });
+        const decimals = await execution.readContract({
+          address: savedDeployment.usdcTokenAddress,
+          abi: erc20Abi,
+          functionName: 'decimals',
+        });
+        if (decimals !== 6 || (savedDeployment.gateway && !savedDeployment.gateway.buyAndTransferAddress)) {
+          throw new Error('The saved Ethereum fixture does not support Stabilizer Buys. Reset the owning dev stack.');
+        }
+        if (
+          savedDeployment.gateway &&
+          !(await doesDevEthereumGatewayMatch(savedDeployment.executionRpcUrl, savedDeployment.gateway))
+        ) {
+          throw new Error('The saved Ethereum gateway no longer matches its deployment. Reset the owning dev stack.');
+        }
+        if (argonGateway && !(await doesDevEthereumGatewayMatch(savedDeployment.executionRpcUrl, argonGateway))) {
           console.warn(
-            `[tauri-dev] Local dev Ethereum enclave ${current.enclaveName} does not match the gateway configured on Argon`,
+            `[tauri-dev] Local dev Ethereum enclave ${savedDeployment.enclaveName} does not match the gateway configured on Argon`,
           );
           continue;
         }
 
-        const action = current.setupStatus === 'ready' ? 'Reusing' : 'Resuming';
-        console.log(`[tauri-dev] ${action} local dev Ethereum enclave ${current.enclaveName}`);
-        await writeDevEthereumRuntimeState(current);
-        return current;
+        const action = savedDeployment.setupStatus === 'ready' ? 'Reusing' : 'Resuming';
+        console.log(`[tauri-dev] ${action} local dev Ethereum enclave ${savedDeployment.enclaveName}`);
+        await writeDevEthereumRuntimeState(savedDeployment);
+        return savedDeployment;
       }
     } catch (error) {
       console.warn(
-        `[tauri-dev] Dev Ethereum enclave ${current.enclaveName} is unavailable: ${(error as Error).message}`,
+        `[tauri-dev] Dev Ethereum enclave ${savedDeployment.enclaveName} is unavailable: ${(error as Error).message}`,
       );
     }
   }
 
-  if (configuredGateway) {
+  if (argonGateway) {
     throw new Error(
       'No running local Ethereum enclave matches the gateway configured on Argon. Restart the full dev-docker stack so Argon and Ethereum are recreated together.',
     );
@@ -176,10 +203,7 @@ export async function startDevEthereum(
         },
       });
       await waitForStableExecutionRpc(endpoints.executionRpcUrl, endpoints.chainId);
-      const usdcTokenAddress = await deployDevEthereumUsdc({
-        executionRpcUrl: endpoints.executionRpcUrl,
-        chainId: endpoints.chainId,
-      });
+      const usdcTokenAddress = await ethereum.deployUsdcFixture(DEV_ETHEREUM_ADMIN_ACCOUNT.privateKey);
 
       const result = {
         beaconPreset: config.beaconPreset,
@@ -218,7 +242,10 @@ export async function startDevEthereum(
 export function createDevEthereumSetup(
   archiveUrl: string,
   devEthereum: IStartDevEthereumResult,
-  config: Pick<IDevEthereumConfig, 'finalityMillis'>,
+  config: Pick<IDevEthereumConfig, 'finalityMillis'> & {
+    oracleContext: DevDockerComposeContext;
+    networkConfigOverride?: INetworkConfigOverride;
+  },
 ): IDevEthereumSetup {
   console.log(`[tauri-dev] Ethereum execution RPC (app): ${devEthereum.executionRpcUrl}`);
   console.log(`[tauri-dev] Ethereum beacon API (app): ${devEthereum.beaconApiUrl}`);
@@ -230,17 +257,29 @@ export function createDevEthereumSetup(
       ETHEREUM_EXECUTION_RPC_URL: devEthereum.serverExecutionRpcUrl,
       ETHEREUM_FINALITY_MILLIS: String(config.finalityMillis),
     },
-    async start(): Promise<void> {
+    async start(onGatewayReady): Promise<void> {
       let setupStep = 'waiting for Polkadot crypto load';
+      let bootstrap: Promise<void> | undefined;
+      const provider = new JsonRpcProvider(devEthereum.executionRpcUrl, Number(BigInt(devEthereum.chainId)), {
+        cacheTimeout: -1,
+      });
+      const signer = new Wallet(DEV_ETHEREUM_ADMIN_ACCOUNT.privateKey, provider);
+      const stabilization = devEthereum.stabilization ?? {};
+      const saveStabilization = () => updateDevEthereumRuntimeState(devEthereum.executionRpcUrl, { stabilization });
 
       try {
         await updateDevEthereumRuntimeState(devEthereum.executionRpcUrl, { setupStatus: 'starting' });
         await waitForLoad();
         const alice = new Keyring({ type: 'sr25519' }).createFromUri('//Alice');
 
-        setupStep = 'bootstrapping the Ethereum verifier on Argon';
-        console.log(`[tauri-dev] ${setupStep}`);
-        await ensureDevEthereumBeaconBootstrap(archiveUrl, devEthereum.beaconApiUrl, devEthereum.beaconPreset, alice);
+        // Ethereum deployment can run while beacon finality and bootstrap data become available.
+        bootstrap = ensureDevEthereumBeaconBootstrap(
+          archiveUrl,
+          devEthereum.beaconApiUrl,
+          devEthereum.beaconPreset,
+          alice,
+        );
+        void bootstrap.catch(() => undefined);
 
         setupStep = 'preparing the local Ethereum gateway';
         console.log(`[tauri-dev] ${setupStep}`);
@@ -253,20 +292,62 @@ export function createDevEthereumSetup(
           fixtureDeployer.executionRpcUrl = devEthereum.executionRpcUrl;
           fixtureDeployer.chainId = devEthereum.chainId;
           const initialMicrogonsPerArgonot = await loadLocalGatewayCouncilFloorMicrogonsPerArgonot(archiveUrl);
+          const purchase = await deployDevEthereumPurchaseDependencies({
+            signer,
+            usdc: devEthereum.usdcTokenAddress,
+            state: stabilization,
+            saveProgress: saveStabilization,
+          });
           gateway = await fixtureDeployer.deployMintingGatewayFixture({
             deployerPrivateKey: DEV_ETHEREUM_ADMIN_ACCOUNT.privateKey,
             initialMicrogonsPerArgonot,
+            purchase,
           });
         } else {
           console.log('[tauri-dev] Reusing the local Ethereum gateway deployment');
         }
+        if (!gateway.buyAndTransferAddress) {
+          throw new Error(
+            'The running Ethereum gateway is transfer-only. Reset the owning dev stack with the dev tooling.',
+          );
+        }
         await updateDevEthereumRuntimeState(devEthereum.executionRpcUrl, { gateway });
+
+        // Complete bootstrap before the remaining setup transactions use the same Argon signer.
+        setupStep = 'bootstrapping the Ethereum verifier on Argon';
+        await bootstrap;
 
         setupStep = 'initializing the local Ethereum token reserve';
         console.log(`[tauri-dev] ${setupStep}`);
         const publicClient = createPublicClient({
           transport: http(devEthereum.executionRpcUrl, { retryCount: 1, timeout: 15_000 }),
         });
+        const [adapterUsdc, adapterRouter, adapterPermit2] = await Promise.all([
+          publicClient.readContract({
+            address: gateway.buyAndTransferAddress,
+            abi: EvmContracts.argonBuyAndTransferAbi,
+            functionName: 'usdc',
+          }),
+          publicClient.readContract({
+            address: gateway.buyAndTransferAddress,
+            abi: EvmContracts.argonBuyAndTransferAbi,
+            functionName: 'router',
+          }),
+          publicClient.readContract({
+            address: gateway.buyAndTransferAddress,
+            abi: EvmContracts.argonBuyAndTransferAbi,
+            functionName: 'permit2',
+          }),
+        ]);
+        if (
+          getAddress(adapterUsdc) !== getAddress(devEthereum.usdcTokenAddress) ||
+          adapterRouter.toLowerCase() !== stabilization.router?.toLowerCase() ||
+          adapterPermit2.toLowerCase() !== stabilization.permit2?.toLowerCase()
+        ) {
+          throw new Error(
+            'The gateway purchase dependencies do not match this Ethereum fixture. Reset the owning dev stack.',
+          );
+        }
         await initializeDevEthereumTokenReserve({
           publicClient,
           gatewayAddress: gateway.gatewayAddress,
@@ -309,7 +390,42 @@ export function createDevEthereumSetup(
 
         setupStep = 'syncing the Ethereum gateway council to Argon';
         console.log(`[tauri-dev] ${setupStep}`);
-        await ensureDevEthereumGatewayActiveCouncil(archiveUrl, devEthereum.executionRpcUrl, gateway);
+        await ensureDevEthereumGatewayActiveCouncil({
+          archiveUrl,
+          executionRpcUrl: devEthereum.executionRpcUrl,
+          gateway,
+          networkConfigOverride: config.networkConfigOverride,
+        });
+
+        setupStep = 'starting the upstream Ethereum relay';
+        await onGatewayReady?.();
+
+        setupStep = 'preparing the local Stabilizer Buys pool';
+        let initialPriceUsdc: string | undefined;
+        if (!stabilization.deployment) {
+          const priceClient = createArgonClient(await getClient(archiveUrl));
+          try {
+            const prices = await runtimeClient(priceClient).query.priceIndex.current();
+            if (!prices || !('usdcUsdPrice' in prices) || !prices.usdcUsdPrice) {
+              throw new Error(
+                'The local oracle needs a target and USDC price before creating the pool. Check the price file and restart.',
+              );
+            }
+            initialPriceUsdc = prices.argonUsdTargetPrice.div(prices.usdcUsdPrice).toFixed(6);
+          } finally {
+            await priceClient.disconnect();
+          }
+        }
+        const deployment = await deployDevEthereumStabilizationPool({
+          signer,
+          chainId: devEthereum.chainId,
+          usdc: devEthereum.usdcTokenAddress,
+          gateway,
+          state: stabilization,
+          saveProgress: saveStabilization,
+          initialPriceUsdc,
+        });
+        await configureDevStabilizationPool(archiveUrl, devEthereum, deployment, alice, config.oracleContext);
 
         await updateDevEthereumRuntimeState(devEthereum.executionRpcUrl, {
           gateway,
@@ -317,6 +433,9 @@ export function createDevEthereumSetup(
         });
       } catch (error) {
         throw new Error(`Failed while ${setupStep}: ${(error as Error).message}`);
+      } finally {
+        await bootstrap?.catch(() => undefined);
+        provider.destroy();
       }
     },
   };
@@ -505,10 +624,15 @@ async function doesDevEthereumGatewayMatch(executionRpcUrl: string, gateway: Dev
       }),
     ]);
 
-    return (
-      argonTokenAddress.toLowerCase() === gateway.argonTokenAddress.toLowerCase() &&
-      argonotTokenAddress.toLowerCase() === gateway.argonotTokenAddress.toLowerCase()
-    );
+    if (argonTokenAddress.toLowerCase() !== gateway.argonTokenAddress.toLowerCase()) return false;
+    if (argonotTokenAddress.toLowerCase() !== gateway.argonotTokenAddress.toLowerCase()) return false;
+    if (!gateway.buyAndTransferAddress) return true;
+    const adapter = await publicClient.readContract({
+      address: gateway.gatewayAddress,
+      abi: EvmContracts.mintingGatewayAbi,
+      functionName: 'swapContract',
+    });
+    return adapter.toLowerCase() === gateway.buyAndTransferAddress.toLowerCase();
   } catch {
     return false;
   }
@@ -674,59 +798,94 @@ async function ensureDevEthereumBeaconBootstrap(
   throw lastError ?? new Error('Ethereum verifier bootstrap failed without an error.');
 }
 
-async function deployDevEthereumUsdc(args: { executionRpcUrl: string; chainId: string }): Promise<Address> {
-  const account = privateKeyToAccount(DEV_ETHEREUM_ADMIN_ACCOUNT.privateKey);
-  const chain = createDevEthereumChain(Number(BigInt(args.chainId)), args.executionRpcUrl);
-  const publicClient = createPublicClient({
-    chain,
-    transport: http(args.executionRpcUrl, { retryCount: 1, timeout: 15_000 }),
-  });
-  const walletClient = createWalletClient({
-    account,
-    chain,
-    transport: http(args.executionRpcUrl, { retryCount: 1, timeout: 15_000 }),
-  });
-  const hash = await walletClient.deployContract({
-    abi: erc20PresetFixedSupplyArtifact.abi as Abi,
-    bytecode: erc20PresetFixedSupplyArtifact.bytecode as Hex,
-    args: ['USD Coin', 'USDC', parseUnits('1000000000', 6), account.address],
-  });
-  const receipt = await waitForDevEthereumTransactionReceipt(publicClient, hash);
-  if (receipt.status !== 'success' || !receipt.contractAddress) {
-    throw new Error(`USDC mock deployment failed: ${hash}`);
+async function configureDevStabilizationPool(
+  archiveUrl: string,
+  ethereum: IStartDevEthereumResult,
+  deployment: StabilizationPoolDeployment,
+  sudoKeypair: KeyringPair,
+  context: DevDockerComposeContext,
+): Promise<void> {
+  const client = createArgonClient(await getClient(archiveUrl));
+  const { pool, contracts } = deployment;
+  try {
+    await submitDevSudoTransaction({
+      client,
+      tx: client.tx.stabilizerPools.registerPool(pool.poolManager, {
+        positionManager: pool.positionManager,
+        subscriber: contracts.stabilizationPoolSubscriber.address,
+        key: pool.key,
+      }),
+      sudoKeypair,
+      isApplied: async () => {
+        const registered = await client.query.stabilizerPools.pools(pool.poolManager, pool.poolId);
+        return (
+          registered?.positionManager.toLowerCase() === pool.positionManager.toLowerCase() &&
+          registered.subscriber.toLowerCase() === contracts.stabilizationPoolSubscriber.address.toLowerCase()
+        );
+      },
+      description: 'Register local stabilization pool',
+    });
+    const approvedPool = {
+      chainId: BigInt(ethereum.chainId),
+      poolManager: pool.poolManager,
+      poolId: pool.poolId,
+      usdcToken: ethereum.usdcTokenAddress,
+      argonIsToken0: getAddress(pool.key.currency1) === getAddress(ethereum.usdcTokenAddress),
+    };
+    await submitDevSudoTransaction({
+      client,
+      tx: client.tx.stabilizerBuys.setApprovedPool(approvedPool),
+      sudoKeypair,
+      isApplied: async () => {
+        const current = await client.query.stabilizerBuys.approvedPool();
+        if (!current) return false;
+        return (
+          current.poolId === pool.poolId &&
+          current.chainId === approvedPool.chainId &&
+          current.poolManager.toLowerCase() === approvedPool.poolManager.toLowerCase() &&
+          current.usdcToken.toLowerCase() === approvedPool.usdcToken.toLowerCase() &&
+          current.argonIsToken0 === approvedPool.argonIsToken0
+        );
+      },
+      description: 'Approve local Stabilizer Buys pool',
+    });
+  } finally {
+    await client.disconnect();
   }
 
-  console.log(`[tauri-dev] Deployed mock USDC at ${receipt.contractAddress}`);
-  return receipt.contractAddress;
-}
-
-async function waitForDevEthereumTransactionReceipt(
-  publicClient: ReturnType<typeof createPublicClient>,
-  hash: Hash,
-): Promise<TransactionReceipt> {
-  const startedAt = Date.now();
-  const timeoutMs = 60_000;
-  let lastError: Error | undefined;
-
-  while (Date.now() - startedAt < timeoutMs) {
-    try {
-      return await publicClient.getTransactionReceipt({ hash });
-    } catch (error) {
-      lastError = error as Error;
-      const message = lastError.message.toLowerCase();
-      if (
-        !message.includes('not found') &&
-        !message.includes('could not be found') &&
-        !message.includes('indexing is in progress')
-      ) {
-        throw lastError;
-      }
-      await delay(500);
-    }
+  if (!context.composeEnv.PRICE_INDEX_FILE_PATH) {
+    const pricePath = path.join(
+      path.dirname(getDevEthereumRuntimeStatePath(ethereum.executionRpcUrl)),
+      'stabilizer-prices.json',
+    );
+    const defaults = JSON.parse(
+      await fs.readFile(new URL('./argon/oracle/test-price-index.json', import.meta.url), 'utf8'),
+    );
+    defaults.argon_usd_price = 'UNISWAP';
+    await fs.writeFile(pricePath, JSON.stringify(defaults, null, 2), { flag: 'wx' }).catch(error => {
+      if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;
+    });
+    context.composeEnv.PRICE_INDEX_FILE_PATH = pricePath;
+  }
+  let argonTokenAddress = pool.key.currency0;
+  if (getAddress(pool.key.currency0) === getAddress(ethereum.usdcTokenAddress)) {
+    argonTokenAddress = pool.key.currency1;
   }
 
-  throw new Error(
-    `Timed out waiting for Ethereum transaction receipt: ${hash}${lastError ? ` (${lastError.message})` : ''}`,
+  Object.assign(context.composeEnv, {
+    ETHEREUM_RPC_URLS: ethereum.serverExecutionRpcUrl,
+    ARGON_TOKEN_ADDRESS: argonTokenAddress,
+    USDC_TOKEN_ADDRESS: ethereum.usdcTokenAddress,
+    ARGON_UNISWAP_ORACLE_ADDRESSES: pool.oracleAddress,
+  });
+  // Compose must recreate the existing Rust oracle with the deployment's Ethereum configuration.
+  await promisify(execFile)(
+    'docker',
+    [...getComposeArgs(context), '-f', 'stabilizer.docker-compose.yml', 'up', '-d', '--no-deps', 'oracle-price'],
+    {
+      cwd: context.composeDir,
+      env: context.composeEnv,
+    },
   );
 }
 
@@ -754,7 +913,10 @@ export function writeDevEthereumRuntimeState(state: Omit<IDevEthereumRuntimeStat
 export function updateDevEthereumRuntimeState(
   executionRpcUrl: string,
   updates: Partial<
-    Pick<IDevEthereumRuntimeState, 'gateway' | 'setupStatus' | 'mintingAuthorityStatus' | 'mintingAuthorityError'>
+    Pick<
+      IDevEthereumRuntimeState,
+      'gateway' | 'stabilization' | 'setupStatus' | 'mintingAuthorityStatus' | 'mintingAuthorityError'
+    >
   >,
 ): Promise<void> {
   return queueDevEthereumRuntimeStateOperation(async () => {
@@ -918,26 +1080,90 @@ async function ensureDevEthereumChainConfig(
   }
 }
 
-async function ensureDevEthereumGatewayActiveCouncil(
-  archiveUrl: string,
-  executionRpcUrl: string,
-  devEthereum: Awaited<ReturnType<TestEthereum['deployMintingGatewayFixture']>>,
-): Promise<void> {
+async function ensureDevEthereumGatewayActiveCouncil({
+  archiveUrl,
+  executionRpcUrl,
+  gateway,
+  networkConfigOverride,
+}: {
+  archiveUrl: string;
+  executionRpcUrl: string;
+  gateway: DevEthereumGateway;
+  networkConfigOverride?: INetworkConfigOverride;
+}): Promise<void> {
   const client = createArgonClient(await getClient(archiveUrl));
   const publicClient = createPublicClient({
     transport: http(executionRpcUrl, { retryCount: 1, timeout: 15_000 }),
   });
 
   try {
+    const activeCouncil =
+      await client.query.crosschainTransfer.activeGlobalIssuanceCouncilByDestinationChain('Ethereum');
+    if (!activeCouncil) {
+      const { AppVaultOperator } = await import('./actors/AppVaultOperator.ts');
+      const { createDevUpstreamWalletKeys } = await import('./scripts/devUpstreamServer.ts');
+      const { forceUpdateGlobalIssuanceCouncil } = await import('../dev/syncCouncil.ts');
+      const walletKeys = await createDevUpstreamWalletKeys();
+      const clients = new MainchainClients(archiveUrl, () => false);
+      let operator: Awaited<ReturnType<typeof AppVaultOperator.load>> | undefined;
+      NetworkConfig.setNetwork('dev-docker');
+      const currentConfig = NetworkConfig.get();
+      try {
+        operator = await AppVaultOperator.load({
+          clients,
+          walletKeys,
+          networkConfigOverride: {
+            ...currentConfig,
+            ...networkConfigOverride,
+            archiveUrl,
+            ethereumNetwork: {
+              ...currentConfig.ethereumNetwork,
+              ...networkConfigOverride?.ethereumNetwork,
+              executionRpcUrls: [executionRpcUrl],
+            },
+          },
+        });
+        const requiredArgons = operator.config.vaultSetup.securitizationMicrogons + 20n * BigInt(MICROGONS_PER_ARGON);
+        const requiredArgonots = BigInt(MICROGONS_PER_ARGON);
+        const [argons, argonots] = await Promise.all([
+          client.query.system.account(walletKeys.vaultingAddress),
+          client.query.ownership.account(walletKeys.vaultingAddress),
+        ]);
+        if (argons.data.free < requiredArgons || argonots.free < requiredArgonots) {
+          await sudoFundWallet({
+            client,
+            address: walletKeys.vaultingAddress,
+            microgons: bigIntMax(argons.data.free, requiredArgons),
+            micronots: bigIntMax(argonots.free, requiredArgonots),
+          });
+        }
+
+        // Prepare the same vault the background worker will certify and activate.
+        await operator.ensureVaultReady();
+        await operator.ensureCouncilSignerRegistered({ client });
+        await operator.ensureCommittedArgonots({ amount: requiredArgonots });
+        await forceUpdateGlobalIssuanceCouncil({
+          archiveUrl,
+          executionRpcUrl,
+          vaultAddresses: [walletKeys.vaultingAddress],
+        });
+      } finally {
+        await operator?.dispose();
+        await clients.disconnect();
+      }
+      console.log('[tauri-dev] Initialized the same development council on Argon and Ethereum');
+      return;
+    }
+
     const finalizedClient = await client.at(await client.rpc.chain.getFinalizedHead());
     const result = await syncEthereumGatewayActiveCouncilToArgon({
       finalizedClient,
-      gatewayAddress: devEthereum.gatewayAddress,
+      gatewayAddress: gateway.gatewayAddress,
       publicClient,
       sendCurrentCouncil: async (currentCouncil, nextMicrogonsPerArgonot) => {
         const { hash } = await sendDevEthereumAdminTransaction({
           rpcUrl: executionRpcUrl,
-          to: devEthereum.gatewayAddress,
+          to: gateway.gatewayAddress,
           data: encodeFunctionData({
             abi: EvmContracts.mintingGatewayAbi,
             functionName: 'forceUpdateActiveCouncil',

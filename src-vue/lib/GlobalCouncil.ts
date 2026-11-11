@@ -225,10 +225,13 @@ export class GlobalCouncil {
       return;
     }
 
+    const chainType = client.registry.createLookupType(
+      client.tx.crosschainTransfer.registerCouncilSigner.meta.fields[0].type,
+    );
     const payload = u8aToHex(
       u8aConcat(
         client.registry.createType('Bytes', COUNCIL_SIGNER_REGISTRATION_MESSAGE_KEY).toU8a(),
-        client.registry.createType('PalletCrosschainTransferSourceChain', 'Ethereum').toU8a(),
+        client.registry.createType(chainType, 'Ethereum').toU8a(),
         client.registry.createType('AccountId32', accountId).toU8a(),
       ),
     );

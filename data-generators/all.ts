@@ -1,6 +1,7 @@
 import { fetchBitcoinPrices } from './fetchBitcoinPrices.ts';
 import { fetchBitcoinFees } from './fetchBitcoinFees.ts';
 import { fetchVaultRevenue } from './fetchVaultRevenue.ts';
+import { fetchStabilizerBuys } from './fetchStabilizerBuys.ts';
 
 async function main() {
   console.log('Starting data fetch process...');
@@ -14,6 +15,9 @@ async function main() {
 
     console.log('Fetching Vault revenue...');
     await fetchVaultRevenue();
+
+    console.log('Fetching below-target Uniswap buys...');
+    await fetchStabilizerBuys();
 
     console.log('All data fetch operations completed successfully!');
     process.exit(0);
