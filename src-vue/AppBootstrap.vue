@@ -142,8 +142,6 @@
         </button>
       </section>
       <div v-else class="flex flex-col items-center pb-12 text-center" role="status" aria-live="polite">
-        <ArgonLogo class="text-argon-800/80 mx-auto mb-3 block h-28 w-28" aria-hidden="true" />
-        <h1 class="text-argon-600 mt-5 text-5xl font-bold">Argon Desktop</h1>
         <div class="mt-7 flex items-center justify-center gap-3 font-light text-gray-500">
           <Spinner class="mr-0" aria-hidden="true" />
           <span>Loading…</span>

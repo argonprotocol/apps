@@ -4,7 +4,7 @@ ENV COREPACK_ENABLE_DOWNLOAD_PROMPT=0
 
 WORKDIR /app
 
-COPY .yarnrc.yml package.json yarn.lock ./
+COPY .yarnrc.yml package.json yarn.lock runtime-type-overrides.json ./
 COPY .yarn/ ./.yarn/
 COPY cli/package.json ./cli/
 COPY bot/package.json ./bot/
@@ -12,11 +12,15 @@ COPY core/package.json ./core/
 COPY router/package.json ./router/
 COPY indexer/package.json ./indexer/
 COPY e2e/package.json ./e2e/
+COPY discord-verifier/package.json ./discord-verifier/
+COPY runtime-client/ ./runtime-client/
 
 RUN corepack enable \
  && corepack prepare yarn@stable --activate
 
 RUN yarn install
+
+RUN yarn generate:runtime-client
 
 COPY cli/ ./cli/
 COPY bot/ ./bot/

@@ -196,7 +196,8 @@ export async function startDevEthereum(
       return result;
     } catch (error) {
       const errorText = error instanceof Error ? error.message : String(error);
-      const hitPortCollision = errorText.includes('port is already allocated');
+      const hitPortCollision =
+        errorText.includes('port is already allocated') || errorText.includes('bind: address already in use');
 
       await ethereum.teardown().catch(() => undefined);
 

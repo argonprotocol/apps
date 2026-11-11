@@ -198,7 +198,7 @@ async function runSignedDevelopmentBinary(binary: string, args: string[]): Promi
   process.chdir(workingDirectory);
 
   const app = Path.join(debugDirectory, 'bundle', 'macos', `${config.productName}.app`);
-  const executable = Path.join(app, 'Contents', 'MacOS', Path.basename(binary));
+  const executable = Fs.realpathSync(Path.join(app, 'Contents', 'MacOS', Path.basename(binary)));
   // Tauri kills and waits for this exact process during Rust hot reloads.
   process.execve(executable, [executable, ...args], env);
 }

@@ -129,21 +129,20 @@ export class InstallerCheck {
       } else if (prevStepHasCompleted && filenameStatus === InstallStepStatusType.Finished) {
         stepNewData.startDate = stepOldData.startDate || dayjs.utc().toDate();
         stepNewData.progress = stepOldData.progress;
-        if (bypassSimulatedProgressIfFinished) {
+        if (stepKey === InstallStepKey.ServerConnect || bypassSimulatedProgressIfFinished) {
           stepNewData.progress = 100;
           stepNewData.status = InstallStepStatus.Completed;
-          continue;
-        }
-
-        if (this.installer.isRunning || stepKey === InstallStepKey.MiningLaunch) {
-          stepNewData.progress = await InstallerCheck.calculateFinishedStepProgress(stepNewData);
-        }
-        if (stepNewData.progress >= 100 && stepOldData.status === InstallStepStatus.Working) {
-          stepNewData.status = InstallStepStatus.Completing;
-        } else if (stepNewData.progress >= 100) {
-          stepNewData.status = InstallStepStatus.Completed;
         } else {
-          stepNewData.status = InstallStepStatus.Working;
+          if (this.installer.isRunning || stepKey === InstallStepKey.MiningLaunch) {
+            stepNewData.progress = await InstallerCheck.calculateFinishedStepProgress(stepNewData);
+          }
+          if (stepNewData.progress >= 100 && stepOldData.status === InstallStepStatus.Working) {
+            stepNewData.status = InstallStepStatus.Completing;
+          } else if (stepNewData.progress >= 100) {
+            stepNewData.status = InstallStepStatus.Completed;
+          } else {
+            stepNewData.status = InstallStepStatus.Working;
+          }
         }
       } else if (prevStepHasCompleted && filenameStatus === InstallStepStatusType.Failed) {
         stepNewData.status = InstallStepStatus.Failed;
@@ -183,6 +182,11 @@ export class InstallerCheck {
     // A local installer failure can be published while this status check is awaiting remote progress.
     // That terminal state owns the workflow until the user explicitly retries it.
     if (this.hasError) return;
+
+    // The local installer may have completed the connection while this check awaited progress.
+    if (this.config.serverInstaller.ServerConnect.status === InstallStepStatus.Completed) {
+      serverInstallerPending.ServerConnect = this.config.serverInstaller.ServerConnect;
+    }
 
     this.config.serverInstaller = serverInstallerPending;
     if (this.isServerInstallComplete) {

@@ -305,6 +305,9 @@ export class TxResult {
       } else if (event.section === 'utility' && event.method === 'BatchInterrupted') {
         this.batchInterruptedIndex = event.data.index;
         encounteredError = event.data.error;
+      } else if (event.section === 'sudo' && (event.method === 'Sudid' || event.method === 'SudoAsDone')) {
+        const { sudoResult } = event.data;
+        if (sudoResult.type === 'Err') encounteredError ??= sudoResult.value;
       } else if (event.section === 'transactionPayment' && event.method === 'TransactionFeePaid') {
         this.finalFee = event.data.actualFee;
         this.finalFeeTip = event.data.tip;

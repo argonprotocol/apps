@@ -349,8 +349,19 @@ export default class Installer {
         await server.deleteBotStorageFiles();
       }
       await server.uploadInstallManifest();
+      if (!this.isRunning) return;
 
       this.serverConnectProgress = 100;
+      this.config.serverInstaller = {
+        ...this.config.serverInstaller,
+        ServerConnect: {
+          ...this.config.serverInstaller.ServerConnect,
+          status: InstallStepStatus.Completed,
+          progress: 100,
+        },
+      };
+      await this.config.save();
+      if (!this.isRunning) return;
 
       installPhase = InstallStepErrorType.FileUpload;
       let composeProjectName: string | undefined;

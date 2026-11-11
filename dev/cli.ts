@@ -37,6 +37,6 @@ Public networks: yarn testnet [--profile NAME], yarn mainnet [--profile NAME]`);
   const { run } = (await import(`./commands/${command}.ts`)) as Pick<typeof StartCommand, 'run'>;
   await run(args);
 } catch (error) {
-  console.error(`[dev] ${(error as Error).message}`);
+  console.error(`[dev] ${(error as Error).message.replaceAll('\n', '\n[dev] ')}`);
   process.exitCode = 1;
 }

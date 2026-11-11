@@ -14,7 +14,7 @@ export default defineConfig({
   splitting: false,
   treeshake: true,
   skipNodeModulesBundle: true,
-  noExternal: [/@argonprotocol\/apps-core/],
+  noExternal: [/@argonprotocol\/apps-core/, '@argonprotocol/runtime-client'],
   esbuildPlugins: [
     wasmLoader({
       mode: 'deferred',

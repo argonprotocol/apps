@@ -126,9 +126,20 @@ export async function configureDevEnvironment(profile: DevProfile, chainSpec?: s
   }
 
   if (!process.env.DOCKER_HOST) {
-    process.env.DOCKER_HOST = execFileSync('docker', ['context', 'inspect', '--format', '{{.Endpoints.docker.Host}}'], {
+    let dockerHost = execFileSync('docker', ['context', 'inspect', '--format', '{{.Endpoints.docker.Host}}'], {
       encoding: 'utf8',
     }).trim();
+    if (process.platform === 'darwin' && dockerHost.startsWith('unix://')) {
+      try {
+        if (Fs.realpathSync(dockerHost.slice('unix://'.length)) === Fs.realpathSync('/var/run/docker.sock')) {
+          // Kurtosis bind-mounts this path; Docker Desktop needs the socket path inside its VM.
+          dockerHost = 'unix:///var/run/docker.sock';
+        }
+      } catch {
+        // Keep the selected context when either socket path cannot be resolved.
+      }
+    }
+    process.env.DOCKER_HOST = dockerHost;
   }
 
   const paths = getDevPaths(profile);

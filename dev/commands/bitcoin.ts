@@ -14,6 +14,7 @@ export async function run(args = process.argv.slice(2)): Promise<void> {
       help: { type: 'boolean', short: 'h' },
     },
   });
+  const commandArgs = [...positionals, ...(separator < 0 ? [] : args.slice(separator + 1))];
   if (values.help) {
     console.info(`Usage: yarn dev bitcoin [options] -- <arguments>
 
@@ -23,12 +24,18 @@ Run Bitcoin CLI in the owning local environment.
   --chain-spec FILE  Custom chain specification
   -h, --help       Show this help
 
-Arguments after -- are passed unchanged to Bitcoin CLI.`);
+Arguments after -- are passed unchanged to Bitcoin CLI.
+Send Bitcoin: yarn dev bitcoin -- sendtoaddress ADDRESS AMOUNT_BTC
+List Bitcoin RPC commands: yarn dev bitcoin -- help
+List Bitcoin CLI options: yarn dev bitcoin -- -help`);
     return;
+  }
+  if (commandArgs.length === 0) {
+    throw new Error(`Send bitcoin with -- sendtoaddress ADDRESS AMOUNT_BTC
+Run yarn dev bitcoin --help for all options.`);
   }
   const composeOptions = Object.entries(values).flatMap(([name, value]) =>
     typeof value === 'string' ? [`--${name}=${value}`] : [],
   );
-  const commandArgs = [...positionals, ...(separator < 0 ? [] : args.slice(separator + 1))];
   await runCompose([...composeOptions, '--', '--profile', 'tooling', 'run', '--rm', 'btc-cli', ...commandArgs]);
 }

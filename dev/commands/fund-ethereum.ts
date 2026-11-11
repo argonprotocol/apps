@@ -35,7 +35,9 @@ Start Ethereum first with yarn dev start.`);
     return;
   }
   if ([values.eth, values.argons, values.argonots, values.usdc].every(amount => amount === undefined)) {
-    throw new Error('Choose an amount with --eth, --argons, --argonots, or --usdc.');
+    throw new Error(`Choose an amount with --eth, --argons, --argonots, or --usdc.
+Use --to ADDRESS to choose an Ethereum recipient.
+Run yarn dev fund-ethereum --help for all options.`);
   }
   await fundExistingDevAccount({
     ...resolveDevProfile(values),
