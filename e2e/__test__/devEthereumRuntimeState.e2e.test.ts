@@ -305,6 +305,66 @@ describe('dev Ethereum runtime state', () => {
     }
   });
 
+  it.each([
+    'Bind for 0.0.0.0:55009 failed: port is already allocated',
+    'failed to bind port 127.0.0.1:55009/tcp: listen tcp4 127.0.0.1:55009: bind: address already in use',
+  ])('cleans up a failed launch and saves the deployment after retrying %s', async message => {
+    const rpc = await startEthereumRpc();
+    vi.spyOn(TestEthereum, 'isInstalled').mockReturnValue(true);
+    const teardown = vi.spyOn(TestEthereum.prototype, 'teardown');
+    const launch = vi
+      .spyOn(TestEthereum.prototype, 'launch')
+      .mockRejectedValueOnce(new Error(message))
+      .mockResolvedValue({ executionRpcUrl: rpc.url, beaconApiUrl: rpc.url, chainId: runtimeState.chainId });
+
+    try {
+      const ethereum = await startDevEthereum({
+        beaconPreset: 'minimal',
+        secondsPerSlot: 1,
+        finalityMillis: 16_000,
+        finalityBlocks: 16,
+      });
+
+      expect(await readDevEthereumRuntimeState()).toMatchObject({
+        enclaveName: ethereum.enclaveName,
+        executionRpcUrl: rpc.url,
+        usdcTokenAddress: runtimeState.usdcTokenAddress,
+        setupStatus: 'starting',
+      });
+      expect(launch).toHaveBeenCalledTimes(2);
+      expect(teardown).toHaveBeenCalledOnce();
+      expect(teardown.mock.contexts[0]).toBe(launch.mock.contexts[0]);
+      expect(launch.mock.contexts[1]).not.toBe(launch.mock.contexts[0]);
+    } finally {
+      await rpc.close();
+    }
+  });
+
+  it.each([
+    { message: 'port is already allocated', attempts: 3 },
+    { message: 'failed to bind port 127.0.0.1:55009/tcp: bind: address already in use', attempts: 3 },
+    { message: 'Unable to pull Ethereum client image', attempts: 1 },
+  ])('leaves no deployment after $attempts failed attempts for $message', async ({ message, attempts }) => {
+    const error = new Error(message);
+    vi.spyOn(TestEthereum, 'isInstalled').mockReturnValue(true);
+    const teardown = vi.spyOn(TestEthereum.prototype, 'teardown');
+    const launch = vi.spyOn(TestEthereum.prototype, 'launch').mockRejectedValue(error);
+
+    await expect(
+      startDevEthereum({
+        beaconPreset: 'minimal',
+        secondsPerSlot: 1,
+        finalityMillis: 16_000,
+        finalityBlocks: 16,
+      }),
+    ).rejects.toBe(error);
+
+    expect(await readDevEthereumRuntimeState()).toBeUndefined();
+    expect(await fs.readdir(runtimeStateDir)).toEqual([]);
+    expect(launch).toHaveBeenCalledTimes(attempts);
+    expect(teardown.mock.contexts).toEqual(launch.mock.contexts);
+  });
+
   it.each(['active enclave', 'unrelated start error', 'proxy exits after starting'])(
     'does not rebuild the shared proxy on %s',
     async failure => {

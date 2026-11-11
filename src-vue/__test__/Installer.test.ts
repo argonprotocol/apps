@@ -24,7 +24,7 @@ import { EncryptionSecret, type EncryptionAuthentication } from '../lib/Encrypti
 import { AccountSecurity } from '../lib/AccountSecurity.ts';
 import { createCipheriv, createDecipheriv, randomBytes } from 'node:crypto';
 import { Keyring } from '@argonprotocol/mainchain';
-import { miniSecretFromUri } from '@argonprotocol/apps-core';
+import { createDeferred, JsonExt, miniSecretFromUri } from '@argonprotocol/apps-core';
 import { signatureVerify } from '@polkadot/util-crypto';
 import type { ServerAdmin } from '../lib/ServerAdmin.ts';
 vi.mock('../../core/src/MainchainRpcProvider.js', () => ({ getMainchainClient: () => new Promise(() => undefined) }));
@@ -537,7 +537,7 @@ it('should run through entire install process', async () => {
     return installStepStatusCompleted;
   });
   // @ts-ignore
-  InstallerCheck.calculateFinishedStepProgress = vi.fn().mockResolvedValue(100);
+  vi.spyOn(InstallerCheck, 'calculateFinishedStepProgress').mockResolvedValue(100);
   // @ts-ignore
   installer.installerCheck.checkInterval = 1;
   // @ts-ignore
@@ -552,9 +552,10 @@ it('should run through entire install process', async () => {
   expect(config.serverInstaller.ServerConnect.status).toBe('Completed');
 });
 
-it('marks the active install step failed before returning an upload error', async () => {
+it('preserves the completed connection through overlapping polling and an upload failure', async () => {
+  const db = await createTestDb();
   const walletKeys = createMockWalletKeys();
-  const config = new Config(createMockedDbPromise({}));
+  const config = new Config(Promise.resolve(db));
   await config.load();
   config.serverDetails = {
     ...config.serverDetails,
@@ -562,9 +563,19 @@ it('marks the active install step failed before returning an upload error', asyn
   };
 
   const installer = new Installer(config, walletKeys);
+  const installerCheck = Reflect.get(installer, 'installerCheck') as InstallerCheck;
+  const manifestStarted = createDeferred();
+  const manifestUploaded = createDeferred();
+  const uploadStarted = createDeferred();
+  const uploadFinished = createDeferred();
+  const remoteStatuses = createDeferred<IInstallStepStatuses>();
   const server = {
     downloadAccountAddress: vi.fn().mockResolvedValue(walletKeys.miningBotAddress),
-    uploadInstallManifest: vi.fn().mockResolvedValue(undefined),
+    uploadInstallManifest: vi.fn(async () => {
+      manifestStarted.resolve();
+      await manifestUploaded.promise;
+    }),
+    downloadInstallStepStatuses: vi.fn(() => remoteStatuses.promise),
     getComposeProjectName: vi.fn().mockResolvedValue('mainnet-default'),
     uploadAccountAddress: vi.fn().mockResolvedValue(undefined),
     removeLogStep: vi.fn().mockResolvedValue(undefined),
@@ -573,17 +584,109 @@ it('marks the active install step failed before returning an upload error', asyn
   vi.spyOn(installer as any, 'calculateIsRunning').mockResolvedValue(false);
   vi.spyOn(installer as any, 'calculateIsReadyToRun').mockResolvedValue(true);
   vi.spyOn(installer as any, 'getServer').mockResolvedValue(server);
-  vi.spyOn(installer as any, 'uploadCoreFiles').mockRejectedValue(new Error('Core upload disconnected'));
+  vi.spyOn(installer as any, 'uploadCoreFiles').mockImplementation(async () => {
+    uploadStarted.resolve();
+    await uploadFinished.promise;
+  });
   // @ts-ignore - drive the upload branch directly
   installer.remoteFilesNeedUpdating = true;
-  // @ts-ignore - avoid background polling in this unit test
-  installer.installerCheck.start = vi.fn();
+  vi.useFakeTimers();
+  vi.setSystemTime(new Date('2030-01-01T00:00:00Z'));
+  const run = installer.run(false);
+  try {
+    await manifestStarted.promise;
 
-  await installer.run(false);
+    const overlappingPoll = installerCheck.updateInstallStatus();
+    remoteStatuses.resolve({});
+    manifestUploaded.resolve();
+    await uploadStarted.promise;
+    await overlappingPoll;
 
-  expect(config.serverInstaller.errorType).toBe(InstallStepErrorType.FileUpload);
-  expect(config.serverInstaller.errorMessage).toBe('Core upload disconnected');
-  expect(config.serverInstaller.FileUpload.status).toBe(InstallStepStatus.Failed);
+    expect(config.serverInstaller.ServerConnect).toMatchObject({
+      status: InstallStepStatus.Completed,
+      progress: 100,
+    });
+    expect(JsonExt.parse((await db.configTable.fetchAllAsObject()).serverInstaller!).ServerConnect).toMatchObject({
+      status: InstallStepStatus.Completed,
+      progress: 100,
+    });
+
+    // No clock time has elapsed for simulated progress to finish.
+    await installerCheck.updateInstallStatus();
+    expect(config.serverInstaller.ServerConnect).toMatchObject({
+      status: InstallStepStatus.Completed,
+      progress: 100,
+    });
+    expect(config.serverInstaller.FileUpload.status).toBe(InstallStepStatus.Working);
+
+    uploadFinished.reject(new Error('Core upload disconnected'));
+    await run;
+
+    expect(config.serverInstaller.errorType).toBe(InstallStepErrorType.FileUpload);
+    expect(config.serverInstaller.errorMessage).toBe('Core upload disconnected');
+    expect(config.serverInstaller.FileUpload.status).toBe(InstallStepStatus.Failed);
+    expect(config.serverInstaller.ServerConnect).toMatchObject({
+      status: InstallStepStatus.Completed,
+      progress: 100,
+    });
+    expect(JsonExt.parse((await db.configTable.fetchAllAsObject()).serverInstaller!)).toMatchObject({
+      errorType: InstallStepErrorType.FileUpload,
+      errorMessage: 'Core upload disconnected',
+      ServerConnect: { status: InstallStepStatus.Completed, progress: 100 },
+      FileUpload: { status: InstallStepStatus.Failed },
+    });
+  } finally {
+    manifestUploaded.resolve();
+    remoteStatuses.resolve({});
+    uploadFinished.reject(new Error('Core upload disconnected'));
+    await run;
+    installerCheck.stop();
+    await vi.advanceTimersByTimeAsync(1_000);
+    await installerCheck.noThrowWaitForInstallToComplete();
+    vi.useRealTimers();
+    await db.close();
+  }
+});
+
+it('does not publish a completed connection after stopping during manifest upload', async () => {
+  const db = await createTestDb();
+  const config = new Config(Promise.resolve(db));
+  await config.load();
+  config.serverDetails = { ...config.serverDetails, ipAddress: '127.0.0.1' };
+
+  const walletKeys = createMockWalletKeys();
+  const installer = new Installer(config, walletKeys);
+  const installerCheck = Reflect.get(installer, 'installerCheck') as InstallerCheck;
+  const manifestStarted = createDeferred();
+  const manifestUploaded = createDeferred();
+  const server = {
+    downloadAccountAddress: vi.fn().mockResolvedValue(walletKeys.miningBotAddress),
+    uploadInstallManifest: vi.fn(async () => {
+      manifestStarted.resolve();
+      await manifestUploaded.promise;
+    }),
+  };
+  vi.spyOn(installer as any, 'calculateIsRunning').mockResolvedValue(false);
+  vi.spyOn(installer as any, 'calculateIsReadyToRun').mockResolvedValue(true);
+  vi.spyOn(installer as any, 'getServer').mockResolvedValue(server);
+  vi.spyOn(installerCheck, 'start').mockImplementation(() => undefined);
+
+  const run = installer.run(false);
+  try {
+    await manifestStarted.promise;
+    installer.stop();
+    const storedBeforeCompletion = await db.configTable.fetchAllAsObject();
+
+    manifestUploaded.resolve();
+    await run;
+
+    expect(config.serverInstaller.ServerConnect.status).toBe(InstallStepStatus.Pending);
+    expect(await db.configTable.fetchAllAsObject()).toEqual(storedBeforeCompletion);
+  } finally {
+    manifestUploaded.resolve();
+    await run;
+    await db.close();
+  }
 });
 
 it('does not let an in-flight status check erase a local installer failure', async () => {
