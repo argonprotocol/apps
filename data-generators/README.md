@@ -1,0 +1,21 @@
+# Market data updates
+
+Run `yarn update-stabilizer-buys` to update `core/src/data/stabilizerBuys.mainnet.json`. It also runs as part of `yarn update-data`.
+
+The file contains daily totals for below-target ARGN/USDC buys from Uniswap v2, v3 and v4. The generator discovers pools from their factory events, reads swaps through the last completed UTC day, and appends subsequent finalized days on later runs. Run it daily; no app service or scheduler is added here.
+
+Each day records its date, buy count, total ARGN purchased, USDC spent and `costInTargetArgons`. That cost sums each purchase's USDC value divided by its then-current ARGN target price. It is a total cost expressed in ARGN; `argonTargetPrice` is the USD-per-ARGN price used in that conversion. Values are decimal strings in whole-token units. Converting each trade before aggregation preserves the cost-weighted return when prices vary during a day.
+
+`costInTargetArgons` covers the USDC swap spend. Uniswap swap fees are reflected in the USDC spent and ARGN received. Ethereum gas and USDC approval transaction fees are excluded. Projected net returns need the relevant fee estimates; actual purchase returns use their recorded transaction fees.
+
+`ethereumPurchaseBlockRange` and `argonPriceBlockRange` are inclusive `[first, last]` pairs identifying the blocks contributing to a day's totals. They are absent on days with no qualifying buys. Every UTC day from the first pool's creation through `throughDate` is included, with zero totals when there are no buys. The file-level Ethereum checkpoint identifies the finalized scan boundary; pool metadata retains creation timestamps (Unix seconds) and block numbers.
+
+Swap logs come from Routescan's public indexed Ethereum API. Native Ethereum headers establish the finalized cutoff, and Argon's archive supplies the target at the last block before each swap. When that historical runtime lacks USDC/USD, the generator uses a prior hourly DeFiLlama observation, at most two hours old. These sources are fixed in the generator. This conversion is an estimate; it does not silently assume USDC is worth $1. Missing targets, incomplete source responses and invalid prices stop the update and preserve the previous file and checkpoint.
+
+The public Ethereum RPCs in the mainnet network configuration are the defaults. Set `ETHEREUM_EXECUTION_RPC_URL` to use another endpoint. Requests are read-only. An output file is replaced atomically only after collection and pricing succeed; run a single updater at a time.
+
+`rewardFunding` samples up to 30 recent completed frames available from Argon's retained frame-start blocks, excluding the unfinished UTC day. It records the frame and block ranges, sample count and average whole ARGN per frame. The modeled new funding is the unused vault allocation, capped by the successful burn: `min(max(floor(fullBidPool * percentForVaultPool) - vaultPoolDistributed, 0), burned)`. The distributed total, burned amount and Treasury reserves reconstruct the paid-out pool. Returned auction budgets and reserve balances are not new funding. Before Stabilizer deployment this is a hypothetical application of its funding rule, not observed Stabilizer reward payments. A missing compatible frame sample stops publication.
+
+The alert setup uses capital-weighted historical entry returns. Its range runs from no reward to matching rewards capped once per daily auction by the runtime auction percentage and the modeled reserve; new funding carries across zero-buy days. Costs add current estimates for a purchase, a fresh USDC approval and one bid per recorded buy. Same-account buys can share a bid in practice. APY uses the runtime maturity term plus two bidding frames and next-day reinvestment, treating one frame as one financial day. Annual earnings apply that APY to available USDC valued at current oracle prices, assuming continuous deployment and return to target. This is a deployed-capital illustration, not a wallet replay or a guarantee that the historical fills can be repeated.
+
+The existing labels remain in the app, with these assumptions in its info box. A configured purchase pool, current price references and fee estimates are required; otherwise the figures remain `--`. Live purchase and bid projections continue to use their actual quotes and standings.

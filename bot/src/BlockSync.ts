@@ -56,23 +56,7 @@ export class BlockSync {
   }
 
   public async ensureCurrentStateReady(): Promise<void> {
-    if (this.isStopping) throw new Error('Block sync is stopping');
-    let localClient = await this.mainchainClients.prunedClientPromise;
-    if (!localClient) {
-      const prunedUrl = this.mainchainClients.prunedUrl;
-      if (!prunedUrl) {
-        throw new Error('Pruned client is not available');
-      }
-
-      // A configured client can be temporarily demoted while its state recovers.
-      localClient = await Promise.race([
-        this.mainchainClients.setPrunedClient(prunedUrl),
-        this.stopRequested.promise.then(() => {
-          throw new Error('Block sync is stopping');
-        }),
-      ]);
-    }
-    if (this.isStopping) throw new Error('Block sync is stopping');
+    let localClient = await this.waitForLocalClient();
 
     // The local node can be connected before its state is available.
     await localClient.query.system.number().catch(x => {
@@ -87,15 +71,38 @@ export class BlockSync {
     await this.blockWatch.start();
     await this.miningFrames.load();
 
-    const archiveFinalizedHash = await archiveClient.rpc.chain.getFinalizedHead();
-    const archiveFinalizedHeader = await archiveClient.rpc.chain.getHeader(archiveFinalizedHash);
-    const archiveFinalizedNumber = archiveFinalizedHeader.number.toNumber();
-    const localFinalizedNumber = this.blockWatch.finalizedBlockHeader.blockNumber;
-    if (localFinalizedNumber < archiveFinalizedNumber - 10) {
-      throw new Error(
-        `Local client has not synched within range of the archive client (10 blocks). Archive Client=${archiveFinalizedNumber} vs Local=${localFinalizedNumber}`,
-      );
+    // Wait for the local node to catch up to within 10 finalized blocks of the archive.
+    // Read the local RPC directly: BlockWatch can fall back to the archive client during recovery.
+    while (!this.isStopping) {
+      try {
+        const [archiveFinalizedHash, localFinalizedHash] = await Promise.all([
+          archiveClient.rpc.chain.getFinalizedHead(),
+          localClient.rpc.chain.getFinalizedHead(),
+        ]);
+        const [archiveFinalizedHeader, localFinalizedHeader] = await Promise.all([
+          archiveClient.rpc.chain.getHeader(archiveFinalizedHash),
+          localClient.rpc.chain.getHeader(localFinalizedHash),
+        ]);
+        if (this.isStopping) break;
+
+        const archiveFinalizedNumber = archiveFinalizedHeader.number.toNumber();
+        const localFinalizedNumber = localFinalizedHeader.number.toNumber();
+        if (this.mainchainClients.prunedClientPromise && localFinalizedNumber >= archiveFinalizedNumber - 10) return;
+
+        console.info('[BlockSync] Waiting for local finalized blocks to catch up', {
+          archiveFinalizedNumber,
+          localFinalizedNumber,
+        });
+      } catch (error) {
+        if (this.isStopping) break;
+        if (this.mainchainClients.prunedClientPromise) throw error;
+      }
+
+      // A disconnect can demote this client while the readiness RPCs are in flight.
+      localClient = await this.waitForLocalClient();
+      await Promise.race([new Promise(resolve => setTimeout(resolve, 1_000)), this.stopRequested.promise]);
     }
+    throw new Error('Block sync is stopping');
   }
 
   public start(): Promise<void> {
@@ -133,6 +140,25 @@ export class BlockSync {
 
   public calculateSyncProgress(): number {
     return this.calculateProgress(this.lastSynchedTick, [this.oldestTickToSync, this.latestTick]);
+  }
+
+  private async waitForLocalClient() {
+    if (this.isStopping) throw new Error('Block sync is stopping');
+    let client = await this.mainchainClients.prunedClientPromise;
+    if (!client) {
+      const prunedUrl = this.mainchainClients.prunedUrl;
+      if (!prunedUrl) throw new Error('Pruned client is not available');
+
+      // MainchainClients owns reconnection and state recovery; shutdown must not wait for either.
+      client = await Promise.race([
+        this.mainchainClients.setPrunedClient(prunedUrl),
+        this.stopRequested.promise.then(() => {
+          throw new Error('Block sync is stopping');
+        }),
+      ]);
+    }
+    if (this.isStopping) throw new Error('Block sync is stopping');
+    return client;
   }
 
   private async processPending(initialize = false): Promise<void> {

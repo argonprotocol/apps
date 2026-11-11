@@ -241,7 +241,7 @@ export class IndexerDb {
       );
     }
 
-    this.upgradeDefinitionFromV3();
+    this.upgradeActivityDefinition();
 
     const insertKind = this.database.prepare(`INSERT OR IGNORE INTO ActivityKinds (bit, name) VALUES (:bit, :name)`);
     for (const [bit, name] of accountActivityKindNames) insertKind.run({ bit, name });
@@ -277,17 +277,27 @@ export class IndexerDb {
     }
   }
 
-  private upgradeDefinitionFromV3(): void {
+  private upgradeActivityDefinition(): void {
     const sync = this.database
       .prepare(`SELECT blockNumber, definitionVersion FROM SyncState WHERE id = ?`)
       .get(syncStateId) as { blockNumber: number; definitionVersion: number } | undefined;
-    if (sync?.definitionVersion !== 3) return;
+    if (!sync) return;
 
-    // Definition 4 resolves bond flexibility events to their owner. Those
-    // events first existed in runtime spec 158; earlier activity is unchanged.
+    let firstAffectedSpec: number;
+    if (sync.definitionVersion === 3) {
+      firstAffectedSpec = 158;
+    } else if (sync.definitionVersion === 4) {
+      firstAffectedSpec = 161;
+    } else {
+      return;
+    }
+
+    // Definition 4 adds bond flexibility history in spec 158. Definition 5
+    // adds stabilizer purchases and rewards in spec 161. Replay only the
+    // interval whose account classification could have been incomplete.
     const firstAffectedBlock = this.database
-      .prepare(`SELECT MIN(blockNumber) AS blockNumber FROM Blocks WHERE specVersion >= 158`)
-      .get() as { blockNumber: number | null };
+      .prepare(`SELECT MIN(blockNumber) AS blockNumber FROM Blocks WHERE specVersion >= ?`)
+      .get(firstAffectedSpec) as { blockNumber: number | null };
     const replayFromBlock = firstAffectedBlock.blockNumber;
 
     try {
@@ -315,7 +325,7 @@ export class IndexerDb {
 
     console.info(
       replayFromBlock === null
-        ? `Upgraded account activity definition to ${ACCOUNT_ACTIVITY_DEFINITION_VERSION}; no spec-158 blocks to replay`
+        ? `Upgraded account activity definition to ${ACCOUNT_ACTIVITY_DEFINITION_VERSION}; no spec-${firstAffectedSpec} blocks to replay`
         : `Upgraded account activity definition to ${ACCOUNT_ACTIVITY_DEFINITION_VERSION}; replaying from block ${replayFromBlock}`,
     );
   }

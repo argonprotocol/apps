@@ -31,20 +31,16 @@
             </article>
             <div Selector />
           </li>
-          <li @click="goto(TopTab.StableSwaps)" :class="{ Selected: controller.selectedTab === TopTab.StableSwaps }">
+          <li
+            @click="goto(TopTab.MarketStabilizers)"
+            :class="{ Selected: controller.selectedTab === TopTab.MarketStabilizers }"
+          >
             <article class="flex flex-row items-center">
-              <div class="mr-1 w-6">
-                <SwapIcon class="w-5.5 opacity-90" />
-              </div>
-              <div class="grow">Stable Swaps</div>
-              <!--              <div v-if="currency.isLoaded" class="opacity-60">-->
-              <!--                {{ currency.symbol-->
-              <!--                }}{{-->
-              <!--                  config.hasActivatedStableSwaps-->
-              <!--                    ? microgonToMoneyNm(financials.swapsTotalValue).format('0,0.00')-->
-              <!--                    : '0.00'-->
-              <!--                }}-->
-              <!--              </div>-->
+              <div class="mr-1 w-6"><ArrowsRightLeftIcon class="w-5.5 opacity-70" /></div>
+              <div class="grow">Market Stabilizers</div>
+              <span v-if="hasStabilizerOpportunity" role="img" aria-label="Buying opportunity available">
+                <BellAlertIcon class="text-argon-600 size-5" />
+              </span>
             </article>
             <div Selector LastSelector />
           </li>
@@ -550,18 +546,19 @@ import ArgonBondIcon from '../assets/wallets/tokens/argon.svg';
 import ArgonotBondIcon from '../assets/wallets/tokens/argonot.svg';
 import MiningOilIcon from '../assets/mining-oil.svg';
 import OverviewIcon from '../assets/overview.svg';
-import SwapIcon from '../assets/swap.svg';
 import VaultIcon from '../assets/vault-small.svg';
 import WorldNetworkIcon from '../assets/world-network.svg';
 import OnboardingIcon from '../assets/onboarding.svg';
 import ExternalIcon from '../assets/external.svg';
 import WalletMenu from '../wallets/components/WalletMenu.vue';
 import CertificationIcon from '../assets/certification.svg';
-import { ArrowsRightLeftIcon, CheckIcon } from '@heroicons/vue/24/outline';
+import { ArrowsRightLeftIcon, BellAlertIcon, CheckIcon } from '@heroicons/vue/24/outline';
 import { getCrosschainHistory, getMyVault } from '../stores/vaults.ts';
 import { getCrosschainAccessState } from '../lib/CrosschainTransferView.ts';
 import CopyIcon from '../assets/copy.svg';
 import CopyToClipboard from '../components/CopyToClipboard.vue';
+
+defineProps<{ hasStabilizerOpportunity?: boolean }>();
 
 const controller = useCertificationController();
 const basics = useBasics();

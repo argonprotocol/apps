@@ -9,7 +9,7 @@
     "update-frames": "tsx ./src/scripts/updateFrameHistory.ts"
   },
   "dependencies": {
-    "@argonprotocol/mainchain": "1.5.2-dev.20010413",
+    "@argonprotocol/mainchain": "1.5.2-dev.c911d613",
     "@argonprotocol/runtime-client": "workspace:*",
     "@polkadot/api": "17.0.1",
     "@polkadot/keyring": "^14.0.3",
@@ -19,10 +19,11 @@
     "bignumber.js": "^9.3.1",
     "dayjs": "^1.11.13",
     "lru-cache": "^10.2.0",
+    "viem": "^2.48.11",
     "zod": "^4.6.6"
   },
   "devDependencies": {
-    "@argonprotocol/testing": "1.5.2-dev.20010413",
+    "@argonprotocol/testing": "1.5.2-dev.c911d613",
     "docker-compose": "^1.2.0",
     "tsx": "^4.20.5",
     "typescript": "^5.9.2"

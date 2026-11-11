@@ -153,6 +153,8 @@ macOS development and release signing share `src-tauri/Entitlements.plist`. Xcod
 
 Development tooling lives in `dev/`: `dev/cli.ts` dispatches human commands, `dev/commands/` holds their arguments and help, and the remaining modules provide shared operations and internal setup tools. Startup prepares certificates and downloads pinned Docker assets automatically; CI uses yarn e2e:prepare; E2E and local startup call the shared setup functions. Custom runtime generation is documented separately in `e2e/README.md`.
 
+Local startup opens the desktop once the gateway, shared initial council, pool and app configuration are ready. Upstream certification and minting-authority activation continue in the background; the terminal reports `Upstream operator ready` and `Ethereum bridge ready` when they finish. Bridge E2E runs wait for that readiness before opening the desktop.
+
 Funding amounts use whole-token decimal units. A fresh user account starts without funds or operational access. `--funded` adds 1,000 ARGN and 1,000 ARGNOT on each chain, plus 1 ETH for gas; explicit amount flags override individual preset amounts, including `0` to skip an asset. `--operational` grants operational access using the local-chain shortcut for a fresh profile; existing registered accounts retain their progress and must meet normal activation requirements. It does not create a vault or server for the user. The upstream uses a separate account for its vault, delegate, and server setup.
 
 Funding runs after operational access when both flags are selected and does not create user Bitcoin or bond positions. It uses the selected profile's existing mnemonic for both accounts; `--to` and `--eth-to` override recipients.

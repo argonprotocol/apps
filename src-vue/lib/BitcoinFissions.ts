@@ -15,6 +15,7 @@ import {
   SingleFileQueue,
 } from '@argonprotocol/apps-core';
 import { u8aToHex } from '@argonprotocol/mainchain';
+import { runtimeClient } from '@argonprotocol/runtime-client';
 
 import { getMainchainClient } from '../stores/mainchain.ts';
 import type { IBitcoinFissionRecord } from '../interfaces/IBitcoinFissionRecord.ts';
@@ -28,6 +29,7 @@ export class BitcoinFissions {
   public data: {
     fissionsById: Record<number, BitcoinFission>;
     activeFissionIds: Set<number>;
+    pendingRepaymentLiquidIds: Set<number>;
     minimumRatchetPercent: bigint;
     readiness: 'idle' | 'loading' | 'ready' | 'error';
     loadError?: Error;
@@ -51,6 +53,7 @@ export class BitcoinFissions {
     this.data = {
       fissionsById: {},
       activeFissionIds: new Set(),
+      pendingRepaymentLiquidIds: new Set(),
       minimumRatchetPercent: 0n,
       readiness: 'idle',
       financialRevision: 0,
@@ -97,12 +100,13 @@ export class BitcoinFissions {
   public async refreshCurrent(client?: ArgonCurrentQueryClient): Promise<BitcoinFission[]> {
     return await this.currentStateQueue.add(async () => {
       const queryClient = client ?? this.blockWatch?.subscriptionClient ?? (await getMainchainClient(false));
-      const active = await this.loadActive(queryClient);
+      const { fissions: active, pendingRepaymentLiquidIds } = await this.loadCurrentState(queryClient);
 
       this.data.minimumRatchetPercent = BigInt(
         queryClient.consts.bitcoinFissions.minimumRatchetPercent.times(100).toNumber(),
       );
       this.updateCurrentState(active);
+      this.data.pendingRepaymentLiquidIds = pendingRepaymentLiquidIds;
       if (this.blockWatch?.subscriptionClient) {
         try {
           await this.syncPendingMintSubscriptions(this.blockWatch.subscriptionClient);
@@ -156,13 +160,21 @@ export class BitcoinFissions {
     if (block.blockHash.toLowerCase() !== blockHash.toLowerCase()) {
       throw new Error(`Finalized transaction #${txInfo.tx.id} does not match block ${blockNumber}`);
     }
-    const events = txInfo.txResult.events.map(
+    let events = txInfo.txResult.events.map(
       event =>
         ({
           event,
           phase: { type: 'ApplyExtrinsic', value: extrinsicIndex },
         }) as RuntimeSystemEventRecord,
     );
+    if (
+      events.some(
+        ({ event }) =>
+          event.section === 'bitcoinFissions' &&
+          (event.method === 'FissionClosed' || event.method === 'FissionClosedByLock'),
+      )
+    )
+      events = [...(await this.blockWatch.getEvents(block))];
     const finalizedClient = await this.blockWatch.getApi(block);
     const { api: currentClient } = await this.blockWatch.getLatestFinalizedSnapshot();
     await this.recordFinalizedBlock(block, events, finalizedClient, currentClient);
@@ -195,9 +207,23 @@ export class BitcoinFissions {
       if (currentBlock && currentBlock.blockNumber > block.blockNumber) {
         currentClient = (await this.blockWatch.getLatestFinalizedSnapshot()).api;
       }
-      const currentPromise = this.loadActive(currentClient);
-      const records = await this.recordFinalizedEvents({ block, events, finalizedClient, currentClient });
-      this.updateFinalizedState(await currentPromise, records);
+      const [{ fissions: current, pendingRepaymentLiquidIds }, records] = await Promise.all([
+        this.loadCurrentState(currentClient),
+        this.recordFinalizedEvents({ block, events, finalizedClient, currentClient }),
+      ]);
+      for (const record of records) {
+        const snapshot = current.find(fission => fission.fissionId === record.fissionId);
+        if (!snapshot || record.closedAtArgonBlock !== undefined) continue;
+        if ((snapshot.lastUpdatedArgonBlock ?? 0) < record.lastUpdatedArgonBlock) continue;
+
+        const fission = new BitcoinFission(record);
+        fission.applyCurrentSnapshot(snapshot);
+        Object.assign(record, fission);
+      }
+      const table = await this.dbPromise.then(db => db.bitcoinFissionsTable);
+      await table.replaceRecords(records);
+      this.updateFinalizedState(current, records);
+      this.data.pendingRepaymentLiquidIds = pendingRepaymentLiquidIds;
       if (this.blockWatch?.subscriptionClient) {
         try {
           await this.syncPendingMintSubscriptions(this.blockWatch.subscriptionClient);
@@ -280,11 +306,16 @@ export class BitcoinFissions {
         }
 
         let btcPriceAtCloseMicrogons: bigint | undefined;
-        if (
-          this.currency &&
-          event.section === 'bitcoinFissions' &&
-          (event.method === 'FissionClosed' || event.method === 'FissionClosedByLock')
-        ) {
+        const isClosing = event.method === 'FissionClosed' || event.method === 'FissionClosedByLock';
+        const alreadyConfirmed = existing.closedAtArgonBlock === block.blockNumber;
+        if (isClosing && !alreadyConfirmed) {
+          if (!this.blockWatch) throw new Error('A block watch is required to read the state before closure.');
+          const parent = { blockNumber: block.blockNumber - 1, blockHash: block.parentHash };
+          const parentClient = runtimeClient(await this.blockWatch.getApi(parent));
+          const beforeClose = await BitcoinFission.get(parentClient, this.ownerAccount, fissionId);
+          BitcoinFission.applyClosingState(existing, beforeClose, block.blockNumber);
+        }
+        if (this.currency && event.section === 'bitcoinFissions' && isClosing) {
           const rates = await this.currency.fetchMainchainRatesAtBlock({ api: finalizedClient, block });
           btcPriceAtCloseMicrogons = rates.BTC;
         }
@@ -292,6 +323,7 @@ export class BitcoinFissions {
           record: existing,
           block,
           event,
+          eventIndex: events.findIndex(record => record.event === event),
           extrinsicIndex,
           transactionFee,
           netSecurityFee,
@@ -315,14 +347,16 @@ export class BitcoinFissions {
       if (record) record.ratchets = fission.ratchets;
     }
 
-    await table.replaceRecords(finalizedRecords);
     return finalizedRecords;
   }
 
-  public async loadActive(client: ArgonCurrentQueryClient): Promise<BitcoinFission[]> {
-    const active = await BitcoinFission.getAllByOwner(client, this.ownerAccount);
-    await this.loadPendingMints(client, active);
-    return active;
+  public async loadCurrentState(client: ArgonCurrentQueryClient) {
+    const [fissions, pendingRepaymentLiquidIds] = await Promise.all([
+      BitcoinFission.getAllByOwner(client, this.ownerAccount),
+      BitcoinFission.getPendingRepaymentLiquidIds(client, this.ownerAccount),
+    ]);
+    await this.loadPendingMints(client, fissions);
+    return { fissions, pendingRepaymentLiquidIds };
   }
 
   private async loadPendingMints(client: ArgonCurrentQueryClient, fissions: readonly BitcoinFission[]): Promise<void> {
@@ -395,9 +429,13 @@ export class BitcoinFissions {
     const recordsPromise = this.dbPromise.then(db => db.bitcoinFissionsTable.fetchAll(this.ownerAccount));
     if (this.blockWatch) await this.blockWatch.start();
     const client = this.blockWatch?.subscriptionClient ?? (await getMainchainClient(false));
-    const [records, current] = await Promise.all([recordsPromise, this.loadActive(client)]);
+    const [records, { fissions: current, pendingRepaymentLiquidIds }] = await Promise.all([
+      recordsPromise,
+      this.loadCurrentState(client),
+    ]);
     this.data.minimumRatchetPercent = BigInt(client.consts.bitcoinFissions.minimumRatchetPercent.times(100).toNumber());
     this.restoreLoadedState(records, current);
+    this.data.pendingRepaymentLiquidIds = pendingRepaymentLiquidIds;
     await this.loadPendingMints(client, this.getArchived());
     const subscriptionClient = this.blockWatch?.subscriptionClient;
     if (subscriptionClient) {

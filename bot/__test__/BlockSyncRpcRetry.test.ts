@@ -4,7 +4,7 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import Path from 'node:path';
 import { setImmediate } from 'node:timers/promises';
-import { WebSocketServer } from 'ws';
+import { WebSocketServer, type WebSocket } from 'ws';
 import { getOfflineRegistry, keyringFromSuri, u8aToHex } from '@argonprotocol/mainchain';
 import { xxhashAsHex } from '@polkadot/util-crypto';
 import { Accountset, MainchainClients, MiningFrames, NetworkConfig, TxSigner } from '@argonprotocol/apps-core';
@@ -13,7 +13,9 @@ import { BlockSync } from '../src/BlockSync.ts';
 import { Storage } from '../src/Storage.ts';
 import runtimeVersion from '../../runtime-client/__test__/fixtures/runtime-159.json' with { type: 'json' };
 
-it.each(['recovery', 'shutdown'] as const)('handles %s while local RPC state recovers', async outcome => {
+const outcomes = ['recovery', 'shutdown', 'finalized-lag', 'finalized-lag-shutdown'] as const;
+
+it.each(outcomes)('handles %s while local RPC state recovers', async outcome => {
   NetworkConfig.setNetwork('dev-docker');
   const registry = getOfflineRegistry();
   const genesisHash = '0xee11bf2ff8838fcb0832c09085c5319a08ba6111c225ecd899fe659872d9d45d';
@@ -50,6 +52,17 @@ it.each(['recovery', 'shutdown'] as const)('handles %s while local RPC state rec
       ],
     },
   });
+  const archiveHeaders = [finalizedHeader, bestHeader];
+  for (let number = 10; number <= 19; number++) {
+    archiveHeaders.push(
+      registry.createType('Header', {
+        ...bestHeader.toJSON(),
+        number,
+        parentHash: archiveHeaders.at(-1)!.hash.toHex(),
+      }),
+    );
+  }
+  const archiveAheadHeader = archiveHeaders.at(-1)!;
   const systemNumberKey = xxhashAsHex('System', 128) + xxhashAsHex('Number', 128).slice(2);
   const methods = [
     'chain_getBlockHash',
@@ -77,6 +90,12 @@ it.each(['recovery', 'shutdown'] as const)('handles %s while local RPC state rec
   let headerIsMissing = true;
   let prunedStateIsMissing = false;
   let prunedFinalizedHash = finalizedHeader.hash.toHex();
+  let archiveFinalizedHash = finalizedHeader.hash.toHex();
+  let archiveAheadHeaderRequested = false;
+  let archiveFinalizedReads = 0;
+  let releaseArchiveHeader: (() => void) | undefined;
+  const prunedSockets = new Set<WebSocket>();
+  const prunedFinalizedSubscriptions = new Map<WebSocket, string>();
   let nextSubscription = 0;
   const server = new WebSocketServer({ host: '127.0.0.1', port: 0 });
   await once(server, 'listening');
@@ -86,6 +105,7 @@ it.each(['recovery', 'shutdown'] as const)('handles %s while local RPC state rec
   const prunedUrl = `ws://127.0.0.1:${address.port}/pruned`;
 
   server.on('connection', (socket, request) => {
+    if (request.url === '/pruned') prunedSockets.add(socket);
     socket.on('message', bytes => {
       const { id, method, params } = JSON.parse(bytes.toString());
       if (
@@ -106,6 +126,7 @@ it.each(['recovery', 'shutdown'] as const)('handles %s while local RPC state rec
       let result: unknown;
       let updateMethod: string | undefined;
       let update: unknown;
+      const archiveIsAhead = request.url === '/archive' && archiveFinalizedHash === archiveAheadHeader.hash.toHex();
       const storageChanges = (keys: string[]) => ({
         block: bestHeader.hash.toHex(),
         changes: keys.map(key => [
@@ -117,21 +138,30 @@ it.each(['recovery', 'shutdown'] as const)('handles %s while local RPC state rec
         case 'chain_getBlockHash':
           if (Number(params[0]) === 0) {
             result = genesisHash;
-          } else if (Number(params[0]) === 8) {
-            result = finalizedHeader.hash.toHex();
           } else {
-            result = bestHeader.hash.toHex();
+            result = archiveHeaders.find(header => header.number.toNumber() === Number(params[0]))?.hash.toHex();
+            result ??= bestHeader.hash.toHex();
           }
           break;
         case 'chain_getHeader':
-          if (params[0] === bestHeader.hash.toHex()) {
+          if (params[0] === archiveAheadHeader.hash.toHex()) {
+            archiveAheadHeaderRequested = true;
+            if (outcome === 'finalized-lag-shutdown') {
+              releaseArchiveHeader = () =>
+                socket.send(JSON.stringify({ jsonrpc: '2.0', id, result: archiveAheadHeader.toJSON() }));
+              return;
+            }
+            result = archiveAheadHeader.toJSON();
+          } else if (params[0] === bestHeader.hash.toHex()) {
             result = headerIsMissing ? null : bestHeader.toJSON();
           } else {
-            result = params[0] === finalizedHeader.hash.toHex() ? finalizedHeader.toJSON() : bestHeader.toJSON();
+            const header = archiveHeaders.find(header => header.hash.toHex() === params[0]);
+            result = header?.toJSON() ?? (archiveIsAhead ? archiveAheadHeader.toJSON() : bestHeader.toJSON());
           }
           break;
         case 'chain_getFinalizedHead':
-          result = request.url === '/pruned' ? prunedFinalizedHash : finalizedHeader.hash.toHex();
+          if (request.url === '/archive') archiveFinalizedReads++;
+          result = request.url === '/pruned' ? prunedFinalizedHash : archiveFinalizedHash;
           break;
         case 'state_getRuntimeVersion':
           result = runtimeVersion;
@@ -178,11 +208,11 @@ it.each(['recovery', 'shutdown'] as const)('handles %s while local RPC state rec
         case 'chain_subscribeNewHeads':
         case 'chain_subscribeNewHead':
           updateMethod = 'chain_newHead';
-          update = bestHeader.toJSON();
+          update = archiveIsAhead ? archiveAheadHeader.toJSON() : bestHeader.toJSON();
           break;
         case 'chain_subscribeFinalizedHeads':
           updateMethod = 'chain_finalizedHead';
-          update = finalizedHeader.toJSON();
+          update = archiveIsAhead ? archiveAheadHeader.toJSON() : finalizedHeader.toJSON();
           break;
         default:
           if (typeof method === 'string' && method.includes('unsubscribe')) result = true;
@@ -194,6 +224,9 @@ it.each(['recovery', 'shutdown'] as const)('handles %s while local RPC state rec
           }
       }
       if (updateMethod) result = String(++nextSubscription);
+      if (request.url === '/pruned' && method === 'chain_subscribeFinalizedHeads') {
+        prunedFinalizedSubscriptions.set(socket, String(result));
+      }
       socket.send(JSON.stringify({ jsonrpc: '2.0', id, result }));
       if (updateMethod)
         socket.send(
@@ -207,6 +240,7 @@ it.each(['recovery', 'shutdown'] as const)('handles %s while local RPC state rec
   const clients = new MainchainClients(archiveUrl, () => false);
   const blockWatch = new BlockWatch(clients, true);
   const miningFrames = new MiningFrames(clients, blockWatch);
+  let blockSync: BlockSync | undefined;
   try {
     const localClient = await clients.setPrunedClient(prunedUrl);
     const accountset = new Accountset({
@@ -214,7 +248,7 @@ it.each(['recovery', 'shutdown'] as const)('handles %s while local RPC state rec
       txSubmitter: new TxSigner(keyringFromSuri('//Alice')),
       subaccountRange: [],
     });
-    const blockSync = new BlockSync(accountset, storage, clients, miningFrames, blockWatch, 0);
+    blockSync = new BlockSync(accountset, storage, clients, miningFrames, blockWatch, 0);
     // A valid saved checkpoint still needs its historical API during startup.
     await storage.botStateFile().mutate(state => {
       state.lastProcessedBlockNumber = 9;
@@ -223,6 +257,55 @@ it.each(['recovery', 'shutdown'] as const)('handles %s while local RPC state rec
       state.lastFinalizedProcessedBlockHash = finalizedHeader.hash.toHex();
     });
     const savedCheckpoint = await storage.botStateFile().get();
+
+    if (outcome === 'finalized-lag' || outcome === 'finalized-lag-shutdown') {
+      headerIsMissing = false;
+      archiveFinalizedHash = archiveAheadHeader.hash.toHex();
+      if (outcome === 'finalized-lag-shutdown') prunedFinalizedHash = bestHeader.hash.toHex();
+      const readiness = blockSync.ensureCurrentStateReady();
+      void readiness.catch(() => undefined);
+      await vi.waitFor(() => expect(archiveAheadHeaderRequested).toBe(true));
+      await expect(Promise.race([readiness.then(() => 'ready'), setImmediate('pending')])).resolves.toBe('pending');
+      expect(await storage.botStateFile().get()).toEqual(savedCheckpoint);
+
+      if (outcome === 'finalized-lag') {
+        for (const socket of prunedSockets) socket.terminate();
+        await vi.waitFor(() => expect(blockWatch.finalizedBlockHeader.blockNumber).toBe(19), { timeout: 5_000 });
+        expect(blockWatch.subscriptionClient).toBe(await clients.archiveClientPromise);
+        const readsAfterFallback = archiveFinalizedReads;
+        await expect(
+          Promise.race([
+            readiness.then(() => 'ready'),
+            vi
+              .waitFor(() => expect(archiveFinalizedReads).toBeGreaterThan(readsAfterFallback), { timeout: 3_000 })
+              .then(() => 'polled'),
+          ]),
+        ).resolves.toBe('polled');
+        await expect(Promise.race([readiness.then(() => 'ready'), setImmediate('pending')])).resolves.toBe('pending');
+      }
+
+      prunedFinalizedHash = bestHeader.hash.toHex();
+      if (outcome === 'finalized-lag-shutdown') {
+        for (const [socket, subscription] of prunedFinalizedSubscriptions) {
+          socket.send(
+            JSON.stringify({
+              jsonrpc: '2.0',
+              method: 'chain_finalizedHead',
+              params: { subscription, result: bestHeader.toJSON() },
+            }),
+          );
+        }
+        await vi.waitFor(() => expect(blockWatch.finalizedBlockHeader.blockNumber).toBe(9));
+        await blockSync.stop();
+        releaseArchiveHeader!();
+        await expect(readiness).rejects.toThrow('Block sync is stopping');
+        return;
+      }
+
+      await expect(readiness).resolves.toBeUndefined();
+      expect(await storage.botStateFile().get()).toEqual(savedCheckpoint);
+      return;
+    }
 
     await expect(blockSync.load()).rejects.toThrow('Unable to retrieve header and parent from supplied hash');
     expect(await storage.botStateFile().get()).toEqual(savedCheckpoint);
@@ -282,6 +365,7 @@ it.each(['recovery', 'shutdown'] as const)('handles %s while local RPC state rec
     clients.clearPrunedClient();
     await expect(blockSync.ensureCurrentStateReady()).rejects.toThrow('Pruned client is not available');
   } finally {
+    await blockSync?.stop();
     await miningFrames.stop();
     blockWatch.destroy();
     await clients.disconnect();

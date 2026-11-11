@@ -160,7 +160,7 @@ describe('EthereumBeaconSyncService', () => {
     }) as unknown as ArgonClient;
 
   beforeEach(() => {
-    vi.clearAllMocks();
+    vi.resetAllMocks();
     NetworkConfig.setNetwork('mainnet');
   });
 
@@ -179,6 +179,62 @@ describe('EthereumBeaconSyncService', () => {
     expect(service.state()).toEqual({ mode: 'disabled', syncAccountAddress: 'sync-account' });
     expect(mainchainMock.getEthereumBeaconSyncState).not.toHaveBeenCalled();
     expect(mainchainMock.getNextEthereumBeaconSyncTxs).not.toHaveBeenCalled();
+  });
+
+  it('continues catch-up after a committee-only update leaves the slot and period unchanged', async () => {
+    let slot = 0n;
+    let committeePeriod = 0n;
+    let committeeReady = false;
+    let committeeLoaded = false;
+    const nonceState = { stable: 4, pool: 4 };
+    const client = createClient({ nonceState });
+    mainchainMock.getEthereumBeaconSyncState.mockImplementation(async () => ({
+      isBootstrapped: true,
+      hasNextSyncCommittee: committeeLoaded,
+      latestFinalizedBlockRoot: '0xabc',
+      latestFinalizedSlot: slot,
+      nextRecommendedFinalizedSlot: slot + 32n,
+      latestSyncCommitteeUpdatePeriod: committeePeriod,
+      headerInterval: 32n,
+    }));
+    mainchainMock.getNextEthereumBeaconSyncTxs.mockImplementation(async () => {
+      if (!committeeReady) return [];
+      if (!committeeLoaded) return [{ id: 'committee' }];
+      if (slot < 96n) return [{ id: 'header' }];
+      return [];
+    });
+    submissionMock.submitWithTerminalStatusWatch.mockImplementation(async ({ tx }) => {
+      if (tx.id === 'committee') committeeLoaded = true;
+      else {
+        slot += 32n;
+        committeePeriod = slot / 64n;
+      }
+      nonceState.stable++;
+      nonceState.pool = nonceState.stable;
+      return {
+        extrinsic: { signedHash: `sync-${nonceState.stable}` },
+        waitForInFirstBlock: Promise.resolve(),
+      };
+    });
+    const service = new EthereumBeaconSyncService(client, {
+      beaconApiUrl: 'https://beacon.example',
+      pollMs: 1_000,
+      submitLane: createSubmitLane(client),
+    });
+
+    try {
+      await service.start();
+      committeeReady = true;
+      await vi.waitFor(() => expect(committeeLoaded).toBe(true), { timeout: 2_000, interval: 5 });
+      await vi.waitFor(() => expect(service.state()).toMatchObject({ latestFinalizedSlot: 96n, mode: 'idle' }), {
+        timeout: 250,
+        interval: 5,
+      });
+      expect(slot).toBe(96n);
+      expect(committeePeriod).toBe(1n);
+    } finally {
+      await service.shutdown();
+    }
   });
 
   it('waits for bootstrap before submitting maintenance transactions', async () => {

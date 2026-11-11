@@ -1,24 +1,17 @@
 import {
   ETHEREUM_EXECUTION_RPC_TRANSPORT,
+  ETHEREUM_MIN_TRANSFER_AMOUNT,
   fetch,
   getEthereumExecutionRpcUrls,
   getErrorDiagnostics,
   getObjectStringProperty,
   logEthereumExecutionRpcFallback,
   MoveToken,
+  toArgonAccountIdHex,
   NetworkConfig,
-  SingleFileQueue,
   type ArgonQueryClient,
 } from '@argonprotocol/apps-core';
-import {
-  decodeAddress,
-  decodeEthereumGatewayActivityLog,
-  decodeEthereumTransferToArgonStartedLog,
-  EvmContracts,
-  hexToU8a,
-  findEthereumTransferToArgonStartedLogIndexes,
-  u8aToHex,
-} from '@argonprotocol/mainchain';
+import { decodeEthereumGatewayActivityLog, EvmContracts, hexToU8a, u8aToHex } from '@argonprotocol/mainchain';
 import type { CrosschainTransferCouncilApprovalQueueByDestinationChainAndNonceResultSpec151 } from '@argonprotocol/runtime-client';
 import {
   type Address,
@@ -202,13 +195,35 @@ type IPreparedGatewayRelay = IEthereumGatewayRelayPreview & {
 };
 
 export class EthereumClient {
-  #outboundFinalizationQueue = new SingleFileQueue();
-  #inboundSubmissionQueues = new Map<string, SingleFileQueue>();
+  private publicClientCache?: { rpcUrls: string; client: PublicClient };
+  private static readonly submissionLocks = new Map<string, Promise<unknown>>();
 
   constructor(
-    private readonly walletKeys: WalletKeys,
-    public readonly executionRpcUrl: string,
+    private readonly walletKeys: Pick<
+      WalletKeys,
+      | 'configureEthereumSignerPolicy'
+      | 'coreEthereumAddress'
+      | 'ethereumHdPath'
+      | 'signEthereumPermit'
+      | 'signEthereumTransaction'
+      | 'vaultingAddress'
+    >,
+    private readonly executionRpcUrlSource: string | (() => string),
   ) {}
+
+  public get executionRpcUrl(): string {
+    if (typeof this.executionRpcUrlSource === 'function') return this.executionRpcUrlSource();
+    return this.executionRpcUrlSource;
+  }
+
+  public get publicClient(): PublicClient {
+    const executionRpcUrl = this.executionRpcUrl;
+    const rpcUrls = JSON.stringify(getEthereumExecutionRpcUrls(executionRpcUrl));
+    if (this.publicClientCache?.rpcUrls !== rpcUrls) {
+      this.publicClientCache = { rpcUrls, client: createEthereumPublicClient(undefined, executionRpcUrl) };
+    }
+    return this.publicClientCache.client;
+  }
 
   public get sourceAddress() {
     return this.walletKeys.coreEthereumAddress;
@@ -250,6 +265,22 @@ export class EthereumClient {
     return this.getTransferToArgonPollMs();
   }
 
+  /** Serialize nonce selection through broadcast across all clients using the same chain and sender. */
+  public async withSubmissionLock<T>(
+    { chainId, from }: { chainId: number; from: string },
+    submit: () => Promise<T>,
+  ): Promise<T> {
+    const key = `${chainId}:${from.toLowerCase()}`;
+    const previous = EthereumClient.submissionLocks.get(key) ?? Promise.resolve();
+    const submission = previous.catch(() => undefined).then(submit);
+    EthereumClient.submissionLocks.set(key, submission);
+    try {
+      return await submission;
+    } finally {
+      if (EthereumClient.submissionLocks.get(key) === submission) EthereumClient.submissionLocks.delete(key);
+    }
+  }
+
   public async startTransferToArgon(args: {
     moveToken: IEthereumMoveToken;
     amountBaseUnits: bigint;
@@ -258,14 +289,14 @@ export class EthereumClient {
     beforeBroadcast?: (sourceTxHash: Hash) => Promise<void>;
   }): Promise<IEthereumTransferToArgon> {
     const { moveToken, amountBaseUnits, destinationAddress, ethereumWallet, beforeBroadcast } = args;
-    const sourceAddress = ethereumWallet.address.toLowerCase();
-    let queue = this.#inboundSubmissionQueues.get(sourceAddress);
-    if (!queue) {
-      queue = new SingleFileQueue();
-      this.#inboundSubmissionQueues.set(sourceAddress, queue);
+    const runtimeAmount = convertEthereumBaseUnitsToRuntimeAmount(amountBaseUnits);
+    if (runtimeAmount < ETHEREUM_MIN_TRANSFER_AMOUNT) {
+      throw new Error(`The minimum transfer from Ethereum is 0.01 ${moveToken}.`);
     }
 
-    return await queue.add(async () => {
+    const sourceAddress = ethereumWallet.address.toLowerCase();
+    const { chainId } = await this.loadChainConfig();
+    return await this.withSubmissionLock({ chainId, from: sourceAddress }, async () => {
       const { publicClient, transaction, unsignedTransaction, feeEstimateWei } =
         await this.prepareTransferToArgon(args);
       const ethereumBalanceWei = await publicClient.getBalance({ address: getAddress(ethereumWallet.address) });
@@ -298,7 +329,7 @@ export class EthereumClient {
         executionRpcUrl: this.executionRpcUrl,
         sourceTxHash,
       };
-    }).promise;
+    });
   }
 
   public async estimateTransferToArgonFee(_args: {
@@ -422,9 +453,12 @@ export class EthereumClient {
     return blockNumbersByQueueNonce;
   }
 
-  public async getTransactionProgress(args: { txHash: Hash }): Promise<IEthereumTransactionProgress> {
-    const { txHash } = args;
-    const { publicClient } = await this.createExecutionClient();
+  public async getTransactionProgress(args: { txHash: Hash; chainId?: number }): Promise<IEthereumTransactionProgress> {
+    const { txHash, chainId } = args;
+    const { publicClient } = this;
+    if (chainId !== undefined && (await publicClient.getChainId()) !== chainId) {
+      throw new Error('The Ethereum RPC does not match the saved transaction network.');
+    }
     const expectedConfirmations = this.getTransactionFinalityBlocks();
     // Re-read inclusion until finality: an earlier receipt can be reorganized away or change outcome.
     const receipt = await getIndexedReceiptIfAvailable(publicClient, txHash);
@@ -454,8 +488,11 @@ export class EthereumClient {
     };
   }
 
-  public async isTransactionVisible(txHash: Hash): Promise<boolean> {
-    const { publicClient } = await this.createExecutionClient();
+  public async isTransactionVisible(txHash: Hash, chainId?: number): Promise<boolean> {
+    const { publicClient } = this;
+    if (chainId !== undefined && (await publicClient.getChainId()) !== chainId) {
+      throw new Error('The Ethereum RPC does not match the saved transaction network.');
+    }
     let transaction: Awaited<ReturnType<PublicClient['getTransaction']>> | undefined;
     try {
       transaction = await publicClient.getTransaction({ hash: txHash });
@@ -482,18 +519,19 @@ export class EthereumClient {
 
   public async waitForTransactionFinality(args: {
     txHash: Hash;
+    chainId?: number;
     submittedAtMs?: number;
     onProgress?: (progress: IEthereumTransactionProgress) => void;
     onRpcDelay?: (progress?: IEthereumTransactionProgress) => void;
   }): Promise<IFinalizedEthereumTransactionProgress> {
-    const { txHash, submittedAtMs, onProgress, onRpcDelay } = args;
+    const { txHash, chainId, submittedAtMs, onProgress, onRpcDelay } = args;
     const transactionVisibilityDeadlineMs =
       submittedAtMs == null ? undefined : submittedAtMs + this.getTransactionFinalityWaitEstimateMs();
     let lastProgress: IEthereumTransactionProgress | undefined;
 
     while (true) {
       try {
-        const progress = await this.getTransactionProgress({ txHash });
+        const progress = await this.getTransactionProgress({ txHash, chainId });
         lastProgress = progress;
         const { blockNumber, blockHash } = progress;
         onProgress?.(progress);
@@ -503,7 +541,7 @@ export class EthereumClient {
           transactionVisibilityDeadlineMs != null &&
           Date.now() >= transactionVisibilityDeadlineMs
         ) {
-          if (!(await this.isTransactionVisible(txHash))) {
+          if (!(await this.isTransactionVisible(txHash, chainId))) {
             throw new EthereumTransactionUnavailableError(txHash);
           }
         }
@@ -538,11 +576,12 @@ export class EthereumClient {
   ): Promise<Hash> {
     const { ethereumWallet, beforeBroadcast } = args;
 
-    return await this.#outboundFinalizationQueue.add(async () => {
+    const { chainId } = await this.loadChainConfig();
+    return await this.withSubmissionLock({ chainId, from: ethereumWallet.address }, async () => {
       const { chainConfig, publicClient, transaction, unsignedTransaction } =
         await this.prepareTransferOutOfArgon(args);
 
-      await this.ensureEthereumSignerPolicyConfigured(chainConfig);
+      await this.configureSignerPolicy(chainConfig);
       const signature = await this.walletKeys.signEthereumTransaction(
         unsignedTransaction,
         this.walletKeys.ethereumHdPath,
@@ -558,7 +597,7 @@ export class EthereumClient {
         serializedTransaction,
         fallbackErrorMessage: 'Unable to submit the Ethereum transfer right now.',
       });
-    }).promise;
+    });
   }
 
   public async confirmTransferOutOfArgon(transfer: IEthereumTransferOutOfArgon): Promise<IEthereumTransferOutOfArgon> {
@@ -623,33 +662,48 @@ export class EthereumClient {
     const chainConfig = await this.loadChainConfig();
     const { publicClient } = await this.createExecutionClient();
     const receipt = await waitForIndexedReceipt(publicClient, transfer.sourceTxHash);
-    const logIndexes = findEthereumTransferToArgonStartedLogIndexes(receipt, chainConfig.gatewayAddress);
-    const sourceLogIndex = logIndexes[0];
-    const transferLog = sourceLogIndex !== undefined ? receipt.logs[sourceLogIndex] : undefined;
-    if (!transferLog) {
-      throw new Error(
-        `Ethereum receipt ${receipt.transactionHash} did not emit TransferToArgonStarted from gateway ${chainConfig.gatewayAddress}`,
-      );
+    const destinationAccountId = toArgonAccountIdHex(transfer.destinationAddress).toLowerCase();
+    const tokenAddress =
+      transfer.moveToken === MoveToken.ARGN ? chainConfig.argonTokenAddress : chainConfig.argonotTokenAddress;
+    const runtimeAmount = convertEthereumBaseUnitsToRuntimeAmount(transfer.amountBaseUnits);
+
+    for (const [sourceLogIndex, log] of receipt.logs.entries()) {
+      if (log.address.toLowerCase() !== chainConfig.gatewayAddress.toLowerCase()) continue;
+      const topic = log.topics[0]?.toLowerCase();
+      if (
+        topic !== EvmContracts.MintingGatewayEvents.TransferToArgonStarted.topic &&
+        topic !== EvmContracts.MintingGatewayEvents.TransferToArgonFromSwapStarted.topic
+      )
+        continue;
+
+      const activity = decodeEthereumGatewayActivityLog({ data: log.data, topics: [...log.topics] });
+      let buyer: Hex;
+      let argonAccountId: Hex;
+      if (activity.kind === 'TransferToArgonStarted') {
+        buyer = activity.from;
+        argonAccountId = activity.argonAccountId;
+      } else if (activity.kind === 'TransferToArgonFromSwapStarted') {
+        buyer = activity.purchase.buyer;
+        argonAccountId = activity.purchase.argonAccountId;
+      } else {
+        continue;
+      }
+
+      if (argonAccountId.toLowerCase() !== destinationAccountId) continue;
+      if (activity.token.toLowerCase() !== tokenAddress.toLowerCase()) continue;
+      if (activity.amount !== runtimeAmount) continue;
+      if (transfer.sourceAddress && buyer.toLowerCase() !== transfer.sourceAddress.toLowerCase()) continue;
+
+      return {
+        ...transfer,
+        sourceBlockNumber: Number(receipt.blockNumber),
+        sourceBlockHash: receipt.blockHash,
+        sourceLogIndex,
+        gatewayActivityNonce: activity.gatewayState.gatewayActivityNonce,
+      };
     }
 
-    const decodedEvent = decodeEthereumTransferToArgonStartedLog({
-      data: transferLog.data,
-      topics: [...transferLog.topics],
-    });
-    if (decodedEvent.gatewayState?.gatewayActivityNonce === undefined) {
-      throw new Error(
-        `Ethereum receipt ${receipt.transactionHash} emitted TransferToArgonStarted without a gateway activity nonce.`,
-      );
-    }
-    const gatewayActivityNonce = decodedEvent.gatewayState.gatewayActivityNonce;
-
-    return {
-      ...transfer,
-      sourceBlockNumber: Number(receipt.blockNumber),
-      sourceBlockHash: receipt.blockHash,
-      sourceLogIndex,
-      gatewayActivityNonce,
-    };
+    throw new Error(`Ethereum receipt ${receipt.transactionHash} did not emit a matching inbound gateway activity.`);
   }
 
   public async getReadyGatewayRelayPreview(
@@ -673,19 +727,30 @@ export class EthereumClient {
     signer: { address: string; hdPath: `m/44'/60'/${string}` },
     options: GatewayRelayOptions = {},
   ): Promise<EthereumExecutionReceipt | undefined> {
-    const prepared = await this.prepareReadyGatewayRelay(finalizedClient, relayerArgonAddress, signer, options);
-    if (!prepared.canRelay || !prepared.transaction || !prepared.unsignedTransaction) {
-      return;
-    }
-    await this.ensureEthereumSignerPolicyConfigured();
-    const signature = await this.walletKeys.signEthereumTransaction(prepared.unsignedTransaction, signer.hdPath);
-    const hash = await submitEthereumTransaction({
-      publicClient: prepared.publicClient,
-      serializedTransaction: serializeTransaction(prepared.transaction, signature),
-      fallbackErrorMessage: 'Unable to submit the Ethereum relay transaction right now.',
+    const { chainId } = await this.loadChainConfig();
+    const submitted = await this.withSubmissionLock({ chainId, from: signer.address }, async () => {
+      const prepared = await this.prepareReadyGatewayRelay(finalizedClient, relayerArgonAddress, signer, options);
+      if (!prepared.canRelay || !prepared.transaction || !prepared.unsignedTransaction) return;
+      await this.configureSignerPolicy();
+      const signature = await this.walletKeys.signEthereumTransaction(prepared.unsignedTransaction, signer.hdPath);
+      const hash = await submitEthereumTransaction({
+        publicClient: prepared.publicClient,
+        serializedTransaction: serializeTransaction(prepared.transaction, signature),
+        fallbackErrorMessage: 'Unable to submit the Ethereum relay transaction right now.',
+      });
+      return { hash, publicClient: prepared.publicClient };
     });
+    if (!submitted) return;
+    return await waitForIndexedReceipt(submitted.publicClient, submitted.hash);
+  }
 
-    return await waitForIndexedReceipt(prepared.publicClient, hash);
+  public async configureSignerPolicy(chainConfig?: IEthereumChainConfig) {
+    const config = chainConfig ?? (await this.loadChainConfig());
+    await this.walletKeys.configureEthereumSignerPolicy({
+      chainId: config.chainId,
+      gatewayAddress: config.gatewayAddress,
+      tokenAddresses: [config.argonTokenAddress, config.argonotTokenAddress],
+    });
   }
 
   private async prepareReadyGatewayRelay(
@@ -815,15 +880,6 @@ export class EthereumClient {
     return chainConfig;
   }
 
-  private async ensureEthereumSignerPolicyConfigured(chainConfig?: IEthereumChainConfig) {
-    const config = chainConfig ?? (await this.loadChainConfig());
-    await this.walletKeys.configureEthereumSignerPolicy({
-      chainId: config.chainId,
-      gatewayAddress: config.gatewayAddress,
-      tokenAddresses: [config.argonTokenAddress, config.argonotTokenAddress],
-    });
-  }
-
   private async createExecutionClient() {
     const chainConfig = await this.loadChainConfig();
     const resolvedExecutionRpcUrl = this.executionRpcUrl.trim();
@@ -947,7 +1003,7 @@ export class EthereumClient {
         functionName: 'name',
       }),
     ]);
-    await this.ensureEthereumSignerPolicyConfigured(chainConfig);
+    await this.configureSignerPolicy(chainConfig);
     const permitSignature = await this.walletKeys.signEthereumPermit({
       tokenAddress,
       tokenName,
@@ -1608,9 +1664,7 @@ export function toHexValue(value: string): Hex {
   return value as Hex;
 }
 
-export function toArgonAccountIdHex(address: string): Hex {
-  return toHex(decodeAddress(address), { size: 32 });
-}
+export { toArgonAccountIdHex } from '@argonprotocol/apps-core';
 
 export function toEvmRecoverableSignature(signature: Hex): Hex {
   const bytes = hexToU8a(signature);
@@ -1631,7 +1685,7 @@ function divideCeil(dividend: bigint, divisor: bigint) {
   return (dividend + divisor - 1n) / divisor;
 }
 
-async function buildEthereumUnsignedTransaction(args: {
+export async function buildEthereumUnsignedTransaction(args: {
   publicClient: PublicClient;
   from: Address;
   chainId: number;

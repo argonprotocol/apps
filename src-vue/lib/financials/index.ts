@@ -348,7 +348,8 @@ export function calculatePositionReturn(
     settledPrincipalValue += position.settledPrincipalValue ?? 0n;
     const lifetimeIsIncomplete =
       positionIncome === undefined ||
-      ((position.kind === 'bond' || position.kind === 'vault') && position.returnIsComplete === false);
+      ((position.kind === 'bond' || position.kind === 'vault' || position.kind === 'stabilizer-buy') &&
+        position.returnIsComplete === false);
     if (lifetimeIsIncomplete) {
       if (
         (position.kind === 'bond' || position.kind === 'vault') &&
@@ -476,6 +477,6 @@ function isReturnPosition(position: IFinancialPosition): position is IFinancialI
     position.kind === 'vault' ||
     position.kind === 'bond' ||
     position.kind === 'bitcoin-liquid' ||
-    position.kind === 'stable-swap'
+    position.kind === 'stabilizer-buy'
   );
 }

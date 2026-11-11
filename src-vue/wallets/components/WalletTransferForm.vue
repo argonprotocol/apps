@@ -6,7 +6,7 @@
         <div :data-testid="props.testIdPrefix + '.amount'" class="w-8/12">
           <InputToken
             v-model="tokensToMove"
-            :min="0n"
+            :min="minimumAmount"
             :max="maxValue"
             :unitsPerToken="selectedMoveToken === MoveToken.BTC ? SATOSHIS_PER_BITCOIN : undefined"
             :maxDecimals="selectedMoveToken === MoveToken.BTC ? 8 : 2"
@@ -27,6 +27,7 @@
         class="relative mt-2 flex h-5 w-full touch-none items-center select-none"
         :min="0"
         :max="100"
+        :disabled="maxValue < minimumAmount"
         :step="selectedMoveToken === MoveToken.BTC ? 1 : 0.01"
         @pointerdown.capture="isSliding = true"
         @pointerup="isSliding = false"
@@ -40,7 +41,7 @@
         <SliderThumb class="block h-6 w-6 rounded-full border border-gray-400 bg-white shadow-sm focus:outline-none" />
       </SliderRoot>
       <div class="mt-1 flex justify-between text-xs text-stone-400">
-        <span>0 {{ selectedMoveToken }}</span>
+        <span>{{ microgonToArgonNm(minimumAmount).format('0,0.[00]') }} {{ selectedMoveToken }}</span>
         <span v-if="selectedMoveToken === MoveToken.BTC" :data-testid="props.testIdPrefix + '.maximum'">
           {{ satToBtcNm(maxValue).format('0,0.[00000000]') }} BTC
         </span>
@@ -204,15 +205,16 @@
 import * as Vue from 'vue';
 import {
   bigIntMax,
-  bigNumberToBigInt,
+  ETHEREUM_MIN_TRANSFER_AMOUNT,
+  getPercent,
   isValidArgonAccountAddress,
   MoveToken,
+  percentOf,
   raceWithTimeout,
   SATOSHIS_PER_BITCOIN,
 } from '@argonprotocol/apps-core';
 import { EvmContracts } from '@argonprotocol/mainchain';
 import { addressBytesHex } from '@argonprotocol/bitcoin';
-import BigNumber from 'bignumber.js';
 import { InformationCircleIcon } from '@heroicons/vue/24/outline';
 import { SliderRange, SliderRoot, SliderThumb, SliderTrack } from 'reka-ui';
 import AlertIcon from '../../assets/alert.svg';
@@ -319,6 +321,7 @@ const isOutboundTransfer = Vue.computed(
 const isBitcoinTransfer = Vue.computed(
   () => selectedMoveToken.value === MoveToken.BTC && selectedDestinationWallet.value?.type === WalletType.bitcoin,
 );
+const minimumAmount = Vue.computed(() => (isEthereumWallet(props.fromWallet) ? ETHEREUM_MIN_TRANSFER_AMOUNT : 0n));
 
 const bitcoinWallet = Vue.computed(() =>
   props.toWallets.find((wallet): wallet is WalletForBitcoin => wallet.type === WalletType.bitcoin),
@@ -395,16 +398,15 @@ const availableAmount = Vue.computed(() => {
 const maxValue = Vue.computed(() => maximumSpendableAmount.value ?? availableAmount.value);
 
 const sliderValue = Vue.computed<number[]>({
-  get: () =>
-    maxValue.value === 0n
-      ? [0]
-      : [BigNumber(tokensToMove.value.toString()).dividedBy(maxValue.value.toString()).multipliedBy(100).toNumber()],
+  get: () => {
+    const range = maxValue.value - minimumAmount.value;
+    if (range <= 0n) return [0];
+    return [getPercent(bigIntMax(tokensToMove.value - minimumAmount.value, 0n), range)];
+  },
   set: ([percentage]) => {
-    tokensToMove.value = bigNumberToBigInt(
-      BigNumber(maxValue.value.toString())
-        .multipliedBy(percentage ?? 0)
-        .dividedBy(100),
-    );
+    const range = maxValue.value - minimumAmount.value;
+    if (range < 0n) return;
+    tokensToMove.value = minimumAmount.value + percentOf(range, percentage ?? 0);
   },
 });
 
@@ -492,6 +494,9 @@ const hasValidDestination = Vue.computed(
 
 const submissionError = Vue.ref('');
 const formError = Vue.computed(() => {
+  if (tokensToMove.value > 0n && tokensToMove.value < minimumAmount.value) {
+    return `The minimum transfer from Ethereum is 0.01 ${selectedMoveToken.value}.`;
+  }
   if (submissionError.value) return submissionError.value;
   if (!isOutboundTransfer.value && maximumTransferError.value) return maximumTransferError.value;
   return bitcoinDestinationError.value;

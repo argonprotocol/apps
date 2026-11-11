@@ -183,7 +183,7 @@ export class BitcoinLiquidCreate extends TransactionOperation<
     const { client, snapshotBlockHash, priceIndex, currentBitcoinHeight, nextFissionId, allocations } =
       await this.readCurrentState(args);
     const metadata: IBitcoinLiquidCreateMetadata = {
-      liquidId: nextFissionId,
+      liquidId: nextFissionId + 1,
       snapshotBlockHash,
       fissions: [],
       resecuritizations: [],
@@ -258,7 +258,7 @@ export class BitcoinLiquidCreate extends TransactionOperation<
           const couponCredit = totalSecurityFee - paidSecurityFee;
           remainingFeeCreditByCouponId.set(operatorCoupon.coupon.id, bigIntMax(availableFeeCredit - couponCredit, 0n));
         }
-        fissionTxs.push(BitcoinFission.createTx({ client, liquidId: nextFissionId, ...fission, feeCoupon }));
+        fissionTxs.push(BitcoinFission.createTx({ client, liquidId: metadata.liquidId, ...fission, feeCoupon }));
       }
     } catch (error) {
       await this.failGuaranteePurchases(metadata);

@@ -10,9 +10,11 @@ export enum SyncStateKeys {
   FinancialHistory = 'FinancialHistory',
   BondHistory = 'BondHistory',
   VaultRevenue = 'VaultRevenue',
+  StabilizerBuys = 'StabilizerBuys',
+  StabilizerBuyOpportunities = 'StabilizerBuyOpportunities',
 }
 
-export type IFinancialHistoryDomain = 'bonds' | 'bitcoin' | 'vaulting';
+export type IFinancialHistoryDomain = 'bonds' | 'bitcoin' | 'vaulting' | 'stabilizer';
 
 type IWalletSyncState = Pick<
   IBlockHeaderInfo,
@@ -22,6 +24,17 @@ type IWalletSyncState = Pick<
 };
 
 export interface ISyncSchemas {
+  [SyncStateKeys.StabilizerBuyOpportunities]: {
+    accountId: string;
+    buyPoolId?: string;
+    bidFrame?: number;
+  };
+  [SyncStateKeys.StabilizerBuys]: {
+    accountId: string;
+    throughBlock: number;
+    definitionVersion?: number;
+    payoutRetryBlock?: number;
+  };
   [SyncStateKeys.VaultRevenue]: {
     accountId: string;
     fromBlock: number;

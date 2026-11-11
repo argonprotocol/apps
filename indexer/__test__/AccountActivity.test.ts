@@ -7,6 +7,104 @@ import { createHistoricalEventData } from './helpers/historicalEvents.ts';
 const emptyEventData = Object.assign([], { names: [], typeDef: [] });
 
 describe('AccountActivityDecoder', () => {
+  it('indexes a swap settlement and reward history for the Argon recipient', () => {
+    const account = encodeAddress(new Uint8Array(32).fill(19));
+    const settlement = {
+      section: 'crosschainTransfer',
+      method: 'TransferToArgonFromSwapSettled',
+      data: createHistoricalEventData(161, 'crosschainTransfer', 'TransferToArgonFromSwapSettled', {
+        sourceChain: 'Ethereum',
+        transfer: { to: account, amount: 150_000_000, asset: 'Argon', gatewayActivityNonce: 9 },
+        purchase: {},
+        purchaseTick: 50,
+      }),
+    };
+    const recorded = {
+      section: 'stabilizerBuys',
+      method: 'PurchaseRecorded',
+      data: createHistoricalEventData(161, 'stabilizerBuys', 'PurchaseRecorded', {
+        account,
+        admissionFrame: 10,
+        principal: 150_000_000,
+        matchingBasis: 2_000_000,
+      }),
+    };
+    const payout = {
+      section: 'stabilizerBuys',
+      method: 'PayoutCompleted',
+      data: createHistoricalEventData(161, 'stabilizerBuys', 'PayoutCompleted', {
+        account,
+        principal: 150_000_000,
+        reward: 1_000_000,
+      }),
+    };
+
+    const result = new AccountActivityDecoder().decode({
+      eventGroups: [{ extrinsicIndex: 1, extrinsicEvents: [recorded, settlement] }, { extrinsicEvents: [payout] }],
+      specVersion: 161,
+    });
+    expect(result.accounts).toEqual([{ address: account, mask: AccountActivityKind.Crosschain | (1 << 14) }]);
+  });
+
+  it.each(['UniswapPurchaseAdmissionFailed', 'LiquidRepaymentUnauthorized'])(
+    'indexes %s for the recipient even when a different account relays the proof',
+    method => {
+      const recipient = encodeAddress(new Uint8Array(32).fill(19));
+      const relayer = encodeAddress(new Uint8Array(32).fill(20));
+      const values: Record<string, unknown> = { sourceChain: 'Ethereum', gatewayActivityNonce: 9, account: recipient };
+      if (method === 'LiquidRepaymentUnauthorized') values.liquidId = 3;
+      else values.error = 'Unavailable';
+      const event = {
+        section: 'crosschainTransfer',
+        method,
+        data: createHistoricalEventData(161, 'crosschainTransfer', method, values),
+      };
+
+      const result = new AccountActivityDecoder().decode({
+        eventGroups: [{ sourceAccount: relayer, extrinsicIndex: 1, extrinsicEvents: [event] }],
+        specVersion: 161,
+      });
+      expect(result.accounts).toEqual([{ address: recipient, mask: AccountActivityKind.StabilizerBuy }]);
+    },
+  );
+
+  it('assigns every stabilizer event an explicit account or global disposition', () => {
+    const accountEvents = [
+      'BidSubmitted',
+      'LiquidRepaymentInvalid',
+      'LiquidRepaymentCompleted',
+      'LiquidRepaymentRewardAwarded',
+      'PayoutCompleted',
+      'PayoutFailed',
+      'PurchaseIneligible',
+      'PurchaseRecorded',
+      'RewardAwarded',
+    ];
+    const globalEvents = [
+      'ApprovedPoolChanged',
+      'AuctionAllocationFailed',
+      'AuctionFundingFailed',
+      'AuctionOpened',
+      'AuctionSettled',
+      'MatchingRateChanged',
+    ];
+    const methods = new Set(
+      historicalEventChanges.filter(change => change.section === 'stabilizerBuys').map(change => change.method),
+    );
+    expect([...accountEvents, ...globalEvents].sort()).toEqual([...methods].sort());
+    for (const method of accountEvents) {
+      expect(classifyEvent({ section: 'stabilizerBuys', method, data: emptyEventData } as any)).toBe(1 << 14);
+    }
+    for (const method of globalEvents) {
+      expect(classifyEvent({ section: 'stabilizerBuys', method, data: emptyEventData } as any)).toBe(0);
+    }
+    for (const method of ['PoolRegistered', 'PositionCheckpointed']) {
+      expect(classifyEvent({ section: 'stabilizerPools', method, data: emptyEventData } as any)).toBe(0);
+    }
+    expect(
+      classifyEvent({ section: 'ethereumVerifier', method: 'GloasForkScheduled', data: emptyEventData } as any),
+    ).toBe(0);
+  });
   it.each(['BidCommitted', 'BidRevealed', 'BidRejected', 'BidLost', 'WinningBidPriceChanged'])(
     'indexes %s as mining bid history for the named miner',
     method => {
@@ -667,7 +765,9 @@ const treasuryRevenueMethods = [
 const ignoredTreasuryMethods = [
   // Global reward configuration and burn failures do not change account custody.
   'RewardEconomicsConfigured',
+  'RewardReservesUpdated',
   'CouldNotBurnRewardAllocation',
+  'CouldNotSettleBondCollateral',
   'CouldNotDistributeEarningsToArgonotBondLot',
   'CouldNotDistributeEarningsToBondLot',
   'CouldNotTransferToTreasuryReserves',

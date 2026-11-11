@@ -381,6 +381,7 @@ export function setupBitcoinOverlayScenario() {
     data: Vue.reactive({
       fissionsById: { [currentFission.fissionId]: currentFission },
       activeFissionIds: new Set([currentFission.fissionId]),
+      pendingRepaymentLiquidIds: new Set<number>(),
     }),
     load: fn(async () => undefined),
   });

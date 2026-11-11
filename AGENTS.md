@@ -31,6 +31,13 @@ These rules apply to implementation and review in this repository. Keep changes 
 - Group `<script setup>` declarations by concern, with blank lines between groups. Keep related reactive state, computed values, and watchers together, and keep declarations near their use.
 - Use `v-if`/`v-else` for substantial rendering branches. Allow ternaries only for short, simple value choices; do not use nested or multiline ternaries in templates.
 
+## Financial Days and Terms
+
+- One frame represents one financial day on every network. Short dev/localnet frames simulate full days. A 30-day product term must still display 30 days and use the same financial duration for projected APY on accelerated networks.
+- Normalize protocol duration units once in the owning published snapshot. For constants expressed in protocol-day ticks, use the runtime's declared ticks-per-day unit; do not divide them by shortened dev frame lengths. Consumers reuse the normalized term instead of repeating conversions in Vue, alerts, or financials.
+- Actual chain maturity ticks, release dates, countdowns, deadlines, recorded timestamps, and calendar market history retain their actual timing. Do not change release eligibility to match a display convention.
+- Regression fixtures must use the producer's actual duration constants on both normal and accelerated networks. Do not manufacture a matching duration with `expectedDays * NetworkConfig.rewardTicksPerFrame`; that can hide errors such as a 30-day term displaying as 4,320 days.
+
 ## Storybook UI Coverage
 
 - Use Storybook for broad visual coverage of major screens, overlays, and workflows, not an exhaustive inventory of every possible UI state.

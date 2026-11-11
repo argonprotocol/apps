@@ -1,7 +1,8 @@
-import { PriceIndex } from '@argonprotocol/mainchain';
+import { PriceIndex, getOfflineRegistry } from '@argonprotocol/mainchain';
 import BigNumber from 'bignumber.js';
 import { Metadata, TypeRegistry } from '@polkadot/types';
-import { decorateConstants } from '@polkadot/types/metadata/decorate';
+import { decorateConstants, decorateStorage } from '@polkadot/types/metadata/decorate';
+import { StabilizerBuy, StabilizerBuysUnavailableError } from '../src/StabilizerBuy.ts';
 import { getBundledMetadata, runtimeClient } from '@argonprotocol/runtime-client';
 import { describe, expect, it } from 'vitest';
 import { BitcoinLock } from '../src/BitcoinLock.ts';
@@ -9,14 +10,37 @@ import { BitcoinFission } from '../src/BitcoinFission.ts';
 import { Vault } from '../src/Vault.ts';
 import type { ArgonCurrentQueryClient } from '../src/MainchainClients.ts';
 
-// Only storage transport is replaced; both codecs and native decoding use shipped runtime metadata.
-describe.each([160, 161])('runtime %s protocol normalization', spec => {
+it('requires an upgrade before starting Stabilizer Buys on the deployed runtime', async () => {
   const registry = new TypeRegistry();
   const metadata = new Metadata(
     registry,
-    Object.entries(getBundledMetadata()).find(([key]) => key.endsWith(`-${spec}`))![1],
+    Object.entries(getBundledMetadata()).find(([key]) => key.endsWith('-160'))![1],
   );
   registry.setMetadata(metadata);
+  const client = runtimeClient({
+    registry,
+    query: decorateStorage(registry, metadata.asLatest, metadata.version),
+  }) as unknown as ArgonCurrentQueryClient;
+  const account = registry.createType('AccountId32', new Uint8Array(32).fill(17));
+  await expect(StabilizerBuy.getForAccount(client, account.toString())).rejects.toBeInstanceOf(
+    StabilizerBuysUnavailableError,
+  );
+  await expect(BitcoinFission.getPendingRepaymentLiquidIds(client, account.toString())).resolves.toEqual(new Set());
+});
+
+// Only storage transport is replaced; both codecs and native decoding use shipped runtime metadata.
+describe.each([160, 161])('runtime %s protocol normalization', spec => {
+  const registry = spec === 161 ? getOfflineRegistry() : new TypeRegistry();
+  let metadata: Metadata;
+  if (spec === 161) {
+    metadata = new Metadata(registry, { metadata: { V16: registry.metadata } });
+  } else {
+    metadata = new Metadata(
+      registry,
+      Object.entries(getBundledMetadata()).find(([key]) => key.endsWith(`-${spec}`))![1],
+    );
+    registry.setMetadata(metadata);
+  }
   const ownerAccount = new Uint8Array(32).fill(17);
   const guarantee = {
     basis: { satoshis: 3n, microgonsAtTargetPerBtc: 1_000_000_000n, tick: 12 },
@@ -308,6 +332,8 @@ describe.each([160, 161])('runtime %s protocol normalization', spec => {
       satoshis: 30n,
       microgonsAtTargetPerBtc: 1_000_000_000n,
       liquidityPromised: 300n,
+      lastRatchetTick: 17,
+      lastRatchetPriceTick: 17,
       cosignerGuarantee: { ...guarantee, basis: { ...guarantee.basis, satoshis: 30n }, guaranteedMicrogons: 300n },
     });
     const client = runtimeClient({
@@ -317,6 +343,7 @@ describe.each([160, 161])('runtime %s protocol normalization', spec => {
     const fission = await BitcoinFission.get(client, registry.createType('AccountId32', ownerAccount).toString(), 3);
 
     expect(fission?.liquidityPromised).toBe(300n);
+    expect(fission?.lastRatchetTick).toBe(17);
     if (spec === 160) expect(fission?.cosignerGuarantee).toBeUndefined();
     else expect(fission?.cosignerGuarantee?.guaranteedMicrogons).toBe(300n);
   });

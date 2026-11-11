@@ -61,9 +61,12 @@ export * from './GlobalVaultingStats.js';
 export * from './GlobalMiningStats.js';
 export * from './Ethereum.js';
 export * from './BondLot.js';
+export * from './StabilizerBuy.js';
 export * from './VaultDelegateFunding.js';
 export type { PreviousRuntimeSpec } from './runtimeCompatibility.js';
 
 export * from './utils.js';
 
 export { BiddingCalculatorData, BiddingCalculator, bitcoinPrices, bitcoinFees };
+
+export * from './StabilizerBuyContracts.js';

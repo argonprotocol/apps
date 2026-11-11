@@ -25,6 +25,7 @@ type DeferredFissionEvent = {
   eventLockId: number | undefined;
   block: IBlockHeaderInfo;
   record: NamedFissionRecoveryEventRecord;
+  eventIndex: number;
   transactionFee?: bigint;
   netSecurityFee: bigint;
 };
@@ -89,7 +90,7 @@ export class BitcoinFissionRecovery {
   ): Promise<void> {
     const eventRecords = rawEventRecords as readonly NamedFissionRecoveryEventRecord[];
 
-    for (const record of eventRecords) {
+    for (const [eventIndex, record] of eventRecords.entries()) {
       try {
         const { event } = record;
         if (!BitcoinFission.isOwnedEvent(event, this.ownerAccount)) continue;
@@ -120,10 +121,18 @@ export class BitcoinFissionRecovery {
           this.ownerAccount,
         );
         if (event.method !== 'FissionCreated' && !knownRecord) {
-          replay.deferredEvents.push({ fissionId, eventLockId, block, record, transactionFee, netSecurityFee });
+          replay.deferredEvents.push({
+            fissionId,
+            eventLockId,
+            block,
+            record,
+            eventIndex,
+            transactionFee,
+            netSecurityFee,
+          });
           continue;
         }
-        await this.applyEvent(replay, block, record, transactionFee, netSecurityFee);
+        await this.applyEvent(replay, block, record, eventIndex, transactionFee, netSecurityFee);
       } catch (error) {
         if (!isolateFailures || !this.recordReplayFailure(replay, error)) throw error;
       } finally {
@@ -143,7 +152,7 @@ export class BitcoinFissionRecovery {
       if (replay.unscopedFailure) throw new Error(replay.unscopedFailure);
       const activeFissions = this.getActiveFissions();
       for (const deferred of replay.deferredEvents) {
-        const { fissionId, eventLockId, block, record, transactionFee, netSecurityFee } = deferred;
+        const { fissionId, eventLockId, block, record, eventIndex, transactionFee, netSecurityFee } = deferred;
         if (replay.failureByFissionId.has(fissionId)) continue;
         const knownRecord = replay.recordsByFissionId.get(fissionId);
         let failureLockId = knownRecord?.lockId;
@@ -179,7 +188,7 @@ export class BitcoinFissionRecovery {
             if (!migrated) throw new Error(missingCreationMessage);
             replay.recordsByFissionId.set(fissionId, migrated);
           }
-          await this.applyEvent(replay, block, record, transactionFee, netSecurityFee);
+          await this.applyEvent(replay, block, record, eventIndex, transactionFee, netSecurityFee);
         } catch (error) {
           const message = error instanceof Error ? error.message : String(error);
           if (failureLockId === undefined) replay.unscopedFailure = message;
@@ -269,6 +278,7 @@ export class BitcoinFissionRecovery {
     replay: FissionHistoryReplay,
     block: IBlockHeaderInfo,
     record: NamedFissionRecoveryEventRecord,
+    eventIndex: number,
     transactionFee?: bigint,
     netSecurityFee?: bigint,
   ): Promise<void> {
@@ -310,6 +320,7 @@ export class BitcoinFissionRecovery {
         record: existing,
         block,
         event,
+        eventIndex,
         extrinsicIndex: readExtrinsicIndex(record),
         transactionFee,
         netSecurityFee,
@@ -372,6 +383,7 @@ export class BitcoinFissionRecovery {
       liquidId: fissionId,
       lockId,
       satoshis,
+      initialSatoshis: satoshis,
       microgonsAtTargetPerBtc: convertBitcoinTargetValueToPricePerBtc(lock.lockedTargetPrice, satoshis),
       liquidityPromised: lock.liquidityPromised,
       createdAtArgonBlock,

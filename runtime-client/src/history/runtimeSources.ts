@@ -11,7 +11,7 @@ export function upsertCurrentRuntimeSource(
 
   return {
     ...registry,
-    [input.specVersion]: [input.source],
+    [input.specVersion]: [...new Set([...(registry[input.specVersion] ?? []), input.source])],
   };
 }
 

@@ -708,6 +708,7 @@ pub fn run() {
         .plugin(logger.build())
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_autostart::Builder::new()
                 .app_name(app_name)
                 .build(),

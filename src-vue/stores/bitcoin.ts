@@ -85,9 +85,7 @@ function connectBitcoinCurrentState(): void {
   if (!locks || !fissions || unsubscribeFissionStateRefresh) return;
 
   unsubscribeFissionStateRefresh = locks.events.on('fissions:changed', change => {
-    void fissions.syncFinalizedBlock(change.block, change.events, change.client).catch(error => {
-      console.warn('[BitcoinFissions] Unable to refresh current state after a chain event', error);
-    });
+    return fissions.syncFinalizedBlock(change.block, change.events, change.client);
   });
 }
 

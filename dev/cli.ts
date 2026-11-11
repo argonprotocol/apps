@@ -6,6 +6,7 @@ const commands = [
   'desktop',
   'fund',
   'fund-ethereum',
+  'price',
   'logs',
   'status',
   'stop',

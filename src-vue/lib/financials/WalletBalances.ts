@@ -26,7 +26,7 @@ type WalletFinancialPosition = IWalletBalanceFinancialPosition | IWalletHoldingF
 
 type WalletFinancialPositionArgs = {
   accounts: readonly IArgonAccountBalance[];
-  claimedHolds: { treasury: boolean; miningSlot: boolean; vaults: boolean };
+  claimedHolds: { treasury: boolean; miningSlot: boolean; vaults: boolean; stabilizerBuys?: boolean };
   claimedMicronotsByAccount?: ReadonlyMap<string, bigint>;
   liveArgonotRateMicrogons?: bigint;
   hasConfirmedHistoryCoverage?: boolean;
@@ -199,10 +199,7 @@ export class WalletFinancials
   }
 }
 
-function getBalanceBuckets(
-  account: IArgonAccountBalance,
-  claimedHolds: { treasury: boolean; miningSlot: boolean; vaults: boolean },
-) {
+function getBalanceBuckets(account: IArgonAccountBalance, claimedHolds: WalletFinancialPositionArgs['claimedHolds']) {
   const totalMicrogonHolds = account.microgonHolds.reduce((sum, hold) => sum + hold.amount, 0n);
   const totalMicronotHolds = account.micronotHolds.reduce((sum, hold) => sum + hold.amount, 0n);
   if (totalMicrogonHolds > account.reservedMicrogons) {
@@ -237,10 +234,11 @@ function getBalanceBuckets(
 
 function isClaimedFinancialHold(
   hold: IArgonAccountBalance['microgonHolds'][number],
-  claimedHolds: { treasury: boolean; miningSlot: boolean; vaults: boolean },
+  claimedHolds: WalletFinancialPositionArgs['claimedHolds'],
 ): boolean {
   if (hold.id.type === 'Treasury') return claimedHolds.treasury;
   if (hold.id.type === 'MiningSlot') return claimedHolds.miningSlot;
+  if (hold.id.type === 'StabilizerBuys') return claimedHolds.stabilizerBuys === true;
   if (hold.id.type !== 'Vaults') return false;
   return claimedHolds.vaults && (hold.id.value.type === 'EnterVault' || hold.id.value.type === 'PendingCollect');
 }

@@ -45,15 +45,6 @@
               <Returns metric="APR" :returns="{ apr: vaultingStats.bitcoinAPR }" :showLabel="false" />
             </div>
           </li>
-          <li class="flex items-center justify-between rounded border border-blue-300/30 bg-blue-100/30 px-3 py-2">
-            <div class="leading-tight">
-              <header class="font-bold">Stable Swaps</header>
-              <span class="text-base opacity-80">Arbitrage the Swings</span>
-            </div>
-            <div class="rounded bg-blue-100/80 px-3 py-2 text-2xl leading-none font-bold">
-              <Returns metric="APR" :showLabel="false" />
-            </div>
-          </li>
         </ul>
 
         <div
@@ -95,10 +86,6 @@
             <p>
               <strong class="font-bold">Bitcoin Locks</strong>
               earn fees for providing the collateral backing the massive shorts applied against Argon's peg.
-            </p>
-            <p>
-              <strong class="font-bold">Stable Swaps</strong>
-              provide short-term liquidity for whenever Argon deviates from its peg.
             </p>
           </div>
         </div>

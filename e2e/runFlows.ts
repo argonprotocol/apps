@@ -3,12 +3,15 @@
 import process from 'node:process';
 import { resolveTestSessionCommandEnv } from '@argonprotocol/apps-core/__test__/startArgonTestNetwork.ts';
 import { cleanDevDocker } from '../dev/cleanDocker.ts';
-import { AppSession } from './AppSession.ts';
+import { AppSession, type AppSessionOptions } from './AppSession.ts';
 import { FlowSession } from './FlowSession.ts';
 import { getFlow, listFlows } from './flows/index.ts';
+import stabilizerBuyFlow, { stabilizerBuySessionOptions } from './flows/operations/App.flow.stabilizerBuyAndBid.ts';
 
 const DISCOVERED_FLOW_NAMES = listFlows().map(flow => flow.name);
-const DEFAULT_FLOWS = DISCOVERED_FLOW_NAMES.filter(name => name !== 'App.flow.runManual');
+const DEFAULT_FLOWS = DISCOVERED_FLOW_NAMES.filter(
+  name => name !== 'App.flow.runManual' && name !== stabilizerBuyFlow.name,
+);
 const DEFAULT_APP_PORT = 1420;
 let shutdownRequested = false;
 let shutdownExitCode = 130;
@@ -87,7 +90,13 @@ async function main(): Promise<void> {
     }
   }
 
-  session = await FlowSession.start({ useTestNetwork, sessionName, sessionMode });
+  const sessionOptions: AppSessionOptions = { useTestNetwork, sessionName, sessionMode };
+  if (flowNames.includes(stabilizerBuyFlow.name)) {
+    if (flowNames.length !== 1 || !useTestNetwork)
+      throw new Error('Run the Stabilizer buy-and-bid flow alone on an isolated test network.');
+    Object.assign(sessionOptions, stabilizerBuySessionOptions);
+  }
+  session = await FlowSession.start(sessionOptions);
 
   try {
     for (const name of flowNames) {

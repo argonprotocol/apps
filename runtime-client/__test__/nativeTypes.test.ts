@@ -43,7 +43,7 @@ describe('native runtime query types', () => {
       args: ['string', 'number'],
       result: expect.stringContaining('readonly liquidId: number'),
     });
-    expect(queries.bitcoinFissions?.fissionByOwnerAndId?.result).toContain('readonly lastRatchetTick: number');
+    expect(queries.bitcoinFissions?.fissionByOwnerAndId?.result).toContain('readonly lastRatchetPriceTick: number');
     expect(queries.bitcoinFissions?.fissionByOwnerAndId?.result).toContain('readonly cosignerGuarantee: {');
     expect(queries.bitcoinFissions?.fissionByOwnerAndId?.result).toContain('readonly guaranteedMicrogons: bigint');
     expect(queries.bitcoinFissions?.fissionIdsByLockId).toEqual({

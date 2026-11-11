@@ -12,16 +12,16 @@
       </div>
 
       <div class="flex min-h-0 grow flex-row gap-x-2 overflow-scroll p-2">
-        <LeftBar />
+        <LeftBar :hasStabilizerOpportunity="!!attention?.stabilizerBuyOpportunity" />
         <main class="relative flex min-h-0 grow flex-col overflow-hidden">
           <div class="flex min-h-0 grow flex-col overflow-x-hidden overflow-y-auto">
             <Home v-if="controller.selectedTab === TopTab.Home || controller.selectedTab === 'Dashboard' as TopTab" />
             <Network v-else-if="controller.selectedTab === TopTab.Network" />
+            <MarketStabilizers v-else-if="controller.selectedTab === TopTab.MarketStabilizers" />
 
             <ArgonBonds v-else-if="controller.selectedTab === TopTab.ArgonBonds" />
             <ArgonotStakes v-else-if="controller.selectedTab === TopTab.ArgonotStaking" />
             <Bitcoin v-else-if="controller.selectedTab === TopTab.BitcoinLocks" />
-            <StableSwaps v-else-if="controller.selectedTab === TopTab.StableSwaps" />
 
             <Mining v-else-if="controller.selectedTab === TopTab.Mining" />
             <Vaulting v-else-if="controller.selectedTab === TopTab.Vaulting" />
@@ -92,6 +92,7 @@ import { runtimeClient } from '@argonprotocol/runtime-client';
 import './lib/Env.ts'; // load env first
 import * as Vue from 'vue';
 import Network from './screens/Network.vue';
+import MarketStabilizers from './screens/MarketStabilizers.vue';
 import Mining from './screens/Mining.vue';
 import Vaulting from './screens/Vaulting.vue';
 import CrosschainTransfers from './screens/CrosschainTransfers.vue';
@@ -132,7 +133,7 @@ import DiscordVerificationOverlay from './overlays/DiscordVerificationOverlay.vu
 import ArgonBonds from './screens/ArgonBonds.vue';
 import Bitcoin from './screens/Bitcoin.vue';
 import LeftBar from './navigation/LeftBar.vue';
-import StableSwaps from './screens/StableSwaps.vue';
+import { useAttention, openStabilizerBuyNotice } from './stores/attention.ts';
 import Home from './screens/Home.vue';
 import WelcomeToTreasuryOverlay from './overlays/WelcomeToTreasuryOverlay.vue';
 import UpgradeToOperationsOverlay from './overlays/UpgradeToOperationsOverlay.vue';
@@ -155,11 +156,13 @@ import { useRuntimeCompatibility } from './stores/runtimeCompatibility.ts';
 import { createMenu } from './NativeMenu.ts';
 import { getMainchainClients } from './stores/mainchain.ts';
 import type { EncryptionAuthentication } from './lib/EncryptionSecret.ts';
+import basicEmitter from './emitters/basicEmitter.ts';
 
 let foregroundRefreshPromise: Promise<void> | undefined;
 let lastForegroundFinalizedHash: string | undefined;
 
 const startup = useStartupStore();
+const attention = Vue.computed(() => (startup.isWalletReady ? useAttention() : undefined));
 const compatibility = useRuntimeCompatibility();
 const controller = Vue.computed(() => useCertificationController());
 const config = Vue.computed(() => getConfig());
@@ -180,6 +183,7 @@ async function openAccount(authentication?: EncryptionAuthentication) {
 }
 
 Vue.onMounted(() => {
+  basicEmitter.on('openStabilizerBuyNotice', openStabilizerBuyNotice);
   window.addEventListener('beforeunload', disposeTransports);
   window.addEventListener('focus', refreshFinalizedStateOnFocus);
 
@@ -200,6 +204,7 @@ Vue.onMounted(() => {
 });
 
 Vue.onBeforeUnmount(() => {
+  basicEmitter.off('openStabilizerBuyNotice', openStabilizerBuyNotice);
   window.removeEventListener('beforeunload', disposeTransports);
   window.removeEventListener('focus', refreshFinalizedStateOnFocus);
 });

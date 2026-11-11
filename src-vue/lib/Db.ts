@@ -16,8 +16,6 @@ import { VaultRevenueEventsTable } from './db/VaultRevenueEventsTable.ts';
 import { WalletTransfersTable } from './db/WalletTransfersTable.ts';
 import { BitcoinUtxosTable } from './db/BitcoinUtxosTable.ts';
 import { TransactionStatusHistoryTable } from './db/TransactionStatusHistoryTable.ts';
-import { StableSwapSyncStateTable } from './db/StableSwapSyncStateTable.ts';
-import { StableSwapPurchasesTable } from './db/StableSwapPurchasesTable.ts';
 import { CrosschainInboundTransfersTable } from './db/CrosschainInboundTransfersTable.ts';
 import { CrosschainOutboundTransfersTable } from './db/CrosschainOutboundTransfersTable.ts';
 import { WalletHdKeysTable } from './db/WalletHdKeysTable.ts';
@@ -29,6 +27,7 @@ import { FinancialCacheTable } from './db/FinancialCacheTable.ts';
 import { BitcoinFissionsTable } from './db/BitcoinFissionsTable.ts';
 import { BitcoinSecuritizationHistoryTable } from './db/BitcoinSecuritizationHistoryTable.ts';
 import { BitcoinReleasesTable } from './db/BitcoinReleasesTable.ts';
+import { StabilizerBuysTable } from './db/StabilizerBuysTable.ts';
 
 const SQL_TRANSACTION_SESSION_ID = crypto.randomUUID();
 
@@ -52,8 +51,6 @@ export class Db {
   public walletHdKeysTable: WalletHdKeysTable;
   public walletsTable: WalletsTable;
   public bitcoinUtxosTable: BitcoinUtxosTable;
-  public stableSwapSyncStateTable: StableSwapSyncStateTable;
-  public stableSwapPurchasesTable: StableSwapPurchasesTable;
   public bondLotHistoryTable: BondLotHistoryTable;
   public bondEarningsTable: BondEarningsTable;
   public vaultCapitalHistoryTable: VaultCapitalHistoryTable;
@@ -61,6 +58,7 @@ export class Db {
   public bitcoinFissionsTable: BitcoinFissionsTable;
   public bitcoinSecuritizationHistoryTable: BitcoinSecuritizationHistoryTable;
   public bitcoinReleasesTable: BitcoinReleasesTable;
+  public stabilizerBuysTable: StabilizerBuysTable;
   private readonly transactionId?: number;
   private readonly tableStates: Map<object, unknown>;
   private readonly commitCallbacks: (() => void)[] = [];
@@ -93,8 +91,6 @@ export class Db {
     this.walletHdKeysTable = new WalletHdKeysTable(this);
     this.walletsTable = new WalletsTable(this);
     this.bitcoinUtxosTable = new BitcoinUtxosTable(this);
-    this.stableSwapSyncStateTable = new StableSwapSyncStateTable(this);
-    this.stableSwapPurchasesTable = new StableSwapPurchasesTable(this);
     this.bondLotHistoryTable = new BondLotHistoryTable(this);
     this.bondEarningsTable = new BondEarningsTable(this);
     this.vaultCapitalHistoryTable = new VaultCapitalHistoryTable(this);
@@ -102,6 +98,7 @@ export class Db {
     this.bitcoinFissionsTable = new BitcoinFissionsTable(this);
     this.bitcoinSecuritizationHistoryTable = new BitcoinSecuritizationHistoryTable(this);
     this.bitcoinReleasesTable = new BitcoinReleasesTable(this);
+    this.stabilizerBuysTable = new StabilizerBuysTable(this);
   }
 
   public getTableState<State>(table: object, initialize: () => State): State {

@@ -216,7 +216,12 @@ function createBitcoinLiquid(
   const fragmentsByTransaction = new Map<string, FissionHistoryFragment[]>();
   for (const fission of fissions) {
     let liabilityBefore = 0n;
+    let previousBlock = -1;
     for (const ratchet of fission.ratchets) {
+      const repaid = fission.repayments
+        .filter(repayment => repayment.blockNumber > previousBlock && repayment.blockNumber <= ratchet.blockNumber)
+        .reduce((sum, repayment) => sum + repayment.liquidityRepaid, 0n);
+      liabilityBefore -= repaid;
       const liabilityAfter =
         ratchet.liquidityPromised ??
         (ratchet.amountBurned > 0n ? ratchet.amountMinted : liabilityBefore + ratchet.amountMinted);
@@ -225,12 +230,22 @@ function createBitcoinLiquid(
       fragments.push({ fission, ratchet, liabilityBefore, liabilityAfter });
       fragmentsByTransaction.set(key, fragments);
       liabilityBefore = liabilityAfter;
+      previousBlock = ratchet.blockNumber;
     }
   }
 
   const liabilityByFissionId = new Map<number, bigint>();
   const targetByFissionId = new Map<number, bigint>();
   let totalLiability = 0n;
+  const repaymentTimeline = fissions
+    .flatMap(fission => fission.repayments.map(repayment => ({ fissionId: fission.fissionId, repayment })))
+    .sort(
+      (left, right) =>
+        left.repayment.blockNumber - right.repayment.blockNumber ||
+        left.repayment.eventIndex - right.repayment.eventIndex,
+    );
+  let repaymentIndex = 0;
+
   const history = [...fragmentsByTransaction]
     .map(([, fragments]) => ({ key: getHistoryEntryKey(fragments), fragments }))
     .sort((left, right) => {
@@ -243,6 +258,16 @@ function createBitcoinLiquid(
     })
     .map(({ key, fragments }): IBitcoinLiquidHistoryEntry => {
       const first = fragments[0].ratchet;
+      while (repaymentIndex < repaymentTimeline.length) {
+        const { fissionId, repayment } = repaymentTimeline[repaymentIndex];
+        if (repayment.blockNumber > first.blockNumber) break;
+
+        const previousLiability = liabilityByFissionId.get(fissionId) ?? 0n;
+        liabilityByFissionId.set(fissionId, previousLiability - repayment.liquidityRepaid);
+        totalLiability -= repayment.liquidityRepaid;
+        repaymentIndex += 1;
+      }
+
       const liabilityBefore = totalLiability;
       let affectedSatoshis = 0n;
       let previousTargetSatoshis = 0n;
@@ -256,17 +281,21 @@ function createBitcoinLiquid(
 
       for (const fragment of fragments) {
         const { fission, ratchet, liabilityAfter: fissionLiabilityAfter } = fragment;
-        affectedSatoshis += fission.satoshis;
+        const repaidSatoshis = fission.repayments
+          .filter(repayment => repayment.blockNumber <= ratchet.blockNumber)
+          .reduce((sum, repayment) => sum + repayment.satoshis, 0n);
+        const satoshis = fission.originalSatoshis - repaidSatoshis;
+        affectedSatoshis += satoshis;
         const targetPerBtc =
           ratchet.source === 'fission'
             ? ratchet.microgonsAtTargetPerBtc
-            : (ratchet.microgonsAtTargetPerBtc * SATOSHIS_PER_BITCOIN) / fission.satoshis;
+            : (ratchet.microgonsAtTargetPerBtc * SATOSHIS_PER_BITCOIN) / satoshis;
         const previousTargetPerBtc = targetByFissionId.get(fission.fissionId);
         if (previousTargetPerBtc !== undefined) {
-          previousTargetSatoshis += fission.satoshis;
-          weightedPreviousTarget += previousTargetPerBtc * fission.satoshis;
+          previousTargetSatoshis += satoshis;
+          weightedPreviousTarget += previousTargetPerBtc * satoshis;
         }
-        weightedTarget += targetPerBtc * fission.satoshis;
+        weightedTarget += targetPerBtc * satoshis;
         if (fragment.liabilityAfter > fragment.liabilityBefore) {
           liquidityUnlocked += fragment.liabilityAfter - fragment.liabilityBefore;
           liquidityPending += ratchet.mintPending;

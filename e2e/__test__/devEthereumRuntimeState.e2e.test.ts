@@ -25,6 +25,7 @@ const runtimeState = {
     gatewayAddress: `0x${'11'.repeat(20)}`,
     argonTokenAddress: `0x${'22'.repeat(20)}`,
     argonotTokenAddress: `0x${'33'.repeat(20)}`,
+    buyAndTransferAddress: `0x${'44'.repeat(20)}`,
   },
   setupStatus: 'starting',
 } as const;
@@ -72,6 +73,12 @@ async function startEthereumRpc(gateway = runtimeState.gateway) {
         };
       }
       const callData = body.params?.[0]?.data;
+      if (body.method === 'eth_call' && callData?.startsWith(toFunctionSelector('decimals()'))) {
+        result = padHex('0x06', { size: 32 });
+      }
+      if (body.method === 'eth_call' && callData?.startsWith(toFunctionSelector('swapContract()'))) {
+        result = padHex(gateway.buyAndTransferAddress, { size: 32 });
+      }
       if (body.method === 'eth_call' && callData?.startsWith(toFunctionSelector('argonToken()'))) {
         result = padHex(gateway.argonTokenAddress, { size: 32 });
       }
@@ -271,6 +278,7 @@ describe('dev Ethereum runtime state', () => {
       }
       return { executionRpcUrl: rpc.url, beaconApiUrl: rpc.url, chainId: runtimeState.chainId };
     });
+    vi.spyOn(TestEthereum.prototype, 'deployUsdcFixture').mockResolvedValue(runtimeState.usdcTokenAddress);
 
     try {
       const config = {
@@ -311,6 +319,7 @@ describe('dev Ethereum runtime state', () => {
   ])('cleans up a failed launch and saves the deployment after retrying %s', async message => {
     const rpc = await startEthereumRpc();
     vi.spyOn(TestEthereum, 'isInstalled').mockReturnValue(true);
+    vi.spyOn(TestEthereum.prototype, 'deployUsdcFixture').mockResolvedValue(runtimeState.usdcTokenAddress);
     const teardown = vi.spyOn(TestEthereum.prototype, 'teardown');
     const launch = vi
       .spyOn(TestEthereum.prototype, 'launch')
@@ -471,14 +480,13 @@ describe('dev Ethereum runtime state', () => {
     }
   });
 
-  it('recovers the deployment that matches the configured mainchain gateway', async () => {
+  it('rejects a stale adapter binding and recovers the deployment configured on Argon', async () => {
     const compatibleRpc = await startEthereumRpc();
     const incompatibleGateway: typeof runtimeState.gateway = {
-      gatewayAddress: `0x${'44'.repeat(20)}`,
-      argonTokenAddress: `0x${'55'.repeat(20)}`,
-      argonotTokenAddress: `0x${'66'.repeat(20)}`,
+      ...runtimeState.gateway,
+      buyAndTransferAddress: `0x${'55'.repeat(20)}`,
     };
-    const incompatibleRpc = await startEthereumRpc(incompatibleGateway);
+    const incompatibleRpc = await startEthereumRpc();
     await writeDevEthereumRuntimeState({
       ...runtimeState,
       executionRpcUrl: compatibleRpc.url,
@@ -506,7 +514,11 @@ describe('dev Ethereum runtime state', () => {
           finalityMillis: 16_000,
           finalityBlocks: 16,
         },
-        runtimeState.gateway,
+        {
+          gatewayAddress: runtimeState.gateway.gatewayAddress,
+          argonTokenAddress: runtimeState.gateway.argonTokenAddress,
+          argonotTokenAddress: runtimeState.gateway.argonotTokenAddress,
+        },
       );
 
       expect(ethereum.enclaveName).toBe(runtimeState.enclaveName);

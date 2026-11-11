@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import BigNumber from 'bignumber.js';
 import { setFetchImplementation } from '@argonprotocol/apps-core';
 import { Currency, UnitOfMeasurement } from '../lib/Currency.ts';
+import type { HistoricalQueryRecord } from '@argonprotocol/runtime-client';
 
 describe('Currency', () => {
   afterEach(() => {
@@ -54,6 +55,47 @@ describe('Currency', () => {
     await currency.fetchMainchainRates();
     expect(currency.microgonsPer.ETH).toBe(2_500_000_000n);
     expect(currency.hasEthPrice).toBe(true);
+  });
+
+  it('loads and updates exchange rates when the oracle includes a bigint pool price', async () => {
+    const prices = {
+      btcUsdPrice: BigNumber(50_000),
+      argonotUsdPrice: BigNumber(1),
+      argonUsdPrice: BigNumber(1),
+      argonUsdTargetPrice: BigNumber(1),
+      argonTimeWeightedAverageLiquidity: BigNumber(500_000_000),
+      usdcUsdPrice: BigNumber(1),
+      stabilizerPoolSqrtPriceX96: 79_228_162_514_264_337_593_543n,
+      tick: 1,
+    } satisfies NonNullable<HistoricalQueryRecord<'priceIndex', 'current'>>;
+
+    let onPriceIndex: (value: typeof prices) => void;
+    const current = vi.fn((callback?: typeof onPriceIndex) => {
+      if (callback) {
+        onPriceIndex = callback;
+        return Promise.resolve(() => undefined);
+      }
+      return Promise.resolve(prices);
+    });
+    setFetchImplementation(async () => new Response(JSON.stringify({ price: '2500', rates: {} }), { status: 200 }));
+
+    const currency = new Currency(
+      {
+        prunedClientOrArchivePromise: Promise.resolve({ query: { priceIndex: { current } } }),
+        events: { on: vi.fn() },
+      } as any,
+      { isLoadedPromise: Promise.resolve(), defaultCurrencyKey: UnitOfMeasurement.USD } as any,
+    );
+    currency.microgonsPer = { ...currency.microgonsPer };
+
+    vi.useFakeTimers();
+    await currency.load();
+    expect(currency.isLoaded).toBe(true);
+    expect(currency.microgonsPer.USD).toBe(1_000_000n);
+
+    onPriceIndex!({ ...prices, argonUsdTargetPrice: BigNumber(2), tick: 2 });
+    expect(currency.microgonsPer.USD).toBe(500_000n);
+    expect(currency.priceIndex.lastUpdatedTick).toBe(2);
   });
 
   it('retries the initial load after a config bootstrap failure', async () => {

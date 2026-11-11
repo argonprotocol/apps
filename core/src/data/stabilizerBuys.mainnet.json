@@ -1,0 +1,541 @@
+{
+  "throughDate": "2026-11-05",
+  "ethereumBlockNumber": 26352078,
+  "argonTokenAddress": "0xf3d6b714dc93bc6c44bc766cc92f4a0d99344932",
+  "usdcTokenAddress": "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48",
+  "pools": [
+    {
+      "version": 3,
+      "id": "0x05f3e1c9b15f93f2a5494b381b2bb623796318d5",
+      "createdAt": 1782162707,
+      "createdAtBlock": 25375748,
+      "argonIsToken0": false
+    },
+    {
+      "version": 4,
+      "id": "0xf86520e1eb9dbd3ddb0bf316f782b0d0867568a5581146b27ca037d68f5a8718",
+      "createdAt": 1792248887,
+      "createdAtBlock": 26213004,
+      "argonIsToken0": false
+    },
+    {
+      "version": 4,
+      "id": "0x0622798809b3cf9c9e11f3c41e603a464c63cce03d452e8517dbb56ba9f63540",
+      "createdAt": 1792505123,
+      "createdAtBlock": 26234279,
+      "argonIsToken0": false
+    },
+    {
+      "version": 4,
+      "id": "0xae484e3d2c72c80cd3ddf31f4bfaa93aabe0f1d4be30721eacd27a444b722342",
+      "createdAt": 1792554383,
+      "createdAtBlock": 26238370,
+      "argonIsToken0": false
+    }
+  ],
+  "rewardFunding": {
+    "frameRange": [606, 614],
+    "argonBlockRange": [975751, 987271],
+    "frameCount": 9,
+    "averageArgonsPerFrame": "6159.19832955555555555556"
+  },
+  "days": [
+    { "date": "2026-06-22", "buyCount": 0, "argonBought": "0", "usdcSpent": "0", "costInTargetArgons": "0" },
+    {
+      "date": "2026-06-23",
+      "buyCount": 1,
+      "argonBought": "474.682911899804647515",
+      "usdcSpent": "500",
+      "ethereumPurchaseBlockRange": [25381847, 25381847],
+      "argonPriceBlockRange": [793133, 793133],
+      "costInTargetArgons": "473.38065183210165719697"
+    },
+    { "date": "2026-06-24", "buyCount": 0, "argonBought": "0", "usdcSpent": "0", "costInTargetArgons": "0" },
+    { "date": "2026-06-25", "buyCount": 0, "argonBought": "0", "usdcSpent": "0", "costInTargetArgons": "0" },
+    {
+      "date": "2026-06-26",
+      "buyCount": 6,
+      "argonBought": "617.186958778887394336",
+      "usdcSpent": "652.020858",
+      "ethereumPurchaseBlockRange": [25398472, 25402577],
+      "argonPriceBlockRange": [796475, 797300],
+      "costInTargetArgons": "616.66486305625914876482"
+    },
+    {
+      "date": "2026-06-27",
+      "buyCount": 7,
+      "argonBought": "2116.669396829250185013",
+      "usdcSpent": "2236.161534",
+      "ethereumPurchaseBlockRange": [25405528, 25411369],
+      "argonPriceBlockRange": [797892, 799065],
+      "costInTargetArgons": "2115.07191635883765807093"
+    },
+    {
+      "date": "2026-06-28",
+      "buyCount": 1,
+      "argonBought": "7198.043983327821881783",
+      "usdcSpent": "7604.716349",
+      "ethereumPurchaseBlockRange": [25418513, 25418513],
+      "argonPriceBlockRange": [800499, 800499],
+      "costInTargetArgons": "7192.64890499551915456147"
+    },
+    {
+      "date": "2026-06-29",
+      "buyCount": 1,
+      "argonBought": "149.014230385463254067",
+      "usdcSpent": "157.438437",
+      "ethereumPurchaseBlockRange": [25420566, 25420566],
+      "argonPriceBlockRange": [800911, 800911],
+      "costInTargetArgons": "148.89258799556506443529"
+    },
+    { "date": "2026-06-30", "buyCount": 0, "argonBought": "0", "usdcSpent": "0", "costInTargetArgons": "0" },
+    {
+      "date": "2026-07-01",
+      "buyCount": 1,
+      "argonBought": "4.73255372124375152",
+      "usdcSpent": "5",
+      "ethereumPurchaseBlockRange": [25434940, 25434940],
+      "argonPriceBlockRange": [803797, 803797],
+      "costInTargetArgons": "4.72868538665726442763"
+    },
+    {
+      "date": "2026-07-02",
+      "buyCount": 2,
+      "argonBought": "467.920741310291988279",
+      "usdcSpent": "494.358225",
+      "ethereumPurchaseBlockRange": [25444288, 25444310],
+      "argonPriceBlockRange": [805676, 805681],
+      "costInTargetArgons": "467.50737682875550856485"
+    },
+    {
+      "date": "2026-07-03",
+      "buyCount": 6,
+      "argonBought": "31.297877521247159966",
+      "usdcSpent": "33.066284",
+      "ethereumPurchaseBlockRange": [25449337, 25453184],
+      "argonPriceBlockRange": [806691, 807465],
+      "costInTargetArgons": "31.27720462276485790478"
+    },
+    {
+      "date": "2026-07-04",
+      "buyCount": 2,
+      "argonBought": "190",
+      "usdcSpent": "200.73536",
+      "ethereumPurchaseBlockRange": [25459972, 25459994],
+      "argonPriceBlockRange": [808828, 808832],
+      "costInTargetArgons": "189.70705801243956085014"
+    },
+    {
+      "date": "2026-07-05",
+      "buyCount": 2,
+      "argonBought": "948.191684091276352841",
+      "usdcSpent": "1001.771054",
+      "ethereumPurchaseBlockRange": [25469632, 25469750],
+      "argonPriceBlockRange": [810770, 810794],
+      "costInTargetArgons": "946.59865184781072371108"
+    },
+    {
+      "date": "2026-07-06",
+      "buyCount": 1,
+      "argonBought": "2366.252782894550806474",
+      "usdcSpent": "2500",
+      "ethereumPurchaseBlockRange": [25475862, 25475862],
+      "argonPriceBlockRange": [812020, 812020],
+      "costInTargetArgons": "2362.54119754935207939509"
+    },
+    {
+      "date": "2026-07-07",
+      "buyCount": 1,
+      "argonBought": "946.486864654319123642",
+      "usdcSpent": "1000",
+      "ethereumPurchaseBlockRange": [25483532, 25483532],
+      "argonPriceBlockRange": [813559, 813559],
+      "costInTargetArgons": "945.04884529929111531191"
+    },
+    {
+      "date": "2026-07-08",
+      "buyCount": 1,
+      "argonBought": "9464.42086243409443034",
+      "usdcSpent": "10000",
+      "ethereumPurchaseBlockRange": [25487479, 25487479],
+      "argonPriceBlockRange": [814350, 814350],
+      "costInTargetArgons": "9451.01938177741209829868"
+    },
+    {
+      "date": "2026-07-09",
+      "buyCount": 1,
+      "argonBought": "1460.897355043013250369",
+      "usdcSpent": "1543.622977",
+      "ethereumPurchaseBlockRange": [25497114, 25497114],
+      "argonPriceBlockRange": [816284, 816284],
+      "costInTargetArgons": "1458.70950625299237998515"
+    },
+    {
+      "date": "2026-07-10",
+      "buyCount": 1,
+      "argonBought": "2323.007477088625685852",
+      "usdcSpent": "2454.56108",
+      "ethereumPurchaseBlockRange": [25502809, 25502809],
+      "argonPriceBlockRange": [817429, 817429],
+      "costInTargetArgons": "2319.45371719449914389455"
+    },
+    { "date": "2026-07-11", "buyCount": 0, "argonBought": "0", "usdcSpent": "0", "costInTargetArgons": "0" },
+    { "date": "2026-07-12", "buyCount": 0, "argonBought": "0", "usdcSpent": "0", "costInTargetArgons": "0" },
+    {
+      "date": "2026-07-13",
+      "buyCount": 1,
+      "argonBought": "1576.409999829763267256",
+      "usdcSpent": "1665.669543",
+      "ethereumPurchaseBlockRange": [25520874, 25520874],
+      "argonPriceBlockRange": [821054, 821054],
+      "costInTargetArgons": "1572.44746529529500823484"
+    },
+    {
+      "date": "2026-07-14",
+      "buyCount": 5,
+      "argonBought": "14199.182852143565318457",
+      "usdcSpent": "15004.163961",
+      "ethereumPurchaseBlockRange": [25531349, 25532890],
+      "argonPriceBlockRange": [823158, 823469],
+      "costInTargetArgons": "14165.41612686557371162246"
+    },
+    {
+      "date": "2026-07-15",
+      "buyCount": 2,
+      "argonBought": "94.396053652949774526",
+      "usdcSpent": "99.753769",
+      "ethereumPurchaseBlockRange": [25534325, 25534881],
+      "argonPriceBlockRange": [823757, 823868],
+      "costInTargetArgons": "94.00999028539728608152"
+    },
+    {
+      "date": "2026-07-16",
+      "buyCount": 1,
+      "argonBought": "1823.695655021776692073",
+      "usdcSpent": "1927.221445",
+      "ethereumPurchaseBlockRange": [25541691, 25541691],
+      "argonPriceBlockRange": [825235, 825235],
+      "costInTargetArgons": "1816.12185055055866282933"
+    },
+    {
+      "date": "2026-07-17",
+      "buyCount": 2,
+      "argonBought": "121.061793597210725401",
+      "usdcSpent": "127.932722",
+      "ethereumPurchaseBlockRange": [25549575, 25549586],
+      "argonPriceBlockRange": [826817, 826819],
+      "costInTargetArgons": "120.56566649683022837751"
+    },
+    {
+      "date": "2026-07-18",
+      "buyCount": 1,
+      "argonBought": "1419.429044619237888243",
+      "usdcSpent": "1500",
+      "ethereumPurchaseBlockRange": [25556468, 25556468],
+      "argonPriceBlockRange": [828199, 828199],
+      "costInTargetArgons": "1413.59790158904132893497"
+    },
+    {
+      "date": "2026-07-19",
+      "buyCount": 3,
+      "argonBought": "1907.290738497457371992",
+      "usdcSpent": "2015.58463",
+      "ethereumPurchaseBlockRange": [25564539, 25568790],
+      "argonPriceBlockRange": [829820, 830673],
+      "costInTargetArgons": "1899.55844833393069567769"
+    },
+    {
+      "date": "2026-07-20",
+      "buyCount": 1,
+      "argonBought": "3044.265798426346334154",
+      "usdcSpent": "3217.188293",
+      "ethereumPurchaseBlockRange": [25570458, 25570458],
+      "argonPriceBlockRange": [831008, 831008],
+      "costInTargetArgons": "3031.61819748805446080462"
+    },
+    {
+      "date": "2026-07-21",
+      "buyCount": 3,
+      "argonBought": "1888.773576083376210041",
+      "usdcSpent": "1996.105754",
+      "ethereumPurchaseBlockRange": [25581094, 25583097],
+      "argonPriceBlockRange": [833144, 833546],
+      "costInTargetArgons": "1881.03054278054328482429"
+    },
+    { "date": "2026-07-22", "buyCount": 0, "argonBought": "0", "usdcSpent": "0", "costInTargetArgons": "0" },
+    { "date": "2026-07-23", "buyCount": 0, "argonBought": "0", "usdcSpent": "0", "costInTargetArgons": "0" },
+    {
+      "date": "2026-07-24",
+      "buyCount": 3,
+      "argonBought": "590.821681064800142117",
+      "usdcSpent": "624.401908",
+      "ethereumPurchaseBlockRange": [25600160, 25602962],
+      "argonPriceBlockRange": [836975, 837537],
+      "costInTargetArgons": "588.43306499854241981034"
+    },
+    { "date": "2026-07-25", "buyCount": 0, "argonBought": "0", "usdcSpent": "0", "costInTargetArgons": "0" },
+    { "date": "2026-07-26", "buyCount": 0, "argonBought": "0", "usdcSpent": "0", "costInTargetArgons": "0" },
+    { "date": "2026-07-27", "buyCount": 0, "argonBought": "0", "usdcSpent": "0", "costInTargetArgons": "0" },
+    { "date": "2026-07-28", "buyCount": 0, "argonBought": "0", "usdcSpent": "0", "costInTargetArgons": "0" },
+    { "date": "2026-07-29", "buyCount": 0, "argonBought": "0", "usdcSpent": "0", "costInTargetArgons": "0" },
+    { "date": "2026-07-30", "buyCount": 0, "argonBought": "0", "usdcSpent": "0", "costInTargetArgons": "0" },
+    { "date": "2026-07-31", "buyCount": 0, "argonBought": "0", "usdcSpent": "0", "costInTargetArgons": "0" },
+    { "date": "2026-08-01", "buyCount": 0, "argonBought": "0", "usdcSpent": "0", "costInTargetArgons": "0" },
+    { "date": "2026-08-02", "buyCount": 0, "argonBought": "0", "usdcSpent": "0", "costInTargetArgons": "0" },
+    { "date": "2026-08-03", "buyCount": 0, "argonBought": "0", "usdcSpent": "0", "costInTargetArgons": "0" },
+    { "date": "2026-08-04", "buyCount": 0, "argonBought": "0", "usdcSpent": "0", "costInTargetArgons": "0" },
+    { "date": "2026-08-05", "buyCount": 0, "argonBought": "0", "usdcSpent": "0", "costInTargetArgons": "0" },
+    { "date": "2026-08-06", "buyCount": 0, "argonBought": "0", "usdcSpent": "0", "costInTargetArgons": "0" },
+    { "date": "2026-08-07", "buyCount": 0, "argonBought": "0", "usdcSpent": "0", "costInTargetArgons": "0" },
+    { "date": "2026-08-08", "buyCount": 0, "argonBought": "0", "usdcSpent": "0", "costInTargetArgons": "0" },
+    { "date": "2026-08-09", "buyCount": 0, "argonBought": "0", "usdcSpent": "0", "costInTargetArgons": "0" },
+    { "date": "2026-08-10", "buyCount": 0, "argonBought": "0", "usdcSpent": "0", "costInTargetArgons": "0" },
+    { "date": "2026-08-11", "buyCount": 0, "argonBought": "0", "usdcSpent": "0", "costInTargetArgons": "0" },
+    { "date": "2026-08-12", "buyCount": 0, "argonBought": "0", "usdcSpent": "0", "costInTargetArgons": "0" },
+    { "date": "2026-08-13", "buyCount": 0, "argonBought": "0", "usdcSpent": "0", "costInTargetArgons": "0" },
+    { "date": "2026-08-14", "buyCount": 0, "argonBought": "0", "usdcSpent": "0", "costInTargetArgons": "0" },
+    { "date": "2026-08-15", "buyCount": 0, "argonBought": "0", "usdcSpent": "0", "costInTargetArgons": "0" },
+    { "date": "2026-08-16", "buyCount": 0, "argonBought": "0", "usdcSpent": "0", "costInTargetArgons": "0" },
+    { "date": "2026-08-17", "buyCount": 0, "argonBought": "0", "usdcSpent": "0", "costInTargetArgons": "0" },
+    { "date": "2026-08-18", "buyCount": 0, "argonBought": "0", "usdcSpent": "0", "costInTargetArgons": "0" },
+    { "date": "2026-08-19", "buyCount": 0, "argonBought": "0", "usdcSpent": "0", "costInTargetArgons": "0" },
+    { "date": "2026-08-20", "buyCount": 0, "argonBought": "0", "usdcSpent": "0", "costInTargetArgons": "0" },
+    { "date": "2026-08-21", "buyCount": 0, "argonBought": "0", "usdcSpent": "0", "costInTargetArgons": "0" },
+    { "date": "2026-08-22", "buyCount": 0, "argonBought": "0", "usdcSpent": "0", "costInTargetArgons": "0" },
+    { "date": "2026-08-23", "buyCount": 0, "argonBought": "0", "usdcSpent": "0", "costInTargetArgons": "0" },
+    { "date": "2026-08-24", "buyCount": 0, "argonBought": "0", "usdcSpent": "0", "costInTargetArgons": "0" },
+    { "date": "2026-08-25", "buyCount": 0, "argonBought": "0", "usdcSpent": "0", "costInTargetArgons": "0" },
+    { "date": "2026-08-26", "buyCount": 0, "argonBought": "0", "usdcSpent": "0", "costInTargetArgons": "0" },
+    { "date": "2026-08-27", "buyCount": 0, "argonBought": "0", "usdcSpent": "0", "costInTargetArgons": "0" },
+    { "date": "2026-08-28", "buyCount": 0, "argonBought": "0", "usdcSpent": "0", "costInTargetArgons": "0" },
+    { "date": "2026-08-29", "buyCount": 0, "argonBought": "0", "usdcSpent": "0", "costInTargetArgons": "0" },
+    { "date": "2026-08-30", "buyCount": 0, "argonBought": "0", "usdcSpent": "0", "costInTargetArgons": "0" },
+    { "date": "2026-08-31", "buyCount": 0, "argonBought": "0", "usdcSpent": "0", "costInTargetArgons": "0" },
+    { "date": "2026-09-01", "buyCount": 0, "argonBought": "0", "usdcSpent": "0", "costInTargetArgons": "0" },
+    { "date": "2026-09-02", "buyCount": 0, "argonBought": "0", "usdcSpent": "0", "costInTargetArgons": "0" },
+    { "date": "2026-09-03", "buyCount": 0, "argonBought": "0", "usdcSpent": "0", "costInTargetArgons": "0" },
+    { "date": "2026-09-04", "buyCount": 0, "argonBought": "0", "usdcSpent": "0", "costInTargetArgons": "0" },
+    { "date": "2026-09-05", "buyCount": 0, "argonBought": "0", "usdcSpent": "0", "costInTargetArgons": "0" },
+    { "date": "2026-09-06", "buyCount": 0, "argonBought": "0", "usdcSpent": "0", "costInTargetArgons": "0" },
+    { "date": "2026-09-07", "buyCount": 0, "argonBought": "0", "usdcSpent": "0", "costInTargetArgons": "0" },
+    { "date": "2026-09-08", "buyCount": 0, "argonBought": "0", "usdcSpent": "0", "costInTargetArgons": "0" },
+    { "date": "2026-09-09", "buyCount": 0, "argonBought": "0", "usdcSpent": "0", "costInTargetArgons": "0" },
+    { "date": "2026-09-10", "buyCount": 0, "argonBought": "0", "usdcSpent": "0", "costInTargetArgons": "0" },
+    { "date": "2026-09-11", "buyCount": 0, "argonBought": "0", "usdcSpent": "0", "costInTargetArgons": "0" },
+    { "date": "2026-09-12", "buyCount": 0, "argonBought": "0", "usdcSpent": "0", "costInTargetArgons": "0" },
+    { "date": "2026-09-13", "buyCount": 0, "argonBought": "0", "usdcSpent": "0", "costInTargetArgons": "0" },
+    { "date": "2026-09-14", "buyCount": 0, "argonBought": "0", "usdcSpent": "0", "costInTargetArgons": "0" },
+    { "date": "2026-09-15", "buyCount": 0, "argonBought": "0", "usdcSpent": "0", "costInTargetArgons": "0" },
+    { "date": "2026-09-16", "buyCount": 0, "argonBought": "0", "usdcSpent": "0", "costInTargetArgons": "0" },
+    { "date": "2026-09-17", "buyCount": 0, "argonBought": "0", "usdcSpent": "0", "costInTargetArgons": "0" },
+    { "date": "2026-09-18", "buyCount": 0, "argonBought": "0", "usdcSpent": "0", "costInTargetArgons": "0" },
+    { "date": "2026-09-19", "buyCount": 0, "argonBought": "0", "usdcSpent": "0", "costInTargetArgons": "0" },
+    { "date": "2026-09-20", "buyCount": 0, "argonBought": "0", "usdcSpent": "0", "costInTargetArgons": "0" },
+    { "date": "2026-09-21", "buyCount": 0, "argonBought": "0", "usdcSpent": "0", "costInTargetArgons": "0" },
+    { "date": "2026-09-22", "buyCount": 0, "argonBought": "0", "usdcSpent": "0", "costInTargetArgons": "0" },
+    { "date": "2026-09-23", "buyCount": 0, "argonBought": "0", "usdcSpent": "0", "costInTargetArgons": "0" },
+    { "date": "2026-09-24", "buyCount": 0, "argonBought": "0", "usdcSpent": "0", "costInTargetArgons": "0" },
+    { "date": "2026-09-25", "buyCount": 0, "argonBought": "0", "usdcSpent": "0", "costInTargetArgons": "0" },
+    { "date": "2026-09-26", "buyCount": 0, "argonBought": "0", "usdcSpent": "0", "costInTargetArgons": "0" },
+    { "date": "2026-09-27", "buyCount": 0, "argonBought": "0", "usdcSpent": "0", "costInTargetArgons": "0" },
+    { "date": "2026-09-28", "buyCount": 0, "argonBought": "0", "usdcSpent": "0", "costInTargetArgons": "0" },
+    { "date": "2026-09-29", "buyCount": 0, "argonBought": "0", "usdcSpent": "0", "costInTargetArgons": "0" },
+    { "date": "2026-09-30", "buyCount": 0, "argonBought": "0", "usdcSpent": "0", "costInTargetArgons": "0" },
+    { "date": "2026-10-01", "buyCount": 0, "argonBought": "0", "usdcSpent": "0", "costInTargetArgons": "0" },
+    { "date": "2026-10-02", "buyCount": 0, "argonBought": "0", "usdcSpent": "0", "costInTargetArgons": "0" },
+    { "date": "2026-10-03", "buyCount": 0, "argonBought": "0", "usdcSpent": "0", "costInTargetArgons": "0" },
+    { "date": "2026-10-04", "buyCount": 0, "argonBought": "0", "usdcSpent": "0", "costInTargetArgons": "0" },
+    { "date": "2026-10-05", "buyCount": 0, "argonBought": "0", "usdcSpent": "0", "costInTargetArgons": "0" },
+    { "date": "2026-10-06", "buyCount": 0, "argonBought": "0", "usdcSpent": "0", "costInTargetArgons": "0" },
+    { "date": "2026-10-07", "buyCount": 0, "argonBought": "0", "usdcSpent": "0", "costInTargetArgons": "0" },
+    { "date": "2026-10-08", "buyCount": 0, "argonBought": "0", "usdcSpent": "0", "costInTargetArgons": "0" },
+    { "date": "2026-10-09", "buyCount": 0, "argonBought": "0", "usdcSpent": "0", "costInTargetArgons": "0" },
+    {
+      "date": "2026-10-10",
+      "buyCount": 1,
+      "argonBought": "4200",
+      "usdcSpent": "4456.980886",
+      "ethereumPurchaseBlockRange": [26162868, 26162868],
+      "argonPriceBlockRange": [949951, 949951],
+      "costInTargetArgons": "4199.50801737258922907314"
+    },
+    { "date": "2026-10-11", "buyCount": 0, "argonBought": "0", "usdcSpent": "0", "costInTargetArgons": "0" },
+    {
+      "date": "2026-10-12",
+      "buyCount": 10,
+      "argonBought": "12429.885305715551393589",
+      "usdcSpent": "12182.755087",
+      "ethereumPurchaseBlockRange": [26174270, 26177329],
+      "argonPriceBlockRange": [952238, 952851],
+      "costInTargetArgons": "11479.38098148628883667852"
+    },
+    {
+      "date": "2026-10-13",
+      "buyCount": 7,
+      "argonBought": "15461.615863412322991546",
+      "usdcSpent": "15064.883401",
+      "ethereumPurchaseBlockRange": [26185908, 26186553],
+      "argonPriceBlockRange": [954572, 954701],
+      "costInTargetArgons": "14196.34980656222043103759"
+    },
+    { "date": "2026-10-14", "buyCount": 0, "argonBought": "0", "usdcSpent": "0", "costInTargetArgons": "0" },
+    {
+      "date": "2026-10-15",
+      "buyCount": 2,
+      "argonBought": "290.224354728930747756",
+      "usdcSpent": "307.444335",
+      "ethereumPurchaseBlockRange": [26199824, 26200246],
+      "argonPriceBlockRange": [957365, 957450],
+      "costInTargetArgons": "289.64752119582413359435"
+    },
+    {
+      "date": "2026-10-16",
+      "buyCount": 4,
+      "argonBought": "1264.95111724454567184",
+      "usdcSpent": "1318.156043",
+      "ethereumPurchaseBlockRange": [26205658, 26207952],
+      "argonPriceBlockRange": [958535, 958995],
+      "costInTargetArgons": "1242.07636078122672444688"
+    },
+    {
+      "date": "2026-10-17",
+      "buyCount": 23,
+      "argonBought": "11126.057567711183024732",
+      "usdcSpent": "10952.574714",
+      "ethereumPurchaseBlockRange": [26211256, 26214685],
+      "argonPriceBlockRange": [959658, 960347],
+      "costInTargetArgons": "10319.00663110385568173359"
+    },
+    {
+      "date": "2026-10-18",
+      "buyCount": 3,
+      "argonBought": "365.913582443862898984",
+      "usdcSpent": "385.412396",
+      "ethereumPurchaseBlockRange": [26222103, 26222157],
+      "argonPriceBlockRange": [961835, 961846],
+      "costInTargetArgons": "362.84570261646311101436"
+    },
+    {
+      "date": "2026-10-19",
+      "buyCount": 3,
+      "argonBought": "745.036957558400328714",
+      "usdcSpent": "789.895055",
+      "ethereumPurchaseBlockRange": [26227224, 26228837],
+      "argonPriceBlockRange": [962864, 963187],
+      "costInTargetArgons": "743.72548691153821033535"
+    },
+    {
+      "date": "2026-10-20",
+      "buyCount": 4,
+      "argonBought": "1903.146430001269388217",
+      "usdcSpent": "2000",
+      "ethereumPurchaseBlockRange": [26234157, 26234350],
+      "argonPriceBlockRange": [964255, 964294],
+      "costInTargetArgons": "1883.03083038742255178908"
+    },
+    {
+      "date": "2026-10-21",
+      "buyCount": 21,
+      "argonBought": "7606.656965480589272998",
+      "usdcSpent": "7896.310243",
+      "ethereumPurchaseBlockRange": [26237688, 26243769],
+      "argonPriceBlockRange": [964964, 966183],
+      "costInTargetArgons": "7432.87709486139352865546"
+    },
+    {
+      "date": "2026-10-22",
+      "buyCount": 4,
+      "argonBought": "1889.000074101457545998",
+      "usdcSpent": "1961.988559",
+      "ethereumPurchaseBlockRange": [26246527, 26249942],
+      "argonPriceBlockRange": [966736, 967421],
+      "costInTargetArgons": "1846.71443406740625808887"
+    },
+    {
+      "date": "2026-10-23",
+      "buyCount": 6,
+      "argonBought": "3755.166997575483509242",
+      "usdcSpent": "3927.74706",
+      "ethereumPurchaseBlockRange": [26256185, 26258104],
+      "argonPriceBlockRange": [968675, 969060],
+      "costInTargetArgons": "3697.09218268675803868924"
+    },
+    {
+      "date": "2026-10-24",
+      "buyCount": 3,
+      "argonBought": "513.919308911958448724",
+      "usdcSpent": "537.243124",
+      "ethereumPurchaseBlockRange": [26262240, 26263300],
+      "argonPriceBlockRange": [969890, 970102],
+      "costInTargetArgons": "505.70752634995911332745"
+    },
+    {
+      "date": "2026-10-25",
+      "buyCount": 1,
+      "argonBought": "0.191097773521974897",
+      "usdcSpent": "0.188976",
+      "ethereumPurchaseBlockRange": [26268749, 26268749],
+      "argonPriceBlockRange": [971194, 971194],
+      "costInTargetArgons": "0.177859904040843634"
+    },
+    { "date": "2026-10-26", "buyCount": 0, "argonBought": "0", "usdcSpent": "0", "costInTargetArgons": "0" },
+    {
+      "date": "2026-10-27",
+      "buyCount": 2,
+      "argonBought": "1963.00298014553971564",
+      "usdcSpent": "2000",
+      "ethereumPurchaseBlockRange": [26287032, 26287032],
+      "argonPriceBlockRange": [974861, 974861],
+      "costInTargetArgons": "1880.22608313564063969897"
+    },
+    {
+      "date": "2026-10-28",
+      "buyCount": 3,
+      "argonBought": "1936.466410190746244284",
+      "usdcSpent": "2000",
+      "ethereumPurchaseBlockRange": [26293784, 26293784],
+      "argonPriceBlockRange": [976215, 976215],
+      "costInTargetArgons": "1880.68320148132267168391"
+    },
+    {
+      "date": "2026-10-29",
+      "buyCount": 3,
+      "argonBought": "1915.336396082018464009",
+      "usdcSpent": "2000",
+      "ethereumPurchaseBlockRange": [26300531, 26300531],
+      "argonPriceBlockRange": [977571, 977571],
+      "costInTargetArgons": "1880.54180619257158984008"
+    },
+    {
+      "date": "2026-10-30",
+      "buyCount": 1,
+      "argonBought": "1023.134555281659065944",
+      "usdcSpent": "1060.702072",
+      "ethereumPurchaseBlockRange": [26305652, 26305652],
+      "argonPriceBlockRange": [978599, 978599],
+      "costInTargetArgons": "997.47433722584177195157"
+    },
+    { "date": "2026-10-31", "buyCount": 0, "argonBought": "0", "usdcSpent": "0", "costInTargetArgons": "0" },
+    { "date": "2026-11-01", "buyCount": 0, "argonBought": "0", "usdcSpent": "0", "costInTargetArgons": "0" },
+    { "date": "2026-11-02", "buyCount": 0, "argonBought": "0", "usdcSpent": "0", "costInTargetArgons": "0" },
+    { "date": "2026-11-03", "buyCount": 0, "argonBought": "0", "usdcSpent": "0", "costInTargetArgons": "0" },
+    {
+      "date": "2026-11-04",
+      "buyCount": 1,
+      "argonBought": "9.960816153224951138",
+      "usdcSpent": "9.986275",
+      "ethereumPurchaseBlockRange": [26343000, 26343000],
+      "argonPriceBlockRange": [986094, 986094],
+      "costInTargetArgons": "9.38203298492400590861"
+    },
+    {
+      "date": "2026-11-05",
+      "buyCount": 4,
+      "argonBought": "2122.477010034356563068",
+      "usdcSpent": "2209.652806",
+      "ethereumPurchaseBlockRange": [26349149, 26349756],
+      "argonPriceBlockRange": [987326, 987448],
+      "costInTargetArgons": "2076.36098719941002558877"
+    }
+  ]
+}

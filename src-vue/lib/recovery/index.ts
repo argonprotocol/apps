@@ -32,7 +32,7 @@ export function getEnabledFinancialHistoryDomains(args: {
 }): IFinancialHistoryDomain[] {
   const restorePreviousLife = args.force || args.walletAccountsHadPreviousLife;
   const enabledDomains: IFinancialHistoryDomain[] = [];
-  if (restorePreviousLife || args.hasExtensionTreasury) enabledDomains.push('bitcoin', 'bonds');
+  if (restorePreviousLife || args.hasExtensionTreasury) enabledDomains.push('bitcoin', 'bonds', 'stabilizer');
   if (restorePreviousLife || args.hasExtensionOperations) enabledDomains.push('vaulting');
   return enabledDomains;
 }
@@ -93,22 +93,26 @@ export interface IFinancialHistoryProgress {
 }
 
 const domainActivityMasks: Record<IFinancialHistoryDomain, number> = {
+  stabilizer: AccountActivityKind.StabilizerBuy,
   bonds: AccountActivityKind.BondPosition,
   bitcoin: AccountActivityKind.BitcoinLock | AccountActivityKind.BitcoinMint,
   vaulting: AccountActivityKind.VaultPosition | AccountActivityKind.VaultRevenue,
 };
 const minimumActivityDefinitionVersions: Record<IFinancialHistoryDomain, number> = {
+  stabilizer: 5,
   // Flexibility events identify a lot, not its owner; this definition resolves the owner.
   bonds: 4,
   bitcoin: 3,
   vaulting: 3,
 };
 const earliestSupportedSpecVersions: Record<IFinancialHistoryDomain, number> = {
+  stabilizer: 161,
   bonds: 151,
   bitcoin: 130,
   vaulting: 116,
 };
 const historyRecoveryVersions: Partial<Record<IFinancialHistoryDomain, number>> = {
+  stabilizer: 1,
   bitcoin: 13,
   bonds: 4,
   vaulting: 1,
@@ -144,6 +148,7 @@ export async function restoreFinancialHistory(args: {
   blockWatch: BlockWatch;
   accountId: string;
   argonBonds: ArgonBonds;
+  stabilizerBuys?: import('../StabilizerBuys.ts').StabilizerBuys;
   bitcoinLocks?: Pick<BitcoinLocks, 'recovery' | 'applyRecoveredHistory'>;
   bitcoinFissions?: Pick<BitcoinFissions, 'recovery' | 'publishRecoveredHistory'>;
   ownedVaultId?: number;
@@ -259,6 +264,18 @@ export async function restoreFinancialHistory(args: {
     });
 
     try {
+      if (domain === 'stabilizer') {
+        if (!args.stabilizerBuys) throw new Error('Stabilizer Buys history is not initialized.');
+        await args.stabilizerBuys.recoverHistory(targetBlock);
+        const saved = await db.syncStateTable.get(SyncStateKeys.StabilizerBuys);
+        await saveDomainCheckpoint(domain, {
+          asOfBlock: targetBlock,
+          definitionVersion: saved?.definitionVersion,
+          recoveryVersion: historyRecoveryVersions.stabilizer,
+        });
+        domainAsOfBlock = targetBlock;
+        continue;
+      }
       let result!: Awaited<ReturnType<typeof restoreFinancialHistoryDomain>>;
       for (let attempt = 0; attempt < 2; attempt += 1) {
         result = await restoreFinancialHistoryDomain({
@@ -899,6 +916,7 @@ function hasMissingBondPurchases(
 
 async function hasStoredPosition(db: Db, domain: IFinancialHistoryDomain): Promise<boolean> {
   if (domain === 'bonds') return false;
+  if (domain === 'stabilizer') return false;
   const table = domain === 'bitcoin' ? 'BitcoinLocks' : 'Vaults';
   const rows = await db.select<{ present: number }[]>(`SELECT 1 AS present FROM ${table} LIMIT 1`);
   return rows.length > 0;

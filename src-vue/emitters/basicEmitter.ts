@@ -8,6 +8,7 @@ import type { IMemberInvite } from '@argonprotocol/apps-router';
 import type { IWalletOverlayWallet, IWalletView } from '../wallets/walletOverlayState.ts';
 import type { WalletForEthereum } from '../lib/WalletForEthereum.ts';
 import type { AccountAuthenticationPrompt } from '../lib/AccountSecurity.ts';
+import type { IStabilizerBuyOpportunity } from '../interfaces/IStabilizerBuyPurchase.ts';
 
 export type IWalletGuidanceContext = 'mining' | 'vaulting';
 export type SecuritySettingsScreen = 'overview' | 'mnemonics' | 'accountSecurity';
@@ -49,6 +50,7 @@ type IBasicEmitter = {
   openProvisioningCompleteOverlay: void;
   openServerConnectPanel: void;
   closeAllOverlays: void;
+  openStabilizerBuyNotice: Pick<IStabilizerBuyOpportunity, 'key' | 'expiresAt'>;
   openAboutOverlay: void;
   openSoftwareInfoOverlay: void;
   openJurisdictionOverlay: { setCurrencyKey: ICurrencyKey } | undefined;

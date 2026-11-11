@@ -76,12 +76,16 @@ export class Config implements IConfig {
       hasExtensionTreasury: Config.getDefault(dbFields.hasExtensionTreasury) as IConfig['hasExtensionTreasury'],
       hasExtensionOperations: Config.getDefault(dbFields.hasExtensionOperations) as IConfig['hasExtensionOperations'],
       hasActivatedCrosschain: Config.getDefault(dbFields.hasActivatedCrosschain) as IConfig['hasActivatedCrosschain'],
+      hasActivatedStabilizerBuys: Config.getDefault(
+        dbFields.hasActivatedStabilizerBuys,
+      ) as IConfig['hasActivatedStabilizerBuys'],
       hasConnectedDiscord: Config.getDefault(dbFields.hasConnectedDiscord) as IConfig['hasConnectedDiscord'],
       selectedTab: Config.getDefault(dbFields.selectedTab) as IConfig['selectedTab'],
       ethereumBeaconApiUrl: Config.getDefault(dbFields.ethereumBeaconApiUrl) as IConfig['ethereumBeaconApiUrl'],
       ethereumExecutionRpcUrl: Config.getDefault(
         dbFields.ethereumExecutionRpcUrl,
       ) as IConfig['ethereumExecutionRpcUrl'],
+      stabilizerBuyAlert: Config.getDefault(dbFields.stabilizerBuyAlert) as IConfig['stabilizerBuyAlert'],
       upstreamOperator: Config.getDefault(dbFields.upstreamOperator) as IConfig['upstreamOperator'],
       serverDetails: {
         ipAddress: '',
@@ -112,8 +116,6 @@ export class Config implements IConfig {
       returnMetric: Config.getDefault(dbFields.returnMetric) as IConfig['returnMetric'],
       userJurisdiction: defaults.userJurisdiction(),
       certificationDetails: Config.getDefault(dbFields.certificationDetails) as IConfig['certificationDetails'],
-
-      hasActivatedStableSwaps: Config.getDefault(dbFields.hasActivatedStableSwaps) as boolean,
     };
   }
 
@@ -126,6 +128,7 @@ export class Config implements IConfig {
           'hasExtensionTreasury',
           'hasExtensionOperations',
           'hasActivatedCrosschain',
+          'hasActivatedStabilizerBuys',
           'hasConnectedDiscord',
           'serverAdd',
           'serverDetails',
@@ -344,6 +347,13 @@ export class Config implements IConfig {
     this.setField('ethereumExecutionRpcUrl', value);
   }
 
+  public get stabilizerBuyAlert(): IConfig['stabilizerBuyAlert'] {
+    return this.getField('stabilizerBuyAlert');
+  }
+  public set stabilizerBuyAlert(value: IConfig['stabilizerBuyAlert']) {
+    this.setField('stabilizerBuyAlert', value);
+  }
+
   public get showWelcomeOverlay(): IConfig['showWelcomeOverlay'] {
     return this.getField('showWelcomeOverlay');
   }
@@ -385,6 +395,24 @@ export class Config implements IConfig {
 
   public set hasActivatedCrosschain(value: IConfig['hasActivatedCrosschain']) {
     this.setField('hasActivatedCrosschain', value);
+  }
+
+  public get hasActivatedStabilizerBuys(): IConfig['hasActivatedStabilizerBuys'] {
+    return this.getField('hasActivatedStabilizerBuys');
+  }
+  public set hasActivatedStabilizerBuys(value: IConfig['hasActivatedStabilizerBuys']) {
+    this.setField('hasActivatedStabilizerBuys', value);
+  }
+
+  public async activateStabilizerBuys(): Promise<void> {
+    await this.isLoadedPromise;
+    if (this.hasActivatedStabilizerBuys) return;
+
+    const value = JsonExt.stringify(true);
+    await this._db.configTable.insertOrReplace({ hasActivatedStabilizerBuys: value });
+    this._rawData.hasActivatedStabilizerBuys = value;
+    this._fieldsToSave.delete(dbFields.hasActivatedStabilizerBuys);
+    this._loadedData.hasActivatedStabilizerBuys = true;
   }
 
   public get hasConnectedDiscord(): boolean {
@@ -599,13 +627,6 @@ export class Config implements IConfig {
     return this.userJurisdiction.countryCode === 'KY';
   }
 
-  public get hasActivatedStableSwaps(): boolean {
-    return this.getField('hasActivatedStableSwaps');
-  }
-  public set hasActivatedStableSwaps(value: boolean) {
-    this.setField('hasActivatedStableSwaps', value);
-  }
-
   public get hasSavedBiddingRules(): boolean {
     this._throwErrorIfNotLoaded();
     return !!this._rawData[dbFields.biddingRules];
@@ -624,6 +645,21 @@ export class Config implements IConfig {
   public async saveVaultSetup() {
     this._tryFieldsToSave(dbFields.vaultSetup, this.vaultSetup);
     await this.save();
+  }
+
+  public async saveStabilizerBuyAlert(settings: IConfig['stabilizerBuyAlert']): Promise<void> {
+    const previous = this._rawData.stabilizerBuyAlert;
+    this._tryFieldsToSave(dbFields.stabilizerBuyAlert, settings);
+
+    try {
+      await this.save();
+    } catch (error) {
+      this._rawData.stabilizerBuyAlert = previous;
+      this._fieldsToSave.delete(dbFields.stabilizerBuyAlert);
+      throw error;
+    }
+
+    this._loadedData.stabilizerBuyAlert = settings;
   }
 
   public async save() {
@@ -670,7 +706,7 @@ export class Config implements IConfig {
   }
 
   private _tryFieldsToSave(field: keyof typeof dbFields, value: any) {
-    const stringifiedValue = JsonExt.stringify(value, 2);
+    const stringifiedValue = JsonExt.stringify(value, 2) ?? '';
     if (this._rawData[field] === stringifiedValue) return;
 
     this._rawData[field] = stringifiedValue;
@@ -708,11 +744,13 @@ const dbFields = {
   hasExtensionTreasury: 'hasExtensionTreasury',
   hasExtensionOperations: 'hasExtensionOperations',
   hasActivatedCrosschain: 'hasActivatedCrosschain',
+  hasActivatedStabilizerBuys: 'hasActivatedStabilizerBuys',
   hasConnectedDiscord: 'hasConnectedDiscord',
   selectedTab: 'selectedTab',
 
   ethereumBeaconApiUrl: 'ethereumBeaconApiUrl',
   ethereumExecutionRpcUrl: 'ethereumExecutionRpcUrl',
+  stabilizerBuyAlert: 'stabilizerBuyAlert',
   bootstrapDetails: 'bootstrapDetails',
   upstreamOperator: 'upstreamOperator',
 
@@ -736,8 +774,6 @@ const dbFields = {
   returnMetric: 'returnMetric',
   userJurisdiction: 'userJurisdiction',
   certificationDetails: 'certificationDetails',
-
-  hasActivatedStableSwaps: 'hasActivatedStableSwaps',
 } as const;
 
 const defaults: IConfigDefaults = {
@@ -751,11 +787,13 @@ const defaults: IConfigDefaults = {
   hasExtensionTreasury: () => false,
   hasExtensionOperations: () => false,
   hasActivatedCrosschain: () => false,
+  hasActivatedStabilizerBuys: () => false,
   hasConnectedDiscord: () => false,
   selectedTab: () => TopTab.Home,
 
   ethereumBeaconApiUrl: () => undefined,
   ethereumExecutionRpcUrl: () => undefined,
+  stabilizerBuyAlert: () => undefined,
   bootstrapDetails: () => undefined,
   upstreamOperator: () => undefined,
 
@@ -850,6 +888,4 @@ const defaults: IConfigDefaults = {
     longitude: '',
   }),
   certificationDetails: () => undefined,
-
-  hasActivatedStableSwaps: () => false,
 };

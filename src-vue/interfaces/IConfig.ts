@@ -17,11 +17,11 @@ export enum TopTab {
   // Basics
   Home = 'Home',
   Network = 'Network',
+  MarketStabilizers = 'MarketStabilizers',
 
   ArgonBonds = 'ArgonBonds',
   ArgonotStaking = 'ArgonotStaking',
   BitcoinLocks = 'BitcoinLocks',
-  StableSwaps = 'StableSwaps',
 
   Mining = 'Mining',
   Vaulting = 'Vaulting',
@@ -197,6 +197,11 @@ export const ConfigSchema = z.object({
   version: z.string(),
   ethereumBeaconApiUrl: z.string().optional(),
   ethereumExecutionRpcUrl: z.string().optional(),
+  stabilizerBuyAlert: z
+    .object({
+      minimumApy: z.number().min(0).max(100),
+    })
+    .optional(),
 
   bootstrapDetails: ConfigBootstrapDetailsSchema.optional(),
   upstreamOperator: UpstreamOperatorSchema.optional(),
@@ -211,6 +216,7 @@ export const ConfigSchema = z.object({
   hasExtensionTreasury: z.boolean(),
   hasExtensionOperations: z.boolean(),
   hasActivatedCrosschain: z.boolean(),
+  hasActivatedStabilizerBuys: z.boolean(),
   hasConnectedDiscord: z.boolean(),
   selectedTab: z.nativeEnum(TopTab),
 
@@ -249,8 +255,6 @@ export const ConfigSchema = z.object({
     longitude: z.string(),
   }),
   certificationDetails: ConfigCertificationDetailsSchema.optional(),
-
-  hasActivatedStableSwaps: z.boolean(),
 });
 
 // ---- Optional Type Inference ---- //
@@ -281,6 +285,7 @@ export type IConnectedVault = z.infer<typeof UpstreamOperatorSchema>;
 export interface IConfigDefaults {
   ethereumBeaconApiUrl: () => IConfig['ethereumBeaconApiUrl'];
   ethereumExecutionRpcUrl: () => IConfig['ethereumExecutionRpcUrl'];
+  stabilizerBuyAlert: () => IConfig['stabilizerBuyAlert'];
   bootstrapDetails: () => IConfig['bootstrapDetails'];
   upstreamOperator: () => IConfig['upstreamOperator'];
 
@@ -294,6 +299,7 @@ export interface IConfigDefaults {
   hasExtensionTreasury: () => IConfig['hasExtensionTreasury'];
   hasExtensionOperations: () => IConfig['hasExtensionOperations'];
   hasActivatedCrosschain: () => IConfig['hasActivatedCrosschain'];
+  hasActivatedStabilizerBuys: () => IConfig['hasActivatedStabilizerBuys'];
   hasConnectedDiscord: () => IConfig['hasConnectedDiscord'];
   selectedTab: () => IConfig['selectedTab'];
 
@@ -317,6 +323,4 @@ export interface IConfigDefaults {
   returnMetric: () => IConfig['returnMetric'];
   userJurisdiction: () => IConfig['userJurisdiction'];
   certificationDetails: () => IConfig['certificationDetails'];
-
-  hasActivatedStableSwaps: () => IConfig['hasActivatedStableSwaps'];
 }

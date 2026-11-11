@@ -23,6 +23,7 @@ export const accountActivityKindNames = new Map<AccountActivityKind, string>([
   [AccountActivityKind.Fee, 'fee'],
   [AccountActivityKind.AccountBalance, 'account_balance'],
   [AccountActivityKind.GatewayOperations, 'gateway_operations'],
+  [AccountActivityKind.StabilizerBuy, 'stabilizer_buy'],
 ]);
 
 type IDecodedAccountActivityEvent = {
@@ -233,8 +234,14 @@ function classifyEventKind(
     return tokenGatewayAccountEvents.has(method) ? AccountActivityKind.Crosschain : 0;
   }
   if (section === 'crosschainTransfer') {
+    if (method === 'UniswapPurchaseAdmissionFailed' || method === 'LiquidRepaymentUnauthorized')
+      return AccountActivityKind.StabilizerBuy;
     if (gatewayOperationEvents.has(method)) return AccountActivityKind.GatewayOperations;
     return crosschainAccountEvents.has(method) ? AccountActivityKind.Crosschain : 0;
+  }
+
+  if (section === 'stabilizerBuys') {
+    return globalStabilizerBuyEvents.has(method) ? 0 : AccountActivityKind.StabilizerBuy;
   }
 
   if (section === 'balances' || section === 'ownership') {
@@ -378,6 +385,17 @@ const crosschainAccountEvents = new Set([
   'TransferOutReady',
   'TransferOutStarted',
   'TransferToArgonSettled',
+  'TransferToArgonFromSwapSettled',
+]);
+// These configure or fund a cohort globally. Account history is established by
+// purchase, bid, award and payout events; current auctions retain funding state.
+const globalStabilizerBuyEvents = new Set([
+  'ApprovedPoolChanged',
+  'AuctionAllocationFailed',
+  'AuctionFundingFailed',
+  'AuctionOpened',
+  'AuctionSettled',
+  'MatchingRateChanged',
 ]);
 const gatewayOperationEvents = new Set([
   'CouncilSignerRegistered',
@@ -511,7 +529,10 @@ function collectEventAccounts(event: HistoricalEvent, specVersion: number, sourc
     accounts.push(...event.data.rewards.map(reward => reward.accountId));
   }
 
-  if (event.section === 'crosschainTransfer' && event.method === 'TransferToArgonSettled') {
+  if (
+    event.section === 'crosschainTransfer' &&
+    (event.method === 'TransferToArgonSettled' || event.method === 'TransferToArgonFromSwapSettled')
+  ) {
     accounts.push(event.data.transfer.to);
   }
 

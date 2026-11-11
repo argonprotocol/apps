@@ -55,7 +55,8 @@ export function readOwnedEthereumStates(options: DevProfile): IDevEthereumRuntim
   if (!Fs.existsSync(directory)) return [];
   const states = Fs.readdirSync(directory)
     .filter(file => file.endsWith('.json'))
-    .map(file => JSON.parse(Fs.readFileSync(Path.join(directory, file), 'utf8')) as IDevEthereumRuntimeState);
+    .map(file => JSON.parse(Fs.readFileSync(Path.join(directory, file), 'utf8')) as IDevEthereumRuntimeState)
+    .filter(state => state.enclaveName);
   return [...new Map(states.map(state => [state.enclaveName, state])).values()];
 }
 

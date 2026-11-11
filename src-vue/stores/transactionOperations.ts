@@ -2,6 +2,7 @@ import { watch } from 'vue';
 import type { TransactionOperations } from '../lib/txs/index.ts';
 import { getArgonBonds, getBondTransactionOperations } from './argonBonds.ts';
 import { getBitcoinFissions, getBitcoinLocks, getBitcoinTransactionOperations } from './bitcoin.ts';
+import { getStabilizerBuyOperations, getStabilizerBuys } from './stabilizerBuys.ts';
 
 let restorationStarted = false;
 
@@ -14,8 +15,11 @@ export function restoreTransactions(): void {
   const bitcoinLocks = getBitcoinLocks();
   const bitcoinFissions = getBitcoinFissions();
   const bonds = getArgonBonds();
+  const stabilizerBuys = getStabilizerBuys();
+  const stabilizerBuyOperations = getStabilizerBuyOperations();
   let bitcoinLoad: Promise<unknown> | undefined;
   let bondLoad: Promise<unknown> | undefined;
+  let stabilizerBuyLoad: Promise<unknown> | undefined;
 
   const restore = async (
     operations: Array<Pick<TransactionOperations[keyof TransactionOperations], 'load'>>,
@@ -40,13 +44,22 @@ export function restoreTransactions(): void {
   };
 
   watch(
-    () => [bitcoinLocks.data.readiness, bitcoinFissions.data.readiness, bonds.data.isLoaded] as const,
-    ([lockReadiness, fissionReadiness, bondsLoaded]) => {
+    () =>
+      [
+        bitcoinLocks.data.readiness,
+        bitcoinFissions.data.readiness,
+        bonds.data.isLoaded,
+        stabilizerBuys.data.isLoaded,
+      ] as const,
+    ([lockReadiness, fissionReadiness, bondsLoaded, stabilizerBuysLoaded]) => {
       if (lockReadiness === 'ready' && fissionReadiness === 'ready' && !bitcoinLoad) {
         bitcoinLoad = restore(Object.values(bitcoinOperations), 'Bitcoin');
       }
       if (bondsLoaded && !bondLoad) {
         bondLoad = restore(Object.values(bondOperations), 'bond and stake');
+      }
+      if (stabilizerBuysLoaded && !stabilizerBuyLoad) {
+        stabilizerBuyLoad = restore(Object.values(stabilizerBuyOperations), 'Stabilizer Buy');
       }
     },
     { immediate: true },

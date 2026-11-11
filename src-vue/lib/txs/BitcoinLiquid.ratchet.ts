@@ -285,6 +285,16 @@ export class BitcoinLiquidRatchet extends TransactionOperation<
     await this.failGuaranteePurchases(txInfo.tx.metadataJson);
   }
 
+  protected async beforeSubmit(
+    prepared: PreparedTransactionOperation<IBitcoinLiquidRatchetMetadata, BitcoinLiquidRatchetBuild>,
+  ): Promise<void> {
+    const { api } = await this.blockWatch.getLatestFinalizedSnapshot();
+    const pending = await BitcoinFission.getPendingRepaymentLiquidIds(api, this.fissions.ownerAccount);
+    if (pending.has(prepared.metadata.liquidId)) {
+      throw new Error('A purchase is repaying this Liquid. Ratchet will be available after it settles.');
+    }
+  }
+
   protected async onSubmissionFailed(
     prepared: PreparedTransactionOperation<IBitcoinLiquidRatchetMetadata, BitcoinLiquidRatchetBuild>,
   ): Promise<void> {
@@ -309,7 +319,7 @@ export class BitcoinLiquidRatchet extends TransactionOperation<
     vaultsById: Map<number, Vault>;
   }> {
     const queryClient = client ?? (await getMainchainClient(false));
-    const currentFissions = await this.fissions.loadActive(queryClient);
+    const { fissions: currentFissions, pendingRepaymentLiquidIds } = await this.fissions.loadCurrentState(queryClient);
     const liquidFissions = currentFissions.filter(fission => fission.liquidId === liquidId);
     if (!liquidFissions.length) throw new Error(`Liquid #${liquidId} is unavailable from current chain state.`);
 
@@ -317,6 +327,10 @@ export class BitcoinLiquidRatchet extends TransactionOperation<
       queryClient.consts.bitcoinFissions.minimumRatchetPercent.times(100).toNumber(),
     );
     const errors: string[] = [];
+    if (pendingRepaymentLiquidIds.has(liquidId)) {
+      errors.push('A purchase is repaying this Liquid. Ratchet will be available after it settles.');
+    }
+
     const lockIds = [...new Set(liquidFissions.map(fission => fission.lockId))];
     const [runtimeLocks, releaseRequests] = await Promise.all([
       queryClient.query.bitcoinLocks.locksById.multi(lockIds),

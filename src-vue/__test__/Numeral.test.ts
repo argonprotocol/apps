@@ -29,6 +29,9 @@ describe('numeral', () => {
     expect(numeral(999.5).formatCurrency('₳', 1_000)).toBe('₳999.50');
     expect(numeral(1_000).formatCurrency('₳', 1_000)).toBe('₳1,000');
     expect(numeral(1_234.56).formatCurrency('₳', 1_000)).toBe('₳1,235');
+    expect(numeral(0.87).formatCurrency('₳', 1)).toBe('₳0.87');
+    expect(numeral(8.7).formatCurrency('₳', 1)).toBe('₳9');
+    expect(numeral(17.4).formatCurrency('₳', 1)).toBe('₳17');
   });
 
   it('formats percentage points and keeps positive values below the displayed precision visible', () => {

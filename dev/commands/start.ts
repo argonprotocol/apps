@@ -299,8 +299,7 @@ export async function startDev(requested: DevStartOptions): Promise<void> {
       if (options.network === 'dev-docker') {
         const { context, composeArgs } = await configureDevEnvironment(options);
         output.progress('Building local services');
-        await output.run('yarn', ['workspace', '@argonprotocol/apps-indexer', 'run', 'build']);
-        await output.run('yarn', ['build:server']);
+        await buildLocalServices(output, { context, composeArgs });
         output.progress('Starting or reusing Argon, Bitcoin, and indexer');
         await output.run('docker', [...composeArgs, 'up', '-d', '--wait', '--wait-timeout', '180'], {
           env: context.composeEnv,
@@ -404,5 +403,26 @@ export async function startDev(requested: DevStartOptions): Promise<void> {
     }
   } finally {
     releaseEnvironment();
+  }
+}
+
+export async function buildLocalServices(
+  output: DevOutput,
+  { context, composeArgs }: Pick<Awaited<ReturnType<typeof configureDevEnvironment>>, 'context' | 'composeArgs'>,
+): Promise<void> {
+  // Keep at most two builds active, and finish both lanes before starting services or reporting failure.
+  const builds = await Promise.allSettled([
+    output.run('yarn', ['build:server']),
+    (async () => {
+      await output.run('yarn', ['workspace', '@argonprotocol/apps-indexer', 'run', 'build']);
+      output.progress('Building local mining CLI');
+      await output.run('docker', [...composeArgs, 'build', 'miner-1-setup'], {
+        env: context.composeEnv,
+        cwd: context.composeDir,
+      });
+    })(),
+  ]);
+  for (const build of builds) {
+    if (build.status === 'rejected') throw build.reason;
   }
 }

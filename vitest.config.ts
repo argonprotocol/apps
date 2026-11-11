@@ -147,6 +147,11 @@ export default defineConfig({
         },
       },
       {
+        resolve: {
+          alias: {
+            'src-vue': path.join(dirname, 'src-vue'),
+          },
+        },
         test: {
           name: 'integration',
           tags: [

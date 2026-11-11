@@ -13,6 +13,7 @@ import type { useFinancials } from '../stores/financials.ts';
 import type { MyVault } from '../lib/MyVault.ts';
 import type { ArgonBonds } from '../lib/ArgonBonds.ts';
 import type { AppStartup } from '../lib/AppStartup.ts';
+import type { StabilizerBuys } from '../lib/StabilizerBuys.ts';
 
 export interface IAppQueryRefs {
   config: IConfigQueryRef;
@@ -28,6 +29,7 @@ export interface IAppQueryRefs {
   overlayIsOpen: boolean;
   getBitcoinFissions(): BitcoinFissions;
   getArgonBonds(): ArgonBonds;
+  getStabilizerBuys(): StabilizerBuys;
   getVaultFundingState(): ReturnType<typeof MyVault.getFundingState>;
   getEthereumMoveTracker(): IEthereumMoveTrackerQueryRef;
   getEthereumOutboundTransferTracker(): EthereumOutboundTransferTracker;

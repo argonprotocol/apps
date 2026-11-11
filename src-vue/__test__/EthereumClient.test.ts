@@ -41,6 +41,101 @@ describe('EthereumClient', () => {
     NetworkConfig.clearRuntimeOverride('dev-docker');
   });
 
+  it.each(['TransferToArgonStarted', 'TransferToArgonFromSwapStarted'] as const)(
+    'confirms the matching inbound activity from %s without claiming another recipient',
+    async eventName => {
+      const walletKeys = createMockWalletKeys();
+      const ethereumClient = new EthereumClient(walletKeys, 'https://ethereum.test');
+      const gatewayAddress = repeatHex('11', 20);
+      const token = repeatHex('22', 20);
+      const buyer = repeatHex('33', 20);
+      const sourceTxHash = repeatHex('44', 32);
+      const blockHash = repeatHex('55', 32);
+      const argonAccountId = toHex(new Uint8Array(32).fill(17));
+      const amount = 150_000_000n;
+      const gatewayState = {
+        gatewayActivityNonce: 9n,
+        argonApprovalsNonce: 1n,
+        argonCirculation: 0n,
+        argonotCirculation: 0n,
+      };
+      const purchase: EvmContracts.MintingGatewaySwapPurchase = {
+        repayLiquidId: 0n,
+        repaySignature: '0x' as const,
+        timestamp: 1_000n,
+        buyer,
+        argonAccountId,
+        usdcToken: repeatHex('66', 20),
+        usdcSpent: 140_000_000n,
+        argonBought: amount * 1_000_000_000_000n,
+        poolManager: repeatHex('77', 20),
+        poolId: repeatHex('88', 32),
+        sqrtPriceBeforeX96: 100n,
+        sqrtPriceAfterX96: 101n,
+      };
+      const abiEvent = EvmContracts.mintingGatewayAbi
+        .filter(item => item.type === 'event')
+        .find(item => item.name === eventName)!;
+      const topics = encodeEventTopics({
+        abi: EvmContracts.mintingGatewayAbi,
+        eventName,
+        args: { from: buyer, token },
+      });
+      let values = [purchase, token, amount, gatewayState];
+      if (eventName === 'TransferToArgonStarted') values = [amount, argonAccountId, gatewayState];
+
+      const data = encodeAbiParameters(
+        abiEvent.inputs.filter(input => !input.indexed),
+        values,
+      );
+      const ethereumExecution = {
+        publicClient: {
+          waitForTransactionReceipt: async () => ({
+            transactionHash: sourceTxHash,
+            blockNumber: 20n,
+            blockHash,
+            status: 'success',
+            logs: [
+              { address: repeatHex('aa', 20), topics, data },
+              { address: gatewayAddress, topics, data },
+            ],
+          }),
+        },
+      };
+      Object.defineProperty(ethereumClient, 'publicClient', {
+        configurable: true,
+        value: ethereumExecution.publicClient,
+      });
+      Object.assign(ethereumClient, {
+        loadChainConfig: async () => ({
+          chainId: 1,
+          gatewayAddress,
+          argonTokenAddress: token,
+          argonotTokenAddress: repeatHex('99', 20),
+        }),
+        createExecutionClient: async () => ethereumExecution,
+      });
+      const transfer = {
+        moveToken: MoveToken.ARGN,
+        amountBaseUnits: amount * 1_000_000_000_000n,
+        destinationAddress: argonAccountId,
+        sourceAddress: buyer,
+        executionRpcUrl: 'https://ethereum.test',
+        sourceTxHash,
+      } as const;
+
+      await expect(ethereumClient.confirmTransferToArgon(transfer)).resolves.toMatchObject({
+        sourceBlockNumber: 20,
+        sourceBlockHash: blockHash,
+        sourceLogIndex: 1,
+        gatewayActivityNonce: 9n,
+      });
+      await expect(
+        ethereumClient.confirmTransferToArgon({ ...transfer, destinationAddress: repeatHex('bb', 32) }),
+      ).rejects.toThrow('matching inbound gateway activity');
+    },
+  );
+
   it('prefers the short viem error message over raw RPC request details', () => {
     const error = Object.assign(
       new Error(
@@ -119,6 +214,40 @@ describe('EthereumClient', () => {
     ).rejects.toThrow('Missing or invalid parameters. Double check you have provided the correct parameters.');
   });
 
+  it.each([MoveToken.ARGN, MoveToken.ARGNOT] as const)(
+    'rejects an inbound %s transfer below 0.01 before signing',
+    async moveToken => {
+      const keys = createMockWalletKeys();
+      const signPermit = vi.spyOn(keys, 'signEthereumPermit');
+      const client = new EthereumClient(keys, 'https://ethereum.test');
+      const prepare = vi.fn(async () => {
+        throw new Error('Reached Ethereum preparation');
+      });
+      Object.assign(client, { loadChainConfig: prepare });
+      const ethereumWallet = new WalletForEthereum(keys.coreEthereumAddress, undefined, undefined, true);
+
+      await expect(
+        client.startTransferToArgon({
+          moveToken,
+          amountBaseUnits: 9_999n * EvmContracts.MINTING_GATEWAY_RUNTIME_TO_ERC20_SCALE,
+          destinationAddress: keys.defaultArgonAddress,
+          ethereumWallet,
+        }),
+      ).rejects.toThrow(`The minimum transfer from Ethereum is 0.01 ${moveToken}.`);
+      expect(signPermit).not.toHaveBeenCalled();
+      expect(prepare).not.toHaveBeenCalled();
+
+      await expect(
+        client.startTransferToArgon({
+          moveToken,
+          amountBaseUnits: 10_000n * EvmContracts.MINTING_GATEWAY_RUNTIME_TO_ERC20_SCALE,
+          destinationAddress: keys.defaultArgonAddress,
+          ethereumWallet,
+        }),
+      ).rejects.toThrow('Reached Ethereum preparation');
+    },
+  );
+
   it('quotes the provisional inbound network fee without unlocking or signing a permit', async () => {
     const keys = createMockWalletKeys();
     const unlock = vi.spyOn(keys, 'getEthereumSigner').mockImplementation(() => {
@@ -141,9 +270,12 @@ describe('EthereumClient', () => {
     expect(unlock).not.toHaveBeenCalled();
   });
 
-  it('reserves distinct Ethereum nonces for concurrent outbound finalizations', async () => {
+  it('reserves distinct Ethereum nonces across clients submitting concurrently for the same wallet', async () => {
     const walletKeys = createMockWalletKeys();
-    const ethereumClient = new EthereumClient(walletKeys, 'https://ethereum.test');
+    const ethereumClients = [
+      new EthereumClient(walletKeys, 'https://ethereum-one.test'),
+      new EthereumClient(walletKeys, 'https://ethereum-two.test'),
+    ];
     const gatewayAddress = repeatHex('11', 20);
     const submittedNonces: number[] = [];
     let nextNonce = 3;
@@ -162,18 +294,21 @@ describe('EthereumClient', () => {
         return toHex(nonce, { size: 32 });
       }),
     };
-    Object.assign(ethereumClient, {
-      loadChainConfig: async () => ({
-        chainId: 1,
-        gatewayAddress,
-        argonTokenAddress: repeatHex('22', 20),
-        argonotTokenAddress: repeatHex('33', 20),
-      }),
-      createExecutionClient: async () => ({
-        chain: { id: 1 },
-        publicClient,
-      }),
-    });
+    for (const ethereumClient of ethereumClients) {
+      Object.defineProperty(ethereumClient, 'publicClient', { configurable: true, value: publicClient });
+      Object.assign(ethereumClient, {
+        loadChainConfig: async () => ({
+          chainId: 1,
+          gatewayAddress,
+          argonTokenAddress: repeatHex('22', 20),
+          argonotTokenAddress: repeatHex('33', 20),
+        }),
+        createExecutionClient: async () => ({
+          chain: { id: 1 },
+          publicClient,
+        }),
+      });
+    }
     const proof = {
       authorizations: [
         {
@@ -185,8 +320,8 @@ describe('EthereumClient', () => {
     };
 
     await Promise.all(
-      [1n, 2n].map(async argonTransferNonce =>
-        ethereumClient.finalizeTransferOutOfArgon({
+      [1n, 2n].map((argonTransferNonce, index) =>
+        ethereumClients[index].finalizeTransferOutOfArgon({
           request: {
             argonAccountId: repeatHex('44', 32),
             argonTransferNonce,
@@ -227,29 +362,47 @@ describe('EthereumClient', () => {
     expect(requestBody.params).toEqual(['0x0000000000000000000000000000000000000001', 'latest']);
   });
 
-  it('falls back from the configured RPC when it returns a provider error', async () => {
+  it('falls back from expired endpoints and follows replacement URLs on an existing client', async () => {
+    NetworkConfig.setNetwork('dev-docker');
     NetworkConfig.setRuntimeOverride('dev-docker', {
-      ethereumNetwork: {
-        executionRpcUrls: ['https://ethereum-fallback.test'],
-      },
+      ethereumNetwork: { executionRpcUrls: ['https://fallback-old.test'] },
     });
-    runtimeFetchMock.mockResolvedValueOnce(new Response('unavailable', { status: 503 })).mockResolvedValueOnce(
-      new Response(JSON.stringify({ jsonrpc: '2.0', id: 1, result: '0x2a' }), {
+    let configuredUrl = 'https://expired-primary.test';
+    const ethereum = new EthereumClient(createMockWalletKeys(), () => configuredUrl);
+    runtimeFetchMock.mockImplementation(async (input: unknown) => {
+      const url = String(input);
+      if (url === 'https://expired-primary.test/') return new Response('expired key', { status: 401 });
+      if (url === 'https://limited-primary.test/') return new Response('quota exceeded', { status: 429 });
+      const balance = url === 'https://fallback-new.test/' ? '0x2b' : '0x2a';
+      return new Response(JSON.stringify({ jsonrpc: '2.0', id: 1, result: balance }), {
         status: 200,
-        headers: {
-          'Content-Type': 'application/json',
-        },
-      }),
-    );
+        headers: { 'Content-Type': 'application/json' },
+      });
+    });
     setFetchImplementation(runtimeFetchMock as unknown as FetchImplementation);
 
-    const publicClient = createEthereumPublicClient(undefined, 'https://ethereum-configured.test');
-
-    await expect(publicClient.getBalance({ address: '0x0000000000000000000000000000000000000001' })).resolves.toBe(42n);
+    await expect(
+      ethereum.publicClient.getBalance({ address: '0x0000000000000000000000000000000000000001' }),
+    ).resolves.toBe(42n);
+    configuredUrl = 'https://limited-primary.test';
+    NetworkConfig.setRuntimeOverride('dev-docker', {
+      ethereumNetwork: { executionRpcUrls: ['https://fallback-new.test'] },
+    });
+    await expect(
+      ethereum.publicClient.getBalance({ address: '0x0000000000000000000000000000000000000001' }),
+    ).resolves.toBe(43n);
     expect(runtimeFetchMock.mock.calls.map(call => String(call[0]))).toEqual([
-      'https://ethereum-configured.test/',
-      'https://ethereum-fallback.test/',
+      'https://expired-primary.test/',
+      'https://fallback-old.test/',
+      'https://limited-primary.test/',
+      'https://fallback-new.test/',
     ]);
+
+    await expect(ethereum.getTransactionProgress({ txHash: `0x${'11'.repeat(32)}`, chainId: 1 })).rejects.toThrow(
+      'saved transaction network',
+    );
+    const requests = runtimeFetchMock.mock.calls.map(([, init]) => String(init?.body));
+    expect(requests.some(body => body.includes('"eth_getTransactionReceipt"'))).toBe(false);
   });
 
   it('rejects a reverted receipt after the required confirmations', async () => {
@@ -257,18 +410,23 @@ describe('EthereumClient', () => {
     const ethereumClient = new EthereumClient(createMockWalletKeys(), 'https://ethereum.test');
     const getBlockNumber = vi.fn(async () => 106n);
 
+    const ethereumExecution = {
+      publicClient: {
+        getTransactionReceipt: vi.fn(async () => ({
+          blockNumber: 90n,
+          blockHash: `0x${'22'.repeat(32)}`,
+          transactionHash: txHash,
+          status: 'reverted',
+        })),
+        getBlockNumber,
+      },
+    };
+    Object.defineProperty(ethereumClient, 'publicClient', {
+      configurable: true,
+      value: ethereumExecution.publicClient,
+    });
     Object.assign(ethereumClient, {
-      createExecutionClient: async () => ({
-        publicClient: {
-          getTransactionReceipt: vi.fn(async () => ({
-            blockNumber: 90n,
-            blockHash: `0x${'22'.repeat(32)}`,
-            transactionHash: txHash,
-            status: 'reverted',
-          })),
-          getBlockNumber,
-        },
-      }),
+      createExecutionClient: async () => ethereumExecution,
     });
 
     await expect(ethereumClient.getTransactionProgress({ txHash })).rejects.toMatchObject({
@@ -285,25 +443,30 @@ describe('EthereumClient', () => {
       const ethereumClient = new EthereumClient(createMockWalletKeys(), 'https://ethereum.test');
       let receiptLookupCount = 0;
 
+      const ethereumExecution = {
+        publicClient: {
+          getTransactionReceipt: vi.fn(async () => {
+            receiptLookupCount += 1;
+            if (history === 'reorganized away' && receiptLookupCount === 1) {
+              return { blockNumber: 90n, blockHash: `0x${'66'.repeat(32)}`, status: 'success' };
+            }
+            if (receiptLookupCount > 3) {
+              throw new Error('continued polling an absent transaction');
+            }
+            throw new TransactionReceiptNotFoundError({ hash: txHash });
+          }),
+          getTransaction: vi.fn(async () => {
+            throw new TransactionNotFoundError({ hash: txHash });
+          }),
+          getBlockNumber: vi.fn(async () => 90n),
+        },
+      };
+      Object.defineProperty(ethereumClient, 'publicClient', {
+        configurable: true,
+        value: ethereumExecution.publicClient,
+      });
       Object.assign(ethereumClient, {
-        createExecutionClient: async () => ({
-          publicClient: {
-            getTransactionReceipt: vi.fn(async () => {
-              receiptLookupCount += 1;
-              if (history === 'reorganized away' && receiptLookupCount === 1) {
-                return { blockNumber: 90n, blockHash: `0x${'66'.repeat(32)}`, status: 'success' };
-              }
-              if (receiptLookupCount > 3) {
-                throw new Error('continued polling an absent transaction');
-              }
-              throw new TransactionReceiptNotFoundError({ hash: txHash });
-            }),
-            getTransaction: vi.fn(async () => {
-              throw new TransactionNotFoundError({ hash: txHash });
-            }),
-            getBlockNumber: vi.fn(async () => 90n),
-          },
-        }),
+        createExecutionClient: async () => ethereumExecution,
         getTransactionFinalityPollMs: () => 0,
         getTransactionFinalityWaitEstimateMs: () => 1_000,
       });
@@ -325,31 +488,36 @@ describe('EthereumClient', () => {
     const ethereumClient = new EthereumClient(createMockWalletKeys(), 'https://ethereum.test');
     let receiptLookupCount = 0;
 
+    const ethereumExecution = {
+      publicClient: {
+        getTransactionReceipt: vi.fn(async () => {
+          receiptLookupCount += 1;
+          if (receiptLookupCount === 1) {
+            throw new TransactionReceiptNotFoundError({ hash: txHash });
+          }
+          return {
+            blockNumber: 98n,
+            blockHash,
+            transactionHash: txHash,
+            status: 'success',
+          };
+        }),
+        getTransaction: vi.fn(async () => ({
+          hash: txHash,
+          blockNumber: null,
+          from: '0x0000000000000000000000000000000000000001',
+          nonce: 3,
+        })),
+        getTransactionCount: vi.fn(async () => 3),
+        getBlockNumber: vi.fn(async () => 100n),
+      },
+    };
+    Object.defineProperty(ethereumClient, 'publicClient', {
+      configurable: true,
+      value: ethereumExecution.publicClient,
+    });
     Object.assign(ethereumClient, {
-      createExecutionClient: async () => ({
-        publicClient: {
-          getTransactionReceipt: vi.fn(async () => {
-            receiptLookupCount += 1;
-            if (receiptLookupCount === 1) {
-              throw new TransactionReceiptNotFoundError({ hash: txHash });
-            }
-            return {
-              blockNumber: 98n,
-              blockHash,
-              transactionHash: txHash,
-              status: 'success',
-            };
-          }),
-          getTransaction: vi.fn(async () => ({
-            hash: txHash,
-            blockNumber: null,
-            from: '0x0000000000000000000000000000000000000001',
-            nonce: 3,
-          })),
-          getTransactionCount: vi.fn(async () => 3),
-          getBlockNumber: vi.fn(async () => 100n),
-        },
-      }),
+      createExecutionClient: async () => ethereumExecution,
       getTransactionFinalityBlocks: () => 2,
       getTransactionFinalityPollMs: () => 0,
       getTransactionFinalityWaitEstimateMs: () => 1_000,
@@ -368,21 +536,26 @@ describe('EthereumClient', () => {
     async evidence => {
       const txHash = `0x${'77'.repeat(32)}` as const;
       const ethereumClient = new EthereumClient(createMockWalletKeys(), 'https://ethereum.test');
-      Object.assign(ethereumClient, {
-        createExecutionClient: async () => ({
-          publicClient: {
-            getTransaction: async () => ({
-              from: '0x0000000000000000000000000000000000000001',
-              nonce: 3,
-              blockNumber: evidence === 'mined transaction' ? 98n : null,
-            }),
-            getTransactionCount: async () => 4,
-            getTransactionReceipt: async () => {
-              if (evidence !== 'receipt') throw new Error('indexing is in progress');
-              return { blockNumber: 98n };
-            },
+      const ethereumExecution = {
+        publicClient: {
+          getTransaction: async () => ({
+            from: '0x0000000000000000000000000000000000000001',
+            nonce: 3,
+            blockNumber: evidence === 'mined transaction' ? 98n : null,
+          }),
+          getTransactionCount: async () => 4,
+          getTransactionReceipt: async () => {
+            if (evidence !== 'receipt') throw new Error('indexing is in progress');
+            return { blockNumber: 98n };
           },
-        }),
+        },
+      };
+      Object.defineProperty(ethereumClient, 'publicClient', {
+        configurable: true,
+        value: ethereumExecution.publicClient,
+      });
+      Object.assign(ethereumClient, {
+        createExecutionClient: async () => ethereumExecution,
       });
 
       if (evidence === 'receipt indexing') {
@@ -480,6 +653,7 @@ describe('EthereumClient', () => {
       }),
       getLogs,
     };
+    Object.defineProperty(fixture.ethereumClient, 'publicClient', { configurable: true, value: publicClient });
     Object.assign(fixture.ethereumClient, {
       createExecutionClient: async () => ({ publicClient }),
     });
@@ -698,6 +872,7 @@ function createCouncilRotationRelayFixture(corruption?: 'council' | 'payload' | 
   };
   const ethereumClient = new EthereumClient(walletKeys, 'https://ethereum.test');
 
+  Object.defineProperty(ethereumClient, 'publicClient', { configurable: true, value: publicClient });
   Object.assign(ethereumClient, {
     loadChainConfig: async () => ({
       chainId: 1,

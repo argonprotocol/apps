@@ -67,6 +67,7 @@ function createFinancials(
     vaulting: createGroupSummary('vaulting'),
     bonds: createGroupSummary('bonds'),
     bitcoin: createGroupSummary('bitcoin'),
+    stabilizer: createGroupSummary('stabilizer'),
   } satisfies IFinancialAggregate['groupSummaries'];
   const grossAssets = args.grossAssets ?? 1200n;
   return {

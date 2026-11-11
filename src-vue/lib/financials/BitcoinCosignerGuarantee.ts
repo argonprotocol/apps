@@ -1,4 +1,4 @@
-import type { IBitcoinFission } from '@argonprotocol/apps-core';
+import type { BitcoinFission } from '@argonprotocol/apps-core';
 import type { IBitcoinSecuritizationTerm } from '../../interfaces/IBitcoinSecuritizationTerm.ts';
 
 export type IBitcoinCosignerGuaranteeAllocation = {
@@ -20,13 +20,13 @@ type ActiveSatoshis = {
 
 export function allocateBitcoinCosignerGuaranteeCosts(args: {
   terms: readonly IBitcoinSecuritizationTerm[];
-  fissions: readonly IBitcoinFission[];
+  fissions: readonly BitcoinFission[];
 }): IBitcoinCosignerGuaranteeAllocation {
   const costByLiquidId = new Map<number, bigint>();
   const incompleteLiquidIds = new Set<number>();
   const incompleteLockIds = new Set<number>();
   let unallocatedCost = 0n;
-  const fissionsByLockId = new Map<number, IBitcoinFission[]>();
+  const fissionsByLockId = new Map<number, BitcoinFission[]>();
   for (const fission of args.fissions) {
     if (
       (fission.ratchetNumber ?? 0) > 0 &&
@@ -54,6 +54,12 @@ export function allocateBitcoinCosignerGuaranteeCosts(args: {
     if (!terms?.length) {
       for (const fission of fissions) incompleteLiquidIds.add(fission.liquidId);
       incompleteLockIds.add(lockId);
+      continue;
+    }
+
+    if (fissions.some(fission => !fission.hasCompleteRepaymentHistory)) {
+      incompleteLockIds.add(lockId);
+      for (const fission of fissions) incompleteLiquidIds.add(fission.liquidId);
       continue;
     }
 
@@ -108,13 +114,14 @@ export function allocateBitcoinCosignerGuaranteeCosts(args: {
 
 function allocateTerm(
   term: IBitcoinSecuritizationTerm,
-  fissions: readonly IBitcoinFission[],
+  fissions: readonly BitcoinFission[],
 ): Pick<IBitcoinCosignerGuaranteeAllocation, 'costByLiquidId' | 'unallocatedCost'> {
   const eventTicks = fissions.flatMap(fission => [
     fission.createdAtTick,
     fission.closedAtTick,
     fission.lastRatchetTick,
     ...(fission.ratchets ?? []).map(ratchet => ratchet.tick),
+    ...(fission.repayments ?? []).map(repayment => repayment.tick),
   ]);
   const latestEventTick = Math.max(
     term.startTick,
@@ -144,8 +151,13 @@ function allocateTerm(
     if (ticks <= 0 || amount <= 0n) return;
     weightByLiquidId.set(liquidId, (weightByLiquidId.get(liquidId) ?? 0n) + amount * BigInt(ticks));
   };
-  const open = (fission: IBitcoinFission, tick: number) => {
-    let remaining = fission.satoshis;
+  const open = (fission: BitcoinFission, tick: number) => {
+    const repayments = fission.repayments ?? [];
+    const repaid = repayments.reduce((sum, repayment) => sum + repayment.satoshis, 0n);
+    let remaining = fission.initialSatoshis ?? fission.satoshis + repaid;
+    for (const repayment of repayments) {
+      if (repayment.tick <= tick) remaining -= repayment.satoshis;
+    }
     const lots: AvailableSatoshis[] = [];
     // A Fission's Bitcoin can exceed the slice paid for by this Lock purchase.
     while (remaining > 0n && available.length > 0) {
@@ -159,14 +171,20 @@ function allocateTerm(
     }
     active.set(fission.fissionId, { liquidId: fission.liquidId, startedAt: tick, lots });
   };
-  const close = (fission: IBitcoinFission, tick: number) => {
+  const release = (fission: BitcoinFission, tick: number, amount?: bigint) => {
     const allocation = active.get(fission.fissionId);
     if (!allocation) return;
+    let remaining = amount ?? allocation.lots.reduce((sum, lot) => sum + lot.amount, 0n);
     for (const lot of allocation.lots) {
-      addWeight(allocation.liquidId, lot.amount, tick - allocation.startedAt);
-      available.push({ amount: lot.amount, idleSince: tick });
+      if (remaining === 0n) break;
+      const returned = lot.amount < remaining ? lot.amount : remaining;
+      addWeight(allocation.liquidId, returned, tick - allocation.startedAt);
+      available.push({ amount: returned, idleSince: tick });
+      lot.amount -= returned;
+      remaining -= returned;
     }
-    active.delete(fission.fissionId);
+    allocation.lots = allocation.lots.filter(lot => lot.amount > 0n);
+    if (!allocation.lots.length) active.delete(fission.fissionId);
   };
 
   const activeAtStart = overlapping
@@ -178,8 +196,23 @@ function allocateTerm(
     .sort((left, right) => left.fissionId - right.fissionId);
   for (const fission of activeAtStart) open(fission, term.startTick);
 
+  const repaymentSteps = overlapping.flatMap(fission => {
+    const repayments = fission.repayments ?? [];
+    const repaid = repayments.reduce((sum, repayment) => sum + repayment.satoshis, 0n);
+    let satoshisBefore = fission.initialSatoshis ?? fission.satoshis + repaid;
+
+    return repayments.map(repayment => {
+      const step = { fission, repayment, satoshisBefore };
+      satoshisBefore -= repayment.satoshis;
+      return step;
+    });
+  });
+
   const ticks = new Set<number>();
   for (const fission of overlapping) {
+    for (const repayment of fission.repayments ?? []) {
+      if (repayment.tick > term.startTick && repayment.tick <= observationTick) ticks.add(repayment.tick);
+    }
     if (fission.createdAtTick! > term.startTick && fission.createdAtTick! <= observationTick) {
       ticks.add(fission.createdAtTick!);
     }
@@ -192,10 +225,19 @@ function allocateTerm(
     }
   }
   for (const tick of [...ticks].sort((left, right) => left - right)) {
+    for (const { fission, repayment, satoshisBefore } of repaymentSteps) {
+      if (repayment.tick !== tick) continue;
+      const allocation = active.get(fission.fissionId);
+      if (!allocation) continue;
+
+      const allocated = allocation.lots.reduce((sum, lot) => sum + lot.amount, 0n);
+      const returned = (allocated * repayment.satoshis) / satoshisBefore;
+      release(fission, tick, returned);
+    }
     for (const fission of overlapping
       .filter(candidate => candidate.closedAtTick === tick)
       .sort((left, right) => left.fissionId - right.fissionId)) {
-      close(fission, tick);
+      release(fission, tick);
     }
     for (const fission of overlapping
       .filter(candidate => candidate.createdAtTick === tick)
@@ -203,7 +245,7 @@ function allocateTerm(
       open(fission, tick);
     }
   }
-  for (const fission of overlapping) close(fission, endTick);
+  for (const fission of overlapping) release(fission, endTick);
 
   const denominator = term.securitizedSatoshis * BigInt(duration);
   const assignedWeight = [...weightByLiquidId.values()].reduce((total, weight) => total + weight, 0n);

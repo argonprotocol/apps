@@ -3,6 +3,7 @@ import { BitcoinFissionRecovery } from '../lib/recovery/BitcoinFissions.ts';
 import { getFinalizedClient } from '../stores/mainchain.ts';
 import { integrationNetwork as sharedNetwork } from '@argonprotocol/apps-core/__test__/integration.setup.ts';
 import { afterAll, beforeAll, describe, expect, inject, it, vi } from 'vitest';
+import { computed, reactive } from 'vue';
 import docker from 'docker-compose';
 import { COMPOSE_CONFIG, COMPOSE_DIR } from '@argonprotocol/apps-core/__test__/startArgonTestNetwork.ts';
 
@@ -105,7 +106,7 @@ describe.skipIf(SKIP_E2E).sequential('Bitcoin Liquids integration', { timeout: 3
       const lock = await createFundedLock(harness, targetLiquidity, { verifyRestoredCreation: true });
       const { createLiquid, fissions } = await createLiquidServices(harness);
       const txSigner = await harness.walletKeys.getLiquidLockingSigner();
-      const satoshis = lock.securitizedSatoshis;
+      const satoshis = lock.securitizedSatoshis / 2n;
 
       await waitFor(90_000, 'fresh unchanged Bitcoin price with an older history entry', async () => {
         const snapshot = await getFinalizedClient(client);
@@ -130,7 +131,7 @@ describe.skipIf(SKIP_E2E).sequential('Bitcoin Liquids integration', { timeout: 3
         txSigner,
         client,
       });
-      expect(preview.maximumSatoshisByLockId).toEqual({ [lock.lockId!]: satoshis });
+      expect(preview.maximumSatoshisByLockId).toEqual({ [lock.lockId!]: lock.securitizedSatoshis });
       expect(preview.liquidityMicrogons).toBeGreaterThan(0n);
 
       const txInfo = await createLiquid.submit({
@@ -146,7 +147,7 @@ describe.skipIf(SKIP_E2E).sequential('Bitcoin Liquids integration', { timeout: 3
       expect(current[0]).toMatchObject({
         ownerAccount: txSigner.address,
         fissionId: 0,
-        liquidId: 0,
+        liquidId: 1,
         lockId: lock.lockId,
         satoshis: satoshis,
       });
@@ -156,10 +157,30 @@ describe.skipIf(SKIP_E2E).sequential('Bitcoin Liquids integration', { timeout: 3
       expect(currentLock?.fissionedSatoshis).toBe(satoshis);
       expect(fissions.getLiquids()).toEqual([
         expect.objectContaining({
-          liquidId: 0,
+          liquidId: 1,
           fissions: [expect.objectContaining({ fissionId: 0, lockId: lock.lockId })],
         }),
       ]);
+
+      const second = await createLiquid.submit({
+        allocations: [{ lock, satoshis }],
+        txSigner,
+        client,
+      });
+      await second.txResult.waitForFinalizedBlock;
+      await second.waitForPostProcessing;
+      expect(second.tx.metadataJson.liquidId).toBe(2);
+      const afterSecond = await BitcoinFission.getAllByOwner(client, txSigner.address);
+      expect(afterSecond.map(fission => [fission.fissionId, fission.liquidId]).sort()).toEqual([
+        [0, 1],
+        [1, 2],
+      ]);
+      expect(
+        fissions
+          .getLiquids()
+          .map(liquid => liquid.liquidId)
+          .sort(),
+      ).toEqual([1, 2]);
     } finally {
       await cleanupBitcoinLocksHarness(harness);
     }
@@ -328,7 +349,7 @@ describe.skipIf(SKIP_E2E).sequential('Bitcoin Liquids integration', { timeout: 3
               BitcoinFission.createTx({
                 client,
                 fissionId: nextId,
-                liquidId: nextId,
+                liquidId: nextId + 1,
                 lockId: lock.lockId!,
                 satoshis: selectedSatoshis,
                 microgonsAtTargetPerBtc: rate,
@@ -389,7 +410,7 @@ describe.skipIf(SKIP_E2E).sequential('Bitcoin Liquids integration', { timeout: 3
               BitcoinFission.createTx({
                 client,
                 fissionId: nextId,
-                liquidId: nextId,
+                liquidId: nextId + 1,
                 lockId: lock.lockId!,
                 satoshis: maximumSatoshis + 1n,
                 microgonsAtTargetPerBtc: rate,
@@ -901,7 +922,7 @@ describe.skipIf(SKIP_E2E).sequential('Bitcoin Liquids integration', { timeout: 3
       );
       expect(current).toHaveLength(2);
       expect(current.map(fission => fission.fissionId)).toEqual([0, 1]);
-      expect(current.map(fission => fission.liquidId)).toEqual([0, 0]);
+      expect(current.map(fission => fission.liquidId)).toEqual([1, 1]);
       expect(current.map(fission => ({ lockId: fission.lockId, satoshis: fission.satoshis }))).toEqual([
         { lockId: firstLock.lockId, satoshis: allocations[0].satoshis },
         { lockId: secondLock.lockId, satoshis: allocations[1].satoshis },
@@ -915,7 +936,7 @@ describe.skipIf(SKIP_E2E).sequential('Bitcoin Liquids integration', { timeout: 3
       expect(secondCurrentLock?.fissionedSatoshis).toBe(allocations[1].satoshis);
       expect(fissions.getLiquids()).toEqual([
         expect.objectContaining({
-          liquidId: 0,
+          liquidId: 1,
           fissions: [
             expect.objectContaining({ fissionId: 0, lockId: firstLock.lockId }),
             expect.objectContaining({ fissionId: 1, lockId: secondLock.lockId }),
@@ -1457,7 +1478,7 @@ describe.skipIf(SKIP_E2E).sequential('Bitcoin Liquids integration', { timeout: 3
       await harness.currency.fetchMainchainRates(client, { ignoreCache: true });
       const lock = await createFundedLock(harness, targetLiquidity);
       await submitBitcoinPrice(harness, { btcUsdPrice: 121_000 });
-      const { createLiquid, ratchetLiquid, fissions } = await createLiquidServices(harness);
+      const { createLiquid, ratchetLiquid, closeLiquid, fissions } = await createLiquidServices(harness);
       const satoshis = lock.securitizedSatoshis;
       const txSigner = await harness.walletKeys.getLiquidLockingSigner();
 
@@ -1507,24 +1528,81 @@ describe.skipIf(SKIP_E2E).sequential('Bitcoin Liquids integration', { timeout: 3
         amountToBurn: 0n,
         errors: [],
         canRatchet: true,
-        lockChanges: runtimeSpec === 161 ? [] : [
-          {
-            lockId: lock.lockId,
-            phase: 'before-fissions',
-            securitizedSatoshis: satoshis,
-            microgonsAtTargetPerBtc: ratchetRate,
-          },
-        ],
+        lockChanges:
+          runtimeSpec === 161
+            ? []
+            : [
+                {
+                  lockId: lock.lockId,
+                  phase: 'before-fissions',
+                  securitizedSatoshis: satoshis,
+                  microgonsAtTargetPerBtc: ratchetRate,
+                },
+              ],
       });
       expect(preview.newLiquidity).toBeGreaterThan(preview.sourceLiquidity);
       expect(preview.amountToMint).toBe(preview.newLiquidity - preview.sourceLiquidity);
 
-      const ratchetTxInfo = await ratchetLiquid.submit({
+      const ratchetInput = {
         liquidId: initialFission.liquidId,
         microgonsAtTargetPerBtc: ratchetRate,
         txSigner,
         client,
-      });
+      };
+      const preparedRatchet = await ratchetLiquid.prepare(ratchetInput);
+
+      if (runtimeSpec === 161) {
+        const closeInput = { liquidId: initialFission.liquidId, txSigner, client };
+        const preparedClose = await closeLiquid.prepare(closeInput);
+        fissions.data = reactive(fissions.data);
+        const repaymentPending = computed(() => fissions.data.pendingRepaymentLiquidIds.has(initialFission.liquidId));
+        const loadedFission = fissions.data.fissionsById[initialFission.fissionId];
+        const attemptsBefore = await harness.db.transactionsTable.fetchByAccountAddress(txSigner.address);
+        const pendingCount = client.raw.query.stabilizerBuys.pendingLiquidRepayCountByAccountAndLiquid;
+        const key = pendingCount.key(txSigner.address, initialFission.liquidId);
+        expect(repaymentPending.value).toBe(false);
+
+        try {
+          // Advance the external repayment-count boundary after both reviews were prepared.
+          for (const count of [2n, 1n]) {
+            await sudoSubmitAndFinalize(
+              client,
+              client.tx.system.setStorage([[key, client.raw.registry.createType('u64', count).toHex()]]),
+            );
+            await fissions.refreshCurrent(await getFinalizedClient(client));
+            expect(repaymentPending.value).toBe(true);
+            expect(fissions.data.fissionsById[initialFission.fissionId]).toBe(loadedFission);
+
+            await expect(closeLiquid.prepare(closeInput)).rejects.toThrow('A purchase is repaying this Liquid.');
+            await expect(closeLiquid.submit(closeInput, preparedClose)).rejects.toThrow(
+              'A purchase is repaying this Liquid.',
+            );
+            await expect(ratchetLiquid.submit(ratchetInput, preparedRatchet)).rejects.toThrow(
+              'A purchase is repaying this Liquid.',
+            );
+            const blockedPreview = await ratchetLiquid.previewRatchet(
+              initialFission.liquidId,
+              ratchetRate,
+              await getFinalizedClient(client),
+              harness.currency.priceIndex,
+            );
+            expect(blockedPreview.canRatchet).toBe(false);
+            expect(blockedPreview.errors[0]).toContain('A purchase is repaying this Liquid.');
+            expect(await harness.db.transactionsTable.fetchByAccountAddress(txSigner.address)).toEqual(
+              attemptsBefore,
+            );
+          }
+        } finally {
+          await sudoSubmitAndFinalize(client, client.tx.system.killStorage([key]));
+        }
+
+        await fissions.refreshCurrent(await getFinalizedClient(client));
+        expect(repaymentPending.value).toBe(false);
+        expect(fissions.data.fissionsById[initialFission.fissionId]).toBe(loadedFission);
+        expect((await closeLiquid.prepare(closeInput)).canAfford).toBe(true);
+      }
+
+      const ratchetTxInfo = await ratchetLiquid.submit(ratchetInput, preparedRatchet);
       await ratchetTxInfo.txResult.waitForFinalizedBlock;
       await ratchetTxInfo.waitForPostProcessing;
 

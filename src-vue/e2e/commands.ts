@@ -1,5 +1,6 @@
 import { MyVault } from '../lib/MyVault.ts';
 import { JsonExt } from '@argonprotocol/apps-core';
+import { concat, getAddress, hexToBytes, toHex } from 'viem';
 import { invoke } from '@tauri-apps/api/core';
 import { getConfig } from '../stores/config';
 import { getAppStartup, useStartupStore } from '../stores/startup.ts';
@@ -10,6 +11,7 @@ import { getDbPromise } from '../stores/helpers/dbPromise.ts';
 import { getMainchainClient, getMiningFrames } from '../stores/mainchain';
 import { getBitcoinFissions, getBitcoinLocks } from '../stores/bitcoin';
 import { getArgonBonds } from '../stores/argonBonds.ts';
+import { getStabilizerBuys } from '../stores/stabilizerBuys.ts';
 import { getMyVault } from '../stores/vaults';
 import { getWalletKeys, useWallets } from '../stores/wallets.ts';
 import { useBasics } from '../stores/basics.ts';
@@ -1253,6 +1255,7 @@ async function getAppQueryRefs(): Promise<IAppQueryRefs> {
     coreEthereumAddress: walletKeys.coreEthereumAddress,
     overlayIsOpen: basics.overlayIsOpen,
     getArgonBonds,
+    getStabilizerBuys,
     getVaultFundingState: () => MyVault.getFundingState(config, wallets.defaultArgonWallet),
     getBitcoinFissions,
     getEthereumMoveTracker,
@@ -1366,6 +1369,14 @@ async function runCommandInternal(command: string, argsInput: unknown, context: 
     const timeoutMs = getTimeoutMs(args.timeoutMs, 'timeoutMs', DEFAULT_READY_TIMEOUT_MS);
     await waitForAppReady(timeoutMs);
     return { ok: true };
+  }
+
+  if (command === 'app.signLiquidRepayment') {
+    if (!__ARGON_DRIVER_WS__) throw new CommandError('disabled', 'This command requires e2e driver mode.');
+    const buyer = getAddress(getString(args.buyer, 'buyer', true)!);
+    const signer = await getWalletKeys().getLiquidLockingSigner();
+    const payload = concat([new TextEncoder().encode('argon-liquid-repay:'), hexToBytes(buyer)]);
+    return { signature: toHex(signer.sign(payload, { withType: true })) };
   }
 
   if (command === 'app.checkpointDatabase') {

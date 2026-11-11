@@ -203,6 +203,7 @@ export const useWallets = defineStore('wallets', () => {
   const externalBalancesReady = Vue.shallowRef(Promise.resolve());
 
   let walletHistoryRecovery: WalletHistoryRecovery | undefined;
+  let walletLoad: Promise<void> | undefined;
 
   const argonWallets = Vue.markRaw(getWalletsForArgon());
   const bitcoinWallet = getWalletForBitcoin();
@@ -467,10 +468,19 @@ export const useWallets = defineStore('wallets', () => {
     }
   });
 
-  async function load() {
+  function load(): Promise<void> {
+    if (walletLoad) return walletLoad;
+
+    // Keep a declined load rejected so later callers cannot reopen its dialog.
+    walletLoad = loadNativeWallets().then(() => {
+      walletLoad = undefined;
+    });
+    return walletLoad;
+  }
+
+  async function loadNativeWallets(): Promise<void> {
     const loadStartedAt = performance.now();
-    for (let i = 0; i < 2; i++) {
-      const attempt = i + 1;
+    for (let attempt = 1; ; attempt++) {
       const attemptStartedAt = Date.now();
       try {
         await config.isLoadedPromise;
@@ -480,6 +490,11 @@ export const useWallets = defineStore('wallets', () => {
         const walletIdentitiesReadyAt = performance.now();
 
         walletHistoryRecovery ??= getWalletHistoryRecovery();
+
+        if (attempt > 1) {
+          const clients = getMainchainClients();
+          await clients.setArchiveClient(clients.archiveUrl);
+        }
 
         await argonWallets.load();
         const argonBalancesReadyAt = performance.now();
@@ -518,8 +533,6 @@ export const useWallets = defineStore('wallets', () => {
         return;
       } catch (error) {
         console.error(`[useWallets] Load attempt ${attempt} failed after ${Date.now() - attemptStartedAt}ms`, error);
-        // TODO: this is a bit of a hack to make sure we don't get stuck in a loop. We should replace this with setting
-        //  fetchErrorMsg on each wallet.
         const shouldRetry = await askDialog('Wallets failed to load correctly. Would you like to retry?', {
           title: 'Difficulty Loading Wallets',
           kind: 'warning',
@@ -666,7 +679,7 @@ export const useWallets = defineStore('wallets', () => {
 
   load().catch(error => {
     void handleFatalError.bind('useWallets')(error);
-    isLoadedReject();
+    isLoadedReject(error);
   });
 
   return {

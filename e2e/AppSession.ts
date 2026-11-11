@@ -53,6 +53,7 @@ export interface AppSessionOptions {
   autoEnableOperations?: boolean;
   focusAppWindow?: boolean;
   useDevUpstream?: boolean;
+  ticksBetweenSlots?: number;
 }
 
 export class AppSession {
@@ -336,6 +337,7 @@ export class AppSession {
             profiles: ['price-oracle'],
             registerTeardown: false,
             composeProjectName,
+            ticksBetweenSlots: this.options.ticksBetweenSlots,
           });
         } finally {
           AppSession.restoreProcessEnv('PRICE_INDEX_FILE_PATH', previousPriceIndexFilePath);

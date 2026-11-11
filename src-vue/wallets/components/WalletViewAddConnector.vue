@@ -81,8 +81,8 @@
           <a
             :href="
               ethereumImportMode === 'mnemonic'
-                ? `${NetworkConfig.websiteHost}/docs/bridgeless-transfers/uniswap-wallet`
-                : `${NetworkConfig.websiteHost}/docs/bridgeless-transfers/metamask-wallet`
+                ? `${NetworkConfig.websiteHost}/docs/bridgeless-transfers/connect-uniswap-wallet`
+                : `${NetworkConfig.websiteHost}/docs/bridgeless-transfers/connect-metamask-wallet`
             "
             @click="importGuideStep = 'secret'"
             target="_blank"

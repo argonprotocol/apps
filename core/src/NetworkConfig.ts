@@ -147,6 +147,7 @@ export interface IEthereumNetworkConfig {
   explorerUrl: string;
   finalityBlocks: number;
   usdcTokenAddress: string;
+  stabilizerBuyQuoterAddress?: string;
 }
 
 export interface IBaseNetworkConfig {
