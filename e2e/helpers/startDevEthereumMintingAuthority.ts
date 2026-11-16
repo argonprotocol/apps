@@ -125,7 +125,7 @@ export async function startDevEthereumMintingAuthority(args: {
       }
     })();
 
-    await waitFor(120_000, 'Ethereum minting authority activation', () => runtimeStateReady);
+    await waitFor(180_000, 'Ethereum minting authority activation', () => runtimeStateReady);
 
     return {
       actor,

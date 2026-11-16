@@ -1,17 +1,28 @@
 import {
   SingleFileQueue,
   StabilizerBuyContracts,
+  StabilizerBuyPool,
   StabilizerBuy,
   StabilizerBuyValidationError,
+  StabilizerBuyQuoteUnavailableError,
   StabilizerBuyReceiptError,
   type IStabilizerBuyPriceReference,
   MICROGONS_PER_ARGON,
   WEI_PER_ETH,
   NetworkConfig,
+  type TxSigner,
 } from '@argonprotocol/apps-core';
 import { FIXED_U128_DECIMALS, toFixedNumber } from '@argonprotocol/mainchain';
 import { runtimeClient } from '@argonprotocol/runtime-client';
-import { type PublicClient, type Hash, keccak256, serializeTransaction } from 'viem';
+import {
+  type PublicClient,
+  type Hash,
+  getAddress,
+  keccak256,
+  serializeTransaction,
+  BaseError,
+  ExecutionRevertedError,
+} from 'viem';
 import {
   EthereumClient,
   EthereumTransactionRevertedError,
@@ -39,15 +50,23 @@ import type { WalletsForEthereum } from './WalletsForEthereum.ts';
 import { getMainchainClient } from '../stores/mainchain.ts';
 import { sleep } from './Utils.ts';
 import { calculateStabilizerBuyCost } from './financials/StabilizerBuys.ts';
+import {
+  FinancialCacheTypes,
+  type FinancialCacheTable,
+  type IFinancialCacheSchemas,
+} from './db/FinancialCacheTable.ts';
+
+type PoolEstimateCache = IFinancialCacheSchemas[FinancialCacheTypes.StabilizerBuyPool];
 
 export type StabilizerBuyPurchaseInput = Pick<
   IStabilizerBuyPurchaseRecord,
   'id' | 'ethereumQuote' | 'ethereumMaxFeeWei'
 > & {
   ethereumWallet: WalletForEthereum;
+  txSigner?: TxSigner;
 };
 
-/** Resumes desktop approval and purchase workflows; StabilizerBuys owns the durable records. */
+/** Resumes desktop purchases; StabilizerBuys owns the durable records. */
 export class StabilizerBuyPurchases {
   public data = { transactionProgressByHash: {} as Record<Hash, IEthereumTransactionProgress> };
 
@@ -56,10 +75,23 @@ export class StabilizerBuyPurchases {
   private isClosed = false;
   private readonly contracts: StabilizerBuyContracts;
   private startupPromise?: Promise<void>;
+  private historicalFees?: {
+    key: string;
+    client: PublicClient;
+    expiresAtTick: number;
+    promise: ReturnType<StabilizerBuyPurchases['readHistoricalFees']>;
+  };
+  private poolBands?: {
+    key: string;
+    client: PublicClient;
+    record?: PoolEstimateCache;
+    pending?: Promise<PoolEstimateCache>;
+    retryAtTick: number;
+  };
 
   constructor(
     private readonly buys: StabilizerBuys,
-    private readonly walletKeys: Pick<WalletKeys, 'signEthereumTransaction' | 'ethereumHdPath'>,
+    private readonly walletKeys: WalletKeys,
     public readonly ethereumClient: EthereumClient,
     private readonly wallets: WalletsForEthereum,
   ) {
@@ -99,10 +131,17 @@ export class StabilizerBuyPurchases {
     ethereumMaxFeeWei,
   }: Pick<StabilizerBuyPurchaseInput, 'ethereumQuote'> &
     Partial<Pick<StabilizerBuyPurchaseInput, 'ethereumWallet' | 'ethereumMaxFeeWei'>>) {
-    if (ethereumWallet) await this.build({ ethereumQuote, ethereumMaxFeeWei }, ethereumWallet);
+    this.assertCanQuote();
+    if (ethereumWallet)
+      await this.contracts.validatePurchase({
+        client: await this.getFinalizedSnapshot(),
+        quote: ethereumQuote,
+        sourceAddress: ethereumWallet.address,
+      });
 
+    this.assertCanQuote();
     const client = this.ethereumClient.publicClient;
-    const [{ gasEstimate, needsApproval }, fees] = await Promise.all([
+    const [{ gasEstimate, needsPermit }, fees] = await Promise.all([
       this.contracts.estimatePurchaseGas(ethereumQuote),
       client.estimateFeesPerGas(),
     ]);
@@ -110,16 +149,24 @@ export class StabilizerBuyPurchases {
     const feeEstimateWei = gasEstimate * feePerGas;
     if (ethereumMaxFeeWei !== undefined && feeEstimateWei > ethereumMaxFeeWei)
       throw new StabilizerBuyValidationError('The Ethereum network fee exceeds your purchase fee limit.');
+    if (ethereumWallet && (await client.getBalance({ address: ethereumQuote.sourceAddress })) < feeEstimateWei)
+      throw new StabilizerBuyValidationError('Add ETH to this wallet to pay the Ethereum network fee.');
 
-    return { feeEstimateWei, needsApproval };
+    return { feeEstimateWei, needsPermit };
   }
 
   public async purchase(input: StabilizerBuyPurchaseInput): Promise<IStabilizerBuyPurchaseRecord> {
-    const { ethereumWallet } = input;
-    if (input.ethereumQuote.request.deadline <= BigInt(Math.floor(Date.now() / 1000)))
+    const { ethereumWallet, txSigner } = input;
+    let { ethereumQuote } = input;
+    if (ethereumQuote.request.deadline <= BigInt(Math.floor(Date.now() / 1000)))
       throw new StabilizerBuyValidationError('This quote has expired. Get a new quote before buying.');
 
-    const buy = await this.buys.createPurchase(input);
+    if (ethereumQuote.request.repayLiquidId !== 0n && ethereumQuote.request.repaySignature === '0x') {
+      if (!txSigner) throw new StabilizerBuyValidationError('Choose the Argon wallet that owns this Liquid.');
+      const repaySignature = StabilizerBuyContracts.signLiquidRepaymentAuthorization(ethereumQuote, txSigner);
+      ethereumQuote = { ...ethereumQuote, request: { ...ethereumQuote.request, repaySignature } };
+    }
+    const buy = await this.buys.createPurchase({ ...input, ethereumQuote });
     this.resume(buy, ethereumWallet);
     return buy;
   }
@@ -127,23 +174,31 @@ export class StabilizerBuyPurchases {
   public async estimateHistoricalFees(
     input: Omit<Parameters<StabilizerBuyContracts['estimateMarketPurchaseGas']>[0], 'client'>,
   ) {
-    const mainchain = await getMainchainClient(false);
-    const snapshot = await this.getFinalizedSnapshot();
-    const [gas, fees, prices, bidFee] = await Promise.all([
-      this.contracts.estimateMarketPurchaseGas({ ...input, client: snapshot }),
-      this.ethereumClient.publicClient.estimateFeesPerGas(),
-      StabilizerBuyContracts.readPriceReference(snapshot),
-      StabilizerBuy.estimateBidFee({
-        client: mainchain,
-        account: this.buys.accountAddress,
-        admissionFrame: this.buys.data.currentFrameId,
-        rewardPercent: 100,
-      }),
-    ]);
-    if (!prices?.ethereumUsdPrice) return;
+    if (this.isClosed) return;
+    const client = this.ethereumClient.publicClient;
+    const key = [
+      this.buys.data.market?.approvedPool?.poolId,
+      input.quoterAddress,
+      input.sourceAddress,
+      input.maxUsdcIn,
+    ].join(':');
+    const cached = this.historicalFees;
+    if (cached?.client === client && cached.key === key && cached.expiresAtTick > this.buys.data.currentTick)
+      return cached.promise;
 
-    const feePerGas = fees.maxFeePerGas ?? fees.gasPrice ?? (await this.ethereumClient.publicClient.getGasPrice());
-    return { ethereumFeeWei: gas * feePerGas, bidFee, prices };
+    const promise = this.readHistoricalFees(input);
+    const estimate = { client, key, expiresAtTick: Infinity, promise };
+    this.historicalFees = estimate;
+    // Share an in-flight read across ticks, then cache success for five ticks or failure for one.
+    void promise.then(
+      () => {
+        estimate.expiresAtTick = this.buys.data.currentTick + 5;
+      },
+      () => {
+        estimate.expiresAtTick = this.buys.data.currentTick + 1;
+      },
+    );
+    return promise;
   }
 
   public async close(): Promise<void> {
@@ -154,7 +209,147 @@ export class StabilizerBuyPurchases {
   public async quote(
     input: Omit<Parameters<StabilizerBuyContracts['quote']>[0], 'client'>,
   ): Promise<IStabilizerBuyQuote> {
-    return this.contracts.quote({ ...input, client: await this.getFinalizedSnapshot() });
+    input.signal?.throwIfAborted();
+    this.assertCanQuote();
+    const client = await this.getFinalizedSnapshot();
+    input.signal?.throwIfAborted();
+    this.assertCanQuote();
+    const quote = await this.contracts.quote({ ...input, client });
+    this.assertCanQuote();
+    return quote;
+  }
+
+  /** Background discovery reuses one pool snapshot; the buy prompt still requests an executable quote. */
+  public async estimateMaxProfit({
+    maxUsdcIn,
+    sourceAddress,
+    quoterAddress,
+    cache,
+    signal,
+  }: {
+    maxUsdcIn: bigint;
+    sourceAddress: string;
+    quoterAddress: IStabilizerBuyQuote['quoterAddress'];
+    cache: FinancialCacheTable;
+    signal?: AbortSignal;
+  }) {
+    this.assertCanQuote();
+    signal?.throwIfAborted();
+    const { approvedPool: approved, prices: index } = this.buys.data.market!;
+    const sqrtPriceX96 = index && 'stabilizerPoolSqrtPriceX96' in index && index.stabilizerPoolSqrtPriceX96;
+    if (!approved || !sqrtPriceX96) return;
+    const key = `${approved.chainId}:${approved.poolManager.toLowerCase()}:${approved.poolId}`;
+    const client = this.ethereumClient.publicClient;
+    if (this.poolBands?.key !== key || this.poolBands.client !== client) {
+      this.poolBands = { key, client, retryAtTick: 0 };
+    }
+    const entry = this.poolBands;
+    const tick = this.buys.data.currentTick;
+    const snapshot = await this.getFinalizedSnapshot();
+    this.assertCanQuote();
+    signal?.throwIfAborted();
+    const prices = await StabilizerBuyContracts.readPriceReference(snapshot, index.tick);
+    if (!prices?.ethereumUsdPrice) return;
+    const minimumRewardPrincipal = snapshot.consts.balances.existentialDeposit;
+    const estimate = (record: PoolEstimateCache) =>
+      new StabilizerBuyPool(record.pool).estimate({
+        maxUsdcIn,
+        sqrtPriceX96,
+        prices,
+        sourceAddress: getAddress(sourceAddress),
+        minimumMicrogons: record.minimumMicrogons,
+        minimumRewardPrincipal,
+      });
+
+    const stored = entry.record;
+    let refresh = !stored;
+    if (stored) {
+      const ticksSinceRefresh = tick - stored.refreshedAtTick;
+      refresh =
+        ticksSinceRefresh < 0 || ticksSinceRefresh >= 60 || Date.now() - stored.refreshedAt.getTime() >= 3_600_000;
+    }
+    if (refresh) {
+      if (!entry.pending && tick < entry.retryAtTick) throw new Error('The pool estimate will retry shortly.');
+      entry.pending ??= (async () => {
+        let previous = entry.record ?? (await cache.get(FinancialCacheTypes.StabilizerBuyPool, key));
+        if (previous?.definitionVersion !== 1) previous = undefined;
+        this.assertCanQuote();
+        signal?.throwIfAborted();
+        const deployment = await this.contracts.getDeployment(snapshot, quoterAddress);
+        if (deployment.identity.poolId !== approved.poolId)
+          throw new StabilizerBuyQuoteUnavailableError('The approved purchase pool has changed.');
+        const pool = await StabilizerBuyPool.read({
+          client,
+          pool: deployment.identity,
+          argonIsToken0: deployment.argonIsToken0,
+          previous: previous?.pool,
+          signal,
+        });
+        const minimumMicrogons = await deployment.gateway.read.minimumSwapMicrogons({ blockNumber: pool.blockNumber });
+        const record: PoolEstimateCache = {
+          definitionVersion: 1,
+          pool,
+          minimumMicrogons,
+          refreshedAt: new Date(),
+          refreshedAtTick: this.buys.data.currentTick,
+        };
+        const candidate = await estimate(record);
+        if (candidate) {
+          this.assertCanQuote();
+          signal?.throwIfAborted();
+          const [gasEstimate, fees] = await Promise.all([
+            this.contracts.estimateMarketPurchaseGas({
+              client: snapshot,
+              sourceAddress,
+              quoterAddress,
+              maxUsdcIn: candidate.request.maxUsdcIn,
+            }),
+            client.estimateFeesPerGas(),
+          ]);
+          record.gasEstimate = gasEstimate;
+          record.feePerGas = fees.maxFeePerGas ?? fees.gasPrice ?? (await client.getGasPrice());
+        }
+        this.assertCanQuote();
+        signal?.throwIfAborted();
+        if (this.poolBands !== entry || this.buys.data.market?.approvedPool?.poolId !== approved.poolId)
+          throw new StabilizerBuyQuoteUnavailableError('The approved purchase pool has changed.');
+        await cache.upsert(FinancialCacheTypes.StabilizerBuyPool, key, record).catch(error => {
+          console.warn('[StabilizerBuys] Unable to save the pool estimate cache', error);
+        });
+        entry.record = record;
+        entry.retryAtTick = 0;
+        return record;
+      })();
+      const pending = entry.pending;
+      try {
+        await pending;
+      } catch (error) {
+        entry.retryAtTick = this.buys.data.currentTick + 5;
+        throw error;
+      } finally {
+        if (entry.pending === pending) entry.pending = undefined;
+      }
+    }
+
+    const record = entry.record;
+    if (!record) return;
+    const quote = await estimate(record);
+    if (!quote) return;
+    // A previously untradeable pool may become tradeable before the next scheduled refresh.
+    if (record.gasEstimate === undefined || record.feePerGas === undefined) {
+      record.refreshedAt = new Date(0);
+      return;
+    }
+    this.assertCanQuote();
+    signal?.throwIfAborted();
+    if (this.poolBands !== entry || this.buys.data.market?.approvedPool?.poolId !== approved.poolId)
+      throw new StabilizerBuyQuoteUnavailableError('The approved purchase pool has changed.');
+    return { quote, preview: { feeEstimateWei: record.gasEstimate * record.feePerGas } };
+  }
+
+  public invalidatePoolEstimate(poolId: IStabilizerBuyQuote['poolId']): void {
+    const record = this.poolBands?.record;
+    if (record?.pool.poolId === poolId) record.refreshedAt = new Date(0);
   }
 
   /** Compare estimated net purchase profit; auction rewards are not guaranteed. */
@@ -168,19 +363,22 @@ export class StabilizerBuyPurchases {
     signal?: AbortSignal,
   ) {
     signal?.throwIfAborted();
+    this.assertCanQuote();
     const client = this.ethereumClient.publicClient;
     const contracts = this.contracts;
-    const [snapshot, ethereumBlock, fees] = await Promise.all([
-      this.getFinalizedSnapshot(),
-      client.getBlock(),
-      client.estimateFeesPerGas(),
-    ]);
+    const snapshot = await this.getFinalizedSnapshot();
+    signal?.throwIfAborted();
+    this.assertCanQuote();
+    const [ethereumBlock, fees] = await Promise.all([client.getBlock(), client.estimateFeesPerGas()]);
     const feePerGas = fees.maxFeePerGas ?? fees.gasPrice ?? (await client.getGasPrice());
     signal?.throwIfAborted();
 
-    const request = { ...input, client: snapshot, ethereumBlock };
+    this.assertCanQuote();
+    const request = { ...input, client: snapshot, ethereumBlock, signal };
     const minimumQuote = await contracts.quote({ ...request, maxUsdcIn: undefined, sizeToTarget: true });
-    const minimumGas = await contracts.estimatePurchaseGas(minimumQuote, ethereumBlock.number);
+    signal?.throwIfAborted();
+    const minimumGas = await contracts.estimatePurchaseGas(minimumQuote, ethereumBlock);
+    const assertCanQuote = () => this.assertCanQuote();
     const candidates = new Map<bigint, Awaited<ReturnType<typeof evaluate>>>();
     let best = await evaluate(minimumQuote, minimumGas);
 
@@ -194,7 +392,7 @@ export class StabilizerBuyPurchases {
     const maximum = await contracts.quote({ ...request, maxUsdcIn: budget, sizeToTarget: true });
     await evaluate(maximum);
 
-    // Approval adds a separate fee. Check both sides even when coarse samples miss this boundary.
+    // Permit processing also has a cost. Check both sides of the existing allowance.
     for (const amount of [minimumGas.usdcAllowance, minimumGas.usdcAllowance + 1n]) {
       if (amount < minimumQuote.request.maxUsdcIn || amount > maximum.request.maxUsdcIn) continue;
       signal?.throwIfAborted();
@@ -207,6 +405,7 @@ export class StabilizerBuyPurchases {
     for (const divisions of [8n, 4n, 4n]) {
       for (let index = 0n; index <= divisions; index++) {
         signal?.throwIfAborted();
+        this.assertCanQuote();
         const amount = low + ((high - low) * index) / divisions;
         if (candidates.has(amount)) continue;
         await evaluate(await contracts.quote({ ...request, maxUsdcIn: amount }));
@@ -227,6 +426,7 @@ export class StabilizerBuyPurchases {
     }
 
     signal?.throwIfAborted();
+    this.assertCanQuote();
     return { minimumQuote, quote: best.quote, preview: best.preview };
 
     async function evaluate(
@@ -234,8 +434,9 @@ export class StabilizerBuyPurchases {
       gas?: Awaited<ReturnType<StabilizerBuyContracts['estimatePurchaseGas']>>,
     ) {
       signal?.throwIfAborted();
-      gas ??= await contracts.estimatePurchaseGas(quote, ethereumBlock.number);
-      const preview = { feeEstimateWei: gas.gasEstimate * feePerGas, needsApproval: gas.needsApproval };
+      assertCanQuote();
+      gas ??= await contracts.estimatePurchaseGas(quote, ethereumBlock);
+      const preview = { feeEstimateWei: gas.gasEstimate * feePerGas, needsPermit: gas.needsPermit };
       const cost = calculateStabilizerBuyCost({ quote, feeEstimateWei: preview.feeEstimateWei });
       if (!cost) throw new StabilizerBuyValidationError('An Ethereum oracle price is required to estimate profit.');
 
@@ -284,21 +485,9 @@ export class StabilizerBuyPurchases {
         proof.detail = `Waiting for Argon proof of ${remaining.toLocaleString()} Ethereum blocks`;
       }
     } else {
-      let hash = buy.ethereumTxHash;
-      if (
-        buy.status === StabilizerBuyStatus.SubmittingUsdcApprovalOnEthereum ||
-        buy.status === StabilizerBuyStatus.ConfirmingUsdcApprovalOnEthereum
-      )
-        hash = buy.usdcApprovalTxHash;
-
-      const observed = hash && transactionProgressByHash[hash];
-      const blocksPerTransaction =
-        observed?.expectedConfirmations ?? NetworkConfig.get().ethereumNetwork.finalityBlocks;
-      const hasApproval =
-        !!buy.usdcApprovalTxHash || buy.status === StabilizerBuyStatus.SubmittingUsdcApprovalOnEthereum;
-      const approvalBlocks = hasApproval && buy.usdcApprovalFeeWei !== undefined ? blocksPerTransaction : 0;
-      const expectedBlocks = blocksPerTransaction * (hasApproval ? 2 : 1);
-      const confirmations = approvalBlocks + Math.min(blocksPerTransaction, Math.max(0, observed?.confirmations ?? 0));
+      const observed = buy.ethereumTxHash && transactionProgressByHash[buy.ethereumTxHash];
+      const expectedBlocks = observed?.expectedConfirmations ?? NetworkConfig.get().ethereumNetwork.finalityBlocks;
+      const confirmations = Math.min(expectedBlocks, Math.max(0, observed?.confirmations ?? 0));
 
       ethereum.status = 'active';
       ethereum.progressPct = (confirmations / expectedBlocks) * 100;
@@ -338,10 +527,7 @@ export class StabilizerBuyPurchases {
       if (!pendingEthereumStatuses.has(buy.status)) return;
 
       try {
-        if (
-          buy.status === StabilizerBuyStatus.SubmittingPurchaseOnEthereum ||
-          buy.status === StabilizerBuyStatus.SubmittingUsdcApprovalOnEthereum
-        ) {
+        if (buy.status === StabilizerBuyStatus.SubmittingPurchaseOnEthereum) {
           const wallet = selectedWallet ?? (await this.wallets.resolve(buy.ethereumQuote.sourceAddress));
           if (!wallet)
             throw new StabilizerBuyValidationError('Reconnect the Ethereum wallet selected for this purchase.');
@@ -351,30 +537,13 @@ export class StabilizerBuyPurchases {
             async () => {
               if (this.isClosed) return;
 
-              // Rebuild at submission, including after approval or a queued wait, against the accepted limits.
               const prepared = await this.build(buy, wallet);
-              if (prepared.needsApproval && buy.usdcApprovalTxHash)
-                throw new StabilizerBuyValidationError(
-                  'The USDC allowance changed after approval. Review the wallet before starting another purchase.',
-                );
-
-              if (prepared.needsApproval && buy.status !== StabilizerBuyStatus.SubmittingUsdcApprovalOnEthereum) {
-                await this.buys.recordPurchase(buy.id, {
-                  status: StabilizerBuyStatus.SubmittingUsdcApprovalOnEthereum,
-                });
-              }
-
               await this.submitTransaction({ buy, prepared, ethereumWallet: wallet });
             },
           );
         } else {
-          let hash = buy.ethereumTxHash;
-          let submittedAt = buy.ethereumSubmittedAt;
-          if (buy.status === StabilizerBuyStatus.ConfirmingUsdcApprovalOnEthereum) {
-            hash = buy.usdcApprovalTxHash;
-            submittedAt = buy.usdcApprovalSubmittedAt;
-          }
-
+          const hash = buy.ethereumTxHash;
+          const submittedAt = buy.ethereumSubmittedAt;
           if (!hash) throw new StabilizerBuyValidationError('The saved purchase has no transaction identity.');
 
           await this.ethereumClient.waitForTransactionFinality({
@@ -417,67 +586,41 @@ export class StabilizerBuyPurchases {
   ): Promise<void> {
     if (this.isClosed) throw new Error('The purchase operation is closed.');
 
-    const { needsApproval, prices } = prepared;
-    if (needsApproval) {
-      const patch: Partial<IStabilizerBuyRecord> = {
-        status: StabilizerBuyStatus.ConfirmingUsdcApprovalOnEthereum,
-        usdcApprovalTxHash: hash,
-        usdcApprovalSubmittedAt: new Date(),
-      };
-      if (prices) patch.usdcApprovalPrices = prices;
-
-      await this.buys.recordPurchase(buy.id, patch);
-    } else {
-      const patch: Partial<IStabilizerBuyRecord> = {
-        status: StabilizerBuyStatus.ConfirmingPurchaseOnEthereum,
-        ethereumTxHash: hash,
-        ethereumSubmittedAt: new Date(),
-        usdcApprovalFeeWei: buy.usdcApprovalFeeWei ?? 0n,
-      };
-      if (prices) patch.ethereumPrices = prices;
-      if (!buy.usdcApprovalTxHash) patch.usdcApprovalFeeMicrogons = 0n;
-
-      await this.buys.recordPurchase(buy.id, patch);
-    }
+    const patch: Partial<IStabilizerBuyRecord> = {
+      status: StabilizerBuyStatus.ConfirmingPurchaseOnEthereum,
+      ethereumTxHash: hash,
+      ethereumSubmittedAt: new Date(),
+      usdcApprovalFeeWei: 0n,
+      usdcApprovalFeeMicrogons: 0n,
+    };
+    if (prepared.prices) patch.ethereumPrices = prepared.prices;
+    await this.buys.recordPurchase(buy.id, patch);
   }
 
   private async onFinalized(
     buy: IStabilizerBuyPurchaseRecord,
     receipt: Awaited<ReturnType<PublicClient['getTransactionReceipt']>>,
   ): Promise<void> {
+    const result = this.contracts.readPurchase(buy.ethereumQuote, receipt);
     const fee = getReceiptFeeWei(receipt);
-    if (buy.status === StabilizerBuyStatus.ConfirmingUsdcApprovalOnEthereum) {
-      const patch: Partial<IStabilizerBuyRecord> = {
-        status: StabilizerBuyStatus.SubmittingPurchaseOnEthereum,
-        usdcApprovalFeeWei: fee,
-      };
-      const cost = getFeeMicrogons(fee, buy.usdcApprovalPrices);
-      if (cost !== undefined) patch.usdcApprovalFeeMicrogons = cost;
+    const patch: Partial<IStabilizerBuyRecord> = {
+      ...result,
+      status: StabilizerBuyStatus.WaitingForArgonRecognition,
+      purchasedAt: new Date(Number(result.ethereumGatewayActivity.purchase.timestamp) * 1000),
+      ethereumConfirmedAt: new Date(),
+      ethereumFeeWei: fee,
+    };
 
-      await this.buys.recordPurchase(buy.id, patch);
-    } else {
-      const result = this.contracts.readPurchase(buy.ethereumQuote, receipt);
-      const patch: Partial<IStabilizerBuyRecord> = {
-        ...result,
-        status: StabilizerBuyStatus.WaitingForArgonRecognition,
-        purchasedAt: new Date(Number(result.ethereumGatewayActivity.purchase.timestamp) * 1000),
-        ethereumConfirmedAt: new Date(),
-        ethereumFeeWei: fee,
-      };
-
-      const prices = buy.ethereumPrices;
-      if (prices) {
-        const numerator =
-          result.ethereumGatewayActivity.purchase.usdcSpent * toFixedNumber(prices.usdcUsdPrice, FIXED_U128_DECIMALS);
-        const denominator = toFixedNumber(prices.argonUsdTargetPrice, FIXED_U128_DECIMALS);
-        patch.spentMicrogons = (numerator + denominator - 1n) / denominator;
-      }
-
-      const cost = getFeeMicrogons(fee, prices);
-      if (cost !== undefined) patch.ethereumFeeMicrogons = cost;
-
-      await this.buys.recordPurchase(buy.id, patch);
+    const prices = buy.ethereumPrices;
+    if (prices) {
+      const numerator =
+        result.ethereumGatewayActivity.purchase.usdcSpent * toFixedNumber(prices.usdcUsdPrice, FIXED_U128_DECIMALS);
+      const denominator = toFixedNumber(prices.argonUsdTargetPrice, FIXED_U128_DECIMALS);
+      patch.spentMicrogons = (numerator + denominator - 1n) / denominator;
     }
+    const cost = getFeeMicrogons(fee, prices);
+    if (cost !== undefined) patch.ethereumFeeMicrogons = cost;
+    await this.buys.recordPurchase(buy.id, patch);
   }
 
   private async onFailed(buy: IStabilizerBuyPurchaseRecord, error: Error): Promise<void> {
@@ -491,36 +634,50 @@ export class StabilizerBuyPurchases {
     if (!buy.usdcApprovalTxHash) patch.usdcApprovalFeeMicrogons = 0n;
 
     if (error instanceof EthereumTransactionRevertedError || error instanceof StabilizerBuyReceiptError) {
-      let hash = buy.ethereumTxHash;
-      if (buy.status === StabilizerBuyStatus.ConfirmingUsdcApprovalOnEthereum) hash = buy.usdcApprovalTxHash;
-      if (hash) {
-        const receipt = await this.ethereumClient.publicClient.getTransactionReceipt({ hash });
+      if (buy.ethereumTxHash) {
+        const receipt = await this.ethereumClient.publicClient.getTransactionReceipt({ hash: buy.ethereumTxHash });
         const fee = getReceiptFeeWei(receipt);
-        if (buy.status === StabilizerBuyStatus.ConfirmingUsdcApprovalOnEthereum) {
-          patch.usdcApprovalFeeWei = fee;
-          const cost = getFeeMicrogons(fee, buy.usdcApprovalPrices);
-          if (cost !== undefined) patch.usdcApprovalFeeMicrogons = cost;
-        } else {
-          patch.ethereumFeeWei = fee;
-          const cost = getFeeMicrogons(fee, buy.ethereumPrices);
-          if (cost !== undefined) patch.ethereumFeeMicrogons = cost;
-        }
+        patch.ethereumFeeWei = fee;
+        const cost = getFeeMicrogons(fee, buy.ethereumPrices);
+        if (cost !== undefined) patch.ethereumFeeMicrogons = cost;
       }
     }
 
     await this.buys.recordPurchase(buy.id, patch);
   }
 
-  private async build(
-    purchase: Pick<IStabilizerBuyPurchaseRecord, 'ethereumQuote'> &
-      Partial<Pick<IStabilizerBuyPurchaseRecord, 'ethereumMaxFeeWei' | 'usdcApprovalFeeWei'>>,
-    ethereumWallet: WalletForEthereum,
-  ) {
-    const { ethereumQuote: quote, ethereumMaxFeeWei, usdcApprovalFeeWei = 0n } = purchase;
-    const { to, data, needsApproval, prices } = await this.contracts.buildNextTransaction({
-      client: await this.getFinalizedSnapshot(),
+  private async build(purchase: IStabilizerBuyPurchaseRecord, ethereumWallet: WalletForEthereum) {
+    const { ethereumQuote: quote, ethereumMaxFeeWei } = purchase;
+    const client = await this.getFinalizedSnapshot();
+    let permit: Parameters<StabilizerBuyContracts['buildNextTransaction']>[0]['permit'];
+    const { needsPermit } = await this.contracts.validatePurchase({
+      client,
       quote,
       sourceAddress: ethereumWallet.address,
+    });
+    if (needsPermit) {
+      const { tokenName, tokenVersion, nonce } = await this.contracts.readUsdcPermit(quote);
+      await this.ethereumClient.configureSignerPolicy(undefined, {
+        tokenAddress: quote.usdcToken,
+        spenderAddress: quote.adapterAddress,
+      });
+      const signature = await this.walletKeys.signEthereumPermit({
+        tokenAddress: quote.usdcToken,
+        tokenName,
+        tokenVersion,
+        spenderAddress: quote.adapterAddress,
+        value: quote.request.maxUsdcIn,
+        nonce,
+        deadline: quote.request.deadline,
+        wallet: ethereumWallet,
+      });
+      permit = { ...signature, deadline: quote.request.deadline };
+    }
+    const { to, data, prices } = await this.contracts.buildNextTransaction({
+      client,
+      quote,
+      sourceAddress: ethereumWallet.address,
+      permit,
     });
 
     const publicClient = this.ethereumClient.publicClient;
@@ -530,15 +687,25 @@ export class StabilizerBuyPurchases {
       chainId: quote.chainId,
       to,
       data,
+    }).catch(error => {
+      if (
+        permit &&
+        error instanceof BaseError &&
+        error.walk(cause => cause instanceof ExecutionRevertedError) instanceof ExecutionRevertedError
+      )
+        throw new StabilizerBuyValidationError(
+          'Permit-and-buy could not be prepared. Request a new quote; this network may need an updated purchase adapter.',
+        );
+      throw error;
     });
-    if (ethereumMaxFeeWei !== undefined && prepared.feeEstimateWei + usdcApprovalFeeWei > ethereumMaxFeeWei)
+    if (ethereumMaxFeeWei !== undefined && prepared.feeEstimateWei > ethereumMaxFeeWei)
       throw new StabilizerBuyValidationError('The Ethereum network fee exceeds your purchase fee limit.');
     if ((await publicClient.getBalance({ address: quote.sourceAddress })) < prepared.feeEstimateWei)
       throw new StabilizerBuyValidationError('Add ETH to this wallet to pay the Ethereum network fee.');
 
     await this.ethereumClient.configureSignerPolicy();
 
-    return { ...prepared, needsApproval, prices };
+    return { ...prepared, prices };
   }
 
   private async submitTransaction({
@@ -566,6 +733,34 @@ export class StabilizerBuyPurchases {
     });
   }
 
+  private assertCanQuote(): void {
+    if (this.isClosed || this.buys.buyDiscountPercent === undefined)
+      throw new StabilizerBuyQuoteUnavailableError('There is no purchase available below the target price.');
+  }
+
+  private async readHistoricalFees(
+    input: Omit<Parameters<StabilizerBuyContracts['estimateMarketPurchaseGas']>[0], 'client'>,
+  ) {
+    const mainchain = await getMainchainClient(false);
+    const snapshot = await this.getFinalizedSnapshot();
+    if (this.isClosed) return;
+    const [gas, fees, prices, bidFee] = await Promise.all([
+      this.contracts.estimateMarketPurchaseGas({ ...input, client: snapshot }),
+      this.ethereumClient.publicClient.estimateFeesPerGas(),
+      StabilizerBuyContracts.readPriceReference(snapshot),
+      StabilizerBuy.estimateBidFee({
+        client: mainchain,
+        account: this.buys.accountAddress,
+        admissionFrame: this.buys.data.currentFrameId,
+        rewardPercent: 100,
+      }),
+    ]);
+    if (!prices?.ethereumUsdPrice) return;
+
+    const feePerGas = fees.maxFeePerGas ?? fees.gasPrice ?? (await this.ethereumClient.publicClient.getGasPrice());
+    return { ethereumFeeWei: gas * feePerGas, bidFee, prices };
+  }
+
   private async getFinalizedSnapshot() {
     const client = await getMainchainClient(false);
     return runtimeClient(await client.raw.at(await client.rpc.chain.getFinalizedHead()));
@@ -588,7 +783,5 @@ function getFeeMicrogons(wei: bigint, prices?: IStabilizerBuyPriceReference): bi
 
 const pendingEthereumStatuses = new Set([
   StabilizerBuyStatus.SubmittingPurchaseOnEthereum,
-  StabilizerBuyStatus.SubmittingUsdcApprovalOnEthereum,
-  StabilizerBuyStatus.ConfirmingUsdcApprovalOnEthereum,
   StabilizerBuyStatus.ConfirmingPurchaseOnEthereum,
 ]);

@@ -119,9 +119,11 @@ describe('TreasuryBonds', () => {
 
   it.each([160, 161])('limits Argonot purchases using active network stakes on runtime %s', async spec => {
     const oneArgonot = BigInt(MICRONOTS_PER_ARGONOT);
-    const runtimeRegistry = new TypeRegistry();
-    const metadata = Object.entries(getBundledMetadata()).find(([key]) => key.endsWith(`-${spec}`))![1];
-    runtimeRegistry.setMetadata(new Metadata(runtimeRegistry, metadata));
+    const runtimeRegistry = spec === 161 ? getOfflineRegistry() : new TypeRegistry();
+    if (spec !== 161) {
+      const metadata = Object.entries(getBundledMetadata()).find(([key]) => key.endsWith(`-${spec}`))![1];
+      runtimeRegistry.setMetadata(new Metadata(runtimeRegistry, metadata));
+    }
     let totals: Codec;
     if (spec === 160) {
       totals = runtimeRegistry.createType('ArgonPrimitivesTreasuryPositionQuantities', { stakes: 325, bonds: 800 });

@@ -18,7 +18,7 @@
               <span class="text-base opacity-80">Secure the Vaults</span>
             </div>
             <div class="bg-argon-100/50 rounded px-3 py-2 text-2xl leading-none font-bold">
-              <template v-if="vaultingStats.argonBondsAPR !== undefined">
+              <template v-if="vaultingStats?.argonBondsAPR !== undefined">
                 <Returns metric="APR" :returns="{ apr: vaultingStats.argonBondsAPR }" :showLabel="false" />
               </template>
               <template v-else>&mdash;</template>
@@ -31,7 +31,7 @@
             </div>
             <div class="bg-argon-100/50 rounded px-3 py-2 text-2xl leading-none font-bold">
               <template v-if="isArgonotStakingAprReady">
-                <Returns metric="APR" :returns="{ apr: vaultingStats.argonotStakingAPR }" :showLabel="false" />
+                <Returns metric="APR" :returns="{ apr: vaultingStats?.argonotStakingAPR ?? 0 }" :showLabel="false" />
               </template>
               <template v-else>---%</template>
             </div>
@@ -42,7 +42,7 @@
               <span class="text-base opacity-80">Stabilize the Currency</span>
             </div>
             <div class="rounded bg-orange-100/90 px-3 py-2 text-2xl leading-none font-bold">
-              <Returns metric="APR" :returns="{ apr: vaultingStats.bitcoinAPR }" :showLabel="false" />
+              <Returns metric="APR" :returns="{ apr: vaultingStats?.bitcoinAPR ?? 0 }" :showLabel="false" />
             </div>
           </li>
         </ul>
@@ -155,7 +155,7 @@ const emit = defineEmits<{
 const config = getConfig();
 const walletKeys = getWalletKeys();
 const controller = useCertificationController();
-const vaultingStats = useVaultingStats();
+const vaultingStats = Vue.shallowRef<ReturnType<typeof useVaultingStats>>();
 const vaults = getVaults();
 
 const isOpen = Vue.ref(false);
@@ -170,7 +170,7 @@ async function refreshArgonotStakingApr(): Promise<void> {
   isArgonotStakingAprReady.value = false;
   try {
     await vaults.updateRevenue();
-    await vaultingStats.update();
+    await vaultingStats.value?.update();
     isArgonotStakingAprReady.value = Boolean(vaults.stats?.argonotStakingByFrame.length);
   } catch (error) {
     console.warn('[UpgradeToTreasuryOverlay] Unable to refresh Argonot staking APR', error);
@@ -299,6 +299,7 @@ async function connectToNetwork() {
 }
 
 function openOverlay() {
+  vaultingStats.value ??= useVaultingStats();
   isOpen.value = true;
   void refreshArgonotStakingApr();
 }

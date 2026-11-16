@@ -2,7 +2,7 @@ import { TxSigner } from '@argonprotocol/apps-core';
 import { once } from 'node:events';
 import { createServer } from 'node:http';
 import { getClient, getOfflineRegistry, Keyring } from '@argonprotocol/mainchain';
-import { getBundledMetadata } from '@argonprotocol/runtime-client';
+import { Metadata } from '@polkadot/types';
 import { expect, inject, it } from 'vitest';
 import { Accountset } from '../src/Accountset.ts';
 import { createArgonClient, type ArgonClient } from '../src/MainchainClients.ts';
@@ -26,9 +26,7 @@ it(
       .find(pallet => pallet.name.eq('System'))!
       .constants.find(constant => constant.name.eq('Version'))!;
     const runtimeVersion = registry.createType('RuntimeVersion', version.value);
-    const metadata = Object.entries(getBundledMetadata()).find(([key]) =>
-      key.endsWith(`-${runtimeVersion.specVersion.toNumber()}`),
-    )![1];
+    const metadata = new Metadata(registry, { metadata: { V16: registry.metadata } }).toHex();
 
     const registeredKeys = new Map<string, string>();
     let runtimeUnavailable = false;

@@ -1,1 +1,4 @@
 name: github.com/argonprotocol/apps-ethereum
+replace:
+  # Keep dev and CI compatible with Kurtosis 1.22; newer package ports require 1.23.
+  github.com/ethpandaops/ethereum-package: github.com/ethpandaops/ethereum-package@6886eac7b858d8f28dc2f3cf4e7985cbdb926e56

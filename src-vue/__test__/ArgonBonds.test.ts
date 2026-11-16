@@ -57,6 +57,72 @@ deployedRegistry.setMetadata(
 const accountId = encodeAddress(new Uint8Array(32).fill(0x22));
 
 describe('ArgonBonds', () => {
+  it('refreshes owned lots on their events and frame turns, retaining them during unrelated activity', async () => {
+    const otherAccount = encodeAddress(new Uint8Array(32).fill(0x33));
+    let lot = toPlain(registry.createType('PalletTreasuryBondLot', { owner: accountId, bonds: 100 })) as NonNullable<
+      LiveQueryRecord<'treasury', 'bondLotById'>
+    >;
+    const ownKeys = vi.fn(async () => [{ args: [accountId, 7] }]);
+    const client = {
+      registry,
+      consts: { treasury: { palletId: new Uint8Array(8), percentForArgonBondPool: new BigNumber(0.8) } },
+      query: {
+        system: { account: async () => ({ data: { free: 0n } }) },
+        treasury: {
+          bondLotIdsByAccount: { keys: ownKeys },
+          bondLotById: { multi: async () => [lot] },
+        },
+      },
+    };
+    const events = createTypedEventEmitter<{ 'best-blocks': (blocks: IBlockHeaderInfo[]) => void }>();
+    let blockEvents: RuntimeSystemEventRecord[] = [];
+    const bonds = new ArgonBonds(
+      Promise.resolve(null!),
+      { isLoadedPromise: Promise.resolve(), upstreamOperator: undefined },
+      null!,
+      {
+        blockWatch: {
+          bestBlockHeader: { frameId: 10 },
+          start: async () => undefined,
+          events,
+          getApi: async () => client,
+          getEvents: async () => blockEvents,
+        },
+      } as unknown as MiningFrames,
+      { defaultArgonAddress: accountId } as WalletKeys,
+    );
+    await bonds.subscribeGlobal(client as any);
+    bonds.data.isLoaded = true;
+    await bonds.refreshBondLots(client as any);
+    const loaded = bonds.data.bondLots;
+
+    lot = { ...lot, bonds: 200 };
+    blockEvents = [
+      {
+        event: { section: 'treasury', method: 'BondLotPurchased', data: { accountId: otherAccount, bondLotId: 8 } },
+      },
+    ] as RuntimeSystemEventRecord[];
+    events.emit('best-blocks', [{ blockNumber: 101, blockHash: '0x101', frameId: 10 } as IBlockHeaderInfo]);
+    await new Promise(resolve => setTimeout(resolve, 0));
+    expect(ownKeys).toHaveBeenCalledTimes(1);
+    expect(bonds.data.bondLots).toBe(loaded);
+
+    blockEvents = [
+      {
+        event: { section: 'treasury', method: 'BondLotFlexibilityChanged', data: { bondLotId: 7, isFlexible: true } },
+      },
+    ] as RuntimeSystemEventRecord[];
+    events.emit('best-blocks', [{ blockNumber: 102, blockHash: '0x102', frameId: 10 } as IBlockHeaderInfo]);
+    await vi.waitFor(() => expect(bonds.data.bondLots[0].bonds).toBe(200));
+
+    lot = { ...lot, bonds: 300 };
+    blockEvents = [];
+    events.emit('best-blocks', [
+      { blockNumber: 103, blockHash: '0x103', frameId: 11, isNewFrame: true } as IBlockHeaderInfo,
+    ]);
+    await vi.waitFor(() => expect(bonds.data.bondLots[0].bonds).toBe(300));
+  });
+
   it('refreshes the subscribed bid pool when standing bids increase automatically', async () => {
     let poolBalance = 100n;
     const events = createTypedEventEmitter<{ 'best-blocks': (blocks: IBlockHeaderInfo[]) => void }>();
@@ -591,7 +657,7 @@ describe('ArgonBonds', () => {
     };
     let onBestBlocks: ((blocks: IBlockHeaderInfo[]) => void) | undefined;
     let hasMarketEvent = true;
-    let marketEvent = { section: 'vaults', method: 'VaultModified', data: { vaultId: 4 } };
+    let marketEvent = { section: 'vaults', method: 'VaultModified', data: { vaultId: 4, accountId } };
     const olderEvents = createDeferred<void>(false);
     const olderSnapshotRead = createDeferred<void>(false);
     let olderClient = client;
@@ -696,7 +762,7 @@ describe('ArgonBonds', () => {
     expect(argonBonds.getVaultBonds(7).isLoaded).toBe(true);
 
     totalLots = 4;
-    marketEvent = { section: 'treasury', method: 'BondLotPurchased', data: { vaultId: 7 } };
+    marketEvent = { section: 'treasury', method: 'BondLotPurchased', data: { vaultId: 7, accountId } };
     onBestBlocks!([{ blockNumber: 102, blockHash: '0x102', frameId: 10 } as IBlockHeaderInfo]);
     await vi.waitFor(() => expect(argonBonds.availableBondSpace(vault)).toBe(0n));
 
@@ -744,10 +810,7 @@ describe('ArgonBonds', () => {
     async (runtime, codecs) => {
       const olderRead = createDeferred<void>(false);
       let failFrameRead = false;
-      const metadata = new Metadata(
-        codecs,
-        Object.entries(getBundledMetadata()).find(([key]) => key.endsWith('-161'))![1],
-      );
+      const metadata = new Metadata(codecs, { metadata: { V16: codecs.metadata } });
       const consts = runtimeClient({
         query: {},
         consts: decorateConstants(codecs, metadata.asLatest, metadata.version),
@@ -1638,6 +1701,257 @@ describe('ArgonBonds', () => {
     }
   });
 
+  it.each(['never held', 'released before the gap', 'release only scheduled'] as const)(
+    'uses confirmed bond lifetimes during long catch-up (%s)',
+    async lifetime => {
+      const db = await createTestDb();
+      if (lifetime !== 'never held') {
+        const lot = BondLot.fromRuntime(
+          7,
+          createRuntimeBondLot({
+            owner: accountId,
+            program: { Argonot: null },
+            bonds: 10,
+            createdFrameId: 1,
+            releaseFrameId: 3,
+            releaseReason: 'UserLiquidation',
+            participatedFrames: 1,
+            cumulativeEarnings: 1_000_000n,
+          }),
+          accountId,
+        );
+        if (lifetime === 'release only scheduled') {
+          await db.bondLotHistoryTable.recordReleaseSchedule({ lot, blockNumber: 95, blockHash: '0x95' });
+        } else {
+          await db.bondLotHistoryTable.recordRelease({
+            lot,
+            parentBlockNumber: 94,
+            parentBlockHash: '0x94',
+            release: { frameId: 3, blockNumber: 95, blockHash: '0x95', blockTime: new Date('2026-07-01T00:00:00Z') },
+          });
+        }
+      }
+      const priorHistory = await db.bondLotHistoryTable.fetchAll(accountId);
+      await db.syncStateTable.upsert(SyncStateKeys.BondHistory, { accountId, blockNumber: 100, blockHash: '0x100' });
+      const findActivity = vi.spyOn(indexerClient, 'findAddressActivity').mockResolvedValue({
+        asOfBlock: 500,
+        definitionVersion: ACCOUNT_ACTIVITY_DEFINITION_VERSION,
+        coverage: { fromBlock: 100, toBlock: 500, gaps: [] },
+        blocks: [],
+      });
+      const getLots = vi.spyOn(TreasuryBonds, 'getBondLotsByAccount').mockResolvedValue([]);
+      const blockWatch = {
+        bestBlockHeader: { blockNumber: 500, blockHash: '0x500', frameId: 6 },
+        finalizedBlockHeader: { blockNumber: 500, blockHash: '0x500', frameId: 6 },
+        start: async () => undefined,
+        events: { on: () => () => undefined },
+        getHeader: vi.fn(async (blockNumber: number) => ({
+          blockNumber,
+          blockHash: `0x${blockNumber}`,
+          parentHash: `0x${blockNumber - 1}`,
+          isFinalized: true,
+        })),
+        getApi: async ({ blockNumber }: Pick<IBlockHeaderInfo, 'blockNumber'>) => {
+          if (blockNumber !== 500) throw new Error('An unrelated payout snapshot was queried');
+          return {};
+        },
+        getCurrentApi: async () => ({}),
+        getEvents: vi.fn(async ({ blockNumber }: Pick<IBlockHeaderInfo, 'blockNumber'>) => {
+          if (blockNumber === 500) return [];
+          return [
+            {
+              event: {
+                section: 'treasury',
+                method: 'FrameEarningsDistributed',
+                data: { frameId: blockNumber / 100 + 1, argonBondPoolDistributed: 1n },
+              },
+            },
+          ];
+        }),
+      };
+      const bonds = new ArgonBonds(
+        Promise.resolve(db),
+        { isLoadedPromise: Promise.resolve(), upstreamOperator: undefined },
+        { isLoadedPromise: Promise.resolve(), fetchMainchainRatesAtBlock: vi.fn() },
+        {
+          load: async () => undefined,
+          blockWatch,
+          frames: [4, 5, 6].map(frameId => ({ frameId, firstBlockNumber: (frameId - 2) * 100 })),
+        } as unknown as MiningFrames,
+        { defaultArgonAddress: accountId } as WalletKeys,
+      );
+      try {
+        await bonds.load();
+        if (lifetime === 'release only scheduled') {
+          await expect(bonds.retryHistory()).rejects.toThrow('An unrelated payout snapshot was queried');
+          expect(bonds.data.historyCoveragePending).toBe(true);
+          expect(await db.syncStateTable.get(SyncStateKeys.BondHistory)).toMatchObject({ blockNumber: 100 });
+          expect(await db.bondLotHistoryTable.fetchAll(accountId)).toEqual(priorHistory);
+          return;
+        }
+        await bonds.retryHistory();
+        expect(bonds.data.historyError).toBeUndefined();
+        expect(bonds.data.historyCoveragePending).toBe(false);
+        expect(await db.syncStateTable.get(SyncStateKeys.BondHistory)).toMatchObject({
+          blockNumber: 500,
+          blockHash: '0x500',
+        });
+        expect(await db.bondLotHistoryTable.fetchAll(accountId)).toEqual(priorHistory);
+        expect(bonds.data.bondHistory).toEqual(priorHistory);
+        expect(await db.bondEarningsTable.fetchAll(accountId)).toEqual([]);
+        expect(blockWatch.getHeader.mock.calls.map(([number]) => number)).toEqual([100, 500]);
+        expect(blockWatch.getEvents.mock.calls.map(([block]) => block.blockNumber)).toEqual([500]);
+      } finally {
+        findActivity.mockRestore();
+        getLots.mockRestore();
+        await db.close();
+      }
+    },
+  );
+
+  it('retains indexed purchase, payouts and release when the entire bond lifetime happened while closed', async () => {
+    const db = await createTestDb();
+    await db.syncStateTable.upsert(SyncStateKeys.BondHistory, { accountId, blockNumber: 100, blockHash: '0x100' });
+    const header = (blockNumber: number) => ({
+      blockNumber,
+      blockHash: `0x${blockNumber}`,
+      parentHash: `0x${blockNumber - 1}`,
+      blockTime: new Date('2026-07-01T00:00:00Z').getTime() + blockNumber * 1_000,
+      frameId: blockNumber < 200 ? 3 : Math.floor(blockNumber / 100) + 3,
+      isFinalized: true,
+    });
+    const lotAt = (blockNumber: number) => {
+      if (blockNumber < 150 || blockNumber >= 350) return null;
+      let participatedFrames = 0;
+      let earnings = 0n;
+      let lastFrameEarnings = null;
+      let lastFrameEarningsFrameId = null;
+      if (blockNumber >= 200) {
+        participatedFrames = 1;
+        earnings = 1_000_000n;
+        lastFrameEarnings = 1_000_000n;
+        lastFrameEarningsFrameId = 4;
+      }
+      if (blockNumber >= 300) {
+        participatedFrames = 2;
+        earnings = 3_000_000n;
+        lastFrameEarnings = 2_000_000n;
+        lastFrameEarningsFrameId = 5;
+      }
+      return createRuntimeBondLot({
+        owner: accountId,
+        program: { Argonot: null },
+        bonds: 10,
+        createdFrameId: 3,
+        participatedFrames,
+        cumulativeEarnings: earnings,
+        lastFrameEarnings,
+        lastFrameEarningsFrameId,
+        ...(blockNumber >= 349 ? { releaseFrameId: 6, releaseReason: 'UserLiquidation' } : {}),
+      });
+    };
+    const blockWatch = {
+      bestBlockHeader: header(500),
+      finalizedBlockHeader: header(500),
+      start: async () => undefined,
+      events: { on: () => () => undefined },
+      getHeader: vi.fn(async (blockNumber: number) => header(blockNumber)),
+      getParentHeader: async (block: IBlockHeaderInfo) => header(block.blockNumber - 1),
+      getApi: async ({ blockNumber }: Pick<IBlockHeaderInfo, 'blockNumber'>) => ({
+        query: {
+          treasury: {
+            bondLotIdsByAccount: { keys: async () => (lotAt(blockNumber) ? [{ args: [accountId, 7] }] : []) },
+            bondLotById: Object.assign(async () => lotAt(blockNumber), {
+              multi: async (ids: number[]) => ids.map(() => lotAt(blockNumber)),
+            }),
+            currentFrameVaultCapital: async () => null,
+          },
+        },
+      }),
+      getCurrentApi: async () => ({}),
+      getEvents: async ({ blockNumber }: Pick<IBlockHeaderInfo, 'blockNumber'>) => {
+        if (blockNumber === 150)
+          return [
+            {
+              event: { section: 'treasury', method: 'BondLotPurchased', data: { accountId, bondLotId: 7 } },
+              phase: { type: 'ApplyExtrinsic', value: 1 },
+            },
+          ];
+        if (blockNumber === 350)
+          return [
+            {
+              event: {
+                section: 'treasury',
+                method: 'BondLotReleased',
+                data: { accountId, bondLotId: 7, amount: 10_000_000n },
+              },
+              phase: { type: 'Initialization' },
+            },
+          ];
+        if ([200, 300, 400].includes(blockNumber))
+          return [
+            {
+              event: {
+                section: 'treasury',
+                method: 'FrameEarningsDistributed',
+                data: { frameId: blockNumber / 100 + 2, argonBondPoolDistributed: 1n },
+              },
+            },
+          ];
+        return [];
+      },
+    };
+    const findActivity = vi.spyOn(indexerClient, 'findAddressActivity').mockResolvedValue({
+      asOfBlock: 500,
+      definitionVersion: ACCOUNT_ACTIVITY_DEFINITION_VERSION,
+      coverage: { fromBlock: 100, toBlock: 500, gaps: [] },
+      blocks: [150, 350].map(blockNumber => ({
+        blockNumber,
+        blockHash: `0x${blockNumber}`,
+        specVersion: 160,
+        activityMask: AccountActivityKind.BondPosition,
+      })),
+    });
+    const getLots = vi.spyOn(TreasuryBonds, 'getBondLotsByAccount').mockResolvedValue([]);
+    const bonds = new ArgonBonds(
+      Promise.resolve(db),
+      { isLoadedPromise: Promise.resolve(), upstreamOperator: undefined },
+      { isLoadedPromise: Promise.resolve(), fetchMainchainRatesAtBlock: async () => ({ ARGNOT: 1_000_000n }) } as any,
+      {
+        load: async () => undefined,
+        blockWatch,
+        frames: [5, 6, 7].map(frameId => ({ frameId, firstBlockNumber: (frameId - 3) * 100 })),
+      } as unknown as MiningFrames,
+      { defaultArgonAddress: accountId } as WalletKeys,
+    );
+    try {
+      await bonds.load();
+      await bonds.retryHistory();
+      expect(bonds.data.historyError).toBeUndefined();
+      expect(bonds.data.historyCoveragePending).toBe(false);
+      expect(bonds.data.bondLots).toEqual([]);
+      expect(bonds.data.bondHistory).toMatchObject([
+        {
+          bondLotId: 7,
+          purchaseBlockNumber: 150,
+          releaseBlockNumber: 350,
+          nativePrincipal: 10_000_000n,
+          cumulativeEarningsMicrogons: 3_000_000n,
+        },
+      ]);
+      expect(bonds.data.dailyEarnings.map(record => [record.frameId, record.earningsMicrogons])).toEqual([
+        [4, 1_000_000n],
+        [5, 2_000_000n],
+      ]);
+      expect(await db.bondEarningsTable.fetchAll(accountId)).toEqual(bonds.data.dailyEarnings);
+      expect(await db.syncStateTable.get(SyncStateKeys.BondHistory)).toMatchObject({ blockNumber: 500 });
+    } finally {
+      findActivity.mockRestore();
+      getLots.mockRestore();
+      await db.close();
+    }
+  });
+
   it.each(['Vault', 'Argonot'] as const)(
     'repairs a long %s earnings gap without losing verified APY',
     async programType => {
@@ -1744,7 +2058,10 @@ describe('ArgonBonds', () => {
         {
           load: async () => undefined,
           blockWatch,
-          frames: [{ frameId: 5, firstBlockNumber: 200 }],
+          frames: [
+            { frameId: 2, firstBlockNumber: 150 },
+            { frameId: 5, firstBlockNumber: 200 },
+          ],
         } as unknown as MiningFrames,
         { defaultArgonAddress: accountId } as WalletKeys,
       );
@@ -1976,13 +2293,15 @@ describe('ArgonBonds', () => {
       // it changes the value, so the first post-purchase event must enable it.
       // Storage is the final state of the block, after all those events.
       const finalFlexibility = changes.at(-1) ?? false;
-      const source = new TypeRegistry();
-      source.setMetadata(
-        new Metadata(
-          source,
-          Object.entries(getBundledMetadata()).find(([key]) => key.endsWith(`-${metadataSpecVersion}`))![1],
-        ),
-      );
+      const source = metadataSpecVersion === 161 ? getOfflineRegistry() : new TypeRegistry();
+      if (metadataSpecVersion !== 161) {
+        source.setMetadata(
+          new Metadata(
+            source,
+            Object.entries(getBundledMetadata()).find(([key]) => key.endsWith(`-${metadataSpecVersion}`))![1],
+          ),
+        );
+      }
       const storedLot = toPlain(
         source.createType('PalletTreasuryBondLot', {
           ...ordinaryLot,

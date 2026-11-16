@@ -1,8 +1,6 @@
 import { computed, ref, shallowRef, watch } from 'vue';
 import { defineStore } from 'pinia';
-import { getBitcoinAlertNotices, getStabilizerBuyBidNotice, type IBitcoinAlert } from '../lib/Alerts.ts';
-import { getBitcoinLocks } from './bitcoin.ts';
-import { getMyVault } from './vaults.ts';
+import { getStabilizerBuyBidNotice } from '../lib/Alerts.ts';
 import { useCertificationController } from './certificationController.ts';
 import { getStabilizerBuys, getStabilizerBuyAlerts, useStabilizerBuyNavigation } from './stabilizerBuys.ts';
 import type { IStabilizerBuyOpportunity } from '../interfaces/IStabilizerBuyPurchase.ts';
@@ -58,32 +56,9 @@ export async function openStabilizerBuyNotice({
   }
 }
 
-/** A projection of unresolved domain actions. Opening the menu does not acknowledge them. */
+/** Stabilizer notices only; other domain alerts remain in their existing screens and alert bars. */
 export const useAttention = defineStore('attention', () => {
-  const bitcoinLocks = getBitcoinLocks();
-  const myVault = getMyVault();
-  const controller = useCertificationController();
   const buys = getStabilizerBuys();
-
-  const vaultAlert = computed(() => myVault.collectBuilder.getNotice());
-  const bitcoinAlertGroups = computed(() => {
-    const groups = new Map<IBitcoinAlert['kind'], IBitcoinAlert[]>();
-    for (const notice of getBitcoinAlertNotices(bitcoinLocks)) {
-      const notices = groups.get(notice.kind) ?? [];
-      notices.push(notice);
-      groups.set(notice.kind, notices);
-    }
-
-    return [...groups.values()].map(notices => ({
-      notices,
-      amountMicrogons: notices.reduce((sum, notice) => sum + notice.amountMicrogons, 0n),
-    }));
-  });
-  const pendingOperationsUpgradeRequests = computed(() =>
-    controller.operationalInvites.filter(
-      invite => invite.operationsUpgradeRequestedAt && !invite.accessProof && !invite.operationsUpgradedAt,
-    ),
-  );
 
   const stabilizerBid = computed(() => getStabilizerBuyBidNotice(buys));
 
@@ -102,23 +77,11 @@ export const useAttention = defineStore('attention', () => {
     if (buyNotice.value?.key === key) acknowledgedBuyKey.value = key;
   }
 
-  const count = computed(
-    () =>
-      (vaultAlert.value ? 1 : 0) +
-      bitcoinAlertGroups.value.length +
-      (pendingOperationsUpgradeRequests.value.length ? 1 : 0) +
-      (stabilizerBid.value ? 1 : 0) +
-      (stabilizerBuyOpportunity.value ? 1 : 0),
-  );
+  const count = computed(() => (stabilizerBid.value ? 1 : 0) + (stabilizerBuyOpportunity.value ? 1 : 0));
 
   // Refreshing amounts does not create a new action or restart the bell.
   const actionKeys = computed(() => {
-    const keys = bitcoinAlertGroups.value.flatMap(group =>
-      group.notices.map(notice => `${notice.kind}:${notice.lock.uuid}`),
-    );
-    if (vaultAlert.value) keys.push('vault');
-    for (const invite of pendingOperationsUpgradeRequests.value) keys.push(`upgrade:${invite.inviteCode}`);
-
+    const keys: string[] = [];
     const bid = stabilizerBid.value;
     if (bid) keys.push(bid.key);
     if (stabilizerBuyOpportunity.value) keys.push(stabilizerBuyOpportunity.value.key);
@@ -140,9 +103,6 @@ export const useAttention = defineStore('attention', () => {
   }
 
   return {
-    vaultAlert,
-    bitcoinAlertGroups,
-    pendingOperationsUpgradeRequests,
     stabilizerBid,
     stabilizerBuyOpportunity,
     count,

@@ -68,6 +68,7 @@ export function setupBitcoinPortfolioScenario(
     pendingLiquidCreation?: boolean;
     settledLiquid?: boolean;
     currentBitcoinPriceUsd?: number;
+    currentArgonPriceUsd?: number;
   } = {},
 ) {
   let upstreamOperator: { name: string; vaultId: number } | undefined;
@@ -88,6 +89,7 @@ export function setupBitcoinPortfolioScenario(
   const currency = getCurrency();
   currency.isLoaded = true;
   currency.priceIndex.btcUsdPrice = BigNumber(currentBitcoinPriceUsd);
+  currency.priceIndex.argonUsdPrice = BigNumber(options.currentArgonPriceUsd ?? 1);
   currency.microgonsPer.BTC = currentBitcoinRate;
   wallets.defaultArgonWallet.availableMicrogons = 12_000_000n;
   wallets.defaultArgonWallet.availableMicronots = 3_000_000n;
@@ -982,6 +984,16 @@ function createSummary(
     cosignVersion: 'v1',
     network: 'regtest',
     hdPath: `m/84'/1'/0'/0/${id}`,
+    scriptDetails: {
+      p2wshScriptHashHex: `0020${'77'.repeat(32)}`,
+      vaultPubkey: `02${'11'.repeat(32)}`,
+      vaultClaimPubkey: `02${'22'.repeat(32)}`,
+      ownerPubkey: `02${'33'.repeat(32)}`,
+      vaultXpubSources: { parentFingerprint: new Uint8Array(4), cosignHdIndex: id, claimHdIndex: id },
+      vaultClaimHeight: 1_000_000 + id,
+      openClaimHeight: 1_004_320 + id,
+      createdAtHeight: 947_440 + id,
+    },
     vaultId: id % 2 ? 7 : 12,
     isHistoryRecoveryPending: overrides.isHistoryRecoveryPending ?? false,
     removalReason: overrides.removalReason,

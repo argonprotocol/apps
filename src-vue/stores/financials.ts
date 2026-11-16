@@ -899,9 +899,6 @@ export const useFinancials = defineStore('financials', () => {
 
     isLoaded.value = true;
     publishEthereumWallet();
-    void getVaultingStatsSource().isLoadedPromise.catch(error => {
-      console.error('Unable to load vaulting statistics', error);
-    });
     void currency
       .fetchMicrogonsInCirculation()
       .then(value => {

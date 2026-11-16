@@ -25,9 +25,13 @@ pub async fn write_wallet_file(
     contents: String,
     create_new: bool,
     filename: String,
+    stage_only: Option<bool>,
 ) -> Result<(), String> {
     let path = wallet_file_path(&app, &filename).map_err(|error| error.to_string())?;
     stage_file(&path, &contents, create_new).map_err(|error| error.to_string())?;
+    if stage_only.unwrap_or(false) {
+        return Ok(());
+    }
     commit_file(&path, create_new).map_err(|error| error.to_string())
 }
 

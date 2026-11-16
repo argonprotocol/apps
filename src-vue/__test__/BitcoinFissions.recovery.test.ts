@@ -1,3 +1,4 @@
+import type { WalletKeys } from '../lib/WalletKeys.ts';
 import BigNumber from 'bignumber.js';
 import {
   BitcoinFission,
@@ -2625,7 +2626,11 @@ describe('Bitcoin Fission finalized events', () => {
         head = { ...historyBlock(170), blockTime: historyBlock(170).blockTime + 11 * 60_000 };
         failParent = producer === 'closed';
         if (producer === 'closed') {
-          const locks = createStore({ db, blockWatch });
+          const locks = createStore({
+            db,
+            blockWatch,
+            walletKeys: { defaultArgonAddress: ownerAccount } as WalletKeys,
+          });
           vi.spyOn(locks.releases, 'recoverPendingOrphanCosignEvents').mockResolvedValue();
           vi.spyOn(locks.releases, 'applyOrphanCosignEvents').mockResolvedValue();
           locks.events.on('fissions:changed', change =>

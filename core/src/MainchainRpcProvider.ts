@@ -15,6 +15,7 @@ import { MainchainApi } from '@argonprotocol/runtime-client';
 import { HttpProvider, WsProvider } from '@polkadot/rpc-provider';
 import { stringify } from '@polkadot/util';
 import { LRUCache } from 'lru-cache';
+import { RpcStats } from './RpcStats.js';
 
 type RpcCacheOptions = Pick<LRUCache.OptionsMaxLimit<string, Promise<unknown>, unknown>, 'max' | 'ttl'>;
 const defaultCacheOptions: RpcCacheOptions = { max: 1024, ttl: 30_000 };
@@ -22,7 +23,13 @@ const defaultCacheOptions: RpcCacheOptions = { max: 1024, ttl: 30_000 };
 export async function getMainchainClient(host: string): Promise<ArgonClient> {
   const provider = host.startsWith('http') ? new MainchainHttpProvider(host) : new MainchainWsProvider(host);
   try {
-    return await MainchainApi.create({ provider, noInitWarn: true, throwOnConnect: true });
+    const client = await MainchainApi.create({ provider, noInitWarn: true, throwOnConnect: true });
+    for (const [section, queries] of Object.entries(client.query)) {
+      for (const [method, query] of Object.entries(queries)) {
+        provider.rpcStats.nameStorage(query.keyPrefix(), `${section}.${method}`);
+      }
+    }
+    return client;
   } catch (error) {
     await provider.disconnect();
     throw error;
@@ -30,14 +37,17 @@ export async function getMainchainClient(host: string): Promise<ArgonClient> {
 }
 
 export class MainchainWsProvider extends WsProvider {
+  public readonly rpcStats: RpcStats;
   private readonly callCache: RpcCallCache;
 
   constructor(
     private readonly endpoints: string | string[],
     private readonly cacheOptions: RpcCacheOptions = defaultCacheOptions,
   ) {
-    const callCache = new RpcCallCache(cacheOptions);
+    const rpcStats = new RpcStats();
+    const callCache = new RpcCallCache(cacheOptions, rpcStats);
     super(endpoints);
+    this.rpcStats = rpcStats;
     this.callCache = callCache;
     this.on('disconnected', () => this.callCache.clear());
   }
@@ -55,6 +65,10 @@ export class MainchainWsProvider extends WsProvider {
     return new MainchainWsProvider(this.endpoints, this.cacheOptions);
   }
 
+  public override get stats() {
+    return { ...super.stats, calls: this.rpcStats.snapshot() };
+  }
+
   public override async disconnect(): Promise<void> {
     this.callCache.clear();
     await super.disconnect();
@@ -62,14 +76,17 @@ export class MainchainWsProvider extends WsProvider {
 }
 
 export class MainchainHttpProvider extends HttpProvider {
+  public readonly rpcStats: RpcStats;
   private readonly callCache: RpcCallCache;
 
   constructor(
     private readonly url: string,
     private readonly cacheOptions: RpcCacheOptions = defaultCacheOptions,
   ) {
-    const callCache = new RpcCallCache(cacheOptions);
+    const rpcStats = new RpcStats();
+    const callCache = new RpcCallCache(cacheOptions, rpcStats);
     super(url);
+    this.rpcStats = rpcStats;
     this.callCache = callCache;
   }
 
@@ -81,6 +98,10 @@ export class MainchainHttpProvider extends HttpProvider {
     return new MainchainHttpProvider(this.url, this.cacheOptions);
   }
 
+  public override get stats() {
+    return { ...super.stats, calls: this.rpcStats.snapshot() };
+  }
+
   public override async disconnect(): Promise<void> {
     this.callCache.clear();
     await super.disconnect();
@@ -90,7 +111,10 @@ export class MainchainHttpProvider extends HttpProvider {
 class RpcCallCache {
   private readonly requests: LRUCache<string, Promise<unknown>>;
 
-  constructor(options: RpcCacheOptions) {
+  constructor(
+    options: RpcCacheOptions,
+    private readonly stats: RpcStats,
+  ) {
     this.requests = new LRUCache({ ...options, ttlResolution: 0 });
   }
 
@@ -100,13 +124,13 @@ class RpcCallCache {
     isCacheable: boolean | undefined,
     send: () => Promise<T>,
   ): Promise<T> {
-    if (!isCacheable) return send();
+    if (!isCacheable) return this.stats.request(method, params, false, send);
 
     const cacheKey = `${method}::${stringify(params)}`;
     const cached = this.requests.get(cacheKey);
-    if (cached) return cached as Promise<T>;
+    if (cached) return this.stats.request(method, params, true, () => cached as Promise<T>);
 
-    const pending = send().then(
+    const pending = this.stats.request(method, params, false, send).then(
       result => {
         if (result == null && this.requests.peek(cacheKey) === pending) this.requests.delete(cacheKey);
         return result;

@@ -70,3 +70,4 @@ export * from './utils.js';
 export { BiddingCalculatorData, BiddingCalculator, bitcoinPrices, bitcoinFees };
 
 export * from './StabilizerBuyContracts.js';
+export * from './StabilizerBuyPool.js';

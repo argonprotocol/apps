@@ -50,9 +50,9 @@
                 class="z-20 flex flex-row items-center justify-between border-slate-300 pt-5 mx-2 gap-x-3 text-2xl font-bold text-slate-800/70 select-none shrink-0"
                 @mousedown="draggable.onMouseDown($event)"
               >
-                <span v-if="props.showGoBack" @click="goBack()" class="flex flex-row items-center hover:bg-[#f1f3f7] rounded-md p-1 pl-0 mr-2 cursor-pointer">
+                <button type="button" aria-label="Back" NotDraggable v-if="props.showGoBack" @click="goBack()" class="flex flex-row items-center hover:bg-[#f1f3f7] rounded-md p-1 pl-0 mr-2 cursor-pointer">
                   <ChevronLeftIcon class="w-6 h-6 cursor-pointer relative -top-0.25" />
-                </span>
+                </button>
                 <slot name="title">
                   <DialogTitle class="grow pt-1">{{ title }}</DialogTitle>
                 </slot>

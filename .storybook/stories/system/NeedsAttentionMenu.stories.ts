@@ -1,6 +1,6 @@
 import type { Meta, StoryObj } from '@storybook/vue3-vite';
 import { mocked, fn } from 'storybook/test';
-import { StabilizerBuy } from '@argonprotocol/apps-core';
+import { type IStabilizerBuyQuote, StabilizerBuy } from '@argonprotocol/apps-core';
 import BigNumber from 'bignumber.js';
 import { TopTab } from '../../../src-vue/interfaces/IConfig.ts';
 import TopBar from '../../../src-vue/navigation/TopBar.vue';
@@ -47,7 +47,7 @@ const opportunity = {
     minimumRewardPrincipal: 1_000_000n,
     qualifiesForRewards: true,
   },
-} satisfies NonNullable<ReturnType<typeof useAttention>['stabilizerBuyOpportunity']>;
+} satisfies NonNullable<ReturnType<typeof useAttention>['stabilizerBuyOpportunity']> & { quote: IStabilizerBuyQuote };
 
 const position = new StabilizerBuy(
   48,
@@ -106,8 +106,6 @@ const meta = {
       ...viewedAttention,
       count: 1,
       stabilizerBid,
-      bitcoinAlertGroups: [],
-      pendingOperationsUpgradeRequests: [],
     });
   },
   render: () => ({
@@ -140,8 +138,6 @@ export const FirstBid: Story = {
           position.auction,
         ),
       },
-      bitcoinAlertGroups: [],
-      pendingOperationsUpgradeRequests: [],
     });
   },
 };
@@ -151,8 +147,6 @@ export const BuyingOpportunity: Story = {
     mocked(useAttention, { partial: true, deep: true }).mockReturnValue({
       ...viewedAttention,
       count: 1,
-      bitcoinAlertGroups: [],
-      pendingOperationsUpgradeRequests: [],
       stabilizerBuyOpportunity: opportunity,
     });
   },
@@ -164,8 +158,6 @@ export const BuyAndBid: Story = {
       ...viewedAttention,
       count: 2,
       stabilizerBid,
-      bitcoinAlertGroups: [],
-      pendingOperationsUpgradeRequests: [],
       stabilizerBuyOpportunity: opportunity,
     });
   },
@@ -178,8 +170,6 @@ export const UnseenActions: Story = {
       hasUnseenActions: true,
       count: 2,
       stabilizerBid,
-      bitcoinAlertGroups: [],
-      pendingOperationsUpgradeRequests: [],
       stabilizerBuyOpportunity: opportunity,
     });
   },

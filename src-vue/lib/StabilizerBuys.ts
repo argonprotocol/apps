@@ -2,11 +2,13 @@ import {
   type BlockWatch,
   SingleFileQueue,
   StabilizerBuy,
+  NetworkConfig,
   StabilizerBuysUnavailableError,
   type IBlockHeaderInfo,
   type ArgonCurrentQueryClient,
 } from '@argonprotocol/apps-core';
 import { runtimeClient } from '@argonprotocol/runtime-client';
+import { toHex } from 'viem';
 import type { Db } from './Db.ts';
 import { SyncStateKeys, type ISyncSchemas } from './db/SyncStateTable.ts';
 import { readStabilizerBuyHistoryBlock, recoverStabilizerBuyHistory } from './recovery/StabilizerBuys.ts';
@@ -48,6 +50,7 @@ export class StabilizerBuys {
     isAvailable: false,
     error: undefined as string | undefined,
     blockNumber: -1,
+    blockHash: undefined as string | undefined,
     financialRevision: 0,
     isRestoringHistory: false,
     historyError: undefined as string | undefined,
@@ -61,6 +64,9 @@ export class StabilizerBuys {
   private recordsLoadPromise?: Promise<void>;
   private readonly recordWrites = new SingleFileQueue();
   private readonly refreshQueue = new SingleFileQueue();
+  private readonly pendingRefreshBlocks = new Map<number, IBlockHeaderInfo>();
+  private pendingRefreshPromise?: Promise<void>;
+  private retryFinalizedGatewaySync = false;
   private readonly historyQueue = new SingleFileQueue();
   private isClosed = false;
   private unsubscribe?: () => void;
@@ -82,6 +88,7 @@ export class StabilizerBuys {
     public readonly blockWatch: BlockWatch,
     public readonly accountAddress: string,
     private readonly dbPromise: Promise<Db>,
+    private readonly isPaydownForecastVisible: () => boolean = () => false,
   ) {}
 
   public start(): Promise<void> {
@@ -109,7 +116,7 @@ export class StabilizerBuys {
       if (this.isClosed) return;
 
       this.unsubscribe ??= this.blockWatch.events.on('finalized', blocks => {
-        void this.refresh(blocks.at(-1)).catch(() => undefined);
+        for (const block of blocks) void this.refresh(block).catch(() => undefined);
       });
       await this.refresh();
     })().catch(error => {
@@ -139,6 +146,16 @@ export class StabilizerBuys {
     });
 
     return this.recordsLoadPromise;
+  }
+
+  /** Display the requested Liquid before admission, and retain intent when native admission declines it. */
+  public static getRequestedLiquidId(buy: IStabilizerBuyRecord): number | undefined {
+    const liquidId =
+      buy.repayLiquidId ??
+      buy.argonPurchaseEvent?.purchase.repayLiquidId ??
+      buy.ethereumGatewayActivity?.purchase.repayLiquidId ??
+      buy.ethereumQuote?.request.repayLiquidId;
+    if (liquidId) return Number(liquidId);
   }
 
   public async createPurchase({
@@ -193,26 +210,86 @@ export class StabilizerBuys {
   }
 
   public async refresh(block = this.blockWatch.finalizedBlockHeader): Promise<void> {
-    await this.loadRecords();
-    return this.refreshQueue.add(async () => {
+    this.pendingRefreshBlocks.set(block.blockNumber, block);
+    if (this.pendingRefreshPromise) return this.pendingRefreshPromise;
+
+    const queued = this.refreshQueue.add(async () => {
+      await this.loadRecords();
+      this.pendingRefreshPromise = undefined;
+      const blocks = [...this.pendingRefreshBlocks.values()].sort(
+        (left, right) => left.blockNumber - right.blockNumber,
+      );
+      this.pendingRefreshBlocks.clear();
+      const block = blocks.at(-1)!;
       try {
-        const facts = await readStabilizerBuyHistoryBlock(
-          this.accountAddress,
-          block,
-          await this.blockWatch.getEvents(block),
-          this.blockWatch,
-        );
+        const facts: IStabilizerBuyHistory = { buys: [], frameRewards: [], payouts: [], repayments: [] };
+        let hasAccountActivity = false;
+        let hasNewPrice = false;
+        let hasEthereumStateEvent = false;
+        for (const observed of blocks) {
+          const events = await this.blockWatch.getEvents(observed);
+          const collected = await readStabilizerBuyHistoryBlock(this.accountAddress, observed, events, this.blockWatch);
+          facts.buys.push(...collected.buys);
+          facts.frameRewards.push(...collected.frameRewards);
+          facts.payouts.push(...collected.payouts);
+          facts.repayments!.push(...(collected.repayments ?? []));
+
+          if (observed.blockNumber <= this.data.blockNumber) continue;
+          hasEthereumStateEvent ||= events.some(
+            ({ event }) => event.section === 'ethereumVerifier' || event.section === 'crosschainTransfer',
+          );
+          hasAccountActivity ||= collected.buys.length > 0;
+          for (const { event } of events) {
+            if (event.section === 'priceIndex' && event.method === 'NewIndex') hasNewPrice = true;
+            if (event.section !== 'stabilizerBuys') continue;
+            if (!('account' in event.data)) continue;
+            if (event.data.account !== this.accountAddress) continue;
+            hasAccountActivity = true;
+            break;
+          }
+        }
 
         const client = runtimeClient(await this.blockWatch.getApi(block));
-        const [purchases, nextFrameId] = await Promise.all([
-          StabilizerBuy.getForAccount(client, this.accountAddress),
-          client.query.miningSlot.nextFrameId(),
-        ]);
-        if (nextFrameId === null) throw new Error('The current admission frame is unavailable; retry the refresh.');
+        let currentFrameId = block.frameId;
+        if (currentFrameId === undefined) {
+          const nextFrameId = await client.query.miningSlot.nextFrameId();
+          if (nextFrameId === null) throw new Error('The current admission frame is unavailable; retry the refresh.');
+          currentFrameId = Math.max(0, nextFrameId - 1);
+        }
 
-        const currentFrameId = Math.max(0, nextFrameId - 1);
+        const newBlocks = blocks.filter(observed => observed.blockNumber > this.data.blockNumber);
+        const hasHistoryGap = newBlocks.some((observed, index) => {
+          const previousHash = newBlocks[index - 1]?.blockHash ?? this.data.blockHash;
+          return observed.blockNumber !== this.data.blockNumber + index + 1 || observed.parentHash !== previousHash;
+        });
+        const needsReconciliation =
+          !this.data.isAvailable ||
+          currentFrameId !== this.data.currentFrameId ||
+          newBlocks.length === 0 ||
+          hasHistoryGap;
+
+        const hasPendingCleanup = this.data.positions.some(position => position.heldPrincipal === 0n);
+        const needsVisibleForecast =
+          hasNewPrice &&
+          this.isPaydownForecastVisible() &&
+          this.data.positions.some(
+            position =>
+              currentFrameId < position.auction.maturesAtFrame &&
+              position.liquidRepayments.some(repayment => repayment.priceWindow.nextFrame !== null),
+          );
+        let purchases = {
+          positions: this.data.positions,
+          payableReward: this.data.payableReward,
+          nextPayoutFrame: this.data.nextPayoutFrame,
+        };
+        const shouldRefreshAccount =
+          needsReconciliation || hasAccountActivity || hasPendingCleanup || needsVisibleForecast;
+        if (shouldRefreshAccount) {
+          purchases = await StabilizerBuy.getForAccount(client, this.accountAddress);
+        }
+
         const market = await this.readOpportunityMarket(client, currentFrameId);
-        const settledAuctions = await this.readSettledAuctions(client, block, currentFrameId);
+        const settledAuctions = await this.readSettledAuctions(client, blocks, currentFrameId);
 
         const frames = new Set(purchases.positions.map(position => position.admissionFrame));
         for (const rewards of this.data.frameRewards) {
@@ -230,8 +307,7 @@ export class StabilizerBuys {
             continue;
           }
 
-          const position = purchases.positions.find(position => position.admissionFrame === frame);
-          const auction = position?.auction ?? (await client.query.stabilizerBuys.auctions(frame));
+          const auction = await client.query.stabilizerBuys.auctions(frame);
 
           // Failed bids can leave fee history for a frame that never had an auction.
           if (!auction) continue;
@@ -242,20 +318,28 @@ export class StabilizerBuys {
 
         let consumedGatewayNonce: bigint | undefined;
         let ethereumGatewaySync: StabilizerBuys['data']['ethereumGatewaySync'];
+        let retryFinalizedGatewaySync = false;
         if (
           this.data.buys.some(
             buy => buy.ethereumGatewayActivity && buy.purchaseArgonRecognitionBlockNumber === undefined,
           )
         ) {
-          const gateway = await client.query.crosschainTransfer.gatewayStateBySourceChain('Ethereum');
-          consumedGatewayNonce = gateway?.gatewayActivityNonce;
-          ethereumGatewaySync = await this.readEthereumGatewaySync(client, consumedGatewayNonce ?? 0n);
+          const refreshFinalized =
+            needsReconciliation ||
+            hasEthereumStateEvent ||
+            this.retryFinalizedGatewaySync ||
+            !this.data.ethereumGatewaySync;
+          if (refreshFinalized) this.retryFinalizedGatewaySync = true;
+          const result = await this.readEthereumGatewaySync(client, refreshFinalized);
+          ethereumGatewaySync = result.sync;
+          retryFinalizedGatewaySync = result.retryFinalized;
+          consumedGatewayNonce = ethereumGatewaySync.finalizedGatewayActivityNonce;
         }
 
         await this.recordWrites.add(async () => {
           const isCurrent = block.blockNumber >= this.data.blockNumber;
           const frameRewards = [...facts.frameRewards];
-          if (isCurrent) {
+          if (isCurrent && shouldRefreshAccount) {
             for (const position of purchases.positions) {
               const rewards: IStabilizerBuyHistory['frameRewards'][number] = {
                 admissionFrame: position.admissionFrame,
@@ -301,8 +385,12 @@ export class StabilizerBuys {
           }
 
           let checkpoint = this.checkpoint;
-          if (isCurrent && (!checkpoint || checkpoint.throughBlock >= block.blockNumber - 1)) {
-            checkpoint = { ...checkpoint, accountId: this.accountAddress, throughBlock: block.blockNumber };
+          if (isCurrent) {
+            checkpoint = {
+              ...checkpoint,
+              accountId: this.accountAddress,
+              throughBlock: this.getHistoryThroughBlock(blocks),
+            };
           }
           if (payoutRetryBlock !== undefined) {
             checkpoint = {
@@ -313,9 +401,10 @@ export class StabilizerBuys {
             };
           }
 
-          await this.publishRecords(record, changes, checkpoint);
-          if (isCurrent)
-            Object.assign(this.data, purchases, {
+          let currentState: Partial<StabilizerBuys['data']> | undefined;
+          if (isCurrent) {
+            currentState = {
+              ...purchases,
               auctionsByFrame,
               ethereumGatewaySync,
               market: market ?? this.data.market,
@@ -325,7 +414,11 @@ export class StabilizerBuys {
               isAvailable: true,
               error: undefined,
               blockNumber: block.blockNumber,
-            });
+              blockHash: block.blockHash,
+            };
+          }
+          await this.publishRecords(record, changes, checkpoint, currentState);
+          if (isCurrent) this.retryFinalizedGatewaySync = retryFinalizedGatewaySync;
         }).promise;
 
         if (this.checkpoint && this.checkpoint.throughBlock < block.blockNumber - 1)
@@ -379,9 +472,15 @@ export class StabilizerBuys {
           this.data.isLoaded = true;
           return;
         }
+        for (const observed of blocks) this.pendingRefreshBlocks.set(observed.blockNumber, observed);
         throw error;
       }
-    }).promise;
+    });
+    const refreshing = queued.promise.finally(() => {
+      if (this.pendingRefreshPromise === refreshing) this.pendingRefreshPromise = undefined;
+    });
+    this.pendingRefreshPromise = refreshing;
+    return refreshing;
   }
 
   public get heldPrincipal(): bigint {
@@ -396,7 +495,14 @@ export class StabilizerBuys {
 
     const prices = market.prices;
     if (!prices?.argonUsdPrice.gt(0) || prices.argonUsdPrice.gte(prices.argonUsdTargetPrice)) return;
-    if (BigInt(currentTick - prices.tick) > market.maxPriceAgeTicks) return;
+    const best = this.blockWatch.bestBlockHeader;
+    const latestTick = Math.max(currentTick, best?.tick ?? currentTick);
+    if (BigInt(latestTick - prices.tick) > market.maxPriceAgeTicks) return;
+    if (
+      best?.blockTime &&
+      Date.now() - best.blockTime > (Number(market.maxPriceAgeTicks) + 1) * NetworkConfig.tickMillis
+    )
+      return;
 
     return prices.argonUsdTargetPrice.minus(prices.argonUsdPrice).div(prices.argonUsdTargetPrice).times(100).toNumber();
   }
@@ -414,28 +520,73 @@ export class StabilizerBuys {
   /** Capture published claims only after they agree with the wallet's block. */
   public async readAccountSnapshot(account: IArgonAccountBalance, block: IBlockHeaderInfo) {
     const { address, microgonHolds } = account;
+    const snapshot = this.snapshot;
     const heldPrincipal = microgonHolds
       .filter(hold => hold.id.type === 'StabilizerBuys')
       .reduce((sum, hold) => sum + hold.amount, 0n);
+    if (heldPrincipal !== snapshot.positions.reduce((sum, position) => sum + position.heldPrincipal, 0n))
+      throw new Error('Waiting for a finalized Stabilizer Buys snapshot matching the wallet balances.');
 
-    const client = runtimeClient(await this.blockWatch.getApi(block));
-    let purchases: Awaited<ReturnType<typeof StabilizerBuy.getForAccount>>;
-    try {
-      purchases = await StabilizerBuy.getForAccount(client, address);
-    } catch (error) {
-      if (error instanceof StabilizerBuysUnavailableError && heldPrincipal === 0n && !this.data.buys.length) return;
-      throw error;
+    // The finalized domain already reconciled this block. A best head can also
+    // reuse those claims when the intervening canonical blocks have no account activity.
+    if (snapshot.isAvailable && snapshot.blockHash) {
+      if (snapshot.blockHash === block.blockHash) return snapshot;
+
+      const headers = this.blockWatch.latestHeaders.filter(
+        header => header.blockNumber > snapshot.blockNumber && header.blockNumber <= block.blockNumber,
+      );
+      if (
+        headers[0]?.parentHash === snapshot.blockHash &&
+        headers.at(-1)?.blockHash === block.blockHash &&
+        block.frameId === snapshot.currentFrameId
+      ) {
+        let hasAccountActivity = false;
+        for (const header of headers) {
+          const events = await this.blockWatch.getEvents(header);
+          hasAccountActivity = events.some(
+            ({ event }) =>
+              event.section === 'stabilizerBuys' && 'account' in event.data && event.data.account === address,
+          );
+          if (hasAccountActivity) break;
+        }
+        if (!hasAccountActivity) return snapshot;
+      }
     }
 
-    const snapshot = this.snapshot;
-    const principalByFrame = new Map(
-      snapshot.positions.map(position => [position.admissionFrame, position.heldPrincipal]),
-    );
-    const samePrincipal =
-      purchases.positions.length === snapshot.positions.length &&
-      purchases.positions.every(position => principalByFrame.get(position.admissionFrame) === position.heldPrincipal);
-    if (!samePrincipal || purchases.payableReward !== snapshot.payableReward || heldPrincipal !== this.heldPrincipal) {
-      throw new Error('Waiting for a finalized Stabilizer Buys snapshot matching the wallet balances.');
+    // Check known claims and the wallet's total hold; no map scans or price forecasts are needed.
+    const client = runtimeClient(await this.blockWatch.getApi(block));
+    const liquidRepayments = snapshot.positions.flatMap(position => position.liquidRepayments);
+    try {
+      const [payout, purchases, repayments] = await Promise.all([
+        client.query.stabilizerBuys.payoutStateByAccount(address),
+        client.query.stabilizerBuys.buysByAccountAndFrame.multi(
+          snapshot.positions.map(position => [address, toHex(BigInt(position.admissionFrame), { size: 8 })]),
+        ),
+        client.query.stabilizerBuys.liquidRepaysByAccountAndGatewayNonce.multi(
+          liquidRepayments.map(repayment => [address, toHex(repayment.gatewayActivityNonce, { size: 8 })]),
+        ),
+      ]);
+      if (!payout || !purchases || !repayments) throw new StabilizerBuysUnavailableError();
+
+      const repaymentsByNonce = new Map(
+        liquidRepayments.map((repayment, index) => [repayment.gatewayActivityNonce, repayments[index]]),
+      );
+      const samePrincipal = purchases.every((purchase, index) => {
+        if (!purchase) return false;
+        const position = snapshot.positions[index];
+        let principal = purchase.principal;
+        for (const repayment of position.liquidRepayments) {
+          const current = repaymentsByNonce.get(repayment.gatewayActivityNonce);
+          if (!current) return false;
+          principal += current.microgons;
+        }
+        return principal === position.heldPrincipal;
+      });
+      if (!samePrincipal || payout.payableReward !== snapshot.payableReward)
+        throw new Error('Waiting for a finalized Stabilizer Buys snapshot matching the wallet balances.');
+    } catch (error) {
+      if (error instanceof StabilizerBuysUnavailableError && heldPrincipal === 0n && !snapshot.buys.length) return;
+      throw error;
     }
 
     return snapshot;
@@ -515,10 +666,20 @@ export class StabilizerBuys {
     record: IStabilizerBuysRecord,
     changes: IStabilizerBuysRecord,
     checkpoint = this.checkpoint,
+    currentState?: Partial<StabilizerBuys['data']>,
   ): Promise<void> {
     const db = await this.dbPromise;
     const buys = new Map(record.buys.map(buy => [buy.id, buy]));
     const rewards = new Map(record.frameRewards.map(frame => [frame.admissionFrame, frame]));
+    const recordsChanged =
+      changes.buys.length > 0 ||
+      changes.frameRewards.length > 0 ||
+      record.buys.length !== this.data.buys.length ||
+      record.frameRewards.length !== this.data.frameRewards.length;
+    const wasLoaded = this.data.isLoaded;
+    const heldPrincipal = this.heldPrincipal;
+    const payableReward = this.data.payableReward;
+    const hadPendingHistoryGap = this.snapshot.hasPendingHistoryGap;
 
     await db.transaction(async transaction => {
       for (const previous of this.data.buys) {
@@ -532,9 +693,16 @@ export class StabilizerBuys {
       if (checkpoint) await transaction.syncStateTable.upsert(SyncStateKeys.StabilizerBuys, checkpoint);
     });
 
-    Object.assign(this.data, record);
+    Object.assign(this.data, record, currentState);
     this.checkpoint = checkpoint;
-    this.data.financialRevision += 1;
+    if (
+      recordsChanged ||
+      wasLoaded !== this.data.isLoaded ||
+      heldPrincipal !== this.heldPrincipal ||
+      payableReward !== this.data.payableReward ||
+      hadPendingHistoryGap !== this.snapshot.hasPendingHistoryGap
+    )
+      this.data.financialRevision += 1;
   }
 
   private consolidate(
@@ -761,39 +929,64 @@ export class StabilizerBuys {
     this.historyScheduler.queue(block.blockNumber);
   }
 
-  private async readEthereumGatewaySync(client: ArgonCurrentQueryClient, finalizedGatewayActivityNonce: bigint) {
-    try {
-      const anchorHash = await client.query.ethereumVerifier.latestExecutionHeaderAnchorBlockHash();
-      let ethereumBlockNumber: bigint | undefined;
-      if (anchorHash) {
-        const anchor = await client.query.ethereumVerifier.executionHeaderAnchors(anchorHash);
-        ethereumBlockNumber = anchor?.blockNumber;
+  private async readEthereumGatewaySync(client: ArgonCurrentQueryClient, refreshFinalized: boolean) {
+    let ethereumBlockNumber = this.data.ethereumGatewaySync?.ethereumBlockNumber;
+    let finalizedGatewayActivityNonce = this.data.ethereumGatewaySync?.finalizedGatewayActivityNonce ?? 0n;
+    let retryFinalized = false;
+    if (refreshFinalized) {
+      try {
+        const [gateway, anchorHash] = await Promise.all([
+          client.query.crosschainTransfer.gatewayStateBySourceChain('Ethereum'),
+          client.query.ethereumVerifier.latestExecutionHeaderAnchorBlockHash(),
+        ]);
+        finalizedGatewayActivityNonce = gateway?.gatewayActivityNonce ?? 0n;
+        if (anchorHash) {
+          const anchor = await client.query.ethereumVerifier.executionHeaderAnchors(anchorHash);
+          ethereumBlockNumber = anchor?.blockNumber;
+        } else {
+          ethereumBlockNumber = undefined;
+        }
+      } catch (error) {
+        retryFinalized = true;
+        console.warn('[StabilizerBuys] Finalized Ethereum progress will retry on the next finalized block', error);
       }
+    }
 
+    let bestGatewayActivityNonce = finalizedGatewayActivityNonce;
+    try {
       // Best-chain proof inclusion is provisional; only finalized purchase events complete a buy.
       const bestClient = runtimeClient(await this.blockWatch.getApi(this.blockWatch.bestBlockHeader));
       const gateway = await bestClient.query.crosschainTransfer.gatewayStateBySourceChain('Ethereum');
-      return {
-        ethereumBlockNumber,
-        finalizedGatewayActivityNonce,
-        bestGatewayActivityNonce: gateway?.gatewayActivityNonce ?? finalizedGatewayActivityNonce,
-      };
+      bestGatewayActivityNonce = gateway?.gatewayActivityNonce ?? finalizedGatewayActivityNonce;
     } catch (error) {
       console.warn('[StabilizerBuys] Ethereum gateway progress will retry on the next finalized block', error);
-      return {
-        ethereumBlockNumber: this.data.ethereumGatewaySync?.ethereumBlockNumber,
-        finalizedGatewayActivityNonce,
-        bestGatewayActivityNonce: finalizedGatewayActivityNonce,
-      };
     }
+
+    return {
+      sync: { ethereumBlockNumber, finalizedGatewayActivityNonce, bestGatewayActivityNonce },
+      retryFinalized,
+    };
   }
 
-  private async readSettledAuctions(client: ArgonCurrentQueryClient, block: IBlockHeaderInfo, currentFrameId: number) {
+  private getHistoryThroughBlock(blocks: readonly IBlockHeaderInfo[]): number {
+    let throughBlock = this.checkpoint?.throughBlock ?? blocks[0].blockNumber - 1;
+    for (const block of blocks) {
+      if (block.blockNumber > throughBlock + 1) break;
+      throughBlock = Math.max(throughBlock, block.blockNumber);
+    }
+    return throughBlock;
+  }
+
+  private async readSettledAuctions(
+    client: ArgonCurrentQueryClient,
+    blocks: readonly IBlockHeaderInfo[],
+    currentFrameId: number,
+  ) {
     const frames: number[] = [];
     if (
       this.checkpoint &&
       this.checkpoint.payoutRetryBlock === undefined &&
-      this.checkpoint.throughBlock >= block.blockNumber - 1
+      this.getHistoryThroughBlock(blocks) >= blocks.at(-1)!.blockNumber
     ) {
       for (const rewards of this.data.frameRewards) {
         if (rewards.awardedReward !== undefined) continue;
@@ -829,15 +1022,16 @@ export class StabilizerBuys {
 
   private async readOpportunityMarket(client: ArgonCurrentQueryClient, frameId: number) {
     try {
-      const [approvedPool, prices, matchingRate, frameRewardTicksRemaining, auction] = await Promise.all([
-        client.query.stabilizerBuys.approvedPool(),
-        client.query.priceIndex.current(),
-        client.query.stabilizerBuys.matchingRate(),
-        client.query.miningSlot.frameRewardTicksRemaining(),
-        client.query.stabilizerBuys.auctions(frameId),
-      ]);
       const rules = client.consts.stabilizerBuys;
       if (!rules) throw new StabilizerBuysUnavailableError();
+
+      const [approvedPool, prices, matchingRate, frameRewardTicksRemaining, auction] = await client.queryMulti([
+        client.query.stabilizerBuys.approvedPool,
+        client.query.priceIndex.current,
+        client.query.stabilizerBuys.matchingRate,
+        client.query.miningSlot.frameRewardTicksRemaining,
+        [client.query.stabilizerBuys.auctions, frameId],
+      ]);
 
       return {
         approvedPool,
@@ -848,6 +1042,7 @@ export class StabilizerBuys {
         maxPriceAgeTicks: rules.maxPriceAgeTicks,
         maxPositiveBids: client.consts.stabilizerBuys.maxPositiveBids,
         purchaseHoldFrames: rules.purchaseHoldFrames,
+        liquidRepaymentRewardPercent: rules.liquidRepaymentRewardPercent,
         auctionInclusionPercent: rules.auctionInclusionPercent,
       };
     } catch (error) {

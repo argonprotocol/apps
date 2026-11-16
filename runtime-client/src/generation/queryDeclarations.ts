@@ -50,7 +50,7 @@ export function readRuntimeQueries(
             : call.parameters.map(() => 'unknown'),
         result:
           nativeTypeForOverride(typeOverrides.queries[`${section}.${method}`]) ??
-          translator.translate(unwrapObservable(call.type)),
+          translator.translate(unwrapObservable(call.type), typeOverrides.queryFields?.[`${section}.${method}`]),
       };
     }
     queries[section] = methods;

@@ -32,6 +32,10 @@
                 <span aria-hidden="true">·</span>
                 <span>{{ dayjs(purchaseDate).format('M/D/YYYY') }}</span>
               </template>
+              <template v-if="paydowns.length">
+                <span aria-hidden="true">·</span>
+                <span>Liquid paydown</span>
+              </template>
             </div>
           </div>
           <div class="flex flex-wrap items-center justify-end gap-3">
@@ -53,8 +57,13 @@
                 </template>
               </div>
             </CountdownClock>
+            <span v-else-if="paydowns.length && !hasOrdinaryPurchase" class="font-light text-slate-500">
+              <template v-if="allPaydownsSettled">Paydown Complete</template>
+              <template v-else-if="releasesAt">Paydown from {{ dayjs(releasesAt).format('M/D/YYYY') }}</template>
+              <template v-else>Paydown Scheduled</template>
+            </span>
             <span v-else-if="releasesAt" class="font-light text-slate-500">
-              <template v-if="archived">Released</template>
+              <template v-if="archived">In your Internal App Wallet</template>
               <template v-else>Releases</template>
               {{ dayjs(releasesAt).format('M/D/YYYY') }}
             </span>
@@ -133,6 +142,7 @@ import PurchaseStatus from './PurchaseStatus.vue';
 import numeral, { createNumeralHelpers } from '../../../lib/numeral.ts';
 import Returns from '../../../components/Returns.vue';
 import { getCurrency } from '../../../stores/currency.ts';
+import { StabilizerBuys } from '../../../lib/StabilizerBuys.ts';
 
 const props = withDefaults(
   defineProps<{
@@ -152,6 +162,10 @@ const props = withDefaults(
 
 const currency = getCurrency();
 const { microgonToMoneyNm } = createNumeralHelpers(currency);
+
+const paydowns = computed(() => props.buys.filter(buy => StabilizerBuys.getRequestedLiquidId(buy) !== undefined));
+const hasOrdinaryPurchase = computed(() => props.buys.some(buy => buy.repayLiquidId === undefined));
+const allPaydownsSettled = computed(() => paydowns.value.every(buy => buy.liquidRepaymentEvent !== undefined));
 
 const pendingBuy = computed(() =>
   props.buys.find(
@@ -177,7 +191,10 @@ const spentUsdc = computed(() => {
   return spent;
 });
 
-const emit = defineEmits<{ purchase: [buy: IStabilizerBuyRecord]; rewards: [rewards: IStabilizerBuyFrameRewards] }>();
+const emit = defineEmits<{
+  purchase: [buy: IStabilizerBuyRecord];
+  rewards: [rewards: IStabilizerBuyFrameRewards];
+}>();
 
 function openDetails(): void {
   if (props.rewards) emit('rewards', props.rewards);

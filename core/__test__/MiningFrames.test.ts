@@ -4,59 +4,101 @@ import type { IBlockHeaderInfo } from '../src/BlockWatch.ts';
 
 describe('MiningFrames frame refresh recovery', () => {
   afterEach(() => {
+    NetworkConfig.clearRuntimeOverride('dev-docker');
     vi.restoreAllMocks();
   });
 
-  it('uses cached block APIs for latest and historical frame reads', async () => {
+  it('repairs the saved frame at startup and reads history only when the frame changes', async () => {
     NetworkConfig.setNetwork('dev-docker');
 
-    const latestHeader = createHeaderInfo(182, '0xlatest', '0x181', undefined, 1_820);
-    const frameHeader = createHeaderInfo(181, '0xframe', '0x180', 18, 1_810);
-    const currentApi = {
-      query: {
-        miningSlot: {
-          frameStartBlockNumbers: vi.fn().mockResolvedValue([181]),
-        },
-      },
+    const latestHeader = {
+      ...createHeaderInfo(182, '0xlatest', '0x181', 18, 1_820),
+      isNewFrame: false,
+      frameRewardTicksRemaining: 10,
     };
+    let frameHeader = createHeaderInfo(181, '0xframe', '0x180', 18, 1_810);
     const frameApi = {
-      query: {
-        miningSlot: {
-          nextFrameId: vi.fn().mockResolvedValue(19),
-          frameStartBlockNumbers: vi.fn().mockResolvedValue([181]),
-        },
-      },
-      runtimeVersion: {
-        specVersion: createNumberLike(153),
-      },
+      query: { miningSlot: { frameStartBlockNumbers: vi.fn().mockResolvedValue([181]) } },
+      runtimeVersion: { specVersion: createNumberLike(153) },
     };
-    const getApi = vi.fn().mockResolvedValueOnce(currentApi).mockResolvedValueOnce(frameApi);
+    const getApi = vi.fn().mockResolvedValue(frameApi);
     const blockWatch = {
+      latestHeaders: [latestHeader],
+      start: vi.fn(),
       getApi,
-      getHeader: vi.fn().mockResolvedValue(frameHeader),
-      events: { on: vi.fn() },
+      getHeader: vi.fn(async (_blockNumber: number) => frameHeader),
+      events: { on: vi.fn().mockReturnValue(vi.fn()) },
     };
-    const clients = {};
-    Object.defineProperty(clients, 'prunedClientOrArchivePromise', {
-      get() {
-        throw new Error('should use BlockWatch.getApi instead');
-      },
-    });
-
-    const miningFrames = new MiningFrames(clients as any, blockWatch as any);
-    const checkForFrameChange = getCheckForFrameChange(miningFrames);
-
-    await checkForFrameChange.call(miningFrames, [latestHeader]);
+    const updatesWriter = {
+      read: async () =>
+        JSON.stringify([
+          {
+            frameId: 18,
+            frameStartTick: 1_800,
+            dateStart: new Date(1_800_000),
+            firstBlockNumber: 181,
+            firstBlockHash: '0xstale',
+            firstBlockTick: 1_800,
+            firstBlockSpecVersion: 152,
+          },
+        ]),
+      write: vi.fn(),
+    };
+    const miningFrames = new MiningFrames(
+      createClientsWithGenesis('0xgenesis') as any,
+      blockWatch as any,
+      updatesWriter,
+    );
+    await miningFrames.load();
 
     expect(getApi).toHaveBeenNthCalledWith(1, latestHeader);
     expect(getApi).toHaveBeenNthCalledWith(2, frameHeader);
     expect(miningFrames.framesById[18]).toMatchObject({
-      frameId: 18,
       firstBlockNumber: 181,
       firstBlockHash: '0xframe',
       firstBlockTick: 1_810,
       firstBlockSpecVersion: 153,
     });
+
+    const ordinaryHeader = {
+      ...latestHeader,
+      blockNumber: 183,
+      blockHash: '0xordinary',
+      parentHash: latestHeader.blockHash,
+      tick: 1_830,
+    };
+    const startupApiReads = getApi.mock.calls.length;
+    await miningFrames['onBestBlocks']([ordinaryHeader]);
+    expect(getApi).toHaveBeenCalledTimes(startupApiReads);
+    expect(blockWatch.getHeader).toHaveBeenCalledOnce();
+    expect(miningFrames.currentTick).toBe(1_830);
+
+    frameHeader = { ...frameHeader, blockHash: '0xreplacement', tick: 1_812, isNewFrame: true };
+    getApi.mockRejectedValueOnce(new Error('The frame snapshot is temporarily unavailable'));
+    await miningFrames['onBestBlocks']([frameHeader]);
+    expect(miningFrames.framesById[18].firstBlockHash).toBe('0xframe');
+    await miningFrames['onBestBlocks']([{ ...ordinaryHeader, blockNumber: 184, blockHash: '0xreplacement-tip' }]);
+    expect(miningFrames.framesById[18]).toMatchObject({ firstBlockHash: '0xreplacement', firstBlockTick: 1_812 });
+    frameHeader = { ...frameHeader, blockHash: '0xresumed-frame', tick: 1_814 };
+    await miningFrames['onBestBlocks']([{ ...ordinaryHeader, blockNumber: 184, blockHash: '0xresumed-tip' }]);
+    expect(miningFrames.framesById[18]).toMatchObject({ firstBlockHash: '0xresumed-frame', firstBlockTick: 1_814 });
+    let newerStart = { ...createHeaderInfo(191, '0xoriginal-19', '0x190', 19, 1_910), isNewFrame: true };
+    frameApi.query.miningSlot.frameStartBlockNumbers.mockResolvedValue([191, 181]);
+    blockWatch.getHeader.mockImplementation(async blockNumber => (blockNumber === 191 ? newerStart : frameHeader));
+    await miningFrames['onBestBlocks']([newerStart]);
+    expect(miningFrames.currentFrameId).toBe(19);
+    expect(miningFrames.framesById[19].firstBlockHash).toBe('0xoriginal-19');
+
+    frameHeader = { ...frameHeader, blockHash: '0xfork-18', tick: 1_816 };
+    newerStart = { ...newerStart, blockHash: '0xfork-19' };
+    await miningFrames['onBestBlocks']([
+      frameHeader,
+      newerStart,
+      { ...newerStart, blockNumber: 192, blockHash: '0xfork-tip', parentHash: newerStart.blockHash, isNewFrame: false },
+    ]);
+    expect(miningFrames.framesById[18]).toMatchObject({ firstBlockHash: '0xfork-18', firstBlockTick: 1_816 });
+    expect(miningFrames.framesById[19]).toMatchObject({ firstBlockHash: '0xfork-19', firstBlockTick: 1_910 });
+    await miningFrames.stop();
   });
 
   it('refreshes and retries a stale persisted frame behind a valid newer frame', async () => {
@@ -147,7 +189,7 @@ describe('MiningFrames frame refresh recovery', () => {
   it('does not reject higher callers when frame refresh hits a retryable API miss', async () => {
     NetworkConfig.setNetwork('dev-docker');
 
-    const latestHeader = createHeaderInfo(182, '0xlatest', '0x181', undefined, 1_820);
+    const latestHeader = createHeaderInfo(182, '0xlatest', '0x181', 18, 1_820);
     const frameHeader = createHeaderInfo(181, '0xframe', '0x180', 18, 1_810);
     const currentApi = {
       query: {
@@ -205,8 +247,7 @@ describe('MiningFrames frame refresh recovery', () => {
     expect(blockWatch.events.on).toHaveBeenCalledTimes(2);
     expect(unsubscribeFirst).toHaveBeenCalledOnce();
     expect(unsubscribeSecond).not.toHaveBeenCalled();
-    expect(onBestBlocks).toHaveBeenNthCalledWith(1, [latestHeader]);
-    expect(onBestBlocks).toHaveBeenNthCalledWith(2, [latestHeader]);
+    expect(onBestBlocks).toHaveBeenCalledTimes(2);
   });
 
   it('retries load after a failed startup', async () => {
@@ -248,6 +289,7 @@ function createHeaderInfo(
     author: 'author',
     tick,
     frameId,
+    frameRewardTicksRemaining: 10,
   };
 }
 

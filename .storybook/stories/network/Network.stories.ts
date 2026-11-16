@@ -24,8 +24,7 @@ const meta = {
         hasCurrentStats: true,
         isUpdating: false,
         error: '',
-        cohortProgress: { completed: 2, total: 2 },
-        provisionalReturns: undefined,
+        frameProgress: { completed: 2, total: 2 },
         averageAPR: 0,
         averageAPY: 0,
         activeMiningSeatCount: 20,
@@ -59,21 +58,9 @@ export const Loading: Story = {
       isUpdating: true,
       averageAPR: undefined,
       averageAPY: undefined,
-      cohortProgress: { completed: 0, total: 10 },
+      frameProgress: { completed: 0, total: 10 },
     });
     useVaultingStats().isLoaded = false;
-  },
-};
-
-export const Provisional: Story = {
-  beforeEach: () => {
-    Object.assign(useMiningStats(), {
-      isUpdating: true,
-      averageAPR: undefined,
-      averageAPY: undefined,
-      provisionalReturns: { apr: 13, apy: 13.9, microgonRevenue: 123_450_000n },
-      cohortProgress: { completed: 3, total: 10 },
-    });
   },
 };
 
@@ -84,8 +71,7 @@ export const Refreshing: Story = {
       averageAPR: 20,
       averageAPY: 22.1,
       activeBlockRewards: 500_000_000n,
-      provisionalReturns: { apr: 13, apy: 13.9, microgonRevenue: 123_450_000n },
-      cohortProgress: { completed: 3, total: 10 },
+      frameProgress: { completed: 3, total: 10 },
     });
   },
 };
@@ -95,8 +81,7 @@ export const Interrupted: Story = {
     Object.assign(useMiningStats(), {
       averageAPR: undefined,
       averageAPY: undefined,
-      provisionalReturns: { apr: 13, apy: 13.9, microgonRevenue: 123_450_000n },
-      cohortProgress: { completed: 3, total: 10 },
+      frameProgress: { completed: 3, total: 10 },
       error: 'Unable to finish calculating mining returns.',
     });
   },

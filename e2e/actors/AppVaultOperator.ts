@@ -1,6 +1,9 @@
 import { submitAndFinalize } from '@argonprotocol/apps-core/__test__/helpers/mainchain.ts';
 import { runtimeClient, type LiveRuntimeQueries } from '@argonprotocol/runtime-client';
 import { setTimeout as delay } from 'node:timers/promises';
+import { mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import {
   createOperationalAccessProof,
   bigIntMax,
@@ -102,6 +105,8 @@ export class AppVaultOperator {
     bitcoinFissions: BitcoinFissions;
     bitcoinLockCreate: BitcoinLockCreate;
     bitcoinLiquidCreate: BitcoinLiquidCreate;
+    gatewayProofDirectory: string;
+    gatewayProverService: EthereumGatewayProverService;
   }) {
     this.#db = args.db;
     this.walletKeys = args.walletKeys;
@@ -115,6 +120,8 @@ export class AppVaultOperator {
     this.#bitcoinFissions = args.bitcoinFissions;
     this.#bitcoinLockCreate = args.bitcoinLockCreate;
     this.#bitcoinLiquidCreate = args.bitcoinLiquidCreate;
+    this.#gatewayProofDirectory = args.gatewayProofDirectory;
+    this.#gatewayProverService = args.gatewayProverService;
   }
 
   #db: Db;
@@ -123,6 +130,8 @@ export class AppVaultOperator {
   #bitcoinFissions: BitcoinFissions;
   #bitcoinLockCreate: BitcoinLockCreate;
   #bitcoinLiquidCreate: BitcoinLiquidCreate;
+  #gatewayProofDirectory: string;
+  #gatewayProverService: EthereumGatewayProverService;
 
   public static async load(args: {
     clients: MainchainClients;
@@ -162,9 +171,15 @@ export class AppVaultOperator {
     const relaySubmitLane = new DelegateSubmitLane(
       new TxSigner(new Keyring({ type: 'sr25519' }).createFromUri('//Charlie')),
     );
-    const ethereumGatewayProverService = new EthereumGatewayProverService(relaySubmitLane, {
-      shouldApplySharedRelayStagger: false,
-    });
+    const gatewayProofDirectory = await mkdtemp(join(tmpdir(), 'e2e-gateway-prover-'));
+    const ethereumGatewayProverService = new EthereumGatewayProverService(
+      relaySubmitLane,
+      miningFrames.blockWatch,
+      gatewayProofDirectory,
+      {
+        shouldApplySharedRelayStagger: false,
+      },
+    );
     const mintingAuthorities = new MintingAuthorities(
       dbPromise,
       walletKeys,
@@ -226,6 +241,8 @@ export class AppVaultOperator {
     });
 
     const actor = new AppVaultOperator({
+      gatewayProofDirectory,
+      gatewayProverService: ethereumGatewayProverService,
       db,
       walletKeys,
       miningFrames,
@@ -842,6 +859,8 @@ export class AppVaultOperator {
   }
 
   public async dispose(): Promise<void> {
+    await this.#gatewayProverService.shutdown();
+    await rm(this.#gatewayProofDirectory, { recursive: true, force: true });
     this.myVault.unsubscribe();
     this.globalCouncil.unsubscribe();
     this.mintingAuthorities.unsubscribe();

@@ -639,12 +639,22 @@ export class ArgonBonds {
         blockNumbers.add(block.blockNumber);
         indexedHashes.set(block.blockNumber, block.blockHash);
       }
-      // Global payout events do not necessarily carry account activity.
+      const history = await db.bondLotHistoryTable.fetchAll(this.walletKeys.defaultArgonAddress);
+      // Position activity can reveal lots absent from the current snapshot and stored history.
+      const hasIndexedBondActivity = indexedHashes.size > 0;
       for (const frame of this.miningFrames.frames) {
         const blockNumber = frame.firstBlockNumber;
-        if (blockNumber !== null && blockNumber > cursor.blockNumber && blockNumber <= throughBlock) {
-          blockNumbers.add(blockNumber);
+        if (blockNumber === null || blockNumber <= cursor.blockNumber || blockNumber > throughBlock) continue;
+        if (!hasIndexedBondActivity) {
+          const earningFrame = frame.frameId - 1;
+          const heldBonds = history.some(lot => {
+            if (lot.createdFrame > earningFrame) return false;
+            if (lot.releaseBlockNumber === undefined) return true;
+            return lot.releaseFrame === undefined || lot.releaseFrame > earningFrame;
+          });
+          if (!heldBonds) continue;
         }
+        blockNumbers.add(blockNumber);
       }
       blockNumbers.add(throughBlock);
     } else {
@@ -770,7 +780,11 @@ export class ArgonBonds {
             event.method === 'BondLotEarningsBackfilled' ||
             event.method === 'BondLotFlexibilityChanged')
         ) {
-          refreshBonds = true;
+          if ('accountId' in event.data) {
+            if (event.data.accountId === this.walletKeys.defaultArgonAddress) refreshBonds = true;
+          } else if (this.data.bondLots.some(lot => lot.id === event.data.bondLotId)) {
+            refreshBonds = true;
+          }
           refreshMarket = true;
         } else if (event.section === 'treasury' && event.method === 'ReservedBondSpaceChanged') {
           refreshMarket = true;

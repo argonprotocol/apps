@@ -6,6 +6,7 @@ import {
   NetworkConfig,
   raceWithTimeout,
   type ArgonClient,
+  type BlockWatch,
   type IEthereumGatewayCatchUpRequest,
   type IEthereumGatewayCatchUpResponse,
   type IEthereumGatewayRelayStatus,
@@ -14,13 +15,17 @@ import {
 } from '@argonprotocol/apps-core';
 import {
   buildGatewayActivityReceiptProofPayloads,
+  buildGatewayActivityStorageProofs,
+  captureGatewayActivityStorageProofs,
   discoverMissingGatewayActivityLocators,
   EvmContracts,
-  type EthereumGatewayActivityReceiptProofPayload,
+  type CapturedGatewayActivityStorageProof,
+  type EthereumGatewayActivityProofPayload,
   type MissingGatewayActivityLocator,
   isOutdatedTransactionError,
   isTxSubmissionError,
   type EthereumGatewayActivity,
+  type EthereumExecutionClient,
 } from '@argonprotocol/mainchain';
 import process from 'node:process';
 import { createHash } from 'node:crypto';
@@ -28,6 +33,7 @@ import { type Hex } from 'viem';
 import { DelegateSubmitLane } from './DelegateSubmitLane.ts';
 import { createEthereumExecutionClient } from './EthereumExecutionClient.ts';
 import { HttpError } from './HttpError.ts';
+import { JsonStore } from './JsonStore.ts';
 
 export class EthereumGatewayProverService {
   private startPromise?: Promise<void>;
@@ -45,18 +51,25 @@ export class EthereumGatewayProverService {
   private lastStallSweepWindowIndex?: number;
   private latestLocatorTailByIndex?: { index: bigint; endGatewayActivityNonce: bigint };
   private ownedAuthoritySignerByAddress = new Map<string, boolean>();
-  private preparedCheckpointProofPayloads?: EthereumGatewayActivityReceiptProofPayload[];
+  private preparedCheckpointProofPayloads?: EthereumGatewayActivityProofPayload[];
   private finalizedLocators: MissingGatewayActivityLocator[] = [];
+  private readonly captures: JsonStore<{
+    byGateway: Record<string, CapturedGatewayActivityStorageProof[]>;
+  }>;
   private readonly stateData: Pick<IEthereumSyncStatus, 'gatewayActivityNonceGap'> = {};
 
   constructor(
     private readonly submitLane: DelegateSubmitLane,
+    private readonly blockWatch: BlockWatch,
+    dataDirectory: string,
     private readonly options: {
       shouldApplySharedRelayStagger?: boolean;
       backgroundSweepMs?: number;
       vaultOperatorAddress?: string;
     } = {},
-  ) {}
+  ) {
+    this.captures = new JsonStore(dataDirectory, 'ethereum-gateway-activities', () => ({ byGateway: {} }));
+  }
 
   public async start(): Promise<void> {
     if (this.startPromise) {
@@ -93,6 +106,7 @@ export class EthereumGatewayProverService {
     for (const promise of pending) {
       await promise?.catch(() => undefined);
     }
+    await this.captures.close();
   }
 
   public async getRelayStatus(): Promise<IEthereumGatewayRelayStatus> {
@@ -181,9 +195,11 @@ export class EthereumGatewayProverService {
     }
 
     this.inspectionPromise = (async (): Promise<void> => {
-      const relayStatus = await this.getRelayStatus();
-      if (!relayStatus.isReady) {
-        return;
+      const supportsStorage =
+        typeof this.submitLane.client?.tx.crosschainTransfer.proveGatewayActivityStorage === 'function';
+      if (!supportsStorage) {
+        const relayStatus = await this.getRelayStatus();
+        if (!relayStatus.isReady) return;
       }
 
       const client = this.requireClient();
@@ -231,12 +247,23 @@ export class EthereumGatewayProverService {
         this.stateData.gatewayActivityNonceGap = 0n;
         return;
       }
+      let proofPayloads: EthereumGatewayActivityProofPayload[];
+      try {
+        proofPayloads = await this.buildGatewayActivityProofPayloadsWithFallback(client, executionRpcUrls, {
+          gatewayAddress,
+          minimumGatewayActivityNonce: currentRuntimeGatewayActivityNonce + 1n,
+          throughGatewayActivityNonce: latestLocatorEndGatewayActivityNonce,
+        });
+      } catch (error) {
+        if (error instanceof GatewayProofNotReadyError) return;
+        throw error;
+      }
+      // Capture recent Ethereum witnesses even while anchoring, funding, or a native pause blocks relay.
+      if (supportsStorage) {
+        const relayStatus = await this.getRelayStatus();
+        if (!relayStatus.isReady) return;
+      }
       const latestExecutionHeader = await getLatestArgonFinalizedExecutionHeader(client);
-      const proofPayloads = await this.buildGatewayActivityProofPayloadsWithFallback(client, executionRpcUrls, {
-        gatewayAddress,
-        minimumGatewayActivityNonce: currentRuntimeGatewayActivityNonce + 1n,
-        throughGatewayActivityNonce: latestLocatorEndGatewayActivityNonce,
-      });
       const firstProofPayload = proofPayloads[0];
       if (!firstProofPayload) {
         this.stateData.gatewayActivityNonceGap = 0n;
@@ -329,7 +356,7 @@ export class EthereumGatewayProverService {
 
   private async queueCheckpoint(
     throughGatewayActivityNonce: bigint,
-    preparedProofPayloads?: EthereumGatewayActivityReceiptProofPayload[],
+    preparedProofPayloads?: EthereumGatewayActivityProofPayload[],
   ): Promise<IEthereumGatewayCatchUpResponse> {
     const previousPendingCatchUpNonce = this.pendingCatchUpNonce;
     if (this.pendingCatchUpNonce === undefined || throughGatewayActivityNonce > this.pendingCatchUpNonce) {
@@ -407,7 +434,7 @@ export class EthereumGatewayProverService {
     client: ReturnType<EthereumGatewayProverService['requireClient']>,
     executionRpcUrls: string[],
     gatewayAddress: Hex,
-    proofPayloads: EthereumGatewayActivityReceiptProofPayload[] = [],
+    proofPayloads: EthereumGatewayActivityProofPayload[] = [],
   ): Promise<IEthereumGatewayCatchUpResponse> {
     let latestResponse: IEthereumGatewayCatchUpResponse | undefined;
 
@@ -458,11 +485,20 @@ export class EthereumGatewayProverService {
       this.stateData.gatewayActivityNonceGap =
         proofPayload.gatewayActivityNonceRange.end - currentRuntimeGatewayActivityNonce;
 
-      const tx = client.tx.crosschainTransfer.proveGatewayActivity(
-        'Ethereum',
-        proofPayload.previousGatewayActivityNonce,
-        proofPayload.proof,
-      );
+      let tx;
+      if ('storageProof' in proofPayload.proof) {
+        tx = client.tx.crosschainTransfer.proveGatewayActivityStorage(
+          'Ethereum',
+          proofPayload.previousGatewayActivityNonce,
+          proofPayload.proof,
+        );
+      } else {
+        tx = client.tx.crosschainTransfer.proveGatewayActivity(
+          'Ethereum',
+          proofPayload.previousGatewayActivityNonce,
+          proofPayload.proof,
+        );
+      }
       const estimatedFee = (await tx.paymentInfo(this.submitLane.address)).partialFee.toBigInt();
       const delegateBalance = await client.query.system.account(this.submitLane.address).then(x => x.data.free);
       const existentialDeposit = client.consts.balances.existentialDeposit;
@@ -572,63 +608,85 @@ export class EthereumGatewayProverService {
       'gatewayAddress' | 'minimumGatewayActivityNonce'
     > &
       Pick<IEthereumGatewayCatchUpRequest, 'throughGatewayActivityNonce'>,
-  ): Promise<EthereumGatewayActivityReceiptProofPayload[]> {
+  ): Promise<EthereumGatewayActivityProofPayload[]> {
     const { gatewayAddress, minimumGatewayActivityNonce, throughGatewayActivityNonce } = args;
+    const supportsStorage = typeof client.tx.crosschainTransfer.proveGatewayActivityStorage === 'function';
+    const proofKinds: ('storage' | 'receipt')[] = ['receipt'];
+    if (supportsStorage) {
+      proofKinds.unshift('storage');
+      if (!this.finalizedLocators.length) {
+        const saved = await this.captures.get();
+        this.finalizedLocators = saved.byGateway[`${client.genesisHash.toHex()}:${gatewayAddress.toLowerCase()}`] ?? [];
+      }
+    }
     let lastError: unknown;
 
-    for (const executionRpcUrl of executionRpcUrls) {
-      try {
-        const executionClient = createEthereumExecutionClient([executionRpcUrl]);
-        const finalizedBlock = await executionClient.getBlock({ blockTag: 'finalized' });
-        let cachedLocators = this.finalizedLocators;
-        // Argon's best-chain nonce can rewind beyond the records retained by a previous sweep.
-        if (cachedLocators[0] && minimumGatewayActivityNonce < cachedLocators[0].startGatewayActivityNonce) {
-          cachedLocators = [];
+    for (const proofKind of proofKinds) {
+      for (const executionRpcUrl of executionRpcUrls) {
+        let result;
+        let retainedLocators: MissingGatewayActivityLocator[];
+        try {
+          const executionClient = createEthereumExecutionClient([executionRpcUrl]);
+          const finalizedBlock = await executionClient.getBlock({ blockTag: 'finalized' });
+          let cachedLocators = this.finalizedLocators;
+          // Argon's best-chain nonce can rewind beyond the records retained by a previous sweep.
+          if (cachedLocators[0] && minimumGatewayActivityNonce < cachedLocators[0].startGatewayActivityNonce) {
+            cachedLocators = [];
+          }
+
+          const discovered = await discoverMissingGatewayActivityLocators({
+            gatewayAddress,
+            minimumGatewayActivityNonce,
+            afterLocatorIndex: cachedLocators.at(-1)?.locatorIndex,
+            finalizedExecutionBlockNumber: finalizedBlock.number,
+            executionRpcUrl,
+            executionClient,
+          });
+          const collectedLocators = [...cachedLocators, ...discovered];
+          const pendingLocators = collectedLocators.filter(
+            locator => locator.endGatewayActivityNonce >= minimumGatewayActivityNonce,
+          );
+          // Retain unproven records and one consumed tail so discovery can continue incrementally.
+          const consumedTail = collectedLocators.findLast(
+            locator => locator.endGatewayActivityNonce < minimumGatewayActivityNonce,
+          );
+          retainedLocators = consumedTail ? [consumedTail, ...pendingLocators] : pendingLocators;
+
+          const locators = pendingLocators.filter(
+            locator => locator.startGatewayActivityNonce <= throughGatewayActivityNonce,
+          );
+          const options = { gatewayAddress, executionRpcUrl, executionClient, locators };
+          if (proofKind === 'storage') {
+            result = await this.buildStorageProofPayloads(client, { ...options, executionBlock: finalizedBlock });
+          } else {
+            result = await buildGatewayActivityReceiptProofPayloads(client.raw, options);
+          }
+        } catch (error) {
+          if (error instanceof GatewayCapturePersistenceError) throw error;
+          const message = error instanceof Error ? error.message : String(error);
+          // These errors come from Argon runtime bounds, so another execution RPC cannot resolve them.
+          if (message.startsWith('Gateway receipt proof requires ')) {
+            throw error;
+          }
+
+          lastError = error;
+          logEthereumExecutionRpcFallback({
+            executionRpcUrls,
+            failedRpcUrl: executionRpcUrl,
+            method: `buildGatewayActivity${proofKind}ProofPayloads`,
+          });
+          continue;
         }
 
-        const discovered = await discoverMissingGatewayActivityLocators({
-          gatewayAddress,
-          minimumGatewayActivityNonce,
-          afterLocatorIndex: cachedLocators.at(-1)?.locatorIndex,
-          finalizedExecutionBlockNumber: finalizedBlock.number,
-          executionRpcUrl,
-        });
-        const collectedLocators = [...cachedLocators, ...discovered];
-        const pendingLocators = collectedLocators.filter(
-          locator => locator.endGatewayActivityNonce >= minimumGatewayActivityNonce,
-        );
-        // Retain unproven records and one consumed tail so discovery can continue incrementally.
-        const consumedTail = collectedLocators.findLast(
-          locator => locator.endGatewayActivityNonce < minimumGatewayActivityNonce,
-        );
-        const retainedLocators = consumedTail ? [consumedTail, ...pendingLocators] : pendingLocators;
-
-        const locators = pendingLocators.filter(
-          locator => locator.startGatewayActivityNonce <= throughGatewayActivityNonce,
-        );
-        const { payloads, deferredLocators } = await buildGatewayActivityReceiptProofPayloads(client.raw, {
-          gatewayAddress,
-          executionRpcUrl,
-          locators,
-        });
         this.finalizedLocators = retainedLocators;
-
-        if (payloads.length) return payloads;
-        if (deferredLocators.length) throw new Error('Ethereum gateway activities are not ready to relay');
+        if (result.payloads.length) return result.payloads;
+        // A valid capture waiting for Argon finality needs no new witness or receipt fetch.
+        if (result.deferredLocators.length)
+          throw new GatewayProofNotReadyError('Ethereum gateway activities are not ready to relay');
         return [];
-      } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        // These errors come from Argon runtime bounds, so another execution RPC cannot resolve them.
-        if (message.startsWith('Gateway receipt proof requires ')) {
-          throw error;
-        }
-
-        lastError = error;
-        logEthereumExecutionRpcFallback({
-          executionRpcUrls,
-          failedRpcUrl: executionRpcUrl,
-          method: 'buildGatewayActivityReceiptProofPayloads',
-        });
+      }
+      if (proofKind === 'storage' && lastError) {
+        console.warn('[EthereumGatewayProverService] Storage proof unavailable; trying receipt proofs', lastError);
       }
     }
 
@@ -637,6 +695,75 @@ export class EthereumGatewayProverService {
     }
 
     throw new Error(lastError ? String(lastError) : 'Ethereum execution RPC is not configured on this network.');
+  }
+
+  private async buildStorageProofPayloads(
+    client: ArgonClient,
+    options: Parameters<typeof captureGatewayActivityStorageProofs>[0] & { executionClient: EthereumExecutionClient },
+  ) {
+    const { gatewayAddress, locators, executionClient } = options;
+    const key = `${client.genesisHash.toHex()}:${gatewayAddress.toLowerCase()}`;
+    const saved = await this.captures.get();
+    const byIndex = new Map((saved.byGateway[key] ?? []).map(capture => [capture.locatorIndex, capture]));
+
+    let toCapture = locators.filter(locator => {
+      const captured = byIndex.get(locator.locatorIndex);
+      return !captured || captured.activityRoot !== locator.activityRoot;
+    });
+    let result: Awaited<ReturnType<typeof buildGatewayActivityStorageProofs>>;
+    // A restored witness may need a newer retained anchor. Recapture once, then defer further work.
+    for (let attempt = 0; attempt < 2; attempt++) {
+      if (toCapture.length) {
+        let captured: CapturedGatewayActivityStorageProof[];
+        try {
+          captured = await captureGatewayActivityStorageProofs({ ...options, locators: toCapture });
+        } catch (error) {
+          // Some providers retain proof state only at the head; do not delay every relay for that limitation.
+          const executionBlock = await executionClient.getBlock({ blockTag: 'latest' });
+          if (executionBlock.hash === options.executionBlock.hash) throw error;
+          captured = await captureGatewayActivityStorageProofs({ ...options, executionBlock, locators: toCapture });
+        }
+        for (const capture of captured) byIndex.set(capture.locatorIndex, capture);
+        await this.saveCapturedActivities(key, [...byIndex.values()]);
+
+        // Only finalized native consumption permits pruning; best-chain nonces can rewind.
+        const finalized = await this.blockWatch.getFinalizedApi();
+        const gatewayState = await finalized.query.crosschainTransfer.gatewayStateBySourceChain('Ethereum');
+        const finalizedNonce = gatewayState?.gatewayActivityNonce ?? 0n;
+        const retained = [...byIndex.values()].sort((left, right) => {
+          if (left.locatorIndex < right.locatorIndex) return -1;
+          if (left.locatorIndex > right.locatorIndex) return 1;
+          return 0;
+        });
+        const consumedTail = retained.findLast(capture => capture.endGatewayActivityNonce <= finalizedNonce);
+        const pending = retained.filter(capture => capture.endGatewayActivityNonce > finalizedNonce);
+        const captures = consumedTail ? [consumedTail, ...pending] : pending;
+        if (captures.length < byIndex.size) await this.saveCapturedActivities(key, captures);
+      }
+
+      result = await buildGatewayActivityStorageProofs(client.raw, {
+        ...options,
+        locators: locators.map(locator => byIndex.get(locator.locatorIndex)!),
+      });
+      if (!result.recaptureLocators.length) return result;
+      toCapture = result.recaptureLocators;
+    }
+    // A later sweep retries a capture that still cannot reach a canonical retained anchor.
+    return {
+      ...result!,
+      deferredLocators: [...result!.deferredLocators, ...result!.recaptureLocators],
+    };
+  }
+
+  private async saveCapturedActivities(key: string, captures: CapturedGatewayActivityStorageProof[]) {
+    try {
+      const persisted = await this.captures.mutate(data => {
+        data.byGateway[key] = captures;
+      });
+      if (!persisted) throw new Error('Capture file was not written');
+    } catch (cause) {
+      throw new GatewayCapturePersistenceError('Unable to save Ethereum gateway activity captures', { cause });
+    }
   }
 
   private async loadGatewayAddress(): Promise<Hex> {
@@ -790,6 +917,9 @@ export class EthereumGatewayProverService {
     }
   }
 }
+
+class GatewayCapturePersistenceError extends Error {}
+class GatewayProofNotReadyError extends Error {}
 
 function isRedundantCatchUpError(reason: string): boolean {
   return reason.includes('Priority is too low') || reason.includes('Already imported');

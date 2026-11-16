@@ -125,6 +125,7 @@ export async function deployDevEthereumStabilizationPool({
     const sqrtPriceX96 = getDevPoolSqrtPriceX96(initialPriceUsdc, argonIsToken0);
     const prepared = await prepareStabilizationPool(signer, {
       chainId: BigInt(chainId).toString(),
+      gateway: gateway.gatewayAddress,
       argonToken: gateway.argonTokenAddress,
       usdc,
       positionManager: state.positionManager!,
@@ -240,7 +241,7 @@ export async function setDevEthereumPoolPrice({
   const zeroForOne = requestedSqrtPrice < currentSqrtPrice;
   const sellingArgon = zeroForOne === argonIsToken0;
   const hook = new Contract(pool.key.hooks, EvmContracts.stabilizationPoolHookAbi, signer);
-  const fee = BigInt(await hook[sellingArgon ? 'SELL_FEE' : 'BUY_FEE']());
+  const fee = BigInt(await hook[sellingArgon ? 'sellFee' : 'BUY_FEE']());
 
   const amountIn = calculateSwapInput(currentSqrtPrice, requestedSqrtPrice, liquidity, fee);
   if (amountIn > MaxUint128) throw new Error('The requested price needs more input than the router supports.');

@@ -28,6 +28,9 @@ export class GlobalVaultingStats {
   public async load() {
     await this.vaults.load();
     await this.currency.load();
+    void this.vaults
+      .updateRevenue(undefined, Math.max(0, this.vaults.miningFrames.currentFrameId - 10))
+      .catch(error => console.warn('[GlobalVaultingStats] Unable to refresh recent revenue', error));
     await this.update();
   }
 

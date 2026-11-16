@@ -1409,8 +1409,8 @@ describe.skipIf(SKIP_E2E).sequential('Bitcoin Liquids integration', { timeout: 3
         (left, right) => left.fissionId - right.fissionId,
       );
       expect(current.map(fission => ({ fissionId: fission.fissionId, liquidId: fission.liquidId }))).toEqual([
-        { fissionId: 0, liquidId: 0 },
-        { fissionId: 1, liquidId: 1 },
+        { fissionId: 0, liquidId: 1 },
+        { fissionId: 1, liquidId: 2 },
       ]);
     } finally {
       await cleanupBitcoinLocksHarness(harness);

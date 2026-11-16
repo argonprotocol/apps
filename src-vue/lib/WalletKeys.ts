@@ -172,6 +172,19 @@ export class WalletKeys {
       throw new WalletLoadError('Your saved account could not be read.', { cause: error });
     }
 
+    if (raw !== null && walletFilename === 'wallet.json.tmp') {
+      try {
+        if (!(await new EncryptionSecret().info())) {
+          // Setup never published this account without its key. Retry from scratch only in that case.
+          // An unavailable keychain throws instead; preserve the pending wallet until access returns.
+          await invokeWithTimeout('delete_wallet_file', { filename: walletFilename }, 30e3);
+          raw = null;
+        }
+      } catch (error) {
+        throw new WalletLoadError('Your device could not unlock this account. Please try again.', { cause: error });
+      }
+    }
+
     // Create an account only when no wallet or saved encryption key already owns this profile.
     if (raw === null) {
       if (await new EncryptionSecret().info()) {
@@ -574,11 +587,13 @@ export class WalletKeys {
   public async signEthereumPermit(args: {
     tokenAddress: string;
     tokenName: string;
+    tokenVersion: string;
+    spenderAddress: string;
     value: bigint;
     nonce: bigint;
     deadline: bigint;
     wallet?: WalletForEthereum;
-  }): Promise<{ v: number; r: string; s: string }> {
+  }): Promise<{ v: number; r: Hex; s: Hex }> {
     const { wallet, ...permit } = args;
     return (await this.getEthereumSigner(this.ethereumHdPath, wallet)).signEthereumPermit(permit);
   }
@@ -624,6 +639,7 @@ export class WalletKeys {
     chainId: number;
     gatewayAddress: string;
     tokenAddresses: string[];
+    permitSpenderAddresses?: string[];
   }): Promise<void> {
     await this.ethereumKeys.configureEthereumSignerPolicy(args);
   }

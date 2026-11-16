@@ -51,11 +51,20 @@ export class WalletSecrets {
   public static async saveWallet(mnemonic: string, identity: NonNullable<IWalletFile['meta']>, createNew = false) {
     if (!mnemonicValidate(mnemonic)) throw new Error('The mnemonic is invalid. No wallet file was changed.');
     const encryptionSecret = new EncryptionSecret();
-    // First create the keychain key. Interrupted setup must not silently create a replacement account.
     const protection = await encryptionSecret.info();
-    if (!protection) await encryptionSecret.create(hexToU8a(miniSecretFromUri(`${mnemonic}//wallet-encryption`)));
-    const encryptedMnemonic = await encryptionSecret.encrypt(mnemonic);
-    const wallet: IWalletFile = { encryptedMnemonic, meta: identity, protection: protection?.method ?? 'none' };
+    let wallet: IWalletFile;
+    if (!protection) {
+      ({ wallet } = await WalletSecrets.prepareWallet(mnemonic, identity));
+      await invokeWithTimeout(
+        'write_wallet_file',
+        { filename: 'wallet.json', contents: JSON.stringify(wallet), createNew, stageOnly: true },
+        30e3,
+      );
+      await encryptionSecret.create(hexToU8a(miniSecretFromUri(`${mnemonic}//wallet-encryption`)));
+    } else {
+      const encryptedMnemonic = await encryptionSecret.encrypt(mnemonic);
+      wallet = { encryptedMnemonic, meta: identity, protection: protection.method };
+    }
     await invokeWithTimeout(
       'write_wallet_file',
       { filename: 'wallet.json', contents: JSON.stringify(wallet), createNew },
@@ -143,8 +152,13 @@ export class WalletSecrets {
     const encryption = new EncryptionSecret();
     const encrypted = [wallet.encryptedMnemonic, ...encryptedSecrets];
     let decrypted: (string | null)[];
-    if (allowUnavailableSecrets) decrypted = await encryption.decrypt(encrypted, authentication, 1);
-    else decrypted = await encryption.decrypt(encrypted, authentication);
+    if (allowUnavailableSecrets) {
+      // Startup requires the main mnemonic but deliberately tolerates lost DigitalOcean or imported Ethereum secrets.
+      // Users can re-import those cached credentials; losing them must not block or reset the account.
+      decrypted = await encryption.decrypt(encrypted, authentication, 1);
+    } else {
+      decrypted = await encryption.decrypt(encrypted, authentication);
+    }
 
     const [mnemonic, ...plaintexts] = decrypted;
     const secrets = new Map<string, string>();

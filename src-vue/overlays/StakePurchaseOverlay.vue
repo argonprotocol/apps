@@ -147,7 +147,7 @@
               <div class="w-1/3">
                 <header class="font-bold opacity-40">AVG STAKE RETURNS</header>
                 <div class="text-3xl text-argon-600 font-bold py-1">
-                  <Returns metric="APR" :returns="{ apr: vaultingStats.argonotStakingAPR }" />
+                  <Returns metric="APR" :returns="{ apr: vaultingStats?.argonotStakingAPR ?? 0 }" />
                 </div>
                 <div class="font-light opacity-80">Based on Past Performance<sup>&dagger;</sup></div>
               </div>
@@ -243,7 +243,7 @@ const wallets = useWallets();
 const argonBonds = getArgonBonds();
 const currency = getCurrency();
 const walletKeys = getWalletKeys();
-const vaultingStats = useVaultingStats();
+const vaultingStats = Vue.shallowRef<ReturnType<typeof useVaultingStats>>();
 const bondPurchase = getBondTransactionOperations().stakeBuy;
 
 const { micronotToArgonotNm, micronotToMoneyNm } = createNumeralHelpers(currency);
@@ -299,7 +299,7 @@ const neededMicronots = Vue.computed(() => {
 });
 
 const projectedEarnings = Vue.computed(() => {
-  const stakesAPR = Math.min(999, vaultingStats.argonotStakingAPR);
+  const stakesAPR = Math.min(999, vaultingStats.value?.argonotStakingAPR ?? 0);
   const earningsBn = BigNumber(purchaseAmount.value.toString()).multipliedBy(stakesAPR).dividedBy(100);
   return bigNumberToBigInt(earningsBn);
 });
@@ -396,6 +396,10 @@ async function loadPurchase() {
 }
 
 function openOverlay() {
+  vaultingStats.value ??= useVaultingStats();
+  void vaultingStats.value
+    .update()
+    .catch(error => console.warn('[StakePurchaseOverlay] Unable to load returns', error));
   cleanupPurchase();
   resetPurchase();
   tmpVaultId.value = undefined;

@@ -1,8 +1,9 @@
-import { bigIntMax, bigIntMin, BitcoinFission, SATOSHIS_PER_BITCOIN } from '@argonprotocol/apps-core';
+import { bigIntMax, bigIntMin, BitcoinFission, BitcoinLock, SATOSHIS_PER_BITCOIN } from '@argonprotocol/apps-core';
 import type { PriceIndex } from '@argonprotocol/mainchain';
 
 import type { IBitcoinFissionRatchetRecord } from '../interfaces/IBitcoinFissionRecord.ts';
 import type { IBitcoinSecuritizationTerm } from '../interfaces/IBitcoinSecuritizationTerm.ts';
+import type BitcoinLocks from './BitcoinLocks.ts';
 
 export interface IBitcoinLiquidHistoryEntry {
   key: string;
@@ -130,12 +131,20 @@ export class BitcoinLiquid {
     };
   }
 
+  public get activeFissions(): BitcoinFission[] {
+    return this.fissions.filter(fission => fission.closedAtArgonBlock == null);
+  }
+
+  public get originalSatoshis(): bigint {
+    return this.fissions.reduce((total, fission) => total + fission.originalSatoshis, 0n);
+  }
+
   public get satoshis(): bigint {
-    return this.fissions.reduce((total, fission) => total + fission.satoshis, 0n);
+    return this.activeFissions.reduce((total, fission) => total + fission.satoshis, 0n);
   }
 
   public get liquidityPromised(): bigint {
-    return this.fissions.reduce((total, fission) => total + fission.liquidityPromised, 0n);
+    return this.activeFissions.reduce((total, fission) => total + fission.liquidityPromised, 0n);
   }
 
   public get pendingLiquidity(): bigint {
@@ -171,7 +180,8 @@ export class BitcoinLiquid {
   }
 
   public get receivedLiquidity(): bigint {
-    return bigIntMax(this.liquidityPromised - this.pendingLiquidity, 0n);
+    const liquidityPromised = this.fissions.reduce((total, fission) => total + fission.liquidityPromised, 0n);
+    return bigIntMax(liquidityPromised - this.pendingLiquidity, 0n);
   }
 
   public getRatchetStatus(args: { microgonsAtTargetPerBtc: bigint; minimumRatchetPercent: bigint }): {
@@ -182,7 +192,7 @@ export class BitcoinLiquid {
     let weightedBasisPoints = 0n;
     let isAvailable = false;
 
-    for (const fission of this.fissions) {
+    for (const fission of this.activeFissions) {
       if (fission.microgonsAtTargetPerBtc <= 0n) continue;
 
       const basisPoints =
@@ -196,7 +206,91 @@ export class BitcoinLiquid {
   }
 
   public getRepaymentAmount(priceIndex: PriceIndex): bigint {
-    return this.fissions.reduce((total, fission) => total + fission.calculateRedemptionAmount(priceIndex), 0n);
+    return this.activeFissions.reduce((total, fission) => total + fission.calculateRedemptionAmount(priceIndex), 0n);
+  }
+
+  public getRepaymentState(blockNumber: number) {
+    // Stabilizer payouts run before signed ratchets and closes in the same block.
+    const previous = this.history.findLast(entry => entry.blockNumber < blockNumber);
+    if (!previous) return;
+
+    let liabilityBefore = previous.liabilityAfter;
+    let liquidityRepaid = 0n;
+
+    for (const fission of this.fissions) {
+      const createdAt = fission.createdAtArgonBlock;
+      if (createdAt !== undefined && createdAt >= blockNumber) continue;
+
+      const closedAt = fission.closedAtArgonBlock;
+      if (closedAt !== undefined && closedAt < previous.blockNumber) continue;
+
+      if (!fission.hasCompleteRepaymentHistory) return;
+
+      const nativeRatchets = new Set(
+        fission.ratchets.filter(ratchet => ratchet.source === 'fission').map(ratchet => ratchet.ratchetNumber),
+      );
+      const firstRatchetNumber = fission.origin === 'lock-migration' ? 1 : 0;
+      for (let ratchetNumber = firstRatchetNumber; ratchetNumber <= fission.ratchetNumber; ratchetNumber++) {
+        if (!nativeRatchets.has(ratchetNumber)) return;
+      }
+
+      for (const repayment of fission.repayments) {
+        if (repayment.blockNumber <= previous.blockNumber || repayment.blockNumber > blockNumber) continue;
+
+        if (repayment.blockNumber < blockNumber) {
+          liabilityBefore -= repayment.liquidityRepaid;
+        } else {
+          liquidityRepaid += repayment.liquidityRepaid;
+        }
+      }
+
+      if (closedAt === undefined || closedAt < previous.blockNumber || closedAt > blockNumber) continue;
+      if (closedAt === previous.blockNumber) {
+        if ((fission.closedExtrinsicIndex ?? -1) <= (previous.extrinsicIndex ?? -1)) continue;
+      }
+
+      if (closedAt < blockNumber) {
+        liabilityBefore -= fission.liquidityPromised;
+        continue;
+      }
+
+      if (fission.closedExtrinsicIndex !== undefined) continue;
+      if (fission.closeReason === 'closed') {
+        liquidityRepaid += fission.liquidityPromised;
+      } else if (fission.closeReason === 'lock-spent') {
+        liabilityBefore -= fission.liquidityPromised;
+      }
+    }
+
+    return { liabilityBefore, liabilityAfter: liabilityBefore - liquidityRepaid, liquidityRepaid };
+  }
+
+  public hasRepaymentWindow(
+    bitcoinLocks: Pick<BitcoinLocks, 'config' | 'data' | 'getLockById'>,
+    holdFrames: number,
+  ): boolean | undefined {
+    if (bitcoinLocks.data.readiness !== 'ready' || !bitcoinLocks.config) return;
+
+    const activeFissions = this.activeFissions.filter(fission => fission.satoshis > 0n);
+    if (!activeFissions.length) return;
+
+    let hasUnavailableLock = false;
+    for (const fission of activeFissions) {
+      const lock = bitcoinLocks.getLockById(fission.lockId);
+      if (!lock?.scriptDetails) {
+        hasUnavailableLock = true;
+        continue;
+      }
+      const hasWindow = BitcoinLock.hasRepaymentWindow({
+        lock: lock.scriptDetails,
+        currentBitcoinHeight: bitcoinLocks.data.oracleBitcoinBlockHeight,
+        holdFrames,
+        config: bitcoinLocks.config,
+      });
+      if (!hasWindow) return false;
+    }
+    if (hasUnavailableLock) return;
+    return true;
   }
 }
 
@@ -244,6 +338,16 @@ function createBitcoinLiquid(
         left.repayment.blockNumber - right.repayment.blockNumber ||
         left.repayment.eventIndex - right.repayment.eventIndex,
     );
+  const pendingClosures = new Map(
+    fissions
+      .filter(fission => fission.closedAtArgonBlock != null)
+      .sort(
+        (left, right) =>
+          left.closedAtArgonBlock! - right.closedAtArgonBlock! ||
+          (left.closedExtrinsicIndex ?? -1) - (right.closedExtrinsicIndex ?? -1),
+      )
+      .map(fission => [fission.fissionId, fission]),
+  );
   let repaymentIndex = 0;
 
   const history = [...fragmentsByTransaction]
@@ -267,6 +371,8 @@ function createBitcoinLiquid(
         totalLiability -= repayment.liquidityRepaid;
         repaymentIndex += 1;
       }
+
+      applyClosuresThrough(first.blockNumber, (first.extrinsicIndex ?? -1) - 1);
 
       const liabilityBefore = totalLiability;
       let affectedSatoshis = 0n;
@@ -309,6 +415,8 @@ function createBitcoinLiquid(
         liabilityByFissionId.set(fission.fissionId, fissionLiabilityAfter);
         targetByFissionId.set(fission.fissionId, targetPerBtc);
       }
+
+      applyClosuresThrough(first.blockNumber, first.extrinsicIndex ?? -1);
 
       const transactionFee = fragments.every(({ ratchet }) => ratchet.txFee != null)
         ? fragments[0].ratchet.txFee
@@ -409,6 +517,17 @@ function createBitcoinLiquid(
     historyTransactionFees,
     closeTransactionFees,
   });
+
+  function applyClosuresThrough(blockNumber: number, extrinsicIndex: number): void {
+    for (const [fissionId, closed] of pendingClosures) {
+      if (closed.closedAtArgonBlock! > blockNumber) break;
+      if (closed.closedAtArgonBlock === blockNumber && (closed.closedExtrinsicIndex ?? -1) > extrinsicIndex) break;
+
+      totalLiability -= liabilityByFissionId.get(fissionId) ?? 0n;
+      liabilityByFissionId.set(fissionId, 0n);
+      pendingClosures.delete(fissionId);
+    }
+  }
 }
 
 function getCloseTransactionKey(fission: BitcoinFission): string {

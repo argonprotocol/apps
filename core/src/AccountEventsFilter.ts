@@ -286,6 +286,7 @@ const allowedTransferEvents: Readonly<Record<string, '*' | readonly string[]>> =
   utility: '*',
   proxy: '*',
   multisig: '*',
+  accountSecurity: ['Executed'],
   system: ['ExtrinsicSuccess', 'NewAccount', 'KilledAccount'],
   balances: ['Withdraw', 'Deposit', 'Transfer', 'Endowed'],
   ownership: ['Transfer', 'Endowed', 'Deposit', 'Withdraw'],

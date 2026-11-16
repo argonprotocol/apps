@@ -1,4 +1,4 @@
-import type { GenericEvent } from '@argonprotocol/mainchain';
+import { getOfflineRegistry, type GenericEvent } from '@argonprotocol/mainchain';
 import { getTypeDef } from '@polkadot/types-create';
 import { getHistoricalEventFieldAlternatives } from '@argonprotocol/runtime-client/events';
 import { getBundledMetadata } from '@argonprotocol/runtime-client';
@@ -28,12 +28,14 @@ export function createHistoricalEventData(
   }
 
   const fields = Object.entries(declarations[0]);
-  const registry = new TypeRegistry();
-  const metadata =
-    Object.entries(getBundledMetadata()).find(([key]) => key.endsWith(`-${specVersion}`))?.[1] ??
-    historicalMetadata[specVersion];
-  if (!metadata) throw new Error(`Missing test metadata for runtime ${specVersion}`);
-  registry.setMetadata(new Metadata(registry, metadata), undefined, undefined, true);
+  const registry = specVersion === 161 ? getOfflineRegistry() : new TypeRegistry();
+  if (specVersion !== 161) {
+    const metadata =
+      Object.entries(getBundledMetadata()).find(([key]) => key.endsWith(`-${specVersion}`))?.[1] ??
+      historicalMetadata[specVersion];
+    if (!metadata) throw new Error(`Missing test metadata for runtime ${specVersion}`);
+    registry.setMetadata(new Metadata(registry, metadata), undefined, undefined, true);
+  }
   const data =
     fields.length === 1
       ? registry.createType<GenericEvent['data']>(`Vec<${fields[0][1]}>`, [values[fields[0][0]]])

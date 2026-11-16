@@ -211,9 +211,7 @@ export function setupStakePurchaseScenario(state: StakePurchaseState) {
     bondTotals: BondLot.getTotals([]),
     refreshBondLots: fn(async () => undefined),
   } as unknown as ReturnType<typeof getArgonBonds>);
-  mocked(useVaultingStats).mockReturnValue(
-    Vue.reactive({ argonotStakingAPR: 14.8 }) as ReturnType<typeof useVaultingStats>,
-  );
+  Object.assign(useVaultingStats(), { argonotStakingAPR: 14.8 });
 
   const loadError = state === 'loadError';
   mocked(getMainchainClient).mockImplementation(async () => {

@@ -4,4 +4,5 @@ export type RuntimeTypeOverrides = {
   fields: Record<string, RuntimeTypeOverride>;
   queries: Record<string, RuntimeTypeOverride>;
   queryArgs?: Record<string, RuntimeTypeOverride[]>;
+  queryFields?: Record<string, Record<string, RuntimeTypeOverride>>;
 };

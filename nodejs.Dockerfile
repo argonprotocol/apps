@@ -28,7 +28,8 @@ COPY core/ ./core/
 COPY scripts/ ./scripts/
 COPY tsconfig.json tsconfig.node.json ./
 
-RUN yarn workspace @argonprotocol/cli build
+RUN yarn workspace @argonprotocol/cli build \
+ && node cli/lib/cli.js --help > /dev/null
 
 ENTRYPOINT ["node", "cli/lib/cli.js"]
 CMD []

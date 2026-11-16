@@ -6,13 +6,17 @@ import { GenericCall } from '@polkadot/types/generic';
 import { Vec } from '@polkadot/types-codec';
 import type { ArgonClient, ArgonCurrentQueryClient } from './MainchainClients.js';
 import type { PreviousRuntimeSpec } from './runtimeCompatibility.js';
-import type BigNumber from 'bignumber.js';
+import BigNumber from 'bignumber.js';
 import { bigNumberToBigInt } from './utils.js';
-import { maxUint128 } from 'viem';
+import { BitcoinLock } from './BitcoinLock.js';
+import { maxUint128, toHex } from 'viem';
 
 type Purchase = NonNullable<LiveQueryRecord<'stabilizerBuys', 'buysByAccountAndFrame'>>;
 type Auction = NonNullable<LiveQueryRecord<'stabilizerBuys', 'auctions'>>;
-type LiquidRepayment = NonNullable<LiveQueryRecord<'stabilizerBuys', 'liquidRepaysByAccountAndGatewayNonce'>>;
+type LiquidRepayment = NonNullable<LiveQueryRecord<'stabilizerBuys', 'liquidRepaysByAccountAndGatewayNonce'>> & {
+  gatewayActivityNonce: bigint;
+  observedRValueHighWater?: BigNumber;
+};
 
 export interface IStabilizerBuyBid {
   ownerAccount: string;
@@ -71,7 +75,17 @@ export class StabilizerBuy {
     ]);
     if (!buys) throw new StabilizerBuysUnavailableError();
 
-    const liquidRepayments = (repaymentEntries ?? []).flatMap(([, repayment]) => (repayment ? [repayment] : []));
+    const liquidRepayments: LiquidRepayment[] = [];
+    for (const [key, repayment] of repaymentEntries ?? []) {
+      if (!repayment) continue;
+      const liquidRepayment: LiquidRepayment = { ...repayment, gatewayActivityNonce: BigInt(key.args[1]) };
+      try {
+        liquidRepayment.observedRValueHighWater = await this.readRepaymentHighWater(client, liquidRepayment);
+      } catch {
+        // A forecast read must not hide the account's valid held principal or pending purchases.
+      }
+      liquidRepayments.push(liquidRepayment);
+    }
 
     const positions: StabilizerBuy[] = [];
     for (const [key, purchase] of entries) {
@@ -109,7 +123,7 @@ export class StabilizerBuy {
     bids: Pick<IStabilizerBuyBid, 'ownerAccount' | 'latestBid' | 'matchingBasis'>[],
     auction: Auction,
     auctionInclusionPercent: BigNumber,
-  ): IStabilizerBuyBid[] {
+  ): (IStabilizerBuyBid & { liquidRepaymentRewardRate: BigNumber })[] {
     const ranked = [...bids].sort((a, b) => {
       if (a.latestBid === 0 && b.latestBid !== 0) return 1;
       if (b.latestBid === 0 && a.latestBid !== 0) return -1;
@@ -123,17 +137,23 @@ export class StabilizerBuy {
     const matchingBasisLimit = bigNumberToBigInt(auctionInclusionPercent.times(auction.totalMatchingBasis));
     return ranked.map(bid => {
       const requestedReward = (bid.matchingBasis * BigInt(bid.latestBid)) / 100n;
-      if (bid.latestBid === 0) return { ...bid, requestedReward, fundingEstimate: 0n };
+      if (bid.latestBid === 0)
+        return { ...bid, requestedReward, fundingEstimate: 0n, liquidRepaymentRewardRate: BigNumber(0) };
 
       const includedBasis = bid.matchingBasis < remainingMatchingBasis ? bid.matchingBasis : remainingMatchingBasis;
       remainingMatchingBasis -= includedBasis;
 
       const reward = (includedBasis * BigInt(bid.latestBid)) / 100n;
+      const maximumBuyerBasis = bid.matchingBasis < matchingBasisLimit ? bid.matchingBasis : matchingBasisLimit;
+      let liquidRepaymentRewardRate = BigNumber(0);
+      if (maximumBuyerBasis > 0n) {
+        liquidRepaymentRewardRate = BigNumber.minimum(BigNumber(reward).div(maximumBuyerBasis), 1);
+      }
       let fundedReward = 0n;
       if (matchingBasisLimit > 0n) fundedReward = (reward * (auction.budget ?? 0n)) / matchingBasisLimit;
       const fundingEstimate = fundedReward < remainingBudget ? fundedReward : remainingBudget;
       remainingBudget -= fundingEstimate;
-      return { ...bid, requestedReward, fundingEstimate };
+      return { ...bid, requestedReward, fundingEstimate, liquidRepaymentRewardRate };
     });
   }
 
@@ -257,5 +277,54 @@ export class StabilizerBuy {
     if ((this.matchingBasis * BigInt(rewardPercent)) / 100n === 0n) return 'This bonus bid rounds to zero microgons.';
     if (this.purchase.positiveBidCount >= maxPositiveBids)
       return `This auction allows ${maxPositiveBids} positive bids, including revisions. You can still opt out.`;
+  }
+
+  /** Preview the refund high-water R: the cheapest quote in the native settlement window. */
+  private static async readRepaymentHighWater(client: ArgonCurrentQueryClient, repayment: LiquidRepayment) {
+    let high = BitcoinLock.getBestRedemptionRValue(repayment.purchaseRValue, repayment.priceWindow.rValueHighWater);
+    if (repayment.priceWindow.nextFrame === null) return high;
+
+    const firstFrame = Number(repayment.priceWindow.nextFrame);
+    const maturity = repayment.admissionFrame + client.consts.stabilizerBuys.purchaseHoldFrames;
+    const frameKeys = Array.from({ length: Math.max(0, maturity - firstFrame) }, (_, index) =>
+      toHex(BigInt(firstFrame + index), { size: 8 }),
+    );
+    const frames = await client.query.bitcoinFissions.rValueHighWaterByFrame.multi(frameKeys);
+    if (!frames) throw new Error('Liquid repayment price history is unavailable.');
+    for (const frame of frames) {
+      if (!frame) continue;
+      if (frame.firstTick >= BigInt(repayment.purchaseTick)) {
+        high = BitcoinLock.getBestRedemptionRValue(high, frame.rValue);
+        continue;
+      }
+      if (frame.endTick !== null && frame.endTick < BigInt(repayment.purchaseTick)) continue;
+
+      // Only the purchase's partial frame needs tick-level prices. Later frames use their highs.
+      const query = client.query.stabilizerBuys.priceHistoryByTick;
+      let startKey = query.key(toHex(BigInt(Math.max(repayment.purchaseTick - 1, 0)), { size: 8 }));
+      let complete = false;
+      while (!complete) {
+        const observations = await query.entriesPaged({ args: [], pageSize: 256, startKey });
+        if (!observations) throw new Error('Liquid repayment price history is unavailable.');
+        if (!observations.length) break;
+        for (const [key, observation] of observations) {
+          startKey = query.key(key.args[0]);
+          if (!observation) continue;
+          const tick = BigInt(key.args[0]);
+          if (frame.endTick !== null && tick > frame.endTick) {
+            complete = true;
+            break;
+          }
+          if (tick < BigInt(repayment.purchaseTick)) continue;
+          if (observation.frame >= maturity) {
+            complete = true;
+            break;
+          }
+          high = BitcoinLock.getBestRedemptionRValue(high, observation.rValue);
+        }
+        if (observations.length < 256) break;
+      }
+    }
+    return high;
   }
 }

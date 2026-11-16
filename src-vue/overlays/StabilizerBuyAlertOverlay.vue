@@ -196,7 +196,6 @@ watch(
     () => market.data.market?.approvedPool?.poolId,
     () => market.wallets[0]?.address,
     () => NetworkConfig.get().ethereumNetwork.stabilizerBuyQuoterAddress,
-    () => market.data.market?.prices?.tick,
   ],
   () => {
     fees.value = undefined;
@@ -226,7 +225,7 @@ async function estimateFees() {
       quoterAddress: getAddress(quoterAddress),
       maxUsdcIn: BigInt(averageUsdc.integerValue(BigNumber.ROUND_CEIL).toFixed(0)),
     });
-    if (revision === estimateRevision) fees.value = estimate;
+    if (revision === estimateRevision && estimate) fees.value = estimate;
   } catch (cause) {
     console.warn('Unable to estimate historical Stabilizer Buy fees', cause);
   }

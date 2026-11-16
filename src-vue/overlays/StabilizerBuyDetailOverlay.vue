@@ -36,6 +36,17 @@
                   <div v-if="purchase.purchasedAt" class="mt-1 text-slate-500">
                     {{ dayjs(purchase.purchasedAt).format('M/D/YYYY [at] h:mm a') }}
                   </div>
+                  <div v-if="StabilizerBuys.getRequestedLiquidId(purchase) !== undefined" class="mt-1 text-slate-500">
+                    <template v-if="purchase.liquidRepaymentEvent">
+                      {{ numeral(formatUnits(purchase.liquidRepaymentEvent.microgonsBurned, 6)).format('0,0.[00]') }}
+                      ARGN paid down
+                      <template v-if="purchase.releasedPrincipal">
+                        · {{ numeral(formatUnits(purchase.releasedPrincipal, 6)).format('0,0.[00]') }} ARGN returned
+                      </template>
+                    </template>
+                    <template v-else-if="purchase.repayLiquidId !== undefined">Liquid paydown</template>
+                    <template v-else>Liquid paydown not applied</template>
+                  </div>
                 </div>
                 <span
                   v-if="purchase.ethereumGatewayActivity || purchase.argonPurchaseEvent"
@@ -61,13 +72,89 @@
           <span v-if="purchasedAt">Purchased {{ dayjs(purchasedAt).format('M/D/YYYY') }}</span>
           <template v-if="releasedAt">
             <span v-if="purchasedAt" aria-hidden="true">·</span>
-            <span>Funds available in wallet {{ dayjs(releasedAt).format('M/D/YYYY') }}</span>
+            <span>Funds available in your Internal App Wallet on {{ dayjs(releasedAt).format('M/D/YYYY') }}</span>
           </template>
-          <template v-else-if="position && position.heldPrincipal > 0n && market.dates.releases[admissionFrame]">
+          <template v-else-if="market.dates.releases[admissionFrame]">
             <span v-if="purchasedAt" aria-hidden="true">·</span>
-            <span>Funds available in wallet {{ dayjs(market.dates.releases[admissionFrame]).format('M/D/YYYY') }}</span>
+            <span>
+              Funds available in your Internal App Wallet on
+              {{ dayjs(market.dates.releases[admissionFrame]).format('M/D/YYYY') }}
+            </span>
           </template>
         </p>
+
+        <details
+          v-for="{ buy, liquid, estimate, returnedSatoshis } in paydowns"
+          :key="buy.id"
+          :open="!isBiddingOpen"
+          class="group border-argon-600/30 bg-argon-600/5 mt-5 rounded-md border px-5 py-4"
+        >
+          <summary class="flex cursor-pointer list-none items-center justify-between gap-4">
+            <h2 class="font-semibold text-slate-700">Liquid Paydown</h2>
+            <span class="flex items-center gap-3">
+              <button
+                v-if="liquid"
+                type="button"
+                class="text-argon-600 inline-flex cursor-pointer items-center gap-2 hover:underline"
+                @click.prevent.stop="emit('liquid', liquid)"
+              >
+                {{ satToBtcNm(liquid.isClosed ? liquid.originalSatoshis : liquid.satoshis).format('0,0.[00000000]') }}
+                BTC Liquid
+                <ChevronRightIcon class="size-4" />
+              </button>
+              <ChevronDownIcon class="size-4 shrink-0 text-slate-400 transition-transform group-open:rotate-180" />
+            </span>
+          </summary>
+          <p class="mt-2 text-sm leading-6 text-slate-600">
+            <template v-if="buy.liquidRepaymentEvent">
+              <strong>
+                ₳{{ numeral(formatUnits(buy.liquidRepaymentEvent.microgonsBurned, 6)).format('0,0.[00]') }}
+              </strong>
+              of your purchase paid down this Liquid.
+              <template v-if="buy.releasedPrincipal || (returnedSatoshis ?? 0n) > 0n">
+                <template v-if="buy.releasedPrincipal">
+                  <strong>₳{{ numeral(formatUnits(buy.releasedPrincipal, 6)).format('0,0.[00]') }}</strong>
+                  unused
+                </template>
+                <template v-if="returnedSatoshis !== undefined && returnedSatoshis > 0n">
+                  <template v-if="buy.releasedPrincipal">{{ 'and ' }}</template>
+                  <strong>{{ satToBtcNm(returnedSatoshis).format('0,0.[00000000]') }} BTC</strong>
+                </template>
+                returned to your Internal App Wallet.
+              </template>
+            </template>
+            <template v-else-if="buy.argonPurchaseEvent && buy.repayLiquidId === undefined">
+              Liquid Paydown could not be applied. Your purchase continues as an ordinary Stabilizer Buy.
+            </template>
+            <template v-else-if="estimate?.paydownPercent !== undefined">
+              Currently applying
+              <strong>₳{{ numeral(formatUnits(estimate.burnedMicrogons, 6)).format('0,0.[00]') }}</strong>
+              to pay down
+              <strong>
+                {{ numeral(estimate.paydownPercent).formatIfElse(estimate.paydownPercent < 10, '0.[0]', '0') }}%
+              </strong>
+              of your Liquid, with
+              <strong>₳{{ numeral(formatUnits(estimate.returnedMicrogons, 6)).format('0,0.[00]') }}</strong>
+              returning to your Internal App Wallet.
+              <template v-if="estimate.returnedAtTarget > estimate.returnedMicrogons">
+                If ARGN returns to target, you keep
+                <strong>₳{{ numeral(formatUnits(estimate.returnedAtTarget, 6)).format('0,0.[00]') }}</strong>
+                of this purchase in your wallet.
+              </template>
+            </template>
+            <template v-else>Current paydown estimate unavailable.</template>
+            <span
+              v-if="buy.repayLiquidId !== undefined && !buy.liquidRepaymentEvent"
+              class="whitespace-nowrap text-slate-500"
+            >
+              ·
+              <template v-if="confirmationDays !== undefined && confirmationDays > 0">
+                {{ confirmationDays }} {{ confirmationDays === 1 ? 'day' : 'days' }} until confirmation
+              </template>
+              <template v-else>Awaiting confirmation</template>
+            </span>
+          </p>
+        </details>
 
         <section
           v-if="!isBiddingOpen && returns && returns.availability !== 'unavailable'"
@@ -88,9 +175,51 @@
               <div class="py-1 text-2xl font-bold text-slate-600">
                 <template v-if="returns?.returnAmount !== undefined">
                   {{ microgonToMoneyNm(returns.returnAmount).formatCurrency(currency.symbol) }}
+                  <template
+                    v-if="
+                      returns.maximumReturnAmount !== undefined && returns.maximumReturnAmount > returns.returnAmount
+                    "
+                  >
+                    – {{ microgonToMoneyNm(returns.maximumReturnAmount).formatCurrency(currency.symbol) }}
+                  </template>
                 </template>
               </div>
-              <div class="text-sm text-slate-500">After fees</div>
+              <div class="flex items-center justify-center gap-1 text-sm text-slate-500">
+                <template v-if="returns.isEstimated">Estimate after fees</template>
+                <template v-else>After fees</template>
+                <Tooltip v-if="paydowns.length && returns.returnAmount !== undefined" :asChild="true" side="bottom">
+                  <button type="button" aria-label="Net earnings information" class="inline-flex cursor-help">
+                    <InformationCircleIcon class="size-4 text-gray-400" />
+                  </button>
+                  <template #content>
+                    <dl class="grid grid-cols-[1fr_auto] gap-x-5 gap-y-1 text-sm font-normal text-slate-500">
+                      <dt>Purchase savings after fees</dt>
+                      <dd class="text-right font-semibold whitespace-nowrap">
+                        {{ microgonToMoneyNm(principal - returns.investedCost).formatCurrency(currency.symbol) }}
+                      </dd>
+                      <template v-if="(rewards?.awardedReward ?? expectedBonus ?? 0n) > 0n">
+                        <dt>Bid Bonus</dt>
+                        <dd class="text-right font-semibold whitespace-nowrap">
+                          ₳{{
+                            numeral(formatUnits(rewards?.awardedReward ?? expectedBonus ?? 0n, 6)).format('0,0.[00]')
+                          }}
+                        </dd>
+                      </template>
+                      <template v-if="paydownBonus > 0n || returns.potentialLiquidBonus > 0n">
+                        <dt>Liquid Paydown Bonus</dt>
+                        <dd class="text-right font-semibold whitespace-nowrap">
+                          <template v-if="returns.potentialLiquidBonus > 0n">
+                            Up to ₳{{
+                              numeral(formatUnits(paydownBonus + returns.potentialLiquidBonus, 6)).format('0,0.[00]')
+                            }}
+                          </template>
+                          <template v-else>₳{{ numeral(formatUnits(paydownBonus, 6)).format('0,0.[00]') }}</template>
+                        </dd>
+                      </template>
+                    </dl>
+                  </template>
+                </Tooltip>
+              </div>
             </div>
             <div class="px-3">
               <header class="text-sm font-bold text-slate-400">APY</header>
@@ -102,6 +231,19 @@
                   :hideDecimalsAt="10"
                   :showLabel="false"
                 />
+                <template
+                  v-if="
+                    returns.maximumApy !== undefined && returns.apy !== undefined && returns.maximumApy > returns.apy
+                  "
+                >
+                  –
+                  <Returns
+                    :returns="{ apy: returns.maximumApy }"
+                    metric="APY"
+                    :showLabel="false"
+                    :hideDecimalsAt="10"
+                  />
+                </template>
               </div>
               <div class="text-sm text-slate-500">Annualized return</div>
             </div>
@@ -110,14 +252,24 @@
 
         <details :open="isBiddingOpen" class="group mt-6 border-t border-slate-200">
           <summary class="flex cursor-pointer list-none items-center justify-between gap-3 py-4">
-            <h2 class="font-bold text-slate-700">Bidding for a Bonus</h2>
+            <h2 class="font-bold text-slate-700">
+              <template v-if="market.data.currentFrameId < admissionFrame + 2">Bidding for a Bonus</template>
+              <template v-else>Bonuses</template>
+            </h2>
             <span class="flex items-center gap-3 text-sm text-slate-500">
-              <span
-                v-if="!isBiddingOpen && rewards?.awardedReward !== undefined"
-                class="flex items-center gap-3 group-open:hidden"
-              >
-                <span>₳{{ numeral(formatUnits(rewards.awardedReward, 6)).format('0,0.[00]') }} earned</span>
-                <span v-if="rewards.awardedReward > 0n && !rewards.payout">· Payment pending</span>
+              <span v-if="!isBiddingOpen && totalBonus !== undefined" class="flex items-center gap-3 group-open:hidden">
+                <span>
+                  ₳{{ numeral(formatUnits(totalBonus, 6)).format('0,0.[00]') }}
+                  <template v-if="maximumBonus !== undefined && maximumBonus > totalBonus">
+                    – ₳{{ numeral(formatUnits(maximumBonus, 6)).format('0,0.[00]') }}
+                  </template>
+                  total bonus
+                </span>
+                <span v-if="rewards?.awardedReward === undefined || (returns?.potentialLiquidBonus ?? 0n) > 0n">
+                  · Estimated
+                </span>
+                <span v-else-if="totalBonus > 0n && !rewards.payout">· Payment pending</span>
+                <span v-else>· Earned</span>
               </span>
               <span v-else-if="market.data.currentFrameId >= admissionFrame + 2" class="group-open:hidden">
                 Result pending
@@ -143,19 +295,49 @@
           </p>
           <div class="mt-5 grid grid-cols-2 items-stretch divide-x divide-slate-400/30">
             <div class="text-center">
-              <template v-if="rewards?.awardedReward === undefined">
+              <template v-if="totalBonus !== undefined">
+                <header class="font-bold text-gray-600/60">TOTAL BONUS</header>
+                <div class="text-argon-600 py-1 text-3xl font-bold">
+                  ₳{{ numeral(formatUnits(totalBonus, 6)).format('0,0.[00]') }}
+                  <template v-if="maximumBonus !== undefined && maximumBonus > totalBonus">
+                    – ₳{{ numeral(formatUnits(maximumBonus, 6)).format('0,0.[00]') }}
+                  </template>
+                </div>
+                <div class="flex items-center justify-center gap-1 font-light text-slate-500">
+                  <template v-if="rewards?.awardedReward === undefined || (returns?.potentialLiquidBonus ?? 0n) > 0n">
+                    Estimated
+                  </template>
+                  <template v-else>Earned</template>
+                  <Tooltip v-if="paydowns.length" :asChild="true" side="bottom">
+                    <button type="button" aria-label="Bonus breakdown" class="inline-flex cursor-help">
+                      <InformationCircleIcon class="size-4 text-gray-400" />
+                    </button>
+                    <template #content>
+                      <dl class="grid grid-cols-[1fr_auto] gap-x-5 gap-y-1 text-sm font-normal text-slate-500">
+                        <dt>Bid Bonus</dt>
+                        <dd class="text-right">₳{{ numeral(formatUnits(bidBonus ?? 0n, 6)).format('0,0.[00]') }}</dd>
+                        <dt>Liquid Paydown Bonus</dt>
+                        <dd class="text-right">
+                          <template v-if="(returns?.potentialLiquidBonus ?? 0n) > 0n">
+                            Up to ₳{{
+                              numeral(formatUnits(paydownBonus + (returns?.potentialLiquidBonus ?? 0n), 6)).format(
+                                '0,0.[00]',
+                              )
+                            }}
+                          </template>
+                          <template v-else>₳{{ numeral(formatUnits(paydownBonus, 6)).format('0,0.[00]') }}</template>
+                        </dd>
+                      </dl>
+                    </template>
+                  </Tooltip>
+                </div>
+              </template>
+              <template v-else>
                 <header class="font-bold text-gray-600/60">BONUS POOL</header>
                 <div v-if="bidOptions.rewardBudget !== undefined" class="text-argon-600 py-1 text-3xl font-bold">
                   ₳{{ numeral(formatUnits(bidOptions.rewardBudget, 6)).format('0,0.[00]') }}
                 </div>
                 <div class="font-light text-slate-500">For This Bidding Round</div>
-              </template>
-              <template v-else>
-                <header class="font-bold text-gray-600/60">EARNED</header>
-                <div class="text-argon-600 py-1 text-3xl font-bold">
-                  ₳{{ numeral(formatUnits(rewards.awardedReward, 6)).format('0,0.[00]') }}
-                </div>
-                <div class="font-light text-slate-500">From Your Bid</div>
               </template>
             </div>
             <CountdownClock
@@ -236,6 +418,7 @@
                   <th scope="col" class="px-3 pb-3 text-right font-normal">Requested</th>
                   <th scope="col" class="px-3 pb-3 text-right font-normal">
                     <template v-if="rewards?.awardedReward !== undefined">Earned</template>
+                    <template v-else-if="!isBiddingOpen">Expected</template>
                     <template v-else>Estimated</template>
                   </th>
                 </tr>
@@ -346,12 +529,17 @@
             </p>
           </section>
 
-          <p v-if="isBiddingOpen" class="mt-4 border-t border-slate-400/30 pt-4 text-sm text-slate-500">
+          <p v-if="isBiddingOpen" class="mt-4 text-sm text-slate-500">
             Use the up arrow to move ahead, then submit your bid.
           </p>
 
           <p
-            v-if="isBiddingOpen && bidOptions.estimatedApy !== undefined && bidOptions.projectedEarnings !== undefined"
+            v-if="
+              !paydowns.length &&
+              isBiddingOpen &&
+              bidOptions.estimatedApy !== undefined &&
+              bidOptions.projectedEarnings !== undefined
+            "
             class="mt-4 flex flex-wrap items-center justify-center gap-x-2 gap-y-1 text-slate-500"
           >
             <span>Your estimate:</span>
@@ -402,7 +590,20 @@
             </template>
             <template v-else>in the next frame.</template>
           </p>
-          <p v-else-if="!isBiddingOpen" class="mt-4 text-sm text-slate-500">The bonus is being finalized.</p>
+          <p v-else-if="expectedBonus !== undefined" class="mt-4 text-sm text-slate-500">
+            Bidding is complete.
+            <template v-if="expectedBonus > 0n">
+              Your bonus is scheduled for payment
+              <template v-if="market.dates.releases[admissionFrame]">
+                on {{ dayjs(market.dates.releases[admissionFrame]).format('M/D/YYYY') }}.
+              </template>
+              <template v-else>at the end of your holding period.</template>
+            </template>
+            <template v-else>Your bid did not receive a bonus allocation.</template>
+          </p>
+          <p v-else-if="!isBiddingOpen" class="mt-4 text-sm text-slate-500">
+            Bidding is complete. The closed bidding result is unavailable.
+          </p>
         </details>
 
         <p
@@ -461,7 +662,8 @@
 import { computed, ref, watch } from 'vue';
 import { formatUnits } from 'viem';
 import { NetworkConfig, StabilizerBuy } from '@argonprotocol/apps-core';
-import { ArrowUpIcon, ChevronDownIcon, InformationCircleIcon } from '@heroicons/vue/24/outline';
+import { StabilizerBuys } from '../lib/StabilizerBuys.ts';
+import { ArrowUpIcon, ChevronDownIcon, ChevronRightIcon, InformationCircleIcon } from '@heroicons/vue/24/outline';
 import dayjs from 'dayjs';
 import { PopoverAnchor, PopoverArrow, PopoverContent, PopoverPortal, PopoverRoot, PopoverTrigger } from 'reka-ui';
 import OverlayBase from './OverlayBase.vue';
@@ -477,20 +679,32 @@ import { getStabilizerBuys, getStabilizerBuyOperations } from '../stores/stabili
 import { getWalletKeys, useWallets } from '../stores/wallets.ts';
 import { getTransactionFailureMessage } from '../lib/TransactionInfo.ts';
 import { projectStabilizerBuyBid } from '../lib/financials/StabilizerBuys.ts';
+import type { BitcoinLiquid } from '../lib/BitcoinLiquid.ts';
 
-const props = defineProps<{ admissionFrame: number }>();
-const emit = defineEmits<{ close: [] }>();
+const props = withDefaults(defineProps<{ admissionFrame: number; liquids?: readonly BitcoinLiquid[] }>(), {
+  liquids: () => [],
+});
+const emit = defineEmits<{ close: []; liquid: [liquid: BitcoinLiquid] }>();
 
 const market = useMarketStabilizers();
 const buys = getStabilizerBuys();
 const walletKeys = getWalletKeys();
 const wallets = useWallets();
 const currency = getCurrency();
-const { microgonToMoneyNm } = createNumeralHelpers(currency);
+const { microgonToMoneyNm, satToBtcNm } = createNumeralHelpers(currency);
 
 const purchases = computed(() => market.data.buys.filter(buy => buy.admissionFrame === props.admissionFrame));
+const paydowns = computed(() =>
+  market.liquidPaydowns.filter(paydown => paydown.buy.admissionFrame === props.admissionFrame),
+);
+const confirmationDays = computed(() => {
+  const holdFrames = market.data.market?.purchaseHoldFrames;
+  if (holdFrames === undefined) return;
+  return Math.max(0, props.admissionFrame + holdFrames - market.data.currentFrameId);
+});
 const principal = computed(() => purchases.value.reduce((sum, buy) => sum + (buy.principal ?? 0n), 0n));
 const returns = computed(() => market.returns.byFrame[props.admissionFrame]);
+const expectedBonus = computed(() => market.closedAuctionBids.get(props.admissionFrame)?.fundingEstimate);
 const purchasedAt = computed(() => {
   const dates = purchases.value.flatMap(buy => (buy.purchasedAt ? [buy.purchasedAt.getTime()] : []));
 
@@ -505,6 +719,18 @@ const releasedAt = computed(() => {
 const rewards = computed(() =>
   market.data.frameRewards.find(rewards => rewards.admissionFrame === props.admissionFrame),
 );
+const paydownBonus = computed(
+  () => rewards.value?.repaymentRewards?.reduce((sum, reward) => sum + reward.amount, 0n) ?? 0n,
+);
+const bidBonus = computed(() => rewards.value?.awardedReward ?? expectedBonus.value);
+const totalBonus = computed(() => {
+  if (bidBonus.value === undefined) return;
+  return bidBonus.value + paydownBonus.value;
+});
+const maximumBonus = computed(() => {
+  if (totalBonus.value === undefined) return;
+  return totalBonus.value + (returns.value?.potentialLiquidBonus ?? 0n);
+});
 const position = computed(() =>
   market.data.positions.find(position => position.admissionFrame === props.admissionFrame),
 );

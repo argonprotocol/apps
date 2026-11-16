@@ -72,6 +72,7 @@ export const useVaultingStats = defineStore('vaultingStats', () => {
   }
 
   isLoadedPromise = update();
+  void isLoadedPromise.catch(error => console.warn('[VaultingStats] Unable to load returns', error));
   Vue.watch(
     () => vaults.currentState.statsRevision,
     () => {

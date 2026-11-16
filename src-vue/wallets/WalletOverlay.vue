@@ -444,10 +444,12 @@ function updateActiveConnector(wallet: IWalletConnector | undefined) {
 }
 
 const openWalletOverlay = async (options: IWalletOverlayOptions) => {
-  try {
-    await walletStore.load();
-  } catch (error) {
-    console.error('Failed to refresh wallet balances before opening wallet overlay', error);
+  if (!walletStore.isLoaded) {
+    try {
+      await walletStore.load();
+    } catch (error) {
+      console.error('Failed to load wallets before opening wallet overlay', error);
+    }
   }
 
   if (!requestedWalletIsAvailable(options.wallet)) {

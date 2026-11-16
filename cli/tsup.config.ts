@@ -14,7 +14,12 @@ export default defineConfig({
   splitting: false,
   treeshake: true,
   skipNodeModulesBundle: true,
-  noExternal: [/@argonprotocol\/apps-core/, '@argonprotocol/runtime-client'],
+  noExternal: [
+    /@argonprotocol\/apps-core/,
+    '@argonprotocol/runtime-client',
+    // Uniswap's ESM exports and contract JSON imports require bundler resolution.
+    /^@uniswap\//,
+  ],
   esbuildPlugins: [
     wasmLoader({
       mode: 'deferred',

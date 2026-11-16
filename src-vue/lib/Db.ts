@@ -29,7 +29,7 @@ import { BitcoinSecuritizationHistoryTable } from './db/BitcoinSecuritizationHis
 import { BitcoinReleasesTable } from './db/BitcoinReleasesTable.ts';
 import { StabilizerBuysTable } from './db/StabilizerBuysTable.ts';
 
-const SQL_TRANSACTION_SESSION_ID = crypto.randomUUID();
+export const SQL_TRANSACTION_SESSION_ID = crypto.randomUUID();
 
 export class Db {
   public sql: PluginSql;
@@ -142,6 +142,7 @@ export class Db {
       }
       return await invoke<QueryResult>('sql_execute_write', {
         db: this.sql.path,
+        sessionId: SQL_TRANSACTION_SESSION_ID,
         query,
         values: bindValues ?? [],
       });
@@ -165,6 +166,7 @@ export class Db {
       if (/\bRETURNING\b/i.test(query)) {
         const rows = await invoke<T>('sql_select_write', {
           db: this.sql.path,
+          sessionId: SQL_TRANSACTION_SESSION_ID,
           query,
           values: bindValues ?? [],
         });

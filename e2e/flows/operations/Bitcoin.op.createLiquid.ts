@@ -57,12 +57,7 @@ export default new Operation<IBitcoinFlowContext, ILiquidCreateState>(import.met
           '[role="dialog"][data-testid="BitcoinLiquidCreationOverlay"] [data-testid="BitcoinLiquidCreationOverlay.collectArgons"]',
       }),
       flow.isVisible('BitcoinLiquidCreationOverlay.submit()'),
-      flow
-        .getText(
-          { selector: '[role="dialog"][data-testid="BitcoinLiquidCreationOverlay"] .mb-3.bg-yellow-100' },
-          { timeoutMs: 250 },
-        )
-        .catch(() => undefined),
+      flow.getText('BitcoinLiquidCreationOverlay.error', { timeoutMs: 250 }).catch(() => undefined),
       flow
         .getText(
           {
@@ -166,7 +161,10 @@ export default new Operation<IBitcoinFlowContext, ILiquidCreateState>(import.met
       await flow.click('BitcoinLiquidCreationOverlay.submit()', { timeoutMs: 20_000 });
 
       state = await flow.poll<ILiquidCreateState>(
-        latest => latest.chainState.activeLiquidCount === 1 && latest.uiState.collectArgonsVisible,
+        latest => {
+          if (latest.uiState.creationBlocker) throw new Error(`${flowName}: ${latest.uiState.creationBlocker}`);
+          return latest.chainState.activeLiquidCount === 1 && latest.uiState.collectArgonsVisible;
+        },
         {
           pollMs: 1_000,
           timeoutMs: 180_000,

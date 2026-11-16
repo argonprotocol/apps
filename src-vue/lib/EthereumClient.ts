@@ -1,6 +1,7 @@
 import {
   ETHEREUM_EXECUTION_RPC_TRANSPORT,
   ETHEREUM_MIN_TRANSFER_AMOUNT,
+  ethereumGatewayV0Abi,
   fetch,
   getEthereumExecutionRpcUrls,
   getErrorDiagnostics,
@@ -8,6 +9,8 @@ import {
   logEthereumExecutionRpcFallback,
   MoveToken,
   toArgonAccountIdHex,
+  toEthereumGatewayCouncil,
+  supportsVersionedEthereumCouncils,
   NetworkConfig,
   type ArgonQueryClient,
 } from '@argonprotocol/apps-core';
@@ -151,15 +154,11 @@ export type IEthereumFinalizeTransferOutOfArgonArgs = {
   request: EvmContracts.MintingGatewayTransferOutOfArgonRequest;
   proof: MintingGatewayTransferOutOfArgonProof;
 };
-type LoadedCouncil = {
-  epochMicrogonsPerArgonot: bigint;
+type LoadedCouncil = EvmContracts.MintingGatewayGlobalIssuanceCouncilHashArgs & {
   totalWeight: bigint;
-  members: {
-    signer: Address;
-    weight: bigint;
-  }[];
 };
 type RelayableGatewayUpdate = {
+  councilVersion?: number;
   ownerArgonAccountId?: Hex;
   activationSettlement?: {
     heldRepaymentMicrogons: bigint;
@@ -744,12 +743,16 @@ export class EthereumClient {
     return await waitForIndexedReceipt(submitted.publicClient, submitted.hash);
   }
 
-  public async configureSignerPolicy(chainConfig?: IEthereumChainConfig) {
+  public async configureSignerPolicy(
+    chainConfig?: IEthereumChainConfig,
+    permit?: { tokenAddress: string; spenderAddress: string },
+  ) {
     const config = chainConfig ?? (await this.loadChainConfig());
     await this.walletKeys.configureEthereumSignerPolicy({
       chainId: config.chainId,
       gatewayAddress: config.gatewayAddress,
-      tokenAddresses: [config.argonTokenAddress, config.argonotTokenAddress],
+      tokenAddresses: [config.argonTokenAddress, config.argonotTokenAddress, ...(permit ? [permit.tokenAddress] : [])],
+      permitSpenderAddresses: permit ? [permit.spenderAddress] : [],
     });
   }
 
@@ -820,19 +823,19 @@ export class EthereumClient {
         reason: 'noReadyUpdates',
       };
     }
+    const supportsVersionedCouncils = await supportsVersionedEthereumCouncils(publicClient, chainConfig.gatewayAddress);
+    if (!supportsVersionedCouncils && batch.requiredCouncilVersion > 0) {
+      throw new Error('Upgrade the Ethereum gateway contract before relaying a versioned council.');
+    }
     const { transaction, unsignedTransaction, feeEstimateWei } = await buildEthereumUnsignedTransaction({
       publicClient,
       from: signerAddress,
       chainId: chain.id,
       to: chainConfig.gatewayAddress,
       data: encodeFunctionData({
-        abi: EvmContracts.mintingGatewayAbi,
+        abi: supportsVersionedCouncils ? EvmContracts.mintingGatewayAbi : ethereumGatewayV0Abi,
         functionName: 'applyGatewayUpdates',
-        args: [batch.currentCouncil, batch.updates, relayerArgonAccountId] satisfies ContractFunctionArgs<
-          typeof EvmContracts.mintingGatewayAbi,
-          'nonpayable',
-          'applyGatewayUpdates'
-        >,
+        args: [batch.currentCouncil, batch.updates, relayerArgonAccountId],
       }),
     });
 
@@ -1007,6 +1010,8 @@ export class EthereumClient {
     const permitSignature = await this.walletKeys.signEthereumPermit({
       tokenAddress,
       tokenName,
+      tokenVersion: '1',
+      spenderAddress: chainConfig.gatewayAddress,
       value: amountBaseUnits,
       nonce: permitNonce,
       deadline: permitDeadline,
@@ -1022,8 +1027,8 @@ export class EthereumClient {
         argonDestination,
         permitDeadline,
         permitSignature.v,
-        permitSignature.r as Hex,
-        permitSignature.s as Hex,
+        permitSignature.r,
+        permitSignature.s,
       ],
     });
     const { transaction, unsignedTransaction, feeEstimateWei } = await buildEthereumUnsignedTransaction({
@@ -1205,6 +1210,7 @@ async function getReadyEthereumGatewayUpdates(
   maxQueueEntries = 100,
 ): Promise<{
   currentCouncil: IEthereumGatewayCouncilSnapshot;
+  requiredCouncilVersion: number;
   estimatedMicrogonsPerEth: bigint;
   paused: boolean;
   updates: IEthereumGatewayUpdate[];
@@ -1218,7 +1224,7 @@ async function getReadyEthereumGatewayUpdates(
 
   const currentCouncilHash = toHexValue(currentCouncilHashOption);
   const councilCache = new Map<Hex, LoadedCouncil>();
-  const currentCouncil = councilToSnapshot(await loadCouncilByHash(finalizedClient, currentCouncilHash, councilCache));
+  const currentCouncil = await loadCouncilByHash(finalizedClient, currentCouncilHash, councilCache);
   const hashContext = {
     chainId: BigInt(chainConfig.chainId),
     gatewayAddress: chainConfig.gatewayAddress,
@@ -1327,6 +1333,10 @@ async function getReadyEthereumGatewayUpdates(
 
   return {
     currentCouncil,
+    requiredCouncilVersion: Math.max(
+      currentCouncil.version,
+      ...readyRelayableUpdates.map(update => update.councilVersion ?? 0),
+    ),
     estimatedMicrogonsPerEth,
     paused,
     updates,
@@ -1350,13 +1360,11 @@ async function buildGatewayUpdate(
     const nextCouncilHash = toHexValue(entry.target.value);
     const nextCouncil = await loadCouncilByHash(finalizedClient, nextCouncilHash, councilCache);
     const target: MintingGatewayGlobalIssuanceCouncilRotateTarget = {
-      council: councilToSnapshot(nextCouncil),
+      council: nextCouncil,
       epochMicrogonsPerArgonot: nextCouncil.epochMicrogonsPerArgonot,
+      inflationPercentSinceLaunch: nextCouncil.inflationPercentSinceLaunch,
     };
-    const calculatedCouncilHash = EvmContracts.hashMintingGatewayGlobalIssuanceCouncil({
-      ...target.council,
-      epochMicrogonsPerArgonot: target.epochMicrogonsPerArgonot,
-    });
+    const calculatedCouncilHash = EvmContracts.hashMintingGatewayGlobalIssuanceCouncil(nextCouncil);
     const targetPayloadHash = EvmContracts.hashMintingGatewayRotateGlobalIssuanceCouncil(hashContext, target);
     const approvalHash = EvmContracts.hashMintingGatewayRotateGlobalIssuanceCouncilApproval(hashContext, {
       queueNonce,
@@ -1376,6 +1384,7 @@ async function buildGatewayUpdate(
     }
 
     return {
+      councilVersion: nextCouncil.version,
       update: {
         queueNonce,
         kind: EvmContracts.MINTING_GATEWAY_UPDATE_KINDS.globalIssuanceCouncilRotate,
@@ -1501,14 +1510,8 @@ async function loadCouncilByHash(
   }
 
   const loaded = {
-    epochMicrogonsPerArgonot: council.epochMicrogonsPerArgonot,
+    ...toEthereumGatewayCouncil(council),
     totalWeight: council.totalWeight,
-    members: Object.entries(council.members)
-      .map(([signer, member]) => ({
-        signer: getAddress(toHexValue(signer)),
-        weight: member.weight,
-      }))
-      .sort((left, right) => left.signer.localeCompare(right.signer)),
   };
 
   cache.set(councilHash, loaded);
@@ -1523,19 +1526,19 @@ function queueEntryHasQuorum(
 
   for (const signer of Object.keys(entry.signatures)) {
     const signerAddress = getAddress(toHexValue(signer));
-    const member = council.members.find(x => x.signer === signerAddress);
-    if (!member) {
+    const memberIndex = council.signers.findIndex(signer => signer === signerAddress);
+    if (memberIndex === -1) {
       throw new Error(`Signature submitted by ${signerAddress}, which is not in the council`);
     }
 
-    signedWeight += member.weight;
+    signedWeight += council.weights[memberIndex];
   }
 
   return hasGatewayApprovalQuorum({
     approvedWeight: signedWeight,
     totalWeight: council.totalWeight,
     signatureCount: Object.keys(entry.signatures).length,
-    memberCount: council.members.length,
+    memberCount: council.signers.length,
   });
 }
 
@@ -1551,13 +1554,6 @@ export function hasGatewayApprovalQuorum(args: {
 
   const unsignedMemberCount = args.memberCount - args.signatureCount;
   return unsignedMemberCount <= 2 && args.approvedWeight * 100n >= args.totalWeight * 80n;
-}
-
-function councilToSnapshot(council: LoadedCouncil): IEthereumGatewayCouncilSnapshot {
-  return {
-    signers: council.members.map(member => member.signer),
-    weights: council.members.map(member => member.weight),
-  };
 }
 
 function calculateExpectedGatewayRelayRepaymentMicrogons(args: {

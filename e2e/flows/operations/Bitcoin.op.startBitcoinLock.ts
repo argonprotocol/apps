@@ -137,10 +137,12 @@ async function waitForChannelState(
 ): Promise<string> {
   let state: string | null = null;
   await pollEvery(
-    50,
+    1_000,
     async () => {
       state = await flow.getAttribute('ConnectorChannel', 'data-e2e-state', { timeoutMs: 1_000 }).catch(() => null);
       if (state === 'Error') throw new Error(`Bitcoin wallet entered an error state while waiting for ${expected}.`);
+      const error = await flow.getText('ConnectorChannel.error', { timeoutMs: 100 }).catch(() => '');
+      if (error.trim()) throw new Error(`Bitcoin channel creation failed: ${error.trim()}`);
       return state === expected;
     },
     { timeoutMs, timeoutMessage: `Bitcoin wallet did not enter ${expected}.` },

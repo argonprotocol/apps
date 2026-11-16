@@ -35,7 +35,7 @@ it('shares a pending permission request and sends market and bidding opportuniti
       id: 1,
       extra: { stabilizerBuyNoticeKey: buyOpportunity.key, expiresAt: buyOpportunity.expiresAt },
       title: 'ARGN is below target',
-      body: '58% estimated APY · 8% below target. Current quote: 110 ARGN.',
+      body: '58% estimated APY · 8% below target. Estimated purchase: 110 ARGN.',
     },
     {
       id: 2,

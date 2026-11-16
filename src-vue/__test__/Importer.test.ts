@@ -322,7 +322,6 @@ it.each([
     let interruptReset = true;
     let failStartupReset = false;
     vi.mocked(remove).mockImplementation(async () => {
-      if (interruptReset) expect(importing.isImporting).toBe(true);
       if (interruptReset && interruption === 'deletion') throw new Error('Synthetic interrupted database replacement');
       await fs.unlink(databasePath);
     });
@@ -402,7 +401,7 @@ it.each([
       await expect(Importer.finishPendingImport({ dbPromise: Promise.resolve(db), config })).resolves.toBe(false);
       expect(await fs.readFile(Path.join(importDirectory, 'wallet.json'), 'utf8')).toBe(previousWallet);
     }
-    const importResult = expect(importing.importFromMnemonic(mnemonic)).rejects.toThrow(expectedFailure);
+    const importResult = expect(importing.importFromMnemonic(mnemonic)).resolves.toBe(true);
     if (activity === 'funds') {
       await vi.waitFor(() => expect(importMocks.useWallets).toHaveBeenCalled());
       expect(keychain.value).toBe(previousKey.toString('hex'));
@@ -412,6 +411,10 @@ it.each([
     }
     await importResult;
     expect(importing.isImporting).toBe(false);
+    // Outgoing services may still be reading until reload; import must leave their database intact.
+    expect((await db.walletsTable.getDefaultArgon())?.address).toBe(walletKeys.defaultArgonAddress);
+    expect(await db.select('SELECT id FROM Frames WHERE id = 42')).toEqual([{ id: 42 }]);
+    expect(await fs.readFile(Path.join(importDirectory, 'wallet.json'), 'utf8')).toBe(previousWallet);
     if (activity === 'unused') {
       expect(confirm).not.toHaveBeenCalled();
       expect(exposeMnemonic).not.toHaveBeenCalled();
@@ -433,6 +436,11 @@ it.each([
       ]),
     ).toEqual(activity === 'unused' ? [mnemonic] : [mnemonic, mnemonic, previousMnemonic]);
     await expect(EncryptionSecret.decryptWithKey(previousKey, [pending.wallet.encryptedMnemonic])).rejects.toThrow();
+
+    // Startup owns database replacement before constructing the incoming account's services.
+    await expect(Importer.finishPendingImport({ dbPromise: Promise.resolve(db), config })).rejects.toThrow(
+      expectedFailure,
+    );
     if (interruption !== 'cleanup')
       expect(await fs.readFile(Path.join(importDirectory, 'wallet.json'), 'utf8')).toBe(previousWallet);
     expect(await fs.readFile(previousMnemonicPath, 'utf8')).toBe(previousMnemonic);
@@ -545,6 +553,7 @@ it('restores completed mining setup from imported operational account state', as
   const restart = vi.spyOn(Restarter.prototype, 'restart').mockImplementation(() => undefined);
 
   await new Importer(config, walletKeys, dbPromise).importFromMnemonic(mnemonic);
+  await Importer.finishPendingImport({ dbPromise, config });
 
   expect(config.hasExtensionTreasury).toBe(true);
   expect(config.hasExtensionOperations).toBe(true);
@@ -613,6 +622,7 @@ it.each([
   vi.spyOn(Restarter.prototype, 'restart').mockImplementation(() => undefined);
 
   await new Importer(config, walletKeys, dbPromise).importFromMnemonic(mnemonic);
+  await Importer.finishPendingImport({ dbPromise, config });
 
   expect(importMocks.findMiningActivity).toHaveBeenCalledWith(importWalletKeys.miningBotAddress, {
     activityMask: AccountActivityKind.MiningBid | AccountActivityKind.MiningSeat,
@@ -656,6 +666,7 @@ it.each([
   vi.spyOn(Restarter.prototype, 'restart').mockImplementation(() => undefined);
 
   await new Importer(config, walletKeys, dbPromise).importFromMnemonic(mnemonic);
+  await Importer.finishPendingImport({ dbPromise, config });
 
   expect(await db.configTable.fetchAllAsObject()).toEqual(
     expect.objectContaining({
@@ -691,6 +702,7 @@ it('does not invent extensions from an imported basic wallet balance', async () 
   vi.spyOn(Restarter.prototype, 'restart').mockImplementation(() => undefined);
 
   await new Importer(config, walletKeys, dbPromise).importFromMnemonic(mnemonic);
+  await Importer.finishPendingImport({ dbPromise, config });
 
   expect(await db.configTable.fetchAllAsObject()).toEqual(
     expect.objectContaining({
@@ -739,6 +751,7 @@ it.each([
   vi.spyOn(Restarter.prototype, 'restart').mockImplementation(() => undefined);
 
   await new Importer(config, walletKeys, dbPromise).importFromMnemonic(mnemonic);
+  await Importer.finishPendingImport({ dbPromise, config });
 
   expect(await db.configTable.fetchAllAsObject()).toEqual(
     expect.objectContaining({
@@ -785,6 +798,7 @@ it('preserves Operations history without granting Crosschain access from an owne
   vi.spyOn(Restarter.prototype, 'restart').mockImplementation(() => undefined);
 
   await new Importer(config, walletKeys, dbPromise).importFromMnemonic(mnemonic);
+  await Importer.finishPendingImport({ dbPromise, config });
 
   expect(await db.configTable.fetchAllAsObject()).toEqual(
     expect.objectContaining({
@@ -819,6 +833,7 @@ it('does not infer treasury from an unattributed account hold', async () => {
   vi.spyOn(Restarter.prototype, 'restart').mockImplementation(() => undefined);
 
   await new Importer(config, walletKeys, dbPromise).importFromMnemonic(mnemonic);
+  await Importer.finishPendingImport({ dbPromise, config });
 
   expect(await db.configTable.fetchAllAsObject()).toEqual(
     expect.objectContaining({
@@ -875,6 +890,7 @@ it.each([
   vi.spyOn(Restarter.prototype, 'restart').mockImplementation(() => undefined);
 
   await new Importer(config, walletKeys, dbPromise).importFromMnemonic(mnemonic);
+  await Importer.finishPendingImport({ dbPromise, config });
 
   expect(importMocks.findMiningActivity).toHaveBeenCalledWith(importWalletKeys.defaultArgonAddress, {
     activityMask: AccountActivityKind.BondPosition | AccountActivityKind.BitcoinLock | AccountActivityKind.BitcoinMint,
@@ -911,6 +927,7 @@ it('keeps proven account state when index history is unavailable during repair',
   const restart = vi.spyOn(Restarter.prototype, 'restart').mockImplementation(() => undefined);
 
   await new Importer(config, walletKeys, dbPromise).importFromMnemonic(mnemonic);
+  await Importer.finishPendingImport({ dbPromise, config });
 
   expect(await db.configTable.fetchAllAsObject()).toEqual(
     expect.objectContaining({

@@ -9,7 +9,8 @@ import {
   type IStabilizerBuyQuote,
 } from '../src/StabilizerBuyContracts.ts';
 import type { ArgonCurrentQueryClient } from '../src/MainchainClients.ts';
-import { getOfflineRegistry, EvmContracts } from '@argonprotocol/mainchain';
+import { getOfflineRegistry, EvmContracts, Keyring } from '@argonprotocol/mainchain';
+import { TxSigner } from '../src/TxSigner.ts';
 import { Metadata } from '@polkadot/types';
 import { decorateExtrinsics, decorateStorage } from '@polkadot/types/metadata/decorate';
 
@@ -31,6 +32,67 @@ const purchase: NonNullable<LiveQueryRecord<'stabilizerBuys', 'buysByAccountAndF
 };
 
 describe('Stabilizer buy auction position', () => {
+  it('previews the eligible price window before maturity without changing the held purchase or saved scan', async () => {
+    const repayment: NonNullable<LiveQueryRecord<'stabilizerBuys', 'liquidRepaysByAccountAndGatewayNonce'>> = {
+      liquidId: 10,
+      admissionFrame: 12,
+      microgons: 1_000_000_000n,
+      eligibleRewardPercent: BigNumber(0.05),
+      purchaseTick: 100,
+      microgonsAtTargetPerBtc: BigNumber(68_000_000_000),
+      purchaseRValue: BigNumber(0.5),
+      priceWindow: { nextFrame: 12n, nextTick: 100n, rValueHighWater: BigNumber(0) },
+    };
+    const frameHighs = vi.fn(async (keys: readonly string[]) =>
+      keys.map(key => {
+        const frame = Number(BigInt(key));
+        if (frame === 12) return { firstTick: 90n, endTick: 110n, rValue: BigNumber(0.95) };
+        if (frame === 13) return { firstTick: 111n, endTick: 120n, rValue: BigNumber(0.96) };
+        if (frame === 14) return { firstTick: 121n, endTick: 130n, rValue: BigNumber(1) };
+        if (frame === 42) return { firstTick: 500n, endTick: 510n, rValue: BigNumber(0.95) };
+        return null;
+      }),
+    );
+    const client = {
+      consts: { stabilizerBuys: { purchaseHoldFrames: 30 } },
+      query: {
+        stabilizerBuys: {
+          buysByAccountAndFrame: {
+            entries: async () => [[{ args: ['synthetic-owner', toHex(12n, { size: 8 })] }, purchase]],
+          },
+          payoutStateByAccount: async () => ({ payableReward: 0n, nextPayoutFrame: 42 }),
+          liquidRepaysByAccountAndGatewayNonce: {
+            entries: async () => [[{ args: ['synthetic-owner', toHex(7n, { size: 8 })] }, repayment]],
+          },
+          auctions: async () => auction,
+          priceHistoryByTick: {
+            key: (tick: string) => tick,
+            entriesPaged: async () => [
+              [{ args: [toHex(101n, { size: 8 })] }, { frame: 12, rValue: BigNumber(0.6), prices: null }],
+              [{ args: [toHex(111n, { size: 8 })] }, { frame: 13, rValue: BigNumber(0.96), prices: null }],
+            ],
+          },
+        },
+        bitcoinFissions: { rValueHighWaterByFrame: { multi: frameHighs } },
+      },
+    } as unknown as ArgonCurrentQueryClient;
+    const result = await StabilizerBuy.getForAccount(client, 'synthetic-owner');
+    const pending = result.positions[0].liquidRepayments[0];
+    expect(pending.gatewayActivityNonce).toBe(7n);
+    expect(pending.microgonsAtTargetPerBtc.eq(68_000_000_000)).toBe(true);
+    expect(pending.purchaseRValue.eq(0.5)).toBe(true);
+    // Earlier R=0.95 and maturity-frame R=0.95 are excluded. Keep the in-window
+    // R=0.96 quote even after R=1.00, whose repayment quote is more expensive.
+    expect(pending.observedRValueHighWater?.eq(0.96)).toBe(true);
+    expect(pending.priceWindow).toEqual({ nextFrame: 12n, nextTick: 100n, rValueHighWater: BigNumber(0) });
+    expect(repayment.priceWindow).toEqual({ nextFrame: 12n, nextTick: 100n, rValueHighWater: BigNumber(0) });
+    expect(result.positions[0].heldPrincipal).toBe(1_100_000_000n);
+
+    frameHighs.mockRejectedValueOnce(new Error('synthetic price history unavailable'));
+    const unavailable = await StabilizerBuy.getForAccount(client, 'synthetic-owner');
+    expect(unavailable.positions[0].heldPrincipal).toBe(1_100_000_000n);
+    expect(unavailable.positions[0].liquidRepayments[0].observedRValueHighWater).toBeUndefined();
+  });
   it.each([true, false])(
     'sizes opportunities below target and accepts exact buys crossing target with ARGN as token0=%s',
     async argonIsToken0 => {
@@ -118,13 +180,37 @@ describe('Stabilizer buy auction position', () => {
           return 50_000n;
         },
       } as unknown as PublicClient;
+      let lastChangeTick: number | null = 10;
+      let vaultClaimHeight = 20_000;
       const client = runtimeClient({
+        registry: getOfflineRegistry(),
         consts: {
           balances: { existentialDeposit: 1_000_000n },
-          stabilizerBuys: { maxPriceAgeTicks: 10 },
+          stabilizerBuys: { maxPriceAgeTicks: 10, purchaseHoldFrames: 30 },
+          bitcoinLocks: {
+            lockReleaseCosignDeadlineFrames: 10,
+            securitizationHoldBlocks: 0,
+            argonTicksPerDay: 1440,
+            ticksPerBitcoinBlock: 10n,
+          },
         },
         query: {
-          ticks: { currentTick: async () => 20 },
+          ticks: { currentTick: async () => 20, genesisTicker: async () => ({ tickDurationMillis: 60_000 }) },
+          bitcoinFissions: {
+            liquidTicksByOwnerAndId: async () => ({
+              createdAtTick: lastChangeTick === null ? null : 1n,
+              lastRatchetTick: lastChangeTick,
+            }),
+            fissionIdsByOwnerAndLiquid: {
+              keys: async () => [{ args: [['owner', 10n], 1n] }, { args: [['owner', 10n], 2n] }],
+            },
+            fissionByOwnerAndId: { multi: async () => [{ lockId: 1 }, { lockId: 2 }] },
+          },
+          bitcoinLocks: { locksById: { multi: async () => [{ vaultClaimHeight: 20_000 }, { vaultClaimHeight }] } },
+          bitcoinUtxos: {
+            confirmedBitcoinBlockTip: async () => ({ blockHeight: 100 }),
+            bitcoinNetwork: async () => 'Regtest',
+          },
           stabilizerBuys: {
             approvedPool: async () => {
               if (!poolApproved) return null;
@@ -189,7 +275,7 @@ describe('Stabilizer buy auction position', () => {
       expect(exact.quotedMicrogonsOut).toBe(500_000_000n);
       expect(exact.request.minMicrogonsOut).toBe(497_500_000n);
       // Historical fee previews do not require a funded wallet.
-      expect(await contracts.estimateMarketPurchaseGas(input)).toBe(640_000n);
+      expect(await contracts.estimateMarketPurchaseGas(input)).toBe(590_000n);
       poolApproved = false;
       await expect(contracts.estimateMarketPurchaseGas(input)).rejects.toThrow('no approved purchase pool');
       poolApproved = true;
@@ -204,6 +290,30 @@ describe('Stabilizer buy auction position', () => {
       const small = await contracts.quote({ ...input, maxUsdcIn: 10_000_000n, sizeToTarget: true });
       expect(small.request.maxUsdcIn).toBe(10_000_000n);
       expect(small.qualifiesForRewards).toBe(true);
+
+      // Candidate amounts share immutable reads at one block, while quotes still depend on their amounts.
+      const reads = vi.spyOn(ethereum, 'readContract');
+      const storage = vi.spyOn(ethereum, 'getStorageAt');
+      const block = await ethereum.getBlock();
+      const pinned = await contracts.quote({ ...input, ethereumBlock: block, maxUsdcIn: 10_000_000n });
+      const larger = await contracts.quote({ ...input, ethereumBlock: block, maxUsdcIn: 20_000_000n });
+      expect(pinned.quotedMicrogonsOut).toBe(10_000_000n);
+      expect(larger.quotedMicrogonsOut).toBe(20_000_000n);
+      await contracts.estimatePurchaseGas(pinned, block);
+      await contracts.estimatePurchaseGas(larger, block);
+      expect(storage).toHaveBeenCalledOnce();
+      for (const name of ['swapContract', 'minimumSwapMicrogons', 'allowance', 'balanceOf']) {
+        expect(reads.mock.calls.filter(([request]) => request.functionName === name)).toHaveLength(1);
+      }
+
+      usdcBalance = 30_000_000n;
+      const nextScan = { ...block, hash: `0x${'aa'.repeat(32)}` as const };
+      expect((await contracts.estimatePurchaseGas(pinned, nextScan)).usdcBalance).toBe(usdcBalance);
+      await contracts.quote({ ...input, ethereumBlock: nextScan, maxUsdcIn: 30_000_000n });
+      expect(storage).toHaveBeenCalledTimes(2);
+      reads.mockRestore();
+      storage.mockRestore();
+      usdcBalance = 0n;
 
       minimum = 1_000_000n;
       outputPercent = 50n;
@@ -220,7 +330,7 @@ describe('Stabilizer buy auction position', () => {
       usdcAllowance = small.request.maxUsdcIn;
       expect(await contracts.estimatePurchaseGas(small)).toEqual({
         gasEstimate: 530_000n,
-        needsApproval: false,
+        needsPermit: false,
         usdcAllowance,
         usdcBalance,
       });
@@ -228,7 +338,7 @@ describe('Stabilizer buy auction position', () => {
       usdcBalance = small.request.maxUsdcIn - 1n;
       expect(await contracts.estimatePurchaseGas(small)).toEqual({
         gasEstimate: 530_000n,
-        needsApproval: false,
+        needsPermit: false,
         usdcAllowance,
         usdcBalance,
       });
@@ -236,7 +346,7 @@ describe('Stabilizer buy auction position', () => {
       usdcBalance = small.request.maxUsdcIn;
       expect(await contracts.estimatePurchaseGas(small)).toEqual({
         gasEstimate: 110_000n,
-        needsApproval: false,
+        needsPermit: false,
         usdcAllowance,
         usdcBalance,
       });
@@ -254,6 +364,81 @@ describe('Stabilizer buy auction position', () => {
           repaySignature: '0x',
           maxUsdcIn: small.request.maxUsdcIn,
         });
+      }
+
+      usdcAllowance = 0n;
+      await expect(
+        contracts.buildNextTransaction({ client, quote: small, sourceAddress: addresses.source }),
+      ).rejects.toThrow('Authorize USDC');
+      const permit = {
+        deadline: small.request.deadline,
+        v: 27,
+        r: toHex(1n, { size: 32 }),
+        s: toHex(2n, { size: 32 }),
+      };
+      const permitted = await contracts.buildNextTransaction({
+        client,
+        quote: small,
+        sourceAddress: addresses.source,
+        permit,
+      });
+      expect(decodeFunctionData({ abi: EvmContracts.argonBuyAndTransferAbi, data: permitted.data })).toMatchObject({
+        functionName: 'buyAndTransferWithPermit',
+        args: [small.request, small.poolKey, '0x', permit],
+      });
+      usdcAllowance = small.request.maxUsdcIn;
+
+      for (const type of ['sr25519', 'ed25519', 'ecdsa'] as const) {
+        const owner = new Keyring({ type }).addFromUri('//Alice');
+        const liquidQuote = await contracts.quote({
+          ...input,
+          maxUsdcIn: small.request.maxUsdcIn,
+          destinationAddress: owner.address,
+          repayLiquidId: 10n,
+        });
+        liquidQuote.request.repaySignature = StabilizerBuyContracts.signLiquidRepaymentAuthorization(
+          liquidQuote,
+          new TxSigner(owner),
+        );
+        const paidDown = await contracts.buildNextTransaction({
+          client,
+          quote: liquidQuote,
+          sourceAddress: addresses.source,
+        });
+        expect(decodeFunctionData({ abi: EvmContracts.argonBuyAndTransferAbi, data: paidDown.data })).toMatchObject({
+          functionName: 'buyAndTransfer',
+          args: [liquidQuote.request, liquidQuote.poolKey, '0x'],
+        });
+        for (const repaySignature of [
+          '0x',
+          `0x${liquidQuote.request.repaySignature.slice(4)}`,
+          `${liquidQuote.request.repaySignature}00`,
+          `0x${'ff'.repeat(65)}`,
+        ] as const) {
+          await expect(
+            contracts.buildNextTransaction({
+              client,
+              quote: { ...liquidQuote, request: { ...liquidQuote.request, repaySignature } },
+              sourceAddress: addresses.source,
+            }),
+          ).rejects.toThrow('Authorize this Ethereum wallet');
+        }
+        lastChangeTick = 19;
+        await expect(
+          contracts.buildNextTransaction({ client, quote: liquidQuote, sourceAddress: addresses.source }),
+        ).rejects.toThrow('just changed');
+        lastChangeTick = 10;
+        lastChangeTick = null;
+        await expect(
+          contracts.buildNextTransaction({ client, quote: liquidQuote, sourceAddress: addresses.source }),
+        ).resolves.toMatchObject({ to: liquidQuote.adapterAddress });
+        lastChangeTick = 10;
+        // One short-lived backing lock makes the entire Liquid ineligible, even with another long-lived lock.
+        vaultClaimHeight = 101;
+        await expect(
+          contracts.buildNextTransaction({ client, quote: liquidQuote, sourceAddress: addresses.source }),
+        ).rejects.toThrow('expires too soon');
+        vaultClaimHeight = 20_000;
       }
 
       // With USDC at $0.80, a $0.992 starting price is below target but above the $0.99 reward cutoff.
@@ -363,6 +548,8 @@ describe('Stabilizer buy auction position', () => {
     );
     // Each included bid keeps the original 5/90 funding ratio; the first cannot consume the reservation.
     expect(fundedBids.map(bid => bid.fundingEstimate)).toEqual([333_333n, 333_333n, 0n]);
+    // Liquid bonus eligibility follows inclusion, independently of ordinary bonus funding.
+    expect(fundedBids.map(bid => bid.liquidRepaymentRewardRate.toNumber())).toEqual([0.1, 0.2, 0]);
 
     const tied = bids.map((bid, index) => ({ ...bid, latestBid: 50, matchingBasis: [60n, 25n, 15n][index] }));
     const ranked = StabilizerBuy.allocateBids(tied, current, BigNumber(0.9));
@@ -371,10 +558,13 @@ describe('Stabilizer buy auction position', () => {
       [accounts[1].toString(), 12n],
       [accounts[2].toString(), 2n],
     ]);
-    expect(
-      StabilizerBuy.allocateBids([{ ...bids[0], latestBid: 50, matchingBasis: 100n }], current, BigNumber(0.9))[0]
-        .fundingEstimate,
-    ).toBe(45n);
+    const soleBuyer = StabilizerBuy.allocateBids(
+      [{ ...bids[0], latestBid: 50, matchingBasis: 100n }],
+      current,
+      BigNumber(0.9),
+    )[0];
+    expect(soleBuyer.fundingEstimate).toBe(45n);
+    expect(soleBuyer.liquidRepaymentRewardRate.toNumber()).toBe(0.5);
   });
 
   it.each([

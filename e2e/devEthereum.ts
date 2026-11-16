@@ -33,6 +33,7 @@ import { sudoFundWallet } from '../core/__test__/helpers/sudoFundWallet.ts';
 import {
   bigIntMax,
   createArgonClient,
+  encodeEthereumCouncilUpdate,
   MainchainClients,
   NetworkConfig,
   type INetworkConfigOverride,
@@ -1160,14 +1161,14 @@ async function ensureDevEthereumGatewayActiveCouncil({
       finalizedClient,
       gatewayAddress: gateway.gatewayAddress,
       publicClient,
-      sendCurrentCouncil: async (currentCouncil, nextMicrogonsPerArgonot) => {
+      sendCurrentCouncil: async currentCouncil => {
         const { hash } = await sendDevEthereumAdminTransaction({
           rpcUrl: executionRpcUrl,
           to: gateway.gatewayAddress,
-          data: encodeFunctionData({
-            abi: EvmContracts.mintingGatewayAbi,
-            functionName: 'forceUpdateActiveCouncil',
-            args: [currentCouncil, nextMicrogonsPerArgonot],
+          data: await encodeEthereumCouncilUpdate({
+            client: publicClient,
+            gatewayAddress: gateway.gatewayAddress,
+            council: currentCouncil,
           }),
         });
         return hash;

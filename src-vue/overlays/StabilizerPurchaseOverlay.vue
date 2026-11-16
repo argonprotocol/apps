@@ -1,11 +1,11 @@
 <template>
-  <OverlayBase :isOpen="true" title="Stabilizer Buy" class="w-240" @close="emit('close')">
+  <OverlayBase v-slot="{ floatingZIndex }" :isOpen="true" title="Stabilizer Buy" class="w-240" @close="emit('close')">
     <div class="px-10 py-5 text-base">
       <template v-if="!purchase">
         <div class="pt-3">
           <h1 class="text-2xl font-bold">Choose Your Purchase Amount</h1>
           <p class="mt-2 leading-relaxed font-light">
-            Buy ARGN below target, with bonuses available for qualifying purchases.
+            Buy ARGN at a discount to help stabilize its price. You get rights to bid for your share of a bonus pool.
             <a
               :href="`${NetworkConfig.websiteHost}/docs/network-rules/market-stabilizers#stabilizer-buys`"
               target="_blank"
@@ -15,7 +15,7 @@
           </p>
         </div>
 
-        <div class="mt-5 flex items-center gap-4">
+        <div class="mt-5 flex items-center gap-4 border-t border-slate-400/20 pt-4">
           <label class="shrink-0 font-bold text-gray-600/60">Pay From</label>
           <InputMenu
             v-if="market.wallets.length > 1"
@@ -141,7 +141,8 @@
             </button>
             <template #content>
               <p>
-                You’ll receive at least {{ numeral(formatUnits(quote.request.minMicrogonsOut, 6)).format('0,0.[00]') }}
+                You’ll receive at least
+                {{ numeral(formatUnits(quote.request.minMicrogonsOut, 6)).format('0,0.[00]') }}
                 ARGN. Larger purchases can increase your average price.
               </p>
               <p
@@ -150,12 +151,156 @@
               >
                 Estimated Ethereum fee:
                 {{ numeral(formatEther(feePreview.feeEstimateWei)).format('0.[00000000]') }} ETH.
-                <template v-if="feePreview?.needsApproval">Includes USDC approval.</template>
+                <template v-if="feePreview?.needsPermit">
+                  Includes USDC authorization in the purchase transaction.
+                </template>
               </p>
               <p class="mt-2">ARGN’s price can move above target before your purchase confirms.</p>
             </template>
           </Tooltip>
         </p>
+
+        <section v-if="liquids.length" class="border-argon-600/30 bg-argon-600/5 mt-5 rounded-md border px-5 py-4">
+          <div class="flex items-center justify-between gap-4">
+            <h2 class="font-semibold text-slate-700">Optional: Pay Down a Liquid</h2>
+            <PopoverRoot v-model:open="isLiquidAttachmentOpen">
+              <PopoverTrigger as-child>
+                <button
+                  type="button"
+                  :aria-label="selectedLiquid ? 'Change Attached Liquid' : 'Attach a Liquid'"
+                  :class="selectedLiquid ? 'text-slate-600' : 'text-argon-600'"
+                  class="group inline-flex cursor-pointer items-center gap-2"
+                >
+                  <template v-if="selectedLiquid">
+                    {{ satToBtcNm(selectedLiquid.satoshis).format('0,0.[00000000]') }} BTC Liquid
+                  </template>
+                  <template v-else>Attach a Liquid</template>
+                  <ChevronDownIcon class="size-4 text-slate-400 group-hover:text-slate-600" />
+                </button>
+              </PopoverTrigger>
+              <PopoverPortal>
+                <PopoverContent
+                  side="bottom"
+                  align="end"
+                  :sideOffset="4"
+                  :collisionPadding="24"
+                  :style="{ zIndex: floatingZIndex }"
+                  aria-label="Attach a Liquid"
+                  class="w-110 rounded-md border border-gray-800/20 bg-white text-slate-600 shadow-xl"
+                >
+                  <div class="divide-y divide-slate-200 overflow-hidden rounded-md">
+                    <div
+                      v-for="liquid in liquids"
+                      :key="liquid.liquidId"
+                      :class="{
+                        'bg-argon-600/5': liquid.liquidId === selectedLiquidId,
+                        'text-slate-400': repaymentWindows.get(liquid.liquidId) !== true,
+                        'hover:bg-argon-menu-hover': repaymentWindows.get(liquid.liquidId) === true,
+                      }"
+                      class="relative flex items-center gap-2 px-4 py-3"
+                    >
+                      <button
+                        type="button"
+                        :aria-label="`${satToBtcNm(liquid.satoshis).format('0,0.[00000000]')} BTC Liquid`"
+                        :aria-pressed="liquid.liquidId === selectedLiquidId"
+                        :disabled="
+                          liquid.liquidId !== selectedLiquidId && repaymentWindows.get(liquid.liquidId) !== true
+                        "
+                        class="focus-visible:outline-argon-600 absolute inset-0 focus-visible:outline-2 focus-visible:-outline-offset-2 enabled:cursor-pointer"
+                        @click="
+                          selectedLiquidId = liquid.liquidId === selectedLiquidId ? undefined : liquid.liquidId;
+                          isLiquidAttachmentOpen = false;
+                        "
+                      />
+                      <div class="pointer-events-none flex items-center gap-2">
+                        <strong>{{ satToBtcNm(liquid.satoshis).format('0,0.[00000000]') }} BTC Liquid</strong>
+                        <CheckIcon
+                          v-if="liquid.liquidId === selectedLiquidId"
+                          class="text-argon-600 size-4"
+                          aria-hidden="true"
+                        />
+                      </div>
+                      <div
+                        v-if="repaymentWindows.get(liquid.liquidId) === false"
+                        class="relative flex items-center gap-1 text-sm"
+                      >
+                        <span>Ineligible</span>
+                        <Tooltip :asChild="true" side="top">
+                          <button
+                            type="button"
+                            aria-label="Why this Liquid is ineligible"
+                            class="inline-flex cursor-help"
+                          >
+                            <InformationCircleIcon class="size-4" />
+                          </button>
+                          <template #content>
+                            <p>
+                              A Bitcoin lock backing this Liquid expires too soon to cover the
+                              {{ holdingPeriodDays }}-day holding period plus the 10-day release request window.
+                            </p>
+                          </template>
+                        </Tooltip>
+                      </div>
+                      <span v-else-if="repaymentWindows.get(liquid.liquidId) === undefined" class="text-sm">
+                        Unavailable
+                      </span>
+                      <span class="pointer-events-none ml-auto text-sm">
+                        <template
+                          v-if="liquidPaydownEstimates?.byLiquid.get(liquid.liquidId)?.paydownPercent !== undefined"
+                        >
+                          Pay down
+                          {{
+                            numeral(liquidPaydownEstimates!.byLiquid.get(liquid.liquidId)!.paydownPercent).formatIfElse(
+                              liquidPaydownEstimates!.byLiquid.get(liquid.liquidId)!.paydownPercent! < 10,
+                              '0.[0]',
+                              '0',
+                            )
+                          }}%
+                        </template>
+                        <template v-else>Pay down —</template>
+                      </span>
+                    </div>
+                  </div>
+                  <PopoverArrow :width="24" :height="12" class="-mt-px fill-white stroke-gray-400/30" />
+                </PopoverContent>
+              </PopoverPortal>
+            </PopoverRoot>
+          </div>
+          <p class="mt-2 text-sm leading-6 text-slate-600">
+            Use this purchase to pay down
+            <template v-if="selectedLiquidPaydown?.paydownPercent !== undefined">
+              <strong>
+                {{
+                  numeral(selectedLiquidPaydown.paydownPercent).formatIfElse(
+                    selectedLiquidPaydown.paydownPercent < 10,
+                    '0.[0]',
+                    '0',
+                  )
+                }}%
+              </strong>
+              of this Liquid
+            </template>
+            <template v-else>part of a Liquid</template>
+            and
+            <strong v-if="purchaseProjections?.withLiquid">
+              earn up to ₳{{
+                microgonToArgonNm(purchaseProjections.withLiquid.liquidRepaymentBonus).format('0,0.[00]')
+              }}
+              extra in bonuses (+{{
+                numeral(purchaseProjections.withLiquid.liquidRepaymentBonusApy).format('0,0.[0]')
+              }}% APY).
+            </strong>
+            <template v-else>earn an extra repayment bonus.</template>
+            You’ll pay down using the most favorable rate over the next {{ holdingPeriodDays }} days and keep the rest
+            in your wallet.
+            <span v-if="selectedLiquidPaydown">
+              If ARGN returns to target, that’s about
+              <strong>
+                ₳{{ microgonToArgonNm(selectedLiquidPaydown.returnedAtTarget).format('0,0.[00]') }} back in your wallet.
+              </strong>
+            </span>
+          </p>
+        </section>
 
         <section
           v-if="holdingPeriodDays !== undefined"
@@ -169,7 +314,11 @@
                   <InformationCircleIcon class="size-4 text-gray-400" />
                 </button>
                 <template #content>
-                  <p v-if="mayEarnRewards === false">
+                  <p v-if="selectedLiquid">
+                    After the holding period, your purchased ARGN pays down the selected Liquid. Bonuses and unused ARGN
+                    go to your Internal App Wallet.
+                  </p>
+                  <p v-else-if="mayEarnRewards === false">
                     <template v-if="quote!.quotedMicrogonsOut < quote!.minimumRewardPrincipal">
                       The minimum purchase amount eligible for bonuses is
                       {{ numeral(formatUnits(quote!.minimumRewardPrincipal, 6)).format('0,0.[000000]') }} ARGN.
@@ -181,13 +330,11 @@
                   </p>
                   <p v-else>
                     <template v-if="market.dates.releases[market.data.currentFrameId]">
-                      Qualifying purchases are held until
+                      Your ARGN is available in your wallet from
                       {{ dayjs(market.dates.releases[market.data.currentFrameId]).format('M/D/YYYY') }}, whether or not
                       your bid receives a bonus.
                     </template>
-                    <template v-else>
-                      Qualifying purchases are held for {{ holdingPeriodDays }} days from admission.
-                    </template>
+                    <template v-else>Your ARGN is available in your wallet after the holding period.</template>
                   </p>
                   <p
                     v-if="
@@ -205,13 +352,13 @@
               </Tooltip>
             </header>
             <div class="text-argon-600 py-1 text-3xl font-bold">
-              <template v-if="mayEarnRewards === false">NO HOLD</template>
+              <template v-if="mayEarnRewards === false && !selectedLiquid">NO HOLD</template>
               <template v-else>{{ holdingPeriodDays }} DAYS</template>
             </div>
-            <div v-if="mayEarnRewards === false" class="font-light text-slate-500">No Bonus Bidding</div>
-            <div v-else-if="market.dates.releases[market.data.currentFrameId]" class="font-light text-slate-500">
-              If eligible, releases {{ dayjs(market.dates.releases[market.data.currentFrameId]).format('M/D/YYYY') }}
+            <div v-if="mayEarnRewards === false && !selectedLiquid" class="font-light text-slate-500">
+              No Bonus Bidding
             </div>
+            <div v-else class="font-light text-slate-500">Before funds are available</div>
           </div>
           <div class="px-3">
             <header class="font-bold text-gray-600/60">ESTIMATED APY</header>
@@ -240,7 +387,11 @@
                   <p v-if="mayEarnRewards === false">Your return on this purchase, after estimated Ethereum fees.</p>
                   <p v-else>
                     The lower amount is your savings from buying below target, after estimated Ethereum fees. The upper
-                    amount includes the maximum bonus for a qualifying purchase.
+                    amount includes the maximum bonus available through bidding.
+                  </p>
+                  <p v-if="selectedLiquid" class="mt-2">
+                    The upper estimate also includes the maximum Liquid repayment bonus. ARGN returned to your wallet is
+                    part of your purchase, so it is not counted again as extra profit.
                   </p>
                 </template>
               </Tooltip>
@@ -267,12 +418,22 @@
           Purchased {{ numeral(formatUnits(purchase.argonPurchaseEvent.transfer.amount, 6)).format('0,0.[00]') }} ARGN
         </h1>
         <p class="mt-2 font-light text-slate-500">
-          <template v-if="purchase.status === StabilizerBuyStatus.Complete">
+          <template v-if="purchase.liquidRepaymentEvent">Liquid Paydown is complete.</template>
+          <template v-else-if="purchase.repayLiquidId !== undefined">
+            Your purchase is scheduled for Liquid Paydown.
+          </template>
+          <template v-else-if="purchase.status === StabilizerBuyStatus.Complete">
             Your purchased ARGN is available in your Internal App Wallet.
           </template>
           <template v-else-if="purchase.admissionFrame !== undefined && market.dates.releases[purchase.admissionFrame]">
             Held until {{ dayjs(market.dates.releases[purchase.admissionFrame]).format('M/D/YYYY [at] h:mm a') }}.
           </template>
+        </p>
+        <p
+          v-if="StabilizerBuys.getRequestedLiquidId(purchase) !== undefined && purchase.repayLiquidId === undefined"
+          class="mt-3 text-sm text-slate-500"
+        >
+          Liquid Paydown could not be applied. Your purchase continues as an ordinary Stabilizer Buy.
         </p>
         <dl class="mt-6 grid grid-cols-2 gap-y-3 border-y border-slate-400/30 py-5 text-slate-500">
           <dt>Paid</dt>
@@ -301,6 +462,15 @@
           <p v-if="purchase.principal !== undefined" class="font-light">
             Purchased
             <strong>{{ numeral(formatUnits(purchase.principal, 6)).format('0,0.[00]') }} ARGN</strong>
+          </p>
+          <p
+            v-if="
+              StabilizerBuys.getRequestedLiquidId(purchase) !== undefined &&
+              purchase.status !== StabilizerBuyStatus.Failed
+            "
+            class="font-light text-slate-500"
+          >
+            Your Liquid Paydown request will be confirmed on Argon after the Ethereum purchase.
           </p>
           <ProgressBar
             v-if="progressPct !== undefined"
@@ -379,7 +549,7 @@
           <template v-else>Finalize Purchase &raquo;</template>
         </button>
         <button
-          v-else-if="purchase.admissionFrame !== undefined"
+          v-else-if="purchase?.admissionFrame !== undefined"
           type="button"
           class="bg-argon-button hover:bg-argon-button-hover cursor-pointer rounded-md px-5 py-2 font-semibold text-white"
           @click="emit('bid', purchase!.admissionFrame!)"
@@ -395,10 +565,11 @@
 <script setup lang="ts">
 import { useNow } from '@vueuse/core';
 import { computed, onScopeDispose, ref, shallowRef, watch } from 'vue';
-import { InformationCircleIcon } from '@heroicons/vue/24/outline';
+import { CheckIcon, ChevronDownIcon, InformationCircleIcon } from '@heroicons/vue/24/outline';
 import { NetworkConfig, UnitOfMeasurement, StabilizerBuyQuoteUnavailableError } from '@argonprotocol/apps-core';
 import { formatEther, formatUnits, getAddress, parseUnits } from 'viem';
 import dayjs from 'dayjs';
+import BigNumber from 'bignumber.js';
 import {
   StabilizerBuyStatus,
   type IStabilizerBuyQuote,
@@ -412,15 +583,33 @@ import ProgressBar from '../components/ProgressBar.vue';
 import Tooltip from '../components/Tooltip.vue';
 import WalletFundingCallout from '../components/WalletFundingCallout.vue';
 import AlertIcon from '../assets/alert.svg?component';
-import numeral from '../lib/numeral.ts';
+import numeral, { createNumeralHelpers } from '../lib/numeral.ts';
+import { getCurrency } from '../stores/currency.ts';
+import { PopoverArrow, PopoverContent, PopoverPortal, PopoverRoot, PopoverTrigger } from 'reka-ui';
+import type { BitcoinLiquid } from '../lib/BitcoinLiquid.ts';
 
 import { useMarketStabilizers } from '../stores/marketStabilizers.ts';
 import { getStabilizerBuys, getStabilizerBuyPurchases } from '../stores/stabilizerBuys.ts';
 import { getWalletKeys } from '../stores/wallets.ts';
-import { projectStabilizerBuyQuote } from '../lib/financials/StabilizerBuys.ts';
+import {
+  projectStabilizerBuyQuote,
+  projectStabilizerBuyLiquidPaydown,
+  projectStabilizerBuyPendingPaydowns,
+} from '../lib/financials/StabilizerBuys.ts';
+import { getBitcoinLocks } from '../stores/bitcoin.ts';
 import type { StabilizerBuyPurchases } from '../lib/StabilizerBuyPurchases.ts';
+import { StabilizerBuys } from '../lib/StabilizerBuys.ts';
 
-const props = defineProps<{ buyId?: string; opportunity?: Extract<IStabilizerBuyOpportunity, { type: 'buy' }> }>();
+const props = withDefaults(
+  defineProps<{
+    buyId?: string;
+    opportunity?: Extract<IStabilizerBuyOpportunity, { type: 'buy' }>;
+    liquids?: readonly BitcoinLiquid[];
+    initialLiquidId?: number;
+    repaymentWindows?: ReadonlyMap<number, boolean | undefined>;
+  }>(),
+  { liquids: () => [], repaymentWindows: () => new Map() },
+);
 const emit = defineEmits<{
   close: [];
   bid: [admissionFrame: number];
@@ -432,6 +621,16 @@ const market = useMarketStabilizers();
 const buys = getStabilizerBuys();
 const walletKeys = getWalletKeys();
 
+const currency = getCurrency();
+const bitcoinLocks = getBitcoinLocks();
+const { satToBtcNm, microgonToArgonNm } = createNumeralHelpers(currency);
+const isLiquidAttachmentOpen = ref(false);
+const selectedLiquidId = ref(props.initialLiquidId);
+const selectedLiquid = computed(() => props.liquids.find(liquid => liquid.liquidId === selectedLiquidId.value));
+watch(selectedLiquid, liquid => {
+  if (!liquid) selectedLiquidId.value = undefined;
+});
+
 const opportunity = props.opportunity ?? market.opportunity;
 const usdcAmount = ref(0);
 const amountSelection = ref<'maxProfit' | 'maxWallet' | 'minimum' | 'custom'>('maxProfit');
@@ -439,6 +638,7 @@ const walletAddress = ref(opportunity?.quote.sourceAddress ?? market.wallets[0]?
 
 const quote = shallowRef<IStabilizerBuyQuote>();
 const minimumQuote = shallowRef<IStabilizerBuyQuote>();
+
 const feePreview = shallowRef<Awaited<ReturnType<StabilizerBuyPurchases['previewPurchase']>>>();
 const purchaseError = ref<string>();
 const isPurchasing = ref(false);
@@ -489,23 +689,88 @@ const hasCurrentQuote = computed(() => {
   if (!quote.value) return false;
   if (quote.value.request.deadline <= BigInt(Math.floor(now.value.getTime() / 1000))) return false;
   if (quote.value.request.maxUsdcIn !== BigInt(Math.round(usdcAmount.value * 1_000_000))) return false;
+  if (quote.value.request.repayLiquidId !== BigInt(selectedLiquidId.value ?? 0)) return false;
   return quote.value.sourceAddress.toLowerCase() === walletAddress.value?.toLowerCase();
 });
 const needsQuote = computed(() => !hasCurrentQuote.value || !!purchaseError.value);
 
+const liquidPaydownEstimates = computed(() => {
+  if (!hasCurrentQuote.value || !quote.value) return;
+  const microgons = quote.value.quotedMicrogonsOut;
+  const priceIndex = currency.priceIndex;
+  const lockExpirations = new Map<number, number>();
+  for (const liquid of props.liquids) {
+    for (const fission of liquid.fissions) {
+      const lock = bitcoinLocks.getLockById(fission.lockId);
+      if (lock?.scriptDetails) lockExpirations.set(fission.lockId, lock.scriptDetails.vaultClaimHeight);
+    }
+  }
+  const pending = projectStabilizerBuyPendingPaydowns({
+    positions: market.data.positions,
+    liquids: market.liquids,
+    lockExpirations,
+    priceIndex,
+  });
+  return {
+    purchase: projectStabilizerBuyLiquidPaydown({ microgons, priceIndex }),
+    byLiquid: new Map(
+      props.liquids.map(liquid => {
+        if (pending.unavailableLiquidIds.has(liquid.liquidId)) return [liquid.liquidId, undefined];
+        return [
+          liquid.liquidId,
+          projectStabilizerBuyLiquidPaydown({
+            microgons,
+            priceIndex,
+            liquid,
+            lockExpirations,
+            availableSatoshisByFission: pending.availableSatoshisByFission,
+          }),
+        ];
+      }),
+    ),
+  };
+});
+const selectedLiquidPaydown = computed(() => {
+  if (selectedLiquidId.value !== undefined) return liquidPaydownEstimates.value?.byLiquid.get(selectedLiquidId.value);
+  return liquidPaydownEstimates.value?.purchase;
+});
+
 const holdingPeriodDays = computed(() => market.data.market?.purchaseHoldFrames);
-const purchaseProjection = computed(() => {
+const purchaseProjections = computed(() => {
   const current = quote.value;
-  const matchingRate = market.data.market?.matchingRate;
+  const rules = market.data.market;
   const fees = feePreview.value;
-  if (!current || !fees || holdingPeriodDays.value === undefined || !matchingRate) return;
-  return projectStabilizerBuyQuote({
+  if (!current || !hasCurrentQuote.value || !rules || !fees || holdingPeriodDays.value === undefined) return;
+  const matchingRate = rules.matchingRate;
+  if (!matchingRate) return;
+
+  const input = {
     quote: current,
     feeEstimateWei: fees.feeEstimateWei,
     periodDays: holdingPeriodDays.value,
     matchingRate,
-  });
+  };
+  const ordinary = projectStabilizerBuyQuote(input);
+  const paydown = selectedLiquidPaydown.value;
+  const rewardRate = rules.liquidRepaymentRewardPercent;
+  let withLiquid: ReturnType<typeof projectStabilizerBuyQuote>;
+  if (paydown && rewardRate) {
+    withLiquid = projectStabilizerBuyQuote({
+      ...input,
+      liquidRepaymentMicrogons: paydown.appliedMicrogons,
+      liquidRepaymentRewardPercent: rewardRate,
+    });
+  }
+  return {
+    ordinary,
+    withLiquid,
+  };
 });
+const purchaseProjection = computed(() => {
+  if (selectedLiquid.value) return purchaseProjections.value?.withLiquid;
+  return purchaseProjections.value?.ordinary;
+});
+
 const mayEarnRewards = computed(() => {
   const current = quote.value;
   if (!current || !hasCurrentQuote.value) return;
@@ -514,6 +779,7 @@ const mayEarnRewards = computed(() => {
 
 const canPurchase = computed(
   () =>
+    (selectedLiquidId.value === undefined || props.repaymentWindows.get(selectedLiquidId.value) === true) &&
     hasCurrentQuote.value &&
     !!feePreview.value &&
     availableUsdcAmount.value !== undefined &&
@@ -544,7 +810,13 @@ watch(
 );
 
 watch(
-  [walletAddress, availableUsdcAmount, () => selectedWallet.value?.data.fetchErrorMsg],
+  [
+    walletAddress,
+    availableUsdcAmount,
+    () => selectedWallet.value?.data.fetchErrorMsg,
+    selectedLiquidId,
+    () => market.buyDiscountPercent !== undefined,
+  ],
   ([address], previous) => {
     if (address !== previous?.[0]) {
       amountSelection.value = 'maxProfit';
@@ -590,6 +862,11 @@ async function refreshQuote() {
 
   const wallet = selectedWallet.value;
   if (isClosed || props.buyId || !wallet) return;
+  if (market.buyDiscountPercent === undefined) {
+    quote.value = undefined;
+    feePreview.value = undefined;
+    return;
+  }
 
   isQuoting.value = true;
   purchaseError.value = undefined;
@@ -611,6 +888,7 @@ async function refreshQuote() {
       destinationAddress: buys.accountAddress,
       sourceAddress: wallet.address,
       quoterAddress: getAddress(quoter),
+      repayLiquidId: BigInt(selectedLiquidId.value ?? 0),
     };
 
     let current: IStabilizerBuyQuote;
@@ -633,7 +911,12 @@ async function refreshQuote() {
         maxUsdcIn = parseUnits(usdcAmount.value.toFixed(6), 6);
       }
 
-      current = await purchases.quote({ ...input, maxUsdcIn, sizeToTarget: amountSelection.value === 'minimum' });
+      current = await purchases.quote({
+        ...input,
+        maxUsdcIn,
+        sizeToTarget: amountSelection.value === 'minimum',
+        signal: request.signal,
+      });
       if (request.signal.aborted) return;
       preview = await purchases.previewPurchase({ ethereumQuote: current });
     }
@@ -670,6 +953,7 @@ async function submitPurchase() {
       ethereumQuote: quote.value,
       ethereumWallet: selectedWallet.value,
       ethereumMaxFeeWei: feePreview.value.feeEstimateWei,
+      txSigner: selectedLiquidId.value === undefined ? undefined : await walletKeys.getDefaultArgonSigner(),
     });
 
     if (!isClosed) emit('purchased', saved.id);

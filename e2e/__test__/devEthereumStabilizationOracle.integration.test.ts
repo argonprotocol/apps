@@ -1,3 +1,4 @@
+import { spawnSync } from 'node:child_process';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
@@ -208,6 +209,14 @@ describe('local pool and Rust file oracle', { tags: ['isolated-argon-network'] }
         expect(await runtimeClient(client).query.priceIndex.current()).toMatchObject({
           stabilizerPoolSqrtPriceX96: changedPrice,
         });
+      } catch (error) {
+        const logs = spawnSync(
+          'docker',
+          ['logs', '--tail', '60', `${network.composeEnv.COMPOSE_PROJECT_NAME}-oracle-price-1`],
+          { encoding: 'utf8', timeout: 10_000 },
+        );
+        console.error('Rust file oracle logs:', logs.stdout, logs.stderr, logs.error ?? '');
+        throw error;
       } finally {
         allowBootstrap.resolve();
         allowPoolSetup.resolve();

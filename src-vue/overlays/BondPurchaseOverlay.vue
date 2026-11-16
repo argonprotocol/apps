@@ -226,7 +226,7 @@
               <div class="w-1/3">
                 <header class="font-bold opacity-40">AVG BOND RETURNS</header>
                 <div class="text-3xl text-argon-600 font-bold py-1">
-                  <template v-if="vaultingStats.argonBondsAPR !== undefined"><Returns metric="APR" :returns="{ apr: vaultingStats.argonBondsAPR }" /></template>
+                  <template v-if="vaultingStats?.argonBondsAPR !== undefined"><Returns metric="APR" :returns="{ apr: vaultingStats.argonBondsAPR }" /></template>
                   <template v-else>&mdash;</template>
                 </div>
                 <div class="font-light opacity-80">Based on Past Performance<sup>&dagger;</sup></div>
@@ -326,7 +326,7 @@ const wallets = useWallets();
 const argonBonds = getArgonBonds();
 const currency = getCurrency();
 const walletKeys = getWalletKeys();
-const vaultingStats = useVaultingStats();
+const vaultingStats = Vue.shallowRef<ReturnType<typeof useVaultingStats>>();
 const bondPurchase = getBondTransactionOperations().bondBuy;
 const vaults = getVaults();
 const financials = useFinancials();
@@ -436,8 +436,8 @@ const neededMicrogons = Vue.computed(() => {
 });
 
 const projectedEarnings = Vue.computed(() => {
-  if (vaultingStats.argonBondsAPR === undefined) return;
-  const bondsAPR = Math.min(999, vaultingStats.argonBondsAPR);
+  if (vaultingStats.value?.argonBondsAPR === undefined) return;
+  const bondsAPR = Math.min(999, vaultingStats.value.argonBondsAPR);
   const purchaseMicrogons = BigInt(purchaseAmount.value) * MICROGONS_PER_ARGON_BIGINT;
   return bigNumberToBigInt(BigNumber(purchaseMicrogons.toString()).multipliedBy(bondsAPR).dividedBy(100));
 });
@@ -554,6 +554,8 @@ async function loadPurchase() {
 }
 
 function openOverlay() {
+  vaultingStats.value ??= useVaultingStats();
+  void vaultingStats.value.update().catch(error => console.warn('[BondPurchaseOverlay] Unable to load returns', error));
   cleanupPurchase();
   resetPurchase();
   vaultId.value = undefined;

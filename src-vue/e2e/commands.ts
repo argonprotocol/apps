@@ -1,4 +1,5 @@
 import { MyVault } from '../lib/MyVault.ts';
+import { SQL_TRANSACTION_SESSION_ID } from '../lib/Db.ts';
 import { JsonExt } from '@argonprotocol/apps-core';
 import { concat, getAddress, hexToBytes, toHex } from 'viem';
 import { invoke } from '@tauri-apps/api/core';
@@ -1385,6 +1386,7 @@ async function runCommandInternal(command: string, argsInput: unknown, context: 
     const [checkpoint] = await withTimeout(
       invoke<{ busy: number; log: number; checkpointed: number }[]>('sql_select_write', {
         db: db.sql.path,
+        sessionId: SQL_TRANSACTION_SESSION_ID,
         query: 'PRAGMA wal_checkpoint(TRUNCATE)',
         values: [],
       }),

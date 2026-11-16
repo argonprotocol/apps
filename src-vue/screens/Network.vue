@@ -12,8 +12,8 @@
 
         <div StatWrapper class="col-span-1 xl:col-span-2 flex flex-col h-full border-b border-slate-400/50">
           <Returns metric="APY" :returns="{ apy: data.miningAPY }" :showLabel="false" />
-          <label v-if="miningStats.isUpdating || (miningStats.averageAPY === undefined && data.miningAPY !== undefined)" class="whitespace-nowrap">
-            Calculating Mining APY<template v-if="miningStats.cohortProgress.total > 0"> ({{ miningStats.cohortProgress.completed }}/{{ miningStats.cohortProgress.total }})</template>
+          <label v-if="miningStats.isUpdating" class="whitespace-nowrap">
+            Calculating Mining APY<template v-if="miningStats.frameProgress.total > 0"> ({{ miningStats.frameProgress.completed }}/{{ miningStats.frameProgress.total }})</template>
           </label>
           <label v-else>Mining APY</label>
           <p v-if="!miningStats.isUpdating && miningStats.error" class="mt-2 text-sm font-light">
@@ -83,7 +83,7 @@
             }}
           </span>
           <label class="whitespace-nowrap">
-            Mining Revenue<template v-if="miningStats.cohortProgress.total > 0 && (miningStats.isUpdating || (miningStats.averageAPY === undefined && data.miningAPY !== undefined))"> ({{ miningStats.cohortProgress.completed }}/{{ miningStats.cohortProgress.total }})</template>
+            Mining Revenue<template v-if="miningStats.frameProgress.total > 0 && miningStats.isUpdating"> ({{ miningStats.frameProgress.completed }}/{{ miningStats.frameProgress.total }})</template>
           </label>
         </div>
 
@@ -162,17 +162,15 @@ const data = Vue.computed(() => {
     argonBurnCapacity: vaultingStats.argonBurnCapacity,
     microgonsInCirculation: microgonsInCirculation.value ?? 0n,
   });
-  const miningRevenue =
-    miningStats.averageAPY !== undefined
-      ? miningStats.activeBlockRewards
-      : miningStats.provisionalReturns?.microgonRevenue;
+  let miningRevenue: bigint | undefined;
+  if (miningStats.averageAPY !== undefined) miningRevenue = miningStats.activeBlockRewards;
 
   return {
     totalMarketValueUsd:
       currency.isLoaded && microgonsInCirculation.value !== undefined && micronotsInCirculation.value !== undefined
         ? currency.convertMicrogonTo(totalEconomicValue, UnitOfMeasurement.USD)
         : undefined,
-    miningAPY: miningStats.averageAPY ?? miningStats.provisionalReturns?.apy,
+    miningAPY: miningStats.averageAPY,
     vaultingAPR: vaultingStats.isLoaded ? vaultingStats.averageAPR : undefined,
     bitcoinAPR: vaultingStats.bitcoinAPR,
     argonBondsAPR: vaultingStats.argonBondsAPR,
@@ -205,7 +203,7 @@ const data = Vue.computed(() => {
 });
 
 async function retryMiningReturns() {
-  await miningStats.update().catch(error => console.warn('[Network] Unable to refresh mining statistics', error));
+  await miningStats.update(true).catch(error => console.warn('[Network] Unable to refresh mining statistics', error));
 }
 
 async function loadData() {

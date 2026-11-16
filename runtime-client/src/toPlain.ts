@@ -18,19 +18,20 @@ import type { RuntimeTypeOverride } from './typeOverrides.js';
 
 export class RuntimeValueNormalizationError extends Error {}
 
-export function toPlain(
-  value: unknown,
-  override?: RuntimeTypeOverride,
-  storageKeyOverrides?: readonly RuntimeTypeOverride[],
-): unknown {
-  return normalizeValue(value, '$', override, storageKeyOverrides);
+type RuntimeValueOverrides = {
+  storageKeyOverrides?: readonly RuntimeTypeOverride[];
+  queryFieldOverrides?: Readonly<Record<string, RuntimeTypeOverride>>;
+};
+
+export function toPlain(value: unknown, override?: RuntimeTypeOverride, options: RuntimeValueOverrides = {}): unknown {
+  return normalizeValue(value, '$', override, options);
 }
 
 function normalizeValue(
   value: unknown,
   path: string,
   override?: RuntimeTypeOverride,
-  storageKeyOverrides?: readonly RuntimeTypeOverride[],
+  options: RuntimeValueOverrides = {},
 ): unknown {
   if (value === null || value === undefined) return value;
   if (typeof value === 'bigint' || typeof value === 'boolean' || typeof value === 'string') return value;
@@ -38,7 +39,7 @@ function normalizeValue(
   if (BigNumber.isBigNumber(value)) return value;
 
   if (value instanceof Option) {
-    return value.isNone ? null : normalizeValue(value.unwrap(), path, override, storageKeyOverrides);
+    return value.isNone ? null : normalizeValue(value.unwrap(), path, override, options);
   }
   if (isRuntimeEvent(value)) {
     const names = value.data.names;
@@ -48,7 +49,12 @@ function normalizeValue(
         const name = names?.[index] ?? String(index);
         return [
           name,
-          normalizeValue(entry, propertyPath(`${path}.data`, name), fieldOverrides[name], storageKeyOverrides),
+          normalizeValue(
+            entry,
+            propertyPath(`${path}.data`, name),
+            options.queryFieldOverrides?.[name] ?? fieldOverrides[name],
+            options,
+          ),
         ];
       }),
     );
@@ -56,14 +62,19 @@ function normalizeValue(
   }
   if (value instanceof Enum) {
     if (value.isNone || value.value instanceof Null) return { type: value.type };
-    return { type: value.type, value: normalizeValue(value.value, `${path}.value`, override, storageKeyOverrides) };
+    return {
+      type: value.type,
+      value: normalizeValue(value.value, `${path}.value`, override, options),
+    };
   }
   if (value instanceof Struct) {
     return Object.fromEntries(
       [...value.entries()].map(([key, field]) => {
         const name = String(key);
-        const fieldOverride = (runtimeTypeOverrides.fields as Readonly<Record<string, RuntimeTypeOverride>>)[name];
-        return [name, normalizeValue(field, propertyPath(path, name), fieldOverride, storageKeyOverrides)];
+        const fieldOverride =
+          options.queryFieldOverrides?.[name] ??
+          (runtimeTypeOverrides.fields as Readonly<Record<string, RuntimeTypeOverride>>)[name];
+        return [name, normalizeValue(field, propertyPath(path, name), fieldOverride, options)];
       }),
     );
   }
@@ -71,23 +82,18 @@ function normalizeValue(
     if (override === 'mapEntries') {
       return [...value.entries()].map(([key, entry], index) => [
         normalizeValue(key, `${path}[${index}][0]`),
-        normalizeValue(entry, `${path}[${index}][1]`),
+        normalizeValue(entry, `${path}[${index}][1]`, undefined, options),
       ]);
     }
     const result: Record<string, unknown> = Object.create(null);
     for (const [key, entry] of value.entries()) {
       const normalizedKey = mapKey(key, `${path}.<key>`);
-      result[normalizedKey] = normalizeValue(
-        entry,
-        `${path}[${JSON.stringify(normalizedKey)}]`,
-        override,
-        storageKeyOverrides,
-      );
+      result[normalizedKey] = normalizeValue(entry, `${path}[${JSON.stringify(normalizedKey)}]`, override, options);
     }
     return result;
   }
   if (value instanceof Set) {
-    return [...value].map((entry, index) => normalizeValue(entry, `${path}[${index}]`, override, storageKeyOverrides));
+    return [...value].map((entry, index) => normalizeValue(entry, `${path}[${index}]`, override, options));
   }
   if (value instanceof Compact || value instanceof AbstractInt) return normalizeInteger(value, override);
   if (value instanceof Bool) return value.valueOf();
@@ -97,7 +103,7 @@ function normalizeValue(
   if (isStorageKey(value)) {
     return {
       args: value.args.map((entry, index) =>
-        normalizeValue(entry, `${path}.args[${index}]`, storageKeyOverrides?.[index]),
+        normalizeValue(entry, `${path}.args[${index}]`, options.storageKeyOverrides?.[index]),
       ),
     };
   }
@@ -105,13 +111,13 @@ function normalizeValue(
   if (value instanceof Raw) return value.toHex().toLowerCase();
   if (value instanceof Uint8Array) return value;
   if (Array.isArray(value)) {
-    return value.map((entry, index) => normalizeValue(entry, `${path}[${index}]`, override, storageKeyOverrides));
+    return value.map((entry, index) => normalizeValue(entry, `${path}[${index}]`, override, options));
   }
   if (isPlainObject(value)) {
     return Object.fromEntries(
       Object.entries(value).map(([key, entry]) => [
         key,
-        normalizeValue(entry, propertyPath(path, key), undefined, storageKeyOverrides),
+        normalizeValue(entry, propertyPath(path, key), undefined, options),
       ]),
     );
   }

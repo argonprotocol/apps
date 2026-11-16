@@ -77,6 +77,7 @@ export function setupMarketStabilizers() {
         maxPriceAgeTicks: 10,
         maxPositiveBids: 4,
         purchaseHoldFrames: 30,
+        liquidRepaymentRewardPercent: BigNumber(0.05),
       },
     },
     history: {
@@ -96,8 +97,14 @@ export function setupMarketStabilizers() {
       returnSummary: calculatePositionReturn([]),
     },
     returns: { byFrame: {}, byPurchase: {} },
+    closedAuctionBids: new Map(),
+    liquidPaydowns: [],
     dates: { admission: {}, opens: {}, closes: {}, releases: {} },
     wallets: [wallet],
+    liquids: [],
+    availableLiquids: [],
+    liquidRepaymentWindows: new Map(),
+    activate: fn(async () => true),
     hasAccess: true,
     canActivate: true,
     availableUsdc: 1_000_000_000n,
@@ -153,6 +160,7 @@ export function setupMarketStabilizers() {
         maxUsdcIn,
         minMicrogonsOut: (principal * 98n) / 100n,
         deadline: request.deadline,
+        repayLiquidId: request.repayLiquidId ?? 0n,
       },
       quotedMicrogonsOut: principal,
       prices: {
@@ -174,7 +182,7 @@ export function setupMarketStabilizers() {
       return {
         minimumQuote,
         quote: await quotePurchase({ ...request, maxUsdcIn: amount }),
-        preview: { feeEstimateWei: 200_000_000_000_000n, needsApproval: true },
+        preview: { feeEstimateWei: 200_000_000_000_000n, needsPermit: true },
       };
     }),
     estimateHistoricalFees: fn(async () => ({
@@ -187,7 +195,7 @@ export function setupMarketStabilizers() {
         ethereumUsdPrice: BigNumber(200),
       },
     })),
-    previewPurchase: fn(async () => ({ feeEstimateWei: 200_000_000_000_000n, needsApproval: true })),
+    previewPurchase: fn(async () => ({ feeEstimateWei: 200_000_000_000_000n, needsPermit: true })),
   } as unknown as NonNullable<ReturnType<typeof getStabilizerBuyPurchases>>);
   return market;
 }

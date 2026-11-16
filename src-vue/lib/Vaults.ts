@@ -1,5 +1,6 @@
 import {
   Currency as CurrencyBase,
+  type MainchainClients,
   type IAllVaultStats,
   type IBlockHeaderInfo,
   JsonExt,
@@ -24,6 +25,7 @@ export class Vaults extends VaultsBase {
   private finalizedSubscription?: VoidFunction;
   private rewardFrameId?: number;
   private isRewardFrameLoading = false;
+  private requiredRevenueFrameId?: number;
 
   constructor(
     network = NETWORK_NAME,
@@ -48,6 +50,21 @@ export class Vaults extends VaultsBase {
       });
     });
     await super.loadCurrentState(reload);
+  }
+
+  /** Ordinary desktop refreshes only fill the recent global-stat window. */
+  public override updateRevenue(
+    clients?: MainchainClients,
+    fromFrameId = Math.max(0, this.miningFrames.currentFrameId - 10),
+  ): Promise<IAllVaultStats> {
+    if (this.requiredRevenueFrameId !== undefined) fromFrameId = Math.min(fromFrameId, this.requiredRevenueFrameId);
+    return super.updateRevenue(clients, fromFrameId);
+  }
+
+  /** Keep the account's history demand active so finalized updates retry interrupted reads. */
+  public requireRevenueHistory(fromFrameId: number): Promise<IAllVaultStats> {
+    this.requiredRevenueFrameId = Math.min(this.requiredRevenueFrameId ?? fromFrameId, fromFrameId);
+    return this.updateRevenue();
   }
 
   public async subscribeToOperatorName(vaultId: number, onUpdate: (name?: string) => void): Promise<VoidFunction> {

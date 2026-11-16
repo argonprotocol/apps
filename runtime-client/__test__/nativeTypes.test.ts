@@ -27,6 +27,18 @@ describe('native runtime query types', () => {
     expect(`${bondLot}${bitcoinLock}`).not.toMatch(/\bCompact<|\bOption<|\bStruct\b|\bEnum\b/);
   });
 
+  it('scopes fixed-point repayment prices without changing Fission monetary fields', () => {
+    const queries = readRuntimeQueries(querySource, lookupSource, definitionSource, typeOverrides);
+    const repayment = queries.stabilizerBuys.liquidRepaysByAccountAndGatewayNonce.result;
+    expect(repayment).toContain('readonly microgons: bigint');
+    expect(repayment).toContain('readonly microgonsAtTargetPerBtc: BigNumber');
+    expect(repayment).toContain('readonly purchaseRValue: BigNumber');
+    expect(repayment).toContain('readonly rValueHighWater: BigNumber');
+    expect(queries.bitcoinFissions.fissionByOwnerAndId.result).toContain('readonly microgonsAtTargetPerBtc: bigint');
+    expect(queries.bitcoinFissions.rValueHighWaterByFrame.result).toContain('readonly rValue: BigNumber');
+    expect(queries.stabilizerBuys.priceHistoryByTick.result).toContain('readonly microgonsAtTargetPerBtc: BigNumber');
+  });
+
   it('preserves native option, vector, tuple, bytes, and account policies', () => {
     const queries = readRuntimeQueries(querySource, lookupSource, definitionSource);
 
