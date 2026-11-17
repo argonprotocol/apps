@@ -39,7 +39,8 @@ describe('CapturedHistoryReader storage capture', () => {
     database.exec(`CREATE TABLE Blocks (
       blockNumber INTEGER PRIMARY KEY,
       blockHash BLOB NOT NULL,
-      specVersion INTEGER NOT NULL
+      specVersion INTEGER NOT NULL,
+      systemEvents BLOB NOT NULL DEFAULT X'00'
     );
     CREATE TABLE RuntimeMetadata (
       specVersion INTEGER PRIMARY KEY,
@@ -153,5 +154,18 @@ describe('CapturedHistoryReader storage capture', () => {
     expect(clientAt).toHaveBeenCalledOnce();
     expect(liveKeys).toHaveBeenCalledOnce();
     expect(queryStorageAt).not.toHaveBeenCalled();
+  });
+
+  it('rejects a different block number or hash after loading events', async () => {
+    const snapshot = await reader.getEventsWithSpec({ blockNumber: 1, blockHash });
+
+    expect(snapshot).toEqual({ events: [], specVersion: 1 });
+    await expect(reader.getEventsWithSpec({ blockNumber: 1, blockHash: cachedHash })).rejects.toThrow(
+      `Seed block 1 hash does not match ${cachedHash}`,
+    );
+    await expect(reader.getEventsWithSpec({ blockNumber: 2, blockHash })).rejects.toThrow(
+      'Seed does not contain block 2',
+    );
+    expect(await reader.getEventsWithSpec({ blockNumber: 1, blockHash })).toEqual(snapshot);
   });
 });

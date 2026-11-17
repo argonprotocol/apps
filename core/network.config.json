@@ -55,7 +55,7 @@
     "indexerHost": "https://indexer.testnet.argonprotocol.org",
     "websiteHost": "https://staging.argon.network",
     "ethereumNetwork": {
-      "beaconApiUrl": "https://ethereum-sepolia-beacon-api.publicnode.com",
+      "beaconApiUrl": "https://lodestar-sepolia.chainsafe.io",
       "executionRpcUrls": [
         "https://ethereum-sepolia-rpc.publicnode.com",
         "https://11155111.rpc.thirdweb.com",

@@ -1,0 +1,25 @@
+# Reviewed 2026-11-17 for the pinned Linux AMD64 bitcoin-data Debian base.
+# Reassess when its base or extraction-only build/runtime commands change.
+ignore:
+  # https://security-tracker.debian.org/tracker/CVE-2026-109518
+  - vulnerability: CVE-2026-109518
+    package:
+      name: apt
+      version: '3.0.3'
+      type: deb
+    reason: Not affected; exploitation requires an APT package download/install. The snapshot Dockerfile never runs APT, and its only runtime command extracts the bundled archive with cat and tar.
+
+  - vulnerability: CVE-2026-109518
+    package:
+      name: libapt-pkg7.0
+      version: '3.0.3'
+      type: deb
+    reason: Not affected; exploitation requires an APT package download/install. The snapshot Dockerfile never runs APT, and its only runtime command extracts the bundled archive with cat and tar.
+
+  # https://security-tracker.debian.org/tracker/CVE-2026-85091
+  - vulnerability: CVE-2026-85091
+    package:
+      name: zlib1g
+      version: '1:1.3.dfsg+really1.3.1-1+b1'
+      type: deb
+    reason: Not affected; the defect requires zlib gz* output calls after a failed write. The snapshot only extracts bundled data, and its cat, tar, and gzip executables do not link libz.

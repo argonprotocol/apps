@@ -54,13 +54,16 @@ if (values['verify-baseline']) {
   }
   if (values['build-inputs'] && !process.env.RUNNER_TEMP) throw new Error('--build-inputs requires RUNNER_TEMP');
   const runDirectory = Path.resolve(values.output ?? process.env.RUNNER_TEMP!);
-  // Stable source/target paths let main warm the same cache version that PRs restore.
-  const previousAppsDirectory = process.env.GITHUB_WORKSPACE
-    ? Path.join(process.env.GITHUB_WORKSPACE, '.qualification-build/previous-apps')
-    : `${runDirectory}-previous-apps`;
-  const mainchainDirectory = process.env.GITHUB_WORKSPACE
-    ? Path.join(process.env.GITHUB_WORKSPACE, '.qualification-build/mainchain')
-    : `${runDirectory}-mainchain`;
+  // Isolate the published app from newer Yarn settings in the candidate checkout.
+  // Stable source paths let the warmer and qualification use the same Rust cache.
+  let previousAppsDirectory = `${runDirectory}-previous-apps`;
+  if (process.env.RUNNER_TEMP) {
+    previousAppsDirectory = Path.join(process.env.RUNNER_TEMP, 'qualification-build/previous-apps');
+  }
+  let mainchainDirectory = `${runDirectory}-mainchain`;
+  if (process.env.GITHUB_WORKSPACE) {
+    mainchainDirectory = Path.join(process.env.GITHUB_WORKSPACE, '.qualification-build/mainchain');
+  }
   const seedPath = `${runDirectory}-indexer.db.gz`;
   for (const path of values['build-inputs']
     ? []
