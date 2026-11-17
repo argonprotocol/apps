@@ -1,4 +1,4 @@
-import { getHistoricalBitcoinLockDetails } from './recovery/BitcoinLockHistory.ts';
+import { getHistoricalBitcoinLockGuarantee } from './recovery/BitcoinLockHistory.ts';
 import { getMainchainClient } from '../stores/mainchain.ts';
 import dayjs from 'dayjs';
 import utc from 'dayjs/plugin/utc.js';
@@ -22,7 +22,11 @@ import BitcoinUtxoTracking from './BitcoinUtxoTracking.ts';
 import BitcoinReleases from './BitcoinReleases.ts';
 import { BitcoinCooperativeReleases } from './BitcoinCooperativeReleases.ts';
 import BitcoinMempool from './BitcoinMempool.ts';
-import { mergeRecoveredSecuritizationTerms, recordFinalizedSecuritization } from './BitcoinSecuritizationTerms.ts';
+import {
+  closeFinalizedSecuritization,
+  mergeRecoveredSecuritizationTerms,
+  recordFinalizedSecuritization,
+} from './BitcoinSecuritizationTerms.ts';
 import { BlockProgress } from './BlockProgress.ts';
 import { BITCOIN_BLOCK_MILLIS, ESPLORA_HOST } from './Env.ts';
 import {
@@ -138,7 +142,6 @@ export default class BitcoinLocks {
 
   #config!: IBitcoinLockConfig;
 
-  #lockTicksPerDay!: number;
   #subscription?: () => void;
   #waitForLoad?: IDeferred;
   #currency: CurrencyBase;
@@ -382,7 +385,8 @@ export default class BitcoinLocks {
       return 0; // Already expired
     }
     const lockReleaseCosignDeadlineFrames = this.#config?.lockReleaseCosignDeadlineFrames ?? 0;
-    const releaseOffset = this.#config.tickDurationMillis * this.#lockTicksPerDay * lockReleaseCosignDeadlineFrames;
+    const releaseOffset =
+      this.#config.tickDurationMillis * this.#config.argonTicksPerDay * lockReleaseCosignDeadlineFrames;
     const expirationDateMillis = (expirationBlock - oracleBitcoinBlockHeight) * BITCOIN_BLOCK_MILLIS;
     return Date.now() + expirationDateMillis - releaseOffset;
   }
@@ -501,7 +505,6 @@ export default class BitcoinLocks {
     try {
       const archiveClient = await getMainchainClient(true);
       this.#config ??= await BitcoinLock.getConfig(archiveClient);
-      this.#lockTicksPerDay = archiveClient.consts.bitcoinLocks.argonTicksPerDay;
       const bitcoinNetwork = this.#config.bitcoinNetwork.type;
       if (bitcoinNetwork === 'Bitcoin') this.data.bitcoinNetwork = BitcoinNetwork.Bitcoin;
       else if (bitcoinNetwork === 'Testnet') this.data.bitcoinNetwork = BitcoinNetwork.Testnet;
@@ -1375,14 +1378,6 @@ export default class BitcoinLocks {
     };
   }
 
-  private async syncPendingFundingSignals(lock: IBitcoinLockRecord, apiClient?: ArgonCurrentQueryClient) {
-    try {
-      await this.utxoTracking.syncPendingFundingSignals(lock, apiClient);
-    } catch (error) {
-      console.error('Error checking UTXO status:', error);
-    }
-  }
-
   public getRequestReleaseByVaultProgress(lock: IBitcoinLockRecord, miningFrames: MiningFrames): number {
     const release = this.releases.getActiveForLock(lock);
     const startTick = release?.requestedReleaseAtTick;
@@ -1545,14 +1540,21 @@ export default class BitcoinLocks {
       const affectedBitcoinLockIds = new Set<number>();
       for (const { event } of runtimeEvents) {
         if (event.section !== 'bitcoinLocks' && event.section !== 'bitcoinUtxos') continue;
+        const data = event.data as { lockId?: number; utxoId?: number };
+        const lockId = data.lockId ?? data.utxoId;
+        const isOwnEvent = 'accountId' in event.data && event.data.accountId === this.walletKeys.defaultArgonAddress;
+        if (lockId !== undefined && !this.locksByLockId[lockId] && !isOwnEvent) continue;
+        if (lockId === undefined && 'accountId' in event.data && !isOwnEvent) continue;
+
         hasBitcoinStateEvent = true;
-        const lockId = 'lockId' in event.data ? event.data.lockId : undefined;
         if (lockId === undefined) hasUnscopedBitcoinStateEvent = true;
         else affectedBitcoinLockIds.add(lockId);
       }
       const hasFissionStateEvent = runtimeEvents.some(({ event }) => {
         return (
           event.section === 'bitcoinFissions' &&
+          (event.data.accountId === this.walletKeys.defaultArgonAddress ||
+            Object.values(this.locksByLockId).some(lock => lock.ownerAccount === event.data.accountId)) &&
           (event.method === 'FissionCreated' ||
             event.method === 'FissionRatcheted' ||
             event.method === 'FissionRepaid' ||
@@ -1569,20 +1571,13 @@ export default class BitcoinLocks {
               event.data.account === this.walletKeys.defaultArgonAddress
             );
           }
-          return (
-            event.section === 'bitcoinLocks' &&
-            (event.method === 'BitcoinLockBurned' ||
-              event.method === 'BitcoinLockTerminated' ||
-              event.method === 'BitcoinSpentAfterRelease')
-          );
+          if (event.section !== 'bitcoinLocks') return false;
+          if (event.method === 'BitcoinLockBurned') return !!this.locksByLockId[event.data.utxoId];
+          if (event.method === 'BitcoinLockTerminated' || event.method === 'BitcoinSpentAfterRelease') {
+            return event.data.lockId !== undefined && !!this.locksByLockId[event.data.lockId];
+          }
+          return false;
         });
-      const hasBitcoinLockFlexibilityChange = runtimeEvents.some(({ event }) => {
-        return (
-          event.section === 'bitcoinLocks' &&
-          (event.method === 'BitcoinLockBackfillChanged' || event.method === 'BitcoinLockFlexibleChanged')
-        );
-      });
-
       const bitcoinTip = await clientAt.query.bitcoinUtxos.confirmedBitcoinBlockTip();
       const currentApi = await this.blockWatch.getFinalizedApi();
       this.data.oracleBitcoinBlockHeight = Number(bitcoinTip?.blockHeight ?? 0n);
@@ -1668,9 +1663,7 @@ export default class BitcoinLocks {
                 affectedBitcoinLockIds.has(lockRecord.lockId!) ||
                 hasUnscopedBitcoinStateEvent ||
                 (this.isLockFunded(lockRecord) &&
-                  (!this.utxoTracking.getFundingUtxos(lockRecord).length ||
-                    hasBitcoinLockFlexibilityChange ||
-                    hasFissionStateEvent));
+                  (!this.utxoTracking.getFundingUtxos(lockRecord).length || hasFissionStateEvent));
 
               // Phase 1: lock sync.
               if (shouldSyncLockingState) {
@@ -1689,8 +1682,12 @@ export default class BitcoinLocks {
                   continue;
                 if (record.phase.type !== 'ApplyExtrinsic') continue;
 
-                const lock = await getHistoricalBitcoinLockDetails(api, event.data.lockId);
-                if (!lock) throw new Error(`Bitcoin Lock #${event.data.lockId} is missing its finalized guarantee.`);
+                const { lock, isRemoved } = await getHistoricalBitcoinLockGuarantee({
+                  api,
+                  blockWatch: this.blockWatch,
+                  block: header,
+                  event,
+                });
                 const extrinsicIndex = record.phase.value;
                 const extrinsicEvents = runtimeEvents
                   .filter(
@@ -1701,6 +1698,7 @@ export default class BitcoinLocks {
                   .map(candidate => candidate.event);
                 const payment = BitcoinLock.readLockGuaranteePayment(extrinsicEvents, lock.lockId, lock.ownerAccount);
                 if (!payment) throw new Error(`Bitcoin Lock #${lock.lockId} finalized without its guarantee event.`);
+                const updated = { ...lockRecord };
                 const db = await this.dbPromise;
                 await db.transaction(async transaction => {
                   await recordFinalizedSecuritization(transaction.bitcoinSecuritizationHistoryTable, {
@@ -1710,8 +1708,25 @@ export default class BitcoinLocks {
                     origin: 'resecuritized',
                     ...payment,
                   });
+                  if (isRemoved) {
+                    await closeFinalizedSecuritization(transaction.bitcoinSecuritizationHistoryTable, {
+                      ownerAccount: lock.ownerAccount,
+                      lockId: lock.lockId,
+                      block: header,
+                      extrinsicIndex,
+                    });
+                    await transaction.bitcoinLocksTable.recordRemoval(updated, BitcoinLockStatus.Released, {
+                      removalBlockNumber: header.blockNumber,
+                      removalBlockHash: header.blockHash,
+                      removalBlockTime: new Date(header.blockTime),
+                      removalExtrinsicIndex: extrinsicIndex,
+                      removalReason: 'released',
+                    });
+                  }
                 });
+                Object.assign(lockRecord, updated);
               }
+              if (this.isTerminalLock(lockRecord)) return;
 
               // Phase 2: funding sync.
               if (hasNewOracleBitcoinBlockHeight) {
@@ -1722,7 +1737,7 @@ export default class BitcoinLocks {
                   );
                 });
               }
-              await this.syncPendingFundingSignals(lockRecord, currentApi).catch(err => {
+              await this.utxoTracking.observeMempoolFunding(lockRecord, currentApi).catch(err => {
                 console.warn(`[BitcoinLocks] Error syncing funding signals for utxo ${lockRecord.uuid}`, err);
               });
 
@@ -1863,15 +1878,24 @@ export default class BitcoinLocks {
     asOfBlock: number,
   ): IBitcoinLockRecord {
     const createdAt = current.createdAt < recovered.createdAt ? current.createdAt : recovered.createdAt;
+    const replayCoversRemoval = recovered.removalBlockNumber !== undefined && recovered.removalBlockNumber <= asOfBlock;
+    const isUnfundedCancellation =
+      current.status === BitcoinLockStatus.LockPendingFunding &&
+      current.fundedSatoshis === 0n &&
+      recovered.status === BitcoinLockStatus.Released &&
+      recovered.removalReason === 'released' &&
+      replayCoversRemoval;
+    if (isUnfundedCancellation) {
+      current.status = BitcoinLockStatus.Released;
+      current.removalReason = 'released';
+    }
+
     const hasCompleteBasis =
       recovered.microgonsAtTargetPerBtc !== undefined &&
       recovered.securitizationCoverageMicrogons !== undefined &&
       recovered.securitizationTick !== undefined;
     const replayCoversRetirement =
-      this.isTerminalLock(current) &&
-      this.isTerminalLock(recovered) &&
-      recovered.removalBlockNumber !== undefined &&
-      recovered.removalBlockNumber <= asOfBlock;
+      this.isTerminalLock(current) && this.isTerminalLock(recovered) && replayCoversRemoval;
     const basisIsAtLeastAsRecent =
       (recovered.securitizationTick ?? -1) >= (current.securitizationTick ?? -1) &&
       (recovered.removalBlockNumber ?? -1) >= (current.removalBlockNumber ?? -1);

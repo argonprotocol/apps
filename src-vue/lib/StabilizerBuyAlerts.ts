@@ -22,8 +22,9 @@ export class StabilizerBuyAlerts {
 
   private checkpoint?: OpportunityCheckpoint;
   private refreshPromise?: Promise<void>;
-  private lastQuoteAt = 0;
+  private lastQuoteTick?: number;
   private quoteRevision = 0;
+  private quoteRequest?: AbortController;
   private timer?: ReturnType<typeof setInterval>;
   private expiryTimer?: ReturnType<typeof setTimeout>;
   private isClosed = false;
@@ -39,12 +40,18 @@ export class StabilizerBuyAlerts {
 
   public start(): void {
     if (this.timer || this.isClosed) return;
-    this.timer = setInterval(() => void this.refresh().catch(() => undefined), 60_000);
+    this.timer = setInterval(() => void this.refresh().catch(() => undefined), NetworkConfig.tickMillis);
     void this.refresh().catch(() => undefined);
   }
 
   public refresh(): Promise<void> {
     if (this.isClosed) return Promise.resolve();
+    if (this.buys.buyDiscountPercent === undefined) {
+      this.quoteRequest?.abort(
+        new StabilizerBuyQuoteUnavailableError('There is no purchase available below the target price.'),
+      );
+      this.publishOpportunity(undefined);
+    }
 
     this.refreshPromise ??= this.check().finally(() => {
       this.refreshPromise = undefined;
@@ -56,6 +63,7 @@ export class StabilizerBuyAlerts {
   public async close(): Promise<void> {
     this.isClosed = true;
     clearInterval(this.timer);
+    this.quoteRequest?.abort();
     clearTimeout(this.expiryTimer);
     await this.refreshPromise?.catch(() => undefined);
   }
@@ -65,7 +73,7 @@ export class StabilizerBuyAlerts {
     const { block } = await this.buys.blockWatch.getLatestFinalizedSnapshot();
     await this.buys.refresh(block);
     if (this.buyNotice?.key === key) {
-      this.lastQuoteAt = 0;
+      this.lastQuoteTick = undefined;
       await this.refresh();
     }
     return this.getNotice(key);
@@ -103,9 +111,11 @@ export class StabilizerBuyAlerts {
   }
 
   public expireOpportunity(opportunity: Extract<IStabilizerBuyOpportunity, { type: 'buy' }>): void {
+    this.getPurchases()?.invalidatePoolEstimate(opportunity.quote.poolId);
     if (this.data.opportunity !== opportunity) return;
     this.quoteRevision++;
-    this.lastQuoteAt = 0;
+    this.quoteRequest?.abort(new StabilizerBuyQuoteUnavailableError('This buying opportunity has expired.'));
+    this.lastQuoteTick = undefined;
     this.publishOpportunity(undefined);
   }
 
@@ -129,7 +139,7 @@ export class StabilizerBuyAlerts {
         this.data.error = undefined;
       }
     } catch (error) {
-      if (error instanceof StabilizerBuyQuoteUnavailableError) {
+      if (error instanceof StabilizerBuyQuoteUnavailableError || this.buys.buyDiscountPercent === undefined) {
         this.publishOpportunity(undefined);
         this.data.error = undefined;
       } else this.data.error = (error as Error).message;
@@ -140,8 +150,7 @@ export class StabilizerBuyAlerts {
 
   private async refreshBuyOpportunity(db: Db): Promise<void> {
     const market = this.buys.data.market;
-    const quoteExpired =
-      this.data.opportunity && this.data.opportunity.quote.request.deadline <= BigInt(Math.floor(Date.now() / 1000));
+    const quoteExpired = this.data.opportunity && this.data.opportunity.expiresAt <= Date.now();
     if (quoteExpired) this.publishOpportunity(undefined);
 
     // A failed market read must not reset notification history for the same pool.
@@ -159,10 +168,14 @@ export class StabilizerBuyAlerts {
       return;
     }
 
-    if (this.buys.data.error || Date.now() - this.lastQuoteAt < 60_000) return;
+    if (this.buys.data.error) return;
+    const tick = this.buys.data.currentTick;
+    if (this.lastQuoteTick !== undefined && tick - this.lastQuoteTick < 5) return;
 
-    this.lastQuoteAt = Date.now();
+    this.lastQuoteTick = tick;
     const revision = this.quoteRevision;
+    const requestController = new AbortController();
+    this.quoteRequest = requestController;
 
     const quoterAddress = NetworkConfig.get().ethereumNetwork.stabilizerBuyQuoterAddress;
     if (!quoterAddress) throw new Error('This network has no Stabilizer price quoter configured.');
@@ -195,13 +208,18 @@ export class StabilizerBuyAlerts {
 
     const request = {
       maxUsdcIn: balance ?? 0n,
-      slippageBps: 50,
-      deadline: BigInt(Math.floor(Date.now() / 1000) + 15 * 60),
-      destinationAddress: this.buys.accountAddress,
       sourceAddress: wallet.address,
       quoterAddress: getAddress(quoterAddress),
+      cache: db.financialCacheTable,
+      signal: requestController.signal,
     };
-    const { quote, preview } = await purchases.quoteMaxProfit(request);
+    requestController.signal.throwIfAborted();
+    const estimated = await purchases.estimateMaxProfit(request);
+    if (!estimated) {
+      this.publishOpportunity(undefined);
+      return;
+    }
+    const { quote, preview } = estimated;
     if (this.isClosed || revision !== this.quoteRevision) return;
     if (this.buys.data.market?.approvedPool?.poolId !== quote.poolId) return;
     if (this.buys.data.market?.prices?.argonUsdPrice.gte(this.buys.data.market.prices.argonUsdTargetPrice)) return;
@@ -226,7 +244,7 @@ export class StabilizerBuyAlerts {
         apy: projection.apy.max,
         discountPercent: projection.discountPercent,
         observedAt: new Date(),
-        expiresAt: Number(quote.request.deadline) * 1000,
+        expiresAt: Date.now() + (Number(market.maxPriceAgeTicks) + 1) * NetworkConfig.tickMillis,
       });
     } else this.publishOpportunity(undefined);
     this.data.error = undefined;

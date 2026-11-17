@@ -10,6 +10,7 @@ import { getBlockWatch } from './mainchain.ts';
 import { getTransactionTracker } from './transactions.ts';
 import { getWalletKeys, getWalletsForEthereum } from './wallets.ts';
 import { getDbPromise } from './helpers/dbPromise.ts';
+import { TopTab } from '../interfaces/IConfig.ts';
 
 let buys: StabilizerBuys;
 let operations: { stabilizerBuyBid: StabilizerBuyBid };
@@ -19,8 +20,21 @@ let alerts: StabilizerBuyAlerts | undefined;
 export function getStabilizerBuys(): StabilizerBuys {
   if (!buys) {
     const walletKeys = getWalletKeys();
-    buys = new StabilizerBuys(getBlockWatch(), walletKeys.defaultArgonAddress, getDbPromise());
+    const config = getConfig();
+    buys = new StabilizerBuys(
+      getBlockWatch(),
+      walletKeys.defaultArgonAddress,
+      getDbPromise(),
+      () => config.selectedTab === TopTab.MarketStabilizers,
+    );
     buys.data = reactive(buys.data) as StabilizerBuys['data'];
+    watch(
+      () => config.selectedTab,
+      tab => {
+        if (tab !== TopTab.MarketStabilizers || !buys.data.isLoaded) return;
+        void buys.refresh().catch(() => undefined);
+      },
+    );
   }
 
   if (!purchases) {

@@ -239,6 +239,7 @@ export class MyVault {
   #externalLocksUpdateSeq = 0;
   #externalLocksNeedRefresh = true;
   #capitalUpdateSeq = 0;
+  #capitalNeedsRefresh = false;
   #bitcoinCosignRefresh?: Promise<void>;
   public readonly collectBuilder: VaultCollectBuilder;
   public readonly history: VaultHistory;
@@ -328,17 +329,7 @@ export class MyVault {
     try {
       console.log('Loading MyVault...');
       await this.miningFrames.load();
-      await this.vaults.load(reload);
-
-      const latestSyncedRevenueFrame = this.vaults.stats?.synchedToFrame ?? 0;
-      if (latestSyncedRevenueFrame < this.miningFrames.currentFrameId - 1) {
-        void this.vaults.updateRevenue().then(() => {
-          const vaultId = this.metadata?.id;
-          if (vaultId) {
-            this.data.stats = this.vaults.stats?.vaultsById[vaultId] ?? null;
-          }
-        });
-      }
+      await this.vaults.loadCurrentState(reload);
       const table = await this.getTable();
       const client = await getMainchainClient(false);
       this.data.metadata = (await table.get()) ?? null;
@@ -405,7 +396,18 @@ export class MyVault {
       }
       const vaultId = this.data.metadata?.id;
       if (vaultId) {
+        await this.vaults.load(reload);
         this.data.createdVault = this.vaults.vaultsById[vaultId];
+        const openedTick = this.data.createdVault?.openedTick ?? this.vaults.stats?.vaultsById[vaultId]?.openedTick;
+        let openedFrameId = 0;
+        if (openedTick !== undefined) openedFrameId = this.miningFrames.getForTick(openedTick) ?? 0;
+        const fromFrameId = openedFrameId + 1;
+        void this.vaults
+          .requireRevenueHistory(fromFrameId)
+          .then(() => {
+            if (this.metadata?.id === vaultId) this.data.stats = this.vaults.stats?.vaultsById[vaultId] ?? null;
+          })
+          .catch(error => console.warn('[MyVault] Unable to load owned vault revenue history', error));
         this.data.stats = this.vaults.stats?.vaultsById[vaultId] ?? null;
         await this.refreshCurrentCapital(vaultId);
 
@@ -523,16 +525,28 @@ export class MyVault {
           .catch(() => undefined)
           .then(async () => {
             let shouldRefreshBitcoin = false;
+            let shouldRefreshCapital = this.#capitalNeedsRefresh;
             let latestRevenueClient: ArgonApi | undefined;
             const pending = [...pendingRevenueBlocks.values()].sort((a, b) => a.blockNumber - b.blockNumber);
             for (const header of pending) {
               const { api, events, specVersion } = await this.miningFrames.blockWatch.getEventsWithSpec(header);
               this.vaults.applyRewardEconomics(header, events);
               await this.history.recordFinalizedRevenue(header, events, vaultId, specVersion);
-              if (header.isNewFrame) latestRevenueClient = api;
+              if (header.isNewFrame) {
+                latestRevenueClient = api;
+                shouldRefreshCapital = true;
+              }
 
               for (const { event } of events) {
-                if (event.section === 'bitcoinFissions') {
+                if (
+                  event.section === 'bitcoinFissions' &&
+                  (Object.values(this.data.externalLocks).some(
+                    lock => lock.lockDetails.ownerAccount === event.data.accountId,
+                  ) ||
+                    Object.values(this.bitcoinLocks.data.locksByLockId).some(
+                      lock => lock.vaultId === vaultId && lock.ownerAccount === event.data.accountId,
+                    ))
+                ) {
                   shouldRefreshBitcoin = true;
                 }
                 if (event.section === 'bitcoinLocks') {
@@ -559,6 +573,7 @@ export class MyVault {
                 }
 
                 if (event.section === 'vaults') {
+                  if ('vaultId' in event.data && event.data.vaultId === vaultId) shouldRefreshCapital = true;
                   switch (event.method) {
                     case 'FundsLocked':
                     case 'VaultCollected':
@@ -566,11 +581,20 @@ export class MyVault {
                       if (event.data.vaultId === vaultId) latestRevenueClient = api;
                   }
                 }
+
+                if (event.section === 'crosschainTransfer') {
+                  if (event.method === 'MintingAuthorityRegistered') {
+                    if (event.data.accountId === this.walletKeys.vaultingAddress) shouldRefreshCapital = true;
+                  } else if (event.method === 'MintingAuthorityDeactivationFinalized') {
+                    // Deactivation releases collateral but carries no vault/account ID.
+                    shouldRefreshCapital = true;
+                  }
+                }
               }
             }
 
             const refreshes: Promise<void>[] = [];
-            if (pending.length) {
+            if (shouldRefreshCapital) {
               refreshes.push(this.refreshCurrentCapital(vaultId));
             }
             if (shouldRefreshBitcoin || this.#externalLocksNeedRefresh) {
@@ -638,6 +662,7 @@ export class MyVault {
 
   private async refreshCurrentCapital(vaultId: number): Promise<void> {
     const updateSeq = ++this.#capitalUpdateSeq;
+    this.#capitalNeedsRefresh = true;
     for (let attempt = 0; attempt < 3; attempt += 1) {
       const header = this.miningFrames.blockWatch.bestBlockHeader;
       const api = runtimeClient(await this.miningFrames.blockWatch.getApi(header));
@@ -658,6 +683,7 @@ export class MyVault {
         encumberedMicronots: 0n,
       };
       if (this.data.isLoaded) this.data.financialRevision += 1;
+      this.#capitalNeedsRefresh = false;
       return;
     }
     throw new Error('The vault capital snapshot was repeatedly reorganized. Please retry.');
@@ -1838,6 +1864,7 @@ export class MyVault {
     if (!this.createdVault) {
       throw new Error('No vault created to update revenue');
     }
+    await this.vaults.load();
     const client = await getMainchainClient(false);
     const vaultId = this.createdVault.vaultId;
     frameRevenues ??= (await client.query.vaults.revenuePerFrameByVault(vaultId)) ?? [];

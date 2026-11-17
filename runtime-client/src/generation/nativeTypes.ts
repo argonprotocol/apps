@@ -4,7 +4,7 @@ import type { RuntimeTypeOverride } from '../typeOverrides.js';
 type TypeDeclaration = ts.InterfaceDeclaration | ts.TypeAliasDeclaration;
 
 export type NativeTypeTranslator = {
-  translate(node: ts.TypeNode): string;
+  translate(node: ts.TypeNode, queryFieldOverrides?: Readonly<Record<string, RuntimeTypeOverride>>): string;
   translateField(name: string, node: ts.TypeNode): string;
 };
 
@@ -18,8 +18,9 @@ export function createNativeTypeTranslator(
   const enumVariants = definitionSource ? readEnumVariants(definitionSource) : new Map<string, Map<string, string>>();
 
   return {
-    translate(node) {
-      return translateType(node, declarations, enumVariants, new Set(), fieldOverrides);
+    translate(node, queryFieldOverrides) {
+      const overrides = { ...fieldOverrides, ...queryFieldOverrides };
+      return translateType(node, declarations, enumVariants, new Set(), overrides);
     },
     translateField(name, node) {
       const override = fieldOverrides[name];

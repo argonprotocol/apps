@@ -2737,7 +2737,16 @@ describe('BitcoinLocks history replay publication', () => {
     } as unknown as BlockWatch);
     await restarted.load();
     expect(restarted.getRecords()[0].ratchets).toEqual(saved.ratchets);
-    expect(restarted.getLiquids()[0]).toMatchObject({ liquidityPromised: 1_000n, satoshis: 7_000n });
+    if (lifecycle === 'active') {
+      expect(restarted.getLiquids()[0]).toMatchObject({ liquidityPromised: 1_000n, satoshis: 7_000n });
+    } else {
+      expect(restarted.getLiquids()[0]).toMatchObject({
+        liquidityPromised: 0n,
+        satoshis: 0n,
+        originalSatoshis: 7_000n,
+      });
+      expect(restarted.getRecords()[0].liquidityPromised).toBe(1_000n);
+    }
     const restartedStore = createStore({
       db,
       walletKeys,

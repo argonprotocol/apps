@@ -52,6 +52,8 @@ export class MiningFrames {
   private readonly ownsBlockWatch: boolean;
   private readonly unsubscribes: (() => void)[] = [];
   private readonly updateQueue = new SingleFileQueue();
+  private pendingFrameRefresh?: { throughFrameId: number };
+  private lastBestBlock?: IBlockHeaderInfo;
 
   constructor(
     private readonly clients: MainchainClients,
@@ -142,7 +144,7 @@ export class MiningFrames {
 
       realtimeWatch = this.blockWatch.events.on('best-blocks', headers => void this.onBestBlocks(headers));
       const initialRefreshStartedAt = Date.now();
-      await this.onBestBlocks(this.blockWatch.latestHeaders);
+      await this.onBestBlocks(this.blockWatch.latestHeaders, this.currentFrameId);
       console.info(`[Mining Frames] Initial frame refresh ready in ${Date.now() - initialRefreshStartedAt}ms`);
 
       this.unsubscribes.push(realtimeWatch);
@@ -207,11 +209,19 @@ export class MiningFrames {
     }
   }
 
-  private async onBestBlocks(headers: IBlockHeaderInfo[]): Promise<void> {
+  private async onBestBlocks(headers: IBlockHeaderInfo[], throughFrameId?: number): Promise<void> {
     const result = this.updateQueue.add(async () => {
-      await this.checkForFrameChange(headers);
-
+      const first = headers[0];
       const latest = headers.at(-1);
+      const previous = this.lastBestBlock;
+      if (previous && first && !headers.some(header => header.blockHash === previous.blockHash)) {
+        const extendsPrevious =
+          first.blockNumber === previous.blockNumber + 1 && first.parentHash === previous.blockHash;
+        if (!extendsPrevious) throughFrameId ??= this.blockWatch.finalizedBlockHeader?.frameId ?? 0;
+      }
+      this.lastBestBlock = latest;
+      await this.checkForFrameChange(headers, throughFrameId);
+
       if (latest) {
         if (this.currentTick < latest.tick) {
           this.currentTick = latest.tick;
@@ -456,18 +466,18 @@ export class MiningFrames {
   }
 
   private async checkForFrameChange(headers: IBlockHeaderInfo[], throughFrameId?: number): Promise<void> {
-    let shouldCheckFrames = throughFrameId !== undefined;
+    let shouldCheckFrames = throughFrameId !== undefined || this.pendingFrameRefresh !== undefined;
 
     for (const header of headers) {
-      if (header.frameId === undefined) {
+      if (header.frameId === undefined) continue;
+
+      const frame = this.framesById[header.frameId];
+      if (!frame?.firstBlockHash || frame.firstBlockNumber === null) {
         shouldCheckFrames = true;
-      } else {
-        if (header.frameId > this.currentFrameId) {
-          shouldCheckFrames = true;
-        } else if (this.framesById[header.frameId]?.firstBlockHash !== header.blockHash) {
-          shouldCheckFrames = true;
-        }
+        continue;
       }
+      if (header.frameId > this.currentFrameId) shouldCheckFrames = true;
+      if (header.isNewFrame && frame.firstBlockHash !== header.blockHash) shouldCheckFrames = true;
     }
 
     if (!shouldCheckFrames) {
@@ -478,6 +488,12 @@ export class MiningFrames {
     if (!latestHeader) {
       return;
     }
+
+    let refreshThroughFrameId = throughFrameId ?? this.currentFrameId;
+    if (this.pendingFrameRefresh)
+      refreshThroughFrameId = Math.min(refreshThroughFrameId, this.pendingFrameRefresh.throughFrameId);
+    const refresh = { throughFrameId: refreshThroughFrameId };
+    this.pendingFrameRefresh = refresh;
 
     try {
       const latestApi = await this.clientAt(latestHeader);
@@ -496,15 +512,11 @@ export class MiningFrames {
         const blockHash = header.blockHash;
         const api = await this.clientAt(header);
         const nextFrameId = header.frameId === undefined ? await api.query.miningSlot.nextFrameId() : null;
-        if (header.frameId === undefined && nextFrameId === null) break;
+        if (header.frameId === undefined && nextFrameId === null) return;
         const frameId = header.frameId ?? nextFrameId! - 1;
 
         const existing = this.framesById[frameId];
         const matchesExisting = existing?.firstBlockHash === blockHash && existing.firstBlockNumber === blockNumber;
-        if (matchesExisting && (throughFrameId === undefined || frameId <= throughFrameId)) {
-          break;
-        }
-
         if (!matchesExisting) {
           const startingTick = header.tick;
           const isChanged = this.setFrameHistory({
@@ -523,13 +535,14 @@ export class MiningFrames {
           }
         }
 
-        if (throughFrameId !== undefined && frameId <= throughFrameId) {
+        if (frameId <= refresh.throughFrameId) {
           break;
         }
 
         if (queue.length === 0) {
           const frameStartBlockNumbers = await api.query.miningSlot.frameStartBlockNumbers();
-          for (const bn of frameStartBlockNumbers ?? []) {
+          if (!frameStartBlockNumbers) return;
+          for (const bn of frameStartBlockNumbers) {
             if (bn < blockNumber) {
               queue.push(bn);
             }
@@ -540,6 +553,7 @@ export class MiningFrames {
       if (hasChanges) {
         await this.safeSaveUpdates();
       }
+      if (this.pendingFrameRefresh === refresh) this.pendingFrameRefresh = undefined;
     } catch (error) {
       console.warn('[Mining Frames] Failed to refresh frame history, will retry on the next block', error);
     }

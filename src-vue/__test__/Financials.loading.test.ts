@@ -37,8 +37,6 @@ import { BitcoinLiquid } from '../lib/BitcoinLiquid.ts';
 import { createBitcoinLiquids } from '../lib/BitcoinFissions.ts';
 import { MiningFinancials } from '../lib/financials/MyMiningSeats.ts';
 import { MyVault } from '../lib/MyVault.ts';
-import { Metadata } from '@polkadot/types';
-import { decorateStorage } from '@polkadot/types/metadata/decorate';
 
 type FinancialHistoryRestoreArgs = Parameters<typeof import('../lib/recovery/index.ts').restoreFinancialHistory>[0];
 
@@ -1096,13 +1094,6 @@ describe('financials store lifecycle', () => {
 
   it('keeps a basic wallet and its Stabilizer claims coherent through a payout', async () => {
     const registry = getOfflineRegistry();
-    const metadata = new Metadata(registry, { metadata: { V16: registry.metadata } });
-    const storage = decorateStorage(registry, metadata.asLatest, metadata.version);
-    const account = registry.createType('AccountId32', new Uint8Array(32).fill(17));
-    const key = registry.createType('StorageKey', [
-      storage.stabilizerBuys.buysByAccountAndFrame,
-      [account, '0x000000000000000c'],
-    ]);
     const buys = getStabilizerBuys();
     const position = markRaw(
       new StabilizerBuy(
@@ -1137,33 +1128,16 @@ describe('financials store lifecycle', () => {
         ticks: { currentTick: async () => 1 },
         stabilizerBuys: {
           buysByAccountAndFrame: Object.assign(() => undefined, {
-            entries: async () => {
-              if (isPaid) return [];
-
-              return [
-                [
-                  key,
-                  registry.createType('Option<PalletStabilizerBuysAccountFrameBuys>', {
-                    pendingLiquidRepays: 0n,
-                    liquidRepaymentRewardRate: null,
-                    principal: 100,
-                    capturedDiscount: 10,
-                    bidRate: 25,
-                    positiveBidCount: 1,
-                  }),
-                ],
-              ];
-            },
+            multi: async (keys: readonly unknown[]) =>
+              keys.map(() => {
+                if (isPaid) return registry.createType('Option<PalletStabilizerBuysAccountFrameBuys>');
+                return registry.createType('Option<PalletStabilizerBuysAccountFrameBuys>', {
+                  ...position.purchase,
+                  bidRate: 25,
+                });
+              }),
           }),
-          auctions: async () =>
-            registry.createType('Option<PalletStabilizerBuysAuction>', {
-              matchingRate: 1_000_000,
-              totalMatchingBasis: 10,
-              budget: 100,
-              remainingBudget: 95,
-              remainingMatchingBasis: 1_000_000_000n,
-              maturesAtFrame: 1,
-            }),
+          liquidRepaysByAccountAndGatewayNonce: { multi: async () => [] },
           payoutStateByAccount: async () =>
             registry.createType('PalletStabilizerBuysAccountPayoutState', { payableReward: isPaid ? 0 : 5 }),
         },

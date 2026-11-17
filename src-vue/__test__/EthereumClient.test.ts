@@ -1,8 +1,18 @@
-import { NetworkConfig, MoveToken, setFetchImplementation, type FetchImplementation } from '@argonprotocol/apps-core';
+import {
+  NetworkConfig,
+  MoveToken,
+  ethereumGatewayV0Abi,
+  supportsVersionedEthereumCouncils,
+  setFetchImplementation,
+  type FetchImplementation,
+} from '@argonprotocol/apps-core';
 import { EvmContracts } from '@argonprotocol/mainchain';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   decodeFunctionData,
+  ContractFunctionRevertedError,
+  createPublicClient,
+  custom,
   encodeAbiParameters,
   encodeEventTopics,
   getAddress,
@@ -566,8 +576,12 @@ describe('EthereumClient', () => {
     },
   );
 
-  it('relays a council rotation and the next contiguous ready update', async () => {
-    const fixture = createCouncilRotationRelayFixture();
+  it.each([
+    [0, false],
+    [0, true],
+    [1, true],
+  ] as const)('relays council version %s with versioned contract support %s', async (version, versionedContract) => {
+    const fixture = createCouncilRotationRelayFixture(undefined, version, versionedContract);
     const receipt = await fixture.ethereumClient.applyReadyGatewayUpdates(
       fixture.finalizedClient as any,
       fixture.walletKeys.vaultingAddress,
@@ -575,14 +589,19 @@ describe('EthereumClient', () => {
       { allowUncompensatedRelay: true },
     );
     const decoded = decodeFunctionData({
-      abi: EvmContracts.mintingGatewayAbi,
+      abi: versionedContract ? EvmContracts.mintingGatewayAbi : ethereumGatewayV0Abi,
       data: fixture.submittedTransaction.data!,
     });
 
     expect(receipt?.transactionHash).toBe(fixture.transactionHash);
     expect(fixture.sendRawTransaction).toHaveBeenCalledOnce();
     expect(decoded.functionName).toBe('applyGatewayUpdates');
-    expect(decoded.args?.[0]).toEqual(fixture.currentCouncil);
+    if (versionedContract) expect(decoded.args?.[0]).toEqual(fixture.currentCouncil);
+    else
+      expect(decoded.args?.[0]).toEqual({
+        signers: fixture.currentCouncil.signers,
+        weights: fixture.currentCouncil.weights,
+      });
     expect(decoded.args?.[1]).toEqual([
       {
         queueNonce: 1n,
@@ -597,6 +616,36 @@ describe('EthereumClient', () => {
         signatures: fixture.rotatedCouncilSignatures,
       },
     ]);
+  });
+
+  it('requires a contract upgrade before relaying a versioned council to the old gateway', async () => {
+    const fixture = createCouncilRotationRelayFixture(undefined, 1, false);
+    await expect(
+      fixture.ethereumClient.applyReadyGatewayUpdates(
+        fixture.finalizedClient as any,
+        fixture.walletKeys.vaultingAddress,
+        { address: fixture.walletKeys.coreEthereumAddress, hdPath: fixture.walletKeys.ethereumHdPath },
+        { allowUncompensatedRelay: true },
+      ),
+    ).rejects.toThrow('Upgrade the Ethereum gateway contract before relaying a versioned council.');
+    expect(fixture.sendRawTransaction).not.toHaveBeenCalled();
+    expect(fixture.submittedTransaction.data).toBeUndefined();
+  });
+
+  it('preserves provider errors when checking the gateway council capability', async () => {
+    const client = createPublicClient({
+      transport: custom(
+        {
+          request: async () => {
+            throw new Error('RPC temporarily unavailable');
+          },
+        },
+        { retryCount: 0 },
+      ),
+    });
+    await expect(supportsVersionedEthereumCouncils(client, repeatHex('11', 20))).rejects.toThrow(
+      'RPC temporarily unavailable',
+    );
   });
 
   it('reads the gateway approval nonce currently applied on Ethereum', async () => {
@@ -722,7 +771,11 @@ function repeatHex(byte: string, count: number): Hex {
   return `0x${byte.repeat(count)}`;
 }
 
-function createCouncilRotationRelayFixture(corruption?: 'council' | 'payload' | 'approval') {
+function createCouncilRotationRelayFixture(
+  corruption?: 'council' | 'payload' | 'approval',
+  version = 0,
+  versionedContract = true,
+) {
   const gatewayAddress = repeatHex('11', 20);
   const authoritySigningKey = repeatHex('22', 20);
   const currentCouncilSignerA = repeatHex('33', 20);
@@ -732,21 +785,28 @@ function createCouncilRotationRelayFixture(corruption?: 'council' | 'payload' | 
   const currentCouncil = {
     signers: [currentCouncilSignerA, currentCouncilSignerB],
     weights: [70n, 30n],
+    version,
   };
+  const currentInflation = version === 0 ? 0n : 3_000_000_000_000_000n;
+  const rotatedInflation = version === 0 ? 0n : 4_000_000_000_000_000n;
   const currentCouncilHash = EvmContracts.hashMintingGatewayGlobalIssuanceCouncil({
     ...currentCouncil,
     epochMicrogonsPerArgonot: 2_000_000n,
+    inflationPercentSinceLaunch: currentInflation,
   });
   const rotationTarget: Parameters<typeof EvmContracts.encodeMintingGatewayGlobalIssuanceCouncilRotateTarget>[0] = {
     council: {
       signers: [rotatedCouncilSignerA, rotatedCouncilSignerB],
       weights: [60n, 40n],
+      version,
     },
     epochMicrogonsPerArgonot: 6_000_000n,
+    inflationPercentSinceLaunch: rotatedInflation,
   };
   const rotatedCouncilHash = EvmContracts.hashMintingGatewayGlobalIssuanceCouncil({
     ...rotationTarget.council,
     epochMicrogonsPerArgonot: rotationTarget.epochMicrogonsPerArgonot,
+    inflationPercentSinceLaunch: rotatedInflation,
   });
   const queuedRotatedCouncilHash = corruption === 'council' ? repeatHex('77', 32) : rotatedCouncilHash;
   const hashContext = { chainId: 1n, gatewayAddress };
@@ -809,7 +869,7 @@ function createCouncilRotationRelayFixture(corruption?: 'council' | 'payload' | 
         activeGlobalIssuanceCouncilByDestinationChain: async () => currentCouncilHash,
         globalIssuanceCouncilByHash: async (hash: Hex) => {
           if (hash === currentCouncilHash) {
-            return {
+            const council = {
               epochMicrogonsPerArgonot: 2_000_000n,
               totalWeight: 100n,
               members: {
@@ -817,9 +877,11 @@ function createCouncilRotationRelayFixture(corruption?: 'council' | 'payload' | 
                 [currentCouncilSignerA]: { weight: 70n },
               },
             };
+            if (version === 0) return council;
+            return { ...council, version, inflationPercentSinceLaunch: currentInflation };
           }
 
-          return {
+          const council = {
             epochMicrogonsPerArgonot: rotationTarget.epochMicrogonsPerArgonot,
             totalWeight: 100n,
             members: {
@@ -827,6 +889,8 @@ function createCouncilRotationRelayFixture(corruption?: 'council' | 'payload' | 
               [rotatedCouncilSignerA]: { weight: 60n },
             },
           };
+          if (version === 0) return council;
+          return { ...council, version, inflationPercentSinceLaunch: rotatedInflation };
         },
         mintingAuthorityActivationRepaymentPricingByDestinationChain: async () => null,
         councilApprovalQueueByDestinationChainAndNonce: async (_chain: string, nonce: bigint) =>
@@ -850,6 +914,17 @@ function createCouncilRotationRelayFixture(corruption?: 'council' | 'payload' | 
       if (functionName === 'argonApprovalsNonce') return 0n;
       if (functionName === 'argonApprovalsHash') return ZERO_HASH;
       if (functionName === 'paused') return false;
+      if (functionName === 'inflationPercentSinceLaunch') {
+        if (!versionedContract) {
+          throw new ContractFunctionRevertedError({
+            abi: EvmContracts.mintingGatewayAbi,
+            functionName,
+            data: '0x',
+            message: 'execution reverted',
+          });
+        }
+        return currentInflation;
+      }
       throw new Error(`Unexpected function ${functionName}`);
     },
     getBalance: async () => 1_000_000n,

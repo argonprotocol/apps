@@ -431,6 +431,8 @@ it('signs Ethereum locally with the original signatures and chain/token restrict
   const permit = {
     tokenAddress: policy.tokenAddresses[0],
     tokenName: 'Synthetic Argon',
+    tokenVersion: '1',
+    spenderAddress: policy.gatewayAddress,
     value: 123n,
     nonce: 7n,
     deadline: 2_000_000_000n,
@@ -438,6 +440,9 @@ it('signs Ethereum locally with the original signatures and chain/token restrict
   await expect(
     signer.signEthereumPermit({ ...permit, tokenAddress: '0x3333333333333333333333333333333333333333' }),
   ).rejects.toThrow('not allowed');
+  await expect(
+    signer.signEthereumPermit({ ...permit, spenderAddress: '0x3333333333333333333333333333333333333333' }),
+  ).rejects.toThrow('spender is not allowed');
   const permitSignature = await signer.signEthereumPermit(permit);
   expect(permitSignature).toEqual({
     v: 28,

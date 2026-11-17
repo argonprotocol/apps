@@ -2,7 +2,7 @@ import { execFileSync } from 'node:child_process';
 import Fs from 'node:fs';
 import Os from 'node:os';
 import Path from 'node:path';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { configureDevEnvironment } from '../../dev/environment.ts';
 
 vi.mock('node:child_process', async importOriginal => ({
@@ -15,6 +15,11 @@ describe('dev Docker environment', () => {
   const originalPlatform = process.platform;
   let directory: string;
   let socketPath: string;
+
+  beforeAll(async () => {
+    // Compile the dev fixture graph before the individual socket-choice assertions.
+    await Promise.all([import('@argonprotocol/apps-core'), import('../../e2e/scripts/devUpstreamServer.ts')]);
+  }, 30_000);
 
   beforeEach(() => {
     process.env = { ...originalEnv };

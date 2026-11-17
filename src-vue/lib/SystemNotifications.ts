@@ -65,7 +65,7 @@ export async function notifyStabilizerBuyOpportunity(
     sendNotification({
       ...options,
       title: 'ARGN is below target',
-      body: `${apy}% estimated APY · ${discount}% below target. Current quote: ${amount} ARGN.`,
+      body: `${apy}% estimated APY · ${discount}% below target. Estimated purchase: ${amount} ARGN.`,
     });
   } else {
     const bid = opportunity.bid;

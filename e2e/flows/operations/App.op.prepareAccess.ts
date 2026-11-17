@@ -42,6 +42,8 @@ export default new Operation<IAppFlowContext, IPrepareAccessState>(import.meta, 
       return;
     }
 
+    await flow.command('app.waitForReady', { timeoutMs: 120_000 });
+
     const appReloadMarker = flow.getAppReloadMarker();
     const mnemonic = mnemonicGenerate();
     flow.setData('walletMnemonic', mnemonic);
@@ -52,68 +54,31 @@ export default new Operation<IAppFlowContext, IPrepareAccessState>(import.meta, 
     await flow.click({ selector: '[role="dialog"] ol input[type="text"]', index: 0 }, { timeoutMs: 5_000 });
     await flow.paste({ selector: '[role="dialog"] ol input[type="text"]', index: 0 }, { timeoutMs: 5_000 });
 
-    await flow.click('WelcomeOverlay.importFromMnemonic()', { timeoutMs: 10_000 });
+    try {
+      await flow.click('WelcomeOverlay.importFromMnemonic()', { timeoutMs: 10_000 });
+    } catch (error) {
+      if (!DriverClient.isRetryableConnectionError(error)) throw error;
+    }
 
-    let sawReloadError = false;
+    // Import always restarts the UI; a hidden Welcome overlay can still belong to the old session.
+    await flow.waitForReload(appReloadMarker, { timeoutMs: 120_000 });
     await pollEvery(
       500,
       async () => {
         try {
-          const importButton = await flow.isVisible('WelcomeOverlay.importFromMnemonic()');
-          return !importButton.exists || !importButton.visible;
+          await flow.command('app.waitForReady', { timeoutMs: 120_000 });
+          const appState = await flow.queryApp(refs => ({ showWelcomeOverlay: refs.config.showWelcomeOverlay }), {
+            timeoutMs: 1_000,
+          });
+          return appState?.showWelcomeOverlay === false;
         } catch (error) {
-          if (DriverClient.isRetryableConnectionError(error)) {
-            sawReloadError = true;
-            return true;
-          }
-          throw error;
-        }
-      },
-      {
-        timeoutMs: 30_000,
-        timeoutMessage: 'Welcome overlay did not clear after mnemonic import.',
-      },
-    );
-
-    let reloadHandled = false;
-    let settledPolls = 0;
-    await pollEvery(
-      250,
-      async () => {
-        try {
-          if (!reloadHandled && (sawReloadError || flow.getAppReloadMarker() > appReloadMarker)) {
-            await flow.waitForReload(appReloadMarker, { timeoutMs: 30_000 });
-            reloadHandled = true;
-            sawReloadError = false;
-            settledPolls = 0;
-            return false;
-          }
-
-          const appState = await flow.queryApp(
-            refs => ({
-              showWelcomeOverlay: refs.config.showWelcomeOverlay,
-            }),
-            { timeoutMs: 1_000 },
-          );
-          if (appState?.showWelcomeOverlay !== false) {
-            settledPolls = 0;
-            return false;
-          }
-
-          settledPolls += 1;
-          return settledPolls >= 5;
-        } catch (error) {
-          if (!DriverClient.isRetryableConnectionError(error)) {
-            throw error;
-          }
-          sawReloadError = true;
-          settledPolls = 0;
+          if (!DriverClient.isRetryableConnectionError(error)) throw error;
           return false;
         }
       },
       {
-        timeoutMs: 30_000,
-        timeoutMessage: 'App did not stabilize after mnemonic import.',
+        timeoutMs: 120_000,
+        timeoutMessage: 'The imported account did not become ready after restarting the app.',
       },
     );
   },

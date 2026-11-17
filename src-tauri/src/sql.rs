@@ -202,30 +202,42 @@ impl SqliteWriter {
     async fn execute_write(
         &self,
         pool: &SqlitePool,
+        session_id: &str,
         query: &str,
         values: Vec<JsonValue>,
     ) -> Result<QueryResult, String> {
         let wait_started_at = Instant::now();
         let _writer = self.writer.lock().await;
+        let session = self.session.read().await;
+        if session.id.as_deref() != Some(session_id) {
+            return Err("SQL transaction session is no longer active".to_owned());
+        }
         Self::log_writer_wait("statement", wait_started_at.elapsed());
         let started_at = Instant::now();
         let result = execute_on(pool, query, values).await;
         Self::log_writer_hold("statement", started_at.elapsed());
+        drop(session);
         result
     }
 
     async fn select_write(
         &self,
         pool: &SqlitePool,
+        session_id: &str,
         query: &str,
         values: Vec<JsonValue>,
     ) -> Result<Vec<JsonValue>, String> {
         let wait_started_at = Instant::now();
         let _writer = self.writer.lock().await;
+        let session = self.session.read().await;
+        if session.id.as_deref() != Some(session_id) {
+            return Err("SQL transaction session is no longer active".to_owned());
+        }
         Self::log_writer_wait("statement returning rows", wait_started_at.elapsed());
         let started_at = Instant::now();
         let result = select_on(pool, query, values).await;
         Self::log_writer_hold("statement returning rows", started_at.elapsed());
+        drop(session);
         result
     }
 
@@ -412,11 +424,14 @@ pub(crate) async fn sql_execute_write(
     db_instances: State<'_, DbInstances>,
     writer: State<'_, SqliteWriter>,
     db: String,
+    session_id: String,
     query: String,
     values: Vec<JsonValue>,
 ) -> Result<QueryResult, String> {
     let pool = sqlite_pool(&db_instances, &db).await?;
-    writer.execute_write(&pool, &query, values).await
+    writer
+        .execute_write(&pool, &session_id, &query, values)
+        .await
 }
 
 #[tauri::command]
@@ -424,11 +439,14 @@ pub(crate) async fn sql_select_write(
     db_instances: State<'_, DbInstances>,
     writer: State<'_, SqliteWriter>,
     db: String,
+    session_id: String,
     query: String,
     values: Vec<JsonValue>,
 ) -> Result<Vec<JsonValue>, String> {
     let pool = sqlite_pool(&db_instances, &db).await?;
-    writer.select_write(&pool, &query, values).await
+    writer
+        .select_write(&pool, &session_id, &query, values)
+        .await
 }
 
 #[tauri::command]
@@ -810,6 +828,7 @@ mod tests {
                     let result = transactions
                         .execute_write(
                             &pool,
+                            "first",
                             "INSERT INTO recovery_units (id, state) VALUES (?, ?)",
                             vec![json!(15), json!("ordinary")],
                         )
@@ -936,11 +955,34 @@ mod tests {
                 .await
                 .unwrap();
 
+            // These outgoing commands are already waiting behind the abandoned transaction.
+            let pending_write = transactions.execute_write(
+                &pool,
+                "old-page",
+                "INSERT INTO recovery_units (id, state) VALUES (13, 'outgoing')",
+                vec![],
+            );
+            let pending_returning = transactions.select_write(
+                &pool,
+                "old-page",
+                "INSERT INTO recovery_units (id, state) VALUES (14, 'outgoing') RETURNING id",
+                vec![],
+            );
+            tokio::pin!(pending_write, pending_returning);
+            tokio::select! {
+                biased;
+                result = &mut pending_write => panic!("Outgoing write did not wait: {result:?}"),
+                result = &mut pending_returning => panic!("Outgoing write returning rows did not wait: {result:?}"),
+                _ = std::future::ready(()) => {}
+            }
+
             transactions
                 .start_session("new-page".to_owned())
                 .await
                 .unwrap();
             assert!(transactions.get("old-page", abandoned_id).await.is_err());
+            assert!(pending_write.await.is_err());
+            assert!(pending_returning.await.is_err());
 
             let replacement_id = transactions.begin(&pool, "new-page").await.unwrap();
             transactions

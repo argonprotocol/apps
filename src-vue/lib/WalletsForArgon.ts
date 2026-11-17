@@ -74,6 +74,11 @@ export class WalletsForArgon {
   private blockWatch: BlockWatch;
   private readonly currency: CurrencyBase;
   private finalizedHistoryBlock?: IBlockHeaderInfo;
+  private cachedAccountSnapshot?: {
+    header: IBlockHeaderInfo;
+    includeHolds: boolean;
+    value: IArgonAccountSnapshot;
+  };
   private unsubscribes: VoidFunction[] = [];
   public readonly legacyMiningHoldAddress: string;
 
@@ -120,6 +125,10 @@ export class WalletsForArgon {
   }
 
   public configureDefaultArgonWallet(address: string): void {
+    if (this.defaultArgonWallet.address !== address) {
+      this.bestBlock = undefined;
+      this.cachedAccountSnapshot = undefined;
+    }
     this.defaultArgonWallet.data.address = address;
   }
 
@@ -136,28 +145,40 @@ export class WalletsForArgon {
       return all.findIndex(candidate => candidate.address === wallet.address) === index;
     });
     const addresses = wallets.map(wallet => wallet.address);
-    const emptyMicrogonHolds = addresses.map(() => [] as RuntimeHold<'balances'>[]);
-    const emptyMicronotHolds = addresses.map(() => [] as RuntimeHold<'ownership'>[]);
-    const [balances, microgonHolds, micronotHolds] = await Promise.all([
-      readArgonWalletBalanceValues(api, addresses),
-      includeHolds ? api.query.balances.holds.multi(addresses) : Promise.resolve(emptyMicrogonHolds),
-      includeHolds ? api.query.ownership.holds.multi(addresses) : Promise.resolve(emptyMicronotHolds),
-    ]);
+    const cached = this.cachedAccountSnapshot;
+    let accounts: IArgonAccountSnapshot['accounts'];
+    let hasHolds = includeHolds;
+    if (cached && (!includeHolds || cached.includeHolds) && !(await this.hasBalanceUpdates(cached.header, header))) {
+      accounts = cached.value.accounts;
+      hasHolds = cached.includeHolds;
+    } else {
+      const [balances, microgonHolds, micronotHolds] = await Promise.all([
+        readArgonWalletBalanceValues(api, addresses),
+        includeHolds ? api.query.balances.holds.multi(addresses) : Promise.resolve([]),
+        includeHolds ? api.query.ownership.holds.multi(addresses) : Promise.resolve([]),
+      ]);
 
-    return {
-      accounts: wallets.map((wallet, index) => ({
+      accounts = wallets.map((wallet, index) => ({
         ...balances[index],
         address: wallet.address,
         wallet,
         microgonHolds: [...(microgonHolds[index] ?? [])],
         micronotHolds: [...(micronotHolds[index] ?? [])],
-      })),
+      }));
+    }
+
+    const snapshot = {
+      accounts,
       observation: {
         observedAt: new Date(header.blockTime),
         blockNumber: header.blockNumber,
         blockHash: header.blockHash,
       },
     };
+    if (!this.cachedAccountSnapshot || header.blockNumber >= this.cachedAccountSnapshot.header.blockNumber) {
+      this.cachedAccountSnapshot = { header, includeHolds: hasHolds, value: snapshot };
+    }
+    return snapshot;
   }
 
   public getLoadEvents<KEY extends IWalletEventKeys>(key: KEY): IWalletFlatList<KEY>[] {
@@ -248,6 +269,12 @@ export class WalletsForArgon {
         return;
       }
 
+      if (!(await this.hasBalanceUpdates(this.bestBlock, currentHeader))) {
+        if (this.isClosed) return;
+        this.bestBlock = currentHeader;
+        return;
+      }
+
       const { balances } = await this.readBalances(this.addresses, currentHeader);
       if (this.isClosed) {
         return;
@@ -303,6 +330,29 @@ export class WalletsForArgon {
       this.finalizedBlock = latestHeader;
       this.events.emit('sync:finalized', latestHeader);
     }).promise;
+  }
+
+  /** Quiet canonical blocks preserve balances and holds; frame turns also reconcile silent changes. */
+  private async hasBalanceUpdates(previous: IBlockHeaderInfo | undefined, current: IBlockHeaderInfo): Promise<boolean> {
+    if (!previous) return true;
+    if (previous.blockHash === current.blockHash) return false;
+    if (previous.frameId !== current.frameId) return true;
+
+    const headers = this.blockWatch.latestHeaders.filter(
+      header => header.blockNumber > previous.blockNumber && header.blockNumber <= current.blockNumber,
+    );
+    if (headers[0]?.parentHash !== previous.blockHash || headers.at(-1)?.blockHash !== current.blockHash) return true;
+
+    const addresses = this.addresses;
+    for (const header of headers) {
+      const events = await this.blockWatch.getEvents(header);
+      const hasBalanceEvent = events.some(({ event }) => {
+        if (event.section !== 'balances' && event.section !== 'ownership') return false;
+        return Object.values(event.data).some(value => typeof value === 'string' && addresses.includes(value));
+      });
+      if (hasBalanceEvent) return true;
+    }
+    return false;
   }
 
   private async readBalances(

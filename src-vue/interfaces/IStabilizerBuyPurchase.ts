@@ -3,16 +3,15 @@ import type {
   IBlockHeaderInfo,
   IStabilizerBuyBid,
   IStabilizerBuyQuote,
+  IStabilizerBuyEstimate,
   IStabilizerBuyPriceReference,
   StabilizerBuy,
 } from '@argonprotocol/apps-core';
 import type { HistoricalEvent } from '@argonprotocol/runtime-client';
 import type { Hash } from 'viem';
-export type { IStabilizerBuyQuote };
+export type { IStabilizerBuyQuote, IStabilizerBuyEstimate };
 
 export enum StabilizerBuyStatus {
-  SubmittingUsdcApprovalOnEthereum = 'SubmittingUsdcApprovalOnEthereum',
-  ConfirmingUsdcApprovalOnEthereum = 'ConfirmingUsdcApprovalOnEthereum',
   SubmittingPurchaseOnEthereum = 'SubmittingPurchaseOnEthereum',
   ConfirmingPurchaseOnEthereum = 'ConfirmingPurchaseOnEthereum',
   WaitingForArgonRecognition = 'WaitingForArgonRecognition',
@@ -142,7 +141,7 @@ export interface IStabilizerBuyHistory {
 export type IStabilizerBuyOpportunity = { key: string; expiresAt?: number } & (
   | {
       type: 'buy';
-      quote: IStabilizerBuyQuote;
+      quote: IStabilizerBuyEstimate;
       apy: number;
       discountPercent: number;
       observedAt: Date;

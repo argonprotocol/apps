@@ -2,7 +2,9 @@ import type { Preview } from '@storybook/vue3-vite';
 import { NetworkConfig } from '@argonprotocol/apps-core';
 import { sb, mocked, fn } from 'storybook/test';
 import { useStartupStore } from '../src-vue/stores/startup.ts';
+import { useMarketStabilizers } from '../src-vue/stores/marketStabilizers.ts';
 import { useAttention } from '../src-vue/stores/attention.ts';
+import { getBitcoinFissions } from '../src-vue/stores/bitcoin.ts';
 import '../src-vue/main.css';
 
 NetworkConfig.setNetwork('localnet');
@@ -47,13 +49,21 @@ sb.mock(import('../src-vue/lib/OperationalAccount.ts'), { spy: true });
 const preview: Preview = {
   beforeEach: () => {
     mocked(useStartupStore, { partial: true }).mockReturnValue({ isImporting: false });
+    mocked(useMarketStabilizers, { partial: true }).mockReturnValue({
+      get liquids() {
+        return getBitcoinFissions().getLiquids();
+      },
+      availableLiquids: [],
+      liquidPaydowns: [],
+      dates: { admission: {}, opens: {}, closes: {}, releases: {} },
+      liquidRepaymentWindows: new Map(),
+    });
     mocked(useAttention).mockReturnValue({
       count: 0,
-      bitcoinAlertGroups: [],
-      pendingOperationsUpgradeRequests: [],
       actionKeys: [],
       hasUnseenActions: false,
       markViewed: fn(),
+      acknowledgeStabilizerBuy: fn(),
     } as unknown as ReturnType<typeof useAttention>);
   },
   parameters: {

@@ -148,7 +148,7 @@ describe.skipIf(skipE2E).sequential('OperationalAccount integration tests', { ti
       const fissionTx = BitcoinFission.createTx({
         client: runtimeClient,
         fissionId,
-        liquidId: fissionId,
+        liquidId: fissionId + 1,
         lockId: lock.lockId,
         satoshis: lock.securitizedSatoshis,
         microgonsAtTargetPerBtc: lock.microgonsAtTargetPerBtc,

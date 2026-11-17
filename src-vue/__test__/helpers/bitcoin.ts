@@ -32,6 +32,8 @@ function buildDefaultBitcoinLockConfig(): IBitcoinLockConfig {
   return {
     lockReleaseCosignDeadlineFrames: 1,
     securitizationHoldBlocks: 6,
+    argonTicksPerDay: 1_440,
+    ticksPerBitcoinBlock: 10n,
     tickDurationMillis: 1_000,
     bitcoinNetwork: buildDefaultBitcoinNetwork(),
   };

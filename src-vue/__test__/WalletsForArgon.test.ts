@@ -1,5 +1,10 @@
 import { describe, expect, it, vi } from 'vitest';
-import { AccountEventsFilter, createDeferred, type IBlockHeaderInfo } from '@argonprotocol/apps-core';
+import {
+  AccountEventsFilter,
+  createDeferred,
+  type IBlockHeaderInfo,
+  type RuntimeSystemEventRecord,
+} from '@argonprotocol/apps-core';
 import { WalletsForArgon } from '../lib/WalletsForArgon.ts';
 import { WalletForArgon } from '../lib/WalletForArgon.ts';
 import { SyncStateKeys } from '../lib/db/SyncStateTable.ts';
@@ -119,6 +124,234 @@ describe('WalletsForArgon live balance tracking', () => {
     ]);
     expect(wallets.bestBlock).toEqual(latestBest);
     expect(balanceHashes).toEqual([firstBest.blockHash, latestBest.blockHash]);
+  });
+
+  it('keeps funded wallets current from transfers, initialization mints and ARGNOT holds without polling idle blocks', async () => {
+    const headers = Array.from({ length: 6 }, (_, index) => ({
+      ...blockHeader(index, String(index)),
+      parentHash: `0x${index - 1}`,
+      frameId: 1,
+    }));
+    const events: RuntimeSystemEventRecord[][] = [
+      [],
+      [
+        {
+          event: { section: 'balances', method: 'Transfer', data: { from: '5outside', to: '5other', amount: 20n } },
+          phase: { type: 'ApplyExtrinsic', value: 0 },
+          topics: [],
+        },
+      ],
+      [
+        {
+          event: { section: 'balances', method: 'Transfer', data: { from: '5outside', to: '5default', amount: 20n } },
+          phase: { type: 'ApplyExtrinsic', value: 0 },
+          topics: [],
+        },
+      ],
+      [],
+      [
+        {
+          event: { section: 'balances', method: 'Minted', data: { who: '5default', amount: 5n } },
+          phase: { type: 'Initialization' },
+          topics: [],
+        },
+      ],
+      [
+        {
+          event: { section: 'ownership', method: 'Reserved', data: { who: '5operational', amount: 10n } },
+          phase: { type: 'ApplyExtrinsic', value: 0 },
+          topics: [],
+        },
+      ],
+    ];
+    const blockWatch = {
+      bestBlockHeader: headers[0],
+      latestHeaders: headers,
+      getEvents: vi.fn(async (header: IBlockHeaderInfo) => events[header.blockNumber]),
+      getApi: vi.fn(async (header: IBlockHeaderInfo) => {
+        const balance = [100n, 100n, 120n, 120n, 125n, 125n][header.blockNumber];
+        const api = balanceApi(balance);
+        api.query.ownership.account.multi = async addresses =>
+          addresses.map(address => ({
+            free: 0n,
+            reserved: header.blockNumber === 5 && address === '5operational' ? 10n : 0n,
+          }));
+        return api;
+      }),
+    };
+    const wallets = createWallets({}, blockWatch);
+    wallets.deferredLoading.resolve();
+    const changes: string[] = [];
+    wallets.events.on('balance-change', (balance, type) => changes.push(`${type}:${balance.block.blockHash}`));
+    await wallets.loadBalancesAt(headers[0]);
+
+    blockWatch.bestBlockHeader = headers[1];
+    blockWatch.latestHeaders = headers.slice(0, 2);
+    await wallets.loadBalancesAt(headers[1]);
+    expect(wallets.defaultArgonWallet.availableMicrogons).toBe(100n);
+    expect(blockWatch.getApi).toHaveBeenCalledOnce();
+    expect(wallets.bestBlock).toEqual(headers[1]);
+
+    // A coalesced head must include a transfer in its intermediate block.
+    blockWatch.bestBlockHeader = headers[3];
+    blockWatch.latestHeaders = headers.slice(0, 4);
+    await wallets.loadBalancesAt(headers[3]);
+    expect(wallets.defaultArgonWallet.availableMicrogons).toBe(120n);
+
+    blockWatch.bestBlockHeader = headers[4];
+    blockWatch.latestHeaders = headers.slice(0, 5);
+    await wallets.loadBalancesAt(headers[4]);
+    expect(wallets.defaultArgonWallet.availableMicrogons).toBe(125n);
+
+    blockWatch.bestBlockHeader = headers[5];
+    blockWatch.latestHeaders = headers;
+    await wallets.loadBalancesAt(headers[5]);
+    expect(wallets.operationalWallet.reservedMicronots).toBe(10n);
+    expect(changes).toEqual(['argon:0x0', 'argon:0x3', 'argon:0x4', 'operational:0x5']);
+    expect(blockWatch.getApi.mock.calls.map(([header]) => header.blockNumber)).toEqual([0, 3, 4, 5]);
+  });
+
+  it('retains the balance cursor on unreadable events and reconciles replacements, gaps and frame turns', async () => {
+    const headers = Array.from({ length: 6 }, (_, index) => ({
+      ...blockHeader(index, String(index)),
+      parentHash: `0x${index - 1}`,
+      frameId: 1,
+    }));
+    const blockWatch = {
+      bestBlockHeader: headers[0],
+      latestHeaders: headers.slice(0, 1),
+      getEvents: vi.fn(async (): Promise<RuntimeSystemEventRecord[]> => []),
+      getApi: vi.fn(async (header: IBlockHeaderInfo) => balanceApi(BigInt(header.blockNumber))),
+    };
+    const wallets = createWallets({}, blockWatch);
+    wallets.deferredLoading.resolve();
+    await wallets.loadBalancesAt(headers[0]);
+
+    blockWatch.bestBlockHeader = headers[1];
+    blockWatch.latestHeaders = headers.slice(0, 2);
+    blockWatch.getEvents.mockRejectedValueOnce(new Error('Events unavailable'));
+    await expect(wallets.loadBalancesAt(headers[1])).rejects.toThrow('Events unavailable');
+    expect(wallets.bestBlock).toEqual(headers[0]);
+    expect(wallets.defaultArgonWallet.availableMicrogons).toBe(0n);
+
+    await wallets.loadBalancesAt(headers[1]);
+    expect(wallets.bestBlock).toEqual(headers[1]);
+    expect(blockWatch.getApi).toHaveBeenCalledOnce();
+
+    const replacement = { ...headers[1], blockHash: '0xreplacement' };
+    blockWatch.bestBlockHeader = replacement;
+    blockWatch.latestHeaders = [headers[0], replacement];
+    await wallets.loadBalancesAt(replacement);
+    expect(wallets.defaultArgonWallet.availableMicrogons).toBe(1n);
+
+    blockWatch.bestBlockHeader = headers[4];
+    blockWatch.latestHeaders = headers.slice(3, 5);
+    await wallets.loadBalancesAt(headers[4]);
+    expect(wallets.defaultArgonWallet.availableMicrogons).toBe(4n);
+
+    const nextFrame = { ...headers[5], frameId: 2 };
+    blockWatch.bestBlockHeader = nextFrame;
+    blockWatch.latestHeaders.push(nextFrame);
+    await wallets.loadBalancesAt(nextFrame);
+    expect(wallets.defaultArgonWallet.availableMicrogons).toBe(5n);
+    expect(wallets.bestBlock).toEqual(nextFrame);
+    expect(blockWatch.getApi.mock.calls.map(([header]) => header.blockHash)).toEqual([
+      '0x0',
+      '0xreplacement',
+      '0x4',
+      '0x5',
+    ]);
+  });
+
+  it('reuses financial balances and holds only across proven quiet blocks, preserving observation and retry boundaries', async () => {
+    const headers = Array.from({ length: 4 }, (_, index) => ({
+      ...blockHeader(index, String(index)),
+      parentHash: `0x${index - 1}`,
+      frameId: index === 3 ? 2 : 1,
+    }));
+    const blockWatch = {
+      latestHeaders: headers,
+      getEvents: vi.fn(async (header: IBlockHeaderInfo): Promise<RuntimeSystemEventRecord[]> => {
+        if (header.blockNumber !== 2) return [];
+        return [
+          {
+            event: {
+              section: 'balances',
+              method: 'Held',
+              data: { who: '5default', amount: 25n, reason: { type: 'Vaults', value: { type: 'EnterVault' } } },
+            },
+            phase: { type: 'ApplyExtrinsic', value: 0 },
+            topics: [],
+          },
+        ];
+      }),
+    };
+    const wallets = createWallets({}, blockWatch);
+    const stabilizerHold = {
+      id: { type: 'StabilizerBuys', value: { type: 'PurchasePrincipal' } },
+      amount: 25n,
+    } as const;
+    const vaultHold = { id: { type: 'Vaults', value: { type: 'EnterVault' } }, amount: 25n } as const;
+    const api = balanceApi(75n);
+    let released = false;
+    api.query.system.account.multi = async addresses =>
+      addresses.map((_, index) => {
+        if (index !== 0) return { data: { free: 0n, reserved: 0n } };
+        if (released) return { data: { free: 100n, reserved: 0n } };
+        return { data: { free: 75n, reserved: 25n } };
+      });
+    const holds = vi.fn(async () => [[stabilizerHold], [], []] as (typeof stabilizerHold | typeof vaultHold)[][]);
+    const chainApi = {
+      ...api,
+      query: {
+        ...api.query,
+        balances: { holds: { multi: holds } },
+        ownership: { ...api.query.ownership, holds: { multi: async () => [] } },
+      },
+    } as unknown as import('@argonprotocol/apps-core').ArgonQueryClient;
+
+    await wallets.readAccountSnapshot({ api: chainApi, header: headers[0], includeHolds: false });
+    expect(holds).not.toHaveBeenCalled();
+    const initial = await wallets.readAccountSnapshot({ api: chainApi, header: headers[0] });
+    expect(initial.accounts[0].microgonHolds).toEqual([stabilizerHold]);
+
+    const quiet = await wallets.readAccountSnapshot({ api: chainApi, header: headers[1] });
+    expect(holds).toHaveBeenCalledOnce();
+    expect(quiet.accounts[0].availableMicrogons).toBe(75n);
+    expect(quiet.accounts[0].microgonHolds).toEqual([stabilizerHold]);
+    expect(quiet.observation.blockHash).toBe(headers[1].blockHash);
+    expect(initial.observation.blockHash).toBe(headers[0].blockHash);
+
+    holds.mockRejectedValueOnce(new Error('Holds unavailable'));
+    await expect(wallets.readAccountSnapshot({ api: chainApi, header: headers[2] })).rejects.toThrow(
+      'Holds unavailable',
+    );
+    expect(quiet.accounts[0].microgonHolds).toEqual([stabilizerHold]);
+    holds.mockResolvedValue([[vaultHold], [], []]);
+    const changed = await wallets.readAccountSnapshot({ api: chainApi, header: headers[2] });
+    expect(changed.accounts[0].microgonHolds).toEqual([vaultHold]);
+    expect(changed.accounts[0].availableMicrogons).toBe(75n);
+
+    released = true;
+    holds.mockResolvedValue([[], [], []]);
+    const matured = await wallets.readAccountSnapshot({ api: chainApi, header: headers[3] });
+    expect(matured.accounts[0].microgonHolds).toEqual([]);
+    expect(matured.accounts[0].availableMicrogons).toBe(100n);
+    expect(matured.accounts[0].reservedMicrogons).toBe(0n);
+    expect(matured.observation.blockHash).toBe(headers[3].blockHash);
+
+    // An older explicit snapshot cannot replace the current cached observation.
+    released = false;
+    holds.mockResolvedValue([[stabilizerHold], [], []]);
+    await wallets.readAccountSnapshot({ api: chainApi, header: headers[0] });
+    const current = await wallets.readAccountSnapshot({ api: chainApi, header: headers[3] });
+    expect(current.accounts[0].microgonHolds).toEqual([]);
+    expect(current.accounts[0].availableMicrogons).toBe(100n);
+
+    wallets.configureDefaultArgonWallet('5new-default');
+    const reconfigured = await wallets.readAccountSnapshot({ api: chainApi, header: headers[3] });
+    expect(reconfigured.accounts[0].address).toBe('5new-default');
+    expect(reconfigured.accounts[0].microgonHolds).toEqual([stabilizerHold]);
   });
 
   it('reports finalized blocks missed since the persisted wallet cursor', async () => {

@@ -1,7 +1,8 @@
-import { Metadata, TypeRegistry } from '@polkadot/types';
-import { getBundledMetadata, runtimeClient } from '@argonprotocol/runtime-client';
-import { BitcoinLock, type BlockWatch, type ArgonApi } from '@argonprotocol/apps-core';
-import { describe, expect, it } from 'vitest';
+import { getOfflineRegistry, PriceIndex } from '@argonprotocol/mainchain';
+import { runtimeClient } from '@argonprotocol/runtime-client';
+import { BitcoinLock, Currency, type BlockWatch, type ArgonApi } from '@argonprotocol/apps-core';
+import { describe, expect, it, vi } from 'vitest';
+import BigNumber from 'bignumber.js';
 
 import type { IBitcoinSecuritizationTerm } from '../interfaces/IBitcoinSecuritizationTerm.ts';
 import { recordFinalizedSecuritization } from '../lib/BitcoinSecuritizationTerms.ts';
@@ -15,6 +16,136 @@ import { BitcoinLockStatus } from '../lib/db/BitcoinLocksTable.ts';
 const ownerAccount = '5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY';
 
 describe('Bitcoin securitization history', () => {
+  it.each(['live', 'replay'] as const)(
+    'retains the paid guarantee and completes a same-batch unfunded cancellation: %s',
+    async mode => {
+      const db = await createTestDb();
+      const registry = getOfflineRegistry();
+      const lock = createCurrentLock({ ownerAccount, fundedSatoshis: 0n, securityFees: 10n });
+      const before = registry.createType('Option<PalletBitcoinLocksLockedBitcoin>', {
+        ...lock,
+        fundingUtxos: {},
+        vaultPubkey: `0x${lock.vaultPubkey}`,
+        vaultClaimPubkey: `0x${lock.vaultClaimPubkey}`,
+        ownerPubkey: `0x${lock.ownerPubkey}`,
+        vaultXpubSources: ['0x00000000', 0, 0],
+        cosignerGuarantee: {
+          basis: { satoshis: lock.securitizedSatoshis, microgonsAtTargetPerBtc: 1_000n, tick: 100 },
+          guaranteedMicrogons: 100n,
+          fundHoldExtensions: {},
+        },
+      });
+      const apiAt = (height: number) =>
+        runtimeClient({
+          registry,
+          query: {
+            bitcoinLocks: {
+              locksById: async () =>
+                height < 200 ? before : registry.createType('Option<PalletBitcoinLocksLockedBitcoin>'),
+            },
+            bitcoinUtxos: { confirmedBitcoinBlockTip: async () => null },
+          },
+        }) as unknown as ArgonApi;
+      const events = [
+        historyEvent(161, 'balances', 'TransferAndHold', {
+          source: ownerAccount,
+          dest: `0x${'22'.repeat(32)}`,
+          transferred: 5n,
+          reason: { Vaults: 'PendingCollect' },
+        }),
+        historyEvent(161, 'bitcoinLocks', 'BitcoinLockGuaranteeSet', {
+          accountId: ownerAccount,
+          lockId: lock.lockId,
+          vaultId: lock.vaultId,
+          securitizationBasis: { satoshis: 200n, microgonsAtTargetPerBtc: 1_000n, tick: 200 },
+        }),
+      ];
+      const blockWatch = {
+        getApi: async (block: { blockNumber: number }) => apiAt(block.blockNumber),
+        getHeader: async (height: number) => historyBlock(height),
+        getFinalizedApi: async () => apiAt(201),
+        getLatestFinalizedSnapshot: async () => ({ api: apiAt(201), block: historyBlock(201) }),
+        getEventsWithSpec: async (block: { blockNumber: number }) => ({
+          api: apiAt(block.blockNumber),
+          events: block.blockNumber === 200 ? events : [],
+          specVersion: 161,
+        }),
+      } as unknown as BlockWatch;
+      const store = createStore({ db, blockWatch, walletKeys: { defaultArgonAddress: ownerAccount } as WalletKeys });
+      const priceIndex = new PriceIndex();
+      priceIndex.argonUsdPrice = new BigNumber(1);
+      priceIndex.argonUsdTargetPrice = new BigNumber(1);
+      const prices = vi.spyOn(Currency, 'fetchPriceIndex').mockResolvedValue(priceIndex);
+      try {
+        const pending = await db.bitcoinLocksTable.insertPending({
+          uuid: 'cancelled-unfunded-lock',
+          vaultId: lock.vaultId,
+          status: BitcoinLockStatus.LockIsProcessingOnArgon,
+          securitizedSatoshis: lock.securitizedSatoshis,
+          hdPath: 'synthetic-owner',
+          cosignVersion: 'v1',
+          network: 'testnet',
+        });
+        const record = await db.bitcoinLocksTable.finalizePending({ uuid: pending.uuid, lock });
+        store.data.locksByLockId[lock.lockId] = record;
+        await recordFinalizedSecuritization(db.bitcoinSecuritizationHistoryTable, {
+          block: historyBlock(100),
+          extrinsicIndex: 1,
+          lock,
+          origin: 'created',
+        });
+        if (mode === 'live') {
+          const ingestion = store as unknown as {
+            checkIncomingArgonBlocks(blocks: ReturnType<typeof historyBlock>[]): Promise<void>;
+          };
+          const transaction = db.transaction.bind(db);
+          const write = vi.spyOn(db, 'transaction').mockImplementationOnce(callback =>
+            transaction(async pending => {
+              await callback(pending);
+              throw new Error('Synthetic cancellation commit failure');
+            }),
+          );
+          try {
+            await ingestion.checkIncomingArgonBlocks([historyBlock(200)]);
+            expect(store.data.latestArgonBlock).toBeUndefined();
+            expect(record.status).toBe(BitcoinLockStatus.LockPendingFunding);
+            expect((await db.bitcoinLocksTable.getByLockId(lock.lockId))?.status).toBe(
+              BitcoinLockStatus.LockPendingFunding,
+            );
+            expect((await db.bitcoinSecuritizationHistoryTable.getPublishedSnapshot(ownerAccount))?.terms).toHaveLength(
+              1,
+            );
+          } finally {
+            write.mockRestore();
+          }
+          await ingestion.checkIncomingArgonBlocks([historyBlock(201)]);
+          expect(store.data.latestArgonBlock?.blockNumber).toBe(201);
+        } else {
+          await store.recovery.beginHistoryReplay({ purpose: 'financial-backfill' });
+          await store.recovery.recoverBlock(historyBlock(200), events);
+          const unit = store.recovery.prepareHistoryReplayUnit(lock.lockId)!;
+          await store.applyRecoveredHistory(unit, 200);
+          await store.recovery.finishHistoryReplay(new Set());
+        }
+        expect(await db.bitcoinLocksTable.getByLockId(lock.lockId)).toMatchObject({
+          status: BitcoinLockStatus.Released,
+          removalBlockNumber: 200,
+        });
+        const terms = (await db.bitcoinSecuritizationHistoryTable.getPublishedSnapshot(ownerAccount))!.terms;
+        expect(terms.at(-1)).toMatchObject({
+          securitizedSatoshis: 200n,
+          addedNetSecurityFee: 5n,
+          cumulativeNetSecurityFee: 15n,
+          startBlockNumber: 200,
+          endBlockNumber: 200,
+        });
+      } finally {
+        prices.mockRestore();
+        await db.close();
+      }
+    },
+  );
+
   it('records only Lock-directed fees when a batch also buys a Fission guarantee', async () => {
     const db = await createTestDb();
     const lock = createCurrentLock({ ownerAccount, securityFees: 99n, securitizedSatoshis: 50n });
@@ -82,10 +213,7 @@ describe('Bitcoin securitization history', () => {
       addedNetSecurityFee: 8n,
       securitizedSatoshis: 200n,
     });
-    const registry = new TypeRegistry();
-    registry.setMetadata(
-      new Metadata(registry, Object.entries(getBundledMetadata()).find(([key]) => key.endsWith('-161'))![1]),
-    );
+    const registry = getOfflineRegistry();
     const storedLock = registry.createType('Option<PalletBitcoinLocksLockedBitcoin>', {
       vaultId: lock.vaultId,
       ownerAccount,

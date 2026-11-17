@@ -102,10 +102,15 @@ export default class Bot {
       this.options.vaultOperatorAddress,
       this.delegateSubmitLane,
     );
-    this.ethereumGatewayProverService = new EthereumGatewayProverService(this.delegateSubmitLane, {
-      shouldApplySharedRelayStagger: NetworkConfig.networkName !== 'dev-docker',
-      vaultOperatorAddress: this.options.vaultOperatorAddress,
-    });
+    this.ethereumGatewayProverService = new EthereumGatewayProverService(
+      this.delegateSubmitLane,
+      this.blockWatch,
+      this.options.datadir,
+      {
+        shouldApplySharedRelayStagger: NetworkConfig.networkName !== 'dev-docker',
+        vaultOperatorAddress: this.options.vaultOperatorAddress,
+      },
+    );
   }
 
   public async signTreasuryMemberSeal(claim: IDiscordRoleClaim): Promise<ITreasuryMemberSeal> {
@@ -281,6 +286,7 @@ export default class Bot {
       }
       this.errorMessage = null;
       this.delegateSubmitLane.client = this.localClient;
+      await this.blockWatch.start();
 
       if (!this.ethereumBeaconSyncService) {
         this.ethereumBeaconSyncService = new EthereumBeaconSyncService(this.localClient, {

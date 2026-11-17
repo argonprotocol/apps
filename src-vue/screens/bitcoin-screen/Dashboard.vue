@@ -212,7 +212,7 @@
               >
                 <div class="flex flex-row items-center gap-2 pt-3 pb-2 text-slate-800">
                   <span class="shrink-0 text-lg font-semibold">
-                    {{ satToBtcNm(liquid.model.satoshis).format('0,0.[0000]') }} BTC Liquid
+                    {{ satToBtcNm(liquid.model.originalSatoshis).format('0,0.[0000]') }} BTC Liquid
                   </span>
                   <span v-if="liquid.model.closedAt" class="liquid-created-at shrink-0 font-light">
                     closed {{ dayjs(liquid.model.closedAt).fromNow() }}
@@ -291,7 +291,7 @@
     </div>
   </div>
 
-  <BitcoinLiquidDetailOverlay v-if="selectedLiquid" :liquid="selectedLiquid" @close="selectedLiquidId = undefined" />
+  <StabilizerBuyOverlay v-if="liquidView" :initialView="liquidView" @close="selectedLiquidId = undefined" />
 </template>
 
 <script setup lang="ts">
@@ -321,7 +321,7 @@ import { getConfig } from '../../stores/config.ts';
 import { getCurrency } from '../../stores/currency.ts';
 import { useFinancials } from '../../stores/financials.ts';
 import { getMyVault, getVaults } from '../../stores/vaults.ts';
-import BitcoinLiquidDetailOverlay from '../../overlays/BitcoinLiquidDetailOverlay.vue';
+import StabilizerBuyOverlay, { type StabilizerBuyView } from '../../overlays/StabilizerBuyOverlay.vue';
 
 type LiquidDisplay = {
   model: BitcoinLiquid;
@@ -450,9 +450,9 @@ const pendingLiquidRows = Vue.computed<PendingLiquidDisplay[]>(() => {
     })
     .toSorted((left, right) => right.liquidId - left.liquidId);
 });
-const selectedLiquid = Vue.computed(() => {
-  const selected = liquidRows.value.find(liquid => liquid.model.liquidId === selectedLiquidId.value);
-  return selected?.position?.liquid ?? selected?.model;
+const liquidView = Vue.computed<StabilizerBuyView | undefined>(() => {
+  if (selectedLiquidId.value === undefined) return;
+  return { type: 'liquid', liquidId: selectedLiquidId.value };
 });
 
 const remainingFeeWaiver = Vue.computed(() => {

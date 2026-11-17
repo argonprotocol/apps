@@ -685,6 +685,98 @@ describe('Vaults cache upgrades', () => {
     expect(restarted.stats).toEqual(repairedCache);
   });
 
+  it('keeps old backfill dormant across restart while live refreshes only read ten recent frames', async () => {
+    globalThis.window = {} as Window & typeof globalThis;
+    NetworkConfig.setNetwork('mainnet');
+    cacheFiles.directory = await mkdtemp(join(tmpdir(), 'vault-recent-history-'));
+    await mkdir(join(cacheFiles.directory, 'mainnet'));
+    const statsFile = join(cacheFiles.directory, 'mainnet', 'vaultStats.json');
+    const olderFrame = {
+      frameId: 9,
+      bitcoinFeeRevenue: 99n,
+      bitcoinLocksCreated: 1,
+      securitization: 1_000n,
+      securitizationActivated: 1_000n,
+      treasuryPool: { totalEarnings: 0n, vaultEarnings: 0n, vaultCapital: 0n, externalCapital: 0n },
+    };
+    await writeFile(
+      statsFile,
+      JsonExt.stringify({
+        formatVersion: 2,
+        synchedToFrame: 20,
+        revenueBackfill: { nextFrame: 15, throughFrame: 2 },
+        argonotStakingByFrame: [],
+        networkPoolsByFrame: Object.fromEntries(
+          Array.from({ length: 41 }, (_, frameId) => [
+            frameId,
+            { auctionPoolMicrogons: 0n, includesBondPayments: false },
+          ]),
+        ),
+        vaultsById: {
+          1: { openedTick: 1, baseline: { bitcoinLocks: 0, feeRevenue: 0n }, changesByFrame: [olderFrame] },
+        },
+      }),
+    );
+    const client = { consts: { treasury: {} }, query: { vaults: { vaultsById: { entries: async () => [] } } } };
+    setMainchainClients({ events: createTypedEventEmitter(), get: async () => client } as any);
+    const readFrames: number[] = [];
+    const frames = {
+      load: async () => undefined,
+      currentFrameId: 40,
+      frameIds: Array.from({ length: 40 }, (_, i) => i + 1),
+      framesById: Object.fromEntries(
+        Array.from({ length: 41 }, (_, frameId) => [frameId, { firstBlockHash: `0x${frameId}` }]),
+      ),
+      getFrameStart: async (frameId: number) => {
+        readFrames.push(frameId);
+        return {
+          frame: {
+            firstBlockSpecVersion: 161,
+            firstBlockNumber: frameId,
+            firstBlockHash: `0x${frameId}`,
+            firstBlockTick: frameId * 10,
+          },
+          api: {
+            consts: { treasury: {} },
+            query: { treasury: {}, vaults: { revenuePerFrameByVault: { entries: async () => [] } } },
+          },
+        };
+      },
+      blockWatch: {
+        finalizedBlockHeader: { blockNumber: 1_000 },
+        events: createTypedEventEmitter<{ finalized: (headers: IBlockHeaderInfo[]) => void }>(),
+      },
+    };
+    const vaults = new Vaults('mainnet', currency as any, frames as any);
+    await vaults.load();
+    await new Promise(resolve => setTimeout(resolve, 0));
+    expect(readFrames).toEqual([]);
+    await vaults.updateRevenue();
+    expect(readFrames).toEqual([40, 39, 38, 37, 36, 35, 34, 33, 32, 31]);
+    expect(vaults.stats?.synchedToFrame).toBe(39);
+    expect(vaults.stats?.revenueBackfill).toEqual({ nextFrame: 30, throughFrame: 2 });
+    expect(vaults.stats?.vaultsById[1].changesByFrame).toEqual([olderFrame]);
+    expect(JsonExt.parse<IAllVaultStats>(await readFile(statsFile, 'utf8'))).toEqual(vaults.stats);
+
+    readFrames.length = 0;
+    const restarted = new Vaults('mainnet', currency as any, frames as any);
+    await restarted.load();
+    frames.blockWatch.events.emit('finalized', [{ frameId: 40, blockNumber: 401 } as IBlockHeaderInfo]);
+    await restarted.updateRevenue();
+    expect(readFrames).toEqual([]);
+    expect(restarted.stats).toEqual(vaults.stats);
+
+    frames.currentFrameId = 41;
+    frames.frameIds.push(41);
+    frames.framesById[41] = { firstBlockHash: '0x41' };
+    await restarted.updateRevenue();
+    expect(readFrames).toEqual([41]);
+    expect(restarted.stats?.synchedToFrame).toBe(40);
+    expect(restarted.stats?.revenueBackfill).toEqual({ nextFrame: 30, throughFrame: 2 });
+    expect(restarted.stats?.vaultsById[1].changesByFrame).toEqual([olderFrame]);
+    expect(JsonExt.parse<IAllVaultStats>(await readFile(statsFile, 'utf8'))).toEqual(restarted.stats);
+  });
+
   it('retains historical revenue and website counts while dropping collection status and unused liquidity', async () => {
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
     globalThis.window = {} as Window & typeof globalThis;

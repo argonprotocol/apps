@@ -2,12 +2,15 @@ import process from 'node:process';
 import {
   type ArgonApi,
   createArgonClient,
+  encodeEthereumCouncilUpdate,
+  getNewEthereumCouncilVersion,
   NetworkConfigSettings,
   TxSubmitter,
   TxSigner,
+  supportsVersionedEthereumCouncils,
 } from '@argonprotocol/apps-core';
-import { EvmContracts, getClient, Keyring } from '@argonprotocol/mainchain';
-import { createPublicClient, encodeFunctionData, getAddress, http } from 'viem';
+import { getClient, Keyring } from '@argonprotocol/mainchain';
+import { createPublicClient, getAddress, http } from 'viem';
 import { resolveDevEthereumRpcUrl, sendDevEthereumAdminTransaction } from '../e2e/devEthereum.ts';
 import { syncEthereumGatewayActiveCouncilToArgon } from '../e2e/devEthereumRuntimeSetup.ts';
 
@@ -41,6 +44,17 @@ export async function forceUpdateGlobalIssuanceCouncil(args: ForceUpdateGlobalIs
       throw new Error('Ethereum transfer gateway is not configured on this network.');
     }
 
+    const publicClient = createPublicClient({
+      transport: http(executionRpcUrl, { retryCount: 1, timeout: 15_000 }),
+    });
+    const gatewayAddress = getAddress(chainConfig.value.gateway);
+    if (
+      getNewEthereumCouncilVersion(finalizedClient.raw.registry) > 0 &&
+      !(await supportsVersionedEthereumCouncils(publicClient, gatewayAddress))
+    ) {
+      throw new Error('Upgrade the Ethereum gateway contract before creating a versioned council.');
+    }
+
     const gatewayState = await finalizedClient.query.crosschainTransfer.gatewayStateBySourceChain('Ethereum');
     const afterNonce = gatewayState?.argonApprovalsNonce ?? 0n;
     const sudoKeypair = new Keyring({ type: 'sr25519' }).createFromUri('//Alice');
@@ -64,22 +78,18 @@ export async function forceUpdateGlobalIssuanceCouncil(args: ForceUpdateGlobalIs
     }
 
     await txResult.waitForFinalizedBlock;
-    const publicClient = createPublicClient({
-      transport: http(executionRpcUrl, { retryCount: 1, timeout: 15_000 }),
-    });
-    const gatewayAddress = getAddress(chainConfig.value.gateway);
     const syncResult = await syncEthereumGatewayActiveCouncilToArgon({
       finalizedClient: await client.at(await client.rpc.chain.getFinalizedHead()),
       gatewayAddress,
       publicClient,
-      sendCurrentCouncil: async (currentCouncil, nextMicrogonsPerArgonot) => {
+      sendCurrentCouncil: async currentCouncil => {
         const { hash } = await sendDevEthereumAdminTransaction({
           rpcUrl: executionRpcUrl,
           to: gatewayAddress,
-          data: encodeFunctionData({
-            abi: EvmContracts.mintingGatewayAbi,
-            functionName: 'forceUpdateActiveCouncil',
-            args: [currentCouncil, nextMicrogonsPerArgonot],
+          data: await encodeEthereumCouncilUpdate({
+            client: publicClient,
+            gatewayAddress,
+            council: currentCouncil,
           }),
         });
         return hash;

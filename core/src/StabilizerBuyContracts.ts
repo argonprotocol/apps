@@ -15,7 +15,16 @@ import {
   maxUint160,
   formatUnits,
   toHex,
+  parseAbi,
+  domainSeparator,
+  BaseError,
+  ContractFunctionRevertedError,
+  ContractFunctionZeroDataError,
 } from 'viem';
+import { hexToU8a, stringToU8a, u8aConcat, u8aToHex } from '@polkadot/util';
+import { ed25519Verify, sr25519Verify, secp256k1Verify } from '@polkadot/util-crypto';
+import { BitcoinLock } from './BitcoinLock.js';
+import type { TxSigner } from './TxSigner.js';
 import type { LiveQueryRecord } from '@argonprotocol/runtime-client';
 import type { ArgonCurrentQueryClient } from './MainchainClients.js';
 import { toArgonAccountIdHex } from './Ethereum.js';
@@ -41,6 +50,17 @@ export interface IStabilizerBuyQuote {
   prices?: IStabilizerBuyPriceReference;
 }
 
+export type IStabilizerBuyEstimate = Pick<
+  IStabilizerBuyQuote,
+  | 'sourceAddress'
+  | 'poolId'
+  | 'quotedMicrogonsOut'
+  | 'minimumRewardPrincipal'
+  | 'qualifiesForRewards'
+  | 'sqrtPriceX96After'
+  | 'prices'
+> & { request: Pick<IStabilizerBuyQuote['request'], 'maxUsdcIn'> };
+
 type OracleIndex = Extract<NonNullable<LiveQueryRecord<'priceIndex', 'current'>>, { usdcUsdPrice: BigNumber | null }>;
 export type IStabilizerBuyPriceReference = Pick<OracleIndex, 'tick' | 'argonUsdTargetPrice'> & {
   usdcUsdPrice: NonNullable<OracleIndex['usdcUsdPrice']>;
@@ -51,6 +71,12 @@ type EthereumConfig = Extract<
   NonNullable<LiveQueryRecord<'crosschainTransfer', 'chainConfigBySourceChain'>>,
   { type: 'Evm' }
 >['value'];
+
+const usdcPermitAbi = parseAbi([
+  'function name() view returns (string)',
+  'function nonces(address) view returns (uint256)',
+  'function DOMAIN_SEPARATOR() view returns (bytes32)',
+]);
 
 export class StabilizerBuyValidationError extends Error {}
 export class StabilizerBuyQuoteUnavailableError extends StabilizerBuyValidationError {}
@@ -63,6 +89,22 @@ export class StabilizerBuyContracts {
     client: PublicClient;
     key: string;
     promise: ReturnType<StabilizerBuyContracts['readDeployment']>;
+  };
+
+  private quoteMarket?: {
+    client: PublicClient;
+    snapshot: ArgonCurrentQueryClient;
+    block: Block<bigint, false, 'latest'>;
+    quoterAddress: Address;
+    promise: ReturnType<StabilizerBuyContracts['readQuoteMarket']>;
+  };
+  private gasBalances?: {
+    client: PublicClient;
+    block: Block<bigint, false, 'latest'>;
+    sourceAddress: Address;
+    adapterAddress: Address;
+    usdcToken: Address;
+    promise: Promise<readonly [bigint, bigint]>;
   };
 
   constructor(private readonly getPublicClient: () => PublicClient) {}
@@ -78,6 +120,8 @@ export class StabilizerBuyContracts {
     quoterAddress,
     sizeToTarget = false,
     ethereumBlock,
+    repayLiquidId = 0n,
+    signal,
   }: {
     client: ArgonCurrentQueryClient;
     maxUsdcIn?: bigint;
@@ -88,36 +132,43 @@ export class StabilizerBuyContracts {
     quoterAddress: Address;
     sizeToTarget?: boolean;
     ethereumBlock?: Block<bigint, false, 'latest'>;
+    repayLiquidId?: bigint;
+    signal?: AbortSignal;
   }): Promise<IStabilizerBuyQuote> {
+    signal?.throwIfAborted();
     if (maxUsdcIn !== undefined && (maxUsdcIn <= 0n || maxUsdcIn >= 1n << 128n))
       throw new StabilizerBuyValidationError('Choose a positive USDC purchase amount.');
     if (!Number.isInteger(slippageBps) || slippageBps < 0 || slippageBps >= 10_000)
       throw new StabilizerBuyValidationError('Choose slippage from 0 to 9999 basis points.');
 
-    const [deployment, prices] = await Promise.all([
-      this.getDeployment(snapshot, quoterAddress, ethereumBlock?.number),
-      StabilizerBuyContracts.readPriceReference(snapshot),
-    ]);
-    if (!prices) throw new StabilizerBuyValidationError('The purchase price reference is unavailable or stale.');
+    const publicClient = this.getPublicClient();
+    let market = this.quoteMarket;
+    if (
+      !ethereumBlock ||
+      market?.client !== publicClient ||
+      market.snapshot !== snapshot ||
+      market.block !== ethereumBlock ||
+      market.quoterAddress !== quoterAddress
+    ) {
+      const promise = this.readQuoteMarket(snapshot, quoterAddress, ethereumBlock);
+      market = {
+        client: publicClient,
+        snapshot,
+        block: ethereumBlock!,
+        quoterAddress,
+        promise,
+      };
+      if (ethereumBlock) this.quoteMarket = market;
+      void promise.catch(() => {
+        if (this.quoteMarket?.promise === promise) this.quoteMarket = undefined;
+      });
+    }
+    const { deployment, prices, minimum, block, sqrtPriceX96Before } = await market.promise;
+    signal?.throwIfAborted();
     const { usdcUsdPrice, argonUsdTargetPrice } = prices;
-
-    const { gateway, quoter, identity, argonIsToken0 } = deployment;
-    const [minimum, block] = await Promise.all([
-      gateway.read.minimumSwapMicrogons({ blockNumber: ethereumBlock?.number }),
-      ethereumBlock ?? this.getPublicClient().getBlock(),
-    ]);
+    const { quoter, identity, argonIsToken0 } = deployment;
     if (deadline <= block.timestamp)
       throw new StabilizerBuyValidationError('The purchase deadline has expired. Request a new quote.');
-
-    // Uniswap v4 StateLibrary stores PoolManager's pools mapping at slot 6; slot0 holds its starting price.
-    const poolSlot = keccak256(encodeAbiParameters([{ type: 'bytes32' }, { type: 'uint256' }], [identity.poolId, 6n]));
-    const slot0 = await this.getPublicClient().getStorageAt({
-      address: identity.poolManager,
-      slot: poolSlot,
-      blockNumber: block.number,
-    });
-    if (!slot0) throw new StabilizerBuyQuoteUnavailableError('The purchase pool price is unavailable. Retry shortly.');
-    const sqrtPriceX96Before = BigInt(slot0) & maxUint160;
 
     if (maxUsdcIn === undefined) {
       const output = bigNumberToBigInt(
@@ -173,33 +224,15 @@ export class StabilizerBuyContracts {
       throw new StabilizerBuyAmountTooSmallError(`Minimum purchase amount: ${formatUnits(minimum, 6)} ARGN.`);
 
     const minimumRewardPrincipal = snapshot.consts.balances.existentialDeposit;
-    const targetUsd = bigNumberToBigInt(argonUsdTargetPrice.times(FIXED_U128_ONE));
-    const usdcUsd = bigNumberToBigInt(usdcUsdPrice.times(FIXED_U128_ONE));
-    const microgonsPerArgon = BigInt(MICROGONS_PER_ARGON);
-    const targetValueUsd = (quotedMicrogonsOut * targetUsd) / microgonsPerArgon;
-    const spentUsd = (maxUsdcIn * usdcUsd + microgonsPerArgon - 1n) / microgonsPerArgon;
-    let capturedDiscount = 0n;
-    if (targetValueUsd > spentUsd) capturedDiscount = ((targetValueUsd - spentUsd) * microgonsPerArgon) / targetUsd;
-
-    // Compare the starting-price ratio before division so equality at the one-cent cutoff stays eligible.
-    const squaredStartPrice = sqrtPriceX96Before * sqrtPriceX96Before;
-    const q192 = 1n << 192n;
-    let priceNumerator = squaredStartPrice * 1_000_000_000_000n * usdcUsd;
-    let priceDenominator = q192;
-    if (!argonIsToken0) {
-      priceNumerator = q192 * 1_000_000_000_000n * usdcUsd;
-      priceDenominator = squaredStartPrice;
-    }
-    const maximumStartPrice = targetUsd - FIXED_U128_ONE / 100n;
-    const priceIncreased = argonIsToken0
-      ? sqrtPriceX96After > sqrtPriceX96Before
-      : sqrtPriceX96After < sqrtPriceX96Before;
-    const qualifiesForRewards =
-      sqrtPriceX96Before > 0n &&
-      priceIncreased &&
-      quotedMicrogonsOut >= minimumRewardPrincipal &&
-      capturedDiscount > 0n &&
-      priceNumerator <= maximumStartPrice * priceDenominator;
+    const qualifiesForRewards = StabilizerBuyContracts.qualifiesForRewards({
+      prices,
+      maxUsdcIn,
+      quotedMicrogonsOut,
+      minimumRewardPrincipal,
+      sqrtPriceX96Before,
+      sqrtPriceX96After,
+      argonIsToken0,
+    });
 
     return {
       ...identity,
@@ -209,7 +242,7 @@ export class StabilizerBuyContracts {
         maxUsdcIn,
         minMicrogonsOut,
         deadline,
-        repayLiquidId: 0n,
+        repayLiquidId,
         repaySignature: '0x',
       },
       quotedMicrogonsOut,
@@ -221,6 +254,7 @@ export class StabilizerBuyContracts {
     };
 
     async function quoteAmount(amount: bigint) {
+      signal?.throwIfAborted();
       const {
         result: [amountOut, swapGasEstimate, sqrtPriceX96After],
       } = await quoter.simulate.quoteExactInputSingle(
@@ -247,48 +281,108 @@ export class StabilizerBuyContracts {
     }
   }
 
+  public static qualifiesForRewards({
+    prices,
+    maxUsdcIn,
+    quotedMicrogonsOut,
+    minimumRewardPrincipal,
+    sqrtPriceX96Before,
+    sqrtPriceX96After,
+    argonIsToken0,
+  }: {
+    prices: IStabilizerBuyPriceReference;
+    maxUsdcIn: bigint;
+    quotedMicrogonsOut: bigint;
+    minimumRewardPrincipal: bigint;
+    sqrtPriceX96Before: bigint;
+    sqrtPriceX96After: bigint;
+    argonIsToken0: boolean;
+  }): boolean {
+    const { argonUsdTargetPrice, usdcUsdPrice } = prices;
+    const targetUsd = bigNumberToBigInt(argonUsdTargetPrice.times(FIXED_U128_ONE));
+    const usdcUsd = bigNumberToBigInt(usdcUsdPrice.times(FIXED_U128_ONE));
+    const microgonsPerArgon = BigInt(MICROGONS_PER_ARGON);
+    const targetValueUsd = (quotedMicrogonsOut * targetUsd) / microgonsPerArgon;
+    const spentUsd = (maxUsdcIn * usdcUsd + microgonsPerArgon - 1n) / microgonsPerArgon;
+    let capturedDiscount = 0n;
+    if (targetValueUsd > spentUsd) capturedDiscount = ((targetValueUsd - spentUsd) * microgonsPerArgon) / targetUsd;
+
+    // Compare the starting-price ratio before division so equality at the one-cent cutoff stays eligible.
+    const squaredStartPrice = sqrtPriceX96Before * sqrtPriceX96Before;
+    const q192 = 1n << 192n;
+    let priceNumerator = squaredStartPrice * 1_000_000_000_000n * usdcUsd;
+    let priceDenominator = q192;
+    if (!argonIsToken0) {
+      priceNumerator = q192 * 1_000_000_000_000n * usdcUsd;
+      priceDenominator = squaredStartPrice;
+    }
+    const maximumStartPrice = targetUsd - FIXED_U128_ONE / 100n;
+    const priceIncreased = argonIsToken0
+      ? sqrtPriceX96After > sqrtPriceX96Before
+      : sqrtPriceX96After < sqrtPriceX96Before;
+    return (
+      sqrtPriceX96Before > 0n &&
+      priceIncreased &&
+      quotedMicrogonsOut >= minimumRewardPrincipal &&
+      capturedDiscount > 0n &&
+      priceNumerator <= maximumStartPrice * priceDenominator
+    );
+  }
+
   /** The quoter supports purchase previews before the wallet is funded or approved. */
-  public async estimatePurchaseGas(quote: IStabilizerBuyQuote, blockNumber?: bigint) {
+  public async estimatePurchaseGas(quote: IStabilizerBuyQuote, ethereumBlock?: Block<bigint, false, 'latest'>) {
     const { sourceAddress, usdcToken, adapterAddress, request, poolKey, swapGasEstimate } = quote;
     const client = this.getPublicClient();
     const usdc = getContract({ address: usdcToken, abi: erc20Abi, client });
-    const [allowance, balance] = await Promise.all([
-      usdc.read.allowance([sourceAddress, adapterAddress], { blockNumber }),
-      usdc.read.balanceOf([sourceAddress], { blockNumber }),
-    ]);
-    const needsApproval = allowance < request.maxUsdcIn;
+    const blockNumber = ethereumBlock?.number;
+    let balances = this.gasBalances;
+    if (
+      blockNumber === undefined ||
+      balances?.client !== client ||
+      balances.block !== ethereumBlock ||
+      balances.sourceAddress !== sourceAddress ||
+      balances.adapterAddress !== adapterAddress ||
+      balances.usdcToken !== usdcToken
+    ) {
+      const promise = Promise.all([
+        usdc.read.allowance([sourceAddress, adapterAddress], { blockNumber }),
+        usdc.read.balanceOf([sourceAddress], { blockNumber }),
+      ]);
+      balances = { client, block: ethereumBlock!, sourceAddress, adapterAddress, usdcToken, promise };
+      if (blockNumber !== undefined) this.gasBalances = balances;
+      void promise.catch(() => {
+        if (this.gasBalances?.promise === promise) this.gasBalances = undefined;
+      });
+    }
+    const [allowance, balance] = await balances.promise;
+    const needsPermit = allowance < request.maxUsdcIn;
     // Covers adapter transfers, Permit2/router settlement, and the gateway burn/activity locator.
     let purchaseGas = swapGasEstimate + 400_000n;
-    let approvalGas = 0n;
-
-    if (needsApproval) {
-      approvalGas = await usdc.estimateGas.approve([adapterAddress, request.maxUsdcIn], {
+    if (needsPermit) {
+      purchaseGas += 50_000n;
+    } else if (balance >= request.maxUsdcIn) {
+      const adapter = getContract({ address: adapterAddress, abi: EvmContracts.argonBuyAndTransferAbi, client });
+      let previewRequest = request;
+      if (request.repayLiquidId && request.repaySignature === '0x') {
+        previewRequest = { ...request, repaySignature: `0x${'ff'.repeat(66)}` };
+      }
+      purchaseGas = await adapter.estimateGas.buyAndTransfer([previewRequest, poolKey, '0x'], {
         account: sourceAddress,
         gasPrice: 0n,
         blockNumber,
       });
-      approvalGas = (approvalGas * 12n) / 10n + 50_000n;
-    } else {
-      if (balance >= request.maxUsdcIn) {
-        const adapter = getContract({ address: adapterAddress, abi: EvmContracts.argonBuyAndTransferAbi, client });
-        purchaseGas = await adapter.estimateGas.buyAndTransfer([request, poolKey, '0x'], {
-          account: sourceAddress,
-          gasPrice: 0n,
-          blockNumber,
-        });
-      }
     }
 
     // Each transaction uses the same gas margin as the unsigned transaction builder.
     return {
-      gasEstimate: (purchaseGas * 12n) / 10n + 50_000n + approvalGas,
-      needsApproval,
+      gasEstimate: (purchaseGas * 12n) / 10n + 50_000n,
+      needsPermit,
       usdcAllowance: allowance,
       usdcBalance: balance,
     };
   }
 
-  /** Provisional fees for historical modeling, including a fresh approval; this does not validate a purchase. */
+  /** Provisional fees for historical modeling; this does not validate a purchase. */
   public async estimateMarketPurchaseGas({
     client,
     quoterAddress,
@@ -298,28 +392,17 @@ export class StabilizerBuyContracts {
     Pick<Parameters<StabilizerBuyContracts['quote']>[0], 'client' | 'quoterAddress' | 'sourceAddress' | 'maxUsdcIn'>
   >) {
     const { quoter, identity, argonIsToken0 } = await this.getDeployment(client, quoterAddress);
-    const usdc = getContract({ address: identity.usdcToken, abi: erc20Abi, client: this.getPublicClient() });
-    const [
-      {
-        result: [, swapGas],
-      },
-      approvalGas,
-    ] = await Promise.all([
-      quoter.simulate.quoteExactInputSingle(
-        [{ poolKey: identity.poolKey, zeroForOne: !argonIsToken0, exactAmount: maxUsdcIn, hookData: '0x' }],
-        { account: getAddress(sourceAddress) },
-      ),
-      usdc.estimateGas.approve([identity.adapterAddress, maxUsdcIn], {
-        account: getAddress(sourceAddress),
-        gasPrice: 0n,
-      }),
-    ]);
+    const {
+      result: [, swapGas],
+    } = await quoter.simulate.quoteExactInputSingle(
+      [{ poolKey: identity.poolKey, zeroForOne: !argonIsToken0, exactAmount: maxUsdcIn, hookData: '0x' }],
+      { account: getAddress(sourceAddress) },
+    );
 
-    const purchaseGas = swapGas + 400_000n;
-    return ((purchaseGas + approvalGas) * 12n) / 10n + 100_000n;
+    return ((swapGas + 450_000n) * 12n) / 10n + 50_000n;
   }
 
-  public async buildNextTransaction({
+  public async validatePurchase({
     client,
     quote,
     sourceAddress,
@@ -331,6 +414,15 @@ export class StabilizerBuyContracts {
     if (getAddress(sourceAddress) !== quote.sourceAddress)
       throw new StabilizerBuyValidationError('Use the wallet that approved this purchase.');
 
+    if (quote.request.repayLiquidId !== 0n) {
+      StabilizerBuyContracts.verifyLiquidRepaymentAuthorization(client, quote);
+      await StabilizerBuyContracts.validateLiquidRepayment(
+        client,
+        quote.request.argonAccountId,
+        quote.request.repayLiquidId,
+      );
+    }
+
     const fresh = await this.quote({
       client,
       maxUsdcIn: quote.request.maxUsdcIn,
@@ -339,6 +431,7 @@ export class StabilizerBuyContracts {
       destinationAddress: quote.request.argonAccountId,
       sourceAddress: quote.sourceAddress,
       quoterAddress: quote.quoterAddress,
+      repayLiquidId: quote.request.repayLiquidId,
     });
     if (
       fresh.adapterAddress !== quote.adapterAddress ||
@@ -357,18 +450,38 @@ export class StabilizerBuyContracts {
     if (balance < quote.request.maxUsdcIn)
       throw new StabilizerBuyValidationError('This wallet does not have enough USDC for the purchase.');
 
-    const needsApproval = allowance < quote.request.maxUsdcIn;
-    if (needsApproval)
+    const needsPermit = allowance < quote.request.maxUsdcIn;
+    return { needsPermit, prices: fresh.prices };
+  }
+
+  public async buildNextTransaction({
+    client,
+    quote,
+    sourceAddress,
+    permit,
+  }: {
+    client: ArgonCurrentQueryClient;
+    quote: IStabilizerBuyQuote;
+    sourceAddress: string;
+    permit?: ContractFunctionArgs<
+      typeof EvmContracts.argonBuyAndTransferAbi,
+      'nonpayable',
+      'buyAndTransferWithPermit'
+    >[3];
+  }) {
+    const { needsPermit, prices } = await this.validatePurchase({ client, quote, sourceAddress });
+    if (needsPermit) {
+      if (!permit) throw new StabilizerBuyValidationError('Authorize USDC for this purchase before submitting it.');
       return {
-        to: quote.usdcToken,
+        to: quote.adapterAddress,
         data: encodeFunctionData({
-          abi: erc20Abi,
-          functionName: 'approve',
-          args: [quote.adapterAddress, quote.request.maxUsdcIn],
+          abi: EvmContracts.argonBuyAndTransferAbi,
+          functionName: 'buyAndTransferWithPermit',
+          args: [quote.request, quote.poolKey, '0x', permit],
         }),
-        needsApproval,
-        prices: fresh.prices,
+        prices,
       };
+    }
     return {
       to: quote.adapterAddress,
       data: encodeFunctionData({
@@ -376,9 +489,45 @@ export class StabilizerBuyContracts {
         functionName: 'buyAndTransfer',
         args: [quote.request, quote.poolKey, '0x'],
       }),
-      needsApproval,
-      prices: fresh.prices,
+      prices,
     };
+  }
+
+  public async readUsdcPermit(quote: IStabilizerBuyQuote) {
+    const token = getContract({ address: quote.usdcToken, abi: usdcPermitAbi, client: this.getPublicClient() });
+    const [tokenName, nonce, separator] = await Promise.all([
+      token.read.name(),
+      token.read.nonces([quote.sourceAddress]),
+      token.read.DOMAIN_SEPARATOR(),
+    ]).catch(error => {
+      if (error instanceof BaseError) {
+        const cause = error.walk(
+          cause => cause instanceof ContractFunctionRevertedError || cause instanceof ContractFunctionZeroDataError,
+        );
+        if (cause instanceof ContractFunctionRevertedError || cause instanceof ContractFunctionZeroDataError)
+          throw new StabilizerBuyValidationError('This network’s USDC token does not support permit purchases.');
+      }
+      throw error;
+    });
+    const tokenVersion = '2';
+    const expectedDomain = domainSeparator({
+      domain: {
+        name: tokenName,
+        version: tokenVersion,
+        chainId: quote.chainId,
+        verifyingContract: quote.usdcToken,
+      },
+    });
+    if (expectedDomain.toLowerCase() !== separator.toLowerCase())
+      throw new StabilizerBuyValidationError('This network’s USDC token must support v2 permits.');
+    return { tokenName, tokenVersion, nonce };
+  }
+
+  public static signLiquidRepaymentAuthorization(quote: IStabilizerBuyQuote, signer: TxSigner) {
+    if (toArgonAccountIdHex(signer.address) !== quote.request.argonAccountId)
+      throw new StabilizerBuyValidationError('Use the Argon wallet that owns this Liquid.');
+    const payload = u8aConcat(stringToU8a('argon-liquid-repay:'), hexToU8a(quote.sourceAddress));
+    return u8aToHex(signer.sign(payload, { withType: true }));
   }
 
   /** Uses the native purchase pallet's newest accepted observation, including invalid observations. */
@@ -441,6 +590,8 @@ export class StabilizerBuyContracts {
       const purchase = activity.purchase;
       if (purchase.buyer.toLowerCase() !== quote.sourceAddress.toLowerCase()) continue;
       if (purchase.argonAccountId.toLowerCase() !== quote.request.argonAccountId.toLowerCase()) continue;
+      if (purchase.repayLiquidId !== quote.request.repayLiquidId) continue;
+      if (purchase.repaySignature.toLowerCase() !== quote.request.repaySignature.toLowerCase()) continue;
       if (purchase.usdcToken.toLowerCase() !== quote.usdcToken.toLowerCase()) continue;
       if (purchase.poolManager.toLowerCase() !== quote.poolManager.toLowerCase()) continue;
       if (purchase.poolId.toLowerCase() !== quote.poolId.toLowerCase()) continue;
@@ -457,7 +608,89 @@ export class StabilizerBuyContracts {
     throw new StabilizerBuyReceiptError('The purchase receipt has no matching gateway purchase.');
   }
 
-  private async getDeployment(snapshot: ArgonCurrentQueryClient, quoterAddress: Address, blockNumber?: bigint) {
+  /** Reuse block-pinned market reads across candidate amounts; unpinned command validation stays fresh. */
+  private async readQuoteMarket(
+    snapshot: ArgonCurrentQueryClient,
+    quoterAddress: Address,
+    ethereumBlock?: Block<bigint, false, 'latest'>,
+  ) {
+    const [deployment, prices] = await Promise.all([
+      this.getDeployment(snapshot, quoterAddress, ethereumBlock?.number),
+      StabilizerBuyContracts.readPriceReference(snapshot),
+    ]);
+    if (!prices) throw new StabilizerBuyValidationError('The purchase price reference is unavailable or stale.');
+
+    const [minimum, block] = await Promise.all([
+      deployment.gateway.read.minimumSwapMicrogons({ blockNumber: ethereumBlock?.number }),
+      ethereumBlock ?? this.getPublicClient().getBlock(),
+    ]);
+    // Uniswap v4 stores PoolManager's pools mapping at slot 6; slot0 holds its starting price.
+    const poolSlot = keccak256(
+      encodeAbiParameters([{ type: 'bytes32' }, { type: 'uint256' }], [deployment.identity.poolId, 6n]),
+    );
+    const slot0 = await this.getPublicClient().getStorageAt({
+      address: deployment.identity.poolManager,
+      slot: poolSlot,
+      blockNumber: block.number,
+    });
+    if (!slot0) throw new StabilizerBuyQuoteUnavailableError('The purchase pool price is unavailable. Retry shortly.');
+    const sqrtPriceX96Before = BigInt(slot0) & maxUint160;
+    return { deployment, prices, minimum, block, sqrtPriceX96Before };
+  }
+
+  private static verifyLiquidRepaymentAuthorization(client: ArgonCurrentQueryClient, quote: IStabilizerBuyQuote) {
+    const payload = u8aConcat(stringToU8a('argon-liquid-repay:'), hexToU8a(quote.sourceAddress));
+    const owner = hexToU8a(quote.request.argonAccountId);
+    let valid = false;
+    try {
+      const signature = client.registry.createType('MultiSignature', quote.request.repaySignature);
+      if (signature.toHex().toLowerCase() !== quote.request.repaySignature.toLowerCase())
+        throw new Error('Invalid encoding');
+      if (signature.isSr25519) valid = sr25519Verify(payload, signature.asSr25519.toU8a(), owner);
+      else if (signature.isEd25519) valid = ed25519Verify(payload, signature.asEd25519.toU8a(), owner);
+      else if (signature.isEcdsa) valid = secp256k1Verify(payload, signature.asEcdsa.toU8a(), owner, 'blake2');
+    } catch {
+      valid = false;
+    }
+    if (!valid) throw new StabilizerBuyValidationError('Authorize this Ethereum wallet to pay down your Liquid.');
+  }
+
+  private static async validateLiquidRepayment(client: ArgonCurrentQueryClient, owner: string, liquidId: bigint) {
+    const [ticks, currentTick, keys, tip, config] = await Promise.all([
+      client.query.bitcoinFissions.liquidTicksByOwnerAndId(owner, liquidId),
+      client.query.ticks.currentTick(),
+      client.query.bitcoinFissions.fissionIdsByOwnerAndLiquid.keys([owner, liquidId]),
+      client.query.bitcoinUtxos.confirmedBitcoinBlockTip(),
+      BitcoinLock.getConfig(client),
+    ]);
+    if (!ticks || currentTick === null || !keys?.length || !tip)
+      throw new StabilizerBuyValidationError('This Liquid is no longer available for paydown.');
+    const lastChange = ticks.lastRatchetTick ?? ticks.createdAtTick;
+    if (lastChange !== null && BigInt(currentTick) <= BigInt(lastChange) + 1n)
+      throw new StabilizerBuyValidationError('This Liquid was just changed. Wait two ticks before buying.');
+
+    const fissions = await client.query.bitcoinFissions.fissionByOwnerAndId.multi(
+      keys.map(key => [owner, Number(key.args[1])] as const),
+    );
+    if (!fissions?.length || fissions.some(fission => !fission))
+      throw new StabilizerBuyValidationError('This Liquid is no longer available for paydown.');
+    const locks = await client.query.bitcoinLocks.locksById.multi([
+      ...new Set(fissions.map(fission => fission!.lockId)),
+    ]);
+    const holdFrames = client.consts.stabilizerBuys.purchaseHoldFrames;
+    if (
+      !locks?.length ||
+      locks.some(
+        lock =>
+          !lock || !BitcoinLock.hasRepaymentWindow({ lock, currentBitcoinHeight: tip.blockHeight, holdFrames, config }),
+      )
+    )
+      throw new StabilizerBuyValidationError(
+        'This Liquid expires too soon to finish the paydown holding and release periods.',
+      );
+  }
+
+  public async getDeployment(snapshot: ArgonCurrentQueryClient, quoterAddress: Address, blockNumber?: bigint) {
     const [approved, config] = await Promise.all([
       snapshot.query.stabilizerBuys.approvedPool(),
       snapshot.query.crosschainTransfer.chainConfigBySourceChain('Ethereum'),

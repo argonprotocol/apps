@@ -1,12 +1,66 @@
 import { BitcoinFission, SATOSHIS_PER_BITCOIN } from '@argonprotocol/apps-core';
 import { PriceIndex } from '@argonprotocol/mainchain';
 import BigNumber from 'bignumber.js';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import type { IBitcoinSecuritizationTerm } from '../interfaces/IBitcoinSecuritizationTerm.ts';
 import { BitcoinLiquid } from '../lib/BitcoinLiquid.ts';
+import { createBitcoinLockConfig, createLock, createStore, historyBlock } from './helpers/bitcoin.ts';
+import { BitcoinLockStatus } from '../interfaces/IBitcoinLockRecord.ts';
+import { createTestDb } from './helpers/db.ts';
+import { getStabilizerBuyReturnedSatoshis } from '../lib/financials/StabilizerBuys.ts';
+import { StabilizerBuyStatus } from '../interfaces/IStabilizerBuyPurchase.ts';
 
 describe('Bitcoin Liquid structure', () => {
+  it('requires every active backing lock to outlast repayment, without expired historical fissions blocking it', () => {
+    const config = createBitcoinLockConfig({ lockReleaseCosignDeadlineFrames: 10 });
+    const locks = createStore();
+    vi.spyOn(locks, 'config', 'get').mockReturnValue(config);
+    locks.data.readiness = 'ready';
+    locks.data.oracleBitcoinBlockHeight = 1_000;
+    for (const lockId of [101, 202]) {
+      const lock = createLock({
+        uuid: `synthetic-lock-${lockId}`,
+        utxoId: lockId,
+        status: BitcoinLockStatus.LockFunded,
+        createdAt: '2026-11-01T00:00:00Z',
+      });
+      lock.scriptDetails!.vaultClaimHeight = lockId === 101 ? 10_000 : 5_000;
+      locks.data.locksByLockId[lockId] = lock;
+    }
+    const fissions = [101, 202].map(
+      (lockId, index) =>
+        new BitcoinFission({
+          ownerAccount: 'synthetic-owner',
+          fissionId: index + 1,
+          liquidId: 10,
+          lockId,
+          satoshis: 50_000_000n,
+          microgonsAtTargetPerBtc: 100n,
+          liquidityPromised: 50n,
+          createdAtArgonBlock: 100,
+          ratchetNumber: 0,
+          lastUpdatedArgonBlock: 100,
+        }),
+    );
+    const liquid = BitcoinLiquid.create({ liquidId: 10, fissions });
+
+    expect(liquid.hasRepaymentWindow(locks, 30)).toBe(false);
+    const secondLock = locks.data.locksByLockId[202];
+    delete locks.data.locksByLockId[202];
+    expect(liquid.hasRepaymentWindow(locks, 30)).toBeUndefined();
+    locks.data.locksByLockId[202] = secondLock;
+    secondLock.scriptDetails!.vaultClaimHeight = 10_000;
+    expect(liquid.hasRepaymentWindow(locks, 30)).toBe(true);
+
+    secondLock.scriptDetails!.vaultClaimHeight = 5_000;
+    fissions[1].satoshis = 0n;
+    expect(liquid.hasRepaymentWindow(locks, 30)).toBe(true);
+    fissions[1].satoshis = 50_000_000n;
+    fissions[1].closedAtArgonBlock = 200;
+    expect(liquid.hasRepaymentWindow(locks, 30)).toBe(true);
+  });
+
   it('projects the next payout and remaining daily payout count from current pending mints', () => {
     const first = new BitcoinFission({
       ownerAccount: 'owner-account',
@@ -48,11 +102,21 @@ describe('Bitcoin Liquid structure', () => {
       remainingAmount: 9n,
       maxAmountPerFrame: 4n,
     });
+    first.closedAtArgonBlock = 200;
 
     const liquid = BitcoinLiquid.create({ liquidId: 10, fissions: [first, second] });
 
+    // Closing collateral does not cancel the remaining mint entitlement.
+    expect(liquid.satoshis).toBe(40_000_000n);
+    expect(liquid.liquidityPromised).toBe(9n);
+    expect(liquid.pendingLiquidity).toBe(34n);
+    expect(liquid.receivedLiquidity).toBe(0n);
     expect(liquid.expectedMintPerFrame).toBe(14n);
     expect(liquid.estimatedMintFramesRemaining).toBe(3);
+
+    first.pendingMints[0].remainingAmount = 15n;
+    expect(liquid.pendingLiquidity).toBe(24n);
+    expect(liquid.receivedLiquidity).toBe(10n);
   });
 
   it('uses the runtime Fission redemption calculation for the current repayment amount', () => {
@@ -320,6 +384,25 @@ describe('Bitcoin Liquid structure', () => {
     const liquid = BitcoinLiquid.create({ liquidId: 10, fissions: [fission] });
 
     expect(liquid.history.reduce((sum, entry) => sum + entry.liquidityUnlocked, 0n)).toBe(120n);
+    expect(liquid.getRepaymentState(150)).toEqual({ liabilityBefore: 100n, liquidityRepaid: 60n, liabilityAfter: 40n });
+    expect(liquid.getRepaymentState(151)).toEqual({ liabilityBefore: 40n, liquidityRepaid: 0n, liabilityAfter: 40n });
+    expect(liquid.getRepaymentState(99)).toBeUndefined();
+    const repayment = fission.repayments.pop()!;
+    expect(liquid.getRepaymentState(150)).toBeUndefined();
+    fission.repayments.push(repayment);
+    const ratchet = fission.ratchets.pop()!;
+    expect(liquid.getRepaymentState(150)).toBeUndefined();
+    fission.ratchets.push(ratchet);
+
+    // A newer live ratchet does not fill an earlier missed ratchet.
+    fission.ratchetNumber = 2;
+    ratchet.ratchetNumber = 2;
+    ratchet.sourceRatchetIndex = 2;
+    expect(liquid.getRepaymentState(150)).toBeUndefined();
+    fission.ratchetNumber = 1;
+    ratchet.ratchetNumber = 1;
+    ratchet.sourceRatchetIndex = 1;
+
     expect(liquid.history[0]).toMatchObject({
       liabilityBefore: 0n,
       liabilityAfter: 100n,
@@ -331,6 +414,200 @@ describe('Bitcoin Liquid structure', () => {
       affectedSatoshis: 40_000_000n,
       liquidityUnlocked: 20n,
     });
+  });
+
+  it('excludes a fully repaid allocation from current totals and a later survivor ratchet after reload', async () => {
+    const db = await createTestDb();
+    const ownerAccount = `0x${'33'.repeat(32)}`;
+    const creationBlock = {
+      ...historyBlock(100),
+      blockNumber: 100,
+      blockHash: `0x${'10'.repeat(32)}`,
+      blockTime: 1_000,
+      tick: 100,
+    };
+    const closeBlock = {
+      ...historyBlock(150),
+      blockNumber: 150,
+      blockHash: `0x${'15'.repeat(32)}`,
+      blockTime: 2_000,
+      tick: 150,
+    };
+    const ratchetBlock = {
+      ...historyBlock(200),
+      blockNumber: 200,
+      blockHash: `0x${'20'.repeat(32)}`,
+      blockTime: 3_000,
+      tick: 200,
+    };
+    try {
+      const records = [60_000_000n, 40_000_000n].map((satoshis, index) =>
+        BitcoinFission.createRecordFromEvent({
+          block: creationBlock,
+          event: {
+            section: 'bitcoinFissions',
+            method: 'FissionCreated',
+            data: {
+              accountId: ownerAccount,
+              fissionId: index + 1,
+              liquidId: 10,
+              lockId: index + 101,
+              satoshis,
+              microgonsAtTargetPerBtc: 100n,
+              liquidityPromised: satoshis / 1_000_000n,
+            },
+          },
+        }),
+      );
+      records[0] = BitcoinFission.applyEventToRecord({
+        record: records[0],
+        block: closeBlock,
+        event: {
+          section: 'bitcoinFissions',
+          method: 'FissionClosed',
+          data: { accountId: ownerAccount, fissionId: 1, redemptionAmount: 55n },
+        },
+        eventIndex: 0,
+      });
+      await db.bitcoinFissionsTable.replaceRecords(records);
+
+      let fissions = (await db.bitcoinFissionsTable.fetchAll(ownerAccount)).map(record => new BitcoinFission(record));
+      let liquid = BitcoinLiquid.create({ liquidId: 10, fissions });
+      expect(liquid.satoshis).toBe(40_000_000n);
+      expect(liquid.liquidityPromised).toBe(40n);
+      expect(liquid.getRepaymentState(150)).toEqual({
+        liabilityBefore: 100n,
+        liquidityRepaid: 60n,
+        liabilityAfter: 40n,
+      });
+      fissions[0].closeReason = 'lock-spent';
+      expect(liquid.getRepaymentState(150)).toEqual({ liabilityBefore: 40n, liquidityRepaid: 0n, liabilityAfter: 40n });
+      fissions[0].closeReason = 'closed';
+      expect(liquid.receivedLiquidity).toBe(100n);
+      expect(
+        getStabilizerBuyReturnedSatoshis(
+          {
+            id: 'synthetic-full-fission-paydown',
+            ownerAccount,
+            status: StabilizerBuyStatus.Complete,
+            createdAt: new Date(0),
+            updatedAt: new Date(0),
+            argonFees: [],
+            liquidRepaymentEvent: {
+              gatewayActivityNonce: 1n,
+              liquidId: 10,
+              microgonsBurned: 55n,
+              blockNumber: closeBlock.blockNumber,
+              blockHash: closeBlock.blockHash,
+              blockTime: closeBlock.blockTime,
+              eventIndex: 1,
+            },
+          },
+          liquid,
+        ),
+      ).toBe(60_000_000n);
+
+      const survivor = BitcoinFission.applyEventToRecord({
+        record: records[1],
+        block: ratchetBlock,
+        event: {
+          section: 'bitcoinFissions',
+          method: 'FissionRatcheted',
+          data: {
+            accountId: ownerAccount,
+            fissionId: 2,
+            ratchetNumber: 1,
+            microgonsAtTargetPerBtc: 150n,
+            liquidityPromised: 60n,
+            amountMinted: 20n,
+            amountBurned: 0n,
+          },
+        },
+        eventIndex: 0,
+      });
+      await db.bitcoinFissionsTable.replaceRecord(survivor);
+      fissions = (await db.bitcoinFissionsTable.fetchAll(ownerAccount)).map(record => new BitcoinFission(record));
+      liquid = BitcoinLiquid.create({ liquidId: 10, fissions });
+      const priceIndex = new PriceIndex();
+      priceIndex.btcUsdPrice = new BigNumber(100);
+      priceIndex.argonUsdPrice = new BigNumber(1);
+      priceIndex.argonUsdTargetPrice = new BigNumber(1);
+
+      expect(liquid.satoshis).toBe(40_000_000n);
+      expect(liquid.liquidityPromised).toBe(60n);
+      expect(liquid.getRepaymentAmount(priceIndex)).toBe(60n);
+      expect(liquid.getRatchetStatus({ microgonsAtTargetPerBtc: 200n, minimumRatchetPercent: 1n })).toEqual({
+        percent: 33.33,
+        isAvailable: true,
+      });
+      expect(liquid.history.at(-1)).toMatchObject({
+        liabilityBefore: 40n,
+        liabilityAfter: 60n,
+        liquidityUnlocked: 20n,
+        affectedSatoshis: 40_000_000n,
+      });
+      // Archived collateral remains available to history; it is not an outstanding balance.
+      expect(fissions[0].satoshis).toBe(60_000_000n);
+      expect(liquid.originalSatoshis).toBe(100_000_000n);
+    } finally {
+      await db.close();
+    }
+  });
+
+  it.each([5, 9])('orders same-block closures around ratchet extrinsic 5 (last closure: %s)', lastClosure => {
+    const fissions = [60_000_000n, 10_000_000n, 30_000_000n].map(
+      (satoshis, index) =>
+        new BitcoinFission({
+          ownerAccount: 'synthetic-owner',
+          fissionId: index + 1,
+          liquidId: 10,
+          lockId: index + 101,
+          initialSatoshis: satoshis,
+          satoshis,
+          microgonsAtTargetPerBtc: 100n,
+          liquidityPromised: satoshis / 1_000_000n,
+          ratchetNumber: 0,
+          ratchets: [
+            {
+              source: 'fission',
+              sourceRatchetIndex: 0,
+              ratchetNumber: 0,
+              microgonsAtTargetPerBtc: 100n,
+              liquidityPromised: satoshis / 1_000_000n,
+              amountMinted: satoshis / 1_000_000n,
+              amountBurned: 0n,
+              mintPending: 0n,
+              blockNumber: 100,
+              extrinsicIndex: 1,
+            },
+          ],
+        }),
+    );
+    fissions[0].closedAtArgonBlock = 200;
+    fissions[0].closedExtrinsicIndex = lastClosure;
+    fissions[1].closedAtArgonBlock = 200;
+    fissions[1].closedExtrinsicIndex = 2;
+    fissions[2].ratchets.push({
+      source: 'fission',
+      sourceRatchetIndex: 1,
+      ratchetNumber: 1,
+      microgonsAtTargetPerBtc: 200n,
+      liquidityPromised: 60n,
+      amountMinted: 30n,
+      amountBurned: 0n,
+      mintPending: 0n,
+      blockNumber: 200,
+      extrinsicIndex: 5,
+    });
+    const liquid = BitcoinLiquid.create({ liquidId: 10, fissions });
+    // The 10-unit portion closed before this transaction. The 60-unit portion
+    // closes either inside this atomic transaction or later in the same block.
+    expect(liquid.history.at(-1)).toMatchObject({
+      liabilityBefore: 90n,
+      liabilityAfter: lastClosure === 5 ? 60n : 120n,
+      liquidityUnlocked: 30n,
+    });
+    expect(liquid.getRepaymentState(201)).toEqual({ liabilityBefore: 60n, liquidityRepaid: 0n, liabilityAfter: 60n });
   });
 
   it('reports the total close cost from durable close history', () => {
@@ -383,6 +660,8 @@ describe('Bitcoin Liquid structure', () => {
     const liquid = BitcoinLiquid.create({ liquidId: 10, fissions });
 
     expect(liquid.isClosed).toBe(true);
+    expect(liquid.liquidityPromised).toBe(0n);
+    expect(liquid.receivedLiquidity).toBe(100n);
     expect(liquid.closedAt).toEqual(closedBlockTime);
     expect(liquid.redemptionAmount).toBe(90n);
     expect(liquid.historyTransactionFees).toBe(0n);

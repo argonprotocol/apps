@@ -31,7 +31,7 @@ export async function fetchVaultRevenue() {
     await vaults.load();
     // @ts-expect-error -- Override saveStats to prevent writing to DB during data fetch
     vaults.saveStats = () => Promise.resolve(); // Disable saving stats during data fetch
-    const data = await vaults.updateRevenue(mainchain);
+    const data = await vaults.updateRevenue(mainchain, 0);
     await miningFrames.stop();
 
     // Write data to JSON file

@@ -1,3 +1,4 @@
+import { getOfflineRegistry } from '@argonprotocol/mainchain';
 import { getHistoricalBitcoinFissions } from '../lib/recovery/BitcoinFissions.ts';
 import { getHistoricalBitcoinLockDetails } from '../lib/recovery/BitcoinLockHistory.ts';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -35,12 +36,12 @@ afterEach(() => vi.useRealTimers());
 
 describe('saved Bitcoin Lock inclusion snapshots', () => {
   it.each([159, 160, 161])('decodes runtime %s Lock and Fission storage through historical readers', async spec => {
-    const registry = new TypeRegistry();
-    const metadata = new Metadata(
-      registry,
-      Object.entries(getBundledMetadata()).find(([key]) => key.endsWith(`-${spec}`))![1],
-    );
-    registry.setMetadata(metadata);
+    const registry = spec === 161 ? getOfflineRegistry() : new TypeRegistry();
+    if (spec !== 161) {
+      registry.setMetadata(
+        new Metadata(registry, Object.entries(getBundledMetadata()).find(([key]) => key.endsWith(`-${spec}`))![1]),
+      );
+    }
     const record = registry.createType('Option<PalletBitcoinLocksLockedBitcoin>', {
       vaultId: 7,
       ownerAccount: new Uint8Array(32).fill(17),
@@ -475,12 +476,13 @@ describe('BitcoinLocks capacity owners', () => {
   });
 
   it.each([160, 161])('projects flexible capacity without changing the loaded Vault on runtime %s', async spec => {
-    const registry = new TypeRegistry();
-    const metadata = new Metadata(
-      registry,
-      Object.entries(getBundledMetadata()).find(([key]) => key.endsWith(`-${spec}`))![1],
-    );
-    registry.setMetadata(metadata);
+    const registry = spec === 161 ? getOfflineRegistry() : new TypeRegistry();
+    if (spec !== 161) {
+      registry.setMetadata(
+        new Metadata(registry, Object.entries(getBundledMetadata()).find(([key]) => key.endsWith(`-${spec}`))![1]),
+      );
+    }
+    const metadata = new Metadata(registry, { metadata: { V16: registry.metadata } });
     const record = registry.createType('Option<ArgonPrimitivesVault>', {
       operatorAccountId: new Uint8Array(32).fill(17),
       securitization: 1_000n,

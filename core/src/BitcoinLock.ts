@@ -433,9 +433,24 @@ export class BitcoinLock implements IBitcoinLock {
     return {
       lockReleaseCosignDeadlineFrames: client.consts.bitcoinLocks.lockReleaseCosignDeadlineFrames,
       securitizationHoldBlocks: client.consts.bitcoinLocks.securitizationHoldBlocks,
+      argonTicksPerDay: client.consts.bitcoinLocks.argonTicksPerDay,
+      ticksPerBitcoinBlock: client.consts.bitcoinLocks.ticksPerBitcoinBlock,
       tickDurationMillis: await client.query.ticks.genesisTicker().then(x => x.tickDurationMillis),
       bitcoinNetwork,
     };
+  }
+
+  public static hasRepaymentWindow(args: {
+    lock: Pick<IBitcoinLock, 'vaultClaimHeight'>;
+    currentBitcoinHeight: number;
+    holdFrames: number;
+    config: IBitcoinLockConfig;
+  }): boolean {
+    const { lock, currentBitcoinHeight, holdFrames, config } = args;
+    const requiredTicks = BigInt(holdFrames + config.lockReleaseCosignDeadlineFrames) * BigInt(config.argonTicksPerDay);
+    const remainingTicks =
+      BigInt(Math.max(lock.vaultClaimHeight - currentBitcoinHeight, 0)) * config.ticksPerBitcoinBlock;
+    return requiredTicks < remainingTicks;
   }
 
   public static async createInitializeTx(
@@ -555,7 +570,7 @@ export class BitcoinLock implements IBitcoinLock {
       price = maxMicrogonsAtTarget;
     }
 
-    const multiplierBn = this.redemptionMultiplierBn(priceIndex);
+    const multiplierBn = this.calculateRedemptionRate(priceIndex.rValue);
     return BigInt(new BigNumber(price.toString()).times(multiplierBn).integerValue(BigNumber.ROUND_DOWN).toFixed(0));
   }
 
@@ -566,7 +581,7 @@ export class BitcoinLock implements IBitcoinLock {
   ): bigint {
     if (redemptionAmount <= 0n) return 0n;
 
-    const multiplierBn = this.redemptionMultiplierBn(priceIndex);
+    const multiplierBn = this.calculateRedemptionRate(priceIndex.rValue);
     const targetMicrogonsPerBtc = microgonsAtTargetPerBtc ?? priceIndex.getSatoshiPriceInTargetMicrogons(SATS_PER_BTC);
     let requiredTargetMicrogons = BigInt(
       new BigNumber(redemptionAmount.toString()).div(multiplierBn).integerValue(BigNumber.ROUND_CEIL).toFixed(0),
@@ -590,25 +605,42 @@ export class BitcoinLock implements IBitcoinLock {
     return satoshis;
   }
 
+  public static calculateRedemptionRate(r: BigNumber): BigNumber {
+    // Match native FixedU128 truncation at each multiplication and division.
+    r = r.decimalPlaces(18, BigNumber.ROUND_DOWN);
+    if (r.gte(1)) return new BigNumber(1);
+
+    if (r.gte(0.9)) {
+      const squaredR = r.pow(2).decimalPlaces(18, BigNumber.ROUND_DOWN);
+      return squaredR.times(20).minus(r.times(38)).plus(19);
+    }
+
+    if (r.gte(0.01)) {
+      const numerator = r.times('0.5618').decimalPlaces(18, BigNumber.ROUND_DOWN).plus('0.3944');
+      return numerator.shiftedBy(18).dividedToIntegerBy(r).shiftedBy(-18);
+    }
+
+    const inverseR = new BigNumber(1).shiftedBy(18).dividedToIntegerBy(r).shiftedBy(-18);
+    const factor = r.times('0.576').decimalPlaces(18, BigNumber.ROUND_DOWN).plus('0.4');
+    return inverseR.times(factor).decimalPlaces(18, BigNumber.ROUND_DOWN);
+  }
+
+  /** Keep the observed R with the cheapest redemption quote; zero marks have no quote. */
+  public static getBestRedemptionRValue(current: BigNumber, observed: BigNumber): BigNumber {
+    if (!observed.gt(0)) return current;
+    if (!current.gt(0)) return observed;
+
+    const currentRate = this.calculateRedemptionRate(current);
+    const observedRate = this.calculateRedemptionRate(observed);
+    if (observedRate.lt(currentRate)) return observed;
+    return current;
+  }
+
   private static async getLockIdFromEvents(events: RuntimeEvent[]) {
     for (const event of events) {
       if (event.section === 'bitcoinLocks' && event.method === 'BitcoinLockCreated') return event.data.lockId;
     }
     return undefined;
-  }
-
-  private static redemptionMultiplierBn(priceIndex: PriceIndex): BigNumber {
-    const r = priceIndex.rValue;
-
-    if (r.gte(1)) {
-      return new BigNumber(1);
-    } else if (r.gte(0.9)) {
-      return new BigNumber(20).times(r.pow(2)).minus(new BigNumber(38).times(r)).plus(19);
-    } else if (r.gte(0.01)) {
-      return new BigNumber(0.5618).times(r).plus(0.3944).div(r);
-    } else {
-      return new BigNumber(1).div(r).times(new BigNumber(0.576).times(r).plus(0.4));
-    }
   }
 
   public static fromRuntime(
@@ -980,6 +1012,8 @@ export class BitcoinLock implements IBitcoinLock {
 export interface IBitcoinLockConfig {
   lockReleaseCosignDeadlineFrames: number;
   securitizationHoldBlocks: number;
+  argonTicksPerDay: number;
+  ticksPerBitcoinBlock: bigint;
   tickDurationMillis: number;
   bitcoinNetwork: BitcoinUtxosBitcoinNetworkResultSpec100;
 }

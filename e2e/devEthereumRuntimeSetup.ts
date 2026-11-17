@@ -1,4 +1,10 @@
-import { type ArgonApi, type ArgonClient, TxSubmitter, TxSigner } from '@argonprotocol/apps-core';
+import {
+  type ArgonApi,
+  type ArgonClient,
+  toEthereumGatewayCouncil,
+  TxSubmitter,
+  TxSigner,
+} from '@argonprotocol/apps-core';
 import {
   EvmContracts,
   getEthereumBeaconSyncBootstrapTx,
@@ -199,10 +205,7 @@ export async function syncEthereumGatewayActiveCouncilToArgon(args: {
   finalizedClient: ArgonApi;
   gatewayAddress: Address;
   publicClient: Pick<PublicClient, 'readContract' | 'waitForTransactionReceipt'>;
-  sendCurrentCouncil: (
-    currentCouncil: { signers: Address[]; weights: bigint[] },
-    nextMicrogonsPerArgonot: bigint,
-  ) => Promise<Hex>;
+  sendCurrentCouncil: (council: EvmContracts.MintingGatewayGlobalIssuanceCouncilHashArgs) => Promise<Hex>;
 }): Promise<{
   status: 'no-active-council' | 'missing-active-council' | 'already-matching' | 'synced';
   hash?: Hex;
@@ -219,29 +222,19 @@ export async function syncEthereumGatewayActiveCouncilToArgon(args: {
     return { status: 'missing-active-council' };
   }
 
-  const members = Object.entries(activeCouncil.members).sort(([leftSigner], [rightSigner]) =>
-    leftSigner.localeCompare(rightSigner),
-  );
-  const currentCouncil = {
-    signers: members.map(([signer]) => getAddress(signer)),
-    weights: members.map(([, member]) => member.weight),
-  };
-  const nextMicrogonsPerArgonot = activeCouncil.epochMicrogonsPerArgonot;
+  const currentCouncil = toEthereumGatewayCouncil(activeCouncil);
   const gatewayCouncil = await publicClient.readContract({
     address: gatewayAddress,
     abi: EvmContracts.mintingGatewayAbi,
     functionName: 'globalIssuanceCouncil',
   });
-  const expectedGatewayCouncilHash = EvmContracts.hashMintingGatewayGlobalIssuanceCouncil({
-    ...currentCouncil,
-    epochMicrogonsPerArgonot: nextMicrogonsPerArgonot,
-  });
+  const expectedGatewayCouncilHash = EvmContracts.hashMintingGatewayGlobalIssuanceCouncil(currentCouncil);
 
   if (gatewayCouncil[2].toLowerCase() === expectedGatewayCouncilHash.toLowerCase()) {
     return { status: 'already-matching' };
   }
 
-  const hash = await sendCurrentCouncil(currentCouncil, nextMicrogonsPerArgonot);
+  const hash = await sendCurrentCouncil(currentCouncil);
   await publicClient.waitForTransactionReceipt({ hash });
   return { status: 'synced', hash };
 }

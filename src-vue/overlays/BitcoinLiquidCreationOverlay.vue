@@ -155,6 +155,7 @@
           <div class="text-xs text-slate-500">{{ props.state.progressLabel || 'Preparing transaction...' }}</div>
           <div
             v-if="props.state.errorMessage"
+            data-testid="BitcoinLiquidCreationOverlay.error"
             class="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700"
           >
             {{ props.state.errorMessage }}
@@ -319,6 +320,7 @@
           </div>
           <div
             v-if="props.state.errorMessage"
+            data-testid="BitcoinLiquidCreationOverlay.error"
             role="alert"
             class="mt-3 flex items-center rounded border border-yellow-400/70 bg-yellow-100 px-3 py-3 text-yellow-900"
           >

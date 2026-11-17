@@ -26,7 +26,7 @@
               <span class="text-base opacity-80">The network's computation</span>
             </div>
             <div class="bg-argon-100/50 rounded px-3 py-2 text-2xl leading-none font-bold">
-              <template v-if="miningStats.averageAPY !== undefined">
+              <template v-if="miningStats?.averageAPY !== undefined">
                 <Returns metric="APY" :returns="{ apy: miningStats.averageAPY }" :showLabel="false" />
               </template>
               <template v-else>---%</template>
@@ -38,7 +38,7 @@
               <span class="text-base opacity-80">The currency's stabilization</span>
             </div>
             <div class="bg-argon-100/50 rounded px-3 py-2 text-2xl leading-none font-bold">
-              <template v-if="vaultingStats.isLoaded">
+              <template v-if="vaultingStats?.isLoaded">
                 <Returns metric="APY" :returns="{ apy: vaultingStats.averageAPY }" :showLabel="false" />
               </template>
               <template v-else>---%</template>
@@ -105,8 +105,8 @@ const config = getConfig();
 const controller = useCertificationController();
 const upstreamOperatorClient = getUpstreamOperatorClient();
 const walletKeys = getWalletKeys();
-const miningStats = useMiningStats();
-const vaultingStats = useVaultingStats();
+const miningStats = Vue.shallowRef<ReturnType<typeof useMiningStats>>();
+const vaultingStats = Vue.shallowRef<ReturnType<typeof useVaultingStats>>();
 
 const isOpen = Vue.ref(false);
 const invite = Vue.ref<IMemberInvite | null>(null);
@@ -221,7 +221,7 @@ function openWelcomeIfApproved() {
 
 async function refreshOperationReturns(): Promise<void> {
   try {
-    await Promise.all([miningStats.update(), vaultingStats.update()]);
+    await Promise.all([miningStats.value?.update(), vaultingStats.value?.update()]);
   } catch (error) {
     console.warn('[UpgradeToOperationsOverlay] Unable to refresh operation returns', error);
   }
@@ -232,6 +232,8 @@ function closeOverlay() {
 }
 
 function openUpgradeToOperationsOverlay() {
+  miningStats.value ??= useMiningStats();
+  vaultingStats.value ??= useVaultingStats();
   hasOpenedWelcome.value = false;
   isOpen.value = true;
   openWelcomeIfApproved();

@@ -1,8 +1,8 @@
 import { StabilizerBuy } from '@argonprotocol/apps-core';
 import BigNumber from 'bignumber.js';
-import type { IStabilizerBuyOpportunity } from '../../interfaces/IStabilizerBuyPurchase.ts';
+import type { IStabilizerBuyOpportunity, IStabilizerBuyQuote } from '../../interfaces/IStabilizerBuyPurchase.ts';
 
-export const buyOpportunity: Extract<IStabilizerBuyOpportunity, { type: 'buy' }> = {
+export const buyOpportunity: Extract<IStabilizerBuyOpportunity, { type: 'buy' }> & { quote: IStabilizerBuyQuote } = {
   type: 'buy',
   key: 'synthetic-buy-opportunity',
   apy: 42,

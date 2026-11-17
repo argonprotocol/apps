@@ -427,7 +427,9 @@ describe('cooperative release approval with simulated chain observations', () =>
         } as unknown as GlobalCouncil;
         const operatorVaults = {
           vaultsById: { 7: { vaultId: 7 } },
+          loadCurrentState: async () => undefined,
           load: async () => undefined,
+          requireRevenueHistory: async () => undefined,
           updateVaultRevenue: async () => undefined,
         } as unknown as Vaults;
         const vault = new MyVault(

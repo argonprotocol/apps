@@ -127,21 +127,14 @@ describe('syncEthereumGatewayActiveCouncilToArgon', () => {
     const currentCouncil = {
       signers: [getAddress(signerA), getAddress(signerB)],
       weights: [7n, 4n],
+      version: 0,
     };
-    const hashCouncil = EvmContracts.hashMintingGatewayGlobalIssuanceCouncil as (args: {
-      signers: `0x${string}`[];
-      weights: bigint[];
-      epochMicrogonsPerArgonot: bigint;
-    }) => `0x${string}`;
-    const staleGatewayHash = hashCouncil({
+    const staleGatewayHash = EvmContracts.hashMintingGatewayGlobalIssuanceCouncil({
       ...currentCouncil,
       epochMicrogonsPerArgonot: oldMicrogonsPerArgonot,
     });
     const staleGatewayCouncil = [11n, 2n, staleGatewayHash, oldMicrogonsPerArgonot] as const;
-    const sendCurrentCouncil = vi.fn(async () => `0x${'ab'.repeat(32)}`) as (
-      currentCouncil: { signers: `0x${string}`[]; weights: bigint[] },
-      nextMicrogonsPerArgonot: bigint,
-    ) => Promise<Hex>;
+    const sendCurrentCouncil = vi.fn(async (): Promise<Hex> => `0x${'ab'.repeat(32)}`);
     const waitForTransactionReceipt = vi.fn(
       async () => ({ status: 'success' }) as Awaited<ReturnType<PublicClient['waitForTransactionReceipt']>>,
     );
@@ -174,7 +167,11 @@ describe('syncEthereumGatewayActiveCouncilToArgon', () => {
       status: 'synced',
       hash: `0x${'ab'.repeat(32)}`,
     });
-    expect(sendCurrentCouncil).toHaveBeenCalledWith(currentCouncil, nextMicrogonsPerArgonot);
+    expect(sendCurrentCouncil).toHaveBeenCalledWith({
+      ...currentCouncil,
+      epochMicrogonsPerArgonot: nextMicrogonsPerArgonot,
+      inflationPercentSinceLaunch: 0n,
+    });
     expect(waitForTransactionReceipt).toHaveBeenCalledWith({ hash: `0x${'ab'.repeat(32)}` });
   });
 
@@ -183,22 +180,15 @@ describe('syncEthereumGatewayActiveCouncilToArgon', () => {
     const currentCouncil = {
       signers: [getAddress(signer)],
       weights: [1n],
+      version: 0,
     };
     const microgonsPerArgonot = 8n;
-    const hashCouncil = EvmContracts.hashMintingGatewayGlobalIssuanceCouncil as (args: {
-      signers: `0x${string}`[];
-      weights: bigint[];
-      epochMicrogonsPerArgonot: bigint;
-    }) => `0x${string}`;
-    const currentHash = hashCouncil({
+    const currentHash = EvmContracts.hashMintingGatewayGlobalIssuanceCouncil({
       ...currentCouncil,
       epochMicrogonsPerArgonot: microgonsPerArgonot,
     });
     const currentGatewayCouncil = [1n, 1n, currentHash, microgonsPerArgonot] as const;
-    const sendCurrentCouncil = vi.fn() as (
-      currentCouncil: { signers: `0x${string}`[]; weights: bigint[] },
-      nextMicrogonsPerArgonot: bigint,
-    ) => Promise<Hex>;
+    const sendCurrentCouncil = vi.fn(async (): Promise<Hex> => `0x${'ab'.repeat(32)}`);
     const publicClient = {
       readContract: vi.fn(async () => currentGatewayCouncil),
       waitForTransactionReceipt: vi.fn(),

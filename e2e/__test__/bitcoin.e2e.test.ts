@@ -171,7 +171,7 @@ describe.skipIf(skipE2E).sequential('Bitcoin Operation Flows', () => {
         expect(historyRecovery.financialHistory.asOfBlock).toBeGreaterThanOrEqual(historyThroughBlock);
         const { domainCheckpoints } = historyRecovery.financialHistory;
         if (!domainCheckpoints) throw new Error('Financial recovery did not return domain checkpoints');
-        expect(Object.keys(domainCheckpoints).sort()).toEqual(['bitcoin', 'bonds', 'vaulting']);
+        expect(Object.keys(domainCheckpoints).sort()).toEqual(['bitcoin', 'bonds', 'stabilizer', 'vaulting']);
         for (const checkpoint of Object.values(domainCheckpoints)) {
           expect(checkpoint.asOfBlock).toBeGreaterThanOrEqual(historyThroughBlock);
         }

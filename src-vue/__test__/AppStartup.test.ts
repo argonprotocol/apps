@@ -203,6 +203,7 @@ function installWalletPrimitives(directory: string) {
           await file.close();
         }
       }
+      if (args.stageOnly) return;
       if (keychain.failCommit) throw new Error('Commit failed');
       const destination = path.join(directory, args.filename);
       if (args.createNew) {
@@ -967,31 +968,47 @@ it('finishes the same staged wallet after a failed commit and a restart', async 
   }
 });
 
-it('preserves a keychain-first setup when staging fails, and refuses a replacement account on restart', async () => {
-  const directory = await fs.mkdtemp(path.join(tmpdir(), 'argon-wallet-stage-failure-'));
-  const keychain = installWalletPrimitives(directory);
-  const invoke = vi.mocked(invokeWithTimeout).getMockImplementation()!;
-  try {
-    vi.mocked(invokeWithTimeout).mockImplementation(async (command, args, timeout) => {
-      if (command === 'write_wallet_file') throw new Error('Synthetic staging failure');
-      return invoke(command, args, timeout);
-    });
-    await expect(
-      WalletSecrets.saveWallet(startupMnemonic, WalletKeys.deriveIdentity(startupMnemonic), true),
-    ).rejects.toThrow('Synthetic staging failure');
-    const savedKey = Buffer.from(keychain.key!);
-    await expect(fs.stat(path.join(directory, 'wallet.json'))).rejects.toMatchObject({ code: 'ENOENT' });
-    await expect(fs.stat(path.join(directory, 'wallet.json.tmp'))).rejects.toMatchObject({ code: 'ENOENT' });
+it.each(['absent', 'truncated'] as const)(
+  'retries first-account setup after staging fails without saving a key (%s staging file)',
+  async staging => {
+    const directory = await fs.mkdtemp(path.join(tmpdir(), 'argon-wallet-stage-failure-'));
+    const keychain = installWalletPrimitives(directory);
+    const invoke = vi.mocked(invokeWithTimeout).getMockImplementation()!;
+    try {
+      vi.mocked(invokeWithTimeout).mockImplementation(async (command, args, timeout) => {
+        if (command === 'write_wallet_file') {
+          if (staging === 'truncated')
+            await fs.writeFile(path.join(directory, 'wallet.json.tmp'), '{"encryptedMnemonic":');
+          throw new Error('Synthetic staging failure');
+        }
+        return invoke(command, args, timeout);
+      });
+      await expect(
+        WalletSecrets.saveWallet(startupMnemonic, WalletKeys.deriveIdentity(startupMnemonic), true),
+      ).rejects.toThrow('Synthetic staging failure');
+      expect(keychain.key).toBeUndefined();
+      await expect(fs.stat(path.join(directory, 'wallet.json'))).rejects.toMatchObject({ code: 'ENOENT' });
+      if (staging === 'absent') {
+        await expect(fs.stat(path.join(directory, 'wallet.json.tmp'))).rejects.toMatchObject({ code: 'ENOENT' });
+      } else {
+        expect(await fs.readFile(path.join(directory, 'wallet.json.tmp'), 'utf8')).toBe('{"encryptedMnemonic":');
+      }
 
-    vi.mocked(invokeWithTimeout).mockImplementation(invoke);
-    await expect(loadWallet()).rejects.toThrow('Your saved account could not be found.');
-    expect(keychain.key).toEqual(savedKey);
-    await expect(fs.stat(path.join(directory, 'wallet.json'))).rejects.toMatchObject({ code: 'ENOENT' });
-  } finally {
-    vi.mocked(invokeWithTimeout).mockReset();
-    await fs.rm(directory, { recursive: true, force: true });
-  }
-});
+      vi.mocked(invokeWithTimeout).mockImplementation(invoke);
+      const restarted = await loadWallet();
+      expect(restarted.canSign).toBe(true);
+      const saved = JSON.parse(await fs.readFile(path.join(directory, 'wallet.json'), 'utf8'));
+      expect(saved.meta.vaultingAddress).toBe(restarted.defaultArgonAddress);
+      expect(await new EncryptionSecret().decrypt([saved.encryptedMnemonic])).toEqual([
+        await restarted.exposeMasterMnemonic(),
+      ]);
+      await expect(fs.stat(path.join(directory, 'wallet.json.tmp'))).rejects.toMatchObject({ code: 'ENOENT' });
+    } finally {
+      vi.mocked(invokeWithTimeout).mockReset();
+      await fs.rm(directory, { recursive: true, force: true });
+    }
+  },
+);
 
 it('keeps the active wallet after an interrupted account import', async () => {
   const directory = await fs.mkdtemp(path.join(tmpdir(), 'argon-wallet-import-staged-'));
@@ -1036,21 +1053,33 @@ it('rejects an invalid plaintext mnemonic before deriving identity or creating a
   }
 });
 
-it('does not stage or activate a wallet if keychain creation fails', async () => {
+it('retries first-account setup after keychain creation fails', async () => {
   const directory = await fs.mkdtemp(path.join(tmpdir(), 'argon-wallet-key-failure-'));
   const keychain = installWalletPrimitives(directory);
-  const invoke = vi.mocked(invokeWithTimeout).getMockImplementation()!;
   try {
-    vi.mocked(invokeWithTimeout).mockImplementation(async (command, args, timeout) => {
-      if (command === 'keychain_create') throw new Error('Keychain write denied');
-      return invoke(command, args, timeout);
-    });
-    await expect(
-      WalletSecrets.saveWallet(startupMnemonic, WalletKeys.deriveIdentity(startupMnemonic), true),
-    ).rejects.toThrow('Keychain write denied');
+    keychain.failCreate = true;
+    await expect(loadWallet()).rejects.toThrow('Keychain write failed');
     expect(keychain.key).toBeUndefined();
-    await expect(fs.stat(path.join(directory, 'wallet.json.tmp'))).rejects.toMatchObject({ code: 'ENOENT' });
+    const contents = await fs.readFile(path.join(directory, 'wallet.json.tmp'), 'utf8');
+
+    keychain.failCreate = false;
+    keychain.locked = true;
+    await expect(loadWallet()).rejects.toThrow('Your device could not unlock this account. Please try again.');
+    expect(keychain.key).toBeUndefined();
+    expect(await fs.readFile(path.join(directory, 'wallet.json.tmp'), 'utf8')).toBe(contents);
     await expect(fs.stat(path.join(directory, 'wallet.json'))).rejects.toMatchObject({ code: 'ENOENT' });
+
+    keychain.locked = false;
+    const restarted = await loadWallet();
+    expect(restarted.canSign).toBe(true);
+    const mnemonic = await restarted.exposeMasterMnemonic();
+    const saved = await fs.readFile(path.join(directory, 'wallet.json'), 'utf8');
+    expect(saved).not.toContain(mnemonic);
+    const wallet = JSON.parse(saved);
+    expect(wallet.meta.vaultingAddress).toBe(WalletKeys.deriveIdentity(mnemonic).vaultingAddress);
+    expect(restarted.defaultArgonAddress).toBe(wallet.meta.vaultingAddress);
+    expect(await new EncryptionSecret().decrypt([wallet.encryptedMnemonic])).toEqual([mnemonic]);
+    await expect(fs.stat(path.join(directory, 'wallet.json.tmp'))).rejects.toMatchObject({ code: 'ENOENT' });
   } finally {
     vi.mocked(invokeWithTimeout).mockReset();
     await fs.rm(directory, { recursive: true, force: true });

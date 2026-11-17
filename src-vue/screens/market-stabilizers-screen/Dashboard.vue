@@ -2,6 +2,17 @@
   <div DashBox data-testid="MarketStabilizersScreen" class="relative isolate flex min-h-0 grow flex-col">
     <div class="relative z-10 min-h-0 grow overflow-y-auto">
       <p v-if="message" role="status" class="mt-4 px-9 text-slate-500">{{ message }}</p>
+      <p v-if="data.historyError" role="status" class="mt-4 px-9 text-slate-500">
+        Purchase history is incomplete. {{ data.historyError }}
+        <button
+          type="button"
+          class="text-argon-600 ml-1 cursor-pointer underline disabled:cursor-default disabled:opacity-40"
+          :disabled="data.isRestoringHistory"
+          @click="retryHistory"
+        >
+          {{ data.isRestoringHistory ? 'Retrying…' : 'Retry History' }}
+        </button>
+      </p>
       <BlankSlate v-if="!market.hasAccess" :canActivate="market.canActivate" @create="emit('editAlert')" />
 
       <div v-else class="flex shrink-0 grow flex-col">
@@ -72,6 +83,7 @@
               />
               <span class="bg-argon-400 relative inline-flex size-4 rounded-full" />
             </span>
+            <BellAlertIcon v-else aria-hidden="true" class="size-5 shrink-0 text-slate-400" />
             <p class="text-slate-600">
               <template v-if="hasBuyAlert">
                 Watching for buys above {{ numeral(minimumAlertApy).format('0.[0]') }}% APY
@@ -167,9 +179,9 @@
 <script setup lang="ts">
 import { computed, toRefs } from 'vue';
 import { useMarketStabilizers } from '../../stores/marketStabilizers.ts';
-import { useStabilizerBuyNavigation } from '../../stores/stabilizerBuys.ts';
+import { getStabilizerBuys, useStabilizerBuyNavigation } from '../../stores/stabilizerBuys.ts';
 import { NetworkConfig } from '@argonprotocol/apps-core';
-import { ChevronDownIcon } from '@heroicons/vue/24/outline';
+import { BellAlertIcon, ChevronDownIcon } from '@heroicons/vue/24/outline';
 import { StabilizerBuyStatus } from '../../interfaces/IStabilizerBuyPurchase.ts';
 import { getConfig } from '../../stores/config.ts';
 import numeral from '../../lib/numeral.ts';
@@ -190,6 +202,7 @@ const buys = computed(() => data.value.buys);
 const frameRewards = computed(() => data.value.frameRewards);
 const minimumAlertApy = computed(() => market.config.stabilizerBuyAlert?.minimumApy);
 const navigation = useStabilizerBuyNavigation();
+const stabilizerBuys = getStabilizerBuys();
 const message = computed(() => navigation.noticeError ?? market.alertError ?? data.value.error);
 
 const emit = defineEmits<{
@@ -214,7 +227,7 @@ const purchaseGroups = computed(() => {
     let isComplete = groupBuys.length > 0 && groupBuys.every(buy => buy.status === StabilizerBuyStatus.Complete);
     if (rewards) {
       if (rewards.awardedReward === undefined) isComplete = false;
-      else if (rewards.awardedReward > rewards.paidReward) isComplete = false;
+      else if (!rewards.payout && rewards.awardedReward > rewards.paidReward) isComplete = false;
     }
 
     let purchaseDate = groupBuys[0]?.createdAt;
@@ -259,6 +272,10 @@ const completedGroups = computed(() => purchaseGroups.value.filter(group => grou
 const completedPurchaseCount = computed(() =>
   completedGroups.value.reduce((count, group) => count + group.buys.length, 0),
 );
+
+function retryHistory(): void {
+  void stabilizerBuys.recoverHistory().catch(() => undefined);
+}
 </script>
 
 <style scoped>

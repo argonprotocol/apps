@@ -23,8 +23,8 @@ export const ETHEREUM_HD_PREFIXES = {
 
 type EthereumSignerPolicy = {
   chainId: number;
-  gatewayAddress: Address;
   tokenAddresses: ReadonlySet<string>;
+  permitSpenderAddresses: ReadonlySet<string>;
 };
 
 export class EthereumKeys {
@@ -40,14 +40,17 @@ export class EthereumKeys {
     chainId: number;
     gatewayAddress: string;
     tokenAddresses: string[];
+    permitSpenderAddresses?: string[];
   }): Promise<void> {
-    const { chainId, gatewayAddress, tokenAddresses } = args;
+    const { chainId, gatewayAddress, tokenAddresses, permitSpenderAddresses = [] } = args;
     if (!Number.isSafeInteger(chainId) || chainId < 0)
       throw new Error('Ethereum chain ID must be a nonnegative safe integer');
     this.policy = {
       chainId,
-      gatewayAddress: normalizeEthereumAddress(gatewayAddress),
       tokenAddresses: new Set(tokenAddresses.map(address => normalizeEthereumAddress(address).toLowerCase())),
+      permitSpenderAddresses: new Set(
+        [gatewayAddress, ...permitSpenderAddresses].map(address => normalizeEthereumAddress(address).toLowerCase()),
+      ),
     };
   }
 
@@ -122,20 +125,25 @@ export class EthereumSigner {
   public async signEthereumPermit(args: {
     tokenAddress: string;
     tokenName: string;
+    tokenVersion: string;
+    spenderAddress: string;
     value: bigint;
     nonce: bigint;
     deadline: bigint;
-  }): Promise<{ v: number; r: string; s: string }> {
-    const { tokenAddress, tokenName, value, nonce, deadline } = args;
+  }): Promise<{ v: number; r: Hex; s: Hex }> {
+    const { tokenAddress, tokenName, tokenVersion, spenderAddress, value, nonce, deadline } = args;
     const privateKey = this.requireKey();
     const policy = this.#getPolicy();
     if (!policy) throw new Error('Ethereum signer policy has not been configured yet');
     const token = normalizeEthereumAddress(tokenAddress);
     if (!policy.tokenAddresses.has(token.toLowerCase())) throw new Error('Ethereum permit token is not allowed');
+    const spender = normalizeEthereumAddress(spenderAddress);
+    if (!policy.permitSpenderAddresses.has(spender.toLowerCase()))
+      throw new Error('Ethereum permit spender is not allowed');
     const account = privateKeyToAccount(privateKey);
     const signature = parseSignature(
       await account.signTypedData({
-        domain: { name: tokenName, version: '1', chainId: policy.chainId, verifyingContract: token },
+        domain: { name: tokenName, version: tokenVersion, chainId: policy.chainId, verifyingContract: token },
         types: {
           Permit: [
             { name: 'owner', type: 'address' },
@@ -146,7 +154,7 @@ export class EthereumSigner {
           ],
         },
         primaryType: 'Permit',
-        message: { owner: account.address, spender: policy.gatewayAddress, value, nonce, deadline },
+        message: { owner: account.address, spender, value, nonce, deadline },
       }),
     );
     this.requireKey();

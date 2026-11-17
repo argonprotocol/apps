@@ -43,6 +43,7 @@ import { assignIfUnset } from '../Utils.ts';
 import {
   getHistoricalBitcoinFundingUtxos,
   getHistoricalBitcoinLock,
+  getHistoricalBitcoinLockGuarantee,
   getHistoricalBitcoinPendingMints,
   getHistoricalBitcoinReleaseRequest,
   toBitcoinLockDetails,
@@ -738,8 +739,18 @@ export class BitcoinLockRecovery {
         event.section === 'bitcoinLocks' &&
         (event.method === 'BitcoinLockResecuritized' || event.method === 'BitcoinLockGuaranteeSet')
       ) {
-        const chainLock = await getHistoricalBitcoinLock(api, utxoId);
-        if (!chainLock) throw new Error(`Bitcoin lock ${utxoId} is unavailable after resecuritization`);
+        let chainLock = await getHistoricalBitcoinLock(api, utxoId);
+        let isRemoved = false;
+        if (!chainLock) {
+          const result = await getHistoricalBitcoinLockGuarantee({ api, blockWatch: this.blockWatch, block, event });
+          chainLock = {
+            ...result.lock,
+            utxoId,
+            lockedTargetPrice: result.lock.microgonsAtTargetPerBtc,
+            liquidityPromised: 0n,
+          };
+          isRemoved = result.isRemoved;
+        }
         const extrinsicEvents = this.getExtrinsicEvents(eventRecords, eventIndex);
         const netSecurityFee =
           BitcoinLock.readLockGuaranteePayment(extrinsicEvents, utxoId, chainLock.ownerAccount)?.netSecurityFee ?? 0n;
@@ -753,6 +764,18 @@ export class BitcoinLockRecovery {
 
         const recovered = this.createDetachedRecord(record);
         this.applyHistoricalLockSnapshot(recovered, chainLock);
+        if (isRemoved) {
+          this.closeSecuritizationTerm(block, eventRecords[eventIndex]);
+          const phase = eventRecords[eventIndex].phase;
+          Object.assign(recovered, {
+            status: BitcoinLockStatus.Released,
+            removalBlockNumber: block.blockNumber,
+            removalBlockHash: block.blockHash,
+            removalBlockTime: new Date(block.blockTime),
+            removalExtrinsicIndex: phase.type === 'ApplyExtrinsic' ? phase.value : undefined,
+            removalReason: 'released',
+          });
+        }
         await this.saveRecoveredHistory(table, recovered);
         this.applyRecoveredRecord(recovered);
       } else if (restoresPreFundingState) {

@@ -274,11 +274,13 @@ function invokeQueryMulti(
     return {
       call: Array.isArray(call) ? [metadata.query, ...call.slice(1)] : metadata.query,
       override: queryOverride(metadata.section, metadata.method),
+      fields: queryFieldOverrides(metadata.section, metadata.method),
     };
   });
   const rawCalls = queryCalls.map(({ call }): unknown => call);
   const overrides = queryCalls.map(({ override }) => override);
-  const normalize = (values: readonly unknown[]) => values.map((value, index) => toPlain(value, overrides[index]));
+  const normalize = (values: readonly unknown[]) =>
+    values.map((value, index) => toPlain(value, overrides[index], { queryFieldOverrides: queryCalls[index].fields }));
   const callback = args[1];
   if (typeof callback === 'function') {
     const onValues = callback as (values: readonly unknown[]) => void;
@@ -302,16 +304,17 @@ function invokeQuery(
   if (typeof callable !== 'function') return null;
   const override = queryOverride(section, method, attachedMethod);
   const argOverrides = queryArgOverrides(section, method);
+  const options = { storageKeyOverrides: argOverrides, queryFieldOverrides: queryFieldOverrides(section, method) };
 
   const invocationArgs = args.map((arg, index) => {
     if (index !== args.length - 1 || typeof arg !== 'function') return arg;
     const callback = arg as (value: unknown) => void;
-    return (value: unknown) => callback(toPlain(value, override, argOverrides));
+    return (value: unknown) => callback(toPlain(value, override, options));
   });
   const response = Reflect.apply(callable as (...args: unknown[]) => unknown, query, invocationArgs);
-  if (attachedMethod === 'key' || attachedMethod === 'keyPrefix') return toPlain(response, override, argOverrides);
+  if (attachedMethod === 'key' || attachedMethod === 'keyPrefix') return toPlain(response, override, options);
   return Promise.resolve(response).then(value =>
-    typeof value === 'function' ? value : toPlain(value, override, argOverrides),
+    typeof value === 'function' ? value : toPlain(value, override, options),
   );
 }
 
@@ -323,6 +326,16 @@ function queryOverride(
   if (typeof section !== 'string' || typeof method !== 'string') return;
   if (attachedMethod !== undefined && attachedMethod !== 'at' && attachedMethod !== 'multi') return;
   return runtimeTypeOverrides.queries[`${section}.${method}` as keyof typeof runtimeTypeOverrides.queries];
+}
+
+function queryFieldOverrides(
+  section: PropertyKey,
+  method: PropertyKey,
+): Readonly<Record<string, RuntimeTypeOverride>> | undefined {
+  if (typeof section !== 'string' || typeof method !== 'string') return;
+  return (runtimeTypeOverrides.queryFields as Readonly<Record<string, Readonly<Record<string, RuntimeTypeOverride>>>>)[
+    `${section}.${method}`
+  ];
 }
 
 function queryArgOverrides(section: PropertyKey, method: PropertyKey): readonly RuntimeTypeOverride[] | undefined {

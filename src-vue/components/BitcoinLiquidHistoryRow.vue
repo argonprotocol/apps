@@ -12,18 +12,24 @@
           </span>
         </div>
         <div v-else class="flex items-baseline gap-x-2">
-          <strong class="text-slate-700">
-            {{ argonSymbol }}{{ microgonToArgonNm(entry.liabilityAfter).format('0,0.00') }}
+          <strong v-if="liquidityState?.liabilityAfter !== undefined" class="text-slate-700">
+            {{ argonSymbol }}{{ microgonToArgonNm(liquidityState.liabilityAfter).format('0,0.00') }}
           </strong>
+          <strong v-else class="text-slate-500">Amount unavailable</strong>
           <span v-if="liquidityChangePercent !== undefined" class="text-sm text-slate-400">
-            ({{ liquidityChangePercent > 0 ? '+' : '' }}{{ numeral(liquidityChangePercent).format('0,0.[00]') }}%)
+            <template v-if="entry.kind === 'paydown'">
+              ({{ numeral(liquidityChangePercent).format(Math.abs(liquidityChangePercent) < 10 ? '0,0.[0]' : '0,0') }}%)
+            </template>
+            <template v-else>
+              ({{ liquidityChangePercent > 0 ? '+' : '' }}{{ numeral(liquidityChangePercent).format('0,0.[00]') }}%)
+            </template>
           </span>
           <span class="text-sm text-slate-400">
             {{ entry.blockTime ? dayjs(entry.blockTime).format('MMM D, YYYY') : `Block ${entry.blockNumber}` }}
           </span>
         </div>
         <div
-          v-if="entry.kind !== 'closed' && entry.affectedFissionCount < totalFissionCount"
+          v-if="entry.kind !== 'closed' && entry.kind !== 'paydown' && entry.affectedFissionCount < totalFissionCount"
           class="mt-0.5 text-sm text-slate-500"
         >
           {{ entry.affectedFissionCount }} of {{ totalFissionCount }} locked Bitcoin allocations
@@ -49,28 +55,38 @@
             @click="props.detailsMode === 'inline' && (inlineDetailsOpen = !inlineDetailsOpen)"
           >
             <div class="flex justify-end gap-x-2 font-semibold">
-              <span v-if="entry.kind !== 'created' && entry.liquidityUnlocked">
-                <span class="text-argon-700">
-                  +{{ argonSymbol }}{{ microgonToArgonNm(entry.liquidityUnlocked).format('0,0.00') }} unlocked
-                </span>
-              </span>
-              <span v-if="entry.pocketed">
-                <span class="text-argon-700">
-                  {{ argonSymbol }}{{ microgonToArgonNm(entry.pocketed).format('0,0.00') }} pocketed
-                </span>
-              </span>
-              <span
-                v-if="entry.kind !== 'created' && (entry.liquidityUnlocked || entry.pocketed)"
-                class="text-slate-400"
-              >
-                &middot;
-              </span>
-              <span class="font-normal text-slate-500">
-                <template v-if="entry.actionFees !== undefined">
-                  {{ argonSymbol }}{{ microgonToArgonNm(entry.actionFees).format('0,0.00') }} fees
+              <span v-if="entry.kind === 'paydown'" class="text-argon-700">
+                <template v-if="entry.paydown.repaymentState?.liquidityRepaid !== undefined">
+                  −{{ argonSymbol
+                  }}{{ microgonToArgonNm(entry.paydown.repaymentState.liquidityRepaid).format('0,0.00') }}
+                  paydown
                 </template>
-                <template v-else>Fees unavailable</template>
+                <template v-else>Paydown unavailable</template>
               </span>
+              <template v-else>
+                <span v-if="entry.kind !== 'created' && entry.liquidityUnlocked">
+                  <span class="text-argon-700">
+                    +{{ argonSymbol }}{{ microgonToArgonNm(entry.liquidityUnlocked).format('0,0.00') }} unlocked
+                  </span>
+                </span>
+                <span v-if="entry.pocketed">
+                  <span class="text-argon-700">
+                    {{ argonSymbol }}{{ microgonToArgonNm(entry.pocketed).format('0,0.00') }} pocketed
+                  </span>
+                </span>
+                <span
+                  v-if="entry.kind !== 'created' && (entry.liquidityUnlocked || entry.pocketed)"
+                  class="text-slate-400"
+                >
+                  &middot;
+                </span>
+                <span class="font-normal text-slate-500">
+                  <template v-if="entry.actionFees !== undefined">
+                    {{ argonSymbol }}{{ microgonToArgonNm(entry.actionFees).format('0,0.00') }} fees
+                  </template>
+                  <template v-else>Fees unavailable</template>
+                </span>
+              </template>
               <ChevronDownIcon
                 v-if="props.detailsMode === 'inline'"
                 class="size-4 self-center text-slate-400 transition-transform"
@@ -109,6 +125,19 @@
       </template>
       <template v-else>This Liquid closed; its total close cost is unavailable.</template>
     </p>
+    <p v-else-if="entry.kind === 'paydown'" class="mt-1 text-sm text-slate-500">
+      <template v-if="entry.paydown.buy.liquidRepaymentEvent">Stabilizer Buy paid down this Liquid.</template>
+      <template v-else>Pending Stabilizer Buy paydown.</template>
+      <button
+        v-if="entry.paydown.buy.admissionFrame !== undefined"
+        type="button"
+        class="text-argon-600 ml-1 cursor-pointer hover:underline"
+        @click="emit('viewPaydown', entry.paydown.buy.admissionFrame)"
+      >
+        <template v-if="entry.paydown.buy.liquidRepaymentEvent">View Paydown &raquo;</template>
+        <template v-else>View Pending Paydown &raquo;</template>
+      </button>
+    </p>
     <p v-else-if="entry.kind === 'created'" class="mt-1 text-sm text-slate-500">
       This Liquid opened at the initial Bitcoin price target.
       <template v-if="entry.liquidityPending">
@@ -129,37 +158,56 @@
   </article>
 </template>
 
+<script lang="ts">
+import type { useMarketStabilizers } from '../stores/marketStabilizers.ts';
+import type { BitcoinLiquidHistoryRowEntry } from '../lib/BitcoinLiquid.ts';
+
+export type BitcoinLiquidPaydownHistoryEntry = {
+  kind: 'paydown';
+  key: string;
+  blockNumber: number;
+  blockTime?: Date;
+  confirmsAt?: Date;
+  paydown: ReturnType<typeof useMarketStabilizers>['liquidPaydowns'][number];
+};
+export type BitcoinLiquidActivity = BitcoinLiquidHistoryRowEntry | BitcoinLiquidPaydownHistoryEntry;
+</script>
+
 <script setup lang="ts">
-import { UnitOfMeasurement } from '@argonprotocol/apps-core';
+import { getPercent, UnitOfMeasurement } from '@argonprotocol/apps-core';
 import { ChevronDownIcon } from '@heroicons/vue/24/outline';
 import dayjs from 'dayjs';
 import { HoverCardArrow, HoverCardContent, HoverCardPortal, HoverCardRoot, HoverCardTrigger } from 'reka-ui';
 import * as Vue from 'vue';
 
-import type { BitcoinLiquidHistoryRowEntry } from '../lib/BitcoinLiquid.ts';
 import numeral, { createNumeralHelpers } from '../lib/numeral.ts';
 import { getCurrency } from '../stores/currency.ts';
 import BitcoinLiquidHistoryDetails from './BitcoinLiquidHistoryDetails.vue';
 
 const props = withDefaults(
   defineProps<{
-    entry: BitcoinLiquidHistoryRowEntry;
+    entry: BitcoinLiquidActivity;
     totalFissionCount: number;
     zIndex?: number;
     detailsMode?: 'hover' | 'inline';
   }>(),
   { detailsMode: 'hover' },
 );
+const emit = defineEmits<{ viewPaydown: [admissionFrame: number] }>();
 
 const currency = getCurrency();
 const { microgonToArgonNm } = createNumeralHelpers(currency);
 const argonSymbol = currency.recordsByKey[UnitOfMeasurement.ARGN].symbol;
 const inlineDetailsOpen = Vue.ref(false);
+const liquidityState = Vue.computed(() => {
+  if (props.entry.kind === 'closed') return;
+  if (props.entry.kind === 'paydown') return props.entry.paydown.repaymentState;
+  return props.entry;
+});
 const liquidityChangePercent = Vue.computed(() => {
-  if (props.entry.kind === 'closed' || props.entry.kind === 'created' || !props.entry.liabilityBefore) return;
+  const state = liquidityState.value;
+  if (props.entry.kind === 'created' || !state?.liabilityBefore || state.liabilityAfter === undefined) return;
 
-  return (
-    Number(((props.entry.liabilityAfter - props.entry.liabilityBefore) * 10_000n) / props.entry.liabilityBefore) / 100
-  );
+  return getPercent(state.liabilityAfter - state.liabilityBefore, state.liabilityBefore);
 });
 </script>

@@ -11,7 +11,8 @@
         <PopoverRoot>
           <div class="group relative flex w-fit flex-wrap items-baseline gap-x-2">
             <h1 class="text-2xl font-bold text-slate-700 group-hover:text-slate-600">
-              {{ satToBtcNm(liquid.satoshis).format('0,0.[00000000]') }} BTC Locked
+              {{ satToBtcNm(liquid.isClosed ? liquid.originalSatoshis : liquid.satoshis).format('0,0.[00000000]') }} BTC
+              Locked
             </h1>
             <PopoverAnchor as-child>
               <span class="inline-flex items-center gap-x-2">
@@ -403,11 +404,12 @@
               :totalFissionCount="liquid.fissions.length"
               :zIndex="floatingZIndex"
               detailsMode="hover"
+              @viewPaydown="emit('viewPaydown', $event)"
             />
           </div>
         </section>
 
-        <div v-if="fullHistory.length > 3 || !isClosed" class="mt-7 flex items-center justify-between gap-x-3">
+        <div v-if="fullHistory.length > 3 || !isClosed" class="mt-7 flex flex-wrap items-center justify-between gap-3">
           <PopoverRoot v-if="fullHistory.length > 3">
             <PopoverTrigger as-child>
               <button class="text-argon-600 cursor-pointer text-sm">Show full history</button>
@@ -429,144 +431,156 @@
                   :totalFissionCount="liquid.fissions.length"
                   :zIndex="floatingZIndex + 1"
                   detailsMode="inline"
+                  @viewPaydown="emit('viewPaydown', $event)"
                 />
                 <PopoverArrow :width="24" :height="12" class="-mt-px fill-white stroke-gray-400/30" />
               </PopoverContent>
             </PopoverPortal>
           </PopoverRoot>
-          <span v-else />
-          <PopoverRoot v-if="!isClosed" v-model:open="closePopoverOpen">
-            <PopoverAnchor as-child>
-              <span class="inline-flex">
-                <TooltipProvider :delayDuration="100">
-                  <TooltipRoot>
-                    <TooltipTrigger as-child>
-                      <span class="inline-flex">
-                        <button
-                          data-testid="BitcoinLiquidDetailOverlay.openCloseReview"
-                          :disabled="!!actionUnavailableReason"
-                          class="border-argon-600 text-argon-600 hover:bg-argon-600/5 inline-flex cursor-pointer items-center gap-x-1 rounded-md border px-5 py-2 font-semibold whitespace-nowrap disabled:cursor-not-allowed disabled:border-slate-300 disabled:text-slate-300"
-                          @click="closePopoverOpen = !closePopoverOpen"
+          <span v-if="fullHistory.length <= 3" />
+          <div v-if="!isClosed" class="flex items-center gap-3">
+            <button
+              v-if="canPayDown"
+              type="button"
+              class="bg-argon-button hover:bg-argon-button-hover cursor-pointer rounded-md px-5 py-2 font-semibold whitespace-nowrap text-white"
+              @click="emit('paydown', liquid)"
+            >
+              Pay Down at a Discount
+            </button>
+            <span v-if="canPayDown" class="text-sm text-slate-400">or</span>
+            <PopoverRoot v-model:open="closePopoverOpen">
+              <PopoverAnchor as-child>
+                <span class="inline-flex">
+                  <TooltipProvider :delayDuration="100">
+                    <TooltipRoot>
+                      <TooltipTrigger as-child>
+                        <span class="inline-flex">
+                          <button
+                            data-testid="BitcoinLiquidDetailOverlay.openCloseReview"
+                            :disabled="!!actionUnavailableReason"
+                            class="border-argon-600 text-argon-600 hover:bg-argon-600/5 inline-flex cursor-pointer items-center gap-x-1 rounded-md border px-5 py-2 font-semibold whitespace-nowrap disabled:cursor-not-allowed disabled:border-slate-300 disabled:text-slate-300"
+                            @click="closePopoverOpen = !closePopoverOpen"
+                          >
+                            <template v-if="closeTransaction.status === 'pending'">Closing Liquid...</template>
+                            <template v-else>
+                              Repay {{ argonSymbol }}{{ microgonToArgonNm(repaymentAmount).format('0,0.00') }} &amp;
+                              Close Liquid
+                              <InformationCircleIcon v-if="actionUnavailableReason" class="size-4" />
+                            </template>
+                          </button>
+                        </span>
+                      </TooltipTrigger>
+                      <TooltipPortal v-if="actionUnavailableReason">
+                        <TooltipContent
+                          side="top"
+                          align="end"
+                          :sideOffset="8"
+                          :collisionPadding="24"
+                          :style="{ zIndex: floatingZIndex }"
+                          class="w-80 rounded-md border border-gray-800/20 bg-white px-4 py-3 text-sm text-slate-600 shadow-xl"
                         >
-                          <template v-if="closeTransaction.status === 'pending'">Closing Liquid...</template>
-                          <template v-else>
-                            Repay {{ argonSymbol }}{{ microgonToArgonNm(repaymentAmount).format('0,0.00') }} &amp; Close
-                            Liquid
-                            <InformationCircleIcon v-if="actionUnavailableReason" class="size-4" />
-                          </template>
-                        </button>
-                      </span>
-                    </TooltipTrigger>
-                    <TooltipPortal v-if="actionUnavailableReason">
-                      <TooltipContent
-                        side="top"
-                        align="end"
-                        :sideOffset="8"
-                        :collisionPadding="24"
-                        :style="{ zIndex: floatingZIndex }"
-                        class="w-80 rounded-md border border-gray-800/20 bg-white px-4 py-3 text-sm text-slate-600 shadow-xl"
-                      >
-                        {{ actionUnavailableReason }}
-                        <TooltipArrow :width="18" :height="9" class="-mt-px fill-white stroke-gray-400/30" />
-                      </TooltipContent>
-                    </TooltipPortal>
-                  </TooltipRoot>
-                </TooltipProvider>
-              </span>
-            </PopoverAnchor>
-            <PopoverPortal>
-              <PopoverContent
-                side="top"
-                align="end"
-                :sideOffset="10"
-                :collisionPadding="24"
-                :style="{ zIndex: floatingZIndex }"
-                class="border-argon-600/30 w-110 rounded-md border bg-white px-6 py-4 text-sm text-slate-700 shadow-2xl"
-              >
-                <template v-if="closeTransaction.status === 'pending'">
-                  <h2 class="font-bold text-slate-700">Closing Liquid</h2>
-                  <ProgressBar :progress="closeTransaction.progressPct" class="mt-3" />
-                  <div class="mt-2 text-sm text-slate-500">{{ closeTransaction.progressLabel }}</div>
-                  <div class="mt-1 text-sm text-slate-400">
-                    You can close this window without stopping the transaction.
-                  </div>
-                </template>
-                <template v-else-if="closeTransaction.status === 'error'">
-                  <h2 class="font-bold text-slate-700">
-                    {{
-                      closeTransaction.retryAction === 'resume' ? 'Liquid closed on-chain' : 'Unable to close Liquid'
-                    }}
-                  </h2>
-                  <p class="mt-2 text-red-700">{{ closeTransaction.error }}</p>
-                  <button
-                    class="bg-argon-600 hover:bg-argon-700 mt-4 w-full cursor-pointer rounded-md px-5 py-2 font-semibold text-white"
-                    @click="retryClose"
-                  >
-                    {{ closeTransaction.retryAction === 'resume' ? 'Finish Closing Liquid' : 'Try Again' }}
-                  </button>
-                </template>
-                <template v-else>
-                  <h2 class="font-bold text-slate-700">Close this Liquid</h2>
-                  <p class="mt-2">
-                    Repay {{ argonSymbol }}{{ microgonToArgonNm(repaymentAmount).format('0,0.00') }} to re-fuse this
-                    Liquid and unlock {{ satToBtcNm(liquid.satoshis).format('0,0.[00000000]') }} BTC in your Bitcoin
-                    wallet.
-                  </p>
-                  <dl class="mt-3 grid grid-cols-[1fr_auto] gap-x-5 gap-y-1.5">
-                    <dt>Repayment amount</dt>
-                    <dd v-if="closeQuote" class="text-right font-mono tabular-nums">
-                      {{ argonSymbol
-                      }}{{
-                        microgonToArgonNm(closeQuote.requiredWalletBalanceMicrogons - closeQuote.feeMicrogons).format(
-                          '0,0.000000',
-                        )
+                          {{ actionUnavailableReason }}
+                          <TooltipArrow :width="18" :height="9" class="-mt-px fill-white stroke-gray-400/30" />
+                        </TooltipContent>
+                      </TooltipPortal>
+                    </TooltipRoot>
+                  </TooltipProvider>
+                </span>
+              </PopoverAnchor>
+              <PopoverPortal>
+                <PopoverContent
+                  side="top"
+                  align="end"
+                  :sideOffset="10"
+                  :collisionPadding="24"
+                  :style="{ zIndex: floatingZIndex }"
+                  class="border-argon-600/30 w-110 rounded-md border bg-white px-6 py-4 text-sm text-slate-700 shadow-2xl"
+                >
+                  <template v-if="closeTransaction.status === 'pending'">
+                    <h2 class="font-bold text-slate-700">Closing Liquid</h2>
+                    <ProgressBar :progress="closeTransaction.progressPct" class="mt-3" />
+                    <div class="mt-2 text-sm text-slate-500">{{ closeTransaction.progressLabel }}</div>
+                    <div class="mt-1 text-sm text-slate-400">
+                      You can close this window without stopping the transaction.
+                    </div>
+                  </template>
+                  <template v-else-if="closeTransaction.status === 'error'">
+                    <h2 class="font-bold text-slate-700">
+                      {{
+                        closeTransaction.retryAction === 'resume' ? 'Liquid closed on-chain' : 'Unable to close Liquid'
                       }}
-                    </dd>
-                    <dd v-else-if="closeQuoteState.status === 'loading'" class="text-right">Calculating...</dd>
-                    <dd v-else class="text-right">Unavailable</dd>
-                    <dt>Estimated fees</dt>
-                    <dd v-if="closeQuote" class="text-right font-mono tabular-nums">
-                      {{ argonSymbol }}{{ microgonToArgonNm(closeQuote.feeMicrogons).format('0,0.000000') }}
-                    </dd>
-                    <dd v-else-if="closeQuoteState.status === 'loading'" class="text-right">Calculating...</dd>
-                    <dd v-else class="text-right">Unavailable</dd>
-                    <template v-if="closeQuote">
-                      <dt class="mt-1 border-t border-slate-200 pt-2 font-semibold">Amount removed from wallet</dt>
-                      <dd class="mt-1 border-t border-slate-200 pt-2 text-right font-mono font-semibold tabular-nums">
+                    </h2>
+                    <p class="mt-2 text-red-700">{{ closeTransaction.error }}</p>
+                    <button
+                      class="bg-argon-600 hover:bg-argon-700 mt-4 w-full cursor-pointer rounded-md px-5 py-2 font-semibold text-white"
+                      @click="retryClose"
+                    >
+                      {{ closeTransaction.retryAction === 'resume' ? 'Finish Closing Liquid' : 'Try Again' }}
+                    </button>
+                  </template>
+                  <template v-else>
+                    <h2 class="font-bold text-slate-700">Close this Liquid</h2>
+                    <p class="mt-2">
+                      Repay {{ argonSymbol }}{{ microgonToArgonNm(repaymentAmount).format('0,0.00') }} to re-fuse this
+                      Liquid and unlock {{ satToBtcNm(liquid.satoshis).format('0,0.[00000000]') }} BTC in your Bitcoin
+                      wallet.
+                    </p>
+                    <dl class="mt-3 grid grid-cols-[1fr_auto] gap-x-5 gap-y-1.5">
+                      <dt>Repayment amount</dt>
+                      <dd v-if="closeQuote" class="text-right font-mono tabular-nums">
                         {{ argonSymbol
-                        }}{{ microgonToArgonNm(closeQuote.requiredWalletBalanceMicrogons).format('0,0.000000') }}
+                        }}{{
+                          microgonToArgonNm(closeQuote.requiredWalletBalanceMicrogons - closeQuote.feeMicrogons).format(
+                            '0,0.000000',
+                          )
+                        }}
                       </dd>
-                    </template>
-                  </dl>
-                  <p v-if="closeQuoteState.status === 'error'" class="mt-3 text-red-700">
-                    {{ closeQuoteState.error }}
-                  </p>
-                  <button
-                    v-if="closeQuoteState.status === 'error'"
-                    class="border-argon-600 text-argon-600 hover:bg-argon-600/5 mt-3 w-full cursor-pointer rounded-md border px-5 py-2 font-semibold"
-                    @click="retryCloseQuote"
-                  >
-                    Retry fee estimate
-                  </button>
-                  <p v-if="closeWalletIsInsufficient" class="mt-3 text-red-700">
-                    Your Internal App Wallet needs
-                    {{ argonSymbol
-                    }}{{ microgonToArgonNm(closeQuote!.requiredWalletBalanceMicrogons).format('0,0.00') }} to continue.
-                    It currently has {{ argonSymbol
-                    }}{{ microgonToArgonNm(closeQuote!.availableWalletBalanceMicrogons).format('0,0.00') }} available.
-                  </p>
-                  <button
-                    :disabled="!canSubmitClose"
-                    class="bg-argon-600 hover:bg-argon-700 mt-4 w-full cursor-pointer rounded-md px-5 py-2 font-semibold text-white disabled:cursor-default disabled:opacity-40"
-                    @click="confirmClose"
-                  >
-                    Repay &amp; Close Liquid
-                  </button>
-                </template>
-                <PopoverArrow :width="26" :height="12" class="stroke-argon-600/15 -mt-px fill-white" />
-              </PopoverContent>
-            </PopoverPortal>
-          </PopoverRoot>
+                      <dd v-else-if="closeQuoteState.status === 'loading'" class="text-right">Calculating...</dd>
+                      <dd v-else class="text-right">Unavailable</dd>
+                      <dt>Estimated fees</dt>
+                      <dd v-if="closeQuote" class="text-right font-mono tabular-nums">
+                        {{ argonSymbol }}{{ microgonToArgonNm(closeQuote.feeMicrogons).format('0,0.000000') }}
+                      </dd>
+                      <dd v-else-if="closeQuoteState.status === 'loading'" class="text-right">Calculating...</dd>
+                      <dd v-else class="text-right">Unavailable</dd>
+                      <template v-if="closeQuote">
+                        <dt class="mt-1 border-t border-slate-200 pt-2 font-semibold">Amount removed from wallet</dt>
+                        <dd class="mt-1 border-t border-slate-200 pt-2 text-right font-mono font-semibold tabular-nums">
+                          {{ argonSymbol
+                          }}{{ microgonToArgonNm(closeQuote.requiredWalletBalanceMicrogons).format('0,0.000000') }}
+                        </dd>
+                      </template>
+                    </dl>
+                    <p v-if="closeQuoteState.status === 'error'" class="mt-3 text-red-700">
+                      {{ closeQuoteState.error }}
+                    </p>
+                    <button
+                      v-if="closeQuoteState.status === 'error'"
+                      class="border-argon-600 text-argon-600 hover:bg-argon-600/5 mt-3 w-full cursor-pointer rounded-md border px-5 py-2 font-semibold"
+                      @click="retryCloseQuote"
+                    >
+                      Retry fee estimate
+                    </button>
+                    <p v-if="closeWalletIsInsufficient" class="mt-3 text-red-700">
+                      Your Internal App Wallet needs
+                      {{ argonSymbol
+                      }}{{ microgonToArgonNm(closeQuote!.requiredWalletBalanceMicrogons).format('0,0.00') }} to
+                      continue. It currently has {{ argonSymbol
+                      }}{{ microgonToArgonNm(closeQuote!.availableWalletBalanceMicrogons).format('0,0.00') }} available.
+                    </p>
+                    <button
+                      :disabled="!canSubmitClose"
+                      class="bg-argon-600 hover:bg-argon-700 mt-4 w-full cursor-pointer rounded-md px-5 py-2 font-semibold text-white disabled:cursor-default disabled:opacity-40"
+                      @click="confirmClose"
+                    >
+                      Repay &amp; Close Liquid
+                    </button>
+                  </template>
+                  <PopoverArrow :width="26" :height="12" class="stroke-argon-600/15 -mt-px fill-white" />
+                </PopoverContent>
+              </PopoverPortal>
+            </PopoverRoot>
+          </div>
         </div>
       </div>
     </template>
@@ -593,7 +607,9 @@ import {
 } from 'reka-ui';
 import * as Vue from 'vue';
 
-import BitcoinLiquidHistoryRow from '../components/BitcoinLiquidHistoryRow.vue';
+import BitcoinLiquidHistoryRow, {
+  type BitcoinLiquidPaydownHistoryEntry,
+} from '../components/BitcoinLiquidHistoryRow.vue';
 import ProgressBar from '../components/ProgressBar.vue';
 import type { IBitcoinLiquidFinancialPosition } from '../interfaces/IFinancialPosition.ts';
 import type { BitcoinLiquid } from '../lib/BitcoinLiquid.ts';
@@ -603,6 +619,7 @@ import { createNumeralHelpers } from '../lib/numeral.ts';
 import numeral from '../lib/numeral.ts';
 import { getCurrency } from '../stores/currency.ts';
 import { useFinancials } from '../stores/financials.ts';
+import { useMarketStabilizers } from '../stores/marketStabilizers.ts';
 import Returns from '../components/Returns.vue';
 import { calculatePositionReturn } from '../lib/financials/index.ts';
 import { getBitcoinFissions, getBitcoinLocks, getBitcoinTransactionOperations } from '../stores/bitcoin.ts';
@@ -636,10 +653,13 @@ interface BitcoinLiquidTransactionQuote {
 
 const props = defineProps<{
   liquid: BitcoinLiquid;
+  canPayDown?: boolean;
 }>();
 
 const emit = defineEmits<{
   close: [];
+  paydown: [liquid: BitcoinLiquid];
+  viewPaydown: [admissionFrame: number];
 }>();
 
 const currency = getCurrency();
@@ -647,6 +667,7 @@ const config = getConfig();
 const financials = useFinancials();
 const bitcoinFissions = getBitcoinFissions();
 const bitcoinLocks = getBitcoinLocks();
+const market = useMarketStabilizers();
 const { bitcoinLiquidClose, bitcoinLiquidRatchet } = getBitcoinTransactionOperations();
 const vaults = getVaults();
 const myVault = getMyVault();
@@ -683,9 +704,30 @@ const liquidReturns = Vue.computed(() =>
 const closeHistoryEntry = Vue.computed(
   () => financialPosition.value?.liquid.closeHistoryEntry ?? liquid.value.closeHistoryEntry,
 );
-const fullHistory = Vue.computed(() =>
-  [...(financialPosition.value?.liquid.history ?? liquid.value.history)].reverse(),
-);
+const fullHistory = Vue.computed(() => {
+  const paydowns = market.liquidPaydowns
+    .filter(paydown => paydown.buy.repayLiquidId === liquid.value.liquidId)
+    .map((paydown): BitcoinLiquidPaydownHistoryEntry => {
+      const { buy } = paydown;
+      let blockTime = buy.purchasedAt ?? buy.purchaseArgonRecognitionBlockTime ?? buy.createdAt;
+      if (buy.liquidRepaymentEvent) blockTime = new Date(buy.liquidRepaymentEvent.blockTime);
+      return {
+        kind: 'paydown',
+        key: `paydown:${buy.id}`,
+        blockNumber: buy.liquidRepaymentEvent?.blockNumber ?? buy.purchaseArgonRecognitionBlockNumber ?? 0,
+        blockTime,
+        confirmsAt: buy.admissionFrame === undefined ? undefined : market.dates.releases[buy.admissionFrame],
+        paydown,
+      };
+    });
+  const history = financialPosition.value?.liquid.history ?? liquid.value.history;
+  return [...history.toReversed(), ...paydowns].sort((left, right) => {
+    const leftPending = left.kind === 'paydown' && !left.paydown.buy.liquidRepaymentEvent;
+    const rightPending = right.kind === 'paydown' && !right.paydown.buy.liquidRepaymentEvent;
+    if (leftPending !== rightPending) return leftPending ? -1 : 1;
+    return right.blockNumber - left.blockNumber;
+  });
+});
 const recentHistory = Vue.computed(() => fullHistory.value.slice(0, 3));
 const repaymentAmount = Vue.computed(() => liquid.value.getRepaymentAmount(currency.priceIndex));
 const estimatedMintCompletionDate = Vue.computed(() =>
@@ -701,7 +743,8 @@ const lockSummaries = Vue.computed(() => {
 const lockedBitcoinRows = Vue.computed(() => {
   const byLockId = new Map<number, { lockId: number; satoshis: bigint; vaultName: string; isFlexible: boolean }>();
 
-  for (const fission of liquid.value.fissions) {
+  const fissions = liquid.value.isClosed ? liquid.value.fissions : liquid.value.activeFissions;
+  for (const fission of fissions) {
     const existing = byLockId.get(fission.lockId);
     if (existing) {
       existing.satoshis += fission.satoshis;

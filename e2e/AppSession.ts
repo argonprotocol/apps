@@ -40,6 +40,7 @@ export type E2ESessionMode = 'isolated' | 'stateful';
 
 export interface AppSessionOptions {
   repoRoot?: string;
+  appConnectTimeoutMs?: number;
   tauriDevConfig?: {
     capabilities: string[];
     beforeDevCommand?: string;
@@ -460,7 +461,8 @@ export class AppSession {
 
     try {
       await driver.connect();
-      await appProcess.waitForDriver(driver, DEFAULT_APP_CONNECT_TIMEOUT_MS, async () => {
+      const appConnectTimeoutMs = options.appConnectTimeoutMs ?? DEFAULT_APP_CONNECT_TIMEOUT_MS;
+      await appProcess.waitForDriver(driver, appConnectTimeoutMs, async () => {
         appProcess.output.printTail('startup-stall', 40);
         await diagnostics.printStartup({
           repoRoot,

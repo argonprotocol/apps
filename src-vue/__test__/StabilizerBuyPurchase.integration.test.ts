@@ -2,15 +2,17 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { computed, reactive } from 'vue';
 import BigNumber from 'bignumber.js';
 import { NetworkConfig, StabilizerBuyContracts, type BlockWatch } from '@argonprotocol/apps-core';
-import { EvmContracts } from '@argonprotocol/mainchain';
+import { EvmContracts, getOfflineRegistry } from '@argonprotocol/mainchain';
 import {
   getAddress,
+  ExecutionRevertedError,
+  ContractFunctionZeroDataError,
   TransactionNotFoundError,
   TransactionReceiptNotFoundError,
   encodeAbiParameters,
   encodeEventTopics,
-  encodeFunctionData,
-  erc20Abi,
+  decodeFunctionData,
+  domainSeparator,
   keccak256,
   parseTransaction,
   serializeTransaction,
@@ -27,9 +29,10 @@ import { StabilizerBuyStatus, type IStabilizerBuyQuote } from '../interfaces/ISt
 import { createStabilizerBuyFinancialPositions } from '../lib/financials/StabilizerBuys.ts';
 import { calculatePositionReturn } from '../lib/financials/index.ts';
 
+const { snapshot } = vi.hoisted(() => ({ snapshot: {} }));
 vi.mock('../stores/mainchain.ts', () => ({
   getMainchainClient: async () => ({
-    raw: { at: async () => ({}) },
+    raw: { at: async () => snapshot },
     rpc: { chain: { getFinalizedHead: async () => '0x00' } },
   }),
 }));
@@ -44,11 +47,36 @@ describe('Stabilizer Buy background purchases', { tags: ['no-argon-network'] }, 
     NetworkConfig.clearRuntimeOverride('dev-docker');
   });
 
-  it('preserves a buy across approval restart and records actual financial facts', async () => {
+  it.each([false, true])('preserves purchases across restart (attached Liquid: %s)', async attachLiquid => {
     NetworkConfig.setNetwork('dev-docker');
     NetworkConfig.setRuntimeOverride('dev-docker', { ethereumNetwork: { finalityBlocks: 2 } });
     const db = await createTestDb();
     const walletKeys = createMockWalletKeys();
+    Object.assign(snapshot, {
+      registry: getOfflineRegistry(),
+      consts: {
+        stabilizerBuys: { purchaseHoldFrames: 30 },
+        bitcoinLocks: {
+          lockReleaseCosignDeadlineFrames: 10,
+          securitizationHoldBlocks: 0,
+          argonTicksPerDay: 1440,
+          ticksPerBitcoinBlock: 10n,
+        },
+      },
+      query: {
+        ticks: { currentTick: async () => 20, genesisTicker: async () => ({ tickDurationMillis: 60_000 }) },
+        bitcoinFissions: {
+          liquidTicksByOwnerAndId: async () => ({ createdAtTick: 1n, lastRatchetTick: null }),
+          fissionIdsByOwnerAndLiquid: { keys: async () => [{ args: [['owner', 10n], 1n] }] },
+          fissionByOwnerAndId: { multi: async () => [{ lockId: 1 }] },
+        },
+        bitcoinLocks: { locksById: { multi: async () => [{ vaultClaimHeight: 20_000 }] } },
+        bitcoinUtxos: {
+          confirmedBitcoinBlockTip: async () => ({ blockHeight: 100 }),
+          bitcoinNetwork: async () => 'Regtest',
+        },
+      },
+    });
     const blockWatch = {
       start: vi.fn(async () => {
         throw new Error('Native block watcher offline');
@@ -83,7 +111,7 @@ describe('Stabilizer Buy background purchases', { tags: ['no-argon-network'] }, 
         hooks: `0x${'88'.repeat(20)}`,
       },
       request: {
-        repayLiquidId: 0n,
+        repayLiquidId: attachLiquid ? 10n : 0n,
         repaySignature: '0x' as const,
         argonAccountId: toArgonAccountIdHex(walletKeys.defaultArgonAddress),
         maxUsdcIn: 1_000_000n,
@@ -114,9 +142,11 @@ describe('Stabilizer Buy background purchases', { tags: ['no-argon-network'] }, 
     vi.spyOn(StabilizerBuyContracts.prototype, 'quote').mockResolvedValue(quote);
     type Receipt = Awaited<ReturnType<PublicClient['getTransactionReceipt']>>;
     const receipts = new Map<Hash, Receipt>();
-    let allowance = 0n;
-    let interruptApproval = true;
-    let finishInterruptedApproval: (() => void) | undefined;
+    let unsupportedPermit = false;
+    let unsupportedDomain = false;
+    let missingPermitMethod = false;
+    let interruptSubmission = true;
+    let finishInterruptedSubmission: (() => void) | undefined;
     let revertPurchase = false;
     let failedFeeRead = false;
     let failedReceiptReads = 0;
@@ -146,11 +176,30 @@ describe('Stabilizer Buy background purchases', { tags: ['no-argon-network'] }, 
     };
     const publicClient = {
       getChainId: async () => 1,
-      readContract: async ({ functionName }: { functionName: string }) =>
-        functionName === 'allowance' ? allowance : 100_000_000n,
+      readContract: async ({ functionName }: { functionName: string }) => {
+        if (functionName === 'allowance') return 0n;
+        if (functionName === 'name') return 'Synthetic USDC';
+        if (functionName === 'nonces') {
+          if (missingPermitMethod) throw new ContractFunctionZeroDataError({ functionName });
+          return 0n;
+        }
+        if (functionName === 'DOMAIN_SEPARATOR')
+          return domainSeparator({
+            domain: {
+              name: 'Synthetic USDC',
+              version: unsupportedDomain ? '1' : '2',
+              chainId: 1,
+              verifyingContract: quote.usdcToken,
+            },
+          });
+        return 100_000_000n;
+      },
       getBalance: async () => 10n ** 18n,
       getTransactionCount: async () => receipts.size,
-      estimateGas: async () => 100_000n,
+      estimateGas: async () => {
+        if (unsupportedPermit) throw new ExecutionRevertedError({ message: 'unsupported selector' });
+        return 100_000n;
+      },
       estimateFeesPerGas: async () => ({ maxFeePerGas: 2n, maxPriorityFeePerGas: 1n }),
       getGasPrice: async () => 2n,
       getBlockNumber: async () => 44n,
@@ -161,11 +210,15 @@ describe('Stabilizer Buy background purchases', { tags: ['no-argon-network'] }, 
       sendRawTransaction: async ({ serializedTransaction }: { serializedTransaction: `0x${string}` }) => {
         const hash = keccak256(serializedTransaction);
         const transaction = parseTransaction(serializedTransaction);
-        const approval = transaction.to!.toLowerCase() === quote.usdcToken.toLowerCase();
-        if (approval) allowance = quote.request.maxUsdcIn;
-        else if (!revertPurchase) allowance = 0n;
+        expect(transaction.to?.toLowerCase()).toBe(quote.adapterAddress.toLowerCase());
         const logs = [];
-        if (!approval && !revertPurchase) {
+        if (!revertPurchase) {
+          const purchase = decodeFunctionData({ abi: EvmContracts.argonBuyAndTransferAbi, data: transaction.data! });
+          expect(purchase.functionName).toBe('buyAndTransferWithPermit');
+          if (purchase.functionName !== 'buyAndTransfer' && purchase.functionName !== 'buyAndTransferWithPermit')
+            throw new Error('Unexpected transaction');
+          activity.purchase.repayLiquidId = purchase.args[0].repayLiquidId;
+          activity.purchase.repaySignature = purchase.args[0].repaySignature;
           logs.push({
             address: quote.gatewayAddress,
             topics: encodeEventTopics({
@@ -187,18 +240,18 @@ describe('Stabilizer Buy background purchases', { tags: ['no-argon-network'] }, 
           blockHash: `0x${'99'.repeat(32)}`,
           from: quote.sourceAddress,
           to: transaction.to,
-          status: !approval && revertPurchase ? 'reverted' : 'success',
-          gasUsed: approval ? 10n : 20n,
+          status: revertPurchase ? 'reverted' : 'success',
+          gasUsed: 20n,
           effectiveGasPrice: 2n,
           logs,
         } as Receipt);
-        if (approval && interruptApproval) {
-          interruptApproval = false;
+        if (interruptSubmission) {
+          interruptSubmission = false;
           return new Promise<Hash>(resolve => {
-            finishInterruptedApproval = () => resolve(hash);
+            finishInterruptedSubmission = () => resolve(hash);
           });
         }
-        if (!approval && !revertPurchase) throw new Error('RPC response lost after broadcast');
+        if (!revertPurchase) throw new Error('RPC response lost after broadcast');
         return hash;
       },
       getTransactionReceipt: async ({ hash }: { hash: Hash }) => {
@@ -242,24 +295,27 @@ describe('Stabilizer Buy background purchases', { tags: ['no-argon-network'] }, 
       ethereumQuote: quote,
       ethereumMaxFeeWei: 1_000_000_000_000_000_001n,
       ethereumWallet,
+      txSigner: await walletKeys.getDefaultArgonSigner(),
     });
     await vi.waitFor(() => expect(receipts.size).toBe(1));
-    expect(first.data.buys[0].status).toBe(StabilizerBuyStatus.ConfirmingUsdcApprovalOnEthereum);
+    expect(first.data.buys[0].status).toBe(StabilizerBuyStatus.ConfirmingPurchaseOnEthereum);
+    expect(first.data.buys[0].repayLiquidId).toBeUndefined();
+    if (attachLiquid) expect(first.data.buys[0].ethereumQuote?.request.repaySignature).not.toBe('0x');
     await command.close();
-    finishInterruptedApproval!();
+    finishInterruptedSubmission!();
     await first.close();
-    const savedApproval = first.data.buys[0];
-    await db.stabilizerBuysTable.saveBuy({ ...savedApproval, createdAt: new Date(1_000) });
+    const submitted = first.data.buys[0];
+    await db.stabilizerBuysTable.saveBuy({ ...submitted, createdAt: new Date(1_000) });
 
     const restored = new StabilizerBuys(blockWatch, walletKeys.defaultArgonAddress, Promise.resolve(db));
     owners.push(restored);
     restored.data = reactive(restored.data) as StabilizerBuys['data'];
     const restoredCommand = new StabilizerBuyPurchases(restored, walletKeys, ethereum, wallets);
     restoredCommand.data = reactive(restoredCommand.data);
-    const observedApproval = computed(
-      () => restoredCommand.data.transactionProgressByHash[savedApproval.usdcApprovalTxHash!],
+    const observedTransaction = computed(
+      () => restoredCommand.data.transactionProgressByHash[submitted.ethereumTxHash!],
     );
-    expect(observedApproval.value).toBeUndefined();
+    expect(observedTransaction.value).toBeUndefined();
     operations.push(restoredCommand);
     const failedRead = vi
       .spyOn(db.sql, 'select')
@@ -272,21 +328,23 @@ describe('Stabilizer Buy background purchases', { tags: ['no-argon-network'] }, 
     await expect(restored.load()).rejects.toThrow('Native block watcher offline');
     await vi.waitFor(() => expect(rows.value[0].status).toBe(StabilizerBuyStatus.WaitingForArgonRecognition));
     const confirmed = rows.value[0];
-    expect(observedApproval.value).toMatchObject({
+    expect(observedTransaction.value).toMatchObject({
       confirmations: 2,
       expectedConfirmations: 2,
       progressPct: 100,
       isFinalized: true,
     });
     expect(
-      StabilizerBuyPurchases.getProgress(savedApproval, restoredCommand.data.transactionProgressByHash)
-        .overallProgressPct,
-    ).toBeCloseTo(100 / 6);
+      StabilizerBuyPurchases.getProgress(submitted, restoredCommand.data.transactionProgressByHash).overallProgressPct,
+    ).toBeCloseTo(100 / 3);
     expect(
       StabilizerBuyPurchases.getProgress(confirmed, restoredCommand.data.transactionProgressByHash).steps[1].status,
     ).toBe('active');
-    expect(confirmed.usdcApprovalTxHash).toBe(savedApproval.usdcApprovalTxHash);
-    expect(confirmed.usdcApprovalFeeWei).toBe(20n);
+    expect(confirmed.usdcApprovalTxHash).toBeUndefined();
+    expect(confirmed.usdcApprovalFeeWei).toBe(0n);
+    expect(confirmed.ethereumQuote?.request).toEqual(submitted.ethereumQuote?.request);
+    expect(confirmed.repayLiquidId).toBeUndefined();
+    expect(StabilizerBuys.getRequestedLiquidId(confirmed)).toBe(attachLiquid ? 10 : undefined);
     expect(confirmed.ethereumFeeWei).toBe(40n);
     expect(confirmed.ethereumMaxFeeWei).toBe(1_000_000_000_000_000_001n);
     expect(confirmed.purchaseEthereumBlockNumber).toBe(42);
@@ -294,9 +352,9 @@ describe('Stabilizer Buy background purchases', { tags: ['no-argon-network'] }, 
     expect(confirmed).toMatchObject({
       spentMicrogons: 500_000n,
       ethereumFeeMicrogons: 1n,
-      usdcApprovalFeeMicrogons: 1n,
     });
-    expect(confirmed.usdcApprovalPrices).toEqual(quote.prices);
+    expect(confirmed.usdcApprovalFeeMicrogons).toBe(0n);
+    expect(confirmed.usdcApprovalPrices).toBeUndefined();
     expect(confirmed.ethereumPrices).toEqual(quote.prices);
     expect(confirmed.ethereumGatewayActivity).toMatchObject(activity);
     expect(confirmed.ethereumSubmittedAt!.getTime()).toBeGreaterThan(confirmed.createdAt.getTime());
@@ -306,8 +364,9 @@ describe('Stabilizer Buy background purchases', { tags: ['no-argon-network'] }, 
       ethereumQuote: quote,
       ethereumMaxFeeWei: 1_000_000n,
       ethereumWallet,
+      txSigner: await walletKeys.getDefaultArgonSigner(),
     });
-    expect(receipts.size).toBe(2);
+    expect(receipts.size).toBe(1);
     expect(await db.crosschainInboundTransfersTable.fetchAll()).toEqual([]);
 
     revertPurchase = true;
@@ -330,25 +389,76 @@ describe('Stabilizer Buy background purchases', { tags: ['no-argon-network'] }, 
       ethereumQuote: quote,
       ethereumMaxFeeWei: 1_000_000n,
       ethereumWallet,
+      txSigner: await walletKeys.getDefaultArgonSigner(),
     });
     await vi.waitFor(() =>
       expect(rows.value.find(buy => buy.id === 'synthetic-failed-buy')?.status).toBe(StabilizerBuyStatus.Failed),
     );
     const failed = rows.value.find(buy => buy.id === 'synthetic-failed-buy')!;
-    expect(failed).toMatchObject({ usdcApprovalFeeWei: 20n, ethereumFeeWei: 40n });
+    expect(failed.ethereumFeeWei).toBe(40n);
+    expect(failed.usdcApprovalFeeWei).toBe(0n);
     expect(failed.statusError).toContain('reverted');
     expect(calculatePositionReturn(createStabilizerBuyFinancialPositions(restored.snapshot))).toMatchObject({
       availability: 'available',
-      returnAmount: -2n,
+      returnAmount: -1n,
     });
     expect(failedFeeRead && failedWrite).toBe(true);
-    expect(receipts.size).toBe(4);
+    expect(receipts.size).toBe(2);
     expect(
       (await db.stabilizerBuysTable.fetchAll(walletKeys.defaultArgonAddress)).buys.find(buy => buy.id === failed.id),
     ).toMatchObject(failed);
     expect(rows.value.find(buy => buy.id === confirmed.id)?.status).toBe(
       StabilizerBuyStatus.WaitingForArgonRecognition,
     );
+    revertPurchase = false;
+    unsupportedPermit = true;
+    await restoredCommand.purchase({
+      id: 'unsupported-permit-adapter',
+      ethereumQuote: quote,
+      ethereumMaxFeeWei: 1_000_000n,
+      ethereumWallet,
+      txSigner: await walletKeys.getDefaultArgonSigner(),
+    });
+    await vi.waitFor(() =>
+      expect(rows.value.find(buy => buy.id === 'unsupported-permit-adapter')?.status).toBe(StabilizerBuyStatus.Failed),
+    );
+    expect(rows.value.find(buy => buy.id === 'unsupported-permit-adapter')).toMatchObject({
+      statusError: expect.stringContaining('updated purchase adapter'),
+      spentMicrogons: 0n,
+      ethereumFeeMicrogons: 0n,
+    });
+    expect(receipts.size).toBe(2);
+
+    unsupportedPermit = false;
+    unsupportedDomain = true;
+    await restoredCommand.purchase({
+      id: 'unsupported-usdc-domain',
+      ethereumQuote: quote,
+      ethereumMaxFeeWei: 1_000_000n,
+      ethereumWallet,
+      txSigner: await walletKeys.getDefaultArgonSigner(),
+    });
+    await vi.waitFor(() =>
+      expect(rows.value.find(buy => buy.id === 'unsupported-usdc-domain')?.status).toBe(StabilizerBuyStatus.Failed),
+    );
+    expect(rows.value.find(buy => buy.id === 'unsupported-usdc-domain')?.statusError).toContain('v2 permits');
+    expect(receipts.size).toBe(2);
+    unsupportedDomain = false;
+    missingPermitMethod = true;
+    await restoredCommand.purchase({
+      id: 'missing-usdc-permit',
+      ethereumQuote: quote,
+      ethereumMaxFeeWei: 1_000_000n,
+      ethereumWallet,
+      txSigner: await walletKeys.getDefaultArgonSigner(),
+    });
+    await vi.waitFor(() =>
+      expect(rows.value.find(buy => buy.id === 'missing-usdc-permit')?.status).toBe(StabilizerBuyStatus.Failed),
+    );
+    expect(rows.value.find(buy => buy.id === 'missing-usdc-permit')?.statusError).toContain(
+      'does not support permit purchases',
+    );
+    expect(receipts.size).toBe(2);
     await restoredCommand.close();
     await restored.close();
     await db.sql.close();

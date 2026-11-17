@@ -107,7 +107,7 @@ impl Vm {
         if !vm_path.exists() {
             return Err(format!("VM path {} does not exist", vm_path.display()));
         }
-        Self::start_inactive_services(vm_path)?;
+        Self::start_stopped_services(vm_path)?;
         let server_dir = work_dir.join("server");
         if let Some(compose_dir) = [work_dir, server_dir.as_path()].into_iter().find(|dir| {
             [
@@ -119,7 +119,7 @@ impl Vm {
             .iter()
             .any(|file_name| dir.join(file_name).exists())
         }) {
-            Self::start_inactive_services(compose_dir)?;
+            Self::start_stopped_services(compose_dir)?;
         }
         Self::get_vm(vm_path)
     }
@@ -236,30 +236,23 @@ impl Vm {
         Ok(())
     }
 
-    fn start_inactive_services(compose_dir: &Path) -> Result<(), String> {
+    fn start_stopped_services(compose_dir: &Path) -> Result<(), String> {
         let configured = Self::run_compose_command(compose_dir, &["config", "--services"])?;
-        let active = Self::run_compose_command(
+        let stopped = Self::run_compose_command(
             compose_dir,
-            &[
-                "ps",
-                "--status",
-                "running",
-                "--status",
-                "restarting",
-                "--services",
-            ],
+            &["ps", "--all", "--status", "exited", "--services"],
         )?;
-        let inactive: Vec<_> = configured
+        let services: Vec<_> = stopped
             .lines()
-            .filter(|service| !active.lines().any(|running| running == *service))
+            .filter(|service| configured.lines().any(|configured| configured == *service))
             .collect();
-        if inactive.is_empty() {
+        if services.is_empty() {
             return Ok(());
         }
 
-        // Installation owns configuration updates. Reconnect only starts missing/stopped services.
-        let mut args = vec!["up", "-d", "--no-recreate"];
-        args.extend(inactive);
+        // Resume existing containers only. Installation owns creation and configuration changes.
+        let mut args = vec!["start"];
+        args.extend(services);
         Self::run_compose_command(compose_dir, &args)?;
         Ok(())
     }
@@ -368,7 +361,7 @@ mod tests {
 
     #[test]
     #[ignore = "Requires Docker and the alpine:3.17 image"]
-    fn activation_preserves_running_containers_and_resumes_stopped_services() {
+    fn activation_preserves_running_containers_and_only_starts_existing_stopped_services() {
         let unique_id = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap()
@@ -394,6 +387,7 @@ mod tests {
         fs::write(server_dir.join("compose.yaml"), server_compose).unwrap();
 
         let result = std::panic::catch_unwind(|| {
+            Vm::run_compose_command(&vm_path, &["up", "-d"]).unwrap();
             let vm = std::thread::scope(|scope| {
                 let first = scope.spawn(|| Vm::activate(&vm_path, &work_dir));
                 let second = scope.spawn(|| Vm::activate(&vm_path, &work_dir));
@@ -405,6 +399,11 @@ mod tests {
             let router_id =
                 Vm::run_compose_command(&server_dir, &["ps", "--quiet", "router"]).unwrap();
             assert!(!vm_id.is_empty());
+            assert!(router_id.is_empty());
+            // Installation, rather than account refresh, creates the application stack.
+            Vm::run_compose_command(&server_dir, &["up", "-d"]).unwrap();
+            let router_id =
+                Vm::run_compose_command(&server_dir, &["ps", "--quiet", "router"]).unwrap();
             assert!(!router_id.is_empty());
             assert!(
                 Vm::run_compose_command(&server_dir, &["ps", "--all", "--quiet", "worker"])
@@ -429,17 +428,14 @@ mod tests {
                 router_id
             );
 
-            // A partial shutdown must resume the existing container and start a missing active service.
+            // A partial shutdown resumes stopped containers without creating newly configured services.
             Vm::run_compose_command(&server_dir, &["stop", "router"]).unwrap();
             fs::write(
                 server_dir.join(".env"),
                 format!("COMPOSE_PROJECT_NAME={project}\nCOMPOSE_PROFILES=miners\n"),
             )
             .unwrap();
-            assert_eq!(
-                Vm::activate(&vm_path, &work_dir).unwrap().ssh_port,
-                vm.ssh_port
-            );
+            assert!(Vm::activate(&vm_path, &work_dir).unwrap().ssh_port > 0);
             assert_eq!(
                 Vm::run_compose_command(&server_dir, &["ps", "--quiet", "router"]).unwrap(),
                 router_id
@@ -449,9 +445,15 @@ mod tests {
                 vm_id
             );
             assert!(
-                !Vm::run_compose_command(&server_dir, &["ps", "--quiet", "worker"])
+                Vm::run_compose_command(&server_dir, &["ps", "--all", "--quiet", "worker"])
                     .unwrap()
                     .is_empty()
+            );
+            Vm::run_compose_command(&vm_path, &["stop", "vm"]).unwrap();
+            assert!(Vm::activate(&vm_path, &work_dir).unwrap().ssh_port > 0);
+            assert_eq!(
+                Vm::run_compose_command(&vm_path, &["ps", "--quiet", "vm"]).unwrap(),
+                vm_id
             );
         });
 

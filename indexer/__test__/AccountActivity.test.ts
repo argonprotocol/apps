@@ -1,12 +1,55 @@
 import { describe, expect, it } from 'vitest';
 import { encodeAddress, getOfflineRegistry } from '@argonprotocol/mainchain';
 import { historicalEventChanges } from '@argonprotocol/runtime-client/events.generated';
+import { toHistoricalEvent } from '@argonprotocol/runtime-client/events';
+import { AccountEventsFilter } from '@argonprotocol/apps-core';
 import { AccountActivityDecoder, AccountActivityKind, classifyEvent } from '../src/AccountActivity.ts';
 import { createHistoricalEventData } from './helpers/historicalEvents.ts';
 
 const emptyEventData = Object.assign([], { names: [], typeDef: [] });
 
 describe('AccountActivityDecoder', () => {
+  it('collects and indexes a transfer sent through account security for its recipient', () => {
+    const from = encodeAddress(new Uint8Array(32).fill(41));
+    const to = encodeAddress(new Uint8Array(32).fill(42));
+    const events = [
+      {
+        section: 'balances',
+        method: 'Transfer',
+        data: createHistoricalEventData(161, 'balances', 'Transfer', { from, to, amount: 25_000_000n }),
+      },
+      {
+        section: 'accountSecurity',
+        method: 'Executed',
+        data: createHistoricalEventData(161, 'accountSecurity', 'Executed', {
+          account: from,
+          nonce: 0n,
+          result: { Ok: null },
+        }),
+      },
+    ];
+    const filter = new AccountEventsFilter(to, [to]);
+    filter.process(
+      events.map(event => ({
+        event: toHistoricalEvent(event)!,
+        phase: { type: 'ApplyExtrinsic' as const, value: 0 },
+        topics: [],
+      })),
+    );
+    expect(filter.transfers).toMatchObject([
+      { from, to, amount: 25_000_000n, currency: 'argon', transferType: 'transfer', isInbound: true },
+    ]);
+    expect(
+      new AccountActivityDecoder().decode({
+        eventGroups: [{ extrinsicIndex: 0, extrinsicEvents: events }],
+        specVersion: 161,
+      }).accounts,
+    ).toEqual([
+      { address: from, mask: AccountActivityKind.Transfer },
+      { address: to, mask: AccountActivityKind.Transfer },
+    ]);
+  });
+
   it('indexes a swap settlement and reward history for the Argon recipient', () => {
     const account = encodeAddress(new Uint8Array(32).fill(19));
     const settlement = {

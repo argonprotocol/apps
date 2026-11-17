@@ -224,13 +224,9 @@ it('routes a desktop click through current notice state and does not reopen an e
   }
 });
 
-it('combines same-type Bitcoin notices into one live action with their total amount', () => {
-  const locks = reactive([
-    createLock({ uuid: 'synthetic-lock-a', status: BitcoinLockStatus.LockFunded, createdAt: '2026-01-01' }),
-    createLock({ uuid: 'synthetic-lock-b', status: BitcoinLockStatus.LockFunded, createdAt: '2026-01-01' }),
-  ]);
+it('keeps Bitcoin, vault revenue, and Operations actions out of the Stabilizer notification menu', () => {
+  const locks = [createLock({ uuid: 'synthetic-lock', status: BitcoinLockStatus.LockFunded, createdAt: '2026-01-01' })];
   locks[0].securitizationCoverageMicrogons = 100_000_000n;
-  locks[1].securitizationCoverageMicrogons = 200_000_000n;
   vi.mocked(getBitcoinLocks).mockReturnValue({
     getActiveLocks: () => locks,
     releases: { getActiveForLock: () => undefined },
@@ -238,35 +234,39 @@ it('combines same-type Bitcoin notices into one live action with their total amo
     isLockFunded: () => true,
     unlockDeadlineTime: () => Date.now() + 60_000,
   } as unknown as ReturnType<typeof getBitcoinLocks>);
+  vi.mocked(getMyVault, { partial: true, deep: true }).mockReturnValue({
+    collectBuilder: {
+      getNotice: () => ({
+        isProcessing: false,
+        collectRevenue: 100_000_000n,
+        expiringCollectAmount: 0n,
+        nextCollectDueDate: 0,
+        signatureCount: 0,
+        orphanSignatureCount: 0,
+        nextCosignDueDate: 0,
+        councilApprovalCount: 0,
+        authorizedTransferCount: 0,
+        authorizedTransferRewardAmount: 0n,
+        pendingAuthorizedTransferCount: 0,
+        pendingAuthorizedTransferRewardAmount: 0n,
+        signaturePenalty: 0n,
+        earningsAmountMicrogons: 100_000_000n,
+        amountAtRiskMicrogons: 0n,
+        transactionCount: 1,
+        processing: undefined,
+      }),
+    },
+  });
+  const controller = useCertificationController();
+  controller.operationalInvites.push({
+    inviteCode: 'synthetic-invite',
+    operationsUpgradeRequestedAt: new Date(),
+  } as (typeof controller.operationalInvites)[number]);
 
   const attention = useAttention();
-  const visibleCount = computed(() => attention.count);
-  expect(visibleCount.value).toBe(1);
-  expect(attention.bitcoinAlertGroups).toHaveLength(1);
-  expect(attention.bitcoinAlertGroups[0].notices).toHaveLength(2);
-  expect(attention.bitcoinAlertGroups[0].amountMicrogons).toBe(300_000_000n);
-  expect(attention.hasUnseenActions).toBe(true);
-
-  attention.markViewed();
-  locks[0].securitizationCoverageMicrogons = 150_000_000n;
+  expect(attention.count).toBe(0);
+  expect(attention.actionKeys).toEqual([]);
   expect(attention.hasUnseenActions).toBe(false);
-  expect(visibleCount.value).toBe(1);
-
-  locks.pop();
-  expect(visibleCount.value).toBe(1);
-  expect(attention.bitcoinAlertGroups[0].amountMicrogons).toBe(150_000_000n);
-  expect(attention.hasUnseenActions).toBe(false);
-
-  locks.push(createLock({ uuid: 'synthetic-lock-c', status: BitcoinLockStatus.LockFunded, createdAt: '2026-01-01' }));
-  expect(visibleCount.value).toBe(1);
-  expect(attention.hasUnseenActions).toBe(true);
-  attention.markViewed();
-  const returning = locks.pop()!;
-  locks.pop();
-  expect(visibleCount.value).toBe(0);
-  expect(attention.hasUnseenActions).toBe(false);
-  locks.push(returning);
-  expect(attention.hasUnseenActions).toBe(true);
 });
 
 it('acknowledges only the opened buy opportunity and keeps a refreshed quote quiet', async () => {
@@ -283,28 +283,27 @@ it('acknowledges only the opened buy opportunity and keeps a refreshed quote qui
   controller.operationalInvites.push(invite as (typeof controller.operationalInvites)[number]);
 
   const attention = useAttention();
-  expect(attention.count).toBe(2);
+  expect(attention.count).toBe(1);
   attention.markViewed();
-  expect(attention.count).toBe(2);
+  expect(attention.count).toBe(1);
 
   await openStabilizerBuyNotice(buyOpportunity);
   expect(useStabilizerBuyNavigation().reviewBuy).toBe(true);
   expect(attention.stabilizerBuyOpportunity).toBeUndefined();
-  expect(attention.pendingOperationsUpgradeRequests).toHaveLength(1);
-  expect(attention.count).toBe(1);
+  expect(attention.count).toBe(0);
 
   notice.value = { ...buyOpportunity, apy: buyOpportunity.apy + 1 };
   expect(attention.stabilizerBuyOpportunity).toBeUndefined();
-  expect(attention.count).toBe(1);
+  expect(attention.count).toBe(0);
 
   notice.value = { ...buyOpportunity, key: 'buy:new-opportunity' };
   expect(attention.stabilizerBuyOpportunity?.key).toBe('buy:new-opportunity');
-  expect(attention.count).toBe(2);
+  expect(attention.count).toBe(1);
   attention.acknowledgeStabilizerBuy('buy:new-opportunity');
   notice.value = undefined;
   await nextTick();
   notice.value = { ...buyOpportunity, key: 'buy:new-opportunity' };
-  expect(attention.count).toBe(2);
+  expect(attention.count).toBe(1);
 });
 
 it('serializes native badge updates so a late platform response cannot restore a resolved action', async () => {

@@ -56,12 +56,19 @@ export class FrameIterator {
     } while (frameId >= 0);
   }
 
-  public async iterateFramesLimited<T>(callback: ICallbackForFrame<T>, fromFrameId?: number): Promise<T[]> {
+  public async iterateFramesLimited<T>(
+    callback: ICallbackForFrame<T>,
+    fromFrameId?: number,
+    toFrameId?: number,
+  ): Promise<T[]> {
     const abortController = new AbortController();
     await this.miningFrames.load();
     const results: T[] = [];
 
-    const frameIds = this.miningFrames.frameIds.filter(frameId => fromFrameId === undefined || frameId <= fromFrameId);
+    const frameIds = this.miningFrames.frameIds.filter(frameId => {
+      if (fromFrameId !== undefined && frameId > fromFrameId) return false;
+      return toFrameId === undefined || frameId >= toFrameId;
+    });
     frameIds.sort((a, b) => b - a); // Descending order
     for (const frameId of frameIds) {
       const frame = this.miningFrames.framesById[frameId];

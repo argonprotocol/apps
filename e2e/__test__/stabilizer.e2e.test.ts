@@ -1,4 +1,4 @@
-import { it } from 'vitest';
+import { expect, it } from 'vitest';
 import { FlowSession } from '../FlowSession.ts';
 import '../flows/index.ts';
 import stabilizerBuyFlow, { stabilizerBuySessionOptions } from '../flows/operations/App.flow.stabilizerBuyAndBid.ts';
@@ -8,22 +8,24 @@ it('buys below target and submits and revises a reward bid through the desktop',
   const session = await FlowSession.start({
     useTestNetwork: true,
     sessionName: 'stabilizer-buy-and-bid',
+    appLogsMode: 'quiet',
     ...stabilizerBuySessionOptions,
   });
 
   try {
     await session.run(stabilizerBuyFlow.name);
+    expect(session.frontendErrors.filter(error => error.includes('Fatal error ('))).toEqual([]);
   } finally {
     await session.close();
   }
 });
 
-// Keep this scenario for the repayment UI pass; current boundary coverage lives in BitcoinLiquids.integration.test.ts.
-it.skip('disables Liquid actions until an Ethereum repayment purchase settles', { timeout: 45 * 60_000 }, async () => {
+it('attaches a Liquid through the desktop and shows its completed paydown', { timeout: 45 * 60_000 }, async () => {
   const session = await FlowSession.start({
     useTestNetwork: true,
     useDevUpstream: true,
-    ticksBetweenSlots: 12,
+    appConnectTimeoutMs: 30 * 60_000,
+    ticksBetweenSlots: 6,
     sessionName: 'stabilizer-liquid-repayment',
     appEnv: stabilizerBuySessionOptions.appEnv,
   });

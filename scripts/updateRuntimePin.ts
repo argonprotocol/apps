@@ -81,14 +81,12 @@ async function main(): Promise<void> {
   const releaseServerEnvResults = [];
   if (isTagPin) {
     const image = `ghcr.io/argonprotocol/argon-miner:${resolvedPin.dockerVersion}`;
-    const digest = execFileSync(
-      'docker',
-      ['buildx', 'imagetools', 'inspect', image, '--format', '{{.Manifest.Digest}}'],
-      {
+    const { digest } = JSON.parse(
+      execFileSync('docker', ['buildx', 'imagetools', 'inspect', image, '--format', '{{json .Manifest}}'], {
         encoding: 'utf8',
-      },
-    ).trim();
-    if (!/^sha256:[a-f0-9]{64}$/.test(digest)) {
+      }),
+    );
+    if (typeof digest !== 'string' || !/^sha256:[a-f0-9]{64}$/.test(digest)) {
       throw new Error(`Could not resolve an image digest for ${image}: ${digest}`);
     }
 

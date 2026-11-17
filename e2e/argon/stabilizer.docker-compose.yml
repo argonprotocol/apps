@@ -1,5 +1,7 @@
 services:
   oracle-price:
+    extra_hosts:
+      - 'host.docker.internal:host-gateway'
     environment:
       ETHEREUM_RPC_URLS: ${ETHEREUM_RPC_URLS}
       ARGON_TOKEN_ADDRESS: ${ARGON_TOKEN_ADDRESS}

@@ -108,6 +108,20 @@
     "ticks.previousTick": "number",
     "vaults.pendingCosignByVaultId": "number[]"
   },
+  "queryFields": {
+    "bitcoinFissions.rValueHighWaterByFrame": {
+      "rValue": "FixedU128"
+    },
+    "stabilizerBuys.liquidRepaysByAccountAndGatewayNonce": {
+      "microgonsAtTargetPerBtc": "FixedU128",
+      "purchaseRValue": "FixedU128",
+      "rValueHighWater": "FixedU128"
+    },
+    "stabilizerBuys.priceHistoryByTick": {
+      "microgonsAtTargetPerBtc": "FixedU128",
+      "rValue": "FixedU128"
+    }
+  },
   "queryArgs": {
     "bitcoinFissions.fissionByOwnerAndId": ["string", "number"],
     "bitcoinFissions.fissionIdsByLockId": ["number"],

@@ -100,6 +100,10 @@ const meta = {
     }));
     market.returns.byFrame[48] = {
       availability: 'available',
+      isEstimated: false,
+      potentialLiquidBonus: 0n,
+      maximumReturnAmount: 39_800_000n,
+      maximumApy: 217,
       investedCost: 400_200_000n,
       returnAmount: 39_800_000n,
       settledPrincipalValue: 0n,
@@ -191,7 +195,7 @@ export const Paid: Story = {
     Object.assign(market, { biddingFrame: undefined });
   },
   play: async ({ canvasElement }) => {
-    await userEvent.click(within(canvasElement.ownerDocument.body).getByText('Bidding for a Bonus'));
+    await userEvent.click(within(canvasElement.ownerDocument.body).getByText('Bonuses', { exact: true }));
   },
 };
 

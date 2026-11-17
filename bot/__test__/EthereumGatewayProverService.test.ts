@@ -1,5 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { NetworkConfig, TxSigner } from '@argonprotocol/apps-core';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { NetworkConfig, TxSigner, type BlockWatch } from '@argonprotocol/apps-core';
 
 type IMockSignedTx = {
   method: { toHuman(): unknown };
@@ -93,10 +96,6 @@ vi.mock('@argonprotocol/mainchain', async () => {
   const actual = await vi.importActual<typeof import('@argonprotocol/mainchain')>('@argonprotocol/mainchain');
   return {
     ...actual,
-    // Exercise SDK discovery with the test's Ethereum transport instead of its private URL cache.
-    discoverMissingGatewayActivityLocators: (
-      options: Parameters<typeof actual.discoverMissingGatewayActivityLocators>[0],
-    ) => actual.discoverMissingGatewayActivityLocators({ ...options, executionClient: viemMock.createPublicClient() }),
     buildGatewayActivityReceiptProofPayloads: mainchainMock.buildGatewayActivityReceiptProofPayloads,
     getLatestArgonFinalizedExecutionHeader: mainchainMock.getLatestArgonFinalizedExecutionHeader,
   };
@@ -116,6 +115,8 @@ import { DelegateSubmitLane } from '../src/DelegateSubmitLane.ts';
 import { EthereumGatewayProverService } from '../src/EthereumGatewayProverService.ts';
 
 const relaySigner = new TxSigner({ address: '5RelayDelegate' } as any);
+const blockWatch = { getFinalizedApi: vi.fn() } as unknown as BlockWatch;
+let dataDirectory: string;
 let currentClientArgs:
   | {
       latestLocatorIndex?: bigint;
@@ -127,9 +128,11 @@ describe('EthereumGatewayProverService', () => {
   afterEach(() => {
     vi.useRealTimers();
     gatewayProofMock.buildGatewayActivityReceiptProofPayloads.mockReset();
+    rmSync(dataDirectory, { recursive: true, force: true });
   });
 
   beforeEach(() => {
+    dataDirectory = mkdtempSync(join(tmpdir(), 'gateway-prover-'));
     vi.clearAllMocks();
 
     viemMock.readContract.mockImplementation(async args => {
@@ -168,6 +171,8 @@ describe('EthereumGatewayProverService', () => {
       .mockRejectedValueOnce(new Error('Public Ethereum RPC should not be called'));
     const service = new EthereumGatewayProverService(
       createSubmitLane(createClient({ runtimeGatewayActivityNonce: 5n, latestLocatorEndGatewayActivityNonce: 5n })),
+      blockWatch,
+      dataDirectory,
     );
 
     await expect(
@@ -179,11 +184,14 @@ describe('EthereumGatewayProverService', () => {
       outcome: 'Noop',
       throughGatewayActivityNonce: 5n,
     });
-    expect(gatewayProofMock.buildGatewayActivityReceiptProofPayloads).toHaveBeenCalledWith(expect.anything(), {
-      executionRpcUrl: 'http://paid-ethereum.test',
-      gatewayAddress: '0x0000000000000000000000000000000000000001',
-      locators: [],
-    });
+    expect(gatewayProofMock.buildGatewayActivityReceiptProofPayloads).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        executionRpcUrl: 'http://paid-ethereum.test',
+        gatewayAddress: '0x0000000000000000000000000000000000000001',
+        locators: [],
+      }),
+    );
   });
 
   it('skips heavy gateway proof discovery when the runtime already covers the latest locator nonce', async () => {
@@ -192,7 +200,7 @@ describe('EthereumGatewayProverService', () => {
       latestLocatorIndex: 3n,
       latestLocatorEndGatewayActivityNonce: 7n,
     });
-    const service = new EthereumGatewayProverService(createSubmitLane(client), {
+    const service = new EthereumGatewayProverService(createSubmitLane(client), blockWatch, dataDirectory, {
       backgroundSweepMs: 1_000,
     });
     const runBackgroundSweep = (
@@ -232,7 +240,7 @@ describe('EthereumGatewayProverService', () => {
     client.query.crosschainTransfer.gatewayStateBySourceChain.mockImplementation(async () => ({
       gatewayActivityNonce: runtimeGatewayActivityNonce,
     }));
-    const service = new EthereumGatewayProverService(createSubmitLane(client), {
+    const service = new EthereumGatewayProverService(createSubmitLane(client), blockWatch, dataDirectory, {
       shouldApplySharedRelayStagger: true,
     });
 
@@ -331,7 +339,7 @@ describe('EthereumGatewayProverService', () => {
     });
     viemMock.getBlock.mockRejectedValueOnce(new Error('Primary Ethereum RPC is unavailable'));
     const client = createClient({ runtimeGatewayActivityNonce: 6n });
-    const service = new EthereumGatewayProverService(createSubmitLane(client));
+    const service = new EthereumGatewayProverService(createSubmitLane(client), blockWatch, dataDirectory);
     gatewayProofMock.buildGatewayActivityReceiptProofPayloads.mockResolvedValueOnce({
       payloads: [],
       deferredLocators: [
@@ -411,7 +419,7 @@ describe('EthereumGatewayProverService', () => {
       deferredLocators: locators,
       recaptureLocators: [],
     }));
-    const service = new EthereumGatewayProverService(createSubmitLane(client));
+    const service = new EthereumGatewayProverService(createSubmitLane(client), blockWatch, dataDirectory);
     const request = { sourceChain: 'Ethereum' as const, throughGatewayActivityNonce: 11n };
 
     await expect(service.runToCheckpoint(request)).rejects.toThrow('not ready to relay');
@@ -457,7 +465,7 @@ describe('EthereumGatewayProverService', () => {
 
   it('retries a dropped delegate submission with the still-available nonce', async () => {
     const client = createClient();
-    const service = new EthereumGatewayProverService(createSubmitLane(client), {
+    const service = new EthereumGatewayProverService(createSubmitLane(client), blockWatch, dataDirectory, {
       shouldApplySharedRelayStagger: true,
     });
 
@@ -553,7 +561,7 @@ describe('EthereumGatewayProverService', () => {
 
     const nonceState = { stable: 4, pool: 4 };
     const client = createClient({ nonceState });
-    const service = new EthereumGatewayProverService(createSubmitLane(client), {
+    const service = new EthereumGatewayProverService(createSubmitLane(client), blockWatch, dataDirectory, {
       shouldApplySharedRelayStagger: true,
     });
     gatewayProofMock.buildGatewayActivityReceiptProofPayloads.mockResolvedValue({
@@ -651,7 +659,7 @@ describe('EthereumGatewayProverService', () => {
         })),
       },
     });
-    const service = new EthereumGatewayProverService(createSubmitLane(client), {
+    const service = new EthereumGatewayProverService(createSubmitLane(client), blockWatch, dataDirectory, {
       shouldApplySharedRelayStagger: true,
     });
 
@@ -682,7 +690,11 @@ describe('EthereumGatewayProverService', () => {
   });
 
   it('reports relay readiness without submitting work', async () => {
-    const service = new EthereumGatewayProverService(createSubmitLane(createClient({ balance: 1_000_000n })));
+    const service = new EthereumGatewayProverService(
+      createSubmitLane(createClient({ balance: 1_000_000n })),
+      blockWatch,
+      dataDirectory,
+    );
 
     await expect(service.getRelayStatus()).resolves.toEqual({
       isReady: true,
@@ -692,6 +704,8 @@ describe('EthereumGatewayProverService', () => {
   it('reports not ready until the verifier retains a finalized execution header anchor', async () => {
     const service = new EthereumGatewayProverService(
       createSubmitLane(createClient({ hasLatestExecutionHeaderAnchor: false })),
+      blockWatch,
+      dataDirectory,
     );
 
     await expect(service.getRelayStatus()).resolves.toEqual({
@@ -702,7 +716,11 @@ describe('EthereumGatewayProverService', () => {
   });
 
   it('stays idle when the Ethereum transfer gateway is not configured on this network', async () => {
-    const service = new EthereumGatewayProverService(createSubmitLane(createClient({ hasEthereumChainConfig: false })));
+    const service = new EthereumGatewayProverService(
+      createSubmitLane(createClient({ hasEthereumChainConfig: false })),
+      blockWatch,
+      dataDirectory,
+    );
 
     await expect(service.getRelayStatus()).resolves.toEqual({
       isReady: false,
@@ -726,6 +744,8 @@ describe('EthereumGatewayProverService', () => {
           },
         }),
       ),
+      blockWatch,
+      dataDirectory,
     );
 
     await expect(service.getRelayStatus()).resolves.toEqual({
@@ -746,6 +766,8 @@ describe('EthereumGatewayProverService', () => {
   it('skips proof building when the runtime nonce already covers the requested checkpoint', async () => {
     const service = new EthereumGatewayProverService(
       createSubmitLane(createClient({ runtimeGatewayActivityNonce: 7n })),
+      blockWatch,
+      dataDirectory,
     );
 
     await expect(
@@ -763,7 +785,7 @@ describe('EthereumGatewayProverService', () => {
       nonce: { toNumber: () => 4 },
     };
     const client = createClient();
-    const service = new EthereumGatewayProverService(createSubmitLane(client));
+    const service = new EthereumGatewayProverService(createSubmitLane(client), blockWatch, dataDirectory);
     let releaseBuildProofPlan!: (value: unknown) => void;
     const buildProofPlan = new Promise(resolve => {
       releaseBuildProofPlan = resolve;
@@ -837,7 +859,7 @@ describe('EthereumGatewayProverService', () => {
       nonce: { toNumber: () => 5 },
     };
     const client = createClient({ runtimeGatewayActivityNonce: 6n, accountNextNonce: 5, freeHeadersInterval: 2 });
-    const service = new EthereumGatewayProverService(createSubmitLane(client));
+    const service = new EthereumGatewayProverService(createSubmitLane(client), blockWatch, dataDirectory);
 
     gatewayProofMock.buildGatewayActivityReceiptProofPayloads.mockResolvedValue({
       payloads: [
@@ -881,7 +903,7 @@ describe('EthereumGatewayProverService', () => {
       nonce: { toNumber: () => 5 },
     };
     const client = createClient({ runtimeGatewayActivityNonce: 6n, accountNextNonce: 5, freeHeadersInterval: 2 });
-    const service = new EthereumGatewayProverService(createSubmitLane(client), {
+    const service = new EthereumGatewayProverService(createSubmitLane(client), blockWatch, dataDirectory, {
       shouldApplySharedRelayStagger: false,
     });
 
@@ -927,7 +949,7 @@ describe('EthereumGatewayProverService', () => {
       nonce: { toNumber: () => 5 },
     };
     const client = createClient({ runtimeGatewayActivityNonce: 6n, accountNextNonce: 5, freeHeadersInterval: 2 });
-    const service = new EthereumGatewayProverService(createSubmitLane(client));
+    const service = new EthereumGatewayProverService(createSubmitLane(client), blockWatch, dataDirectory);
 
     gatewayProofMock.buildGatewayActivityReceiptProofPayloads.mockResolvedValue({
       payloads: [
@@ -974,7 +996,7 @@ describe('EthereumGatewayProverService', () => {
       nonce: { toNumber: () => 5 },
     };
     const client = createClient({ runtimeGatewayActivityNonce: 6n, accountNextNonce: 5, freeHeadersInterval: 2 });
-    const service = new EthereumGatewayProverService(createSubmitLane(client), {
+    const service = new EthereumGatewayProverService(createSubmitLane(client), blockWatch, dataDirectory, {
       backgroundSweepMs: 1_000,
       shouldApplySharedRelayStagger: true,
     });
@@ -1039,7 +1061,7 @@ describe('EthereumGatewayProverService', () => {
       nonce: { toNumber: () => 5 },
     };
     const client = createClient({ runtimeGatewayActivityNonce: 6n, accountNextNonce: 5, freeHeadersInterval: 2 });
-    const service = new EthereumGatewayProverService(createSubmitLane(client), {
+    const service = new EthereumGatewayProverService(createSubmitLane(client), blockWatch, dataDirectory, {
       backgroundSweepMs: 1_000,
     });
     const runBackgroundSweep = (
@@ -1100,7 +1122,7 @@ describe('EthereumGatewayProverService', () => {
       nonce: { toNumber: () => 5 },
     };
     const client = createClient({ runtimeGatewayActivityNonce: 6n, accountNextNonce: 5, freeHeadersInterval: 2 });
-    const service = new EthereumGatewayProverService(createSubmitLane(client));
+    const service = new EthereumGatewayProverService(createSubmitLane(client), blockWatch, dataDirectory);
 
     gatewayProofMock.buildGatewayActivityReceiptProofPayloads.mockResolvedValue({
       payloads: [
@@ -1161,7 +1183,7 @@ describe('EthereumGatewayProverService', () => {
       nonce: { toNumber: () => 5 },
     };
     const client = createClient({ runtimeGatewayActivityNonce: 6n, accountNextNonce: 5, freeHeadersInterval: 2 });
-    const service = new EthereumGatewayProverService(createSubmitLane(client));
+    const service = new EthereumGatewayProverService(createSubmitLane(client), blockWatch, dataDirectory);
 
     gatewayProofMock.buildGatewayActivityReceiptProofPayloads.mockResolvedValue({
       payloads: [
@@ -1222,7 +1244,7 @@ describe('EthereumGatewayProverService', () => {
         '0x00000000000000000000000000000000000000aa': '5VaultOperator',
       },
     });
-    const service = new EthereumGatewayProverService(createSubmitLane(client), {
+    const service = new EthereumGatewayProverService(createSubmitLane(client), blockWatch, dataDirectory, {
       backgroundSweepMs: 1_000,
       vaultOperatorAddress: '5VaultOperator',
     });

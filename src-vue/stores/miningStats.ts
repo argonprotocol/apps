@@ -2,10 +2,12 @@ import * as Vue from 'vue';
 import { defineStore } from 'pinia';
 import { getBlockWatch, getMining } from './mainchain.ts';
 import { getCurrency } from './currency.ts';
-import { GlobalMiningStats } from '@argonprotocol/apps-core';
+import { GlobalMiningStats } from '../lib/GlobalMiningStats.ts';
+import { getDbPromise } from './helpers/dbPromise.ts';
 
 export const useMiningStats = defineStore('miningStats', () => {
   let hasLoaded = false;
+  let lastUpdatedFrameId: number | undefined;
   let updatePromise: Promise<void> | undefined = undefined;
   let isLoadedPromise: Promise<void> | undefined = undefined;
   let retryTimer: ReturnType<typeof setTimeout> | undefined;
@@ -14,13 +16,16 @@ export const useMiningStats = defineStore('miningStats', () => {
 
   const mining = getMining();
   const currency = getCurrency();
-  const stats = new GlobalMiningStats(mining, currency);
+  const stats = new GlobalMiningStats(
+    mining,
+    currency,
+    getDbPromise().then(db => db.financialCacheTable),
+  );
 
   const hasCurrentStats = Vue.ref(false);
   const isUpdating = Vue.ref(false);
   const error = Vue.ref('');
-  const cohortProgress = Vue.shallowRef(stats.cohortProgress);
-  const provisionalReturns = Vue.shallowRef(stats.provisionalReturns);
+  const frameProgress = Vue.shallowRef(stats.frameProgress);
 
   const activeMiningSeatCount = Vue.ref(0);
 
@@ -34,23 +39,20 @@ export const useMiningStats = defineStore('miningStats', () => {
   const averageAPR = Vue.ref<number>();
   const averageAPY = Vue.ref<number>();
 
-  async function update() {
+  async function update(force = false) {
     if (updatePromise) return await updatePromise;
+
+    const frameId = getBlockWatch().finalizedBlockHeader?.frameId;
+    if (!force && hasLoaded && !error.value && frameId !== undefined && frameId === lastUpdatedFrameId) return;
 
     clearTimeout(retryTimer);
     retryTimer = undefined;
     isUpdating.value = true;
     error.value = '';
-    cohortProgress.value = { completed: 0, total: 0 };
 
     updatePromise = (async () => {
       const publishProgress = () => {
-        if (isDisposed) return;
-        hasCurrentStats.value = stats.hasCurrentStats;
-        activeMiningSeatCount.value = stats.activeSeatCount;
-        activeBidCosts.value = stats.activeBidCosts;
-        cohortProgress.value = stats.cohortProgress;
-        provisionalReturns.value = stats.provisionalReturns;
+        if (!isDisposed) frameProgress.value = stats.frameProgress;
       };
       if (!hasLoaded) {
         await stats.load(publishProgress);
@@ -60,7 +62,9 @@ export const useMiningStats = defineStore('miningStats', () => {
       }
       if (isDisposed) return;
 
-      publishProgress();
+      hasCurrentStats.value = stats.hasCurrentStats;
+      activeMiningSeatCount.value = stats.activeSeatCount;
+      activeBidCosts.value = stats.activeBidCosts;
       aggregatedBidCosts.value = stats.aggregatedBidCosts;
       aggregatedBlockRewards.value = stats.aggregatedBlockRewards;
       investedCapital.value = stats.investedCapital;
@@ -73,6 +77,7 @@ export const useMiningStats = defineStore('miningStats', () => {
 
     try {
       await updatePromise;
+      lastUpdatedFrameId = frameId;
       retryAttempts = 0;
     } catch (cause) {
       if (!isDisposed) error.value = 'Unable to finish calculating mining returns.';
@@ -81,6 +86,10 @@ export const useMiningStats = defineStore('miningStats', () => {
     } finally {
       isUpdating.value = false;
       updatePromise = undefined;
+      const latestFrameId = getBlockWatch().finalizedBlockHeader?.frameId;
+      if (!isDisposed && !error.value && latestFrameId !== undefined && latestFrameId !== frameId) {
+        void update().catch(error => console.warn('[MiningStats] Unable to refresh returns', error));
+      }
     }
   }
 
@@ -95,8 +104,11 @@ export const useMiningStats = defineStore('miningStats', () => {
     }, retryDelayMs);
   }
 
-  const unsubscribeFinalized = getBlockWatch().events.on('finalized', () => {
-    if (retryAttempts < 3 || retryTimer || updatePromise) return;
+  const unsubscribeFinalized = getBlockWatch().events.on('finalized', headers => {
+    if (retryTimer || updatePromise) return;
+    const frameId = headers.at(-1)?.frameId;
+    const frameChanged = frameId !== undefined && frameId !== lastUpdatedFrameId;
+    if (!frameChanged && retryAttempts < 3) return;
 
     void update().catch(error => console.warn('[MiningStats] Unable to refresh returns', error));
   });
@@ -115,8 +127,7 @@ export const useMiningStats = defineStore('miningStats', () => {
     hasCurrentStats,
     isUpdating,
     error,
-    cohortProgress,
-    provisionalReturns,
+    frameProgress,
     aggregatedBidCosts,
     activeMiningSeatCount,
     aggregatedBlockRewards,

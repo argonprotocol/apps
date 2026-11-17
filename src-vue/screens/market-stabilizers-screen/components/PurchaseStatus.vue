@@ -1,7 +1,5 @@
 <template>
-  <span v-if="status === StabilizerBuyStatus.SubmittingUsdcApprovalOnEthereum">Submitting USDC approval</span>
-  <span v-else-if="status === StabilizerBuyStatus.ConfirmingUsdcApprovalOnEthereum">Confirming USDC approval</span>
-  <span v-else-if="status === StabilizerBuyStatus.SubmittingPurchaseOnEthereum">Submitting Ethereum purchase</span>
+  <span v-if="status === StabilizerBuyStatus.SubmittingPurchaseOnEthereum">Submitting Ethereum purchase</span>
   <span v-else-if="status === StabilizerBuyStatus.ConfirmingPurchaseOnEthereum">Confirming Ethereum purchase</span>
   <span v-else-if="status === StabilizerBuyStatus.WaitingForArgonRecognition">Waiting for Argon confirmation</span>
   <span v-else-if="status === StabilizerBuyStatus.WaitingForPrincipalReleaseOnArgon">ARGN held until release</span>

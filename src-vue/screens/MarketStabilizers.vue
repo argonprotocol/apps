@@ -6,48 +6,28 @@
       @openPurchase="openPurchase"
       @reviewPurchase="reviewPurchase"
     />
-    <StabilizerPurchaseOverlay
-      v-if="reviewedOpportunity || selectedPurchase"
-      :key="selectedPurchaseId ?? reviewSession"
-      :buyId="selectedPurchaseId"
-      :opportunity="reviewedOpportunity"
-      @bid="openRewards"
-      @purchased="openPurchase"
+    <StabilizerBuyOverlay
+      v-if="overlayView"
+      :initialView="overlayView"
       @expired="expireOpportunity"
       @close="closeOverlays"
     />
     <StabilizerBuyAlertOverlay v-if="isEditingAlert" @close="closeOverlays" />
-    <StabilizerBuyDetailOverlay
-      v-if="selectedRewards"
-      :key="selectedRewardFrame"
-      :admissionFrame="selectedRewardFrame!"
-      @close="closeOverlays"
-    />
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed, onScopeDispose, ref, shallowRef, watch } from 'vue';
+import { onScopeDispose, ref, shallowRef, watch } from 'vue';
 import Dashboard from './market-stabilizers-screen/Dashboard.vue';
-import StabilizerPurchaseOverlay from '../overlays/StabilizerPurchaseOverlay.vue';
+import StabilizerBuyOverlay, { type StabilizerBuyView } from '../overlays/StabilizerBuyOverlay.vue';
 import StabilizerBuyAlertOverlay from '../overlays/StabilizerBuyAlertOverlay.vue';
-import StabilizerBuyDetailOverlay from '../overlays/StabilizerBuyDetailOverlay.vue';
 import { useMarketStabilizers } from '../stores/marketStabilizers.ts';
-import { getStabilizerBuyAlerts, useStabilizerBuyNavigation } from '../stores/stabilizerBuys.ts';
-import { useAttention } from '../stores/attention.ts';
-import type { IStabilizerBuyOpportunity } from '../interfaces/IStabilizerBuyPurchase.ts';
+import { useStabilizerBuyNavigation } from '../stores/stabilizerBuys.ts';
 
 const market = useMarketStabilizers();
 const navigation = useStabilizerBuyNavigation();
-const reviewedOpportunity = shallowRef<Extract<IStabilizerBuyOpportunity, { type: 'buy' }>>();
-const reviewSession = ref(0);
+const overlayView = shallowRef<StabilizerBuyView>();
 const isEditingAlert = ref(false);
-const selectedPurchaseId = ref<string>();
-const selectedPurchase = computed(() => market.data.buys.find(buy => buy.id === selectedPurchaseId.value));
-const selectedRewardFrame = ref<number>();
-const selectedRewards = computed(() =>
-  market.data.frameRewards.find(rewards => rewards.admissionFrame === selectedRewardFrame.value),
-);
 
 function reviewPurchase() {
   closeOverlays();
@@ -57,14 +37,11 @@ function reviewPurchase() {
     navigation.noticeError = 'This buying opportunity has expired. Watching for the next one.';
     return;
   }
-  reviewSession.value++;
-  reviewedOpportunity.value = market.opportunity;
-  useAttention().acknowledgeStabilizerBuy(reviewedOpportunity.value.key);
+  overlayView.value = { type: 'purchase', opportunity: market.opportunity };
 }
 
-function expireOpportunity(opportunity: Extract<IStabilizerBuyOpportunity, { type: 'buy' }>) {
+function expireOpportunity() {
   closeOverlays();
-  getStabilizerBuyAlerts()?.expireOpportunity(opportunity);
   navigation.noticeError = 'This buying opportunity has expired. Watching for the next one.';
 }
 
@@ -74,10 +51,8 @@ function closeOverlays() {
 }
 
 function clearOverlaySelection() {
-  reviewedOpportunity.value = undefined;
+  overlayView.value = undefined;
   isEditingAlert.value = false;
-  selectedPurchaseId.value = undefined;
-  selectedRewardFrame.value = undefined;
 }
 
 async function editAlert() {
@@ -92,12 +67,12 @@ async function editAlert() {
 
 function openPurchase(id: string) {
   closeOverlays();
-  selectedPurchaseId.value = id;
+  overlayView.value = { type: 'purchase', buyId: id };
 }
 
 function openRewards(admissionFrame: number) {
   closeOverlays();
-  selectedRewardFrame.value = admissionFrame;
+  overlayView.value = { type: 'details', admissionFrame };
 }
 
 watch(
@@ -136,13 +111,5 @@ watch(
     if (error) clearOverlaySelection();
   },
 );
-watch(selectedPurchase, (purchase, previous) => {
-  if (selectedPurchaseId.value === undefined) return;
-  if (!purchase && previous) clearOverlaySelection();
-});
-watch(selectedRewards, (rewards, previous) => {
-  if (selectedRewardFrame.value === undefined) return;
-  if (!rewards && previous) clearOverlaySelection();
-});
 onScopeDispose(() => navigation.cancelPendingNotice());
 </script>

@@ -272,7 +272,7 @@ export function createBitcoinLockCouponsState({
   }
 
   async function refreshCoupons(subscriptionKey: number): Promise<void> {
-    await Promise.all([config.isLoadedPromise, bitcoinLocks.currentLoadPromise, vaults.load().catch(() => null)]);
+    await config.isLoadedPromise;
 
     if (!(await upstreamOperatorClient.resolveOperatorHost())) {
       if (subscriptionKey !== selectedVaultSubscriptionKey) return;
@@ -281,6 +281,7 @@ export function createBitcoinLockCouponsState({
       return;
     }
 
+    await Promise.all([bitcoinLocks.currentLoadPromise, vaults.loadCurrentState().catch(() => null)]);
     const nextCoupons = await upstreamOperatorClient.getBitcoinLockCoupons();
     if (subscriptionKey !== selectedVaultSubscriptionKey) return;
     coupons.value = nextCoupons;

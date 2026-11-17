@@ -45,9 +45,10 @@ describe.skipIf(SKIP_E2E)('Range cohort bidder', { tags: ['isolated-argon-networ
 
   beforeAll(async () => {
     const setupStartedAt = Date.now();
-    // A finalized standing ceiling and a competing batch must fit within the same auction.
+    // Empty bootstrap frames count every compute block. Allow a delayed commit/reveal retry,
+    // finality, and the competing batch to fit in the same auction.
     network = await startArgonTestNetwork(`range-bidder-${randomUUID()}`, {
-      ticksBetweenSlots: 30,
+      ticksBetweenSlots: 40,
       profiles: ['bob', 'price-oracle'],
       registerTeardown: false,
     });

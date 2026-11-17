@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import Path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { fileURLToPath } from 'node:url';
-import { AccountActivityKind, type IIndexerSpec } from '@argonprotocol/apps-core';
+import { ACCOUNT_ACTIVITY_DEFINITION_VERSION, AccountActivityKind, type IIndexerSpec } from '@argonprotocol/apps-core';
 import { getClient, type ArgonClient } from '@argonprotocol/mainchain';
 import { ApiPromise } from '@polkadot/api';
 import { encodeAddress } from '@polkadot/util-crypto';
@@ -263,7 +263,7 @@ describe('partial capture diagnostics', () => {
     const activity: IIndexerSpec['/v2/activity/:address']['responseType'] = {
       blocks: [],
       asOfBlock: 103,
-      definitionVersion: 4,
+      definitionVersion: ACCOUNT_ACTIVITY_DEFINITION_VERSION,
       coverage: { fromBlock: 0, toBlock: 103, gaps: [] },
     };
     vi.stubGlobal(

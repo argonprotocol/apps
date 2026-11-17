@@ -33,6 +33,26 @@ Core code must not read application tables, publish Vue state, choose recovery p
 
 Shared history infrastructure has an explicit historical contract rather than a current-model contract. Examples are `BlockWatch` snapshot transport, `Currency.fetchMainchainRatesAtBlock` and `fetchPriceIndex` for detached historical prices, `Vaults.updateRevenue` for shared historical statistics, and `AccountMiners.onBlock` for historical mining facts. These APIs read generated historical shapes directly or consume normalized events; they must not feed historical results through current protocol query/decoder methods. Their presence in `core/` does not make their input current. Keep the historical translation together and document supported storage and absence semantics at those methods.
 
+## RPC activation and cadence
+
+RPC scheduling is part of architecture and PR review. Before adding or changing reads, establish the existing owner, why the data is needed, when the read starts and stops, and its maximum requests per trigger. Reuse published state and local calculations before adding another reader.
+
+The shared capacity concern is **public RPC access**. Trace each read to its actual destination: public Argon RPC, public Ethereum provider, upstream operator, or user-operated server. An `archive` or `pruned` client role alone does not establish that destination. Current reads can fall back to public RPC when the preferred server is unavailable; historical snapshots may require public archive access even with a healthy upstream. Include both normal routing and public fallback in the analysis. Calls served entirely by upstream or a user-operated server are separate from the public RPC budget; their volume alone does not justify changing product behavior.
+
+If a gateway forwards requests to public RPC, count those outbound requests in the server's public total; do not also count the client-to-gateway request as public access. Desktop counters alone do not measure public traffic originating in server-side relay, sync, or proof services.
+
+- Unused features and hidden screens do not perform optional reads without an explicit background requirement. Essential reconciliation, relay, and proof work keep their own lifecycle. Ethereum deal discovery requires a fresh below-target on-chain price and a bounded cadence.
+- Global statistics normally refresh on frame turns. A new block alone does not justify reloading account maps, completed history, or protocol settings. Per-block reads need a current-state reason. Reuse existing history caches and checkpoints; transaction submission still validates fresh authoritative state.
+- Account for trigger frequency (blocks, ticks, frames, timers, or events) and requests per trigger, including account, lock, page, provider, and retry fan-out. Bound growing scans, share overlapping work, and back off failures. Check the empty-account/no-pending-work case. Declaring a budget does not make an excessive budget acceptable.
+
+PRs changing RPC access include a short **Public RPC impact** statement answering: how many public requests does this add or remove? State public requests per action or trigger and per minute at the expected cadence, including startup, retries and fallback. A change served entirely by upstream or a user-operated server can state zero added public requests when its routing supports that conclusion.
+
+Link comparable before/after profiles from the existing per-connection counters for affected public paths. Record the revision, network, destination category and client role, synthetic scenario, cache state, duration, and observed blocks/ticks/frames. Separate startup, settled idle, and the affected active workflow; separate public requests from upstream and user-operated traffic. Report requests sent after caching, cache hits, errors, and dominant methods/storage namespaces. Batched key reads and source estimates are not sent-request counts. A local capture of the public route is a routing/cadence model, not observed public-server traffic or capacity evidence. Export no account identifiers, arguments, response values, or credential-bearing URLs.
+
+Account for production and accelerated cadence; wall-clock polls and user actions cannot be scaled by tick length. Use existing behavioral tests to catch changed reads occurring outside their intended trigger. Record unmeasured paths explicitly.
+
+Unexplained sustained public traffic, unbounded public fan-out, or a public cadence regression remains a readiness issue. Review expected public RPC load across concurrent users, including widespread upstream failure, and preserve headroom for essential work before declaring release readiness. Fast local responses, passing tests, and an already-high baseline do not establish acceptable public load.
+
 ## Durable records and tables
 
 A table owns durable representation, not business meaning. It converts trusted record fields to and from SQLite and provides transactions and queries that are durable across restart.

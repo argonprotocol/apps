@@ -32,6 +32,12 @@ For every changed method, class, or coherent code block that crosses a boundary,
 
 Do not accept a vague label such as "recovery" or "sync" as the classification. State what is being recovered or synchronized, from which authority, and for whose lifecycle.
 
+## RPC activation and cost
+
+For new or changed reads, apply `docs/architecture.md`'s RPC activation and cadence contract. Trace the actual destination, including public fallback when upstream or the user's server is unavailable; client roles alone do not establish public access. Trace what starts the read, when it stops, and why its data must be refreshed at that frequency. Follow block/tick/frame listeners and reactive consumers into the actual RPCs, including account/lock/page/provider fan-out and retries. Check existing published state and caches before accepting another reader. Separate essential background work from screen-only estimates and optional discovery.
+
+Inspect the PR's added or removed public requests per action/trigger and at the expected cadence, with comparable before/after per-connection counter evidence for affected public paths. Separate public traffic from upstream and user-operated traffic. Distinguish sent requests, batched key reads, and source estimates; account for production and accelerated cadence, startup and fallback. Report excessive or unexplained public load and missing affected-path evidence as readiness gaps. A local routing model or unchanged high baseline does not establish public release headroom. Do not expand this check into a rewrite or new profiling system.
+
 ## Event and recovery classification
 
 Classify event access by purpose rather than age:

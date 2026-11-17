@@ -134,7 +134,6 @@ export class Vaults {
 
       this.currentState.statsRevision += 1;
       this.waitForLoad.resolve();
-      if (this.stats.revenueBackfill) this.queueRevenueUpdate();
     } catch (error) {
       this.waitForLoad.reject(error as Error);
     }
@@ -351,12 +350,27 @@ export class Vaults {
     }
   }
 
-  public async updateRevenue(clients?: MainchainClients): Promise<IAllVaultStats> {
+  /** Read missing completed frames down to fromFrameId; cached older history is retained. */
+  public async updateRevenue(clients?: MainchainClients, fromFrameId = 0): Promise<IAllVaultStats> {
     await this.load();
-    if (this.refreshingPromise) return this.refreshingPromise;
-    if (!this.stats!.revenueBackfill && this.stats!.synchedToFrame >= this.miningFrames.currentFrameId - 1) {
-      return this.stats!;
+    if (this.refreshingPromise) {
+      await this.refreshingPromise;
+      return this.updateRevenue(clients, fromFrameId);
     }
+
+    const currentFrameId = this.miningFrames.currentFrameId;
+    const minimumSnapshotFrameId = Math.max(1, fromFrameId + 1);
+    const backfill = this.stats!.revenueBackfill;
+    const needsLatestFrame = this.stats!.synchedToFrame < currentFrameId - 1;
+    let nextSnapshotFrameId = currentFrameId;
+    let oldestSnapshotFrameId = this.stats!.synchedToFrame + 2;
+    if (backfill && backfill.nextFrame >= minimumSnapshotFrameId) {
+      if (!needsLatestFrame) nextSnapshotFrameId = backfill.nextFrame;
+      oldestSnapshotFrameId = Math.min(oldestSnapshotFrameId, backfill.throughFrame);
+    }
+    oldestSnapshotFrameId = Math.max(oldestSnapshotFrameId, minimumSnapshotFrameId);
+    if (nextSnapshotFrameId < oldestSnapshotFrameId) return this.stats!;
+
     const refreshClients = clients ?? this.mainchainClients;
     const refresh = (async () => {
       const initialStats = { ...this.stats!, vaultsById: { ...this.stats!.vaultsById } };
@@ -371,7 +385,10 @@ export class Vaults {
         nextFrame: this.miningFrames.currentFrameId,
         throughFrame: stats.synchedToFrame + 2,
       });
-      const { nextFrame: nextSnapshotFrameId, throughFrame: oldestSnapshotFrameId } = revenueBackfill;
+      // A stale cache can have both an older unfinished scan and newer frames skipped by this request.
+      if (oldestSnapshotFrameId > stats.synchedToFrame + 2) {
+        revenueBackfill.nextFrame = Math.max(revenueBackfill.nextFrame, oldestSnapshotFrameId - 1);
+      }
       const oldestCompletedFrameId = oldestSnapshotFrameId - 1;
       const finalizedHead = this.miningFrames.blockWatch.finalizedBlockHeader;
       const argonBondPayoutsByFrame = new Map<number, NonNullable<IAllVaultStats['argonBondsByFrame']>[number]>();
@@ -379,119 +396,120 @@ export class Vaults {
       let latestCompletedFrameId = Math.min(stats.synchedToFrame, this.miningFrames.currentFrameId - 1);
       let snapshotsProcessed = 0;
       let lastSnapshotFrameId: number | undefined;
-      let isBackfillComplete = false;
+      let reachedHistoryBoundary = false;
 
       const frameIterator = new FrameIterator(refreshClients, this.miningFrames, 'VaultHistory');
-      await frameIterator.iterateFramesLimited(async (snapshotFrameId, firstBlockMeta, api, abortController) => {
-        if (firstBlockMeta.specVersion < VAULT_REVENUE_COUPON_SPEC_VERSION) {
-          console.log(
-            `[VaultHistory] Aborting iteration at frame ${snapshotFrameId} as it uses specVersion ${firstBlockMeta.specVersion}`,
-          );
-          isBackfillComplete = true;
-          return abortController.abort();
-        }
+      await frameIterator.iterateFramesLimited(
+        async (snapshotFrameId, firstBlockMeta, api, abortController) => {
+          if (firstBlockMeta.specVersion < VAULT_REVENUE_COUPON_SPEC_VERSION) {
+            console.log(
+              `[VaultHistory] Aborting iteration at frame ${snapshotFrameId} as it uses specVersion ${firstBlockMeta.specVersion}`,
+            );
+            reachedHistoryBoundary = true;
+            return abortController.abort();
+          }
 
-        snapshotsProcessed += 1;
-        lastSnapshotFrameId = snapshotFrameId;
+          snapshotsProcessed += 1;
+          lastSnapshotFrameId = snapshotFrameId;
 
-        if (firstBlockMeta.blockNumber <= finalizedHead.blockNumber) {
-          const completedFrameId = snapshotFrameId - 1;
-          let parentApi: ArgonApi | undefined;
-          latestCompletedFrameId = Math.max(latestCompletedFrameId, completedFrameId);
+          if (firstBlockMeta.blockNumber <= finalizedHead.blockNumber) {
+            const completedFrameId = snapshotFrameId - 1;
+            let parentApi: ArgonApi | undefined;
+            latestCompletedFrameId = Math.max(latestCompletedFrameId, completedFrameId);
 
-          if ('currentFrameArgonotBondParticipants' in api.query.treasury) {
-            const parent = await this.miningFrames.blockWatch.getHeader(firstBlockMeta.blockNumber - 1);
-            parentApi = await this.miningFrames.blockWatch.getApi(parent);
-            const [participants, events] = await Promise.all([
-              parentApi.query.treasury.currentFrameArgonotBondParticipants(),
-              api.query.system.events(),
-            ]);
+            if ('currentFrameArgonotBondParticipants' in api.query.treasury) {
+              const parent = await this.miningFrames.blockWatch.getHeader(firstBlockMeta.blockNumber - 1);
+              parentApi = await this.miningFrames.blockWatch.getApi(parent);
+              const [participants, events] = await Promise.all([
+                parentApi.query.treasury.currentFrameArgonotBondParticipants(),
+                api.query.system.events(),
+              ]);
 
-            for (const { event } of events) {
-              if (event.section !== 'treasury' || event.method !== 'FrameEarningsDistributed') continue;
-              const payout = event.data;
-              if (payout.frameId !== completedFrameId) continue;
-              const argonotStakePayoutMicrogons =
-                payout.stakePoolDistributed ?? payout.argonotBondPoolDistributed ?? 0n;
-              if (
-                argonotStakePayoutMicrogons > 0n &&
-                !argonotStakePayoutsByFrame.has(completedFrameId) &&
-                participants?.frameId !== completedFrameId
-              ) {
-                throw new Error(
-                  `Frame ${completedFrameId} is missing its Argonot payout participants. Retry history loading.`,
-                );
-              }
-              if (participants?.frameId === completedFrameId && !argonotStakePayoutsByFrame.has(completedFrameId)) {
-                const { frame, api: frameStartApi } = await this.miningFrames.getFrameStart(completedFrameId);
-                const rates = await this.currency.fetchMainchainRatesAtBlock({
-                  api: frameStartApi,
-                  block: { blockHash: frame.firstBlockHash! },
+              for (const { event } of events) {
+                if (event.section !== 'treasury' || event.method !== 'FrameEarningsDistributed') continue;
+                const payout = event.data;
+                if (payout.frameId !== completedFrameId) continue;
+                const argonotStakePayoutMicrogons =
+                  payout.stakePoolDistributed ?? payout.argonotBondPoolDistributed ?? 0n;
+                if (
+                  argonotStakePayoutMicrogons > 0n &&
+                  !argonotStakePayoutsByFrame.has(completedFrameId) &&
+                  participants?.frameId !== completedFrameId
+                ) {
+                  throw new Error(
+                    `Frame ${completedFrameId} is missing its Argonot payout participants. Retry history loading.`,
+                  );
+                }
+                if (participants?.frameId === completedFrameId && !argonotStakePayoutsByFrame.has(completedFrameId)) {
+                  const { frame, api: frameStartApi } = await this.miningFrames.getFrameStart(completedFrameId);
+                  const rates = await this.currency.fetchMainchainRatesAtBlock({
+                    api: frameStartApi,
+                    block: { blockHash: frame.firstBlockHash! },
+                  });
+                  argonotStakePayoutsByFrame.set(completedFrameId, {
+                    frameId: completedFrameId,
+                    poolDistributed: argonotStakePayoutMicrogons,
+                    participatingBonds: participants.totalBonds,
+                    microgonsPerArgonot: rates.ARGNOT,
+                  });
+                }
+                if (payout.argonBondPoolDistributed === undefined) continue;
+                if (argonBondPayoutsByFrame.has(payout.frameId)) continue;
+                const savedPayout = stats.argonBondsByFrame?.find(frame => frame.frameId === payout.frameId);
+                if (savedPayout?.participatingBonds !== undefined) continue;
+
+                // The payout block has already replaced capital with the next frame's terms.
+                const capital = await parentApi.query.treasury.currentFrameVaultCapital();
+                let participatingBonds: bigint | undefined;
+                if (capital && 'totalActiveBonds' in capital && capital.frameId === payout.frameId) {
+                  participatingBonds = capital.totalActiveBonds;
+                }
+                if (payout.argonBondPoolDistributed > 0n && participatingBonds === undefined) {
+                  throw new Error(
+                    `Frame ${completedFrameId} is missing its Argon bond payout capital. Retry history loading.`,
+                  );
+                }
+                argonBondPayoutsByFrame.set(payout.frameId, {
+                  frameId: payout.frameId,
+                  poolDistributed: payout.argonBondPoolDistributed,
+                  participatingBonds,
                 });
-                argonotStakePayoutsByFrame.set(completedFrameId, {
-                  frameId: completedFrameId,
-                  poolDistributed: argonotStakePayoutMicrogons,
-                  participatingBonds: participants.totalBonds,
-                  microgonsPerArgonot: rates.ARGNOT,
-                });
               }
-              if (payout.argonBondPoolDistributed === undefined) continue;
-              if (argonBondPayoutsByFrame.has(payout.frameId)) continue;
-              const savedPayout = stats.argonBondsByFrame?.find(frame => frame.frameId === payout.frameId);
-              if (savedPayout?.participatingBonds !== undefined) continue;
+            }
 
-              // The payout block has already replaced capital with the next frame's terms.
-              const capital = await parentApi.query.treasury.currentFrameVaultCapital();
-              let participatingBonds: bigint | undefined;
-              if (capital && 'totalActiveBonds' in capital && capital.frameId === payout.frameId) {
-                participatingBonds = capital.totalActiveBonds;
+            const vaultRevenues = await api.query.vaults.revenuePerFrameByVault.entries();
+            for (const [vaultIdRaw, frameRevenues] of vaultRevenues ?? []) {
+              const vaultId = vaultIdRaw.args[0];
+              for (const frameRevenue of frameRevenues) {
+                if (frameRevenue.frameId !== completedFrameId) continue;
+                if (completedFrameId < oldestCompletedFrameId) continue;
+                await this.updateVaultRevenue(vaultId, [frameRevenue], stats);
               }
-              if (payout.argonBondPoolDistributed > 0n && participatingBonds === undefined) {
-                throw new Error(
-                  `Frame ${completedFrameId} is missing its Argon bond payout capital. Retry history loading.`,
-                );
-              }
-              argonBondPayoutsByFrame.set(payout.frameId, {
-                frameId: payout.frameId,
-                poolDistributed: payout.argonBondPoolDistributed,
-                participatingBonds,
-              });
+            }
+
+            const hasFlexibleCapital = Object.values(stats.vaultsById).some(vault =>
+              vault.changesByFrame.some(
+                frame => frame.frameId === completedFrameId && frame.treasuryPool.vaultCapital > 0n,
+              ),
+            );
+            if (hasFlexibleCapital) {
+              const { api: participationApi } = await this.miningFrames.getFrameStart(completedFrameId);
+              await Vaults.loadFlexibleBondEarnings(stats, completedFrameId, participationApi);
+            }
+            if (completedFrameId >= oldestCompletedFrameId) {
+              await this.loadFrameHistory(stats, { frameId: completedFrameId, firstBlockMeta, api, parentApi });
             }
           }
 
-          const vaultRevenues = await api.query.vaults.revenuePerFrameByVault.entries();
-          for (const [vaultIdRaw, frameRevenues] of vaultRevenues ?? []) {
-            const vaultId = vaultIdRaw.args[0];
-            for (const frameRevenue of frameRevenues) {
-              if (frameRevenue.frameId !== completedFrameId) continue;
-              if (completedFrameId < oldestCompletedFrameId) continue;
-              await this.updateVaultRevenue(vaultId, [frameRevenue], stats);
-            }
+          if (snapshotFrameId <= oldestSnapshotFrameId) {
+            abortController.abort();
+          } else if (snapshotsProcessed >= VAULT_REVENUE_BACKFILL_BATCH_FRAMES) {
+            abortController.abort();
           }
-
-          const hasFlexibleCapital = Object.values(stats.vaultsById).some(vault =>
-            vault.changesByFrame.some(
-              frame => frame.frameId === completedFrameId && frame.treasuryPool.vaultCapital > 0n,
-            ),
-          );
-          if (hasFlexibleCapital) {
-            const { api: participationApi } = await this.miningFrames.getFrameStart(completedFrameId);
-            await Vaults.loadFlexibleBondEarnings(stats, completedFrameId, participationApi);
-          }
-          if (completedFrameId >= oldestCompletedFrameId) {
-            await this.loadFrameHistory(stats, { frameId: completedFrameId, firstBlockMeta, api, parentApi });
-          }
-        }
-
-        if (snapshotFrameId <= oldestSnapshotFrameId) {
-          isBackfillComplete = true;
-          abortController.abort();
-        } else if (snapshotsProcessed >= VAULT_REVENUE_BACKFILL_BATCH_FRAMES) {
-          abortController.abort();
-        }
-      }, nextSnapshotFrameId);
-
-      if (snapshotsProcessed < VAULT_REVENUE_BACKFILL_BATCH_FRAMES) isBackfillComplete = true;
+        },
+        nextSnapshotFrameId,
+        oldestSnapshotFrameId,
+      );
 
       if (argonBondPayoutsByFrame.size) {
         const retainedFrames = (stats.argonBondsByFrame ?? []).filter(
@@ -505,10 +523,12 @@ export class Vaults {
       stats.argonotStakingByFrame = [...argonotStakePayoutsByFrame.values()].sort((a, b) => b.frameId - a.frameId);
       stats.synchedToFrame = latestCompletedFrameId;
 
-      if (isBackfillComplete || lastSnapshotFrameId === undefined) {
+      let scannedThroughFrame = lastSnapshotFrameId ?? oldestSnapshotFrameId;
+      if (snapshotsProcessed < VAULT_REVENUE_BACKFILL_BATCH_FRAMES) scannedThroughFrame = oldestSnapshotFrameId;
+      if (reachedHistoryBoundary || scannedThroughFrame <= revenueBackfill.throughFrame) {
         delete stats.revenueBackfill;
-      } else {
-        revenueBackfill.nextFrame = lastSnapshotFrameId - 1;
+      } else if (scannedThroughFrame <= revenueBackfill.nextFrame) {
+        revenueBackfill.nextFrame = scannedThroughFrame - 1;
       }
 
       // Live observations made during the scan keep their newer values and any recovered attribution.
@@ -538,24 +558,29 @@ export class Vaults {
       this.currentState.statsRevision += 1;
       await this.saveStats();
 
-      if (stats.revenueBackfill) {
+      if (stats.revenueBackfill && stats.revenueBackfill.nextFrame >= minimumSnapshotFrameId) {
         console.info(`[VaultHistory] Saved revenue backfill through frame ${lastSnapshotFrameId}`);
         await new Promise<void>(resolve => setTimeout(resolve, VAULT_REVENUE_BACKFILL_PAUSE_MS));
-        this.queueRevenueUpdate(refreshClients);
       }
 
       return stats;
     })();
     this.refreshingPromise = refresh;
 
+    let stats: IAllVaultStats;
     try {
-      return await refresh;
+      stats = await refresh;
     } catch (error) {
       console.error('Error refreshing vault revenue stats:', error);
       throw error;
     } finally {
       if (this.refreshingPromise === refresh) this.refreshingPromise = undefined;
     }
+
+    if (stats.revenueBackfill && stats.revenueBackfill.nextFrame >= minimumSnapshotFrameId) {
+      return this.updateRevenue(clients, fromFrameId);
+    }
+    return stats;
   }
 
   /** Enrich detached shared history with bond-holder income from archived frame-start terms. */
@@ -617,16 +642,6 @@ export class Vaults {
         }),
       };
     }
-  }
-
-  private queueRevenueUpdate(clients = this.mainchainClients): void {
-    setTimeout(async () => {
-      try {
-        await this.updateRevenue(clients);
-      } catch (error) {
-        console.warn('[VaultHistory] Unable to continue revenue backfill', error);
-      }
-    }, 0);
   }
 
   protected get syncedToFrame(): number {

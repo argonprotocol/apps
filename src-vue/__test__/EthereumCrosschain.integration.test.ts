@@ -1,5 +1,8 @@
 import { AccountSecurityBatch } from '../lib/AccountSecurity.ts';
 import { randomUUID } from 'node:crypto';
+import { mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterAll, beforeAll, describe, expect, inject, it, vi } from 'vitest';
 import {
@@ -83,6 +86,13 @@ const TEST_ACCOUNT = {
 } as const;
 const TEST_WALLET_MNEMONIC =
   'abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about';
+const TEST_PRICES = {
+  btcUsdPrice: toFixedNumber(60_000, 18),
+  argonUsdPrice: toFixedNumber(1, 18),
+  argonotUsdPrice: toFixedNumber(1, 18),
+  argonUsdTargetPrice: toFixedNumber(1, 18),
+  argonTimeWeightedAverageLiquidity: toFixedNumber(1_000_000, 18),
+};
 const VAULT_SETUP = {
   ...(Config.getDefault('vaultSetup') as any),
   securitizationRatio: 1,
@@ -112,6 +122,7 @@ describe.skipIf(skipE2E || !TestEthereum.isInstalled())('EthereumCrosschain inte
   let submitLane: DelegateSubmitLane;
   let beaconSyncService: EthereumBeaconSyncService;
   let gatewayProverService: EthereumGatewayProverService;
+  let gatewayProofDirectory: string;
   let ethereumClient: EthereumClient;
   let tracker: EthereumInboundTransferTracker;
   let outboundTracker: EthereumOutboundTransferTracker;
@@ -134,6 +145,7 @@ describe.skipIf(skipE2E || !TestEthereum.isInstalled())('EthereumCrosschain inte
   let didTransferArgonToEthereum = false;
 
   beforeAll(async () => {
+    gatewayProofDirectory = await mkdtemp(join(tmpdir(), 'ethereum-crosschain-proofs-'));
     network = await startArgonTestNetwork(`ethereum-crosschain-${randomUUID()}`, {
       profiles: ['bob'],
       chainStartTimeoutMs: 120_000,
@@ -237,11 +249,7 @@ describe.skipIf(skipE2E || !TestEthereum.isInstalled())('EthereumCrosschain inte
       client,
       client.tx.priceIndex.submit(
         {
-          btcUsdPrice: toFixedNumber(60_000, 18),
-          argonUsdPrice: toFixedNumber(1, 18),
-          argonotUsdPrice: toFixedNumber(1, 18),
-          argonUsdTargetPrice: toFixedNumber(1, 18),
-          argonTimeWeightedAverageLiquidity: toFixedNumber(1_000_000, 18),
+          ...TEST_PRICES,
           tick: BigInt(currentTick),
         },
         null,
@@ -264,7 +272,7 @@ describe.skipIf(skipE2E || !TestEthereum.isInstalled())('EthereumCrosschain inte
       submitLane,
     });
     await beaconSyncService.start();
-    gatewayProverService = new EthereumGatewayProverService(submitLane, {
+    gatewayProverService = new EthereumGatewayProverService(submitLane, miningFrames.blockWatch, gatewayProofDirectory, {
       backgroundSweepMs: 1_000,
       shouldApplySharedRelayStagger: false,
     });
@@ -332,6 +340,7 @@ describe.skipIf(skipE2E || !TestEthereum.isInstalled())('EthereumCrosschain inte
 
   afterAll(async () => {
     await gatewayProverService?.shutdown().catch(() => undefined);
+    if (gatewayProofDirectory) await rm(gatewayProofDirectory, { recursive: true, force: true });
     await beaconSyncService?.shutdown().catch(() => undefined);
     myVault?.unsubscribe();
     await bitcoinLocks?.shutdown().catch(() => undefined);
@@ -393,14 +402,18 @@ describe.skipIf(skipE2E || !TestEthereum.isInstalled())('EthereumCrosschain inte
         finalizedClient: updatedFinalizedClient,
         gatewayAddress,
         publicClient,
-        sendCurrentCouncil: async (currentCouncil, nextMicrogonsPerArgonot) => {
+        sendCurrentCouncil: async currentCouncil => {
           return await deployerClient.writeContract({
             account: deployer,
             chain,
             address: gatewayAddress,
             abi: EvmContracts.mintingGatewayArtifact.abi,
             functionName: 'forceUpdateActiveCouncil',
-            args: [currentCouncil, nextMicrogonsPerArgonot],
+            args: [
+              currentCouncil,
+              currentCouncil.epochMicrogonsPerArgonot,
+              currentCouncil.inflationPercentSinceLaunch ?? 0n,
+            ],
           });
         },
       });
@@ -753,6 +766,16 @@ describe.skipIf(skipE2E || !TestEthereum.isInstalled())('EthereumCrosschain inte
       if (!didActivateMintingAuthority) {
         throw new Error('Run the whole EthereumCrosschain integration suite. The minting authority must be active.');
       }
+
+      // This fixture has no price oracle; earlier transfers can outlive the runtime's price window.
+      await submitAndFinalize(
+        client,
+        client.tx.priceIndex.submit(
+          { ...TEST_PRICES, tick: BigInt(await client.query.ticks.currentTick()) },
+          null,
+        ),
+        new Keyring({ type: 'sr25519' }).addFromUri('//Eve//oracle'),
+      );
 
       const senderKeys = WalletKeys.fromMnemonic(TEST_WALLET_MNEMONIC, {
         substrateSuri: integrationAccountUri(inject('argonIntegrationRunId'), import.meta.filename, `maximum-${moveToken}`),

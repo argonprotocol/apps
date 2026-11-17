@@ -1,5 +1,6 @@
 import type { IWallet } from '../Wallet.ts';
 import type { ICrosschainHistoryRecord } from '../CrosschainHistory.ts';
+import type { IMiningFrameEstimate, IStabilizerBuyPoolSnapshot } from '@argonprotocol/apps-core';
 import { BaseTable, type IFieldTypes } from './BaseTable.ts';
 import { convertFromSqliteFields, logStartupTiming, toSqlParams } from '../Utils.ts';
 
@@ -7,6 +8,8 @@ export enum FinancialCacheTypes {
   BitcoinSecuritizationHistory = 'BitcoinSecuritizationHistory',
   CrosschainHistory = 'CrosschainHistory',
   ExternalWalletBalance = 'ExternalWalletBalance',
+  GlobalMiningStats = 'GlobalMiningStats',
+  StabilizerBuyPool = 'StabilizerBuyPool',
 }
 
 export type ExternalWalletChain = 'ethereum' | 'base';
@@ -32,9 +35,22 @@ export type IBitcoinSecuritizationHistoryCacheRecord = {
 };
 
 export interface IFinancialCacheSchemas {
+  [FinancialCacheTypes.StabilizerBuyPool]: {
+    definitionVersion: number;
+    pool: IStabilizerBuyPoolSnapshot;
+    refreshedAt: Date;
+    refreshedAtTick: number;
+    minimumMicrogons: bigint;
+    gasEstimate?: bigint;
+    feePerGas?: bigint;
+  };
   [FinancialCacheTypes.BitcoinSecuritizationHistory]: IBitcoinSecuritizationHistoryCacheRecord;
   [FinancialCacheTypes.CrosschainHistory]: ICrosschainHistoryCacheRecord;
   [FinancialCacheTypes.ExternalWalletBalance]: IExternalWalletBalanceCacheRecord;
+  [FinancialCacheTypes.GlobalMiningStats]: {
+    definitionVersion: number;
+    frames: IMiningFrameEstimate[];
+  };
 }
 
 export class FinancialCacheTable extends BaseTable {

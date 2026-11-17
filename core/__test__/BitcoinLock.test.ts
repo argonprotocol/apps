@@ -4,8 +4,38 @@ import { PriceIndex } from '@argonprotocol/mainchain';
 
 import { BitcoinLock } from '../src/BitcoinLock.ts';
 import type { BlockWatch, RuntimeSystemEventRecord } from '../src/BlockWatch.ts';
+import type { IBitcoinLockConfig } from '../src/BitcoinLock.ts';
 
 describe('BitcoinLock current runtime state', () => {
+  it('matches native rounding when a near-target quote wins by one microgon', () => {
+    // Numeric oracle inputs 1.007 / 1.06 produce this 18-decimal R. Native FixedU128
+    // truncates R squared before the quadratic, making this quote cheaper than exact R=0.95.
+    const observedR = new BigNumber('0.949999999999999879');
+    expect(BitcoinLock.calculateRedemptionRate(observedR).toFixed(18)).toBe('0.949999999999999998');
+    expect(BitcoinLock.getBestRedemptionRValue(new BigNumber('0.95'), observedR)).toEqual(observedR);
+  });
+
+  it.each([60_000, 2_000])(
+    'requires the entire hold and cosign window in protocol ticks (tick duration %s)',
+    tickDurationMillis => {
+      const config: IBitcoinLockConfig = {
+        argonTicksPerDay: 1_440,
+        ticksPerBitcoinBlock: 10n,
+        lockReleaseCosignDeadlineFrames: 10,
+        securitizationHoldBlocks: 6,
+        tickDurationMillis,
+        bitcoinNetwork: { type: 'Bitcoin' },
+      };
+      // The runtime requires strictly more than (30 + 10) protocol days, or 5,760 Bitcoin blocks.
+      const lock = { vaultClaimHeight: 10_000 };
+      expect(BitcoinLock.hasRepaymentWindow({ lock, currentBitcoinHeight: 4_239, holdFrames: 30, config })).toBe(true);
+      expect(BitcoinLock.hasRepaymentWindow({ lock, currentBitcoinHeight: 4_240, holdFrames: 30, config })).toBe(false);
+      expect(BitcoinLock.hasRepaymentWindow({ lock, currentBitcoinHeight: 10_001, holdFrames: 30, config })).toBe(
+        false,
+      );
+    },
+  );
+
   it.each([
     [undefined, 11n],
     [60_000_000n, 37n],

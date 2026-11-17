@@ -59,13 +59,16 @@ it('refreshes fee waivers while mounted and drops stale state when the upstream 
     currentLoadPromise: Promise.resolve(),
     getLockableBitcoinCapacity: vi.fn().mockReturnValue(capacity),
   } as unknown as BitcoinLocks;
+  const loadVaultHistory = vi.fn().mockResolvedValue(undefined);
+  const loadCurrentVaults = vi.fn().mockResolvedValue(undefined);
   const vaults = {
-    load: vi.fn().mockResolvedValue(undefined),
+    load: loadVaultHistory,
+    loadCurrentState: loadCurrentVaults,
     vaultsById: { 12: vault },
     subscribeToVault: vi.fn().mockResolvedValue(undefined),
   } as unknown as Vaults;
   const upstreamOperatorClient = {
-    resolveOperatorHost: vi.fn().mockResolvedValue('upstream.test'),
+    resolveOperatorHost: vi.fn().mockResolvedValueOnce(undefined).mockResolvedValue('upstream.test'),
     getBitcoinLockCoupons,
   } as unknown as UpstreamOperatorClient;
   const scope = Vue.effectScope();
@@ -80,6 +83,12 @@ it('refreshes fee waivers while mounted and drops stale state when the upstream 
   )!;
 
   await vi.advanceTimersByTimeAsync(0);
+  expect(getBitcoinLockCoupons).not.toHaveBeenCalled();
+  expect(loadVaultHistory).not.toHaveBeenCalled();
+  expect(loadCurrentVaults).not.toHaveBeenCalled();
+  expect(store.currentCoupon).toBeUndefined();
+
+  await vi.advanceTimersByTimeAsync(30_000);
   expect(getBitcoinLockCoupons).toHaveBeenCalledOnce();
   expect(store.currentCoupon).toBeUndefined();
 

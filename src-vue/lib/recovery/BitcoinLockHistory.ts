@@ -3,12 +3,16 @@ import { hexToU8a, u8aToHex } from '@polkadot/util';
 import {
   bigIntMin,
   BitcoinLock,
+  Currency,
+  type BlockWatch,
+  type IBlockHeaderInfo,
   type ArgonApi,
   type IBitcoinLock,
   type IBitcoinLockDetails,
   type IBitcoinLockFundingUtxo,
   type RuntimeSystemEventRecord,
 } from '@argonprotocol/apps-core';
+import type { HistoricalEvent } from '@argonprotocol/runtime-client/events';
 
 type HistoricalBitcoinLock = NonNullable<HistoricalQueryRecord<'bitcoinLocks', 'locksByUtxoId'>>;
 
@@ -110,6 +114,46 @@ export async function getHistoricalBitcoinLock(
     ),
     createdAtArgonBlock: lock.createdAtArgonBlock ?? 0,
   };
+}
+
+/** A later cancellation in the same batch can remove an unfunded Lock before this snapshot. */
+export async function getHistoricalBitcoinLockGuarantee({
+  api,
+  blockWatch,
+  block,
+  event,
+}: {
+  api: ArgonApi;
+  blockWatch: BlockWatch;
+  block: IBlockHeaderInfo;
+  event: Extract<HistoricalEvent, { method: 'BitcoinLockGuaranteeSet' | 'BitcoinLockResecuritized' }>;
+}): Promise<{ lock: IBitcoinLock; isRemoved: boolean }> {
+  const current = await getHistoricalBitcoinLockDetails(api, event.data.lockId);
+  if (current) return { lock: current, isRemoved: false };
+
+  const previousApi = await blockWatch.getApi({
+    blockNumber: block.blockNumber - 1,
+    blockHash: block.parentHash,
+  });
+  const previous = await getHistoricalBitcoinLockDetails(previousApi, event.data.lockId);
+  if (!previous || previous.fundedSatoshis !== 0n) {
+    throw new Error(`Bitcoin Lock #${event.data.lockId} is missing its finalized guarantee.`);
+  }
+
+  const basis = event.data.securitizationBasis;
+  const priceIndex = await Currency.fetchPriceIndex(api);
+  const lock = {
+    ...previous,
+    securitizedSatoshis: basis.satoshis,
+    microgonsAtTargetPerBtc: basis.microgonsAtTargetPerBtc,
+    securitizationTick: 'tick' in basis ? basis.tick : block.tick,
+    securitizationCoverageMicrogons: BitcoinLock.calculateLiquidityPromised({
+      priceIndex,
+      satoshis: basis.satoshis,
+      microgonsAtTargetPerBtc: basis.microgonsAtTargetPerBtc,
+    }),
+  };
+  return { lock, isRemoved: true };
 }
 
 /** Normalize the native Lock storage used since runtime 159, including saved transaction inclusion blocks. */

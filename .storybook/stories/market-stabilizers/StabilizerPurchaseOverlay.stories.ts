@@ -1,6 +1,7 @@
 import type { Meta, StoryObj } from '@storybook/vue3-vite';
 import { within, mocked } from 'storybook/test';
-import { NetworkConfig } from '@argonprotocol/apps-core';
+import { NetworkConfig, StabilizerBuy } from '@argonprotocol/apps-core';
+import BigNumber from 'bignumber.js';
 import { WalletForEthereum } from '../../../src-vue/lib/WalletForEthereum.ts';
 import { StabilizerBuyStatus, type IStabilizerBuyRecord } from '../../../src-vue/interfaces/IStabilizerBuyPurchase.ts';
 import { useMarketStabilizers } from '../../../src-vue/stores/marketStabilizers.ts';
@@ -10,6 +11,7 @@ import AppScreen from '../../components/AppScreen.vue';
 import { setupMarketStabilizers } from '../../scenarios/marketStabilizers.ts';
 import Dashboard from '../../../src-vue/screens/market-stabilizers-screen/Dashboard.vue';
 import StabilizerPurchaseOverlay from '../../../src-vue/overlays/StabilizerPurchaseOverlay.vue';
+import StabilizerBuyOverlay from '../../../src-vue/overlays/StabilizerBuyOverlay.vue';
 
 const meta = {
   title: 'Market Stabilizers/Purchase',
@@ -22,6 +24,7 @@ const meta = {
     const market = setupMarketStabilizers();
     market.config.stabilizerBuyAlert = { minimumApy: 12 };
     Object.assign(market, {
+      buyDiscountPercent: buyOpportunity.discountPercent,
       opportunity: {
         ...buyOpportunity,
         quote: { ...buyOpportunity.quote, request: { ...buyOpportunity.quote.request, maxUsdcIn: 200_000_000n } },
@@ -39,9 +42,10 @@ const meta = {
     return () => NetworkConfig.setRuntimeOverride(network, previous);
   },
   render: args => ({
-    components: { AppScreen, Dashboard, StabilizerPurchaseOverlay },
+    components: { AppScreen, Dashboard, StabilizerBuyOverlay },
     setup: () => ({ args }),
-    template: '<AppScreen><Dashboard /><StabilizerPurchaseOverlay v-bind="args" inert /></AppScreen>',
+    template:
+      '<AppScreen><Dashboard /><StabilizerBuyOverlay :initialView="{ type: \'purchase\', buyId: args.buyId, opportunity: args.opportunity }" inert /></AppScreen>',
   }),
 } satisfies Meta<typeof StabilizerPurchaseOverlay>;
 export default meta;
@@ -87,7 +91,7 @@ export const BelowRewardMinimum: Story = {
     const purchases = mocked(getStabilizerBuyPurchases()!);
     purchases.previewPurchase.mockResolvedValue({
       feeEstimateWei: 1_000_000_000_000n,
-      needsApproval: false,
+      needsPermit: false,
     });
     purchases.quoteMaxProfit.mockImplementation(async request => {
       const quote = await purchases.quote({ ...request, maxUsdcIn: 900_000n });
@@ -98,7 +102,7 @@ export const BelowRewardMinimum: Story = {
 
 const purchase: IStabilizerBuyRecord = {
   id: 'synthetic-buy-1',
-  ownerAccount: 'synthetic-owner',
+  ownerAccount: `0x${'33'.repeat(32)}`,
   createdAt: new Date('2026-01-12T12:00:00Z'),
   updatedAt: new Date('2026-01-12T12:00:00Z'),
   argonFees: [],
@@ -179,25 +183,20 @@ export const HeldForRewards: Story = {
   name: 'Held for Bonus',
   args: { buyId: heldPurchase.id },
   beforeEach: () => {
-    const market = useMarketStabilizers();
-    market.data.buys = [heldPurchase];
-    Object.assign(market, { biddingFrame: heldPurchase.admissionFrame });
+    showAdmittedPurchase(heldPurchase);
   },
 };
 export const Complete: Story = {
   args: { buyId: heldPurchase.id },
   beforeEach: () => {
-    const market = useMarketStabilizers();
-    market.data.buys = [
-      {
-        ...heldPurchase,
-        purchaseArgonReleaseBlockNumber: 1300,
-        purchaseArgonReleaseBlockHash: `0x${'77'.repeat(32)}`,
-        purchaseArgonReleaseBlockTime: new Date('2026-02-11T12:02:00Z'),
-        purchaseArgonReleaseEventIndex: 0,
-        status: StabilizerBuyStatus.Complete,
-      },
-    ];
+    showAdmittedPurchase({
+      ...heldPurchase,
+      purchaseArgonReleaseBlockNumber: 1300,
+      purchaseArgonReleaseBlockHash: `0x${'77'.repeat(32)}`,
+      purchaseArgonReleaseBlockTime: new Date('2026-02-11T12:02:00Z'),
+      purchaseArgonReleaseEventIndex: 0,
+      status: StabilizerBuyStatus.Complete,
+    });
   },
 };
 export const Failed: Story = {
@@ -212,3 +211,55 @@ export const Failed: Story = {
     ];
   },
 };
+
+function showAdmittedPurchase(buy: IStabilizerBuyRecord) {
+  const market = useMarketStabilizers();
+  market.data.buys = [buy];
+  const admissionFrame = buy.admissionFrame!;
+  const auction = {
+    matchingRate: BigNumber(1),
+    totalMatchingBasis: 40_000_000n,
+    budget: 20_000_000n,
+    remainingBudget: 20_000_000n,
+    remainingMatchingBasis: 40_000_000n,
+    maturesAtFrame: admissionFrame + 30,
+  };
+  market.data.positions = [
+    new StabilizerBuy(
+      admissionFrame,
+      {
+        pendingLiquidRepays: 0n,
+        liquidRepaymentRewardRate: null,
+        principal: buy.principal!,
+        capturedDiscount: 40_000_000n,
+        bidRate: BigNumber(0.8),
+        positiveBidCount: 1,
+      },
+      auction,
+    ),
+  ];
+  market.data.frameRewards = [
+    {
+      ownerAccount: buy.ownerAccount,
+      admissionFrame,
+      latestBid: 80,
+      bidCount: 1,
+      requestedReward: 32_000_000n,
+      paidReward: 0n,
+      lastUpdatedArgonBlock: 1234,
+      bidFees: [],
+      createdAt: buy.createdAt,
+      updatedAt: buy.updatedAt,
+    },
+  ];
+  market.data.auctionsByFrame[admissionFrame] = {
+    auction,
+    observedAtFrame: admissionFrame + 1,
+    bids: [{ ownerAccount: buy.ownerAccount, latestBid: 80, matchingBasis: 40_000_000n }],
+  };
+  if (buy.status === StabilizerBuyStatus.Complete) {
+    market.data.currentFrameId = admissionFrame + 30;
+    market.data.positions = [];
+    market.data.frameRewards[0].awardedReward = 0n;
+  } else Object.assign(market, { biddingFrame: admissionFrame });
+}

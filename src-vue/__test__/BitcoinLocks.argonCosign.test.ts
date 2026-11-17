@@ -62,33 +62,37 @@ describe('BitcoinLocks Argon cosign gating', () => {
       satoshis: 10_000n,
     } as IBitcoinUtxoRecord;
     let eventMethod = 'FissionCreated';
+    let eventAccount = fundedLock.ownerAccount;
     let currentLock = createCurrentLock({ fundedSatoshis: 10_000n, fissionedSatoshis: 6_000n });
-    const blockApi = { query: { bitcoinUtxos: { confirmedBitcoinBlockTip: vi.fn().mockResolvedValue(null) } } };
+    const orphanEntries = vi.fn(async () => []);
+    const blockApi = {
+      query: {
+        bitcoinUtxos: { confirmedBitcoinBlockTip: vi.fn().mockResolvedValue(null) },
+        bitcoinLocks: { orphanedUtxosByAccount: { entries: orphanEntries } },
+      },
+    };
     const blockWatch = {
       getFinalizedApi: vi.fn(async () => blockApi),
       getHeaderByBlockNumber: vi.fn(async (blockNumber: number) => ({ blockNumber, blockHash: `0x${blockNumber}` })),
       getEventsWithSpec: vi.fn(async () => ({
         api: blockApi,
-        events: [{ event: { section: 'bitcoinFissions', method: eventMethod, data: {} } }],
+        events: [{ event: { section: 'bitcoinFissions', method: eventMethod, data: { accountId: eventAccount } } }],
         specVersion: 159,
       })),
     } as unknown as BlockWatch;
     const store = new BitcoinLocks(
       Promise.resolve(db),
-      Object.create(null) as WalletKeys,
+      { defaultArgonAddress: fundedLock.ownerAccount } as WalletKeys,
       blockWatch,
       Object.create(null) as CurrencyBase,
       Object.create(null) as TransactionTracker,
     );
     store.data.locksByLockId[record.lockId!] = record;
     store.utxoTracking.load([fundingUtxo]);
-    vi.spyOn(BitcoinLock, 'get').mockImplementation(async () => currentLock as BitcoinLock);
+    const readLock = vi.spyOn(BitcoinLock, 'get').mockImplementation(async () => currentLock as BitcoinLock);
     vi.spyOn(store.releases, 'recoverPendingOrphanCosignEvents').mockResolvedValue(undefined);
     vi.spyOn(store.releases, 'reconcileDepositReleases').mockResolvedValue(undefined);
-    vi.spyOn(
-      store as unknown as { syncPendingFundingSignals(): Promise<void> },
-      'syncPendingFundingSignals',
-    ).mockResolvedValue(undefined);
+    vi.spyOn(store.utxoTracking, 'observeMempoolFunding').mockResolvedValue(undefined);
     vi.spyOn(store.releases, 'reconcileLockRelease').mockResolvedValue(undefined);
     const wallet = new WalletForBitcoin(
       () => store,
@@ -103,12 +107,24 @@ describe('BitcoinLocks Argon cosign gating', () => {
     });
     expect(record.fissionedSatoshis).toBe(6_000n);
     expect(wallet.getSendableChannels()).toEqual([record]);
+    expect(orphanEntries).not.toHaveBeenCalled();
 
-    eventMethod = 'FissionRepaid';
-    currentLock = createCurrentLock({ fundedSatoshis: 10_000n, fissionedSatoshis: 3_000n });
+    eventAccount = 'unrelated-synthetic-account';
+    currentLock = createCurrentLock({ fundedSatoshis: 10_000n, fissionedSatoshis: 1_000n });
+    const readsBeforeUnrelated = readLock.mock.calls.length;
     await (store as unknown as IBitcoinLocksTestTarget).checkIncomingArgonBlock({
       blockNumber: 103,
       blockHash: '0x103',
+    });
+    expect(readLock).toHaveBeenCalledTimes(readsBeforeUnrelated);
+    expect(record.fissionedSatoshis).toBe(6_000n);
+
+    eventAccount = fundedLock.ownerAccount;
+    eventMethod = 'FissionRepaid';
+    currentLock = createCurrentLock({ fundedSatoshis: 10_000n, fissionedSatoshis: 3_000n });
+    await (store as unknown as IBitcoinLocksTestTarget).checkIncomingArgonBlock({
+      blockNumber: 104,
+      blockHash: '0x104',
     });
     expect(record.fissionedSatoshis).toBe(3_000n);
     expect(wallet.getSendableChannels()).toEqual([record]);
@@ -116,8 +132,8 @@ describe('BitcoinLocks Argon cosign gating', () => {
     eventMethod = 'FissionClosed';
     currentLock = createCurrentLock({ fundedSatoshis: 10_000n, fissionedSatoshis: 0n });
     await (store as unknown as IBitcoinLocksTestTarget).checkIncomingArgonBlock({
-      blockNumber: 104,
-      blockHash: '0x104',
+      blockNumber: 105,
+      blockHash: '0x105',
     });
     expect(record.fissionedSatoshis).toBe(0n);
     expect(wallet.getSendableChannels()).toEqual([record]);
@@ -307,10 +323,7 @@ describe('BitcoinLocks Argon cosign gating', () => {
     vi.spyOn(store.utxoTracking, 'syncArgonOrphans').mockResolvedValue([]);
     vi.spyOn(store.releases, 'reconcileDepositReleases').mockResolvedValue(undefined);
     vi.spyOn(store.releases, 'reconcileLockRelease').mockResolvedValue(undefined);
-    vi.spyOn(
-      store as unknown as { syncPendingFundingSignals(): Promise<void> },
-      'syncPendingFundingSignals',
-    ).mockResolvedValue(undefined);
+    vi.spyOn(store.utxoTracking, 'observeMempoolFunding').mockResolvedValue(undefined);
     const settle = vi
       .spyOn(store.releases, 'completeLockReleaseFromArgon')
       .mockRejectedValueOnce(new Error('local settlement unavailable'))

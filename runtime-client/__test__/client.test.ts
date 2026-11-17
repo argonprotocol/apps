@@ -176,6 +176,93 @@ describe('runtimeClient', () => {
     expect(callback).toHaveBeenCalledWith(9n);
   });
 
+  it('decodes repayment prices at the query boundary while keeping Fission amounts as integers', async () => {
+    const registry = getOfflineRegistry();
+    const metadata = new Metadata(registry, { metadata: { V16: registry.metadata } });
+    const storage = decorateStorage(registry, metadata.asLatest, metadata.version);
+    const account = registry.createType('AccountId32', `0x${'11'.repeat(32)}`);
+    const nonce = '0x0000000000000007';
+    const key = registry.createType('StorageKey', [
+      storage.stabilizerBuys.liquidRepaysByAccountAndGatewayNonce,
+      [account, nonce],
+    ]);
+    const raw = registry.createType('Option<PalletStabilizerBuysLiquidRepay>', {
+      liquidId: 3,
+      admissionFrame: 12,
+      microgons: 9_007_199_254_740_993n,
+      eligibleRewardPercent: 5,
+      purchaseTick: 100,
+      microgonsAtTargetPerBtc: 68_000_000_000_123_456_789_012_345_678n,
+      purchaseRValue: 500_000_000_000_000_001n,
+      priceWindow: { nextFrame: 12, nextTick: 100, rValueHighWater: 750_000_000_000_000_001n },
+    });
+    const unsubscribe = vi.fn();
+    const query = Object.assign(
+      (...args: unknown[]) => {
+        const callback = args.at(-1);
+        if (typeof callback === 'function') {
+          (callback as (value: unknown) => void)(raw);
+          return Promise.resolve(unsubscribe);
+        }
+        return Promise.resolve(raw);
+      },
+      {
+        multi: async () => [raw],
+        entries: async () => [[key, raw]],
+        entriesPaged: async () => [[key, raw]],
+      },
+    );
+    const fission = registry.createType('Option<PalletBitcoinFissionsFission>', {
+      liquidId: 3,
+      lockId: 1,
+      satoshis: 100_000n,
+      microgonsAtTargetPerBtc: 68_000_000_000n,
+    });
+    const client = runtimeClient({
+      query: {
+        stabilizerBuys: { liquidRepaysByAccountAndGatewayNonce: query },
+        bitcoinFissions: {
+          fissionByOwnerAndId: async () => fission,
+          rValueHighWaterByFrame: async () =>
+            registry.createType('Option<ArgonPrimitivesPriceIndexRValueHighWaterMark>', {
+              firstTick: 100,
+              endTick: 110,
+              rValue: 800_000_000_000_000_001n,
+            }),
+        },
+      },
+      queryMulti: async () => [raw, fission],
+    });
+    const expected = {
+      microgons: 9_007_199_254_740_993n,
+      microgonsAtTargetPerBtc: BigNumber('68000000000.123456789012345678'),
+      purchaseRValue: BigNumber('0.500000000000000001'),
+      priceWindow: { rValueHighWater: BigNumber('0.750000000000000001') },
+    };
+    const repaymentQuery = client.query.stabilizerBuys.liquidRepaysByAccountAndGatewayNonce;
+    await expect(repaymentQuery(account, nonce)).resolves.toMatchObject(expected);
+    expect((await repaymentQuery.multi([[account, nonce]]))?.[0]).toMatchObject(expected);
+    const entries = await repaymentQuery.entries(account);
+    expect(entries?.[0][0].args).toEqual([account.toString(), nonce]);
+    expect(entries?.[0][1]).toMatchObject(expected);
+    expect((await repaymentQuery.entriesPaged({ args: [account], pageSize: 1 }))?.[0][1]).toMatchObject(expected);
+    const callback = vi.fn();
+    await expect(repaymentQuery(account, nonce, callback)).resolves.toBe(unsubscribe);
+    expect(callback.mock.calls[0][0]).toMatchObject(expected);
+    const batch = await client.queryMulti([
+      [repaymentQuery, account, nonce],
+      [client.query.bitcoinFissions.fissionByOwnerAndId, account, 1],
+    ]);
+    expect(batch[0]).toMatchObject(expected);
+    expect(batch[1]?.microgonsAtTargetPerBtc).toBe(68_000_000_000n);
+    expect((await client.query.bitcoinFissions.fissionByOwnerAndId(account, 1))?.microgonsAtTargetPerBtc).toBe(
+      68_000_000_000n,
+    );
+    expect((await client.query.bitcoinFissions.rValueHighWaterByFrame(nonce))?.rValue).toEqual(
+      BigNumber('0.800000000000000001'),
+    );
+  });
+
   it('forwards every storage key through a historical client query', async () => {
     const registry = new TypeRegistry();
     const lastFeeCouponNonceByVaultAndAccount = vi.fn(() => Promise.resolve(registry.createType('Option<u128>', 9)));

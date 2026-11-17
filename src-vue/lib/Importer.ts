@@ -105,7 +105,8 @@ export default class Importer {
       );
       const nextKey = hexToU8a(miniSecretFromUri(`${mnemonic}//wallet-encryption`));
       await new EncryptionSecret().create(nextKey, 'none', {}, { replaceExisting: true });
-      await Importer.finishPendingImport({ dbPromise: this.dbPromise, config: this.config });
+      // Startup finishes the journal before creating account services. Keep the outgoing
+      // database intact until reload; the new SQL session rejects outgoing queued writes.
     } finally {
       // Even an ambiguous staging error must not leave the old session running over a pending import.
       new Restarter(this.dbPromise, this.config).restart();

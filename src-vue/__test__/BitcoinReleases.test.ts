@@ -11,7 +11,7 @@ import {
 } from '@argonprotocol/apps-core';
 import { BitcoinNetwork, HDKey } from '@argonprotocol/bitcoin';
 import { BitcoinSigner } from '../lib/BitcoinSigner.ts';
-import type { SubmittableExtrinsic } from '@argonprotocol/mainchain';
+import { getOfflineRegistry, type SubmittableExtrinsic } from '@argonprotocol/mainchain';
 import { describe, expect, it, vi } from 'vitest';
 import { computed, reactive } from 'vue';
 
@@ -79,13 +79,15 @@ describe('Bitcoin lock release', () => {
   ] as const)(
     'persists, broadcasts, and atomically settles a partial multi-input Lock release (runtime=%s, expires=%s)',
     async (specVersion, expires) => {
-      const registry = new TypeRegistry();
-      registry.setMetadata(
-        new Metadata(
-          registry,
-          Object.entries(getBundledMetadata()).find(([key]) => key.endsWith(`-${specVersion}`))![1],
-        ),
-      );
+      const registry = specVersion === 161 ? getOfflineRegistry() : new TypeRegistry();
+      if (specVersion !== 161) {
+        registry.setMetadata(
+          new Metadata(
+            registry,
+            Object.entries(getBundledMetadata()).find(([key]) => key.endsWith(`-${specVersion}`))![1],
+          ),
+        );
+      }
       const ownerAccount = registry.createType('AccountId32', new Uint8Array(32).fill(17)).toString();
       const expectedSecuritizedSatoshis = specVersion === 161 ? 100n : 400n;
       const db = await createTestDb();

@@ -47,7 +47,7 @@ describe('Db transactions', () => {
     expect(invoke.mock.calls).toEqual([
       [
         'sql_execute_write',
-        { db: 'sqlite:test.sqlite', query: 'UPDATE outside_transaction SET state = ?', values: ['ready'] },
+        { db: 'sqlite:test.sqlite', sessionId, query: 'UPDATE outside_transaction SET state = ?', values: ['ready'] },
       ],
       ['sql_begin_transaction', { db: 'sqlite:test.sqlite', sessionId }],
       [
@@ -61,7 +61,7 @@ describe('Db transactions', () => {
       ],
       [
         'sql_execute_write',
-        { db: 'sqlite:test.sqlite', query: 'UPDATE still_outside SET state = ?', values: ['ready'] },
+        { db: 'sqlite:test.sqlite', sessionId, query: 'UPDATE still_outside SET state = ?', values: ['ready'] },
       ],
       ['sql_select', { sessionId, transactionId: 17, query: 'SELECT state FROM recovery_units', values: [] }],
       ['sql_commit_transaction', { sessionId, transactionId: 17 }],
@@ -81,6 +81,7 @@ describe('Db transactions', () => {
 
     expect(invoke).toHaveBeenCalledWith('sql_select_write', {
       db: 'sqlite:test.sqlite',
+      sessionId: expect.any(String),
       query: '  UPDATE recovery_units SET state = ? RETURNING id, completedAt',
       values: ['ready'],
     });

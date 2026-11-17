@@ -15,11 +15,16 @@ import {
 } from '@argonprotocol/apps-core';
 import type { HistoricalQueryRecord } from '@argonprotocol/runtime-client';
 import { createDeferred } from '../../core/src/Deferred.ts';
+import { GlobalMiningStats } from '../lib/GlobalMiningStats.ts';
+import type { Db } from '../lib/Db.ts';
+import { createTestDb } from './helpers/db.ts';
+import { FinancialCacheTypes } from '../lib/db/FinancialCacheTable.ts';
 
 const mocks = vi.hoisted(() => ({
   mining: undefined as Mining | undefined,
   currency: undefined as Currency | undefined,
   blockWatch: undefined as BlockWatch | undefined,
+  db: undefined as Db | undefined,
 }));
 
 vi.mock('../stores/mainchain.ts', () => ({
@@ -27,6 +32,7 @@ vi.mock('../stores/mainchain.ts', () => ({
   getBlockWatch: () => mocks.blockWatch,
 }));
 vi.mock('../stores/currency.ts', () => ({ getCurrency: () => mocks.currency }));
+vi.mock('../stores/helpers/dbPromise.ts', () => ({ getDbPromise: () => Promise.resolve(mocks.db!) }));
 vi.mock('../../core/src/fetch.ts', () => ({
   fetch: async () => ({ ok: true, json: async () => ({ rates: { GBP: 1, EUR: 1, INR: 1 }, price: '100' }) }),
 }));
@@ -36,7 +42,7 @@ import { useMiningStats } from '../stores/miningStats.ts';
 let pinia: Pinia;
 let chain: ReturnType<typeof createChain>;
 
-beforeEach(() => {
+beforeEach(async () => {
   vi.useFakeTimers();
   vi.spyOn(console, 'warn').mockImplementation(() => undefined);
   NetworkConfig.setNetwork('mainnet');
@@ -47,68 +53,110 @@ beforeEach(() => {
   mocks.mining = new Mining(chain.clients);
   mocks.currency = new Currency(chain.clients);
   mocks.blockWatch = chain.blockWatch;
+  mocks.db = await createTestDb();
 });
 
-afterEach(() => {
+afterEach(async () => {
   disposePinia(pinia);
   NetworkConfig.clearRuntimeOverride('mainnet');
   vi.clearAllTimers();
   vi.useRealTimers();
   vi.restoreAllMocks();
+  await mocks.db?.close();
 });
 
-it('publishes provisional APY and accumulated revenue before older cohort history finishes', async () => {
+it('restores daily sale estimates from SQLite without replaying earnings and retries a failed cache write', async () => {
+  const db = await createTestDb();
+  try {
+    chain.state.twoCohorts = true;
+    chain.state.latestBlock = 6;
+    vi.spyOn(chain.archive.rpc.chain, 'getBlockHash').mockImplementation(async block => ({
+      toHex: () => `${block}-other-fork`,
+    }));
+    const genesisHash = getOfflineRegistry().createType('Hash', `0x${'11'.repeat(32)}`);
+    Object.assign(chain.client, { genesisHash });
+    const cache = Promise.resolve(db.financialCacheTable);
+    const stats = new GlobalMiningStats(new Mining(chain.clients), mocks.currency!, cache);
+    vi.spyOn(db.financialCacheTable, 'upsert').mockRejectedValueOnce(new Error('Cache write interrupted'));
+    await stats.update();
+    // Frame1 expected20 ARGNOT/seat at2; future frames10/seat. Total ARGN400 + ARGNOT420.
+    expect(stats.aggregatedBlockRewards).toBe(820n);
+    expect(
+      await db.financialCacheTable.get(FinancialCacheTypes.GlobalMiningStats, genesisHash.toHex()),
+    ).toBeUndefined();
+    await stats.update();
+    const saved = await db.financialCacheTable.get(FinancialCacheTypes.GlobalMiningStats, genesisHash.toHex());
+    expect(saved?.frames).toMatchObject([
+      { frameId: 1, blockNumber: 1, blockHash: '1', micronotsPerSeat: 20n, argonotPrice: 2_000_000n },
+      { frameId: 2, blockNumber: 5, blockHash: '5', micronotsPerSeat: 10n, argonotPrice: 2_000_000n },
+    ]);
+
+    chain.archive.at.mockClear();
+    chain.archive.at.mockRejectedValue(new Error('Daily snapshots are no longer available'));
+    chain.state.latestPrice = 1;
+    const restarted = new GlobalMiningStats(new Mining(chain.clients), mocks.currency!, cache);
+    await restarted.update();
+    // The40 of past daily ARGNOT sales stays40; future sales fall from380 to190.
+    expect(restarted.aggregatedBlockRewards).toBe(630n);
+    expect(restarted.investedCapital).toBe(700n);
+    expect(chain.archive.at).not.toHaveBeenCalled();
+    const readHash = chain.client.rpc.chain.getBlockHash;
+    vi.spyOn(chain.client.rpc.chain, 'getBlockHash').mockImplementation(async block => {
+      if (block === saved!.frames.at(-1)!.blockNumber) return { toHex: () => 'replacement-chain' };
+      return readHash(block);
+    });
+    const reset = new GlobalMiningStats(new Mining(chain.clients), mocks.currency!, cache);
+    await expect(reset.update()).rejects.toThrow('Daily snapshots are no longer available');
+  } finally {
+    await db.close();
+  }
+});
+
+it('publishes a complete estimate after daily observations load', async () => {
   chain.state.twoCohorts = true;
   chain.state.latestBlock = 6;
-  const olderHistory = createDeferred<void>();
+  const history = createDeferred<void>();
   const readSnapshot = chain.archive.at.getMockImplementation()!;
   chain.archive.at.mockImplementation(async hash => {
-    if (hash === '0') await olderHistory.promise;
-    return await readSnapshot(hash);
+    if (hash === '1') await history.promise;
+    return readSnapshot(hash);
   });
   const stats = useMiningStats();
-  const observedYields: (number | undefined)[] = [];
-  const observedRevenue: (bigint | undefined)[] = [];
-  const stopWatching = watch(
-    () => stats.averageAPY ?? stats.provisionalReturns?.apy,
-    apy => observedYields.push(apy),
-    { immediate: true },
-  );
-  const stopWatchingRevenue = watch(
-    () => (stats.averageAPY !== undefined ? stats.activeBlockRewards : stats.provisionalReturns?.microgonRevenue),
-    revenue => observedRevenue.push(revenue),
-    { immediate: true },
-  );
-
   await vi.advanceTimersByTimeAsync(0);
-
-  // Cohort 2: 300 bid + 200 marked stake; 409 reward + 200 returned stake.
-  const provisionalAPY = ((609 / 500) ** 36.5 - 1) * 100;
-  expect(observedYields).toEqual([undefined, provisionalAPY]);
-  expect(observedRevenue).toEqual([undefined, 409n]);
   expect(stats.averageAPY).toBeUndefined();
-  expect(stats.cohortProgress).toEqual({ completed: 1, total: 2 });
-  expect(stats.hasCurrentStats).toBe(true);
-  expect(stats.activeMiningSeatCount).toBe(2);
-  expect(stats.activeBidCosts).toBe(400n);
-  expect(stats.aggregatedBlockRewards).toBe(0n);
-
-  olderHistory.resolve();
+  expect(stats.hasCurrentStats).toBe(false);
+  history.resolve();
   await stats.isLoadedPromise;
-  await nextTick();
-
-  // Cohort 1 adds 200 capital and 409 rewards. Annualize the combined capital,
-  // rather than averaging the cohorts' independently compounded yields.
   expect(stats.investedCapital).toBe(700n);
-  expect(stats.aggregatedBlockRewards).toBe(818n);
-  expect(stats.projectedProfit).toBe(418n);
-  expect(stats.averageAPY).toBeCloseTo(((1_118 / 700) ** 36.5 - 1) * 100);
-  expect(observedYields.at(-1)).toBe(stats.averageAPY);
-  expect(observedRevenue).toEqual([undefined, 409n, 818n]);
-  expect(stats.cohortProgress).toEqual({ completed: 2, total: 2 });
-  expect(stats.isUpdating).toBe(false);
-  stopWatching();
-  stopWatchingRevenue();
+  expect(stats.aggregatedBlockRewards).toBe(820n);
+  expect(stats.projectedProfit).toBe(420n);
+  expect(stats.averageAPY).toBeCloseTo((1.6 ** 36.5 - 1) * 100);
+});
+
+it('reuses global mining returns within a frame and refreshes them at the finalized frame turn', async () => {
+  chain.blockWatch.latestHeaders = [{ ...chain.finalizedHeader, frameId: 1 }];
+  const stats = useMiningStats();
+  await stats.isLoadedPromise;
+  expect(stats.aggregatedBlockRewards).toBe(800n);
+  const reads = chain.client.rpc.chain.getFinalizedHead.mock.calls.length;
+
+  chain.state.latestBlock = 3;
+  await stats.update();
+  expect(chain.client.rpc.chain.getFinalizedHead).toHaveBeenCalledTimes(reads);
+  expect(stats.aggregatedBlockRewards).toBe(800n);
+
+  chain.blockWatch.events.emit('finalized', [chain.blockWatch.finalizedBlockHeader]);
+  await vi.advanceTimersByTimeAsync(0);
+  expect(chain.client.rpc.chain.getFinalizedHead).toHaveBeenCalledTimes(reads);
+
+  chain.state.latestBlock = 6;
+  chain.state.twoCohorts = true;
+  chain.blockWatch.latestHeaders = [{ ...chain.finalizedHeader, blockNumber: 6, tick: 6, frameId: 2 }];
+  chain.blockWatch.events.emit('finalized', [chain.blockWatch.finalizedBlockHeader]);
+  await vi.advanceTimersByTimeAsync(0);
+  expect(stats.activeMiningSeatCount).toBe(2);
+  expect(stats.aggregatedBlockRewards).toBe(820n);
+  expect(chain.client.rpc.chain.getFinalizedHead).toHaveBeenCalledTimes(reads + 1);
 });
 
 it('publishes a mining quote to existing observers when an automatic retry recovers initial archive failure', async () => {
@@ -140,72 +188,21 @@ it('publishes a mining quote to existing observers when an automatic retry recov
   stopWatching();
 });
 
-it('keeps a complete quote visible through partial refresh failure and publishes the retry result', async () => {
+it('keeps the previous quote visible if the new frame observation fails, then publishes its retry', async () => {
   const stats = useMiningStats();
   await stats.isLoadedPromise;
-  const completedAPY = stats.averageAPY;
-  const observedYields: (number | undefined)[] = [];
-  const observedRevenue: (bigint | undefined)[] = [];
-  const stopWatching = watch(
-    () => stats.averageAPY ?? stats.provisionalReturns?.apy,
-    apy => observedYields.push(apy),
-    { immediate: true },
-  );
-  const stopWatchingRevenue = watch(
-    () => (stats.averageAPY !== undefined ? stats.activeBlockRewards : stats.provisionalReturns?.microgonRevenue),
-    revenue => observedRevenue.push(revenue),
-    { immediate: true },
-  );
-
+  const previous = stats.averageAPY;
   chain.state.twoCohorts = true;
   chain.state.latestBlock = 6;
-  const olderHistory = createDeferred<void>();
-  let olderUnavailable = true;
-  const readSnapshot = chain.archive.at.getMockImplementation()!;
-  chain.archive.at.mockImplementation(async hash => {
-    const api = await readSnapshot(hash);
-    if (hash === '4') {
-      const readScoring = api.query.miningSlot.minerNonceScoringByCohort;
-      api.query.miningSlot.minerNonceScoringByCohort = async () => {
-        await olderHistory.promise;
-        if (olderUnavailable) throw new Error('Older frame temporarily unavailable');
-        return await readScoring();
-      };
-    }
-    return api;
-  });
-
-  const refresh = stats.update();
-  await vi.advanceTimersByTimeAsync(0);
-  expect(stats.cohortProgress).toEqual({ completed: 1, total: 2 });
-  expect(stats.provisionalReturns?.apy).not.toBe(completedAPY);
-  expect(stats.provisionalReturns?.microgonRevenue).toBe(409n);
-  expect(stats.averageAPY).toBe(completedAPY);
+  chain.state.archiveUnavailable = true;
+  await expect(stats.update()).rejects.toThrow('Archive temporarily unavailable');
   expect(stats.aggregatedBlockRewards).toBe(800n);
-  expect(observedYields).toEqual([completedAPY]);
-  expect(observedRevenue).toEqual([800n]);
-
-  const failedRefresh = expect(refresh).rejects.toThrow('Older frame temporarily unavailable');
-  olderHistory.resolve();
-  await failedRefresh;
-  expect(stats.error).toBe('Unable to finish calculating mining returns.');
-  expect(stats.isUpdating).toBe(false);
-  expect(stats.activeBidCosts).toBe(400n);
-  expect(stats.averageAPY).toBe(completedAPY);
-  expect(stats.aggregatedBlockRewards).toBe(800n);
-  expect(observedRevenue).toEqual([800n]);
-
-  olderUnavailable = false;
+  expect(stats.averageAPY).toBe(previous);
+  chain.state.archiveUnavailable = false;
   await vi.advanceTimersByTimeAsync(1_000);
+  expect(stats.aggregatedBlockRewards).toBe(820n);
+  expect(stats.averageAPY).toBeCloseTo((1.6 ** 36.5 - 1) * 100);
   expect(stats.error).toBe('');
-  expect(stats.isUpdating).toBe(false);
-  expect(stats.cohortProgress).toEqual({ completed: 2, total: 2 });
-  expect(stats.aggregatedBlockRewards).toBe(818n);
-  expect(stats.averageAPY).toBeCloseTo(((1_118 / 700) ** 36.5 - 1) * 100);
-  expect(observedYields).toEqual([completedAPY, stats.averageAPY]);
-  expect(observedRevenue).toEqual([800n, 818n]);
-  stopWatching();
-  stopWatchingRevenue();
 });
 
 it('retains the last quote through refresh failure and publishes the newer quote after retry', async () => {
@@ -406,7 +403,12 @@ function createChain() {
         current: async (callback?: unknown) => (callback ? () => undefined : priceIndex(state.latestBlock)),
       },
     },
-    rpc: { chain: { getFinalizedHead: vi.fn(async () => String(state.latestBlock)) } },
+    rpc: {
+      chain: {
+        getFinalizedHead: vi.fn(async () => String(state.latestBlock)),
+        getBlockHash: async (block: number) => ({ toHex: () => String(block) }),
+      },
+    },
     at: async (hash: string) => snapshot(Number(hash)),
   };
   const archive = {
@@ -419,7 +421,7 @@ function createChain() {
     },
     at: vi.fn(async (hash: string) => {
       if (state.archiveUnavailable) throw new Error('Archive temporarily unavailable');
-      return snapshot(Number(hash));
+      return snapshot(Number.parseInt(hash));
     }),
   };
   const clients = {
