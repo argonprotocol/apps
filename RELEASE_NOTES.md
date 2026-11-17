@@ -3,6 +3,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.6.0] - 2026-11-17
+- Add Market Stabilizers to buy discounted Argons with USDC and earn rewards
+- Apply Stabilizer purchases to Bitcoin Liquid paydowns, with bonus and repayment previews
+- Protect account access with a passcode or system authentication and improve wallet recovery
+- Support Mainchain 1.6.0, Bitcoin cosigner guarantees, and committed maximum mining bids
+- Improve Bitcoin returns, cross-chain transfer recovery, and financial history
+- Reduce background network traffic and improve startup and server reliability
+
 ## [2.5.1] - 2026-10-25
 - Allow investment returns to be shown throughout app as RTD, APR, or APY
 - Keep vaulting and bond investment returns visible during updates

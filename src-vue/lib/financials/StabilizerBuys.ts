@@ -11,7 +11,7 @@ import {
 } from '@argonprotocol/apps-core';
 import type { PriceIndex } from '@argonprotocol/mainchain';
 import type { BitcoinLiquid } from '../BitcoinLiquid.ts';
-import type IStabilizerBuyData from '../../../core/src/interfaces/IStabilizerBuyData.ts';
+import type IArgonUniswapData from '../../../core/src/interfaces/IArgonUniswapData.ts';
 import type { StabilizerBuyPurchases } from '../StabilizerBuyPurchases.ts';
 import {
   createFinancialPosition,
@@ -261,7 +261,7 @@ export function projectHistoricalStabilizerBuys({
   market,
   availableUsdc,
 }: {
-  history: IStabilizerBuyData;
+  history: IArgonUniswapData;
   fees: NonNullable<Awaited<ReturnType<StabilizerBuyPurchases['estimateHistoricalFees']>>>;
   market: Pick<
     NonNullable<StabilizerBuys['data']['market']>,

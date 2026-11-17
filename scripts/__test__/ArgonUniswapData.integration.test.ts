@@ -12,8 +12,8 @@ import v2Factory from '@uniswap/v2-core/build/UniswapV2Factory.json' with { type
 import v2Pair from '@uniswap/v2-core/build/UniswapV2Pair.json' with { type: 'json' };
 import v3Factory from '@uniswap/v3-core/artifacts/contracts/UniswapV3Factory.sol/UniswapV3Factory.json' with { type: 'json' };
 import v3Pool from '@uniswap/v3-core/artifacts/contracts/UniswapV3Pool.sol/UniswapV3Pool.json' with { type: 'json' };
-import { fetchStabilizerBuys } from '../../data-generators/fetchStabilizerBuys.ts';
-import type IStabilizerBuyData from '../../core/src/interfaces/IStabilizerBuyData.ts';
+import { fetchArgonUniswap } from '../../data-generators/fetchArgonUniswap.ts';
+import type IArgonUniswapData from '../../core/src/interfaces/IArgonUniswapData.ts';
 
 vi.mock('@argonprotocol/mainchain', async importOriginal => ({
   ...(await importOriginal<typeof import('@argonprotocol/mainchain')>()),
@@ -74,7 +74,7 @@ describe('Below-target Uniswap history', { tags: ['no-argon-network'] }, () => {
   let logs: ReturnType<typeof eventLog>[];
 
   beforeEach(async () => {
-    directory = await mkdtemp(path.join(tmpdir(), 'stabilizer-buy-data-'));
+    directory = await mkdtemp(path.join(tmpdir(), 'argon-uniswap-data-'));
     vi.useFakeTimers({ toFake: ['Date'] });
     vi.setSystemTime(new Date('2025-01-16T12:00:00Z'));
     indexerFails = false;
@@ -229,9 +229,9 @@ describe('Below-target Uniswap history', { tags: ['no-argon-network'] }, () => {
       eventLog(v4, 'Swap', [v4Id, account, 90_000_000n, -100n * 10n ** 18n, 1n, 1n, 0, 3000], poolManager, 31, 0),
     );
     const file = path.join(directory, 'buys.json');
-    await fetchStabilizerBuys(file);
+    await fetchArgonUniswap(file);
     const firstBytes = await readFile(file, 'utf8');
-    const first = JSON.parse(firstBytes) as IStabilizerBuyData;
+    const first = JSON.parse(firstBytes) as IArgonUniswapData;
     expect(first.throughDate).toBe('2025-01-15');
     // Cost is valued per trade: 100*0.9/1 + 110*0.9/1 + 90*1/1.2 = 264 ARGN.
     expect(first.days).toEqual([
@@ -254,16 +254,16 @@ describe('Below-target Uniswap history', { tags: ['no-argon-network'] }, () => {
     });
     expect(first).not.toHaveProperty('buys');
     expect(firstBytes).not.toContain(account);
-    await fetchStabilizerBuys(file);
+    await fetchArgonUniswap(file);
     expect(await readFile(file, 'utf8')).toBe(firstBytes);
 
     vi.setSystemTime(new Date('2025-01-17T12:00:00Z'));
     fundingUnavailable = true;
-    await expect(fetchStabilizerBuys(file)).rejects.toThrow('No completed Treasury frames');
+    await expect(fetchArgonUniswap(file)).rejects.toThrow('No completed Treasury frames');
     expect(await readFile(file, 'utf8')).toBe(firstBytes);
     fundingUnavailable = false;
     indexerIsBehind = true;
-    await expect(fetchStabilizerBuys(file)).rejects.toThrow('swap indexer has not reached');
+    await expect(fetchArgonUniswap(file)).rejects.toThrow('swap indexer has not reached');
     expect(await readFile(file, 'utf8')).toBe(firstBytes);
     indexerIsBehind = false;
     logs.push(
@@ -280,20 +280,20 @@ describe('Below-target Uniswap history', { tags: ['no-argon-network'] }, () => {
       ),
     );
     archiveFails = true;
-    await expect(fetchStabilizerBuys(file)).rejects.toThrow('Archive unavailable');
+    await expect(fetchArgonUniswap(file)).rejects.toThrow('Archive unavailable');
     expect(await readFile(file, 'utf8')).toBe(firstBytes);
     expect(await readdir(directory)).toEqual(['buys.json']);
 
     archiveFails = false;
     nativeUsdcUnavailable = true;
     invalidExternalPrice = true;
-    await expect(fetchStabilizerBuys(file)).rejects.toThrow('invalid price observation');
+    await expect(fetchArgonUniswap(file)).rejects.toThrow('invalid price observation');
     expect(await readFile(file, 'utf8')).toBe(firstBytes);
 
     nativeUsdcUnavailable = false;
     externalPricesFail = true;
-    await fetchStabilizerBuys(file);
-    const updated = JSON.parse(await readFile(file, 'utf8')) as IStabilizerBuyData;
+    await fetchArgonUniswap(file);
+    const updated = JSON.parse(await readFile(file, 'utf8')) as IArgonUniswapData;
     expect(updated.throughDate).toBe('2025-01-16');
     expect(updated.ethereumBlockNumber).toBe(200);
     expect(updated.days[0]).toEqual(first.days[0]);
@@ -308,8 +308,8 @@ describe('Below-target Uniswap history', { tags: ['no-argon-network'] }, () => {
     });
 
     vi.setSystemTime(new Date('2025-01-18T12:00:00Z'));
-    await fetchStabilizerBuys(file);
-    const withEmptyDay = JSON.parse(await readFile(file, 'utf8')) as IStabilizerBuyData;
+    await fetchArgonUniswap(file);
+    const withEmptyDay = JSON.parse(await readFile(file, 'utf8')) as IArgonUniswapData;
     expect(withEmptyDay.days.slice(0, 2)).toEqual(updated.days);
     expect(withEmptyDay.days[2]).toEqual({
       date: '2025-01-17',
@@ -330,9 +330,9 @@ describe('Below-target Uniswap history', { tags: ['no-argon-network'] }, () => {
       eventLog(v3, 'Swap', [account, account, 90_000_000n, -100n * 10n ** 18n, 1n, 1n, 0], v3Address, 51, 0),
     );
     const file = path.join(directory, 'buys.json');
-    await fetchStabilizerBuys(file);
+    await fetchArgonUniswap(file);
     const firstBytes = await readFile(file, 'utf8');
-    const first = JSON.parse(firstBytes) as IStabilizerBuyData;
+    const first = JSON.parse(firstBytes) as IArgonUniswapData;
     expect(first.days).toEqual([
       {
         date: '2025-01-15',
@@ -347,7 +347,7 @@ describe('Below-target Uniswap history', { tags: ['no-argon-network'] }, () => {
 
     vi.setSystemTime(new Date('2025-01-17T12:00:00Z'));
     indexerFails = true;
-    await expect(fetchStabilizerBuys(file)).rejects.toThrow('Indexed log query failed');
+    await expect(fetchArgonUniswap(file)).rejects.toThrow('Indexed log query failed');
     expect(await readFile(file, 'utf8')).toBe(firstBytes);
 
     indexerFails = false;
@@ -364,7 +364,7 @@ describe('Below-target Uniswap history', { tags: ['no-argon-network'] }, () => {
         ),
       );
     }
-    await expect(fetchStabilizerBuys(file)).rejects.toThrow('single block reaches the indexer log limit');
+    await expect(fetchArgonUniswap(file)).rejects.toThrow('single block reaches the indexer log limit');
     expect(await readFile(file, 'utf8')).toBe(firstBytes);
   });
 });

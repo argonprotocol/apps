@@ -1,7 +1,7 @@
 {
   "name": "argon-apps",
   "private": true,
-  "version": "2.5.1",
+  "version": "2.6.0",
   "license": "MIT",
   "type": "module",
   "scripts": {
@@ -48,7 +48,7 @@
     "test:network:stop": "tsx scripts/integrationNetwork.ts stop",
     "typecheck": "yarn generate:runtime-client && vue-tsc --noEmit && yarn workspaces foreach --all --exclude argon-apps --parallel --jobs 2 run tsc --noEmit",
     "update-data": "yarn workspace @argonprotocol/apps-core run update-frames && tsx data-generators/all.ts",
-    "update-stabilizer-buys": "tsx -e \"import('./data-generators/fetchStabilizerBuys.ts').then(x => x.fetchStabilizerBuys())\"",
+    "update-argon-uniswap": "tsx -e \"import('./data-generators/fetchArgonUniswap.ts').then(x => x.fetchArgonUniswap())\"",
     "mainchain:pin": "tsx scripts/updateRuntimePin.ts",
     "generate:runtime-client": "yarn workspace @argonprotocol/runtime-client generate",
     "prepare": "husky",

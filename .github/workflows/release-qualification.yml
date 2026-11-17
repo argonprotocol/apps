@@ -164,7 +164,8 @@ jobs:
             ${{ env.MAINCHAIN_DIRECTORY }} -> target
 
       - name: Install previous Apps dependencies
-        run: yarn --cwd "$PREVIOUS_APPS_DIRECTORY" install --immutable
+        working-directory: ${{ env.PREVIOUS_APPS_DIRECTORY }}
+        run: yarn install --immutable
 
       - name: Build pinned candidate runtime WASM and attestation
         run: |
