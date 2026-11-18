@@ -3,6 +3,8 @@ import {
   SingleFileQueue,
   StabilizerBuy,
   NetworkConfig,
+  createTypedEventEmitter,
+  StabilizerBuyQuoteUnavailableError,
   StabilizerBuysUnavailableError,
   type IBlockHeaderInfo,
   type ArgonCurrentQueryClient,
@@ -29,6 +31,8 @@ import {
 
 /** One account's purchase workflows, financial facts and current native claims. */
 export class StabilizerBuys {
+  public readonly events = createTypedEventEmitter<{ 'records-changed': () => void }>();
+
   public data = {
     market: undefined as Awaited<ReturnType<StabilizerBuys['readOpportunityMarket']>>,
     auctionsByFrame: {} as Record<
@@ -140,12 +144,22 @@ export class StabilizerBuys {
 
       Object.assign(this.data, record);
       if (checkpoint?.accountId === this.accountAddress) this.checkpoint = checkpoint;
+      this.events.emit('records-changed');
     })().catch(error => {
       this.recordsLoadPromise = undefined;
       throw error;
     });
 
     return this.recordsLoadPromise;
+  }
+
+  public get pendingEthereumPurchases(): IStabilizerBuyPurchaseRecord[] {
+    return this.data.buys.filter(
+      (buy): buy is IStabilizerBuyPurchaseRecord =>
+        !!buy.ethereumQuote &&
+        (buy.status === StabilizerBuyStatus.SubmittingPurchaseOnEthereum ||
+          buy.status === StabilizerBuyStatus.ConfirmingPurchaseOnEthereum),
+    );
   }
 
   /** Display the requested Liquid before admission, and retain intent when native admission declines it. */
@@ -201,6 +215,8 @@ export class StabilizerBuys {
     return this.recordWrites.add(async () => {
       const existing = this.data.buys.find(buy => buy.id === id);
       if (existing) return existing as IStabilizerBuyPurchaseRecord;
+      if (this.pendingEthereumPurchases.some(buy => buy.ethereumQuote.poolId === ethereumQuote.poolId))
+        throw new StabilizerBuyQuoteUnavailableError('A purchase is still pending on Ethereum for this pool.');
       if (ethereumQuote.request.argonAccountId.toLowerCase() !== toArgonAccountIdHex(this.accountAddress).toLowerCase())
         throw new Error('The quote belongs to another Argon account.');
       if (ethereumMaxFeeWei !== undefined && ethereumMaxFeeWei <= 0n)
@@ -734,6 +750,7 @@ export class StabilizerBuys {
       hadPendingHistoryGap !== this.snapshot.hasPendingHistoryGap
     )
       this.data.financialRevision += 1;
+    if (recordsChanged) this.events.emit('records-changed');
   }
 
   private consolidate(

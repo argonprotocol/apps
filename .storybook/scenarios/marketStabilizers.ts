@@ -11,7 +11,7 @@ import {
   getStabilizerBuyPurchases,
 } from '../../src-vue/stores/stabilizerBuys.ts';
 import { getConfig } from '../../src-vue/stores/config.ts';
-import type { StabilizerBuys } from '../../src-vue/lib/StabilizerBuys.ts';
+import { StabilizerBuys } from '../../src-vue/lib/StabilizerBuys.ts';
 import { StabilizerBuyPurchases } from '../../src-vue/lib/StabilizerBuyPurchases.ts';
 import type { ICrosschainTransferProgress } from '../../src-vue/lib/CrosschainTransferProgress.ts';
 import { WalletForEthereum } from '../../src-vue/lib/WalletForEthereum.ts';
@@ -133,17 +133,12 @@ export function setupMarketStabilizers() {
     alertError: undefined,
   } as unknown as ReturnType<typeof useMarketStabilizers>);
   mocked(useMarketStabilizers).mockReturnValue(market as ReturnType<typeof useMarketStabilizers>);
-  mocked(getStabilizerBuys, { partial: true }).mockReturnValue({
-    data: market.data as StabilizerBuys['data'],
-    accountAddress: `0x${'33'.repeat(32)}`,
-    get snapshot() {
-      return {
-        ...market.data,
-        accountAddress: `0x${'33'.repeat(32)}`,
-        hasPendingHistoryGap: false,
-      } as StabilizerBuys['snapshot'];
-    },
-  });
+  mocked(getStabilizerBuys).mockReturnValue(
+    Object.assign(Object.create(StabilizerBuys.prototype) as StabilizerBuys, {
+      data: market.data,
+      accountAddress: `0x${'33'.repeat(32)}`,
+    }),
+  );
   mocked(getStabilizerBuyOperations, { partial: true }).mockReturnValue({
     stabilizerBuyBid: {
       prepare: fn(async () => ({ txFeePlusTip: 10_000n, canAfford: true })),

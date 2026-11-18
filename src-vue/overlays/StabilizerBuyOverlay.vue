@@ -56,7 +56,7 @@ import StabilizerPurchaseOverlay from './StabilizerPurchaseOverlay.vue';
 import StabilizerBuyDetailOverlay from './StabilizerBuyDetailOverlay.vue';
 import BitcoinLiquidDetailOverlay from './BitcoinLiquidDetailOverlay.vue';
 import { useMarketStabilizers } from '../stores/marketStabilizers.ts';
-import { getStabilizerBuyAlerts } from '../stores/stabilizerBuys.ts';
+import { getStabilizerBuyAlerts, getStabilizerBuys } from '../stores/stabilizerBuys.ts';
 import { useAttention } from '../stores/attention.ts';
 import type { BitcoinLiquid } from '../lib/BitcoinLiquid.ts';
 
@@ -65,6 +65,18 @@ const emit = defineEmits<{ close: [] }>();
 const market = useMarketStabilizers();
 const currentView = shallowRef(props.initialView);
 const history = shallowRef<StabilizerBuyView[]>([]);
+watch(
+  () => {
+    const view = currentView.value;
+    if (view.type !== 'purchase' || view.buyId) return;
+    const poolId = view.opportunity?.quote.poolId ?? market.data.market?.approvedPool?.poolId;
+    return getStabilizerBuys().pendingEthereumPurchases.find(buy => buy.ethereumQuote.poolId === poolId)?.id;
+  },
+  buyId => {
+    if (buyId) currentView.value = { type: 'purchase', buyId };
+  },
+  { immediate: true },
+);
 watch(
   () => props.initialView,
   view => {

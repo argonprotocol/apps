@@ -847,6 +847,7 @@ watch(
     () => selectedWallet.value?.data.fetchErrorMsg,
     selectedLiquidId,
     () => market.buyDiscountPercent !== undefined,
+    () => props.buyId,
   ],
   ([address], previous) => {
     if (address !== previous?.[0]) {

@@ -83,6 +83,7 @@ export class StabilizerBuyPurchases {
   };
   private poolBands?: {
     key: string;
+    poolId: string;
     client: PublicClient;
     record?: PoolEstimateCache;
     pending?: Promise<PoolEstimateCache>;
@@ -240,10 +241,11 @@ export class StabilizerBuyPurchases {
     if (!approved || !sqrtPriceX96) return;
     const key = `${approved.chainId}:${approved.poolManager.toLowerCase()}:${approved.poolId}`;
     const client = this.ethereumClient.publicClient;
-    if (this.poolBands?.key !== key || this.poolBands.client !== client) {
-      this.poolBands = { key, client, retryAtTick: 0 };
+    let entry = this.poolBands;
+    if (!entry || entry.key !== key || entry.client !== client) {
+      entry = { key, poolId: approved.poolId, client, retryAtTick: 0 };
+      this.poolBands = entry;
     }
-    const entry = this.poolBands;
     const tick = this.buys.data.currentTick;
     const snapshot = await this.getFinalizedSnapshot();
     this.assertCanQuote();
@@ -251,15 +253,18 @@ export class StabilizerBuyPurchases {
     const prices = await StabilizerBuyContracts.readPriceReference(snapshot, index.tick);
     if (!prices?.ethereumUsdPrice) return;
     const minimumRewardPrincipal = snapshot.consts.balances.existentialDeposit;
-    const estimate = (record: PoolEstimateCache) =>
-      new StabilizerBuyPool(record.pool).estimate({
+    const estimate = (record: PoolEstimateCache) => {
+      let currentSqrtPriceX96 = record.pool.sqrtPriceX96;
+      if (index.tick > record.refreshedAtTick) currentSqrtPriceX96 = sqrtPriceX96;
+      return new StabilizerBuyPool(record.pool).estimate({
         maxUsdcIn,
-        sqrtPriceX96,
+        sqrtPriceX96: currentSqrtPriceX96,
         prices,
         sourceAddress: getAddress(sourceAddress),
         minimumMicrogons: record.minimumMicrogons,
         minimumRewardPrincipal,
       });
+    };
 
     const stored = entry.record;
     let refresh = !stored;
@@ -347,9 +352,8 @@ export class StabilizerBuyPurchases {
     return { quote, preview: { feeEstimateWei: record.gasEstimate * record.feePerGas } };
   }
 
-  public invalidatePoolEstimate(poolId: IStabilizerBuyQuote['poolId']): void {
-    const record = this.poolBands?.record;
-    if (record?.pool.poolId === poolId) record.refreshedAt = new Date(0);
+  public invalidatePoolEstimate(poolId: string): void {
+    if (this.poolBands?.poolId === poolId) this.poolBands = undefined;
   }
 
   /** Compare estimated net purchase profit; auction rewards are not guaranteed. */
@@ -741,6 +745,9 @@ export class StabilizerBuyPurchases {
   }
 
   private assertCanQuote(): void {
+    const poolId = this.buys.data.market?.approvedPool?.poolId;
+    if (this.buys.pendingEthereumPurchases.some(buy => buy.ethereumQuote.poolId === poolId))
+      throw new StabilizerBuyQuoteUnavailableError('A purchase is still pending on Ethereum for this pool.');
     if (this.isClosed || this.buys.buyDiscountPercent === undefined)
       throw new StabilizerBuyQuoteUnavailableError('There is no purchase available below the target price.');
   }

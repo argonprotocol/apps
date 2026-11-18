@@ -1,14 +1,24 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { computed, reactive, watch } from 'vue';
 import BigNumber from 'bignumber.js';
-import { createPublicClient, custom, getAddress, type PublicClient } from 'viem';
-import { getOfflineRegistry } from '@argonprotocol/mainchain';
+import {
+  createPublicClient,
+  custom,
+  getAddress,
+  decodeFunctionData,
+  encodeAbiParameters,
+  type PublicClient,
+  type RpcTransactionRequest,
+  type EIP1193Parameters,
+} from 'viem';
+import { EvmContracts, getOfflineRegistry } from '@argonprotocol/mainchain';
 import {
   createDeferred,
   NetworkConfig,
   StabilizerBuy,
   StabilizerBuyQuoteUnavailableError,
   StabilizerBuyContracts,
+  StabilizerBuyPool,
   UnitOfMeasurement,
   BlockWatch,
 } from '@argonprotocol/apps-core';
@@ -19,11 +29,16 @@ import { StabilizerBuys } from '../lib/StabilizerBuys.ts';
 import { WalletsForEthereum } from '../lib/WalletsForEthereum.ts';
 import type { IOtherToken } from '../lib/Wallet.ts';
 import { SyncStateKeys, type ISyncSchemas } from '../lib/db/SyncStateTable.ts';
-import type { IStabilizerBuyOpportunity, IStabilizerBuyQuote } from '../interfaces/IStabilizerBuyPurchase.ts';
+import {
+  StabilizerBuyStatus,
+  type IStabilizerBuyOpportunity,
+  type IStabilizerBuyQuote,
+} from '../interfaces/IStabilizerBuyPurchase.ts';
 import { createTestDb } from './helpers/db.ts';
 import { createMockWalletKeys } from './helpers/wallet.ts';
 import { buyOpportunity } from './helpers/stabilizerBuy.ts';
 import { projectHistoricalStabilizerBuys } from '../lib/financials/StabilizerBuys.ts';
+import { FinancialCacheTypes } from '../lib/db/FinancialCacheTable.ts';
 
 const native = vi.hoisted(() => ({
   api: undefined as unknown,
@@ -64,6 +79,212 @@ afterEach(async () => {
 });
 
 describe('Stabilizer buy alerts', () => {
+  it('uses the freshly read Ethereum price after a buy rather than republishing the older native-price offer', async () => {
+    fixture.quotes.mockRestore();
+    const { purchases, buys, alerts, rpc } = fixture;
+    const quote = { ...fixture.quote, chainId: 1 };
+    const sqrtBefore = BigInt(
+      BigNumber('0.8e-6')
+        .times((1n << 96n).toString())
+        .toFixed(0),
+    );
+    const sqrtAtTarget = BigInt(
+      BigNumber('1e-6')
+        .times((1n << 96n).toString())
+        .toFixed(0),
+    );
+    buys.data.market!.prices = {
+      ...buys.data.market!.prices!,
+      usdcUsdPrice: BigNumber(1),
+      stabilizerPoolSqrtPriceX96: sqrtBefore,
+    };
+    const liquidity = 800_000_000_000_000n;
+    let poolSqrt = sqrtBefore;
+    let blockNumber = 1n;
+    const poolReads = vi.spyOn(StabilizerBuyPool, 'read').mockImplementation(async () => ({
+      ...quote,
+      argonIsToken0: true,
+      blockNumber,
+      blockHash: `0x${'aa'.repeat(32)}`,
+      sqrtPriceX96: poolSqrt,
+      tick: 0,
+      liquidity,
+      buyFee: 5_000,
+      protocolFee: 0,
+      ticks: [
+        { index: -887220, liquidityGross: liquidity.toString(), liquidityNet: liquidity.toString() },
+        { index: 887220, liquidityGross: liquidity.toString(), liquidityNet: (-liquidity).toString() },
+      ],
+    }));
+    rpc.mockImplementation(async request => {
+      if (request.method === 'eth_chainId') return '0x1';
+      if (request.method !== 'eth_call') throw new Error(`Unexpected RPC ${request.method}`);
+      const [call] = request.params as [RpcTransactionRequest];
+      const { functionName } = decodeFunctionData({
+        abi: [
+          ...EvmContracts.mintingGatewayAbi,
+          ...EvmContracts.argonBuyAndTransferAbi,
+          ...EvmContracts.uniswapV4PriceQuoterAbi,
+        ],
+        data: call.data!,
+      });
+      if (functionName === 'minimumSwapMicrogons') return encodeAbiParameters([{ type: 'uint256' }], [1_000_000n]);
+      const addresses: Record<string, `0x${string}`> = {
+        swapContract: quote.adapterAddress,
+        gateway: quote.gatewayAddress,
+        argon: quote.poolKey.currency0,
+        usdc: quote.usdcToken,
+        poolManager: quote.poolManager,
+      };
+      if (!addresses[functionName]) throw new Error(`Unexpected contract read ${functionName}`);
+      return encodeAbiParameters([{ type: 'address' }], [addresses[functionName]]);
+    });
+    vi.spyOn(purchases.ethereumClient.publicClient, 'estimateFeesPerGas').mockResolvedValue({
+      maxFeePerGas: 2n,
+      maxPriorityFeePerGas: 1n,
+    });
+    vi.spyOn(StabilizerBuyContracts.prototype, 'estimateMarketPurchaseGas').mockResolvedValue(100_000n);
+
+    alerts.start();
+    await alerts.refresh();
+    expect(alerts.opportunity).toBeDefined();
+    expect(poolReads).toHaveBeenCalledTimes(1);
+    await buys.createPurchase({ id: 'pending-buy', ethereumQuote: quote });
+    expect(alerts.opportunity).toBeUndefined();
+    await alerts.refresh();
+    expect(poolReads).toHaveBeenCalledTimes(1);
+
+    poolSqrt = sqrtAtTarget;
+    blockNumber = 2n;
+    await buys.recordPurchase('pending-buy', { status: StabilizerBuyStatus.WaitingForArgonRecognition });
+    const key = `${quote.chainId}:${quote.poolManager.toLowerCase()}:${quote.poolId}`;
+    await vi.waitFor(async () => {
+      const cached = await fixture.db.financialCacheTable.get(FinancialCacheTypes.StabilizerBuyPool, key);
+      expect(cached?.pool.blockNumber).toBe(2n);
+    });
+    await alerts.refresh();
+    expect(poolReads).toHaveBeenCalledTimes(2);
+    expect(buys.data.market!.prices).toMatchObject({ stabilizerPoolSqrtPriceX96: sqrtBefore });
+    expect(alerts.opportunity).toBeUndefined();
+    expect(alerts.data.opportunity).toBeUndefined();
+    expect(alerts.data.error).toBeUndefined();
+  });
+
+  it.each([StabilizerBuyStatus.WaitingForArgonRecognition, StabilizerBuyStatus.Failed])(
+    'hides the pending pool across restart and refreshes after durable %s publication',
+    async status => {
+      fixture.alerts.start();
+      await fixture.alerts.refresh();
+      const visible = computed(() => fixture.alerts.opportunity);
+      const original = visible.value!;
+
+      await fixture.buys.createPurchase({ id: 'pending-buy', ethereumQuote: fixture.quote });
+      expect(visible.value).toBeUndefined();
+      expect(fixture.alerts.buyNotice).toBeUndefined();
+      await expect(fixture.buys.createPurchase({ id: 'duplicate-buy', ethereumQuote: fixture.quote })).rejects.toThrow(
+        'pending on Ethereum',
+      );
+      expect((await fixture.db.stabilizerBuysTable.fetchAll(fixture.buys.accountAddress)).buys).toHaveLength(1);
+      await fixture.buys.recordPurchase('pending-buy', {
+        status: StabilizerBuyStatus.ConfirmingPurchaseOnEthereum,
+        ethereumTxHash: `0x${'aa'.repeat(32)}`,
+        ethereumSubmittedAt: new Date(),
+      });
+
+      await fixture.alerts.close();
+      await fixture.purchases.close();
+      await fixture.buys.close();
+      const buys = new StabilizerBuys(
+        fixture.buys.blockWatch,
+        fixture.buys.accountAddress,
+        Promise.resolve(fixture.db),
+      );
+      buys.data = reactive(buys.data) as StabilizerBuys['data'];
+      Object.assign(buys.data, {
+        market: fixture.buys.data.market,
+        currentTick: fixture.buys.data.currentTick,
+        isLoaded: true,
+        isAvailable: true,
+      });
+      const purchases = new StabilizerBuyPurchases(buys, fixture.keys, fixture.ethereum, fixture.wallets);
+      const quotes = vi.spyOn(purchases, 'estimateMaxProfit').mockResolvedValue({
+        ...fixture.result,
+        quote: { ...fixture.quote, quotedMicrogonsOut: 120_000_000n },
+      });
+      const alerts = new StabilizerBuyAlerts(
+        buys,
+        () => purchases,
+        fixture.wallets,
+        fixture.config,
+        Promise.resolve(fixture.db),
+        fixture.notify,
+      );
+      alerts.data = reactive(alerts.data) as StabilizerBuyAlerts['data'];
+      fixture = { ...fixture, buys, purchases, quotes, alerts };
+      await buys.loadRecords();
+      alerts.start();
+      await alerts.refresh();
+      const restoredOffer = computed(() => alerts.opportunity);
+      expect(restoredOffer.value).toBeUndefined();
+      expect(quotes).not.toHaveBeenCalled();
+      await expect(
+        purchases.quote({
+          maxUsdcIn: 100_000_000n,
+          slippageBps: 50,
+          deadline: fixture.quote.request.deadline,
+          destinationAddress: buys.accountAddress,
+          sourceAddress: fixture.quote.sourceAddress,
+          quoterAddress: fixture.quote.quoterAddress,
+        }),
+      ).rejects.toThrow('pending on Ethereum');
+
+      const execute = fixture.db.sql.execute.bind(fixture.db.sql);
+      const failedWrite = vi.spyOn(fixture.db.sql, 'execute').mockImplementation(async (query, params) => {
+        const result = await execute(query, params);
+        if (query.includes('INSERT INTO StabilizerBuys')) throw new Error('Purchase publication failed');
+        return result;
+      });
+      await expect(buys.recordPurchase('pending-buy', { status })).rejects.toThrow('Purchase publication failed');
+      failedWrite.mockRestore();
+      expect(restoredOffer.value).toBeUndefined();
+      expect((await fixture.db.stabilizerBuysTable.fetchAll(buys.accountAddress)).buys[0].status).toBe(
+        StabilizerBuyStatus.ConfirmingPurchaseOnEthereum,
+      );
+      expect(quotes).not.toHaveBeenCalled();
+
+      await buys.recordPurchase('pending-buy', { status });
+      await vi.waitFor(() => expect(restoredOffer.value?.quote.quotedMicrogonsOut).toBe(120_000_000n));
+      expect(restoredOffer.value?.key).not.toBe(original.key);
+      expect(buys.data.currentTick).toBe(10);
+      expect(fixture.delivered).toHaveLength(1);
+    },
+  );
+
+  it('discards a quote started before a pending buy and refreshes after that buy fails', async () => {
+    fixture.alerts.start();
+    await fixture.alerts.refresh();
+    const pending = createDeferred<Awaited<ReturnType<StabilizerBuyPurchases['estimateMaxProfit']>>>(false);
+    fixture.quotes.mockReturnValueOnce(pending.promise);
+    advanceTicks(5);
+    const refreshing = fixture.alerts.refresh();
+    await vi.waitFor(() => expect(fixture.quotes).toHaveBeenCalledTimes(2));
+    try {
+      await fixture.buys.createPurchase({ id: 'pending-buy', ethereumQuote: fixture.quote });
+      expect(fixture.alerts.opportunity).toBeUndefined();
+      fixture.quotes.mockResolvedValue({
+        ...fixture.result,
+        quote: { ...fixture.quote, quotedMicrogonsOut: 120_000_000n },
+      });
+      await fixture.buys.recordPurchase('pending-buy', { status: StabilizerBuyStatus.Failed });
+      pending.resolve(fixture.result);
+      await refreshing;
+      await vi.waitFor(() => expect(fixture.alerts.opportunity?.quote.quotedMicrogonsOut).toBe(120_000_000n));
+    } finally {
+      pending.resolve(fixture.result);
+      await refreshing;
+    }
+  });
+
   it.each(['testnet', 'mainnet'] as const)(
     'discovers with the shipped %s config and only notifies funded subscribers',
     async network => {
@@ -572,6 +793,7 @@ async function createAlerts() {
           ],
         },
       },
+      stabilizerPools: { pools: async () => ({ key: buyOpportunity.quote.poolKey }) },
       crosschainTransfer: {
         chainConfigBySourceChain: async () => ({
           type: 'Evm',
@@ -612,7 +834,7 @@ async function createAlerts() {
   wallets.coreWallet.data.balanceUpdatedAt = new Date();
   wallets.coreWallet.data.balanceIsCached = false;
   vi.spyOn(wallets, 'refresh').mockResolvedValue();
-  const rpc = vi.fn(async (_request: Parameters<PublicClient['request']>[0]): Promise<unknown> => {
+  const rpc = vi.fn(async (_request: EIP1193Parameters): Promise<unknown> => {
     throw new Error('Ethereum temporarily unavailable');
   });
   const ethereum = new EthereumClient(keys, 'http://ethereum.test');
@@ -676,5 +898,7 @@ async function createAlerts() {
     checkpointsAtDelivery,
     notify,
     balance,
+    keys,
+    ethereum,
   };
 }
