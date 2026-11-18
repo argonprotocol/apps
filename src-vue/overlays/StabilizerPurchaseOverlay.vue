@@ -121,39 +121,41 @@
           </template>
         </WalletFundingCallout>
 
-        <p v-if="quote && hasCurrentQuote" class="mt-3 flex items-center gap-1 font-light text-slate-500">
+        <div v-if="isQuoting" role="status" class="mt-3 flex items-center gap-2 font-light text-slate-500">
+          <Spinner />
+          <span v-if="amountSelection === 'maxProfit'">
+            Finding Max Profit…
+            <template v-if="quotesChecked">Quotes checked: {{ quotesChecked }}</template>
+          </span>
+          <span v-else>Getting your quote and estimating Ethereum fees…</span>
+        </div>
+        <p v-else-if="quote && hasCurrentQuote" class="mt-3 font-light text-slate-500">
           Buys approximately {{ numeral(formatUnits(quote.quotedMicrogonsOut, 6)).format('0,0.[00]') }} ARGN
           <template v-if="purchaseProjection">
-            · Average price
-            <template v-if="purchaseProjection.discountPercent === 0">at target</template>
+            <template v-if="purchaseProjection.discountPercent === 0">(at target)</template>
             <template v-else>
-              {{
+              (~{{
                 numeral(Math.abs(purchaseProjection.discountPercent)).formatPercent(
                   Math.abs(purchaseProjection.discountPercent) >= 10 ? 0 : 1,
                 )
               }}
-              {{ purchaseProjection.discountPercent > 0 ? 'below' : 'above' }} target
+              {{ purchaseProjection.discountPercent > 0 ? 'off' : 'above target' }})
             </template>
           </template>
+          <template v-if="feePreview">· Eth Fee: ~{{ formatEvmNativeFeeWei(feePreview.feeEstimateWei) }}</template>
           <Tooltip :asChild="true" side="top">
-            <button type="button" aria-label="Purchase quote information" class="inline-flex cursor-help">
+            <button
+              type="button"
+              aria-label="Purchase quote information"
+              class="ml-1 inline-flex cursor-help align-middle"
+            >
               <InformationCircleIcon class="size-4 text-gray-400" />
             </button>
             <template #content>
               <p>
                 You’ll receive at least
                 {{ numeral(formatUnits(quote.request.minMicrogonsOut, 6)).format('0,0.[00]') }}
-                ARGN. Larger purchases can increase your average price.
-              </p>
-              <p
-                v-if="feePreview && numeral(formatEther(feePreview.feeEstimateWei)).format('0.[00000000]') !== '0'"
-                class="mt-2"
-              >
-                Estimated Ethereum fee:
-                {{ numeral(formatEther(feePreview.feeEstimateWei)).format('0.[00000000]') }} ETH.
-                <template v-if="feePreview?.needsPermit">
-                  Includes USDC authorization in the purchase transaction.
-                </template>
+                ARGN. Larger purchases can increase your average price. The discount is relative to ARGN’s target price.
               </p>
               <p class="mt-2">ARGN’s price can move above target before your purchase confirms.</p>
             </template>
@@ -473,7 +475,7 @@
             Your Liquid Paydown request will be confirmed on Argon after the Ethereum purchase.
           </p>
           <ProgressBar
-            v-if="progressPct !== undefined"
+            v-if="!canDismissPurchase && progressPct !== undefined"
             :progress="progressPct"
             :hasError="purchase.status === StabilizerBuyStatus.Failed"
           />
@@ -482,6 +484,7 @@
               <template v-if="purchase.status === StabilizerBuyStatus.Complete">
                 Your purchased ARGN is available in your Internal App Wallet.
               </template>
+              <template v-else-if="canDismissPurchase">Purchase Was Not Submitted</template>
               <template v-else-if="purchase.status === StabilizerBuyStatus.Failed">Purchase Needs Attention</template>
               <template v-else-if="purchase.status === StabilizerBuyStatus.WaitingForPrincipalReleaseOnArgon">
                 Purchase confirmed. Your ARGN is held until its scheduled release.
@@ -493,6 +496,9 @@
                 </template>
               </template>
             </div>
+            <p v-if="canDismissPurchase" class="mt-1 text-sm text-slate-500">
+              Nothing was sent to Ethereum. Dismiss this attempt to return to buying opportunities.
+            </p>
             <div
               v-if="
                 purchase.status !== StabilizerBuyStatus.Complete &&
@@ -504,6 +510,17 @@
               You can close this window without stopping the purchase.
             </div>
           </div>
+          <dl
+            v-if="purchase.status === StabilizerBuyStatus.Failed && purchase.ethereumQuote"
+            class="grid grid-cols-2 gap-y-2 text-slate-500"
+          >
+            <dt>Requested purchase</dt>
+            <dd class="text-right">
+              {{ numeral(formatUnits(purchase.ethereumQuote.request.maxUsdcIn, 6)).format('0,0.[000000]') }} USDC
+            </dd>
+            <dt>Attempted</dt>
+            <dd class="text-right">{{ dayjs(purchase.createdAt).format('M/D/YYYY [at] h:mm a') }}</dd>
+          </dl>
           <div
             v-if="purchase.statusError"
             role="alert"
@@ -532,6 +549,15 @@
           <template v-else>Cancel</template>
         </button>
         <button
+          v-if="canDismissPurchase"
+          type="button"
+          :disabled="isDismissingPurchase"
+          class="bg-argon-button hover:bg-argon-button-hover cursor-pointer rounded-md px-5 py-2 font-semibold text-white disabled:cursor-default disabled:opacity-40"
+          @click="dismissFailedPurchase"
+        >
+          Dismiss Failed Attempt
+        </button>
+        <button
           v-if="!purchase"
           type="button"
           :disabled="
@@ -544,7 +570,7 @@
           "
         >
           <template v-if="isQuoting">Updating Quote...</template>
-          <template v-else-if="purchaseError">Retry Quote &raquo;</template>
+          <template v-else-if="purchaseError">Check Again &raquo;</template>
           <template v-else-if="needsQuote">Get Quote &raquo;</template>
           <template v-else>Finalize Purchase &raquo;</template>
         </button>
@@ -567,7 +593,7 @@ import { useNow } from '@vueuse/core';
 import { computed, onScopeDispose, ref, shallowRef, watch } from 'vue';
 import { CheckIcon, ChevronDownIcon, InformationCircleIcon } from '@heroicons/vue/24/outline';
 import { NetworkConfig, UnitOfMeasurement, StabilizerBuyQuoteUnavailableError } from '@argonprotocol/apps-core';
-import { formatEther, formatUnits, getAddress, parseUnits } from 'viem';
+import { formatUnits, getAddress, parseUnits } from 'viem';
 import dayjs from 'dayjs';
 import BigNumber from 'bignumber.js';
 import {
@@ -580,10 +606,12 @@ import OverlayBase from './OverlayBase.vue';
 import InputMenu from '../components/InputMenu.vue';
 import InputNumber from '../components/InputNumber.vue';
 import ProgressBar from '../components/ProgressBar.vue';
+import Spinner from '../components/Spinner.vue';
 import Tooltip from '../components/Tooltip.vue';
 import WalletFundingCallout from '../components/WalletFundingCallout.vue';
 import AlertIcon from '../assets/alert.svg?component';
 import numeral, { createNumeralHelpers } from '../lib/numeral.ts';
+import { formatEvmNativeFeeWei } from '../lib/Utils.ts';
 import { getCurrency } from '../stores/currency.ts';
 import { PopoverArrow, PopoverContent, PopoverPortal, PopoverRoot, PopoverTrigger } from 'reka-ui';
 import type { BitcoinLiquid } from '../lib/BitcoinLiquid.ts';
@@ -642,7 +670,9 @@ const minimumQuote = shallowRef<IStabilizerBuyQuote>();
 const feePreview = shallowRef<Awaited<ReturnType<StabilizerBuyPurchases['previewPurchase']>>>();
 const purchaseError = ref<string>();
 const isPurchasing = ref(false);
+const isDismissingPurchase = ref(false);
 const isQuoting = ref(false);
+const quotesChecked = ref(0);
 let quoteRequest: AbortController | undefined;
 let quoteTimer: ReturnType<typeof setTimeout> | undefined;
 let isClosed = false;
@@ -791,6 +821,7 @@ const canPurchase = computed(
 );
 
 const purchase = computed(() => market.data.buys.find(buy => buy.id === props.buyId));
+const canDismissPurchase = computed(() => !!purchase.value && StabilizerBuys.canDismissPurchase(purchase.value));
 const progressPct = computed(() => {
   if (props.buyId) return market.progressByPurchaseId[props.buyId];
 });
@@ -859,12 +890,15 @@ async function refreshQuote() {
   const request = new AbortController();
   quoteRequest = request;
   isQuoting.value = false;
+  quotesChecked.value = 0;
 
   const wallet = selectedWallet.value;
   if (isClosed || props.buyId || !wallet) return;
   if (market.buyDiscountPercent === undefined) {
     quote.value = undefined;
     feePreview.value = undefined;
+    purchaseError.value = 'There is no buying opportunity below the target price right now.';
+    if (opportunity) emit('expired', opportunity);
     return;
   }
 
@@ -895,7 +929,13 @@ async function refreshQuote() {
     let preview: NonNullable<typeof feePreview.value>;
     if (amountSelection.value === 'maxProfit') {
       const result = await purchases.quoteMaxProfit(
-        { ...input, maxUsdcIn: parseUnits(availableUsdcAmount.value!.toFixed(6), 6) },
+        {
+          ...input,
+          maxUsdcIn: parseUnits(availableUsdcAmount.value!.toFixed(6), 6),
+          onProgress: checked => {
+            if (!request.signal.aborted) quotesChecked.value = checked;
+          },
+        },
         request.signal,
       );
       if (request.signal.aborted) return;
@@ -933,8 +973,12 @@ async function refreshQuote() {
   } catch (error) {
     if (request.signal.aborted) return;
 
-    if (error instanceof StabilizerBuyQuoteUnavailableError && opportunity) emit('expired', opportunity);
-    else purchaseError.value = (error as Error).message;
+    purchaseError.value = (error as Error).message;
+    if (error instanceof StabilizerBuyQuoteUnavailableError) {
+      quote.value = undefined;
+      feePreview.value = undefined;
+      if (opportunity) emit('expired', opportunity);
+    }
   } finally {
     if (!request.signal.aborted) isQuoting.value = false;
   }
@@ -952,7 +996,6 @@ async function submitPurchase() {
       id: crypto.randomUUID(),
       ethereumQuote: quote.value,
       ethereumWallet: selectedWallet.value,
-      ethereumMaxFeeWei: feePreview.value.feeEstimateWei,
       txSigner: selectedLiquidId.value === undefined ? undefined : await walletKeys.getDefaultArgonSigner(),
     });
 
@@ -963,6 +1006,19 @@ async function submitPurchase() {
     purchaseError.value = (error as Error).message;
   } finally {
     isPurchasing.value = false;
+  }
+}
+
+async function dismissFailedPurchase() {
+  if (!purchase.value) return;
+  isDismissingPurchase.value = true;
+  try {
+    await buys.dismissPurchase(purchase.value.id);
+    emit('close');
+  } catch (error) {
+    purchaseError.value = (error as Error).message;
+  } finally {
+    isDismissingPurchase.value = false;
   }
 }
 </script>

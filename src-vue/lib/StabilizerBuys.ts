@@ -158,6 +158,36 @@ export class StabilizerBuys {
     if (liquidId) return Number(liquidId);
   }
 
+  public static canDismissPurchase(buy: IStabilizerBuyRecord): boolean {
+    if (buy.status !== StabilizerBuyStatus.Failed || !buy.ethereumQuote) return false;
+    if (buy.ethereumTxHash || buy.usdcApprovalTxHash) return false;
+    if (buy.ethereumSubmittedAt || buy.usdcApprovalSubmittedAt || buy.ethereumConfirmedAt) return false;
+
+    return (
+      !buy.gatewayTransferId &&
+      !buy.ethereumGatewayActivity &&
+      !buy.argonPurchaseEvent &&
+      buy.admissionFrame === undefined
+    );
+  }
+
+  public async dismissPurchase(id: string): Promise<void> {
+    if (this.isClosed) throw new Error('Stabilizer Buys is closed.');
+    await this.loadRecords();
+
+    await this.recordWrites.add(async () => {
+      const buy = this.data.buys.find(buy => buy.id === id);
+      if (!buy) return;
+      if (!StabilizerBuys.canDismissPurchase(buy))
+        throw new Error('Only failed purchases that were never submitted can be dismissed.');
+
+      await this.publishRecords(
+        { ...this.records, buys: this.data.buys.filter(buy => buy.id !== id) },
+        { buys: [], frameRewards: [] },
+      );
+    }).promise;
+  }
+
   public async createPurchase({
     id,
     ethereumQuote,
@@ -173,7 +203,8 @@ export class StabilizerBuys {
       if (existing) return existing as IStabilizerBuyPurchaseRecord;
       if (ethereumQuote.request.argonAccountId.toLowerCase() !== toArgonAccountIdHex(this.accountAddress).toLowerCase())
         throw new Error('The quote belongs to another Argon account.');
-      if (ethereumMaxFeeWei <= 0n) throw new Error('Choose a positive Ethereum fee limit.');
+      if (ethereumMaxFeeWei !== undefined && ethereumMaxFeeWei <= 0n)
+        throw new Error('Choose a positive Ethereum fee limit.');
 
       const buy: IStabilizerBuyPurchaseRecord = {
         id,

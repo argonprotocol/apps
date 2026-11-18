@@ -6,12 +6,7 @@
       @openPurchase="openPurchase"
       @reviewPurchase="reviewPurchase"
     />
-    <StabilizerBuyOverlay
-      v-if="overlayView"
-      :initialView="overlayView"
-      @expired="expireOpportunity"
-      @close="closeOverlays"
-    />
+    <StabilizerBuyOverlay v-if="overlayView" :initialView="overlayView" @close="closeOverlays" />
     <StabilizerBuyAlertOverlay v-if="isEditingAlert" @close="closeOverlays" />
   </div>
 </template>
@@ -38,11 +33,6 @@ function reviewPurchase() {
     return;
   }
   overlayView.value = { type: 'purchase', opportunity: market.opportunity };
-}
-
-function expireOpportunity() {
-  closeOverlays();
-  navigation.noticeError = 'This buying opportunity has expired. Watching for the next one.';
 }
 
 function closeOverlays() {

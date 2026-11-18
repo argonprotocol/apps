@@ -6,6 +6,7 @@ import { UnitOfMeasurement } from '@argonprotocol/apps-core';
 import { useMarketStabilizers } from '../../src-vue/stores/marketStabilizers.ts';
 import {
   getStabilizerBuys,
+  getStabilizerBuyAlerts,
   getStabilizerBuyOperations,
   getStabilizerBuyPurchases,
 } from '../../src-vue/stores/stabilizerBuys.ts';
@@ -22,6 +23,7 @@ import { calculatePositionReturn } from '../../src-vue/lib/financials/index.ts';
 
 export function setupMarketStabilizers() {
   setupAppScenario({ selectedTab: TopTab.MarketStabilizers });
+  mocked(getStabilizerBuyAlerts).mockReturnValue(undefined);
   const wallet = new WalletForEthereum(`0x${'44'.repeat(20)}`);
   wallet.data.otherTokens = [
     {

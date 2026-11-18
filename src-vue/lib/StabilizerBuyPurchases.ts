@@ -121,7 +121,7 @@ export class StabilizerBuyPurchases {
     await this.buys.loadRecords();
 
     for (const buy of [...this.buys.data.buys].reverse()) {
-      if (buy.ethereumQuote && buy.ethereumMaxFeeWei !== undefined) this.resume(buy as IStabilizerBuyPurchaseRecord);
+      if (buy.ethereumQuote) this.resume(buy as IStabilizerBuyPurchaseRecord);
     }
   }
 
@@ -354,11 +354,15 @@ export class StabilizerBuyPurchases {
 
   /** Compare estimated net purchase profit; auction rewards are not guaranteed. */
   public async quoteMaxProfit(
-    input: Omit<
+    {
+      onProgress,
+      ...input
+    }: Omit<
       Parameters<StabilizerBuyContracts['quote']>[0],
       'client' | 'ethereumBlock' | 'sizeToTarget' | 'maxUsdcIn'
     > & {
       maxUsdcIn: bigint;
+      onProgress?: (quotesChecked: number) => void;
     },
     signal?: AbortSignal,
   ) {
@@ -380,6 +384,7 @@ export class StabilizerBuyPurchases {
     const minimumGas = await contracts.estimatePurchaseGas(minimumQuote, ethereumBlock);
     const assertCanQuote = () => this.assertCanQuote();
     const candidates = new Map<bigint, Awaited<ReturnType<typeof evaluate>>>();
+    let quotesChecked = 0;
     let best = await evaluate(minimumQuote, minimumGas);
 
     const budget = input.maxUsdcIn < minimumGas.usdcBalance ? input.maxUsdcIn : minimumGas.usdcBalance;
@@ -442,6 +447,8 @@ export class StabilizerBuyPurchases {
 
       const candidate = { quote, preview, profit: quote.quotedMicrogonsOut - cost.investedCost };
       candidates.set(quote.request.maxUsdcIn, candidate);
+      quotesChecked++;
+      onProgress?.(quotesChecked);
       return candidate;
     }
   }

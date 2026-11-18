@@ -250,7 +250,7 @@
           </div>
         </section>
 
-        <details :open="isBiddingOpen" class="group mt-6 border-t border-slate-200">
+        <details :open="market.data.currentFrameId < admissionFrame + 2" class="group mt-6 border-t border-slate-200">
           <summary class="flex cursor-pointer list-none items-center justify-between gap-3 py-4">
             <h2 class="font-bold text-slate-700">
               <template v-if="market.data.currentFrameId < admissionFrame + 2">Bidding for a Bonus</template>

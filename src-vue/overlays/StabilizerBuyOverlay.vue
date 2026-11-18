@@ -11,7 +11,7 @@
     @goBack="goBack"
     @bid="goTo({ type: 'details', admissionFrame: $event })"
     @purchased="currentView = { type: 'purchase', buyId: $event }"
-    @expired="expireOpportunity"
+    @expired="getStabilizerBuyAlerts()?.expireOpportunity($event)"
     @close="emit('close')"
   />
   <StabilizerBuyDetailOverlay
@@ -61,7 +61,7 @@ import { useAttention } from '../stores/attention.ts';
 import type { BitcoinLiquid } from '../lib/BitcoinLiquid.ts';
 
 const props = defineProps<{ initialView: StabilizerBuyView }>();
-const emit = defineEmits<{ close: []; expired: [] }>();
+const emit = defineEmits<{ close: [] }>();
 const market = useMarketStabilizers();
 const currentView = shallowRef(props.initialView);
 const history = shallowRef<StabilizerBuyView[]>([]);
@@ -114,13 +114,6 @@ function openPaydown(liquid: BitcoinLiquid) {
   if (!market.hasAccess || !opportunity || opportunity.expiresAt <= Date.now()) return;
   if (market.liquidRepaymentWindows.get(liquid.liquidId) !== true) return;
   goTo({ type: 'purchase', opportunity, liquidId: liquid.liquidId });
-}
-
-function expireOpportunity(opportunity: Extract<IStabilizerBuyOpportunity, { type: 'buy' }>) {
-  getStabilizerBuyAlerts()?.expireOpportunity(opportunity);
-  if (history.value.length) goBack();
-  else emit('close');
-  emit('expired');
 }
 
 watch(

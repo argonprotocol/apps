@@ -64,25 +64,31 @@ afterEach(async () => {
 });
 
 describe('Stabilizer buy alerts', () => {
-  it('discovers an opportunity without funding or a subscription, but requires both to notify', async () => {
-    fixture.config.stabilizerBuyAlert = undefined;
-    fixture.balance.value = 0n;
-    await fixture.alerts.refresh();
-    expect(fixture.alerts.opportunity).toBeDefined();
-    expect(fixture.alerts.buyNotice).toBeUndefined();
-    expect(fixture.delivered).toEqual([]);
+  it.each(['testnet', 'mainnet'] as const)(
+    'discovers with the shipped %s config and only notifies funded subscribers',
+    async network => {
+      NetworkConfig.clearRuntimeOverride();
+      NetworkConfig.setNetwork(network);
+      fixture.config.stabilizerBuyAlert = undefined;
+      fixture.balance.value = 0n;
+      await fixture.alerts.refresh();
+      expect(fixture.alerts.data.error).toBeUndefined();
+      expect(fixture.alerts.opportunity).toBeDefined();
+      expect(fixture.alerts.buyNotice).toBeUndefined();
+      expect(fixture.delivered).toEqual([]);
 
-    fixture.config.stabilizerBuyAlert = { minimumApy: 12 };
-    await fixture.alerts.refresh();
-    expect(fixture.alerts.buyNotice).toBeUndefined();
-    fixture.balance.value = 200_000_000n;
-    await fixture.alerts.refresh();
-    expect(fixture.delivered).toHaveLength(1);
+      fixture.config.stabilizerBuyAlert = { minimumApy: 12 };
+      await fixture.alerts.refresh();
+      expect(fixture.alerts.buyNotice).toBeUndefined();
+      fixture.balance.value = 200_000_000n;
+      await fixture.alerts.refresh();
+      expect(fixture.delivered).toHaveLength(1);
 
-    fixture.config.stabilizerBuyAlert = { minimumApy: fixture.alerts.opportunity!.apy + 1 };
-    expect(fixture.alerts.buyNotice).toBeUndefined();
-    expect(fixture.alerts.opportunity).toBeDefined();
-  });
+      fixture.config.stabilizerBuyAlert = { minimumApy: fixture.alerts.opportunity!.apy + 1 };
+      expect(fixture.alerts.buyNotice).toBeUndefined();
+      expect(fixture.alerts.opportunity).toBeDefined();
+    },
+  );
 
   it('does no live deal work while native prices are at target, stale or disconnected', async () => {
     fixture.quotes.mockRestore();
@@ -162,6 +168,49 @@ describe('Stabilizer buy alerts', () => {
     await expect(quoting).rejects.toMatchObject({ name: 'AbortError' });
     await expect(estimating).rejects.toMatchObject({ name: 'AbortError' });
     expect(request).not.toHaveBeenCalled();
+  });
+
+  it('reports evaluated quotes during the max-profit search and retains its best result', async () => {
+    fixture.rpc.mockImplementation(async ({ method }) => {
+      if (method === 'eth_getBlockByNumber')
+        return { number: '0x64', timestamp: '0x3e8', baseFeePerGas: '0x0', transactions: [] };
+      if (method === 'eth_maxPriorityFeePerGas' || method === 'eth_gasPrice') return '0x3b9aca00';
+      throw new Error(`Unexpected quote RPC ${method}`);
+    });
+    const checked: number[] = [];
+    const amounts: bigint[] = [];
+    vi.spyOn(StabilizerBuyContracts.prototype, 'quote').mockImplementation(async ({ maxUsdcIn }) => {
+      if (amounts.length) expect(checked.at(-1)).toBe(amounts.length);
+      const amount = maxUsdcIn ?? 100_000_000n;
+      amounts.push(amount);
+      const distanceFromBest = amount - 150_000_000n;
+      const output = amount + 10_000_000n - (distanceFromBest * distanceFromBest) / 1_000_000_000n;
+      return {
+        ...fixture.quote,
+        request: { ...fixture.quote.request, maxUsdcIn: amount, minMicrogonsOut: (output * 995n) / 1000n },
+        quotedMicrogonsOut: output,
+      };
+    });
+    vi.spyOn(StabilizerBuyContracts.prototype, 'estimatePurchaseGas').mockResolvedValue({
+      gasEstimate: 1_000n,
+      needsPermit: true,
+      usdcAllowance: 0n,
+      usdcBalance: 200_000_000n,
+    });
+
+    const result = await fixture.purchases.quoteMaxProfit({
+      ...fixture.quote.request,
+      sourceAddress: fixture.quote.sourceAddress,
+      destinationAddress: fixture.buys.accountAddress,
+      quoterAddress: fixture.quote.quoterAddress,
+      maxUsdcIn: 200_000_000n,
+      slippageBps: 50,
+      onProgress: count => checked.push(count),
+    });
+
+    expect(result.quote.request.maxUsdcIn).toBe(150_000_000n);
+    expect(checked.length).toBeGreaterThan(2);
+    expect(checked).toEqual(amounts.map((_, index) => index + 1));
   });
 
   it('can model historical APY at target from a cached fee estimate without enabling live deals', async () => {
