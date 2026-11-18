@@ -130,6 +130,27 @@ export default meta;
 type Story = StoryObj<typeof meta>;
 
 export const BiddingOpen: Story = {};
+export const BiddingUpcoming: Story = {
+  name: 'Bidding Not Yet Open',
+  beforeEach: () => {
+    const market = useMarketStabilizers();
+    market.data.currentFrameId = 48;
+    const position = market.data.positions[0];
+    const auction = { ...position.auction, budget: null, remainingBudget: 0n, remainingMatchingBasis: 0n };
+    market.data.positions[0] = new StabilizerBuy(
+      48,
+      { ...position.purchase, bidRate: BigNumber(1), positiveBidCount: 0 },
+      auction,
+    );
+    market.data.auctionsByFrame[48].auction = auction;
+    market.data.frameRewards[0].latestBid = 100;
+    market.data.frameRewards[0].bidCount = 0;
+    market.data.auctionsByFrame[48].observedAtFrame = 48;
+    for (const bid of market.data.auctionsByFrame[48].bids) bid.latestBid = 100;
+    Object.assign(market, { biddingFrame: undefined });
+    setPurchaseDates(new Date(Date.now() + 36 * 60 * 60_000));
+  },
+};
 export const WindowClosed: Story = {
   beforeEach: () => {
     const market = useMarketStabilizers();

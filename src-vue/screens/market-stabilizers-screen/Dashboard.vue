@@ -132,7 +132,9 @@
               :returns="group.returns"
               :purchaseDate="group.purchaseDate"
               :releasesAt="group.releasesAt"
+              :biddingOpensAt="group.biddingOpensAt"
               :biddingClosesAt="group.biddingClosesAt"
+              :isBiddingUpcoming="group.admissionFrame !== undefined && data.currentFrameId <= group.admissionFrame"
               :isBiddingOpen="group.admissionFrame !== undefined && group.admissionFrame === biddingFrame"
               :purchaseProgressById="market.purchaseProgressById"
               @purchase="emit('openPurchase', $event.id)"
@@ -230,13 +232,20 @@ const purchaseGroups = computed(() => {
       else if (!rewards.payout && rewards.awardedReward > rewards.paidReward) isComplete = false;
     }
 
-    let purchaseDate = groupBuys[0]?.createdAt;
+    let purchaseDate: Date | undefined;
+    for (const buy of groupBuys) {
+      const purchasedAt = buy.purchasedAt ?? buy.createdAt;
+      if (!purchaseDate || purchasedAt < purchaseDate) purchaseDate = purchasedAt;
+    }
+
     let releasesAt: Date | undefined;
+    let biddingOpensAt: Date | undefined;
     let biddingClosesAt: Date | undefined;
     let groupReturn = returns.value.byPurchase[String(id)];
     if (admissionFrame !== undefined) {
-      purchaseDate = dates.value.admission[admissionFrame];
+      purchaseDate ??= dates.value.admission[admissionFrame];
       releasesAt = dates.value.releases[admissionFrame];
+      biddingOpensAt = dates.value.opens[admissionFrame];
       biddingClosesAt = dates.value.closes[admissionFrame];
       groupReturn = returns.value.byFrame[admissionFrame];
     }
@@ -250,6 +259,7 @@ const purchaseGroups = computed(() => {
       principal: groupBuys.reduce((sum, buy) => sum + (buy.principal ?? 0n), 0n),
       purchaseDate,
       releasesAt,
+      biddingOpensAt,
       biddingClosesAt,
       returns: groupReturn,
     };
