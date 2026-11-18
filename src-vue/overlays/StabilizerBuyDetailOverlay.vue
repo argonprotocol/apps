@@ -380,7 +380,7 @@
                 </svg>
                 <div class="text-center">
                   <header class="font-bold text-gray-600/60">
-                    <template v-if="isBiddingUpcoming">BIDDING OPENS</template>
+                    <template v-if="isBiddingUpcoming">BONUS BIDDING STARTS</template>
                     <template v-else-if="isFinished">BIDDING CLOSED</template>
                     <template v-else>BIDDING CLOSES IN</template>
                   </header>
@@ -600,7 +600,7 @@
             </template>
           </template>
           <p v-else-if="isBiddingUpcoming" class="mt-5 border-t border-slate-200 pt-4 text-sm text-slate-500">
-            Bidding opens
+            Bonus bidding starts
             <template v-if="market.dates.opens[admissionFrame]">
               {{ dayjs(market.dates.opens[admissionFrame]).format('M/D [at] h:mm a') }}
             </template>

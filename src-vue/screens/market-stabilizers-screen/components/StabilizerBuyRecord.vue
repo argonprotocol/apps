@@ -40,7 +40,7 @@
           </div>
           <div class="flex flex-wrap items-center justify-end gap-3">
             <span v-if="isBiddingUpcoming" class="font-light text-slate-500">
-              Bidding opens
+              Bonus bidding starts
               <template v-if="biddingOpensAt">{{ dayjs(biddingOpensAt).format('M/D [at] h:mm a') }}</template>
               <template v-else>in the next frame</template>
             </span>
