@@ -9,6 +9,44 @@ import {
 import { calculateAPY, calculateProfitPct } from '../src/utils.ts';
 
 describe('FinancialReturns', () => {
+  it.each([86_400_000, 20_000])(
+    'annualizes an agreed term instead of elapsed time with a %i ms financial day',
+    dayMillis => {
+      for (const elapsedDays of [3, 15, 45]) {
+        const result = calculatePerformanceReturn(
+          [
+            {
+              startingDate: 0,
+              startingCapital: 110n,
+              endingCapital: 165n,
+              termDays: 30,
+              capitalFlows: [
+                { amount: 100n, occurredAt: 0 },
+                { amount: 10n, occurredAt: 2 * dayMillis },
+              ],
+            },
+          ],
+          { now: new Date(elapsedDays * dayMillis), dayMillis },
+        );
+        expect(result.apy).toBeCloseTo((Math.pow(165 / 110, 365 / 30) - 1) * 100);
+        expect(result.apr).toBeCloseTo(0.5 * (365 / 30) * 100);
+        expect(result.eligibleCapitalInvested).toBe(110n);
+        expect(result.totalProfits).toBe(55n);
+      }
+    },
+  );
+
+  it('retains earned returns while an agreed term is unknown', () => {
+    const result = calculatePerformanceReturn(
+      [{ startingDate: 0, startingCapital: 100n, endingCapital: 110n, termDays: null }],
+      { now: new Date(86_400_000) },
+    );
+    expect(result.percent).toBe(10);
+    expect(result.totalProfits).toBe(10n);
+    expect(result.apr).toBeUndefined();
+    expect(result.apy).toBeUndefined();
+  });
+
   it('aggregates undated positions by total capital instead of averaging participant returns', () => {
     expect(
       calculateAggregateReturn([

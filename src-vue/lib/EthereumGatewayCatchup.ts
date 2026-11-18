@@ -1,4 +1,5 @@
 import type { IEthereumGatewayRelayReasonCode } from '@argonprotocol/apps-core';
+import { RequestStatusError } from './ServerAuthClient.ts';
 import type { ServerApiClient } from './ServerApiClient.ts';
 import type { UpstreamOperatorClient } from './UpstreamOperatorClient.ts';
 
@@ -17,41 +18,62 @@ export async function requestEthereumGatewayCatchup(args: {
   throughGatewayActivityNonce: bigint;
   serverApiClient?: Pick<ServerApiClient, 'getEthereumRelayStatus' | 'requestEthereumGatewayCatchUp'>;
   upstreamOperatorClient?: Pick<UpstreamOperatorClient, 'resolveOperatorHost' | 'requestEthereumGatewayCatchUp'>;
+  preferLocalRelay?: boolean;
+  signal?: AbortSignal;
 }): Promise<IEthereumGatewayCatchupResult> {
-  const { throughGatewayActivityNonce, serverApiClient, upstreamOperatorClient } = args;
+  const {
+    throughGatewayActivityNonce,
+    serverApiClient,
+    upstreamOperatorClient,
+    preferLocalRelay = false,
+    signal,
+  } = args;
+  const requestArgs: Parameters<ServerApiClient['requestEthereumGatewayCatchUp']> = [
+    { sourceChain: 'Ethereum', throughGatewayActivityNonce },
+  ];
+  if (signal) requestArgs.push(signal);
+
+  let canTryUpstream = true;
   let relaySource: IEthereumGatewayRelaySource | undefined;
   let relayError = '';
   let relayReasonCode: IEthereumGatewayRelayReasonCode | undefined;
   let localRelayAttemptOutcome: 'notReady' | 'requestFailed' | 'rejected' | undefined;
   let localRelayError = '';
   let localRelayReasonCode: IEthereumGatewayRelayReasonCode | undefined;
-  const upstreamOperatorHost = await upstreamOperatorClient?.resolveOperatorHost();
 
   if (serverApiClient) {
     try {
-      const relayStatus = await serverApiClient.getEthereumRelayStatus();
-      if (relayStatus.isReady) {
-        const response = await serverApiClient.requestEthereumGatewayCatchUp({
-          sourceChain: 'Ethereum',
-          throughGatewayActivityNonce,
-        });
-        if (response.outcome !== 'Rejected') {
+      signal?.throwIfAborted();
+      const relayStatus = await serverApiClient.getEthereumRelayStatus(signal);
+      if (relayStatus.isReady && !signal?.aborted) {
+        // A lost response can still leave a proof running on the local bot.
+        canTryUpstream = !preferLocalRelay;
+        const response = await serverApiClient.requestEthereumGatewayCatchUp(...requestArgs);
+        if (response.outcome === 'Rejected') {
+          canTryUpstream = true;
+          localRelayAttemptOutcome = 'rejected';
+          localRelayError = response.reason;
+          localRelayReasonCode = response.reasonCode;
+        } else if (
+          response.outcome === 'Noop' &&
+          response.throughGatewayActivityNonce !== undefined &&
+          response.throughGatewayActivityNonce < throughGatewayActivityNonce
+        ) {
+          canTryUpstream = true;
+          localRelayAttemptOutcome = 'requestFailed';
+          localRelayError = 'The local relay has not reached the requested gateway activity.';
+        } else {
           relaySource = 'localServer';
 
-          if (upstreamOperatorClient && upstreamOperatorHost) {
+          if (upstreamOperatorClient && !preferLocalRelay && !signal?.aborted) {
             try {
-              await upstreamOperatorClient.requestEthereumGatewayCatchUp({
-                sourceChain: 'Ethereum',
-                throughGatewayActivityNonce,
-              });
+              if ((await upstreamOperatorClient.resolveOperatorHost()) && !signal?.aborted) {
+                await upstreamOperatorClient.requestEthereumGatewayCatchUp(...requestArgs);
+              }
             } catch {
               // The local relay request already succeeded; the upstream nudge is best-effort.
             }
           }
-        } else {
-          localRelayAttemptOutcome = 'rejected';
-          localRelayError = response.reason;
-          localRelayReasonCode = response.reasonCode;
         }
       } else {
         localRelayAttemptOutcome = 'notReady';
@@ -59,22 +81,22 @@ export async function requestEthereumGatewayCatchup(args: {
         localRelayReasonCode = relayStatus.reasonCode;
       }
     } catch (error) {
+      if (error instanceof RequestStatusError) canTryUpstream = true;
       localRelayAttemptOutcome = 'requestFailed';
       localRelayError = error instanceof Error ? error.message : String(error);
     }
   }
 
-  if (!relaySource && upstreamOperatorClient && upstreamOperatorHost) {
+  if (!relaySource && canTryUpstream && upstreamOperatorClient && !signal?.aborted) {
     try {
-      const response = await upstreamOperatorClient.requestEthereumGatewayCatchUp({
-        sourceChain: 'Ethereum',
-        throughGatewayActivityNonce,
-      });
-      if (response.outcome === 'Rejected') {
-        relayError = response.reason;
-        relayReasonCode = response.reasonCode;
-      } else {
-        relaySource = 'upstreamOperator';
+      if ((await upstreamOperatorClient.resolveOperatorHost()) && !signal?.aborted) {
+        const response = await upstreamOperatorClient.requestEthereumGatewayCatchUp(...requestArgs);
+        if (response.outcome === 'Rejected') {
+          relayError = response.reason;
+          relayReasonCode = response.reasonCode;
+        } else {
+          relaySource = 'upstreamOperator';
+        }
       }
     } catch (error) {
       relayError = error instanceof Error ? error.message : String(error);

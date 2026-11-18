@@ -165,13 +165,9 @@ export const useMarketStabilizers = defineStore('marketStabilizers', () => {
     for (const position of summary.value.positions) {
       if (position.kind !== 'stabilizer-buy') continue;
 
-      let periodDays = buys.data.market?.purchaseHoldFrames;
       const frame = position.admissionFrame;
-      if (frame !== undefined) {
-        const rewards = buys.data.frameRewards.find(rewards => rewards.admissionFrame === frame);
-        const maturesAtFrame = rewards?.maturesAtFrame ?? buys.data.auctionsByFrame[frame]?.auction.maturesAtFrame;
-        if (maturesAtFrame !== undefined) periodDays = maturesAtFrame - frame;
-      }
+      let periodDays = position.termDays;
+      if (frame === undefined) periodDays = buys.data.market?.purchaseHoldFrames;
 
       const rewards = buys.data.frameRewards.find(rewards => rewards.admissionFrame === frame);
       let expectedReward: bigint | undefined;

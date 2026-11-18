@@ -121,7 +121,8 @@
           <section v-if="purchaseGroups.length" class="mt-8 flex flex-col gap-y-3 px-9 pb-6">
             <header v-if="activePurchaseCount" class="text-slate-800/70">
               You have {{ activePurchaseCount }}
-              {{ activePurchaseCount === 1 ? 'stabilizer buy' : 'stabilizer buys' }}...
+              {{ activePurchaseCount === 1 ? 'stabilizer buy' : 'stabilizer buys' }}
+              <span v-if="activeGroups.some(group => group.buys.length > 1)">(grouped by bonus round)</span>
             </header>
             <StabilizerBuyRecord
               v-for="group in activeGroups"

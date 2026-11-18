@@ -38,6 +38,32 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
+it('does not post or recover hosts when a relay is canceled during authentication', async () => {
+  const fetchMock = vi.fn(async () => new Response(JSON.stringify({ outcome: 'Noop' })));
+  vi.stubGlobal('fetch', fetchMock);
+  const auth = new ServerAuthClient(() => createMockWalletKeys('//CanceledRelay'));
+  let releaseAuth!: (session: string) => void;
+  const getMemberSessionId = vi.spyOn(auth, 'getMemberSessionId').mockImplementation(
+    () =>
+      new Promise<string>(resolve => {
+        releaseAuth = resolve;
+      }),
+  );
+  const recoverHost = vi.fn(async () => 'https://replacement.example');
+  const client = new UpstreamOperatorClient(auth, () => 'https://operator.example', recoverHost);
+  const controller = new AbortController();
+  const request = client.requestEthereumGatewayCatchUp(
+    { sourceChain: 'Ethereum', throughGatewayActivityNonce: 7n },
+    controller.signal,
+  );
+  await vi.waitFor(() => expect(getMemberSessionId).toHaveBeenCalledOnce());
+  controller.abort();
+  releaseAuth('session');
+  await expect(request).rejects.toThrow();
+  expect(fetchMock).not.toHaveBeenCalled();
+  expect(recoverHost).not.toHaveBeenCalled();
+});
+
 it('shows an upgrade requirement before authenticating or posting a return to the current router protocol', async () => {
   const fetchMock = vi.fn(async () => new Response(JSON.stringify({ status: 'ok', authEnabled: true })));
   vi.stubGlobal('fetch', fetchMock);

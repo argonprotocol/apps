@@ -6,6 +6,8 @@ import { decorateExtrinsics } from '@polkadot/types/metadata/decorate';
 import { getOfflineRegistry } from '@argonprotocol/mainchain';
 import {
   createTypedEventEmitter,
+  JsonExt,
+  type IEthereumGatewayCatchUpRequest,
   type StabilizerBuy,
   type BlockWatch,
   type IBlockHeaderInfo,
@@ -27,13 +29,17 @@ import {
   type IStabilizerBuyQuote,
   type IStabilizerBuyRecord,
 } from '../interfaces/IStabilizerBuyPurchase.ts';
-import { toArgonAccountIdHex } from '../lib/EthereumClient.ts';
+import { getGatewayActivityWaitEstimateMs, toArgonAccountIdHex } from '../lib/EthereumClient.ts';
 import { createStabilizerBuyFinancialPositions } from '../lib/financials/StabilizerBuys.ts';
 import { calculatePositionReturn, reduceFinancialPositions } from '../lib/financials/index.ts';
 import { getStabilizerBuyBidNotice } from '../lib/Alerts.ts';
 import { findAddressActivity } from '../lib/IndexerClient.ts';
 import { SyncStateKeys } from '../lib/db/SyncStateTable.ts';
-import { ConfigSchema, TopTab } from '../interfaces/IConfig.ts';
+import { ServerApiClient } from '../lib/ServerApiClient.ts';
+import { ServerAuthClient } from '../lib/ServerAuthClient.ts';
+import { UpstreamOperatorClient } from '../lib/UpstreamOperatorClient.ts';
+import { createMockWalletKeys } from './helpers/wallet.ts';
+import { ConfigSchema, ServerType, TopTab } from '../interfaces/IConfig.ts';
 
 vi.mock('../lib/IndexerClient.ts', () => ({ findAddressActivity: vi.fn() }));
 afterEach(() => vi.restoreAllMocks());
@@ -96,6 +102,7 @@ describe('Stabilizer purchase history and total returns', () => {
   afterEach(async () => {
     await buys.close();
     await db.sql.close();
+    vi.unstubAllGlobals();
   });
 
   it('advances an empty account checkpoint without announcing another financial change', async () => {
@@ -182,8 +189,7 @@ describe('Stabilizer purchase history and total returns', () => {
   });
 
   it('refreshes pending paydown forecasts on frame turns, page entry and visible price updates', async () => {
-    let visible = false;
-    buys = new StabilizerBuys(chain.watch, chain.accountId, Promise.resolve(db), () => visible);
+    buys = new StabilizerBuys(chain.watch, chain.accountId, Promise.resolve(db));
     const purchaseEvents = chain.events.get(10)!;
     chain.events.clear();
     chain.events.set(10, purchaseEvents);
@@ -213,7 +219,7 @@ describe('Stabilizer purchase history and total returns', () => {
     expect(await db.syncStateTable.get(SyncStateKeys.StabilizerBuys)).toMatchObject({ throughBlock: 11 });
 
     // Opening the page reconciles immediately, even at the same finalized head.
-    visible = true;
+    buys.isPaydownForecastVisible = true;
     await buys.refresh();
     expect(buys.data.positions[0].liquidRepayments[0].observedRValueHighWater?.toNumber()).toBe(0.8);
 
@@ -223,7 +229,7 @@ describe('Stabilizer purchase history and total returns', () => {
     await buys.refresh(chain.watch.finalizedBlockHeader);
     expect(buys.data.positions[0].liquidRepayments[0].observedRValueHighWater?.toNumber()).toBe(0.9);
 
-    visible = false;
+    buys.isPaydownForecastVisible = false;
     chain.framePrices.set(12, { firstTick: 10n, endTick: 13n, rValue: BigNumber(0.95) });
     chain.events.set(13, [eventRecord({ section: 'priceIndex', method: 'NewIndex', data: {} })]);
     chain.advance(13, 0n, 0n, 12);
@@ -694,6 +700,9 @@ describe('Stabilizer purchase history and total returns', () => {
       paidIncome: 0n,
     });
     expect(calculatePositionReturn([position]).returnAmount).toBe(55_875_000n);
+    expect(calculatePositionReturn([position]).apy).toBeCloseTo(
+      (Math.pow(100_000_000 / 44_125_000, 365 / 30) - 1) * 100,
+    );
     const wallet = new WalletForArgon('argon', chain.accountId, Promise.resolve(db));
     const account: IArgonAccountBalance = {
       address: chain.accountId,
@@ -1259,6 +1268,141 @@ describe('Stabilizer purchase history and total returns', () => {
       ethereumFeeMicrogons: partialCost.ethereumFeeMicrogons,
       ethereumTxHash: toHex(55, { size: 32 }),
     });
+  });
+
+  it.each(['local', 'upstream', 'restart', 'http-failure', 'response-lost'] as const)(
+    'prioritizes a confirmed buy and publishes native recognition: %s',
+    async route => {
+      chain.advance(5, 0n, 0n);
+      let anchor = 4_999n;
+      Object.assign(chain.rawApi.query, {
+        ethereumVerifier: {
+          latestExecutionHeaderAnchorBlockHash: async () => toHex(anchor, { size: 32 }),
+          executionHeaderAnchors: async () => ({ blockNumber: anchor }),
+        },
+      });
+      Object.defineProperty(chain.watch, 'bestBlockHeader', { get: () => chain.watch.finalizedBlockHeader });
+
+      const auth = new ServerAuthClient(() => createMockWalletKeys('//StabilizerPriorityRelay'));
+      vi.spyOn(auth, 'getAdminOperatorSessionId').mockResolvedValue('local-session');
+      vi.spyOn(auth, 'getMemberSessionId').mockResolvedValue('upstream-session');
+      const clients = {
+        serverApiClient: new ServerApiClient(
+          () => ({ type: ServerType.CustomServer, ipAddress: '203.0.113.10', gatewayPort: 443 }),
+          auth,
+          { canAccessServer: true },
+        ),
+        upstreamOperatorClient: new UpstreamOperatorClient(auth, () => 'https://operator.example'),
+      };
+      const relayRequests: string[] = [];
+      vi.stubGlobal('fetch', async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = new URL(input instanceof Request ? input.url : input.toString());
+        expect(url.searchParams.get('sessionId')).toBe(
+          url.hostname === 'operator.example' ? 'upstream-session' : 'local-session',
+        );
+        if (url.pathname === '/ethereum-relay-status') {
+          return new Response(JsonExt.stringify({ isReady: route !== 'upstream' }));
+        }
+        expect(url.pathname).toBe('/ethereum-relay-request');
+        expect(init?.method).toBe('POST');
+        const request = JsonExt.parse<IEthereumGatewayCatchUpRequest>(String(init?.body));
+        expect(request).toEqual({ sourceChain: 'Ethereum', throughGatewayActivityNonce: 7n });
+        relayRequests.push(url.hostname);
+        if (route === 'http-failure' && url.hostname === '203.0.113.10') {
+          return new Response('Synthetic local proof provider failure', { status: 503 });
+        }
+
+        // The external relay imports the pending activity; the real domain consumes its finalized events.
+        chain.advance(10, 100_000_000n, 0n);
+        chain.watch.events.emit('finalized', [block(10)]);
+        if (route === 'response-lost') throw new TypeError('Synthetic relay response was lost');
+        return new Response(JsonExt.stringify({ outcome: 'Noop', throughGatewayActivityNonce: 7n }));
+      });
+      await buys.close();
+      buys = new StabilizerBuys(chain.watch, chain.accountId, Promise.resolve(db), clients);
+      await buys.createPurchase({ id: 'priority-buy', ethereumQuote: chain.quote });
+      await buys.recordPurchase('priority-buy', {
+        status: StabilizerBuyStatus.WaitingForArgonRecognition,
+        ethereumTxHash: toHex(55, { size: 32 }),
+        purchaseEthereumBlockNumber: 5_000,
+        ethereumGatewayActivity: chain.ethereumGatewayActivity,
+      });
+      await buys.load();
+      if (route === 'restart') {
+        await buys.close();
+        buys = new StabilizerBuys(chain.watch, chain.accountId, Promise.resolve(db), clients);
+        await buys.load();
+      }
+      buys.data = reactive(buys.data) as StabilizerBuys['data'];
+      const visibleStatus = computed(() => buys.data.buys[0]?.status);
+      expect(visibleStatus.value).toBe(StabilizerBuyStatus.WaitingForArgonRecognition);
+      expect(relayRequests).toEqual([]);
+
+      anchor = 5_000n;
+      chain.events.set(6, [
+        eventRecord({
+          section: 'ethereumVerifier',
+          method: 'ExecutionHeaderAnchorImported',
+          data: { blockHash: toHex(anchor, { size: 32 }), blockNumber: anchor },
+        }),
+      ]);
+      chain.advance(6, 0n, 0n);
+      await buys.refresh(block(6));
+      await vi.waitFor(() => expect(visibleStatus.value).toBe(StabilizerBuyStatus.WaitingForPrincipalReleaseOnArgon));
+      expect((await db.stabilizerBuysTable.fetchAll(chain.accountId)).buys[0]).toMatchObject({
+        id: 'priority-buy',
+        status: StabilizerBuyStatus.WaitingForPrincipalReleaseOnArgon,
+        principal: 100_000_000n,
+        purchaseArgonRecognitionBlockNumber: 10,
+        ethereumTxHash: toHex(55, { size: 32 }),
+      });
+      if (route === 'http-failure') {
+        expect(relayRequests).toEqual(['203.0.113.10', 'operator.example']);
+      } else {
+        expect(relayRequests).toEqual([route === 'upstream' ? 'operator.example' : '203.0.113.10']);
+      }
+    },
+  );
+
+  it('bounds retries across finalized publications while no relay is ready', async () => {
+    chain.advance(5, 0n, 0n);
+    Object.assign(chain.rawApi.query, {
+      ethereumVerifier: {
+        latestExecutionHeaderAnchorBlockHash: async () => toHex(5_000, { size: 32 }),
+        executionHeaderAnchors: async () => ({ blockNumber: 5_000n }),
+      },
+    });
+    Object.defineProperty(chain.watch, 'bestBlockHeader', { get: () => chain.watch.finalizedBlockHeader });
+    const serverApiClient = {
+      getEthereumRelayStatus: vi
+        .fn(async () => ({ isReady: false }))
+        .mockRejectedValueOnce(new Error('Synthetic relay unavailable')),
+      requestEthereumGatewayCatchUp: vi.fn(async () => ({ outcome: 'Noop' as const })),
+    };
+    await buys.close();
+    buys = new StabilizerBuys(chain.watch, chain.accountId, Promise.resolve(db), { serverApiClient });
+    await buys.createPurchase({ id: 'waiting-priority-buy', ethereumQuote: chain.quote });
+    await buys.recordPurchase('waiting-priority-buy', {
+      status: StabilizerBuyStatus.WaitingForArgonRecognition,
+      purchaseEthereumBlockNumber: 5_000,
+      ethereumGatewayActivity: chain.ethereumGatewayActivity,
+    });
+    await buys.load();
+    await vi.waitFor(() => expect(serverApiClient.getEthereumRelayStatus).toHaveBeenCalledOnce());
+    for (const height of [6, 7, 8]) {
+      chain.advance(height, 0n, 0n);
+      await buys.refresh(block(height));
+    }
+    expect(serverApiClient.getEthereumRelayStatus).toHaveBeenCalledOnce();
+    expect(serverApiClient.requestEthereumGatewayCatchUp).not.toHaveBeenCalled();
+    expect(buys.data.buys[0].status).toBe(StabilizerBuyStatus.WaitingForArgonRecognition);
+    expect(buys.data.error).toBeUndefined();
+
+    vi.spyOn(Date, 'now').mockReturnValue(Date.now() + getGatewayActivityWaitEstimateMs() + 1);
+    chain.advance(9, 0n, 0n);
+    await buys.refresh(block(9));
+    await vi.waitFor(() => expect(serverApiClient.getEthereumRelayStatus).toHaveBeenCalledTimes(2));
+    expect((await db.stabilizerBuysTable.fetchAll(chain.accountId)).buys[0].id).toBe('waiting-priority-buy');
   });
 
   it.each(['live', 'restart'])('observes a relayed local buy and payout: %s', async mode => {

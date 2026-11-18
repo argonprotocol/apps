@@ -412,6 +412,7 @@ export function calculatePositionReturn(
       endingDate: position.endedAt,
       endingCapital,
       capitalFlows: position.capitalFlows,
+      termDays: position.termDays,
       dailyReturns: position.dailyReturns,
       dailyReturnPeriodDays: position.dailyReturnPeriodDays,
     });
