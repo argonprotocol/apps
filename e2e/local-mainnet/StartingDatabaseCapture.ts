@@ -21,7 +21,6 @@ import type { IFinancialHistoryDomain } from 'src-vue/lib/db/SyncStateTable.ts';
 import { AppSession } from '../AppSession.ts';
 import { getHistoricalBitcoinFissions } from 'src-vue/lib/recovery/BitcoinFissions.ts';
 import { delay } from '../../scripts/utils.ts';
-import { writeReadonlyWallet } from '../../scripts/troubleshootAccount.ts';
 import { LocalMainnet } from './LocalMainnet.ts';
 import { loadLocalMainnetManifest } from './manifest.ts';
 import {
@@ -314,7 +313,26 @@ export class StartingDatabaseCapture {
       appConfigId: this.mainnet.appConfigId,
     });
     if (existsSync(instanceDirectory)) throw new Error(`Capture instance already exists: ${instanceDirectory}`);
-    writeReadonlyWallet(instanceDirectory, identity);
+    // The published app owns the wallet format it reads, which may differ from the candidate.
+    execFileSync(
+      process.execPath,
+      [
+        '--import',
+        'tsx',
+        '--input-type=module',
+        '--eval',
+        `import { readFileSync } from 'node:fs';
+import { writeReadonlyWallet } from './scripts/troubleshootAccount.ts';
+const { instanceDirectory, identity } = JSON.parse(readFileSync(0, 'utf8'));
+writeReadonlyWallet(instanceDirectory, identity);`,
+      ],
+      {
+        cwd: this.previousAppsDirectory,
+        input: JSON.stringify({ instanceDirectory, identity }),
+        stdio: ['pipe', 'pipe', 'pipe'],
+        timeout: 60_000,
+      },
+    );
 
     const recoveryError = await this.recoverStartingDatabase(
       instanceName,
