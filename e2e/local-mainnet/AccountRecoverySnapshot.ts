@@ -14,6 +14,7 @@ export class AccountRecoverySnapshot {
   private static readonly volatileConfigKeys = new Set(['postWelcomeLaunchCount']);
   private static readonly volatileFields = new Set([
     'observedAt',
+    'balanceUpdatedAt',
     'updatedAt',
     'lastConfirmationCheckAt',
     'releaseLastConfirmationCheckAt',
