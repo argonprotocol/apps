@@ -113,9 +113,9 @@ export class WalletSecrets {
     return mnemonic;
   }
 
-  public async getSubstrateSuri(): Promise<string> {
+  public async getSubstrateSuri(reason: string): Promise<string> {
     if ('mnemonic' in this.#source) return this.#source.substrateSuri ?? this.#source.mnemonic;
-    return this.getMnemonic(undefined, 'sign with your account');
+    return this.getMnemonic(undefined, reason);
   }
 
   public async readWallet(): Promise<IWalletFile> {
