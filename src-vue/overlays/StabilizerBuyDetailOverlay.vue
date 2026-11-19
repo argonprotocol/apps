@@ -171,7 +171,10 @@
               <div class="text-sm text-slate-500">Including fees</div>
             </div>
             <div class="px-3">
-              <header class="text-sm font-bold text-slate-400">NET EARNINGS</header>
+              <header class="text-sm font-bold text-slate-400">
+                <template v-if="isBiddingUpcoming && !paydowns.length">PURCHASE SAVINGS</template>
+                <template v-else>NET EARNINGS</template>
+              </header>
               <div class="py-1 text-2xl font-bold text-slate-600">
                 <template v-if="returns?.returnAmount !== undefined">
                   {{ microgonToMoneyNm(returns.returnAmount).formatCurrency(currency.symbol) }}
@@ -185,7 +188,8 @@
                 </template>
               </div>
               <div class="flex items-center justify-center gap-1 text-sm text-slate-500">
-                <template v-if="returns.isEstimated">Estimate after fees</template>
+                <template v-if="isBiddingUpcoming && !paydowns.length">After fees · Bonus pending</template>
+                <template v-else-if="returns.isEstimated">Estimate after fees</template>
                 <template v-else>After fees</template>
                 <Tooltip v-if="paydowns.length && returns.returnAmount !== undefined" :asChild="true" side="bottom">
                   <button type="button" aria-label="Net earnings information" class="inline-flex cursor-help">
@@ -222,7 +226,10 @@
               </div>
             </div>
             <div class="px-3">
-              <header class="text-sm font-bold text-slate-400">APY</header>
+              <header class="text-sm font-bold text-slate-400">
+                <template v-if="isBiddingUpcoming && !paydowns.length">SAVINGS APY</template>
+                <template v-else>APY</template>
+              </header>
               <div class="py-1 text-2xl font-bold text-slate-600">
                 <Returns
                   v-if="returns?.apy !== undefined"
@@ -250,7 +257,7 @@
           </div>
         </section>
 
-        <details :open="isBiddingOpen" class="group mt-6 border-t border-slate-200">
+        <details :open="market.data.currentFrameId < admissionFrame + 2" class="group mt-6 border-t border-slate-200">
           <summary class="flex cursor-pointer list-none items-center justify-between gap-3 py-4">
             <h2 class="font-bold text-slate-700">
               <template v-if="market.data.currentFrameId < admissionFrame + 2">Bidding for a Bonus</template>
@@ -280,12 +287,23 @@
           <p class="text-sm leading-relaxed text-slate-500">
             The Argon network offers bonuses for Stabilizer Buys.
             <template v-if="isBiddingOpen && bidOptions.matchingBasis !== undefined">
-              Your maximum bonus is ₳{{ numeral(formatUnits(bidOptions.matchingBasis, 6)).format('0,0.[00]') }}.
+              <!-- prettier-ignore -->
+              <template v-if="bidOptions.rewardBudget !== undefined && bidOptions.rewardBudget < bidOptions.matchingBasis">
+                Your maximum bonus is ₳{{ numeral(formatUnits(bidOptions.matchingBasis, 6)).format('0,0.[00]') }},
+                but this round’s smaller pool caps it at ₳{{ numeral(formatUnits(bidOptions.rewardBudget, 6)).format('0,0.[00]') }}.
+              </template>
+              <template v-else>
+                Your maximum bonus is ₳{{ numeral(formatUnits(bidOptions.matchingBasis, 6)).format('0,0.[00]') }},
+                subject to this round’s available funding.
+              </template>
             </template>
-            <template v-if="rewards?.awardedReward !== undefined || market.data.currentFrameId >= admissionFrame + 2">
-              Buyers who accepted less of their maximum bonus were considered first.
+            <template v-if="isBiddingUpcoming || (bidOptions.cohortBids?.length ?? 0) > 1">
+              <!-- prettier-ignore -->
+              <template v-if="rewards?.awardedReward !== undefined || market.data.currentFrameId >= admissionFrame + 2">
+                Buyers who accepted less of their maximum bonus were considered first.
+              </template>
+              <template v-else>You can move ahead of other buyers by accepting less of your maximum bonus.</template>
             </template>
-            <template v-else>You can move ahead of other buyers by accepting less of your maximum bonus.</template>
             <a
               :href="`${NetworkConfig.websiteHost}/docs/network-rules/market-stabilizers#stabilizer-buys`"
               target="_blank"
@@ -337,17 +355,21 @@
                 <div v-if="bidOptions.rewardBudget !== undefined" class="text-argon-600 py-1 text-3xl font-bold">
                   ₳{{ numeral(formatUnits(bidOptions.rewardBudget, 6)).format('0,0.[00]') }}
                 </div>
+                <div v-else class="py-1 text-3xl font-bold text-slate-500">
+                  <template v-if="market.data.currentFrameId < admissionFrame + 2">Pending</template>
+                  <template v-else>Unavailable</template>
+                </div>
                 <div class="font-light text-slate-500">For This Bidding Round</div>
               </template>
             </div>
             <CountdownClock
-              v-if="market.dates.closes[admissionFrame]"
-              :time="dayjs.utc(market.dates.closes[admissionFrame])"
+              v-if="biddingCountdownAt"
+              :time="dayjs.utc(biddingCountdownAt)"
               v-slot="{ days, hours, minutes, seconds, isFinished }"
             >
               <div class="flex items-start justify-center gap-5">
                 <svg
-                  v-if="market.dates.opens[admissionFrame] && !isFinished"
+                  v-if="isBiddingOpen && market.dates.opens[admissionFrame] && !isFinished"
                   viewBox="0 0 36 36"
                   class="size-16 shrink-0 -rotate-90 self-center"
                   aria-hidden="true"
@@ -369,7 +391,8 @@
                 </svg>
                 <div class="text-center">
                   <header class="font-bold text-gray-600/60">
-                    <template v-if="isFinished">BIDDING CLOSED</template>
+                    <template v-if="isBiddingUpcoming">BONUS BIDDING STARTS</template>
+                    <template v-else-if="isFinished">BIDDING CLOSED</template>
                     <template v-else>BIDDING CLOSES IN</template>
                   </header>
                   <div v-if="!isFinished" class="text-argon-600 py-1 font-mono text-3xl font-bold tabular-nums">
@@ -378,7 +401,11 @@
                       numeral(seconds).format('00')
                     }}
                   </div>
-                  <div v-if="!isFinished" class="font-light text-slate-500">To Submit Your Bid</div>
+                  <div v-if="!isFinished" class="font-light text-slate-500">
+                    <template v-if="isBiddingUpcoming">Until You Can Bid</template>
+                    <template v-else>To Submit Your Bid</template>
+                  </div>
+                  <div v-else-if="isBiddingUpcoming" class="mt-1 text-slate-500">Awaiting the next frame</div>
                   <template v-else>
                     <div class="text-argon-600 py-1 text-3xl font-bold">
                       {{ dayjs(market.dates.closes[admissionFrame]).format('M/D/YYYY') }}
@@ -450,14 +477,16 @@
                     >
                       <td class="relative px-3 py-3">
                         <Tooltip
-                          v-if="isBiddingOpen && bid.ownerAccount === rewards?.ownerAccount"
+                          v-if="
+                            isBiddingOpen && bid.ownerAccount === rewards?.ownerAccount && bidAheadPercent !== undefined
+                          "
                           :asChild="true"
                           side="top"
                         >
                           <button
                             type="button"
                             aria-label="Move up"
-                            :disabled="!bidOptions.canEdit || bidOptions.isSubmitting || bidAheadPercent === undefined"
+                            :disabled="!bidOptions.canEdit || bidOptions.isSubmitting"
                             class="bg-argon-button hover:bg-argon-button-hover absolute top-1/2 -left-1 -translate-x-full -translate-y-1/2 cursor-pointer rounded-md p-2 text-white disabled:cursor-default disabled:opacity-40"
                             @click="rewardPercent = bidAheadPercent ?? rewardPercent"
                           >
@@ -530,7 +559,10 @@
           </section>
 
           <p v-if="isBiddingOpen" class="mt-4 text-sm text-slate-500">
-            Use the up arrow to move ahead, then submit your bid.
+            <template v-if="bidAheadPercent !== undefined">
+              Use the up arrow to move ahead, then submit your bid.
+            </template>
+            <template v-else>Choose your bonus percentage, then submit your bid.</template>
           </p>
 
           <p
@@ -583,12 +615,22 @@
               </p>
             </template>
           </template>
-          <p v-else-if="market.data.currentFrameId <= admissionFrame" class="mt-4 text-sm text-slate-500">
-            Bidding opens
+          <p v-else-if="isBiddingUpcoming" class="mt-5 border-t border-slate-200 pt-4 text-sm text-slate-500">
+            Bonus bidding starts
             <template v-if="market.dates.opens[admissionFrame]">
-              {{ dayjs(market.dates.opens[admissionFrame]).format('M/D/YYYY [at] h:mm a') }}.
+              {{ dayjs(market.dates.opens[admissionFrame]).format('M/D [at] h:mm a') }}
             </template>
-            <template v-else>in the next frame.</template>
+            <template v-else>in the next frame</template>
+            <template v-if="market.dates.closes[admissionFrame]">
+              and closes {{ dayjs(market.dates.closes[admissionFrame]).format('M/D [at] h:mm a') }}
+            </template>
+            .
+          </p>
+          <p
+            v-else-if="market.data.currentFrameId === admissionFrame + 1 && !isBiddingOpen"
+            class="mt-4 text-sm text-slate-500"
+          >
+            Waiting for the bonus pool to be funded. You can submit your bid once funding is available.
           </p>
           <p v-else-if="expectedBonus !== undefined" class="mt-4 text-sm text-slate-500">
             Bidding is complete.
@@ -737,6 +779,11 @@ const position = computed(() =>
 const isBiddingOpen = computed(
   () => rewards.value?.awardedReward === undefined && !!position.value?.isBiddingOpen(market.data.currentFrameId),
 );
+const isBiddingUpcoming = computed(() => market.data.currentFrameId <= props.admissionFrame);
+const biddingCountdownAt = computed(() => {
+  if (isBiddingUpcoming.value) return market.dates.opens[props.admissionFrame];
+  return market.dates.closes[props.admissionFrame];
+});
 
 const investmentPeriodDays = computed(() => market.data.market?.purchaseHoldFrames);
 
@@ -798,7 +845,7 @@ const bidOptions = computed(() => {
 
   const snapshot = market.data.auctionsByFrame[admissionFrame];
   const inclusionPercent = market.data.market?.auctionInclusionPercent;
-  if (!snapshot || !inclusionPercent) return { canSubmit: false };
+  if (!snapshot || snapshot.auction.budget === null || !inclusionPercent) return { canSubmit: false };
 
   const own = position.value;
   const hasPendingBid = !!getStabilizerBuyOperations().stabilizerBuyBid.getPendingForFrame(admissionFrame);

@@ -293,7 +293,6 @@ describe('Stabilizer Buy background purchases', { tags: ['no-argon-network'] }, 
     await command.purchase({
       id: 'synthetic-buy',
       ethereumQuote: quote,
-      ethereumMaxFeeWei: 1_000_000_000_000_000_001n,
       ethereumWallet,
       txSigner: await walletKeys.getDefaultArgonSigner(),
     });
@@ -346,7 +345,7 @@ describe('Stabilizer Buy background purchases', { tags: ['no-argon-network'] }, 
     expect(confirmed.repayLiquidId).toBeUndefined();
     expect(StabilizerBuys.getRequestedLiquidId(confirmed)).toBe(attachLiquid ? 10 : undefined);
     expect(confirmed.ethereumFeeWei).toBe(40n);
-    expect(confirmed.ethereumMaxFeeWei).toBe(1_000_000_000_000_000_001n);
+    expect(confirmed.ethereumMaxFeeWei).toBeUndefined();
     expect(confirmed.purchaseEthereumBlockNumber).toBe(42);
     expect(confirmed.purchaseEthereumBlockHash).toBe(`0x${'99'.repeat(32)}`);
     expect(confirmed).toMatchObject({
@@ -372,8 +371,13 @@ describe('Stabilizer Buy background purchases', { tags: ['no-argon-network'] }, 
     revertPurchase = true;
     const execute = db.sql.execute.bind(db.sql);
     let failedWrite = false;
+    let failDismissWrite = false;
     vi.spyOn(db.sql, 'execute').mockImplementation(async (query, params) => {
       const result = await execute(query, params);
+      if (query.includes('DELETE FROM StabilizerBuys') && failDismissWrite) {
+        failDismissWrite = false;
+        throw new Error('Dismiss write failed');
+      }
       if (
         query.includes('INSERT INTO StabilizerBuys') &&
         !failedWrite &&
@@ -410,6 +414,8 @@ describe('Stabilizer Buy background purchases', { tags: ['no-argon-network'] }, 
     expect(rows.value.find(buy => buy.id === confirmed.id)?.status).toBe(
       StabilizerBuyStatus.WaitingForArgonRecognition,
     );
+    await expect(restored.dismissPurchase(failed.id)).rejects.toThrow('never submitted');
+    expect(rows.value.find(buy => buy.id === failed.id)).toBeDefined();
     revertPurchase = false;
     unsupportedPermit = true;
     await restoredCommand.purchase({
@@ -428,6 +434,23 @@ describe('Stabilizer Buy background purchases', { tags: ['no-argon-network'] }, 
       ethereumFeeMicrogons: 0n,
     });
     expect(receipts.size).toBe(2);
+
+    failDismissWrite = true;
+    await expect(restored.dismissPurchase('unsupported-permit-adapter')).rejects.toThrow('Dismiss write failed');
+    expect(rows.value.find(buy => buy.id === 'unsupported-permit-adapter')).toBeDefined();
+    expect(
+      (await db.stabilizerBuysTable.fetchAll(walletKeys.defaultArgonAddress)).buys.some(
+        buy => buy.id === 'unsupported-permit-adapter',
+      ),
+    ).toBe(true);
+
+    await restored.dismissPurchase('unsupported-permit-adapter');
+    expect(rows.value.find(buy => buy.id === 'unsupported-permit-adapter')).toBeUndefined();
+    expect(
+      (await db.stabilizerBuysTable.fetchAll(walletKeys.defaultArgonAddress)).buys.some(
+        buy => buy.id === 'unsupported-permit-adapter',
+      ),
+    ).toBe(false);
 
     unsupportedPermit = false;
     unsupportedDomain = true;

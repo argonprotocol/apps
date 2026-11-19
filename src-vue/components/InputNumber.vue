@@ -20,6 +20,7 @@
         <div
           data-testid="input-number"
           :contenteditable="!props.disabled"
+          :aria-disabled="props.disabled"
           ref="inputElem"
           @focus="handleFocus"
           @blur="handleBlur"

@@ -3,6 +3,10 @@ import os from 'node:os';
 import Path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { afterEach, describe, expect, it } from 'vitest';
+import { PriceIndex } from '@argonprotocol/mainchain';
+import { Currency } from 'src-vue/lib/Currency.ts';
+import { WalletForEthereum } from 'src-vue/lib/WalletForEthereum.ts';
+import { reduceFinancialPositions } from 'src-vue/lib/financials/index.ts';
 import {
   type FinancialGroup,
   type IFinancialAggregate,
@@ -124,6 +128,9 @@ describe('account recovery snapshots', () => {
       );
       INSERT INTO BitcoinUtxos (id, satoshis, mempoolObservation, updatedAt)
       VALUES (1, '5000', '{"confirmations":1,"txid":"tx-1"}', 'first');
+      CREATE TABLE FinancialCache (type TEXT NOT NULL, scope TEXT NOT NULL, state TEXT NOT NULL);
+      INSERT INTO FinancialCache (type, scope, state)
+      VALUES ('BitcoinSecuritizationHistory', 'synthetic-account', '{"snapshotId":"snapshot-1","asOfBlock":42}');
     `);
     database.close();
 
@@ -144,6 +151,38 @@ describe('account recovery snapshots', () => {
       financials: createFinancials(),
     });
     expect(() => AccountRecoverySnapshot.assertEquivalent(first, second, 'retry')).not.toThrow();
+
+    const currency = Object.assign(Object.create(Currency.prototype) as Currency, { priceIndex: new PriceIndex() });
+    const wallet = new WalletForEthereum(`0x${'11'.repeat(20)}`);
+    wallet.data.availableMicrogons = 100n;
+    wallet.data.totalMicrogons = 100n;
+    wallet.data.balanceUpdatedAt = new Date('2026-09-21T12:00:00Z');
+    const captureWallet = () =>
+      AccountRecoverySnapshot.capture({
+        databasePath,
+        financials: reduceFinancialPositions([
+          {
+            group: 'ethereum',
+            state: 'ready',
+            observation: { observedAt: new Date('2026-09-21T12:00:00Z') },
+            positions: wallet.createFinancialPositions(currency),
+          },
+        ]),
+      });
+    const beforeBalanceRefresh = captureWallet();
+    wallet.data.balanceUpdatedAt = new Date('2026-09-21T12:01:00Z');
+    const afterBalanceRefresh = captureWallet();
+    expect(afterBalanceRefresh.databaseHash).toBe(beforeBalanceRefresh.databaseHash);
+    expect(() =>
+      AccountRecoverySnapshot.assertEquivalent(beforeBalanceRefresh, afterBalanceRefresh, 'balance refresh'),
+    ).not.toThrow();
+
+    wallet.data.availableMicrogons = 101n;
+    wallet.data.totalMicrogons = 101n;
+    const changedBalance = captureWallet();
+    expect(() =>
+      AccountRecoverySnapshot.assertEquivalent(afterBalanceRefresh, changedBalance, 'balance change'),
+    ).toThrow(/financial projection/);
 
     const changedLabel = AccountRecoverySnapshot.capture({
       databasePath,
@@ -171,5 +210,17 @@ describe('account recovery snapshots', () => {
     expect(() => AccountRecoverySnapshot.assertEquivalent(first, changedDate, 'retry')).toThrow(
       /financial projection .*startedAt.*table PositionHistory .*amount/,
     );
+
+    const beforePublication = AccountRecoverySnapshot.capture({ databasePath, financials });
+    const publicationUpdate = new DatabaseSync(databasePath);
+    publicationUpdate.exec(
+      `UPDATE FinancialCache SET state = '{"snapshotId":"snapshot-2","asOfBlock":43}'
+       WHERE type = 'BitcoinSecuritizationHistory';`,
+    );
+    publicationUpdate.close();
+    const afterPublication = AccountRecoverySnapshot.capture({ databasePath, financials });
+    expect(() =>
+      AccountRecoverySnapshot.assertEquivalent(beforePublication, afterPublication, 'Bitcoin history publication'),
+    ).toThrow(/table FinancialCache/);
   });
 });

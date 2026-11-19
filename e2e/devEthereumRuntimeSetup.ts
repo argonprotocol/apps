@@ -43,6 +43,7 @@ export async function ensureDevEthereumBeaconBootstrapped(
   beaconApiUrl: string,
   sudoKeypair: KeyringPair,
   options: {
+    executionRpcUrl?: string;
     timeoutMs?: number;
     pollMs?: number;
     minimumExecutionBlockNumber?: bigint;
@@ -78,7 +79,11 @@ export async function ensureDevEthereumBeaconBootstrapped(
 
   while (Date.now() - bootstrapTxStartedAt < timeoutMs) {
     try {
-      bootstrapTx = await getEthereumBeaconSyncBootstrapTx(client.raw, beaconApiUrl);
+      bootstrapTx = await getEthereumBeaconSyncBootstrapTx(
+        client.raw,
+        beaconApiUrl,
+        options.executionRpcUrl ? { executionRpcUrl: options.executionRpcUrl } : undefined,
+      );
       console.log(`[dev-ethereum] Built beacon bootstrap transaction after ${Date.now() - bootstrapTxStartedAt}ms`);
       break;
     } catch (error) {

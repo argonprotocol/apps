@@ -34,6 +34,7 @@ import BigNumber from 'bignumber.js';
 import { createCurrentLock, createStore, historyEvent } from './helpers/bitcoin.ts';
 import { BitcoinNetwork, CosignScript, HDKey } from '@argonprotocol/bitcoin';
 import { BitcoinSigner } from '../lib/BitcoinSigner.ts';
+import { createDeferred } from '../../core/src/Deferred.ts';
 import type { IBitcoinLockCosignMetadata } from '../lib/txs/BitcoinLock.cosign.ts';
 import { BitcoinReleaseKind, BitcoinReleaseStatus } from '../interfaces/IBitcoinReleaseRecord.ts';
 import { BitcoinLockStatus } from '../interfaces/IBitcoinLockRecord.ts';
@@ -1044,6 +1045,47 @@ describe('MyVault cosign recovery', () => {
     await onFinalized([{ blockNumber: 23, blockHash: '0x23' }]);
     expect(myVault.data.argonotCommitment?.encumberedMicronots).toBe(0n);
     expect(myVault.data.createdVault?.availableArgonotWithdrawal(myVault.data.argonotCommitment)).toBe(1_000n);
+
+    const intactVault = myVault.data.createdVault;
+    const readCapital = blockWatch.getApi.getMockImplementation()!;
+    const disconnectedSnapshot = createDeferred<never>();
+    const snapshotReads = blockWatch.getLatestFinalizedSnapshot.mock.calls.length;
+    blockWatch.getApi.mockRejectedValue(new Error('Synthetic capital disconnect'));
+    blockWatch.getLatestFinalizedSnapshot.mockReturnValueOnce(disconnectedSnapshot.promise);
+    const disconnectedBlock = { blockNumber: 24, blockHash: '0x24', isNewFrame: true };
+    const disconnectedEvents = {
+      api: finalizedApi,
+      specVersion: 161,
+      events: [
+        historyEvent(161, 'bitcoinFissions', 'FissionRatcheted', {
+          accountId: myVault.data.externalLocks[11].lockDetails.ownerAccount,
+          fissionId: 1,
+          ratchetNumber: 1,
+          microgonsAtTargetPerBtc: 1_500_000n,
+          liquidityPromised: 60n,
+          amountMinted: 20n,
+          amountBurned: 0n,
+        }),
+      ],
+    };
+    getBlockEventsWithSpec.mockResolvedValueOnce(disconnectedEvents);
+    const failedPublication = onFinalized([disconnectedBlock]);
+    await vi.waitFor(() => expect(blockWatch.getLatestFinalizedSnapshot).toHaveBeenCalledTimes(snapshotReads + 1));
+    await new Promise<void>(resolve => setImmediate(resolve));
+    disconnectedSnapshot.reject(new Error('Synthetic finalized snapshot disconnect'));
+    await failedPublication;
+    expect(myVault.data.createdVault).toBe(intactVault);
+
+    blockWatch.getApi.mockImplementation(readCapital);
+    finalizedApi.query.vaults.vaultsById.mockResolvedValueOnce(
+      registry.createType<ArgonPrimitivesVault>('ArgonPrimitivesVault', { securitization: 300n }),
+    );
+    frameRevenues.mockResolvedValue([{ frameId: 1, uncollectedRevenue: 84n }]);
+    getBlockEventsWithSpec
+      .mockResolvedValueOnce(disconnectedEvents)
+      .mockResolvedValueOnce({ api: finalizedApi, events: [], specVersion: 161 });
+    await onFinalized([{ blockNumber: 25, blockHash: '0x25' }]);
+    expect(myVault.data.createdVault?.securitization).toBe(300n);
     myVault.unsubscribe();
     getMainchainClient.mockRestore();
     getMainchainClients.mockRestore();

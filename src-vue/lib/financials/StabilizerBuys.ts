@@ -11,7 +11,7 @@ import {
 } from '@argonprotocol/apps-core';
 import type { PriceIndex } from '@argonprotocol/mainchain';
 import type { BitcoinLiquid } from '../BitcoinLiquid.ts';
-import type IStabilizerBuyData from '../../../core/src/interfaces/IStabilizerBuyData.ts';
+import type IArgonUniswapData from '../../../core/src/interfaces/IArgonUniswapData.ts';
 import type { StabilizerBuyPurchases } from '../StabilizerBuyPurchases.ts';
 import {
   createFinancialPosition,
@@ -166,29 +166,33 @@ export function createStabilizerBuyFinancialPositions(
     let positionId = `stabilizer:${accountAddress}:${id}`;
     if (!isUnframed) positionId = `stabilizer:${accountAddress}:frame:${id}`;
 
-    positions.push(
-      createFinancialPosition(
-        'stabilizer-buy',
-        {
-          id: positionId,
-          label: 'Stabilizer Buy',
-          admissionFrame,
-          lifecycle: isCompleted ? 'completed' : 'held',
-          startedAt,
-          endedAt: isCompleted ? endedAt : undefined,
-          capitalFlows,
-          returnIsComplete,
-        },
-        {
-          currentValue,
-          investedCost,
-          paidIncome:
-            (rewards?.paidReward ?? 0n) +
-            (rewards?.repaymentRewards ?? []).reduce((sum, reward) => sum + reward.amount, 0n),
-          settledPrincipalValue: settledCapitalValue,
-        },
-      ),
+    const position = createFinancialPosition(
+      'stabilizer-buy',
+      {
+        id: positionId,
+        label: 'Stabilizer Buy',
+        admissionFrame,
+        lifecycle: isCompleted ? 'completed' : 'held',
+        startedAt,
+        endedAt: isCompleted ? endedAt : undefined,
+        capitalFlows,
+        returnIsComplete,
+      },
+      {
+        currentValue,
+        investedCost,
+        paidIncome:
+          (rewards?.paidReward ?? 0n) +
+          (rewards?.repaymentRewards ?? []).reduce((sum, reward) => sum + reward.amount, 0n),
+        settledPrincipalValue: settledCapitalValue,
+      },
     );
+    if (admissionFrame !== undefined) {
+      const maturesAtFrame = rewards?.maturesAtFrame ?? liveByFrame.get(admissionFrame)?.auction.maturesAtFrame;
+      position.termDays = snapshot.market?.purchaseHoldFrames ?? null;
+      if (maturesAtFrame !== undefined) position.termDays = maturesAtFrame - admissionFrame;
+    }
+    positions.push(position);
   }
 
   if (!rewardsMatch) {
@@ -219,7 +223,7 @@ export function calculateStabilizerBuyReturn({
 }: {
   position: IStabilizerBuyFinancialPosition;
   group: IFinancialGroupSummary;
-  periodDays?: number;
+  periodDays?: number | null;
   expectedReward?: bigint;
   potentialLiquidBonus?: bigint;
 }) {
@@ -261,7 +265,7 @@ export function projectHistoricalStabilizerBuys({
   market,
   availableUsdc,
 }: {
-  history: IStabilizerBuyData;
+  history: IArgonUniswapData;
   fees: NonNullable<Awaited<ReturnType<StabilizerBuyPurchases['estimateHistoricalFees']>>>;
   market: Pick<
     NonNullable<StabilizerBuys['data']['market']>,

@@ -1,4 +1,4 @@
-import { computed, ref, shallowRef, watch } from 'vue';
+import { computed, shallowRef, watch } from 'vue';
 import { defineStore } from 'pinia';
 import { getStabilizerBuyBidNotice } from '../lib/Alerts.ts';
 import { useCertificationController } from './certificationController.ts';
@@ -39,8 +39,8 @@ export async function openStabilizerBuyNotice({
     }
 
     navigation.noticeError = undefined;
+    useAttention().acknowledgeStabilizerBuy(current.key);
     if (current.type === 'buy') {
-      useAttention().acknowledgeStabilizerBuy(current.key);
       navigation.reviewBuy = true;
     } else navigation.admissionFrame = current.position.admissionFrame;
   } catch (error) {
@@ -60,21 +60,30 @@ export async function openStabilizerBuyNotice({
 export const useAttention = defineStore('attention', () => {
   const buys = getStabilizerBuys();
 
-  const stabilizerBid = computed(() => getStabilizerBuyBidNotice(buys));
-
-  const acknowledgedBuyKey = ref<string>();
+  const acknowledgedKeys = shallowRef(new Set<string>());
+  const bidNotice = computed(() => getStabilizerBuyBidNotice(buys));
   const buyNotice = computed(() => getStabilizerBuyAlerts()?.buyNotice);
+  const stabilizerBid = computed(() => {
+    const notice = bidNotice.value;
+    if (notice && !acknowledgedKeys.value.has(notice.key)) return notice;
+  });
   const stabilizerBuyOpportunity = computed(() => {
     const notice = buyNotice.value;
-    if (notice?.key !== acknowledgedBuyKey.value) return notice;
+    if (notice && !acknowledgedKeys.value.has(notice.key)) return notice;
   });
 
-  watch(buyNotice, notice => {
-    if (notice?.key !== acknowledgedBuyKey.value) acknowledgedBuyKey.value = undefined;
-  });
+  watch(
+    [bidNotice, buyNotice],
+    notices => {
+      const keys = notices.map(notice => notice?.key);
+      acknowledgedKeys.value = new Set([...acknowledgedKeys.value].filter(key => keys.includes(key)));
+    },
+    { flush: 'sync' },
+  );
 
   function acknowledgeStabilizerBuy(key: string): void {
-    if (buyNotice.value?.key === key) acknowledgedBuyKey.value = key;
+    if (bidNotice.value?.key !== key && buyNotice.value?.key !== key) return;
+    acknowledgedKeys.value = new Set([...acknowledgedKeys.value, key]);
   }
 
   const count = computed(() => (stabilizerBid.value ? 1 : 0) + (stabilizerBuyOpportunity.value ? 1 : 0));

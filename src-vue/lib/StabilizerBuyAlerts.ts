@@ -27,6 +27,8 @@ export class StabilizerBuyAlerts {
   private quoteRequest?: AbortController;
   private timer?: ReturnType<typeof setInterval>;
   private expiryTimer?: ReturnType<typeof setTimeout>;
+  private unsubscribe?: () => void;
+  private pendingEthereumPools = new Set<string>();
   private isClosed = false;
 
   constructor(
@@ -40,12 +42,34 @@ export class StabilizerBuyAlerts {
 
   public start(): void {
     if (this.timer || this.isClosed) return;
+    this.unsubscribe = this.buys.events.on('records-changed', () => {
+      void this.refresh().catch(() => undefined);
+    });
     this.timer = setInterval(() => void this.refresh().catch(() => undefined), NetworkConfig.tickMillis);
     void this.refresh().catch(() => undefined);
   }
 
   public refresh(): Promise<void> {
     if (this.isClosed) return Promise.resolve();
+    const pendingPools = new Set<string>(this.buys.pendingEthereumPurchases.map(buy => buy.ethereumQuote.poolId));
+    const changedPools = new Set(
+      [...this.pendingEthereumPools, ...pendingPools].filter(
+        poolId => this.pendingEthereumPools.has(poolId) !== pendingPools.has(poolId),
+      ),
+    );
+    this.pendingEthereumPools = pendingPools;
+    for (const poolId of changedPools) this.getPurchases()?.invalidatePoolEstimate(poolId);
+
+    const activePool = this.buys.data.market?.approvedPool?.poolId;
+    const purchaseChanged = activePool !== undefined && changedPools.has(activePool);
+    if (purchaseChanged) {
+      this.quoteRevision++;
+      this.quoteRequest?.abort(new StabilizerBuyQuoteUnavailableError('The Ethereum purchase state has changed.'));
+      this.lastQuoteTick = undefined;
+      this.publishOpportunity(undefined);
+      this.data.error = undefined;
+      if (this.refreshPromise) return this.refreshPromise.catch(() => undefined).then(() => this.refresh());
+    }
     if (this.buys.buyDiscountPercent === undefined) {
       this.quoteRequest?.abort(
         new StabilizerBuyQuoteUnavailableError('There is no purchase available below the target price.'),
@@ -62,6 +86,7 @@ export class StabilizerBuyAlerts {
 
   public async close(): Promise<void> {
     this.isClosed = true;
+    this.unsubscribe?.();
     clearInterval(this.timer);
     this.quoteRequest?.abort();
     clearTimeout(this.expiryTimer);
@@ -93,6 +118,7 @@ export class StabilizerBuyAlerts {
     const opportunity = this.data.opportunity;
     const market = this.buys.data.market;
     if (this.isClosed || !opportunity) return;
+    if (this.buys.pendingEthereumPurchases.some(buy => buy.ethereumQuote.poolId === opportunity.quote.poolId)) return;
     if (this.buys.buyDiscountPercent === undefined) return;
     if (opportunity.expiresAt <= Date.now()) return;
     if (opportunity.quote.poolId !== market?.approvedPool?.poolId) return;
@@ -150,6 +176,10 @@ export class StabilizerBuyAlerts {
 
   private async refreshBuyOpportunity(db: Db): Promise<void> {
     const market = this.buys.data.market;
+    if (this.buys.pendingEthereumPurchases.some(buy => buy.ethereumQuote.poolId === market?.approvedPool?.poolId)) {
+      this.publishOpportunity(undefined);
+      return;
+    }
     const quoteExpired = this.data.opportunity && this.data.opportunity.expiresAt <= Date.now();
     if (quoteExpired) this.publishOpportunity(undefined);
 

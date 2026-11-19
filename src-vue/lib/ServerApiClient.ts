@@ -196,15 +196,18 @@ export class ServerApiClient {
 
   public async requestEthereumGatewayCatchUp(
     payload: IEthereumGatewayCatchUpRequest,
+    signal?: AbortSignal,
   ): Promise<IEthereumGatewayCatchUpResponse> {
     return await this.postJson<IEthereumGatewayCatchUpResponse>('/ethereum-relay-request', payload, {
+      init: { signal },
       timeoutMs: 30e3,
       adminOperatorAuth: true,
     });
   }
 
-  public async getEthereumRelayStatus(): Promise<IEthereumGatewayRelayStatus> {
+  public async getEthereumRelayStatus(signal?: AbortSignal): Promise<IEthereumGatewayRelayStatus> {
     return await this.request<IEthereumGatewayRelayStatus>('/ethereum-relay-status', {
+      init: { signal },
       timeoutMs: 10e3,
       adminOperatorAuth: true,
     });
@@ -246,6 +249,7 @@ export class ServerApiClient {
     return this.request<T>(path, {
       ...options,
       init: {
+        ...options.init,
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JsonExt.stringify(payload),
@@ -361,9 +365,13 @@ export class ServerApiClient {
     path: string,
     options: RequestOptions = {},
   ): Promise<T> {
+    options.init?.signal?.throwIfAborted();
     const abortController = new AbortController();
     const timeoutMs = options.timeoutMs ?? 10e3;
     const timeout = setTimeout(() => abortController.abort(), timeoutMs);
+    const callerSignal = options.init?.signal;
+    const onAbort = () => abortController.abort(callerSignal?.reason);
+    callerSignal?.addEventListener('abort', onAbort, { once: true });
 
     try {
       const response = await fetch(this.getGatewayHttpUrl(serverDetails, path, options.sessionId), {
@@ -371,7 +379,7 @@ export class ServerApiClient {
         headers: {
           ...(options.init?.headers as Record<string, string> | undefined),
         },
-        signal: options.init?.signal ?? abortController.signal,
+        signal: abortController.signal,
       });
       const rawBody = await response.text();
       let body: T | IRouterErrorResponse | string | undefined;
@@ -399,6 +407,7 @@ export class ServerApiClient {
       return body as T;
     } finally {
       clearTimeout(timeout);
+      callerSignal?.removeEventListener('abort', onAbort);
     }
   }
 }

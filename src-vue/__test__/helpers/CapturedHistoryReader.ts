@@ -35,6 +35,7 @@ export class CapturedHistoryReader {
       storage: ReturnType<typeof decorateStorage>;
     }
   >();
+  private readonly eventsByBlock = new Map<string, Awaited<ReturnType<CapturedHistoryReader['getEventsWithSpec']>>>();
   private readonly hasRecoveryStorage: boolean;
   private readonly hasRecoveryHeaders: boolean;
 
@@ -152,6 +153,7 @@ export class CapturedHistoryReader {
 
   public close(): void {
     this.database.close();
+    this.eventsByBlock.clear();
   }
 
   public withBackgroundArchiveRead<T>(read: () => Promise<T>): Promise<T> {
@@ -343,6 +345,14 @@ export class CapturedHistoryReader {
   public async getEventsWithSpec(
     block: Pick<IBlockHeaderInfo, 'blockNumber' | 'blockHash'>,
   ): Promise<{ events: RuntimeSystemEventRecord[]; specVersion: number }> {
+    const cacheKey = `${block.blockNumber}:${block.blockHash.toLowerCase()}`;
+    const cached = this.eventsByBlock.get(cacheKey);
+    if (cached) {
+      this.eventsByBlock.delete(cacheKey);
+      this.eventsByBlock.set(cacheKey, cached);
+      return cached;
+    }
+
     const record = this.database
       .prepare(
         `SELECT blocks.blockHash, blocks.specVersion, blocks.systemEvents, runtime.metadata
@@ -375,7 +385,12 @@ export class CapturedHistoryReader {
         topics: topics.map(topic => topic.toHex()),
       };
     });
-    return { events, specVersion: record.specVersion };
+    const snapshot = { events, specVersion: record.specVersion };
+    this.eventsByBlock.set(cacheKey, snapshot);
+    if (this.eventsByBlock.size > 256) {
+      this.eventsByBlock.delete(this.eventsByBlock.keys().next().value!);
+    }
+    return snapshot;
   }
 
   private async recordHeader(block: Pick<IBlockHeaderInfo, 'blockNumber' | 'blockHash'>): Promise<IBlockHeaderInfo> {

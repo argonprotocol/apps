@@ -74,8 +74,7 @@ export interface IStabilizerBuyRecord {
   argonFees: IStabilizerBuyFee[];
 }
 
-export type IStabilizerBuyPurchaseRecord = IStabilizerBuyRecord &
-  Required<Pick<IStabilizerBuyRecord, 'ethereumQuote' | 'ethereumMaxFeeWei'>>;
+export type IStabilizerBuyPurchaseRecord = IStabilizerBuyRecord & Required<Pick<IStabilizerBuyRecord, 'ethereumQuote'>>;
 
 export interface IStabilizerBuyLocation extends Pick<IBlockHeaderInfo, 'blockNumber' | 'blockHash' | 'blockTime'> {
   eventIndex: number;

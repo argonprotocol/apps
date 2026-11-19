@@ -6,6 +6,8 @@ export type IPerformanceReturnInput = {
   endingDate?: Date | number | string | null;
   endingCapital: bigint;
   capitalFlows?: readonly ICapitalFlow[];
+  /** Agreed financial-day term for annualized returns; null means the term is unknown. */
+  termDays?: number | null;
   /** Complete daily payout history; null means its daily attribution is unavailable. */
   dailyReturns?: readonly IAggregateReturnInput[] | null;
   /** Completed financial days represented by dailyReturns, when newer live state has advanced. */
@@ -97,6 +99,7 @@ export function calculatePerformanceReturn(
   let weightedApr = BigNumber(0);
   let weightedApy = BigNumber(0);
   let hasUnknownApy = false;
+  let hasUnknownTerm = false;
 
   for (const investment of investments) {
     if (investment.startingCapital <= 0n) continue;
@@ -120,8 +123,18 @@ export function calculatePerformanceReturn(
     weightedCapitalMs += capitalMs;
     weightedProfitMs += profit * durationMs;
 
-    const periodReturn = BigNumber(profit).times(durationMs).dividedBy(capitalMs).toNumber();
-    const periodDays = Number(durationMs) / (options.dayMillis ?? 86_400_000);
+    if (investment.termDays === null) {
+      hasUnknownTerm = true;
+      hasUnknownApy = true;
+      continue;
+    }
+
+    let periodReturn = BigNumber(profit).times(durationMs).dividedBy(capitalMs).toNumber();
+    let periodDays = Number(durationMs) / (options.dayMillis ?? 86_400_000);
+    if (investment.termDays !== undefined) {
+      periodReturn = BigNumber(profit).dividedBy(investment.startingCapital).toNumber();
+      periodDays = investment.termDays;
+    }
     weightedApr = weightedApr.plus(BigNumber(capitalMs).times(annualizeSimpleReturn(periodReturn, periodDays)));
     if (investment.dailyReturns === null) {
       hasUnknownApy = true;
@@ -154,7 +167,7 @@ export function calculatePerformanceReturn(
     percent: Number(basisPoints) / 100,
     eligibleCapitalInvested,
     totalProfits,
-    apr: weightedCapitalMs > 0n ? weightedApr.dividedBy(weightedCapitalMs).toNumber() : undefined,
+    apr: weightedCapitalMs > 0n && !hasUnknownTerm ? weightedApr.dividedBy(weightedCapitalMs).toNumber() : undefined,
     apy: weightedCapitalMs > 0n && !hasUnknownApy ? weightedApy.dividedBy(weightedCapitalMs).toNumber() : undefined,
   };
 }

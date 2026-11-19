@@ -74,7 +74,7 @@ export class EthereumKeys {
 
   public async getPrivateKey(hdPath = getEthereumHdPath(ETHEREUM_HD_PREFIXES.primary)): Promise<Hex> {
     assertEthereumHdPath(hdPath);
-    const mnemonic = await this.requireSecrets().getMnemonic();
+    const mnemonic = await this.requireSecrets().getMnemonic(undefined, 'export your Ethereum private key');
     const key = EthereumKeys.accountFromMnemonic(mnemonic, hdPath).getHdKey().privateKey;
     if (!key) throw new Error('Unable to derive the Ethereum private key.');
     return bytesToHex(key);

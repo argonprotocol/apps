@@ -1,6 +1,6 @@
 import type { Meta, StoryObj } from '@storybook/vue3-vite';
 import { within, mocked } from 'storybook/test';
-import { NetworkConfig, StabilizerBuy } from '@argonprotocol/apps-core';
+import { NetworkConfig, StabilizerBuy, StabilizerBuyQuoteUnavailableError } from '@argonprotocol/apps-core';
 import BigNumber from 'bignumber.js';
 import { WalletForEthereum } from '../../../src-vue/lib/WalletForEthereum.ts';
 import { StabilizerBuyStatus, type IStabilizerBuyRecord } from '../../../src-vue/interfaces/IStabilizerBuyPurchase.ts';
@@ -63,6 +63,18 @@ export const ChooseWallet: Story = {
   },
 };
 
+export const FindingMaxProfit: Story = {
+  name: 'Finding Max Profit (Fixed State)',
+  beforeEach: () => {
+    mocked(getStabilizerBuyPurchases()!).quoteMaxProfit.mockImplementation(request => {
+      request.onProgress?.(6);
+      return new Promise<never>(() => {
+        // This fixed preview keeps the search in progress.
+      });
+    });
+  },
+};
+
 export const NeedsFunding: Story = {
   ...Review,
   beforeEach: () => {
@@ -75,6 +87,19 @@ export const NeedsFunding: Story = {
         quote: { ...buyOpportunity.quote, request: { ...buyOpportunity.quote.request, maxUsdcIn: 25_123_456n } },
       },
     });
+  },
+};
+
+export const NoOpportunity: Story = {
+  beforeEach: () => {
+    mocked(getStabilizerBuyPurchases()!).quoteMaxProfit.mockRejectedValue(
+      new StabilizerBuyQuoteUnavailableError(
+        'There is no purchase available that meets the minimum amount below target.',
+      ),
+    );
+  },
+  play: async () => {
+    await within(document.body).findByRole('button', { name: /Check Again/ });
   },
 };
 
@@ -206,7 +231,28 @@ export const Failed: Story = {
       {
         ...purchase,
         status: StabilizerBuyStatus.Failed,
+        ethereumQuote: buyOpportunity.quote,
+        ethereumTxHash: `0x${'aa'.repeat(32)}`,
         statusError: 'The Ethereum purchase reverted. Review your wallet before requesting another quote.',
+      },
+    ];
+  },
+};
+
+export const NotSubmitted: Story = {
+  name: 'Not Submitted (Fixed State)',
+  args: { buyId: 'synthetic-unsubmitted-buy' },
+  beforeEach: () => {
+    useMarketStabilizers().data.buys = [
+      {
+        id: 'synthetic-unsubmitted-buy',
+        ownerAccount: `0x${'33'.repeat(32)}`,
+        createdAt: new Date('2026-01-12T12:00:00Z'),
+        updatedAt: new Date('2026-01-12T12:00:00Z'),
+        argonFees: [],
+        ethereumQuote: buyOpportunity.quote,
+        status: StabilizerBuyStatus.Failed,
+        statusError: 'Add ETH to this wallet to pay the Ethereum network fee.',
       },
     ];
   },

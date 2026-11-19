@@ -1,0 +1,18 @@
+# Reviewed 2026-11-17 for the pinned Linux AMD64 gateway-certbot image.
+# Reassess when its base, crypto configuration, or installed software changes.
+ignore:
+  # https://mail.python.org/archives/list/security-announce@python.org/thread/PXVTTOBPUMFJSSUXN6XCS7FC5DZOSZXK/
+  - vulnerability: CVE-2026-119170
+    package:
+      name: python
+      version: '3.14.10'
+      type: binary
+    reason: Not affected; this hashlib enforcement regression requires OpenSSL FIPS mode. The pinned image reports _hashlib.get_fips_mode() = 0, and our Compose configuration does not enable FIPS.
+
+  # https://security.alpinelinux.org/vuln/CVE-2026-4738
+  - vulnerability: CVE-2026-4738
+    package:
+      name: zlib
+      version: '1.3.2-r1'
+      type: apk
+    reason: Not affected; the vulnerable optional contrib/infback9 Deflate64 decoder is absent. The installed zlib package contains only libz.so, which has no inflateBack9 symbol, and the image has no GDAL module.

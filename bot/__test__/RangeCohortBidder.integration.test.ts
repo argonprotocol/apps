@@ -241,6 +241,7 @@ describe.skipIf(SKIP_E2E)('Range cohort bidder', { tags: ['isolated-argon-networ
     expect(revealedMiners).toEqual([]);
   });
 
+  // Account setup, a fresh auction, and its finalized activation share the overall deadline.
   it('raises a standing ceiling using existing stake and retains it when settings are lowered', async context => {
     if (!('auctionRulesStartAt' in client.query.miningSlot)) context.skip();
     // This account has no active seat, so mining rewards cannot replenish its zero free stake.
@@ -374,7 +375,7 @@ describe.skipIf(SKIP_E2E)('Range cohort bidder', { tags: ['isolated-argon-networ
       await storage.close();
       await rm(directory, { recursive: true, force: true });
     }
-  }, 180_000);
+  }, 300_000);
 
   it('reveals the original maximum after restart with a lower ceiling and no new seat goal', async context => {
     if (!('auctionRulesStartAt' in client.query.miningSlot)) context.skip();

@@ -594,15 +594,15 @@ export class MyVault {
             }
 
             const refreshes: Promise<void>[] = [];
-            if (shouldRefreshCapital) {
-              refreshes.push(this.refreshCurrentCapital(vaultId));
-            }
             if (shouldRefreshBitcoin || this.#externalLocksNeedRefresh) {
               const { api: finalizedClient } = await this.miningFrames.blockWatch.getLatestFinalizedSnapshot();
               if (shouldRefreshBitcoin) {
                 refreshes.push(this.refreshFinalizedBitcoinCosignState(finalizedClient, vaultId));
               }
               refreshes.push(this.refreshExternalLocks(finalizedClient));
+            }
+            if (shouldRefreshCapital) {
+              refreshes.push(this.refreshCurrentCapital(vaultId));
             }
             if (latestRevenueClient) {
               refreshes.push(this.refreshFinalizedRevenueState(latestRevenueClient, vaultId));

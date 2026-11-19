@@ -1,7 +1,7 @@
 import { computed, onScopeDispose, ref, shallowRef, watch } from 'vue';
 import { defineStore } from 'pinia';
-import historyData from '../../core/src/data/stabilizerBuys.mainnet.json';
-import type IStabilizerBuyData from '../../core/src/interfaces/IStabilizerBuyData.ts';
+import historyData from '../../core/src/data/argonUniswap.json';
+import type IArgonUniswapData from '../../core/src/interfaces/IArgonUniswapData.ts';
 import { bigNumberToBigInt, StabilizerBuy, UnitOfMeasurement } from '@argonprotocol/apps-core';
 import { getStabilizerBuys, getStabilizerBuyAlerts, getStabilizerBuyPurchases } from './stabilizerBuys.ts';
 import { getMiningFrames } from './mainchain.ts';
@@ -165,13 +165,9 @@ export const useMarketStabilizers = defineStore('marketStabilizers', () => {
     for (const position of summary.value.positions) {
       if (position.kind !== 'stabilizer-buy') continue;
 
-      let periodDays = buys.data.market?.purchaseHoldFrames;
       const frame = position.admissionFrame;
-      if (frame !== undefined) {
-        const rewards = buys.data.frameRewards.find(rewards => rewards.admissionFrame === frame);
-        const maturesAtFrame = rewards?.maturesAtFrame ?? buys.data.auctionsByFrame[frame]?.auction.maturesAtFrame;
-        if (maturesAtFrame !== undefined) periodDays = maturesAtFrame - frame;
-      }
+      let periodDays = position.termDays;
+      if (frame === undefined) periodDays = buys.data.market?.purchaseHoldFrames;
 
       const rewards = buys.data.frameRewards.find(rewards => rewards.admissionFrame === frame);
       let expectedReward: bigint | undefined;
@@ -255,7 +251,7 @@ export const useMarketStabilizers = defineStore('marketStabilizers', () => {
 
   return {
     data: shallowRef(buys.data),
-    history: historyData as IStabilizerBuyData,
+    history: historyData as IArgonUniswapData,
     config,
     summary,
     returns,

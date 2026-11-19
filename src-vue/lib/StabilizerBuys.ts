@@ -3,6 +3,9 @@ import {
   SingleFileQueue,
   StabilizerBuy,
   NetworkConfig,
+  createTypedEventEmitter,
+  raceWithTimeout,
+  StabilizerBuyQuoteUnavailableError,
   StabilizerBuysUnavailableError,
   type IBlockHeaderInfo,
   type ArgonCurrentQueryClient,
@@ -14,7 +17,8 @@ import { SyncStateKeys, type ISyncSchemas } from './db/SyncStateTable.ts';
 import { readStabilizerBuyHistoryBlock, recoverStabilizerBuyHistory } from './recovery/StabilizerBuys.ts';
 import { FinalizedHistoryScheduler } from './recovery/Scheduler.ts';
 import type { IArgonAccountBalance } from './WalletsForArgon.ts';
-import { toArgonAccountIdHex } from './EthereumClient.ts';
+import { getGatewayActivityWaitEstimateMs, toArgonAccountIdHex } from './EthereumClient.ts';
+import { requestEthereumGatewayCatchup } from './EthereumGatewayCatchup.ts';
 import { sleep } from './Utils.ts';
 import {
   StabilizerBuyStatus,
@@ -29,6 +33,9 @@ import {
 
 /** One account's purchase workflows, financial facts and current native claims. */
 export class StabilizerBuys {
+  public readonly events = createTypedEventEmitter<{ 'records-changed': () => void }>();
+  public isPaydownForecastVisible = false;
+
   public data = {
     market: undefined as Awaited<ReturnType<StabilizerBuys['readOpportunityMarket']>>,
     auctionsByFrame: {} as Record<
@@ -55,7 +62,11 @@ export class StabilizerBuys {
     isRestoringHistory: false,
     historyError: undefined as string | undefined,
     ethereumGatewaySync: undefined as
-      | { ethereumBlockNumber?: bigint; finalizedGatewayActivityNonce: bigint; bestGatewayActivityNonce: bigint }
+      | {
+          ethereumBlockNumber?: bigint;
+          finalizedGatewayActivityNonce: bigint;
+          bestGatewayActivityNonce: bigint;
+        }
       | undefined,
   };
 
@@ -67,6 +78,8 @@ export class StabilizerBuys {
   private readonly pendingRefreshBlocks = new Map<number, IBlockHeaderInfo>();
   private pendingRefreshPromise?: Promise<void>;
   private retryFinalizedGatewaySync = false;
+  private gatewayRelayController?: AbortController;
+  private lastGatewayRelay?: { nonce: bigint; requestedAt: number };
   private readonly historyQueue = new SingleFileQueue();
   private isClosed = false;
   private unsubscribe?: () => void;
@@ -88,7 +101,10 @@ export class StabilizerBuys {
     public readonly blockWatch: BlockWatch,
     public readonly accountAddress: string,
     private readonly dbPromise: Promise<Db>,
-    private readonly isPaydownForecastVisible: () => boolean = () => false,
+    private readonly gatewayRelayClients?: Pick<
+      Parameters<typeof requestEthereumGatewayCatchup>[0],
+      'serverApiClient' | 'upstreamOperatorClient'
+    >,
   ) {}
 
   public start(): Promise<void> {
@@ -140,12 +156,22 @@ export class StabilizerBuys {
 
       Object.assign(this.data, record);
       if (checkpoint?.accountId === this.accountAddress) this.checkpoint = checkpoint;
+      this.events.emit('records-changed');
     })().catch(error => {
       this.recordsLoadPromise = undefined;
       throw error;
     });
 
     return this.recordsLoadPromise;
+  }
+
+  public get pendingEthereumPurchases(): IStabilizerBuyPurchaseRecord[] {
+    return this.data.buys.filter(
+      (buy): buy is IStabilizerBuyPurchaseRecord =>
+        !!buy.ethereumQuote &&
+        (buy.status === StabilizerBuyStatus.SubmittingPurchaseOnEthereum ||
+          buy.status === StabilizerBuyStatus.ConfirmingPurchaseOnEthereum),
+    );
   }
 
   /** Display the requested Liquid before admission, and retain intent when native admission declines it. */
@@ -156,6 +182,36 @@ export class StabilizerBuys {
       buy.ethereumGatewayActivity?.purchase.repayLiquidId ??
       buy.ethereumQuote?.request.repayLiquidId;
     if (liquidId) return Number(liquidId);
+  }
+
+  public static canDismissPurchase(buy: IStabilizerBuyRecord): boolean {
+    if (buy.status !== StabilizerBuyStatus.Failed || !buy.ethereumQuote) return false;
+    if (buy.ethereumTxHash || buy.usdcApprovalTxHash) return false;
+    if (buy.ethereumSubmittedAt || buy.usdcApprovalSubmittedAt || buy.ethereumConfirmedAt) return false;
+
+    return (
+      !buy.gatewayTransferId &&
+      !buy.ethereumGatewayActivity &&
+      !buy.argonPurchaseEvent &&
+      buy.admissionFrame === undefined
+    );
+  }
+
+  public async dismissPurchase(id: string): Promise<void> {
+    if (this.isClosed) throw new Error('Stabilizer Buys is closed.');
+    await this.loadRecords();
+
+    await this.recordWrites.add(async () => {
+      const buy = this.data.buys.find(buy => buy.id === id);
+      if (!buy) return;
+      if (!StabilizerBuys.canDismissPurchase(buy))
+        throw new Error('Only failed purchases that were never submitted can be dismissed.');
+
+      await this.publishRecords(
+        { ...this.records, buys: this.data.buys.filter(buy => buy.id !== id) },
+        { buys: [], frameRewards: [] },
+      );
+    }).promise;
   }
 
   public async createPurchase({
@@ -171,9 +227,12 @@ export class StabilizerBuys {
     return this.recordWrites.add(async () => {
       const existing = this.data.buys.find(buy => buy.id === id);
       if (existing) return existing as IStabilizerBuyPurchaseRecord;
+      if (this.pendingEthereumPurchases.some(buy => buy.ethereumQuote.poolId === ethereumQuote.poolId))
+        throw new StabilizerBuyQuoteUnavailableError('A purchase is still pending on Ethereum for this pool.');
       if (ethereumQuote.request.argonAccountId.toLowerCase() !== toArgonAccountIdHex(this.accountAddress).toLowerCase())
         throw new Error('The quote belongs to another Argon account.');
-      if (ethereumMaxFeeWei <= 0n) throw new Error('Choose a positive Ethereum fee limit.');
+      if (ethereumMaxFeeWei !== undefined && ethereumMaxFeeWei <= 0n)
+        throw new Error('Choose a positive Ethereum fee limit.');
 
       const buy: IStabilizerBuyPurchaseRecord = {
         id,
@@ -271,7 +330,7 @@ export class StabilizerBuys {
         const hasPendingCleanup = this.data.positions.some(position => position.heldPrincipal === 0n);
         const needsVisibleForecast =
           hasNewPrice &&
-          this.isPaydownForecastVisible() &&
+          this.isPaydownForecastVisible &&
           this.data.positions.some(
             position =>
               currentFrameId < position.auction.maturesAtFrame &&
@@ -648,12 +707,82 @@ export class StabilizerBuys {
 
   public async close(): Promise<void> {
     this.isClosed = true;
+    this.gatewayRelayController?.abort();
     this.unsubscribe?.();
     this.unsubscribe = undefined;
     await this.historyScheduler.close();
     await this.historyQueue.stop();
     await this.refreshQueue.stop();
     await this.recordWrites.stop(true);
+  }
+
+  private async requestPriorityRelay(): Promise<void> {
+    const clients = this.gatewayRelayClients;
+    if (this.isClosed || !clients) return;
+    if (!clients.serverApiClient && !clients.upstreamOperatorClient) return;
+
+    const nonce = this.pendingGatewayRelayNonce;
+    if (this.gatewayRelayController) {
+      if (nonce === this.lastGatewayRelay?.nonce) return;
+      this.gatewayRelayController.abort();
+      this.gatewayRelayController = undefined;
+    }
+    if (nonce === undefined) return;
+
+    const now = Date.now();
+    const previous = this.lastGatewayRelay;
+    if (previous && previous.nonce >= nonce && now - previous.requestedAt < getGatewayActivityWaitEstimateMs()) return;
+    const controller = new AbortController();
+    this.gatewayRelayController = controller;
+    this.lastGatewayRelay = { nonce, requestedAt: now };
+
+    try {
+      // Bound authentication and host discovery as well as the HTTP request.
+      const result = await raceWithTimeout(
+        requestEthereumGatewayCatchup({
+          ...clients,
+          throughGatewayActivityNonce: nonce,
+          preferLocalRelay: true,
+          signal: controller.signal,
+        }),
+        60_000,
+        () => {
+          controller.abort();
+          throw controller.signal.reason;
+        },
+      );
+      if (controller.signal.aborted) return;
+      if (!result.relaySource && result.relayError) {
+        console.warn(`[StabilizerBuys] Unable to request priority gateway relay: ${result.relayError}`);
+      }
+    } catch (error) {
+      if (!controller.signal.aborted) console.warn('[StabilizerBuys] Unable to request priority gateway relay', error);
+    } finally {
+      if (this.gatewayRelayController === controller) this.gatewayRelayController = undefined;
+    }
+  }
+
+  private get pendingGatewayRelayNonce(): bigint | undefined {
+    const sync = this.data.ethereumGatewaySync;
+    if (!this.data.isAvailable || sync?.ethereumBlockNumber === undefined) return;
+    let nonce: bigint | undefined;
+    for (const buy of this.data.buys) {
+      if (buy.status !== StabilizerBuyStatus.WaitingForArgonRecognition) continue;
+      if (
+        buy.purchaseEthereumBlockNumber === undefined ||
+        BigInt(buy.purchaseEthereumBlockNumber) > sync.ethereumBlockNumber
+      )
+        continue;
+      const activityNonce = buy.ethereumGatewayActivity?.gatewayState.gatewayActivityNonce;
+      if (
+        activityNonce === undefined ||
+        activityNonce <= sync.bestGatewayActivityNonce ||
+        activityNonce <= sync.finalizedGatewayActivityNonce
+      )
+        continue;
+      if (nonce === undefined || activityNonce > nonce) nonce = activityNonce;
+    }
+    return nonce;
   }
 
   private get records(): IStabilizerBuysRecord {
@@ -703,6 +832,8 @@ export class StabilizerBuys {
       hadPendingHistoryGap !== this.snapshot.hasPendingHistoryGap
     )
       this.data.financialRevision += 1;
+    if (recordsChanged) this.events.emit('records-changed');
+    void this.requestPriorityRelay();
   }
 
   private consolidate(
@@ -963,7 +1094,11 @@ export class StabilizerBuys {
     }
 
     return {
-      sync: { ethereumBlockNumber, finalizedGatewayActivityNonce, bestGatewayActivityNonce },
+      sync: {
+        ethereumBlockNumber,
+        finalizedGatewayActivityNonce,
+        bestGatewayActivityNonce,
+      },
       retryFinalized,
     };
   }

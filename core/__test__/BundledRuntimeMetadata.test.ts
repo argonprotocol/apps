@@ -9,11 +9,13 @@ import runtime158 from '../../runtime-client/__test__/fixtures/runtime-158.json'
 import runtime159 from '../../runtime-client/__test__/fixtures/runtime-159.json' with { type: 'json' };
 
 const mainnetGenesis = '0xee11bf2ff8838fcb0832c09085c5319a08ba6111c225ecd899fe659872d9d45d';
+const testnetGenesis = '0x66dc4e5ff85faddb0311b768eb73a58d9a00c65f06056ffaa370a1b1354d7411';
 
 it.each([
-  { genesis: mainnetGenesis, bundled: true },
-  { genesis: `0x${'99'.repeat(32)}`, bundled: false },
-])('decodes upgrade-block events without changing live decoding (bundled=$bundled)', async ({ genesis, bundled }) => {
+  { network: 'mainnet', genesis: mainnetGenesis, bundled: true },
+  { network: 'testnet', genesis: testnetGenesis, bundled: false },
+  { network: 'unknown', genesis: `0x${'99'.repeat(32)}`, bundled: false },
+])('decodes upgrade-block events on $network without changing live decoding', async ({ genesis, bundled }) => {
   const metadata = getBundledMetadata();
   const registries = new Map<number, TypeRegistry>();
   const encodedEvents = new Map<number, string>();

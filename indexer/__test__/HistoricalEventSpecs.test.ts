@@ -1,5 +1,7 @@
 import { describe, expect, expectTypeOf, it } from 'vitest';
 import { getTypeDef } from '@polkadot/types-create';
+import Path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import {
   getHistoricalEventFieldAlternatives,
   getHistoricalEventFields,
@@ -9,8 +11,12 @@ import {
   type HistoricalEvent,
 } from '@argonprotocol/runtime-client/events';
 import { historicalEventChanges } from '@argonprotocol/runtime-client/events.generated';
+import {
+  hasSameRuntimeMetadata,
+  readInstalledRuntimeSource,
+  readRuntimeSource,
+} from '@argonprotocol/runtime-client/generation/readRuntimeSource';
 import runtimeSources from '../../runtime-client/src/history/RuntimeSources.json' with { type: 'json' };
-import packageJson from '../package.json' with { type: 'json' };
 import { createHistoricalEventData } from './helpers/historicalEvents.ts';
 
 type HistoricalBondCreated = Extract<HistoricalEvent, { section: 'bonds'; method: 'BondCreated' }>;
@@ -22,9 +28,10 @@ expectTypeOf<HistoricalBondCreated['data']['expiration']>().toMatchTypeOf<
 >();
 
 describe('HistoricalEventSpecs', () => {
-  it('covers every registered runtime spec', () => {
+  it('covers every registered runtime spec', async () => {
     const registeredSpecs = Object.keys(runtimeSources).map(Number);
     const latestRegisteredSpec = Math.max(...registeredSpecs);
+    const latestSources = Object.entries(runtimeSources).find(([spec]) => Number(spec) === latestRegisteredSpec)![1];
 
     expect(supportedHistoricalEventSpecs).toEqual(registeredSpecs);
     expect(historicalEventSpecSources[100]).toBe('@argonprotocol/mainchain@0.0.25');
@@ -35,14 +42,15 @@ describe('HistoricalEventSpecs', () => {
     expect(historicalEventSpecSources[158]).toBe('@argonprotocol/mainchain@1.4.12');
     expect(historicalEventSpecSources[160]).toBe('@argonprotocol/mainchain@1.5.2');
     expect(historicalEventSpecSources[latestRegisteredSpec]).toBe(
-      Object.entries(runtimeSources)
-        .find(([spec]) => Number(spec) === latestRegisteredSpec)![1]
-        .map(source => `@argonprotocol/mainchain@${source}`)
-        .join(', '),
+      latestSources.map(source => `@argonprotocol/mainchain@${source}`).join(', '),
     );
-    expect(Object.entries(runtimeSources).find(([spec]) => Number(spec) === latestRegisteredSpec)![1]).toContain(
-      packageJson.dependencies['@argonprotocol/mainchain'],
+    const packageRoot = Path.resolve(
+      Path.dirname(fileURLToPath(import.meta.resolve('@argonprotocol/mainchain'))),
+      '..',
     );
+    const installed = await readInstalledRuntimeSource(packageRoot);
+    const registered = await Promise.all(latestSources.map(source => readRuntimeSource(source)));
+    expect(registered.some(source => hasSameRuntimeMetadata(source, installed))).toBe(true);
   });
 
   it('declares the spec 158 Bitcoin flexibility event', () => {

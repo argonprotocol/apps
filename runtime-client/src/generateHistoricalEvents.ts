@@ -3,7 +3,7 @@ import Path from 'node:path';
 import * as ts from 'typescript';
 import { format, resolveConfig } from 'prettier';
 import { createNativeTypeTranslator } from './generation/nativeTypes.js';
-import { readRuntimeSource } from './generation/readRuntimeSource.js';
+import { hasSameRuntimeMetadata, readRuntimeSource } from './generation/readRuntimeSource.js';
 import { writeGeneratedFile } from './generation/writeGeneratedFile.js';
 import type { RuntimeTypeOverrides } from './typeOverrides.js';
 
@@ -130,12 +130,17 @@ async function verifyPinnedRuntimeSource(): Promise<void> {
   const isRegistered = Object.values(sources).some(sourceVersions => {
     return sourceVersions.some(source => source === pinnedVersion);
   });
-  if (!isRegistered) {
-    throw new Error(
-      `${npmPackage}@${pinnedVersion} is not registered in this generator's runtime sources. ` +
-        'Add its runtime spec mapping and disposition every structural event change.',
-    );
+  if (isRegistered) return;
+
+  const pinnedContents = await readRuntimeSource(pinnedVersion);
+  for (const source of Object.values(sources).flat()) {
+    if (hasSameRuntimeMetadata(await readRuntimeSource(source), pinnedContents)) return;
   }
+
+  throw new Error(
+    `${npmPackage}@${pinnedVersion} has no matching runtime metadata in this generator's runtime sources. ` +
+      'Add its runtime spec mapping and disposition every structural event change.',
+  );
 }
 
 async function readSourceDeclarations(source: string): Promise<SourceDeclarations> {

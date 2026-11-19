@@ -8,6 +8,32 @@ describe('ServerApiClient', () => {
     vi.unstubAllGlobals();
   });
 
+  it('does not post a canceled relay after authentication completes', async () => {
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({ outcome: 'Noop' })));
+    vi.stubGlobal('fetch', fetchMock);
+    let releaseAuth!: (session: string) => void;
+    const getAdminOperatorSessionId = vi.fn(
+      () =>
+        new Promise<string>(resolve => {
+          releaseAuth = resolve;
+        }),
+    );
+    const client = new ServerApiClient(
+      () => ({ type: ServerType.CustomServer, ipAddress: '203.0.113.10', gatewayPort: 443 }),
+      { getAdminOperatorSessionId, invalidateAdminOperatorSessionId: vi.fn() },
+      { canAccessServer: true },
+    );
+    const controller = new AbortController();
+    const request = client.requestEthereumGatewayCatchUp(
+      { sourceChain: 'Ethereum', throughGatewayActivityNonce: 7n },
+      controller.signal,
+    );
+    controller.abort();
+    releaseAuth('session');
+    await expect(request).rejects.toThrow();
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it('skips mailbox requests when the server does not support Bitcoin returns', async () => {
     // The current router root contract has no Bitcoin mailbox capability.
     const fetchMock = vi.fn(async () => new Response(JSON.stringify({ status: 'ok', authEnabled: true })));

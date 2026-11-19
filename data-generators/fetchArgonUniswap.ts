@@ -12,7 +12,7 @@ import v2Factory from '@uniswap/v2-core/build/UniswapV2Factory.json' with { type
 import v2Pair from '@uniswap/v2-core/build/UniswapV2Pair.json' with { type: 'json' };
 import v3Factory from '@uniswap/v3-core/artifacts/contracts/UniswapV3Factory.sol/UniswapV3Factory.json' with { type: 'json' };
 import v3Pool from '@uniswap/v3-core/artifacts/contracts/UniswapV3Pool.sol/UniswapV3Pool.json' with { type: 'json' };
-import type IStabilizerBuyData from '../core/src/interfaces/IStabilizerBuyData.ts';
+import type IArgonUniswapData from '../core/src/interfaces/IArgonUniswapData.ts';
 
 const logsApi = 'https://api.routescan.io/v2/network/mainnet/evm/1/etherscan/api';
 const v2FactoryAddress = '0x5C69bEe701ef814a2B6a3EDD4B1652CB9cc5aA6f';
@@ -25,21 +25,19 @@ const v4 = new Interface(JSON.stringify(uniswapV4FixtureArtifacts.poolManager.ab
 type IndexedLog = RpcLog & { timeStamp: Hex };
 
 /** Complete UTC days only. A failed fetch leaves both the previous rows and their checkpoint intact. */
-export async function fetchStabilizerBuys(
-  filePath = path.join(process.cwd(), 'core/src/data/stabilizerBuys.mainnet.json'),
-) {
+export async function fetchArgonUniswap(filePath = path.join(process.cwd(), 'core/src/data/argonUniswap.json')) {
   const midnight = new Date();
   midnight.setUTCHours(0, 0, 0, 0);
   const throughTimestamp = midnight.getTime() / 1000 - 1;
   const throughDate = new Date(throughTimestamp * 1000).toISOString().slice(0, 10);
-  let previous: IStabilizerBuyData | undefined;
+  let previous: IArgonUniswapData | undefined;
   try {
-    previous = JSON.parse(await fs.readFile(filePath, 'utf8')) as IStabilizerBuyData;
+    previous = JSON.parse(await fs.readFile(filePath, 'utf8')) as IArgonUniswapData;
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
   }
   if (previous?.rewardFunding && previous.throughDate >= throughDate) {
-    console.log(`Stabilizer buy history is current through ${previous.throughDate}.`);
+    console.log(`ARGN/USDC Uniswap history is current through ${previous.throughDate}.`);
     return;
   }
 
@@ -186,7 +184,7 @@ export async function fetchStabilizerBuys(
     }
 
     // Include every covered day so days without opportunities remain part of the history.
-    const daysByDate = new Map<string, IStabilizerBuyData['days'][number]>();
+    const daysByDate = new Map<string, IArgonUniswapData['days'][number]>();
     let firstDayTimestamp = Math.min(...pools.map(pool => pool.createdAt));
     if (previous) firstDayTimestamp = Date.parse(previous.throughDate) / 1000 + 86400;
     firstDayTimestamp = Math.floor(firstDayTimestamp / 86400) * 86400;
@@ -284,7 +282,7 @@ export async function fetchStabilizerBuys(
     }
     if (!funding.length) throw new Error('No completed Treasury frames expose the inputs for modeled reward funding.');
 
-    const snapshot: IStabilizerBuyData = {
+    const snapshot: IArgonUniswapData = {
       throughDate,
       ethereumBlockNumber,
       argonTokenAddress,

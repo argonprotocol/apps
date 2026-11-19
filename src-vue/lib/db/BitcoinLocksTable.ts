@@ -464,6 +464,9 @@ export class BitcoinLocksTable extends BaseTable {
       fundedSatoshis: persisted.fundedSatoshis ?? 0n,
       fundingUtxoIds: persisted.fundingUtxoIds ?? [],
       activeReleaseId: persisted.activeReleaseId ?? undefined,
+      // Committed clears must replace older terms on held live records.
+      securitizationRatio: persisted.securitizationRatio,
+      securitizationHoldExpirationBitcoinHeight: persisted.securitizationHoldExpirationBitcoinHeight,
       securityFees: persisted.securityFees ?? 0n,
       couponFeesPaid: persisted.couponFeesPaid ?? 0n,
       fundHoldExtensionsByBitcoinExpirationHeight: persisted.fundHoldExtensionsByBitcoinExpirationHeight ?? {},
