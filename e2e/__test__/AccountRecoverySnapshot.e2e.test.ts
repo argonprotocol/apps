@@ -128,6 +128,9 @@ describe('account recovery snapshots', () => {
       );
       INSERT INTO BitcoinUtxos (id, satoshis, mempoolObservation, updatedAt)
       VALUES (1, '5000', '{"confirmations":1,"txid":"tx-1"}', 'first');
+      CREATE TABLE FinancialCache (type TEXT NOT NULL, scope TEXT NOT NULL, state TEXT NOT NULL);
+      INSERT INTO FinancialCache (type, scope, state)
+      VALUES ('BitcoinSecuritizationHistory', 'synthetic-account', '{"snapshotId":"snapshot-1","asOfBlock":42}');
     `);
     database.close();
 
@@ -207,5 +210,17 @@ describe('account recovery snapshots', () => {
     expect(() => AccountRecoverySnapshot.assertEquivalent(first, changedDate, 'retry')).toThrow(
       /financial projection .*startedAt.*table PositionHistory .*amount/,
     );
+
+    const beforePublication = AccountRecoverySnapshot.capture({ databasePath, financials });
+    const publicationUpdate = new DatabaseSync(databasePath);
+    publicationUpdate.exec(
+      `UPDATE FinancialCache SET state = '{"snapshotId":"snapshot-2","asOfBlock":43}'
+       WHERE type = 'BitcoinSecuritizationHistory';`,
+    );
+    publicationUpdate.close();
+    const afterPublication = AccountRecoverySnapshot.capture({ databasePath, financials });
+    expect(() =>
+      AccountRecoverySnapshot.assertEquivalent(beforePublication, afterPublication, 'Bitcoin history publication'),
+    ).toThrow(/table FinancialCache/);
   });
 });

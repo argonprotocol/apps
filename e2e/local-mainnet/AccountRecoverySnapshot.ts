@@ -47,8 +47,10 @@ export class AccountRecoverySnapshot {
         const rows = statement
           .all()
           .filter(row => {
+            // Mining estimates are shared by genesis hash, outside account recovery state.
+            if (tableName === 'FinancialCache' && row.type === 'GlobalMiningStats') return false;
             if (tableName !== 'Config') return true;
-            return !AccountRecoverySnapshot.volatileConfigKeys.has(String((row as { key?: unknown }).key));
+            return !AccountRecoverySnapshot.volatileConfigKeys.has(String(row.key));
           })
           .map(row => {
             if (tableName !== 'BitcoinUtxos') return row;
