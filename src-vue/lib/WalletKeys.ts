@@ -338,7 +338,7 @@ export class WalletKeys {
   public async exportDefaultArgonPrivateKey(): Promise<string> {
     this.requireSigningAccess();
     if (!this.secrets) throw new Error('No wallet secret source is loaded.');
-    const mnemonic = await this.secrets.getSubstrateSuri();
+    const mnemonic = await this.secrets.getSubstrateSuri('export your default Argon wallet private key');
     const seed = await invokeWithTimeout<number[]>(
       'export_sr25519_seed',
       { suri: `${mnemonic}${this.defaultArgonKeyReference}` },

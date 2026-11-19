@@ -16,6 +16,7 @@ import type { ArgonClient, MiningFrames } from '@argonprotocol/apps-core';
 import type { SubmittableExtrinsic } from '@argonprotocol/mainchain';
 import { exposeMasterMnemonic, getWalletKeys } from '../stores/wallets.ts';
 import { EncryptionSecret } from '../lib/EncryptionSecret.ts';
+import { AccountSecurity } from '../lib/AccountSecurity.ts';
 import { reactive } from 'vue';
 
 const invokeWithTimeout = vi.hoisted(() => vi.fn<typeof import('../lib/tauriApi.ts').invokeWithTimeout>());
@@ -46,6 +47,33 @@ it('exports a saved mnemonic before startup without loading account services, in
 
   await expect(exposeMasterMnemonic()).resolves.toBe(mnemonic);
   expect(() => getWalletKeys()).toThrow('Wallet startup has not finished.');
+});
+
+it('names each secret export in its device authentication prompt', async () => {
+  const mnemonic = 'test test test test test test test test test test test junk';
+  const keys = new WalletKeys(
+    WalletKeys.deriveIdentity(mnemonic),
+    new WalletSecrets({ encryptedMnemonic: 'synthetic-ciphertext' }, new AccountSecurity()),
+  );
+  const reasons: string[] = [];
+  invokeWithTimeout.mockReset();
+  invokeWithTimeout.mockImplementation(async (command, args) => {
+    if (command === 'keychain_info') return { method: 'system' };
+    if (command === 'keychain_decrypt') {
+      reasons.push((args.authentication as { reason: string }).reason);
+      throw new Error('Device authentication canceled');
+    }
+    throw new Error(`Unexpected native operation: ${command}`);
+  });
+
+  await expect(keys.exportEthereumPrivateKey()).rejects.toThrow('Device authentication canceled');
+  await expect(keys.exportDefaultArgonPrivateKey()).rejects.toThrow('Device authentication canceled');
+  await expect(keys.exposeMasterMnemonic()).rejects.toThrow('Device authentication canceled');
+  expect(reasons).toEqual([
+    'export your Ethereum private key',
+    'export your default Argon wallet private key',
+    'reveal your recovery mnemonic',
+  ]);
 });
 
 it('signs split council approval calls without reopening the mnemonic for each signature', async () => {
