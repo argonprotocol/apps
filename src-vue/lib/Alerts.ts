@@ -28,7 +28,10 @@ export function getStabilizerBuyBidNotice(
 
     const ranked = StabilizerBuy.allocateBids(snapshot.bids, snapshot.auction, inclusionPercent);
     const own = ranked.find(bid => bid.ownerAccount === buys.accountAddress);
-    if (own && own.fundingEstimate < own.requestedReward)
+    if (!own) continue;
+
+    const [uncontested] = StabilizerBuy.allocateBids([own], snapshot.auction, inclusionPercent);
+    if (own.fundingEstimate < uncontested.fundingEstimate)
       return { type: 'bid', key: `bid:${buys.accountAddress}:${position.admissionFrame}:at-risk`, position, bid: own };
   }
 }

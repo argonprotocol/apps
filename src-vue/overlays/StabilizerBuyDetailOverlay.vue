@@ -287,12 +287,23 @@
           <p class="text-sm leading-relaxed text-slate-500">
             The Argon network offers bonuses for Stabilizer Buys.
             <template v-if="isBiddingOpen && bidOptions.matchingBasis !== undefined">
-              Your maximum bonus is ₳{{ numeral(formatUnits(bidOptions.matchingBasis, 6)).format('0,0.[00]') }}.
+              <!-- prettier-ignore -->
+              <template v-if="bidOptions.rewardBudget !== undefined && bidOptions.rewardBudget < bidOptions.matchingBasis">
+                Your maximum bonus is ₳{{ numeral(formatUnits(bidOptions.matchingBasis, 6)).format('0,0.[00]') }},
+                but this round’s smaller pool caps it at ₳{{ numeral(formatUnits(bidOptions.rewardBudget, 6)).format('0,0.[00]') }}.
+              </template>
+              <template v-else>
+                Your maximum bonus is ₳{{ numeral(formatUnits(bidOptions.matchingBasis, 6)).format('0,0.[00]') }},
+                subject to this round’s available funding.
+              </template>
             </template>
-            <template v-if="rewards?.awardedReward !== undefined || market.data.currentFrameId >= admissionFrame + 2">
-              Buyers who accepted less of their maximum bonus were considered first.
+            <template v-if="isBiddingUpcoming || (bidOptions.cohortBids?.length ?? 0) > 1">
+              <!-- prettier-ignore -->
+              <template v-if="rewards?.awardedReward !== undefined || market.data.currentFrameId >= admissionFrame + 2">
+                Buyers who accepted less of their maximum bonus were considered first.
+              </template>
+              <template v-else>You can move ahead of other buyers by accepting less of your maximum bonus.</template>
             </template>
-            <template v-else>You can move ahead of other buyers by accepting less of your maximum bonus.</template>
             <a
               :href="`${NetworkConfig.websiteHost}/docs/network-rules/market-stabilizers#stabilizer-buys`"
               target="_blank"
@@ -466,14 +477,16 @@
                     >
                       <td class="relative px-3 py-3">
                         <Tooltip
-                          v-if="isBiddingOpen && bid.ownerAccount === rewards?.ownerAccount"
+                          v-if="
+                            isBiddingOpen && bid.ownerAccount === rewards?.ownerAccount && bidAheadPercent !== undefined
+                          "
                           :asChild="true"
                           side="top"
                         >
                           <button
                             type="button"
                             aria-label="Move up"
-                            :disabled="!bidOptions.canEdit || bidOptions.isSubmitting || bidAheadPercent === undefined"
+                            :disabled="!bidOptions.canEdit || bidOptions.isSubmitting"
                             class="bg-argon-button hover:bg-argon-button-hover absolute top-1/2 -left-1 -translate-x-full -translate-y-1/2 cursor-pointer rounded-md p-2 text-white disabled:cursor-default disabled:opacity-40"
                             @click="rewardPercent = bidAheadPercent ?? rewardPercent"
                           >
@@ -546,7 +559,10 @@
           </section>
 
           <p v-if="isBiddingOpen" class="mt-4 text-sm text-slate-500">
-            Use the up arrow to move ahead, then submit your bid.
+            <template v-if="bidAheadPercent !== undefined">
+              Use the up arrow to move ahead, then submit your bid.
+            </template>
+            <template v-else>Choose your bonus percentage, then submit your bid.</template>
           </p>
 
           <p

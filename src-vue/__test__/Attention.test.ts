@@ -63,7 +63,7 @@ beforeEach(() => {
   );
 });
 
-it('removes a reward-bid action when it becomes funded or closes, and keeps deliberate opt-outs quiet', async () => {
+it('acknowledges an opened reward-bid action and restores it only after a new risk', async () => {
   const owner = `0x${'33'.repeat(32)}`;
   const position = new StabilizerBuy(
     12,
@@ -118,6 +118,10 @@ it('removes a reward-bid action when it becomes funded or closes, and keeps deli
   const bidNotice = attention.stabilizerBid!;
   await openStabilizerBuyNotice(bidNotice);
   expect(useStabilizerBuyNavigation().admissionFrame).toBe(12);
+  expect(visibleCount.value).toBe(0);
+
+  data.auctionsByFrame[12].bids[0].latestBid = 81;
+  expect(visibleCount.value).toBe(0);
 
   data.auctionsByFrame[12].bids[0].latestBid = 30;
   expect(attention.stabilizerBid).toBeUndefined();
@@ -154,6 +158,47 @@ it('removes a reward-bid action when it becomes funded or closes, and keeps deli
     bidEvent: { ...location, admissionFrame: 12, rewardRate: BigNumber(0), positiveBidCount: 0 },
   });
   expect(visibleCount.value).toBe(0);
+});
+
+it('does not ask a sole bidder to adjust a bid limited by the round budget', () => {
+  const owner = `0x${'33'.repeat(32)}`;
+  const position = new StabilizerBuy(
+    12,
+    {
+      principal: 1_000_000_000n,
+      capturedDiscount: 100_000_000n,
+      bidRate: BigNumber(1),
+      positiveBidCount: 1,
+      pendingLiquidRepays: 0n,
+      liquidRepaymentRewardRate: null,
+    },
+    {
+      matchingRate: BigNumber(1),
+      totalMatchingBasis: 100_000_000n,
+      budget: 40_000_000n,
+      remainingBudget: 40_000_000n,
+      remainingMatchingBasis: 90_000_000n,
+      maturesAtFrame: 42,
+    },
+  );
+  const bids = [{ ownerAccount: owner, latestBid: 100, matchingBasis: 100_000_000n }];
+  const data = reactive({
+    positions: [position],
+    currentFrameId: 13,
+    market: { auctionInclusionPercent: BigNumber(0.9) },
+    auctionsByFrame: { 12: { auction: position.auction, bids, observedAtFrame: 13 } },
+  });
+  vi.mocked(getStabilizerBuys).mockReturnValue({ accountAddress: owner, data } as unknown as ReturnType<
+    typeof getStabilizerBuys
+  >);
+
+  const [allocation] = StabilizerBuy.allocateBids(bids, position.auction, BigNumber(0.9));
+  expect(allocation.requestedReward).toBe(100_000_000n);
+  expect(allocation.fundingEstimate).toBe(40_000_000n);
+
+  const attention = useAttention();
+  expect(attention.stabilizerBid).toBeUndefined();
+  expect(attention.count).toBe(0);
 });
 
 it('routes a desktop click through current notice state and does not reopen an expired quote after replacement', async () => {

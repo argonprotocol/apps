@@ -133,6 +133,12 @@ watch(
   view => {
     if (view.type === 'purchase' && view.opportunity) {
       useAttention().acknowledgeStabilizerBuy(view.opportunity.key);
+    } else if (view.type === 'details') {
+      const attention = useAttention();
+      const notice = attention.stabilizerBid;
+      if (notice?.position.admissionFrame === view.admissionFrame) {
+        attention.acknowledgeStabilizerBuy(notice.key);
+      }
     }
   },
   { immediate: true },
