@@ -39,8 +39,13 @@
             </div>
           </div>
           <div class="flex flex-wrap items-center justify-end gap-3">
+            <span v-if="isBiddingUpcoming" class="font-light text-slate-500">
+              Bonus bidding starts
+              <template v-if="biddingOpensAt">{{ dayjs(biddingOpensAt).format('M/D [at] h:mm a') }}</template>
+              <template v-else>in the next frame</template>
+            </span>
             <CountdownClock
-              v-if="isBiddingOpen && biddingClosesAt"
+              v-else-if="isBiddingOpen && biddingClosesAt"
               :time="dayjs.utc(biddingClosesAt)"
               v-slot="{ days, hours, minutes, seconds, isFinished }"
             >
@@ -102,7 +107,8 @@
           <span v-else>Cost unavailable</span>
           <span v-if="!pendingBuy && returns?.returnAmount !== undefined" class="text-center">
             {{ microgonToMoneyNm(returns.returnAmount).formatCurrency(currency.symbol) }}
-            net earnings
+            <template v-if="isBiddingUpcoming && !paydowns.length">purchase savings</template>
+            <template v-else>net earnings</template>
           </span>
           <span v-else-if="pendingBuy" class="col-span-2 text-right">
             <template v-if="pendingProgress?.currentStepDetail">{{ pendingProgress.currentStepDetail }}</template>
@@ -110,7 +116,11 @@
           </span>
           <span v-else />
           <span v-if="!pendingBuy && returns?.apy !== undefined" class="text-right">
-            <Returns :returns="returns" metric="APY" :hideDecimalsAt="10" />
+            <template v-if="isBiddingUpcoming && !paydowns.length">
+              <Returns :returns="returns" metric="APY" :hideDecimalsAt="10" :showLabel="false" />
+              savings APY
+            </template>
+            <Returns v-else :returns="returns" metric="APY" :hideDecimalsAt="10" />
           </span>
         </div>
         <ProgressBar
@@ -152,7 +162,9 @@ const props = withDefaults(
     returns?: IFinancialReturnSummary;
     purchaseDate?: Date;
     releasesAt?: Date;
+    biddingOpensAt?: Date;
     biddingClosesAt?: Date;
+    isBiddingUpcoming?: boolean;
     isBiddingOpen?: boolean;
     purchaseProgressById?: Record<string, ICrosschainTransferProgress>;
     archived?: boolean;

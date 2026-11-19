@@ -11,6 +11,8 @@ import { getTransactionTracker } from './transactions.ts';
 import { getWalletKeys, getWalletsForEthereum } from './wallets.ts';
 import { getDbPromise } from './helpers/dbPromise.ts';
 import { TopTab } from '../interfaces/IConfig.ts';
+import { getServerApiClient } from './server.ts';
+import { getUpstreamOperatorClient } from './upstreamOperator.ts';
 
 let buys: StabilizerBuys;
 let operations: { stabilizerBuyBid: StabilizerBuyBid };
@@ -21,16 +23,16 @@ export function getStabilizerBuys(): StabilizerBuys {
   if (!buys) {
     const walletKeys = getWalletKeys();
     const config = getConfig();
-    buys = new StabilizerBuys(
-      getBlockWatch(),
-      walletKeys.defaultArgonAddress,
-      getDbPromise(),
-      () => config.selectedTab === TopTab.MarketStabilizers,
-    );
+    buys = new StabilizerBuys(getBlockWatch(), walletKeys.defaultArgonAddress, getDbPromise(), {
+      serverApiClient: getServerApiClient(),
+      upstreamOperatorClient: getUpstreamOperatorClient(),
+    });
+    buys.isPaydownForecastVisible = config.selectedTab === TopTab.MarketStabilizers;
     buys.data = reactive(buys.data) as StabilizerBuys['data'];
     watch(
       () => config.selectedTab,
       tab => {
+        buys.isPaydownForecastVisible = tab === TopTab.MarketStabilizers;
         if (tab !== TopTab.MarketStabilizers || !buys.data.isLoaded) return;
         void buys.refresh().catch(() => undefined);
       },

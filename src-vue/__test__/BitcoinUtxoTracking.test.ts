@@ -1437,16 +1437,32 @@ describe('BitcoinUtxoTracking', () => {
     );
   });
 
-  it('does not overwrite a release transition that completes while funding synchronization publishes', async () => {
+  it('publishes cleared current terms without overwriting a newer release transition', async () => {
     const db = await createTestDb();
     const tracking = createTracking(db);
     const currentLock = createCurrentLock({
       lockId: 1,
       fundedSatoshis: 10_000n,
       fundingUtxos: [{ utxoRef: { txid: '8'.repeat(64), vout: 0 }, satoshis: 10_000n }],
+      securitizationRatio: undefined,
+      securitizationHoldExpirationBitcoinHeight: null,
     });
     const pending = await db.bitcoinLocksTable.insertPending(createLock({ lockId: undefined }));
-    const lock = await db.bitcoinLocksTable.finalizePending({ uuid: pending.uuid, lock: currentLock });
+    const lock = Vue.reactive(
+      await db.bitcoinLocksTable.finalizePending({
+        uuid: pending.uuid,
+        lock: new BitcoinLock({
+          ...currentLock,
+          securitizationRatio: 1.5,
+          securitizationHoldExpirationBitcoinHeight: 200,
+        }),
+      }),
+    );
+    const observedTerms = Vue.computed(() => [
+      lock.securitizationRatio,
+      lock.securitizationHoldExpirationBitcoinHeight,
+    ]);
+    expect(observedTerms.value).toEqual([1.5, 200]);
     await db.bitcoinLocksTable.setStatus(lock, BitcoinLockStatus.LockFunded);
 
     let finishFundingSync!: () => void;
@@ -1469,6 +1485,11 @@ describe('BitcoinUtxoTracking', () => {
 
     expect(lock.status).toBe(BitcoinLockStatus.Releasing);
     expect(lock.activeReleaseId).toBe('release-1');
+    expect(observedTerms.value).toEqual([undefined, undefined]);
+    const reloadedLock = await db.bitcoinLocksTable.getByLockId(lock.lockId!);
+    expect([reloadedLock?.securitizationRatio, reloadedLock?.securitizationHoldExpirationBitcoinHeight]).toEqual(
+      observedTerms.value,
+    );
 
     const staleLock = { ...lock, status: BitcoinLockStatus.LockFunded, activeReleaseId: undefined };
     await tracking.syncFundingUtxos(staleLock, currentLock);

@@ -41,6 +41,7 @@ describe('local mainnet baseline transfer', () => {
       disconnect,
     } as unknown as Awaited<ReturnType<typeof getClient>>);
     const environmentPath = Path.join(directory, 'environment');
+    vi.stubEnv('RUNNER_TEMP', Path.join(directory, 'runner-temp'));
     vi.stubEnv('GITHUB_ENV', environmentPath);
     vi.stubEnv('GITHUB_STEP_SUMMARY', Path.join(directory, 'summary.md'));
     process.argv = [process.execPath, 'qualificationInputs.ts', '--output', Path.join(directory, 'run')];
@@ -93,12 +94,34 @@ describe('local mainnet baseline transfer', () => {
     });
     expect(build.status, build.stderr).toBe(0);
     const buildEnvironment = readFileSync(environmentPath, 'utf8');
-    expect(buildEnvironment).toContain(
-      `PREVIOUS_APPS_DIRECTORY=${buildWorkspace}/.qualification-build/previous-apps\n`,
-    );
+    const previousAppsDirectory = Path.join(directory, 'qualification-build/previous-apps');
+    expect(buildEnvironment).toContain(`PREVIOUS_APPS_DIRECTORY=${previousAppsDirectory}\n`);
     expect(buildEnvironment).toContain(`MAINCHAIN_DIRECTORY=${buildWorkspace}/.qualification-build/mainchain\n`);
     expect(buildEnvironment).toContain(`PREVIOUS_APPS_REF=v${releasedVersion}\n`);
     expect(buildEnvironment).not.toContain('QUALIFICATION_BLOCK_HASH');
+
+    const publishedHead = spawnSync('git', ['rev-parse', `refs/tags/v${releasedVersion}^{commit}`], {
+      cwd: buildWorkspace,
+      encoding: 'utf8',
+    });
+    expect(publishedHead.status, publishedHead.stderr).toBe(0);
+    expect(buildEnvironment).toContain(`EXPECTED_PREVIOUS_APPS_HEAD=${publishedHead.stdout.trim()}\n`);
+
+    const checkout = spawnSync(
+      'git',
+      ['worktree', 'add', '--detach', previousAppsDirectory, publishedHead.stdout.trim()],
+      {
+        cwd: buildWorkspace,
+        encoding: 'utf8',
+      },
+    );
+    expect(checkout.status, checkout.stderr).toBe(0);
+    const checkedOutHead = spawnSync('git', ['rev-parse', 'HEAD'], {
+      cwd: previousAppsDirectory,
+      encoding: 'utf8',
+    });
+    expect(checkedOutHead.status, checkedOutHead.stderr).toBe(0);
+    expect(checkedOutHead.stdout.trim()).toBe(publishedHead.stdout.trim());
   });
 
   it('resolves copied baseline databases relative to their manifest, not the preparation runner', () => {

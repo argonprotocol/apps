@@ -39,6 +39,7 @@ jobs:
             context: server/nginx
           - name: certbot
             context: server/gateway-certbot
+            exception-config: server/security/grype-certbot.yaml
           - name: indexer
             context: indexer
             workspace: '@argonprotocol/apps-indexer'
@@ -49,8 +50,9 @@ jobs:
             environment-file: server/.env.mainnet
           - name: miner-testnet
             environment-file: server/.env.testnet
-          - name: snapshot-base
+          - name: bitcoin-data-base
             base-dockerfile: server/bitcoin-data/Dockerfile
+            exception-config: server/security/grype-bitcoin-data.yaml
 
     steps:
       - name: Checkout code
@@ -104,7 +106,16 @@ jobs:
           docker image save --output "$RUNNER_TEMP/image.tar" "$image"
 
       - name: Scan for fixable High and Critical vulnerabilities
+        env:
+          EXCEPTION_CONFIG: ${{ matrix.exception-config }}
         run: |
+          scanner_mounts=()
+          scanner_options=()
+          if [[ -n "$EXCEPTION_CONFIG" ]]; then
+            scanner_mounts+=(--mount "type=bind,source=$GITHUB_WORKSPACE/$EXCEPTION_CONFIG,target=/scan/grype.yaml,readonly")
+            scanner_options+=(--config /scan/grype.yaml)
+          fi
+
           status=0
           docker run --rm \
             --user "$(id -u):$(id -g)" \
@@ -115,8 +126,9 @@ jobs:
             --env GRYPE_DB_CACHE_DIR=/tmp/grype-db \
             --env GRYPE_CHECK_FOR_APP_UPDATE=false \
             --mount "type=bind,source=$RUNNER_TEMP/image.tar,target=/scan/image.tar,readonly" \
+            "${scanner_mounts[@]}" \
             "$GRYPE_IMAGE" docker-archive:/scan/image.tar \
-            --only-fixed --fail-on high --output json \
+            --only-fixed --fail-on high --output json "${scanner_options[@]}" \
             > "$RUNNER_TEMP/grype.json" || status=$?
 
           jq -r '
@@ -126,6 +138,18 @@ jobs:
               (.vulnerability.fix.versions | join(", ")),
               .vulnerability.id, .vulnerability.severity
             ] | "| " + join(" | ") + " |")
+          ' "$RUNNER_TEMP/grype.json" >> "$GITHUB_STEP_SUMMARY"
+
+          jq -r '
+            [.ignoredMatches[]? | select(any(.appliedIgnoreRules[]?; .reason != null))] |
+            if length > 0 then
+              "", "### Reviewed exceptions", "",
+              "| Package | Installed | Vulnerability | Reason |", "|---|---|---|---|",
+              (.[] | [
+                .artifact.name, .artifact.version, .vulnerability.id,
+                ([.appliedIgnoreRules[] | .reason // empty] | unique | join("; "))
+              ] | "| " + join(" | ") + " |")
+            else empty end
           ' "$RUNNER_TEMP/grype.json" >> "$GITHUB_STEP_SUMMARY"
           exit "$status"
 

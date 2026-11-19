@@ -63,6 +63,7 @@ interface IFinancialInvestmentPositionBase
   startedAt?: Date | number | string;
   endedAt?: Date | number | string;
   capitalFlows?: readonly ICapitalFlow[];
+  termDays?: number | null;
   dailyReturns?: readonly IAggregateReturnInput[] | null;
   dailyReturnPeriodDays?: number;
 }

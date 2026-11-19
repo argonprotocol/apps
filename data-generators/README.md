@@ -1,6 +1,8 @@
 # Market data updates
 
-Run `yarn update-stabilizer-buys` to update `core/src/data/stabilizerBuys.mainnet.json`. It also runs as part of `yarn update-data`.
+Run `yarn update-argon-uniswap` to update `core/src/data/argonUniswap.json`. It also runs as part of `yarn update-data`.
+
+Mainnet and testnet share this mainnet market sample for historical projections. It is not a record of the connected account's Stabilizer purchases or Sepolia trading activity.
 
 The file contains daily totals for below-target ARGN/USDC buys from Uniswap v2, v3 and v4. The generator discovers pools from their factory events, reads swaps through the last completed UTC day, and appends subsequent finalized days on later runs. Run it daily; no app service or scheduler is added here.
 

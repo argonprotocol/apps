@@ -6,7 +6,12 @@ import { deflateSync } from 'node:zlib';
 import { Metadata, TypeRegistry } from '@polkadot/types';
 import type { HexString } from '@polkadot/util/types';
 import { generateRuntimeQueryTypes, type RuntimeQuerySource } from './generation/generateRuntimeQueryTypes.js';
-import { readInstalledRuntimeSource, readRuntimeSource } from './generation/readRuntimeSource.js';
+import {
+  hasSameRuntimeMetadata,
+  readInstalledRuntimeSource,
+  readRuntimeSource,
+  type RuntimeSourceContents,
+} from './generation/readRuntimeSource.js';
 import { writeGeneratedFile } from './generation/writeGeneratedFile.js';
 import { upsertCurrentRuntimeSource, type RuntimeSourceRegistry } from './history/runtimeSources.js';
 import type { RuntimeTypeOverrides } from './typeOverrides.js';
@@ -35,19 +40,29 @@ async function generateRuntimeClient(): Promise<void> {
   const specVersion = rawSpec ? Number(rawSpec) : undefined;
   if (rawSpec && !Number.isSafeInteger(specVersion)) throw new Error(`Invalid runtime spec ${rawSpec}`);
 
-  const effectiveRegistry = source
-    ? upsertCurrentRuntimeSource(persistedRegistry, { specVersion: specVersion!, source })
-    : persistedRegistry;
-  await verifyInstalledPinRegistered(effectiveRegistry);
-
-  const typeOverrides = JSON.parse(await Fs.readFile(typeOverridesPath, 'utf8')) as RuntimeTypeOverrides;
-
   const installedPackage = JSON.parse(await Fs.readFile(Path.join(packageDirectory, 'package.json'), 'utf8')) as {
     version?: string;
   };
   const installedVersion = installedPackage.version;
   const localSource = process.argv.includes('--local') ? source : undefined;
   const installedContents = await readInstalledRuntimeSource(packageDirectory);
+
+  let effectiveRegistry = persistedRegistry;
+  if (source) {
+    const updatedRegistry = upsertCurrentRuntimeSource(persistedRegistry, { specVersion: specVersion!, source });
+    const registeredSources = await Promise.all(
+      (persistedRegistry[specVersion!] ?? []).map(registeredSource => readRuntimeSource(registeredSource, true)),
+    );
+    let pinnedRuntimeSource = installedContents;
+    if (source !== installedVersion && source !== localSource) {
+      pinnedRuntimeSource = await readRuntimeSource(source, true);
+    }
+    if (!registeredSources.some(registered => hasSameRuntimeMetadata(registered, pinnedRuntimeSource))) {
+      effectiveRegistry = updatedRegistry;
+    }
+  }
+
+  const typeOverrides = JSON.parse(await Fs.readFile(typeOverridesPath, 'utf8')) as RuntimeTypeOverrides;
   const liveSpecs = Object.keys(effectiveRegistry)
     .map(Number)
     .sort((a, b) => b - a)
@@ -67,9 +82,12 @@ async function generateRuntimeClient(): Promise<void> {
       });
     }),
   );
+  await verifyInstalledRuntimeSource(effectiveRegistry, installedContents, runtimeSources);
 
   if (!installedContents.genesisSource) throw new Error('The installed Mainchain SDK has no bundled genesis hashes');
-  const genesisHashes = Object.values(JSON.parse(installedContents.genesisSource) as Record<string, string>);
+  const genesis = JSON.parse(installedContents.genesisSource) as Record<string, string>;
+  // Published Argon snapshots contain mainnet constants; canary uses its own node's metadata.
+  const genesisHashes = [genesis.mainnet];
   const metadataBySpecVersion: Record<number, HexString> = {};
   for (const [rawVersion] of Object.entries(effectiveRegistry)) {
     const specVersion = Number(rawVersion);
@@ -109,15 +127,20 @@ async function generateRuntimeClient(): Promise<void> {
   }
 }
 
-async function verifyInstalledPinRegistered(registry: RuntimeSourceRegistry): Promise<void> {
+async function verifyInstalledRuntimeSource(
+  registry: RuntimeSourceRegistry,
+  installedContents: RuntimeSourceContents,
+  registeredSources: readonly RuntimeSourceContents[],
+): Promise<void> {
   const rootPackage = JSON.parse(await Fs.readFile(rootPackagePath, 'utf8')) as {
     resolutions?: Record<string, string>;
   };
   const pinnedSource = rootPackage.resolutions?.['@argonprotocol/mainchain'];
   if (!pinnedSource || pinnedSource.startsWith('portal:')) return;
-  if (!Object.values(registry).some(sources => sources.includes(pinnedSource))) {
-    throw new Error(`@argonprotocol/mainchain@${pinnedSource} is not registered in RuntimeSources.json`);
-  }
+  if (Object.values(registry).some(sources => sources.includes(pinnedSource))) return;
+  if (registeredSources.some(registered => hasSameRuntimeMetadata(registered, installedContents))) return;
+
+  throw new Error(`@argonprotocol/mainchain@${pinnedSource} has no matching runtime metadata in RuntimeSources.json`);
 }
 
 function readArgument(name: string): string | undefined {

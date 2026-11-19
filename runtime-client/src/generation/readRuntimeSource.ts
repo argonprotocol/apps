@@ -3,6 +3,7 @@ import Fs from 'node:fs/promises';
 import Os from 'node:os';
 import Path from 'node:path';
 import { gunzipSync } from 'node:zlib';
+import { Metadata, TypeRegistry } from '@polkadot/types';
 
 export type RuntimeSourceContents = {
   querySource: string;
@@ -68,6 +69,14 @@ export async function readInstalledRuntimeSource(packageDirectory: string): Prom
       () => metadata.genesisSource,
     ),
   };
+}
+
+export function hasSameRuntimeMetadata(first: RuntimeSourceContents, second: RuntimeSourceContents): boolean {
+  if (!first.metadataSource || !second.metadataSource) return false;
+
+  const firstMetadata = new Metadata(new TypeRegistry(), JSON.parse(first.metadataSource).result);
+  const secondMetadata = new Metadata(new TypeRegistry(), JSON.parse(second.metadataSource).result);
+  return firstMetadata.toHex() === secondMetadata.toHex();
 }
 
 async function readCachedRuntimeSource(source: string, includeConstants: boolean): Promise<RuntimeSourceContents> {

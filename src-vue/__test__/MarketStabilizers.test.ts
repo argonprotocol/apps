@@ -54,6 +54,7 @@ it.each(['mainnet', 'dev-docker'] as const)(
           lifecycle: 'held',
           startedAt,
           returnIsComplete: true,
+          termDays: 30,
           capitalFlows: [
             { amount: 100_000_000n, occurredAt: startedAt },
             { amount: 10_000_000n, occurredAt: startedAt + 2 * dayMillis },
@@ -97,10 +98,12 @@ it.each(['mainnet', 'dev-docker'] as const)(
       // Cost includes the later bid fee: 110 invested, 150 principal + 15 bonus, over the fixed 30-frame term.
       const expectedApy = (Math.pow(165 / 110, 365 / 30) - 1) * 100;
       const awardedApy = market.returns.byFrame[12].apy;
+      expect(market.summary.returnSummary.apy).toBeCloseTo(expectedApy);
       expect(market.returns.byFrame[12].returnAmount).toBe(55_000_000n);
 
       observedAt.value = new Date(startedAt + 15 * dayMillis);
       expect(market.returns.byFrame[12].apy).toBe(awardedApy);
+      expect(market.summary.returnSummary.apy).toBeCloseTo(expectedApy);
       expect(market.returns.byFrame[12].apy).toBeCloseTo(expectedApy);
       expect(market.returns.byFrame[12].returnAmount).toBe(55_000_000n);
 
@@ -111,8 +114,26 @@ it.each(['mainnet', 'dev-docker'] as const)(
       position.paidIncome = 15_000_000n;
       position.endedAt = startedAt + 45 * dayMillis;
       observedAt.value = new Date(startedAt + 50 * dayMillis);
+      expect(market.summary.returnSummary.apy).toBeCloseTo(expectedApy);
       expect(market.returns.byFrame[12].apy).toBeCloseTo(expectedApy);
       expect(market.returns.byFrame[12].returnAmount).toBe(55_000_000n);
+
+      Object.assign(buys, { accountAddress: 'synthetic-owner' });
+      Object.assign(buys.data, { market: { purchaseHoldFrames: 30 } });
+      delete position.admissionFrame;
+      delete position.termDays;
+      position.id = 'stabilizer:synthetic-owner:direct-delivery';
+      buys.data.buys = [
+        {
+          id: 'direct-delivery',
+          ownerAccount: 'synthetic-owner',
+          status: StabilizerBuyStatus.Complete,
+          createdAt: new Date(startedAt),
+          updatedAt: new Date(startedAt),
+          argonFees: [],
+        },
+      ];
+      expect(market.returns.byPurchase['direct-delivery'].apy).toBeCloseTo(expectedApy);
     } finally {
       disposePinia(pinia);
     }

@@ -1,4 +1,4 @@
-export default interface IStabilizerBuyData {
+export default interface IArgonUniswapData {
   throughDate: string;
   ethereumBlockNumber: number;
   argonTokenAddress: string;

@@ -19,6 +19,11 @@ import { GlobalMiningStats } from '../lib/GlobalMiningStats.ts';
 import type { Db } from '../lib/Db.ts';
 import { createTestDb } from './helpers/db.ts';
 import { FinancialCacheTypes } from '../lib/db/FinancialCacheTable.ts';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import Path from 'node:path';
+import { AccountRecoverySnapshot } from '../../e2e/local-mainnet/AccountRecoverySnapshot.ts';
+import { reduceFinancialPositions } from '../lib/financials/index.ts';
 
 const mocks = vi.hoisted(() => ({
   mining: undefined as Mining | undefined,
@@ -66,7 +71,9 @@ afterEach(async () => {
 });
 
 it('restores daily sale estimates from SQLite without replaying earnings and retries a failed cache write', async () => {
-  const db = await createTestDb();
+  const directory = mkdtempSync(Path.join(tmpdir(), 'mining-cache-snapshot-'));
+  const databasePath = Path.join(directory, 'database.sqlite');
+  const db = await createTestDb(databasePath);
   try {
     chain.state.twoCohorts = true;
     chain.state.latestBlock = 6;
@@ -84,12 +91,21 @@ it('restores daily sale estimates from SQLite without replaying earnings and ret
     expect(
       await db.financialCacheTable.get(FinancialCacheTypes.GlobalMiningStats, genesisHash.toHex()),
     ).toBeUndefined();
+    const beforeRetry = AccountRecoverySnapshot.capture({
+      databasePath,
+      financials: reduceFinancialPositions([]),
+    });
     await stats.update();
     const saved = await db.financialCacheTable.get(FinancialCacheTypes.GlobalMiningStats, genesisHash.toHex());
     expect(saved?.frames).toMatchObject([
       { frameId: 1, blockNumber: 1, blockHash: '1', micronotsPerSeat: 20n, argonotPrice: 2_000_000n },
       { frameId: 2, blockNumber: 5, blockHash: '5', micronotsPerSeat: 10n, argonotPrice: 2_000_000n },
     ]);
+    const afterRetry = AccountRecoverySnapshot.capture({
+      databasePath,
+      financials: reduceFinancialPositions([]),
+    });
+    expect(() => AccountRecoverySnapshot.assertEquivalent(beforeRetry, afterRetry, 'mining cache retry')).not.toThrow();
 
     chain.archive.at.mockClear();
     chain.archive.at.mockRejectedValue(new Error('Daily snapshots are no longer available'));
@@ -109,6 +125,7 @@ it('restores daily sale estimates from SQLite without replaying earnings and ret
     await expect(reset.update()).rejects.toThrow('Daily snapshots are no longer available');
   } finally {
     await db.close();
+    rmSync(directory, { recursive: true, force: true });
   }
 });
 

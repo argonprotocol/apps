@@ -278,25 +278,29 @@ export class UpstreamOperatorClient {
 
   public async requestEthereumGatewayCatchUp(
     payload: IEthereumGatewayCatchUpRequest,
+    signal?: AbortSignal,
   ): Promise<IEthereumGatewayCatchUpResponse> {
     const serverAuthClient = this.serverAuthClient;
     if (!serverAuthClient) {
       throw new Error('No upstream operator auth client configured.');
     }
 
-    return await this.requestWithOperatorHost(async operatorHost =>
-      this.requestWithSessionRetry(this.getMemberSessionAuth(operatorHost), sessionId =>
-        UpstreamOperatorClient.request<IEthereumGatewayCatchUpResponse>(
-          operatorHost,
-          '/ethereum-relay-request',
-          {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JsonExt.stringify(payload),
-          },
-          sessionId,
+    return await this.requestWithOperatorHost(
+      async operatorHost =>
+        this.requestWithSessionRetry(this.getMemberSessionAuth(operatorHost), sessionId =>
+          UpstreamOperatorClient.request<IEthereumGatewayCatchUpResponse>(
+            operatorHost,
+            '/ethereum-relay-request',
+            {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JsonExt.stringify(payload),
+              signal,
+            },
+            sessionId,
+          ),
         ),
-      ),
+      signal,
     );
   }
 
@@ -309,8 +313,13 @@ export class UpstreamOperatorClient {
     return operatorHost;
   }
 
-  private async requestWithOperatorHost<T>(request: (operatorHost: string) => Promise<T>): Promise<T> {
+  private async requestWithOperatorHost<T>(
+    request: (operatorHost: string) => Promise<T>,
+    signal?: AbortSignal,
+  ): Promise<T> {
+    signal?.throwIfAborted();
     const operatorHost = await this.resolveOperatorHost();
+    signal?.throwIfAborted();
     if (!operatorHost) {
       throw new Error('No upstream operator host configured.');
     }
@@ -319,12 +328,14 @@ export class UpstreamOperatorClient {
       return await request(operatorHost);
     } catch (error) {
       if (isWalletSigningUnavailableError(error)) throw error;
+      signal?.throwIfAborted();
 
       const recoveredOperatorHost = await this.recoverOperatorHost?.().catch(() => undefined);
       if (!recoveredOperatorHost || recoveredOperatorHost === operatorHost) {
         throw error;
       }
 
+      signal?.throwIfAborted();
       return await request(recoveredOperatorHost);
     }
   }
@@ -343,6 +354,7 @@ export class UpstreamOperatorClient {
     init?: RequestInit,
     sessionId?: string,
   ): Promise<T> {
+    init?.signal?.throwIfAborted();
     const response = await fetch(buildAuthenticatedUrl(operatorHost, path, sessionId), {
       ...init,
       redirect: 'error',

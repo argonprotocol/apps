@@ -138,7 +138,7 @@ const pendingPurchase: IStabilizerBuyPurchaseRecord = {
   },
 };
 
-export const Purchases: Story = {
+export const Purchases = {
   beforeEach: () => {
     const market = useMarketStabilizers();
     market.config.stabilizerBuyAlert = { minimumApy: 12 };
@@ -267,6 +267,25 @@ export const Purchases: Story = {
         17: { ...noPurchasesSummary.returnSummary, investedCost: 200_000_000n, returnAmount: 45_000_000n, apy: 80 },
       },
     });
+  },
+} satisfies Story;
+
+export const UpcomingBidding: Story = {
+  name: 'Purchase Awaiting Bonus Bidding',
+  beforeEach: () => {
+    Purchases.beforeEach();
+    const market = useMarketStabilizers();
+    market.data.currentFrameId = 48;
+    market.data.buys = market.data.buys.filter(buy => buy.admissionFrame === 48);
+    market.data.frameRewards = market.data.frameRewards.filter(rewards => rewards.admissionFrame === 48);
+    Object.assign(market.data.frameRewards[0], { latestBid: 100, bidCount: 0, requestedReward: 40_000_000n });
+    const admission = new Date();
+    market.dates.admission[48] = admission;
+    market.dates.opens[48] = new Date(admission.getTime() + 12 * 60 * 60_000);
+    market.dates.closes[48] = new Date(admission.getTime() + 36 * 60 * 60_000);
+    market.dates.releases[48] = new Date(admission.getTime() + 30 * 86_400_000);
+    Object.assign(market.summary, { currentValue: 440_000_000n, returnSummary: market.returns.byFrame[48] });
+    Object.assign(market, { biddingFrame: undefined });
   },
 };
 

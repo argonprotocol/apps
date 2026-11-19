@@ -274,12 +274,7 @@ export function createDevEthereumSetup(
         const alice = new Keyring({ type: 'sr25519' }).createFromUri('//Alice');
 
         // Ethereum deployment can run while beacon finality and bootstrap data become available.
-        bootstrap = ensureDevEthereumBeaconBootstrap(
-          archiveUrl,
-          devEthereum.beaconApiUrl,
-          devEthereum.beaconPreset,
-          alice,
-        );
+        bootstrap = ensureDevEthereumBeaconBootstrap(archiveUrl, devEthereum, alice);
         void bootstrap.catch(() => undefined);
 
         setupStep = 'preparing the local Ethereum gateway';
@@ -739,10 +734,10 @@ export async function resolveDevEthereumRpcUrl(args: { rpcUrl?: string; logPrefi
 
 async function ensureDevEthereumBeaconBootstrap(
   archiveUrl: string,
-  beaconApiUrl: string,
-  beaconPreset: DevEthereumBeaconPreset,
+  devEthereum: IStartDevEthereumResult,
   sudoKeypair: KeyringPair,
 ): Promise<void> {
+  const { beaconApiUrl, beaconPreset, executionRpcUrl } = devEthereum;
   const bootstrapStartedAt = Date.now();
   console.log(`[tauri-dev] Waiting for bootstrap archive client at ${archiveUrl}`);
   await waitForQueryableClient(archiveUrl, {
@@ -773,6 +768,7 @@ async function ensureDevEthereumBeaconBootstrap(
         `[tauri-dev] Ethereum verifier bootstrap attempt ${attemptNumber}/3: waiting for beacon bootstrap inputs from ${beaconApiUrl}`,
       );
       await ensureDevEthereumBeaconBootstrapped(client, beaconApiUrl, sudoKeypair, {
+        executionRpcUrl,
         minimumFinalizedSlot: MINIMUM_BOOTSTRAP_FINALIZED_SLOT_BY_PRESET[beaconPreset],
       });
       console.log(

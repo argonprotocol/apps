@@ -11,7 +11,7 @@
     @goBack="goBack"
     @bid="goTo({ type: 'details', admissionFrame: $event })"
     @purchased="currentView = { type: 'purchase', buyId: $event }"
-    @expired="expireOpportunity"
+    @expired="getStabilizerBuyAlerts()?.expireOpportunity($event)"
     @close="emit('close')"
   />
   <StabilizerBuyDetailOverlay
@@ -56,15 +56,27 @@ import StabilizerPurchaseOverlay from './StabilizerPurchaseOverlay.vue';
 import StabilizerBuyDetailOverlay from './StabilizerBuyDetailOverlay.vue';
 import BitcoinLiquidDetailOverlay from './BitcoinLiquidDetailOverlay.vue';
 import { useMarketStabilizers } from '../stores/marketStabilizers.ts';
-import { getStabilizerBuyAlerts } from '../stores/stabilizerBuys.ts';
+import { getStabilizerBuyAlerts, getStabilizerBuys } from '../stores/stabilizerBuys.ts';
 import { useAttention } from '../stores/attention.ts';
 import type { BitcoinLiquid } from '../lib/BitcoinLiquid.ts';
 
 const props = defineProps<{ initialView: StabilizerBuyView }>();
-const emit = defineEmits<{ close: []; expired: [] }>();
+const emit = defineEmits<{ close: [] }>();
 const market = useMarketStabilizers();
 const currentView = shallowRef(props.initialView);
 const history = shallowRef<StabilizerBuyView[]>([]);
+watch(
+  () => {
+    const view = currentView.value;
+    if (view.type !== 'purchase' || view.buyId) return;
+    const poolId = view.opportunity?.quote.poolId ?? market.data.market?.approvedPool?.poolId;
+    return getStabilizerBuys().pendingEthereumPurchases.find(buy => buy.ethereumQuote.poolId === poolId)?.id;
+  },
+  buyId => {
+    if (buyId) currentView.value = { type: 'purchase', buyId };
+  },
+  { immediate: true },
+);
 watch(
   () => props.initialView,
   view => {
@@ -116,18 +128,17 @@ function openPaydown(liquid: BitcoinLiquid) {
   goTo({ type: 'purchase', opportunity, liquidId: liquid.liquidId });
 }
 
-function expireOpportunity(opportunity: Extract<IStabilizerBuyOpportunity, { type: 'buy' }>) {
-  getStabilizerBuyAlerts()?.expireOpportunity(opportunity);
-  if (history.value.length) goBack();
-  else emit('close');
-  emit('expired');
-}
-
 watch(
   currentView,
   view => {
     if (view.type === 'purchase' && view.opportunity) {
       useAttention().acknowledgeStabilizerBuy(view.opportunity.key);
+    } else if (view.type === 'details') {
+      const attention = useAttention();
+      const notice = attention.stabilizerBid;
+      if (notice?.position.admissionFrame === view.admissionFrame) {
+        attention.acknowledgeStabilizerBuy(notice.key);
+      }
     }
   },
   { immediate: true },

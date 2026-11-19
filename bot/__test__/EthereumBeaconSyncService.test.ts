@@ -1,5 +1,9 @@
+import { createServer } from 'node:http';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { type ArgonClient, minimumVaultDelegateBalance, NetworkConfig, TxSigner } from '@argonprotocol/apps-core';
+import type { PalletEthereumVerifierUpdate } from '@polkadot/types/lookup';
+import { bytesToHex } from 'viem';
+import gloasFixture from './fixtures/gloas-beacon-sync.json' with { type: 'json' };
 
 type IMockTx = { id: string };
 type IMockSignedTx = {
@@ -95,7 +99,13 @@ vi.mock('@argonprotocol/apps-core', async () => {
   };
 });
 
-import { ExtrinsicError, TxSubmissionError, TxSubmissionErrorCode } from '@argonprotocol/mainchain';
+import {
+  decodeExecutionHeaderRlp,
+  ExtrinsicError,
+  getOfflineRegistry,
+  TxSubmissionError,
+  TxSubmissionErrorCode,
+} from '@argonprotocol/mainchain';
 import { DelegateSubmitLane } from '../src/DelegateSubmitLane.ts';
 import {
   EthereumBeaconSyncService,
@@ -167,6 +177,118 @@ describe('EthereumBeaconSyncService', () => {
   afterEach(() => {
     vi.useRealTimers();
     vi.unstubAllGlobals();
+  });
+
+  it('builds a complete Gloas update using the configured execution RPC fallback', async () => {
+    const sdk = await vi.importActual<typeof import('@argonprotocol/mainchain')>('@argonprotocol/mainchain');
+    mainchainMock.getEthereumBeaconSyncState.mockImplementation(sdk.getEthereumBeaconSyncState);
+    mainchainMock.getNextEthereumBeaconSyncTxs.mockImplementation(sdk.getNextEthereumBeaconSyncTxs);
+    const registry = getOfflineRegistry();
+    const client = createClient();
+    let encodedUpdate: PalletEthereumVerifierUpdate | undefined;
+    Object.assign(client.raw, {
+      query: {
+        ethereumVerifier: {
+          latestFinalizedBlockRoot: async () => registry.createType('H256', `0x${'dd'.repeat(32)}`),
+          finalizedBeaconState: async () =>
+            registry.createType('Option<PalletEthereumVerifierFinalizedBeaconHeaderState>', { slot: 32 }),
+          latestSyncCommitteeUpdatePeriod: async () => registry.createType('u64', 0),
+          nextSyncCommittee: { size: async () => registry.createType('u64', 1) },
+          beaconPreset: async () => registry.createType('ArgonPrimitivesEthereumEthereumBeaconPreset', 'Mainnet'),
+        },
+      },
+      consts: { ethereumVerifier: { freeHeadersInterval: registry.createType('u32', 32) } },
+      tx: {
+        ethereumVerifier: {
+          submit: (update: Parameters<ArgonClient['raw']['tx']['ethereumVerifier']['submit']>[0]) => {
+            encodedUpdate = registry.createType<PalletEthereumVerifierUpdate>('PalletEthereumVerifierUpdate', update);
+            return { id: 'gloas-update' };
+          },
+        },
+      },
+    });
+    submissionMock.submitWithTerminalStatusWatch.mockResolvedValue({
+      extrinsic: { signedHash: `0x${'ee'.repeat(32)}` },
+      waitForInFirstBlock: Promise.resolve(),
+    });
+
+    let primaryRequests = 0;
+    let fallbackRequests = 0;
+    const server = createServer(async (request, response) => {
+      if (request.url === '/primary') {
+        primaryRequests++;
+        response.writeHead(503).end();
+        return;
+      }
+      response.setHeader('content-type', 'application/json');
+      if (request.url === '/execution') {
+        fallbackRequests++;
+        let body = '';
+        for await (const chunk of request) body += chunk;
+        const rpc = JSON.parse(body);
+        response.end(JSON.stringify({ jsonrpc: '2.0', id: rpc.id, result: gloasFixture.executionBlock }));
+        return;
+      }
+      if (request.url === '/eth/v1/config/spec') {
+        response.end(
+          JSON.stringify({
+            data: {
+              SLOTS_PER_EPOCH: '32',
+              EPOCHS_PER_SYNC_COMMITTEE_PERIOD: '256',
+              SLOTS_PER_HISTORICAL_ROOT: '8192',
+              GLOAS_FORK_EPOCH: '1',
+              DENEB_FORK_EPOCH: '0',
+            },
+          }),
+        );
+        return;
+      }
+      if (request.url === '/eth/v1/beacon/light_client/finality_update') {
+        response.end(
+          JSON.stringify({
+            data: {
+              attested_header: { beacon: { ...gloasFixture.lightClientHeader.beacon, slot: '65' } },
+              finalized_header: gloasFixture.lightClientHeader,
+              finality_branch: Array(7).fill(`0x${'00'.repeat(32)}`),
+              sync_aggregate: {
+                sync_committee_bits: `0x${'ff'.repeat(64)}`,
+                sync_committee_signature: `0x${'11'.repeat(96)}`,
+              },
+              signature_slot: '66',
+            },
+          }),
+        );
+        return;
+      }
+      response.writeHead(404).end();
+    });
+    try {
+      await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve));
+      const address = server.address();
+      if (!address || typeof address === 'string') throw new Error('Missing test RPC listener');
+      const url = `http://127.0.0.1:${address.port}`;
+      NetworkConfig.setNetwork('dev-docker');
+      NetworkConfig.setRuntimeOverride('dev-docker', {
+        ethereumNetwork: { executionRpcUrls: [`${url}/primary`, `${url}/execution`] },
+      });
+      const service = new EthereumBeaconSyncService(client, {
+        beaconApiUrl: url,
+        submitLane: createSubmitLane(client),
+      });
+
+      await service.runOnce();
+
+      expect(service.state().lastError).toBeUndefined();
+      expect(encodedUpdate).toBeDefined();
+      const retainedRlp = encodedUpdate!.executionHeaderProof.executionHeader.asRlp.toU8a(true);
+      expect(bytesToHex(retainedRlp)).toBe(gloasFixture.executionHeaderRlp);
+      expect(bytesToHex(decodeExecutionHeaderRlp(retainedRlp).hash())).toBe(gloasFixture.executionBlock.hash);
+      expect(primaryRequests).toBe(1);
+      expect(fallbackRequests).toBe(1);
+    } finally {
+      NetworkConfig.clearRuntimeOverride('dev-docker');
+      await new Promise<void>(resolve => server.close(() => resolve()));
+    }
   });
 
   it('reports disabled when beacon sync is not configured', async () => {

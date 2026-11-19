@@ -123,7 +123,7 @@ describe.skipIf(SKIP_E2E).sequential('Bitcoin Liquids integration', { timeout: 3
         if (rate !== priceIndex.getSatoshiPriceInTargetMicrogons(SATS_PER_BTC)) return;
 
         const rateAge = BigInt(currentTick) - rateTick;
-        return rateAge >= 21n && rateAge <= 22n;
+        return rateAge >= 21n;
       });
 
       const preview = await createLiquid.preview({

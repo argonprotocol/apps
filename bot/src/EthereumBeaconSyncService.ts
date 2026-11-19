@@ -11,6 +11,7 @@ import {
   TxSubmitter,
 } from '@argonprotocol/apps-core';
 import {
+  type EthereumExecutionSource,
   ExtrinsicError,
   getEthereumBeaconSyncState,
   getNextEthereumBeaconSyncTxs,
@@ -165,7 +166,12 @@ export class EthereumBeaconSyncService {
 
     let txs;
     try {
-      txs = await getNextEthereumBeaconSyncTxs(this.client.raw, beaconApiUrl);
+      const executionRpcUrls = getEthereumExecutionRpcUrls();
+      let executionSource: EthereumExecutionSource | undefined;
+      if (executionRpcUrls.length) {
+        executionSource = { executionClient: createEthereumExecutionClient(executionRpcUrls) };
+      }
+      txs = await getNextEthereumBeaconSyncTxs(this.client.raw, beaconApiUrl, executionSource);
     } catch (error) {
       if (isLightClientFinalityUpdateNotReady(error)) {
         this.stateData.mode = 'idle';
