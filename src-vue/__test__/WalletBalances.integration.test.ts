@@ -250,17 +250,22 @@ describe
 
         await walletsForArgon.load();
         await walletHistoryRecovery.prepare();
-        void walletHistoryRecovery.recoverNow(blockWatch.finalizedBlockHeader.blockNumber);
+        const recoveryTarget = blockWatch.finalizedBlockHeader.blockNumber;
+        const recovery = walletHistoryRecovery.recoverNow(recoveryTarget);
 
         await vi.waitFor(() => expect(spy).toHaveBeenCalledTimes(3));
         expect(visibleOperationalBalances).toEqual([5_000_000n]);
         expect(walletsForArgon.operationalWallet.totalMicrogons).toBe(5_000_000n);
 
-        resumeRecovery.resolve();
-        await vi.waitFor(async () => {
-          const state = await db.syncStateTable.get(SyncStateKeys.WalletHistory);
-          expect(state?.asOfBlock).toBe(blockWatch.finalizedBlockHeader.blockNumber);
+        await waitFor(15_000, 'live finality to advance during history recovery', () => {
+          return blockWatch.finalizedBlockHeader.blockNumber > recoveryTarget;
         });
+        resumeRecovery.resolve();
+        await recovery;
+        const state = await db.syncStateTable.get(SyncStateKeys.WalletHistory);
+        expect(state?.asOfBlock).toBe(recoveryTarget);
+        expect(walletsForArgon.operationalWallet.totalMicrogons).toBe(5_000_000n);
+        expect(visibleOperationalBalances).toEqual([5_000_000n]);
         const visibleHistory = walletsForArgon
           .getLoadEvents('balance-change')
           .filter(([, type]) => type === 'operational');
