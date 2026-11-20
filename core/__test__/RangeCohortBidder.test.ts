@@ -20,60 +20,202 @@ import {
 afterEach(() => vi.restoreAllMocks());
 
 it.for([
-  { available: 24_000n, fee: 1_000n },
-  { available: 110_000n, fee: 10_000n },
-])('raises an affordable standing ceiling with $available remaining before fees', async ({ available, fee }) => {
-  const { bidder, accountset, blockWatch } = createReceiptScenario();
-  const registry = getOfflineRegistry();
-  const accounts = accountset.getAccountsInRange([0, 1]).map(account => ({ ...account, isRebid: false }));
-  Object.assign(bidder, { subaccounts: accounts, nextCohortSize: 10, minIncrement: 10_000n });
-  bidder.options.maxBid = 200_000n;
-  for (const [index, account] of accounts.entries()) {
-    bidder.myAddresses.add(account.address);
-    bidder.currentBids.bids.push({
-      address: account.address,
+  { free: 350_000n, rivalMaxima: [], seats: 3, opening: 10_000n, maximum: 110_000n },
+  { free: 350_000n, rivalMaxima: [100_000n, 200_000n, 400_000n], seats: 1, opening: 110_000n, maximum: 330_000n },
+  { free: 312_000n, rivalMaxima: [10_000n, 100_000n, 110_000n], seats: 2, opening: 20_000n, maximum: 140_000n },
+  { free: 20_000n, rivalMaxima: [], seats: 0, opening: 10_000n, maximum: 0n },
+  { free: 21_000n, rivalMaxima: [], rangeFeePerSeat: 20_000n, seats: 1, opening: 10_000n, maximum: 10_000n },
+  { free: 32_000n, rivalMaxima: [], feePerSeat: 10_000n, seats: 1, opening: 10_000n, maximum: 10_000n },
+  {
+    free: 290_000n,
+    rivalMaxima: [90_000n, 150_000n],
+    standingMaximum: 190_000n,
+    configuredMaximum: 200_000n,
+    feePerSeat: 10_000n,
+    replacement: true,
+    seats: 1,
+    opening: 100_000n,
+    maximum: 200_000n,
+  },
+  { free: 530_000n, rivalMaxima: [], standingMaximum: 400_000n, seats: 2, opening: 10_000n, maximum: 60_000n },
+  {
+    free: 540_000n,
+    rivalMaxima: [],
+    standingMaximum: 400_000n,
+    standingOutside: true,
+    seats: 2,
+    opening: 10_000n,
+    maximum: 60_000n,
+  },
+])(
+  'funds $seats seats at the entry price with $free available',
+  async ({
+    free,
+    rivalMaxima,
+    standingMaximum,
+    standingOutside,
+    configuredMaximum,
+    feePerSeat = 1_000n,
+    rangeFeePerSeat,
+    replacement,
+    seats,
+    opening,
+    maximum,
+  }) => {
+    const { bidder, accountset, blockWatch } = createReceiptScenario();
+    const registry = getOfflineRegistry();
+    const accounts = accountset.getAccountsInRange([0, 1, 2]).map(account => ({ ...account, isRebid: false }));
+    Object.assign(bidder, { subaccounts: accounts, nextCohortSize: 3, micronotsPerSeat: 10_000n });
+    Object.assign(bidder.options, { minBid: 300_000n, maxBid: configuredMaximum ?? 500_000n });
+    bidder.currentBids.bids = rivalMaxima.map((maxMicrogons, index) => ({
+      address: `rival-${index}`,
+      fundingAccountId: `rival-funder-${index}`,
       bidMicrogons: 10_000n,
       micronotsStaked: 10_000n,
       bidAtTick: 100,
-      maxMicrogons: index === 0 ? 100_000n : 190_000n,
-      fundedMaxMicrogons: index === 0 ? 100_000n : 190_000n,
-    });
-  }
+      maxMicrogons,
+      fundedMaxMicrogons: maxMicrogons,
+    }));
+    if (standingMaximum) {
+      bidder.currentBids.bids.push({
+        address: standingOutside ? 'other-managed-miner' : accounts[0].address,
+        fundingAccountId: accountset.fundingAccountId,
+        bidMicrogons: 10_000n,
+        micronotsStaked: 10_000n,
+        bidAtTick: 100,
+        maxMicrogons: standingMaximum,
+        fundedMaxMicrogons: standingMaximum,
+      });
+    }
 
-  // Preserve both existing ceilings and ED before funding any increases or fees.
-  const pallet = registry.metadata.pallets.find(entry => entry.name.eq('MiningSlot'))!;
-  const bidMeta = registry.lookup
-    .getSiType(pallet.calls.unwrap().type)
-    .def.asVariant.variants.find(entry => entry.name.eq('bid'))!;
-  const api = runtimeClient({
-    registry,
-    genesisHash: registry.createType('H256', `0x${'00'.repeat(32)}`),
-    consts: { balances: { existentialDeposit: 10_000n } },
-    tx: { miningSlot: { bid: { meta: bidMeta } } },
-    query: {
-      system: {
-        account: async () =>
-          registry.createType('FrameSystemAccountInfo', { providers: 1, data: { free: 280_000n + available } }),
+    const pallet = registry.metadata.pallets.find(entry => entry.name.eq('MiningSlot'))!;
+    const bidMeta = registry.lookup
+      .getSiType(pallet.calls.unwrap().type)
+      .def.asVariant.variants.find(entry => entry.name.eq('bid'))!;
+    const api = runtimeClient({
+      registry,
+      genesisHash: registry.createType('H256', `0x${'00'.repeat(32)}`),
+      consts: { balances: { existentialDeposit: 10_000n } },
+      tx: { miningSlot: { bid: { meta: bidMeta } } },
+      query: {
+        system: {
+          account: async () => registry.createType('FrameSystemAccountInfo', { providers: 1, data: { free } }),
+        },
+        ownership: { account: async () => registry.createType('PalletBalancesAccountData', { free: 100_000n }) },
       },
-      ownership: { account: async () => registry.createType('PalletBalancesAccountData', { free: 0n }) },
-    },
-  });
-  Object.assign(accountset, { client: api });
-  const submitter = new TxSubmitter(
-    api as unknown as ArgonClient,
-    registry.createType('Extrinsic') as never,
-    accountset.txSigner,
-  );
-  vi.spyOn(submitter, 'feeEstimate').mockResolvedValue(fee);
-  vi.spyOn(accountset, 'createMiningBidTx').mockResolvedValue(submitter);
-  vi.spyOn(accountset, 'createMiningBidMaxTx').mockResolvedValue(submitter);
+    });
+    Object.assign(accountset, { client: api });
+    const submitter = new TxSubmitter(
+      api as unknown as ArgonClient,
+      registry.createType('Extrinsic') as never,
+      accountset.txSigner,
+    );
+    let estimatedFee = 0n;
+    vi.spyOn(submitter, 'feeEstimate').mockImplementation(async () => estimatedFee);
+    vi.spyOn(accountset, 'createMiningBidTx').mockImplementation(async ({ subaccounts, bidAmount, maxBid }) => {
+      const perSeat = maxBid! > bidAmount ? (rangeFeePerSeat ?? feePerSeat) : feePerSeat;
+      estimatedFee = perSeat * BigInt(subaccounts.length);
+      return submitter;
+    });
+    vi.spyOn(accountset, 'createMiningBidMaxTx').mockImplementation(async ({ bids }) => {
+      estimatedFee = (rangeFeePerSeat ?? feePerSeat) * BigInt(bids.length);
+      return submitter;
+    });
 
-  // @ts-expect-error exercise the real budget decision with only chain reads and fee estimation mocked
-  await bidder.planBid(blockHeader(100), bidder.options, api);
-  expect(bidder.nextBid?.subaccounts).toEqual([accounts[1].address]);
-  expect(bidder.nextBid?.microgonsPerSeat).toBe(10_000n);
-  blockWatch.destroy();
-});
+    try {
+      // @ts-expect-error exercise the real allocation with only chain reads and fee estimation mocked
+      await bidder.planBid(blockHeader(100), bidder.options, api);
+      const firstNewAccount = standingMaximum && !standingOutside && !replacement ? 1 : 0;
+      expect(bidder.nextBid?.subaccounts ?? []).toEqual(
+        accounts.slice(firstNewAccount, firstNewAccount + seats).map(account => account.address),
+      );
+      if (seats > 0) {
+        expect(bidder.nextBid).toMatchObject({ microgonsPerSeat: opening, maxMicrogonsPerSeat: maximum });
+        const committedHeadroom = (standingMaximum ?? 10_000n) - 10_000n;
+        const fees = feePerSeat * BigInt(seats) * (maximum > opening ? 2n : 1n);
+        const capital = replacement ? maximum - standingMaximum : maximum * BigInt(seats);
+        expect(capital + committedHeadroom + fees + 10_000n).toBeLessThanOrEqual(free);
+      }
+    } finally {
+      blockWatch.destroy();
+    }
+  },
+);
+
+it.for([
+  { available: 24_000n, fee: 1_000n },
+  { available: 110_000n, fee: 10_000n },
+  { available: 110_000n, fee: 30_000n },
+  { available: 70_000n, fee: 10_000n, maxima: [190_000n, 180_000n, 170_000n], selected: [0, 1] },
+])(
+  'raises affordable standing ceilings with $available remaining before fees',
+  async ({ available, fee, maxima = [100_000n, 190_000n], selected = [1] }) => {
+    const { bidder, accountset, blockWatch } = createReceiptScenario();
+    const registry = getOfflineRegistry();
+    const accounts = accountset
+      .getAccountsInRange(maxima.map((_, index) => index))
+      .map(account => ({ ...account, isRebid: false }));
+    Object.assign(bidder, { subaccounts: accounts, nextCohortSize: 10, minIncrement: 10_000n });
+    bidder.options.maxBid = 200_000n;
+    for (const [index, account] of accounts.entries()) {
+      bidder.myAddresses.add(account.address);
+      bidder.currentBids.bids.push({
+        address: account.address,
+        fundingAccountId: accountset.fundingAccountId,
+        bidMicrogons: 10_000n,
+        micronotsStaked: 10_000n,
+        bidAtTick: 100,
+        maxMicrogons: maxima[index],
+        fundedMaxMicrogons: maxima[index],
+      });
+    }
+
+    // Preserve all existing ceilings and ED before funding any increases or fees.
+    const headroom = maxima.reduce((sum, maximum) => sum + maximum - 10_000n, 0n);
+    const pallet = registry.metadata.pallets.find(entry => entry.name.eq('MiningSlot'))!;
+    const bidMeta = registry.lookup
+      .getSiType(pallet.calls.unwrap().type)
+      .def.asVariant.variants.find(entry => entry.name.eq('bid'))!;
+    const api = runtimeClient({
+      registry,
+      genesisHash: registry.createType('H256', `0x${'00'.repeat(32)}`),
+      consts: { balances: { existentialDeposit: 10_000n } },
+      tx: { miningSlot: { bid: { meta: bidMeta } } },
+      query: {
+        system: {
+          account: async () =>
+            registry.createType('FrameSystemAccountInfo', {
+              providers: 1,
+              data: { free: headroom + 10_000n + available },
+            }),
+        },
+        ownership: { account: async () => registry.createType('PalletBalancesAccountData', { free: 0n }) },
+      },
+    });
+    Object.assign(accountset, { client: api });
+    const submitter = new TxSubmitter(
+      api as unknown as ArgonClient,
+      registry.createType('Extrinsic') as never,
+      accountset.txSigner,
+    );
+    let batchSize = 0;
+    vi.spyOn(submitter, 'feeEstimate').mockImplementation(async () => fee * BigInt(batchSize));
+    vi.spyOn(accountset, 'createMiningBidTx').mockImplementation(async ({ subaccounts }) => {
+      batchSize = subaccounts.length;
+      return submitter;
+    });
+    vi.spyOn(accountset, 'createMiningBidMaxTx').mockImplementation(async ({ bids }) => {
+      batchSize = bids.length;
+      return submitter;
+    });
+
+    // @ts-expect-error exercise the real budget decision with only chain reads and fee estimation mocked
+    await bidder.planBid(blockHeader(100), bidder.options, api);
+    expect(bidder.nextBid?.subaccounts).toEqual(selected.map(index => accounts[index].address));
+    expect(bidder.nextBid?.microgonsPerSeat).toBe(10_000n);
+    blockWatch.destroy();
+  },
+);
 
 it('keeps the fixed bidder until the upgraded runtime activates range bidding for the next auction', async () => {
   const { bidder, accountset, blockWatch } = createReceiptScenario();

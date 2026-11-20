@@ -15,7 +15,7 @@ import {
   type IBidReductionReason,
 } from './CohortBidderBase.js';
 
-type RangeBid = ICohortBid & { maxMicrogons: bigint; fundedMaxMicrogons: bigint };
+type RangeBid = ICohortBid & { fundingAccountId: string; maxMicrogons: bigint; fundedMaxMicrogons: bigint };
 
 const BID_REVEAL_DELAY_BLOCKS = 3;
 
@@ -75,6 +75,7 @@ export class RangeCohortBidder extends CohortBidderBase<ICohortBiddingOptions, R
 
     const currentBids = bids.map(bid => ({
       address: bid.accountId,
+      fundingAccountId: bid.externalFundingAccount ?? bid.accountId,
       bidMicrogons: bid.bid,
       micronotsStaked: bid.argonots,
       bidAtTick: bid.bidAtTick,
@@ -127,7 +128,7 @@ export class RangeCohortBidder extends CohortBidderBase<ICohortBiddingOptions, R
   }
 
   private async planBid(header: IBlockHeaderInfo, options: ICohortBiddingOptions, api: ArgonCurrentQueryClient) {
-    const { minBid, maxBid } = options;
+    const { maxBid } = options;
     const bids = this.currentBids.bids;
     const ownedBids = bids.filter(bid => this.myAddresses.has(bid.address));
     const ownedByAddress = new Map(ownedBids.map(bid => [bid.address, bid]));
@@ -142,6 +143,8 @@ export class RangeCohortBidder extends CohortBidderBase<ICohortBiddingOptions, R
         const owned = ownedByAddress.get(account.address);
         return owned && owned.maxMicrogons < maxBid;
       })
+      // Cheap increases must remain available when a larger batch cannot pay its fees.
+      .sort((a, b) => Number(ownedByAddress.get(b.address)!.maxMicrogons - ownedByAddress.get(a.address)!.maxMicrogons))
       .slice(0, seatGoal);
     const newAccounts = accounts
       .filter(account => !ownedByAddress.has(account.address))
@@ -152,9 +155,8 @@ export class RangeCohortBidder extends CohortBidderBase<ICohortBiddingOptions, R
       bid => !ownedByAddress.has(bid.address) && bid.fundedMaxMicrogons < maxBid,
     ).length;
     const newCandidates = newAccounts.slice(0, emptySeats + beatableSeats);
-    const candidates = [...replacements, ...newCandidates];
 
-    let openingBid = minBid;
+    let openingBid = this.minIncrement;
     if (bids.length >= this.nextCohortSize!) {
       const fundedCutoff = bigIntMin(...bids.map(bid => bid.fundedMaxMicrogons));
       openingBid = bigIntMax(openingBid, fundedCutoff + this.minIncrement);
@@ -173,91 +175,129 @@ export class RangeCohortBidder extends CohortBidderBase<ICohortBiddingOptions, R
       micronots: availableMicronots + ownedBids.reduce((sum, bid) => sum + bid.micronotsStaked, 0n),
     };
 
-    const committedBalance = ownedBids.reduce(
+    const fundedBids = bids.filter(bid => bid.fundingAccountId === fundingAccountId);
+    const committedBalance = fundedBids.reduce(
       (sum, bid) => sum + bigIntMax(bid.maxMicrogons - bid.bidMicrogons, 0n),
       0n,
     );
 
-    let availableBalance = bigIntMax(
+    const balanceBeforeFees = bigIntMax(
       Mining.availableBidBalance(account, api.consts.balances.existentialDeposit) - committedBalance,
       0n,
     );
 
+    let availableBalance = balanceBeforeFees;
     let reason: IBidReductionReason | undefined;
-    let accountsToBid: typeof candidates = [];
-    let bidCost = 0n;
-    let stakeCost = 0n;
+    const accountsToBid: typeof accounts = [];
+    let maxMicrogonsPerSeat = maxBid;
     if (openingBid > maxBid) {
       reason = 'max-bid-too-low';
     } else {
       if (newCandidates.length < newAccounts.length) reason = 'max-bid-too-low';
 
-      for (const candidate of candidates) {
-        const owned = ownedByAddress.get(candidate.address);
-        const extraBid = maxBid - (owned?.maxMicrogons ?? 0n);
-        const extraStake = owned ? 0n : this.micronotsPerSeat;
-        if (stakeCost + extraStake > availableMicronots) {
-          reason = 'insufficient-argonot-balance';
-          continue;
+      // Fill new seats first. If none fit after fees, try raising existing ceilings.
+      for (const [isRaisingCeilings, candidates] of [
+        [false, newCandidates],
+        [true, replacements],
+      ] as const) {
+        if (accountsToBid.length) break;
+        let bidCost = 0n;
+        let stakeCost = 0n;
+        for (const candidate of candidates) {
+          const owned = ownedByAddress.get(candidate.address);
+          const extraBid = owned ? maxBid - owned.maxMicrogons : openingBid;
+          const extraStake = owned ? 0n : this.micronotsPerSeat;
+          if (stakeCost + extraStake > availableMicronots) {
+            reason = 'insufficient-argonot-balance';
+            continue;
+          }
+          if (bidCost + extraBid > balanceBeforeFees) {
+            reason = 'insufficient-argon-balance';
+            continue;
+          }
+          bidCost += extraBid;
+          stakeCost += extraStake;
+          accountsToBid.push(candidate);
         }
-        if (bidCost + extraBid > availableBalance) {
-          reason = 'insufficient-argon-balance';
-          continue;
-        }
-        bidCost += extraBid;
-        stakeCost += extraStake;
-        accountsToBid.push(candidate);
-      }
-    }
 
-    if (accountsToBid.length) {
-      const tip = options.tipPerTransaction ?? 0n;
-      const commitment = await this.accountset.createMiningBidTx({
-        subaccounts: accountsToBid,
-        bidAmount: openingBid,
-        maxBid,
-        frameId: this.cohortStartingFrameId,
-      });
-      const fees = [await commitment.feeEstimate(tip)];
-
-      if (maxBid > openingBid) {
-        const bidsToReveal = accountsToBid.map(({ address }) => {
-          const { salt } = this.accountset.miningBidCommitment({
-            address,
+        // Each seat adds a call, so every smaller batch needs its own fee budget.
+        while (accountsToBid.length) {
+          const tip = options.tipPerTransaction ?? 0n;
+          const commitment = await this.accountset.createMiningBidTx({
+            subaccounts: accountsToBid,
             bidAmount: openingBid,
             maxBid,
             frameId: this.cohortStartingFrameId,
           });
-          return { address, maxBid, salt };
-        });
-        const reveal = await this.accountset.createMiningBidMaxTx({
-          bids: bidsToReveal,
-          frameId: this.cohortStartingFrameId,
-        });
-        fees.push(await reveal.feeEstimate(tip));
-      }
+          let fees = [await commitment.feeEstimate(tip)];
+          if (maxBid > openingBid) {
+            const bidsToReveal = accountsToBid.map(({ address }) => {
+              const { salt } = this.accountset.miningBidCommitment({
+                address,
+                bidAmount: openingBid,
+                maxBid,
+                frameId: this.cohortStartingFrameId,
+              });
+              return { address, maxBid, salt };
+            });
+            const reveal = await this.accountset.createMiningBidMaxTx({
+              bids: bidsToReveal,
+              frameId: this.cohortStartingFrameId,
+            });
+            fees.push(await reveal.feeEstimate(tip));
+          }
+          availableBalance = bigIntMax(balanceBeforeFees - fees.reduce((sum, fee) => sum + fee + tip, 0n), 0n);
+          maxMicrogonsPerSeat = maxBid;
 
-      const transactionCost = fees.reduce((sum, fee) => sum + fee + tip, 0n);
-      if (availableBalance < transactionCost) {
-        accountsToBid = [];
-        reason = 'insufficient-argon-balance';
-      }
+          if (isRaisingCeilings) {
+            bidCost = accountsToBid.reduce((sum, account) => {
+              return sum + maxBid - ownedByAddress.get(account.address)!.maxMicrogons;
+            }, 0n);
+            if (bidCost > availableBalance) {
+              accountsToBid.pop();
+              reason = 'insufficient-argon-balance';
+              continue;
+            }
+          } else {
+            const perSeatBudget = availableBalance / BigInt(accountsToBid.length);
+            maxMicrogonsPerSeat = bigIntMin(maxBid, perSeatBudget - (perSeatBudget % this.minIncrement));
+            if (maxMicrogonsPerSeat <= openingBid) {
+              // Fixed bids omit the commitment hash and do not need a reveal.
+              if (maxBid > openingBid) {
+                const fixedBid = await this.accountset.createMiningBidTx({
+                  subaccounts: accountsToBid,
+                  bidAmount: openingBid,
+                  maxBid: openingBid,
+                  frameId: this.cohortStartingFrameId,
+                });
+                fees = [await fixedBid.feeEstimate(tip)];
+              }
+              availableBalance = bigIntMax(balanceBeforeFees - fees[0] - tip, 0n);
+              maxMicrogonsPerSeat = openingBid;
+              if (openingBid * BigInt(accountsToBid.length) > availableBalance) {
+                accountsToBid.pop();
+                reason = 'insufficient-argon-balance';
+                continue;
+              }
+            }
 
-      availableBalance = bigIntMax(availableBalance - transactionCost, 0n);
+            const beatableAtCeiling = bids.filter(
+              bid => !ownedByAddress.has(bid.address) && bid.fundedMaxMicrogons < maxMicrogonsPerSeat,
+            ).length;
+            if (accountsToBid.length > emptySeats + beatableAtCeiling) {
+              accountsToBid.pop();
+              reason = 'insufficient-argon-balance';
+              continue;
+            }
+          }
 
-      bidCost = 0n;
-      accountsToBid = accountsToBid.filter(account => {
-        const extraBid = maxBid - (ownedByAddress.get(account.address)?.maxMicrogons ?? 0n);
-        if (bidCost + extraBid > availableBalance) {
-          reason = 'insufficient-argon-balance';
-          return false;
+          if (this.accountset.isProxy && fees.some(fee => fee + tip > MINING_BID_PROXY_FEE_FLOAT)) {
+            accountsToBid.pop();
+            reason = 'insufficient-argon-balance';
+            continue;
+          }
+          break;
         }
-        bidCost += extraBid;
-        return true;
-      });
-
-      if (this.accountset.isProxy && fees.some(fee => fee + tip > MINING_BID_PROXY_FEE_FLOAT)) {
-        accountsToBid = [];
       }
     }
 
@@ -294,6 +334,7 @@ export class RangeCohortBidder extends CohortBidderBase<ICohortBiddingOptions, R
     if (accountsToBid.length) {
       this.nextBid = {
         microgonsPerSeat: openingBid,
+        maxMicrogonsPerSeat,
         subaccounts: accountsToBid.map(account => account.address),
         alreadyWinningSeats: ownedBids.length,
         bidAtTick: header.tick,
@@ -307,7 +348,7 @@ export class RangeCohortBidder extends CohortBidderBase<ICohortBiddingOptions, R
   private async submitBid(header: IBlockHeaderInfo) {
     const bid = this.nextBid!;
     const options = this.options;
-    const { maxBid } = options;
+    const maxBid = bid.maxMicrogonsPerSeat!;
     this.nextBid = undefined;
 
     try {

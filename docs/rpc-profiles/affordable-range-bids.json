@@ -1,0 +1,1085 @@
+{
+  "measuredDate": "2026-11-20",
+  "baselineRevision": "4ec805949",
+  "profiledSourceSha256": {
+    "core/src/RangeCohortBidder.ts": "f801ced38db649419163e34366ead7639eb6b81c841af97cfbef0797d20b87c2",
+    "core/src/CohortBidderBase.ts": "7bbc3eaff8d6df2a63cd7ce633bd59f7b3ee051c072668d7c9471a092e6dcfa0"
+  },
+  "method": "Fresh independent public-mainnet connections for each revision and synthetic scenario. Each planner call performs real public transport reads before substituting synthetic account balances and standing offers. No transactions are submitted. before is the original main baseline; pre-correction is the previously pushed PR commit; after is the corrected planner.",
+  "cadence": {
+    "observed": "One finalized block per connection, two consecutive planner triggers with immediate warm caches. The reduced-batch scenario starts with three candidate seats and finishes with one; shrinking-cohort starts with 23 and finishes with ten.",
+    "mainnetModel": "At one best header per minute, cold added requests relative to main are 9 for an affordable range, 12 with fees exhausted, 18 for replacement fallback, 30 for three-to-one shrink, and 129 for 23-to-ten shrink on a direct-public CLI connection. These are modeled per-minute rates from measured per-trigger counters; immediate warm repeats are not measured per-minute rates.",
+    "acceleratedModel": "At two-second blocks, those cold deltas model 270, 360, 540, 900 and 3870 extra planner requests per minute, respectively, served by the user-operated local test node. They are not observed public traffic at accelerated cadence.",
+    "routing": "Normal bot fee estimates use the configured local Accountset client, adding zero public fee requests. Archive fallback may serve the unchanged two account snapshot reads. Amplified direct-public fee estimates apply to the explicitly used CLI test tool. Concurrent direct-public CLI instances multiply this load; the desktop/bot path does not share that public fee-estimation load.",
+    "boundedWork": "Only active bidding plans estimate fees. Each new-seat batch needs at most three estimates (commitment, reveal, fixed alternative); each replacement batch needs at most two. A failed batch removes one seat. New candidates plus managed replacements are bounded by the cohort seat goal, so a trigger performs at most three times that goal in fee estimates. Replacement planning starts only when no new seats survive. This is a linear bound, not a nine-request bound.",
+    "limits": "Planner calls only. Signing, submission, reveal and retries use unchanged production code; actual public financial submissions were not measured. Startup counts exclude subscription startup for a running bidder. Bot-local fee request counts are inferred from routing, not measured public traffic. These profiles establish request cost, not public-server capacity."
+  },
+  "connections": [
+    {
+      "scenario": "affordable",
+      "revision": "before",
+      "destination": "public-mainnet",
+      "route": "CLI/archive; bot archive fallback snapshots",
+      "scope": "planner only; synthetic external account state; no transaction submission",
+      "runtime": 161,
+      "observedBlocks": 1,
+      "planningTriggers": 2,
+      "startup": {
+        "requests": 9,
+        "cacheHits": 3,
+        "errors": 0
+      },
+      "first": {
+        "elapsedMs": 29,
+        "requests": 2,
+        "cacheHits": 0,
+        "errors": 0,
+        "methods": {
+          "state_getStorage": {
+            "requests": 2,
+            "cacheHits": 0,
+            "errors": 0
+          }
+        },
+        "storage": {
+          "system.account": 1,
+          "ownership.account": 1
+        }
+      },
+      "warmRepeat": {
+        "elapsedMs": 69,
+        "requests": 2,
+        "cacheHits": 0,
+        "errors": 0,
+        "methods": {
+          "state_getStorage": {
+            "requests": 2,
+            "cacheHits": 0,
+            "errors": 0
+          }
+        },
+        "storage": {
+          "system.account": 1,
+          "ownership.account": 1
+        }
+      },
+      "plannedSeats": 0
+    },
+    {
+      "scenario": "affordable",
+      "revision": "after",
+      "destination": "public-mainnet",
+      "route": "CLI/archive; bot archive fallback snapshots",
+      "scope": "planner only; synthetic external account state; no transaction submission",
+      "runtime": 161,
+      "observedBlocks": 1,
+      "planningTriggers": 2,
+      "startup": {
+        "requests": 9,
+        "cacheHits": 3,
+        "errors": 0
+      },
+      "first": {
+        "elapsedMs": 339,
+        "requests": 11,
+        "cacheHits": 4,
+        "errors": 0,
+        "methods": {
+          "state_getRuntimeVersion": {
+            "requests": 1,
+            "cacheHits": 0,
+            "errors": 0
+          },
+          "chain_getFinalizedHead": {
+            "requests": 2,
+            "cacheHits": 0,
+            "errors": 0
+          },
+          "chain_getHeader": {
+            "requests": 3,
+            "cacheHits": 4,
+            "errors": 0
+          },
+          "state_getStorage": {
+            "requests": 2,
+            "cacheHits": 0,
+            "errors": 0
+          },
+          "state_subscribeStorage": {
+            "requests": 1,
+            "cacheHits": 0,
+            "errors": 0
+          },
+          "state_call.TransactionPaymentApi_query_info": {
+            "requests": 2,
+            "cacheHits": 0,
+            "errors": 0
+          }
+        },
+        "storage": {
+          "system.account": 2,
+          "ownership.account": 1
+        }
+      },
+      "warmRepeat": {
+        "elapsedMs": 223,
+        "requests": 8,
+        "cacheHits": 4,
+        "errors": 0,
+        "methods": {
+          "chain_getFinalizedHead": {
+            "requests": 2,
+            "cacheHits": 0,
+            "errors": 0
+          },
+          "chain_getHeader": {
+            "requests": 2,
+            "cacheHits": 4,
+            "errors": 0
+          },
+          "state_getStorage": {
+            "requests": 2,
+            "cacheHits": 0,
+            "errors": 0
+          },
+          "state_call.TransactionPaymentApi_query_info": {
+            "requests": 2,
+            "cacheHits": 0,
+            "errors": 0
+          }
+        },
+        "storage": {
+          "system.account": 1,
+          "ownership.account": 1
+        }
+      },
+      "plannedSeats": 3
+    },
+    {
+      "scenario": "fee-exhausted",
+      "revision": "before",
+      "destination": "public-mainnet",
+      "route": "CLI/archive; bot archive fallback snapshots",
+      "scope": "planner only; synthetic external account state; no transaction submission",
+      "runtime": 161,
+      "observedBlocks": 1,
+      "planningTriggers": 2,
+      "startup": {
+        "requests": 9,
+        "cacheHits": 3,
+        "errors": 0
+      },
+      "first": {
+        "elapsedMs": 69,
+        "requests": 2,
+        "cacheHits": 0,
+        "errors": 0,
+        "methods": {
+          "state_getStorage": {
+            "requests": 2,
+            "cacheHits": 0,
+            "errors": 0
+          }
+        },
+        "storage": {
+          "system.account": 1,
+          "ownership.account": 1
+        }
+      },
+      "warmRepeat": {
+        "elapsedMs": 72,
+        "requests": 2,
+        "cacheHits": 0,
+        "errors": 0,
+        "methods": {
+          "state_getStorage": {
+            "requests": 2,
+            "cacheHits": 0,
+            "errors": 0
+          }
+        },
+        "storage": {
+          "system.account": 1,
+          "ownership.account": 1
+        }
+      },
+      "plannedSeats": 0
+    },
+    {
+      "scenario": "fee-exhausted",
+      "revision": "after",
+      "destination": "public-mainnet",
+      "route": "CLI/archive; bot archive fallback snapshots",
+      "scope": "planner only; synthetic external account state; no transaction submission",
+      "runtime": 161,
+      "observedBlocks": 1,
+      "planningTriggers": 2,
+      "startup": {
+        "requests": 9,
+        "cacheHits": 3,
+        "errors": 0
+      },
+      "first": {
+        "elapsedMs": 309,
+        "requests": 14,
+        "cacheHits": 6,
+        "errors": 0,
+        "methods": {
+          "state_getRuntimeVersion": {
+            "requests": 1,
+            "cacheHits": 0,
+            "errors": 0
+          },
+          "chain_getFinalizedHead": {
+            "requests": 3,
+            "cacheHits": 0,
+            "errors": 0
+          },
+          "chain_getHeader": {
+            "requests": 4,
+            "cacheHits": 6,
+            "errors": 0
+          },
+          "state_getStorage": {
+            "requests": 2,
+            "cacheHits": 0,
+            "errors": 0
+          },
+          "state_subscribeStorage": {
+            "requests": 1,
+            "cacheHits": 0,
+            "errors": 0
+          },
+          "state_call.TransactionPaymentApi_query_info": {
+            "requests": 3,
+            "cacheHits": 0,
+            "errors": 0
+          }
+        },
+        "storage": {
+          "system.account": 2,
+          "ownership.account": 1
+        }
+      },
+      "warmRepeat": {
+        "elapsedMs": 301,
+        "requests": 11,
+        "cacheHits": 6,
+        "errors": 0,
+        "methods": {
+          "chain_getFinalizedHead": {
+            "requests": 3,
+            "cacheHits": 0,
+            "errors": 0
+          },
+          "chain_getHeader": {
+            "requests": 3,
+            "cacheHits": 6,
+            "errors": 0
+          },
+          "state_getStorage": {
+            "requests": 2,
+            "cacheHits": 0,
+            "errors": 0
+          },
+          "state_call.TransactionPaymentApi_query_info": {
+            "requests": 3,
+            "cacheHits": 0,
+            "errors": 0
+          }
+        },
+        "storage": {
+          "system.account": 1,
+          "ownership.account": 1
+        }
+      },
+      "plannedSeats": 0
+    },
+    {
+      "scenario": "replacement-fallback",
+      "revision": "before",
+      "destination": "public-mainnet",
+      "route": "CLI/archive; bot archive fallback snapshots",
+      "scope": "planner only; synthetic external account state; no transaction submission",
+      "runtime": 161,
+      "observedBlocks": 1,
+      "planningTriggers": 2,
+      "startup": {
+        "requests": 9,
+        "cacheHits": 3,
+        "errors": 0
+      },
+      "first": {
+        "elapsedMs": 71,
+        "requests": 2,
+        "cacheHits": 0,
+        "errors": 0,
+        "methods": {
+          "state_getStorage": {
+            "requests": 2,
+            "cacheHits": 0,
+            "errors": 0
+          }
+        },
+        "storage": {
+          "system.account": 1,
+          "ownership.account": 1
+        }
+      },
+      "warmRepeat": {
+        "elapsedMs": 27,
+        "requests": 2,
+        "cacheHits": 0,
+        "errors": 0,
+        "methods": {
+          "state_getStorage": {
+            "requests": 2,
+            "cacheHits": 0,
+            "errors": 0
+          }
+        },
+        "storage": {
+          "system.account": 1,
+          "ownership.account": 1
+        }
+      },
+      "plannedSeats": 0
+    },
+    {
+      "scenario": "replacement-fallback",
+      "revision": "after",
+      "destination": "public-mainnet",
+      "route": "CLI/archive; bot archive fallback snapshots",
+      "scope": "planner only; synthetic external account state; no transaction submission",
+      "runtime": 161,
+      "observedBlocks": 1,
+      "planningTriggers": 2,
+      "startup": {
+        "requests": 9,
+        "cacheHits": 3,
+        "errors": 0
+      },
+      "first": {
+        "elapsedMs": 509,
+        "requests": 20,
+        "cacheHits": 10,
+        "errors": 0,
+        "methods": {
+          "state_getRuntimeVersion": {
+            "requests": 1,
+            "cacheHits": 0,
+            "errors": 0
+          },
+          "chain_getFinalizedHead": {
+            "requests": 5,
+            "cacheHits": 0,
+            "errors": 0
+          },
+          "chain_getHeader": {
+            "requests": 6,
+            "cacheHits": 10,
+            "errors": 0
+          },
+          "state_getStorage": {
+            "requests": 2,
+            "cacheHits": 0,
+            "errors": 0
+          },
+          "state_subscribeStorage": {
+            "requests": 1,
+            "cacheHits": 0,
+            "errors": 0
+          },
+          "state_call.TransactionPaymentApi_query_info": {
+            "requests": 5,
+            "cacheHits": 0,
+            "errors": 0
+          }
+        },
+        "storage": {
+          "system.account": 2,
+          "ownership.account": 1
+        }
+      },
+      "warmRepeat": {
+        "elapsedMs": 501,
+        "requests": 17,
+        "cacheHits": 10,
+        "errors": 0,
+        "methods": {
+          "chain_getFinalizedHead": {
+            "requests": 5,
+            "cacheHits": 0,
+            "errors": 0
+          },
+          "chain_getHeader": {
+            "requests": 5,
+            "cacheHits": 10,
+            "errors": 0
+          },
+          "state_getStorage": {
+            "requests": 2,
+            "cacheHits": 0,
+            "errors": 0
+          },
+          "state_call.TransactionPaymentApi_query_info": {
+            "requests": 5,
+            "cacheHits": 0,
+            "errors": 0
+          }
+        },
+        "storage": {
+          "system.account": 1,
+          "ownership.account": 1
+        }
+      },
+      "plannedSeats": 1
+    },
+    {
+      "scenario": "reduced-batch",
+      "revision": "before",
+      "destination": "public-mainnet",
+      "route": "CLI/archive; bot archive fallback snapshots",
+      "scope": "planner only; synthetic external account state; no transaction submission",
+      "runtime": 161,
+      "observedBlocks": 1,
+      "planningTriggers": 2,
+      "startup": {
+        "requests": 9,
+        "cacheHits": 3,
+        "errors": 0
+      },
+      "first": {
+        "elapsedMs": 34,
+        "requests": 2,
+        "cacheHits": 0,
+        "errors": 0,
+        "methods": {
+          "state_getStorage": {
+            "requests": 2,
+            "cacheHits": 0,
+            "errors": 0
+          }
+        },
+        "storage": {
+          "system.account": 1,
+          "ownership.account": 1
+        }
+      },
+      "warmRepeat": {
+        "elapsedMs": 75,
+        "requests": 2,
+        "cacheHits": 0,
+        "errors": 0,
+        "methods": {
+          "state_getStorage": {
+            "requests": 2,
+            "cacheHits": 0,
+            "errors": 0
+          }
+        },
+        "storage": {
+          "system.account": 1,
+          "ownership.account": 1
+        }
+      },
+      "plannedSeats": 0
+    },
+    {
+      "scenario": "reduced-batch",
+      "revision": "after",
+      "destination": "public-mainnet",
+      "route": "CLI/archive; bot archive fallback snapshots",
+      "scope": "planner only; synthetic external account state; no transaction submission",
+      "runtime": 161,
+      "observedBlocks": 1,
+      "planningTriggers": 2,
+      "startup": {
+        "requests": 9,
+        "cacheHits": 3,
+        "errors": 0
+      },
+      "first": {
+        "elapsedMs": 1190,
+        "requests": 32,
+        "cacheHits": 18,
+        "errors": 0,
+        "methods": {
+          "state_getRuntimeVersion": {
+            "requests": 1,
+            "cacheHits": 0,
+            "errors": 0
+          },
+          "chain_getFinalizedHead": {
+            "requests": 9,
+            "cacheHits": 0,
+            "errors": 0
+          },
+          "chain_getHeader": {
+            "requests": 10,
+            "cacheHits": 18,
+            "errors": 0
+          },
+          "state_getStorage": {
+            "requests": 2,
+            "cacheHits": 0,
+            "errors": 0
+          },
+          "state_subscribeStorage": {
+            "requests": 1,
+            "cacheHits": 0,
+            "errors": 0
+          },
+          "state_call.TransactionPaymentApi_query_info": {
+            "requests": 9,
+            "cacheHits": 0,
+            "errors": 0
+          }
+        },
+        "storage": {
+          "system.account": 2,
+          "ownership.account": 1
+        }
+      },
+      "warmRepeat": {
+        "elapsedMs": 926,
+        "requests": 29,
+        "cacheHits": 18,
+        "errors": 0,
+        "methods": {
+          "chain_getFinalizedHead": {
+            "requests": 9,
+            "cacheHits": 0,
+            "errors": 0
+          },
+          "chain_getHeader": {
+            "requests": 9,
+            "cacheHits": 18,
+            "errors": 0
+          },
+          "state_getStorage": {
+            "requests": 2,
+            "cacheHits": 0,
+            "errors": 0
+          },
+          "state_call.TransactionPaymentApi_query_info": {
+            "requests": 9,
+            "cacheHits": 0,
+            "errors": 0
+          }
+        },
+        "storage": {
+          "system.account": 1,
+          "ownership.account": 1
+        }
+      },
+      "plannedSeats": 1
+    },
+    {
+      "scenario": "shrinking-cohort",
+      "revision": "before",
+      "destination": "public-mainnet",
+      "route": "CLI/archive; bot archive fallback snapshots",
+      "scope": "planner only; synthetic external account state; no transaction submission",
+      "runtime": 161,
+      "observedBlocks": 1,
+      "planningTriggers": 2,
+      "startup": {
+        "requests": 9,
+        "cacheHits": 3,
+        "errors": 0
+      },
+      "first": {
+        "elapsedMs": 48,
+        "requests": 2,
+        "cacheHits": 0,
+        "errors": 0,
+        "methods": {
+          "state_getStorage": {
+            "requests": 2,
+            "cacheHits": 0,
+            "errors": 0
+          }
+        },
+        "storage": {
+          "system.account": 1,
+          "ownership.account": 1
+        }
+      },
+      "warmRepeat": {
+        "elapsedMs": 70,
+        "requests": 2,
+        "cacheHits": 0,
+        "errors": 0,
+        "methods": {
+          "state_getStorage": {
+            "requests": 2,
+            "cacheHits": 0,
+            "errors": 0
+          }
+        },
+        "storage": {
+          "system.account": 1,
+          "ownership.account": 1
+        }
+      },
+      "plannedSeats": 0
+    },
+    {
+      "scenario": "shrinking-cohort",
+      "revision": "after",
+      "destination": "public-mainnet",
+      "route": "CLI/archive; bot archive fallback snapshots",
+      "scope": "planner only; synthetic external account state; no transaction submission",
+      "runtime": 161,
+      "observedBlocks": 1,
+      "planningTriggers": 2,
+      "startup": {
+        "requests": 9,
+        "cacheHits": 3,
+        "errors": 0
+      },
+      "first": {
+        "elapsedMs": 8549,
+        "requests": 131,
+        "cacheHits": 84,
+        "errors": 0,
+        "methods": {
+          "state_getRuntimeVersion": {
+            "requests": 1,
+            "cacheHits": 0,
+            "errors": 0
+          },
+          "chain_getFinalizedHead": {
+            "requests": 42,
+            "cacheHits": 0,
+            "errors": 0
+          },
+          "chain_getHeader": {
+            "requests": 43,
+            "cacheHits": 84,
+            "errors": 0
+          },
+          "state_getStorage": {
+            "requests": 2,
+            "cacheHits": 0,
+            "errors": 0
+          },
+          "state_subscribeStorage": {
+            "requests": 1,
+            "cacheHits": 0,
+            "errors": 0
+          },
+          "state_call.TransactionPaymentApi_query_info": {
+            "requests": 42,
+            "cacheHits": 0,
+            "errors": 0
+          }
+        },
+        "storage": {
+          "system.account": 2,
+          "ownership.account": 1
+        }
+      },
+      "warmRepeat": {
+        "elapsedMs": 8491,
+        "requests": 129,
+        "cacheHits": 84,
+        "errors": 0,
+        "methods": {
+          "chain_getFinalizedHead": {
+            "requests": 42,
+            "cacheHits": 0,
+            "errors": 0
+          },
+          "chain_getHeader": {
+            "requests": 42,
+            "cacheHits": 84,
+            "errors": 0
+          },
+          "state_getStorage": {
+            "requests": 2,
+            "cacheHits": 0,
+            "errors": 0
+          },
+          "state_call.TransactionPaymentApi_query_info": {
+            "requests": 42,
+            "cacheHits": 0,
+            "errors": 0
+          },
+          "system_health": {
+            "requests": 1,
+            "cacheHits": 0,
+            "errors": 0
+          }
+        },
+        "storage": {
+          "system.account": 1,
+          "ownership.account": 1
+        }
+      },
+      "plannedSeats": 10
+    },
+    {
+      "scenario": "fee-exhausted",
+      "revision": "pre-correction",
+      "destination": "public-mainnet",
+      "route": "CLI/archive; bot archive fallback snapshots",
+      "scope": "planner only; synthetic external account state; no transaction submission",
+      "runtime": 161,
+      "observedBlocks": 1,
+      "planningTriggers": 2,
+      "startup": {
+        "requests": 9,
+        "cacheHits": 3,
+        "errors": 0
+      },
+      "first": {
+        "elapsedMs": 351,
+        "requests": 11,
+        "cacheHits": 4,
+        "errors": 0,
+        "methods": {
+          "state_getRuntimeVersion": {
+            "requests": 1,
+            "cacheHits": 0,
+            "errors": 0
+          },
+          "chain_getFinalizedHead": {
+            "requests": 2,
+            "cacheHits": 0,
+            "errors": 0
+          },
+          "chain_getHeader": {
+            "requests": 3,
+            "cacheHits": 4,
+            "errors": 0
+          },
+          "state_getStorage": {
+            "requests": 2,
+            "cacheHits": 0,
+            "errors": 0
+          },
+          "state_subscribeStorage": {
+            "requests": 1,
+            "cacheHits": 0,
+            "errors": 0
+          },
+          "state_call.TransactionPaymentApi_query_info": {
+            "requests": 2,
+            "cacheHits": 0,
+            "errors": 0
+          }
+        },
+        "storage": {
+          "system.account": 2,
+          "ownership.account": 1
+        }
+      },
+      "warmRepeat": {
+        "elapsedMs": 202,
+        "requests": 8,
+        "cacheHits": 4,
+        "errors": 0,
+        "methods": {
+          "chain_getFinalizedHead": {
+            "requests": 2,
+            "cacheHits": 0,
+            "errors": 0
+          },
+          "chain_getHeader": {
+            "requests": 2,
+            "cacheHits": 4,
+            "errors": 0
+          },
+          "state_getStorage": {
+            "requests": 2,
+            "cacheHits": 0,
+            "errors": 0
+          },
+          "state_call.TransactionPaymentApi_query_info": {
+            "requests": 2,
+            "cacheHits": 0,
+            "errors": 0
+          }
+        },
+        "storage": {
+          "system.account": 1,
+          "ownership.account": 1
+        }
+      },
+      "plannedSeats": 0
+    },
+    {
+      "scenario": "reduced-batch",
+      "revision": "pre-correction",
+      "destination": "public-mainnet",
+      "route": "CLI/archive; bot archive fallback snapshots",
+      "scope": "planner only; synthetic external account state; no transaction submission",
+      "runtime": 161,
+      "observedBlocks": 1,
+      "planningTriggers": 2,
+      "startup": {
+        "requests": 9,
+        "cacheHits": 3,
+        "errors": 0
+      },
+      "first": {
+        "elapsedMs": 389,
+        "requests": 11,
+        "cacheHits": 4,
+        "errors": 0,
+        "methods": {
+          "state_getRuntimeVersion": {
+            "requests": 1,
+            "cacheHits": 0,
+            "errors": 0
+          },
+          "chain_getFinalizedHead": {
+            "requests": 2,
+            "cacheHits": 0,
+            "errors": 0
+          },
+          "chain_getHeader": {
+            "requests": 3,
+            "cacheHits": 4,
+            "errors": 0
+          },
+          "state_getStorage": {
+            "requests": 2,
+            "cacheHits": 0,
+            "errors": 0
+          },
+          "state_subscribeStorage": {
+            "requests": 1,
+            "cacheHits": 0,
+            "errors": 0
+          },
+          "state_call.TransactionPaymentApi_query_info": {
+            "requests": 2,
+            "cacheHits": 0,
+            "errors": 0
+          }
+        },
+        "storage": {
+          "system.account": 2,
+          "ownership.account": 1
+        }
+      },
+      "warmRepeat": {
+        "elapsedMs": 307,
+        "requests": 8,
+        "cacheHits": 4,
+        "errors": 0,
+        "methods": {
+          "chain_getFinalizedHead": {
+            "requests": 2,
+            "cacheHits": 0,
+            "errors": 0
+          },
+          "chain_getHeader": {
+            "requests": 2,
+            "cacheHits": 4,
+            "errors": 0
+          },
+          "state_getStorage": {
+            "requests": 2,
+            "cacheHits": 0,
+            "errors": 0
+          },
+          "state_call.TransactionPaymentApi_query_info": {
+            "requests": 2,
+            "cacheHits": 0,
+            "errors": 0
+          }
+        },
+        "storage": {
+          "system.account": 1,
+          "ownership.account": 1
+        }
+      },
+      "plannedSeats": 0
+    },
+    {
+      "scenario": "shrinking-cohort",
+      "revision": "pre-correction",
+      "destination": "public-mainnet",
+      "route": "CLI/archive; bot archive fallback snapshots",
+      "scope": "planner only; synthetic external account state; no transaction submission",
+      "runtime": 161,
+      "observedBlocks": 1,
+      "planningTriggers": 2,
+      "startup": {
+        "requests": 9,
+        "cacheHits": 3,
+        "errors": 0
+      },
+      "first": {
+        "elapsedMs": 789,
+        "requests": 11,
+        "cacheHits": 4,
+        "errors": 0,
+        "methods": {
+          "state_getRuntimeVersion": {
+            "requests": 1,
+            "cacheHits": 0,
+            "errors": 0
+          },
+          "chain_getFinalizedHead": {
+            "requests": 2,
+            "cacheHits": 0,
+            "errors": 0
+          },
+          "chain_getHeader": {
+            "requests": 3,
+            "cacheHits": 4,
+            "errors": 0
+          },
+          "state_getStorage": {
+            "requests": 2,
+            "cacheHits": 0,
+            "errors": 0
+          },
+          "state_subscribeStorage": {
+            "requests": 1,
+            "cacheHits": 0,
+            "errors": 0
+          },
+          "state_call.TransactionPaymentApi_query_info": {
+            "requests": 2,
+            "cacheHits": 0,
+            "errors": 0
+          }
+        },
+        "storage": {
+          "system.account": 2,
+          "ownership.account": 1
+        }
+      },
+      "warmRepeat": {
+        "elapsedMs": 752,
+        "requests": 8,
+        "cacheHits": 4,
+        "errors": 0,
+        "methods": {
+          "chain_getFinalizedHead": {
+            "requests": 2,
+            "cacheHits": 0,
+            "errors": 0
+          },
+          "chain_getHeader": {
+            "requests": 2,
+            "cacheHits": 4,
+            "errors": 0
+          },
+          "state_getStorage": {
+            "requests": 2,
+            "cacheHits": 0,
+            "errors": 0
+          },
+          "state_call.TransactionPaymentApi_query_info": {
+            "requests": 2,
+            "cacheHits": 0,
+            "errors": 0
+          }
+        },
+        "storage": {
+          "system.account": 1,
+          "ownership.account": 1
+        }
+      },
+      "plannedSeats": 0
+    },
+    {
+      "scenario": "replacement-fallback",
+      "revision": "pre-correction",
+      "destination": "public-mainnet",
+      "route": "CLI/archive; bot archive fallback snapshots",
+      "scope": "planner only; synthetic external account state; no transaction submission",
+      "runtime": 161,
+      "observedBlocks": 1,
+      "planningTriggers": 2,
+      "startup": {
+        "requests": 9,
+        "cacheHits": 3,
+        "errors": 0
+      },
+      "first": {
+        "elapsedMs": 313,
+        "requests": 11,
+        "cacheHits": 4,
+        "errors": 0,
+        "methods": {
+          "state_getRuntimeVersion": {
+            "requests": 1,
+            "cacheHits": 0,
+            "errors": 0
+          },
+          "chain_getFinalizedHead": {
+            "requests": 2,
+            "cacheHits": 0,
+            "errors": 0
+          },
+          "chain_getHeader": {
+            "requests": 3,
+            "cacheHits": 4,
+            "errors": 0
+          },
+          "state_getStorage": {
+            "requests": 2,
+            "cacheHits": 0,
+            "errors": 0
+          },
+          "state_subscribeStorage": {
+            "requests": 1,
+            "cacheHits": 0,
+            "errors": 0
+          },
+          "state_call.TransactionPaymentApi_query_info": {
+            "requests": 2,
+            "cacheHits": 0,
+            "errors": 0
+          }
+        },
+        "storage": {
+          "system.account": 2,
+          "ownership.account": 1
+        }
+      },
+      "warmRepeat": {
+        "elapsedMs": 266,
+        "requests": 8,
+        "cacheHits": 4,
+        "errors": 0,
+        "methods": {
+          "chain_getFinalizedHead": {
+            "requests": 2,
+            "cacheHits": 0,
+            "errors": 0
+          },
+          "chain_getHeader": {
+            "requests": 2,
+            "cacheHits": 4,
+            "errors": 0
+          },
+          "state_getStorage": {
+            "requests": 2,
+            "cacheHits": 0,
+            "errors": 0
+          },
+          "state_call.TransactionPaymentApi_query_info": {
+            "requests": 2,
+            "cacheHits": 0,
+            "errors": 0
+          }
+        },
+        "storage": {
+          "system.account": 1,
+          "ownership.account": 1
+        }
+      },
+      "plannedSeats": 0
+    }
+  ],
+  "correctionBaselineRevision": "f278c2f40d01873716cbd89ae278da8e87fa72d3"
+}
