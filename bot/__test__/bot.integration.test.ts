@@ -243,7 +243,7 @@ it.skipIf(skipE2E)(
     });
     await bot.shutdown();
 
-    // try to recover from blocks
+    // Include the bidding history for every cohort whose earnings are compared below.
 
     const path2 = fs.mkdtempSync(Path.join(os.tmpdir(), 'bot2-'));
     const botRestart = new Bot({
@@ -256,7 +256,7 @@ it.skipIf(skipE2E)(
       datadir: path2,
       sessionMiniSecret: mnemonicGenerate(),
       vaultOperatorAddress: fundingAccount.address,
-      oldestFrameIdToSync: historyStartingFrameId,
+      oldestFrameIdToSync: Math.min(...cohortActivationFrameIds) - 1,
       shouldSkipDockerSync: true,
     });
     runOnTeardown(async () => {

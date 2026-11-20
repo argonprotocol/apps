@@ -38,9 +38,9 @@ afterAll(async () => {
 
 describe.skipIf(SKIP_E2E)('Cohort Integration Bidder tests', { tags: ['isolated-argon-network'] }, () => {
   it('can compete on bids', async () => {
-    // Both commitments and delayed reveals must fit before this auction activates.
+    // Allow delayed reveals, a retry, and competition before this auction activates.
     const network = await startArgonTestNetwork(`cohort-bidders-${randomUUID()}`, {
-      ticksBetweenSlots: 30,
+      ticksBetweenSlots: 40,
       profiles: ['bob', 'price-oracle'],
       registerTeardown: false,
     });
