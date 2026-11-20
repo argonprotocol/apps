@@ -210,10 +210,12 @@ it.each(outcomes)('handles %s while local RPC state recovers', async outcome => 
           updateMethod = 'chain_newHead';
           update = archiveIsAhead ? archiveAheadHeader.toJSON() : bestHeader.toJSON();
           break;
-        case 'chain_subscribeFinalizedHeads':
+        case 'chain_subscribeFinalizedHeads': {
           updateMethod = 'chain_finalizedHead';
-          update = archiveIsAhead ? archiveAheadHeader.toJSON() : finalizedHeader.toJSON();
+          const finalizedHash = request.url === '/pruned' ? prunedFinalizedHash : archiveFinalizedHash;
+          update = archiveHeaders.find(header => header.hash.toHex() === finalizedHash)!.toJSON();
           break;
+        }
         default:
           if (typeof method === 'string' && method.includes('unsubscribe')) result = true;
           else {
@@ -350,14 +352,16 @@ it.each(outcomes)('handles %s while local RPC state recovers', async outcome => 
     expect(await clients.archiveClientPromise).toBe(retainedClient);
     expect(await clients.prunedClientPromise).toBe(localClient);
     expect(blockSync.calculateSyncProgress()).toBe(100);
+    await vi.waitFor(() => expect(blockWatch.finalizedBlockHeader.blockNumber).toBe(9));
+    await blockSync.start();
     await storage.close();
     const reopenedStorage = new Storage(botDataDir);
     try {
       const saved = await reopenedStorage.botStateFile().get();
       expect(saved.lastProcessedBlockNumber).toBe(9);
       expect(saved.lastProcessedBlockHash).toBe(bestHeader.hash.toHex());
-      expect(saved.lastFinalizedProcessedBlockNumber).toBe(8);
-      expect(saved.lastFinalizedProcessedBlockHash).toBe(finalizedHeader.hash.toHex());
+      expect(saved.lastFinalizedProcessedBlockNumber).toBe(9);
+      expect(saved.lastFinalizedProcessedBlockHash).toBe(bestHeader.hash.toHex());
     } finally {
       await reopenedStorage.close();
     }

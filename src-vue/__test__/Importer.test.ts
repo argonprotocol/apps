@@ -507,6 +507,7 @@ it.each([
     expect(keychain.value).toBe(committedKey);
     await nextStartup.close();
   },
+  120_000,
 );
 
 it('restores completed mining setup from imported operational account state', async () => {

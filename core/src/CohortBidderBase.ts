@@ -86,6 +86,7 @@ export abstract class CohortBidderBase<
   public bidsAttempted = 0;
   public nextBid?: {
     microgonsPerSeat: bigint;
+    maxMicrogonsPerSeat?: bigint;
     subaccounts: string[];
     alreadyWinningSeats: number;
     bidAtTick: number;

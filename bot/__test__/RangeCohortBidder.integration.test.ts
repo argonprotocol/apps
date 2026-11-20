@@ -461,12 +461,19 @@ describe.skipIf(SKIP_E2E)('Range cohort bidder', { tags: ['isolated-argon-networ
     }
   }, 180_000);
 
-  it('commits its ceiling in the first sponsored bid and accounts for both transaction fees', async context => {
+  it('funds sponsored ranges below the configured ceiling and opens at the auction entry price', async context => {
     if (!('auctionRulesStartAt' in client.query.miningSlot)) context.skip();
+    const limitedFunding = fundingAccount.derive('//affordable-sponsored');
+    await sudoFundWallet({
+      client,
+      address: limitedFunding.address,
+      microgons: 50_000_000n,
+      micronots: (await client.query.miningSlot.argonotsPerMiningSeat()) * BigInt(client.consts.mint.maxPossibleMiners),
+    });
     const proxyAccount = createKeyringPair({});
     const proxyAccountset = new Accountset({
       client,
-      fundingAccountId: fundingAccount.address,
+      fundingAccountId: limitedFunding.address,
       isProxy: true,
       txSubmitter: proxyAccount,
       subaccountRange: getRange(0, 49),
@@ -474,21 +481,53 @@ describe.skipIf(SKIP_E2E)('Range cohort bidder', { tags: ['isolated-argon-networ
     });
     const setup = await proxyAccountset.planMiningBidProxySetup();
     if (setup.kind !== 'tx') throw new Error(`Expected proxy setup transaction, got ${setup.kind}`);
-    const setupResult = await new TxSubmitter(client, setup.tx, fundingAccount).submit({ useLatestNonce: true });
+    const setupResult = await new TxSubmitter(client, setup.tx, limitedFunding).submit({ useLatestNonce: true });
     await setupResult.waitForFinalizedBlock;
+    await sudoSubmitAndFinalize(client, client.tx.balances.forceSetBalance(limitedFunding.address, 4_000_000n));
 
     const frameId = await prepareNextAuction();
     if (!(await Mining.usesRangeBidding(client, frameId))) context.skip();
 
     const seats = await proxyAccountset.getAvailableMinerAccounts(5);
     expect(seats).toHaveLength(5);
+    const tip = 600_000n;
+    const configuredMaximum = 5_000_000n;
+    const openingBid = client.consts.miningSlot.bidIncrements;
+    const commit = await proxyAccountset.createMiningBidTx({
+      subaccounts: seats,
+      bidAmount: openingBid,
+      maxBid: configuredMaximum,
+      frameId,
+    });
+    const reveal = await proxyAccountset.createMiningBidMaxTx({
+      frameId,
+      bids: seats.map(({ address }) => ({
+        address,
+        maxBid: configuredMaximum,
+        salt: proxyAccountset.miningBidCommitment({
+          address,
+          bidAmount: openingBid,
+          maxBid: configuredMaximum,
+          frameId,
+        }).salt,
+      })),
+    });
+    const available = Mining.availableBidBalance(
+      await client.query.system.account(limitedFunding.address),
+      client.consts.balances.existentialDeposit,
+    );
+    const estimatedFees = (await commit.feeEstimate(tip)) + (await reveal.feeEstimate(tip)) + 2n * tip;
+    const perSeatBudget = (available - estimatedFees) / BigInt(seats.length);
+    const maxBid = perSeatBudget - (perSeatBudget % openingBid);
+    expect(maxBid).toBeGreaterThan(openingBid);
+    expect(maxBid).toBeLessThan(configuredMaximum);
     const submittedBids: IBotActivityBidsSubmitted[] = [];
     const bidder = new RangeCohortBidder(
       proxyAccountset,
       frames,
       frameId,
       seats,
-      { minBid: 10_000n, maxBid: 1_000_000n, tipPerTransaction: 600_000n },
+      { minBid: 3_000_000n, maxBid: configuredMaximum, tipPerTransaction: tip },
       { onBidsSubmitted: bid => submittedBids.push(bid) },
     );
     bidders.push(bidder);
@@ -498,6 +537,7 @@ describe.skipIf(SKIP_E2E)('Range cohort bidder', { tags: ['isolated-argon-networ
     const commitment = await waitFor(30_000, 'proxy commitment submission', async () => bidder.pendingBidTxResult);
     const winners = await bidder.stop(true);
     expect(winners.map(winner => winner.address).sort()).toEqual(seats.map(seat => seat.address).sort());
+    expect(winners.every(winner => winner.bidMicrogons === openingBid)).toBe(true);
     await commitment.waitForFinalizedBlock;
 
     const committedApi = runtimeClient(await client.at(commitment.blockHash!));
@@ -506,14 +546,14 @@ describe.skipIf(SKIP_E2E)('Range cohort bidder', { tags: ['isolated-argon-networ
     for (const [index, { address }] of seats.entries()) {
       expect(pending?.[index]).toMatchObject({
         miner: address,
-        funding: fundingAccount.address,
+        funding: limitedFunding.address,
         frame: frameId,
         bid: 10_000n,
         max: null,
         maxHash: proxyAccountset.miningBidCommitment({
           address,
           bidAmount: 10_000n,
-          maxBid: 1_000_000n,
+          maxBid,
           frameId,
         }).maxHash,
       });
@@ -527,7 +567,7 @@ describe.skipIf(SKIP_E2E)('Range cohort bidder', { tags: ['isolated-argon-networ
     expect(standing).toHaveLength(5);
     for (const index of seats.keys()) {
       expect(standing?.[index]).toMatchObject({
-        max: 1_000_000n,
+        max: maxBid,
         fixed: false,
         submittedAt: commitment.blockNumber,
       });
@@ -545,7 +585,7 @@ describe.skipIf(SKIP_E2E)('Range cohort bidder', { tags: ['isolated-argon-networ
         const extrinsic = block.block.extrinsics[phase.asApplyExtrinsic.toNumber()];
         if (!extrinsic.isSigned || !extrinsic.signer.eq(proxyAccount.address)) continue;
         if (client.events.transactionPayment.TransactionFeePaid.is(event)) {
-          expect(event.data.who.eq(fundingAccount.address)).toBe(true);
+          expect(event.data.who.eq(limitedFunding.address)).toBe(true);
           transactionFees.push(event.data.actualFee.toBigInt());
         }
       }
@@ -555,9 +595,10 @@ describe.skipIf(SKIP_E2E)('Range cohort bidder', { tags: ['isolated-argon-networ
     expect(transactionFees.every(fee => fee <= 1_000_000n)).toBe(true);
     const totalFees = transactionFees.reduce((total, fee) => total + fee, 0n);
     expect(totalFees).toBeGreaterThan(1_000_000n);
+    expect(maxBid * BigInt(seats.length) + totalFees).toBeLessThanOrEqual(available);
     expect(bidder.txFees).toBe(totalFees);
     expect(submittedBids).toEqual([
-      expect.objectContaining({ microgonsPerSeat: 10_000n, maxMicrogonsPerSeat: 1_000_000n, submittedCount: 5 }),
+      expect.objectContaining({ microgonsPerSeat: openingBid, maxMicrogonsPerSeat: maxBid, submittedCount: 5 }),
     ]);
     const proxyBalance = await client.query.system.account(proxyAccount.address);
     expect(proxyBalance.data.free).toBe(1_000_000n);
