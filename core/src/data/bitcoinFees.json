@@ -2726,5 +2726,21 @@
   {
     "date": "2026-11-16",
     "feeInBitcoins": 0.00000311
+  },
+  {
+    "date": "2026-11-17",
+    "feeInBitcoins": 0.00000453
+  },
+  {
+    "date": "2026-11-18",
+    "feeInBitcoins": 0.00000533
+  },
+  {
+    "date": "2026-11-19",
+    "feeInBitcoins": 0.00000507
+  },
+  {
+    "date": "2026-11-20",
+    "feeInBitcoins": 0.00000773
   }
 ]
