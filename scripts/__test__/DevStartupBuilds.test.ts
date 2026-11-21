@@ -16,15 +16,16 @@ const fs = require('node:fs');
 const path = require('node:path');
 const directory = process.env.BUILD_TEST_DIRECTORY;
 const args = process.argv.slice(2);
-let job = 'cli';
+let job = 'dev-miner-image';
 if (args.includes('build:server')) job = 'server';
 else if (args.includes('@argonprotocol/apps-indexer')) job = 'indexer';
+else if (args.includes('build:dev-miner')) job = 'dev-miner';
 const file = name => path.join(directory, name);
 const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
 (async () => {
   fs.appendFileSync(file('events'), job + ':start\\n');
   fs.writeFileSync(file(job + '.started'), '');
-  if (job !== 'cli') {
+  if (job === 'server' || job === 'indexer') {
     const peer = job === 'server' ? 'indexer' : 'server';
     const deadline = Date.now() + 2000;
     while (!fs.existsSync(file(peer + '.started'))) {
@@ -32,7 +33,7 @@ const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
       await wait(10);
     }
   }
-  await wait(job === 'cli' ? 150 : 20);
+  await wait(job === 'dev-miner-image' ? 150 : 20);
   if (job === 'server' && process.env.BUILD_TEST_FAIL_SERVER === '1') process.exit(1);
   fs.writeFileSync(file(job + '.done'), '');
   fs.appendFileSync(file('events'), job + ':done\\n');
@@ -56,8 +57,9 @@ const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
 
       const events = Fs.readFileSync(Path.join(directory, 'events'), 'utf8').trim().split('\n');
       expect(events.slice(0, 2).sort()).toEqual(['indexer:start', 'server:start']);
-      expect(events.indexOf('cli:start')).toBeGreaterThan(events.indexOf('indexer:done'));
-      expect(Fs.existsSync(Path.join(directory, 'cli.done'))).toBe(true);
+      expect(events.indexOf('dev-miner:start')).toBeGreaterThan(events.indexOf('indexer:done'));
+      expect(events.indexOf('dev-miner-image:start')).toBeGreaterThan(events.indexOf('dev-miner:done'));
+      expect(Fs.existsSync(Path.join(directory, 'dev-miner-image.done'))).toBe(true);
       expect(Fs.existsSync(Path.join(directory, 'server.done'))).toBe(!failServer);
     } finally {
       output.close();

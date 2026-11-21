@@ -415,8 +415,9 @@ export async function buildLocalServices(
     output.run('yarn', ['build:server']),
     (async () => {
       await output.run('yarn', ['workspace', '@argonprotocol/apps-indexer', 'run', 'build']);
-      output.progress('Building local mining CLI');
-      await output.run('docker', [...composeArgs, 'build', 'miner-1-setup'], {
+      output.progress('Building development miner');
+      await output.run('yarn', ['build:dev-miner']);
+      await output.run('docker', [...composeArgs, 'build', 'miner-1-bidder'], {
         env: context.composeEnv,
         cwd: context.composeDir,
       });

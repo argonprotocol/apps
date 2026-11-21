@@ -57,4 +57,5 @@ server/.env
 /docs/superpowers
 /docs/plans
 /runtime-client/src/*.generated.ts
+/e2e/argon/dev-miner/dist/
 /.qualification-build
