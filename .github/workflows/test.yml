@@ -106,10 +106,12 @@ jobs:
 
       - name: Install Kurtosis
         if: matrix.suite != 'regular'
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
-          echo "deb [trusted=yes] https://sdk.kurtosis.com/kurtosis-cli-release-artifacts/ /" | sudo tee /etc/apt/sources.list.d/kurtosis.list
-          sudo apt update
-          sudo apt install -y kurtosis-cli=1.22.1
+          gh release download 1.22.1 --repo kurtosis-tech/kurtosis-cli-release-artifacts --pattern kurtosis-cli_1.22.1_linux_amd64.deb --output "$RUNNER_TEMP/kurtosis-cli_1.22.1_linux_amd64.deb"
+          printf '%s  %s\n' 'ff67ceac4139bc13067ee0e038d0d82fc3efe555d39adb3098a0c9c41ebbea77' "$RUNNER_TEMP/kurtosis-cli_1.22.1_linux_amd64.deb" | sha256sum --check --strict
+          sudo dpkg --install "$RUNNER_TEMP/kurtosis-cli_1.22.1_linux_amd64.deb"
           kurtosis version
           install -m 600 e2e/kurtosis-config.yml "$(kurtosis config path)"
 

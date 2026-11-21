@@ -111,6 +111,15 @@ runWithReplay('Bond financial history replay corpus', { tags: ['no-argon-network
           (await reader.getEventsWithSpec(block)).events,
       }) as unknown as BlockWatch;
       const miningFrames = new MiningFrames({} as MainchainClients, blockWatch);
+      if (recordingClient) {
+        expect(latestBlock.frameId).toBeDefined();
+        expect(
+          miningFrames.frames
+            .filter(frame => frame.firstBlockNumber !== null && frame.firstBlockNumber <= latestBlock.blockNumber)
+            .at(-1)?.frameId,
+          'Frame metadata must cover the replay checkpoint before capturing bond earnings',
+        ).toBe(latestBlock.frameId);
+      }
       const earliestEventBackedBondFrame = miningFrames.earliestWithSpec(151);
       const currentLotsByAccount = new Map<string, Awaited<ReturnType<ArgonBonds['getOwnBondLots']>>>();
       const assetsWithVerifiedApy = new Set<string>();

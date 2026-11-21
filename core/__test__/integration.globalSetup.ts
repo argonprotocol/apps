@@ -54,10 +54,13 @@ export default function setup(project: TestProject): () => Promise<void> {
                 { encoding: 'utf8' },
               )
             : 'No test-network containers remain.\n';
-          const logs = await docker.logs(['archive-node', 'miner-1', 'miner-2', 'notary', 'indexer'], {
-            ...composeOptions,
-            timestamps: true,
-          });
+          const logs = await docker.logs(
+            ['archive-node', 'archive-rpc', 'miner-1', 'miner-2', 'notary', 'indexer', 'oracle-price'],
+            {
+              ...composeOptions,
+              timestamps: true,
+            },
+          );
           const diagnosticsDirectory = Path.join(
             Path.dirname(integrationNetworkManifestPath),
             'integration-diagnostics',

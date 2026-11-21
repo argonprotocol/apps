@@ -1,4 +1,4 @@
-FROM node:24.22.1-slim@sha256:be8204d4bd327363357f532187b752ff62759c31bedf98e9e18fc08c9cbd605c AS build
+FROM node:24.22.3-bookworm-slim@sha256:dc26ae92c9fb15cf6b1d63e20f0944b2efe0f115b20e00be48fb23fceb061c54 AS build
 
 WORKDIR /usr/src/argon-apps
 
@@ -10,7 +10,7 @@ RUN corepack enable \
   && yarn workspace @argonprotocol/apps-discord-verifier build \
   && yarn workspaces focus @argonprotocol/apps-discord-verifier --production
 
-FROM node:24.22.1-slim@sha256:be8204d4bd327363357f532187b752ff62759c31bedf98e9e18fc08c9cbd605c
+FROM node:24.22.3-bookworm-slim@sha256:dc26ae92c9fb15cf6b1d63e20f0944b2efe0f115b20e00be48fb23fceb061c54
 
 WORKDIR /usr/src/argon-apps
 

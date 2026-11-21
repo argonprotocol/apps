@@ -162,7 +162,7 @@ export default defineConfig({
             { name: 'isolated-argon-network', description: 'Controls protocol state on a dedicated Argon network.' },
             {
               name: 'exclusive-argon-network',
-              description: 'Uses the shared chain exclusively with its price oracle paused.',
+              description: 'Uses the shared chain exclusively with its price oracle stopped.',
               concurrent: false,
             },
             { name: 'mining-auction', description: 'Needs exclusive access to the shared mining auction.' },

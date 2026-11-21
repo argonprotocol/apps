@@ -22,6 +22,14 @@ afterEach(() => vi.restoreAllMocks());
 it.for([
   { free: 350_000n, rivalMaxima: [], seats: 3, opening: 10_000n, maximum: 110_000n },
   { free: 350_000n, rivalMaxima: [100_000n, 200_000n, 400_000n], seats: 1, opening: 110_000n, maximum: 330_000n },
+  {
+    free: 350_000n,
+    rivalMaxima: Array.from({ length: 23 }, () => 1_000_000n),
+    cohortSize: 24,
+    seats: 1,
+    opening: 10_000n,
+    maximum: 330_000n,
+  },
   { free: 312_000n, rivalMaxima: [10_000n, 100_000n, 110_000n], seats: 2, opening: 20_000n, maximum: 140_000n },
   { free: 20_000n, rivalMaxima: [], seats: 0, opening: 10_000n, maximum: 0n },
   { free: 21_000n, rivalMaxima: [], rangeFeePerSeat: 20_000n, seats: 1, opening: 10_000n, maximum: 10_000n },
@@ -52,6 +60,7 @@ it.for([
   async ({
     free,
     rivalMaxima,
+    cohortSize = 3,
     standingMaximum,
     standingOutside,
     configuredMaximum,
@@ -65,7 +74,7 @@ it.for([
     const { bidder, accountset, blockWatch } = createReceiptScenario();
     const registry = getOfflineRegistry();
     const accounts = accountset.getAccountsInRange([0, 1, 2]).map(account => ({ ...account, isRebid: false }));
-    Object.assign(bidder, { subaccounts: accounts, nextCohortSize: 3, micronotsPerSeat: 10_000n });
+    Object.assign(bidder, { subaccounts: accounts, nextCohortSize: cohortSize, micronotsPerSeat: 10_000n });
     Object.assign(bidder.options, { minBid: 300_000n, maxBid: configuredMaximum ?? 500_000n });
     bidder.currentBids.bids = rivalMaxima.map((maxMicrogons, index) => ({
       address: `rival-${index}`,

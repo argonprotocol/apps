@@ -50,6 +50,7 @@ describe.skipIf(SKIP_E2E)('Cohort Integration Bidder tests', { tags: ['isolated-
     const accountUri = integrationAccountUri(inject('argonIntegrationRunId'), import.meta.filename, 'funded');
     const aliceRing = new Keyring({ type: 'sr25519' }).addFromUri(accountUri);
     const aliceBudget = 10_000_000n;
+    const tipPerTransaction = 600_000n;
 
     const clients = trackMainchainClients(new MainchainClients(network.archiveUrl, () => false));
     const aliceClient = await clients.get(false);
@@ -140,7 +141,7 @@ describe.skipIf(SKIP_E2E)('Cohort Integration Bidder tests', { tags: ['isolated-
             maxBid: 5_000_000n,
             bidIncrement: 1_000_000n,
             bidDelay: 0,
-            tipPerTransaction: 600_000n,
+            tipPerTransaction,
           },
           {
             onBidsSubmitted: ({ microgonsPerSeat, blockNumber }) => {
@@ -162,7 +163,7 @@ describe.skipIf(SKIP_E2E)('Cohort Integration Bidder tests', { tags: ['isolated-
             maxBid: 4_000_000n,
             bidIncrement: 1_000_000n,
             bidDelay: 0,
-            tipPerTransaction: 600_000n,
+            tipPerTransaction,
           },
           {
             onBidsSubmitted: ({ microgonsPerSeat, maxMicrogonsPerSeat, submittedCount, blockNumber }) => {
@@ -281,8 +282,14 @@ describe.skipIf(SKIP_E2E)('Cohort Integration Bidder tests', { tags: ['isolated-
     if (aliceBidder! instanceof RangeCohortBidder) {
       const submitted = aliceBidEvents.filter(event => event.type === 'submitted');
       expect(submitted.length).toBeGreaterThan(0);
-      expect(submitted[0].submittedCount).toBeLessThanOrEqual(Number(aliceBudget / 4_000_000n));
-      expect(submitted.every(event => event.maxMicrogonsPerSeat === 4_000_000n)).toBe(true);
+      const firstBid = submitted[0];
+      expect(firstBid.submittedCount).toBe(10);
+      expect(firstBid.maxMicrogonsPerSeat).toBeGreaterThan(firstBid.microgonsPerSeat);
+      expect(firstBid.maxMicrogonsPerSeat).toBeLessThan(4_000_000n);
+      expect(BigInt(firstBid.submittedCount) * firstBid.maxMicrogonsPerSeat! + 2n * tipPerTransaction).toBeLessThan(
+        aliceBudget,
+      );
+      for (const bid of submitted) expect(bid.maxMicrogonsPerSeat).toBeLessThanOrEqual(4_000_000n);
       expect([...bobSeatsOnChain, ...aliceSeatsOnChain].some(seat => seat.bid > 10_000n)).toBe(true);
       for (const seat of bobSeatsOnChain) expect(seat.bid).toBeLessThanOrEqual(5_000_000n);
       for (const seat of aliceSeatsOnChain) expect(seat.bid).toBeLessThanOrEqual(4_000_000n);

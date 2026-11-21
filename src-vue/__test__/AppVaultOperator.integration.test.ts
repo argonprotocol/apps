@@ -29,6 +29,7 @@ import {
 let network: IntegrationNetwork;
 let clients: MainchainClients;
 let actor: AppVaultOperator | undefined;
+let exclusiveTestEndTick: number | undefined;
 
 beforeAll(async () => {
   network = sharedNetwork;
@@ -42,10 +43,18 @@ beforeAll(async () => {
 }, 240e3);
 
 afterAll(async () => {
-  vi.restoreAllMocks();
-  await actor?.dispose();
-  await clients?.disconnect();
-  await teardown();
+  try {
+    if (exclusiveTestEndTick !== undefined) {
+      const client = await clients.get(false);
+      const finalized = await client.at(await client.rpc.chain.getFinalizedHead());
+      expect((await finalized.query.priceIndex.current())?.tick).toBeGreaterThan(exclusiveTestEndTick);
+    }
+  } finally {
+    vi.restoreAllMocks();
+    await actor?.dispose();
+    await clients?.disconnect();
+    await teardown();
+  }
 });
 
 it(
@@ -152,5 +161,7 @@ it(
       treasuryBondAmount: rewardConfig.treasuryMinimumBonds,
     });
     expect(await TreasuryBonds.getBondLotsByAccount(client, walletKeys.defaultArgonAddress)).toEqual([]);
+    const finalized = await client.at(await client.rpc.chain.getFinalizedHead());
+    exclusiveTestEndTick = await finalized.query.ticks.currentTick();
   },
 );
