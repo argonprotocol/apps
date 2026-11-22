@@ -82,6 +82,7 @@ jobs:
           if [ "${{ inputs.reuse_replay_checkpoint }}" = "true" ]; then
             cp indexer/seeds/mainnet-financial-history-replay.db indexer/seeds/mainnet-activity-v2.db
           fi
+          ARGON_NETWORK_NAME=mainnet yarn workspace @argonprotocol/apps-core update-frames
           yarn capture:financial-history-replay
 
       - name: Package and verify offline replay

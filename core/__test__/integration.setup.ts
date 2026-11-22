@@ -1,7 +1,7 @@
 import { aroundAll, aroundEach, inject, TestRunner } from 'vitest';
 import { readFile, writeFile } from 'node:fs/promises';
 import Path from 'node:path';
-import docker from 'docker-compose';
+import docker, { execCompose } from 'docker-compose';
 import { getTests } from '@vitest/runner/utils';
 import { acquireIntegrationLock, acquireIntegrationNetworkAccess } from './helpers/locks.ts';
 import { waitFor } from './helpers/waitFor.ts';
@@ -95,6 +95,7 @@ aroundEach(async (runTest, { task }) => {
   await releaseNetworkAccess?.();
   releaseNetworkAccess = undefined;
   const releaseExclusive = await acquireIntegrationNetworkAccess('exclusive', session.lockDirectory);
+  let networkUnavailable = false;
   try {
     const composeOptions = {
       cwd: COMPOSE_DIR,
@@ -113,30 +114,43 @@ aroundEach(async (runTest, { task }) => {
         throw new Error('Exclusive integration tests require a published Bitcoin price.');
       }
 
-      await docker.pauseOne('oracle-price', composeOptions);
       try {
+        // Start a fresh oracle afterward instead of resuming stale transaction subscriptions.
+        await docker.stopOne('oracle-price', composeOptions);
         await runTest();
       } finally {
         try {
-          await docker.unpauseOne('oracle-price', composeOptions);
-          await waitFor(90_000, 'shared price oracle to resume after exclusive test', async () => {
-            const after = await client.at(await client.rpc.chain.getFinalizedHead());
-            const [price, history] = await Promise.all([
-              after.query.priceIndex.current(),
-              after.query.bitcoinLocks.microgonPerBtcHistory(),
-            ]);
-            if (
-              !price ||
-              !price.btcUsdPrice.isEqualTo(originalPrice.btcUsdPrice) ||
-              !price.argonUsdPrice.isEqualTo(originalPrice.argonUsdPrice) ||
-              !price.argonUsdTargetPrice.isEqualTo(originalPrice.argonUsdTargetPrice) ||
-              (originalPrice.argonotUsdPrice && !price.argonotUsdPrice?.isEqualTo(originalPrice.argonotUsdPrice)) ||
-              history?.at(-1)?.[1] !== originalRate
-            )
-              return;
-            return true;
+          const resumeSnapshot = await client.at(await client.rpc.chain.getFinalizedHead());
+          const resumeAfterTick = await resumeSnapshot.query.ticks.currentTick();
+          await execCompose('start', ['oracle-price'], composeOptions);
+          const restoredPrice = await waitFor(
+            90_000,
+            'shared price oracle to resume after exclusive test',
+            async () => {
+              const after = await client.at(await client.rpc.chain.getFinalizedHead());
+              const [price, history] = await Promise.all([
+                after.query.priceIndex.current(),
+                after.query.bitcoinLocks.microgonPerBtcHistory(),
+              ]);
+              if (
+                !price ||
+                price.tick <= resumeAfterTick ||
+                !price.btcUsdPrice.isEqualTo(originalPrice.btcUsdPrice) ||
+                !price.argonUsdPrice.isEqualTo(originalPrice.argonUsdPrice) ||
+                !price.argonUsdTargetPrice.isEqualTo(originalPrice.argonUsdTargetPrice) ||
+                (originalPrice.argonotUsdPrice && !price.argonotUsdPrice?.isEqualTo(originalPrice.argonotUsdPrice)) ||
+                history?.at(-1)?.[1] !== originalRate
+              )
+                return;
+              return price;
+            },
+          );
+          console.info('[Integration network] Oracle published a fresh finalized price', {
+            tick: restoredPrice.tick,
+            afterTick: resumeAfterTick,
           });
         } catch (error) {
+          networkUnavailable = true;
           await writeFile(
             Path.join(session.lockDirectory, 'network-unavailable'),
             'Price oracle did not resume after exclusive integration test.\n',
@@ -149,6 +163,8 @@ aroundEach(async (runTest, { task }) => {
     }
   } finally {
     await releaseExclusive();
-    releaseNetworkAccess = await acquireIntegrationNetworkAccess('shared', session.lockDirectory);
+    if (!networkUnavailable) {
+      releaseNetworkAccess = await acquireIntegrationNetworkAccess('shared', session.lockDirectory);
+    }
   }
 }, 16 * 60_000);
