@@ -787,7 +787,7 @@ const purchaseProjections = computed(() => {
   if (paydown && rewardRate) {
     withLiquid = projectStabilizerBuyQuote({
       ...input,
-      liquidRepaymentMicrogons: paydown.appliedMicrogons,
+      liquidRepaymentMicrogons: paydown.burnedMicrogons,
       liquidRepaymentRewardPercent: rewardRate,
     });
   }
