@@ -1,31 +1,10 @@
 ---
-x-cli-config: &cli
-  image: argon-cli:dev
-  build:
-    context: ../..
-    dockerfile: nodejs.Dockerfile
-  working_dir: /app
-  restart: on-failure
-  environment:
-    - MAINCHAIN_URL=${MAINCHAIN_URL:-ws://archive-node:9944}
-
 services:
-  miner-1-setup:
-    <<: *cli
-    command: accounts create --path=/accounts/bob.json --register-keys-to=http://miner-1:9944 --account-suri=//Bob -s 0-99
+  miner-1-bidder:
+    image: dev-miner:dev
+    build: ./dev-miner
+    restart: on-failure
+    command: --node-url=ws://miner-1:9944 --account-suri=//Bob --max-bid=0.25
     depends_on:
       miner-1:
         condition: service_healthy
-    volumes:
-      - miner1-data:/accounts
-    restart: on-failure
-  miner-1-bidder:
-    <<: *cli
-    command: mining bid --env=/accounts/bob.json --max-bid=0.25 --run-continuous
-    depends_on:
-      miner-1-setup:
-        condition: service_completed_successfully
-    volumes:
-      - miner1-data:/accounts
-volumes:
-  miner1-data:

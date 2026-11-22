@@ -23,7 +23,6 @@
 
     "paths": {
       "@argonprotocol/apps-core": ["./core/src/index.ts"],
-      "@argonprotocol/cli": ["./cli/src/index.ts"],
       "@argonprotocol/apps-bot": ["./bot/src/public.ts"],
       "@argonprotocol/apps-indexer": ["./indexer/src/index.ts"],
       "@argonprotocol/runtime-client": ["./runtime-client/src/index.ts"],
@@ -42,7 +41,6 @@
     "dev",
     "eslint.config.ts",
     "bot/**/*.ts",
-    "cli/**/*.ts",
     "core/**/*.ts",
     "indexer/**/*.ts",
     "runtime-client/**/*.ts",

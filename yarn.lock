@@ -266,26 +266,6 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@argonprotocol/cli@workspace:cli":
-  version: 0.0.0-use.local
-  resolution: "@argonprotocol/cli@workspace:cli"
-  dependencies:
-    "@argonprotocol/apps-core": "workspace:*"
-    "@argonprotocol/mainchain": "npm:1.6.0-dev.0331b728"
-    "@argonprotocol/testing": "npm:1.6.0-dev.0331b728"
-    "@commander-js/extra-typings": "npm:^13.1.0"
-    bignumber.js: "npm:^9.3.1"
-    commander: "npm:^13.1.0"
-    docker-compose: "npm:^1.2.0"
-    dotenv: "npm:^17.2.1"
-    esbuild-plugin-wasm: "npm:^1.1.0"
-    tsup: "npm:^8.5.0"
-    typescript: "npm:^5.9.2"
-  bin:
-    cli: lib/cli.js
-  languageName: unknown
-  linkType: soft
-
 "@argonprotocol/mainchain@npm:1.6.0-dev.0331b728":
   version: 1.6.0-dev.0331b728
   resolution: "@argonprotocol/mainchain@npm:1.6.0-dev.0331b728"
@@ -452,15 +432,6 @@ __metadata:
   peerDependencies:
     vue: ^3.0.0
   checksum: 10c0/373c18883660d6c33d9e2d1d034d2f0ca6da212fe788dda2d013b6ce4238227e092285ab082ca349c02541e16e5d6f1751b35440f2bdb2a17ec45ef177b25d77
-  languageName: node
-  linkType: hard
-
-"@commander-js/extra-typings@npm:^13.1.0":
-  version: 13.1.0
-  resolution: "@commander-js/extra-typings@npm:13.1.0"
-  peerDependencies:
-    commander: ~13.1.0
-  checksum: 10c0/ff799f0641f68855aa73c976912a607c25d564df34fd8e262927a80b19f6cccd882fe7ce098a0e072a497fd0020cbd19fd1e4d5cc98a461cd6623abf8ed5f4e7
   languageName: node
   linkType: hard
 
@@ -6174,6 +6145,7 @@ __metadata:
     d3: "npm:^7.9.0"
     dayjs: "npm:^1.11.13"
     dotenv: "npm:^17.2.1"
+    esbuild-plugin-wasm: "npm:^1.1.0"
     eslint: "npm:9.34.0"
     eslint-config-prettier: "npm:10.1.8"
     eslint-import-resolver-typescript: "npm:^4.4.4"
@@ -6201,6 +6173,7 @@ __metadata:
     tailwind-merge: "npm:^3.3.1"
     tailwindcss: "npm:^4.3.3"
     tar: "npm:^7.5.21"
+    tsup: "npm:^8.5.0"
     tsx: "npm:^4.20.5"
     typescript: "npm:~5.9.2"
     typescript-eslint: "npm:^8.40.0"
@@ -6928,13 +6901,6 @@ __metadata:
   version: 11.1.0
   resolution: "commander@npm:11.1.0"
   checksum: 10c0/13cc6ac875e48780250f723fb81c1c1178d35c5decb1abb1b628b3177af08a8554e76b2c0f29de72d69eef7c864d12613272a71fabef8047922bc622ab75a179
-  languageName: node
-  linkType: hard
-
-"commander@npm:^13.1.0":
-  version: 13.1.0
-  resolution: "commander@npm:13.1.0"
-  checksum: 10c0/7b8c5544bba704fbe84b7cab2e043df8586d5c114a4c5b607f83ae5060708940ed0b5bd5838cf8ce27539cde265c1cbd59ce3c8c6b017ed3eec8943e3a415164
   languageName: node
   linkType: hard
 
