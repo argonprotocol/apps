@@ -635,7 +635,15 @@ export class MyVault {
         this.vaults.updateRewardConfig(client),
       ]);
 
-      this.#subscriptions.push(sub, operatorNameSub, sub2, sub4, sub5, sub6);
+      const mailboxPoll = setInterval(() => {
+        void this.bitcoinLocks.cooperativeReleases.refresh({
+          vaultId,
+          server: this.getOperatorServer(),
+          recheckExisting: false,
+        });
+      }, 5 * 60_000);
+
+      this.#subscriptions.push(sub, operatorNameSub, sub2, sub4, sub5, sub6, () => clearInterval(mailboxPoll));
     } finally {
       this.#isSubscribing = false;
     }
