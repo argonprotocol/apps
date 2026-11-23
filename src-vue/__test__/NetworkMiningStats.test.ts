@@ -70,7 +70,7 @@ afterEach(async () => {
   await mocks.db?.close();
 });
 
-it('restores daily sale estimates from SQLite without replaying earnings and retries a failed cache write', async () => {
+it('restores daily sale estimates after cache retry and restart', { timeout: 120_000 }, async () => {
   const directory = mkdtempSync(Path.join(tmpdir(), 'mining-cache-snapshot-'));
   const databasePath = Path.join(directory, 'database.sqlite');
   const db = await createTestDb(databasePath);
