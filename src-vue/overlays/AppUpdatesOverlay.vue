@@ -105,12 +105,19 @@ import dayjs from 'dayjs';
 import { useAppUpdater } from '../stores/appUpdater.ts';
 import { useOverlayZIndex } from './helpers/OverlayZIndex.ts';
 
-const isOpen = Vue.ref(false);
+const updater = useAppUpdater();
+const {
+  isOpen,
+  downloadProgress,
+  errorMessage,
+  installedVersion,
+  isChecking,
+  isDownloading,
+  isReadyToInstall,
+  update,
+} = storeToRefs(updater);
 const draggable = Vue.reactive(new Draggable());
 const overlayZIndex = useOverlayZIndex(() => isOpen.value);
-const updater = useAppUpdater();
-const { downloadProgress, errorMessage, installedVersion, isChecking, isDownloading, isReadyToInstall, update } =
-  storeToRefs(updater);
 
 updater.start();
 

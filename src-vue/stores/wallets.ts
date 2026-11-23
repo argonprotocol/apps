@@ -2,6 +2,7 @@ import * as Vue from 'vue';
 import { defineStore } from 'pinia';
 import { ask as askDialog } from '@tauri-apps/plugin-dialog';
 import handleFatalError from './helpers/handleFatalError.ts';
+import { useAppUpdater } from './appUpdater.ts';
 import { getConfig, type Config } from './config.ts';
 import { createDeferred, MoveTo, MoveToken, UnitOfMeasurement } from '@argonprotocol/apps-core';
 import { getMyMiningSeats } from './myMiningSeats.ts';
@@ -533,6 +534,7 @@ export const useWallets = defineStore('wallets', () => {
         return;
       } catch (error) {
         console.error(`[useWallets] Load attempt ${attempt} failed after ${Date.now() - attemptStartedAt}ms`, error);
+        if (await useAppUpdater().showUpdateAfterError()) continue;
         const shouldRetry = await askDialog('Wallets failed to load correctly. Would you like to retry?', {
           title: 'Difficulty Loading Wallets',
           kind: 'warning',

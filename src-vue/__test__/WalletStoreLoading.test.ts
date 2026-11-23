@@ -1,6 +1,7 @@
 import { createPinia, disposePinia, setActivePinia, type Pinia } from 'pinia';
 import { createDeferred, MainchainClients } from '@argonprotocol/apps-core';
 import { ask } from '@tauri-apps/plugin-dialog';
+import { check, Update } from '@tauri-apps/plugin-updater';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { WalletKeys } from '../lib/WalletKeys.ts';
 import { WalletsForArgon } from '../lib/WalletsForArgon.ts';
@@ -9,6 +10,7 @@ import { WalletForBase } from '../lib/WalletForBase.ts';
 import { WalletHistoryRecovery } from '../lib/recovery/WalletHistory.ts';
 import { initializeWalletKeys, useWallets } from '../stores/wallets.ts';
 import handleFatalError from '../stores/helpers/handleFatalError.ts';
+import { useAppUpdater } from '../stores/appUpdater.ts';
 import { createMockWalletKeys } from './helpers/wallet.ts';
 
 const boundary = vi.hoisted(() => ({
@@ -18,6 +20,14 @@ const boundary = vi.hoisted(() => ({
 }));
 vi.mock('../../core/src/MainchainRpcProvider.ts', () => ({ getMainchainClient: boundary.connect }));
 vi.mock('@tauri-apps/plugin-dialog', () => ({ ask: vi.fn() }));
+vi.mock('@tauri-apps/plugin-updater', async importOriginal => ({
+  ...(await importOriginal<typeof import('@tauri-apps/plugin-updater')>()),
+  check: vi.fn(),
+}));
+vi.mock('../lib/Env.ts', async importOriginal => ({
+  ...(await importOriginal<typeof import('../lib/Env.ts')>()),
+  ENABLE_AUTO_UPDATE: true,
+}));
 vi.mock('../stores/helpers/handleFatalError.ts', () => ({ default: vi.fn() }));
 vi.mock('../stores/helpers/dbPromise.ts', () => ({ getDbPromise: () => Promise.resolve(boundary.db) }));
 vi.mock('../stores/config.ts', () => ({ getConfig: () => ({ isLoadedPromise: Promise.resolve() }) }));
@@ -47,6 +57,7 @@ beforeEach(async () => {
   vi.spyOn(WalletHistoryRecovery.prototype, 'hasCompleteCoverage').mockResolvedValue(true);
   vi.spyOn(WalletHistoryRecovery.prototype, 'close').mockResolvedValue(undefined);
   vi.spyOn(console, 'error').mockImplementation(() => undefined);
+  vi.mocked(check).mockReset().mockResolvedValue(null);
   boundary.connect.mockResolvedValue({ query: {}, tx: {}, on: vi.fn(), disconnect: async () => undefined });
   await initializeWalletKeys();
 });
@@ -90,6 +101,38 @@ it('shares one retry dialog across callers and becomes ready on the third attemp
 
   await wallets.load();
   expect(load).toHaveBeenCalledTimes(3);
+});
+
+it('retries wallet loading through the update offer without showing failure alerts', async () => {
+  const failure = new Error('Runtime changed during a chain read');
+  boundary.connect.mockRejectedValueOnce(failure).mockRejectedValueOnce(failure);
+  const clients = new MainchainClients('ws://archive.test', () => false);
+  boundary.clients = clients;
+  void clients.archiveClientPromise.catch(() => undefined);
+  vi.spyOn(WalletsForArgon.prototype, 'load').mockImplementation(async () => {
+    await clients.get(false);
+  });
+  vi.mocked(check).mockResolvedValue(new Update({ rid: 1, currentVersion: '2.6.0', version: '2.6.1', rawJson: {} }));
+  vi.mocked(ask).mockResolvedValue(true);
+  const updater = useAppUpdater();
+  const wallets = useWallets();
+  const ready = wallets.isLoadedPromise;
+
+  await vi.waitFor(() => expect(updater.isOpen).toBe(true));
+  expect(wallets.isLoaded).toBe(false);
+  expect(ask).not.toHaveBeenCalled();
+
+  updater.isOpen = false;
+  await vi.waitFor(() => expect(updater.isOpen).toBe(true));
+  expect(wallets.isLoaded).toBe(false);
+  expect(ask).not.toHaveBeenCalled();
+  expect(check).toHaveBeenCalledTimes(1);
+
+  updater.isOpen = false;
+  await ready;
+  expect(wallets.isLoaded).toBe(true);
+  expect(ask).not.toHaveBeenCalled();
+  expect(handleFatalError).not.toHaveBeenCalled();
 });
 
 it('keeps a declined load terminal when later callers poll it', async () => {
