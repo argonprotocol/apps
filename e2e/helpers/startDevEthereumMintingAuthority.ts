@@ -12,6 +12,7 @@ import {
 import { fundArgonAccount } from '../../dev/funding/argon.ts';
 import { fundDevEthereumAccount } from '../../dev/funding/ethereum.ts';
 import { getEthereumUserErrorMessage } from 'src-vue/lib/EthereumClient.ts';
+import { seedVirtualFrontendGlobals } from './seedVirtualFrontendGlobals.ts';
 
 export type IDevEthereumMintingAuthorityRuntime = {
   actor: AppVaultOperator;
@@ -432,33 +433,4 @@ async function ensureMinimumMintingAuthorityValue(client: ArgonClient) {
   }
 
   await sudoSubmitAndFinalize(client, client.tx.crosschainTransfer.setMinimumMintingAuthorityValue('Ethereum', 1));
-}
-
-function seedVirtualFrontendGlobals(args?: {
-  appInstance?: string;
-  network?: string;
-  serverEnvVars?: NodeJS.ProcessEnv;
-}) {
-  const appId = `com.argon.desktop`;
-  const appName = 'Argon Desktop';
-  const globals = {
-    __ARGON_APP_ID__: appId,
-    __ARGON_APP_INSTANCE__: args?.appInstance ?? process.env.ARGON_APP_INSTANCE ?? '',
-    __ARGON_NETWORK_NAME__: args?.network ?? process.env.ARGON_NETWORK_NAME ?? 'testnet',
-    __ARGON_APP_NAME__: appName,
-    __ARGON_NETWORK_CONFIG_OVERRIDE__: undefined,
-    __ARGON_APP_ENABLE_AUTOUPDATE__: false,
-    __SERVER_ENV_VARS__: args?.serverEnvVars ?? process.env,
-    __ARGON_APP_SECURITY__: undefined,
-    __ARGON_DRIVER_WS__: '',
-    __IS_TEST__: false,
-    __LOG_DEBUG__: false,
-  };
-  const virtualWindow = ((globalThis as Record<string, unknown>).window ??= {} as Record<string, unknown>) as Record<
-    string,
-    unknown
-  >;
-
-  Object.assign(virtualWindow, globals);
-  Object.assign(globalThis as Record<string, unknown>, globals);
 }

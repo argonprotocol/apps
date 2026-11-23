@@ -58,11 +58,103 @@ afterEach(async () => {
   for (const db of databases.splice(0)) db.close();
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
+  vi.useRealTimers();
 });
 
 // Component scenarios use real application state, SQLite, and signing with simulated chain observations.
 // BitcoinCooperativeReleases.integration.test.ts exercises the return and compensation boundary on both real test chains.
 describe('cooperative release approval with simulated chain observations', () => {
+  it('checks returns every five minutes while the vault stays open without polling chain state for an unchanged mailbox', async () => {
+    const fixture = await createFixture();
+    const appDb = await createTestDb();
+    const store = createStore({ db: appDb, blockWatch: fixture.blockWatch, mempool: fixture.mempool });
+    store.cooperativeReleases.data = Vue.reactive(store.cooperativeReleases.data);
+    const client = {
+      clientType: 'pruned',
+      query: { vaults: { lastCollectFrameByVaultId: async () => () => undefined } },
+      on: () => undefined,
+    };
+    vi.spyOn(mainchain, 'getMainchainClients').mockReturnValue({
+      get: async () => client,
+      events: { on: () => () => undefined },
+    } as unknown as ReturnType<typeof mainchain.getMainchainClients>);
+    const vault = new MyVault(
+      Promise.resolve(appDb),
+      {
+        subscribeToVault: async () => () => undefined,
+        subscribeToOperatorName: async () => () => undefined,
+        updateRewardConfig: async () => undefined,
+      } as unknown as Vaults,
+      {} as WalletKeys,
+      {} as TransactionTracker,
+      store,
+      {
+        blockWatch: Object.assign(fixture.blockWatch, { events: { on: () => () => undefined } }),
+        onFrameId: () => ({ unsubscribe: () => undefined }),
+      } as unknown as MiningFrames,
+      {
+        data: { pendingApprovals: [] },
+        subscribe: async () => undefined,
+        unsubscribe: () => undefined,
+      } as unknown as GlobalCouncil,
+      {
+        data: { pendingMintingAuthorizations: [], pendingMintingAuthorizeTxInfosByTransferId: new Map() },
+        subscribe: async () => undefined,
+        unsubscribe: () => undefined,
+      } as unknown as MintingAuthorities,
+      () => fixture.server,
+    );
+    vault.data.createdVault = { vaultId: 7 } as NonNullable<typeof vault.data.createdVault>;
+    vault.data.metadata = { id: 7 } as NonNullable<typeof vault.data.metadata>;
+    // Unrelated vault startup reads are outside the mailbox subscription boundary.
+    vi.spyOn(vault as any, 'refreshCurrentCapital').mockResolvedValue(undefined);
+    vi.spyOn(vault as any, 'refreshFinalizedRevenueState').mockResolvedValue(undefined);
+    vi.spyOn(vault as any, 'refreshFinalizedBitcoinCosignState').mockResolvedValue(undefined);
+    const chainRead = vi.spyOn(fixture.blockWatch, 'getFinalizedApi');
+    const notice = Vue.computed(() => vault.collectBuilder.getNotice());
+    vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] });
+
+    try {
+      await vault.subscribe();
+      expect(store.cooperativeReleases.data.isRefreshing).toBe(false);
+      expect(notice.value).toBeNull();
+      chainRead.mockClear();
+      await vi.advanceTimersByTimeAsync(5 * 60_000);
+      expect(chainRead).not.toHaveBeenCalled();
+
+      fixture.db.bitcoinCooperativeReleasesTable.insert(fixture.request);
+      await vi.advanceTimersByTimeAsync(5 * 60_000 - 1);
+      expect(store.cooperativeReleases.data.isRefreshing).toBe(false);
+      expect(notice.value).toBeNull();
+      await vi.advanceTimersByTimeAsync(1);
+      await vi.waitFor(() => expect(notice.value?.signatureCount).toBe(1));
+      expect(store.cooperativeReleases.data.requests[0].verificationError).toBeUndefined();
+      chainRead.mockClear();
+      await vi.advanceTimersByTimeAsync(15 * 60_000);
+      expect(notice.value?.signatureCount).toBe(1);
+      expect(chainRead).not.toHaveBeenCalled();
+
+      vi.spyOn(fixture.server, 'getPendingBitcoinCooperativeReleases').mockRejectedValueOnce(
+        new Error('Mailbox temporarily unavailable.'),
+      );
+      await vi.advanceTimersByTimeAsync(5 * 60_000);
+      expect(notice.value?.signatureCount).toBe(1);
+      expect(store.cooperativeReleases.data.refreshError).toBe('Mailbox temporarily unavailable.');
+      await vi.advanceTimersByTimeAsync(5 * 60_000);
+      expect(store.cooperativeReleases.data.refreshError).toBe('');
+      expect(notice.value?.signatureCount).toBe(1);
+
+      vault.unsubscribe();
+      fixture.db.bitcoinCooperativeReleasesTable.respond(fixture.request.releaseId, { error: 'Handled elsewhere.' });
+      await vi.advanceTimersByTimeAsync(5 * 60_000);
+      expect(notice.value?.signatureCount).toBe(1);
+      await vault.subscribe();
+      await vi.waitFor(() => expect(notice.value).toBeNull());
+    } finally {
+      vault.unsubscribe();
+    }
+  });
+
   it('uses standard payment output sizes and rejects nonminimal encodings', () => {
     const keyHash = '77'.repeat(20);
     const scriptHash = '88'.repeat(32);

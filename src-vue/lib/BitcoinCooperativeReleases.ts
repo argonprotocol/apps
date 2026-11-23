@@ -91,10 +91,12 @@ export class BitcoinCooperativeReleases {
     finalizedClient,
     server,
     vaultId,
+    recheckExisting = true,
   }: {
     finalizedClient?: ArgonCurrentQueryClient;
     server?: ServerApiClient;
     vaultId: number;
+    recheckExisting?: boolean;
   }): Promise<void> {
     if (this.#refreshPromise) return this.#refreshPromise;
     if (!server?.canAccessServer) return;
@@ -102,7 +104,6 @@ export class BitcoinCooperativeReleases {
     const revision = this.#publicationRevision;
     this.#refreshPromise = (async () => {
       try {
-        finalizedClient ??= await this.blockWatch.getFinalizedApi();
         const requests = await server.getPendingBitcoinCooperativeReleases();
         if (requests === undefined) {
           if (revision === this.#publicationRevision) this.data.refreshError = '';
@@ -115,6 +116,17 @@ export class BitcoinCooperativeReleases {
           try {
             if (record.request.vaultId !== vaultId)
               throw new CooperativeReleaseRejected('This request belongs to another vault.');
+
+            // Reuse successful verification during polling; blocked requests retry and signing always checks fresh state.
+            const existing = this.data.requests.find(entry => entry.request.releaseId === record.request.releaseId);
+            if (!recheckExisting && existing && !existing.verificationError) {
+              if (JsonExt.stringify(existing.request) === JsonExt.stringify(record.request)) {
+                verified.push(entry);
+                continue;
+              }
+            }
+
+            finalizedClient ??= await this.blockWatch.getFinalizedApi();
             await this.verifyRequest(record.request, finalizedClient);
           } catch (error) {
             try {

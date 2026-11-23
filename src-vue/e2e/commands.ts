@@ -1372,6 +1372,21 @@ async function runCommandInternal(command: string, argsInput: unknown, context: 
     return { ok: true };
   }
 
+  if (command === 'app.getRpcStats') {
+    if (!__ARGON_DRIVER_WS__) throw new CommandError('disabled', 'This command requires e2e driver mode.');
+    const timeoutMs = getTimeoutMs(args.timeoutMs, 'timeoutMs', DEFAULT_TIMEOUT_MS);
+    const [archive, preferred] = await withTimeout(
+      Promise.all([getMainchainClient(true), getMainchainClient(false)]),
+      timeoutMs,
+      command,
+    );
+    return {
+      preferredUsesArchive: preferred === archive,
+      archive: archive.stats,
+      preferred: preferred.stats,
+    };
+  }
+
   if (command === 'app.signLiquidRepayment') {
     if (!__ARGON_DRIVER_WS__) throw new CommandError('disabled', 'This command requires e2e driver mode.');
     const buyer = getAddress(getString(args.buyer, 'buyer', true)!);

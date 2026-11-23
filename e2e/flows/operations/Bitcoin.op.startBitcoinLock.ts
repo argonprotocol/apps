@@ -128,6 +128,11 @@ export default new Operation<IBitcoinFlowContext, IStartBitcoinLockState>(import
       timeoutMessage: `${flowName}: Bitcoin channel did not enter pending funding in time.`,
     });
   },
+
+  async diagnose({ flow }) {
+    const rpcStats = await flow.command('app.getRpcStats', { timeoutMs: 5_000 });
+    console.error('[E2E] Bitcoin channel RPC statistics:', JSON.stringify(rpcStats));
+  },
 });
 
 async function waitForChannelState(

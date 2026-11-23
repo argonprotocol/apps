@@ -157,7 +157,7 @@ import { getCurrency } from '../../stores/currency.ts';
 import CheckboxGray from '../../components/CheckboxGray.vue';
 import { MiningSetupStatus, VaultingSetupStatus } from '../../interfaces/IConfig.ts';
 import { useWallets } from '../../stores/wallets.ts';
-import { bigIntMax, NetworkConfig } from '@argonprotocol/apps-core';
+import { bigIntMax, NetworkConfig, type BiddingCalculator } from '@argonprotocol/apps-core';
 import { OperationalStepId, useCertificationController } from '../../stores/certificationController.ts';
 import AlertCalloutButton from '../../components/AlertCalloutButton.vue';
 import { getBiddingCalculator } from '../../stores/mainchain.ts';
@@ -177,7 +177,6 @@ const config = getConfig();
 const currency = getCurrency();
 const wallets = useWallets();
 const controller = useCertificationController();
-const calculator = getBiddingCalculator();
 const floatingZIndex = useFloatingZIndex();
 
 const { microgonToArgonNm, micronotToArgonotNm } = createNumeralHelpers(currency);
@@ -333,32 +332,32 @@ function getNeededDisplayAmount(amountNeeded: bigint, walletAllocated: bigint, r
   return remainingNeeded;
 }
 
-let calculatorIsSubscribed = false;
-let calculatorLoadSubscription: { unsubscribe: () => void } | null = null;
+Vue.watch(
+  [() => props.showGuidance, () => props.walletType, guidanceContext],
+  async ([showGuidance, walletType, context], _previous, onCleanup) => {
+    if (!showGuidance || walletType !== WalletType.argon || context !== 'mining') return;
 
-async function load() {
-  if (guidanceContext.value === 'mining' && !calculatorIsSubscribed) {
-    calculatorIsSubscribed = true;
+    let isActive = true;
+    let subscription: ReturnType<BiddingCalculator['onLoad']> | undefined;
+    onCleanup(() => {
+      isActive = false;
+      subscription?.unsubscribe();
+    });
+
     await config.isLoadedPromise;
+    if (!isActive) return;
 
-    calculatorLoadSubscription = calculator.onLoad(() => {
+    isCalculatorReady.value = false;
+    const calculator = getBiddingCalculator();
+    subscription = calculator.onLoad(() => {
       const projections = calculator.runProjections(config.biddingRules, 'maximum');
       requiredMicrogonsForGoal.value = projections.microgonRequirement;
       requiredMicronotsForGoal.value = projections.micronotRequirement;
       isCalculatorReady.value = true;
     });
-
-    await calculator.load();
-  }
-}
-
-Vue.onMounted(() => {
-  void load();
-});
-
-Vue.onUnmounted(() => {
-  calculatorLoadSubscription?.unsubscribe();
-});
+  },
+  { immediate: true },
+);
 </script>
 
 <style scoped>

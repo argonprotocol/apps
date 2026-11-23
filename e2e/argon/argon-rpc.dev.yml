@@ -24,7 +24,7 @@ extensions:
     cors: all
   rate_limit:
     connection:
-      burst: ${ARGON_RPC_CONNECTION_BURST:-20}
+      burst: ${ARGON_RPC_CONNECTION_BURST:-100}
       period_secs: ${ARGON_RPC_CONNECTION_PERIOD_SECS:-1}
     ip:
       burst: ${ARGON_RPC_IP_BURST:-500}

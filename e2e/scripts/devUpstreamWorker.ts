@@ -3,10 +3,14 @@
 import Path from 'node:path';
 import process from 'node:process';
 import type { INetworkConfigOverride } from '@argonprotocol/apps-core';
-import { startDevEthereumMintingAuthority } from '../helpers/startDevEthereumMintingAuthority.ts';
+import { seedVirtualFrontendGlobals } from '../helpers/seedVirtualFrontendGlobals.ts';
 import type { IDevEthereumConfig, IStartDevEthereumResult } from '../devEthereum.ts';
 import { resolveDevUpstreamDir, setDevUpstreamWorkerReady, watchAppInstanceDirectory } from './devUpstreamProcess.ts';
-import { startDevUpstreamServer } from './devUpstreamServer.ts';
+
+// Env.ts captures these values at import time, including the local Ethereum retry cadence.
+seedVirtualFrontendGlobals();
+const { startDevUpstreamServer } = await import('./devUpstreamServer.ts');
+const { startDevEthereumMintingAuthority } = await import('../helpers/startDevEthereumMintingAuthority.ts');
 
 const devUpstreamDir = resolveDevUpstreamDir();
 const archiveUrl = readRequiredEnv('ARGON_DEV_UPSTREAM_ARCHIVE_URL');
