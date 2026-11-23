@@ -274,12 +274,14 @@ it.each(outcomes)('handles %s while local RPC state recovers', async outcome => 
         for (const socket of prunedSockets) socket.terminate();
         await vi.waitFor(() => expect(blockWatch.finalizedBlockHeader.blockNumber).toBe(19), { timeout: 5_000 });
         expect(blockWatch.subscriptionClient).toBe(await clients.archiveClientPromise);
-        const readsAfterFallback = archiveFinalizedReads;
+
+        await vi.waitFor(() => expect(clients.prunedClientPromise).toBeDefined(), { timeout: 5_000 });
+        const readsAfterRecovery = archiveFinalizedReads;
         await expect(
           Promise.race([
             readiness.then(() => 'ready'),
             vi
-              .waitFor(() => expect(archiveFinalizedReads).toBeGreaterThan(readsAfterFallback), { timeout: 3_000 })
+              .waitFor(() => expect(archiveFinalizedReads).toBeGreaterThan(readsAfterRecovery), { timeout: 3_000 })
               .then(() => 'polled'),
           ]),
         ).resolves.toBe('polled');
