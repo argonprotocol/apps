@@ -91,6 +91,16 @@
           </div>
         </details>
 
+        <button
+          v-if="cooperativeReleases.data.refreshError || bitcoinSigningRequests.some(request => request.mailbox?.verificationError)"
+          type="button"
+          :disabled="cooperativeReleases.data.isRefreshing || isCollectBusy"
+          @click="cooperativeReleases.refresh({ vaultId: myVault.vaultId!, server: getServerApiClient() })"
+          class="text-argon-600 self-start cursor-pointer text-sm underline disabled:cursor-default disabled:opacity-40">
+          <template v-if="cooperativeReleases.data.isRefreshing">Checking Bitcoin returns...</template>
+          <template v-else>Retry verification</template>
+        </button>
+
         <p v-if="cooperativeReleases.data.deliveryMessage" class="text-sm text-slate-600">{{ cooperativeReleases.data.deliveryMessage }}</p>
 
         <div

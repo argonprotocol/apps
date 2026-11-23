@@ -1,6 +1,6 @@
 import type { AddressTxsUtxo } from '@mempool/mempool.js/lib/interfaces/bitcoin/addresses';
 import type { Tx, TxOutspend, TxStatus } from '@mempool/mempool.js/lib/interfaces/bitcoin/transactions';
-import { fetch } from '@argonprotocol/apps-core';
+import { createDeferred, fetch } from '@argonprotocol/apps-core';
 
 export interface IMempoolTxStatus {
   isConfirmed: boolean;
@@ -204,58 +204,58 @@ export default class BitcoinMempool {
 
   private async fetchJson<T>(path: string, timeoutMs: number = 15e3): Promise<T> {
     const url = this.getApiUrl(path);
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
-    try {
-      const response = await fetch(url, { signal: controller.signal, cache: 'no-store' });
-      if (!response.ok) {
-        let errorBody = '';
-        try {
-          errorBody = (await response.text()).trim();
-        } catch {
-          // ignore
-        }
-        const suffix = errorBody ? ` - ${errorBody}` : '';
-        throw new Error(`Failed to fetch ${url}: ${response.status} ${response.statusText}${suffix}`);
-      }
-      return (await response.json()) as T;
-    } finally {
-      clearTimeout(timeoutId);
+    const response = await this.fetchText(path, { timeoutMs });
+    if (!response.ok) {
+      const errorBody = (await response.text()).trim();
+      const suffix = errorBody ? ` - ${errorBody}` : '';
+      throw new Error(`Failed to fetch ${url}: ${response.status} ${response.statusText}${suffix}`);
     }
+    return (await response.json()) as T;
   }
 
   private async fetchText(path: string, options: RequestInit & { timeoutMs: number }): Promise<Response> {
     const { timeoutMs, signal: callerSignal, ...init } = options;
     const url = this.getApiUrl(path);
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), timeoutMs);
+    const isReadOnlyRequest = (init.method ?? 'GET').toUpperCase() === 'GET';
 
-    const onCallerAbort = () => controller.abort();
-    if (callerSignal) {
-      if (callerSignal.aborted) {
+    for (let attempt = 0; ; attempt += 1) {
+      callerSignal?.throwIfAborted();
+      const controller = new AbortController();
+      const interrupted = createDeferred<never>();
+      const timeoutError = new Error('The Bitcoin service timed out. Please try again.');
+      const timeout = setTimeout(() => {
         controller.abort();
-      } else {
-        callerSignal.addEventListener('abort', onCallerAbort, { once: true });
-      }
-    }
+        interrupted.reject(timeoutError);
+      }, timeoutMs);
+      const onCallerAbort = () => {
+        controller.abort();
+        interrupted.reject(callerSignal!.reason);
+      };
+      callerSignal?.addEventListener('abort', onCallerAbort, { once: true });
 
-    try {
-      const response = await fetch(url, {
-        ...init,
-        signal: controller.signal,
-        cache: init.cache ?? 'no-store',
-      });
-      const body = await response.text();
-      return new Response(body || null, response);
-    } catch (error) {
-      if (error instanceof Error && error.name === 'AbortError') {
-        throw new Error(`Fetch to ${url} aborted due to timeout after ${timeoutMs} ms`);
-      }
-      throw error;
-    } finally {
-      clearTimeout(timeout);
-      if (callerSignal && !callerSignal.aborted) {
-        callerSignal.removeEventListener('abort', onCallerAbort);
+      try {
+        const request = fetch(url, {
+          ...init,
+          signal: controller.signal,
+          cache: init.cache ?? 'no-store',
+        }).then(async response => {
+          const body = await response.text();
+          return new Response(body || null, response);
+        });
+
+        // Tauri's abort signal does not interrupt a stalled native response body.
+        return await Promise.race([request, interrupted.promise]);
+      } catch (error) {
+        callerSignal?.throwIfAborted();
+        if (!controller.signal.aborted) throw error;
+
+        // Tauri rejects aborted HTTP requests with a string rather than an AbortError.
+        // Retry only reads; a timed-out broadcast may already have been accepted.
+        if (isReadOnlyRequest && attempt === 0) continue;
+        throw timeoutError;
+      } finally {
+        clearTimeout(timeout);
+        callerSignal?.removeEventListener('abort', onCallerAbort);
       }
     }
   }
