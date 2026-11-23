@@ -141,10 +141,15 @@ jobs:
         if: matrix.suite == 'non-e2e'
         run: yarn download:financial-history-replay
 
+      - name: Tests without an Argon network
+        if: matrix.suite == 'non-e2e'
+        # Replay decoding needs memory headroom before the shared chain and gateway tests start.
+        run: yarn vitest --run --project integration --tagsFilter no-argon-network
+
       - name: Tests excluding e2e and Storybook
         if: matrix.suite == 'non-e2e'
         # Vitest unions repeated negative project filters, so exclude E2E by file instead.
-        run: yarn vitest --run --project '!storybook' --exclude 'e2e/__test__/**/*.e2e.test.ts'
+        run: yarn vitest --run --project '!storybook' --exclude 'e2e/__test__/**/*.e2e.test.ts' --tagsFilter '!no-argon-network'
         env:
           ARGON_TEST_RUST_LOG: info,argon=info,pallet=trace,basic-authorship=debug,txpool=trace
 
