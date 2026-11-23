@@ -83,6 +83,10 @@ export default new OperationalFlow<IBitcoinFlowContext, RepaymentState>(import.m
     });
 
     await flow.run(bitcoinStartBitcoinLock);
+    const channelRpcStats = await flow.command('app.getRpcStats', { timeoutMs: 5_000 });
+    flow.setData('bitcoinChannelRpcStats', channelRpcStats);
+    console.info('[E2E] Bitcoin channel RPC statistics:', JSON.stringify(channelRpcStats));
+
     await flow.run(bitcoinReadLockFundingDetails);
     await flow.run(bitcoinFundLockExact);
     await flow.run(bitcoinWaitUnlockReady);
