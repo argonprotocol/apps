@@ -1,10 +1,99 @@
 import type { Tx } from '@mempool/mempool.js/lib/interfaces/bitcoin/transactions';
 import type { AddressInfo } from 'node:net';
 import { createServer } from 'node:http';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { setFetchImplementation } from '@argonprotocol/apps-core';
+import { fetch as tauriFetch } from '@tauri-apps/plugin-http';
+import type { Channel } from '@tauri-apps/api/core';
 import BitcoinMempool from '../lib/BitcoinMempool.ts';
 
+afterEach(() => {
+  setFetchImplementation();
+  vi.useRealTimers();
+  vi.unstubAllGlobals();
+});
+
 describe('BitcoinMempool', () => {
+  it('recovers when the native HTTP response body ignores cancellation', async () => {
+    vi.useFakeTimers();
+    const blockHash = '12'.repeat(32);
+    let requests = 0;
+    vi.stubGlobal('window', {
+      __TAURI_INTERNALS__: {
+        transformCallback: () => 1,
+        unregisterCallback: () => undefined,
+        invoke: async (command: string, args: { rid: number; streamChannel: Channel<number[]> }) => {
+          if (command === 'plugin:http|fetch') return ++requests;
+          if (command === 'plugin:http|fetch_send') {
+            return { status: 200, statusText: 'OK', url: 'https://example.invalid', headers: [], rid: args.rid };
+          }
+          if (command === 'plugin:http|fetch_read_body') {
+            if (args.rid === 1) return new Promise(() => {});
+            args.streamChannel.onmessage([...new TextEncoder().encode(blockHash), 0]);
+            args.streamChannel.onmessage([1]);
+            return;
+          }
+          if (command === 'plugin:http|fetch_cancel') return;
+          throw new Error(`Unexpected native HTTP command: ${command}`);
+        },
+      },
+    });
+    setFetchImplementation(tauriFetch);
+
+    const mempool = new BitcoinMempool('https://example.invalid');
+    let result: string | undefined;
+    const reading = mempool.getBlockHash(100).then(hash => {
+      result = hash;
+    });
+    await vi.advanceTimersByTimeAsync(20_000);
+    expect(result).toBe(`0x${blockHash}`);
+    await reading;
+    expect(requests).toBe(2);
+  });
+
+  it.each(['text', 'json'])(
+    'recovers a timed-out %s read when Tauri rejects with a cancellation string',
+    async format => {
+      vi.useFakeTimers();
+      const blockHash = '12'.repeat(32);
+      const transport = vi.fn((_input: RequestInfo | URL, init?: RequestInit) => {
+        if (transport.mock.calls.length === 1) {
+          return new Promise<Response>((_resolve, reject) => {
+            init!.signal!.addEventListener('abort', () => reject('Request canceled'), { once: true });
+          });
+        }
+        return Promise.resolve(new Response(format === 'text' ? blockHash : '100'));
+      });
+      setFetchImplementation(transport);
+
+      const mempool = new BitcoinMempool('https://example.invalid');
+      const reading = format === 'text' ? mempool.getBlockHash(100) : mempool.getTipHeight();
+      await Promise.all([
+        expect(reading).resolves.toBe(format === 'text' ? `0x${blockHash}` : 100),
+        vi.advanceTimersByTimeAsync(15_000),
+      ]);
+      expect(transport).toHaveBeenCalledTimes(2);
+    },
+  );
+
+  it.each(['read', 'broadcast'])('bounds a persistent timeout for a Bitcoin %s', async operation => {
+    vi.useFakeTimers();
+    const transport = vi.fn((_input: RequestInfo | URL, init?: RequestInit) => {
+      return new Promise<Response>((_resolve, reject) => {
+        init!.signal!.addEventListener('abort', () => reject('Request canceled'), { once: true });
+      });
+    });
+    setFetchImplementation(transport);
+
+    const mempool = new BitcoinMempool('https://example.invalid');
+    const request = operation === 'read' ? mempool.getBlockHash(100) : mempool.broadcastTx('00', 10_000);
+    await Promise.all([
+      expect(request).rejects.toThrow('The Bitcoin service timed out. Please try again.'),
+      vi.advanceTimersByTimeAsync(20_000),
+    ]);
+    expect(transport).toHaveBeenCalledTimes(operation === 'read' ? 2 : 1);
+  });
+
   it('distinguishes missing transactions from pending and confirmed transactions', async () => {
     const txid = createMempoolTxid();
     const transaction: Pick<Tx, 'status'> = {

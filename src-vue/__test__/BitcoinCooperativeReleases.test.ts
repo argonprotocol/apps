@@ -1149,14 +1149,19 @@ describe('cooperative release approval with simulated chain observations', () =>
     const fixture = await createFixture();
     const { cooperative, client, server, request, db } = fixture;
     db.bitcoinCooperativeReleasesTable.insert(request);
+    await cooperative.refresh({ finalizedClient: client, server, vaultId: 7 });
+    expect(cooperative.data.requests[0].verificationError).toBeUndefined();
+
     fixture.stallRawTransaction = true;
     await cooperative.refresh({ finalizedClient: client, server, vaultId: 7 });
     expect(cooperative.data.isRefreshing).toBe(false);
-    expect(cooperative.data.requests[0].verificationError).toContain('timeout');
+    expect(cooperative.data.requests[0].request.releaseId).toBe(request.releaseId);
+    expect(cooperative.data.requests[0].verificationError).toBe('The Bitcoin service timed out. Please try again.');
     expect(db.bitcoinCooperativeReleasesTable.fetch(request.releaseId)?.vaultSignatureHex).toBeUndefined();
     expect(db.bitcoinCooperativeReleasesTable.fetch(request.releaseId)?.operatorError).toBeUndefined();
     fixture.stallRawTransaction = false;
     await cooperative.refresh({ finalizedClient: client, server, vaultId: 7 });
+    expect(cooperative.data.requests[0].request.releaseId).toBe(request.releaseId);
     expect(cooperative.data.requests[0].verificationError).toBeUndefined();
   });
   it('delivers a cosignature using the fresh Bitcoin scan after waiting in the signing queue', async () => {
