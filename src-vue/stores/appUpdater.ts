@@ -1,5 +1,6 @@
 import * as Vue from 'vue';
 import { defineStore } from 'pinia';
+import { until } from '@vueuse/core';
 import { toRaw } from 'vue';
 import { app } from '@tauri-apps/api';
 import { relaunch } from '@tauri-apps/plugin-process';
@@ -11,6 +12,7 @@ import { ENABLE_AUTO_UPDATE } from '../lib/Env.ts';
 type AppUpdate = Awaited<ReturnType<typeof check>>;
 const APP_UPDATE_RELAUNCH_KEY = 'argon-app-update-requires-relaunch';
 const UPDATE_CHECK_TIMEOUT_MILLIS = 30e3;
+const ERROR_UPDATE_CHECK_INTERVAL_MILLIS = 60e3;
 
 export async function isAppUpdateBlockingServerInstall(): Promise<boolean> {
   const targetVersion = sessionStorage.getItem(APP_UPDATE_RELAUNCH_KEY);
@@ -29,6 +31,7 @@ export async function isAppUpdateBlockingServerInstall(): Promise<boolean> {
 }
 
 export const useAppUpdater = defineStore('appUpdater', () => {
+  const isOpen = Vue.ref(false);
   const installedVersion = Vue.ref('loading');
   const update = Vue.ref<AppUpdate>(null);
   const isChecking = Vue.ref(false);
@@ -43,6 +46,8 @@ export const useAppUpdater = defineStore('appUpdater', () => {
   let updateCheckPromise: Promise<AppUpdate> | null = null;
   let latestUpdateCheckId = 0;
   let updatePollInterval: ReturnType<typeof setInterval> | null = null;
+  let errorRecoveryPromise: Promise<boolean> | undefined;
+  let lastErrorUpdateCheckAt: number | undefined;
 
   function start() {
     if (isStarted) {
@@ -139,6 +144,34 @@ export const useAppUpdater = defineStore('appUpdater', () => {
     return nextUpdateCheckPromise;
   }
 
+  async function showUpdateAfterError(): Promise<boolean> {
+    if (!ENABLE_AUTO_UPDATE) return false;
+    if (errorRecoveryPromise) return errorRecoveryPromise;
+
+    errorRecoveryPromise = (async () => {
+      if (!update.value) {
+        const hasRecentErrorUpdateCheck =
+          lastErrorUpdateCheckAt !== undefined &&
+          Date.now() - lastErrorUpdateCheckAt < ERROR_UPDATE_CHECK_INTERVAL_MILLIS;
+        if (hasRecentErrorUpdateCheck) return false;
+
+        lastErrorUpdateCheckAt = Date.now();
+        await checkForUpdates();
+      }
+      if (!update.value) return false;
+
+      isOpen.value = true;
+      await until(isOpen).toBe(false);
+      return true;
+    })();
+
+    try {
+      return await errorRecoveryPromise;
+    } finally {
+      errorRecoveryPromise = undefined;
+    }
+  }
+
   async function downloadAndInstallUpdate() {
     if (!update.value || isReadyToInstall.value) {
       return;
@@ -201,6 +234,7 @@ export const useAppUpdater = defineStore('appUpdater', () => {
   }
 
   return {
+    isOpen,
     installedVersion,
     update,
     isChecking,
@@ -212,6 +246,7 @@ export const useAppUpdater = defineStore('appUpdater', () => {
     start,
     ensureInstalledVersion,
     checkForUpdates,
+    showUpdateAfterError,
     downloadAndInstallUpdate,
     relaunchToInstallUpdate,
   };
