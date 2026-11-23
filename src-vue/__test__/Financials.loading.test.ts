@@ -37,6 +37,8 @@ import { BitcoinLiquid } from '../lib/BitcoinLiquid.ts';
 import { createBitcoinLiquids } from '../lib/BitcoinFissions.ts';
 import { MiningFinancials } from '../lib/financials/MyMiningSeats.ts';
 import { MyVault } from '../lib/MyVault.ts';
+import BitcoinLocks from '../lib/BitcoinLocks.ts';
+import { BitcoinLockStatus } from '../interfaces/IBitcoinLockRecord.ts';
 
 type FinancialHistoryRestoreArgs = Parameters<typeof import('../lib/recovery/index.ts').restoreFinancialHistory>[0];
 
@@ -88,10 +90,10 @@ const mocks = vi.hoisted(() => {
       currentLoadPromise: Promise.resolve(),
       getAllLocks: vi.fn((): object[] => []),
       createLockSummary: vi.fn((_lock: object) => createBitcoinSummary(0n)),
-      isLockFunded: vi.fn(() => true),
+      isLockFunded: vi.fn<BitcoinLocks['isLockFunded']>(() => true),
       isFinishedStatus: vi.fn(() => false),
       isReleaseStatus: vi.fn(() => false),
-      isInactiveForVaultDisplay: vi.fn(() => false),
+      isInactiveForVaultDisplay: vi.fn<BitcoinLocks['isInactiveForVaultDisplay']>(() => false),
       releases: {
         getLatestForLock: vi.fn((): Partial<IBitcoinReleaseRecord> | undefined => undefined),
       },
@@ -1342,6 +1344,85 @@ describe('financials store lifecycle', () => {
     mocks.argonBonds.data.financialRevision += 1;
     await vi.waitFor(() => expect(financials.bondSummariesByAsset.ARGNOT.returnSummary.isStale).toBeFalsy());
     expect(financials.bondSummariesByAsset.ARGNOT.returnSummary.percent).toBe(10);
+  });
+
+  it('keeps waiting-to-mint savings through Bitcoin release until the queued mint pays out', async () => {
+    mocks.config.hasExtensionTreasury = true;
+    const summary = reactive(createBitcoinSummary(0n));
+    const fission = new BitcoinFission({
+      ownerAccount: '5default',
+      fissionId: 0,
+      liquidId: 0,
+      lockId: summary.lockId,
+      satoshis: summary.satoshis,
+      liquidityPromised: 50n,
+      microgonsAtTargetPerBtc: 50_000n,
+      createdAtArgonBlock: 1,
+      ratchetNumber: 0,
+      lastUpdatedArgonBlock: 1,
+      ratchets: [
+        {
+          source: 'fission',
+          sourceRatchetIndex: 0,
+          microgonsAtTargetPerBtc: 50_000n,
+          amountMinted: 50n,
+          amountBurned: 0n,
+          mintPending: 50n,
+          blockNumber: 1,
+        },
+      ],
+    });
+    fission.reconcilePendingMints([
+      {
+        queueIndex: 0n,
+        fissionId: fission.fissionId,
+        lockId: fission.lockId,
+        ownerAccount: fission.ownerAccount,
+        remainingAmount: 50n,
+        maxAmountPerFrame: 5n,
+      },
+    ]);
+    mocks.bitcoinFissions.data = reactive({
+      ...mocks.bitcoinFissions.data,
+      fissionsById: { [fission.fissionId]: markRaw(fission) },
+    });
+    mocks.bitcoinLocks.getAllLocks.mockReturnValue([summary.record]);
+    mocks.bitcoinLocks.createLockSummary.mockReturnValue(summary);
+    mocks.bitcoinLocks.isLockFunded.mockImplementation(
+      BitcoinLocks.prototype.isLockFunded.bind(BitcoinLocks.prototype),
+    );
+    mocks.bitcoinLocks.isInactiveForVaultDisplay.mockImplementation(
+      BitcoinLocks.prototype.isInactiveForVaultDisplay.bind(BitcoinLocks.prototype),
+    );
+    mocks.wallets.defaultArgonWallet.availableMicrogons = 50n;
+
+    const financials = useFinancials();
+
+    await vi.waitFor(() => expect(financials.bitcoinLiquidPendingMintMicrogons).toBe(50n));
+    expect(financials.savingsTotalValue).toBe(100n);
+
+    summary.record.status = BitcoinLockStatus.Releasing;
+    summary.status = BitcoinLockStatus.Releasing;
+    await nextTick();
+
+    expect(financials.bitcoinLiquidPendingMintMicrogons).toBe(50n);
+    expect(financials.savingsTotalValue).toBe(100n);
+
+    summary.record.status = BitcoinLockStatus.Released;
+    summary.status = BitcoinLockStatus.Released;
+    fission.closedAtArgonBlock = 2;
+    mocks.bitcoinFissions.data.financialRevision += 1;
+    await vi.waitFor(() => expect(financials.liquidVisibleRecords).toHaveLength(0));
+
+    expect(financials.bitcoinLiquidPendingMintMicrogons).toBe(50n);
+    expect(financials.savingsTotalValue).toBe(100n);
+
+    fission.reconcilePendingMints([]);
+    mocks.bitcoinFissions.data.financialRevision += 1;
+    mocks.wallets.defaultArgonWallet.availableMicrogons = 100n;
+    await vi.waitFor(() => expect(financials.bitcoinLiquidPendingMintMicrogons).toBe(0n));
+
+    expect(financials.savingsTotalValue).toBe(100n);
   });
 
   it('does not mix account values and observations when the best block changes during the read', async () => {

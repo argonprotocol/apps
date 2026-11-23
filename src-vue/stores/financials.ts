@@ -496,12 +496,9 @@ export const useFinancials = defineStore('financials', () => {
 
   // Savings ///////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-  const bitcoinLiquidPendingMintMicrogons = Vue.computed(() => {
-    const lockedRecords = liquidVisibleRecords.value.filter(x => {
-      return bitcoinLocks.isLockFunded(x.record);
-    });
-    return lockedRecords.reduce((sum, lock) => sum + lock.pendingLiquidity, 0n);
-  });
+  const bitcoinLiquidPendingMintMicrogons = Vue.computed(() =>
+    bitcoinLockSummaries.value.reduce((sum, lock) => sum + lock.pendingLiquidity, 0n),
+  );
   const savingsTotalReadyToUse = Vue.computed(() => wallets.defaultArgonWallet.availableMicrogons);
   const savingsTotalValue = Vue.computed(() => {
     return (
