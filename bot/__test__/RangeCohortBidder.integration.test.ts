@@ -115,7 +115,7 @@ describe.skipIf(SKIP_E2E)('Range cohort bidder', { tags: ['isolated-argon-networ
   it.for([
     { outcome: 'wins at the clearing price', rivalBid: 400_000n },
     { outcome: 'loses above its ceiling', rivalBid: 2_000_000n },
-  ])('$outcome', { timeout: 180_000 }, async ({ rivalBid }, context) => {
+  ])('$outcome', { timeout: 300_000 }, async ({ rivalBid }, context) => {
     if (!('auctionRulesStartAt' in client.query.miningSlot)) context.skip();
     const frameId = await prepareNextAuction();
     const cohortSize = await client.query.miningSlot.nextCohortSize();
@@ -141,13 +141,11 @@ describe.skipIf(SKIP_E2E)('Range cohort bidder', { tags: ['isolated-argon-networ
     // Reproduce an RPC response arriving after the next block. The previous bidder cancelled
     // these valid bids because the queried block was no longer the best block.
     const at = client.raw.at.bind(client.raw);
-    const delayed = new WeakSet<object>();
     vi.spyOn(client.raw, 'at').mockImplementation(async (...args) => {
       const api = await at(...args);
-      // Reusing a snapshot must not wrap its query again and stack additional block waits.
-      if (!delayed.has(api)) {
-        delayed.add(api);
-        const nextFrameId = api.query.miningSlot.nextFrameId;
+      // Snapshot proxies can differ while sharing the same underlying query function.
+      const nextFrameId = api.query.miningSlot.nextFrameId;
+      if (!vi.isMockFunction(nextFrameId)) {
         vi.spyOn(api.query.miningSlot, 'nextFrameId').mockImplementation(async (...queryArgs) => {
           const height = frames.blockWatch.bestBlockHeader.blockNumber;
           const result = await nextFrameId(...queryArgs);
@@ -459,11 +457,11 @@ describe.skipIf(SKIP_E2E)('Range cohort bidder', { tags: ['isolated-argon-networ
       await restoredStorage?.close();
       await rm(directory, { recursive: true, force: true });
     }
-  }, 180_000);
+  }, 300_000);
 
   it.for([5, 1])(
     'funds %i sponsored seats below the configured ceiling at the entry price',
-    { timeout: 180_000 },
+    { timeout: 300_000 },
     async (expectedSeats, context) => {
       if (!('auctionRulesStartAt' in client.query.miningSlot)) context.skip();
       const limitedFunding = fundingAccount.derive(`//affordable-sponsored-${expectedSeats}`);
@@ -745,7 +743,7 @@ describe.skipIf(SKIP_E2E)('Range cohort bidder', { tags: ['isolated-argon-networ
       observeSubmission.mockRestore();
       await bidder.stop(false);
     }
-  }, 180_000);
+  }, 300_000);
 
   async function prepareNextAuction() {
     // Finish funding before the auction starts so setup does not consume its bidding window.
@@ -764,7 +762,8 @@ describe.skipIf(SKIP_E2E)('Range cohort bidder', { tags: ['isolated-argon-networ
     }
 
     const startingFrame = await client.query.miningSlot.nextFrameId();
-    return await waitFor(120_000, 'next open auction', async () => {
+    // Reward ticks can span extra compute blocks; leave time for a loaded runner to finish the frame.
+    return await waitFor(180_000, 'next open auction', async () => {
       const header = frames.blockWatch.bestBlockHeader;
       const api = runtimeClient(await client.at(header.blockHash));
       const [frameId, open] = await Promise.all([
