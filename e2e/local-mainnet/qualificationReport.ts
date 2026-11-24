@@ -111,7 +111,14 @@ if (process.env.GITHUB_STEP_SUMMARY) appendFileSync(process.env.GITHUB_STEP_SUMM
 if (!qualified) process.exitCode = 1;
 
 function describeFailure(error = ''): string {
-  // Publish fixed descriptions, never exception text containing account data.
+  // Publish fixed descriptions and bounded process status, never private exception details.
+  const appExit = error.match(
+    /^\[E2E\] App process exited before (driver app connection|initial UI readiness check) \(code=(null|\d{1,3}), signal=(null|SIG[A-Z]{1,8})\)/,
+  );
+  if (appExit) {
+    return `App exited before ${appExit[1]} (code=${appExit[2]}, signal=${appExit[3]}).`;
+  }
+
   if (/Account recovery (changed semantic state|database fingerprint changed)/.test(error)) {
     return 'Recovery changed previously published state.';
   }

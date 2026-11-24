@@ -39,6 +39,50 @@ afterEach(() => {
 });
 
 describe('partial capture diagnostics', () => {
+  it('reports app exit status without publishing private startup details', () => {
+    const directory = mkdtempSync(Path.join(tmpdir(), 'qualification-app-exit-'));
+    directories.push(directory);
+    mkdirSync(Path.join(directory, 'review'));
+    const results: AccountReviewResult[] = [
+      {
+        label: 'private-scenario-canary',
+        status: 'failed',
+        stage: 'app launch',
+        error:
+          '[E2E] App process exited before driver app connection (code=null, signal=SIGABRT)\nprivate-startup-canary',
+        durationMs: 17_000,
+      },
+      {
+        label: 'private-scenario-canary',
+        status: 'failed',
+        stage: 'app restart',
+        error:
+          '[E2E] App process exited before initial UI readiness check (code=101, signal=null)\nprivate-startup-canary',
+        durationMs: 17_000,
+      },
+    ];
+    writeFileSync(Path.join(directory, 'review/account-results.json'), JSON.stringify(results));
+    const summaryPath = Path.join(directory, 'summary.md');
+    const reportPath = fileURLToPath(new URL('../local-mainnet/qualificationReport.ts', import.meta.url));
+    const result = spawnSync(process.execPath, ['--import', 'tsx', reportPath, '--directory', directory], {
+      encoding: 'utf8',
+      env: { ...process.env, GITHUB_STEP_SUMMARY: summaryPath },
+    });
+    expect(result.status, result.stderr).toBe(1);
+    const reportText = readFileSync(Path.join(directory, 'qualification-report.json'), 'utf8');
+    expect(JSON.parse(reportText)).toMatchObject({
+      qualified: false,
+      failures: [
+        { reason: 'App exited before driver app connection (code=null, signal=SIGABRT).' },
+        { reason: 'App exited before initial UI readiness check (code=101, signal=null).' },
+      ],
+    });
+    for (const output of [reportText, result.stdout, readFileSync(summaryPath, 'utf8')]) {
+      expect(output).not.toContain('private-scenario-canary');
+      expect(output).not.toContain('private-startup-canary');
+    }
+  });
+
   it('continues diagnosis after a corrupt account and rejects incomplete capture even when every review passes', async () => {
     const directory = mkdtempSync(Path.join(tmpdir(), 'qualification-partial-capture-'));
     directories.push(directory);
