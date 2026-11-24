@@ -93,19 +93,21 @@ async fn open_ssh_connection(
     port: u16,
     username: String,
     private_key_seed: [u8; 32],
+    server_host_key: Option<String>,
 ) -> Result<String, String> {
     log::info!("ensure_ssh_connection");
     let (private_key, _) = SSH::format_as_openssh(ed25519::Pair::from_seed(&private_key_seed))
         .map_err(|e| e.to_string())?;
     let private_key = SecretString::new(private_key.into());
-    ssh_pool::open_connection(address, host, port, username, private_key)
-        .await
-        .map_err(|e| {
-            log::error!("Error connecting to SSH: {e:#}");
-            e.to_string()
-        })?;
+    let ssh =
+        ssh_pool::open_connection(address, host, port, username, private_key, server_host_key)
+            .await
+            .map_err(|e| {
+                log::error!("Error connecting to SSH: {e:#}");
+                e.to_string()
+            })?;
 
-    Ok("success".to_string())
+    ssh.server_host_key().await.map_err(|e| e.to_string())
 }
 
 #[tauri::command]

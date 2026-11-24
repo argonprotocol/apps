@@ -252,7 +252,8 @@ export default class Importer {
     this.config.oldestFrameIdToSync = serverData.oldestFrameIdToSync ?? this.config.oldestFrameIdToSync;
     this.config.ethereumBeaconApiUrl = serverData.ethereumBeaconApiUrl;
     this.config.ethereumExecutionRpcUrl = serverData.ethereumExecutionRpcUrl;
-    this.config.serverDetails = { ...this.config.serverDetails, ipAddress };
+    if (serverData.sshHostKey) serverDetails.sshHostKey = serverData.sshHostKey;
+    this.config.serverDetails = { ...this.config.serverDetails, ...serverDetails };
     this.config.isServerInstalled = true;
     this.config.isServerInstalling = false;
     this.config.hasExtensionTreasury = true;

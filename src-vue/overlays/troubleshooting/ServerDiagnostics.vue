@@ -4,23 +4,23 @@
     class="flex min-h-[90%] w-200 flex-col gap-4 overflow-x-hidden overflow-y-auto pt-3 pr-7 pb-5 pl-4"
   >
     <DiagnosticStep ref="step1" :run="() => diagnostics.isConnected()">
-      <heading>Checking SSH connection to mining machine</heading>
-      <success>A successful connection was made to the server located at {{ config.serverDetails.ipAddress }}</success>
+      <heading>Checking SSH connection to your server</heading>
+      <success>Connected to your server at {{ config.serverDetails.ipAddress }}</success>
       <failure>
-        Failed to connect to {{ config.serverDetails.ipAddress }}. Your internet connection might be down or the mining
-        machine might be offline.
+        Failed to connect to {{ config.serverDetails.ipAddress }}. Your internet connection might be down or your server
+        might be offline.
       </failure>
     </DiagnosticStep>
 
     <DiagnosticStep ref="step2" :run="() => diagnostics.accountAddressMatches()">
       <heading>Checking Argon Account Identifier Match</heading>
       <success>
-        Your app database and the mining machine are correctly using the same wallet address of
+        Your app database and your server are correctly using the same wallet address of
         {{ walletKeys.miningBotAddress }}.
       </success>
       <failure>
-        Your app database and the mining machine are using different wallet addresses. Somehow you connected a server
-        that is not compatible with the account associated with this app.
+        Your app database and your server are using different wallet addresses. Somehow you connected a server that is
+        not compatible with the account associated with this app.
       </failure>
     </DiagnosticStep>
 
@@ -115,8 +115,17 @@
     </DiagnosticStep>
 
     <div v-if="isAllSuccess" class="mt-5 border-t border-gray-300 pt-5 text-xl font-bold text-green-600 uppercase">
-      Your Mining Server Appears to Be Working Correctly!
+      Your Server Appears to Be Working Correctly!
     </div>
+
+    <button
+      v-if="config.serverDetails.sshHostKey"
+      @click="resetServerIdentity"
+      :disabled="isResettingIdentity"
+      class="mt-4 self-start text-xs text-slate-500 underline hover:text-slate-700 disabled:opacity-50"
+    >
+      Reset saved SSH server identity
+    </button>
 
     <!-- <section>
       <header>Mining Bot Is Working</header>
@@ -130,6 +139,8 @@
 
 <script setup lang="ts">
 import * as Vue from 'vue';
+import { confirm, message } from '@tauri-apps/plugin-dialog';
+import { SSH } from '../../lib/SSH.ts';
 import { Diagnostics } from '../../lib/Diagnostics.ts';
 import { getConfig, Config } from '../../stores/config.ts';
 import DiagnosticStep from './components/DiagnosticStep.vue';
@@ -145,6 +156,7 @@ const diagnostics = new Diagnostics(config as Config, walletKeys);
 
 const containerRef = Vue.ref<HTMLElement>();
 const isAllSuccess = Vue.ref(false);
+const isResettingIdentity = Vue.ref(false);
 
 const step1 = Vue.ref<InstanceType<typeof DiagnosticStep>>();
 const step2 = Vue.ref<InstanceType<typeof DiagnosticStep>>();
@@ -153,6 +165,24 @@ const step4 = Vue.ref<InstanceType<typeof DiagnosticStep>>();
 const step5 = Vue.ref<InstanceType<typeof DiagnosticStep>>();
 const step6 = Vue.ref<InstanceType<typeof DiagnosticStep>>();
 const step7 = Vue.ref<InstanceType<typeof DiagnosticStep>>();
+
+async function resetServerIdentity() {
+  isResettingIdentity.value = true;
+  try {
+    const accepted = await confirm(
+      'Only reset the saved SSH identity if you intentionally rebuilt or replaced your server. The app will reconnect and save its new identity.',
+      { title: 'Reset server identity?', kind: 'warning' },
+    );
+    if (!accepted) return;
+
+    await SSH.resetHostKey();
+    await message('SSH identity reset. Connected to your server.', { title: 'Server identity', kind: 'info' });
+  } catch (error) {
+    await message(String(error), { title: 'Unable to reset server identity', kind: 'error' });
+  } finally {
+    isResettingIdentity.value = false;
+  }
+}
 
 function scrollToBottom() {
   if (containerRef.value) {

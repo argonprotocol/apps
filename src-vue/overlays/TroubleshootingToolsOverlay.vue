@@ -26,7 +26,7 @@
         Debugging Package
       </DialogTitle>
       <DialogTitle v-else-if="activeScreen === 'ssh'" class="grow text-2xl font-bold">
-        Open SSH to Mining Machine
+        SSH Access to Your Server
       </DialogTitle>
       <DialogTitle v-else-if="activeScreen === 'options-for-restart'" class="grow text-2xl font-bold">
         Advanced Restart
@@ -70,7 +70,7 @@
           :aria-disabled="localOnly || !config?.isServerAdded"
         >
           <CommandLineIcon class="group-hover:text-argon-600 mr-2 h-5 w-5 opacity-70" />
-          Open SSH to Mining Machine
+          SSH Access to Your Server
         </li>
         <li class="my-4 h-[1px] border-t border-dashed border-slate-300" />
         <li

@@ -43,6 +43,7 @@ import { getConfig } from '../../stores/config.ts';
 import { getWalletKeys } from '../../stores/wallets.ts';
 import { platformType } from '../../tauri-controls/utils/os.ts';
 import { invokeWithTimeout } from '../../lib/tauriApi.ts';
+import { SSH } from '../../lib/SSH.ts';
 
 type SshAccessStatus = {
   active: boolean;
@@ -60,8 +61,8 @@ const isActive = Vue.computed(() => !!status.value.active);
 const privateKey = Vue.computed(() => status.value.privateKey ?? '');
 const introText = Vue.computed(() =>
   isActive.value
-    ? 'Run the command below to connect to your mining machine. The key will remain valid until you deactivate it.'
-    : 'Activate SSH access to connect to your mining machine.',
+    ? 'Run the command below to connect to your server. The key will remain valid until you deactivate it.'
+    : 'Activate SSH access to connect to your server.',
 );
 
 const command = Vue.computed(() => {
@@ -115,6 +116,7 @@ async function activateAccess() {
   isLoading.value = true;
   try {
     await config.isLoadedPromise;
+    await SSH.getOrCreateConnection();
     const { host, port, username, address } = getServerDetails();
     if (!host || !username) {
       errorMessage.value = 'Missing SSH server details.';
@@ -128,6 +130,7 @@ async function activateAccess() {
         port,
         username,
         privateKeySeed: Array.from(await getWalletKeys().getSshPrivateKeySeed()),
+        serverHostKey: config.serverDetails.sshHostKey,
       },
       60e3,
     );
@@ -148,6 +151,7 @@ async function deactivateAccess() {
   }
   isLoading.value = true;
   try {
+    await SSH.getOrCreateConnection();
     status.value = await invokeWithTimeout<SshAccessStatus>(
       'ssh_access_deactivate',
       {
@@ -156,6 +160,7 @@ async function deactivateAccess() {
         port,
         username,
         privateKeySeed: Array.from(await getWalletKeys().getSshPrivateKeySeed()),
+        serverHostKey: config.serverDetails.sshHostKey,
       },
       60e3,
     );

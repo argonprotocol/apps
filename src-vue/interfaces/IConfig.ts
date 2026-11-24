@@ -113,6 +113,7 @@ export const ConfigServerAddSchema = z.object({
 export const ConfigServerDetailsSchema = z.object({
   ipAddress: z.union([z.ipv4(), z.ipv6(), z.literal('')]),
   sshPort: z.number().optional(),
+  sshHostKey: z.string().optional(),
   gatewayPort: z.number().optional(),
   bootstrapEndpointIndex: z.number().int().nonnegative().optional(),
   bootstrapEndpointSequence: z.number().int().positive().optional(),

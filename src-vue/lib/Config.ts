@@ -662,6 +662,16 @@ export class Config implements IConfig {
     this._loadedData.stabilizerBuyAlert = settings;
   }
 
+  public async saveServerHostKey(hostKey: string): Promise<void> {
+    const details = { ...this.serverDetails, sshHostKey: hostKey };
+    const serialized = JsonExt.stringify(details, 2);
+    await this._db.configTable.insertOrReplace({ serverDetails: serialized });
+
+    this._loadedData.serverDetails = details;
+    this._rawData.serverDetails = serialized;
+    this._fieldsToSave.delete(dbFields.serverDetails);
+  }
+
   public async save() {
     this._throwErrorIfNotLoaded();
 

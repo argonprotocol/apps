@@ -21,9 +21,80 @@ import PluginSql from '@tauri-apps/plugin-sql';
 import { LocalMachine } from '../lib/LocalMachine.ts';
 import { AdvancedRestartOption } from '../interfaces/IAdvancedRestartOption.ts';
 import { invokeWithTimeout } from '../lib/tauriApi.ts';
+import { ServerAdmin } from '../lib/ServerAdmin.ts';
 
 const getStartupClient = vi.fn();
 const startupClients = { get: getStartupClient } as unknown as MainchainClients;
+
+it('persists the first SSH identity and preserves it when resetting cannot be saved', async () => {
+  const { SSH } = await vi.importActual<typeof import('../lib/SSH.ts')>('../lib/SSH.ts');
+  const db = await createTestDb();
+  instanceChecks.delete(Config.prototype.constructor);
+  const config = new Config(Promise.resolve(db));
+  await config.load();
+  config.serverDetails = {
+    ipAddress: '192.0.2.1',
+    sshUser: 'argon',
+    type: ServerType.CustomServer,
+    workDir: '~',
+  };
+  await config.save();
+  const { walletKeys } = createTestWallet();
+  SSH.setConfig(config, walletKeys);
+  const serverKey = 'ssh-ed25519 synthetic-server-identity';
+  vi.mocked(invokeWithTimeout).mockResolvedValueOnce(serverKey);
+  let releaseSave!: () => void;
+  const waiting = new Promise<void>(resolve => {
+    releaseSave = resolve;
+  });
+  const insert = db.configTable.insertOrReplace.bind(db.configTable);
+  const save = vi.spyOn(db.configTable, 'insertOrReplace').mockImplementation(async values => {
+    await waiting;
+    return insert(values);
+  });
+  const first = SSH.getOrCreateConnection(0);
+  let secondFinished = false;
+  const second = SSH.getOrCreateConnection(0).then(connection => {
+    secondFinished = true;
+    return connection;
+  });
+  await vi.waitFor(() => expect(save).toHaveBeenCalled());
+  expect(secondFinished).toBe(false);
+  expect(config.serverDetails.sshHostKey).toBeUndefined();
+  releaseSave();
+  const [connection, concurrent] = await Promise.all([first, second]);
+  expect(concurrent).toBe(connection);
+  expect(connection.serverHostKey).toBe(serverKey);
+  const server = new ServerAdmin(connection, config.serverDetails);
+
+  instanceChecks.delete(Config.prototype.constructor);
+  const restarted = new Config(Promise.resolve(db));
+  await restarted.load();
+  expect(restarted.serverDetails.sshHostKey).toBe(serverKey);
+  SSH.setConfig(restarted, walletKeys);
+
+  await db.sql.execute(
+    "CREATE TRIGGER RejectHostKeyReset BEFORE INSERT ON Config BEGIN SELECT RAISE(ABORT, 'Interrupted identity reset'); END",
+  );
+  const replacementKey = 'ssh-ed25519 synthetic-replacement-identity';
+  vi.mocked(invokeWithTimeout).mockImplementation(async command => {
+    if (command === 'open_ssh_connection') return replacementKey;
+  });
+  await expect(SSH.resetHostKey()).rejects.toThrow('Interrupted identity reset');
+  expect(restarted.serverDetails.sshHostKey).toBe(serverKey);
+  expect(connection.serverHostKey).toBe(serverKey);
+  await db.sql.execute('DROP TRIGGER RejectHostKeyReset');
+  await SSH.resetHostKey();
+
+  instanceChecks.delete(Config.prototype.constructor);
+  const reset = new Config(Promise.resolve(db));
+  await reset.load();
+  expect(reset.serverDetails.sshHostKey).toBe(replacementKey);
+  vi.mocked(invokeWithTimeout).mockResolvedValueOnce(['/app', 0]);
+  await expect(server.isConnected()).resolves.toBe(true);
+  expect(restarted.serverDetails.sshHostKey).toBe(replacementKey);
+  await SSH.closeConnection();
+});
 
 it('can load config defaults', async () => {
   const dbPromise = createMockedDbPromise();

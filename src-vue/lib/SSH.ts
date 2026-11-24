@@ -9,6 +9,7 @@ import { base64Encode } from '@polkadot/util-crypto';
 export type ITryServerData = Awaited<ReturnType<ServerAdmin['downloadConfigState']>> & {
   walletAddress: string | undefined;
   availableDiskBytes?: number;
+  sshHostKey?: string;
 };
 
 export class SSH {
@@ -36,18 +37,28 @@ export class SSH {
     if (!this.walletKeys.canAccessServer) throw new Error('Server access is unavailable');
     await this.config.isLoadedPromise;
     this.connection ??= new SSHConnection({ ...this.config.serverDetails }, this.walletKeys);
+    const connection = this.connection;
     try {
-      await this.connection.connect(retries);
-    } catch (e) {
-      this.connection = undefined;
-      throw e;
+      await connection.connect(retries);
+      if (connection.isDestroyed) throw new Error('SSH connection was closed');
+      if (connection.serverHostKey && this.config.serverDetails.sshHostKey !== connection.serverHostKey) {
+        await this.config.saveServerHostKey(connection.serverHostKey);
+      }
+    } catch (error) {
+      if (this.connection === connection) this.connection = undefined;
+      throw error;
     }
-
-    return this.connection;
+    return connection;
   }
 
   public static async tryConnection(serverDetails: IConfigServerDetails): Promise<ITryServerData> {
     if (!this.walletKeys.canAccessServer) throw new Error('Server access is unavailable');
+    if (
+      serverDetails.ipAddress === this.config.serverDetails.ipAddress &&
+      (serverDetails.sshPort ?? 22) === (this.config.serverDetails.sshPort ?? 22)
+    ) {
+      serverDetails = { ...serverDetails, sshHostKey: this.config.serverDetails.sshHostKey };
+    }
     const connection = new SSHConnection({ ...serverDetails }, this.walletKeys);
     await connection.connect(0);
     const server = new ServerAdmin(connection, serverDetails);
@@ -62,6 +73,7 @@ export class SSH {
 
       return {
         walletAddress: undefined,
+        sshHostKey: connection.serverHostKey,
         biddingRules: undefined,
         oldestFrameIdToSync: undefined,
         ethereumBeaconApiUrl: undefined,
@@ -74,6 +86,7 @@ export class SSH {
 
     return {
       walletAddress,
+      sshHostKey: connection.serverHostKey,
       ...configState,
     };
   }
@@ -144,8 +157,26 @@ export class SSH {
 
   public static async closeConnection(): Promise<void> {
     if (this.connection) {
-      await this.connection.close(true);
+      const connection = this.connection;
       this.connection = undefined;
+      await connection.close(true);
+    }
+  }
+
+  public static async resetHostKey(): Promise<void> {
+    await this.connection?.isConnectedPromise?.catch(() => undefined);
+    this.connection ??= new SSHConnection({ ...this.config.serverDetails }, this.walletKeys);
+    const connection = this.connection;
+    await connection.close();
+    const previousKey = this.config.serverDetails.sshHostKey;
+    connection.serverHostKey = undefined;
+    try {
+      await this.getOrCreateConnection(0);
+    } catch (error) {
+      await connection.close().catch(() => undefined);
+      connection.serverHostKey = previousKey;
+      this.connection = connection;
+      throw error;
     }
   }
 
