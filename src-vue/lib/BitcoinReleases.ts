@@ -80,6 +80,8 @@ export default class BitcoinReleases {
   #orphanCosignCounterSubscriptions = new Map<string, () => void>();
   #orphanEventScanFromBlock?: number;
   #orphanEventScanThroughBlock?: number;
+  #cooperativeReleasePoll?: ReturnType<typeof setInterval>;
+  #cooperativeReleasePollPromise?: Promise<void>;
 
   constructor(
     private readonly bitcoinLocks: BitcoinLocks,
@@ -185,6 +187,13 @@ export default class BitcoinReleases {
     }
 
     this.data.releasesById = Object.fromEntries(releases.map(release => [release.id, release]));
+    this.#cooperativeReleasePoll ??= setInterval(() => {
+      this.#cooperativeReleasePollPromise ??= this.pollCooperativeReleases()
+        .catch(error => console.warn('[BitcoinReleases] Unable to refresh cooperative returns; will retry', error))
+        .finally(() => {
+          this.#cooperativeReleasePollPromise = undefined;
+        });
+    }, 5 * 60_000);
   }
 
   private static createPartialSendPlan(
@@ -849,8 +858,10 @@ export default class BitcoinReleases {
     }
   }
 
-  public async reconcileDepositReleases(lock: IBitcoinLockRecord): Promise<void> {
-    const releases = this.getActiveDepositReleases().filter(release => release.lockId === lock.lockId);
+  public async reconcileDepositReleases(lock: IBitcoinLockRecord, kind?: BitcoinReleaseKind): Promise<void> {
+    const releases = this.getActiveDepositReleases().filter(
+      release => release.lockId === lock.lockId && (kind === undefined || release.kind === kind),
+    );
 
     for (let release of releases) {
       const utxo = this.getInputUtxos(release)[0];
@@ -914,8 +925,12 @@ export default class BitcoinReleases {
     }
   }
 
-  public async syncDepositBitcoinProcessing(oracleBitcoinBlockHeight: number): Promise<void> {
+  public async syncDepositBitcoinProcessing(
+    oracleBitcoinBlockHeight: number,
+    kind?: BitcoinReleaseKind,
+  ): Promise<void> {
     const tasks = this.getActiveDepositReleases()
+      .filter(release => kind === undefined || release.kind === kind)
       .filter(release => release.status === BitcoinReleaseStatus.ConfirmingOnBitcoin && release.bitcoinTxid)
       .map(async release => {
         const utxo = this.getInputUtxos(release)[0];
@@ -1053,9 +1068,12 @@ export default class BitcoinReleases {
     }
   }
 
-  public shutdown(): void {
+  public async shutdown(): Promise<void> {
+    clearInterval(this.#cooperativeReleasePoll);
+    this.#cooperativeReleasePoll = undefined;
     for (const unsubscribe of this.#orphanCosignCounterSubscriptions.values()) unsubscribe();
     this.#orphanCosignCounterSubscriptions.clear();
+    await this.#cooperativeReleasePollPromise;
   }
 
   public async completeLockReleaseFromArgon(
@@ -1703,6 +1721,36 @@ export default class BitcoinReleases {
       Object.assign(release, retired.currentRelease);
       this.utxoTracking.publishUtxo(retired.currentUtxo);
     }
+  }
+
+  private async pollCooperativeReleases(): Promise<void> {
+    const lockIds = new Set(
+      this.getActiveDepositReleases()
+        .filter(release => release.kind === BitcoinReleaseKind.Cooperative)
+        .map(release => release.lockId),
+    );
+    await Promise.all(
+      [...lockIds].map(async lockId => {
+        const lock = this.bitcoinLocks.getLockById(lockId);
+        if (!lock) return;
+        try {
+          await this.bitcoinLocks.runInQueueForLock(
+            lock,
+            async () => {
+              const currentLock = this.bitcoinLocks.getLockById(lockId);
+              if (currentLock) await this.reconcileDepositReleases(currentLock, BitcoinReleaseKind.Cooperative);
+            },
+            { skipActionAvailability: true },
+          );
+        } catch (error) {
+          console.warn('[BitcoinReleases] Unable to refresh a cooperative return; will retry', error);
+        }
+      }),
+    );
+    await this.syncDepositBitcoinProcessing(
+      this.bitcoinLocks.data.oracleBitcoinBlockHeight,
+      BitcoinReleaseKind.Cooperative,
+    );
   }
 
   private async syncCooperativeVaultCosign(release: IBitcoinReleaseRecord): Promise<void> {

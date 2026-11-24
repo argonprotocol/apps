@@ -1,6 +1,6 @@
 import {
   type TxSigner,
-  fetch,
+  fetchWithTimeout,
   JsonExt,
   type RouterAuthRole as ServerAuthRole,
   signRouterAuthAccountBinding,
@@ -262,7 +262,7 @@ function getCacheKey(baseUrl: string, authAccountId: string, role: ServerAuthRol
 }
 
 async function requestAuth<T>(url: string, payload: unknown): Promise<T | null> {
-  const response = await fetch(url, {
+  const response = await fetchWithTimeout(url, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JsonExt.stringify(payload),
@@ -294,7 +294,7 @@ async function verifySession(baseUrl: string, role: ServerAuthRole, sessionId: s
   const verifyUrl = new URL(`${baseUrl}${getVerifyPath(role)}`);
   verifyUrl.searchParams.set('sessionId', sessionId);
 
-  const response = await fetch(verifyUrl, { cache: 'no-store' });
+  const response = await fetchWithTimeout(verifyUrl, { cache: 'no-store' });
 
   return response.ok;
 }

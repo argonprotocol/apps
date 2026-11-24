@@ -124,17 +124,21 @@ describe('RouterServer', () => {
       routerDb.userInvitesTable.claimInvite(invite.id, account.address, account.derive('//auth').address);
     }
     // The finalized chain is the external boundary; HTTP auth, authorization and SQLite remain real.
-    vi.spyOn(RouterServer.prototype as any, 'queryFinalizedState').mockImplementation(async query => {
-      const read = query as (client: ArgonCurrentQueryClient) => Promise<unknown>;
-      return read({
-        query: {
-          vaults: {
-            vaultsById: async (id: number) => (id === 7 ? { operatorAccountId: vaultOperator.address } : null),
-            vaultIdByOperator: async (account: string) => (account === vaultOperator.address ? 7 : null),
+    let chainAvailable = true;
+    const queryFinalizedState = vi
+      .spyOn(RouterServer.prototype as any, 'queryFinalizedState')
+      .mockImplementation(async query => {
+        if (!chainAvailable) throw new Error('Archive unavailable');
+        const read = query as (client: ArgonCurrentQueryClient) => Promise<unknown>;
+        return read({
+          query: {
+            vaults: {
+              vaultsById: async (id: number) => (id === 7 ? { operatorAccountId: vaultOperator.address } : null),
+              vaultIdByOperator: async (account: string) => (account === vaultOperator.address ? 7 : null),
+            },
           },
-        },
-      } as unknown as ArgonCurrentQueryClient);
-    });
+        } as unknown as ArgonCurrentQueryClient);
+      });
     const started = await startRouterServer(routerDb, () => ({ status: 404, body: {} }), {
       adminOperatorAccountId: operator.address,
       vaultOperatorAddress: vaultOperator.address,
@@ -241,6 +245,26 @@ describe('RouterServer', () => {
     expect(JsonExt.parse(await rejected.text()).bitcoinCooperativeRelease.operatorError).toBe(
       'Deposit amount does not match.',
     );
+    chainAvailable = false;
+    queryFinalizedState.mockClear();
+    const recovered = await requestJson(started.routerAddress, path, withRemovalEvidence);
+    expect(recovered.status).toBe(200);
+    expect(JsonExt.parse(await recovered.text()).bitcoinCooperativeRelease.vaultSignatureHex).toBe(signature);
+    expect((await requestJson(started.routerAddress, path, alteredTerms)).status).toBe(409);
+    expect(
+      (
+        await requestJson(
+          started.routerAddress,
+          withSessionId('/bitcoin-cooperative-releases', otherSession.sessionId),
+          request,
+        )
+      ).status,
+    ).toBe(403);
+    expect(queryFinalizedState).not.toHaveBeenCalled();
+    const newRequest = { ...request, releaseId: 'new-during-outage', utxoRef: { ...request.utxoRef, outputIndex: 2 } };
+    newRequest.requestSignature = signBitcoinCooperativeReleaseRequest(member, newRequest);
+    expect((await requestJson(started.routerAddress, path, newRequest)).ok).toBe(false);
+    expect(routerDb.bitcoinCooperativeReleasesTable.fetch(newRequest.releaseId)).toBeUndefined();
     await routerServer.close();
     routerServer = undefined;
     routerDb.close();

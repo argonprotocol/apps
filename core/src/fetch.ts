@@ -1,3 +1,5 @@
+import { createDeferred } from './Deferred.js';
+
 export type FetchImplementation = (...args: Parameters<typeof globalThis.fetch>) => ReturnType<typeof globalThis.fetch>;
 
 let fetchImplementation: FetchImplementation | undefined;
@@ -43,6 +45,42 @@ export async function fetch(...args: Parameters<FetchImplementation>): ReturnTyp
       });
     }
     throw error;
+  }
+}
+
+/** Fetch and buffer the entire response within one deadline, including native body reads. */
+export async function fetchWithTimeout(
+  input: string | URL,
+  init: RequestInit = {},
+  timeoutMs = 10_000,
+): Promise<Response> {
+  const callerSignal = init.signal;
+  callerSignal?.throwIfAborted();
+  const controller = new AbortController();
+  const interrupted = createDeferred<never>();
+  const onAbort = () => {
+    interrupted.reject(callerSignal!.reason);
+    controller.abort(callerSignal!.reason);
+  };
+  callerSignal?.addEventListener('abort', onAbort, { once: true });
+  const timeout = setTimeout(() => {
+    const error = new Error('The server request timed out. Please try again.');
+    error.name = 'TimeoutError';
+    console.warn('[fetch] HTTP response timed out', { timeoutMs, request: summarizeRequest(input, init) });
+    interrupted.reject(error);
+    controller.abort(error);
+  }, timeoutMs);
+
+  try {
+    const request = fetch(input, { ...init, signal: controller.signal }).then(async response => {
+      const body = await response.arrayBuffer();
+      return new Response(body.byteLength ? body : null, response);
+    });
+    // Native HTTP cancellation may leave a response body waiting for a chunk forever.
+    return await Promise.race([request, interrupted.promise]);
+  } finally {
+    clearTimeout(timeout);
+    callerSignal?.removeEventListener('abort', onAbort);
   }
 }
 
