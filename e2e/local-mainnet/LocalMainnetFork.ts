@@ -6,21 +6,24 @@ import {
   ChopsticksProvider,
   compactHex,
   destroyWorker,
-  setupWithServer,
   type Block,
   type InherentProvider,
   type RuntimeVersion,
 } from '@acala-network/chopsticks';
+import { setupContext } from '@acala-network/chopsticks/context';
+import { handler } from '@acala-network/chopsticks/rpc/index';
+import { createServer } from '@acala-network/chopsticks/server';
 import { GenericExtrinsic } from '@polkadot/types';
 import type { ArgonPrimitivesTickTicker } from '@polkadot/types/lookup';
 import { stringToHex, u8aToHex } from '@polkadot/util';
+import type { HexString } from '@polkadot/util/types';
 import { blake2AsHex } from '@polkadot/util-crypto';
 import type { LocalMainnetManifest } from './manifest.ts';
 
 const CHOPSTICKS_FALLBACK_SLOT_MILLIS = 12_000n;
 const RUNTIME_STAGES = ['deployed', 'upgrade', 'migration', 'candidate'] as const;
 type RuntimeStage = (typeof RUNTIME_STAGES)[number];
-type ChopsticksServer = Awaited<ReturnType<typeof setupWithServer>>;
+type ChopsticksServer = Awaited<ReturnType<typeof setupContext>> & Awaited<ReturnType<typeof createServer>>;
 
 export interface ProducedBlock {
   number: number;
@@ -60,18 +63,55 @@ export class LocalMainnetFork {
     const databasePath = Path.join(runDirectory, 'chopsticks.sqlite');
     copyFileSync(manifest.archive.chopsticksDatabasePath, databasePath, constants.COPYFILE_EXCL);
 
-    const chopsticks = await setupWithServer({
+    const context = await setupContext({
       endpoint: manifest.archive.url,
       block: manifest.archive.blockNumber,
       db: databasePath,
       port: 0,
-      host: '127.0.0.1',
       'build-block-mode': BuildBlockMode.Manual,
       'mock-signature-host': true,
       'save-blocks': true,
     });
-    const provider = new ChopsticksProvider(chopsticks.chain);
+    let server: Awaited<ReturnType<typeof createServer>> | undefined;
     try {
+      const handleRequest = handler(context);
+      server = await createServer(
+        async (request, subscriptions) => {
+          if (['chain_getHeader', 'chain_getBlock', 'state_getRuntimeVersion'].includes(request.method)) {
+            const block = await context.chain.getBlock(request.params[0] as HexString);
+            if (block && block.number < manifest.archive.blockNumber) {
+              // Chopsticks also executes WASM to decode headers. Keep unchanged archive
+              // reads remote so history does not persist a runtime copy for every block.
+              if (request.method === 'chain_getHeader') return context.chain.api.getHeader(block.hash);
+
+              const params = [block.hash];
+              const cacheKey = JSON.stringify(params);
+              const cached = await context.chain.db?.queryRpcCall?.(
+                manifest.archive.blockHash,
+                request.method,
+                cacheKey,
+              );
+              if (cached) return JSON.parse(cached);
+
+              const response = await context.chain.api.send<unknown>(request.method, params, true);
+              if (response) {
+                await context.chain.db?.saveRpcCall?.(
+                  manifest.archive.blockHash,
+                  request.method,
+                  cacheKey,
+                  JSON.stringify(response),
+                );
+              }
+              return response;
+            }
+          }
+          return handleRequest(request, subscriptions);
+        },
+        0,
+        '127.0.0.1',
+      );
+      const chopsticks = { ...context, ...server };
+      const provider = new ChopsticksProvider(chopsticks.chain);
       await provider.isReady;
       const initialRuntime = await LocalMainnetFork.runtimeVersion(provider, chopsticks.chain.head.hash);
       if (
@@ -90,7 +130,9 @@ export class LocalMainnetFork {
       inherentProviders.splice(0, 1, ...argonInherents.providers);
       return new LocalMainnetFork(chopsticks, provider, argonInherents);
     } catch (error) {
-      await chopsticks.close().catch(() => undefined);
+      await context.chain.close().catch(() => undefined);
+      await context.fetchStorageWorker?.terminate().catch(() => undefined);
+      await server?.close().catch(() => undefined);
       await destroyWorker().catch(() => undefined);
       throw error;
     }
@@ -157,6 +199,8 @@ export class LocalMainnetFork {
   public async close(): Promise<void> {
     if (this.closed) return;
     const errors: unknown[] = [];
+    await this.chopsticks.chain.close().catch(error => errors.push(error));
+    await this.chopsticks.fetchStorageWorker?.terminate().catch(error => errors.push(error));
     await this.chopsticks.close().catch(error => errors.push(error));
     await destroyWorker().catch(error => errors.push(error));
     if (errors.length) throw new AggregateError(errors, 'Failed to close the local mainnet fork');

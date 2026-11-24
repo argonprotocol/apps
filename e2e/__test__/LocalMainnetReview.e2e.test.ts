@@ -1,6 +1,16 @@
 import { createHash } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
-import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { once } from 'node:events';
+import {
+  copyFileSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import Path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
@@ -14,7 +24,9 @@ import { SyncStateKeys } from 'src-vue/lib/db/SyncStateTable.ts';
 import { reduceFinancialPositions } from 'src-vue/lib/financials/index.ts';
 import { historyEvent } from 'src-vue/__test__/helpers/bitcoin.ts';
 import { AppSession } from '../AppSession.ts';
+import { AppProcess } from '../AppProcess.ts';
 import { AppSessionDiagnostics } from '../AppSessionDiagnostics.ts';
+import { DriverClient } from '../driver/client.ts';
 import { FlowSession } from '../FlowSession.ts';
 import { LocalMainnetFork, type ProducedBlock } from '../local-mainnet/LocalMainnetFork.ts';
 import { LocalMainnetIndexer } from '../local-mainnet/LocalMainnetIndexer.ts';
@@ -39,6 +51,79 @@ afterEach(() => {
 });
 
 describe('partial capture diagnostics', () => {
+  it.each([
+    {
+      failure: 'compilation',
+      waitUntilExit: false,
+      stderr:
+        '\u001b[31merror\u001b[0m: linking with `cc` failed: exit status: 1\n' +
+        '  = note: /usr/bin/ld: final link failed: No space left on device',
+      finalStderr: 'error: could not compile `Argon` (bin "Argon") due to 1 previous error',
+      expected: ['Linker failed.', 'No space left on device.', 'Cargo compilation failed.'],
+    },
+    {
+      failure: 'Rust compiler error before the driver starts waiting',
+      waitUntilExit: true,
+      stderr: 'error[E0432]: unresolved import private-stderr-canary\n --> src/lib.rs:23:5',
+      finalStderr: 'error: could not compile `Argon` (lib) due to 1 previous error',
+      expected: ['Compiler error: E0432', 'Rust source: lib.rs:23:5', 'Cargo compilation failed.'],
+    },
+    {
+      failure: 'native startup',
+      waitUntilExit: false,
+      stderr: 'Running `target/debug/Argon`',
+      finalStderr:
+        "thread 'main' panicked at /private-startup-canary/src/lib.rs:781:10:\n" +
+        'error while running tauri application: Failed to run migrations: database is locked',
+      expected: [
+        'Native executable started.',
+        'Rust panic observed.',
+        'Rust source: lib.rs:781:10',
+        'Database is locked.',
+      ],
+    },
+  ])(
+    'retains the $failure cause and disk availability without exporting application output',
+    async ({ stderr, finalStderr, expected, waitUntilExit }) => {
+      const directory = mkdtempSync(Path.join(tmpdir(), 'qualification-startup-'));
+      directories.push(directory);
+      vi.stubEnv('CI_TEMP_DIR', directory);
+      const startupOutput =
+        stderr +
+        '\n --> /private-path-canary/private_source_canary.rs:99:7\n' +
+        'private-stderr-canary\n'.repeat(650) +
+        finalStderr;
+      const app = AppProcess.start({
+        repoRoot: directory,
+        env: process.env,
+        command: [
+          process.execPath,
+          '-e',
+          `process.stdout.write(${JSON.stringify('private-stdout-canary\n')});
+process.stderr.write(${JSON.stringify(startupOutput)});
+process.exitCode = 101;`,
+        ],
+        logsMode: 'quiet',
+        sessionName: 'private-scenario-canary',
+      });
+      const driver = new DriverClient('ws://127.0.0.1:1');
+      try {
+        if (waitUntilExit) await once(app.child, 'exit');
+        await expect(app.waitForDriver(driver, 10_000)).rejects.toThrow('code=101');
+        const files = readdirSync(directory).filter(name => name.startsWith('qualification-startup-'));
+        expect(files).toHaveLength(1);
+        const diagnostics = readFileSync(Path.join(directory, files[0]), 'utf8');
+        for (const cause of expected) expect(diagnostics).toContain(cause);
+        expect(diagnostics).toMatch(/Checkout filesystem available bytes: \d+/);
+        expect(diagnostics).not.toMatch(/private[-_]/);
+      } finally {
+        driver.close();
+        await app.stop();
+        app.output.close();
+      }
+    },
+  );
+
   it('reports app exit status without publishing private startup details', () => {
     const directory = mkdtempSync(Path.join(tmpdir(), 'qualification-app-exit-'));
     directories.push(directory);
