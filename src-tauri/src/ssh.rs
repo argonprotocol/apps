@@ -632,9 +632,9 @@ impl client::Handler for ClientHandler {
 
     async fn check_server_key(
         &mut self,
-        server_public_key: &ssh_key::PublicKey,
+        server_public_key: &PublicKeyOrCertificate,
     ) -> Result<bool, Self::Error> {
-        let presented_key = server_public_key.to_openssh()?;
+        let presented_key = server_public_key.public_key().to_openssh()?;
         let mut saved_key = self.server_host_key.lock().await;
         if let Some(expected_key) = saved_key.as_ref() {
             anyhow::ensure!(
@@ -853,7 +853,7 @@ mod tests {
         async fn auth_publickey(
             &mut self,
             _user: &str,
-            _public_key: &russh::keys::ssh_key::PublicKey,
+            _public_key: server::VerifiedPublicKey<'_>,
         ) -> Result<Auth, Self::Error> {
             Ok(Auth::Accept)
         }
@@ -861,9 +861,11 @@ mod tests {
         async fn channel_open_session(
             &mut self,
             _channel: Channel<Msg>,
+            reply: server::ChannelOpenHandle,
             _session: &mut Session,
-        ) -> Result<bool, Self::Error> {
-            Ok(true)
+        ) -> Result<(), Self::Error> {
+            reply.accept().await;
+            Ok(())
         }
 
         async fn exec_request(

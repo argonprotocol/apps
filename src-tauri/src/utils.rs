@@ -1,5 +1,5 @@
 use anyhow::Result;
-use rand::RngCore;
+use rand::Rng;
 use std::collections::HashMap;
 use std::io::Cursor;
 use std::path::{Path, PathBuf};
