@@ -1,7 +1,7 @@
 import {
   type TxSigner,
   getObjectStringProperty,
-  fetch,
+  fetchWithTimeout,
   type IDiscordRoleClaim,
   type IEthereumGatewayCatchUpRequest,
   type IEthereumGatewayCatchUpResponse,
@@ -70,7 +70,6 @@ export class UpstreamOperatorClient {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JsonExt.stringify(request),
-            signal: AbortSignal.timeout(10_000),
           },
           sessionId,
         ),
@@ -84,7 +83,6 @@ export class UpstreamOperatorClient {
       const status = await UpstreamOperatorClient.request<{ bitcoinCooperativeReleaseMailboxVersion?: number }>(
         operatorHost,
         '/',
-        { signal: AbortSignal.timeout(10_000) },
       );
       if (status.bitcoinCooperativeReleaseMailboxVersion !== 1)
         throw new Error('The operator server needs an upgrade with authenticated Bitcoin return requests.');
@@ -298,6 +296,7 @@ export class UpstreamOperatorClient {
               signal,
             },
             sessionId,
+            30_000,
           ),
         ),
       signal,
@@ -353,15 +352,20 @@ export class UpstreamOperatorClient {
     path: string,
     init?: RequestInit,
     sessionId?: string,
+    timeoutMs?: number,
   ): Promise<T> {
     init?.signal?.throwIfAborted();
-    const response = await fetch(buildAuthenticatedUrl(operatorHost, path, sessionId), {
-      ...init,
-      redirect: 'error',
-      headers: {
-        ...(init?.headers as Record<string, string> | undefined),
+    const response = await fetchWithTimeout(
+      buildAuthenticatedUrl(operatorHost, path, sessionId),
+      {
+        ...init,
+        redirect: 'error',
+        headers: {
+          ...(init?.headers as Record<string, string> | undefined),
+        },
       },
-    });
+      timeoutMs,
+    );
     const rawBody = await response.text();
     let body: T | IRouterErrorResponse | string | undefined;
     if (rawBody) {

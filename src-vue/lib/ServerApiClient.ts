@@ -1,7 +1,7 @@
 import {
   getObjectStringProperty,
   JsonExt,
-  fetch,
+  fetchWithTimeout,
   type IBotStateStarting,
   type IEthereumGatewayCatchUpRequest,
   type IEthereumGatewayCatchUpResponse,
@@ -365,50 +365,40 @@ export class ServerApiClient {
     path: string,
     options: RequestOptions = {},
   ): Promise<T> {
-    options.init?.signal?.throwIfAborted();
-    const abortController = new AbortController();
-    const timeoutMs = options.timeoutMs ?? 10e3;
-    const timeout = setTimeout(() => abortController.abort(), timeoutMs);
-    const callerSignal = options.init?.signal;
-    const onAbort = () => abortController.abort(callerSignal?.reason);
-    callerSignal?.addEventListener('abort', onAbort, { once: true });
-
-    try {
-      const response = await fetch(this.getGatewayHttpUrl(serverDetails, path, options.sessionId), {
+    const response = await fetchWithTimeout(
+      this.getGatewayHttpUrl(serverDetails, path, options.sessionId),
+      {
         ...options.init,
         headers: {
           ...(options.init?.headers as Record<string, string> | undefined),
         },
-        signal: abortController.signal,
-      });
-      const rawBody = await response.text();
-      let body: T | IRouterErrorResponse | string | undefined;
-      if (rawBody) {
-        try {
-          body = JsonExt.parse<T | IRouterErrorResponse>(rawBody);
-        } catch (error) {
-          if (response.ok) throw error;
-          body = rawBody;
-        }
+      },
+      options.timeoutMs,
+    );
+    const rawBody = await response.text();
+    let body: T | IRouterErrorResponse | string | undefined;
+    if (rawBody) {
+      try {
+        body = JsonExt.parse<T | IRouterErrorResponse>(rawBody);
+      } catch (error) {
+        if (response.ok) throw error;
+        body = rawBody;
       }
-
-      let error = getObjectStringProperty(body, 'error');
-      if (!error && !response.ok && typeof body === 'string') {
-        error = body;
-      }
-
-      if (!response.ok) {
-        throw new RequestStatusError(error ?? `Server API request failed (${response.status}).`, response.status);
-      }
-      if (error) {
-        throw new Error(error);
-      }
-
-      return body as T;
-    } finally {
-      clearTimeout(timeout);
-      callerSignal?.removeEventListener('abort', onAbort);
     }
+
+    let error = getObjectStringProperty(body, 'error');
+    if (!error && !response.ok && typeof body === 'string') {
+      error = body;
+    }
+
+    if (!response.ok) {
+      throw new RequestStatusError(error ?? `Server API request failed (${response.status}).`, response.status);
+    }
+    if (error) {
+      throw new Error(error);
+    }
+
+    return body as T;
   }
 }
 

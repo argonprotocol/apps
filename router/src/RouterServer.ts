@@ -593,6 +593,10 @@ export class RouterServer {
           throw new RouterError('Invalid owner authorization for this return.', 403);
         }
 
+        if (db.bitcoinCooperativeReleasesTable.fetch(request.releaseId)) {
+          return { bitcoinCooperativeRelease: db.bitcoinCooperativeReleasesTable.insert(request) };
+        }
+
         const vault = await this.queryFinalizedState(client => client.query.vaults.vaultsById(request.vaultId));
         if (!vault || vault.operatorAccountId !== vaultOperatorAddress) {
           throw new RouterError('This server does not serve the requested vault.', 403);

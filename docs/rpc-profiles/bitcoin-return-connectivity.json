@@ -1,0 +1,210 @@
+{
+  "capturedOn": "2026-11-24",
+  "baselineCommit": "8b0fcb8694b35290826e1ac5b8a2ff786369c4e1",
+  "routerSourceSha256": "c46019703640e987b8b619af12304fc6b86e5309333d0095ecfcd1037b279f81",
+  "network": "synthetic JSON-RPC endpoints with real MainchainApi, SCALE decoding and per-connection providers",
+  "scenario": "Three authenticated retries for one stored signed return with advancing finalized snapshots; settled connections and warm metadata. No user information or RPC arguments retained.",
+  "triggers": 3,
+  "modeledPollIntervalMs": 300000,
+  "cadence": "Manually triggered checks model the wall-clock backstop on all networks; captures do not span fifteen minutes. Startup is recorded separately.",
+  "profiles": [
+    {
+      "route": "local",
+      "selectedRole": "pruned",
+      "destinationCategory": "user-operated",
+      "before": {
+        "captureMs": 38,
+        "connections": {
+          "local": {
+            "requests": 12,
+            "cacheHits": 6,
+            "errors": 0,
+            "methods": {
+              "state_getRuntimeVersion": 3,
+              "chain_getFinalizedHead": 3,
+              "chain_getHeader": 3,
+              "state_getStorage": 3
+            },
+            "storage": {
+              "vaults.vaultsById": 3
+            }
+          },
+          "archive": {
+            "requests": 0,
+            "cacheHits": 0,
+            "errors": 0,
+            "methods": {},
+            "storage": {}
+          }
+        }
+      },
+      "after": {
+        "captureMs": 15,
+        "connections": {
+          "local": {
+            "requests": 0,
+            "cacheHits": 0,
+            "errors": 0,
+            "methods": {},
+            "storage": {}
+          },
+          "archive": {
+            "requests": 0,
+            "cacheHits": 0,
+            "errors": 0,
+            "methods": {},
+            "storage": {}
+          }
+        }
+      },
+      "startup": {
+        "before": {
+          "local": {
+            "requests": 9,
+            "cacheHits": 2,
+            "errors": 0,
+            "pending": 0,
+            "peakPending": 5,
+            "totalMs": 374.7082919999996,
+            "maxMs": 73.99699999999984
+          },
+          "archive": {
+            "requests": 5,
+            "cacheHits": 0,
+            "errors": 0,
+            "pending": 0,
+            "peakPending": 5,
+            "totalMs": 75.91066599999999,
+            "maxMs": 16.817375000000084
+          }
+        },
+        "after": {
+          "local": {
+            "requests": 9,
+            "cacheHits": 2,
+            "errors": 0,
+            "pending": 0,
+            "peakPending": 5,
+            "totalMs": 441.42879099999936,
+            "maxMs": 87.72095799999988
+          },
+          "archive": {
+            "requests": 5,
+            "cacheHits": 0,
+            "errors": 0,
+            "pending": 0,
+            "peakPending": 5,
+            "totalMs": 109.03195800000049,
+            "maxMs": 22.75979200000029
+          }
+        }
+      }
+    },
+    {
+      "route": "archive",
+      "selectedRole": "archive",
+      "destinationCategory": "public fallback",
+      "before": {
+        "captureMs": 63,
+        "connections": {
+          "local": {
+            "requests": 0,
+            "cacheHits": 0,
+            "errors": 0,
+            "methods": {},
+            "storage": {}
+          },
+          "archive": {
+            "requests": 12,
+            "cacheHits": 6,
+            "errors": 0,
+            "methods": {
+              "state_getRuntimeVersion": 3,
+              "chain_getFinalizedHead": 3,
+              "chain_getHeader": 3,
+              "state_getStorage": 3
+            },
+            "storage": {
+              "vaults.vaultsById": 3
+            }
+          }
+        }
+      },
+      "after": {
+        "captureMs": 11,
+        "connections": {
+          "local": {
+            "requests": 0,
+            "cacheHits": 0,
+            "errors": 0,
+            "methods": {},
+            "storage": {}
+          },
+          "archive": {
+            "requests": 0,
+            "cacheHits": 0,
+            "errors": 0,
+            "methods": {},
+            "storage": {}
+          }
+        }
+      },
+      "startup": {
+        "before": {
+          "local": {
+            "requests": 9,
+            "cacheHits": 2,
+            "errors": 0,
+            "pending": 0,
+            "peakPending": 5,
+            "totalMs": 250.43954099999883,
+            "maxMs": 50.1469169999998
+          },
+          "archive": {
+            "requests": 5,
+            "cacheHits": 0,
+            "errors": 0,
+            "pending": 0,
+            "peakPending": 5,
+            "totalMs": 13.789583000000448,
+            "maxMs": 3.133750000000191
+          }
+        },
+        "after": {
+          "local": {
+            "requests": 9,
+            "cacheHits": 2,
+            "errors": 0,
+            "pending": 0,
+            "peakPending": 5,
+            "totalMs": 266.7591260000004,
+            "maxMs": 53.14116700000022
+          },
+          "archive": {
+            "requests": 5,
+            "cacheHits": 0,
+            "errors": 0,
+            "pending": 0,
+            "peakPending": 5,
+            "totalMs": 32.61487500000021,
+            "maxMs": 6.966750000000047
+          }
+        }
+      }
+    }
+  ],
+  "publicRpcImpact": {
+    "updatedRouterStoredReplyReadsPerPoll": 0,
+    "olderRouterArchiveFallbackReadsPerPoll": 4,
+    "olderRouterArchiveFallbackAdditionalReadsPerMinutePerPendingReturn": 0.8,
+    "upstreamHttpRequestsPerWaitingReturnPerPoll": 2,
+    "endpointRecovery": "Unchanged failure path can perform one or two archive storage reads per recovery attempt.",
+    "broadcast": "Existing fresh broadcast validation is retained. Bitcoin confirmation reads are separate from Argon RPC.",
+    "inactive": "No timer network requests without active cooperative returns; mailbox requests stop once the signature is saved."
+  },
+  "limitations": [
+    "Synthetic routing and cadence evidence, not a measurement of public-server capacity.",
+    "Real provider and snapshot fan-out is captured; external JSON-RPC values are deterministic test data.",
+    "Endpoint recovery, authentication renewal and Bitcoin broadcast/confirmation traffic are outside this stored-reply capture."
+  ]
+}

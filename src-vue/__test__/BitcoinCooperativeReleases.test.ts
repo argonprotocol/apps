@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import { createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import type { TxOutspend } from '@mempool/mempool.js/lib/interfaces/bitcoin/transactions';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, onTestFinished, vi } from 'vitest';
 import { BitcoinNetwork, CosignScript, HDKey, Transaction } from '@argonprotocol/bitcoin';
 import { Keyring, hexToU8a, u8aToHex } from '@argonprotocol/mainchain';
 import {
@@ -568,7 +568,9 @@ describe('cooperative release approval with simulated chain observations', () =>
       restarted.data.locksByLockId[42] = (await appDb.bitcoinLocksTable.getByLockId(42))!;
       expect(restarted.data.locksByLockId[42].createdAtArgonBlock).toBe(123);
       restarted.utxoTracking.load(await appDb.bitcoinUtxosTable.fetchAll());
+      if (!ownVault) vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] });
       await restarted.releases.load();
+      onTestFinished(() => restarted.shutdown());
       const restartedWallet = new WalletForBitcoin(
         () => restarted,
         () => fixture.account.address,
@@ -576,7 +578,29 @@ describe('cooperative release approval with simulated chain observations', () =>
       );
       const restartedFunding = Vue.computed(() => restartedWallet.getPendingInboundUtxos());
       expect(restartedFunding.value).toEqual([]);
-      await restarted.releases.reconcileDepositReleases(restarted.data.locksByLockId[42]);
+      if (!ownVault) {
+        const waitingForSignature = Vue.computed(
+          () => restarted.releases.getById(persisted.id)?.status === BitcoinReleaseStatus.WaitingForVaultCosign,
+        );
+        expect(waitingForSignature.value).toBe(true);
+        // No finalized-block callback runs, and the first broadcast validation cannot reach Argon.
+        vi.spyOn(fixture.blockWatch, 'getFinalizedApi').mockRejectedValueOnce(new Error('Archive unavailable'));
+        await vi.advanceTimersByTimeAsync(5 * 60_000);
+        await vi.waitFor(async () => {
+          expect((await appDb.bitcoinReleasesTable.getById(persisted.id))?.status).toBe(
+            BitcoinReleaseStatus.ReadyForBitcoinBroadcast,
+          );
+        });
+        expect(waitingForSignature.value).toBe(false);
+        expect(restarted.releases.getById(persisted.id)?.vaultSignatures).toHaveLength(1);
+        expect(restarted.releases.getById(persisted.id)?.statusError).toContain('Archive unavailable');
+        await vi.advanceTimersByTimeAsync(5 * 60_000);
+        await vi.waitFor(() =>
+          expect(restarted.releases.getById(persisted.id)?.status).toBe(BitcoinReleaseStatus.ConfirmingOnBitcoin),
+        );
+      } else {
+        await restarted.releases.reconcileDepositReleases(restarted.data.locksByLockId[42]);
+      }
       const resumed = restarted.releases.getById(persisted.id)!;
       expect(resumed.cooperativeRequest).toEqual({
         ...persisted.cooperativeRequest,
@@ -587,7 +611,14 @@ describe('cooperative release approval with simulated chain observations', () =>
       expect(`0x${sent.hash}`).toBe(persisted.cooperativeRequest?.expectedTransactionId);
       expect(sent.getOutput(0).amount).toBe(persisted.destinationSatoshis);
       fixture.returnConfirmed = true;
-      await restarted.releases.syncDepositBitcoinProcessing(120);
+      if (!ownVault) {
+        await vi.advanceTimersByTimeAsync(5 * 60_000);
+        await vi.waitFor(() =>
+          expect(restarted.releases.getById(persisted.id)?.status).toBe(BitcoinReleaseStatus.Complete),
+        );
+      } else {
+        await restarted.releases.syncDepositBitcoinProcessing(120);
+      }
       expect(await appDb.bitcoinReleasesTable.fetchAll()).toEqual([
         expect.objectContaining({ status: BitcoinReleaseStatus.Complete }),
       ]);

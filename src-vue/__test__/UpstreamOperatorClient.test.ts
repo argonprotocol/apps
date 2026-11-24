@@ -1,10 +1,17 @@
-import type { ITreasuryMemberSeal, IBitcoinCooperativeReleaseRequest } from '@argonprotocol/apps-core';
+import {
+  setFetchImplementation,
+  type ITreasuryMemberSeal,
+  type IBitcoinCooperativeReleaseRequest,
+} from '@argonprotocol/apps-core';
+import { fetch as tauriFetch } from '@tauri-apps/plugin-http';
+import type { Channel } from '@tauri-apps/api/core';
 import { afterEach, expect, it, vi } from 'vitest';
 import { RequestStatusError, ServerAuthClient } from '../lib/ServerAuthClient.ts';
 import { hasOperationsUpgradeRequest, UpstreamOperatorClient } from '../lib/UpstreamOperatorClient.ts';
 import { WalletSigningUnavailableError } from '../lib/WalletKeys.ts';
 import { createMockWalletKeys } from './helpers/wallet.ts';
-import { BootstrapType } from '../interfaces/IConfig.ts';
+import { BootstrapType, ServerType } from '../interfaces/IConfig.ts';
+import { ServerApiClient } from '../lib/ServerApiClient.ts';
 
 const storeMocks = vi.hoisted(() => ({
   config: {
@@ -35,8 +42,84 @@ vi.mock('../stores/bootstrapRecovery.ts', () => ({
 }));
 
 afterEach(() => {
+  setFetchImplementation();
+  vi.useRealTimers();
   vi.unstubAllGlobals();
 });
+
+it.each(['capability', 'mailbox', 'authentication', 'relay', 'canceled relay'])(
+  'releases a stalled native %s response by its deadline so another check can run',
+  async operation => {
+    vi.useFakeTimers();
+    let requests = 0;
+    vi.stubGlobal('window', {
+      __TAURI_INTERNALS__: {
+        transformCallback: () => 1,
+        unregisterCallback: () => undefined,
+        invoke: async (command: string, args: { rid: number; streamChannel: Channel<number[]> }) => {
+          if (command === 'plugin:http|fetch') return ++requests;
+          if (command === 'plugin:http|fetch_send') {
+            return { status: 200, statusText: 'OK', url: 'https://operator.example/', headers: [], rid: args.rid };
+          }
+          if (command === 'plugin:http|fetch_read_body') {
+            if (args.rid === 1) return new Promise(() => {});
+            const body = JSON.stringify({ bitcoinCooperativeReleaseMailboxVersion: 1 });
+            args.streamChannel.onmessage([...new TextEncoder().encode(body), 0]);
+            args.streamChannel.onmessage([1]);
+            return;
+          }
+          if (command === 'plugin:http|fetch_cancel') return;
+          throw new Error(`Unexpected native HTTP command: ${command}`);
+        },
+      },
+    });
+    setFetchImplementation(tauriFetch);
+    const auth = new ServerAuthClient(() => createMockWalletKeys('//StalledServerAuth'));
+    if (operation === 'relay' || operation === 'canceled relay') {
+      vi.spyOn(auth, 'getMemberSessionId').mockResolvedValue('synthetic-session');
+    }
+    const operator = new UpstreamOperatorClient(auth, () => 'https://operator.example');
+    const server = new ServerApiClient(() => ({ type: ServerType.CustomServer, ipAddress: '203.0.113.10' }), auth, {
+      canAccessServer: true,
+    });
+    let outcome = 'pending';
+    const controller = new AbortController();
+    let request: Promise<unknown>;
+    if (operation === 'authentication') request = operator.getMemberSessionId();
+    else if (operation === 'mailbox') request = server.getPendingBitcoinCooperativeReleases();
+    else if (operation === 'relay' || operation === 'canceled relay') {
+      request = operator.requestEthereumGatewayCatchUp(
+        { sourceChain: 'Ethereum', throughGatewayActivityNonce: 7n },
+        controller.signal,
+      );
+    } else request = operator.checkBitcoinCooperativeReleaseSupport();
+    const settled = request.then(
+      () => {
+        outcome = 'finished';
+      },
+      error => {
+        outcome = error.name;
+      },
+    );
+
+    await vi.advanceTimersByTimeAsync(10_001);
+    if (operation === 'relay') {
+      expect(outcome).toBe('pending');
+      await vi.advanceTimersByTimeAsync(20_000);
+    } else if (operation === 'canceled relay') {
+      expect(outcome).toBe('pending');
+      controller.abort();
+      await vi.advanceTimersByTimeAsync(0);
+    }
+
+    let expectedOutcome = 'TimeoutError';
+    if (operation === 'mailbox') expectedOutcome = 'finished';
+    if (operation === 'canceled relay') expectedOutcome = 'AbortError';
+    expect(outcome).toBe(expectedOutcome);
+    await settled;
+    await expect(operator.checkBitcoinCooperativeReleaseSupport()).resolves.toBeUndefined();
+  },
+);
 
 it('does not post or recover hosts when a relay is canceled during authentication', async () => {
   const fetchMock = vi.fn(async () => new Response(JSON.stringify({ outcome: 'Noop' })));

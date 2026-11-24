@@ -914,7 +914,7 @@ export default class BitcoinLocks {
 
   public async shutdown() {
     this.unsubscribeFromArgonBlocks();
-    this.releases.shutdown();
+    await this.releases.shutdown();
     await this.#missingDepositSearchPromise?.catch(() => undefined);
     await this.#blockQueue.stop(true);
     await this.#bitcoinKeyAllocationQueue.stop(true);
