@@ -237,7 +237,13 @@ export const CreateLiquidForTreasuryCertification: Story = {
     const dialog = within(await within(canvasElement.ownerDocument.body).findByRole('dialog'));
     await userEvent.click(dialog.getByRole('button', { name: /Use Selected Vaults/ }));
     const certificationAmount = await dialog.findByText('Certification');
-    if (certificationAmount.tagName === 'BUTTON') await userEvent.click(certificationAmount);
+    if (certificationAmount.tagName === 'BUTTON') {
+      await userEvent.click(certificationAmount);
+      await userEvent.pointer([
+        { target: dialog.getByText('Certification') },
+        { target: dialog.getByText('Liquid Amount') },
+      ]);
+    }
   },
 };
 
