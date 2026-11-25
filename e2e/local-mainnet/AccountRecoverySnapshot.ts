@@ -17,6 +17,7 @@ export class AccountRecoverySnapshot {
     'balanceUpdatedAt',
     'updatedAt',
     'lastConfirmationCheckAt',
+    'lastConfirmationCheckOracleHeight',
     'releaseLastConfirmationCheckAt',
     'bitcoinLastConfirmationCheckAt',
     'argonBlocksLastUpdatedAt',

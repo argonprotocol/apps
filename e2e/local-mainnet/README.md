@@ -81,6 +81,8 @@ Use `LocalMainnet.ts` for workflow orchestration:
 
 `LocalMainnet`, `LocalMainnetFork`, `LocalMainnetIndexer`, and `RuntimeCandidate` own their respective lifecycle or orchestration. `manifest.ts` remains a stateless parser for the external JSON input.
 
+Historical headers, block bodies, and runtime versions before the pinned block use the original archive and persist their RPC responses in the fork database. This avoids storing another copy of the runtime WASM merely to decode each recovered block. Requests at the pinned block and locally produced blocks still execute on the fork, including after candidate deployment. A cold hash lookup fetches its header; an uncached body or version adds one corresponding archive RPC. Repeated requests and reopened caches reuse those responses. This adds no polling or idle requests.
+
 ## Read-only account inspection
 
 Generate a pinned fork database, indexer database, and their manifest from the archive:

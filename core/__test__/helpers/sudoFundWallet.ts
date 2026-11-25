@@ -74,7 +74,7 @@ export async function sudoFundWallet(input: ISudoFundWalletInput): Promise<ISudo
             TxSubmissionErrorCode.Usurped,
           ) ||
           message.includes('Priority is too low') ||
-          message.includes('Already imported');
+          /already imported/i.test(message);
         if (!isConcurrentSubmission || attempt >= 3) {
           throw error;
         }

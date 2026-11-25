@@ -18,6 +18,8 @@ concurrency:
 
 env:
   CI: 'true'
+  # Omit debugger symbols to reduce qualification build storage.
+  CARGO_PROFILE_DEV_DEBUG: '0'
   HUSKY: '0'
   ARGON_E2E_HEADLESS: '1'
   E2E_FLOW_APP_LOGS: quiet
@@ -214,4 +216,5 @@ jobs:
             ${{ env.QUALIFICATION_DIRECTORY }}/candidate/attestation.json
             ${{ env.QUALIFICATION_DIRECTORY }}/qualification-report.json
             ${{ env.CI_TEMP_DIR }}/phase-timings.tsv
+            ${{ env.CI_TEMP_DIR }}/qualification-startup-*.log
           if-no-files-found: ignore

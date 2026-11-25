@@ -1,5 +1,6 @@
 import { type ChildProcess, spawn } from 'node:child_process';
 import process from 'node:process';
+import { finished } from 'node:stream/promises';
 import { delay } from '../scripts/utils.ts';
 import { AppProcessOutput, type AppLogsMode } from './AppProcessOutput.ts';
 import { DriverClient } from './driver/client.ts';
@@ -8,6 +9,7 @@ const CONNECT_PROGRESS_INTERVAL_MS = 20_000;
 const CONNECT_STALL_DIAGNOSTIC_MS = 60_000;
 const UI_READY_RETRY_DELAY_MS = 1_000;
 const UI_READY_WAIT_TIMEOUT_MS = 15_000;
+const STARTUP_STDERR_DRAIN_TIMEOUT_MS = 1_000;
 
 export class AppProcess {
   public readonly output: AppProcessOutput;
@@ -16,6 +18,7 @@ export class AppProcess {
     public readonly child: ChildProcess,
     logsMode: AppLogsMode,
     sessionName: string,
+    private readonly repoRoot: string,
   ) {
     this.output = new AppProcessOutput(logsMode, sessionName);
     this.output.attach(child);
@@ -37,7 +40,7 @@ export class AppProcess {
       stdio: logsMode === 'quiet' ? ['ignore', 'pipe', 'pipe'] : 'inherit',
       detached: process.platform !== 'win32',
     });
-    return new AppProcess(child, logsMode, sessionName);
+    return new AppProcess(child, logsMode, sessionName, repoRoot);
   }
 
   public async waitForDriver(
@@ -61,13 +64,15 @@ export class AppProcess {
         callback();
       };
       const onExit = (code: number | null, signal: NodeJS.Signals | null): void => {
-        finish(() =>
-          reject(
-            new Error(
-              `[E2E] App process exited before driver app connection (code=${String(code)}, signal=${String(signal)})`,
-            ),
-          ),
-        );
+        finish(() => {
+          const error = new Error(
+            `[E2E] App process exited before driver app connection (code=${String(code)}, signal=${String(signal)})`,
+          );
+          void this.captureStartupDiagnostics().then(
+            () => reject(error),
+            () => reject(error),
+          );
+        });
       };
       const timeout = setTimeout(() => {
         finish(() =>
@@ -99,6 +104,10 @@ export class AppProcess {
         }
       }, CONNECT_PROGRESS_INTERVAL_MS);
 
+      if (child.exitCode !== null || child.signalCode !== null) {
+        onExit(child.exitCode, child.signalCode);
+        return;
+      }
       child.once('exit', onExit);
       void driver
         .waitForApp()
@@ -112,6 +121,7 @@ export class AppProcess {
     let attempt = 0;
     while (Date.now() - startedAt < timeoutMs) {
       if (this.child.exitCode !== null || this.child.signalCode !== null) {
+        await this.captureStartupDiagnostics().catch(() => undefined);
         throw new Error(
           `[E2E] App process exited before initial UI readiness check (code=${String(this.child.exitCode)}, signal=${String(this.child.signalCode)})`,
         );
@@ -149,6 +159,21 @@ export class AppProcess {
     if (await this.waitForExit(10_000)) return;
     this.signal('SIGKILL');
     await this.waitForExit(5_000);
+  }
+
+  private async captureStartupDiagnostics(): Promise<void> {
+    const stderr = this.child.stderr;
+    if (stderr) {
+      // exit precedes EOF; a surviving descendant must not keep startup failure handling waiting.
+      const abort = new AbortController();
+      const timeout = setTimeout(() => abort.abort(), STARTUP_STDERR_DRAIN_TIMEOUT_MS);
+      try {
+        await finished(stderr, { cleanup: true, signal: abort.signal }).catch(() => undefined);
+      } finally {
+        clearTimeout(timeout);
+      }
+    }
+    this.output.writeStartupDiagnostics(this.repoRoot, stderr?.readableEnded ?? true);
   }
 
   private signal(signal: NodeJS.Signals): void {
