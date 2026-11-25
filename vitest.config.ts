@@ -3,6 +3,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { storybookTest } from '@storybook/addon-vitest/vitest-plugin';
 import { playwright } from '@vitest/browser-playwright';
+import vue from '@vitejs/plugin-vue';
 import { configDefaults, defineConfig } from 'vitest/config';
 
 const INTEGRATION_TEST_GLOB = '**/__test__/**/*.integration.test.ts';
@@ -70,6 +71,7 @@ export default defineConfig({
         },
       },
       {
+        plugins: [vue()],
         test: {
           name: 'src-vue',
           testTimeout: 30_000,

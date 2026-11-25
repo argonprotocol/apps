@@ -4,7 +4,6 @@ import {
   type IBitcoinCooperativeReleaseRequest,
 } from '@argonprotocol/apps-core';
 import { fetch as tauriFetch } from '@tauri-apps/plugin-http';
-import type { Channel } from '@tauri-apps/api/core';
 import { afterEach, expect, it, vi } from 'vitest';
 import { RequestStatusError, ServerAuthClient } from '../lib/ServerAuthClient.ts';
 import { hasOperationsUpgradeRequest, UpstreamOperatorClient } from '../lib/UpstreamOperatorClient.ts';
@@ -52,23 +51,22 @@ it.each(['capability', 'mailbox', 'authentication', 'relay', 'canceled relay'])(
   async operation => {
     vi.useFakeTimers();
     let requests = 0;
+    const sentBodyChunks = new Set<number>();
     vi.stubGlobal('window', {
       __TAURI_INTERNALS__: {
-        transformCallback: () => 1,
-        unregisterCallback: () => undefined,
-        invoke: async (command: string, args: { rid: number; streamChannel: Channel<number[]> }) => {
+        invoke: async (command: string, args: { rid: number }) => {
           if (command === 'plugin:http|fetch') return ++requests;
           if (command === 'plugin:http|fetch_send') {
             return { status: 200, statusText: 'OK', url: 'https://operator.example/', headers: [], rid: args.rid };
           }
           if (command === 'plugin:http|fetch_read_body') {
             if (args.rid === 1) return new Promise(() => {});
+            if (sentBodyChunks.has(args.rid)) return new Uint8Array([1]).buffer;
+            sentBodyChunks.add(args.rid);
             const body = JSON.stringify({ bitcoinCooperativeReleaseMailboxVersion: 1 });
-            args.streamChannel.onmessage([...new TextEncoder().encode(body), 0]);
-            args.streamChannel.onmessage([1]);
-            return;
+            return new Uint8Array([...new TextEncoder().encode(body), 0]).buffer;
           }
-          if (command === 'plugin:http|fetch_cancel') return;
+          if (command === 'plugin:http|fetch_cancel' || command === 'plugin:http|fetch_cancel_body') return;
           throw new Error(`Unexpected native HTTP command: ${command}`);
         },
       },
