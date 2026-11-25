@@ -15,7 +15,7 @@ use tauri::WebviewWindow;
 use tauri::{AppHandle, Manager};
 use tauri::{Emitter, State};
 use tauri_plugin_log::fern::colors::ColoredLevelConfig;
-use time::OffsetDateTime;
+use time::{OffsetDateTime, PrimitiveDateTime};
 use tokio::sync::Mutex;
 use utils::Utils;
 #[cfg(target_os = "macos")]
@@ -303,10 +303,13 @@ async fn create_zip(
 
                 let name = prefix.join(rel).to_string_lossy().replace("\\", "/");
                 let mut file_opts = opts;
-                if let Ok(mtime) = entry.metadata().map_err(|e| e.to_string())?.modified()
-                    && let Ok(zdt) = DateTime::try_from(OffsetDateTime::from(mtime))
-                {
-                    file_opts = file_opts.last_modified_time(zdt);
+                if let Ok(mtime) = entry.metadata().map_err(|e| e.to_string())?.modified() {
+                    let modified_at = OffsetDateTime::from(mtime);
+                    let modified_at =
+                        PrimitiveDateTime::new(modified_at.date(), modified_at.time());
+                    if let Ok(zdt) = DateTime::try_from(modified_at) {
+                        file_opts = file_opts.last_modified_time(zdt);
+                    }
                 }
                 zip.start_file(name, file_opts).map_err(|e| e.to_string())?;
 

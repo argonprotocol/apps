@@ -120,8 +120,10 @@ async function downloadTroubleshooting() {
     for (const entry of logEntries) {
       if (!entry.isFile || !entry.name.startsWith(LOG_FILE_PREFIX)) continue;
       const suffix = entry.name.slice(LOG_FILE_PREFIX.length);
-      // Current file and timestamped rotations from the native logger.
-      if (suffix !== '.log' && !/^_\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2}\.log(?:\.bak)?$/.test(suffix)) continue;
+      // Native rotations include numbered collisions and retained .log.bak files.
+      if (suffix !== '.log' && !/^_\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2}(?:_[1-9]\d*)?\.log(?:\.bak)?$/.test(suffix)) {
+        continue;
+      }
       pathsWithPrefixes.push(['logs', await join(localLogDir, entry.name)]);
     }
     pathsWithPrefixes.push(['data', dataSnapshotDir]);
