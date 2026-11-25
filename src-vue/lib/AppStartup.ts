@@ -233,6 +233,7 @@ export class AppStartup {
     let installManifest: ServerInstallManifest | undefined;
     try {
       await connection.connect();
+      if (connection.serverHostKey) recoveredServerDetails.sshHostKey = connection.serverHostKey;
       installManifest = await new ServerAdmin(connection, recoveredServerDetails).downloadInstallManifest();
     } catch (error) {
       console.warn('[BootstrapRecovery] Unable to inspect the recovered server install manifest', error);

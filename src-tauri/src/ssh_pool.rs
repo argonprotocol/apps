@@ -31,12 +31,25 @@ pub async fn open_connection(
     port: u16,
     username: String,
     private_key_openssh: SecretString,
+    server_host_key: Option<String>,
 ) -> Result<SSH> {
     let address = address.to_string();
-    let ssh_config = SSHConfig::new(host, port, username, private_key_openssh)?;
+    let ssh_config = SSHConfig::new(
+        host,
+        port,
+        username,
+        private_key_openssh,
+        server_host_key.clone(),
+    )?;
 
     let timeout_duration = Duration::from_secs(10);
     if let Some(existing) = CONNECTIONS_BY_ADDRESS.lock().await.get_mut(&address) {
+        if let Some(expected_key) = server_host_key {
+            anyhow::ensure!(
+                existing.server_host_key().await? == expected_key,
+                "This server's SSH identity has changed. Connection blocked. Reset its identity in Troubleshooting > Server Diagnostics only if you rebuilt or replaced the server."
+            );
+        }
         if existing.config != ssh_config {
             log::info!("Closing connection to SSH: {:#}", existing.config.host());
             existing.close().await;

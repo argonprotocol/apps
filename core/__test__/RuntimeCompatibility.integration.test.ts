@@ -158,19 +158,30 @@ describe('deployed and next runtime core contracts', { tags: ['exclusive-argon-n
 
     // Compare the app's frozen-frame projection with the runtime's actual payout.
     const startingFrame = (await client.query.treasury.currentFrameVaultCapital())?.frameId ?? 0;
-    const rewards = await waitFor<TreasuryRewards>(90_000, 'fresh funded Vault reward frame', async () => {
+    const rewardsBeforeFunding = await waitFor<TreasuryRewards>(90_000, 'fresh funded Vault reward frame', async () => {
       const snapshot = runtimeClient(await client.at(await client.rpc.chain.getFinalizedHead()));
       const current = await TreasuryRewards.read(snapshot);
       if (current && current.capital.frameId > startingFrame && current.capital.vaultSecuritizationPositions[vaultId]) {
         return current;
       }
     });
+
+    // Funding can be included after the frame observed above has ended.
+    await waitFor(90_000, 'frame boundary before bid pool funding', async () => {
+      const snapshot = await client.at(await client.rpc.chain.getFinalizedHead());
+      return (await snapshot.query.treasury.currentFrameVaultCapital())!.frameId > rewardsBeforeFunding.capital.frameId;
+    });
+
     const poolFunding = await submitAndFinalize(
       client,
       client.tx.balances.transferKeepAlive(TreasuryRewards.getBidPoolAccountId(client), 10_000_000n),
       signer,
     );
     if (poolFunding.extrinsicError) throw poolFunding.extrinsicError;
+    // Frame payouts run after transactions, so funding uses the capital from the parent block.
+    const fundingHeader = await client.rpc.chain.getHeader(poolFunding.blockHash);
+    const fundingSnapshot = await client.at(fundingHeader.parentHash);
+    const rewards = (await TreasuryRewards.read(runtimeClient(fundingSnapshot)))!;
 
     const payoutBlock = await waitFor<number>(90_000, 'reward frame payout', async () => {
       const snapshot = await client.at(await client.rpc.chain.getFinalizedHead());

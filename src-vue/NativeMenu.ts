@@ -183,7 +183,7 @@ export async function createMenu() {
       },
       {
         id: 'ssh',
-        text: 'Open SSH to Mining Machine',
+        text: 'SSH Access to Your Server',
         enabled: config.isLoaded && !!config.serverDetails.ipAddress && !!config.serverDetails.sshUser,
         action: () => basicEmitter.emit('openTroubleshootingOverlay', { screen: 'ssh' }),
       },

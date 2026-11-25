@@ -430,6 +430,8 @@ export class MiningMachine {
       }
     })();
 
+    if (serverMeta.sshHostKey) newServerDetails.sshHostKey = serverMeta.sshHostKey;
+
     if (!hasRunningBot && !serverMeta.walletAddress) {
       this.ensureInstallationDiskSpace(serverMeta.availableDiskBytes);
     }

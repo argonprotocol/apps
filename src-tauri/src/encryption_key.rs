@@ -1,5 +1,5 @@
-use aes_gcm::aead::{Aead, KeyInit, OsRng, Payload};
-use aes_gcm::{AeadCore, Aes256Gcm, Nonce};
+use aes_gcm::aead::{Aead, Generate, KeyInit, Payload};
+use aes_gcm::{Aes256Gcm, Nonce};
 use anyhow::{Context, Result, anyhow, ensure};
 use base64::{Engine, engine::general_purpose::STANDARD as BASE64};
 use secrecy::zeroize::Zeroize;
@@ -268,7 +268,7 @@ pub(crate) fn encrypt_with_context(
     context: &[u8],
 ) -> Result<String> {
     let cipher = Aes256Gcm::new_from_slice(key)?;
-    let nonce = Aes256Gcm::generate_nonce(&mut OsRng);
+    let nonce = Nonce::generate();
     let ciphertext = cipher
         .encrypt(
             &nonce,
@@ -292,7 +292,7 @@ pub(crate) fn decrypt_with_context(
     ensure!(data.len() >= 28, "Encrypted secret is too short");
     let plaintext = Aes256Gcm::new_from_slice(key)?
         .decrypt(
-            Nonce::from_slice(&data[..12]),
+            (&data[..12]).try_into()?,
             Payload {
                 msg: &data[12..],
                 aad: context,

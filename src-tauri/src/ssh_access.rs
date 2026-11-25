@@ -61,13 +61,24 @@ pub async fn ssh_access_activate(
     port: u16,
     username: String,
     private_key_seed: [u8; 32],
+    server_host_key: String,
 ) -> Result<SshAccessStatus, String> {
     log::debug!("Activating temporary SSH access for {address}");
     if state.access.lock().await.is_some() {
-        clear_ssh_access(&state, address, host, port, &username, &private_key_seed).await?;
+        clear_ssh_access(
+            &state,
+            address,
+            host,
+            port,
+            &username,
+            &private_key_seed,
+            &server_host_key,
+        )
+        .await?;
     }
 
-    let ssh = open_access_connection(host, port, &username, &private_key_seed).await?;
+    let ssh =
+        open_access_connection(host, port, &username, &private_key_seed, &server_host_key).await?;
 
     let (pair, _phrase, _seed) = ed25519::Pair::generate_with_phrase(None);
     let (private_key_openssh, public_key_openssh) =
@@ -106,9 +117,19 @@ pub async fn ssh_access_deactivate(
     port: u16,
     username: String,
     private_key_seed: [u8; 32],
+    server_host_key: String,
 ) -> Result<SshAccessStatus, String> {
     log::debug!("Deactivating temporary SSH access for {address}");
-    clear_ssh_access(&state, address, host, port, &username, &private_key_seed).await?;
+    clear_ssh_access(
+        &state,
+        address,
+        host,
+        port,
+        &username,
+        &private_key_seed,
+        &server_host_key,
+    )
+    .await?;
     Ok(SshAccessStatus {
         active: false,
         public_key: None,
@@ -123,11 +144,13 @@ async fn clear_ssh_access(
     port: u16,
     username: &str,
     private_key_seed: &[u8; 32],
+    server_host_key: &str,
 ) -> Result<(), String> {
     log::debug!("Clearing temporary SSH access for {address}");
     let access = state.access.lock().await.clone();
     if let Some(access) = access {
-        let ssh = open_access_connection(host, port, username, private_key_seed).await?;
+        let ssh =
+            open_access_connection(host, port, username, private_key_seed, server_host_key).await?;
 
         let remove_cmd = format!(
             "if [ -f ~/.ssh/authorized_keys ]; then grep -v '{key}' ~/.ssh/authorized_keys > ~/.ssh/authorized_keys.tmp && mv ~/.ssh/authorized_keys.tmp ~/.ssh/authorized_keys; fi",
@@ -154,12 +177,19 @@ async fn open_access_connection(
     port: u16,
     username: &str,
     private_key_seed: &[u8; 32],
+    server_host_key: &str,
 ) -> Result<SSH, String> {
     let (private_key, _) = SSH::format_as_openssh(ed25519::Pair::from_seed(private_key_seed))
         .map_err(|e| e.to_string())?;
     let private_key = SecretString::new(private_key.into());
-    let config =
-        SSHConfig::new(host, port, username.to_string(), private_key).map_err(|e| e.to_string())?;
+    let config = SSHConfig::new(
+        host,
+        port,
+        username.to_string(),
+        private_key,
+        Some(server_host_key.to_string()),
+    )
+    .map_err(|e| e.to_string())?;
     SSH::connect(&config, SSH_ACCESS_CONNECT_TIMEOUT)
         .await
         .map_err(|e| e.to_string())

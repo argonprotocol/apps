@@ -18,6 +18,7 @@ export class SSHConnection {
   public username: string;
   public isDockerHostProxy = false;
   public isDestroyed = false;
+  public serverHostKey?: string;
 
   constructor(
     sshConfig: ISSHConfig,
@@ -27,6 +28,7 @@ export class SSHConnection {
     this.port = sshConfig.sshPort ?? 22;
     this.username = sshConfig.sshUser;
     this.isDockerHostProxy = sshConfig.type === ServerType.LocalComputer;
+    this.serverHostKey = sshConfig.sshHostKey;
   }
 
   public async connect(retries = 3): Promise<void> {
@@ -49,9 +51,9 @@ export class SSHConnection {
       }
       try {
         const privateKeySeed = await this.walletKeys.getSshPrivateKeySeed();
-        await invokeWithTimeout(
+        this.serverHostKey = await invokeWithTimeout<string>(
           'open_ssh_connection',
-          { ...sshConfig, privateKeySeed: Array.from(privateKeySeed) },
+          { ...sshConfig, privateKeySeed: Array.from(privateKeySeed), serverHostKey: this.serverHostKey },
           30e3,
         );
         this.isConnected = true;
@@ -185,15 +187,13 @@ export class SSHConnection {
   }
 
   public async close(destroy = false): Promise<void> {
+    if (destroy) this.isDestroyed = true;
     const payload = { address: this.address };
     try {
       await invokeWithTimeout('close_ssh_connection', payload, 5_000);
     } finally {
       this.isConnectedPromise = undefined;
       this.isConnected = false;
-      if (destroy) {
-        this.isDestroyed = true;
-      }
     }
   }
 }

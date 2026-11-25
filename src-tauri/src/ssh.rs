@@ -35,6 +35,7 @@ pub struct SSHConfig {
     username: String,
     private_key_openssh: SecretString,
     public_key_openssh: String,
+    server_host_key: Arc<Mutex<Option<String>>>,
 }
 
 impl SSHConfig {
@@ -43,6 +44,7 @@ impl SSHConfig {
         port: u16,
         username: String,
         private_key_openssh: SecretString,
+        server_host_key: Option<String>,
     ) -> Result<Self> {
         let addrs = (host.to_string(), port);
         let public_key_openssh =
@@ -53,6 +55,7 @@ impl SSHConfig {
             username: username.to_string(),
             private_key_openssh,
             public_key_openssh,
+            server_host_key: Arc::new(Mutex::new(server_host_key)),
         })
     }
 
@@ -82,6 +85,15 @@ impl PartialEq for SSHConfig {
 }
 
 impl SSH {
+    pub async fn server_host_key(&self) -> Result<String> {
+        self.config
+            .server_host_key
+            .lock()
+            .await
+            .clone()
+            .ok_or_else(|| anyhow::anyhow!("SSH server did not provide a host key"))
+    }
+
     pub async fn connect(config: &SSHConfig, timeout_duration: Duration) -> Result<Self> {
         let client = Self::connect_client(config, timeout_duration).await?;
         let ssh = SSH {
@@ -111,7 +123,9 @@ impl SSH {
             ..Preferred::DEFAULT
         };
         let config = Arc::new(config);
-        let handler = ClientHandler {};
+        let handler = ClientHandler {
+            server_host_key: ssh_config.server_host_key.clone(),
+        };
 
         let mut client = client::connect(config, ssh_config.addrs.clone(), handler).await?;
         let private_key = ssh_config.get_private_key()?;
@@ -609,18 +623,27 @@ fn shell_escape_remote_path(remote_path: &str) -> String {
     format!("'{}'", escape(remote_path))
 }
 
-struct ClientHandler {}
-
-// Explicitly implement Send for ClientHandler
-unsafe impl Send for ClientHandler {}
+struct ClientHandler {
+    server_host_key: Arc<Mutex<Option<String>>>,
+}
 
 impl client::Handler for ClientHandler {
-    type Error = russh::Error;
+    type Error = anyhow::Error;
 
     async fn check_server_key(
         &mut self,
-        _server_public_key: &ssh_key::PublicKey,
+        server_public_key: &PublicKeyOrCertificate,
     ) -> Result<bool, Self::Error> {
+        let presented_key = server_public_key.public_key().to_openssh()?;
+        let mut saved_key = self.server_host_key.lock().await;
+        if let Some(expected_key) = saved_key.as_ref() {
+            anyhow::ensure!(
+                expected_key == &presented_key,
+                "This server's SSH identity has changed. Connection blocked. If you rebuilt or replaced the server, reset its identity in Troubleshooting > Server Diagnostics."
+            );
+        } else {
+            *saved_key = Some(presented_key);
+        }
         Ok(true)
     }
 }
@@ -636,7 +659,7 @@ mod tests {
     use sp_core::Pair;
     use sp_core::ed25519;
     use std::sync::Arc;
-    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::atomic::{AtomicU8, AtomicUsize, Ordering};
     use std::time::Duration;
     use tokio::net::TcpListener;
     use tokio::sync::Mutex;
@@ -672,6 +695,95 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn pins_server_identity_for_reconnects_and_transfers() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let server_seed = Arc::new(AtomicU8::new(1));
+        let active_seed = server_seed.clone();
+        let server_task = tokio::spawn(async move {
+            loop {
+                let (socket, _) = listener.accept().await.unwrap();
+                let config = Arc::new(server::Config {
+                    keys: vec![test_private_key([active_seed.load(Ordering::Relaxed); 32])],
+                    ..Default::default()
+                });
+                let handler = UploadServer {
+                    received_bytes: Arc::new(AtomicUsize::new(0)),
+                };
+                let _ = server::run_stream(config, socket, handler).await;
+            }
+        });
+        let private_key = test_private_key([2; 32])
+            .to_openssh(LineEnding::LF)
+            .unwrap()
+            .to_string();
+        let config = SSHConfig::new(
+            "127.0.0.1",
+            port,
+            "argon".into(),
+            SecretString::from(private_key.clone()),
+            None,
+        )
+        .unwrap();
+        let ssh = SSH::connect(&config, Duration::from_secs(2)).await.unwrap();
+        let saved_key = ssh.server_host_key().await.unwrap();
+        assert_eq!(
+            saved_key,
+            test_private_key([1; 32]).public_key().to_openssh().unwrap()
+        );
+
+        // A new connection constructed from the saved config enforces the same identity.
+        let restored = SSHConfig::new(
+            "127.0.0.1",
+            port,
+            "argon".into(),
+            SecretString::from(private_key.clone()),
+            Some(saved_key.clone()),
+        )
+        .unwrap();
+        SSH::connect(&restored, Duration::from_secs(2))
+            .await
+            .unwrap()
+            .close()
+            .await;
+        server_seed.store(3, Ordering::Relaxed);
+        let error = SSH::connect(&restored, Duration::from_secs(2))
+            .await
+            .err()
+            .unwrap();
+        assert!(error.to_string().contains("SSH identity has changed"));
+        assert_eq!(ssh.server_host_key().await.unwrap(), saved_key);
+
+        let error = SSH::get_or_connect_client(&mut None, &config, Duration::from_secs(2))
+            .await
+            .err()
+            .unwrap();
+        assert!(error.to_string().contains("SSH identity has changed"));
+        let error = SSH::reconnect_client(&mut *ssh.client.lock().await, &config)
+            .await
+            .unwrap_err();
+        assert!(error.to_string().contains("SSH identity has changed"));
+
+        // An explicit reset can learn the replacement identity.
+        let reset = SSHConfig::new(
+            "127.0.0.1",
+            port,
+            "argon".into(),
+            SecretString::from(private_key),
+            None,
+        )
+        .unwrap();
+        let replacement = SSH::connect(&reset, Duration::from_secs(2)).await.unwrap();
+        assert_eq!(
+            replacement.server_host_key().await.unwrap(),
+            test_private_key([3; 32]).public_key().to_openssh().unwrap()
+        );
+        replacement.close().await;
+        ssh.close().await;
+        server_task.abort();
+    }
+
+    #[tokio::test]
     async fn uploads_files_larger_than_the_ssh_channel_window() {
         let received_bytes = Arc::new(AtomicUsize::new(0));
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -700,6 +812,7 @@ mod tests {
             address.port(),
             "argon".to_string(),
             SecretString::from(client_key_openssh),
+            None,
         )
         .unwrap();
         let mut client = SSH::connect_client(&client_config, Duration::from_secs(2))
@@ -740,7 +853,7 @@ mod tests {
         async fn auth_publickey(
             &mut self,
             _user: &str,
-            _public_key: &russh::keys::ssh_key::PublicKey,
+            _public_key: server::VerifiedPublicKey<'_>,
         ) -> Result<Auth, Self::Error> {
             Ok(Auth::Accept)
         }
@@ -748,9 +861,11 @@ mod tests {
         async fn channel_open_session(
             &mut self,
             _channel: Channel<Msg>,
+            reply: server::ChannelOpenHandle,
             _session: &mut Session,
-        ) -> Result<bool, Self::Error> {
-            Ok(true)
+        ) -> Result<(), Self::Error> {
+            reply.accept().await;
+            Ok(())
         }
 
         async fn exec_request(
