@@ -568,7 +568,6 @@ export default class BitcoinLocks {
       void this.#blockQueue
         .add(async () => {
           await this.checkIncomingArgonBlocks([initialFinalizedBlock]);
-          await this.runPendingLoadReconciliation();
         })
         .promise.catch(error => {
           console.warn(
@@ -584,7 +583,6 @@ export default class BitcoinLocks {
       this.#subscription = this.blockWatch.events.on('finalized', async headers => {
         void this.#blockQueue.add(async () => {
           await this.checkIncomingArgonBlocks(headers);
-          await this.runPendingLoadReconciliation();
         });
       });
       this.data.readiness = 'ready';
@@ -858,37 +856,51 @@ export default class BitcoinLocks {
     return this.#waitForLoad.promise;
   }
 
-  private async runPendingLoadReconciliation(): Promise<void> {
+  private async reconcilePendingCurrentState(): Promise<void> {
     if (!this.data.isReconciliationPending) {
       return;
     }
 
     try {
       const finalizedApi = await this.blockWatch.getFinalizedApi();
-      await this.utxoTracking.syncArgonOrphans(Object.values(this.locksByLockId), finalizedApi);
-      for (const lock of Object.values(this.locksByLockId)) {
-        if (this.isHistoryRecoveryPendingForLock(lock)) continue;
-        if (this.isTerminalLock(lock)) {
-          await this.runInQueueForLock(lock, () => this.releases.reconcileDepositReleases(lock), {
-            waitForHistoryRecovery: true,
-            allowOrphanRecovery: true,
-          });
-          continue;
-        }
-
-        await this.runInQueueForLock(
-          lock,
-          async () => {
-            await this.releases.reconcileDepositReleases(lock);
-            await this.releases.reconcileLockRelease(lock, false);
-          },
-          { waitForHistoryRecovery: true },
-        );
-      }
+      const bitcoinTip = await finalizedApi.query.bitcoinUtxos.confirmedBitcoinBlockTip();
+      this.data.oracleBitcoinBlockHeight = Number(bitcoinTip?.blockHeight ?? 0);
+      const failures: unknown[] = [];
+      await this.utxoTracking
+        .syncArgonOrphans(Object.values(this.locksByLockId), finalizedApi)
+        .catch((error: unknown) => {
+          failures.push(error);
+        });
+      const results = await Promise.allSettled(
+        Object.values(this.locksByLockId).map(async lock => {
+          if (this.isHistoryRecoveryPendingForLock(lock)) return;
+          await this.runInQueueForLock(
+            lock,
+            async () => {
+              if (!this.isTerminalLock(lock)) {
+                await this.checkForMissingBitcoinLockState(lock);
+                await this.utxoTracking.updateFundingLastConfirmationCheck(lock);
+                await this.utxoTracking.observeMempoolFunding(lock, finalizedApi).catch(error => {
+                  console.warn(`[BitcoinLocks] Unable to observe Bitcoin funding for lock ${lock.uuid}`, error);
+                });
+              }
+              await this.releases.reconcileDepositReleases(lock);
+            },
+            { waitForHistoryRecovery: true, allowOrphanRecovery: true },
+          );
+        }),
+      );
       await this.releases.syncDepositBitcoinProcessing(this.oracleBitcoinBlockHeight);
+      this.publishFinancialRevision();
+      for (const result of results) {
+        if (result.status === 'rejected') failures.push(result.reason);
+      }
+      if (failures.length) {
+        throw new AggregateError(failures, 'Bitcoin reconciliation failed');
+      }
       this.data.isReconciliationPending = false;
     } catch (error) {
-      console.warn('[BitcoinLocks] Startup reconciliation did not finish; will retry on the next block', error);
+      console.warn('[BitcoinLocks] Current-state reconciliation did not finish; will retry on the next block', error);
     }
   }
 
@@ -1516,8 +1528,10 @@ export default class BitcoinLocks {
     for (let index = 0; index < pending.length; index += 1) {
       if (await this.checkIncomingArgonBlock(pending[index])) continue;
       this.#pendingArgonBlocks = pending.slice(index);
-      return;
+      this.data.isReconciliationPending = true;
+      break;
     }
+    await this.reconcilePendingCurrentState();
   }
 
   private async checkIncomingArgonBlock(header: IBlockHeaderInfo): Promise<boolean> {
@@ -1578,8 +1592,8 @@ export default class BitcoinLocks {
           }
           return false;
         });
-      const bitcoinTip = await clientAt.query.bitcoinUtxos.confirmedBitcoinBlockTip();
       const currentApi = await this.blockWatch.getFinalizedApi();
+      const bitcoinTip = await currentApi.query.bitcoinUtxos.confirmedBitcoinBlockTip();
       this.data.oracleBitcoinBlockHeight = Number(bitcoinTip?.blockHeight ?? 0n);
 
       const hasNewOracleBitcoinBlockHeight = archivedBitcoinBlockHeight !== this.data.oracleBitcoinBlockHeight;
@@ -1667,7 +1681,7 @@ export default class BitcoinLocks {
 
               // Phase 1: lock sync.
               if (shouldSyncLockingState) {
-                await this.updateLockingStatus(lockRecord, clientAt).catch(err =>
+                await this.updateLockingStatus(lockRecord, await this.blockWatch.getFinalizedApi()).catch(err =>
                   console.warn(`[BitcoinLocks] Error updating locking status for utxo ${lockRecord.uuid}`, err),
                 );
               }
@@ -1861,7 +1875,7 @@ export default class BitcoinLocks {
         } catch (error) {
           console.warn('[BitcoinLocks] Unable to refresh orphan return counters after history recovery', error);
         }
-        await this.runPendingLoadReconciliation();
+        await this.reconcilePendingCurrentState();
       })
       .promise.catch(error =>
         console.warn('[BitcoinLocks] Unable to resume reconciliation after history recovery', error),

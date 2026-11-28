@@ -603,7 +603,7 @@ describe('BitcoinLocks recovery', () => {
       getByLockId,
       saveRecoveredHistory,
     } as never);
-    vi.spyOn(store as any, 'runPendingLoadReconciliation').mockResolvedValue(undefined);
+    vi.spyOn(store as any, 'reconcilePendingCurrentState').mockResolvedValue(undefined);
     getBitcoinLockIdsByOwner.mockResolvedValue([8]);
     vi.spyOn(store.utxoTracking, 'syncFundingUtxos').mockResolvedValue([]);
     getBitcoinLock.mockResolvedValue(new BitcoinLock(createCurrentLock({ lockId: 8, createdAtArgonBlock: 10 })));
@@ -2321,7 +2321,13 @@ describe('BitcoinLocks history replay publication', () => {
         expect(inputs).toHaveLength(2);
         expect(inputs.every(input => input.activeReleaseId === 'lock:7:1')).toBe(true);
 
-        const restarted = createStore({ db, walletKeys: { defaultArgonAddress: accountId } as WalletKeys });
+        const restarted = createStore({
+          db,
+          walletKeys: { defaultArgonAddress: accountId } as WalletKeys,
+          blockWatch: {
+            getFinalizedApi: async () => ({ query: { bitcoinLocks: { locksById: async () => null } } }),
+          } as unknown as BlockWatch,
+        });
         const restartedLock = (await db.bitcoinLocksTable.getByLockId(7))!;
         restarted.data.locksByLockId[7] = restartedLock;
         restarted.utxoTracking.load(await db.bitcoinUtxosTable.fetchAll());
@@ -2338,6 +2344,7 @@ describe('BitcoinLocks history replay publication', () => {
             fundingUtxos: [{ utxoRef: { txid: `0x${'22'.repeat(32)}`, vout: 1 }, satoshis: 6_900n }],
           }),
         );
+        getBitcoinLock.mockResolvedValueOnce(undefined);
         await restarted.releases.completeLockReleaseFromArgon(
           restartedLock,
           release,
