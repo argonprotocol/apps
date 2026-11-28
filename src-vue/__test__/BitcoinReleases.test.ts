@@ -107,7 +107,7 @@ describe('Bitcoin lock release', () => {
 
       const firstInput = await db.bitcoinUtxosTable.insert({
         lockId: 7,
-        txid: '1'.repeat(64),
+        txid: `0x${'1'.repeat(64)}`,
         vout: 0,
         satoshis: 400n,
         network: 'regtest',
@@ -118,7 +118,7 @@ describe('Bitcoin lock release', () => {
       });
       const secondInput = await db.bitcoinUtxosTable.insert({
         lockId: 7,
-        txid: '2'.repeat(64),
+        txid: `0x${'2'.repeat(64)}`,
         vout: 1,
         satoshis: 600n,
         network: 'regtest',
@@ -338,7 +338,58 @@ describe('Bitcoin lock release', () => {
         bitcoinTxid: `0x${'a'.repeat(64)}`,
       });
 
-      await restarted.releases.recordBitcoinConfirmation(restarted.release, { bitcoinConfirmedHeight: 126 });
+      const currentApi = runtimeClient({
+        registry,
+        query: {
+          bitcoinLocks: {
+            locksById: async () =>
+              registry.createType('Option<PalletBitcoinLocksLockedBitcoin>', {
+                vaultId: 3,
+                ownerAccount,
+                fundedSatoshis: 1_000n,
+                securitizationBasis: { satoshis: 1_000n, microgonsAtTargetPerBtc: 1_000n, tick: 100 },
+                cosignerGuarantee: {
+                  basis: { satoshis: 1_000n, microgonsAtTargetPerBtc: 1_000n, tick: 100 },
+                  guaranteedMicrogons: 1_000n,
+                  fundHoldExtensions: {},
+                },
+                securitizationCoverageMicrogons: 1_000n,
+                fissionedSatoshis: 300n,
+                fundingUtxos: new Map([
+                  [{ txid: firstInput.txid, outputIndex: firstInput.vout }, firstInput.satoshis],
+                  [{ txid: secondInput.txid, outputIndex: secondInput.vout }, secondInput.satoshis],
+                ]),
+              }),
+            orphanedUtxosByAccount: { entries: async () => [] },
+            pendingPartialReleaseByLockId: async () => ({ releaseNumber: 1 }),
+          },
+          bitcoinUtxos: { confirmedBitcoinBlockTip: async () => ({ blockHeight: 126 }) },
+        },
+      });
+      const confirmationWatch = {
+        getFinalizedApi: async () => currentApi,
+        getApi: async () => currentApi,
+        finalizedBlockHeader: historyBlock(125),
+        getEventsWithSpec: async () => {
+          throw new Error('Earlier event block unavailable');
+        },
+      } as unknown as BlockWatch;
+      restarted = await loadReleaseState(db, {
+        blockWatch: confirmationWatch,
+        mempool: {
+          getAddressUtxos: async () => [],
+          getTxStatus: async () => ({ isConfirmed: true, transactionBlockHeight: 126 }),
+        } as unknown as BitcoinMempool,
+      });
+      restarted.bitcoinLocks.releases.data = reactive(restarted.bitcoinLocks.releases.data);
+      const waitingForBitcoin = computed(
+        () => restarted.releases.getById('lock:7:1')?.status === BitcoinReleaseStatus.ConfirmingOnBitcoin,
+      );
+      expect(waitingForBitcoin.value).toBe(true);
+      // @ts-expect-error Exercise ambient block processing while the earlier event remains unavailable.
+      await restarted.bitcoinLocks.checkIncomingArgonBlocks([historyBlock(125)]);
+      expect(waitingForBitcoin.value).toBe(false);
+      expect((await db.bitcoinReleasesTable.getById('lock:7:1'))?.bitcoinConfirmedHeight).toBe(126);
       restarted = await loadReleaseState(db);
       expect(restarted.release.status).toBe(BitcoinReleaseStatus.WaitingForArgonRecognition);
 
@@ -359,25 +410,41 @@ describe('Bitcoin lock release', () => {
       });
 
       const basis = { satoshis: expectedSecuritizedSatoshis, microgonsAtTargetPerBtc: 1_000n, tick: 130 };
+      const retainedLockData = {
+        vaultId: 3,
+        ownerAccount,
+        fundedSatoshis: 400n,
+        fissionedSatoshis: 300n,
+        securitizationBasis: basis,
+        securitizationTick: 130,
+        securitizationCoverageMicrogons: 400n,
+        securitizationRatio: 1_000_000_000_000_000_000n,
+        cosignerGuarantee: { basis, guaranteedMicrogons: expectedSecuritizedSatoshis, fundHoldExtensions: {} },
+        securityFees: 50n,
+        couponPaidFees: 5n,
+        fundingUtxos: new Map([[{ txid: `0x${'a'.repeat(64)}`, outputIndex: 1 }, 400n]]),
+      };
       const retainedLock = registry.createType(
+        'Option<PalletBitcoinLocksLockedBitcoin>',
+        expires ? null : retainedLockData,
+      );
+      const latestLock = registry.createType(
         'Option<PalletBitcoinLocksLockedBitcoin>',
         expires
           ? null
           : {
-              vaultId: 3,
-              ownerAccount,
-              fundedSatoshis: 400n,
-              fissionedSatoshis: 300n,
-              securitizationBasis: basis,
-              securitizationTick: 130,
-              securitizationCoverageMicrogons: 400n,
-              securitizationRatio: 1_000_000_000_000_000_000n,
-              cosignerGuarantee: { basis, guaranteedMicrogons: expectedSecuritizedSatoshis, fundHoldExtensions: {} },
-              securityFees: 50n,
-              couponPaidFees: 5n,
-              fundingUtxos: new Map([[{ txid: `0x${'a'.repeat(64)}`, outputIndex: 1 }, 400n]]),
+              ...retainedLockData,
+              fundedSatoshis: 600n,
+              fundingUtxos: new Map([
+                ...retainedLockData.fundingUtxos,
+                [{ txid: `0x${'b'.repeat(64)}`, outputIndex: 0 }, 200n],
+              ]),
             },
       );
+      const latestApi = runtimeClient({ registry, query: { bitcoinLocks: { locksById: async () => latestLock } } });
+      restarted = await loadReleaseState(db, {
+        blockWatch: { getFinalizedApi: async () => latestApi } as unknown as BlockWatch,
+      });
       const settlementApi = runtimeClient({
         registry,
         query: { bitcoinLocks: { locksById: async () => retainedLock } },
@@ -454,6 +521,7 @@ describe('Bitcoin lock release', () => {
       const blockWatch = {
         finalizedBlockHeader: finalizedBlock,
         getApi: vi.fn(async () => finalizedApi),
+        getFinalizedApi: async () => latestApi,
         getHeaderByBlockNumber,
         getEventsWithSpec: vi.fn(async (block: ReturnType<typeof historyBlock>) => ({
           api: settlementApi,
@@ -483,8 +551,8 @@ describe('Bitcoin lock release', () => {
       expect(restarted.lock).toMatchObject({
         status: expires ? BitcoinLockStatus.Releasing : BitcoinLockStatus.LockFunded,
         activeReleaseId: undefined,
-        fundedSatoshis: 400n,
-        fundingUtxoIds: [expect.any(Number)],
+        fundedSatoshis: expires ? 400n : 600n,
+        fundingUtxoIds: expires ? [expect.any(Number)] : [expect.any(Number), expect.any(Number)],
       });
       expect(restarted.tracking.getUtxoRecord(7, `0x${'a'.repeat(64)}`, 1)).toMatchObject({
         spendStatus: BitcoinUtxoSpendStatus.Unspent,
@@ -497,7 +565,7 @@ describe('Bitcoin lock release', () => {
       expect(restarted.lock).toMatchObject({
         status: expires ? BitcoinLockStatus.Releasing : BitcoinLockStatus.LockFunded,
         activeReleaseId: undefined,
-        fundedSatoshis: 400n,
+        fundedSatoshis: expires ? 400n : 600n,
         securitizedSatoshis: expectedSecuritizedSatoshis,
       });
       expect(restarted.tracking.getUtxosForLock(7)).toEqual(

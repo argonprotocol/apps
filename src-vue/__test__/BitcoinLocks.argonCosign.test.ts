@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { computed, reactive } from 'vue';
 import { BitcoinLock, createRuntimeExtrinsicError } from '@argonprotocol/apps-core';
 import { getOfflineRegistry } from '@argonprotocol/mainchain';
 import { BitcoinNetwork, HDKey } from '@argonprotocol/bitcoin';
@@ -345,6 +346,134 @@ describe('BitcoinLocks Argon cosign gating', () => {
     expect(settle).toHaveBeenCalledTimes(2);
     expect(requestedBlocks).toEqual([102, 102, 103, 104, 105]);
     expect(store.data.latestArgonBlock).toEqual({ blockNumber: 105, blockHash: '0x105' });
+  });
+
+  it('refreshes visible funding while an older event block is unavailable and preserves it when that block returns', async () => {
+    const db = await createTestDb();
+    const unfunded = createCurrentLock({ fundedSatoshis: 0n, fundingUtxos: [] });
+    const pending = await db.bitcoinLocksTable.insertPending({
+      uuid: 'funding-during-event-outage',
+      status: BitcoinLockStatus.LockIsProcessingOnArgon,
+      securitizedSatoshis: unfunded.securitizedSatoshis,
+      cosignVersion: 'v1',
+      network: 'testnet',
+      hdPath: "m/84'/0'/0'",
+      vaultId: unfunded.vaultId,
+    });
+    const record = await db.bitcoinLocksTable.finalizePending({ uuid: pending.uuid, lock: unfunded });
+    const funded = createCurrentLock();
+    let currentLock = funded;
+    let currentHeight = 1_006;
+    let currentStateUnavailable = true;
+    let eventsUnavailable = true;
+    let orphansUnavailable = true;
+    const currentApi = {
+      query: {
+        bitcoinUtxos: { confirmedBitcoinBlockTip: async () => ({ blockHeight: currentHeight }) },
+        bitcoinLocks: {
+          orphanedUtxosByAccount: {
+            entries: async () => {
+              if (orphansUnavailable) throw new Error('Orphan pagination unavailable');
+              return [];
+            },
+          },
+        },
+      },
+    };
+    const historicalApi = {
+      query: { bitcoinUtxos: { confirmedBitcoinBlockTip: async () => ({ blockHeight: 1_000 }) } },
+    };
+    const blockWatch = {
+      getFinalizedApi: async () => {
+        if (currentStateUnavailable) throw new Error('Current state temporarily unavailable');
+        return currentApi;
+      },
+      getEventsWithSpec: async () => {
+        if (eventsUnavailable) throw new Error('Historical events unavailable');
+        return {
+          api: historicalApi,
+          events: [{ event: { section: 'bitcoinUtxos', method: 'UtxoDetected', data: { lockId: record.lockId } } }],
+        };
+      },
+    } as unknown as BlockWatch;
+    const store = new BitcoinLocks(
+      Promise.resolve(db),
+      { defaultArgonAddress: funded.ownerAccount } as WalletKeys,
+      blockWatch,
+      {} as CurrencyBase,
+      {} as TransactionTracker,
+      { getAddressUtxos: async () => [] } as unknown as BitcoinMempool,
+    );
+    store.data = reactive(store.data);
+    store.utxoTracking.data = reactive(store.utxoTracking.data);
+    store.data.readiness = 'ready';
+    store.data.oracleBitcoinBlockHeight = 1_000;
+    store.data.locksByLockId[record.lockId!] = record;
+    const lock = store.data.locksByLockId[record.lockId!];
+    const output = funded.fundingUtxos[0];
+    await store.utxoTracking.upsertUtxoRecord(
+      lock,
+      { txid: output.utxoRef.txid, vout: output.utxoRef.vout, satoshis: output.satoshis },
+      {
+        mempoolObservation: {
+          txid: output.utxoRef.txid,
+          vout: output.utxoRef.vout,
+          satoshis: output.satoshis,
+          isConfirmed: true,
+          confirmations: 1,
+          transactionBlockHeight: 1_006,
+          transactionBlockTime: 1_710_000_000,
+          argonBitcoinHeight: 1_000,
+        },
+      },
+    );
+    vi.spyOn(BitcoinLock, 'get').mockImplementation(async api => {
+      return new BitcoinLock(api === currentApi ? currentLock : funded);
+    });
+    const wallet = new WalletForBitcoin(
+      () => store,
+      () => funded.ownerAccount,
+      {} as never,
+    );
+    const pendingFunding = computed(() => wallet.getPendingInboundUtxos());
+    const availableFunding = computed(() =>
+      wallet.getSendableChannels().reduce((sum, channel) => sum + channel.fundedSatoshis, 0n),
+    );
+    const testStore = store as unknown as IBitcoinLocksTestTarget;
+
+    expect(pendingFunding.value.map(utxo => utxo.satoshis)).toEqual([10_000n]);
+    await testStore.checkIncomingArgonBlocks([historyBlock(102)]);
+    expect(pendingFunding.value.map(utxo => utxo.satoshis)).toEqual([10_000n]);
+    expect(store.data.oracleBitcoinBlockHeight).toBe(1_000);
+
+    currentStateUnavailable = false;
+    await testStore.checkIncomingArgonBlocks([historyBlock(103)]);
+    expect(pendingFunding.value).toEqual([]);
+    expect(availableFunding.value).toBe(10_000n);
+    expect((await db.bitcoinLocksTable.getByLockId(lock.lockId!))?.fundedSatoshis).toBe(10_000n);
+    expect(store.data.oracleBitcoinBlockHeight).toBe(1_006);
+    expect(store.data.latestArgonBlock).toBeUndefined();
+    expect(store.data.isReconciliationPending).toBe(true);
+
+    currentHeight = 1_007;
+    orphansUnavailable = false;
+    currentLock = createCurrentLock({
+      fundedSatoshis: 12_000n,
+      fundingUtxos: [...funded.fundingUtxos, { utxoRef: { txid: '1'.repeat(64), vout: 0 }, satoshis: 2_000n }],
+    });
+    await testStore.checkIncomingArgonBlocks([historyBlock(104)]);
+    expect(availableFunding.value).toBe(12_000n);
+    expect(store.data.isReconciliationPending).toBe(false);
+
+    eventsUnavailable = false;
+    await testStore.checkIncomingArgonBlocks([historyBlock(105)]);
+    expect(pendingFunding.value).toEqual([]);
+    expect(availableFunding.value).toBe(12_000n);
+    expect((await db.bitcoinLocksTable.getByLockId(lock.lockId!))?.fundedSatoshis).toBe(12_000n);
+    expect(store.data.oracleBitcoinBlockHeight).toBe(1_007);
+    expect(store.data.latestArgonBlock?.blockNumber).toBe(105);
+    await store.shutdown();
+    await db.close();
   });
 
   it('subscribes to orphan counters for every vault receiving an owner return request', async () => {

@@ -784,7 +784,7 @@ describe('BitcoinUtxoTracking', () => {
     try {
       restarted.data.isReconciliationPending = true;
       // @ts-expect-error Exercise the production startup queue over the loaded records.
-      await restarted.runPendingLoadReconciliation();
+      await restarted.reconcilePendingCurrentState();
       expect(visible.value).toHaveLength(3);
       expect(await db.bitcoinReleasesTable.getById(`return-${returning.id}`)).toMatchObject({
         status: BitcoinReleaseStatus.WaitingForVaultCosign,
